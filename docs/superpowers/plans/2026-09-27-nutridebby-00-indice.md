@@ -55,7 +55,7 @@ O desenvolvimento é autônomo, então cada entrega passa por três rodadas de r
 
 - **Critério de parada:** merge só com CI verde e a rodada 3 e a revisão de segurança limpas. Se ainda houver problema confirmado depois da rodada 3, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.
 - **Merge = deploy em produção = reinício de serviço:** exige confirmação explícita do dono do produto (regra 3 do CLAUDE.md do servidor). A autonomia vai até o PR revisado e pronto.
-- **Opcional, disparado só pelo dono do produto:** `/code-review ultra` no fim do Plano 01 e antes do go-live.
+- **Sem custo extra:** todas as revisões rodam na assinatura do dono (`/code-review` e `/security-review` locais). O `/code-review ultra` (cobrado à parte) **não é usado** neste projeto.
 - O resultado de cada rodada fica registrado no PR (resumo dos problemas encontrados e corrigidos).
 
 ## Convenções para todos os planos
