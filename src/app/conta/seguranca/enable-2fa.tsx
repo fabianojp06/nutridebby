@@ -45,7 +45,10 @@ export function Enable2fa() {
     return (
       <form onSubmit={confirmar} className="space-y-3">
         <p>Leia o QR Code no app autenticador (Google Authenticator, Authy, 1Password…).</p>
-        {qr && <img src={qr} alt="QR Code para o app autenticador" width={200} height={200} />}
+        {qr && (
+          // eslint-disable-next-line @next/next/no-img-element -- QR é data: URL gerada no cliente; next/image não otimiza data URLs
+          <img src={qr} alt="QR Code para o app autenticador" width={200} height={200} />
+        )}
         <p className="text-sm">Ou digite a chave: <code data-testid="totp-secret">{secret}</code></p>
         <label htmlFor="codigo" className="block">Código de 6 dígitos</label>
         <input id="codigo" inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded border p-2" />

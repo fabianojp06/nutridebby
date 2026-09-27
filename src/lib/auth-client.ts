@@ -8,6 +8,7 @@ export const authClient = createAuthClient({
     inferAdditionalFields<Auth>(),
     twoFactorClient({
       onTwoFactorRedirect() {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- redirecionamento de 2FA exige navegação completa para recarregar a sessão
         window.location.href = '/entrar/2fa';
       },
     }),
