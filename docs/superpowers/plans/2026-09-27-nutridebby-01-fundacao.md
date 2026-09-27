@@ -2791,7 +2791,7 @@ Esta tarefa é feita **pelo dono no painel do Easypanel** (regra do servidor), c
 | Serviço | Tipo | Configuração |
 |---|---|---|
 | `db` → `nutri_db` | Postgres 16 | Banco `nutri`; anotar a senha do usuário `postgres` (não colar em chat). Recursos: memória limite **1024 MB** |
-| `app` → `nutri_app` | App, origem **Docker Image** `ghcr.io/<owner>/nutridebby:latest` | Credencial do GHCR (token GitHub com escopo `read:packages`). Variáveis: `NODE_ENV=production`, `APP_URL=https://app.<dominio>`, `DATABASE_URL=postgres://nutri_app:<senha-forte-nova>@nutri_db:5432/nutri`, `DATABASE_URL_MIGRATOR=postgres://postgres:<senha-do-postgres>@nutri_db:5432/nutri`, `AUTH_SECRET=<openssl rand -base64 48>`, `LOG_LEVEL=info`, `APP_ROLE=app`. Domínio `app.<dominio>` → porta **3000**, HTTPS. Recursos: memória **1024 MB**, CPU **1** |
+| `app` → `nutri_app` | App, origem **Docker Image** `ghcr.io/<owner>/nutridebby:latest` | Credencial do GHCR (token GitHub com escopo `read:packages`). Variáveis: `NODE_ENV=production`, `APP_URL=https://app.<dominio>`, `DATABASE_URL=postgres://nutri_app:<senha-forte-nova>@nutri_db:5432/nutri`, `DATABASE_URL_MIGRATOR=postgres://postgres:<senha-do-postgres>@nutri_db:5432/nutri`, `AUTH_SECRET=<openssl rand -base64 48>`, `LOG_LEVEL=info`, `APP_ROLE=app`, `TRUSTED_PROXIES=<CIDR da rede overlay do Swarm/Traefik; conferir com `docker network inspect easypanel` — só leitura>`. Domínio `app.<dominio>` → porta **3000**, HTTPS. Recursos: memória **1024 MB**, CPU **1** |
 | `worker` → `nutri_worker` | App, mesma imagem | Mesmas variáveis, exceto `APP_ROLE=worker` e **sem** `DATABASE_URL_MIGRATOR`. Sem domínio. Recursos: memória **512 MB** |
 
 - [ ] **Step 2: Webhooks de deploy** — em cada serviço (`app`, `worker`), copiar a URL de "Deploy Webhook" e cadastrar no GitHub como secrets `EASYPANEL_DEPLOY_HOOK_APP` e `EASYPANEL_DEPLOY_HOOK_WORKER` (`gh secret set EASYPANEL_DEPLOY_HOOK_APP` — o valor é colado no prompt, sem aparecer no histórico).
@@ -2827,7 +2827,7 @@ for i in 1 2 3 4 5 6; do
 done; echo
 ```
 
-Expected: a 6ª resposta é `429`, mesmo trocando o `X-Forwarded-For` a cada chamada (o Traefik substitui o cabeçalho enviado pelo cliente). **Se todas voltarem `401`, o limite está sendo burlado:** parar e corrigir antes do go-live (configurar `forwardedHeaders` no Traefik ou ler o IP de `x-real-ip`), registrando no PR.
+Expected: a 6ª resposta é `429`, mesmo trocando o `X-Forwarded-For` a cada chamada (o Traefik substitui o cabeçalho enviado pelo cliente). Além disso (Ruling R17): as chaves gravadas na tabela `rate_limit` precisam ser o IP real de quem chamou — **nunca** `no-trusted-ip|…` — e o log do `nutri_app` não pode conter o aviso *"could not determine a client IP"*. Se aparecer `no-trusted-ip`, o limite virou um balde global (qualquer pessoa bloquearia o login de todos): ajustar `TRUSTED_PROXIES` antes de seguir. **Se todas voltarem `401`, o limite está sendo burlado:** parar e corrigir antes do go-live (configurar `forwardedHeaders` no Traefik ou ler o IP de `x-real-ip`), registrando no PR.
 
 - [ ] **Step 7: Registrar no PR** o resultado dos Steps 4–6 (sem segredos).
 
