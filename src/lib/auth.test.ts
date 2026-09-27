@@ -45,12 +45,16 @@ describe('Better Auth (US-002, RNF-06)', () => {
 
   it('cadastro público está desativado', async () => {
     const res = await post('/sign-up/email', { email: 'x@y.dev', password: senha, name: 'X' }, '10.0.0.2');
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'EMAIL_PASSWORD_SIGN_UP_DISABLED' });
   });
 
   it('bloqueia a 6ª tentativa em 15 min no mesmo IP com HTTP 429', async () => {
     const ip = '10.0.0.3';
-    for (let i = 0; i < 5; i++) await post('/sign-in/email', { email, password: 'errada-123456' }, ip);
+    for (let i = 0; i < 5; i++) {
+      const res = await post('/sign-in/email', { email, password: 'errada-123456' }, ip);
+      expect(res.status).toBe(401);
+    }
     const sexta = await post('/sign-in/email', { email, password: senha }, ip);
     expect(sexta.status).toBe(429);
   });

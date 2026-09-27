@@ -18,6 +18,16 @@ const schema = z
       message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
     }),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
+    TRUSTED_PROXIES: z
+      .string()
+      .optional()
+      .transform((v) =>
+        (v ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
   })
   .refine(
     (e) => {

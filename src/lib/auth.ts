@@ -12,8 +12,12 @@ import { deliverPasswordLink } from './password-links';
 
 const QUINZE_MIN = 15 * 60;
 
-export function createAuth(db: Db, opts: { baseURL?: string; secret?: string } = {}) {
+export function createAuth(
+  db: Db,
+  opts: { baseURL?: string; secret?: string; trustedProxies?: string[] } = {},
+) {
   const baseURL = opts.baseURL ?? getEnv().APP_URL;
+  const trustedProxies = opts.trustedProxies ?? getEnv().TRUSTED_PROXIES;
   return betterAuth({
     appName: 'NutriDebby',
     baseURL,
@@ -60,7 +64,7 @@ export function createAuth(db: Db, opts: { baseURL?: string; secret?: string } =
     advanced: {
       cookiePrefix: 'nd',
       database: { generateId: 'uuid' },
-      ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+      ipAddress: { trustedProxies },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {

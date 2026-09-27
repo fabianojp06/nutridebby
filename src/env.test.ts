@@ -31,4 +31,13 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ...base, DATABASE_URL: 'postgresonly' })).toThrow(/DATABASE_URL/);
     expect(() => parseEnv({ ...base, DATABASE_URL: 'postgresonly' })).not.toThrow(TypeError);
   });
+  it('TRUSTED_PROXIES ausente vira lista vazia', () => {
+    expect(parseEnv(base).TRUSTED_PROXIES).toEqual([]);
+  });
+  it('TRUSTED_PROXIES com CIDRs separados por vírgula vira lista', () => {
+    expect(parseEnv({ ...base, TRUSTED_PROXIES: '10.0.0.0/8, 172.16.0.0/12' }).TRUSTED_PROXIES).toEqual([
+      '10.0.0.0/8',
+      '172.16.0.0/12',
+    ]);
+  });
 });
