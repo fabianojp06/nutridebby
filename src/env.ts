@@ -4,18 +4,35 @@ const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
-    DATABASE_URL: z.string({ message: 'DATABASE_URL é obrigatória' }).startsWith('postgres'),
+    DATABASE_URL: z
+      .string({ message: 'DATABASE_URL é obrigatória' })
+      .regex(/^postgres(ql)?:\/\//, {
+        message: 'DATABASE_URL deve ser uma URL postgres:// válida',
+      }),
     DATABASE_URL_MIGRATOR: z
       .string({ message: 'DATABASE_URL_MIGRATOR é obrigatória' })
-      .startsWith('postgres'),
+      .regex(/^postgres(ql)?:\/\//, {
+        message: 'DATABASE_URL_MIGRATOR deve ser uma URL postgres:// válida',
+      }),
     AUTH_SECRET: z.string({ message: 'AUTH_SECRET é obrigatória' }).min(32, {
       message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
     }),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   })
   .refine(
-    (e) => new URL(e.DATABASE_URL).username !== new URL(e.DATABASE_URL_MIGRATOR).username,
-    { message: 'DATABASE_URL e DATABASE_URL_MIGRATOR devem usar roles diferentes' },
+    (e) => {
+      try {
+        return (
+          new URL(e.DATABASE_URL).username !== new URL(e.DATABASE_URL_MIGRATOR).username
+        );
+      } catch {
+        return true;
+      }
+    },
+    {
+      message: 'DATABASE_URL e DATABASE_URL_MIGRATOR devem usar roles diferentes',
+      path: ['DATABASE_URL_MIGRATOR'],
+    },
   );
 
 export type Env = z.infer<typeof schema>;

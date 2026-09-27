@@ -27,4 +27,8 @@ describe('parseEnv', () => {
       parseEnv({ ...base, DATABASE_URL_MIGRATOR: 'postgres://nutri_app:x@localhost:54329/nutri' }),
     ).toThrow(/roles diferentes/);
   });
+  it('recusa DATABASE_URL inválida (não-URL) sem exceção crua', () => {
+    expect(() => parseEnv({ ...base, DATABASE_URL: 'postgresonly' })).toThrow(/DATABASE_URL/);
+    expect(() => parseEnv({ ...base, DATABASE_URL: 'postgresonly' })).not.toThrow(TypeError);
+  });
 });
