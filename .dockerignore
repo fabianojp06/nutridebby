@@ -8,3 +8,6 @@ test-results
 playwright-report
 coverage
 docs
+.superpowers
+*.tsbuildinfo
+docker-compose.dev.yml
