@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790519102235,
+      "tag": "0000_base_roles_e_rls",
+      "breakpoints": true
+    }
+  ]
+}
