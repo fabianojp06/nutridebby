@@ -30,9 +30,16 @@ export async function createAdmin(
   });
   try {
     await deps.auth.api.requestPasswordReset({ body: { email, redirectTo: '/definir-senha' } });
+  } catch (error) {
+    await deps.db.delete(user).where(eq(user.id, userId));
+    restore();
+    throw error;
   } finally {
     restore();
   }
-  if (!link) throw new AdminBootstrapError('Não foi possível gerar o link de definição de senha');
+  if (!link) {
+    await deps.db.delete(user).where(eq(user.id, userId));
+    throw new AdminBootstrapError('Não foi possível gerar o link de definição de senha');
+  }
   return { userId, link };
 }

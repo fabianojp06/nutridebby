@@ -27,4 +27,29 @@ describe('createAdmin (US-001, cenário "Primeiro admin")', () => {
   it('recusa e-mail inválido', async () => {
     await expect(createAdmin('nao-e-email', deps)).rejects.toBeInstanceOf(AdminBootstrapError);
   });
+
+  it('desfaz o usuário se requestPasswordReset falhar e permite retry', async () => {
+    const email = 'retry-test@exemplo.com';
+    // Primeira tentativa: auth que falha
+    const failingAuth = {
+      api: {
+        requestPasswordReset: async () => {
+          throw new Error('falha simulada');
+        },
+      },
+    } as unknown as typeof deps.auth;
+
+    await expect(
+      createAdmin(email, { db: app.db, auth: failingAuth }),
+    ).rejects.toThrow('falha simulada');
+
+    // Verifica que nenhum usuário foi criado
+    const [u] = await app.db.select().from(user).where(eq(user.email, email));
+    expect(u).toBeUndefined();
+
+    // Segunda tentativa: auth real deve funcionar
+    const r = await createAdmin(email, deps);
+    expect(r.userId).toBeDefined();
+    expect(r.link).toMatch(/^http:\/\/localhost:3000\/api\/auth\/reset-password\/.+callbackURL=%2Fdefinir-senha/);
+  });
 });
