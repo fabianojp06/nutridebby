@@ -18,7 +18,11 @@ function Form() {
     if (local) return setErro(local);
     if (senha !== confirma) return setErro('As senhas não conferem.');
     const { error } = await authClient.resetPassword({ newPassword: senha, token: token ?? '' });
-    if (error) return setErro(error.message ?? 'Link inválido ou expirado. Peça um novo.');
+    if (error) {
+      if (error.code === 'INVALID_TOKEN') return setErro('Link inválido ou expirado. Peça um novo.');
+      if (error.status === 400 && !error.code) return setErro(error.message ?? 'Não foi possível definir a senha. Tente novamente.');
+      return setErro('Não foi possível definir a senha. Tente novamente.');
+    }
     setOk(true);
   }
 

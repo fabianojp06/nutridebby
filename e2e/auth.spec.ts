@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { TOTP } from 'otpauth';
 
 const ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2026segura' };
+const NUTRI = { email: 'nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
 test('rota protegida sem sessão vai para /entrar', async ({ page }) => {
@@ -46,9 +47,21 @@ test('?volta externo não redireciona para fora (Review Focus 3)', async ({ brow
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.3' } });
   const page = await ctx.newPage();
   await page.goto('/entrar?volta=//evil.com');
-  await page.getByLabel('E-mail').fill(ADMIN.email);
-  await page.getByLabel('Senha').fill(ADMIN.password);
+  await page.getByLabel('E-mail').fill(NUTRI.email);
+  await page.getByLabel('Senha').fill(NUTRI.password);
   await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page).toHaveURL(/\/entrar\/2fa/); // admin já tem 2FA: nunca sai do domínio
+  await expect(page).toHaveURL(/\/painel$/); // nunca sai do domínio, mesmo com ?volta=//evil.com
+  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await ctx.close();
+});
+
+test('token de redefinição inválido mostra mensagem em pt-BR (fix round 1)', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.4' } });
+  const page = await ctx.newPage();
+  await page.goto('/definir-senha?token=token-invalido');
+  await page.getByLabel('Nova senha').fill('SenhaValida123');
+  await page.getByLabel('Repita a senha').fill('SenhaValida123');
+  await page.getByRole('button', { name: 'Definir senha' }).click();
+  await expect(page.locator('p[role="alert"]')).toHaveText('Link inválido ou expirado. Peça um novo.');
   await ctx.close();
 });
