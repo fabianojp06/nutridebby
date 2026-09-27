@@ -61,6 +61,12 @@ Cenário: Convite expirado
   Quando a nutricionista abre o link
   Então vê "Convite expirado. Peça um novo ao suporte."
   E o admin tem o botão "Reenviar convite" na lista de contas
+
+Cenário: Primeiro admin
+  Dado um banco recém-criado, sem nenhum admin
+  Quando executo "pnpm admin:criar admin@<dominio>" no container
+  Então um usuário role "admin" é criado e recebe o e-mail para definir a senha e configurar o 2FA
+  E não existe nenhuma tela pública para criar admin
 ```
 
 **Impacto:** `tenants`, `users`, `verifications`; `POST /api/admin/tenants`; e-mail (INT-02).
@@ -101,9 +107,9 @@ Cenário: Expiração da sessão
 
 **Impacto:** Better Auth; `users`, `sessions`, `verifications`.
 
-## US-003 — 2FA da nutricionista · **S**
+## US-003 — 2FA (obrigatório para o admin, opcional para a nutricionista) · **M**
 
-**Como** nutricionista, **quero** ativar a verificação em duas etapas, **para** proteger os dados de saúde dos meus pacientes.
+**Como** nutricionista ou admin, **quero** a verificação em duas etapas, **para** proteger os dados de saúde dos pacientes.
 
 ```gherkin
 Cenário: Ativar 2FA
@@ -119,6 +125,11 @@ Cenário: Login com 2FA
 
 Cenário: Segredo protegido
   Então users.totp_secret_enc é gravado cifrado com AES-256-GCM e nunca aparece em texto puro no banco
+
+Cenário: Admin obrigatório
+  Dado um admin sem 2FA configurado
+  Quando faz login
+  Então só consegue acessar a tela de configuração do 2FA até concluí-la
 ```
 
 ## US-004 — Admin suspende e reativa conta · **M**
@@ -178,6 +189,12 @@ Cenário: Acesso por ID de outro tenant na API
   Quando chamo GET /api/painel/pacientes/{id de paciente do tenant B}
   Então recebo HTTP 404
 
+Cenário: Paciente não vê outro paciente do mesmo tenant
+  Dado os pacientes P1 e P2 do tenant A
+  Quando uma transação com app.role = "paciente" e app.patient_id = P1 faz SELECT sem filtro em diary_entries, meal_plans, appointments e anthropometry
+  Então só registros de P1 são retornados
+  E GET /api/p/diario/{id de registro de P2}, feito na sessão de P1, retorna HTTP 404
+
 Cenário: Transação sem tenant definido
   Quando o role da aplicação consulta uma tabela 🔒 sem app.tenant_id definido
   Então a consulta retorna 0 linhas (a política compara com NULL)
@@ -222,7 +239,8 @@ Cenário: Consulta do log
 | `sexo` | enum F/M | Sim | — | "Selecione o sexo biológico (usado nas fórmulas)" |
 | `email` | e-mail | Sim | único no tenant | "Paciente já cadastrado com este e-mail" |
 | `telefone` | texto | Não | normalizado para E.164 (+55 padrão) | "Telefone inválido" |
-| `enviar_convite_whatsapp` | bool | Não | exige telefone | — |
+| `whatsapp_autorizado` | bool | Não | exige telefone | — |
+| `enviar_convite_whatsapp` | bool | Não | exige `whatsapp_autorizado` | "Marque que o paciente autorizou o WhatsApp" |
 
 ```gherkin
 Cenário: Cadastro com convite por e-mail
@@ -231,10 +249,17 @@ Cenário: Cadastro com convite por e-mail
   E um e-mail de convite com link válido por 7 dias é enviado
 
 Cenário: Convite também por WhatsApp
-  Dado que informei o telefone "(11) 91234-5678" e marquei "Enviar convite por WhatsApp"
+  Dado que informei o telefone "(11) 91234-5678"
+  E marquei "Paciente autorizou receber mensagens por WhatsApp" e "Enviar convite por WhatsApp"
   Quando salvo
-  Então o template convite_paciente é enviado para "+5511912345678"
+  Então whatsapp_optin_em é preenchido com whatsapp_optin_origem = "nutri"
+  E o template convite_paciente é enviado para "+5511912345678"
   E conta 1 mensagem na cota do tenant
+
+Cenário: WhatsApp sem autorização
+  Dado que não marquei "Paciente autorizou receber mensagens por WhatsApp"
+  Então a opção "Enviar convite por WhatsApp" fica desabilitada
+  E nenhuma mensagem de WhatsApp é enviada a esse paciente
 
 Cenário: E-mail já usado por paciente de outra nutricionista
   Dado que "ana@ex.com" já é usuário paciente no tenant B
@@ -263,8 +288,13 @@ Cenário: Consentimento obrigatório
 Cenário: Opt-in de WhatsApp separado
   Dado que estou no aceite
   Quando marco "Quero receber lembretes por WhatsApp"
-  Então patients.whatsapp_optin_em é preenchido
-  E se eu não marcar, nenhum WhatsApp é enviado para mim
+  Então patients.whatsapp_optin_em é preenchido com whatsapp_optin_origem = "paciente"
+  E se a nutricionista já tinha registrado a autorização, a opção vem marcada e posso desmarcá-la
+
+Cenário: Revogar o WhatsApp
+  Quando desmarco "Receber lembretes por WhatsApp" em Perfil > Notificações
+  Então whatsapp_optout_em é preenchido e nenhum WhatsApp é enviado a partir desse momento
+  E os lembretes continuam por e-mail e push
 
 Cenário: Nova versão do termo
   Dado que o termo mudou para a versão "1.1"
@@ -420,12 +450,19 @@ Cenário: Exportar
   E recebo o link por e-mail, válido por 24 h
   E audit_log registra acao "exportar"
 
-Cenário: Pedido de exclusão
-  Quando confirmo "Anonimizar paciente" digitando o nome dele
-  Então nome, e-mail, telefone e data de nascimento são substituídos por valores anônimos
-  E fotos do diário e anexos de exames são apagados de /data
-  E os registros clínicos numéricos permanecem, sem identificação, pelo prazo legal (P-01)
-  E patients.anonimizado_em é preenchido, e a ação é irreversível
+Cenário: Pedido de exclusão durante o prazo de guarda (RNF-08)
+  Dado um privacy_requests de exclusão do paciente P
+  Quando confirmo "Atender pedido de exclusão" digitando o nome dele
+  Então P passa a status "bloqueado": sem portal, sem notificações e fora das audiências
+  E fotos do diário, opt-ins e inscrições de push de P são apagados na hora
+  E o prontuário clínico é mantido identificado, só para consulta da nutricionista, com anonimizar_apos = última consulta + prazo legal (P-01)
+  E o paciente recebe o e-mail explicando o que foi apagado e o que é mantido por obrigação legal
+  E o privacy_requests fica "concluido"
+
+Cenário: Fim do prazo de guarda
+  Dado um paciente bloqueado com anonimizar_apos no passado
+  Quando o job diário de retenção roda
+  Então nome, e-mail, telefone e data de nascimento são substituídos por valores anônimos, os anexos são apagados de /data e anonimizado_em é preenchido
 ```
 
 ## US-019 — Etiquetas de paciente · **S**
@@ -459,10 +496,15 @@ Cenário: Busca tolerante a acento
 Cenário: Origem visível
   Então cada resultado mostra o selo "TACO" ou "Meu alimento"
 
-Cenário: Medidas caseiras
-  Dado que escolho "Arroz, tipo 1, cozido"
-  Quando seleciono a medida "colher de sopa cheia" (25 g) e quantidade 4
+Cenário: Medidas caseiras (seed IBGE — INT-04)
+  Dado que escolho "Arroz, tipo 1, cozido", que tem a medida "colher de sopa cheia" (25 g) no seed
+  Quando seleciono essa medida e quantidade 4
   Então quantidade_g = 100 e medida_caseira_txt = "4 colheres de sopa cheias"
+
+Cenário: Alimento sem medida caseira
+  Dado um alimento sem medidas no seed
+  Então só posso informar gramas
+  E vejo o atalho "Cadastrar medida caseira", que grava em food_measures do meu tenant
 ```
 
 ## US-021 — Cadastrar alimento próprio · **S**
@@ -571,8 +613,16 @@ Cenário: Conteúdo do PDF
   Então ele tem: logo, nome e CRN da nutricionista, nome do paciente, data, refeições com horário, itens com medida caseira e gramas, substituições, orientações e a fonte "TACO 4ª ed. — NEPA/UNICAMP" no rodapé
   E os totais nutricionais só aparecem se eu marcar "Mostrar calorias ao paciente" (meal_plans.mostrar_calorias, padrão: desmarcado; vale também para o PWA)
 
-Cenário: Desempenho
-  Então o PDF de um plano com 6 refeições e 40 itens é gerado em ≤ 5 s
+Cenário: Geração na publicação
+  Quando publico um plano
+  Então o worker gera o PDF e grava meal_plans.pdf_path em ≤ 30 s
+  E o download pelo painel ou pelo PWA é imediato (sem gerar de novo)
+  E um plano com 6 refeições e 40 itens gera o PDF em ≤ 5 s de processamento
+
+Cenário: Download antes de o PDF ficar pronto
+  Dado que o PDF ainda está sendo gerado
+  Quando o paciente toca em "Baixar PDF"
+  Então vê "Seu PDF está sendo preparado" e o botão é liberado quando o arquivo fica pronto
 ```
 
 ---
@@ -618,9 +668,12 @@ Cenário: Fora do horário de atendimento
   Quando marco em um horário fora das regras
   Então o sistema permite, com o aviso "Fora do seu horário de atendimento", porque a nutricionista tem autonomia
 
-Cenário: Link online obrigatório
-  Quando escolho a modalidade online sem informar o link
-  Então vejo "Informe o link da chamada (https://…)"
+Cenário: Link online
+  Dado que configurei tenants.link_online_padrao = "https://meet.google.com/abc-defg-hij"
+  Quando marco uma consulta online sem informar link
+  Então a consulta usa o link padrão
+  E se não houver link padrão nem link informado, vejo "Informe o link da chamada (https://…)"
+  E consultas online marcadas pelo paciente só são oferecidas se houver link padrão
 ```
 
 ## US-032 — Paciente agenda online · **M**
@@ -642,12 +695,25 @@ Cenário: Corrida pelo mesmo horário (RN-03)
   Então exatamente 1 consulta é criada
   E o outro paciente vê "Esse horário acabou de ser ocupado. Escolha outro."
 
-Cenário: Página pública /n/<slug>
-  Dado um visitante sem login em app.<dominio>/n/debby
+Cenário: Página pública /n/<slug> (RN-16)
+  Dado que agendamento_publico_ativo = true e um visitante sem login em app.<dominio>/n/debby
   Quando escolhe um horário
-  Então precisa entrar (se já for paciente) ou informar nome, e-mail e telefone e aceitar o termo
-  E um paciente novo é criado com status "ativo" e a consulta é marcada
-  E a nutricionista vê o selo "Novo paciente via agendamento online"
+  Então precisa entrar (se já for paciente) ou informar nome, e-mail e telefone, declarar ter 18 anos ou mais, aceitar o termo e passar pelo Turnstile
+  E recebe no e-mail um código de 6 dígitos válido por 10 min
+  Quando digita o código correto
+  Então um paciente é criado com origem "agendamento_publico", sem data de nascimento e sem sexo, e a consulta é marcada
+  E a nutricionista vê o selo "Novo paciente via agendamento online" e a pendência "Completar cadastro"
+
+Cenário: Abuso na página pública
+  Dado que o e-mail já tem 3 consultas futuras nesse tenant
+  Quando tenta agendar a 4ª
+  Então vê "Você já tem 3 consultas marcadas. Fale com sua nutricionista."
+  E após 10 tentativas na mesma hora, o IP recebe HTTP 429
+
+Cenário: Página pública desativada
+  Dado agendamento_publico_ativo = false
+  Quando alguém abre /n/debby
+  Então vê o nome da nutricionista e "Agendamento online indisponível. Entre em contato." e nenhum horário
 ```
 
 ## US-033 — Cancelar ou remarcar · **M**
@@ -839,6 +905,11 @@ Cenário: Limite diário
 Cenário: Arquivo inválido
   Quando envio uma foto de 15 MB ou um PDF
   Então vejo "Envie uma foto JPEG, PNG ou HEIC de até 10 MB"
+
+Cenário: Cota de armazenamento do tenant (RN-18)
+  Dado que o tenant usa 100% da cota de 5 GB
+  Quando envio uma foto
+  Então vejo "Espaço de armazenamento esgotado. Fale com o suporte." e o registro em texto é salvo sem a foto
 ```
 
 ## US-043 — Nutricionista comenta o diário · **S**
@@ -998,7 +1069,7 @@ Cenário: Aviso de novo conteúdo
 Cenário: Anexar
   Quando anexo a receita "Panqueca de aveia" ao café da manhã do plano da Ana
   Então meals.recipe_content_id é preenchido
-  E a Ana vê o cartão "Sugestão de receita" nessa refeição, mesmo que a receita não esteja na audiência dela
+  E a Ana vê o cartão "Sugestão de receita" nessa refeição, mesmo que a receita não esteja na audiência dela (exceção da RN-12)
   E os valores da receita não entram no total do plano (é só sugestão)
 
 Cenário: Receita despublicada
@@ -1052,9 +1123,9 @@ Cenário: Métricas
 | US-003 | M1 | RNF-06 | users |
 | US-004 | M1 | RN-15 | tenants, notifications |
 | US-005 | M1 | RNF-10 | tenants |
-| US-006 | M1 | RNF-07 | todas 🔒 |
+| US-006 | M1 | RNF-07, §4.1 | todas 🔒 |
 | US-007 | M1 | RNF-08 | audit_log |
-| US-010 | M2 | INT-01, INT-02, RN-09 | patients |
+| US-010 | M2 | INT-01 (opt-in), INT-02, RN-09 | patients |
 | US-011 | M2 | RNF-08, INT-01 | patients, consents |
 | US-012 | M2 | — | anamnesis_templates, anamneses |
 | US-013 | M2 | Apêndice A | anthropometry |
@@ -1062,18 +1133,18 @@ Cenário: Métricas
 | US-015 | M2 | RNF-06 | exams |
 | US-016 | M2 | — | consultations |
 | US-017 | M2 | — | anthropometry, exams |
-| US-018 | M2 | RNF-08, RN-08, P-01 | patients, audit_log |
+| US-018 | M2 | RNF-08, RN-08, P-01 | patients, privacy_requests, audit_log |
 | US-019 | M2 | RN-12 | patient_tags, patient_tag_links |
-| US-020 | M3 | INT-04, RNF-01 | foods |
+| US-020 | M3 | INT-04, RNF-01, P-10 | foods, food_measures |
 | US-021 | M3 | — | foods |
 | US-022 | M3 | RN-02, RNF-01 | meal_plans, meals, meal_items |
 | US-023 | M3 | RN-02 | meal_items |
 | US-024 | M3 | — | meal_plans |
 | US-025 | M3 | RN-01, INT-03 | meal_plans |
-| US-026 | M3 | INT-04 | meal_plans |
+| US-026 | M3 | INT-04, RNF-01 | meal_plans (pdf_path) |
 | US-030 | M4 | RN-03 | availability_rules, availability_blocks |
-| US-031 | M4 | RN-03, RN-05 | appointments, notifications |
-| US-032 | M4 | RN-03, RNF-08 | appointments, patients, consents |
+| US-031 | M4 | RN-03, RN-05 | appointments, notifications, tenants (link_online_padrao) |
+| US-032 | M4 | RN-03, RN-16, RN-17, INT-06, RNF-08 | appointments, patients, consents |
 | US-033 | M4 | RN-04, RN-05 | appointments, notifications |
 | US-034 | M4 | RN-05, RN-06, INT-01/02/03 | notifications |
 | US-035 | M4 | INT-01 | appointments, notifications |
@@ -1081,7 +1152,7 @@ Cenário: Métricas
 | US-037 | M4 | CS-03 | appointments |
 | US-040 | M5 | INT-03, RNF-09, CS-02 | push_subscriptions, access_events |
 | US-041 | M5 | RN-01 | meal_plans, meals |
-| US-042 | M5 | RN-07 | diary_entries |
+| US-042 | M5 | RN-07, RN-18 | diary_entries, tenants (armazenamento_bytes) |
 | US-043 | M5 | INT-03 | diary_entries |
 | US-044 | M5 | — | anthropometry, consultations |
 | US-045 | M5 | RN-13 | meal_items, foods |
@@ -1094,4 +1165,4 @@ Cenário: Métricas
 | US-055 | M6 | RN-12 | contents, content_views, content_favorites |
 | US-056 | M6 | CS-02 | content_views |
 
-**Resumo:** 46 histórias; 35 **M** e 11 **S**.
+**Resumo:** 46 histórias; 36 **M** e 10 **S**.

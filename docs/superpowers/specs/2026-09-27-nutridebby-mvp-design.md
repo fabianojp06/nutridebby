@@ -2,7 +2,7 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 1.0 |
+| Versão | 1.1 (revisão 2 — ver Apêndice C) |
 | Data | 2026-09-27 |
 | Status | Aguardando revisão |
 | Nome do produto | *NutriDebby* (provisório) |
@@ -47,7 +47,7 @@ O produto nasce **multi-tenant**, mas o **onboarding é manual**: o admin da pla
 
 | ID | Módulo | Conteúdo |
 |---|---|---|
-| M1 | **Plataforma & acesso** | Multi-tenant; login e-mail/senha; 2FA TOTP opcional para nutricionista; recuperação de senha; painel admin (criar/suspender/reativar contas); configuração da marca; auditoria |
+| M1 | **Plataforma & acesso** | Multi-tenant; login e-mail/senha; 2FA TOTP (obrigatório para admin, opcional para nutricionista); recuperação de senha; painel admin (criar/suspender/reativar contas); configuração da marca; auditoria |
 | M2 | **Pacientes & prontuário** | Cadastro + convite; etiquetas; anamnese com modelo editável; antropometria (peso, altura, IMC, circunferências, dobras — Jackson & Pollock 3 e 7 dobras + Siri); gasto energético (Harris-Benedict, Mifflin-St Jeor, FAO/OMS × fator de atividade); exames (PDF + valores); registro de atendimento; evolução em gráficos; arquivamento, exportação e exclusão (LGPD) |
 | M3 | **Plano alimentar** | Tabela TACO + alimentos próprios; refeições com horário; cálculo em tempo real (kcal, proteína, carboidrato, lipídio, fibra) × meta; substituições; modelos reutilizáveis; versionamento/publicação; PDF com a marca da nutricionista |
 | M4 | **Agenda** | Horários de atendimento + bloqueios; consulta presencial/online (link externo); agendamento pela nutricionista e online pelo paciente; cancelar/remarcar; lembretes 24 h e 2 h (e-mail, WhatsApp, push); confirmação por botão no WhatsApp; registro de realizada/falta; cota de WhatsApp |
@@ -68,7 +68,9 @@ Financeiro do consultório · cobrança da assinatura SaaS · cadastro pela pró
 | **Nutricionista** (dona do tenant) | Tudo dentro do próprio tenant | Ver dados de outro tenant |
 | **Paciente** | Ver o próprio plano publicado, a evolução, as orientações e a agenda; preencher o diário; agendar/remarcar dentro das regras; ver os conteúdos destinados a ele; exportar os próprios dados | Ver `notas_privadas`, planos em rascunho, dados de outros pacientes |
 
-**Modelo de identidade:** o login (`users`) é global por e-mail. O prontuário (`patients` e dependentes) pertence ao tenant. Um mesmo usuário pode ser paciente de mais de um tenant; cada nutricionista vê só o próprio histórico. No PWA, se houver mais de um vínculo, o paciente escolhe a nutricionista ao entrar.
+**2FA:** obrigatório para o admin; opcional (recomendado) para a nutricionista.
+
+**Modelo de identidade:** o login (`users`) é global por e-mail e tem **um único papel**. No MVP, uma nutricionista que também seja paciente de outra precisa usar outro e-mail. O prontuário (`patients` e dependentes) pertence ao tenant. Um mesmo usuário pode ser paciente de mais de um tenant; cada nutricionista vê só o próprio histórico. No PWA, se houver mais de um vínculo, o paciente escolhe a nutricionista ao entrar.
 
 ---
 
@@ -84,24 +86,33 @@ Paciente (PWA)  /  Nutricionista (web)  /  Admin
 ├─────────────────────────────────────────────────────────────┤
 │ nutri_worker  mesma imagem, comando `worker`: pg-boss       │
 │               (lembretes, e-mails, WhatsApp, push, PDFs,    │
-│               processamento de imagem, backups)             │
+│               imagens, backups — a imagem inclui            │
+│               postgresql-client-16 e rclone)                │
 ├─────────────────────────────────────────────────────────────┤
 │ nutri_db      PostgreSQL 16 — RLS por tenant_id; também     │
 │               guarda a fila pg-boss (sem Redis)             │
 ├─────────────────────────────────────────────────────────────┤
-│ volume /data  PDFs de exames, fotos do diário, capas, logos │
-│               (servidos só por URL assinada, TTL 5 min)     │
+│ volume /data  PDFs de exames/planos, fotos do diário, capas,│
+│               logos — montado no app e no worker (mesmo nó) │
+│               servidos só por URL assinada, TTL 5 min       │
 └─────────────────────────────────────────────────────────────┘
             │ backup diário criptografado (rclone)
             ▼
      Cloudflare R2 (offsite)
 
-Externos: WhatsApp Cloud API (Meta) · Resend (e-mail) · Web Push (VAPID) · Sentry
+Externos: WhatsApp Cloud API (Meta) · Resend (e-mail) · Web Push (VAPID) · Sentry ·
+          Cloudflare Turnstile (anti-robô na página pública) · GHCR (imagens)
 ```
 
 ### 4.1 Organização do código
 
-Monólito modular: `src/modules/{plataforma,pacientes,planos,agenda,portal,conteudo}`. Cada módulo expõe um `service.ts` com funções de domínio. As rotas e a UI chamam só o service, nunca o banco direto. O acesso ao banco passa por um helper `withTenant(tenantId, fn)`, que abre a transação e executa `SET LOCAL app.tenant_id = …` antes de qualquer consulta.
+Monólito modular: `src/modules/{plataforma,pacientes,planos,agenda,portal,conteudo}`. Cada módulo expõe um `service.ts` com funções de domínio. As rotas e a UI chamam só o service, nunca o banco direto. O acesso ao banco passa por um helper `withTenant(ctx, fn)`, que abre a transação e executa `SET LOCAL` de `app.tenant_id`, `app.role` e, para sessões de paciente, `app.patient_id`, antes de qualquer consulta.
+
+Regras de acesso que complementam a RLS:
+- **Paciente só vê o que é dele:** nas tabelas 🔒 com `patient_id`, uma segunda política RLS exige `patient_id = app.patient_id` quando `app.role = 'paciente'`. Assim, um erro no service não expõe outro paciente do mesmo tenant.
+- **Tabelas sem `tenant_id`** (`tenants`, `users`, `consents`, `push_subscriptions`): acesso só pelos services do M1, com verificação explícita de dono; cobertas por testes de autorização.
+- **Worker:** todo job carrega `tenant_id` no payload e roda dentro de `withTenant`. O worker usa o mesmo role da aplicação (sem `BYPASSRLS`); varreduras entre tenants partem da tabela `tenants`.
+- **Métricas do admin:** vêm de uma função `SECURITY DEFINER` que devolve **só contagens** por tenant; o admin nunca executa consultas nas tabelas 🔒.
 
 ### 4.2 Rotas e domínios
 
@@ -122,18 +133,19 @@ O domínio definitivo ainda não foi escolhido. Ver §11.
 
 | ID | Requisito | Meta verificável |
 |---|---|---|
-| RNF-01 | Desempenho | Route Handlers com p95 ≤ 300 ms; LCP do PWA ≤ 2,5 s em 4G (Lighthouse, perfil "Slow 4G"); recálculo do plano ao adicionar/alterar item ≤ 100 ms (calculado no cliente) |
+| RNF-01 | Desempenho | Route Handlers com p95 ≤ 300 ms (exceto geração de PDF e exportação, que são assíncronas); LCP do PWA ≤ 2,5 s em 4G (Lighthouse, perfil "Slow 4G"); recálculo do plano ao adicionar/alterar item ≤ 100 ms (calculado no cliente) |
 | RNF-02 | Capacidade | 50 tenants × 300 pacientes ativos (15 mil pacientes) e 100 usuários simultâneos, sem violar o RNF-01 (teste de carga com k6 antes do go-live) |
-| RNF-03 | Limites na VPS | Limites definidos no Easypanel: `nutri_app` 1 GB / 1 vCPU; `nutri_db` 1 GB; `nutri_worker` 256 MB. O `cursoia_crm` não pode ser afetado. Recomendação à parte: criar 2 GB de swap na VPS (exige confirmação do dono do servidor) |
-| RNF-04 | Disponibilidade | 99% ao mês (VPS única, sem HA — risco aceito). Monitor externo checa `GET /api/health` a cada 1 min e alerta em ≤ 2 min |
-| RNF-05 | Backup | `pg_dump` diário às 03h (America/Sao_Paulo) + cópia de `/data`, criptografados (rclone crypt) no R2; retenção de 7 diários + 4 semanais; RPO 24 h; RTO 4 h; **teste de restauração mensal documentado** |
-| RNF-06 | Segurança | Senhas em argon2id; 2FA TOTP para a nutricionista; sessão expira após 12 h de inatividade (nutricionista/admin) ou 30 dias (paciente); limite de 5 tentativas de login a cada 15 min por IP+e-mail; HSTS; CSP restritiva (`frame-src` só para `youtube-nocookie.com` e `player.vimeo.com`); `totp_secret` criptografado com `ENCRYPTION_KEY` (AES-256-GCM); segredos só em variáveis do Easypanel |
-| RNF-07 | Isolamento entre tenants | RLS habilitada e **forçada** (`FORCE ROW LEVEL SECURITY`) em toda tabela com `tenant_id`; a aplicação conecta com um role sem `BYPASSRLS`; teste automatizado no CI tenta ler, alterar e excluir dados de outro tenant em **todas** as tabelas 🔒, e o resultado esperado é 0 linhas afetadas ou HTTP 404 |
-| RNF-08 | LGPD | Termo de consentimento versionado, aceito no primeiro acesso do paciente; opt-in separado para WhatsApp; auditoria de leitura/alteração de prontuário (quem, ação, entidade, IP, quando); exportação dos dados do paciente (JSON + PDF); exclusão = anonimização, respeitando a guarda legal do prontuário (**prazo a validar com CRN/advogado**; referência: 20 anos, Lei 13.787/2018); nutricionista = controladora, plataforma = operadora (DPA aceito no primeiro login da nutricionista) |
+| RNF-03 | Limites na VPS | Limites definidos no Easypanel: `nutri_app` 1 GB / 1 vCPU; `nutri_db` 1 GB; `nutri_worker` 512 MB (conversão de HEIC e PDF consomem memória) — total 2,5 GB dos ~5,5 GB livres. O `cursoia_crm` não pode ser afetado. **Build da imagem fora da VPS** (§9.7). Recomendação à parte: criar 2 GB de swap na VPS (exige confirmação do dono do servidor) |
+| RNF-04 | Disponibilidade | 99% ao mês (VPS única, sem HA — risco aceito). Monitor externo checa `GET /api/health` a cada 1 min e alerta em ≤ 2 min. O health check testa o banco e o **heartbeat do worker**: se nenhum job for processado em 10 min, a resposta é 503. Assim, lembretes parados também geram alerta |
+| RNF-05 | Backup | Job do worker às 03h (America/Sao_Paulo): `pg_dump` criptografado (rclone crypt) no R2, com retenção de 7 diários + 4 semanais; `/data` com `rclone sync` + `--backup-dir` datado (arquivos alterados ou apagados ficam 30 dias). Dados excluídos por LGPD somem dos backups em até 35 dias; RPO 24 h; RTO 4 h; **teste de restauração mensal documentado** |
+| RNF-06 | Segurança | Senhas em argon2id; 2FA TOTP para a nutricionista; sessão expira após 12 h de inatividade (nutricionista/admin) ou 30 dias (paciente); limite de 5 tentativas de login a cada 15 min por IP+e-mail; HSTS; CSP restritiva (`frame-src`: `youtube-nocookie.com`, `player.vimeo.com`, `challenges.cloudflare.com`; `script-src`: próprio + Turnstile; `connect-src`: próprio + Sentry; `img-src`: próprio + `data:` + `blob:`); uploads validados pelo conteúdo real do arquivo (*magic bytes*), não pela extensão; Turnstile + limite por IP nos formulários públicos (RN-16); **2FA obrigatório para o admin**; `totp_secret` criptografado com `ENCRYPTION_KEY` (AES-256-GCM); segredos só em variáveis do Easypanel |
+| RNF-07 | Isolamento entre tenants | RLS habilitada e **forçada** (`FORCE ROW LEVEL SECURITY`) em toda tabela com `tenant_id`; a aplicação conecta com um role sem `BYPASSRLS`; política adicional por `patient_id` para sessões de paciente (§4.1); teste automatizado no CI tenta ler, alterar e excluir dados de outro tenant **e de outro paciente do mesmo tenant** em **todas** as tabelas 🔒, e o resultado esperado é 0 linhas afetadas ou HTTP 404 |
+| RNF-08 | LGPD | Termo de consentimento versionado, aceito no primeiro acesso do paciente; opt-in separado para WhatsApp; auditoria de leitura/alteração de prontuário (quem, ação, entidade, IP, quando); exportação dos dados do paciente (JSON + PDF); pedido de exclusão (art. 18 da LGPD) **durante o prazo de guarda do prontuário**: os dados clínicos são **mantidos identificados** (art. 16, I — obrigação legal) e **bloqueados** (sem acesso ao portal, sem notificações, sem uso em conteúdo); são apagados na hora apenas os dados não obrigatórios (fotos do diário, opt-ins, inscrições de push). Após o prazo, um job anonimiza o registro. Prazo **a validar com CRN/advogado** (referência: 20 anos, Lei 13.787/2018); nutricionista = controladora, plataforma = operadora (DPA aceito no primeiro login da nutricionista) |
 | RNF-09 | Compatibilidade | PWA: Chrome Android 10+ e Safari iOS 16.4+. Painel: últimas 2 versões de Chrome, Edge, Safari e Firefox, com layout funcional a partir de 768 px |
 | RNF-10 | Acessibilidade | PWA em conformidade com WCAG 2.1 AA; verificação automática com axe no Playwright para as telas do PWA |
 | RNF-11 | Observabilidade | Logs em JSON (pino) com `request_id` e `tenant_id`; erros no Sentry com `beforeSend` que remove corpo de request, notas, anamnese, valores de exames e texto do diário |
 | RNF-12 | Idioma e formatos | pt-BR; datas `dd/mm/aaaa`; números com vírgula decimal; telefone exibido `(11) 91234-5678` e armazenado em E.164 |
+| RNF-13 | Armazenamento | Cota de 5 GB por tenant em `/data` (RN-18); alerta ao admin com o disco da VPS em 70%; meta de ≤ 300 KB por foto do diário após a conversão |
 
 ---
 
@@ -151,7 +163,9 @@ O domínio definitivo ainda não foi escolhido. Ver §11.
 | Eventos tratados | `statuses` (sent, delivered, read, failed) → `notifications.status`; `messages` do tipo `button` → "Confirmo" leva a consulta a `confirmada`; "Preciso remarcar" envia de volta o link de remarcação |
 | Idempotência | Chave = `provider_msg_id`; um evento repetido não altera o estado de novo |
 | Falhas | Timeout de 10 s; 3 novas tentativas com backoff exponencial (1, 5 e 25 min); depois disso, `falhou` e envio de **fallback por e-mail** |
-| Pré-condições para envio | Paciente com `whatsapp_optin_em` preenchido, telefone E.164 válido e cota do tenant disponível (RN-09) |
+| Pré-condições para envio | Paciente com `whatsapp_optin_em` preenchido e `whatsapp_optout_em` vazio, telefone E.164 válido e cota do tenant disponível (RN-09). O opt-in pode ser **declarado pela nutricionista** (paciente autorizou presencialmente, `whatsapp_optin_origem = 'nutri'`) ou dado pelo paciente no aceite; é obrigatório antes de qualquer mensagem, inclusive o convite (política da Meta) |
+| Respostas livres | A resposta ao botão "Preciso remarcar" é texto livre, permitido porque o toque do paciente abre a janela de atendimento de 24 h da Meta |
+| Risco de categoria | A Meta pode reclassificar um template como *marketing* (custo maior). Os textos devem ser estritamente transacionais |
 
 ### INT-02 — E-mail transacional (Resend)
 
@@ -165,9 +179,15 @@ Biblioteca `web-push`; chaves em `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_KEY`. Uma i
 
 Carga única (seed versionado no repositório) a partir do CSV da TACO 4ª edição (NEPA/UNICAMP), com a fonte citada no rodapé do PDF e na tela de alimentos. `foods.tenant_id IS NULL` = TACO, somente leitura. Valores "Tr" (traço) e "NA" → `0` e `NULL`, respectivamente.
 
+**A TACO não traz medidas caseiras.** O seed de `medidas_caseiras` vem da tabela pública do IBGE (*POF 2008–2009 — Tabela de Medidas Referidas para os Alimentos Consumidos no Brasil*), casada manualmente com os **150 alimentos mais usados** (lista a validar com a Debby). Os demais alimentos ficam só em gramas até a nutricionista cadastrar uma medida própria (medidas próprias por tenant, na tabela 🔒 `food_measures`). Ver P-10.
+
 ### INT-05 — Vídeos (YouTube / Vimeo)
 
-Sem API: a nutricionista cola a URL; o sistema extrai o ID (regex) e renderiza o player com `youtube-nocookie.com/embed/{id}` ou `player.vimeo.com/video/{id}`. A capa é obtida via oEmbed (`youtube.com/oembed`, `vimeo.com/api/oembed.json`) no momento do cadastro; se o oEmbed falhar, o cadastro não é bloqueado e o sistema usa uma capa padrão.
+Sem API: a nutricionista cola a URL; o sistema extrai o ID (regex) e renderiza o player com `youtube-nocookie.com/embed/{id}` ou `player.vimeo.com/video/{id}`. A capa é obtida via oEmbed (`youtube.com/oembed`, `vimeo.com/api/oembed.json`) no momento do cadastro e **baixada para `/data`** (sem imagem de terceiros no PWA); se o oEmbed falhar, o cadastro não é bloqueado e o sistema usa uma capa padrão.
+
+### INT-06 — Cloudflare Turnstile
+
+Widget anti-robô na página pública `/n/<slug>` e na recuperação de senha. O token é validado no servidor (`POST https://challenges.cloudflare.com/turnstile/v0/siteverify`, com `TURNSTILE_SECRET_KEY`) antes de qualquer escrita. Se o Turnstile estiver fora do ar, o formulário público mostra *"Tente novamente em alguns minutos"* e **não** aceita envio sem verificação. Custo: gratuito.
 
 ---
 
@@ -177,11 +197,11 @@ Convenções: PK `id uuid` (v7); `created_at` e `updated_at timestamptz`; 🔒 =
 
 | Tabela | Campos-chave | Restrições / índices |
 |---|---|---|
-| `tenants` | `slug`, `nome_exibicao`, `crn`, `logo_path`, `cor_primaria`, `fuso` (padrão `America/Sao_Paulo`), `status` (`ativa`/`suspensa`), `wa_cota_mensal` (padrão 500), `antecedencia_min_h` (12), `cancelamento_min_h` (24), `endereco_consultorio`, `mostrar_perc_gordura_paciente` (padrão false), `dpa_aceito_em` | `slug` UNIQUE, regex `^[a-z0-9-]{3,40}$` |
+| `tenants` | `slug`, `nome_exibicao`, `crn`, `logo_path`, `cor_primaria`, `fuso` (padrão `America/Sao_Paulo`), `status` (`ativa`/`suspensa`), `wa_cota_mensal` (padrão 500), `antecedencia_min_h` (12), `cancelamento_min_h` (24), `endereco_consultorio`, `link_online_padrao`, `agendamento_publico_ativo` (padrão true), `mostrar_perc_gordura_paciente` (padrão false), `armazenamento_bytes`, `dpa_aceito_em` | `slug` UNIQUE, regex `^[a-z0-9-]{3,40}$` |
 | `users` | `email` (citext), `password_hash`, `totp_secret_enc`, `role` (`admin`/`nutri`/`paciente`), `email_verificado_em`, `nutri_tenant_id` (se role = nutri) | `email` UNIQUE |
 | `sessions`, `verifications` | Gerenciadas pelo Better Auth | — |
 | `consents` | `user_id`, `termo_versao`, `aceito_em`, `ip` | UNIQUE (`user_id`, `termo_versao`) |
-| 🔒 `patients` | `user_id` (nulo até aceitar o convite), `nome`, `data_nascimento`, `sexo` (`F`/`M`, usado nas fórmulas), `telefone_e164`, `email`, `whatsapp_optin_em`, `status` (`ativo`/`arquivado`), `anonimizado_em` | UNIQUE (`tenant_id`, `email`); índice (`tenant_id`, `status`) |
+| 🔒 `patients` | `user_id` (nulo até aceitar o convite), `nome`, `data_nascimento` e `sexo` (`F`/`M`, usados nas fórmulas; **nulos só quando `origem = 'agendamento_publico'`**, com a pendência "Completar cadastro" no painel), `telefone_e164`, `email`, `origem` (`nutri`/`agendamento_publico`), `whatsapp_optin_em`, `whatsapp_optin_origem` (`nutri`/`paciente`), `whatsapp_optout_em`, `status` (`ativo`/`arquivado`/`bloqueado`), `bloqueado_em`, `anonimizar_apos` (data), `anonimizado_em` | UNIQUE (`tenant_id`, `email`); índice (`tenant_id`, `status`) |
 | 🔒 `patient_tags` / 🔒 `patient_tag_links` | `nome` / (`patient_id`, `tag_id`) | UNIQUE (`tenant_id`, `nome`) |
 | 🔒 `consultations` | `patient_id`, `appointment_id` (nulo), `data`, `notas_privadas`, `orientacoes_paciente` | — |
 | 🔒 `anamnesis_templates` | `nome`, `schema jsonb` (lista de perguntas: tipo, rótulo, opções, obrigatória) | — |
@@ -189,15 +209,16 @@ Convenções: PK `id uuid` (v7); `created_at` e `updated_at timestamptz`; 🔒 =
 | 🔒 `anthropometry` | `patient_id`, `consultation_id`, `data`, `peso_kg numeric(5,2)`, `altura_cm numeric(5,1)`, `imc` (GENERATED), `circunferencias jsonb`, `dobras_mm jsonb`, `protocolo` (`jp3`/`jp7`/`nenhum`), `densidade`, `perc_gordura` | CHECK peso 1–400, altura 30–250 |
 | 🔒 `energy_calcs` | `patient_id`, `formula` (`harris_benedict`/`mifflin`/`fao_oms`), `peso_kg`, `altura_cm`, `idade`, `sexo`, `fator_atividade numeric(3,2)`, `tmb`, `get` | CHECK fator 1,00–2,50 |
 | 🔒 `exams` | `patient_id`, `data`, `titulo`, `arquivo_path`, `valores jsonb` (lista de {nome, valor, unidade, referência}) | — |
-| `foods` | `tenant_id` (**nulo = TACO**), `nome`, `grupo`, `kcal`, `proteina_g`, `carboidrato_g`, `lipidio_g`, `fibra_g` (por 100 g), `micros jsonb`, `medidas_caseiras jsonb` (lista de {nome, gramas}) | RLS: `tenant_id IS NULL OR tenant_id = atual`; GIN `pg_trgm` + `unaccent` em `nome` |
-| 🔒 `meal_plans` | `patient_id` (nulo se modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id`, `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `publicado_em`, `origem_plan_id`, `mostrar_calorias` (padrão false) | Índice único parcial (`patient_id`) WHERE `status = 'publicado'` |
+| `foods` | `tenant_id` (**nulo = TACO**), `nome`, `grupo`, `kcal`, `proteina_g`, `carboidrato_g`, `lipidio_g`, `fibra_g` (por 100 g), `micros jsonb`, `medidas_caseiras jsonb` (lista de {nome, gramas}) | RLS: leitura se `tenant_id IS NULL OR tenant_id = atual`; escrita só se `tenant_id = atual` (TACO é imutável para a aplicação); GIN `pg_trgm` + `unaccent` em `nome` |
+| 🔒 `food_measures` | `food_id`, `nome`, `gramas` | Medidas caseiras criadas pela nutricionista (complementam o seed IBGE) |
+| 🔒 `meal_plans` | `patient_id` (nulo se modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id`, `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `publicado_em`, `origem_plan_id`, `mostrar_calorias` (padrão false), `pdf_path` (gerado na publicação) | Índice único parcial (`patient_id`) WHERE `status = 'publicado'` |
 | 🔒 `meals` | `plan_id`, `nome`, `horario time`, `ordem`, `observacao`, `recipe_content_id` (nulo) | — |
 | 🔒 `meal_items` | `meal_id`, `food_id`, `quantidade_g numeric(7,2)`, `medida_caseira_txt`, `grupo_substituicao smallint` (nulo = item principal) | CHECK quantidade > 0 |
 | 🔒 `diary_entries` | `patient_id`, `data_hora`, `refeicao`, `texto`, `foto_path`, `comentario_nutri`, `comentado_em`, `visto_pela_nutri_em` | Índice (`patient_id`, `data_hora DESC`) |
 | 🔒 `availability_rules` | `dia_semana 0–6`, `inicio time`, `fim time`, `duracao_min`, `modalidade` (`presencial`/`online`/`ambas`) | CHECK `fim > inicio` |
 | 🔒 `availability_blocks` | `inicio timestamptz`, `fim timestamptz`, `motivo` | — |
 | 🔒 `appointments` | `patient_id`, `periodo tstzrange`, `modalidade`, `link_online`, `status` (`agendada`/`confirmada`/`cancelada`/`realizada`/`faltou`), `origem` (`nutri`/`paciente`), `cancelado_por`, `motivo_cancelamento`, `pedido_remarcacao_em` | `EXCLUDE USING gist (tenant_id WITH =, periodo WITH &&) WHERE (status <> 'cancelada')` |
-| 🔒 `notifications` | `appointment_id` (nulo), `patient_id`, `canal` (`email`/`whatsapp`/`push`), `tipo`, `status` (`pendente`/`enviada`/`entregue`/`lida`/`falhou`/`ignorada`), `motivo_ignorada`, `provider_msg_id`, `tentativas`, `agendada_para` | UNIQUE (`provider_msg_id`); UNIQUE (`appointment_id`, `canal`, `tipo`) |
+| 🔒 `notifications` | `appointment_id` (nulo), `patient_id`, `canal` (`email`/`whatsapp`/`push`), `tipo`, `status` (`pendente`/`enviada`/`entregue`/`lida`/`falhou`/`ignorada`), `motivo_ignorada`, `provider_msg_id`, `tentativas`, `agendada_para` | UNIQUE (`provider_msg_id`); UNIQUE (`appointment_id`, `canal`, `tipo`); ao reativar um tenant ou remarcar, a linha existente é **atualizada** (não duplicada) |
 | `push_subscriptions` | `user_id`, `endpoint`, `p256dh`, `auth`, `user_agent` | UNIQUE (`endpoint`) |
 | 🔒 `contents` | `tipo` (`video`/`receita`/`orientacao`), `titulo`, `resumo`, `corpo_md`, `video_provider`, `video_id`, `capa_path`, `pdf_path`, `etiquetas text[]`, `visibilidade` (`todos`/`etiquetas`/`pacientes`), `status` (`rascunho`/`publicado`), `publicado_em` | GIN em `etiquetas`; full-text em `titulo` + `resumo` |
 | 🔒 `recipes` | `content_id` (1:1), `rendimento_total_g`, `porcao_g`, `modo_preparo_md`, `tempo_preparo_min` | CHECK `porcao_g <= rendimento_total_g` |
@@ -205,7 +226,7 @@ Convenções: PK `id uuid` (v7); `created_at` e `updated_at timestamptz`; 🔒 =
 | 🔒 `content_audience` | `content_id`, `patient_id` (nulo), `tag_id` (nulo) | CHECK exatamente um dos dois preenchido |
 | 🔒 `content_views` | `content_id`, `patient_id`, `visto_em` | UNIQUE (`content_id`, `patient_id`) → conta pacientes únicos |
 | 🔒 `content_favorites` | `content_id`, `patient_id` | UNIQUE (`content_id`, `patient_id`) |
-| 🔒 `audit_log` | `actor_user_id`, `acao` (`ler`/`criar`/`alterar`/`excluir`/`exportar`/`anonimizar`), `entidade`, `entidade_id`, `ip`, `criado_em` | Append-only: `REVOKE UPDATE, DELETE` do role da aplicação |
+| 🔒 `audit_log` | `actor_user_id`, `acao` (`ler`/`criar`/`alterar`/`excluir`/`exportar`/`bloquear`/`anonimizar`), `entidade`, `entidade_id`, `ip`, `criado_em` | Append-only: `REVOKE UPDATE, DELETE` do role da aplicação |
 | 🔒 `privacy_requests` | `patient_id`, `tipo` (`exportacao`/`exclusao`), `status` (`aberto`/`concluido`), `prazo`, `concluido_em` | Prazo de resposta ao titular: 15 dias |
 | 🔒 `access_events` | `patient_id`, `dia date` | Base da métrica CS-02; UNIQUE (`patient_id`, `dia`) |
 
@@ -220,16 +241,19 @@ Convenções: PK `id uuid` (v7); `created_at` e `updated_at timestamptz`; 🔒 =
 | RN-03 | Horários livres = regras de atendimento − bloqueios − consultas não canceladas. O paciente agenda com antecedência mínima de `antecedencia_min_h` (padrão 12 h) e máxima de 60 dias. Em caso de agendamento simultâneo, o `EXCLUDE` recusa o segundo e a UI mostra: *"Esse horário acabou de ser ocupado. Escolha outro."* |
 | RN-04 | O paciente pode cancelar ou remarcar até `cancelamento_min_h` (padrão 24 h) antes do início. Depois disso, os botões somem e aparece: *"Para alterar, fale com sua nutricionista."* A nutricionista pode alterar a qualquer momento |
 | RN-05 | Lembretes em **24 h** e **2 h** antes do início, por todos os canais disponíveis para o paciente (e-mail sempre; WhatsApp se houver opt-in e cota; push se houver inscrição). O lembrete é **ignorado** (`status = ignorada` + motivo) se: consulta cancelada; paciente arquivado; horário de envio já passou quando a consulta foi criada; horário de envio no intervalo **[21:00, 08:00)** no fuso do tenant (08:00 em ponto é permitido). Remarcar cancela os lembretes pendentes e agenda novos |
-| RN-06 | Todas as datas são gravadas em UTC (`timestamptz`) e exibidas no `fuso` do tenant |
+| RN-06 | Todas as datas são gravadas em UTC (`timestamptz`) e exibidas no `fuso` do tenant. Se o fuso do dispositivo do paciente for diferente, o PWA mostra a sigla junto do horário (ex.: "09:00 (horário de Brasília)") |
 | RN-07 | Foto do diário: até 10 MB, JPEG/PNG/HEIC; o worker converte para JPEG com no máximo 1600 px no maior lado, qualidade 80, e remove EXIF/GPS. Até **10 registros no diário por paciente por dia** |
 | RN-08 | Paciente arquivado: perde o login do portal para aquele tenant, não recebe notificações e sai das audiências de conteúdo; o prontuário é mantido. Desarquivar restaura o acesso |
-| RN-09 | Cota de WhatsApp contada por tenant e mês civil. Ao atingir **80%**: aviso no painel + e-mail para a nutricionista. A **100%**: WhatsApp suspenso até o mês seguinte (ou até o admin ampliar a cota); os lembretes seguem por e-mail e push |
+| RN-09 | Cota de WhatsApp contada por tenant e mês civil; conta cada mensagem **aceita pela API da Meta** (status `enviada` ou posterior). Respostas livres dentro da janela de 24 h não contam. Ao atingir **80%**: aviso no painel + e-mail para a nutricionista. A **100%**: WhatsApp suspenso até o mês seguinte (ou até o admin ampliar a cota); os lembretes seguem por e-mail e push |
 | RN-10 | Vídeo: aceitar só URLs de `youtube.com`, `youtu.be`, `vimeo.com`; exibir com `youtube-nocookie.com` ou `player.vimeo.com`. O formulário mostra o aviso: *"Vídeos não listados podem ser vistos por quem tiver o link."* |
 | RN-11 | Receita: nutriente por porção = `Σ(nutriente de cada ingrediente) × porcao_g / rendimento_total_g`. Ex.: ingredientes somando 2000 kcal, rendimento 1000 g, porção 250 g → **500 kcal/porção** |
-| RN-12 | Audiência do conteúdo: `todos` = pacientes ativos do tenant; `etiquetas` = pacientes ativos com pelo menos uma das etiquetas; `pacientes` = lista explícita. A audiência é avaliada **na leitura**, então um paciente que recebe a etiqueta depois passa a ver o conteúdo |
+| RN-12 | Audiência do conteúdo: `todos` = pacientes ativos do tenant; `etiquetas` = pacientes ativos com pelo menos uma das etiquetas; `pacientes` = lista explícita. A audiência é avaliada **na leitura**, então um paciente que recebe a etiqueta depois passa a ver o conteúdo. **Exceção:** uma receita anexada a uma refeição do plano publicado do paciente (US-054) fica visível para ele, mesmo fora da audiência |
 | RN-13 | Lista de compras: soma das quantidades dos itens principais do plano publicado × nº de dias escolhido (1–14, padrão 7), agrupada pelo `grupo` do alimento e exibida em g/kg (≥ 1000 g → kg com 1 casa). O paciente pode marcar itens como comprados; a marcação é salva no dispositivo |
 | RN-14 | TMB e GET são exibidos em kcal inteiros, com arredondamento meio para cima. Idade para fórmulas = anos completos na data do cálculo. FAO/OMS usa a faixa etária correspondente; para menores de 18 anos, o sistema exibe *"Fórmulas do MVP validadas para adultos"* e não sugere GET automaticamente |
 | RN-15 | Tenant suspenso: nutricionista e pacientes veem a tela *"Conta temporariamente indisponível"*; o worker não envia notificações desse tenant; os dados ficam intactos |
+| RN-16 | Agendamento público (`/n/<slug>`), só se `agendamento_publico_ativo`: exige Turnstile válido + **código de 6 dígitos enviado ao e-mail** (válido por 10 min) antes de criar paciente e consulta; máximo de 3 consultas futuras por e-mail no tenant e 10 tentativas por IP por hora. O paciente criado tem `origem = 'agendamento_publico'` |
+| RN-17 | **Menores de 18 anos** (proposta, P-11): no MVP não têm acesso ao portal nem recebem mensagens diretas. O prontuário é gerido pela nutricionista, com o consentimento do responsável anexado como arquivo. O agendamento público exige declarar ter 18 anos ou mais |
+| RN-18 | Cota de armazenamento: 5 GB por tenant (logo, capas, PDFs, exames, fotos). Em 80%, aviso à nutricionista; em 100%, novos uploads são recusados com *"Espaço de armazenamento esgotado. Fale com o suporte."* e o restante do sistema continua funcionando |
 
 Fórmulas: ver **Apêndice A**.
 
@@ -247,7 +271,7 @@ Fórmulas: ver **Apêndice A**.
 | Autenticação | Better Auth (e-mail/senha, 2FA TOTP, sessões no Postgres) |
 | Validação | Zod (schemas compartilhados entre formulário e servidor) |
 | UI | Tailwind CSS 4 · shadcn/ui · react-hook-form · Recharts · lucide-react |
-| PWA / push | Serwist · `web-push` |
+| PWA / push | Serwist · `web-push` (verificar a compatibilidade do Serwist com o Turbopack, padrão do `next build` no Next 16; se necessário, build com `--webpack` — P-14) |
 | Fila / agendamento | pg-boss |
 | PDF | `@react-pdf/renderer` |
 | Imagem | `sharp` · `heic-convert` |
@@ -262,10 +286,10 @@ Fórmulas: ver **Apêndice A**.
 |---|---|---|
 | `node` 24, `pnpm` 12, `npx`, `docker` 29, `git`, `jq`, `curl`, `claude` | ✅ instalados | Desenvolvimento |
 | `gh` 2.45 | ✅ instalado (versão antiga; atualizar é opcional) | Repositório, PRs, Actions |
-| `psql` / `pg_dump` (`postgresql-client-16`) | ❌ instalar via apt, **com confirmação** | Inspeção e backup |
-| `rclone` | ❌ instalar, **com confirmação** | Backup criptografado → R2 |
+| `psql` / `pg_dump` (`postgresql-client-16`) | ❌ instalar no host via apt, **com confirmação** | Inspeção manual e **teste mensal de restauração**. O backup automático roda dentro da imagem do worker, que já inclui o client |
+| `rclone` | ❌ instalar no host, **com confirmação** | Baixar e restaurar backups manualmente. O envio diário roda dentro da imagem do worker |
 | `drizzle-kit`, `playwright`, `web-push`, `@sentry/cli`, `k6` (via Docker) | Dependências de dev do projeto / imagem Docker | Migrations, E2E, VAPID, source maps, carga |
-| Easypanel | Sem CLI/MCP oficial | Deploy por push na `main` (GitHub); configuração **pelo painel** |
+| Easypanel | Sem CLI/MCP oficial | Serviço com origem = imagem Docker do GHCR; deploy pelo webhook do Easypanel chamado no fim do CI; configuração **pelo painel** |
 | Meta / WhatsApp | Sem CLI | WhatsApp Manager + Graph API via `curl` |
 
 ### 9.3 Servidores MCP (Claude Code)
@@ -296,10 +320,11 @@ Configuração em `.mcp.json` na raiz do repositório, **sem segredos**. As cred
 
 | Serviço | Para quê | Observação |
 |---|---|---|
-| GitHub (repo privado) | Código, CI, deploy | — |
+| GitHub (repo privado) + GHCR | Código, CI, registro das imagens Docker | O Easypanel precisa de credencial de leitura do GHCR (token com escopo `read:packages`) |
 | Domínio + DNS | `app.<dominio>`, e-mail | Registro A → IP da VPS; SPF, DKIM, DMARC |
 | Meta Business (verificada) + app WhatsApp Cloud API | INT-01 | A verificação e a aprovação dos templates **levam dias**; começar primeiro |
-| Resend | INT-02 | Domínio verificado |
+| Resend | INT-02 | Domínio verificado. O plano gratuito (3 mil e-mails/mês, 100/dia) atende à Debby; com mais tenants, passa a ser pago (~US$ 20/mês por 50 mil) |
+| Cloudflare Turnstile | INT-06 | Gratuito |
 | Cloudflare R2 | Backup offsite | Bucket privado; chave com escopo só nesse bucket |
 | Sentry | Erros | Plano gratuito atende ao MVP |
 | UptimeRobot ou Uptime Kuma (Easypanel) | RNF-04 | — |
@@ -308,7 +333,7 @@ Configuração em `.mcp.json` na raiz do repositório, **sem segredos**. As cred
 
 Somente os nomes; os valores são definidos no Easypanel (prod) e em `.env.local` (dev, fora do git). O repositório terá um `.env.example` só com os nomes.
 
-`DATABASE_URL` · `DATABASE_URL_MIGRATOR` · `AUTH_SECRET` · `ENCRYPTION_KEY` · `APP_URL` · `WHATSAPP_TOKEN` · `WHATSAPP_PHONE_NUMBER_ID` · `WHATSAPP_APP_SECRET` · `WHATSAPP_VERIFY_TOKEN` · `WHATSAPP_API_VERSION` · `RESEND_API_KEY` · `EMAIL_FROM` · `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` · `SENTRY_DSN` · `SENTRY_AUTH_TOKEN` · `R2_ACCOUNT_ID` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET` · `BACKUP_PASSPHRASE`
+`DATABASE_URL` · `DATABASE_URL_MIGRATOR` · `AUTH_SECRET` · `ENCRYPTION_KEY` · `APP_URL` · `WHATSAPP_TOKEN` · `WHATSAPP_PHONE_NUMBER_ID` · `WHATSAPP_APP_SECRET` · `WHATSAPP_VERIFY_TOKEN` · `WHATSAPP_API_VERSION` · `RESEND_API_KEY` · `EMAIL_FROM` · `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` · `SENTRY_DSN` · `SENTRY_AUTH_TOKEN` · `R2_ACCOUNT_ID` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET` · `BACKUP_PASSPHRASE` · `TURNSTILE_SITE_KEY` · `TURNSTILE_SECRET_KEY` · `FILE_URL_SECRET` · `DATA_DIR`
 
 `DATABASE_URL_MIGRATOR` usa um role dono do schema (roda migrations); `DATABASE_URL` usa um role de aplicação **sem** `BYPASSRLS` e sem ser dono das tabelas.
 
@@ -317,7 +342,13 @@ Somente os nomes; os valores são definidos no Easypanel (prod) e em `.env.local
 | Gatilho | Etapas |
 |---|---|
 | Pull request | `pnpm install --frozen-lockfile` → lint → `tsc --noEmit` → Vitest → testes de RLS/isolamento (Testcontainers) → build → Playwright E2E (login, criar+publicar plano, agendar online, lembrete gerado, conteúdo visível só para a audiência certa) |
-| Merge na `main` | Build da imagem → webhook de deploy do Easypanel → no container, `migrate` roda antes do `start`; falha na migration = o container não sobe e a versão anterior continua no ar |
+| Merge na `main` | Build da imagem **no GitHub Actions** (não na VPS, para não consumir CPU e memória do CRM) → push para o GHCR com tag = SHA do commit → chamada ao webhook de deploy do Easypanel → no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema) |
+
+**Deploy e migrations:**
+- Ativar no Easypanel o deploy sem downtime (*start-first*), se o recurso estiver disponível na versão instalada. Senão, aceitar ~30 s de indisponibilidade e publicar fora do horário de atendimento.
+- Migrations seguem o padrão **expand/contract** (compatíveis com a versão anterior do código), porque as duas versões convivem por alguns segundos. O Drizzle roda cada migration em transação: se falhar, nada é aplicado e o container novo não sobe.
+- Rollback = redeploy da tag anterior no Easypanel.
+- O primeiro admin é criado pelo comando `pnpm admin:criar <email>` executado no container (sem tela pública).
 
 O repositório terá um `CLAUDE.md` com stack, comandos, convenções de módulo, a obrigação de usar `withTenant` e a proibição de MCP de banco em produção.
 
@@ -341,12 +372,18 @@ O repositório terá um `CLAUDE.md` com stack, comandos, convenções de módulo
 | P-01 | Prazo de guarda do prontuário de nutrição (referência 20 anos) | Pendência | Validar com CRN/advogado antes do go-live |
 | P-02 | Texto do termo de consentimento do paciente e do DPA da nutricionista | Pendência | Advogado; o sistema só versiona e registra o aceite |
 | P-03 | Nome do produto, domínio e nome de exibição do WhatsApp | Pendência | Dono do produto |
-| P-04 | Verificação da Meta Business e aprovação dos templates | Risco de prazo | Iniciar na semana 1; enquanto isso, lembretes por e-mail/push |
+| P-04 | Verificação da Meta Business e aprovação dos templates (e possível reclassificação como marketing) | Risco de prazo/custo | Iniciar na semana 1; enquanto isso, lembretes por e-mail/push |
 | P-05 | VPS única, compartilhada com o `cursoia_crm` em produção | Risco | Limites do RNF-03 + monitor + backup testado; migrar para VPS dedicada quando passar de ~20 tenants ou se o consumo exceder os limites |
 | P-06 | Push no iOS exige instalação do PWA | Risco de adoção | Tutorial de instalação + WhatsApp/e-mail como canais principais |
 | P-07 | Vídeo não listado no YouTube não é privado | Risco aceito | Aviso RN-10; Bunny Stream na Fase 2 |
 | P-08 | Fórmulas e coeficientes do Apêndice A | Pendência | Debby valida com casos reais antes do go-live |
 | P-09 | Token do MCP do GitHub inválido | Pendência técnica | Corrigir antes de iniciar o desenvolvimento |
+| P-10 | A TACO não tem medidas caseiras; o casamento TACO × IBGE dos 150 alimentos mais usados é trabalho manual | Risco de esforço | Debby fornece a lista dos alimentos mais usados; o casamento vira tarefa do plano (estimar à parte) |
+| P-11 | Atendimento de menores de 18 anos (RN-17 é uma proposta) | **Decisão pendente** | Confirmar se a Debby atende crianças/adolescentes; se sim, portal do responsável entra na Fase 2 |
+| P-12 | Criptografia em repouso: o disco da VPS depende do provedor; só backups, `totp_secret` e URLs assinadas têm proteção própria. O dono do servidor tem acesso técnico ao banco | Risco aceito | Declarar no DPA; acesso SSH restrito; avaliar criptografia de colunas sensíveis (anamnese, notas) na Fase 2 |
+| P-13 | Disco de 85 GB livres, compartilhado com outros projetos | Risco | RN-18 + alerta em 70% (RNF-13) |
+| P-14 | Compatibilidade Serwist × Turbopack no Next 16 | Risco técnico | Spike na primeira semana |
+| P-15 | CS-03 depende da taxa de faltas anterior ao sistema | Pendência | Debby informa a taxa do mês anterior (base de comparação) |
 
 ---
 
@@ -370,9 +407,9 @@ Unidades: peso (P) em kg, altura (A) em cm, idade (I) em anos, soma de dobras (S
 
 | Idade | Homem | Mulher |
 |---|---|---|
-| 18–30 | 15,3·P + 679 | 14,7·P + 496 |
-| 30–60 | 11,6·P + 879 | 8,7·P + 829 |
-| > 60 | 13,5·P + 487 | 10,5·P + 596 |
+| 18 a 29 anos | 15,3·P + 679 | 14,7·P + 496 |
+| 30 a 59 anos | 11,6·P + 879 | 8,7·P + 829 |
+| 60 anos ou mais | 13,5·P + 487 | 10,5·P + 596 |
 
 Ex.: mulher, 60 kg, 35 anos → **1351,0 kcal**.
 
@@ -399,7 +436,15 @@ Esses exemplos são os casos de teste unitário obrigatórios do cálculo (toler
 | RLS | Row-Level Security: o Postgres filtra as linhas pelo tenant da sessão |
 | PWA | Progressive Web App: site instalável no celular, com push |
 | TMB / GET | Taxa metabólica basal / gasto energético total |
+| VET | Valor energético total do plano (kcal do dia); base para o % de cada macronutriente |
 | TACO | Tabela Brasileira de Composição de Alimentos (NEPA/UNICAMP) |
 | Template (WhatsApp) | Mensagem pré-aprovada pela Meta, obrigatória para iniciar conversa |
 | DPA | Contrato de tratamento de dados entre controladora (nutricionista) e operadora (plataforma) |
 | RPO / RTO | Perda máxima de dados aceitável / tempo máximo para voltar ao ar |
+
+## Apêndice C — Histórico de revisões
+
+| Versão | Data | Alterações |
+|---|---|---|
+| 1.0 | 2026-09-27 | Versão inicial aprovada em conversa (Blocos 1, 2, 2b e 3 + M6) |
+| 1.1 | 2026-09-27 | Revisão 2: isolamento também por paciente (RLS por `patient_id`); exclusão LGPD corrigida (bloqueio durante a guarda legal em vez de anonimização imediata); anti-abuso no agendamento público (Turnstile + código por e-mail, RN-16, INT-06); opt-in de WhatsApp antes do convite; medidas caseiras (fonte IBGE, `food_measures`); build fora da VPS (GHCR) e deploy com migrations expand/contract; worker com 512 MB e responsável pelos backups; heartbeat do worker no health check; cota de armazenamento (RN-18, RNF-13); menores de idade (RN-17, pendente); link online padrão e ativação do agendamento público; PDF gerado na publicação; faixas FAO/OMS sem sobreposição; novas pendências P-10 a P-15 |
