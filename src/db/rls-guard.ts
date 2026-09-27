@@ -6,7 +6,9 @@ export type RlsViolation = { table: string; problem: string };
  * Tabelas com tenant_id que seguem outra regra, com a justificativa.
  * Ex. futuro (Plano 04): foods: 'tenant_id nulo = TACO; política própria de leitura'.
  */
-export const RLS_EXCEPTIONS: Record<string, string> = {};
+export const RLS_EXCEPTIONS: Record<string, string> = {
+  user: 'identidade global do Better Auth: login ocorre antes do contexto de tenant; acesso só via services do M1 (spec §4.1)',
+};
 
 /** Tabelas com patient_id que não precisam da política de paciente, com a justificativa. */
 export const PATIENT_POLICY_EXCEPTIONS: Record<string, string> = {};
