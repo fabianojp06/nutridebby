@@ -235,7 +235,7 @@ Cenário: Consulta do log
 | Campo | Tipo | Obrig. | Validação | Erro |
 |---|---|---|---|---|
 | `nome` | texto | Sim | 2–120 caracteres | "Informe o nome" |
-| `data_nascimento` | data | Sim | passado; idade 0–120 | "Data de nascimento inválida" |
+| `data_nascimento` | data | Sim | passado; idade 18–120 (RN-17) | "O sistema atende apenas pacientes a partir de 18 anos" |
 | `sexo` | enum F/M | Sim | — | "Selecione o sexo biológico (usado nas fórmulas)" |
 | `email` | e-mail | Sim | único no tenant | "Paciente já cadastrado com este e-mail" |
 | `telefone` | texto | Não | normalizado para E.164 (+55 padrão) | "Telefone inválido" |
@@ -370,11 +370,6 @@ Cenário: Mifflin-St Jeor
 Cenário: Comparar fórmulas
   Quando abro o cálculo para a mesma paciente
   Então vejo lado a lado Harris-Benedict 1371, Mifflin 1295 e FAO/OMS 1351 (TMB, kcal, arredondamento meio para cima)
-
-Cenário: Menor de 18 anos
-  Dado um paciente com 16 anos
-  Quando abro o cálculo
-  Então vejo "Fórmulas do MVP validadas para adultos" e o GET não é sugerido automaticamente
 
 Cenário: Fator inválido
   Quando informo o fator 3,0
@@ -1125,7 +1120,7 @@ Cenário: Métricas
 | US-005 | M1 | RNF-10 | tenants |
 | US-006 | M1 | RNF-07, §4.1 | todas 🔒 |
 | US-007 | M1 | RNF-08 | audit_log |
-| US-010 | M2 | INT-01 (opt-in), INT-02, RN-09 | patients |
+| US-010 | M2 | INT-01 (opt-in), INT-02, RN-09, RN-17 | patients |
 | US-011 | M2 | RNF-08, INT-01 | patients, consents |
 | US-012 | M2 | — | anamnesis_templates, anamneses |
 | US-013 | M2 | Apêndice A | anthropometry |

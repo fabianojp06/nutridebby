@@ -2,9 +2,9 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 1.1 (revisão 2 — ver Apêndice C) |
+| Versão | 1.2 (ver Apêndice C) |
 | Data | 2026-09-27 |
-| Status | Aguardando revisão |
+| Status | **Aprovada** em 2026-09-27 |
 | Nome do produto | *NutriDebby* (provisório) |
 | Cliente-piloto | Debby (nutricionista) |
 | Documento complementar | [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md): épicos, Histórias de Usuário, critérios BDD e rastreabilidade |
@@ -38,6 +38,7 @@ O produto nasce **multi-tenant**, mas o **onboarding é manual**: o admin da pla
 | D-08 | Biblioteca de conteúdo no MVP, com vídeos por **link YouTube/Vimeo** | Usuário |
 | D-09 | Tabela de alimentos = TACO (4ª ed.) + alimentos próprios; TBCA só na Fase 3 | Premissa aceita |
 | D-10 | Perfil recepcionista fora do MVP | Premissa aceita |
+| D-11 | Somente pacientes adultos (≥ 18 anos) | Usuário |
 
 ---
 
@@ -249,10 +250,10 @@ Convenções: PK `id uuid` (v7); `created_at` e `updated_at timestamptz`; 🔒 =
 | RN-11 | Receita: nutriente por porção = `Σ(nutriente de cada ingrediente) × porcao_g / rendimento_total_g`. Ex.: ingredientes somando 2000 kcal, rendimento 1000 g, porção 250 g → **500 kcal/porção** |
 | RN-12 | Audiência do conteúdo: `todos` = pacientes ativos do tenant; `etiquetas` = pacientes ativos com pelo menos uma das etiquetas; `pacientes` = lista explícita. A audiência é avaliada **na leitura**, então um paciente que recebe a etiqueta depois passa a ver o conteúdo. **Exceção:** uma receita anexada a uma refeição do plano publicado do paciente (US-054) fica visível para ele, mesmo fora da audiência |
 | RN-13 | Lista de compras: soma das quantidades dos itens principais do plano publicado × nº de dias escolhido (1–14, padrão 7), agrupada pelo `grupo` do alimento e exibida em g/kg (≥ 1000 g → kg com 1 casa). O paciente pode marcar itens como comprados; a marcação é salva no dispositivo |
-| RN-14 | TMB e GET são exibidos em kcal inteiros, com arredondamento meio para cima. Idade para fórmulas = anos completos na data do cálculo. FAO/OMS usa a faixa etária correspondente; para menores de 18 anos, o sistema exibe *"Fórmulas do MVP validadas para adultos"* e não sugere GET automaticamente |
+| RN-14 | TMB e GET são exibidos em kcal inteiros, com arredondamento meio para cima. Idade para fórmulas = anos completos na data do cálculo. FAO/OMS usa a faixa etária correspondente; não se aplica a menores (RN-17) |
 | RN-15 | Tenant suspenso: nutricionista e pacientes veem a tela *"Conta temporariamente indisponível"*; o worker não envia notificações desse tenant; os dados ficam intactos |
 | RN-16 | Agendamento público (`/n/<slug>`), só se `agendamento_publico_ativo`: exige Turnstile válido + **código de 6 dígitos enviado ao e-mail** (válido por 10 min) antes de criar paciente e consulta; máximo de 3 consultas futuras por e-mail no tenant e 10 tentativas por IP por hora. O paciente criado tem `origem = 'agendamento_publico'` |
-| RN-17 | **Menores de 18 anos** (proposta, P-11): no MVP não têm acesso ao portal nem recebem mensagens diretas. O prontuário é gerido pela nutricionista, com o consentimento do responsável anexado como arquivo. O agendamento público exige declarar ter 18 anos ou mais |
+| RN-17 | **Somente adultos** (decisão D-11): o cadastro de paciente exige idade ≥ 18 anos na data do cadastro (erro: *"O sistema atende apenas pacientes a partir de 18 anos"*); o agendamento público exige declarar ter 18 anos ou mais |
 | RN-18 | Cota de armazenamento: 5 GB por tenant (logo, capas, PDFs, exames, fotos). Em 80%, aviso à nutricionista; em 100%, novos uploads são recusados com *"Espaço de armazenamento esgotado. Fale com o suporte."* e o restante do sistema continua funcionando |
 
 Fórmulas: ver **Apêndice A**.
@@ -379,7 +380,7 @@ O repositório terá um `CLAUDE.md` com stack, comandos, convenções de módulo
 | P-08 | Fórmulas e coeficientes do Apêndice A | Pendência | Debby valida com casos reais antes do go-live |
 | P-09 | Token do MCP do GitHub inválido | Pendência técnica | Corrigir antes de iniciar o desenvolvimento |
 | P-10 | A TACO não tem medidas caseiras; o casamento TACO × IBGE dos 150 alimentos mais usados é trabalho manual | Risco de esforço | Debby fornece a lista dos alimentos mais usados; o casamento vira tarefa do plano (estimar à parte) |
-| P-11 | Atendimento de menores de 18 anos (RN-17 é uma proposta) | **Decisão pendente** | Confirmar se a Debby atende crianças/adolescentes; se sim, portal do responsável entra na Fase 2 |
+| P-11 | Atendimento de menores de 18 anos | **Resolvida (2026-09-27)** | A Debby não atende menores → RN-17 (somente adultos) |
 | P-12 | Criptografia em repouso: o disco da VPS depende do provedor; só backups, `totp_secret` e URLs assinadas têm proteção própria. O dono do servidor tem acesso técnico ao banco | Risco aceito | Declarar no DPA; acesso SSH restrito; avaliar criptografia de colunas sensíveis (anamnese, notas) na Fase 2 |
 | P-13 | Disco de 85 GB livres, compartilhado com outros projetos | Risco | RN-18 + alerta em 70% (RNF-13) |
 | P-14 | Compatibilidade Serwist × Turbopack no Next 16 | Risco técnico | Spike na primeira semana |
@@ -447,4 +448,5 @@ Esses exemplos são os casos de teste unitário obrigatórios do cálculo (toler
 | Versão | Data | Alterações |
 |---|---|---|
 | 1.0 | 2026-09-27 | Versão inicial aprovada em conversa (Blocos 1, 2, 2b e 3 + M6) |
-| 1.1 | 2026-09-27 | Revisão 2: isolamento também por paciente (RLS por `patient_id`); exclusão LGPD corrigida (bloqueio durante a guarda legal em vez de anonimização imediata); anti-abuso no agendamento público (Turnstile + código por e-mail, RN-16, INT-06); opt-in de WhatsApp antes do convite; medidas caseiras (fonte IBGE, `food_measures`); build fora da VPS (GHCR) e deploy com migrations expand/contract; worker com 512 MB e responsável pelos backups; heartbeat do worker no health check; cota de armazenamento (RN-18, RNF-13); menores de idade (RN-17, pendente); link online padrão e ativação do agendamento público; PDF gerado na publicação; faixas FAO/OMS sem sobreposição; novas pendências P-10 a P-15 |
+| 1.1 | 2026-09-27 | Revisão 2: isolamento também por paciente (RLS por `patient_id`); exclusão LGPD corrigida (bloqueio durante a guarda legal em vez de anonimização imediata); anti-abuso no agendamento público (Turnstile + código por e-mail, RN-16, INT-06); opt-in de WhatsApp antes do convite; medidas caseiras (fonte IBGE, `food_measures`); build fora da VPS (GHCR) e deploy com migrations expand/contract; worker com 512 MB e responsável pelos backups; heartbeat do worker no health check; cota de armazenamento (RN-18, RNF-13); menores de idade (RN-17); link online padrão e ativação do agendamento público; PDF gerado na publicação; faixas FAO/OMS sem sobreposição; novas pendências P-10 a P-15 |
+| 1.2 | 2026-09-27 | P-11 resolvida: somente adultos (D-11, RN-17). Especificação aprovada |
