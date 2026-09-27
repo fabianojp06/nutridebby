@@ -1,20 +1,38 @@
 import pino from 'pino';
 
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  base: { app: 'nutridebby' },
-  redact: {
-    paths: [
-      'password',
-      'newPassword',
-      'token',
-      'url',
-      '*.password',
-      '*.newPassword',
-      '*.token',
-      'req.headers.cookie',
-      'req.headers.authorization',
-    ],
-    censor: '[removido]',
-  },
-});
+/** Chaves de segredo (RNF-11): nunca devem aparecer em claro nos logs. */
+const REDACT_KEYS = [
+  'password',
+  'newPassword',
+  'currentPassword',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'sessionToken',
+  'secret',
+  'url',
+  'cookie',
+  'authorization',
+] as const;
+
+/** Paths para o `redact` do pino: cada chave nos níveis 0, 1 e 2, mais casos fixos de headers. */
+function redactPaths(): string[] {
+  const paths = REDACT_KEYS.flatMap((key) => [key, `*.${key}`, `*.*.${key}`]);
+  return [...paths, 'req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'];
+}
+
+export function createLogger(destination?: pino.DestinationStream): pino.Logger {
+  return pino(
+    {
+      level: process.env.LOG_LEVEL ?? 'info',
+      base: { app: 'nutridebby' },
+      redact: {
+        paths: redactPaths(),
+        censor: '[removido]',
+      },
+    },
+    destination,
+  );
+}
+
+export const logger = createLogger();
