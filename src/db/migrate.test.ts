@@ -37,4 +37,24 @@ describe('migrations de base', () => {
       runMigrations({ migratorUrl: inject('ownerDatabaseUrl'), appUrl: inject('appDatabaseUrl') }),
     ).resolves.toBeUndefined();
   });
+
+  it('reaplicar as migrations remove CREATEDB/CREATEROLE caso o role já os tenha', async () => {
+    await owner.pool.query('ALTER ROLE nutri_app CREATEDB CREATEROLE');
+
+    const { runMigrations } = await import('./migrate');
+    await runMigrations({
+      migratorUrl: inject('ownerDatabaseUrl'),
+      appUrl: inject('appDatabaseUrl'),
+    });
+
+    const { rows } = await owner.pool.query(
+      `select rolcreatedb, rolcreaterole, rolsuper, rolbypassrls from pg_roles where rolname = 'nutri_app'`,
+    );
+    expect(rows[0]).toEqual({
+      rolcreatedb: false,
+      rolcreaterole: false,
+      rolsuper: false,
+      rolbypassrls: false,
+    });
+  });
 });

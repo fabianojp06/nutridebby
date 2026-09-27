@@ -35,7 +35,9 @@ export async function ensureAppLogin(pool: Pool, appUrl: string): Promise<void> 
         `CREATE ROLE ${ident} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD ${pw}`,
       );
     } else {
-      await client.query(`ALTER ROLE ${ident} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD ${pw}`);
+      await client.query(
+        `ALTER ROLE ${ident} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD ${pw}`,
+      );
     }
     await client.query(`GRANT nutri_app_role TO ${ident}`);
     const { rows } = await client.query<{ d: string }>('select current_database() as d');
