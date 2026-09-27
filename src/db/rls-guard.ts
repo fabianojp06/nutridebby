@@ -21,16 +21,24 @@ interface TenantTableRow {
 }
 
 /**
+ * Shared table selection for all tenant_id queries.
+ * Selects regular and partitioned tables in public schema with a tenant_id column.
+ */
+const TENANT_TABLES_SELECTION = `
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+ where c.relkind in ('r', 'p')
+   and exists (select 1 from information_schema.columns k where k.table_schema = 'public'
+               and k.table_name = c.relname and k.column_name = 'tenant_id')
+`;
+
+/**
  * Retorna a lista de tabelas (regulares e particionadas) com coluna tenant_id.
  */
 export async function listTenantTables(db: Pool | PoolClient): Promise<string[]> {
   const { rows } = await db.query<{ table: string }>(`
     select c.relname as table
-      from pg_class c
-      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-     where c.relkind in ('r', 'p')
-       and exists (select 1 from information_schema.columns k where k.table_schema = 'public'
-                   and k.table_name = c.relname and k.column_name = 'tenant_id')
+    ${TENANT_TABLES_SELECTION}
      order by 1`);
   return rows.map(r => r.table);
 }
@@ -46,11 +54,7 @@ export async function findRlsViolations(db: Pool | PoolClient): Promise<RlsViola
                    and k.table_name = c.relname and k.column_name = 'patient_id') as has_patient_col,
            exists (select 1 from pg_policies p where p.schemaname = 'public'
                    and p.tablename = c.relname and p.policyname = 'patient_isolation') as has_patient_policy
-      from pg_class c
-      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-     where c.relkind in ('r', 'p')
-       and exists (select 1 from information_schema.columns k where k.table_schema = 'public'
-                   and k.table_name = c.relname and k.column_name = 'tenant_id')
+    ${TENANT_TABLES_SELECTION}
      order by 1`);
 
   const out: RlsViolation[] = [];
