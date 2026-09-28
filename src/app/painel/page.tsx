@@ -1,13 +1,17 @@
-import { requireUser } from '@/lib/session';
+import { requireNutri } from '@/lib/tenant-session';
+import { Cabecalho } from './cabecalho';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PainelHome() {
-  const { user } = await requireUser(['nutri'], '/painel');
+  const { data, tenant } = await requireNutri('/painel');
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold">Painel da nutricionista</h1>
-      <p>Conectado como {user.email}.</p>
-    </main>
+    <>
+      <Cabecalho tenant={tenant} />
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold">Painel da nutricionista</h1>
+        <p>Conectado como {data.user.email}.</p>
+      </main>
+    </>
   );
 }
