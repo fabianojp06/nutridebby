@@ -1,5 +1,5 @@
 {
-  "id": "ae12e7a9-97ee-46af-8378-7a22a3b6c8a3",
+  "id": "dca530b9-d7d6-4c45-b4f3-e15189df8639",
   "prevId": "eb1c6677-0a52-481e-b2e3-e4d4ac1bd858",
   "version": "7",
   "dialect": "postgresql",
@@ -65,6 +65,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "invites_user_pendente_idx": {
+          "name": "invites_user_pendente_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"invites\".\"usado_em\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}

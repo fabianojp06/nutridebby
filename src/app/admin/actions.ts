@@ -37,7 +37,9 @@ export async function reenviarConviteAction(tenantId: string): Promise<void> {
     await reenviarConvite(tenantId);
   } catch (e) {
     if (!(e instanceof ContaError)) throw e;
-    aviso = 'ja_tem_senha';
+    // T5-R2: cada código do ContaError vira seu próprio aviso (a Tarefa 7 acrescenta o código
+    // de "conta suspensa" — basta uma entrada nova em AVISOS, `/admin/page.tsx`, nada aqui).
+    aviso = e.code;
   }
   revalidatePath('/admin');
   redirect(`/admin?aviso=${aviso}`);

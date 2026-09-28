@@ -20,6 +20,7 @@ export const MSG = {
   slugFormato: 'Use de 3 a 40 letras minúsculas, números ou hífen',
   slugDuplicado: 'Endereço já em uso',
   jaTemSenha: 'A nutricionista já definiu a senha. Se ela esqueceu, use "Esqueci minha senha".',
+  semNutri: 'Conta sem nutricionista.',
 } as const;
 
 export const nomeExibicaoSchema = z.string().trim().min(3, MSG.nome).max(80, MSG.nome);
@@ -34,9 +35,18 @@ export const novaContaSchema = z.object({
 
 export type ErrosDeCampo = Partial<Record<'nomeExibicao' | 'email' | 'crn' | 'slug' | 'geral', string>>;
 
+/**
+ * T5-R2: código estável para quem chama decidir o aviso sem reinterpretar `erros` (a Tarefa 7
+ * acrescenta um código de "conta suspensa"; novos códigos só precisam de uma entrada em AVISOS).
+ */
+export type ContaErrorCode = 'validacao' | 'sem_nutri' | 'ja_tem_senha';
+
 export class ContaError extends Error {
   override name = 'ContaError';
-  constructor(readonly erros: ErrosDeCampo) {
+  constructor(
+    readonly erros: ErrosDeCampo,
+    readonly code: ContaErrorCode = 'validacao',
+  ) {
     super('Dados da conta inválidos');
   }
 }
@@ -77,14 +87,20 @@ export async function criarContaNutri(input: Record<string, unknown>, deps: Deps
 export async function reenviarConvite(tenantId: string, deps: Deps = {}): Promise<void> {
   const db = deps.db ?? getDb();
   const appUrl = deps.appUrl ?? getEnv().APP_URL;
-  const [u] = await db
-    .select({ id: user.id, email: user.email, nome: user.name })
-    .from(user)
-    .where(and(eq(user.tenantId, tenantId), eq(user.appRole, 'nutri')));
-  if (!u) throw new ContaError({ geral: 'Conta sem nutricionista.' });
-  const comSenha = await db.select({ id: account.id }).from(account).where(and(eq(account.userId, u.id), eq(account.providerId, 'credential')));
-  if (comSenha.length) throw new ContaError({ geral: MSG.jaTemSenha });
   await db.transaction(async (tx) => {
+    // T5-R3: tranca a linha da nutricionista (SELECT ... FOR UPDATE) — duas chamadas concorrentes
+    // (duplo clique, duas abas) serializam aqui; a segunda só continua depois que a primeira
+    // confirma ou desfaz, e então já vê o estado atualizado antes de decidir o que fazer. Some
+    // com a corrida em que ambas passariam pela checagem e cada uma criaria um convite válido
+    // (a `invites_user_pendente_idx`, parcial e única, seria a última rede de segurança).
+    const [u] = await tx
+      .select({ id: user.id, email: user.email, nome: user.name })
+      .from(user)
+      .where(and(eq(user.tenantId, tenantId), eq(user.appRole, 'nutri')))
+      .for('update');
+    if (!u) throw new ContaError({ geral: MSG.semNutri }, 'sem_nutri');
+    const comSenha = await tx.select({ id: account.id }).from(account).where(and(eq(account.userId, u.id), eq(account.providerId, 'credential')));
+    if (comSenha.length) throw new ContaError({ geral: MSG.jaTemSenha }, 'ja_tem_senha');
     const { token } = await criarConvite(tx, u.id, deps.now);
     await enqueueEmail({ tipo: 'convite_nutri', para: u.email, nome: u.nome, link: linkDoConvite(appUrl, token) }, { tenantId, tx });
   });

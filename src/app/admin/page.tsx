@@ -9,6 +9,7 @@ const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   criada: { texto: 'Conta criada. O convite foi enviado para o e-mail da nutricionista.' },
   reenviado: { texto: 'Convite reenviado.' },
   ja_tem_senha: { texto: MSG.jaTemSenha, erro: true },
+  sem_nutri: { texto: MSG.semNutri, erro: true },
 };
 
 const data = (d: Date) =>

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { and, count, eq } from 'drizzle-orm';
-import { makeDb } from '../../../test/db';
+import { and, count, eq, isNull } from 'drizzle-orm';
+import { makeDb, semPreChecagem } from '../../../test/db';
+import { closeDb } from '@/db/client';
 import { account, invites, tenants, user } from '@/db/schema';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
@@ -17,7 +18,10 @@ const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T12:00:00Z');
 const deps = { db: app.db, appUrl: 'http://localhost:3000', now };
 afterAll(async () => {
+  // getBoss() (usado por convitesPara) abre o pool do módulo via getPool() — sem fechá-lo
+  // (closeDb()) depois de stopBoss(), a saída do teste não fica limpa.
   await stopBoss();
+  await closeDb();
   await app.pool.end();
 });
 
@@ -98,6 +102,35 @@ describe('criarContaNutri (US-001)', () => {
     expect((falha!.reason as ContaError).erros).toEqual({ slug: 'Endereço já em uso' });
   });
 
+  // T5-R1: a corrida acima nem sempre chega a disputar o INSERT nesta máquina (a pré-checagem de
+  // uma delas já vê a linha da outra). Estes dois testes forçam, de forma determinística, o
+  // caminho em que só a constraint UNIQUE decide — com `semPreChecagem`, a pré-checagem sempre
+  // devolve [], então o INSERT real é quem bate na linha já existente.
+  it('slug já existente (sem a pré-checagem enxergar): uniqueViolation mapeia para "Endereço já em uso" e desfaz a transação', async () => {
+    const x = s();
+    await app.db.insert(tenants).values({ slug: `existe-${x}`, nomeExibicao: 'Já existe' });
+    const e = await criarContaNutri(
+      { nomeExibicao: 'Nova', email: `nova-slug-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `existe-${x}` },
+      { ...deps, db: semPreChecagem(app.db) },
+    ).catch((x2: unknown) => x2);
+    expect(e).toBeInstanceOf(ContaError);
+    expect((e as ContaError).erros).toEqual({ slug: 'Endereço já em uso' });
+    expect((await app.db.select({ n: count() }).from(user).where(eq(user.email, `nova-slug-${x}@exemplo.com`)))[0].n).toBe(0);
+  });
+
+  it('e-mail já cadastrado (sem a pré-checagem enxergar): uniqueViolation mapeia para "E-mail já cadastrado" e desfaz a transação', async () => {
+    const x = s();
+    const email = `existe-email-${x}@exemplo.com`;
+    await app.db.insert(user).values({ id: randomUUID(), name: 'Já existe', email, emailVerified: false, appRole: 'nutri' });
+    const e = await criarContaNutri(
+      { nomeExibicao: 'Nova', email, crn: 'CRN-3 12345', slug: `novo-email-${x}` },
+      { ...deps, db: semPreChecagem(app.db) },
+    ).catch((x2: unknown) => x2);
+    expect(e).toBeInstanceOf(ContaError);
+    expect((e as ContaError).erros).toEqual({ email: 'E-mail já cadastrado' });
+    expect((await app.db.select({ n: count() }).from(tenants).where(eq(tenants.slug, `novo-email-${x}`)))[0].n).toBe(0);
+  });
+
   it('faz login com o e-mail em MAIÚSCULAS depois de aceitar o convite (Review Focus 1, PF-F7)', async () => {
     const x = s();
     const email = `maiusc-${x}@exemplo.com`;
@@ -134,11 +167,30 @@ describe('reenviarConvite (US-001 "Convite expirado")', () => {
     expect(await inspecionarConvite(app.db, tokenDe(novo), depois)).toMatchObject({ estado: 'valido' });
   });
 
-  it('recusa quando a nutricionista já definiu a senha', async () => {
+  it('recusa quando a nutricionista já definiu a senha (T5-R2: code "ja_tem_senha")', async () => {
     const x = s();
     const r = await criarContaNutri({ nomeExibicao: 'Com senha', email: `cs-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `com-senha-${x}` }, deps);
     await app.db.insert(account).values({ id: randomUUID(), userId: r.userId, accountId: r.userId, providerId: 'credential', password: 'x' });
-    await expect(reenviarConvite(r.tenantId, deps)).rejects.toBeInstanceOf(ContaError);
+    const e = await reenviarConvite(r.tenantId, deps).catch((x2: unknown) => x2);
+    expect(e).toBeInstanceOf(ContaError);
+    expect((e as ContaError).code).toBe('ja_tem_senha');
+    expect((e as ContaError).erros).toEqual({ geral: 'A nutricionista já definiu a senha. Se ela esqueceu, use "Esqueci minha senha".' });
+  });
+
+  it('recusa quando o tenant não tem nutricionista (T5-R2: code "sem_nutri")', async () => {
+    const e = await reenviarConvite(randomUUID(), deps).catch((x2: unknown) => x2);
+    expect(e).toBeInstanceOf(ContaError);
+    expect((e as ContaError).code).toBe('sem_nutri');
+    expect((e as ContaError).erros).toEqual({ geral: 'Conta sem nutricionista.' });
+  });
+
+  it('dois reenvios ao mesmo tempo (duplo clique) deixam só um convite não usado (T5-R3)', async () => {
+    const x = s();
+    const email = `duplo-${x}@exemplo.com`;
+    const r = await criarContaNutri({ nomeExibicao: 'Duplo clique', email, crn: 'CRN-3 12345', slug: `duplo-${x}` }, deps);
+    await Promise.all([reenviarConvite(r.tenantId, deps), reenviarConvite(r.tenantId, deps)]);
+    const pendentes = await app.db.select().from(invites).where(and(eq(invites.userId, r.userId), isNull(invites.usadoEm)));
+    expect(pendentes).toHaveLength(1);
   });
 });
 

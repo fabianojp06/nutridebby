@@ -25,6 +25,7 @@ ALTER TABLE "tenants" ADD COLUMN "dpa_aceito_em" timestamp with time zone;--> st
 ALTER TABLE "tenants" ADD COLUMN "dpa_versao" text;--> statement-breakpoint
 ALTER TABLE "invites" ADD CONSTRAINT "invites_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "invites_user_idx" ON "invites" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "invites_user_pendente_idx" ON "invites" USING btree ("user_id") WHERE "invites"."usado_em" is null;--> statement-breakpoint
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_cor_formato" CHECK ("tenants"."cor_primaria" is null or "tenants"."cor_primaria" ~ '^#[0-9a-fA-F]{6}$');--> statement-breakpoint
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_antecedencia_faixa" CHECK ("tenants"."antecedencia_min_h" between 0 and 72);--> statement-breakpoint
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_cancelamento_faixa" CHECK ("tenants"."cancelamento_min_h" between 0 and 72);--> statement-breakpoint
