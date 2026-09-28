@@ -14,7 +14,7 @@ let app: Pool;
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
   const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
-  // mesmos comandos do runbook (Tarefa 13, Step 0), rodados uma vez como postgres
+  // mesmos comandos do runbook (Tarefa 13, Step 1b), rodados uma vez como postgres
   await su.query(`CREATE ROLE nutri_owner LOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS PASSWORD 'owner-pw'`);
   await su.query('CREATE DATABASE nutri OWNER nutri_owner');
   await su.end();

@@ -2806,6 +2806,8 @@ CREATE ROLE nutri_owner LOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS;
 ALTER DATABASE nutri OWNER TO nutri_owner;
 ```
 
+> **Atenção:** o `CREATEROLE` acima só é seguro assim no PostgreSQL **≥ 16** — a partir dessa versão, quem tem `CREATEROLE` só gerencia as roles que criou (ou para as quais recebeu `ADMIN OPTION` explícita), sem poder alterar/apagar roles preexistentes arbitrárias. Em versões anteriores ao 16, `CREATEROLE` permite alterar senha, membership e até apagar **qualquer** role não-superusuário (inclusive `postgres`), o que equivale a quase-superusuário — não replicar este passo assim num Postgres < 16.
+
 Por que basta: as extensões da migration 0000 (`citext`, `pg_trgm`, `unaccent`, `btree_gist`) são *trusted* no PG 16 e o dono do banco pode criá-las; `CREATEROLE` cobre criar `nutri_app_role`/`nutri_app` e sincronizar a senha a cada deploy; o dono do banco é dono do schema `public` (`pg_database_owner`). Coberto por `src/db/migrate-owner.test.ts` (cluster próprio montado com estes comandos). `DATABASE_URL_MIGRATOR` do `nutri_app` usa este role; o `nutri_worker` continua **sem** `DATABASE_URL_MIGRATOR`.
 
 - [ ] **Step 2: Webhooks de deploy** — em cada serviço (`app`, `worker`), copiar a URL de "Deploy Webhook" e cadastrar no GitHub como secrets `EASYPANEL_DEPLOY_HOOK_APP` e `EASYPANEL_DEPLOY_HOOK_WORKER` (`gh secret set EASYPANEL_DEPLOY_HOOK_APP` — o valor é colado no prompt, sem aparecer no histórico).
@@ -3055,7 +3057,7 @@ git commit -m "spike(pwa): service worker via @serwist/turbopack registrado só 
 
 ## Fechamento do plano (após a Tarefa 15)
 
-- [ ] Rodar a revisão da entrega conforme o índice: `/code-review high` → corrigir → `/code-review high` (limpo) → `/security-review`; registrar os resumos no PR.
-- [ ] Atualizar o status das tarefas P01-01 a P01-15 no backlog (https://claude.ai/artifact/DeHjnCr4xFDn7xE8DDuvM2).
-- [ ] Atualizar a spec (Apêndice C) com os "Desvios conscientes" desta página e o resultado da P-14.
+- [x] Rodar a revisão da entrega conforme o índice: `/code-review high` → corrigir → `/code-review high` (limpo) → `/security-review`; registrar os resumos no PR.
+- [x] Atualizar o status das tarefas P01-01 a P01-15 no backlog (https://claude.ai/artifact/DeHjnCr4xFDn7xE8DDuvM2).
+- [x] Atualizar a spec (Apêndice C) com os "Desvios conscientes" desta página e o resultado da P-14.
 - [ ] Pedir ao dono o merge (= deploy).
