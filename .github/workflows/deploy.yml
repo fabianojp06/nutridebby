@@ -46,6 +46,15 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Poda logo após o push e antes dos webhooks: se o deploy falhar (ex.: segredos
+      # ainda não cadastrados), a poda já rodou. Mantém a imagem recém-publicada e a
+      # anterior (a que está rodando), então nunca remove a imagem em uso.
+      - name: Manter só as 2 versões mais recentes da imagem no GHCR (custo zero — 500 MB grátis)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: nutridebby
+          package-type: container
+          min-versions-to-keep: 2
       - name: Disparar deploy no Easypanel
         env:
           HOOK_APP: ${{ secrets.EASYPANEL_DEPLOY_HOOK_APP }}
@@ -54,9 +63,3 @@ jobs:
           test -n "$HOOK_APP" && test -n "$HOOK_WORKER" || { echo "Webhooks do Easypanel não configurados"; exit 1; }
           curl -fsS -X POST "$HOOK_APP" > /dev/null
           curl -fsS -X POST "$HOOK_WORKER" > /dev/null
-      - name: Manter só as 2 versões mais recentes da imagem no GHCR (custo zero — 500 MB grátis)
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: nutridebby
-          package-type: container
-          min-versions-to-keep: 2
