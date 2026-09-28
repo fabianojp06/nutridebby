@@ -4,11 +4,11 @@ import { getSessionCookie } from 'better-auth/cookies';
 const PROTECTED = ['/admin', '/painel', '/p', '/conta', '/inicio'];
 
 export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (isProtected && !getSessionCookie(req, { cookiePrefix: 'nd' })) {
     const url = new URL('/entrar', req.url);
-    url.searchParams.set('volta', pathname);
+    url.searchParams.set('volta', `${pathname}${search}`); // /entrar valida com safeReturnPath
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
