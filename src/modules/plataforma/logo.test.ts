@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { closeDb, getDb, type Db } from '@/db/client';
+import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getEnv } from '@/env';
 import { detectarTipo } from '@/lib/file-type';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from './armazenamento';
-import { apontarLogo, LogoOcupadoError, MSG_SVG_FILTRO, processarLogo, SvgFiltroError, trocarLogo } from './logo';
+import { apontarLogo, limparResfriamentoSvg, LogoOcupadoError, MSG_SVG_FILTRO, MSG_SVG_PESADO, processarLogo, SvgFiltroError, SvgPesadoError, trocarLogo } from './logo';
 
 afterAll(() => closeDb());
 const imagem = (w: number, h: number, formato: 'png' | 'jpeg') =>
@@ -91,6 +91,67 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
     for (const v of variantes) await expect(processarLogo(Buffer.from(v))).rejects.toBeInstanceOf(SvgFiltroError);
   });
 
+  // T10-R4b: variantes que o librsvg aplica e que a regex antiga de <filter>/<fe…> não pegava.
+  it('recusa filtro por atributo, regra CSS, referência numérica XML e escape CSS (sem chamar o sharp)', async () => {
+    const svg = (corpo: string) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">${corpo}</svg>`);
+    const variantes = [
+      svg('<rect width="100" height="100" filter="blur(300)"/>'),
+      svg('<style>rect{filter:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<rect width="100" height="100" style="fil&#116;er:blur(4px)"/>'),
+      svg('<rect width="100" height="100" style="fil&#x74;er:blur(4px)"/>'),
+      svg('<style>rect{fil\\74 er:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<style>rect{fil\\ter:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<rect width="100" height="100" style="&#x66;&#x69;lter:blur(4px)"/>'),
+    ];
+    for (const v of variantes) await expect(processarLogo(v)).rejects.toBeInstanceOf(SvgFiltroError);
+  });
+
+  // T10-R4a/c/d: SVG sem "filter" mas caro (12 níveis de <use> duplicado sobre um gradiente 1000×1000
+  // a 300 dpi). O timeout injetável de 400 ms prova o SIGKILL; o custo do teste é o timeout, não o SVG.
+  const SVG_PESADO = (() => {
+    let d =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000"><defs><radialGradient id="g"><stop offset="0" stop-color="#f00"/><stop offset="1" stop-color="#00f"/></radialGradient>' +
+      '<g id="a0"><rect width="1000" height="1000" fill="url(#g)" opacity=".5"/></g>';
+    for (let i = 1; i <= 12; i++) d += `<g id="a${i}"><use href="#a${i - 1}"/><use href="#a${i - 1}" x="1"/></g>`;
+    return Buffer.from(d + '</defs><use href="#a12"/></svg>');
+  })();
+
+  it('SVG pesado é morto pelo tempo (SvgPesadoError, mensagem nova) e o tenant fica em resfriamento', async () => {
+    limparResfriamentoSvg();
+    const tenantId = randomUUID();
+    const inicio = performance.now();
+    await expect(processarLogo(SVG_PESADO, { tenantId, svgTimeoutMs: 400 })).rejects.toThrow(MSG_SVG_PESADO);
+    expect(performance.now() - inicio).toBeLessThan(2500);
+    // resfriamento: um SVG simples do mesmo tenant é recusado com LogoOcupadoError (429)…
+    await expect(processarLogo(SVG_COM_SCRIPT, { tenantId })).rejects.toBeInstanceOf(LogoOcupadoError);
+    // …mas PNG do mesmo tenant e SVG de outro tenant seguem normais.
+    await expect(processarLogo(await imagem(50, 50, 'png'), { tenantId })).resolves.toBeInstanceOf(Buffer);
+    await expect(processarLogo(SVG_COM_SCRIPT, { tenantId: randomUUID() })).resolves.toBeInstanceOf(Buffer);
+    limparResfriamentoSvg();
+    await expect(processarLogo(SVG_COM_SCRIPT, { tenantId })).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it('o resfriamento expira depois de 10 minutos', async () => {
+    limparResfriamentoSvg();
+    const tenantId = randomUUID();
+    await expect(processarLogo(SVG_PESADO, { tenantId, svgTimeoutMs: 400 })).rejects.toBeInstanceOf(SvgPesadoError);
+    const agora = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(agora + 10 * 60_000 + 1);
+    try {
+      await expect(processarLogo(SVG_COM_SCRIPT, { tenantId })).resolves.toBeInstanceOf(Buffer);
+    } finally {
+      spy.mockRestore();
+      limparResfriamentoSvg();
+    }
+  });
+
+  it('SVG malformado no filho vira TipoNaoPermitidoError, sem resfriamento', async () => {
+    limparResfriamentoSvg();
+    const tenantId = randomUUID();
+    await expect(processarLogo(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect'), { tenantId })).rejects.toBeInstanceOf(TipoNaoPermitidoError);
+    await expect(processarLogo(SVG_COM_SCRIPT, { tenantId })).resolves.toBeInstanceOf(Buffer);
+  });
+
   // T10-R1c/d
   it('duas chamadas simultâneas: a segunda é recusada com 429 enquanto a primeira processa', async () => {
     const buf = await imagem(300, 300, 'png');
@@ -113,15 +174,23 @@ describe('trocarLogo', () => {
     expect(r.armazenamentoBytes).toBe(readFileSync(path.join(getEnv().DATA_DIR, segundo)).length);
   });
 
-  // T10-R3b
-  it('o UPDATE falha depois do salvarArquivo: o arquivo novo é apagado e a cota devolvida', async () => {
+  // T10-R3b/R4e: a falha acontece só em `apontarLogo` (o `salvarArquivo` usa o banco real e grava).
+  it('o UPDATE do ponteiro falha depois do salvarArquivo: o arquivo novo sai do disco e a cota é devolvida', async () => {
     const t = await novoTenant('logo-falha');
     const ctx = { tenantId: t.id, role: 'nutri' as const };
-    const dbQuebrado = { ...getDb(), transaction: () => Promise.reject(new Error('falha simulada de banco')) } as unknown as Db;
-    await expect(trocarLogo(ctx, await imagem(100, 100, 'png'), { db: dbQuebrado })).rejects.toThrow('falha simulada de banco');
+    let caminhoGravado = '';
+    const apontar = async (_ctx: unknown, caminho: string) => {
+      caminhoGravado = caminho;
+      // o arquivo já existe no disco e a cota já foi reservada neste ponto
+      expect(existsSync(path.join(getEnv().DATA_DIR, caminho))).toBe(true);
+      throw new Error('falha simulada de banco');
+    };
+    await expect(trocarLogo(ctx, await imagem(100, 100, 'png'), { apontar: apontar as typeof apontarLogo })).rejects.toThrow('falha simulada de banco');
+    expect(caminhoGravado).not.toBe('');
+    expect(existsSync(path.join(getEnv().DATA_DIR, caminhoGravado))).toBe(false);
     const [r] = await getDb().select().from(tenants).where(eq(tenants.id, t.id));
     expect(r.logoPath).toBeNull();
-    expect(r.armazenamentoBytes).toBe(0); // salvarArquivo tinha reservado a cota; foi devolvida
+    expect(r.armazenamentoBytes).toBe(0);
   });
 
   // T10-R3b: duas trocas concorrentes do mesmo tenant não devem deixar um arquivo órfão contado

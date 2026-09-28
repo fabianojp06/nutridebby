@@ -7,7 +7,7 @@ import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { clientIp } from '@/lib/ip';
 import { CotaEsgotadaError, MSG_COTA_ESGOTADA, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
-import { LOGO_MAX_BYTES, LogoOcupadoError, MSG_LOGO_GRANDE, SvgFiltroError, trocarLogo } from '@/modules/plataforma/logo';
+import { LOGO_MAX_BYTES, LogoOcupadoError, MSG_LOGO_GRANDE, SvgFiltroError, SvgPesadoError, trocarLogo } from '@/modules/plataforma/logo';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     await trocarLogo({ tenantId, role: 'nutri', actorUserId: auth.data.user.id, ip: clientIp(req.headers, env.TRUSTED_PROXIES) }, conteudo);
   } catch (e) {
     // T10-R1: filtro SVG (CPU) e "já tem outro logo em processamento" (429) antes do 415 genérico.
-    if (e instanceof SvgFiltroError) return json(415, e.message);
+    if (e instanceof SvgFiltroError || e instanceof SvgPesadoError) return json(415, e.message);
     if (e instanceof LogoOcupadoError) return json(429, e.message);
     if (e instanceof TipoNaoPermitidoError) return json(415, 'Envie o logo em PNG, JPEG ou SVG.');
     if (e instanceof CotaEsgotadaError) return json(507, MSG_COTA_ESGOTADA);

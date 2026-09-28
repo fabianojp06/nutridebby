@@ -127,7 +127,6 @@ test('conta suspensa entre o aceite do convite e o login automático leva a /ind
 });
 
 // PNG 1×1 válido
-const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
 test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005)', async ({ browser }) => {
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.5' } });
@@ -146,7 +145,12 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await page.getByRole('button', { name: 'Salvar perfil' }).click();
   await expect(page.getByRole('status')).toHaveText('Perfil salvo.');
 
-  await page.getByLabel('Logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG_1X1 });
+  await page.getByLabel('Logo').setInputFiles({
+    name: 'logo.svg',
+    mimeType: 'image/svg+xml',
+    // SVG: exercita o processo filho de rasterização (scripts/svg-raster.mjs) sob `next start` (T10-R4)
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#2E7D32"/></svg>'),
+  });
   await page.getByRole('button', { name: 'Enviar logo' }).click();
   await expect(page.getByText('Logo atualizado.')).toBeVisible();
   const banner = page.getByRole('banner');

@@ -6,7 +6,7 @@ import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
-import { LogoOcupadoError, trocarLogo } from '@/modules/plataforma/logo';
+import { LogoOcupadoError, SvgPesadoError, trocarLogo } from '@/modules/plataforma/logo';
 import { criarEEntrar } from '../../../../../../test/sessao';
 import { POST } from './route';
 
@@ -82,5 +82,14 @@ describe('POST /api/painel/marca/logo', () => {
     const res = await enviar(await png(), { cookie });
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ erro: 'Tente novamente em alguns instantes.' });
+  });
+
+  // T10-R4a
+  it('SVG que estoura o tempo de rasterização → 415 com a mensagem nova', async () => {
+    const { cookie } = await nutriComDpa();
+    vi.mocked(trocarLogo).mockRejectedValueOnce(new SvgPesadoError());
+    const res = await enviar(await png(), { cookie });
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ erro: 'Não foi possível processar este SVG. Envie o logo em PNG.' });
   });
 });
