@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import { closeDb, getDb } from '@/db/client';
-import { getEnv } from '@/env';
+import { getServerEnv } from '@/env';
 import { logger } from '@/lib/logger';
 import { recordHeartbeat } from './heartbeat';
 
@@ -30,7 +30,7 @@ export async function startWorker(connectionString: string): Promise<() => Promi
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const stop = await startWorker(getEnv().DATABASE_URL);
+  const stop = await startWorker(getServerEnv().DATABASE_URL);
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'encerrando worker');
     await stop();

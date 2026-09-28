@@ -13,7 +13,6 @@ COPY . .
 # Valores só para o build (nenhuma conexão é aberta no build); não vão para a imagem final
 ENV APP_URL=http://build.invalid \
     DATABASE_URL=postgres://build_app:x@127.0.0.1:1/build \
-    DATABASE_URL_MIGRATOR=postgres://build_owner:x@127.0.0.1:1/build \
     AUTH_SECRET=build-only-secret-build-only-secret-00
 RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 

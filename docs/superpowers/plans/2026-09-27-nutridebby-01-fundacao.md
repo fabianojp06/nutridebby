@@ -2791,8 +2791,8 @@ Esta tarefa é feita **pelo dono no painel do Easypanel** (regra do servidor), c
 | Serviço | Tipo | Configuração |
 |---|---|---|
 | `db` → `nutri_db` | Postgres 16 | Banco `nutri`; anotar a senha do usuário `postgres` (não colar em chat). Recursos: memória limite **1024 MB** |
-| `app` → `nutri_app` | App, origem **Docker Image** `ghcr.io/<owner>/nutridebby:latest` | Credencial do GHCR (token GitHub com escopo `read:packages`). Variáveis: `NODE_ENV=production`, `APP_URL=https://app.<dominio>`, `DATABASE_URL=postgres://nutri_app:<senha-forte-nova>@nutri_db:5432/nutri`, `DATABASE_URL_MIGRATOR=postgres://postgres:<senha-do-postgres>@nutri_db:5432/nutri`, `AUTH_SECRET=<openssl rand -base64 48>`, `LOG_LEVEL=info`, `APP_ROLE=app`, `TRUSTED_PROXIES=<CIDR da rede overlay do Swarm/Traefik; conferir com `docker network inspect easypanel` — só leitura>`. Domínio `app.<dominio>` → porta **3000**, HTTPS. Recursos: memória **1024 MB**, CPU **1** |
-| `worker` → `nutri_worker` | App, mesma imagem | Mesmas variáveis, exceto `APP_ROLE=worker` e **sem** `DATABASE_URL_MIGRATOR`. Sem domínio. Recursos: memória **512 MB** |
+| `app` → `nutri_app` | App, origem **Docker Image** `ghcr.io/<owner>/nutridebby:latest` | Credencial do GHCR (token GitHub com escopo `read:packages`). Variáveis: `NODE_ENV=production`, `APP_URL=https://app.<dominio>`, `DATABASE_URL=postgres://nutri_app:<senha-forte-nova>@nutri_db:5432/nutri`, `DATABASE_URL_MIGRATOR=postgres://postgres:<senha-do-postgres>@nutri_db:5432/nutri`, `AUTH_SECRET=<openssl rand -base64 48>`, `LOG_LEVEL=info`, `APP_ROLE=app`, `TRUSTED_PROXIES=<CIDR da rede overlay do Swarm/Traefik; conferir com `docker network inspect easypanel` — só leitura>`. `DATABASE_URL_MIGRATOR` só é lida pelas migrations no start; o `docker-entrypoint.sh` sobe o Next com `env -u DATABASE_URL_MIGRATOR` (Ruling R37). Domínio `app.<dominio>` → porta **3000**, HTTPS. Recursos: memória **1024 MB**, CPU **1** |
+| `worker` → `nutri_worker` | App, mesma imagem | Só o que o worker usa: `NODE_ENV=production`, `DATABASE_URL` (mesmo valor do app), `LOG_LEVEL=info`, `APP_ROLE=worker`. **Não** cadastrar `DATABASE_URL_MIGRATOR` (role dono do schema, capaz de desligar RLS), nem `AUTH_SECRET`/`APP_URL` (Ruling R37). Sem domínio. Recursos: memória **512 MB** |
 
 - [ ] **Step 2: Webhooks de deploy** — em cada serviço (`app`, `worker`), copiar a URL de "Deploy Webhook" e cadastrar no GitHub como secrets `EASYPANEL_DEPLOY_HOOK_APP` e `EASYPANEL_DEPLOY_HOOK_WORKER` (`gh secret set EASYPANEL_DEPLOY_HOOK_APP` — o valor é colado no prompt, sem aparecer no histórico).
 
@@ -2807,6 +2807,15 @@ curl -s -o /dev/null -w "%{http_code}\n" https://app.<dominio>/api/health
 ```
 
 Expected: 3 serviços `1/1`; log com `Migrations aplicadas…`; health `200`.
+
+Conferir que a credencial do migrator não está no ambiente dos processos (imprime só a contagem, nunca o valor):
+
+```bash
+docker exec $(docker ps -q -f name=nutri_app | head -1) sh -c "tr '\\0' '\\n' < /proc/1/environ | grep -c '^DATABASE_URL_MIGRATOR=' || true"
+docker exec $(docker ps -q -f name=nutri_worker | head -1) sh -c "tr '\\0' '\\n' < /proc/1/environ | grep -c '^DATABASE_URL_MIGRATOR=' || true"
+```
+
+Expected: `0` nos dois.
 
 - [ ] **Step 5: Criar o primeiro admin em produção** — **mexe no banco de produção: pedir confirmação ao dono antes.**
 

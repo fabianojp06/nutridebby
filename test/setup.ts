@@ -6,6 +6,5 @@ import { inject } from 'vitest';
 Object.assign(process.env, { NODE_ENV: 'test' });
 process.env.APP_URL = 'http://localhost:3000';
 process.env.DATABASE_URL = inject('appDatabaseUrl');
-process.env.DATABASE_URL_MIGRATOR = inject('ownerDatabaseUrl');
 process.env.AUTH_SECRET = 'test-secret-with-at-least-32-characters!!';
 process.env.LOG_LEVEL = 'error';
