@@ -16,7 +16,3 @@ export function commonPasswords(): ReadonlySet<string> {
   }
   return common;
 }
-
-export function isCommonPassword(pw: string): boolean {
-  return commonPasswords().has(pw.trim().toLowerCase());
-}
