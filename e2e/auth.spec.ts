@@ -74,6 +74,17 @@ test('?volta externo não redireciona para fora (Review Focus 3)', async ({ brow
   await ctx.close();
 });
 
+test('?volta que a normalização vira //host (/.//evil.com) também não sai do domínio (S1)', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.6' } });
+  const page = await ctx.newPage();
+  await page.goto('/entrar?volta=%2F.%2F%2Fevil.com');
+  await page.getByLabel('E-mail').fill(NUTRI.email);
+  await page.getByLabel('Senha').fill(NUTRI.password);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/painel$/);
+  await ctx.close();
+});
+
 test('token de redefinição inválido mostra mensagem em pt-BR (fix round 1)', async ({ browser }) => {
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.4' } });
   const page = await ctx.newPage();
