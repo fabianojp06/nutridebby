@@ -20,7 +20,7 @@ export default function EsqueciSenhaPage() {
       ) : (
         <form onSubmit={enviar} className="space-y-3">
           <label htmlFor="email" className="block">E-mail</label>
-          <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
+          <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
           <button className="w-full rounded bg-emerald-700 px-4 py-2 text-white">Enviar link</button>
         </form>
       )}

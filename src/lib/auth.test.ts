@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { account, user } from '@/db/schema';
 import { createAuth } from './auth';
 import { hashPassword } from './password.server';
-import { setPasswordLinkSink } from './password-links';
+import { defaultPasswordLinkSink, setPasswordLinkSink } from './password-links';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const auth = createAuth(app.db);
@@ -78,7 +78,34 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(sexta.status).toBe(429);
   });
 
-  it('recuperação de senha responde igual para e-mail inexistente e não vaza o link no log', async () => {
+  it('recuperação de senha não registra o link nem o token no log', async () => {
+    const links: string[] = [];
+    const saida: string[] = [];
+    const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation((...args: unknown[]) => { saida.push(args.map(String).join(' ')); }),
+    );
+    // captura o link para comparar, mas entrega pelo destino padrão (o que roda em produção hoje)
+    const restore = setPasswordLinkSink(async (l) => {
+      links.push(l.url);
+      await defaultPasswordLinkSink(l);
+    });
+    try {
+      await post('/request-password-reset', { email, redirectTo: '/definir-senha' }, '10.0.0.7');
+      await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7');
+    } finally {
+      restore();
+      espioes.forEach((e) => e.mockRestore());
+    }
+    expect(links).toHaveLength(1);
+    const token = new URL(links[0]).pathname.split('/').pop()!;
+    const log = saida.join('\n');
+    expect(log).toContain('a***@teste.dev'); // o destino padrão registrou algo, com e-mail mascarado
+    expect(log).not.toContain(token);
+    expect(log).not.toContain(links[0]);
+    expect(log).not.toContain(email);
+  });
+
+  it('recuperação de senha responde igual para e-mail inexistente', async () => {
     const links: string[] = [];
     const restore = setPasswordLinkSink(({ url }) => { links.push(url); });
     try {
