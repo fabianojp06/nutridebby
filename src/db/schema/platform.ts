@@ -29,6 +29,8 @@ export const auditLog = pgTable(
     acao: text('acao').notNull(),
     entidade: text('entidade').notNull(),
     entidadeId: text('entidade_id'),
+    /** Titular do dado (histórico por paciente, US-007). Nulo em ações que não são de um paciente. */
+    patientId: uuid('patient_id'),
     ip: text('ip'),
     criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -38,6 +40,7 @@ export const auditLog = pgTable(
       sql`${t.acao} in ('ler','criar','alterar','excluir','exportar','bloquear','anonimizar')`,
     ),
     index('audit_log_busca_idx').on(t.tenantId, t.entidade, t.entidadeId, t.criadoEm),
+    index('audit_log_paciente_idx').on(t.tenantId, t.patientId, t.criadoEm),
   ],
 );
 

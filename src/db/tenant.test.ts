@@ -106,4 +106,20 @@ describe('withTenant', () => {
       tx.execute(sql`select 1 from rls_fixture_patient_items where patient_id in (${P1}, ${P2})`), app.db);
     expect(nutriSees.rows.length).toBe(2);
   });
+
+  it('aplica ator e IP do contexto para a auditoria', async () => {
+    const actor = randomUUID();
+    const r = await withTenant({ tenantId: A, role: 'nutri', actorUserId: actor, ip: '203.0.113.5' }, (tx) =>
+      tx.execute<{ u: string; ip: string }>(sql`select app_current_user()::text as u, app_current_ip() as ip`), app.db);
+    expect(r.rows[0]).toEqual({ u: actor, ip: '203.0.113.5' });
+    const semAtor = await withTenant({ tenantId: A, role: 'worker' }, (tx) =>
+      tx.execute<{ u: string | null }>(sql`select app_current_user()::text as u`), app.db);
+    expect(semAtor.rows[0].u).toBeNull();
+  });
+
+  it('recusa papel fora da lista, ator que não é uuid e IP inválido (item adiado do Plano 01)', async () => {
+    await expect(withTenant({ tenantId: A, role: 'admin' as never }, async () => 1, app.db)).rejects.toThrow(/papel/);
+    await expect(withTenant({ tenantId: A, role: 'nutri', actorUserId: 'x' }, async () => 1, app.db)).rejects.toThrow(/actorUserId/);
+    await expect(withTenant({ tenantId: A, role: 'nutri', ip: '999.1.1.1' }, async () => 1, app.db)).rejects.toThrow(/ip/);
+  });
 });

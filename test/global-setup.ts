@@ -27,6 +27,19 @@ export async function setup(project: TestProject) {
     GRANT SELECT, INSERT, UPDATE, DELETE ON rls_fixture_patient_items TO nutri_app_role;
     SELECT app_enable_tenant_rls('rls_fixture_patient_items');
     SELECT app_enable_patient_rls('rls_fixture_patient_items');
+    SELECT app_enable_audit('rls_fixture_patient_items', 'rls_fixture');
+
+    -- Tabela de saúde de exemplo para os testes de auditoria (Tarefa 4 do Plano 02)
+    CREATE TABLE IF NOT EXISTS audit_fixture_registros (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL,
+      patient_id uuid NOT NULL,
+      texto text NOT NULL
+    );
+    GRANT SELECT, INSERT, UPDATE, DELETE ON audit_fixture_registros TO nutri_app_role;
+    SELECT app_enable_tenant_rls('audit_fixture_registros');
+    SELECT app_enable_patient_rls('audit_fixture_registros');
+    SELECT app_enable_audit('audit_fixture_registros', 'registros_teste');
   `);
   await owner.end();
 

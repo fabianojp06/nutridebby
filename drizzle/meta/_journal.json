@@ -43,6 +43,20 @@
       "when": 1790600099928,
       "tag": "0005_sessao_equipe_12h",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790615721872,
+      "tag": "0006_auditoria_paciente",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790615727417,
+      "tag": "0007_auditoria_funcoes",
+      "breakpoints": true
     }
   ]
 }
