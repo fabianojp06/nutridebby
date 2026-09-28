@@ -1,3 +1,4 @@
+import { and, eq, gt } from 'drizzle-orm';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
@@ -9,6 +10,14 @@ import { getEnv } from '@/env';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
+import {
+  capSessionExpiry,
+  isRefreshDue,
+  PATIENT_SESSION_MS,
+  SESSION_REFRESH_MS,
+  sessionExpiresAt,
+  type AppRole,
+} from './session-rules';
 
 const QUINZE_MIN = 15 * 60;
 
@@ -40,8 +49,32 @@ export function createAuth(
       },
     },
     session: {
-      expiresIn: 60 * 60 * 24 * 30, // paciente: 30 dias; equipe: 12 h de inatividade em evaluateSession
-      updateAge: 60 * 60, // renova updatedAt no máximo 1×/hora com uso
+      // RNF-06: 30 dias é o padrão (paciente); para a equipe os databaseHooks abaixo
+      // limitam expiresAt a agora + 12 h a cada criação e renovação da sessão.
+      expiresIn: PATIENT_SESSION_MS / 1000,
+      updateAge: SESSION_REFRESH_MS / 1000,
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (s) => {
+            const [u] = await db
+              .select({ appRole: authSchema.user.appRole })
+              .from(authSchema.user)
+              .where(eq(authSchema.user.id, s.userId));
+            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date()) } };
+          },
+        },
+        update: {
+          // Renovação do próprio Better Auth (get-session em /api/auth/*): ele grava agora + 30 dias.
+          // A sessão em uso está em ctx.context.session (lida por findSession antes do update).
+          before: async (data, ctx) => {
+            if (!(data.expiresAt instanceof Date)) return;
+            const role = (ctx?.context.session?.user as { appRole?: string } | undefined)?.appRole;
+            return { data: { ...data, expiresAt: capSessionExpiry(data.expiresAt, role, new Date()) } };
+          },
+        },
+      },
     },
     rateLimit: {
       enabled: true,
@@ -88,4 +121,23 @@ export type Auth = ReturnType<typeof createAuth>;
 let instance: Auth | undefined;
 export function getAuth(): Auth {
   return (instance ??= createAuth(getDb()));
+}
+
+/**
+ * Desliza a sessão ativa (updatedAt = agora, expiresAt pelo papel) se já passou a cadência.
+ * Usado por requireUser, que lê a sessão com disableRefresh: grava direto no banco porque
+ * em Server Components (inclusive navegação RSC) o cookie não pode ser reescrito — e nem
+ * precisa, pois ele só carrega o token. Nunca ressuscita sessão já expirada.
+ */
+export async function slideSession(
+  db: Db,
+  session: { id: string; updatedAt: Date },
+  role: AppRole,
+  now: Date = new Date(),
+): Promise<void> {
+  if (!isRefreshDue(session.updatedAt, now)) return;
+  await db
+    .update(authSchema.session)
+    .set({ expiresAt: sessionExpiresAt(role, now), updatedAt: now })
+    .where(and(eq(authSchema.session.id, session.id), gt(authSchema.session.expiresAt, now)));
 }
