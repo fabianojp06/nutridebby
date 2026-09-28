@@ -13,14 +13,22 @@ const auth = createAuth(app.db);
 const email = `admin-${randomUUID().slice(0, 8)}@teste.dev`;
 const senha = 'Nutri2026segura';
 
-const post = (path: string, body: unknown, ip: string) =>
+const post = (path: string, body: unknown, ip: string, cookie?: string) =>
   auth.handler(
     new Request(`http://localhost:3000/api/auth${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forwarded-for': ip, origin: 'http://localhost:3000' },
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': ip,
+        origin: 'http://localhost:3000',
+        ...(cookie ? { cookie } : {}),
+      },
       body: JSON.stringify(body),
     }),
   );
+
+/** Cookie de sessão (`nd.session_token=...`) devolvido por um login bem-sucedido. */
+const sessionCookie = (res: Response) => res.headers.get('set-cookie')!.match(/nd\.session_token=[^;]+/)![0];
 
 beforeAll(async () => {
   const id = randomUUID();
@@ -56,6 +64,17 @@ describe('Better Auth (US-002, RNF-06)', () => {
       expect(res.status).toBe(401);
     }
     const sexta = await post('/sign-in/email', { email, password: senha }, ip);
+    expect(sexta.status).toBe(429);
+  });
+
+  it('com sessão aberta, a 6ª senha errada em 15 min ao ativar 2FA recebe HTTP 429', async () => {
+    const ip = '10.0.0.6';
+    const cookie = sessionCookie(await post('/sign-in/email', { email, password: senha }, ip));
+    for (let i = 0; i < 5; i++) {
+      const res = await post('/two-factor/enable', { password: 'errada-123456' }, ip, cookie);
+      expect(res.status).toBe(400);
+    }
+    const sexta = await post('/two-factor/enable', { password: senha }, ip, cookie);
     expect(sexta.status).toBe(429);
   });
 

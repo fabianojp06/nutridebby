@@ -53,6 +53,11 @@ export function createAuth(
         '/two-factor/verify-totp': { window: QUINZE_MIN, max: 5 },
         '/two-factor/verify-backup-code': { window: QUINZE_MIN, max: 5 },
         '/request-password-reset': { window: QUINZE_MIN, max: 5 },
+        // endpoints que conferem a senha com a sessão já aberta (cookie roubado não vira força bruta)
+        '/two-factor/enable': { window: QUINZE_MIN, max: 5 },
+        '/two-factor/disable': { window: QUINZE_MIN, max: 5 },
+        '/change-password': { window: QUINZE_MIN, max: 5 },
+        '/verify-password': { window: QUINZE_MIN, max: 5 },
       },
     },
     user: {
