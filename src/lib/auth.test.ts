@@ -8,6 +8,7 @@ import { account, user, verification } from '@/db/schema';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
+import { logger } from '@/lib/logger';
 import { openSecret, sha256 } from './crypto';
 import { createAuth } from './auth';
 import { hashPassword } from './password.server';
@@ -131,18 +132,26 @@ describe('Better Auth (US-002, RNF-06)', () => {
     const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
       vi.spyOn(console, m).mockImplementation((...args: unknown[]) => { saida.push(args.map(String).join(' ')); }),
     );
-    // PF-F4: também captura o que o pino (worker/app) escreveria em stdout
-    const stdoutEspiao = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation((chunk: unknown) => {
-        saida.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
-        return true;
-      });
+    // PF-F4: também captura o que o logger (pino) do app/worker registraria.
+    // LOG_LEVEL='error' em teste (test/setup.ts) faria o pino descartar info/debug antes de
+    // chegar a qualquer destino — por isso o nível sobe para 'trace' na janela da captura.
+    // E, como o destino padrão do pino (sonic-boom) escreve direto no fd, sem passar por
+    // `process.stdout.write`, espiar esse método não pega nada: em vez disso, os métodos do
+    // logger são substituídos diretamente (mesma técnica do espião do console acima).
+    const nivelAnterior = logger.level;
+    logger.level = 'trace';
+    const espioesLogger = (['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const).map((m) =>
+      vi.spyOn(logger, m).mockImplementation((...args: unknown[]) => {
+        saida.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+      }),
+    );
     try {
+      logger.info('sonda'); // prova que a captura de fato funciona (não é vácua)
       expect((await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
       expect((await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
     } finally {
-      stdoutEspiao.mockRestore();
+      espioesLogger.forEach((e) => e.mockRestore());
+      logger.level = nivelAnterior;
       espioes.forEach((e) => e.mockRestore());
     }
     const links = await linksEnviadosPara(destino);
@@ -150,6 +159,7 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(await linksEnviadosPara('ninguem@teste.dev')).toEqual([]);
     const token = new URL(links[0]).pathname.split('/').pop()!;
     const log = saida.join('\n');
+    expect(log).toContain('sonda');
     expect(log).not.toContain(token);
     expect(log).not.toContain(links[0]);
     expect(log).not.toContain(destino);
