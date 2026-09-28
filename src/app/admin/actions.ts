@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
+import { ajustarCotaWhatsapp, CotaWhatsappError } from '@/modules/plataforma/metricas';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 
 export type CriarContaState = { erros?: ErrosDeCampo; valores?: Record<string, string> };
@@ -60,4 +61,19 @@ export async function reativarAction(tenantId: string): Promise<void> {
   await reativarConta(tenantId, user.id);
   revalidatePath('/admin');
   redirect('/admin?aviso=reativada');
+}
+
+export type CotaState = { erro?: string; ok?: boolean };
+
+export async function ajustarCotaAction(tenantId: string, _prev: CotaState, formData: FormData): Promise<CotaState> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) return { erro: 'Conta inválida' };
+  try {
+    await ajustarCotaWhatsapp(tenantId, String(formData.get('cota') ?? ''), user.id);
+  } catch (e) {
+    if (e instanceof CotaWhatsappError) return { erro: e.message };
+    throw e;
+  }
+  revalidatePath('/admin');
+  return { ok: true };
 }

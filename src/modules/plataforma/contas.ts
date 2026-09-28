@@ -122,15 +122,16 @@ export type ContaResumo = {
   convite: 'aceito' | 'pendente' | 'expirado' | 'sem_convite';
   conviteExpiraEm: Date | null;
   criadaEm: Date;
+  waCotaMensal: number;
 };
 
 /** Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. */
 export async function listarContas(db: Db = getDb(), now: Date = new Date()): Promise<ContaResumo[]> {
   const r = await db.execute<{
     tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
-    created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null;
+    created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
   }>(sql`
-    select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, u.email,
+    select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
@@ -141,7 +142,7 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
     const convite = row.tem_senha ? 'aceito' : !expira ? 'sem_convite' : expira.getTime() > now.getTime() ? 'pendente' : 'expirado';
     return {
       tenantId: row.tenant_id, slug: row.slug, nomeExibicao: row.nome_exibicao, status: row.status, crn: row.crn,
-      email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at),
+      email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at), waCotaMensal: row.wa_cota_mensal,
     };
   });
 }

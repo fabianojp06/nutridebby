@@ -1,8 +1,12 @@
 import Link from 'next/link';
+import { formatarBytes } from '@/lib/format';
 import { requireUser } from '@/lib/session';
+import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
+import { metricasPorTenant } from '@/modules/plataforma/metricas';
 import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from './confirmar-botao';
+import { CotaForm } from './cota-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +35,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { aviso } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
   const contas = await listarContas();
+  const metricas = await metricasPorTenant();
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -54,17 +59,29 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
             <th scope="col">CRN</th>
             <th scope="col">Situação</th>
             <th scope="col">Convite</th>
+            <th scope="col">Pacientes ativos</th>
+            <th scope="col">Consultas no mês</th>
+            <th scope="col">WhatsApp no mês</th>
+            <th scope="col">Cota de WhatsApp</th>
+            <th scope="col">Armazenamento</th>
             <th scope="col">Ações</th>
           </tr>
         </thead>
         <tbody>
-          {contas.map((c) => (
+          {contas.map((c) => {
+            const m = metricas.get(c.tenantId);
+            return (
             <tr key={c.tenantId} className="border-t">
               <th scope="row" className="font-normal">{c.nomeExibicao} <span className="text-zinc-500">({c.slug})</span></th>
               <td>{c.email ?? '—'}</td>
               <td>{c.crn ?? '—'}</td>
               <td>{c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</td>
               <td><Convite c={c} /></td>
+              <td>{m?.pacientesAtivos ?? '—'}</td>
+              <td>{m?.consultasMes ?? '—'}</td>
+              <td>{m?.mensagensWhatsappMes ?? '—'}</td>
+              <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} /></td>
+              <td>{m ? `${formatarBytes(m.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)} (${m.arquivos} arquivos)` : '—'}</td>
               <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (
                   <form action={reenviarConviteAction.bind(null, c.tenantId)}>
@@ -84,7 +101,8 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </main>
