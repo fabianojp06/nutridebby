@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 /*
@@ -18,22 +19,67 @@ const serverSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 
+/** 32 bytes em base64 (gere com `openssl rand -base64 32`): chave AES-256 dos segredos guardados na fila. */
+export const encryptionKeySchema = z
+  .string({ message: 'ENCRYPTION_KEY é obrigatória' })
+  .refine((v) => Buffer.from(v, 'base64').length === 32, {
+    message: 'ENCRYPTION_KEY deve ter 32 bytes em base64 (gere com: openssl rand -base64 32)',
+  });
+
+/**
+ * Um IP ou CIDR válido (PF-F6): a versão vem de `isIP` (node:net) — 0 quando o
+ * endereço é inválido — e o prefixo, se houver, precisa estar dentro da faixa
+ * da família (0–32 para IPv4, 0–128 para IPv6). Recusa `999.1.1.1/99` e `::::`.
+ */
+function isIpOrCidr(value: string): boolean {
+  const slash = value.lastIndexOf('/');
+  const address = slash === -1 ? value : value.slice(0, slash);
+  const version = isIP(address);
+  if (version === 0) return false;
+  if (slash === -1) return true;
+  const prefix = value.slice(slash + 1);
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  const max = version === 4 ? 32 : 128;
+  return Number(prefix) <= max;
+}
+
 /** App Next.js e admin:criar (Better Auth). */
-const appSchema = serverSchema.extend({
+const appSchema = serverSchema
+  .extend({
+    APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
+    AUTH_SECRET: z.string({ message: 'AUTH_SECRET é obrigatória' }).min(32, {
+      message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
+    }),
+    ENCRYPTION_KEY: encryptionKeySchema,
+    // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
+    TRUSTED_PROXIES: z
+      .string()
+      .optional()
+      .transform((v) =>
+        (v ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      )
+      .refine((l) => l.every((c) => isIpOrCidr(c)), {
+        message: 'TRUSTED_PROXIES deve ser uma lista de IPs/CIDRs separados por vírgula',
+      }),
+  })
+  .superRefine((e, ctx) => {
+    if (e.NODE_ENV === 'production' && e.TRUSTED_PROXIES.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TRUSTED_PROXIES'],
+        message:
+          'TRUSTED_PROXIES é obrigatória em produção (CIDR da rede do Traefik/Swarm); sem ela o limite de tentativas vira um balde global',
+      });
+    }
+  });
+
+/** Worker: banco com o role da aplicação + o que os jobs usam (links nos e-mails, segredos da fila). */
+const workerSchema = serverSchema.extend({
   APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
-  AUTH_SECRET: z.string({ message: 'AUTH_SECRET é obrigatória' }).min(32, {
-    message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
-  }),
-  // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
-  TRUSTED_PROXIES: z
-    .string()
-    .optional()
-    .transform((v) =>
-      (v ?? '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
+  ENCRYPTION_KEY: encryptionKeySchema,
 });
 
 /** Só scripts/migrate.ts: DATABASE_URL entra para criar/conferir o role de login da aplicação. */
@@ -59,6 +105,7 @@ const migratorSchema = z
 export type ServerEnv = z.infer<typeof serverSchema>;
 export type Env = z.infer<typeof appSchema>;
 export type MigratorEnv = z.infer<typeof migratorSchema>;
+export type WorkerEnv = z.infer<typeof workerSchema>;
 
 type Source = Record<string, string | undefined>;
 
@@ -74,6 +121,7 @@ function parseWith<S extends z.ZodType>(schema: S, source: Source): z.infer<S> {
 export const parseServerEnv = (source: Source): ServerEnv => parseWith(serverSchema, source);
 export const parseEnv = (source: Source): Env => parseWith(appSchema, source);
 export const parseMigratorEnv = (source: Source): MigratorEnv => parseWith(migratorSchema, source);
+export const parseWorkerEnv = (source: Source): WorkerEnv => parseWith(workerSchema, source);
 
 let cachedServer: ServerEnv | undefined;
 /** Ambiente mínimo (banco com o role da aplicação): worker, cliente do banco, seed. */
@@ -90,4 +138,10 @@ export function getEnv(): Env {
 /** Ambiente das migrations — único consumidor de DATABASE_URL_MIGRATOR. */
 export function getMigratorEnv(): MigratorEnv {
   return parseMigratorEnv(process.env);
+}
+
+let cachedWorker: WorkerEnv | undefined;
+/** Ambiente do worker (falha rápido na subida se faltar algo). */
+export function getWorkerEnv(): WorkerEnv {
+  return (cachedWorker ??= parseWorkerEnv(process.env));
 }

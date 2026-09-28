@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { parseEnv, parseMigratorEnv, parseServerEnv } from './env';
+import { parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
 
 const DATABASE_URL = 'postgres://nutri_app:app@localhost:54329/nutri';
 const DATABASE_URL_MIGRATOR = 'postgres://nutri_owner:owner@localhost:54329/nutri';
+
+const KEY = Buffer.alloc(32, 7).toString('base64');
 
 const base = {
   NODE_ENV: 'development',
   APP_URL: 'http://localhost:3000',
   DATABASE_URL,
   AUTH_SECRET: 'x'.repeat(32),
+  ENCRYPTION_KEY: KEY,
 };
 
 describe('parseEnv (app)', () => {
@@ -62,5 +65,44 @@ describe('parseMigratorEnv (migrations)', () => {
     expect(() =>
       parseMigratorEnv({ DATABASE_URL, DATABASE_URL_MIGRATOR: 'postgres://nutri_app:x@localhost:54329/nutri' }),
     ).toThrow(/roles diferentes/);
+  });
+});
+
+describe('parseEnv — Plano 02', () => {
+  it('recusa ENCRYPTION_KEY ausente ou que não tem 32 bytes em base64', () => {
+    expect(() => parseEnv({ ...base, ENCRYPTION_KEY: undefined })).toThrow(/ENCRYPTION_KEY é obrigatória/);
+    expect(() => parseEnv({ ...base, ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') })).toThrow(/32 bytes/);
+  });
+  it('em produção exige TRUSTED_PROXIES (item adiado do Plano 01)', () => {
+    expect(() => parseEnv({ ...base, NODE_ENV: 'production' })).toThrow(/TRUSTED_PROXIES é obrigatória em produção/);
+    expect(parseEnv({ ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.1.0/24' }).TRUSTED_PROXIES).toEqual([
+      '10.0.1.0/24',
+    ]);
+  });
+  it('recusa TRUSTED_PROXIES com item que não é IP nem CIDR', () => {
+    expect(() => parseEnv({ ...base, TRUSTED_PROXIES: '10.0.0.0/8, rede-do-traefik' })).toThrow(/IPs\/CIDRs/);
+  });
+  it('recusa TRUSTED_PROXIES com IPv4 fora de faixa ou prefixo fora do intervalo (PF-F6)', () => {
+    expect(() => parseEnv({ ...base, TRUSTED_PROXIES: '999.1.1.1/99' })).toThrow(/IPs\/CIDRs/);
+    expect(() => parseEnv({ ...base, TRUSTED_PROXIES: '10.0.0.0/33' })).toThrow(/IPs\/CIDRs/);
+  });
+  it('recusa TRUSTED_PROXIES com IPv6 malformado (PF-F6)', () => {
+    expect(() => parseEnv({ ...base, TRUSTED_PROXIES: '::::' })).toThrow(/IPs\/CIDRs/);
+  });
+  it('aceita IPv4 e IPv6 simples, com e sem prefixo', () => {
+    expect(parseEnv({ ...base, TRUSTED_PROXIES: '10.0.1.2, ::1, 2001:db8::/32' }).TRUSTED_PROXIES).toEqual([
+      '10.0.1.2',
+      '::1',
+      '2001:db8::/32',
+    ]);
+  });
+});
+
+describe('parseWorkerEnv (worker)', () => {
+  it('exige APP_URL e ENCRYPTION_KEY, mas não AUTH_SECRET nem DATABASE_URL_MIGRATOR', () => {
+    const env = parseWorkerEnv({ DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY });
+    expect(env).toMatchObject({ APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY });
+    expect(env).not.toHaveProperty('AUTH_SECRET');
+    expect(() => parseWorkerEnv({ DATABASE_URL, ENCRYPTION_KEY: KEY })).toThrow(/APP_URL/);
   });
 });

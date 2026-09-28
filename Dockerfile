@@ -13,7 +13,9 @@ COPY . .
 # Valores só para o build (nenhuma conexão é aberta no build); não vão para a imagem final
 ENV APP_URL=http://build.invalid \
     DATABASE_URL=postgres://build_app:x@127.0.0.1:1/build \
-    AUTH_SECRET=build-only-secret-build-only-secret-00
+    AUTH_SECRET=build-only-secret-build-only-secret-00 \
+    ENCRYPTION_KEY=YnVpbGQtb25seS1rZXktYnVpbGQtb25seS1rZXktMDA= \
+    TRUSTED_PROXIES=192.0.2.0/24
 RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 
 FROM base AS runner
