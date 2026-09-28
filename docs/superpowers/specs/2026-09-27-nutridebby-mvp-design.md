@@ -272,7 +272,7 @@ Fórmulas: ver **Apêndice A**.
 | Autenticação | Better Auth (e-mail/senha, 2FA TOTP, sessões no Postgres) |
 | Validação | Zod (schemas compartilhados entre formulário e servidor) |
 | UI | Tailwind CSS 4 · shadcn/ui · react-hook-form · Recharts · lucide-react |
-| PWA / push | Serwist · `web-push` (verificar a compatibilidade do Serwist com o Turbopack, padrão do `next build` no Next 16; se necessário, build com `--webpack` — P-14) |
+| PWA / push | Serwist (`@serwist/turbopack`, compatível com Turbopack — P-14 resolvida) · `web-push` |
 | Fila / agendamento | pg-boss |
 | PDF | `@react-pdf/renderer` |
 | Imagem | `sharp` · `heic-convert` |
@@ -383,7 +383,7 @@ O repositório terá um `CLAUDE.md` com stack, comandos, convenções de módulo
 | P-11 | Atendimento de menores de 18 anos | **Resolvida (2026-09-27)** | A Debby não atende menores → RN-17 (somente adultos) |
 | P-12 | Criptografia em repouso: o disco da VPS depende do provedor; só backups, `totp_secret` e URLs assinadas têm proteção própria. O dono do servidor tem acesso técnico ao banco | Risco aceito | Declarar no DPA; acesso SSH restrito; avaliar criptografia de colunas sensíveis (anamnese, notas) na Fase 2 |
 | P-13 | Disco de 85 GB livres, compartilhado com outros projetos | Risco | RN-18 + alerta em 70% (RNF-13) |
-| P-14 | Compatibilidade Serwist × Turbopack no Next 16 | Risco técnico | Spike na primeira semana |
+| P-14 | Compatibilidade Serwist × Turbopack no Next 16 | **Resolvida (2026-09-28)** | Funciona com Turbopack: spike (P01-15) gerou o service worker em `/serwist/sw.js` (prebuild estático via `generateStaticParams`, `esbuild` só em build) e `/manifest.webmanifest`, ambos 200 num `next build && next start` de produção e numa imagem Docker prod (`pnpm prune --prod`) — Plano 06 usa `@serwist/turbopack` |
 | P-15 | CS-03 depende da taxa de faltas anterior ao sistema | Pendência | Debby informa a taxa do mês anterior (base de comparação) |
 
 ---
