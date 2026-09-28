@@ -30,4 +30,24 @@ describe('verifyTurnstile (INT-06)', () => {
       new Promise<Response>((_, rej) => init?.signal?.addEventListener('abort', () => rej(new Error('abortado')))));
     expect(await verifyTurnstile('tok', { secret, fetchImpl: trava as unknown as typeof fetch, timeoutMs: 20 })).toBe('indisponivel');
   });
+  it('segredo inválido/ausente é erro de configuração → indisponivel, com onFalha "config"', async () => {
+    for (const codigo of ['invalid-input-secret', 'missing-input-secret']) {
+      const onFalha = vi.fn();
+      expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': [codigo] }) })).toBe('indisponivel');
+      expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', codigos: [codigo] });
+    }
+  });
+  it('200 com corpo que não é JSON → indisponivel (motivo "resposta")', async () => {
+    const onFalha = vi.fn();
+    const f = vi.fn(async () => new Response('<html>oops</html>', { status: 200 }));
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'resposta', status: 200 });
+  });
+  it('onFalha informa rede, timeout e http sem vazar token/segredo', async () => {
+    const onFalha = vi.fn();
+    await verifyTurnstile('tok-secreto', { secret, onFalha, fetchImpl: vi.fn(async () => { throw new TypeError('fetch failed'); }) });
+    await verifyTurnstile('tok-secreto', { secret, onFalha, fetchImpl: resposta({}, 502) });
+    expect(onFalha.mock.calls.map((c) => c[0])).toEqual([{ motivo: 'rede' }, { motivo: 'http', status: 502 }]);
+    expect(JSON.stringify(onFalha.mock.calls)).not.toMatch(/tok-secreto|1x0000/);
+  });
 });

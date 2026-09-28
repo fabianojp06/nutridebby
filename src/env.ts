@@ -91,6 +91,15 @@ const appSchema = serverSchema
     ),
   })
   .superRefine((e, ctx) => {
+    // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
+    if (e.NODE_ENV === 'production' && !['localhost', '127.0.0.1'].includes(new URL(e.APP_URL).hostname)) {
+      if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
+        ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SITE_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
+      }
+      if (/^[123]x0000000000/.test(e.TURNSTILE_SECRET_KEY)) {
+        ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SECRET_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
+      }
+    }
     if (e.NODE_ENV === 'production' && e.TRUSTED_PROXIES.length === 0) {
       ctx.addIssue({
         code: 'custom',

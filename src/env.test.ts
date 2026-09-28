@@ -19,6 +19,15 @@ const base = {
 };
 
 describe('parseEnv (app)', () => {
+  it('recusa chaves de teste do Turnstile em produção fora de localhost', () => {
+    const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8' };
+    expect(() => parseEnv({ ...prod, APP_URL: 'https://app.exemplo.com' })).toThrow(/TURNSTILE_\* de teste não pode ser usada em produção/);
+    expect(() => parseEnv({ ...prod, APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA' })).toThrow(/produção/);
+    expect(() => parseEnv({ ...prod, APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: 'segredo-real-xyz' })).not.toThrow();
+    expect(() => parseEnv({ ...prod, APP_URL: 'http://localhost:3100' })).not.toThrow();
+    expect(() => parseEnv({ ...prod, APP_URL: 'http://127.0.0.1:3100' })).not.toThrow();
+    expect(() => parseEnv({ ...base, APP_URL: 'https://app.exemplo.com' })).not.toThrow(); // dev/test: livre
+  });
   it('exige as chaves do Turnstile (INT-06)', () => {
     expect(() => parseEnv({ ...base, TURNSTILE_SECRET_KEY: undefined })).toThrow(/TURNSTILE_SECRET_KEY/);
     expect(() => parseEnv({ ...base, TURNSTILE_SITE_KEY: '' })).toThrow(/TURNSTILE_SITE_KEY/);

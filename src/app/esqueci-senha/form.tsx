@@ -10,6 +10,7 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
   const [token, setToken] = useState<string | null>(null);
   const [enviado, setEnviado] = useState(false);
   const [erro, setErro] = useState('');
+  const [enviando, setEnviando] = useState(false);
   const [widget, setWidget] = useState(0); // trocar a key recria o widget (token é de uso único)
 
   function recomecar(msg: string) {
@@ -22,11 +23,19 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
     e.preventDefault();
     setErro('');
     if (!token) return setErro(MSG_TURNSTILE_INVALIDO);
-    const { error } = await authClient.requestPasswordReset({
-      email,
-      redirectTo: '/definir-senha',
-      fetchOptions: { headers: { 'x-turnstile-token': token } },
-    });
+    setEnviando(true);
+    let error: { status?: number } | null;
+    try {
+      ({ error } = await authClient.requestPasswordReset({
+        email,
+        redirectTo: '/definir-senha',
+        fetchOptions: { headers: { 'x-turnstile-token': token } },
+      }));
+    } catch {
+      return recomecar(MSG_TURNSTILE_FORA); // rede caiu: o token já pode ter sido gasto
+    } finally {
+      setEnviando(false);
+    }
     if (error?.status === 503 || (error?.status ?? 0) >= 500) return recomecar(MSG_TURNSTILE_FORA);
     if (error?.status === 403) return recomecar(MSG_TURNSTILE_INVALIDO);
     if (error?.status === 429) return setErro('Muitas tentativas. Tente novamente em 15 minutos.');
@@ -38,9 +47,10 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
     <form onSubmit={enviar} className="space-y-3">
       <label htmlFor="email" className="block">E-mail</label>
       <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
-      <TurnstileWidget key={widget} siteKey={siteKey} onToken={setToken} onIndisponivel={() => setErro(MSG_TURNSTILE_FORA)} />
+      <TurnstileWidget key={widget} siteKey={siteKey} onToken={(t) => { setToken(t); if (t) setErro(''); }} onIndisponivel={() => setErro(MSG_TURNSTILE_FORA)} />
+      {!token && <p id="dica-turnstile" className="text-sm text-gray-600">Aguarde a verificação anti-robô.</p>}
       {erro && <p role="alert" className="text-red-700">{erro}</p>}
-      <button disabled={!token} className="w-full rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60">Enviar link</button>
+      <button disabled={!token || enviando} aria-describedby={token ? undefined : 'dica-turnstile'} className="w-full rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60">Enviar link</button>
     </form>
   );
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
@@ -234,18 +234,42 @@ describe('Turnstile na recuperação de senha (INT-06)', () => {
         body: JSON.stringify({ email, redirectTo: '/definir-senha' }),
       }),
     );
+  // INT-06 "antes de qualquer escrita": nem link entregue nem linha em verification
+  const links: string[] = [];
+  let antes = 0;
+  let restore = () => {};
+  beforeEach(async () => {
+    links.length = 0;
+    antes = (await app.db.select({ i: verification.id }).from(verification)).length;
+    restore = setPasswordLinkSink(({ url }) => { links.push(url); });
+  });
+  afterEach(() => restore());
+  const semEscrita = async (n: number, l: string[]) => {
+    expect(l).toHaveLength(0);
+    expect(await app.db.select({ i: verification.id }).from(verification)).toHaveLength(n);
+  };
   const com = (r: ResultadoTurnstile) => createAuth(app.db, { verificarTurnstile: vi.fn(async () => r) });
 
   it('token recusado → 403 TURNSTILE_INVALIDO', async () => {
     const res = await pedir(com('invalido'), '10.4.0.1', 'tok');
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INVALIDO', message: 'Confirme que você não é um robô.' });
+    await semEscrita(antes, links);
+  });
+
+  it('sem o cabeçalho x-turnstile-token → verificador chamado com (null, ip) e 403', async () => {
+    const verificar = vi.fn<(t: string | null, ip: string | null) => Promise<ResultadoTurnstile>>(async (t) => (t ? 'ok' : 'invalido'));
+    const res = await pedir(createAuth(app.db, { verificarTurnstile: verificar }), '10.4.0.4');
+    expect(res.status).toBe(403);
+    expect(verificar).toHaveBeenCalledWith(null, '10.4.0.4');
+    await semEscrita(antes, links);
   });
 
   it('Turnstile fora do ar → 503 "Tente novamente em alguns minutos", sem seguir', async () => {
     const res = await pedir(com('indisponivel'), '10.4.0.2', 'tok');
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INDISPONIVEL', message: 'Tente novamente em alguns minutos' });
+    await semEscrita(antes, links);
   });
 
   it('o verificador recebe o token do cabeçalho e o IP do cliente', async () => {

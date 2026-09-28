@@ -12,6 +12,7 @@ import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
+import { logger } from './logger';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, verifyTurnstile, type ResultadoTurnstile } from './turnstile';
 import {
   capSessionExpiry,
@@ -39,7 +40,15 @@ export function createAuth(
   const baseURL = opts.baseURL ?? getEnv().APP_URL;
   const trustedProxies = opts.trustedProxies ?? getEnv().TRUSTED_PROXIES;
   const verificarTurnstile =
-    opts.verificarTurnstile ?? ((token: string | null, ip: string | null) => verifyTurnstile(token, { secret: getEnv().TURNSTILE_SECRET_KEY, ip }));
+    opts.verificarTurnstile ?? ((token: string | null, ip: string | null) => verifyTurnstile(token, {
+        secret: getEnv().TURNSTILE_SECRET_KEY,
+        ip,
+        // só motivo/status/códigos: nunca token, segredo, IP ou e-mail (CLAUDE.md regra 3)
+        onFalha: ({ motivo, status, codigos }) => {
+          if (motivo === 'config') logger.error({ motivo, status, codigos }, 'Turnstile indisponível');
+          else logger.warn({ motivo, status, codigos }, 'Turnstile indisponível');
+        },
+      }));
   return betterAuth({
     appName: 'NutriDebby',
     baseURL,
