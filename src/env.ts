@@ -72,6 +72,8 @@ const appSchema = serverSchema
       message: 'FILE_URL_SECRET precisa de pelo menos 32 caracteres',
     }),
     DATA_DIR: dataDir,
+    TURNSTILE_SITE_KEY: z.string({ message: 'TURNSTILE_SITE_KEY é obrigatória' }).min(1, { message: 'TURNSTILE_SITE_KEY é obrigatória' }),
+    TURNSTILE_SECRET_KEY: z.string({ message: 'TURNSTILE_SECRET_KEY é obrigatória' }).min(1, { message: 'TURNSTILE_SECRET_KEY é obrigatória' }),
     // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
     TRUSTED_PROXIES: opcional(
       z

@@ -17,7 +17,9 @@ ENV APP_URL=http://build.invalid \
     ENCRYPTION_KEY=YnVpbGQtb25seS1rZXktYnVpbGQtb25seS1rZXktMDA= \
     TRUSTED_PROXIES=192.0.2.0/24 \
     FILE_URL_SECRET=build-only-file-url-secret-build-only-00 \
-    DATA_DIR=/tmp/build-data
+    DATA_DIR=/tmp/build-data \
+    TURNSTILE_SITE_KEY=build-only \
+    TURNSTILE_SECRET_KEY=build-only
 RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 
 FROM base AS runner

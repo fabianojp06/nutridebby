@@ -9,6 +9,8 @@ test('esqueci minha senha: o e-mail chega e o link define a nova senha uma únic
   const antes = new Date();
   await page.goto('/esqueci-senha');
   await page.getByLabel('E-mail').fill(USUARIA);
+  // Turnstile com a site key de teste da Cloudflare (sempre passa): espera o token chegar
+  await expect(page.getByRole('button', { name: 'Enviar link' })).toBeEnabled({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Enviar link' }).click();
   await expect(page.getByRole('status')).toHaveText('Se o e-mail estiver cadastrado, você receberá um link');
 

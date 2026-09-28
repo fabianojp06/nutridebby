@@ -15,6 +15,9 @@ process.env.ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
 process.env.EMAIL_FROM = 'NutriDebby <nao-responda@nutridebby.test>';
 process.env.MAILPIT_URL = 'http://localhost:8025';
 process.env.FILE_URL_SECRET = 'file-url-secret-de-teste-com-32-caracteres!';
+// Chaves de teste oficiais da Cloudflare (sempre passa); os testes de unidade injetam o verificador
+process.env.TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
+process.env.TURNSTILE_SECRET_KEY = '1x0000000000000000000000000000000AA';
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-data-'));
 process.env.DATA_DIR = dataDir;
 

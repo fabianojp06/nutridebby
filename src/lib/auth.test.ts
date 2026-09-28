@@ -10,12 +10,13 @@ import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { openSecret, sha256 } from './crypto';
-import { createAuth } from './auth';
+import { createAuth, type Auth } from './auth';
 import { hashPassword } from './password.server';
 import { setPasswordLinkSink } from './password-links';
+import type { ResultadoTurnstile } from './turnstile';
 
 const app = makeDb(inject('appDatabaseUrl'));
-const auth = createAuth(app.db);
+const auth = createAuth(app.db, { verificarTurnstile: async () => 'ok' });
 const email = `admin-${randomUUID().slice(0, 8)}@teste.dev`;
 const senha = 'Nutri2026segura';
 
@@ -221,5 +222,40 @@ describe('Better Auth (US-002, RNF-06)', () => {
     const res = await post('/reset-password', { newPassword: 'curta1', token }, '10.0.0.5');
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ message: 'A senha precisa ter pelo menos 10 caracteres.' });
+  });
+});
+
+describe('Turnstile na recuperação de senha (INT-06)', () => {
+  const pedir = (a: Auth, ip: string, token?: string) =>
+    a.handler(
+      new Request('http://localhost:3000/api/auth/request-password-reset', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': ip, ...(token ? { 'x-turnstile-token': token } : {}) },
+        body: JSON.stringify({ email, redirectTo: '/definir-senha' }),
+      }),
+    );
+  const com = (r: ResultadoTurnstile) => createAuth(app.db, { verificarTurnstile: vi.fn(async () => r) });
+
+  it('token recusado → 403 TURNSTILE_INVALIDO', async () => {
+    const res = await pedir(com('invalido'), '10.4.0.1', 'tok');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INVALIDO', message: 'Confirme que você não é um robô.' });
+  });
+
+  it('Turnstile fora do ar → 503 "Tente novamente em alguns minutos", sem seguir', async () => {
+    const res = await pedir(com('indisponivel'), '10.4.0.2', 'tok');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INDISPONIVEL', message: 'Tente novamente em alguns minutos' });
+  });
+
+  it('o verificador recebe o token do cabeçalho e o IP do cliente', async () => {
+    const verificar = vi.fn<(t: string | null, ip: string | null) => Promise<ResultadoTurnstile>>(async () => 'ok');
+    const res = await pedir(createAuth(app.db, { verificarTurnstile: verificar }), '10.4.0.3', 'tok-123');
+    expect(res.status).toBe(200);
+    expect(verificar).toHaveBeenCalledWith('tok-123', '10.4.0.3');
+  });
+
+  it('chamada interna (auth.api, sem requisição HTTP) não passa pelo Turnstile — admin:criar', async () => {
+    await expect(com('invalido').api.requestPasswordReset({ body: { email, redirectTo: '/definir-senha' } })).resolves.toMatchObject({ status: true });
   });
 });

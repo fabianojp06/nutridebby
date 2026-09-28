@@ -8,9 +8,11 @@ import { getDb, type Db } from '@/db/client';
 import * as authSchema from '@/db/schema/auth';
 import { getEnv } from '@/env';
 import { getTenantStatus } from '@/modules/plataforma/tenant-status';
+import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
+import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, verifyTurnstile, type ResultadoTurnstile } from './turnstile';
 import {
   capSessionExpiry,
   isRefreshDue,
@@ -26,10 +28,18 @@ export const RESET_TOKEN_TTL_S = 60 * 60;
 
 export function createAuth(
   db: Db,
-  opts: { baseURL?: string; secret?: string; trustedProxies?: string[] } = {},
+  opts: {
+    baseURL?: string;
+    secret?: string;
+    trustedProxies?: string[];
+    /** Testes injetam; padrão = siteverify com TURNSTILE_SECRET_KEY. */
+    verificarTurnstile?: (token: string | null, ip: string | null) => Promise<ResultadoTurnstile>;
+  } = {},
 ) {
   const baseURL = opts.baseURL ?? getEnv().APP_URL;
   const trustedProxies = opts.trustedProxies ?? getEnv().TRUSTED_PROXIES;
+  const verificarTurnstile =
+    opts.verificarTurnstile ?? ((token: string | null, ip: string | null) => verifyTurnstile(token, { secret: getEnv().TURNSTILE_SECRET_KEY, ip }));
   return betterAuth({
     appName: 'NutriDebby',
     baseURL,
@@ -117,6 +127,15 @@ export function createAuth(
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // INT-06: "Esqueci minha senha" pela web exige Turnstile válido antes de qualquer escrita.
+        // Sem ctx.request = chamada interna (auth.api.*, ex.: admin:criar pelo terminal).
+        if (ctx.path === '/request-password-reset') {
+          if (!ctx.request) return;
+          const r = await verificarTurnstile(ctx.request.headers.get('x-turnstile-token'), clientIp(ctx.request.headers, trustedProxies));
+          if (r === 'indisponivel') throw new APIError('SERVICE_UNAVAILABLE', { code: 'TURNSTILE_INDISPONIVEL', message: MSG_TURNSTILE_FORA });
+          if (r !== 'ok') throw new APIError('FORBIDDEN', { code: 'TURNSTILE_INVALIDO', message: MSG_TURNSTILE_INVALIDO });
+          return;
+        }
         if (ctx.path !== '/reset-password' && ctx.path !== '/change-password') return;
         const pw = (ctx.body as { newPassword?: unknown } | undefined)?.newPassword;
         const err = typeof pw === 'string' ? validatePasswordPolicy(pw, commonPasswords()) : 'Informe a nova senha.';

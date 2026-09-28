@@ -66,6 +66,8 @@ jobs:
       MAILPIT_URL: http://localhost:8025
       FILE_URL_SECRET: ci-file-url-secret-with-at-least-32-chars
       DATA_DIR: /tmp/nd-data
+      TURNSTILE_SITE_KEY: 1x00000000000000000000AA
+      TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
       CI: 'true'
     steps:
       - uses: actions/checkout@v4

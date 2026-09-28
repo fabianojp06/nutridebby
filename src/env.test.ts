@@ -14,9 +14,15 @@ const base = {
   ENCRYPTION_KEY: KEY,
   FILE_URL_SECRET: 's'.repeat(32),
   DATA_DIR: './data',
+  TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
+  TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
 };
 
 describe('parseEnv (app)', () => {
+  it('exige as chaves do Turnstile (INT-06)', () => {
+    expect(() => parseEnv({ ...base, TURNSTILE_SECRET_KEY: undefined })).toThrow(/TURNSTILE_SECRET_KEY/);
+    expect(() => parseEnv({ ...base, TURNSTILE_SITE_KEY: '' })).toThrow(/TURNSTILE_SITE_KEY/);
+  });
   it('aceita configuração válida sem DATABASE_URL_MIGRATOR e aplica padrão de LOG_LEVEL', () => {
     expect(parseEnv(base).LOG_LEVEL).toBe('info');
   });
