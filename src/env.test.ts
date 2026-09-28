@@ -100,9 +100,36 @@ describe('parseEnv — Plano 02', () => {
 
 describe('parseWorkerEnv (worker)', () => {
   it('exige APP_URL e ENCRYPTION_KEY, mas não AUTH_SECRET nem DATABASE_URL_MIGRATOR', () => {
-    const env = parseWorkerEnv({ DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY });
+    const env = parseWorkerEnv({
+      DATABASE_URL,
+      APP_URL: 'http://localhost:3100',
+      ENCRYPTION_KEY: KEY,
+      EMAIL_FROM: 'a@b.dev',
+      MAILPIT_URL: 'http://localhost:8025',
+    });
     expect(env).toMatchObject({ APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY });
     expect(env).not.toHaveProperty('AUTH_SECRET');
     expect(() => parseWorkerEnv({ DATABASE_URL, ENCRYPTION_KEY: KEY })).toThrow(/APP_URL/);
+  });
+
+  const w = { DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY, EMAIL_FROM: 'NutriDebby <nao-responda@exemplo.com>' };
+  it('fora de produção usa Mailpit por padrão e exige MAILPIT_URL', () => {
+    expect(parseWorkerEnv({ ...w, MAILPIT_URL: 'http://localhost:8025' }).EMAIL_TRANSPORT).toBe('mailpit');
+    expect(() => parseWorkerEnv(w)).toThrow(/MAILPIT_URL/);
+  });
+  it('em produção usa Resend por padrão e exige RESEND_API_KEY', () => {
+    expect(() => parseWorkerEnv({ ...w, NODE_ENV: 'production' })).toThrow(/RESEND_API_KEY é obrigatória/);
+    expect(parseWorkerEnv({ ...w, NODE_ENV: 'production', RESEND_API_KEY: 're_x' }).EMAIL_TRANSPORT).toBe('resend');
+  });
+  it('EMAIL_TRANSPORT=mailpit explícito vale até em produção (E2E do CI)', () => {
+    expect(parseWorkerEnv({ ...w, NODE_ENV: 'production', EMAIL_TRANSPORT: 'mailpit', MAILPIT_URL: 'http://localhost:8025' }).EMAIL_TRANSPORT).toBe(
+      'mailpit',
+    );
+  });
+  it('recusa EMAIL_FROM sem endereço', () => {
+    expect(() => parseWorkerEnv({ ...w, EMAIL_FROM: 'NutriDebby', MAILPIT_URL: 'http://localhost:8025' })).toThrow(/EMAIL_FROM/);
+  });
+  it('RESEND_API_KEY em branco (placeholder de .env) conta como ausente: mensagem de negócio, não de tipo', () => {
+    expect(() => parseWorkerEnv({ ...w, NODE_ENV: 'production', RESEND_API_KEY: '' })).toThrow(/RESEND_API_KEY é obrigatória/);
   });
 });

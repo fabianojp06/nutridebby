@@ -76,11 +76,33 @@ const appSchema = serverSchema
     }
   });
 
-/** Worker: banco com o role da aplicação + o que os jobs usam (links nos e-mails, segredos da fila). */
-const workerSchema = serverSchema.extend({
-  APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
-  ENCRYPTION_KEY: encryptionKeySchema,
-});
+const EMAIL_FROM = /^([^<>]*<[^@<>\s]+@[^@<>\s]+>|[^@<>\s]+@[^@<>\s]+)$/;
+
+/** Worker: banco com o role da aplicação + o que os jobs usam (e-mail, links, segredos da fila). */
+const workerSchema = serverSchema
+  .extend({
+    APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
+    ENCRYPTION_KEY: encryptionKeySchema,
+    EMAIL_FROM: z
+      .string({ message: 'EMAIL_FROM é obrigatória' })
+      .regex(EMAIL_FROM, { message: 'EMAIL_FROM deve ser "Nome <email@dominio>" ou só o e-mail' }),
+    EMAIL_TRANSPORT: z.enum(['resend', 'mailpit']).optional(),
+    RESEND_API_KEY: z.string().min(1).optional(),
+    MAILPIT_URL: z.url({ message: 'MAILPIT_URL deve ser uma URL (ex.: http://localhost:8025)' }).optional(),
+  })
+  .transform((e) => ({
+    ...e,
+    // Produção envia pelo Resend; dev e testes pelo Mailpit. O E2E do CI força mailpit.
+    EMAIL_TRANSPORT: e.EMAIL_TRANSPORT ?? (e.NODE_ENV === 'production' ? 'resend' : 'mailpit'),
+  }))
+  .superRefine((e, ctx) => {
+    if (e.EMAIL_TRANSPORT === 'resend' && !e.RESEND_API_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'RESEND_API_KEY é obrigatória para enviar pelo Resend' });
+    }
+    if (e.EMAIL_TRANSPORT === 'mailpit' && !e.MAILPIT_URL) {
+      ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória para enviar pelo Mailpit' });
+    }
+  });
 
 /** Só scripts/migrate.ts: DATABASE_URL entra para criar/conferir o role de login da aplicação. */
 const migratorSchema = z
@@ -109,8 +131,18 @@ export type WorkerEnv = z.infer<typeof workerSchema>;
 
 type Source = Record<string, string | undefined>;
 
+/**
+ * `.env` costuma ter `CHAVE=` em branco para variáveis opcionais ainda não configuradas
+ * (ex.: RESEND_API_KEY antes do E-05). Tratar "" como ausente evita que um campo
+ * opcional rejeite string vazia com uma mensagem de baixo nível em vez da mensagem
+ * de negócio (ex.: "RESEND_API_KEY é obrigatória para enviar pelo Resend").
+ */
+function semStringVazia(source: Source): Source {
+  return Object.fromEntries(Object.entries(source).map(([k, v]) => [k, v === '' ? undefined : v]));
+}
+
 function parseWith<S extends z.ZodType>(schema: S, source: Source): z.infer<S> {
-  const r = schema.safeParse(source);
+  const r = schema.safeParse(semStringVazia(source));
   if (!r.success) {
     const msg = r.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`).join('; ');
     throw new Error(`Configuração inválida — ${msg}`);

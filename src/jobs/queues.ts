@@ -8,6 +8,8 @@ type QueueConfig = Omit<Queue, 'name' | 'partition' | 'policy' | 'deadLetter' | 
  */
 export const QUEUES = {
   heartbeat: { retryLimit: 0, expireInSeconds: 60 },
+  // INT-02: 3 novas tentativas (1, 2, 4 min + jitter); concluídos somem em 1 dia (payload já é cifrado)
+  email: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

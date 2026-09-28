@@ -9,3 +9,5 @@ process.env.DATABASE_URL = inject('appDatabaseUrl');
 process.env.AUTH_SECRET = 'test-secret-with-at-least-32-characters!!';
 process.env.LOG_LEVEL = 'error';
 process.env.ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
+process.env.EMAIL_FROM = 'NutriDebby <nao-responda@nutridebby.test>';
+process.env.MAILPIT_URL = 'http://localhost:8025';

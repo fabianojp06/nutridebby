@@ -1,9 +1,13 @@
 import { PgBoss } from 'pg-boss';
 import { closeDb, getDb } from '@/db/client';
+import { processEmailJob } from '@/email/job';
+import { transportFromEnv } from '@/email/transport';
+import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
+import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
@@ -18,6 +22,15 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.schedule('heartbeat', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('heartbeat', async () => {
     await recordHeartbeat(getDb());
+  });
+
+  const transport = transportFromEnv(env);
+  await boss.work<EmailJobData>('email', async ([job]) => {
+    await processEmailJob(job.data, job.id, {
+      transport,
+      from: env.EMAIL_FROM,
+      tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
+    });
   });
 
   await recordHeartbeat(getDb()); // batida imediata ao subir
