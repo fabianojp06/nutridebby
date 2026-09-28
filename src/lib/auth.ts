@@ -7,6 +7,7 @@ import { nextCookies } from 'better-auth/next-js';
 import { getDb, type Db } from '@/db/client';
 import * as authSchema from '@/db/schema/auth';
 import { getEnv } from '@/env';
+import { getTenantStatus } from '@/modules/plataforma/tenant-status';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
@@ -70,9 +71,15 @@ export function createAuth(
           before: async (s, ctx) => {
             // Adapter do contexto do endpoint (respeita a transação em curso). Sem contexto ou
             // sem usuário, capSessionExpiry aplica o limite menor (12 h).
-            const u = await ctx?.context.internalAdapter.findUserById(s.userId);
-            const role = (u as { appRole?: string } | null | undefined)?.appRole;
-            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, role, new Date()) } };
+            const u = (await ctx?.context.internalAdapter.findUserById(s.userId)) as
+              | { appRole?: string; tenantId?: string | null }
+              | null
+              | undefined;
+            // RN-15: conta suspensa não abre sessão nova (login, 2FA, primeiro acesso)
+            if (u?.tenantId && (await getTenantStatus(db, u.tenantId)) === 'suspensa') {
+              throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+            }
+            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date()) } };
           },
         },
       },

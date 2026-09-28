@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { closeDb } from '@/db/client';
-import { account, user, verification } from '@/db/schema';
+import { account, tenants, user, verification } from '@/db/schema';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -76,6 +76,18 @@ describe('Better Auth (US-002, RNF-06)', () => {
     const res = await post('/sign-in/email', { email, password: senha }, '10.0.0.1');
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toMatch(/nd\.session_token=/);
+  });
+
+  it('conta suspensa não abre sessão: HTTP 403 com CONTA_SUSPENSA (US-004, RN-15)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `bloq-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Bloq', status: 'suspensa' }).returning();
+    const id = randomUUID();
+    const e = `bloq-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    const res = await post('/sign-in/email', { email: e, password: senha }, '10.0.0.10');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+    expect(res.headers.get('set-cookie') ?? '').not.toMatch(/nd\.session_token=[^;]+;/);
   });
 
   it('cadastro público está desativado', async () => {

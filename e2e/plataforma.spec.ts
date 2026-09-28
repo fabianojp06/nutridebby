@@ -58,3 +58,34 @@ test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link nã
   await expect(page.locator('p[role="alert"]')).toContainText('Convite inválido ou já usado.');
   await ctx.close();
 });
+
+test('suspender derruba a sessão aberta e bloqueia o login; reativar devolve o acesso (US-004)', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.4' } });
+  const nutri = await ctx.newPage();
+  const login = async () => {
+    await nutri.goto('/entrar');
+    await nutri.getByLabel('E-mail').fill(NUTRI.email);
+    await nutri.getByLabel('Senha').fill(NUTRI.senha);
+    await nutri.getByRole('button', { name: 'Entrar' }).click();
+  };
+  await login();
+  await expect(nutri).toHaveURL(/\/painel$/);
+
+  await admin.goto('/admin');
+  admin.once('dialog', (d) => d.accept());
+  await admin.getByRole('row', { name: new RegExp(NUTRI.slug) }).getByRole('button', { name: 'Suspender' }).click();
+  await expect(admin.getByRole('status')).toContainText('Conta suspensa.');
+
+  await nutri.reload(); // a sessão foi revogada
+  await expect(nutri).toHaveURL(/\/entrar\?expirada=1/);
+  await login();
+  await expect(nutri).toHaveURL(/\/indisponivel$/);
+  await expect(nutri.getByRole('heading', { name: 'Conta temporariamente indisponível' })).toBeVisible();
+
+  admin.once('dialog', (d) => d.accept());
+  await admin.getByRole('row', { name: new RegExp(NUTRI.slug) }).getByRole('button', { name: 'Reativar' }).click();
+  await expect(admin.getByRole('status')).toHaveText('Conta reativada.');
+  await login();
+  await expect(nutri).toHaveURL(/\/painel$/);
+  await ctx.close();
+});

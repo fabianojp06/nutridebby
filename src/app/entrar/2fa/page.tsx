@@ -17,6 +17,10 @@ function Form() {
       ? await authClient.twoFactor.verifyBackupCode({ code })
       : await authClient.twoFactor.verifyTotp({ code, trustDevice: false });
     if (error) {
+      if (error.code === 'CONTA_SUSPENSA') {
+        window.location.href = '/indisponivel';
+        return;
+      }
       return setErro(error.status === 429 ? 'Muitas tentativas. Tente novamente em 15 minutos.' : 'Código inválido.');
     }
     // pós-2FA exige navegação completa para recarregar a sessão

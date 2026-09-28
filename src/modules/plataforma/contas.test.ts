@@ -184,6 +184,16 @@ describe('reenviarConvite (US-001 "Convite expirado")', () => {
     expect((e as ContaError).erros).toEqual({ geral: 'Conta sem nutricionista.' });
   });
 
+  it('recusa quando o tenant está suspenso (PF-N6, code "conta_suspensa")', async () => {
+    const x = s();
+    const r = await criarContaNutri({ nomeExibicao: 'Suspensa', email: `susp-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `susp-${x}` }, deps);
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, r.tenantId));
+    const e = await reenviarConvite(r.tenantId, deps).catch((x2: unknown) => x2);
+    expect(e).toBeInstanceOf(ContaError);
+    expect((e as ContaError).code).toBe('conta_suspensa');
+    expect((e as ContaError).erros).toEqual({ geral: 'Conta suspensa: reative antes de reenviar o convite.' });
+  });
+
   it('dois reenvios ao mesmo tempo (duplo clique) deixam só um convite não usado (T5-R3)', async () => {
     const x = s();
     const email = `duplo-${x}@exemplo.com`;

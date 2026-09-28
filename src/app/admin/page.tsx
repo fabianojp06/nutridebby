@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { requireUser } from '@/lib/session';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
-import { reenviarConviteAction } from './actions';
+import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
+import { ConfirmarBotao } from './confirmar-botao';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,9 @@ const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   reenviado: { texto: 'Convite reenviado.' },
   ja_tem_senha: { texto: MSG.jaTemSenha, erro: true },
   sem_nutri: { texto: MSG.semNutri, erro: true },
+  conta_suspensa: { texto: MSG.contaSuspensa, erro: true },
+  suspensa: { texto: 'Conta suspensa. A nutricionista e os pacientes veem "Conta temporariamente indisponível".' },
+  reativada: { texto: 'Conta reativada.' },
 };
 
 const data = (d: Date) =>
@@ -61,10 +65,21 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
               <td>{c.crn ?? '—'}</td>
               <td>{c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</td>
               <td><Convite c={c} /></td>
-              <td>
+              <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (
                   <form action={reenviarConviteAction.bind(null, c.tenantId)}>
                     <button className="underline">Reenviar convite</button>
+                  </form>
+                )}
+                {c.status === 'ativa' ? (
+                  <form action={suspenderAction.bind(null, c.tenantId)}>
+                    <ConfirmarBotao mensagem={`Suspender a conta ${c.nomeExibicao}? A nutricionista e os pacientes perdem o acesso até a reativação. Nenhum dado é apagado.`}>
+                      Suspender
+                    </ConfirmarBotao>
+                  </form>
+                ) : (
+                  <form action={reativarAction.bind(null, c.tenantId)}>
+                    <ConfirmarBotao mensagem={`Reativar a conta ${c.nomeExibicao}?`}>Reativar</ConfirmarBotao>
                   </form>
                 )}
               </td>

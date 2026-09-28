@@ -9,6 +9,7 @@ import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { criarConvite, linkDoConvite } from './convites';
+import { getTenantStatus } from './tenant-status';
 
 export const CRN_REGEX = /^CRN-?\d{1,2}\s?\d{3,6}$/i;
 
@@ -21,6 +22,7 @@ export const MSG = {
   slugDuplicado: 'Endereço já em uso',
   jaTemSenha: 'A nutricionista já definiu a senha. Se ela esqueceu, use "Esqueci minha senha".',
   semNutri: 'Conta sem nutricionista.',
+  contaSuspensa: 'Conta suspensa: reative antes de reenviar o convite.',
 } as const;
 
 export const nomeExibicaoSchema = z.string().trim().min(3, MSG.nome).max(80, MSG.nome);
@@ -39,7 +41,7 @@ export type ErrosDeCampo = Partial<Record<'nomeExibicao' | 'email' | 'crn' | 'sl
  * T5-R2: código estável para quem chama decidir o aviso sem reinterpretar `erros` (a Tarefa 7
  * acrescenta um código de "conta suspensa"; novos códigos só precisam de uma entrada em AVISOS).
  */
-export type ContaErrorCode = 'validacao' | 'sem_nutri' | 'ja_tem_senha';
+export type ContaErrorCode = 'validacao' | 'sem_nutri' | 'ja_tem_senha' | 'conta_suspensa';
 
 export class ContaError extends Error {
   override name = 'ContaError';
@@ -99,6 +101,10 @@ export async function reenviarConvite(tenantId: string, deps: Deps = {}): Promis
       .where(and(eq(user.tenantId, tenantId), eq(user.appRole, 'nutri')))
       .for('update');
     if (!u) throw new ContaError({ geral: MSG.semNutri }, 'sem_nutri');
+    // PF-N6: conta suspensa não reenvia convite (RN-15); checa depois da trava do usuário.
+    if ((await getTenantStatus(tx, tenantId)) === 'suspensa') {
+      throw new ContaError({ geral: MSG.contaSuspensa }, 'conta_suspensa');
+    }
     const comSenha = await tx.select({ id: account.id }).from(account).where(and(eq(account.userId, u.id), eq(account.providerId, 'credential')));
     if (comSenha.length) throw new ContaError({ geral: MSG.jaTemSenha }, 'ja_tem_senha');
     const { token } = await criarConvite(tx, u.id, deps.now);

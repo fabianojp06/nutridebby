@@ -19,6 +19,7 @@ function Form() {
     const { data, error } = await authClient.signIn.email({ email, password });
     setEnviando(false);
     if (error) {
+      if (error.code === 'CONTA_SUSPENSA') return router.push('/indisponivel');
       return setErro(error.status === 429 ? 'Muitas tentativas. Tente novamente em 15 minutos.' : 'E-mail ou senha incorretos.');
     }
     if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) return; // onTwoFactorRedirect cuida

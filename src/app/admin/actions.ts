@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
+import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 
 export type CriarContaState = { erros?: ErrosDeCampo; valores?: Record<string, string> };
 
@@ -43,4 +44,20 @@ export async function reenviarConviteAction(tenantId: string): Promise<void> {
   }
   revalidatePath('/admin');
   redirect(`/admin?aviso=${aviso}`);
+}
+
+export async function suspenderAction(tenantId: string): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) redirect('/admin');
+  await suspenderConta(tenantId, user.id);
+  revalidatePath('/admin');
+  redirect('/admin?aviso=suspensa');
+}
+
+export async function reativarAction(tenantId: string): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) redirect('/admin');
+  await reativarConta(tenantId, user.id);
+  revalidatePath('/admin');
+  redirect('/admin?aviso=reativada');
 }
