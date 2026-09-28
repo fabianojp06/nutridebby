@@ -20,7 +20,9 @@ export function signFileUrl(caminho: string, opts: Opts = {}): string {
   return `/api/arquivos?${new URLSearchParams({ c: caminho, e: String(exp), s: assinar(caminho, exp, secret) })}`;
 }
 
-export type VerificacaoUrl = { ok: true; caminho: string } | { ok: false; motivo: 'assinatura' | 'expirado' | 'caminho' };
+export type VerificacaoUrl =
+  | { ok: true; caminho: string; exp: number }
+  | { ok: false; motivo: 'assinatura' | 'expirado' | 'caminho' };
 
 export function verifyFileUrl(params: URLSearchParams, opts: Opts = {}): VerificacaoUrl {
   const caminho = params.get('c') ?? '';
@@ -30,5 +32,5 @@ export function verifyFileUrl(params: URLSearchParams, opts: Opts = {}): Verific
   const secret = opts.secret ?? getEnv().FILE_URL_SECRET;
   if (!safeEqual(params.get('s') ?? '', assinar(caminho, exp, secret))) return { ok: false, motivo: 'assinatura' };
   if (exp * 1000 < (opts.now ?? new Date()).getTime()) return { ok: false, motivo: 'expirado' };
-  return { ok: true, caminho };
+  return { ok: true, caminho, exp };
 }

@@ -29,11 +29,14 @@ export async function GET(req: Request) {
   const info = await stat(alvo).catch(() => null);
   if (!info?.isFile()) return erro(404);
   const ext = v.caminho.slice(v.caminho.lastIndexOf('.') + 1);
+  // T8-R2a: max-age é o que falta até o `exp` da assinatura, não um TTL fixo — senão uma URL
+  // buscada perto de expirar fica em cache até ~2x o TTL de 5 min da spec.
+  const maxAge = Math.max(0, v.exp - Math.floor(Date.now() / 1000));
   return new Response(Readable.toWeb(createReadStream(alvo)) as ReadableStream, {
     headers: {
       'content-type': MIME[ext],
       'content-length': String(info.size),
-      'cache-control': 'private, max-age=300',
+      'cache-control': `private, max-age=${maxAge}`,
       'x-content-type-options': 'nosniff',
       'content-security-policy': "default-src 'none'; sandbox",
       'content-disposition': 'inline',

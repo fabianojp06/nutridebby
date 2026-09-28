@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -21,7 +21,10 @@ import {
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-arq-'));
 const deps = { db: app.db, dataDir };
-afterAll(() => app.pool.end());
+afterAll(async () => {
+  await app.pool.end();
+  rmSync(dataDir, { recursive: true, force: true }); // T8-R2b
+});
 
 const PNG = (n = 100) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(n)]);
 async function novoTenant(): Promise<TenantContext> {

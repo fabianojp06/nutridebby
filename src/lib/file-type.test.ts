@@ -29,4 +29,10 @@ describe('detectarTipo (magic bytes, RNF-06)', () => {
     expect(detectarTipo(new Uint8Array())).toBeNull();
     expect(detectarTipo(b([0, 0, 0, 24], 'ftypavif'))).toBeNull(); // AVIF não é aceito
   });
+  it('muitos comentários HTML seguidos não travam o regex (T8-R1: backtracking exponencial)', () => {
+    const conteudo = b(`${'<!---->'.repeat(500)}x`);
+    const inicio = performance.now();
+    expect(detectarTipo(conteudo)).toBeNull();
+    expect(performance.now() - inicio).toBeLessThan(50);
+  });
 });

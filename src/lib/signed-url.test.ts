@@ -10,14 +10,22 @@ describe('URL assinada de arquivo (§4: TTL 5 min)', () => {
   it('vale por 5 minutos e depois expira', () => {
     const url = signFileUrl(caminho, { now: t0, secret });
     expect(url).toMatch(/^\/api\/arquivos\?c=/);
+    const exp = Math.floor(t0.getTime() / 1000) + FILE_URL_TTL_S;
     expect(verifyFileUrl(params(url), { now: new Date(t0.getTime() + (FILE_URL_TTL_S - 1) * 1000), secret })).toEqual({
       ok: true,
       caminho,
+      exp,
     });
     expect(verifyFileUrl(params(url), { now: new Date(t0.getTime() + (FILE_URL_TTL_S + 1) * 1000), secret })).toEqual({
       ok: false,
       motivo: 'expirado',
     });
+  });
+  it('devolve o instante de expiração (exp, em segundos) para quem for calcular o max-age (T8-R2a)', () => {
+    const url = signFileUrl(caminho, { now: t0, secret });
+    const v = verifyFileUrl(params(url), { now: t0, secret });
+    if (!v.ok) throw new Error('esperava ok: true');
+    expect(v.exp).toBe(Math.floor(t0.getTime() / 1000) + FILE_URL_TTL_S);
   });
   it('trocar o caminho, a validade ou o segredo invalida a assinatura', () => {
     const p = params(signFileUrl(caminho, { now: t0, secret }));
