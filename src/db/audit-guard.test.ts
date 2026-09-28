@@ -32,4 +32,18 @@ describe('guarda de auditoria (US-007: toda tabela de saúde é auditada)', () =
     expect(await findStaleExceptions(owner.pool, { RLS_EXCEPTIONS, PATIENT_POLICY_EXCEPTIONS, AUDIT_EXCEPTIONS })).toEqual([]);
     expect(await findStaleExceptions(owner.pool, { TESTE: { nao_existe: 'x' } })).toEqual(['TESTE: nao_existe']);
   });
+
+  it('app_enable_audit recusa coluna do titular que não existe na tabela (T4-R2b)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('create table tmp_coluna_errada (id uuid primary key, tenant_id uuid not null, patient_id uuid not null)');
+      await expect(client.query(`select app_enable_audit('tmp_coluna_errada', 'errado', 'paciente_id')`)).rejects.toThrow(
+        /coluna.*não existe/,
+      );
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
 });

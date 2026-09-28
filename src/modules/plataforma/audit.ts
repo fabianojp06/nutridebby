@@ -17,7 +17,7 @@ export async function recordAudit(tx: Tx, entries: AuditEntry | AuditEntry[]): P
     lista.map((e) => ({ acao: e.acao, entidade: e.entidade, entidade_id: e.entidadeId, patient_id: e.patientId })),
   );
   await tx.execute(sql`
-    insert into audit_log (tenant_id, actor_user_id, acao, entidade, entidade_id, patient_id, ip, criado_em)
+    insert into public.audit_log (tenant_id, actor_user_id, acao, entidade, entidade_id, patient_id, ip, criado_em)
     select app_current_tenant(), app_current_user(), x.acao, x.entidade, x.entidade_id, x.patient_id,
            app_current_ip(), clock_timestamp()
       from jsonb_to_recordset(${json}::jsonb) as x(acao text, entidade text, entidade_id text, patient_id uuid)`);
