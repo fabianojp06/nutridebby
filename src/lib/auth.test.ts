@@ -78,6 +78,27 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(sexta.status).toBe(429);
   });
 
+  it.each([
+    ['/two-factor/get-totp-uri', '10.0.0.8'],
+    ['/two-factor/generate-backup-codes', '10.0.0.9'],
+  ])('com 2FA configurado, a 6ª senha errada em 15 min em %s recebe HTTP 429', async (path, ip) => {
+    // usuário próprio com 2FA ativo, para que o endpoint chegue de fato a conferir a senha
+    const id = randomUUID();
+    const outro = `nutri-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: outro, emailVerified: true, appRole: 'nutri' });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    const cookie = sessionCookie(await post('/sign-in/email', { email: outro, password: senha }, ip));
+    expect((await post('/two-factor/enable', { password: senha }, ip, cookie)).status).toBe(200);
+    await app.db.update(user).set({ twoFactorEnabled: true }).where(eq(user.id, id));
+    for (let i = 0; i < 5; i++) {
+      const res = await post(path, { password: 'errada-123456' }, ip, cookie);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: 'INVALID_PASSWORD' });
+    }
+    const sexta = await post(path, { password: senha }, ip, cookie);
+    expect(sexta.status).toBe(429);
+  });
+
   it('recuperação de senha não registra o link nem o token no log', async () => {
     const links: string[] = [];
     const saida: string[] = [];

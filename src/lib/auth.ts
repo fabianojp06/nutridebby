@@ -91,6 +91,9 @@ export function createAuth(
         '/two-factor/disable': { window: QUINZE_MIN, max: 5 },
         '/change-password': { window: QUINZE_MIN, max: 5 },
         '/verify-password': { window: QUINZE_MIN, max: 5 },
+        '/two-factor/get-totp-uri': { window: QUINZE_MIN, max: 5 },
+        '/two-factor/generate-backup-codes': { window: QUINZE_MIN, max: 5 },
+        '/delete-user': { window: QUINZE_MIN, max: 5 }, // desligado hoje; confere senha se for ligado
       },
     },
     user: {
