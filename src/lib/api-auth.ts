@@ -1,6 +1,7 @@
 import { getDb } from '@/db/client';
 import { getTenantStatus } from '@/modules/plataforma/tenant-status';
-import { getAuth } from './auth';
+import { getAuth, slideSession } from './auth';
+import { logger } from './logger';
 import type { SessionData } from './session';
 import { evaluateSession, type AppRole } from './session-rules';
 
@@ -14,17 +15,24 @@ const recusa = (status: number, erro: string): ApiAuth => ({
 /** Route Handlers: mesma regra de requireUser (papel, 12 h, 2FA do admin, RN-15), respondendo 401/403. */
 export async function requireApiUser(req: Request, allowed: readonly AppRole[]): Promise<ApiAuth> {
   const data = await getAuth().api.getSession({ headers: req.headers, query: { disableRefresh: true } });
+  const now = new Date();
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
   const decision = evaluateSession({
     session: data?.session ?? null,
     user: data?.user ?? null,
     allowed,
-    now: new Date(),
+    now,
     path: new URL(req.url).pathname,
     tenantStatus: tenantId ? await getTenantStatus(getDb(), tenantId) : null,
   });
   switch (decision) {
     case 'ok':
+      // T7-R2b: atividade de API também conta para a janela de 12 h da equipe (uploads, Tarefas 8/10)
+      try {
+        await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now);
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data!.user.id }, 'falha ao renovar a sessão');
+      }
       return { ok: true, data: data! };
     case 'login':
     case 'expired':

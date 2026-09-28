@@ -89,3 +89,39 @@ test('suspender derruba a sessão aberta e bloqueia o login; reativar devolve o 
   await expect(nutri).toHaveURL(/\/painel$/);
   await ctx.close();
 });
+
+test('conta suspensa entre o aceite do convite e o login automático leva a /indisponivel, não a /entrar (T7-R2a)', async ({ browser }) => {
+  const nome = 'Debby Corrida';
+  const email = `debby-corrida-${sufixo}@nutridebby.test`;
+  const slug = `debby-corrida-${sufixo}`;
+  const senha = `Debby${sufixo}Corrida2026`;
+
+  await admin.goto('/admin/contas/nova');
+  await admin.getByLabel('Nome de exibição').fill(nome);
+  await admin.getByLabel('E-mail').fill(email);
+  await admin.getByLabel('CRN').fill('CRN-3 12345');
+  await admin.getByLabel('Endereço', { exact: true }).fill(slug);
+  await admin.getByRole('button', { name: 'Criar conta' }).click();
+  await expect(admin.getByRole('status')).toHaveText('Conta criada. O convite foi enviado para o e-mail da nutricionista.');
+
+  const msg = await esperarEmail(email, { assunto: 'Seu acesso ao NutriDebby' });
+  const link = primeiroLink(msg.texto, '/convite/');
+
+  // Corrida: o admin suspende a conta depois do convite enviado, mas antes do primeiro acesso.
+  admin.once('dialog', (d) => d.accept());
+  await admin.getByRole('row', { name: new RegExp(slug) }).getByRole('button', { name: 'Suspender' }).click();
+  await expect(admin.getByRole('status')).toContainText('Conta suspensa.');
+
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.5' } });
+  const page = await ctx.newPage();
+  await page.goto(link);
+  await page.getByLabel('Nova senha').fill(senha);
+  await page.getByLabel('Repita a senha').fill(senha);
+  await page.getByLabel('Li e aceito o contrato de tratamento de dados (DPA)').check();
+  await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
+  // aceitarConvite grava a senha (o convite já foi consumido); o login automático seguinte
+  // é recusado pelo tenant suspenso — a nutricionista cai em /indisponivel, não em /entrar.
+  await expect(page).toHaveURL(/\/indisponivel$/);
+  await expect(page.getByRole('heading', { name: 'Conta temporariamente indisponível' })).toBeVisible();
+  await ctx.close();
+});

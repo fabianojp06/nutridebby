@@ -2,8 +2,10 @@
 
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { APIError } from 'better-auth/api';
 import { getAuth } from '@/lib/auth';
 import { requestIp } from '@/lib/request-ip';
+import { SUSPENDED_PATH } from '@/lib/session-rules';
 import { aceitarConvite, ConviteError } from '@/modules/plataforma/convites';
 
 export type AceiteState = { erro?: string; campo?: 'senha' | 'confirmacao' | 'dpa' };
@@ -27,7 +29,10 @@ export async function aceitarConviteAction(token: string, _prev: AceiteState, fo
   try {
     // nextCookies grava o cookie de sessão na resposta desta Server Action
     await getAuth().api.signInEmail({ body: { email, password: senha }, headers: await headers() });
-  } catch {
+  } catch (e) {
+    // T7-R2a: a senha já foi gravada (aceitarConvite concluiu); se o tenant foi suspenso entre
+    // o aceite e este login (corrida), a conta existe mas não pode entrar — RN-15.
+    if (e instanceof APIError && e.body?.code === 'CONTA_SUSPENSA') redirect(SUSPENDED_PATH);
     entrou = false;
   }
   redirect(entrou ? '/painel' : '/entrar?volta=%2Fpainel');
