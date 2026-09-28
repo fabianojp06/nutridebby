@@ -52,4 +52,13 @@ describe('createAdmin (US-001, cenário "Primeiro admin")', () => {
     expect(r.userId).toBeDefined();
     expect(r.link).toMatch(/^http:\/\/localhost:3000\/api\/auth\/reset-password\/.+callbackURL=%2Fdefinir-senha/);
   });
+
+  it('dois admin:criar simultâneos com o mesmo e-mail: um cria, o outro recebe a mensagem de duplicado', async () => {
+    const email = `corrida-${Date.now()}@exemplo.com`;
+    const r = await Promise.allSettled([createAdmin(email, deps), createAdmin(email, deps)]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const falha = r.find((x): x is PromiseRejectedResult => x.status === 'rejected')!;
+    expect(falha.reason).toBeInstanceOf(AdminBootstrapError);
+    expect((falha.reason as Error).message).toBe('Já existe um usuário com este e-mail');
+  });
 });

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable(
   'tenants',
@@ -9,14 +9,34 @@ export const tenants = pgTable(
     nomeExibicao: text('nome_exibicao').notNull(),
     status: text('status').notNull().default('ativa'),
     fuso: text('fuso').notNull().default('America/Sao_Paulo'),
+    crn: text('crn'),
+    logoPath: text('logo_path'),
+    corPrimaria: text('cor_primaria'),
+    waCotaMensal: integer('wa_cota_mensal').notNull().default(500),
+    antecedenciaMinH: integer('antecedencia_min_h').notNull().default(12),
+    cancelamentoMinH: integer('cancelamento_min_h').notNull().default(24),
+    enderecoConsultorio: text('endereco_consultorio'),
+    linkOnlinePadrao: text('link_online_padrao'),
+    agendamentoPublicoAtivo: boolean('agendamento_publico_ativo').notNull().default(true),
+    mostrarPercGorduraPaciente: boolean('mostrar_perc_gordura_paciente').notNull().default(false),
+    armazenamentoBytes: bigint('armazenamento_bytes', { mode: 'number' }).notNull().default(0),
+    dpaAceitoEm: timestamp('dpa_aceito_em', { withTimezone: true }),
+    dpaVersao: text('dpa_versao'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check('tenants_slug_formato', sql`${t.slug} ~ '^[a-z0-9-]{3,40}$'`),
     check('tenants_status_valido', sql`${t.status} in ('ativa', 'suspensa')`),
+    check('tenants_cor_formato', sql`${t.corPrimaria} is null or ${t.corPrimaria} ~ '^#[0-9a-fA-F]{6}$'`),
+    check('tenants_antecedencia_faixa', sql`${t.antecedenciaMinH} between 0 and 72`),
+    check('tenants_cancelamento_faixa', sql`${t.cancelamentoMinH} between 0 and 72`),
+    check('tenants_wa_cota_valida', sql`${t.waCotaMensal} >= 0`),
+    check('tenants_armazenamento_valido', sql`${t.armazenamentoBytes} >= 0`),
   ],
 );
+
+export type TenantRow = typeof tenants.$inferSelect;
 
 export const auditLog = pgTable(
   'audit_log',

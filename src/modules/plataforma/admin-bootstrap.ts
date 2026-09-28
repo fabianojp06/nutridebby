@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
+import { uniqueViolation } from '@/db/errors';
 import { user } from '@/db/schema';
 import { getAuth, type Auth } from '@/lib/auth';
 import { setPasswordLinkSink } from '@/lib/password-links';
@@ -22,7 +23,12 @@ export async function createAdmin(
   if (existing.length) throw new AdminBootstrapError('Já existe um usuário com este e-mail');
 
   const userId = randomUUID();
-  await deps.db.insert(user).values({ id: userId, name: 'Administrador', email, emailVerified: true, appRole: 'admin' });
+  try {
+    await deps.db.insert(user).values({ id: userId, name: 'Administrador', email, emailVerified: true, appRole: 'admin' });
+  } catch (err) {
+    if (uniqueViolation(err) === 'user_email_unique') throw new AdminBootstrapError('Já existe um usuário com este e-mail');
+    throw err;
+  }
 
   let link = '';
   const restore = setPasswordLinkSink(({ url }) => {

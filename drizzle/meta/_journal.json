@@ -57,6 +57,13 @@
       "when": 1790615727417,
       "tag": "0007_auditoria_funcoes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790616894089,
+      "tag": "0008_tenants_convites",
+      "breakpoints": true
     }
   ]
 }
