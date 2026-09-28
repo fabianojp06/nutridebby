@@ -27,6 +27,18 @@ describe('cofre de segredos (AES-256-GCM)', () => {
   it('selo de texto vazio também funciona', () => {
     expect(openSecret(sealSecret('', 'f', key), 'f', key)).toBe('');
   });
+  it('recusa tag truncada (sem authTagLength, o Node aceita uma tag GCM de 4 bytes)', () => {
+    const s = sealSecret('segredo', 'email-job', key);
+    const [v, iv, ct, tag] = s.split('.');
+    const tagTruncada = tag.slice(0, 6); // base64url de 4 bytes só (tag completa tem 16 bytes)
+    expect(() => openSecret([v, iv, ct, tagTruncada].join('.'), 'email-job', key)).toThrow(SealError);
+  });
+  it('recusa IV de tamanho diferente de 12 bytes', () => {
+    const s = sealSecret('segredo', 'email-job', key);
+    const [v, , ct, tag] = s.split('.');
+    const ivErrado = Buffer.alloc(8, 3).toString('base64url');
+    expect(() => openSecret([v, ivErrado, ct, tag].join('.'), 'email-job', key)).toThrow(SealError);
+  });
 });
 
 describe('tokens e hash', () => {

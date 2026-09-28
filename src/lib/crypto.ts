@@ -42,10 +42,17 @@ export function sealSecret(plain: string, finalidade: string, key: Buffer = encr
 export function openSecret(sealed: string, finalidade: string, key: Buffer = encryptionKey()): string {
   const [v, iv, ct, tag, ...resto] = sealed.split('.');
   if (v !== 'v1' || !iv || ct === undefined || !tag || resto.length) throw new SealError('formato inválido');
+  const ivBuf = Buffer.from(iv, 'base64url');
+  const tagBuf = Buffer.from(tag, 'base64url');
+  // Sem isso, o Node aceita (com só um aviso DEP0182) uma tag GCM truncada — ex.: 4 bytes em
+  // vez de 16 — o que facilita forjar autenticação; exigir authTagLength e checar antes recusa
+  // o selo sem sequer chamar o decipher.
+  if (ivBuf.length !== 12) throw new SealError('IV de tamanho inválido');
+  if (tagBuf.length !== 16) throw new SealError('tag de autenticação de tamanho inválido');
   try {
-    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+    const d = createDecipheriv('aes-256-gcm', key, ivBuf, { authTagLength: 16 });
     d.setAAD(Buffer.from(finalidade, 'utf8'));
-    d.setAuthTag(Buffer.from(tag, 'base64url'));
+    d.setAuthTag(tagBuf);
     return Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]).toString('utf8');
   } catch {
     throw new SealError('não foi possível abrir o segredo');
