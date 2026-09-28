@@ -31,6 +31,14 @@ describe('migrations de base', () => {
     expect(rows.map((r) => r.extname)).toEqual(['btree_gist', 'citext', 'pg_trgm', 'unaccent']);
   });
 
+  it('nenhuma coluna de data/hora do schema public é timestamp sem fuso', async () => {
+    const { rows } = await owner.pool.query(
+      `select table_name || '.' || column_name as col from information_schema.columns
+        where table_schema = 'public' and data_type = 'timestamp without time zone' order by 1`,
+    );
+    expect(rows.map((r) => r.col)).toEqual([]);
+  });
+
   it('rodar as migrations de novo é seguro (idempotente)', async () => {
     const { runMigrations } = await import('./migrate');
     await expect(
