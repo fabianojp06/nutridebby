@@ -19,7 +19,7 @@ function Form() {
     if (error) {
       return setErro(error.status === 429 ? 'Muitas tentativas. Tente novamente em 15 minutos.' : 'Código inválido.');
     }
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- pós-2FA exige navegação completa para recarregar a sessão
+    // pós-2FA exige navegação completa para recarregar a sessão
     window.location.href = safeReturnPath(params.get('volta')) ?? '/inicio';
   }
 
