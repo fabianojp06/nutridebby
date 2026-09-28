@@ -1,8 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
+import { safeReturnPath } from '@/lib/safe-return';
 
-export default function DoisFatoresPage() {
+function Form() {
+  const params = useSearchParams();
   const [code, setCode] = useState('');
   const [usarRecuperacao, setUsarRecuperacao] = useState(false);
   const [erro, setErro] = useState('');
@@ -17,12 +20,11 @@ export default function DoisFatoresPage() {
       return setErro(error.status === 429 ? 'Muitas tentativas. Tente novamente em 15 minutos.' : 'Código inválido.');
     }
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- pós-2FA exige navegação completa para recarregar a sessão
-    window.location.href = '/inicio';
+    window.location.href = safeReturnPath(params.get('volta')) ?? '/inicio';
   }
 
   return (
-    <main className="mx-auto max-w-sm p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Verificação em duas etapas</h1>
+    <>
       <form onSubmit={verificar} className="space-y-3">
         <label htmlFor="code" className="block">{usarRecuperacao ? 'Código de recuperação' : 'Código do app autenticador'}</label>
         <input id="code" autoComplete="one-time-code" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded border p-2" />
@@ -32,6 +34,15 @@ export default function DoisFatoresPage() {
       <button type="button" onClick={() => setUsarRecuperacao(!usarRecuperacao)} className="text-sm underline">
         {usarRecuperacao ? 'Usar o app autenticador' : 'Usar um código de recuperação'}
       </button>
+    </>
+  );
+}
+
+export default function DoisFatoresPage() {
+  return (
+    <main className="mx-auto max-w-sm p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">Verificação em duas etapas</h1>
+      <Suspense><Form /></Suspense>
     </main>
   );
 }

@@ -7,3 +7,9 @@ export function safeReturnPath(v: string | null | undefined): string | null {
     return null;
   }
 }
+
+/** `path` com `?volta=` quando o destino de retorno é seguro; senão, só `path`. */
+export function withReturnPath(path: string, volta: string | null | undefined): string {
+  const safe = safeReturnPath(volta);
+  return safe ? `${path}?volta=${encodeURIComponent(safe)}` : path;
+}

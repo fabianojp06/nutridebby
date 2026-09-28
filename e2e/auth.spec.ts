@@ -5,6 +5,8 @@ const ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2026segura' 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
+let adminTotpSecret = ''; // definido ao ativar o 2FA; reusado no login com 2FA
+
 test('rota protegida sem sessão vai para /entrar', async ({ page }) => {
   await page.goto('/admin');
   await expect(page).toHaveURL(/\/entrar\?volta=%2Fadmin/);
@@ -21,11 +23,28 @@ test('admin sem 2FA é obrigado a ativar e depois chega à administração', asy
   await page.getByLabel('Confirme sua senha').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Ativar verificação em duas etapas' }).click();
   const secret = (await page.getByTestId('totp-secret').textContent())!.trim();
+  adminTotpSecret = secret;
   await page.getByLabel('Código de 6 dígitos').fill(new TOTP({ secret }).generate());
   await page.getByRole('button', { name: 'Confirmar' }).click();
   await expect(page.getByTestId('backup-codes').locator('li')).toHaveCount(10);
   await page.getByRole('link', { name: 'Continuar' }).click();
   await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
+  await ctx.close();
+});
+
+test('login com 2FA preserva caminho e query do ?volta até o destino', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.5' } });
+  const page = await ctx.newPage();
+  await page.goto('/conta/seguranca?aba=2fa');
+  await expect(page).toHaveURL(/\/entrar\?volta=%2Fconta%2Fseguranca%3Faba%3D2fa$/);
+  await page.getByLabel('E-mail').fill(ADMIN.email);
+  await page.getByLabel('Senha').fill(ADMIN.password);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page).toHaveURL(/\/entrar\/2fa\?volta=%2Fconta%2Fseguranca%3Faba%3D2fa$/);
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: adminTotpSecret }).generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page).toHaveURL(/\/conta\/seguranca\?aba=2fa$/);
+  await expect(page.getByText('A verificação em duas etapas está ativa.')).toBeVisible();
   await ctx.close();
 });
 
