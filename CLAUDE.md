@@ -2,7 +2,7 @@
 
 # NutriDebby
 
-SaaS multi-tenant de gestão de consultório de nutrição (spec: `docs/superpowers/specs/`, planos: `docs/superpowers/plans/`, backlog: https://claude.ai/artifact/DeHjnCr4xFDn7xE8DDuvM2).
+SaaS multi-tenant de gestão de consultório de nutrição (spec: `docs/superpowers/specs/`, planos: `docs/superpowers/plans/`, backlog: https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT).
 
 ## Stack
 
