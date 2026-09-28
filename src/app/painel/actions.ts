@@ -23,6 +23,8 @@ const campoPerfil = (f: FormData, k: string) => String(f.get(k) ?? '');
 /** PF-N9: os valores digitados voltam em `state.valores` para o formulário não perder o que a nutricionista preencheu num erro. */
 export async function salvarPerfilAction(_prev: PerfilState, formData: FormData): Promise<PerfilState> {
   const { tenant } = await requireNutri('/painel/configuracoes');
+  // T10-R2: o checkbox também entra em `valores` (como 'on'/''), para o formulário conseguir
+  // distinguir "não veio no submit" (renderização inicial, sem erro) de "veio desmarcado".
   const valores = {
     nomeExibicao: campoPerfil(formData, 'nomeExibicao'),
     crn: campoPerfil(formData, 'crn'),
@@ -32,11 +34,12 @@ export async function salvarPerfilAction(_prev: PerfilState, formData: FormData)
     antecedenciaMinH: campoPerfil(formData, 'antecedenciaMinH'),
     cancelamentoMinH: campoPerfil(formData, 'cancelamentoMinH'),
     fuso: campoPerfil(formData, 'fuso'),
+    agendamentoPublicoAtivo: formData.get('agendamentoPublicoAtivo') === 'on' ? 'on' : '',
   };
   try {
     await atualizarPerfil(tenant.id, {
       ...valores,
-      agendamentoPublicoAtivo: formData.get('agendamentoPublicoAtivo') === 'on',
+      agendamentoPublicoAtivo: valores.agendamentoPublicoAtivo === 'on',
     });
   } catch (e) {
     if (e instanceof PerfilError) return { erros: e.erros, valores };

@@ -1,13 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
+import { LogoOcupadoError, trocarLogo } from '@/modules/plataforma/logo';
 import { criarEEntrar } from '../../../../../../test/sessao';
 import { POST } from './route';
+
+// T10-R1c: `trocarLogo` real na maioria dos testes (wrapper em torno da implementação de
+// verdade); só o teste do 429 troca a implementação por uma chamada só, para não depender de
+// uma corrida real com o semáforo de `processarLogo` (isso já é testado em logo.test.ts).
+vi.mock('@/modules/plataforma/logo', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/logo')>();
+  return { ...real, trocarLogo: vi.fn(real.trocarLogo) };
+});
 
 const db = getDb();
 const auth = getAuth();
@@ -53,5 +62,25 @@ describe('POST /api/painel/marca/logo', () => {
     const [t] = await db.insert(tenants).values({ slug: `rl-${randomUUID().slice(0, 8)}`, nomeExibicao: 'RL' }).returning();
     const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
     expect((await enviar(await png(), { cookie: n.cookie })).status).toBe(403);
+  });
+
+  // T10-R1a
+  it('SVG com filtro (CPU) → 415 com a mensagem exata', async () => {
+    const { cookie } = await nutriComDpa();
+    const svgComFiltro = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1500"><filter id="f"><feGaussianBlur stdDeviation="500"/></filter><rect width="1500" height="1500" filter="url(#f)"/></svg>',
+    );
+    const res = await enviar(svgComFiltro, { cookie });
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ erro: 'SVG com filtros não é aceito. Envie o logo em PNG.' });
+  });
+
+  // T10-R1c: mapeamento do "já tem outro logo em processamento no mesmo processo" para 429.
+  it('logo ocupado (outro upload em processamento) → 429', async () => {
+    const { cookie } = await nutriComDpa();
+    vi.mocked(trocarLogo).mockRejectedValueOnce(new LogoOcupadoError());
+    const res = await enviar(await png(), { cookie });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ erro: 'Tente novamente em alguns instantes.' });
   });
 });
