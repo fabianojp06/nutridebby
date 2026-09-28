@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'NutriDebby',
     short_name: 'NutriDebby',
-    start_url: '/p',
+    start_url: '/p/inicio',
     scope: '/p/',
     display: 'standalone',
     background_color: '#ffffff',

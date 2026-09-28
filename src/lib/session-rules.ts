@@ -5,7 +5,7 @@ export const STAFF_IDLE_MS = 12 * 60 * 60 * 1000;
 export const SECURITY_PATH = '/conta/seguranca';
 
 export function homeFor(role: AppRole): string {
-  return role === 'admin' ? '/admin' : role === 'nutri' ? '/painel' : '/p';
+  return role === 'admin' ? '/admin' : role === 'nutri' ? '/painel' : '/p/inicio';
 }
 
 export function evaluateSession(input: {
