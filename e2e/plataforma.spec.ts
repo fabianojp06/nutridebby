@@ -125,3 +125,32 @@ test('conta suspensa entre o aceite do convite e o login automático leva a /ind
   await expect(page.getByRole('heading', { name: 'Conta temporariamente indisponível' })).toBeVisible();
   await ctx.close();
 });
+
+// PNG 1×1 válido
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+
+test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005)', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.5' } });
+  const page = await ctx.newPage();
+  await page.goto('/entrar');
+  await page.getByLabel('E-mail').fill(NUTRI.email);
+  await page.getByLabel('Senha').fill(NUTRI.senha);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page).toHaveURL(/\/painel$/);
+  await page.getByRole('link', { name: 'Perfil e marca' }).click();
+
+  await page.getByLabel('Cor principal').fill('#FFEB3B');
+  await page.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(page.getByText('Cor muito clara para texto branco')).toBeVisible();
+  await page.getByLabel('Cor principal').fill('#2E7D32');
+  await page.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(page.getByRole('status')).toHaveText('Perfil salvo.');
+
+  await page.getByLabel('Logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG_1X1 });
+  await page.getByRole('button', { name: 'Enviar logo' }).click();
+  await expect(page.getByText('Logo atualizado.')).toBeVisible();
+  const banner = page.getByRole('banner');
+  await expect(banner).toHaveCSS('background-color', 'rgb(46, 125, 50)');
+  await expect(banner.getByRole('img', { name: `Logo de ${NUTRI.nome}` })).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
+  await ctx.close();
+});
