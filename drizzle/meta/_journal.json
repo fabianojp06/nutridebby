@@ -71,6 +71,20 @@
       "when": 1790618641175,
       "tag": "0009_consents",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790621851322,
+      "tag": "0010_stored_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790621856925,
+      "tag": "0011_rls_stored_files",
+      "breakpoints": true
     }
   ]
 }

@@ -68,3 +68,28 @@ export const systemHeartbeat = pgTable('system_heartbeat', {
   name: text('name').primaryKey(),
   beatAt: timestamp('beat_at', { withTimezone: true }).notNull(),
 });
+
+/** Arquivos em DATA_DIR (logo, capas, PDFs, exames, fotos) — base da cota de 5 GB (RN-18). */
+export const storedFiles = pgTable(
+  'stored_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    tipo: text('tipo').notNull(),
+    caminho: text('caminho').notNull().unique(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+    mime: text('mime').notNull(),
+    criadoPor: uuid('criado_por'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'stored_files_tipo_valido',
+      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','orientacao_pdf','exportacao')`,
+    ),
+    check('stored_files_bytes_positivo', sql`${t.bytes} > 0`),
+    index('stored_files_tenant_idx').on(t.tenantId, t.tipo),
+  ],
+);

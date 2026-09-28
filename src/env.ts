@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import path from 'node:path';
 import { z } from 'zod';
 
 /*
@@ -53,6 +54,12 @@ function isIpOrCidr(value: string): boolean {
   return Number(prefix) <= max;
 }
 
+/** Pasta dos arquivos (produção: /data, volume montado no app e no worker); sempre resolvida para absoluta. */
+const dataDir = z
+  .string({ message: 'DATA_DIR é obrigatória' })
+  .min(1, { message: 'DATA_DIR é obrigatória' })
+  .transform((p) => path.resolve(p));
+
 /** App Next.js e admin:criar (Better Auth). */
 const appSchema = serverSchema
   .extend({
@@ -61,6 +68,10 @@ const appSchema = serverSchema
       message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
     }),
     ENCRYPTION_KEY: encryptionKeySchema,
+    FILE_URL_SECRET: z.string({ message: 'FILE_URL_SECRET é obrigatória' }).min(32, {
+      message: 'FILE_URL_SECRET precisa de pelo menos 32 caracteres',
+    }),
+    DATA_DIR: dataDir,
     // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
     TRUSTED_PROXIES: opcional(
       z
@@ -95,6 +106,7 @@ const workerSchema = serverSchema
   .extend({
     APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
     ENCRYPTION_KEY: encryptionKeySchema,
+    DATA_DIR: dataDir,
     EMAIL_FROM: z
       .string({ message: 'EMAIL_FROM é obrigatória' })
       .regex(EMAIL_FROM, { message: 'EMAIL_FROM deve ser "Nome <email@dominio>" ou só o e-mail' }),

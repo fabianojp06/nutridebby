@@ -15,7 +15,9 @@ ENV APP_URL=http://build.invalid \
     DATABASE_URL=postgres://build_app:x@127.0.0.1:1/build \
     AUTH_SECRET=build-only-secret-build-only-secret-00 \
     ENCRYPTION_KEY=YnVpbGQtb25seS1rZXktYnVpbGQtb25seS1rZXktMDA= \
-    TRUSTED_PROXIES=192.0.2.0/24
+    TRUSTED_PROXIES=192.0.2.0/24 \
+    FILE_URL_SECRET=build-only-file-url-secret-build-only-00 \
+    DATA_DIR=/tmp/build-data
 RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 
 FROM base AS runner
@@ -32,6 +34,8 @@ COPY --from=build --chown=node:node /app/drizzle ./drizzle
 COPY --from=build --chown=node:node /app/next.config.ts ./next.config.ts
 COPY --from=build --chown=node:node /app/tsconfig.json ./tsconfig.json
 COPY --from=build --chown=node:node /app/docker-entrypoint.sh ./docker-entrypoint.sh
+# Ponto de montagem do volume de arquivos (§4): o app e o worker rodam como node
+RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 3000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

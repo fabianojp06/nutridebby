@@ -12,6 +12,8 @@ const base = {
   DATABASE_URL,
   AUTH_SECRET: 'x'.repeat(32),
   ENCRYPTION_KEY: KEY,
+  FILE_URL_SECRET: 's'.repeat(32),
+  DATA_DIR: './data',
 };
 
 describe('parseEnv (app)', () => {
@@ -104,6 +106,14 @@ describe('parseEnv — Plano 02', () => {
   });
 });
 
+describe('parseEnv — armazenamento', () => {
+  it('exige FILE_URL_SECRET com 32+ caracteres e resolve DATA_DIR para caminho absoluto', () => {
+    expect(() => parseEnv({ ...base, FILE_URL_SECRET: 'curta' })).toThrow(/FILE_URL_SECRET/);
+    expect(parseEnv(base).DATA_DIR).toMatch(/^\/.*\/data$/);
+    expect(() => parseEnv({ ...base, DATA_DIR: undefined })).toThrow(/DATA_DIR/);
+  });
+});
+
 describe('parseWorkerEnv (worker)', () => {
   it('exige APP_URL e ENCRYPTION_KEY, mas não AUTH_SECRET nem DATABASE_URL_MIGRATOR', () => {
     const env = parseWorkerEnv({
@@ -112,13 +122,20 @@ describe('parseWorkerEnv (worker)', () => {
       ENCRYPTION_KEY: KEY,
       EMAIL_FROM: 'a@b.dev',
       MAILPIT_URL: 'http://localhost:8025',
+      DATA_DIR: './data',
     });
     expect(env).toMatchObject({ APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY });
     expect(env).not.toHaveProperty('AUTH_SECRET');
     expect(() => parseWorkerEnv({ DATABASE_URL, ENCRYPTION_KEY: KEY })).toThrow(/APP_URL/);
   });
 
-  const w = { DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY, EMAIL_FROM: 'NutriDebby <nao-responda@exemplo.com>' };
+  const w = {
+    DATABASE_URL,
+    APP_URL: 'http://localhost:3100',
+    ENCRYPTION_KEY: KEY,
+    EMAIL_FROM: 'NutriDebby <nao-responda@exemplo.com>',
+    DATA_DIR: './data',
+  };
   it('fora de produção usa Mailpit por padrão e exige MAILPIT_URL', () => {
     expect(parseWorkerEnv({ ...w, MAILPIT_URL: 'http://localhost:8025' }).EMAIL_TRANSPORT).toBe('mailpit');
     expect(() => parseWorkerEnv(w)).toThrow(/MAILPIT_URL/);

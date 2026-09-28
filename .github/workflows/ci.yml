@@ -64,6 +64,8 @@ jobs:
       EMAIL_FROM: 'NutriDebby <nao-responda@nutridebby.test>'
       EMAIL_TRANSPORT: mailpit
       MAILPIT_URL: http://localhost:8025
+      FILE_URL_SECRET: ci-file-url-secret-with-at-least-32-chars
+      DATA_DIR: /tmp/nd-data
       CI: 'true'
     steps:
       - uses: actions/checkout@v4

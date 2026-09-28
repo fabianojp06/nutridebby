@@ -26,6 +26,7 @@ Node 24 · pnpm · Next.js 16 (App Router, `src/proxy.ts`) · PostgreSQL 16 · D
 6. Configuração de serviços só pelo Easypanel; confirmar com o dono antes de reiniciar serviço, mexer em banco de produção ou dar merge na `main` (merge = deploy).
 7. Migrations sempre rodam com `DATABASE_URL_MIGRATOR` (o role que emitiu `ALTER DEFAULT PRIVILEGES`); rodar com outro role deixa tabelas novas sem permissão para `nutri_app`.
 8. Dado de saúde (tabela com `patient_id`, e a própria `patients`): na migration de RLS, também `SELECT app_enable_audit('<tabela>', '<entidade>');` (para `patients`: `app_enable_audit('patients', 'patients', 'id')`). Escritas viram `audit_log` sozinhas; ao **devolver** dado de saúde, chamar `auditRead(tx, …)` na mesma transação (`src/modules/plataforma/audit.ts`). O `withTenant` de sessão de usuário leva `actorUserId` e `ip`. Migration de **dados** numa tabela auditada: `set_config('app.tenant_id', …)` por tenant, ou `DISABLE TRIGGER audit_row_change` só dentro da própria migration. A guarda `src/db/audit-guard.test.ts` quebra o CI se faltar o gatilho.
+9. Arquivos: gravar e apagar só por `salvarArquivo`/`apagarArquivo` (`src/modules/plataforma/armazenamento.ts`): tipo pelo conteúdo, cota reservada na transação. Servir só por `signFileUrl` (5 min, rota `/api/arquivos`). Nunca montar caminho de arquivo com texto do usuário. Tabela nova com `tenant_id` também entra em `FABRICAS` de `test/isolamento.test.ts`.
 
 ## Revisão a cada entrega
 
