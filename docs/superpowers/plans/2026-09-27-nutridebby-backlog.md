@@ -115,6 +115,7 @@ Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As 
 | P06-08 | "Meus dados": exportar + pedir exclusão | US-046 | P03-11 | Dev | M | ⬜ |
 | P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) | US-032, US-033 | P05-05 | Dev | M | ⬜ |
 | P06-10 | Auditoria axe das telas do PWA | RNF-10 | P06-01 a P06-09 | Dev | M | ⬜ |
+| P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) | RNF-06 | P06-01 | Dev | M | ⬜ |
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
 
@@ -153,7 +154,7 @@ Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As 
 | Plano 03 — Pacientes & prontuário | 11 | 9 | 2 |
 | Plano 04 — Plano alimentar | 9 | 7 | 2 |
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
-| Plano 06 — Portal PWA | 10 | 7 | 3 |
+| Plano 06 — Portal PWA | 11 | 8 | 3 |
 | Plano 07 — Conteúdo | 8 | 5 | 3 |
 | Plano 08 — Go-live | 9 | 8 | 1 |
-| **Total** | **94** | **83** | **11** |
+| **Total** | **95** | **84** | **11** |
