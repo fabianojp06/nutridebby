@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: deploy-main
@@ -40,6 +39,11 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
+          # Sem atestados: cada push vira um único manifesto (não um índice
+          # com filhos "untagged" de proveniência/SBOM), então a poda abaixo
+          # com min-versions-to-keep conta versões reais de imagem.
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Disparar deploy no Easypanel
