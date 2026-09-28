@@ -6,6 +6,7 @@ import { consents, tenants } from '@/db/schema';
 export const DPA_VERSAO = '0.1-provisorio';
 export const DPA_TERMO = `dpa-${DPA_VERSAO}`;
 export const DPA_TITULO = 'Contrato de tratamento de dados (DPA)';
+export const DPA_NAO_ACEITO = 'Para continuar, aceite o contrato de tratamento de dados (DPA).';
 
 export const DPA_PARAGRAFOS: readonly string[] = [
   'Este contrato regula o tratamento de dados pessoais feito pela plataforma NutriDebby (operadora) em nome da nutricionista titular da conta (controladora), nos termos da Lei 13.709/2018 (LGPD).',
@@ -18,12 +19,22 @@ export const DPA_PARAGRAFOS: readonly string[] = [
   'Versão provisória 0.1, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.',
 ];
 
-/** Registro do aceite (quem, versão, quando, IP) + marca no tenant (US-002: tenants.dpa_aceito_em). */
+/**
+ * Registro do aceite (quem, versão, quando, IP) + marca no tenant (US-002: tenants.dpa_aceito_em).
+ * T6-R2b: se o `consents` já existe para esta versão (`onConflictDoNothing`), a linha não é
+ * inserida de novo — e então `tenants` também não é tocado, para nunca divergir da prova de
+ * aceite (senão um reaceite da mesma versão adiantaria `dpa_aceito_em` sem um `consents` novo).
+ */
 export async function registrarAceiteDpa(
   q: Queryable,
   a: { userId: string; tenantId: string; ip: string | null; now?: Date },
 ): Promise<void> {
   const now = a.now ?? new Date();
-  await q.insert(consents).values({ userId: a.userId, termoVersao: DPA_TERMO, aceitoEm: now, ip: a.ip }).onConflictDoNothing();
+  const inserido = await q
+    .insert(consents)
+    .values({ userId: a.userId, termoVersao: DPA_TERMO, aceitoEm: now, ip: a.ip })
+    .onConflictDoNothing()
+    .returning({ id: consents.id });
+  if (!inserido.length) return;
   await q.update(tenants).set({ dpaAceitoEm: now, dpaVersao: DPA_VERSAO, updatedAt: now }).where(eq(tenants.id, a.tenantId));
 }

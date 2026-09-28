@@ -6,7 +6,7 @@ import { getAuth } from '@/lib/auth';
 import { requestIp } from '@/lib/request-ip';
 import { aceitarConvite, ConviteError } from '@/modules/plataforma/convites';
 
-export type AceiteState = { erro?: string };
+export type AceiteState = { erro?: string; campo?: 'senha' | 'confirmacao' | 'dpa' };
 
 export async function aceitarConviteAction(token: string, _prev: AceiteState, formData: FormData): Promise<AceiteState> {
   const senha = String(formData.get('senha') ?? '');
@@ -20,7 +20,7 @@ export async function aceitarConviteAction(token: string, _prev: AceiteState, fo
       ip: await requestIp(),
     }));
   } catch (e) {
-    if (e instanceof ConviteError) return { erro: e.message };
+    if (e instanceof ConviteError) return { erro: e.message, campo: e.campo };
     throw e;
   }
   let entrou = true;

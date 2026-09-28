@@ -5,7 +5,7 @@ import { account, invites, user } from '@/db/schema';
 import { randomToken, sha256 } from '@/lib/crypto';
 import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
-import { registrarAceiteDpa } from './dpa';
+import { DPA_NAO_ACEITO, registrarAceiteDpa } from './dpa';
 
 export const CONVITE_NUTRI_VALIDADE_MS = 72 * 60 * 60 * 1000; // US-001: 72 h
 export const CONVITE_EXPIRADO = 'Convite expirado. Peça um novo ao suporte.';
@@ -45,11 +45,22 @@ export async function inspecionarConvite(q: Queryable, token: string, now: Date 
 
 export class ConviteError extends Error {
   override name = 'ConviteError';
+  constructor(
+    message: string,
+    /** Campo do formulário a marcar como inválido (a11y); ausente para erros gerais do convite. */
+    readonly campo?: 'senha' | 'confirmacao' | 'dpa',
+  ) {
+    super(message);
+  }
 }
 
 /**
  * US-002: consome o convite (uma única vez, mesmo com envios simultâneos), grava a senha,
  * marca o e-mail como verificado e registra o aceite do DPA — tudo numa transação.
+ *
+ * T6-R1: dentro da transação, trava sempre o usuário (`SELECT … FOR UPDATE`) antes do convite —
+ * a mesma ordem de `reenviarConvite` (contas.ts). A ordem invertida (convite → usuário) permitia
+ * deadlock (40P01) entre as duas funções quando intercaladas.
  */
 export async function aceitarConvite(
   input: { token: string; senha: string; confirmacao: string; aceitouDpa: boolean; ip: string | null },
@@ -57,14 +68,33 @@ export async function aceitarConvite(
 ): Promise<{ email: string }> {
   const db = deps.db ?? getDb();
   const now = deps.now ?? new Date();
-  if (!input.aceitouDpa) throw new ConviteError('Para continuar, aceite o contrato de tratamento de dados (DPA).');
+  if (!input.aceitouDpa) throw new ConviteError(DPA_NAO_ACEITO, 'dpa');
   const politica = validatePasswordPolicy(input.senha, commonPasswords());
-  if (politica) throw new ConviteError(politica);
-  if (input.senha !== input.confirmacao) throw new ConviteError('As senhas não conferem.');
+  if (politica) throw new ConviteError(politica, 'senha');
+  if (input.senha !== input.confirmacao) throw new ConviteError('As senhas não conferem.', 'confirmacao');
   if (!TOKEN.test(input.token)) throw new ConviteError(CONVITE_INVALIDO);
+
+  // T6-R2a: checagem barata (sem lock) antes do argon2 (~19 MB por chamada, VPS compartilhada):
+  // um POST anônimo com token bem formado mas inválido/expirado nunca chega a hashear a senha.
+  // A garantia final continua sendo o UPDATE atômico dentro da transação, abaixo.
+  const antes = await inspecionarConvite(db, input.token, now);
+  if (antes.estado !== 'valido') {
+    throw new ConviteError(antes.estado === 'expirado' ? CONVITE_EXPIRADO : CONVITE_INVALIDO);
+  }
   const hash = await hashPassword(input.senha);
 
   return db.transaction(async (tx) => {
+    const [u] = await tx
+      .select({ email: user.email, tenantId: user.tenantId })
+      .from(user)
+      .where(eq(user.id, antes.userId))
+      .for('update');
+    if (!u?.tenantId) throw new ConviteError(CONVITE_INVALIDO);
+    const jaTemSenha = await tx
+      .select({ id: account.id })
+      .from(account)
+      .where(and(eq(account.userId, antes.userId), eq(account.providerId, 'credential')));
+    if (jaTemSenha.length) throw new ConviteError(CONVITE_INVALIDO);
     // UPDATE … WHERE usado_em IS NULL trava a linha: o segundo envio simultâneo vê 0 linhas
     const [c] = await tx
       .update(invites)
@@ -75,12 +105,6 @@ export async function aceitarConvite(
       const estado = await inspecionarConvite(tx, input.token, now);
       throw new ConviteError(estado.estado === 'expirado' ? CONVITE_EXPIRADO : CONVITE_INVALIDO);
     }
-    const [u] = await tx.select({ email: user.email, tenantId: user.tenantId }).from(user).where(eq(user.id, c.userId));
-    const jaTemSenha = await tx
-      .select({ id: account.id })
-      .from(account)
-      .where(and(eq(account.userId, c.userId), eq(account.providerId, 'credential')));
-    if (!u?.tenantId || jaTemSenha.length) throw new ConviteError(CONVITE_INVALIDO);
     await tx.insert(account).values({ id: randomUUID(), userId: c.userId, accountId: c.userId, providerId: 'credential', password: hash });
     await tx.update(user).set({ emailVerified: true }).where(eq(user.id, c.userId));
     await registrarAceiteDpa(tx, { userId: c.userId, tenantId: u.tenantId, ip: input.ip, now });
