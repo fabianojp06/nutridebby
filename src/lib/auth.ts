@@ -14,7 +14,6 @@ import {
   capSessionExpiry,
   isRefreshDue,
   PATIENT_SESSION_MS,
-  SESSION_REFRESH_MS,
   sessionExpiresAt,
   type AppRole,
 } from './session-rules';
@@ -49,29 +48,24 @@ export function createAuth(
       },
     },
     session: {
-      // RNF-06: 30 dias é o padrão (paciente); para a equipe os databaseHooks abaixo
-      // limitam expiresAt a agora + 12 h a cada criação e renovação da sessão.
+      // RNF-06: 30 dias é o padrão (paciente); para a equipe o hook de criação abaixo
+      // grava expiresAt = agora + 12 h.
       expiresIn: PATIENT_SESSION_MS / 1000,
-      updateAge: SESSION_REFRESH_MS / 1000,
+      // O Better Auth nunca desliza a sessão sozinho (nem em /api/auth/*): a renovação é só
+      // de requireUser → slideSession, depois de conferir a inatividade. Assim, para a equipe,
+      // expiresAt ≤ última atividade avaliada + 12 h, e o Better Auth recusa a sessão ociosa
+      // em qualquer rota.
+      disableSessionRefresh: true,
     },
     databaseHooks: {
       session: {
         create: {
-          before: async (s) => {
-            const [u] = await db
-              .select({ appRole: authSchema.user.appRole })
-              .from(authSchema.user)
-              .where(eq(authSchema.user.id, s.userId));
-            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date()) } };
-          },
-        },
-        update: {
-          // Renovação do próprio Better Auth (get-session em /api/auth/*): ele grava agora + 30 dias.
-          // A sessão em uso está em ctx.context.session (lida por findSession antes do update).
-          before: async (data, ctx) => {
-            if (!(data.expiresAt instanceof Date)) return;
-            const role = (ctx?.context.session?.user as { appRole?: string } | undefined)?.appRole;
-            return { data: { ...data, expiresAt: capSessionExpiry(data.expiresAt, role, new Date()) } };
+          before: async (s, ctx) => {
+            // Adapter do contexto do endpoint (respeita a transação em curso). Sem contexto ou
+            // sem usuário, capSessionExpiry aplica o limite menor (12 h).
+            const u = await ctx?.context.internalAdapter.findUserById(s.userId);
+            const role = (u as { appRole?: string } | null | undefined)?.appRole;
+            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, role, new Date()) } };
           },
         },
       },

@@ -19,4 +19,18 @@ describe('proxy', () => {
   it('rota pública segue adiante sem cookie', () => {
     expect(getRedirectUrl(proxy(new NextRequest('http://localhost:3100/entrar')))).toBeNull();
   });
+
+  it('repassa caminho + query (sem _rsc) no cabeçalho x-nd-caminho, sobrescrevendo o do cliente', () => {
+    const req = new NextRequest('http://localhost:3100/painel/pacientes?busca=ana&_rsc=abc', {
+      headers: { cookie: 'nd.session_token=abc.def', 'x-nd-caminho': '//evil.com' },
+    });
+    const res = proxy(req);
+    expect(res.headers.get('x-middleware-override-headers')).toContain('x-nd-caminho');
+    expect(res.headers.get('x-middleware-request-x-nd-caminho')).toBe('/painel/pacientes?busca=ana');
+  });
+
+  it('?volta do redirecionamento também não leva o _rsc', () => {
+    const url = new URL(getRedirectUrl(proxy(new NextRequest('http://localhost:3100/painel?_rsc=xyz')))!);
+    expect(url.searchParams.get('volta')).toBe('/painel');
+  });
 });

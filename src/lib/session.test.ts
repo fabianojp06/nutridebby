@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { account, session, user } from '@/db/schema';
-import { getAuth } from './auth';
+import { makeDb } from '../../test/db';
+import { getAuth, slideSession } from './auth';
+import { logger } from './logger';
 import { hashPassword } from './password.server';
 import { PATIENT_SESSION_MS, STAFF_IDLE_MS } from './session-rules';
 
@@ -17,6 +21,11 @@ class Redirect extends Error {
 }
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ headers: async () => req.headers }));
+// slideSession real, mas trocável por uma falha num teste (R51)
+vi.mock('./auth', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./auth')>();
+  return { ...orig, slideSession: vi.fn(orig.slideSession) };
+});
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Redirect(url);
@@ -30,7 +39,11 @@ const senha = 'Nutri2026segura';
 const auth = getAuth();
 const db = getDb();
 
-afterAll(() => closeDb());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await closeDb();
+  await owner.pool.end();
+});
 beforeEach(() => {
   req.headers = new Headers();
 });
@@ -88,22 +101,42 @@ describe('expiração de sessão por papel (RNF-06, US-002) — integração', (
     perto((await lerSessao(paciente.id)).expiresAt, Date.now() + PATIENT_SESSION_MS);
   });
 
-  it('(a) equipe com 13 h sem atividade é recusada, inclusive numa leitura que renovaria', async () => {
+  it('(a) equipe com 13 h sem atividade é recusada em getSession, /api/auth/get-session e requireUser', async () => {
     const { id, cookie } = await entrar('nutri');
     await envelhecer(id, 13 * H, -1 * H);
-    // leitura com renovação ligada (o que antes empurrava updatedAt para agora)
+    // leitura sem disableRefresh (antes do fix, empurrava updatedAt para agora)
     expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).toBeNull();
     const http = await getSessionHttp(cookie);
     expect(await http.json()).toBeNull();
-    expect(await redirectDe(requireComo(cookie, ['nutri'], '/painel'))).toBe('/entrar?expirada=1');
+    expect(await redirectDe(requireComo(cookie, ['nutri'], '/painel'))).toBe('/entrar?expirada=1&volta=%2Fpainel');
     expect(await lerSessao(id)).toBeUndefined();
   });
 
-  it('(a) equipe com 13 h sem atividade e expiresAt ainda distante (sessão antiga) também expira', async () => {
+  it('(i) sessão antiga da equipe (13 h ociosa, expiresAt no futuro) não é revivida por getSession e é recusada', async () => {
     const { id, cookie } = await entrar('nutri');
     await envelhecer(id, 13 * H, 29 * 24 * H);
-    expect(await redirectDe(requireComo(cookie, ['nutri'], '/painel'))).toBe('/entrar?expirada=1');
+    const antes = await lerSessao(id);
+    // leituras do Better Auth (API e HTTP) não renovam mais nada
+    expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).not.toBeNull();
+    await getSessionHttp(cookie);
+    expect(await lerSessao(id)).toEqual(antes);
+    expect(await redirectDe(requireComo(cookie, ['nutri'], '/painel'))).toBe('/entrar?expirada=1&volta=%2Fpainel');
     expect(await lerSessao(id)).toBeUndefined(); // signOut apagou a sessão
+  });
+
+  it('(i) a migration 0005 limita sessões antigas da equipe a updatedAt + 12 h (e não mexe no paciente)', async () => {
+    const nutri = await entrar('nutri');
+    const paciente = await entrar('paciente');
+    await envelhecer(nutri.id, 13 * H, 29 * 24 * H);
+    await envelhecer(paciente.id, 13 * H, 29 * 24 * H);
+    const pacienteAntes = await lerSessao(paciente.id);
+    const dir = path.join(process.cwd(), 'drizzle');
+    const sql = readFileSync(path.join(dir, readdirSync(dir).find((f) => f.startsWith('0005_'))!), 'utf8');
+    await owner.pool.query(sql);
+    const n = await lerSessao(nutri.id);
+    expect(new Date(n.expiresAt).getTime()).toBe(new Date(n.updatedAt).getTime() + STAFF_IDLE_MS);
+    expect(await getSessionHttp(nutri.cookie).then((r) => r.json())).toBeNull(); // /api/auth recusa nativamente
+    expect(await lerSessao(paciente.id)).toEqual(pacienteAntes);
   });
 
   it('(a) equipe com 13 h sem atividade recebe 401 num endpoint autenticado de /api/auth', async () => {
@@ -152,17 +185,48 @@ describe('expiração de sessão por papel (RNF-06, US-002) — integração', (
     perto((await lerSessao(id)).expiresAt, Date.now() + PATIENT_SESSION_MS);
   });
 
-  it('renovação do próprio Better Auth em /api/auth/get-session mantém 12 h para a equipe e 30 dias para o paciente', async () => {
-    const nutri = await entrar('nutri');
-    await envelhecer(nutri.id, 2 * H, 10 * H);
-    const n = await (await getSessionHttp(nutri.cookie)).json();
-    perto(n.session.expiresAt, Date.now() + STAFF_IDLE_MS);
-    perto((await lerSessao(nutri.id)).expiresAt, Date.now() + STAFF_IDLE_MS);
+  it('(ii) chamadas a /api/auth não regravam a sessão nem mandam Set-Cookie (equipe e paciente)', async () => {
+    for (const papel of ['nutri', 'paciente'] as const) {
+      const { id, cookie } = await entrar(papel);
+      await envelhecer(id, 2 * H, 10 * H);
+      const antes = await lerSessao(id);
+      const res = await getSessionHttp(cookie);
+      expect(res.status).toBe(200);
+      expect((await res.json()).user.id).toBe(id);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(await lerSessao(id)).toEqual(antes);
+    }
+  });
 
-    const paciente = await entrar('paciente');
-    await envelhecer(paciente.id, 2 * H, PATIENT_SESSION_MS - 2 * H);
-    const p = await (await getSessionHttp(paciente.cookie)).json();
-    perto(p.session.expiresAt, Date.now() + PATIENT_SESSION_MS);
+  it('expirada mantém no ?volta a página pedida (caminho + query) vinda do proxy', async () => {
+    const { id, cookie } = await entrar('nutri');
+    await envelhecer(id, 13 * H, -1 * H);
+    const url = await redirectDe(requireComo(cookie, ['nutri'], '/painel', { 'x-nd-caminho': '/painel/pacientes?busca=ana' }));
+    expect(url).toBe('/entrar?expirada=1&volta=%2Fpainel%2Fpacientes%3Fbusca%3Dana');
+  });
+
+  it('?volta vindo do cabeçalho passa por safeReturnPath (destino externo cai no caminho da página)', async () => {
+    req.headers = new Headers({ 'x-nd-caminho': '/.//evil.com' });
+    expect(await redirectDe(requireUser(['nutri'], '/painel'))).toBe('/entrar?volta=%2Fpainel');
+  });
+
+  it('falha ao renovar a sessão é registrada (sem token/cookie) e a página segue autenticada', async () => {
+    const { id, cookie } = await entrar('nutri');
+    await envelhecer(id, 11 * H, 1 * H);
+    vi.mocked(slideSession).mockRejectedValueOnce(new Error('banco indisponível'));
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const data = await requireComo(cookie, ['nutri'], '/painel');
+      expect(data.user.id).toBe(id);
+      expect(aviso).toHaveBeenCalledTimes(1);
+      const [obj, msg] = aviso.mock.calls[0] as unknown as [Record<string, unknown>, string];
+      expect(msg).toBe('falha ao renovar a sessão');
+      expect(obj).toEqual({ err: 'banco indisponível', userId: id });
+      const token = decodeURIComponent(cookie.split('=')[1]).split('.')[0];
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain(token);
+    } finally {
+      aviso.mockRestore();
+    }
   });
 
   it('sem cookie de sessão → login com ?volta', async () => {

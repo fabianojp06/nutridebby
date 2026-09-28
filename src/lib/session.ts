@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { getSessionCookie } from 'better-auth/cookies';
 import { getDb } from '@/db/client';
 import { getAuth, slideSession, type Auth } from './auth';
+import { logger } from './logger';
+import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
 import { evaluateSession, homeFor, SECURITY_PATH, type AppRole } from './session-rules';
 
 export type SessionData = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
@@ -23,16 +25,23 @@ export async function requireUser(allowed: readonly AppRole[], path: string): Pr
     path,
     hasSessionCookie: getSessionCookie(h, { cookiePrefix: 'nd' }) !== null,
   });
+  // Página pedida (caminho + query, gravada pelo proxy); sem ela, o caminho fixo da página
+  const volta = encodeURIComponent(safeReturnPath(h.get(CURRENT_PATH_HEADER)) ?? path);
   switch (decision) {
     case 'ok':
-      // Também em navegação RSC, em que o Better Auth não renova sozinho
-      await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now);
+      try {
+        // Também em navegação RSC, em que o Better Auth não renova sozinho
+        await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now);
+      } catch (err) {
+        // A requisição já está autenticada; falhar a renovação não pode derrubar a página
+        logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data!.user.id }, 'falha ao renovar a sessão');
+      }
       return data!;
     case 'login':
-      redirect(`/entrar?volta=${encodeURIComponent(path)}`);
+      redirect(`/entrar?volta=${volta}`);
     case 'expired':
       await auth.api.signOut({ headers: h });
-      redirect('/entrar?expirada=1');
+      redirect(`/entrar?expirada=1&volta=${volta}`);
     case 'setup-2fa':
       redirect(SECURITY_PATH);
     case 'forbidden':

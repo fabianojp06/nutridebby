@@ -24,3 +24,9 @@ export function withReturnPath(path: string, volta: string | null | undefined): 
   const safe = safeReturnPath(volta);
   return safe ? `${path}?volta=${encodeURIComponent(safe)}` : path;
 }
+
+/**
+ * Cabeçalho de requisição que o proxy grava com o caminho + query da página pedida,
+ * para requireUser montar o ?volta (o proxy sempre sobrescreve o valor vindo do cliente).
+ */
+export const CURRENT_PATH_HEADER = 'x-nd-caminho';
