@@ -20,6 +20,9 @@ import {
 
 const QUINZE_MIN = 15 * 60;
 
+/** US-002: o link de redefinição vale 1 h e é de uso único. */
+export const RESET_TOKEN_TTL_S = 60 * 60;
+
 export function createAuth(
   db: Db,
   opts: { baseURL?: string; secret?: string; trustedProxies?: string[] } = {},
@@ -32,6 +35,10 @@ export function createAuth(
     secret: opts.secret ?? getEnv().AUTH_SECRET,
     trustedOrigins: [baseURL],
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
+    // Tokens (redefinição, estado do 2FA) guardados só como SHA-256 em verification.identifier:
+    // quem ler o banco não consegue usar um link pendente. Linhas antigas em claro ainda são
+    // aceitas pelo Better Auth até expirarem (consumeVerificationValue tenta os dois formatos).
+    verification: { storeIdentifier: 'hashed' },
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
@@ -41,7 +48,7 @@ export function createAuth(
         hash: hashPassword,
         verify: ({ hash, password }) => verifyPassword(hash, password),
       },
-      resetPasswordTokenExpiresIn: 60 * 60, // US-002: 1 h, uso único
+      resetPasswordTokenExpiresIn: RESET_TOKEN_TTL_S,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
         await deliverPasswordLink({ email: user.email, url });

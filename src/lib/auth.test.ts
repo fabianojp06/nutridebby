@@ -3,10 +3,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
-import { account, user } from '@/db/schema';
+import { closeDb } from '@/db/client';
+import { account, user, verification } from '@/db/schema';
+import { EMAIL_FINALIDADE } from '@/email/queue';
+import type { EmailJobData, EmailMessage } from '@/email/types';
+import { getBoss, stopBoss } from '@/jobs/boss';
+import { openSecret, sha256 } from './crypto';
 import { createAuth } from './auth';
 import { hashPassword } from './password.server';
-import { defaultPasswordLinkSink, setPasswordLinkSink } from './password-links';
+import { setPasswordLinkSink } from './password-links';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const auth = createAuth(app.db);
@@ -37,7 +42,28 @@ beforeAll(async () => {
     id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha),
   });
 });
-afterAll(() => app.pool.end());
+afterAll(async () => {
+  await stopBoss();
+  await closeDb();
+  await app.pool.end();
+});
+
+/** Usuária própria para cada teste de e-mail (o job é encontrado pelo destinatário). */
+async function novaUsuaria(prefixo: string): Promise<string> {
+  const id = randomUUID();
+  const e = `${prefixo}-${id.slice(0, 8)}@teste.dev`;
+  await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri' });
+  await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+  return e;
+}
+
+async function linksEnviadosPara(destino: string): Promise<string[]> {
+  const jobs = await (await getBoss()).findJobs<EmailJobData>('email');
+  return jobs
+    .map((j) => JSON.parse(openSecret(j.data.selado, EMAIL_FINALIDADE)) as EmailMessage)
+    .filter((m): m is Extract<EmailMessage, { tipo: 'redefinir_senha' }> => m.tipo === 'redefinir_senha' && m.para === destino)
+    .map((m) => m.link);
+}
 
 describe('Better Auth (US-002, RNF-06)', () => {
   it('guarda a senha em argon2id', async () => {
@@ -99,31 +125,55 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(sexta.status).toBe(429);
   });
 
-  it('recuperação de senha não registra o link nem o token no log', async () => {
-    const links: string[] = [];
+  it('recuperação de senha enfileira o e-mail; token e link não vão para o log (P02-01, PF-F4)', async () => {
+    const destino = await novaUsuaria('rec');
     const saida: string[] = [];
     const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
       vi.spyOn(console, m).mockImplementation((...args: unknown[]) => { saida.push(args.map(String).join(' ')); }),
     );
-    // captura o link para comparar, mas entrega pelo destino padrão (o que roda em produção hoje)
-    const restore = setPasswordLinkSink(async (l) => {
-      links.push(l.url);
-      await defaultPasswordLinkSink(l);
-    });
+    // PF-F4: também captura o que o pino (worker/app) escreveria em stdout
+    const stdoutEspiao = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: unknown) => {
+        saida.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+        return true;
+      });
     try {
-      await post('/request-password-reset', { email, redirectTo: '/definir-senha' }, '10.0.0.7');
-      await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7');
+      expect((await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
+      expect((await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
     } finally {
-      restore();
+      stdoutEspiao.mockRestore();
       espioes.forEach((e) => e.mockRestore());
     }
+    const links = await linksEnviadosPara(destino);
     expect(links).toHaveLength(1);
+    expect(await linksEnviadosPara('ninguem@teste.dev')).toEqual([]);
     const token = new URL(links[0]).pathname.split('/').pop()!;
     const log = saida.join('\n');
-    expect(log).toContain('a***@teste.dev'); // o destino padrão registrou algo, com e-mail mascarado
     expect(log).not.toContain(token);
     expect(log).not.toContain(links[0]);
-    expect(log).not.toContain(email);
+    expect(log).not.toContain(destino);
+  });
+
+  it('o token de redefinição fica só em hash na tabela verification (item adiado do Plano 01)', async () => {
+    const destino = await novaUsuaria('hash');
+    await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.8');
+    const [link] = await linksEnviadosPara(destino);
+    const token = new URL(link).pathname.split('/').pop()!;
+    const ids = (await app.db.select({ i: verification.identifier }).from(verification)).map((r) => r.i);
+    expect(ids.some((i) => i.includes(token))).toBe(false);
+    expect(ids).toContain(sha256(`reset-password:${token}`));
+  });
+
+  it('o link do e-mail redefine a senha uma única vez', async () => {
+    const destino = await novaUsuaria('uso');
+    await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.9');
+    const [link] = await linksEnviadosPara(destino);
+    const token = new URL(link).pathname.split('/').pop()!;
+    expect((await post('/reset-password', { newPassword: 'OutraSenha2026x', token }, '10.0.0.9')).status).toBe(200);
+    const segunda = await post('/reset-password', { newPassword: 'MaisOutra2026y', token }, '10.0.0.9');
+    expect(segunda.status).toBe(400);
+    expect(await segunda.json()).toMatchObject({ code: 'INVALID_TOKEN' });
   });
 
   it('recuperação de senha responde igual para e-mail inexistente', async () => {

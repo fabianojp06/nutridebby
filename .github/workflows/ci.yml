@@ -49,6 +49,9 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U owner -d nutri" --health-interval 5s --health-timeout 5s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['8025:8025', '1025:1025']
     env:
       NODE_ENV: production
       APP_URL: http://localhost:3000
@@ -58,6 +61,9 @@ jobs:
       ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       # TEST-NET-1: validação de produção satisfeita sem confiar em nenhum IP; o E2E manda um único X-Forwarded-For
       TRUSTED_PROXIES: 192.0.2.0/24
+      EMAIL_FROM: 'NutriDebby <nao-responda@nutridebby.test>'
+      EMAIL_TRANSPORT: mailpit
+      MAILPIT_URL: http://localhost:8025
       CI: 'true'
     steps:
       - uses: actions/checkout@v4
