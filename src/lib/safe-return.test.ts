@@ -11,6 +11,20 @@ describe('safeReturnPath', () => {
     ['javascript:alert(1)', null],
     ['', null],
     [null, null],
+    // S1: entradas que a normalização do WHATWG transforma em "//evil.com"
+    ['/.//evil.com', null],
+    ['/a/..//evil.com', null],
+    ['/%2e//evil.com', null],
+    ['/./\\evil.com', null],
+    ['/.//evil.com?x=1', null],
+    ['/a/..//evil.com?volta=/painel', null],
+    ['/%2e//evil.com?x=1&y=2', null],
+    ['/./\\evil.com?x=1', null],
+    ['/..//evil.com', null],
+    ['/%2e%2e//evil.com', null],
+    // normalização benigna continua aceita
+    ['/painel/./pacientes?x=1', '/painel/pacientes?x=1'],
+    ['/a/../painel', '/painel'],
   ])('%s → %s', (input, expected) => {
     expect(safeReturnPath(input)).toBe(expected);
   });
