@@ -52,6 +52,12 @@ describe('parseServerEnv (worker)', () => {
   it('recusa DATABASE_URL ausente', () => {
     expect(() => parseServerEnv({})).toThrow(/DATABASE_URL/);
   });
+  it('NODE_ENV="" não vira o padrão em silêncio (T2-R2): continua recusado', () => {
+    expect(() => parseServerEnv({ DATABASE_URL, NODE_ENV: '' })).toThrow(/NODE_ENV/);
+  });
+  it('LOG_LEVEL="" não vira o padrão em silêncio (T2-R2): continua recusado', () => {
+    expect(() => parseServerEnv({ DATABASE_URL, LOG_LEVEL: '' })).toThrow(/LOG_LEVEL/);
+  });
 });
 
 describe('parseMigratorEnv (migrations)', () => {

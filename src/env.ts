@@ -12,6 +12,16 @@ const postgresUrl = (name: string) =>
     .string({ message: `${name} é obrigatória` })
     .regex(/^postgres(ql)?:\/\//, { message: `${name} deve ser uma URL postgres:// válida` });
 
+/**
+ * `.env` costuma ter `CHAVE=` em branco para variáveis opcionais sem padrão ainda não
+ * configuradas (ex.: RESEND_API_KEY antes do E-05). Só nesses campos "" deve contar
+ * como ausente — nunca em campo com `.default(...)` (NODE_ENV, LOG_LEVEL: "" viraria o
+ * padrão em silêncio, mascarando configuração inválida) nem em campo obrigatório (deve
+ * seguir falhando com a mensagem de negócio certa). Por isso o tratamento é por campo,
+ * não global em `parseWith`.
+ */
+const opcional = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (v === '' ? undefined : v), schema);
+
 /** Worker, seed do E2E e qualquer processo que só abre o banco com o role da aplicação. */
 const serverSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -52,18 +62,20 @@ const appSchema = serverSchema
     }),
     ENCRYPTION_KEY: encryptionKeySchema,
     // CIDRs dos proxies confiáveis (rede do Traefik/Swarm em produção); vazio em dev/test
-    TRUSTED_PROXIES: z
-      .string()
-      .optional()
-      .transform((v) =>
-        (v ?? '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      )
-      .refine((l) => l.every((c) => isIpOrCidr(c)), {
-        message: 'TRUSTED_PROXIES deve ser uma lista de IPs/CIDRs separados por vírgula',
-      }),
+    TRUSTED_PROXIES: opcional(
+      z
+        .string()
+        .optional()
+        .transform((v) =>
+          (v ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        )
+        .refine((l) => l.every((c) => isIpOrCidr(c)), {
+          message: 'TRUSTED_PROXIES deve ser uma lista de IPs/CIDRs separados por vírgula',
+        }),
+    ),
   })
   .superRefine((e, ctx) => {
     if (e.NODE_ENV === 'production' && e.TRUSTED_PROXIES.length === 0) {
@@ -86,9 +98,9 @@ const workerSchema = serverSchema
     EMAIL_FROM: z
       .string({ message: 'EMAIL_FROM é obrigatória' })
       .regex(EMAIL_FROM, { message: 'EMAIL_FROM deve ser "Nome <email@dominio>" ou só o e-mail' }),
-    EMAIL_TRANSPORT: z.enum(['resend', 'mailpit']).optional(),
-    RESEND_API_KEY: z.string().min(1).optional(),
-    MAILPIT_URL: z.url({ message: 'MAILPIT_URL deve ser uma URL (ex.: http://localhost:8025)' }).optional(),
+    EMAIL_TRANSPORT: opcional(z.enum(['resend', 'mailpit']).optional()),
+    RESEND_API_KEY: opcional(z.string().min(1).optional()),
+    MAILPIT_URL: opcional(z.url({ message: 'MAILPIT_URL deve ser uma URL (ex.: http://localhost:8025)' }).optional()),
   })
   .transform((e) => ({
     ...e,
@@ -131,18 +143,8 @@ export type WorkerEnv = z.infer<typeof workerSchema>;
 
 type Source = Record<string, string | undefined>;
 
-/**
- * `.env` costuma ter `CHAVE=` em branco para variáveis opcionais ainda não configuradas
- * (ex.: RESEND_API_KEY antes do E-05). Tratar "" como ausente evita que um campo
- * opcional rejeite string vazia com uma mensagem de baixo nível em vez da mensagem
- * de negócio (ex.: "RESEND_API_KEY é obrigatória para enviar pelo Resend").
- */
-function semStringVazia(source: Source): Source {
-  return Object.fromEntries(Object.entries(source).map(([k, v]) => [k, v === '' ? undefined : v]));
-}
-
 function parseWith<S extends z.ZodType>(schema: S, source: Source): z.infer<S> {
-  const r = schema.safeParse(semStringVazia(source));
+  const r = schema.safeParse(source);
   if (!r.success) {
     const msg = r.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`).join('; ');
     throw new Error(`Configuração inválida — ${msg}`);
