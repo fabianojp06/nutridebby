@@ -77,8 +77,11 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     readdirSync(dir, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile())
       .map((d) => path.join(d.parentPath, d.name));
-  const execucoesDesde = async (desde: Date) =>
-    (await owner.pool.query(`select tipo, ok from backup_runs where concluido_em >= $1 order by tipo`, [desde])).rows;
+  // Ponto de referência tirado do próprio banco (texto preserva os microssegundos), não do relógio do host
+  const referencia = async () =>
+    (await owner.pool.query<{ ref: string }>(`select coalesce(max(concluido_em), '-infinity')::text as ref from backup_runs`)).rows[0]!.ref;
+  const execucoesDesde = async (ref: string) =>
+    (await owner.pool.query(`select tipo, ok from backup_runs where concluido_em > $1::timestamptz order by tipo`, [ref])).rows;
 
   it('o script é bash válido', async () => {
     await expect(execFile('bash', ['-n', SCRIPT])).resolves.toBeTruthy();
@@ -87,7 +90,7 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   it('domingo: dump cifrado no diário e no semanal, /data sincronizado, retenção 7+4, registro em backup_runs', async () => {
     for (let d = 20; d <= 27; d++) await rcat(`db/diario/nutri-2026-09-${d}.dump`, 'antigo'); // 8 diários antigos
     for (const d of ['2026-08-30', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27']) await rcat(`db/semanal/nutri-${d}.dump`, 'antigo');
-    const antes = new Date(Date.now() - 1000);
+    const antes = await referencia();
     expect(await rodar('2026-10-04')).toBe(0); // 04/10/2026 é domingo
     const diarios = await lsf('db/diario/');
     expect(diarios).toHaveLength(7);
@@ -102,6 +105,8 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(brutos.some((f) => readFileSync(f).includes('PGDMP'))).toBe(false);
     expect(await lsf('data/atual/t1/logo/')).toEqual(['a.png', 'b.png']);
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: true }]);
+    const banco = await owner.pool.query(`select bytes from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(Number(banco.rows[0].bytes)).toBeGreaterThan(0);
   });
 
   it('dia seguinte: alterado/apagado vai para o histórico datado; histórico com mais de 30 dias sai; segunda não gera semanal', async () => {
@@ -118,11 +123,25 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   });
 
   it('falha no dump: registra ok=false, não deixa arquivo parcial, ainda copia /data e sai com erro', async () => {
-    const antes = new Date(Date.now() - 1000);
+    const antes = await referencia();
     const codigo = await rodar('2026-10-06', { NUTRI_PG_DUMP_ARGS: '--table=tabela_que_nao_existe --strict-names' });
     expect(codigo).toBe(1);
     expect(await lsf('db/diario/')).not.toContain('nutri-2026-10-06.dump');
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+  });
+
+  it('falha na retenção: apagar os diários velhos falha -> banco ok=false com detalhe fixo, sai com erro, /data segue ok', async () => {
+    // rclone "falso" no PATH: repassa tudo ao real, exceto deletefile (que falha). Nada é instalado.
+    const real = execFileSync('bash', ['-c', 'command -v rclone']).toString().trim();
+    const bin = path.join(base, 'fakebin');
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = deletefile ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const antes = await referencia();
+    const codigo = await rodar('2026-10-07', { PATH: `${bin}:${process.env.PATH}` }); // quarta: 8 diários -> precisa podar
+    expect(codigo).toBe(1);
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('retenção falhou');
   });
 });
 

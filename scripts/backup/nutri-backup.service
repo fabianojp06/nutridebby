@@ -5,6 +5,7 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
+TimeoutStartSec=4h
 EnvironmentFile=/etc/nutri-backup/backup.env
 ExecStart=/usr/local/lib/nutri-backup/nutri-backup.sh
 Nice=10
