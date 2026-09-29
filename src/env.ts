@@ -30,10 +30,15 @@ const serverSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 
-/** 32 bytes em base64 (gere com `openssl rand -base64 32`): chave AES-256 dos segredos guardados na fila. */
+/**
+ * 32 bytes em base64 (gere com `openssl rand -base64 32`): chave AES-256 dos segredos guardados na fila.
+ * M2: só a forma canônica (44 caracteres, `=` no fim, ida e volta idêntica). O `Buffer.from` aceita
+ * espaços, quebras de linha, alfabeto URL e bits de sobra — uma chave colada errado passaria aqui
+ * e só falharia ao decifrar.
+ */
 export const encryptionKeySchema = z
   .string({ message: 'ENCRYPTION_KEY é obrigatória' })
-  .refine((v) => Buffer.from(v, 'base64').length === 32, {
+  .refine((v) => /^[A-Za-z0-9+/]{43}=$/.test(v) && Buffer.from(v, 'base64').toString('base64') === v, {
     message: 'ENCRYPTION_KEY deve ter 32 bytes em base64 (gere com: openssl rand -base64 32)',
   });
 
@@ -92,7 +97,8 @@ const appSchema = serverSchema
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
-    if (e.NODE_ENV === 'production' && !['localhost', '127.0.0.1'].includes(new URL(e.APP_URL).hostname)) {
+    // M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru
+    if (e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !['localhost', '127.0.0.1'].includes(new URL(e.APP_URL).hostname)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SITE_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
       }

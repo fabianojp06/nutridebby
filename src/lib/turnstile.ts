@@ -21,7 +21,11 @@ export async function verifyTurnstile(
   const corpo = new URLSearchParams({ secret: opts.secret, response: token });
   if (opts.ip) corpo.set('remoteip', opts.ip);
   const falha = (f: FalhaTurnstile): 'indisponivel' => {
-    opts.onFalha?.(f);
+    try {
+      opts.onFalha?.(f);
+    } catch {
+      // M17: o aviso (log) não pode trocar o 503 "indisponível" por um 500
+    }
     return 'indisponivel';
   };
   let res: Response;

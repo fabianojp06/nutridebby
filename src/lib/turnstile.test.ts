@@ -19,6 +19,14 @@ describe('verifyTurnstile (INT-06)', () => {
     expect(url).toBe('https://challenges.cloudflare.com/turnstile/v0/siteverify');
     expect(Object.fromEntries(new URLSearchParams(init.body as URLSearchParams))).toEqual({ secret, response: 'tok', remoteip: '203.0.113.9' });
   });
+  it('onFalha que lança não escapa: segue "indisponivel" (M17)', async () => {
+    const onFalha = vi.fn(() => {
+      throw new Error('logger quebrou');
+    });
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({}, 502) })).toBe('indisponivel');
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: vi.fn(async () => { throw new TypeError('fetch failed'); }) })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledTimes(2);
+  });
   it('token recusado → invalido', async () => {
     expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': ['invalid-input-response'] }) })).toBe('invalido');
   });

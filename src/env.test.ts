@@ -96,6 +96,18 @@ describe('parseEnv — Plano 02', () => {
     expect(() => parseEnv({ ...base, ENCRYPTION_KEY: undefined })).toThrow(/ENCRYPTION_KEY é obrigatória/);
     expect(() => parseEnv({ ...base, ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') })).toThrow(/32 bytes/);
   });
+  it('recusa ENCRYPTION_KEY em base64 não canônica (M2): a chave errada só apareceria ao decifrar', () => {
+    const outraUltima = KEY.slice(0, 42) + (KEY[42] === 'c' ? 'd' : 'c') + '='; // mesmos 32 bytes, bits de sobra ≠ 0
+    expect(Buffer.from(outraUltima, 'base64')).toEqual(Buffer.from(KEY, 'base64'));
+    for (const ruim of [outraUltima, `${KEY}\n`, ` ${KEY}`, KEY.replace('=', ''), KEY.replaceAll('/', '_').replaceAll('+', '-').replace('B', '-')]) {
+      expect(() => parseEnv({ ...base, ENCRYPTION_KEY: ruim }), JSON.stringify(ruim)).toThrow(/32 bytes em base64/);
+    }
+    expect(parseEnv({ ...base, ENCRYPTION_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=' }).ENCRYPTION_KEY).toBeTruthy(); // a do CI
+  });
+  it('APP_URL inválida em produção dá a mensagem de configuração, não TypeError (M18)', () => {
+    const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8' };
+    expect(() => parseEnv({ ...prod, APP_URL: 'nao-e-url' })).toThrow(/^Configuração inválida — APP_URL/);
+  });
   it('em produção exige TRUSTED_PROXIES (item adiado do Plano 01)', () => {
     expect(() => parseEnv({ ...base, NODE_ENV: 'production' })).toThrow(/TRUSTED_PROXIES é obrigatória em produção/);
     expect(parseEnv({ ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.1.0/24' }).TRUSTED_PROXIES).toEqual([
