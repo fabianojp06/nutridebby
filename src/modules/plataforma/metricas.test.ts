@@ -6,6 +6,7 @@ import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { ajustarCotaWhatsapp, CotaWhatsappError, metricasPorTenant } from './metricas';
+import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -38,5 +39,9 @@ describe('ajustarCotaWhatsapp', () => {
       await expect(ajustarCotaWhatsapp(t, v, randomUUID(), app.db)).rejects.toBeInstanceOf(CotaWhatsappError);
     }
     expect((await app.db.select().from(tenants).where(eq(tenants.id, t)))[0].waCotaMensal).toBe(800);
+  });
+
+  it('tenant inexistente → ContaNaoEncontradaError (M9)', async () => {
+    await expect(ajustarCotaWhatsapp(randomUUID(), '10', randomUUID(), app.db)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
   });
 });

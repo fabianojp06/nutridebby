@@ -4,6 +4,16 @@ import { tenants, type TenantRow } from '@/db/schema';
 
 export type TenantStatus = 'ativa' | 'suspensa';
 
+export const MSG_CONTA_NAO_ENCONTRADA = 'Conta não encontrada.';
+
+/** M9: ação do admin sobre um tenant que não existe (aviso próprio em vez da página de erro). */
+export class ContaNaoEncontradaError extends Error {
+  override name = 'ContaNaoEncontradaError';
+  constructor() {
+    super(MSG_CONTA_NAO_ENCONTRADA);
+  }
+}
+
 /**
  * `aguardarSuspensao` (M8): `FOR SHARE` espera uma suspensão em curso (UPDATE ainda sem COMMIT)
  * terminar e devolve o status já confirmado, em vez do anterior.

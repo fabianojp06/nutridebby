@@ -4,6 +4,7 @@ import { requireUser } from '@/lib/session';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
 import { metricasPorTenant } from '@/modules/plataforma/metricas';
+import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from './confirmar-botao';
 import { CotaForm } from './cota-form';
@@ -19,6 +20,7 @@ const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   conta_suspensa: { texto: MSG.contaSuspensa, erro: true },
   suspensa: { texto: 'Conta suspensa. A nutricionista e os pacientes veem "Conta temporariamente indisponível".' },
   reativada: { texto: 'Conta reativada.' },
+  nao_encontrada: { texto: MSG_CONTA_NAO_ENCONTRADA, erro: true },
 };
 
 const data = (d: Date) =>
@@ -35,8 +37,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
   const { aviso } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const contas = await listarContas();
-  const metricas = await metricasPorTenant();
+  const [contas, metricas] = await Promise.all([listarContas(), metricasPorTenant()]);
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -82,23 +83,26 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
               <td>{m?.pacientesAtivos ?? '—'}</td>
               <td>{m?.consultasMes ?? '—'}</td>
               <td>{m?.mensagensWhatsappMes ?? '—'}</td>
-              <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} /></td>
+              <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} conta={c.nomeExibicao} /></td>
               <td>{m ? `${formatarBytes(m.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)} (${m.arquivos} arquivos)` : '—'}</td>
               <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (
                   <form action={reenviarConviteAction.bind(null, c.tenantId)}>
-                    <button className="underline">Reenviar convite</button>
+                    {/* M22: nome acessível diferente por linha (o texto visível continua o mesmo) */}
+                    <button className="underline">Reenviar convite<span className="sr-only">{` para ${c.nomeExibicao}`}</span></button>
                   </form>
                 )}
                 {c.status === 'ativa' ? (
                   <form action={suspenderAction.bind(null, c.tenantId)}>
                     <ConfirmarBotao mensagem={`Suspender a conta ${c.nomeExibicao}? A nutricionista e os pacientes perdem o acesso até a reativação. Nenhum dado é apagado.`}>
-                      Suspender
+                      Suspender<span className="sr-only">{` a conta ${c.nomeExibicao}`}</span>
                     </ConfirmarBotao>
                   </form>
                 ) : (
                   <form action={reativarAction.bind(null, c.tenantId)}>
-                    <ConfirmarBotao mensagem={`Reativar a conta ${c.nomeExibicao}?`}>Reativar</ConfirmarBotao>
+                    <ConfirmarBotao mensagem={`Reativar a conta ${c.nomeExibicao}?`}>
+                      Reativar<span className="sr-only">{` a conta ${c.nomeExibicao}`}</span>
+                    </ConfirmarBotao>
                   </form>
                 )}
               </td>

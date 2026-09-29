@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { logger } from '@/lib/logger';
+import { ContaNaoEncontradaError } from './tenant-status';
 
 export type MetricasTenant = {
   tenantId: string;
@@ -48,6 +49,6 @@ export async function ajustarCotaWhatsapp(tenantId: string, valor: string, admin
   const r = cotaSchema.safeParse(valor);
   if (!r.success) throw new CotaWhatsappError(MSG_COTA_WA);
   const up = await db.update(tenants).set({ waCotaMensal: r.data, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
-  if (!up.length) throw new Error('Conta não encontrada');
+  if (!up.length) throw new ContaNaoEncontradaError();
   logger.info({ tenantId, adminId, cota: r.data }, 'cota de WhatsApp ajustada');
 }

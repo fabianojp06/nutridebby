@@ -6,6 +6,7 @@ import { session, tenants, user } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { criarEEntrar, entrar } from '../../../test/sessao';
 import { reativarConta, suspenderConta } from './suspensao';
+import { ContaNaoEncontradaError } from './tenant-status';
 
 const db = getDb();
 const auth = getAuth();
@@ -39,6 +40,8 @@ describe('suspenderConta / reativarConta (US-004)', () => {
   });
 
   it('conta inexistente é erro', async () => {
-    await expect(suspenderConta(randomUUID(), randomUUID())).rejects.toThrow('Conta não encontrada');
+    // M9: erro próprio (a action mostra "Conta não encontrada." em vez da página de erro)
+    await expect(suspenderConta(randomUUID(), randomUUID())).rejects.toBeInstanceOf(ContaNaoEncontradaError);
+    await expect(reativarConta(randomUUID(), randomUUID())).rejects.toThrow('Conta não encontrada.');
   });
 });

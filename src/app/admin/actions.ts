@@ -7,6 +7,7 @@ import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
 import { ajustarCotaWhatsapp, CotaWhatsappError } from '@/modules/plataforma/metricas';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
+import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 
 export type CriarContaState = { erros?: ErrosDeCampo; valores?: Record<string, string> };
 
@@ -47,20 +48,31 @@ export async function reenviarConviteAction(tenantId: string): Promise<void> {
   redirect(`/admin?aviso=${aviso}`);
 }
 
+/** M9: tenant inexistente (apagado, id antigo numa aba aberta) vira aviso próprio, não página de erro. */
+async function naoEncontradaVira(ok: string, fn: () => Promise<unknown>): Promise<string> {
+  try {
+    await fn();
+    return ok;
+  } catch (e) {
+    if (e instanceof ContaNaoEncontradaError) return 'nao_encontrada';
+    throw e;
+  }
+}
+
 export async function suspenderAction(tenantId: string): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
   if (!uuid.safeParse(tenantId).success) redirect('/admin');
-  await suspenderConta(tenantId, user.id);
+  const aviso = await naoEncontradaVira('suspensa', () => suspenderConta(tenantId, user.id));
   revalidatePath('/admin');
-  redirect('/admin?aviso=suspensa');
+  redirect(`/admin?aviso=${aviso}`);
 }
 
 export async function reativarAction(tenantId: string): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
   if (!uuid.safeParse(tenantId).success) redirect('/admin');
-  await reativarConta(tenantId, user.id);
+  const aviso = await naoEncontradaVira('reativada', () => reativarConta(tenantId, user.id));
   revalidatePath('/admin');
-  redirect('/admin?aviso=reativada');
+  redirect(`/admin?aviso=${aviso}`);
 }
 
 export type CotaState = { erro?: string; ok?: boolean };
@@ -72,6 +84,7 @@ export async function ajustarCotaAction(tenantId: string, _prev: CotaState, form
     await ajustarCotaWhatsapp(tenantId, String(formData.get('cota') ?? ''), user.id);
   } catch (e) {
     if (e instanceof CotaWhatsappError) return { erro: e.message };
+    if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
     throw e;
   }
   revalidatePath('/admin');

@@ -1,6 +1,6 @@
 import { formatarBytes } from '@/lib/format';
 import { requireNutri } from '@/lib/tenant-session';
-import { MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
+import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
 import { Cabecalho } from './cabecalho';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export default async function PainelHome() {
           if (uso.nivel === 'aviso') {
             return (
               <p role="status" className="rounded bg-amber-50 p-3 text-amber-900">
-                {`Você já usou ${uso.percentual}% do espaço de armazenamento (${formatarBytes(tenant.armazenamentoBytes)} de 5 GB).`}
+                {`Você já usou ${uso.percentual}% do espaço de armazenamento (${formatarBytes(tenant.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)}).`}
               </p>
             );
           }
