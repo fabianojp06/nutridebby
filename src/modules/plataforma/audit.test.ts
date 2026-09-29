@@ -108,6 +108,12 @@ describe('listAccessHistory ("Histórico de acessos", 50 por página, mais recen
     expect((await listAccessHistory(ctxA(), P3, 0, app.db)).pagina).toBe(1);
   });
 
+  it('patientId que não é UUID (vindo da URL) devolve histórico vazio, não erro 500 (M6)', async () => {
+    for (const id of ['abc', '', "1' or '1'='1", `${P3}x`]) {
+      await expect(listAccessHistory(ctxA(), id, 1, app.db)).resolves.toEqual({ itens: [], pagina: 1, totalPaginas: 1, total: 0 });
+    }
+  });
+
   it('outro tenant não vê o histórico', async () => {
     expect((await listAccessHistory({ tenantId: B, role: 'nutri' }, P3, 1, app.db)).total).toBe(0);
   });

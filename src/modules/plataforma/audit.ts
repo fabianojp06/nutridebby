@@ -1,4 +1,5 @@
 import { count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { auditLog, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -67,6 +68,8 @@ export async function listAccessHistory(
   pagina: number,
   db: Db = getDb(),
 ): Promise<AccessHistoryPage> {
+  // M6: o id costuma vir da URL; sem isto o cast para uuid no Postgres vira erro 500
+  if (!z.uuid().safeParse(patientId).success) return { itens: [], pagina: 1, totalPaginas: 1, total: 0 };
   const r = await withTenant(ctx, async (tx) => {
     const [{ n }] = await tx.select({ n: count() }).from(auditLog).where(eq(auditLog.patientId, patientId));
     const totalPaginas = Math.max(1, Math.ceil(n / HISTORICO_POR_PAGINA));
