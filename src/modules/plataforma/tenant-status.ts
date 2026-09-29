@@ -14,6 +14,11 @@ export class ContaNaoEncontradaError extends Error {
   }
 }
 
+/** G9: status de uma linha de `tenants` já lida (a restrição `tenants_status_valido` garante o valor); `null` sem linha. */
+export function statusDe(tenant: { status: string } | null | undefined): TenantStatus | null {
+  return (tenant?.status as TenantStatus | undefined) ?? null;
+}
+
 /**
  * `aguardarSuspensao` (M8): `FOR SHARE` espera uma suspensão em curso (UPDATE ainda sem COMMIT)
  * terminar e devolve o status já confirmado, em vez do anterior.
@@ -21,7 +26,7 @@ export class ContaNaoEncontradaError extends Error {
 export async function getTenantStatus(db: Db, tenantId: string, opts: { aguardarSuspensao?: boolean } = {}): Promise<TenantStatus | null> {
   const q = db.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId));
   const [row] = opts.aguardarSuspensao ? await q.for('share') : await q;
-  return (row?.status as TenantStatus | undefined) ?? null;
+  return statusDe(row);
 }
 
 /** T6-R2: `tenants` não tem tenant_id — só serviços de src/modules/plataforma a consultam. */

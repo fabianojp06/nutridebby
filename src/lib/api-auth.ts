@@ -1,6 +1,6 @@
 import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
-import { buscarTenant } from '@/modules/plataforma/tenant-status';
+import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
 import { logger } from './logger';
 import type { SessionData } from './session';
@@ -26,7 +26,7 @@ export async function requireApiUser(req: Request, allowed: readonly AppRole[]):
     allowed,
     now,
     path: new URL(req.url).pathname,
-    tenantStatus: (tenant?.status as 'ativa' | 'suspensa' | undefined) ?? null,
+    tenantStatus: statusDe(tenant),
   });
   switch (decision) {
     case 'ok':

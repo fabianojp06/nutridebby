@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getSessionCookie } from 'better-auth/cookies';
 import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
-import { buscarTenant } from '@/modules/plataforma/tenant-status';
+import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession, type Auth } from './auth';
 import { logger } from './logger';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
@@ -40,7 +40,7 @@ export async function requireUserComTenant(
     now,
     path,
     hasSessionCookie: getSessionCookie(h, { cookiePrefix: 'nd' }) !== null,
-    tenantStatus: (tenant?.status as 'ativa' | 'suspensa' | undefined) ?? null,
+    tenantStatus: statusDe(tenant),
   });
   // Página pedida (caminho + query, gravada pelo proxy); sem ela, o caminho fixo da página
   const volta = encodeURIComponent(safeReturnPath(h.get(CURRENT_PATH_HEADER)) ?? path);
