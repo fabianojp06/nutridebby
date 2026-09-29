@@ -67,6 +67,14 @@ async function linksEnviadosPara(destino: string): Promise<string[]> {
     .map((m) => m.link);
 }
 
+/** F3: o enfileiramento sai do caminho da resposta — espera o job aparecer. */
+const linkPara = (destino: string) =>
+  vi.waitFor(async () => {
+    const links = await linksEnviadosPara(destino);
+    expect(links).toHaveLength(1);
+    return links[0];
+  });
+
 describe('Better Auth (US-002, RNF-06)', () => {
   it('guarda a senha em argon2id', async () => {
     const [row] = await app.db.select({ p: account.password }).from(account).innerJoin(user, eq(user.id, account.userId)).where(eq(user.email, email));
@@ -167,21 +175,20 @@ describe('Better Auth (US-002, RNF-06)', () => {
       logger.level = nivelAnterior;
       espioes.forEach((e) => e.mockRestore());
     }
-    const links = await linksEnviadosPara(destino);
-    expect(links).toHaveLength(1);
+    const link = await linkPara(destino);
     expect(await linksEnviadosPara('ninguem@teste.dev')).toEqual([]);
-    const token = new URL(links[0]).pathname.split('/').pop()!;
+    const token = new URL(link).pathname.split('/').pop()!;
     const log = saida.join('\n');
     expect(log).toContain('sonda');
     expect(log).not.toContain(token);
-    expect(log).not.toContain(links[0]);
+    expect(log).not.toContain(link);
     expect(log).not.toContain(destino);
   });
 
   it('o token de redefinição fica só em hash na tabela verification (item adiado do Plano 01)', async () => {
     const destino = await novaUsuaria('hash');
     await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.8');
-    const [link] = await linksEnviadosPara(destino);
+    const link = await linkPara(destino);
     const token = new URL(link).pathname.split('/').pop()!;
     const ids = (await app.db.select({ i: verification.identifier }).from(verification)).map((r) => r.i);
     expect(ids.some((i) => i.includes(token))).toBe(false);
@@ -191,12 +198,32 @@ describe('Better Auth (US-002, RNF-06)', () => {
   it('o link do e-mail redefine a senha uma única vez', async () => {
     const destino = await novaUsuaria('uso');
     await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.9');
-    const [link] = await linksEnviadosPara(destino);
+    const link = await linkPara(destino);
     const token = new URL(link).pathname.split('/').pop()!;
     expect((await post('/reset-password', { newPassword: 'OutraSenha2026x', token }, '10.0.0.9')).status).toBe(200);
     const segunda = await post('/reset-password', { newPassword: 'MaisOutra2026y', token }, '10.0.0.9');
     expect(segunda.status).toBe(400);
     expect(await segunda.json()).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
+
+  it('o link de redefinição vale 1 h: nasce com validade de 1 h e, vencido, é recusado (US-002, M3)', async () => {
+    let url = '';
+    const restore = setPasswordLinkSink((l) => { url = l.url; });
+    const antes = Date.now();
+    try {
+      expect((await post('/request-password-reset', { email, redirectTo: '/definir-senha' }, '10.0.0.11')).status).toBe(200);
+    } finally {
+      restore();
+    }
+    const token = new URL(url).pathname.split('/').pop()!;
+    const identificador = sha256(`reset-password:${token}`);
+    const [v] = await app.db.select({ expiresAt: verification.expiresAt }).from(verification).where(eq(verification.identifier, identificador));
+    expect(Math.abs(v.expiresAt.getTime() - (antes + 60 * 60 * 1000))).toBeLessThan(60_000);
+    // 1 h e 1 s depois do pedido: o mesmo registro, agora vencido
+    await app.db.update(verification).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(verification.identifier, identificador));
+    const res = await post('/reset-password', { newPassword: 'OutraSenha2026z', token }, '10.0.0.11');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'INVALID_TOKEN' });
   });
 
   it('recuperação de senha responde igual para e-mail inexistente', async () => {

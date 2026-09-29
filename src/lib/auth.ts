@@ -70,8 +70,10 @@ export function createAuth(
       },
       resetPasswordTokenExpiresIn: RESET_TOKEN_TTL_S,
       revokeSessionsOnPasswordReset: true,
+      // F2/F3: o tenantId vai junto (RN-15) e a entrega nunca lança nem segura a resposta
       sendResetPassword: async ({ user, url }) => {
-        await deliverPasswordLink({ email: user.email, url });
+        const tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
+        await deliverPasswordLink({ email: user.email, url, tenantId });
       },
     },
     session: {
