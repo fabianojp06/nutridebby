@@ -15,7 +15,7 @@ export type StatFsLike = { blocks: number; bfree: number; bavail: number };
 export function percentualDisco(s: StatFsLike): number {
   const usados = s.blocks - s.bfree;
   const total = usados + s.bavail;
-  return total > 0 ? Math.round((usados / total) * 100) : 0;
+  return total > 0 ? Math.ceil((usados * 100) / total) : 0; // df arredonda para cima
 }
 
 /**
@@ -45,7 +45,7 @@ export async function ultimosBackups(db: Db, now: Date = new Date()): Promise<Ul
   const r = await db.execute<{ tipo: UltimoBackup['tipo']; ok: boolean; concluido_em: Date; bytes: string | null }>(sql`
     select distinct on (tipo) tipo, ok, concluido_em, bytes
       from backup_runs where concluido_em <= ${now}
-     order by tipo, concluido_em desc`);
+     order by tipo, concluido_em desc, id desc`);
   return r.rows.map((x) => ({ tipo: x.tipo, ok: x.ok, concluidoEm: new Date(x.concluido_em), bytes: x.bytes === null ? null : Number(x.bytes) }));
 }
 

@@ -37,7 +37,9 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
 
   const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
   const paraAdmins = async (montar: (para: string) => Parameters<typeof enqueueEmail>[0]) => {
-    for (const para of await emailsDosAdmins(getDb())) await enqueueEmail(montar(para), { boss });
+    const admins = await emailsDosAdmins(getDb());
+    if (admins.length === 0) logger.warn('alerta de monitoramento sem destinatário: nenhum admin cadastrado');
+    for (const para of admins) await enqueueEmail(montar(para), { boss });
   };
   // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
   await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });

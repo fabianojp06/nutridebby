@@ -42,10 +42,27 @@ describe('verificação do backup (RNF-05)', () => {
   });
 });
 
+describe('última execução por tipo (falha depois de ok recente)', () => {
+  const t = new Date('2020-03-01T10:00:00Z');
+  it('reporta o tipo cuja falha veio depois de um ok dentro da janela e limpa quando volta a dar certo', async () => {
+    await registrar('banco', true, new Date(t.getTime() - 5 * H));
+    await registrar('banco', false, new Date(t.getTime() - 1 * H), 'retenção falhou');
+    await registrar('arquivos', true, new Date(t.getTime() - 3 * H));
+    expect(await backupsFaltando(app.db, t)).toEqual(['banco']);
+    await registrar('banco', true, new Date(t.getTime() - H / 2));
+    expect(await backupsFaltando(app.db, t)).toEqual([]);
+  });
+});
+
 describe('alerta de disco em 70% (RNF-13)', () => {
   it('percentual como o df', () => {
     expect(percentualDisco({ blocks: 100, bfree: 30, bavail: 25 })).toBe(74);
     expect(percentualDisco({ blocks: 100, bfree: 40, bavail: 40 })).toBe(60);
+    // como o df: arredonda para cima (69,4% aparece como 70 e já alerta)
+    expect(percentualDisco({ blocks: 1000, bfree: 306, bavail: 306 })).toBe(70);
+    expect(percentualDisco({ blocks: 1000, bfree: 301, bavail: 301 })).toBe(70);
+    expect(percentualDisco({ blocks: 1000, bfree: 300, bavail: 300 })).toBe(70);
+    expect(percentualDisco({ blocks: 1000, bfree: 310, bavail: 310 })).toBe(69);
   });
   it('avisa ao passar de 70% no máximo uma vez a cada 24 h', async () => {
     const avisar = vi.fn(async () => undefined);

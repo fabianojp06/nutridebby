@@ -23,7 +23,7 @@ export async function PainelInfra() {
         <Linha rotulo="Backup do banco" b={backups.find((b) => b.tipo === 'banco')} />
         <Linha rotulo="Backup dos arquivos" b={backups.find((b) => b.tipo === 'arquivos')} />
         <li className={disco !== null && disco >= DISCO_LIMITE ? 'font-semibold text-red-700' : undefined}>
-          {disco === null ? 'Disco: não foi possível medir' : `Disco da VPS: ${disco}% usado`}
+          {disco === null ? 'Disco: não foi possível medir' : `Disco da VPS: ${disco}% usado${disco >= DISCO_LIMITE ? ` (acima do limite de ${DISCO_LIMITE}%)` : ''}`}
         </li>
       </ul>
     </section>
