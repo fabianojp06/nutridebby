@@ -67,6 +67,12 @@ const temPaciente = async (t: string) =>
 const contarTenant = async (t: string, tenantId: string) =>
   Number((await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1`, [tenantId])).rows[0].n);
 
+/** Recusa pela política da RLS (WITH CHECK), não por outro motivo qualquer. */
+const violaRls = (e: unknown) => {
+  const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
+  return c.code === '42501' && /row-level security/.test(c.message ?? '');
+};
+
 const contarPaciente = async (t: string, tenantId: string, patientId: string) =>
   Number(
     (await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1 and patient_id = $2`, [tenantId, patientId]))
@@ -76,6 +82,34 @@ const contarPaciente = async (t: string, tenantId: string, patientId: string) =>
 describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
   it('toda tabela com tenant_id tem fábrica neste teste', () => {
     expect(tabelas.filter((t) => !FABRICAS[t])).toEqual([]);
+  });
+
+  // M12: roda antes dos testes que apagam as linhas de B/P2 (o UPDATE precisa de linhas visíveis)
+  it('WITH CHECK: o tenant B não grava linha com o tenant_id de A nem move a própria linha para A', async () => {
+    for (const t of tabelas) {
+      const antesA = await contarTenant(t, A);
+      const comoB = (q: SQL) => withTenant({ tenantId: B, role: 'nutri' }, (tx) => tx.execute(q), app.db);
+      await expect(comoB(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
+      if (!SO_INSERE.has(t)) {
+        expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para tentar mover
+        await expect(comoB(sql`update ${sql.identifier(t)} set tenant_id = ${A}`), t).rejects.toSatisfy(violaRls);
+      }
+      expect(await contarTenant(t, A), t).toBe(antesA);
+    }
+  });
+
+  it('WITH CHECK: a paciente P2 não grava linha de P1 nem move a própria linha para P1', async () => {
+    for (const t of tabelas) {
+      if (!(await temPaciente(t))) continue;
+      const antesP1 = await contarPaciente(t, A, P1);
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
+      if (!SO_INSERE.has(t)) {
+        expect(await contarPaciente(t, A, P2), t).toBeGreaterThan(0);
+        await expect(comoP2(sql`update ${sql.identifier(t)} set patient_id = ${P1}`), t).rejects.toSatisfy(violaRls);
+      }
+      expect(await contarPaciente(t, A, P1), t).toBe(antesP1);
+    }
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {
