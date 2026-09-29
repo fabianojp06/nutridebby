@@ -1,8 +1,11 @@
 import { statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
-import type { Db } from '@/db/client';
+import type { Db, Queryable, Tx } from '@/db/client';
 import { systemHeartbeat, user } from '@/db/schema';
+import { enqueueEmail } from '@/email/queue';
+import type { EmailMessage } from '@/email/types';
+import { logger } from '@/lib/logger';
 
 export const BACKUP_JANELA_MS = 26 * 60 * 60 * 1000; // backup às 03h + folga
 export const DISCO_LIMITE = 70; // RNF-13
@@ -62,12 +65,32 @@ export async function backupsFaltando(db: Db, now: Date): Promise<string[]> {
   });
 }
 
-export async function emailsDosAdmins(db: Db): Promise<string[]> {
+/** Tabela `user` sem contexto de tenant: exceção listada na regra 1 do CLAUDE.md (destinatários dos alertas, F4). */
+export async function emailsDosAdmins(db: Queryable): Promise<string[]> {
   return (await db.select({ email: user.email }).from(user).where(eq(user.appRole, 'admin'))).map((u) => u.email);
 }
 
+/**
+ * Um e-mail por admin, todos na MESMA transação (F5): se um enfileiramento falhar, nenhum fica
+ * na fila e a nova tentativa do job não duplica os que já tinham ido. Devolve quantos enfileirou
+ * (0 = nenhum admin cadastrado).
+ */
+export async function avisarAdmins(
+  db: Db,
+  montar: (para: string) => EmailMessage,
+  enfileirar: (msg: EmailMessage, tx: Tx) => Promise<unknown> = (msg, tx) => enqueueEmail(msg, { tx }),
+): Promise<number> {
+  const n = await db.transaction(async (tx) => {
+    const admins = await emailsDosAdmins(tx);
+    for (const para of admins) await enfileirar(montar(para), tx);
+    return admins.length;
+  });
+  if (n === 0) logger.warn('alerta de monitoramento sem destinatário: nenhum admin cadastrado');
+  return n;
+}
+
 /** O detalhe do e-mail só cita os tipos; o texto de `backup_runs.detalhe` nunca sai do banco. */
-export async function verificarBackups(deps: { db: Db; now: Date; avisar: (detalhe: string) => Promise<void> }): Promise<{ faltando: string[] }> {
+export async function verificarBackups(deps: { db: Db; now: Date; avisar: (detalhe: string) => Promise<number> }): Promise<{ faltando: string[] }> {
   const faltando = await backupsFaltando(deps.db, deps.now);
   if (faltando.length) await deps.avisar(`sem backup concluído com sucesso nas últimas 26 horas: ${faltando.join(' e ')}`);
   return { faltando };
@@ -78,13 +101,15 @@ export async function verificarDisco(deps: {
   db: Db;
   now: Date;
   statfs: () => Promise<StatFsLike>;
-  avisar: (percentual: number) => Promise<void>;
+  /** Devolve quantos e-mails enfileirou. */
+  avisar: (percentual: number) => Promise<number>;
 }): Promise<{ percentual: number; alertou: boolean }> {
   const percentual = percentualDisco(await deps.statfs());
   if (percentual < DISCO_LIMITE) return { percentual, alertou: false };
   const [ultimo] = await deps.db.select().from(systemHeartbeat).where(eq(systemHeartbeat.name, 'alerta_disco'));
   if (ultimo && deps.now.getTime() - ultimo.beatAt.getTime() < ALERTA_DISCO_INTERVALO_MS) return { percentual, alertou: false };
-  await deps.avisar(percentual);
+  // F6: sem destinatário não grava a marca — senão o alerta ficaria suprimido por 24 h
+  if ((await deps.avisar(percentual)) === 0) return { percentual, alertou: false };
   await deps.db
     .insert(systemHeartbeat)
     .values({ name: 'alerta_disco', beatAt: deps.now })

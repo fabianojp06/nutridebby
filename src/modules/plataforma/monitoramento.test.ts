@@ -5,14 +5,21 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../../test/db';
+import { closeDb } from '@/db/client';
 import { user } from '@/db/schema';
+import { EMAIL_FINALIDADE, enqueueEmail } from '@/email/queue';
+import type { EmailJobData, EmailMessage } from '@/email/types';
+import { getBoss, stopBoss } from '@/jobs/boss';
+import { openSecret } from '@/lib/crypto';
 import {
-  backupsFaltando, emailsDosAdmins, percentualDisco, statfsDoDiretorio, verificarBackups, verificarDisco,
+  avisarAdmins, backupsFaltando, emailsDosAdmins, percentualDisco, statfsDoDiretorio, verificarBackups, verificarDisco,
 } from './monitoramento';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // backup_runs é só leitura para o app
 afterAll(async () => {
+  await stopBoss();
+  await closeDb();
   await app.pool.end();
   await owner.pool.end();
 });
@@ -31,7 +38,7 @@ describe('verificação do backup (RNF-05)', () => {
     expect(await backupsFaltando(app.db, new Date(agora.getTime() + 25 * H))).toEqual(['arquivos', 'banco']);
   });
   it('avisa só quando falta, sem repetir o detalhe gravado pelo script', async () => {
-    const avisar = vi.fn(async () => undefined);
+    const avisar = vi.fn(async () => 1);
     await verificarBackups({ db: app.db, now: agora, avisar });
     expect(avisar).toHaveBeenCalledWith(expect.stringContaining('arquivos'));
     expect(avisar).not.toHaveBeenCalledWith(expect.stringContaining('retenção'));
@@ -65,7 +72,7 @@ describe('alerta de disco em 70% (RNF-13)', () => {
     expect(percentualDisco({ blocks: 1000, bfree: 310, bavail: 310 })).toBe(69);
   });
   it('avisa ao passar de 70% no máximo uma vez a cada 24 h', async () => {
-    const avisar = vi.fn(async () => undefined);
+    const avisar = vi.fn(async () => 1);
     const disco = (pct: number) => async () => ({ blocks: 100, bfree: 100 - pct, bavail: 100 - pct });
     const t0 = new Date('2020-02-01T00:00:00Z');
     expect(await verificarDisco({ db: app.db, now: t0, statfs: disco(69), avisar })).toEqual({ percentual: 69, alertou: false });
@@ -74,6 +81,16 @@ describe('alerta de disco em 70% (RNF-13)', () => {
     expect(await verificarDisco({ db: app.db, now: new Date(t0.getTime() + 24 * H), statfs: disco(80), avisar })).toEqual({ percentual: 80, alertou: true });
     expect(avisar).toHaveBeenCalledTimes(2);
     expect(avisar).toHaveBeenLastCalledWith(80);
+  });
+  it('sem destinatário (0 enfileirados) não grava a marca: o alerta sai assim que houver admin (F6)', async () => {
+    const disco = async () => ({ blocks: 100, bfree: 20, bavail: 20 });
+    const t0 = new Date('2021-01-01T00:00:00Z'); // bem depois da marca do teste acima (2020)
+    const semAdmin = vi.fn(async () => 0);
+    expect(await verificarDisco({ db: app.db, now: t0, statfs: disco, avisar: semAdmin })).toEqual({ percentual: 80, alertou: false });
+    const comAdmin = vi.fn(async () => 1);
+    const depois = new Date(t0.getTime() + H);
+    expect(await verificarDisco({ db: app.db, now: depois, statfs: disco, avisar: comAdmin })).toEqual({ percentual: 80, alertou: true });
+    expect(comAdmin).toHaveBeenCalledWith(80);
   });
   it('mede o ancestral existente quando DATA_DIR ainda não existe (sem ENOENT)', async () => {
     const base = await mkdtemp(path.join(tmpdir(), 'monitor-'));
@@ -91,5 +108,46 @@ describe('emailsDosAdmins', () => {
     const id = randomUUID();
     await app.db.insert(user).values({ id, name: 'Adm', email: `adm-${id.slice(0, 8)}@teste.dev`, appRole: 'admin' });
     expect(await emailsDosAdmins(app.db)).toContain(`adm-${id.slice(0, 8)}@teste.dev`);
+  });
+});
+
+describe('avisarAdmins (F5)', () => {
+  const marcador = () => `teste-${randomUUID()}`;
+  const alertasCom = async (detalhe: string) =>
+    (await (await getBoss()).findJobs<EmailJobData>('email'))
+      .map((j) => JSON.parse(openSecret(j.data.selado, EMAIL_FINALIDADE)) as EmailMessage)
+      .filter((m) => m.tipo === 'alerta_backup' && m.detalhe === detalhe);
+  const novoAdmin = async () => {
+    const id = randomUUID();
+    await app.db.insert(user).values({ id, name: 'Adm', email: `adm-${id.slice(0, 8)}@teste.dev`, appRole: 'admin' });
+  };
+
+  it('enfileira um e-mail por admin e devolve quantos', async () => {
+    await novoAdmin();
+    await novoAdmin();
+    const detalhe = marcador();
+    const n = await avisarAdmins(app.db, (para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl: 'http://x/admin' }));
+    expect(n).toBe((await emailsDosAdmins(app.db)).length);
+    expect(n).toBeGreaterThanOrEqual(2);
+    expect(await alertasCom(detalhe)).toHaveLength(n);
+  });
+
+  it('falha no meio: nenhum e-mail fica na fila (a nova tentativa do job não duplica)', async () => {
+    await novoAdmin();
+    await novoAdmin();
+    const detalhe = marcador();
+    let chamadas = 0;
+    await expect(
+      avisarAdmins(
+        app.db,
+        (para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl: 'http://x/admin' }),
+        async (msg, tx) => {
+          if (++chamadas === 2) throw new Error('fila caiu no segundo');
+          return enqueueEmail(msg, { tx });
+        },
+      ),
+    ).rejects.toThrow('fila caiu no segundo');
+    expect(chamadas).toBe(2);
+    expect(await alertasCom(detalhe)).toEqual([]);
   });
 });

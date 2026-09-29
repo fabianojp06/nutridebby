@@ -8,7 +8,7 @@ import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
-import { emailsDosAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
+import { avisarAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
 
@@ -36,11 +36,9 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   });
 
   const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
-  const paraAdmins = async (montar: (para: string) => Parameters<typeof enqueueEmail>[0]) => {
-    const admins = await emailsDosAdmins(getDb());
-    if (admins.length === 0) logger.warn('alerta de monitoramento sem destinatário: nenhum admin cadastrado');
-    for (const para of admins) await enqueueEmail(montar(para), { boss });
-  };
+  // F5: todos os e-mails de um alerta numa só transação (com a instância do worker)
+  const paraAdmins = (montar: (para: string) => Parameters<typeof enqueueEmail>[0]) =>
+    avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }));
   // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
   await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('monitor-backup', async () => {
