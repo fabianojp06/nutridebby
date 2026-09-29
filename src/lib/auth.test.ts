@@ -124,6 +124,24 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(await app.db.select({ id: session.id }).from(session).where(eq(session.userId, id))).toEqual([]);
   });
 
+  it('login de nutri lê a usuária uma vez só: o hook `after` não repete o findUserById do `before` (G7)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `g7-${randomUUID().slice(0, 8)}`, nomeExibicao: 'G7' }).returning();
+    const id = randomUUID();
+    const e = `g7-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    const { internalAdapter } = await auth.$context;
+    const porId = vi.spyOn(internalAdapter, 'findUserById');
+    try {
+      const res = await post('/sign-in/email', { email: e, password: senha }, '10.0.0.13');
+      expect(res.status).toBe(200);
+      expect(porId.mock.calls.filter(([u]) => u === id)).toHaveLength(1);
+    } finally {
+      porId.mockRestore();
+    }
+    expect(await app.db.select({ id: session.id }).from(session).where(eq(session.userId, id))).toHaveLength(1);
+  });
+
   it('cadastro público está desativado', async () => {
     const res = await post('/sign-up/email', { email: 'x@y.dev', password: senha, name: 'X' }, '10.0.0.2');
     expect(res.status).toBe(400);

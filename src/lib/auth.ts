@@ -6,8 +6,9 @@ import { twoFactor } from 'better-auth/plugins';
 import { nextCookies } from 'better-auth/next-js';
 import { getDb, type Db } from '@/db/client';
 import * as authSchema from '@/db/schema/auth';
+import { tenants } from '@/db/schema';
 import { getEnv } from '@/env';
-import { getTenantStatus } from '@/modules/plataforma/tenant-status';
+import { getTenantStatus, statusDe, type TenantStatus } from '@/modules/plataforma/tenant-status';
 import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
@@ -107,9 +108,9 @@ export function createAuth(
           // Aqui, com a sessão já gravada, o FOR SHARE espera a suspensão em curso terminar:
           // suspensa → apaga a sessão e recusa; ainda ativa → uma suspensão que venha depois
           // enxerga esta sessão no próprio DELETE.
-          after: async (s, ctx) => {
-            const u = (await ctx?.context.internalAdapter.findUserById(s.userId)) as { tenantId?: string | null } | null | undefined;
-            if (!u?.tenantId || (await getTenantStatus(db, u.tenantId, { aguardarSuspensao: true })) !== 'suspensa') return;
+          // G7: uma consulta só (usuária → tenant), sem repetir o findUserById do `before`.
+          after: async (s) => {
+            if ((await statusDoTenantDaUsuaria(db, s.userId)) !== 'suspensa') return;
             await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
             throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
           },
@@ -166,6 +167,22 @@ export function createAuth(
     },
     plugins: [twoFactor({ issuer: 'NutriDebby' }), nextCookies()],
   });
+}
+
+/**
+ * M8/G7: status do tenant da usuária numa consulta só (`user` → `tenants`), com `FOR SHARE` só na
+ * linha de `tenants`: espera a suspensão em curso (UPDATE sem COMMIT) e devolve o status já
+ * confirmado. `null` para quem não tem tenant (admin). Roda no hook `after`, que o Better Auth
+ * chama depois da transação do endpoint — a linha da usuária já existia antes do login.
+ */
+async function statusDoTenantDaUsuaria(db: Db, userId: string): Promise<TenantStatus | null> {
+  const [row] = await db
+    .select({ status: tenants.status })
+    .from(authSchema.user)
+    .innerJoin(tenants, eq(tenants.id, authSchema.user.tenantId))
+    .where(eq(authSchema.user.id, userId))
+    .for('share', { of: tenants });
+  return statusDe(row);
 }
 
 export type Auth = ReturnType<typeof createAuth>;
