@@ -1,3 +1,4 @@
+import 'server-only';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -6,6 +7,7 @@ import { getDb, type Db } from '@/db/client';
 import { tenants } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
 import { detectarTipo } from '@/lib/file-type';
+import { logger, nomeDoErro } from '@/lib/logger';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from './armazenamento';
 import { LOGO_LADO_MAX, LOGO_MAX_BYTES, MSG_LOGO_GRANDE } from './marca-constantes';
 
@@ -60,16 +62,42 @@ function decodificar(texto: string): string {
     .replace(ESCAPE_CSS, (_m, hex?: string, literal?: string) => (hex ? pontoParaTexto(parseInt(hex, 16)) : (literal ?? '')));
 }
 
-function contemFiltroSvg(conteudo: Buffer): boolean {
+/** Remove cada trecho `abre…fecha` (sem regex: tempo linear mesmo com milhares de `abre` soltos). */
+function removerEntre(texto: string, abre: string, fecha: string): string {
+  let saida = '';
+  let i = 0;
+  for (;;) {
+    const a = texto.indexOf(abre, i);
+    if (a < 0) return saida + texto.slice(i);
+    const f = texto.indexOf(fecha, a + abre.length);
+    if (f < 0) return saida + texto.slice(i); // sem fechamento: fica como está (XML malformado não rasteriza)
+    saida += texto.slice(i, a);
+    i = f + fecha.length;
+  }
+}
+
+/**
+ * M15: dentro de <style>, o CSS é o texto do elemento com comentários e instruções de
+ * processamento retirados e as seções CDATA emendadas — `fil<!-- x -->ter` vira `filter`.
+ */
+function semMarcacaoNoTexto(texto: string): string {
+  return removerEntre(removerEntre(texto, '<!--', '-->'), '<?', '?>').split('<![CDATA[').join('').split(']]>').join('');
+}
+
+const temFiltro = (t: string) => /filter/i.test(t) || PRIMITIVA_FE.test(t);
+
+/** Exportada para o teste de tempo (M15). */
+export function contemFiltroSvg(conteudo: Buffer): boolean {
   let texto = new TextDecoder('utf-8').decode(conteudo);
-  // Até 3 passadas: cobre `&#38;#116;` e escapes dentro de referências. Só aumenta a recusa.
+  // Até 3 passadas: cobre `&#38;#116;` e escapes dentro de referências. Só aumenta a recusa:
+  // cada passada testa o texto como está e também sem comentários/PI/CDATA.
   for (let i = 0; i < 3; i++) {
-    if (/filter/i.test(texto) || PRIMITIVA_FE.test(texto)) return true;
+    if (temFiltro(texto) || temFiltro(semMarcacaoNoTexto(texto))) return true;
     const proximo = decodificar(texto);
     if (proximo === texto) return false;
     texto = proximo;
   }
-  return /filter/i.test(texto) || PRIMITIVA_FE.test(texto);
+  return temFiltro(texto) || temFiltro(semMarcacaoNoTexto(texto));
 }
 
 // T10-R4c: um SVG morto por tempo bloqueia novos SVGs do mesmo tenant por 10 min (só em memória).
@@ -175,7 +203,9 @@ export async function processarLogo(conteudo: Buffer, opcoes: OpcoesProcessarLog
       if (opcoes.tenantId) resfriamento.set(opcoes.tenantId, Date.now() + RESFRIAMENTO_MS);
       throw err;
     }
-    throw new TipoNaoPermitidoError(); // imagem corrompida ou decodificador recusou
+    // imagem corrompida, limite de pixels ou falha interna do sharp: só o nome do erro (M16)
+    logger.warn({ err: nomeDoErro(err) }, 'logo recusado pelo decodificador');
+    throw new TipoNaoPermitidoError();
   } finally {
     processando = false;
   }

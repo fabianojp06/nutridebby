@@ -1,3 +1,4 @@
+import 'server-only';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
@@ -14,6 +15,7 @@ export const MSG_MARCA = {
   corFormato: 'Use o formato #RRGGBB',
   horas: 'Informe um número inteiro de 0 a 72',
   link: 'Informe um link que comece com https://',
+  linkTamanho: 'Use no máximo 500 caracteres',
   fuso: 'Fuso horário inválido',
   endereco: 'Use no máximo 200 caracteres',
 } as const;
@@ -41,6 +43,7 @@ export const perfilSchema = z.object({
   linkOnlinePadrao: z
     .string()
     .trim()
+    .max(500, MSG_MARCA.linkTamanho)
     .refine((v) => v === '' || (/^https:\/\/\S+$/.test(v) && URL.canParse(v)), MSG_MARCA.link)
     .transform(opcional),
   antecedenciaMinH: horas,

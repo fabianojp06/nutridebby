@@ -10,8 +10,9 @@ import { tenants } from '@/db/schema';
 import { getEnv } from '@/env';
 import { detectarTipo } from '@/lib/file-type';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from './armazenamento';
-import { apontarLogo, limparResfriamentoSvg, LogoOcupadoError, MSG_SVG_FILTRO, MSG_SVG_PESADO, processarLogo, SvgFiltroError, SvgPesadoError, trocarLogo } from './logo';
+import { apontarLogo, contemFiltroSvg, limparResfriamentoSvg, LogoOcupadoError, MSG_SVG_FILTRO, MSG_SVG_PESADO, processarLogo, SvgFiltroError, SvgPesadoError, trocarLogo } from './logo';
 
+vi.mock('server-only', () => ({})); // M16: logo.ts é só do servidor
 afterAll(() => closeDb());
 const imagem = (w: number, h: number, formato: 'png' | 'jpeg') =>
   sharp({ create: { width: w, height: h, channels: 3, background: '#2E7D32' } })[formato]().toBuffer();
@@ -104,6 +105,41 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
       svg('<rect width="100" height="100" style="&#x66;&#x69;lter:blur(4px)"/>'),
     ];
     for (const v of variantes) await expect(processarLogo(v)).rejects.toBeInstanceOf(SvgFiltroError);
+  });
+
+  // M15: comentário, CDATA e instrução de processamento no meio da palavra, dentro de <style>
+  it('recusa "filter" partido por comentário, CDATA ou <?PI?> dentro de <style>', async () => {
+    const svg = (corpo: string) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">${corpo}</svg>`);
+    const variantes = [
+      svg('<style>rect{fil<!-- x -->ter:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<style><![CDATA[rect{fil]]><![CDATA[ter:blur(4px)}]]></style><rect width="100" height="100"/>'),
+      svg('<style>rect{fil<?x y?>ter:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<style>rect{fil<!-- a --><![CDATA[t]]><?p?>er:blur(4px)}</style><rect width="100" height="100"/>'),
+      svg('<style>rect{fil<!-- a -->&#116;er:blur(4px)}</style><rect width="100" height="100"/>'),
+    ];
+    for (const v of variantes) await expect(processarLogo(v)).rejects.toBeInstanceOf(SvgFiltroError);
+  });
+
+  it('muitos "<!--", "<?" e "<![CDATA[" sem fechamento não travam a checagem do filtro (M15, tempo linear)', () => {
+    for (const abre of ['<!--', '<?', '<![CDATA[']) {
+      const svg = Buffer.from(`<svg><style>${abre.repeat(200_000)}x</style></svg>`);
+      const inicio = performance.now();
+      expect(contemFiltroSvg(svg)).toBe(false);
+      expect(performance.now() - inicio).toBeLessThan(500);
+    }
+  });
+
+  it('imagem que o decodificador recusa vira 415 com log só do nome do erro (M16)', async () => {
+    const { logger } = await import('@/lib/logger');
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const corrompido = Buffer.concat([(await imagem(20, 20, 'png')).subarray(0, 40), Buffer.alloc(40)]);
+      await expect(processarLogo(corrompido)).rejects.toBeInstanceOf(TipoNaoPermitidoError);
+      expect(aviso).toHaveBeenCalledTimes(1);
+      expect(aviso.mock.calls[0][0]).toEqual({ err: 'Error' });
+    } finally {
+      aviso.mockRestore();
+    }
   });
 
   // T10-R4a/c/d: SVG sem "filter" mas caro (12 níveis de <use> duplicado sobre um gradiente 1000×1000

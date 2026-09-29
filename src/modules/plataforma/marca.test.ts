@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
 import { atualizarPerfil, contrasteComBranco, COR_PADRAO, getTenantBrand, PerfilError } from './marca';
 
+vi.mock('server-only', () => ({})); // M16: marca.ts é só do servidor
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 
@@ -52,6 +53,10 @@ describe('atualizarPerfil (US-005)', () => {
     for (const h of ['73', '-1', '1.5', '']) expect(await erros(t.id, { antecedenciaMinH: h })).toEqual({ antecedenciaMinH: 'Informe um número inteiro de 0 a 72' });
     expect(await erros(t.id, { cancelamentoMinH: '0' })).toBeUndefined();
     expect(await erros(t.id, { linkOnlinePadrao: 'http://meet.exemplo.com' })).toEqual({ linkOnlinePadrao: 'Informe um link que comece com https://' });
+    // M16: link com tamanho máximo (500)
+    const longo = `https://meet.exemplo.com/${'a'.repeat(500 - 'https://meet.exemplo.com/'.length)}`;
+    expect(await erros(t.id, { linkOnlinePadrao: longo })).toBeUndefined();
+    expect(await erros(t.id, { linkOnlinePadrao: `${longo}a` })).toEqual({ linkOnlinePadrao: 'Use no máximo 500 caracteres' });
     expect(await erros(t.id, { fuso: 'Marte/Base' })).toEqual({ fuso: 'Fuso horário inválido' });
     expect(await erros(t.id, { crn: 'X' })).toEqual({ crn: 'CRN inválido. Ex.: CRN-3 12345' });
   });
