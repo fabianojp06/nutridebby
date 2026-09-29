@@ -9,7 +9,11 @@ export type TipoArquivo =
 const bytesEm = (buf: Uint8Array, bytes: readonly number[], offset = 0) =>
   buf.length >= offset + bytes.length && bytes.every((x, i) => buf[offset + i] === x);
 const textoEm = (buf: Uint8Array, s: string, offset = 0) => bytesEm(buf, [...s].map((c) => c.charCodeAt(0)), offset);
-const MARCAS_HEIC = ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'];
+// M10: mif1/msf1 são marcas genéricas do HEIF, usadas também pelo AVIF (AV1). HEIC só com uma
+// marca HEVC declarada (principal ou compatível) e nenhuma marca AV1 na caixa ftyp.
+const MARCAS_HEVC = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis'];
+const MARCAS_HEIF_GENERICAS = ['mif1', 'msf1'];
+const MARCAS_AV1 = ['avif', 'avis'];
 // T8-R1: o comentário usa `-(?!->)` (não `[\s\S]*?`) para que "onde termina o comentário" nunca
 // seja ambíguo — sem isso, muitos "-->" seguidos (`'<!---->'.repeat(n)`) causam backtracking
 // exponencial no motor de regex (o próprio detectarTipo roda em todo upload).
@@ -21,9 +25,24 @@ export function detectarTipo(buf: Uint8Array): TipoArquivo | null {
   if (bytesEm(buf, [0xff, 0xd8, 0xff])) return { mime: 'image/jpeg', ext: 'jpg' };
   if (textoEm(buf, '%PDF-')) return { mime: 'application/pdf', ext: 'pdf' };
   if (textoEm(buf, 'RIFF') && textoEm(buf, 'WEBP', 8)) return { mime: 'image/webp', ext: 'webp' };
-  if (textoEm(buf, 'ftyp', 4) && MARCAS_HEIC.some((m) => textoEm(buf, m, 8))) return { mime: 'image/heic', ext: 'heic' };
+  if (textoEm(buf, 'ftyp', 4) && ehHeic(buf)) return { mime: 'image/heic', ext: 'heic' };
   if (ehSvg(buf)) return { mime: 'image/svg+xml', ext: 'svg' };
   return null;
+}
+
+/** Caixa ftyp: tamanho(4) 'ftyp'(4) marca principal(4) versão(4) marcas compatíveis(4 cada). */
+function ehHeic(buf: Uint8Array): boolean {
+  const marca = (i: number) => String.fromCharCode(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]);
+  if (buf.length < 12) return false;
+  const principal = marca(8);
+  const tamanho = ((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]) >>> 0;
+  const fim = Math.min(buf.length, tamanho >= 16 ? tamanho : buf.length, 16 + 4 * 64);
+  const compativeis: string[] = [];
+  for (let i = 16; i + 4 <= fim; i += 4) compativeis.push(marca(i));
+  const todas = [principal, ...compativeis];
+  if (todas.some((m) => MARCAS_AV1.includes(m))) return false;
+  if (MARCAS_HEVC.includes(principal)) return true;
+  return MARCAS_HEIF_GENERICAS.includes(principal) && compativeis.some((m) => MARCAS_HEVC.includes(m));
 }
 
 /** BOM UTF-8 e espaço em branco ASCII não contam para decidir se "parece" começar uma tag. */
