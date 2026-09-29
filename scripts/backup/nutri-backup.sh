@@ -20,12 +20,16 @@ HISTORICO_DIAS=30
 log() { printf '%s nutri-backup: %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 DB="${NUTRI_DB_CONTAINER:-$(docker ps -q -f "name=${NUTRI_DB_CONTAINER_FILTER:-nutri_db}" | head -n1)}"
+# M20: sem o container, só a etapa do banco é pulada — a cópia de /data não depende dele.
 if [ -z "$DB" ]; then
-  log "ERRO: container do banco não encontrado"
-  exit 2
+  log "ERRO: container do banco não encontrado; sem backup do banco hoje (os arquivos seguem)"
 fi
 
 registrar() { # tipo ok bytes detalhe inicio — falhar aqui conta como etapa falha (quem chama propaga)
+  if [ -z "$DB" ]; then
+    log "AVISO: sem o container do banco, não registrei em backup_runs"
+    return 1
+  fi
   docker exec -i "$DB" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q \
     -v tipo="$1" -v ok="$2" -v bytes="$3" -v detalhe="$4" -v inicio="$5" >/dev/null 2>&1 <<'SQL' || { log "AVISO: não consegui registrar em backup_runs"; return 1; }
 insert into backup_runs (tipo, ok, bytes, detalhe, iniciado_em)
@@ -115,6 +119,10 @@ backup_arquivos() {
 }
 
 falhas=0
-backup_banco || falhas=$((falhas + 1))
+if [ -n "$DB" ]; then
+  backup_banco || falhas=$((falhas + 1))
+else
+  falhas=$((falhas + 1))
+fi
 backup_arquivos || falhas=$((falhas + 1))
 exit "$falhas"

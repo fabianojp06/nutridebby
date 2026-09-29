@@ -59,11 +59,20 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     await owner?.pool.end();
   });
 
-  const rodar = (hoje: string, extra: Record<string, string> = {}) =>
+  /** Código de saída e tudo o que o script escreveu (stdout + stderr, o que iria para o journal). */
+  const rodarComSaida = (hoje: string, extra: Record<string, string> = {}) =>
     execFile('bash', [SCRIPT], { env: { ...env, NUTRI_BACKUP_TODAY: hoje, ...extra } }).then(
-      () => 0,
-      (e: { code?: number }) => e.code ?? 1,
+      (r) => ({ codigo: 0, saida: `${r.stdout}${r.stderr}` }),
+      (e: { code?: number; stdout?: string; stderr?: string }) => ({ codigo: e.code ?? 1, saida: `${e.stdout ?? ''}${e.stderr ?? ''}` }),
     );
+  const rodar = async (hoje: string, extra: Record<string, string> = {}) => (await rodarComSaida(hoje, extra)).codigo;
+  /** rclone "falso" no PATH: repassa tudo ao real, exceto o subcomando que deve falhar. Nada é instalado. */
+  const rcloneQueFalhaEm = (subcomando: string) => {
+    const real = execFileSync('bash', ['-c', 'command -v rclone']).toString().trim();
+    const bin = mkdtempSync(path.join(base, 'fakebin-'));
+    writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = ${subcomando} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    return `${bin}:${process.env.PATH}`;
+  };
   const lsf = async (p: string) =>
     (await execFile('rclone', ['lsf', `cripto:${p}`], { env })).stdout.split('\n').filter(Boolean).sort();
   const cat = async (p: string) =>
@@ -123,25 +132,46 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   });
 
   it('falha no dump: registra ok=false, não deixa arquivo parcial, ainda copia /data e sai com erro', async () => {
+    writeFileSync(path.join(dados, 't1', 'logo', 'a.png'), 'versao-tres'); // M21: tamanho novo — prova que /data foi copiado nesta execução
     const antes = await referencia();
     const codigo = await rodar('2026-10-06', { NUTRI_PG_DUMP_ARGS: '--table=tabela_que_nao_existe --strict-names' });
     expect(codigo).toBe(1);
     expect(await lsf('db/diario/')).not.toContain('nutri-2026-10-06.dump');
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+    expect((await cat('data/atual/t1/logo/a.png')).toString()).toBe('versao-tres');
   });
 
   it('falha na retenção: apagar os diários velhos falha -> banco ok=false com detalhe fixo, sai com erro, /data segue ok', async () => {
-    // rclone "falso" no PATH: repassa tudo ao real, exceto deletefile (que falha). Nada é instalado.
-    const real = execFileSync('bash', ['-c', 'command -v rclone']).toString().trim();
-    const bin = path.join(base, 'fakebin');
-    mkdirSync(bin);
-    writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = deletefile ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
     const antes = await referencia();
-    const codigo = await rodar('2026-10-07', { PATH: `${bin}:${process.env.PATH}` }); // quarta: 8 diários -> precisa podar
+    const { codigo, saida } = await rodarComSaida('2026-10-07', { PATH: rcloneQueFalhaEm('deletefile') }); // quarta: 8 diários -> precisa podar
     expect(codigo).toBe(1);
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
     const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
     expect(det.rows[0].detalhe).toBe('retenção falhou');
+    // M21 (RNF-11): o stderr do rclone (pode citar caminho/endpoint) não vai para o log nem para o detalhe
+    expect(saida).toContain('ERRO no backup do banco (retenção falhou)'); // a captura funciona
+    expect(saida).not.toContain('segredo-no-stderr');
+  });
+
+  it('container do banco não encontrado: pula só o banco, /data ainda é copiado, sai com erro (M20)', async () => {
+    writeFileSync(path.join(dados, 't1', 'logo', 'c.png'), 'novo-sem-banco');
+    const antes = await referencia();
+    const { codigo, saida } = await rodarComSaida('2026-10-08', { NUTRI_DB_CONTAINER: '', NUTRI_DB_CONTAINER_FILTER: `nao-existe-${randomBytes(6).toString('hex')}` });
+    expect(codigo).toBe(2); // banco pulado + arquivos sem registro
+    expect(saida).toContain('container do banco não encontrado');
+    expect((await cat('data/atual/t1/logo/c.png')).toString()).toBe('novo-sem-banco');
+    expect(await lsf('db/diario/')).not.toContain('nutri-2026-10-08.dump');
+    expect(await execucoesDesde(antes)).toEqual([]); // sem banco, nada registrado (o worker alerta pela ausência)
+  });
+
+  it('falha no rclone sync de /data: arquivos ok=false com detalhe fixo, banco segue ok, sai com erro (M21)', async () => {
+    const antes = await referencia();
+    const { codigo, saida } = await rodarComSaida('2026-10-09', { PATH: rcloneQueFalhaEm('sync') });
+    expect(codigo).toBe(1);
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: false }, { tipo: 'banco', ok: true }]);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'arquivos' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('rclone sync falhou');
+    expect(saida).toContain('ERRO no backup dos arquivos');
   });
 });
 
