@@ -62,42 +62,70 @@ function decodificar(texto: string): string {
     .replace(ESCAPE_CSS, (_m, hex?: string, literal?: string) => (hex ? pontoParaTexto(parseInt(hex, 16)) : (literal ?? '')));
 }
 
-/** Remove cada trecho `abre…fecha` (sem regex: tempo linear mesmo com milhares de `abre` soltos). */
-function removerEntre(texto: string, abre: string, fecha: string): string {
-  let saida = '';
-  let i = 0;
-  for (;;) {
-    const a = texto.indexOf(abre, i);
-    if (a < 0) return saida + texto.slice(i);
-    const f = texto.indexOf(fecha, a + abre.length);
-    if (f < 0) return saida + texto.slice(i); // sem fechamento: fica como está (XML malformado não rasteriza)
-    saida += texto.slice(i, a);
-    i = f + fecha.length;
-  }
-}
+// G1: marcação XML que some do texto do <style>. CDATA é texto: só os marcadores saem.
+const MARCACOES = [
+  { abre: '<!--', fecha: '-->', manterConteudo: false },
+  { abre: '<?', fecha: '?>', manterConteudo: false },
+  { abre: '<![CDATA[', fecha: ']]>', manterConteudo: true },
+] as const;
 
 /**
- * M15: dentro de <style>, o CSS é o texto do elemento com comentários e instruções de
- * processamento retirados e as seções CDATA emendadas — `fil<!-- x -->ter` vira `filter`.
+ * M15/G1: o texto como o parser XML entrega ao CSS — `fil<!-- x -->ter` vira `filter`. Varredura
+ * única da esquerda para a direita, como o parser: o primeiro marcador que aparece vale, e o que
+ * está dentro dele não abre outro (`<? <!-- ?>` é uma PI inteira; `<![CDATA[<!--]]>` é o texto
+ * `<!--`). Marcador sem fechamento → `null` (quem chama recusa). Tempo linear: cada `<` é olhado
+ * uma vez e o fechamento é buscado a partir dele (sem regex).
  */
-function semMarcacaoNoTexto(texto: string): string {
-  return removerEntre(removerEntre(texto, '<!--', '-->'), '<?', '?>').split('<![CDATA[').join('').split(']]>').join('');
+function semMarcacaoNoTexto(texto: string): string | null {
+  let saida = '';
+  let copiado = 0; // início do trecho ainda não copiado para `saida`
+  let busca = 0;
+  for (;;) {
+    const lt = texto.indexOf('<', busca);
+    if (lt < 0) return saida + texto.slice(copiado);
+    const m = MARCACOES.find(({ abre }) => texto.startsWith(abre, lt));
+    if (!m) {
+      busca = lt + 1;
+      continue;
+    }
+    const f = texto.indexOf(m.fecha, lt + m.abre.length);
+    if (f < 0) return null;
+    saida += texto.slice(copiado, lt);
+    if (m.manterConteudo) saida += texto.slice(lt + m.abre.length, f);
+    copiado = busca = f + m.fecha.length;
+  }
 }
 
 const temFiltro = (t: string) => /filter/i.test(t) || PRIMITIVA_FE.test(t);
+// No CSS, `<!--` e `-->` (CDO/CDC) que sobram — vindos de dentro de um CDATA — também são
+// descartados pelo tokenizador em alguns contextos: testa também sem eles (só aumenta a recusa).
+const semCdoCdc = (t: string) => t.split('<!--').join('').split('-->').join('');
+
+/** Recusa se o texto, ou ele sem a marcação XML, cita filtro; marcação sem fechamento também recusa. */
+function recusar(texto: string): boolean {
+  if (temFiltro(texto)) return true;
+  const limpo = semMarcacaoNoTexto(texto);
+  return limpo === null || temFiltro(limpo) || temFiltro(semCdoCdc(limpo));
+}
 
 /** Exportada para o teste de tempo (M15). */
 export function contemFiltroSvg(conteudo: Buffer): boolean {
-  let texto = new TextDecoder('utf-8').decode(conteudo);
-  // Até 3 passadas: cobre `&#38;#116;` e escapes dentro de referências. Só aumenta a recusa:
-  // cada passada testa o texto como está e também sem comentários/PI/CDATA.
-  for (let i = 0; i < 3; i++) {
-    if (temFiltro(texto) || temFiltro(semMarcacaoNoTexto(texto))) return true;
-    const proximo = decodificar(texto);
-    if (proximo === texto) return false;
-    texto = proximo;
+  // Duas cadeias, até 3 decodificações cada (cobre `&#38;#116;` e escapes dentro de referências):
+  //  - `fiel`: tira a marcação e depois decodifica — o que o parser XML e o CSS de fato veem (G1);
+  //  - `bruto`: decodifica o texto inteiro (comportamento anterior, mais conservador).
+  // Cada texto das duas cadeias é testado por `recusar`; só aumenta a recusa.
+  let bruto = new TextDecoder('utf-8').decode(conteudo);
+  let fiel = bruto;
+  for (let i = 0; i < 4; i++) {
+    if (recusar(bruto) || (fiel !== bruto && recusar(fiel))) return true;
+    if (i === 3) break;
+    const proxBruto = decodificar(bruto);
+    const proxFiel = decodificar(semMarcacaoNoTexto(fiel) ?? fiel);
+    if (proxBruto === bruto && proxFiel === fiel) return false;
+    bruto = proxBruto;
+    fiel = proxFiel;
   }
-  return temFiltro(texto) || temFiltro(semMarcacaoNoTexto(texto));
+  return false;
 }
 
 // T10-R4c: um SVG morto por tempo bloqueia novos SVGs do mesmo tenant por 10 min (só em memória).
