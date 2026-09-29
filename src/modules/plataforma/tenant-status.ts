@@ -4,8 +4,13 @@ import { tenants, type TenantRow } from '@/db/schema';
 
 export type TenantStatus = 'ativa' | 'suspensa';
 
-export async function getTenantStatus(db: Db, tenantId: string): Promise<TenantStatus | null> {
-  const [row] = await db.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId));
+/**
+ * `aguardarSuspensao` (M8): `FOR SHARE` espera uma suspensão em curso (UPDATE ainda sem COMMIT)
+ * terminar e devolve o status já confirmado, em vez do anterior.
+ */
+export async function getTenantStatus(db: Db, tenantId: string, opts: { aguardarSuspensao?: boolean } = {}): Promise<TenantStatus | null> {
+  const q = db.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId));
+  const [row] = opts.aguardarSuspensao ? await q.for('share') : await q;
   return (row?.status as TenantStatus | undefined) ?? null;
 }
 

@@ -102,6 +102,17 @@ export function createAuth(
             }
             return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date()) } };
           },
+          // M8: login correndo com a suspensão. Se o `before` leu 'ativa' enquanto a suspensão
+          // ainda não tinha COMMIT, o DELETE das sessões dela não enxerga esta (gravada depois).
+          // Aqui, com a sessão já gravada, o FOR SHARE espera a suspensão em curso terminar:
+          // suspensa → apaga a sessão e recusa; ainda ativa → uma suspensão que venha depois
+          // enxerga esta sessão no próprio DELETE.
+          after: async (s, ctx) => {
+            const u = (await ctx?.context.internalAdapter.findUserById(s.userId)) as { tenantId?: string | null } | null | undefined;
+            if (!u?.tenantId || (await getTenantStatus(db, u.tenantId, { aguardarSuspensao: true })) !== 'suspensa') return;
+            await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
+            throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+          },
         },
       },
     },

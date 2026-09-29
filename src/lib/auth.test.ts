@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { closeDb } from '@/db/client';
-import { account, tenants, user, verification } from '@/db/schema';
+import { account, session, tenants, user, verification } from '@/db/schema';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -97,6 +97,31 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
     expect(res.headers.get('set-cookie') ?? '').not.toMatch(/nd\.session_token=[^;]+;/);
+  });
+
+  it('login correndo com a suspensão não deixa sessão viva (M8, US-004)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `corr-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Corrida' }).returning();
+    const id = randomUUID();
+    const e = `corr-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    // Mesma ordem de suspenderConta: marca 'suspensa' e revoga as sessões — mas ainda sem COMMIT.
+    const suspensao = await app.pool.connect();
+    try {
+      await suspensao.query('begin');
+      await suspensao.query(`update tenants set status = 'suspensa' where id = $1`, [t.id]);
+      await suspensao.query(`delete from session where user_id = $1`, [id]);
+      // O login lê 'ativa' (a suspensão não foi confirmada) e grava a sessão depois do DELETE acima
+      const login = post('/sign-in/email', { email: e, password: senha }, '10.0.0.12');
+      await new Promise((ok) => setTimeout(ok, 1000));
+      await suspensao.query('commit');
+      const res = await login;
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 'CONTA_SUSPENSA' });
+    } finally {
+      suspensao.release();
+    }
+    expect(await app.db.select({ id: session.id }).from(session).where(eq(session.userId, id))).toEqual([]);
   });
 
   it('cadastro público está desativado', async () => {
