@@ -108,13 +108,29 @@ function recusar(texto: string): boolean {
   return limpo === null || temFiltro(limpo) || temFiltro(semCdoCdc(limpo));
 }
 
-/** Exportada para o teste de tempo (M15). */
+// G1 (3ª rodada): dentro de um literal do DOCTYPE, `<!--`/`<?` não abrem nada para o parser XML, mas
+// abririam para `semMarcacaoNoTexto` e a dessincronizariam. Só a forma dos editores (literais sem `<`
+// nem `>`, sem subconjunto interno) passa; qualquer outro `<!DOCTYPE`, mesmo dentro de comentário,
+// recusa. Sem `<` nos literais, a varredura e o parser concordam sobre onde o DOCTYPE termina.
+const LITERAL = `(?:"[^"<>]*"|'[^'<>]*')`;
+const DOCTYPE_COMUM = new RegExp(`<!DOCTYPE\\s+svg(?:\\s+(?:PUBLIC\\s+${LITERAL}\\s+${LITERAL}|SYSTEM\\s+${LITERAL}))?\\s*>`, 'iy');
+
+function temDoctypeIncomum(texto: string): boolean {
+  for (const m of texto.matchAll(/<!DOCTYPE/gi)) {
+    DOCTYPE_COMUM.lastIndex = m.index;
+    if (!DOCTYPE_COMUM.test(texto)) return true;
+  }
+  return false;
+}
+
+/** Exportada para o teste de tempo (M15). DOCTYPE fora da forma comum também recusa (G1). */
 export function contemFiltroSvg(conteudo: Buffer): boolean {
   // Duas cadeias, até 3 decodificações cada (cobre `&#38;#116;` e escapes dentro de referências):
   //  - `fiel`: tira a marcação e depois decodifica — o que o parser XML e o CSS de fato veem (G1);
   //  - `bruto`: decodifica o texto inteiro (comportamento anterior, mais conservador).
   // Cada texto das duas cadeias é testado por `recusar`; só aumenta a recusa.
   let bruto = new TextDecoder('utf-8').decode(conteudo);
+  if (temDoctypeIncomum(bruto)) return true;
   let fiel = bruto;
   for (let i = 0; i < 4; i++) {
     if (recusar(bruto) || (fiel !== bruto && recusar(fiel))) return true;

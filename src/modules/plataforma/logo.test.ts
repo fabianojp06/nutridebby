@@ -141,6 +141,29 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
     expect(contemFiltroSvg(comum)).toBe(false);
   });
 
+  // G1 (3ª): `<` dentro de um literal do DOCTYPE não abre marcação para o parser XML, mas abria para a varredura
+  it('recusa DOCTYPE fora da forma comum (literal com "<" ou ">", subconjunto interno); o DOCTYPE dos editores segue aceito', async () => {
+    const corpo = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><style>rect{fil<!-- -->ter:blur(20px)}</style><rect width="100" height="100"/></svg>';
+    const variantes = [
+      `<!DOCTYPE svg SYSTEM "<!--">${corpo}`, // o revisor confirmou com o sharp: o blur é aplicado
+      `<!DOCTYPE svg PUBLIC "-//X" '<?x'>${corpo}`,
+      `<!DOCTYPE svg SYSTEM "><svg <!--">${corpo}`,
+      `<!-- <!DOCTYPE svg SYSTEM "<!--" --><svg xmlns="http://www.w3.org/2000/svg"/>`,
+    ];
+    for (const v of variantes) expect(contemFiltroSvg(Buffer.from(v)), v).toBe(true);
+    await expect(processarLogo(Buffer.from(variantes[0]!))).rejects.toBeInstanceOf(SvgFiltroError);
+    const editores = [
+      '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">',
+      "<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.0//EN' 'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>",
+      '<!DOCTYPE svg SYSTEM "svg11.dtd">',
+      '<!DOCTYPE svg>',
+    ];
+    for (const d of editores) {
+      const svg = Buffer.from(`<?xml version="1.0"?>\n${d}\n<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>`);
+      expect(contemFiltroSvg(svg), d).toBe(false);
+    }
+  });
+
   it('"<!--", "<?" ou "<![CDATA[" sem fechamento é recusado, em tempo linear mesmo com 200 mil (M15, G1)', () => {
     for (const abre of ['<!--', '<?', '<![CDATA[']) {
       const svg = Buffer.from(`<svg><style>${abre.repeat(200_000)}x</style></svg>`);
@@ -148,7 +171,7 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
       expect(contemFiltroSvg(svg)).toBe(true);
       expect(performance.now() - inicio).toBeLessThan(500);
     }
-    for (const par of ['<!---->', '<?x?>', '<![CDATA[]]>', '<']) {
+    for (const par of ['<!---->', '<?x?>', '<![CDATA[]]>', '<', '<!DOCTYPE svg SYSTEM "', '<!DOCTYPE svg>', '<!DOCTYPE svg                 ']) {
       const svg = Buffer.from(`<svg><style>${par.repeat(200_000)}x</style></svg>`);
       const inicio = performance.now();
       contemFiltroSvg(svg);
