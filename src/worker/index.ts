@@ -1,12 +1,14 @@
 import { PgBoss } from 'pg-boss';
 import { closeDb, getDb } from '@/db/client';
 import { processEmailJob } from '@/email/job';
+import { enqueueEmail } from '@/email/queue';
 import { transportFromEnv } from '@/email/transport';
 import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
+import { emailsDosAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
 
@@ -30,6 +32,30 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       transport,
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
+    });
+  });
+
+  const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
+  const paraAdmins = async (montar: (para: string) => Parameters<typeof enqueueEmail>[0]) => {
+    for (const para of await emailsDosAdmins(getDb())) await enqueueEmail(montar(para), { boss });
+  };
+  // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
+  await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('monitor-backup', async () => {
+    await verificarBackups({
+      db: getDb(),
+      now: new Date(),
+      avisar: (detalhe) => paraAdmins((para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl })),
+    });
+  });
+  // RNF-13: disco da VPS (o volume /data está no disco do host)
+  await boss.schedule('monitor-disco', '0 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('monitor-disco', async () => {
+    await verificarDisco({
+      db: getDb(),
+      now: new Date(),
+      statfs: () => statfsDoDiretorio(env.DATA_DIR),
+      avisar: (percentual) => paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl })),
     });
   });
 

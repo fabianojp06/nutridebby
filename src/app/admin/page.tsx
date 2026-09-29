@@ -7,6 +7,7 @@ import { metricasPorTenant } from '@/modules/plataforma/metricas';
 import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from './confirmar-botao';
 import { CotaForm } from './cota-form';
+import { PainelInfra } from './painel-infra';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
           {a.texto}
         </p>
       )}
+      <PainelInfra />
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Contas de nutricionista</caption>
         <thead>

@@ -10,6 +10,9 @@ export const QUEUES = {
   heartbeat: { retryLimit: 0, expireInSeconds: 60 },
   // INT-02: 3 novas tentativas (1, 2, 4 min + jitter); concluídos somem em 1 dia (payload já é cifrado)
   email: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
+  // Tarefa 13: o worker confere o backup do host (07h) e o disco da VPS (de hora em hora)
+  'monitor-backup': { retryLimit: 2, retryDelay: 300, expireInSeconds: 120 },
+  'monitor-disco': { retryLimit: 0, expireInSeconds: 60 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

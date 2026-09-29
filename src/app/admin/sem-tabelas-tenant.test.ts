@@ -8,6 +8,7 @@ const ARQUIVOS_DO_ADMIN = [
     .map((d) => path.join(d.parentPath, d.name)),
   path.resolve('src/modules/plataforma/contas.ts'),
   path.resolve('src/modules/plataforma/metricas.ts'),
+  path.resolve('src/modules/plataforma/monitoramento.ts'),
   path.resolve('src/modules/plataforma/suspensao.ts'),
 ];
 // Tabelas 🔒 e a porta de entrada para elas: o código do admin não pode citar nenhuma
