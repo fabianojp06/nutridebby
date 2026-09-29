@@ -34,3 +34,21 @@ test('esqueci minha senha: o e-mail chega e o link define a nova senha uma únic
   await expect(page).toHaveURL(/\/painel$/);
   await ctx.close();
 });
+
+test('erro do servidor continua na tela depois que o widget recriado traz token novo (M19)', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.2.2' } });
+  const page = await ctx.newPage();
+  // o servidor responde 503 (Turnstile fora do ar do lado dele); o widget de teste da Cloudflare sempre passa
+  await page.route('**/api/auth/request-password-reset', (r) =>
+    r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'TURNSTILE_INDISPONIVEL', message: 'Tente novamente em alguns minutos' }) }),
+  );
+  await page.goto('/esqueci-senha');
+  await page.getByLabel('E-mail').fill('ninguem-e2e@nutridebby.test');
+  const enviar = page.getByRole('button', { name: 'Enviar link' });
+  await expect(enviar).toBeEnabled({ timeout: 20_000 });
+  await enviar.click();
+  await expect(page.locator('p[role="alert"]')).toHaveText('Tente novamente em alguns minutos');
+  await expect(enviar).toBeEnabled({ timeout: 20_000 }); // widget recriado: token novo chegou
+  await expect(page.locator('p[role="alert"]')).toHaveText('Tente novamente em alguns minutos');
+  await ctx.close();
+});

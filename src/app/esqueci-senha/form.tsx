@@ -9,7 +9,11 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
   const [email, setEmail] = useState('');
   const [token, setToken] = useState<string | null>(null);
   const [enviado, setEnviado] = useState(false);
-  const [erro, setErro] = useState('');
+  // M19: a origem decide quem limpa. Erro do widget (sem token, widget fora do ar) some quando
+  // chega token novo; erro do servidor (403/503/rede/429) fica até o próximo envio — o widget
+  // recriado traz token novo logo em seguida e não pode apagar a mensagem que explica o porquê.
+  const [erro, setErroComOrigem] = useState<{ msg: string; origem: 'widget' | 'servidor' } | null>(null);
+  const setErro = (msg: string, origem: 'widget' | 'servidor' = 'servidor') => setErroComOrigem(msg ? { msg, origem } : null);
   const [enviando, setEnviando] = useState(false);
   const [widget, setWidget] = useState(0); // trocar a key recria o widget (token é de uso único)
 
@@ -22,7 +26,7 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
-    if (!token) return setErro(MSG_TURNSTILE_INVALIDO);
+    if (!token) return setErro(MSG_TURNSTILE_INVALIDO, 'widget');
     setEnviando(true);
     let error: { status?: number } | null;
     try {
@@ -47,9 +51,17 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
     <form onSubmit={enviar} className="space-y-3">
       <label htmlFor="email" className="block">E-mail</label>
       <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
-      <TurnstileWidget key={widget} siteKey={siteKey} onToken={(t) => { setToken(t); if (t) setErro(''); }} onIndisponivel={() => setErro(MSG_TURNSTILE_FORA)} />
+      <TurnstileWidget
+        key={widget}
+        siteKey={siteKey}
+        onToken={(t) => {
+          setToken(t);
+          if (t) setErroComOrigem((atual) => (atual?.origem === 'widget' ? null : atual));
+        }}
+        onIndisponivel={() => setErro(MSG_TURNSTILE_FORA, 'widget')}
+      />
       {!token && <p id="dica-turnstile" className="text-sm text-gray-600">Aguarde a verificação anti-robô.</p>}
-      {erro && <p role="alert" className="text-red-700">{erro}</p>}
+      {erro && <p role="alert" className="text-red-700">{erro.msg}</p>}
       <button disabled={!token || enviando} aria-describedby={token ? undefined : 'dica-turnstile'} className="w-full rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60">Enviar link</button>
     </form>
   );
