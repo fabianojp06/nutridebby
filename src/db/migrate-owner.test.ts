@@ -66,6 +66,12 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     expect(schema.rows[0]).toEqual({ dono: 'nutri_app' });
   });
 
+  it('o role da aplicação não cria tabela temporária: TEMPORARY revogado de PUBLIC (M5)', async () => {
+    const priv = await owner.query(`select has_database_privilege('nutri_app', current_database(), 'TEMPORARY') as temp`);
+    expect(priv.rows[0]).toEqual({ temp: false });
+    await expect(app.query('create temp table desvio (i int)')).rejects.toThrow(/permission denied/);
+  });
+
   it('rodar de novo com o mesmo migrator é seguro (sincroniza a senha sem exigir superusuário)', async () => {
     await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).resolves.toBeUndefined();
   });

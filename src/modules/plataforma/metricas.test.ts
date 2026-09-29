@@ -28,6 +28,26 @@ describe('metricasPorTenant (§3: só contagens)', () => {
     expect(m.get(a)).toEqual({ tenantId: a, arquivos: 3, armazenamentoBytes: 30, pacientesAtivos: null, consultasMes: null, mensagensWhatsappMes: null });
     expect(m.get(b)?.arquivos).toBe(1);
   });
+
+  it('dentro de withTenant é recusada (apagaria o contexto app.* da transação do tenant) (M13)', async () => {
+    const t = await tenantComArquivos(0, 0);
+    await expect(
+      withTenant({ tenantId: t, role: 'nutri' }, (tx) => tx.execute(sql`select * from admin_tenant_metrics()`), app.db),
+    ).rejects.toSatisfy((e: unknown) => /withTenant/.test(String((e as { cause?: unknown }).cause ?? e)));
+    // e fora dele, na mesma conexão/sessão já usada por um withTenant, segue funcionando
+    await expect(metricasPorTenant(app.db)).resolves.toBeInstanceOf(Map);
+  });
+
+  it('EXECUTE revogado de PUBLIC; só o role da aplicação executa (M14)', async () => {
+    const { rows } = await app.pool.query<{ publico: boolean; app: boolean }>(`
+      select exists (
+               select 1 from pg_proc p
+                 cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                where p.proname = 'admin_tenant_metrics' and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+             ) as publico,
+             has_function_privilege('nutri_app_role', 'admin_tenant_metrics()', 'EXECUTE') as app`);
+    expect(rows[0]).toEqual({ publico: false, app: true });
+  });
 });
 
 describe('ajustarCotaWhatsapp', () => {
