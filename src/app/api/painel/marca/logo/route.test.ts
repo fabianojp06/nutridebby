@@ -13,6 +13,7 @@ import { POST } from './route';
 // T10-R1c: `trocarLogo` real na maioria dos testes (wrapper em torno da implementação de
 // verdade); só o teste do 429 troca a implementação por uma chamada só, para não depender de
 // uma corrida real com o semáforo de `processarLogo` (isso já é testado em logo.test.ts).
+vi.mock('server-only', () => ({})); // requireApiNutri (src/lib/tenant-session.ts)
 vi.mock('@/modules/plataforma/logo', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/plataforma/logo')>();
   return { ...real, trocarLogo: vi.fn(real.trocarLogo) };

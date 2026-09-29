@@ -1,13 +1,15 @@
 import { getDb } from '@/db/client';
-import { getTenantStatus } from '@/modules/plataforma/tenant-status';
+import type { TenantRow } from '@/db/schema';
+import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
 import { logger } from './logger';
 import type { SessionData } from './session';
 import { evaluateSession, type AppRole } from './session-rules';
 
-export type ApiAuth = { ok: true; data: SessionData } | { ok: false; response: Response };
+/** `tenant`: a linha já lida para o RN-15 (null para admin). */
+export type ApiAuth = { ok: true; data: SessionData; tenant: TenantRow | null } | { ok: false; response: Response };
 
-const recusa = (status: number, erro: string): ApiAuth => ({
+export const recusaApi = (status: number, erro: string): { ok: false; response: Response } => ({
   ok: false,
   response: Response.json({ erro }, { status, headers: { 'cache-control': 'no-store' } }),
 });
@@ -17,13 +19,14 @@ export async function requireApiUser(req: Request, allowed: readonly AppRole[]):
   const data = await getAuth().api.getSession({ headers: req.headers, query: { disableRefresh: true } });
   const now = new Date();
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
+  const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
   const decision = evaluateSession({
     session: data?.session ?? null,
     user: data?.user ?? null,
     allowed,
     now,
     path: new URL(req.url).pathname,
-    tenantStatus: tenantId ? await getTenantStatus(getDb(), tenantId) : null,
+    tenantStatus: (tenant?.status as 'ativa' | 'suspensa' | undefined) ?? null,
   });
   switch (decision) {
     case 'ok':
@@ -33,15 +36,15 @@ export async function requireApiUser(req: Request, allowed: readonly AppRole[]):
       } catch (err) {
         logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data!.user.id }, 'falha ao renovar a sessão');
       }
-      return { ok: true, data: data! };
+      return { ok: true, data: data!, tenant };
     case 'login':
     case 'expired':
-      return recusa(401, 'Sessão expirada. Entre de novo.');
+      return recusaApi(401, 'Sessão expirada. Entre de novo.');
     case 'suspended':
-      return recusa(403, 'Conta temporariamente indisponível');
+      return recusaApi(403, 'Conta temporariamente indisponível');
     case 'setup-2fa':
     case 'forbidden':
-      return recusa(403, 'Acesso negado');
+      return recusaApi(403, 'Acesso negado');
     default: {
       const nunca: never = decision;
       throw new Error(`Decisão de sessão desconhecida: ${String(nunca)}`);

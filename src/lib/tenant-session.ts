@@ -1,27 +1,49 @@
 import 'server-only';
 import { redirect } from 'next/navigation';
-import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
+import { getEnv } from '@/env';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
-import { buscarTenant } from '@/modules/plataforma/tenant-status';
+import { recusaApi, requireApiUser } from './api-auth';
+import { clientIp } from './ip';
 import { requestIp } from './request-ip';
-import { requireUser, type SessionData } from './session';
+import { requireUserComTenant, type SessionData } from './session';
 
 export const DPA_PATH = '/painel/dpa';
+export const MSG_DPA_PENDENTE = 'Aceite o contrato de tratamento de dados para continuar.';
 
 export type NutriAccess = { data: SessionData; tenant: TenantRow; ctx: TenantContext };
 
 /**
  * Entrada de toda página e Server Action da nutricionista: sessão válida (requireUser),
  * DPA da versão atual aceito e o contexto do tenant pronto para withTenant (com ator e IP).
+ * F8: a linha do tenant vem da mesma leitura que o requireUser fez para o RN-15.
  */
 export async function requireNutri(path: string, opts: { permitirDpaPendente?: boolean } = {}): Promise<NutriAccess> {
-  const data = await requireUser(['nutri'], path);
+  const { data, tenant } = await requireUserComTenant(['nutri'], path);
   const tenantId = data.user.tenantId;
   if (!tenantId) throw new Error('Conta de nutricionista sem tenant');
-  const tenant = await buscarTenant(getDb(), tenantId);
   if (!tenant) throw new Error('Tenant da nutricionista não encontrado');
   if (!opts.permitirDpaPendente && tenant.dpaVersao !== DPA_VERSAO) redirect(DPA_PATH);
   return { data, tenant, ctx: { tenantId, role: 'nutri', actorUserId: data.user.id, ip: await requestIp() } };
+}
+
+export type ApiNutri = ({ ok: true } & NutriAccess) | { ok: false; response: Response };
+
+/**
+ * F7: requireNutri para Route Handlers — mesma regra de sessão (requireApiUser: 401/403) e do
+ * DPA da versão atual (403 com MSG_DPA_PENDENTE), devolvendo o tenant e o contexto com ator e IP.
+ */
+export async function requireApiNutri(req: Request): Promise<ApiNutri> {
+  const auth = await requireApiUser(req, ['nutri']);
+  if (!auth.ok) return auth;
+  const tenantId = auth.data.user.tenantId;
+  if (!tenantId || !auth.tenant) return recusaApi(403, 'Acesso negado');
+  if (auth.tenant.dpaVersao !== DPA_VERSAO) return recusaApi(403, MSG_DPA_PENDENTE);
+  return {
+    ok: true,
+    data: auth.data,
+    tenant: auth.tenant,
+    ctx: { tenantId, role: 'nutri', actorUserId: auth.data.user.id, ip: clientIp(req.headers, getEnv().TRUSTED_PROXIES) },
+  };
 }

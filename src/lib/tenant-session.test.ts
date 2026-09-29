@@ -14,13 +14,19 @@ class Redirect extends Error {
 }
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ headers: async () => req.headers }));
+// F8: conta as leituras de `tenants` feitas por requireNutri (implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, buscarTenant: vi.fn(real.buscarTenant), getTenantStatus: vi.fn(real.getTenantStatus) };
+});
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Redirect(url);
   },
 }));
 
-const { requireNutri } = await import('./tenant-session');
+const { requireApiNutri, requireNutri } = await import('./tenant-session');
+const tenantStatus = await import('@/modules/plataforma/tenant-status');
 const { registrarAceiteDpa } = await import('@/modules/plataforma/dpa');
 
 const db = getDb();
@@ -55,5 +61,57 @@ describe('requireNutri', () => {
     await expect(requireNutri('/painel')).resolves.toMatchObject({ tenant: { id: tenant.id } });
     await db.update(tenants).set({ dpaVersao: '0.0-antiga' }).where(eq(tenants.id, tenant.id));
     await expect(requireNutri('/painel')).rejects.toMatchObject({ url: '/painel/dpa' });
+  });
+});
+
+describe('requireNutri lê o tenant uma vez só (F8)', () => {
+  it('a linha usada para o RN-15 é a mesma devolvida (uma leitura de tenants)', async () => {
+    const { tenant, nutri } = await nutriComTenant();
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    vi.mocked(tenantStatus.buscarTenant).mockClear();
+    vi.mocked(tenantStatus.getTenantStatus).mockClear();
+    await expect(requireNutri('/painel')).resolves.toMatchObject({ tenant: { id: tenant.id } });
+    expect(tenantStatus.buscarTenant).toHaveBeenCalledTimes(1);
+    expect(tenantStatus.getTenantStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireApiNutri (F7)', () => {
+  const pedir = (cookie?: string) =>
+    new Request('http://localhost:3000/api/painel/marca/logo', {
+      method: 'POST',
+      headers: { ...(cookie ? { cookie } : {}), 'x-forwarded-for': '203.0.113.21' },
+    });
+
+  it('sem sessão → 401', async () => {
+    const r = await requireApiNutri(pedir());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.response.status).toBe(401);
+  });
+
+  it('sem o DPA da versão atual → 403 com a mensagem do DPA; com ele, devolve tenant e contexto com ator e IP', async () => {
+    const { tenant, nutri } = await nutriComTenant();
+    const sem = await requireApiNutri(pedir(nutri.cookie));
+    expect(sem.ok).toBe(false);
+    if (!sem.ok) {
+      expect(sem.response.status).toBe(403);
+      expect(await sem.response.json()).toEqual({ erro: 'Aceite o contrato de tratamento de dados para continuar.' });
+    }
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    const com = await requireApiNutri(pedir(nutri.cookie));
+    expect(com.ok).toBe(true);
+    if (com.ok) {
+      expect(com.tenant.id).toBe(tenant.id);
+      expect(com.ctx).toEqual({ tenantId: tenant.id, role: 'nutri', actorUserId: nutri.id, ip: '203.0.113.21' });
+    }
+  });
+
+  it('conta suspensa → 403 "Conta temporariamente indisponível"', async () => {
+    const { tenant, nutri } = await nutriComTenant();
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, tenant.id));
+    const r = await requireApiNutri(pedir(nutri.cookie));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(await r.response.json()).toEqual({ erro: 'Conta temporariamente indisponível' });
   });
 });
