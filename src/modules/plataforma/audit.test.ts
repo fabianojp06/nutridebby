@@ -114,6 +114,14 @@ describe('listAccessHistory ("Histórico de acessos", 50 por página, mais recen
     }
   });
 
+  it('id válido no Postgres mas sem versão RFC (00000000-…-0001) lista o histórico normalmente (G5)', async () => {
+    const semVersao = '00000000-0000-0000-0000-000000000001';
+    await withTenant(ctxA(), (tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: semVersao, patientId: semVersao }), app.db);
+    const h = await listAccessHistory(ctxA(), semVersao, 1, app.db);
+    expect(h.total).toBe(1);
+    expect(h.itens[0]).toMatchObject({ acao: 'ler', entidadeId: semVersao });
+  });
+
   it('outro tenant não vê o histórico', async () => {
     expect((await listAccessHistory({ tenantId: B, role: 'nutri' }, P3, 1, app.db)).total).toBe(0);
   });

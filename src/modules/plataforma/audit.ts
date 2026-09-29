@@ -68,8 +68,10 @@ export async function listAccessHistory(
   pagina: number,
   db: Db = getDb(),
 ): Promise<AccessHistoryPage> {
-  // M6: o id costuma vir da URL; sem isto o cast para uuid no Postgres vira erro 500
-  if (!z.uuid().safeParse(patientId).success) return { itens: [], pagina: 1, totalPaginas: 1, total: 0 };
+  // M6: o id costuma vir da URL; sem isto o cast para uuid no Postgres vira erro 500.
+  // G5: z.guid() aceita o mesmo formato 8-4-4-4-12 do tipo uuid do Postgres; z.uuid() exige
+  // versão/variante RFC 9562 e recusaria ids válidos no banco (histórico vazio sem aviso).
+  if (!z.guid().safeParse(patientId).success) return { itens: [], pagina: 1, totalPaginas: 1, total: 0 };
   const r = await withTenant(ctx, async (tx) => {
     const [{ n }] = await tx.select({ n: count() }).from(auditLog).where(eq(auditLog.patientId, patientId));
     const totalPaginas = Math.max(1, Math.ceil(n / HISTORICO_POR_PAGINA));

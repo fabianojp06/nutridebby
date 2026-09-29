@@ -12,7 +12,7 @@ import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/pla
 export type CriarContaState = { erros?: ErrosDeCampo; valores?: Record<string, string> };
 
 const campo = (f: FormData, k: string) => String(f.get(k) ?? '');
-const uuid = z.uuid();
+const uuid = z.guid(); // G5: mesmo formato do tipo uuid do Postgres (z.uuid() exige versão RFC)
 
 export async function criarContaAction(_prev: CriarContaState, formData: FormData): Promise<CriarContaState> {
   await requireUser(['admin'], '/admin/contas/nova');
