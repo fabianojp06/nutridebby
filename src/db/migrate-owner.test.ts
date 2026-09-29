@@ -72,6 +72,44 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     await expect(app.query('create temp table desvio (i int)')).rejects.toThrow(/permission denied/);
   });
 
+  it('REVOKE TEMPORARY sem efeito (migrator deixou de ser dono do banco) falha com mensagem clara, sem segredo (G6)', async () => {
+    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    try {
+      // Cenário do achado: outro role é dono do banco (o migrator só tem CREATE, que as migrations
+      // exigem) e PUBLIC tem TEMP; o REVOKE do migrator só gera WARNING
+      await su.query('ALTER DATABASE nutri OWNER TO CURRENT_USER');
+      await su.query('GRANT CREATE ON DATABASE nutri TO nutri_owner');
+      await su.query('GRANT TEMPORARY ON DATABASE nutri TO PUBLIC');
+      const erro = await runMigrations({ migratorUrl: ownerUrl, appUrl }).then(
+        () => null,
+        (e: Error) => e,
+      );
+      expect(erro?.message).toMatch(/nutri_app ainda pode criar tabela temporária no banco nutri/);
+      expect(erro?.message).toMatch(/pertencer ao migrator/);
+      expect(erro?.message).not.toMatch(/app-pw|owner-pw/);
+    } finally {
+      await su.query('REVOKE TEMPORARY ON DATABASE nutri FROM PUBLIC');
+      await su.query('REVOKE CREATE ON DATABASE nutri FROM nutri_owner');
+      await su.query('ALTER DATABASE nutri OWNER TO nutri_owner');
+      await su.end();
+    }
+    // de volta ao runbook: roda de novo sem erro e o role da aplicação segue sem TEMP
+    await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).resolves.toBeUndefined();
+    const priv = await owner.query(`select has_database_privilege('nutri_app', current_database(), 'TEMPORARY') as temp`);
+    expect(priv.rows[0]).toEqual({ temp: false });
+  });
+
+  it('TEMPORARY concedido direto ao role da aplicação também faz a migração parar (G6)', async () => {
+    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    try {
+      await su.query('GRANT TEMPORARY ON DATABASE nutri TO nutri_app');
+      await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).rejects.toThrow(/nutri_app ainda pode criar tabela temporária/);
+    } finally {
+      await su.query('REVOKE TEMPORARY ON DATABASE nutri FROM nutri_app');
+      await su.end();
+    }
+  });
+
   it('rodar de novo com o mesmo migrator é seguro (sincroniza a senha sem exigir superusuário)', async () => {
     await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).resolves.toBeUndefined();
   });

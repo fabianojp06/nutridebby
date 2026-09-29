@@ -60,6 +60,19 @@ export async function ensureAppLogin(pool: Pool, appUrl: string): Promise<void> 
     // Nenhum role da aplicação precisa dela; o dono do banco (o migrator em produção, sem
     // superusuário) pode revogar o privilégio padrão de PUBLIC — e segue com TEMP como dono.
     await client.query(`REVOKE TEMPORARY ON DATABASE "${rows[0].d}" FROM PUBLIC`);
+    // G6: se quem roda não é o dono do banco, o REVOKE acima só gera WARNING e nada muda.
+    // Confere o efeito no role da aplicação (PUBLIC, concessão direta ou herdada) e para aqui.
+    const temp = await client.query<{ pode: boolean }>(
+      `select has_database_privilege($1, current_database(), 'TEMPORARY') as pode`,
+      [user],
+    );
+    if (temp.rows[0]?.pode) {
+      throw new Error(
+        `O role ${user} ainda pode criar tabela temporária no banco ${rows[0].d}: o REVOKE TEMPORARY não teve efeito. ` +
+          `O banco precisa pertencer ao migrator (DATABASE_URL_MIGRATOR), ou o dono do banco deve rodar ` +
+          `REVOKE TEMPORARY ON DATABASE "${rows[0].d}" FROM PUBLIC (e de ${user}, se tiver sido concedido direto)`,
+      );
+    }
     // No PG 16 um migrator sem superusuário (só CREATEROLE) recebe ADMIN sobre o role que
     // criou, mas não SET; CREATE SCHEMA ... AUTHORIZATION exige poder assumir o role dono.
     // Não amplia o poder do migrator: com ADMIN ele já controla a senha desse role.
