@@ -74,8 +74,10 @@ backup_banco() {
   local inicio arquivo bytes="" ok=true detalhe=""
   inicio="$(date -u +%FT%TZ)"
   arquivo="nutri-${HOJE}.dump"
+  # G2: sem o stderr do pg_dump nem do rclone no log (citam endpoint, bucket, caminhos); só a mensagem fixa
   # shellcheck disable=SC2086 # NUTRI_PG_DUMP_ARGS: só os testes usam, e são várias palavras de propósito
-  if docker exec "$DB" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc ${NUTRI_PG_DUMP_ARGS:-} | rclone rcat "${REMOTO}db/diario/${arquivo}"; then
+  if docker exec "$DB" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc ${NUTRI_PG_DUMP_ARGS:-} 2>/dev/null \
+    | rclone rcat "${REMOTO}db/diario/${arquivo}" >/dev/null 2>&1; then
     bytes="$(rclone lsf --format s "${REMOTO}db/diario/${arquivo}" 2>/dev/null | head -n1)" || bytes=""
     if [ "$(date -d "$HOJE" +%u)" = 7 ]; then
       rclone copyto "${REMOTO}db/diario/${arquivo}" "${REMOTO}db/semanal/${arquivo}" >/dev/null 2>&1 || ok=false
@@ -101,12 +103,17 @@ backup_banco() {
 backup_arquivos() {
   local inicio limite ok=true detalhe=""
   inicio="$(date -u +%FT%TZ)"
-  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}"; then
+  # G2: stderr do rclone fora do log (cita endpoint, bucket e caminhos com o UUID do tenant)
+  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" >/dev/null 2>&1; then
     limite="$(date -d "$HOJE -${HISTORICO_DIAS} days" +%F)"
     podar_historico "$limite" || { ok=false; detalhe="retenção falhou"; }
     registrar arquivos "$ok" "" "$detalhe" "$inicio" || ok=false
     if [ "$ok" = true ]; then
       log "arquivos ok"
+    elif [ -z "$DB" ] && [ -z "$detalhe" ]; then
+      # G8: a cópia deu certo; só faltou o registro. Ainda conta como falha no código de saída.
+      log "arquivos copiados, mas sem registro (banco indisponível)"
+      return 1
     else
       log "ERRO no backup dos arquivos (${detalhe:-registro})"
       return 1

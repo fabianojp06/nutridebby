@@ -134,11 +134,14 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   it('falha no dump: registra ok=false, não deixa arquivo parcial, ainda copia /data e sai com erro', async () => {
     writeFileSync(path.join(dados, 't1', 'logo', 'a.png'), 'versao-tres'); // M21: tamanho novo — prova que /data foi copiado nesta execução
     const antes = await referencia();
-    const codigo = await rodar('2026-10-06', { NUTRI_PG_DUMP_ARGS: '--table=tabela_que_nao_existe --strict-names' });
+    const { codigo, saida } = await rodarComSaida('2026-10-06', { NUTRI_PG_DUMP_ARGS: '--table=tabela_que_nao_existe --strict-names' });
     expect(codigo).toBe(1);
     expect(await lsf('db/diario/')).not.toContain('nutri-2026-10-06.dump');
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
     expect((await cat('data/atual/t1/logo/a.png')).toString()).toBe('versao-tres');
+    // G2: o erro do pg_dump (cita o nome do objeto) não vai para o log; só a mensagem fixa
+    expect(saida).toContain('ERRO no backup do banco');
+    expect(saida).not.toContain('tabela_que_nao_existe');
   });
 
   it('falha na retenção: apagar os diários velhos falha -> banco ok=false com detalhe fixo, sai com erro, /data segue ok', async () => {
@@ -159,6 +162,9 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     const { codigo, saida } = await rodarComSaida('2026-10-08', { NUTRI_DB_CONTAINER: '', NUTRI_DB_CONTAINER_FILTER: `nao-existe-${randomBytes(6).toString('hex')}` });
     expect(codigo).toBe(2); // banco pulado + arquivos sem registro
     expect(saida).toContain('container do banco não encontrado');
+    // G8: a cópia deu certo — a mensagem diz isso, e não "ERRO no backup dos arquivos"
+    expect(saida).toContain('arquivos copiados, mas sem registro (banco indisponível)');
+    expect(saida).not.toContain('ERRO no backup dos arquivos');
     expect((await cat('data/atual/t1/logo/c.png')).toString()).toBe('novo-sem-banco');
     expect(await lsf('db/diario/')).not.toContain('nutri-2026-10-08.dump');
     expect(await execucoesDesde(antes)).toEqual([]); // sem banco, nada registrado (o worker alerta pela ausência)
@@ -172,6 +178,18 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'arquivos' and concluido_em > $1::timestamptz`, [antes]);
     expect(det.rows[0].detalhe).toBe('rclone sync falhou');
     expect(saida).toContain('ERRO no backup dos arquivos');
+    expect(saida).not.toContain('segredo-no-stderr'); // G2
+  });
+
+  it('falha no rclone rcat do dump: banco ok=false com detalhe fixo, sem o stderr do rclone no log (G2)', async () => {
+    const antes = await referencia();
+    const { codigo, saida } = await rodarComSaida('2026-10-10', { PATH: rcloneQueFalhaEm('rcat') });
+    expect(codigo).toBe(1);
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('pg_dump ou envio falhou');
+    expect(saida).toContain('ERRO no backup do banco');
+    expect(saida).not.toContain('segredo-no-stderr');
   });
 });
 
