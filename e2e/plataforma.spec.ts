@@ -24,7 +24,13 @@ test('admin cria a conta; e-mail com maiúsculas e espaços é aceito; endereço
   await admin.getByLabel('Endereço', { exact: true }).fill(NUTRI.slug);
   await admin.getByRole('button', { name: 'Criar conta' }).click();
   await expect(admin.getByRole('status')).toHaveText('Conta criada. O convite foi enviado para o e-mail da nutricionista.');
-  await expect(admin.getByRole('row', { name: new RegExp(NUTRI.slug) })).toContainText('Pendente');
+  const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
+  await expect(linha).toContainText('Pendente');
+  // M22: botões e campo de cota de cada linha com nome acessível próprio (texto visível igual)
+  await expect(linha.getByRole('button', { name: `Reenviar convite para ${NUTRI.nome}`, exact: true })).toBeVisible();
+  await expect(linha.getByRole('button', { name: `Suspender a conta ${NUTRI.nome}`, exact: true })).toBeVisible();
+  await expect(linha.getByLabel(`Cota mensal de WhatsApp de ${NUTRI.nome}`, { exact: true })).toBeVisible();
+  await expect(linha.getByRole('button', { name: `Salvar a cota de ${NUTRI.nome}`, exact: true })).toBeVisible();
 
   await admin.goto('/admin/contas/nova');
   await admin.getByLabel('Nome de exibição').fill('Outra Pessoa');
@@ -40,7 +46,9 @@ test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link nã
   const link = primeiroLink(email.texto, '/convite/');
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.2' } });
   const page = await ctx.newPage();
-  await page.goto(link);
+  const resposta = await page.goto(link);
+  // M7: o token do convite está na URL — Referrer-Policy também por cabeçalho, além da <meta>
+  expect(resposta?.headers()['referrer-policy']).toBe('no-referrer');
   await page.getByLabel('Nova senha').fill(NUTRI.senha);
   await page.getByLabel('Repita a senha').fill(NUTRI.senha);
   await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
