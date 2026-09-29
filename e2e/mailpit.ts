@@ -11,6 +11,8 @@ export async function esperarEmail(
   const fim = Date.now() + limite;
   while (Date.now() < fim) {
     const r = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${para}"`)}&limit=20`);
+    // M4: Mailpit fora do ar/erro HTTP falha na hora com o status, não como JSON inválido ou "nenhum e-mail"
+    if (!r.ok) throw new Error(`Mailpit respondeu ${r.status} na busca`);
     const { messages } = (await r.json()) as { messages: Resumo[] };
     const m = messages.find(
       (x) =>
@@ -18,7 +20,9 @@ export async function esperarEmail(
         (!opts.depoisDe || new Date(x.Created).getTime() >= opts.depoisDe.getTime() - 1000),
     );
     if (m) {
-      const d = (await (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json()) as { Subject: string; Text: string; HTML: string };
+      const rm = await fetch(`${MAILPIT}/api/v1/message/${m.ID}`);
+      if (!rm.ok) throw new Error(`Mailpit respondeu ${rm.status} ao abrir a mensagem`);
+      const d = (await rm.json()) as { Subject: string; Text: string; HTML: string };
       return { assunto: d.Subject, texto: d.Text, html: d.HTML };
     }
     await new Promise((res) => setTimeout(res, 500));

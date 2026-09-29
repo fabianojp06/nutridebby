@@ -101,8 +101,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Orçamento da imagem (GHCR grátis = 500 MB para as 2 versões mantidas)
+        # M1: pipefail — falha do `docker save` não pode virar 0 MB aprovado; MB arredondado para cima
+        shell: bash
         run: |
+          set -euo pipefail
           bytes=$(docker save nutridebby:ci | gzip -6 | wc -c)
-          mb=$((bytes / 1024 / 1024))
+          mb=$(( (bytes + 1024 * 1024 - 1) / 1024 / 1024 ))
           echo "Imagem comprimida: ${mb} MB (limite 260 MB)"
           test "$mb" -le 260 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 260 MB"; exit 1; }
