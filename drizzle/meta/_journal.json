@@ -92,6 +92,20 @@
       "when": 1790623261113,
       "tag": "0012_metricas_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790633574964,
+      "tag": "0013_backup_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790633575788,
+      "tag": "0014_backup_runs_somente_leitura",
+      "breakpoints": true
     }
   ]
 }

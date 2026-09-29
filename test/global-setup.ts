@@ -45,6 +45,10 @@ export async function setup(project: TestProject) {
 
   project.provide('ownerDatabaseUrl', ownerUrl);
   project.provide('appDatabaseUrl', appUrl);
+  // Teste do script de backup (Tarefa 12): pg_dump e psql rodam DENTRO do container, como no host
+  project.provide('pgContainerId', container.getId());
+  project.provide('pgUser', container.getUsername());
+  project.provide('pgDatabase', container.getDatabase());
 }
 
 export async function teardown() {
@@ -55,5 +59,8 @@ declare module 'vitest' {
   export interface ProvidedContext {
     ownerDatabaseUrl: string;
     appDatabaseUrl: string;
+    pgContainerId: string;
+    pgUser: string;
+    pgDatabase: string;
   }
 }

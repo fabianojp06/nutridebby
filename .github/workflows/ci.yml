@@ -37,6 +37,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: rclone (teste do script de backup, P02-10)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rclone
       - run: pnpm test   # inclui a guarda de RLS (Testcontainers usa o Docker do runner)
 
   e2e:

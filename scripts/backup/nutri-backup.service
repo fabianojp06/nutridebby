@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup diário do NutriDebby (RNF-05)
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/nutri-backup/backup.env
+ExecStart=/usr/local/lib/nutri-backup/nutri-backup.sh
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=true
+NoNewPrivileges=true

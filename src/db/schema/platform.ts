@@ -93,3 +93,21 @@ export const storedFiles = pgTable(
     index('stored_files_tenant_idx').on(t.tenantId, t.tipo),
   ],
 );
+
+/** Execuções do backup do host (RNF-05). Escrita só pelo script (superusuário local); o app só lê. */
+export const backupRuns = pgTable(
+  'backup_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tipo: text('tipo').notNull(),
+    ok: boolean('ok').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }),
+    detalhe: text('detalhe'),
+    iniciadoEm: timestamp('iniciado_em', { withTimezone: true }).notNull(),
+    concluidoEm: timestamp('concluido_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('backup_runs_tipo_valido', sql`${t.tipo} in ('banco', 'arquivos')`),
+    index('backup_runs_tipo_idx').on(t.tipo, t.concluidoEm),
+  ],
+);
