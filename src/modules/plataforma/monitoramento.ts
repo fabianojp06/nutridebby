@@ -72,17 +72,20 @@ export async function emailsDosAdmins(db: Queryable): Promise<string[]> {
 
 /**
  * Um e-mail por admin, todos na MESMA transação (F5): se um enfileiramento falhar, nenhum fica
- * na fila e a nova tentativa do job não duplica os que já tinham ido. Devolve quantos enfileirou
- * (0 = nenhum admin cadastrado).
+ * na fila e a nova tentativa do job não duplica os que já tinham ido. `aposEnfileirar` roda na
+ * mesma transação, só se houve destinatário (G4: a marca do alerta confirma junto dos e-mails).
+ * Devolve quantos enfileirou (0 = nenhum admin cadastrado).
  */
 export async function avisarAdmins(
   db: Db,
   montar: (para: string) => EmailMessage,
   enfileirar: (msg: EmailMessage, tx: Tx) => Promise<unknown> = (msg, tx) => enqueueEmail(msg, { tx }),
+  aposEnfileirar?: (tx: Tx) => Promise<unknown>,
 ): Promise<number> {
   const n = await db.transaction(async (tx) => {
     const admins = await emailsDosAdmins(tx);
     for (const para of admins) await enfileirar(montar(para), tx);
+    if (admins.length && aposEnfileirar) await aposEnfileirar(tx);
     return admins.length;
   });
   if (n === 0) logger.warn('alerta de monitoramento sem destinatário: nenhum admin cadastrado');
@@ -101,18 +104,24 @@ export async function verificarDisco(deps: {
   db: Db;
   now: Date;
   statfs: () => Promise<StatFsLike>;
-  /** Devolve quantos e-mails enfileirou. */
-  avisar: (percentual: number) => Promise<number>;
+  /**
+   * Devolve quantos e-mails enfileirou. `marcar` grava a marca de 24 h e deve rodar na mesma
+   * transação dos e-mails, só quando houve destinatário (é o `aposEnfileirar` de `avisarAdmins`).
+   */
+  avisar: (percentual: number, marcar: (tx: Tx) => Promise<unknown>) => Promise<number>;
 }): Promise<{ percentual: number; alertou: boolean }> {
   const percentual = percentualDisco(await deps.statfs());
   if (percentual < DISCO_LIMITE) return { percentual, alertou: false };
   const [ultimo] = await deps.db.select().from(systemHeartbeat).where(eq(systemHeartbeat.name, 'alerta_disco'));
   if (ultimo && deps.now.getTime() - ultimo.beatAt.getTime() < ALERTA_DISCO_INTERVALO_MS) return { percentual, alertou: false };
-  // F6: sem destinatário não grava a marca — senão o alerta ficaria suprimido por 24 h
-  if ((await deps.avisar(percentual)) === 0) return { percentual, alertou: false };
-  await deps.db
-    .insert(systemHeartbeat)
-    .values({ name: 'alerta_disco', beatAt: deps.now })
-    .onConflictDoUpdate({ target: systemHeartbeat.name, set: { beatAt: deps.now } });
-  return { percentual, alertou: true };
+  // G4: a marca confirma junto dos e-mails — falhou o envio, a nova tentativa não é suprimida; deu
+  // certo, a marca já está lá (sem segunda escrita que, falhando, duplicaria o alerta).
+  // F6: sem destinatário não há marca — senão o alerta ficaria suprimido por 24 h.
+  const marcar = (tx: Tx) =>
+    tx
+      .insert(systemHeartbeat)
+      .values({ name: 'alerta_disco', beatAt: deps.now })
+      .onConflictDoUpdate({ target: systemHeartbeat.name, set: { beatAt: deps.now } });
+  const n = await deps.avisar(percentual, marcar);
+  return { percentual, alertou: n > 0 };
 }

@@ -37,8 +37,8 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
 
   const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
   // F5: todos os e-mails de um alerta numa só transação (com a instância do worker)
-  const paraAdmins = (montar: (para: string) => Parameters<typeof enqueueEmail>[0]) =>
-    avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }));
+  const paraAdmins = (montar: (para: string) => Parameters<typeof enqueueEmail>[0], aposEnfileirar?: Parameters<typeof avisarAdmins>[3]) =>
+    avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }), aposEnfileirar);
   // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
   await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('monitor-backup', async () => {
@@ -55,7 +55,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       db: getDb(),
       now: new Date(),
       statfs: () => statfsDoDiretorio(env.DATA_DIR),
-      avisar: (percentual) => paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl })),
+      avisar: (percentual, marcar) => paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl }), marcar),
     });
   });
 
