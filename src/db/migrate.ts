@@ -1,0 +1,68 @@
+import path from 'node:path';
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+
+const ROLE_NAME = /^[a-z_][a-z0-9_]{2,62}$/;
+
+export async function runMigrations(opts: { migratorUrl: string; appUrl: string }): Promise<void> {
+  const pool = new Pool({ connectionString: opts.migratorUrl, max: 1 });
+  try {
+    await migrate(drizzle({ client: pool }), {
+      migrationsFolder: path.join(process.cwd(), 'drizzle'),
+    });
+    await ensureAppLogin(pool, opts.appUrl);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Cria (ou atualiza) o role de login da aplicação a partir das credenciais de DATABASE_URL. */
+export async function ensureAppLogin(pool: Pool, appUrl: string): Promise<void> {
+  const url = new URL(appUrl);
+  const user = decodeURIComponent(url.username);
+  const pass = decodeURIComponent(url.password);
+  if (!ROLE_NAME.test(user)) throw new Error(`Nome de role inválido em DATABASE_URL: ${user}`);
+  if (!pass) throw new Error('DATABASE_URL precisa de senha para o role da aplicação');
+
+  const client = await pool.connect();
+  try {
+    const ident = `"${user}"`;
+    const pw = client.escapeLiteral(pass);
+    const exists = await client.query('select 1 from pg_roles where rolname = $1', [user]);
+    if (exists.rowCount === 0) {
+      await client.query(
+        `CREATE ROLE ${ident} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD ${pw}`,
+      );
+    } else {
+      const me = await client.query<{ su: boolean }>('select rolsuper as su from pg_roles where rolname = current_user');
+      if (me.rows[0]?.su) {
+        await client.query(
+          `ALTER ROLE ${ident} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD ${pw}`,
+        );
+      } else {
+        // Migrator sem superusuário (produção, Tarefa 13): no PG 16 ele não pode nem citar
+        // SUPERUSER/BYPASSRLS/CREATEDB no ALTER ROLE; só sincroniza login e senha e confere abaixo.
+        await client.query(`ALTER ROLE ${ident} LOGIN PASSWORD ${pw}`);
+      }
+      const attrs = await client.query<{ perigoso: boolean }>(
+        `select rolsuper or rolbypassrls or rolcreatedb or rolcreaterole as perigoso from pg_roles where rolname = $1`,
+        [user],
+      );
+      if (attrs.rows[0]?.perigoso) {
+        throw new Error(`O role ${user} tem SUPERUSER/BYPASSRLS/CREATEDB/CREATEROLE; remova como superusuário antes de migrar`);
+      }
+    }
+    await client.query(`GRANT nutri_app_role TO ${ident}`);
+    const { rows } = await client.query<{ d: string }>('select current_database() as d');
+    await client.query(`GRANT CONNECT ON DATABASE "${rows[0].d}" TO ${ident}`);
+    // No PG 16 um migrator sem superusuário (só CREATEROLE) recebe ADMIN sobre o role que
+    // criou, mas não SET; CREATE SCHEMA ... AUTHORIZATION exige poder assumir o role dono.
+    // Não amplia o poder do migrator: com ADMIN ele já controla a senha desse role.
+    await client.query(`GRANT ${ident} TO CURRENT_USER WITH SET TRUE, INHERIT FALSE`);
+    // pg-boss cria as próprias tabelas neste schema (Tarefa 10)
+    await client.query(`CREATE SCHEMA IF NOT EXISTS pgboss AUTHORIZATION ${ident}`);
+  } finally {
+    client.release();
+  }
+}

@@ -1,0 +1,21 @@
+name: nutridebby-dev
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nutri_owner
+      POSTGRES_PASSWORD: dev-owner
+      POSTGRES_DB: nutri
+    ports: ['127.0.0.1:54329:5432']
+    volumes: ['nd-dev-db:/var/lib/postgresql/data']
+    mem_limit: 512m
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nutri_owner -d nutri']
+      interval: 5s
+      retries: 10
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['127.0.0.1:8025:8025', '127.0.0.1:1025:1025']
+    mem_limit: 128m
+volumes:
+  nd-dev-db:
