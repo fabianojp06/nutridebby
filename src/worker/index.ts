@@ -1,4 +1,4 @@
-import { PgBoss } from 'pg-boss';
+import { PgBoss, type JobWithMetadata } from 'pg-boss';
 import { closeDb, getDb } from '@/db/client';
 import { processEmailJob } from '@/email/job';
 import { enqueueEmail } from '@/email/queue';
@@ -8,6 +8,7 @@ import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
+import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from '@/modules/pacientes/exportacao-job';
 import { anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { avisarAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
@@ -65,6 +66,16 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.work('retencao-lgpd', async () => {
     const r = await anonimizarVencidos(getDb(), new Date(), { dataDir: env.DATA_DIR });
     logger.info({ anonimizados: r.anonimizados }, 'retenção LGPD concluída');
+    const x = await expirarExportacoesVencidas(getDb(), new Date(), { dataDir: env.DATA_DIR });
+    logger.info({ expiradas: x.expiradas }, 'exportações vencidas apagadas');
+  });
+
+  // US-018: exportação do paciente (ZIP com JSON + PDF) e expiração do link em 24 h
+  await boss.work('exportacao-paciente', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; exportId: string }>[]) => {
+    await gerarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, boss, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  await boss.work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
+    await expirarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR });
   });
 
   await recordHeartbeat(getDb()); // batida imediata ao subir

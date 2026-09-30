@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, isNull, lt, max, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { consultations, exams, patients, privacyRequests } from '@/db/schema';
+import { consultations, dataExports, exams, patients, privacyRequests } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { logger } from '@/lib/logger';
@@ -107,10 +107,11 @@ export async function atenderPedidoExclusao(
   );
 }
 
-/** Arquivos em /data ligados ao paciente (a Tarefa 14 acrescenta as exportações). */
+/** Arquivos em /data ligados ao paciente: laudos e exportações. */
 export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<string[]> {
   const deExames = await tx.select({ c: exams.arquivoPath }).from(exams).where(and(eq(exams.patientId, patientId), isNotNull(exams.arquivoPath)));
-  return deExames.map((e) => e.c!);
+  const deExportacoes = await tx.select({ c: dataExports.arquivoPath }).from(dataExports).where(and(eq(dataExports.patientId, patientId), isNotNull(dataExports.arquivoPath)));
+  return [...deExames, ...deExportacoes].map((e) => e.c!);
 }
 
 /**
