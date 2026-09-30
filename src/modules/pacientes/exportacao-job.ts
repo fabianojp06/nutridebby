@@ -384,14 +384,15 @@ export async function expirarExportacao(
     deps.db,
   );
   if (!e) return;
-  if (e.arquivoPath) await apagarArquivo(ctx, { caminho: e.arquivoPath }, deps);
-  await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .update(dataExports)
-        .set({ status: 'expirada', arquivoPath: null, updatedAt: new Date() })
-        .where(eq(dataExports.id, e.id)),
-    deps.db,
-  );
+  // CLAUDE.md regra 9: o pedido deixa de apontar para o ZIP na mesma transação que apaga o arquivo
+  const expirar = async (tx: Tx) => {
+    await tx
+      .update(dataExports)
+      .set({ status: 'expirada', arquivoPath: null, updatedAt: new Date() })
+      .where(eq(dataExports.id, e.id));
+    return true;
+  };
+  if (e.arquivoPath)
+    await apagarArquivo(ctx, { caminho: e.arquivoPath }, { ...deps, naMesmaTransacao: expirar });
+  else await withTenant(ctx, expirar, deps.db);
 }

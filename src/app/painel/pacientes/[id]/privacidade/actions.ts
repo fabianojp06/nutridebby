@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import {
@@ -10,6 +10,7 @@ import {
   desarquivarPaciente,
   LgpdError,
 } from '@/modules/pacientes/lgpd';
+import { solicitarExportacao } from '@/modules/pacientes/exportacao';
 
 const caminho = (id: string) => `/painel/pacientes/${id}/privacidade`;
 
@@ -52,4 +53,16 @@ export async function atenderExclusaoAction(
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
   return {};
+}
+
+export async function exportarAction(patientId: string): Promise<void> {
+  const { ctx } = await requireNutri(caminho(patientId));
+  let id: string;
+  try {
+    id = await solicitarExportacao(ctx, patientId);
+  } catch (e) {
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    throw e;
+  }
+  redirect(`/painel/pacientes/${patientId}/exportacoes/${id}`);
 }

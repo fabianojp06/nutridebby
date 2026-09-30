@@ -1,9 +1,16 @@
+import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { formatarData } from '@/modules/pacientes/datas';
+import { exportacoesRecentes } from '@/modules/pacientes/exportacao';
 import { PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
 import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 import { carregarProntuario } from '../prontuario';
-import { arquivarAction, atenderExclusaoAction, desarquivarAction } from './actions';
+import {
+  arquivarAction,
+  atenderExclusaoAction,
+  desarquivarAction,
+  exportarAction,
+} from './actions';
 import { ExclusaoForm } from './exclusao-form';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +19,8 @@ export default async function PrivacidadePage({
   params,
 }: PageProps<'/painel/pacientes/[id]/privacidade'>) {
   const { id } = await params;
-  const { tenant, paciente } = await carregarProntuario(id);
+  const { ctx, tenant, paciente } = await carregarProntuario(id);
+  const recentes = await exportacoesRecentes(ctx, paciente.id);
   return (
     <div className="max-w-3xl space-y-8">
       <section aria-labelledby="arquivamento" className="space-y-2">
@@ -37,6 +45,32 @@ export default async function PrivacidadePage({
         )}
         {paciente.status === 'bloqueado' && (
           <p>Paciente bloqueado por pedido de exclusão: não pode ser desarquivado.</p>
+        )}
+      </section>
+
+      <section aria-labelledby="exportacao" className="space-y-2">
+        <h2 id="exportacao" className="text-lg font-semibold">
+          Exportar dados (LGPD)
+        </h2>
+        <p>
+          Gera um ZIP com dados.json e prontuario.pdf de todo o prontuário, sem as notas privadas e
+          sem as etiquetas. O link chega por e-mail e vale por 24 horas.
+        </p>
+        <form action={exportarAction.bind(null, paciente.id)}>
+          <button className="rounded border px-4 py-2">Exportar dados</button>
+        </form>
+        {recentes.length > 0 && (
+          <ul className="text-sm">
+            {recentes.map((r) => (
+              <li key={r.id}>
+                <Link
+                  href={`/painel/pacientes/${paciente.id}/exportacoes/${r.id}`}
+                  className="underline"
+                >{`Pedida em ${formatarDataHora(r.createdAt, tenant.fuso)}`}</Link>
+                {` · ${{ pendente: 'gerando', pronta: 'pronta', falhou: 'falhou', expirada: 'expirada' }[r.status] ?? r.status}`}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
