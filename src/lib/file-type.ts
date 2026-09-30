@@ -4,7 +4,8 @@ export type TipoArquivo =
   | { mime: 'image/webp'; ext: 'webp' }
   | { mime: 'image/heic'; ext: 'heic' }
   | { mime: 'application/pdf'; ext: 'pdf' }
-  | { mime: 'image/svg+xml'; ext: 'svg' };
+  | { mime: 'image/svg+xml'; ext: 'svg' }
+  | { mime: 'application/zip'; ext: 'zip' };
 
 const bytesEm = (buf: Uint8Array, bytes: readonly number[], offset = 0) =>
   buf.length >= offset + bytes.length && bytes.every((x, i) => buf[offset + i] === x);
@@ -26,6 +27,7 @@ export function detectarTipo(buf: Uint8Array): TipoArquivo | null {
   if (textoEm(buf, '%PDF-')) return { mime: 'application/pdf', ext: 'pdf' };
   if (textoEm(buf, 'RIFF') && textoEm(buf, 'WEBP', 8)) return { mime: 'image/webp', ext: 'webp' };
   if (textoEm(buf, 'ftyp', 4) && ehHeic(buf)) return { mime: 'image/heic', ext: 'heic' };
+  if (bytesEm(buf, [0x50, 0x4b, 0x03, 0x04])) return { mime: 'application/zip', ext: 'zip' };
   if (ehSvg(buf)) return { mime: 'image/svg+xml', ext: 'svg' };
   return null;
 }

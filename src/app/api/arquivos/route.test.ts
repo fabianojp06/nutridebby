@@ -50,4 +50,14 @@ describe('GET /api/arquivos', () => {
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="documento.pdf"');
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
   });
+
+  it('ZIP da exportação é servido como anexo (US-018)', async () => {
+    const [t] = await getDb().insert(tenants).values({ slug: `rota4-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 4' }).returning();
+    const a = await salvarArquivo({ tenantId: t.id, role: 'worker' }, { tipo: 'exportacao', conteudo: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]), permitidos: ['zip'] });
+    expect(a.caminho).toMatch(new RegExp(`^${t.id}/exportacao/[0-9a-f-]{36}\\.zip$`));
+    const res = await get(signFileUrl(a.caminho));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/zip');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="exportacao.zip"');
+  });
 });
