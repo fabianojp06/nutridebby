@@ -107,15 +107,22 @@ export async function estadoDaExportacao(
   return { estado: 'expirada' };
 }
 
-export async function exportacoesRecentes(ctx: TenantContext, patientId: string, db: Db = getDb()) {
+/** Últimos pedidos, com o mesmo estado da página do link (pronta vencida ou sem arquivo = expirada). */
+export async function exportacoesRecentes(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+  now: Date = new Date(),
+) {
   if (!idValido(patientId)) return [];
-  return withTenant(
+  const linhas = await withTenant(
     ctx,
     (tx) =>
       tx
         .select({
           id: dataExports.id,
           status: dataExports.status,
+          arquivoPath: dataExports.arquivoPath,
           createdAt: dataExports.createdAt,
           expiraEm: dataExports.expiraEm,
         })
@@ -125,4 +132,11 @@ export async function exportacoesRecentes(ctx: TenantContext, patientId: string,
         .limit(5),
     db,
   );
+  return linhas.map(({ arquivoPath, ...r }) => ({
+    ...r,
+    status:
+      r.status === 'pronta' && !(arquivoPath && r.expiraEm && r.expiraEm.getTime() > now.getTime())
+        ? 'expirada'
+        : r.status,
+  }));
 }

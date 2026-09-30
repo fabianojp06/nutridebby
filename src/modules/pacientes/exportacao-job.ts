@@ -207,6 +207,8 @@ type DepsJob = {
 
 /** Outro worker marcou o pedido antes: o `registrar` desiste e o salvarArquivo desfaz ZIP, registro e cota. */
 class JaConcluidaError extends Error {}
+/** A anonimização (retencao-lgpd) passou no meio: o ZIP montado antes teria dados identificados. */
+class PacienteAnonimizadoError extends Error {}
 
 /**
  * Job `exportacao-paciente`. Idempotente: só age sobre pedido `pendente` (um retry depois do sucesso
@@ -269,6 +271,16 @@ export async function gerarExportacao(
         tipo: 'exportacao',
         conteudo: Buffer.from(zip.buffer, zip.byteOffset, zip.length),
         permitidos: ['zip'],
+        // Trava o paciente (mesma ordem de travas dos laudos) e desiste se a anonimização chegou antes;
+        // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
+        antesDaReserva: async (tx) => {
+          const [p] = await tx
+            .select({ anonimizadoEm: patients.anonimizadoEm })
+            .from(patients)
+            .where(eq(patients.id, pedido.patientId))
+            .for('update');
+          if (!p || p.anonimizadoEm) throw new PacienteAnonimizadoError();
+        },
         registrar: async (tx, arquivo) => {
           const [e] = await tx
             .update(dataExports)
@@ -302,7 +314,10 @@ export async function gerarExportacao(
     return 'pronta';
   } catch (err) {
     if (err instanceof JaConcluidaError) return 'ignorada';
-    const definitivo = deps.ultimaTentativa || err instanceof CotaEsgotadaError;
+    const definitivo =
+      deps.ultimaTentativa ||
+      err instanceof CotaEsgotadaError ||
+      err instanceof PacienteAnonimizadoError;
     logger.error(
       {
         err: err instanceof Error ? err.message : String(err),

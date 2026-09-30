@@ -302,13 +302,14 @@ export const dataExports = pgTable(
     status: text('status').notNull().default('pendente'),
     arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
     expiraEm: timestamp('expira_em', { withTimezone: true }),
-    solicitadoPor: uuid('solicitado_por').references(() => user.id, { onDelete: 'set null' }),
+    /** Sem FK, como `audit_log.actor_user_id`: o SET NULL de uma FK dispararia o gatilho de auditoria fora do tenant. */
+    solicitadoPor: uuid('solicitado_por'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check('data_exports_status_valido', sql`${t.status} in ('pendente', 'pronta', 'falhou', 'expirada')`),
-    check('data_exports_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/%'`),
+    check('data_exports_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/exportacao/%'`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'data_exports_paciente_fk' }),
     index('data_exports_paciente_idx').on(t.tenantId, t.patientId, t.createdAt),
   ],

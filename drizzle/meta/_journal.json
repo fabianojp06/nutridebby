@@ -253,6 +253,20 @@
       "when": 1790769897082,
       "tag": "0035_rls_exportacoes",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790771215637,
+      "tag": "0036_exportacao_caminho",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790771521916,
+      "tag": "0037_exportacao_solicitante",
+      "breakpoints": true
     }
   ]
 }

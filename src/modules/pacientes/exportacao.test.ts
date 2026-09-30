@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, dataExports, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, dataExports, patients, storedFiles, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { buscarModelo, preencherAnamnese, salvarModelo } from './anamnese';
@@ -16,9 +16,9 @@ import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
 import { criarExame } from './exames';
-import { estadoDaExportacao, solicitarExportacao } from './exportacao';
+import { estadoDaExportacao, exportacoesRecentes, solicitarExportacao } from './exportacao';
 import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from './exportacao-job';
-import { paraWinAnsi } from './prontuario-pdf';
+import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -162,6 +162,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(
       await estadoDaExportacao(T.ctx, p.id, id, app.db, new Date('2026-10-02T15:00:01Z')),
     ).toEqual({ estado: 'expirada' });
+    expect((await exportacoesRecentes(T.ctx, p.id, app.db, now))[0].status).toBe('pronta');
+    expect(
+      (await exportacoesRecentes(T.ctx, p.id, app.db, new Date('2026-10-02T15:00:01Z')))[0].status,
+    ).toBe('expirada'); // a lista diz o mesmo que a página
     await expirarExportacao({ tenantId: T.tenantId, exportId: id }, { db: app.db, dataDir });
     const [e] = await withTenant(
       T.ctx,
@@ -215,6 +219,37 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     ).toBe(0);
   });
 
+  it('paciente anonimizado enquanto o job montava o ZIP: nada é gravado e o pedido vira "falhou"', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const anonimizaNoMeio = async (...args: Parameters<typeof renderizarProntuario>) => {
+      await withTenant(
+        T.ctx,
+        (tx) =>
+          tx
+            .update(patients)
+            .set({ status: 'bloqueado', anonimizadoEm: now })
+            .where(eq(patients.id, p.id)),
+        app.db,
+      );
+      return renderizarProntuario(...args);
+    };
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: id },
+        { ...deps, ultimaTentativa: false, renderizar: anonimizaNoMeio },
+      ),
+    ).toBe('falhou');
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'falhou' });
+    expect(
+      await withTenant(
+        T.ctx,
+        (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')),
+        app.db,
+      ),
+    ).toEqual([]);
+  });
+
   it('pendente há mais de 30 min (job perdido) não prende o paciente: pedir de novo cria outro', async () => {
     const { T, p } = await prontuarioCompleto();
     const id = await solicitarExportacao(T.ctx, p.id, deps);
@@ -256,6 +291,49 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       app.db,
     );
     expect(e.status).toBe('falhou');
+  });
+
+  it('PDF: anamnese e exame longos quebram entre páginas em vez de sumir além do A4', async () => {
+    const respostas = Array.from({ length: 60 }, (_, i) => ({
+      pergunta: `Pergunta ${i + 1}`,
+      resposta: 'resposta longa '.repeat(8),
+    }));
+    const valores = Array.from({ length: 60 }, (_, i) => ({
+      nome: `Marcador ${i + 1}`,
+      valor: i,
+      unidade: 'mg/dL',
+      referencia: null,
+    }));
+    const pdf = await renderizarProntuario(
+      {
+        versao: 1,
+        geradoEm: now.toISOString(),
+        dataEmissao: '2026-10-01',
+        paciente: {
+          nome: 'Ana Souza',
+          dataNascimento: '1991-03-10',
+          sexo: 'F',
+          email: 'ana@ex.com',
+          telefone: null,
+          status: 'ativo',
+          cadastradoEm: now.toISOString(),
+        },
+        anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
+        antropometria: [],
+        gastoEnergetico: [],
+        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, valores }],
+        atendimentos: [],
+        pedidosLgpd: [],
+      },
+      'Debby Silva',
+    );
+    expect(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('apagar a conta de quem pediu a exportação não esbarra na auditoria (solicitado_por sem FK, como o ator do audit_log)', async () => {
+    const { T, p } = await prontuarioCompleto();
+    await solicitarExportacao(T.ctx, p.id, deps);
+    await expect(app.db.delete(user).where(eq(user.id, T.nutriId))).resolves.toBeDefined();
   });
 
   it('PDF: caracteres fora do WinAnsi da Helvetica viram equivalentes, nunca outro caractere em silêncio', () => {

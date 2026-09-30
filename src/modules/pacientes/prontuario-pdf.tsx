@@ -20,6 +20,7 @@ const s = StyleSheet.create({
   },
 });
 
+const SEXO: Record<string, string> = { F: 'Feminino', M: 'Masculino' };
 const br = (iso: string) => iso.split('-').reverse().join('/');
 const num = (v: number | null) => (v === null ? '-' : String(v).replace('.', ','));
 
@@ -31,13 +32,13 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         <Text>{`${d.paciente.nome} · emitido em ${br(d.dataEmissao)} · ${nutri}`}</Text>
 
         <Text style={s.secao}>Identificação</Text>
-        <Text>{`Nascimento: ${d.paciente.dataNascimento ? br(d.paciente.dataNascimento) : '-'} · Sexo: ${d.paciente.sexo ?? '-'} · E-mail: ${d.paciente.email} · Telefone: ${d.paciente.telefone ?? '-'}`}</Text>
+        <Text>{`Nascimento: ${d.paciente.dataNascimento ? br(d.paciente.dataNascimento) : '-'} · Sexo: ${SEXO[d.paciente.sexo ?? ''] ?? '-'} · E-mail: ${d.paciente.email} · Telefone: ${d.paciente.telefone ?? '-'}`}</Text>
 
         <Text style={s.secao}>Anamneses</Text>
         {d.anamneses.length === 0 && <Text>Nenhuma.</Text>}
         {d.anamneses.map((a, i) => (
-          <View key={i} wrap={false}>
-            <Text style={s.rotulo}>{`${br(a.data)} · ${a.modelo}`}</Text>
+          <View key={i}>
+            <Text style={s.rotulo} minPresenceAhead={28}>{`${br(a.data)} · ${a.modelo}`}</Text>
             {a.respostas.map((r, j) => (
               <Text key={j}>{`${r.pergunta}: ${r.resposta}`}</Text>
             ))}
@@ -63,9 +64,10 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         <Text style={s.secao}>Exames</Text>
         {d.exames.length === 0 && <Text>Nenhum.</Text>}
         {d.exames.map((e, i) => (
-          <View key={i} wrap={false}>
+          <View key={i}>
             <Text
               style={s.rotulo}
+              minPresenceAhead={28}
             >{`${br(e.data)} · ${e.titulo}${e.temLaudo ? ' (laudo anexado no sistema)' : ''}`}</Text>
             {e.valores.map((v, j) => (
               <Text

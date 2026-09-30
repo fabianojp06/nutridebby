@@ -25,31 +25,47 @@ export class LgpdError extends Error {
 }
 
 /** RN-08: o prontuário fica; portal, notificações e audiências leem o status (Planos 05, 06 e 07). */
-export async function arquivarPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<void> {
+export async function arquivarPaciente(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<void> {
   await withTenant(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
       if (p.status !== 'ativo') return;
-      await tx.update(patients).set({ status: 'arquivado', updatedAt: new Date() }).where(eq(patients.id, p.id));
+      await tx
+        .update(patients)
+        .set({ status: 'arquivado', updatedAt: new Date() })
+        .where(eq(patients.id, p.id));
       await apagarConvitesPendentes(tx, ctx.tenantId, p.id);
     },
     db,
   );
 }
 
-export async function desarquivarPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<void> {
+export async function desarquivarPaciente(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<void> {
   await withTenant(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId); // bloqueado → PacienteBloqueadoError
-      if (p.status === 'arquivado') await tx.update(patients).set({ status: 'ativo', updatedAt: new Date() }).where(eq(patients.id, p.id));
+      if (p.status === 'arquivado')
+        await tx
+          .update(patients)
+          .set({ status: 'ativo', updatedAt: new Date() })
+          .where(eq(patients.id, p.id));
     },
     db,
   );
 }
 
-const nomeParaConferir = (s: string) => s.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+const nomeParaConferir = (s: string) =>
+  s.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
 
 /**
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
@@ -69,17 +85,31 @@ export async function atenderPedidoExclusao(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
-      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome)) throw new LgpdError(MSG_LGPD.confirmarNome);
+      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome))
+        throw new LgpdError(MSG_LGPD.confirmarNome);
       const hoje = hojeNoFuso(tenant.fuso, now);
-      const [{ ultima }] = await tx.select({ ultima: max(consultations.data) }).from(consultations).where(eq(consultations.patientId, p.id));
+      const [{ ultima }] = await tx
+        .select({ ultima: max(consultations.data) })
+        .from(consultations)
+        .where(eq(consultations.patientId, p.id));
       const anonimizarApos = somarAnos(ultima ?? hoje, PRAZO_GUARDA_ANOS);
 
       const [aberto] = await tx
         .select({ id: privacyRequests.id })
         .from(privacyRequests)
-        .where(and(eq(privacyRequests.patientId, p.id), eq(privacyRequests.tipo, 'exclusao'), eq(privacyRequests.status, 'aberto')))
+        .where(
+          and(
+            eq(privacyRequests.patientId, p.id),
+            eq(privacyRequests.tipo, 'exclusao'),
+            eq(privacyRequests.status, 'aberto'),
+          ),
+        )
         .for('update');
-      if (aberto) await tx.update(privacyRequests).set({ status: 'concluido', concluidoEm: now }).where(eq(privacyRequests.id, aberto.id));
+      if (aberto)
+        await tx
+          .update(privacyRequests)
+          .set({ status: 'concluido', concluidoEm: now })
+          .where(eq(privacyRequests.id, aberto.id));
       else {
         await tx.insert(privacyRequests).values({
           tenantId: ctx.tenantId,
@@ -93,12 +123,31 @@ export async function atenderPedidoExclusao(
       }
       await tx
         .update(patients)
-        .set({ status: 'bloqueado', bloqueadoEm: now, anonimizarApos, whatsappOptinEm: null, whatsappOptinOrigem: null, whatsappOptoutEm: now, updatedAt: now })
+        .set({
+          status: 'bloqueado',
+          bloqueadoEm: now,
+          anonimizarApos,
+          whatsappOptinEm: null,
+          whatsappOptinOrigem: null,
+          whatsappOptoutEm: now,
+          updatedAt: now,
+        })
         .where(eq(patients.id, p.id));
       await apagarConvitesPendentes(tx, ctx.tenantId, p.id);
-      await recordAudit(tx, { acao: 'bloquear', entidade: 'patients', entidadeId: p.id, patientId: p.id });
+      await recordAudit(tx, {
+        acao: 'bloquear',
+        entidade: 'patients',
+        entidadeId: p.id,
+        patientId: p.id,
+      });
       await enqueueEmail(
-        { tipo: 'exclusao_atendida', para: p.email, nome: p.nome, nutri: tenant.nomeExibicao, anonimizarApos: formatarData(anonimizarApos) },
+        {
+          tipo: 'exclusao_atendida',
+          para: p.email,
+          nome: p.nome,
+          nutri: tenant.nomeExibicao,
+          anonimizarApos: formatarData(anonimizarApos),
+        },
         { tenantId: ctx.tenantId, tx },
       );
       return { anonimizarApos };
@@ -109,8 +158,14 @@ export async function atenderPedidoExclusao(
 
 /** Arquivos em /data ligados ao paciente: laudos e exportações. */
 export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<string[]> {
-  const deExames = await tx.select({ c: exams.arquivoPath }).from(exams).where(and(eq(exams.patientId, patientId), isNotNull(exams.arquivoPath)));
-  const deExportacoes = await tx.select({ c: dataExports.arquivoPath }).from(dataExports).where(and(eq(dataExports.patientId, patientId), isNotNull(dataExports.arquivoPath)));
+  const deExames = await tx
+    .select({ c: exams.arquivoPath })
+    .from(exams)
+    .where(and(eq(exams.patientId, patientId), isNotNull(exams.arquivoPath)));
+  const deExportacoes = await tx
+    .select({ c: dataExports.arquivoPath })
+    .from(dataExports)
+    .where(and(eq(dataExports.patientId, patientId), isNotNull(dataExports.arquivoPath)));
   return [...deExames, ...deExportacoes].map((e) => e.c!);
 }
 
@@ -121,7 +176,11 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
  * Primeiro os anexos, com o `rm` confirmado antes do commit (se o arquivo não sair do disco, o registro
  * fica e o dia seguinte tenta de novo), depois a identificação. Um tenant com erro não para os outros.
  */
-export async function anonimizarVencidos(db: Db, now: Date, deps: { dataDir?: string } = {}): Promise<{ anonimizados: number }> {
+export async function anonimizarVencidos(
+  db: Db,
+  now: Date,
+  deps: { dataDir?: string } = {},
+): Promise<{ anonimizados: number }> {
   let anonimizados = 0;
   for (const t of await listarTenantsParaVarredura(db)) {
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
@@ -134,17 +193,30 @@ export async function anonimizarVencidos(db: Db, now: Date, deps: { dataDir?: st
           tx
             .select({ id: patients.id })
             .from(patients)
-            .where(and(eq(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm), lt(patients.anonimizarApos, hoje))),
+            .where(
+              and(
+                eq(patients.status, 'bloqueado'),
+                isNull(patients.anonimizadoEm),
+                lt(patients.anonimizarApos, hoje),
+              ),
+            ),
         db,
       );
     } catch (err) {
-      logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: t.id }, 'falha ao listar pacientes a anonimizar');
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+        'falha ao listar pacientes a anonimizar',
+      );
       continue;
     }
     for (const { id } of vencidos) {
       try {
         for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
-          await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir, removerAntesDoCommit: true });
+          await apagarArquivo(
+            ctx,
+            { caminho },
+            { db, dataDir: deps.dataDir, removerAntesDoCommit: true },
+          );
         }
         const feito = await withTenant(
           ctx,
@@ -162,7 +234,17 @@ export async function anonimizarVencidos(db: Db, now: Date, deps: { dataDir?: st
               })
               .where(and(eq(patients.id, id), isNull(patients.anonimizadoEm)))
               .returning({ id: patients.id });
-            if (r.length) await recordAudit(tx, { acao: 'anonimizar', entidade: 'patients', entidadeId: id, patientId: id });
+            // Com o paciente já travado pelo UPDATE: uma exportação gravada depois da lista de anexos
+            // desfaz tudo e fica para o dia seguinte, que apaga o ZIP antes (exportacao-job.ts)
+            if (r.length && (await anexosDoPaciente(tx, id)).length)
+              throw new Error('anexo novo durante a anonimização');
+            if (r.length)
+              await recordAudit(tx, {
+                acao: 'anonimizar',
+                entidade: 'patients',
+                entidadeId: id,
+                patientId: id,
+              });
             return r.length > 0;
           },
           db,
@@ -170,7 +252,10 @@ export async function anonimizarVencidos(db: Db, now: Date, deps: { dataDir?: st
         if (feito) anonimizados++;
       } catch (err) {
         // Sem nome nem dado do paciente no log (RNF-11); o próximo dia tenta de novo
-        logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: t.id }, 'falha ao anonimizar paciente');
+        logger.error(
+          { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+          'falha ao anonimizar paciente',
+        );
       }
     }
   }

@@ -8,15 +8,28 @@ import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
-import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from '@/modules/pacientes/exportacao-job';
+import {
+  expirarExportacao,
+  expirarExportacoesVencidas,
+  gerarExportacao,
+} from '@/modules/pacientes/exportacao-job';
 import { anonimizarVencidos } from '@/modules/pacientes/lgpd';
-import { avisarAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
+import {
+  avisarAdmins,
+  statfsDoDiretorio,
+  verificarBackups,
+  verificarDisco,
+} from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
   // createSchema: false — ver Plano 01, Tarefa 10 (o schema pgboss é do role da aplicação)
-  const boss = new PgBoss({ connectionString: env.DATABASE_URL, schema: 'pgboss', createSchema: false });
+  const boss = new PgBoss({
+    connectionString: env.DATABASE_URL,
+    schema: 'pgboss',
+    createSchema: false,
+  });
   boss.on('error', (err) => logger.error({ err }, 'pg-boss erro'));
   await boss.start();
   await ensureQueues(boss);
@@ -39,15 +52,18 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
 
   const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
   // F5: todos os e-mails de um alerta numa só transação (com a instância do worker)
-  const paraAdmins = (montar: (para: string) => Parameters<typeof enqueueEmail>[0], aposEnfileirar?: Parameters<typeof avisarAdmins>[3]) =>
-    avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }), aposEnfileirar);
+  const paraAdmins = (
+    montar: (para: string) => Parameters<typeof enqueueEmail>[0],
+    aposEnfileirar?: Parameters<typeof avisarAdmins>[3],
+  ) => avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }), aposEnfileirar);
   // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
   await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('monitor-backup', async () => {
     await verificarBackups({
       db: getDb(),
       now: new Date(),
-      avisar: (detalhe) => paraAdmins((para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl })),
+      avisar: (detalhe) =>
+        paraAdmins((para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl })),
     });
   });
   // RNF-13: disco da VPS (o volume /data está no disco do host)
@@ -57,23 +73,38 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       db: getDb(),
       now: new Date(),
       statfs: () => statfsDoDiretorio(env.DATA_DIR),
-      avisar: (percentual, marcar) => paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl }), marcar),
+      avisar: (percentual, marcar) =>
+        paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl }), marcar),
     });
   });
 
   // US-018: fim do prazo de guarda — anonimiza os bloqueados vencidos e apaga os anexos
   await boss.schedule('retencao-lgpd', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('retencao-lgpd', async () => {
-    const r = await anonimizarVencidos(getDb(), new Date(), { dataDir: env.DATA_DIR });
-    logger.info({ anonimizados: r.anonimizados }, 'retenção LGPD concluída');
-    const x = await expirarExportacoesVencidas(getDb(), new Date(), { dataDir: env.DATA_DIR });
-    logger.info({ expiradas: x.expiradas }, 'exportações vencidas apagadas');
+    // Uma etapa com erro não impede a outra; o erro volta ao pg-boss (nova tentativa) depois das duas
+    try {
+      const r = await anonimizarVencidos(getDb(), new Date(), { dataDir: env.DATA_DIR });
+      logger.info({ anonimizados: r.anonimizados }, 'retenção LGPD concluída');
+    } finally {
+      const x = await expirarExportacoesVencidas(getDb(), new Date(), { dataDir: env.DATA_DIR });
+      logger.info({ expiradas: x.expiradas }, 'exportações vencidas apagadas');
+    }
   });
 
   // US-018: exportação do paciente (ZIP com JSON + PDF) e expiração do link em 24 h
-  await boss.work('exportacao-paciente', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; exportId: string }>[]) => {
-    await gerarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, boss, ultimaTentativa: job.retryCount >= job.retryLimit });
-  });
+  await boss.work(
+    'exportacao-paciente',
+    { includeMetadata: true },
+    async ([job]: JobWithMetadata<{ tenantId: string; exportId: string }>[]) => {
+      await gerarExportacao(job.data, {
+        db: getDb(),
+        dataDir: env.DATA_DIR,
+        appUrl: env.APP_URL,
+        boss,
+        ultimaTentativa: job.retryCount >= job.retryLimit,
+      });
+    },
+  );
   await boss.work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
     await expirarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR });
   });
