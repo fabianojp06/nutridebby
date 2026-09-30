@@ -54,7 +54,7 @@ export default async function PrivacidadePage({
         ) : (
           <>
             <p>
-              {`Durante o prazo de guarda do prontuário (${PRAZO_GUARDA_ANOS} anos após a última consulta), os dados clínicos ficam guardados, identificados e só para sua consulta. Na hora são apagados as autorizações de WhatsApp e os convites, e o paciente recebe um e-mail explicando. No fim do prazo, os dados de identificação são anonimizados.`}
+              {`Durante o prazo de guarda do prontuário (${PRAZO_GUARDA_ANOS} anos após a última consulta), os dados clínicos ficam guardados, identificados e só para sua consulta. Na hora são apagadas as autorizações de WhatsApp e os convites, e o paciente recebe um e-mail explicando. No fim do prazo, os dados de identificação são anonimizados.`}
             </p>
             <ExclusaoForm acao={atenderExclusaoAction.bind(null, paciente.id)} />
           </>

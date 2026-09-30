@@ -85,6 +85,12 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect(pedidos[0]).toMatchObject({ status: 'concluido', prazo: '2026-10-10' });
     await expect(atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
   });
+  it('paciente arquivado também pode ter o pedido atendido e passa a bloqueado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps);
+    expect((await ler(T.ctx, p.id)).status).toBe('bloqueado');
+  });
 });
 
 describe('fim do prazo de guarda (job diário de retenção)', () => {
