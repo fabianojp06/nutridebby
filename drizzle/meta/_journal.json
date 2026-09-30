@@ -225,6 +225,20 @@
       "when": 1790734838180,
       "tag": "0031_exames_arquivo_do_tenant",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790735769855,
+      "tag": "0032_privacidade",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790735770879,
+      "tag": "0033_rls_privacidade",
+      "breakpoints": true
     }
   ]
 }

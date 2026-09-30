@@ -20,6 +20,7 @@ import { withTenant } from '@/db/tenant';
 const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_log: (t, p) => sql`insert into audit_log (tenant_id, acao, entidade, patient_id) values (${t}, 'ler', 'isolamento', ${p})`,
   exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
+  privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
   stored_files: (t) =>
     sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values (${t}, 'logo', ${`${t}/logo/${randomUUID()}.png`}, 1, 'image/png')`,
   rls_fixture_patient_items: (t, p) => sql`insert into rls_fixture_patient_items (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,

@@ -270,3 +270,24 @@ export const exams = pgTable(
 );
 
 export type ExamRow = typeof exams.$inferSelect;
+
+/** US-018 / RNF-08: pedidos do titular (exportação, exclusão). Prazo de resposta: 15 dias. */
+export const privacyRequests = pgTable(
+  'privacy_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    tipo: text('tipo').notNull(),
+    status: text('status').notNull().default('aberto'),
+    prazo: date('prazo', { mode: 'string' }).notNull(),
+    concluidoEm: timestamp('concluido_em', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('privacy_requests_tipo_valido', sql`${t.tipo} in ('exportacao', 'exclusao')`),
+    check('privacy_requests_status_valido', sql`${t.status} in ('aberto', 'concluido')`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'privacy_requests_paciente_fk' }),
+    index('privacy_requests_paciente_idx').on(t.tenantId, t.patientId, t.status),
+  ],
+);

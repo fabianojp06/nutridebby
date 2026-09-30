@@ -39,3 +39,8 @@ export async function buscarTenant(db: Db, tenantId: string): Promise<TenantRow 
 export async function tenantIsActive(db: Db, tenantId: string): Promise<boolean> {
   return (await getTenantStatus(db, tenantId)) === 'ativa';
 }
+
+/** §4.1: varreduras do worker entre tenants partem de `tenants` (inclusive suspensos: obrigação legal não para). */
+export async function listarTenantsParaVarredura(db: Db): Promise<{ id: string; fuso: string }[]> {
+  return db.select({ id: tenants.id, fuso: tenants.fuso }).from(tenants);
+}

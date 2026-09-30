@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataValida, formatarData, hojeNoFuso, idadeEm } from './datas';
+import { dataValida, formatarData, hojeNoFuso, idadeEm, somarAnos, somarDias } from './datas';
 
 describe('datas do paciente (RN-06, RN-14, RN-17)', () => {
   it('dataValida aceita só AAAA-MM-DD que existe no calendário', () => {
@@ -20,5 +20,14 @@ describe('datas do paciente (RN-06, RN-14, RN-17)', () => {
   });
   it('formatarData exibe dd/mm/aaaa (RNF-12)', () => {
     expect(formatarData('2026-09-01')).toBe('01/09/2026');
+  });
+});
+
+describe('somarAnos / somarDias', () => {
+  it('prazo de guarda e de resposta; 29/02 vira 28/02 em ano comum', () => {
+    expect(somarAnos('2026-09-15', 20)).toBe('2046-09-15');
+    expect(somarAnos('2024-02-29', 1)).toBe('2025-02-28');
+    expect(somarDias('2026-10-01', 15)).toBe('2026-10-16');
+    expect(somarDias('2026-12-25', 10)).toBe('2027-01-04');
   });
 });

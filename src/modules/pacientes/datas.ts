@@ -29,3 +29,16 @@ export function formatarData(iso: string): string {
   const [a, m, d] = iso.split('-');
   return `${d}/${m}/${a}`;
 }
+
+/** 'AAAA-MM-DD' + anos (29/02 → 28/02 quando o ano de destino não é bissexto). */
+export function somarAnos(iso: string, anos: number): string {
+  const [a, m, d] = iso.split('-').map(Number);
+  const alvo = new Date(Date.UTC(a + anos, m - 1, d));
+  if (alvo.getUTCMonth() !== m - 1) alvo.setUTCDate(0);
+  return alvo.toISOString().slice(0, 10);
+}
+
+export function somarDias(iso: string, dias: number): string {
+  const [a, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+}
