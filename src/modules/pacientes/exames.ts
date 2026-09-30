@@ -20,20 +20,26 @@ export class ExameError extends Error {
   }
 }
 
+const MAX_LINHAS = 50;
+const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria notação exponencial na tela
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
+const passaDoLimite = (v: unknown, max: number) => typeof v === 'string' && v.trim().replace(/\s+/g, ' ').length > max;
 
 /** Linhas de valores do formulário. Linha toda vazia é ignorada; nome sem valor numérico (ou o contrário) → null. */
 export function lerValores(bruto: unknown): ValorExame[] | null {
   if (!Array.isArray(bruto)) return null;
   const out: ValorExame[] = [];
-  for (const l of bruto.slice(0, 50) as Record<string, unknown>[]) {
+  if (bruto.length > MAX_LINHAS) return null; // recusa em vez de cortar: dado de saúde não some em silêncio
+  for (const l of bruto as Record<string, unknown>[]) {
+    if (l !== null && typeof l !== 'object') return null;
+    if (passaDoLimite(l?.nome, 80) || passaDoLimite(l?.unidade, 20) || passaDoLimite(l?.referencia, 80)) return null;
     const nome = texto(l?.nome, 80);
     const valorTxt = l?.valor;
     const vazio = !nome && (valorTxt === undefined || valorTxt === '' || valorTxt === null);
     if (vazio) continue;
     const valor = lerDecimal(valorTxt);
     // isFinite, não só isNaN: '9'.repeat(400) vira Infinity, que o jsonb gravaria como null
-    if (!nome || typeof valor !== 'number' || !Number.isFinite(valor)) return null;
+    if (!nome || typeof valor !== 'number' || !Number.isFinite(valor) || Math.abs(valor) >= MAX_VALOR) return null;
     out.push({ nome, valor, unidade: texto(l.unidade, 20) || null, referencia: texto(l.referencia, 80) || null });
   }
   return out;
@@ -80,7 +86,13 @@ export async function criarExame(
   try {
     await salvarArquivo(
       ctx,
-      { tipo: 'exame', conteudo: input.arquivo, permitidos: ['pdf', 'jpg', 'png'], registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)) },
+      {
+        tipo: 'exame',
+        conteudo: input.arquivo,
+        permitidos: ['pdf', 'jpg', 'png'],
+        // paciente travado ANTES da cota: mesma ordem de excluirExame (senão, deadlock)
+        antesDaReserva: async (tx) => void (await carregarPacienteParaEscrita(tx, patientId)),
+        registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)) },
       { db, dataDir: deps.dataDir },
     );
   } catch (e) {
@@ -92,16 +104,21 @@ export async function criarExame(
 
 export async function excluirExame(ctx: TenantContext, patientId: string, id: string, deps: { db?: Db; dataDir?: string } = {}): Promise<boolean> {
   const db = deps.db ?? getDb();
-  if (!idValido(id)) return false;
+  if (!idValido(patientId) || !idValido(id)) return false;
   const doExame = and(eq(exams.id, id), eq(exams.patientId, patientId));
+  let exameApagado = false;
   const apagarExame = async (tx: Tx) => {
-    await carregarPacienteParaEscrita(tx, patientId);
-    return (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
+    await carregarPacienteParaEscrita(tx, patientId); // paciente primeiro, depois tenant (ordem de travas do armazenamento)
+    exameApagado = (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
+    return exameApagado;
   };
   const [atual] = await withTenant(ctx, (tx) => tx.select({ caminho: exams.arquivoPath }).from(exams).where(doExame), db);
   if (!atual) return false;
   // exame e laudo saem na mesma transação; o arquivo deixa o disco depois do commit
-  if (atual.caminho) return apagarArquivo(ctx, { caminho: atual.caminho }, { db, dataDir: deps.dataDir, naMesmaTransacao: apagarExame });
+  if (atual.caminho) {
+    await apagarArquivo(ctx, { caminho: atual.caminho }, { db, dataDir: deps.dataDir, naMesmaTransacao: apagarExame });
+    return exameApagado; // o registro do arquivo pode já ter sumido (FK SET NULL): o exame saiu do mesmo jeito
+  }
   return withTenant(ctx, apagarExame, db);
 }
 

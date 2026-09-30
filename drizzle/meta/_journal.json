@@ -218,6 +218,13 @@
       "when": 1790734261842,
       "tag": "0030_rls_exames",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790734838180,
+      "tag": "0031_exames_arquivo_do_tenant",
+      "breakpoints": true
     }
   ]
 }

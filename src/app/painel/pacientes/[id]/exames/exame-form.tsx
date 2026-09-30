@@ -77,7 +77,7 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
             ).map(([k, rotulo]) => (
               <div key={k} className="space-y-1">
                 <label htmlFor={`${k}-${l.chave}`} className="block text-sm">{rotulo}</label>
-                <input id={`${k}-${l.chave}`} value={l[k]} onChange={(ev) => mudar(i, k, ev.target.value)} inputMode={k === 'valor' ? 'decimal' : undefined} className="w-full rounded border p-2" />
+                <input id={`${k}-${l.chave}`} {...aria('valores')} value={l[k]} onChange={(ev) => mudar(i, k, ev.target.value)} inputMode={k === 'valor' ? 'decimal' : undefined} className="w-full rounded border p-2" />
               </div>
             ))}
             <button type="button" onClick={() => setLinhas((ls) => ls.filter((_, j) => j !== i))} className="self-end underline" aria-label={`Remover o valor ${i + 1}`}>Remover</button>

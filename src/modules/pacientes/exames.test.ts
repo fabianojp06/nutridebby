@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -116,5 +117,58 @@ describe('exames (US-015)', () => {
     const bloqueado = await novoPaciente(app.db, A.ctx, { status: 'bloqueado' });
     await expect(criarExame(A.ctx, A.tenant, bloqueado.id, { titulo: 'X', data: '2026-09-01', valores: [], arquivo: PDF(1000) }, deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
     expect(await usado(A.tenantId)).toBe(0);
+  });
+
+  it('limites dos valores: mais de 50 linhas, nome > 80, unidade > 20, referência > 80 ou |valor| ≥ 1e15 são recusados, não cortados', () => {
+    const l = (o: object) => [{ nome: 'G', valor: '1', ...o }];
+    expect(lerValores(Array.from({ length: 50 }, () => ({ nome: 'G', valor: '1' })))).toHaveLength(50);
+    expect(lerValores(Array.from({ length: 51 }, () => ({ nome: 'G', valor: '1' })))).toBeNull();
+    expect(lerValores(l({ nome: 'n'.repeat(81) }))).toBeNull();
+    expect(lerValores(l({ unidade: 'u'.repeat(21) }))).toBeNull();
+    expect(lerValores(l({ referencia: 'r'.repeat(81) }))).toBeNull();
+    expect(lerValores(l({ nome: 'n'.repeat(80), unidade: 'u'.repeat(20), referencia: 'r'.repeat(80) }))).toHaveLength(1);
+    expect(lerValores(l({ valor: '1000000000000000' }))).toBeNull();
+  });
+
+  it('id malformado (paciente ou exame) → false, sem erro de cast', async () => {
+    const T = await novoTenant(app.db);
+    expect(await excluirExame(T.ctx, 'nao-uuid', randomUUID(), deps)).toBe(false);
+    expect(await excluirExame(T.ctx, randomUUID(), 'nao-uuid', deps)).toBe(false);
+  });
+
+  it('excluir devolve true mesmo se o registro do arquivo já sumiu (FK SET NULL)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'A', data: '2026-09-01', valores: [], arquivo: PDF(1000) }, deps);
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(exams).where(eq(exams.id, id)), app.db);
+    // some o stored_files sem passar pelo exame: o vínculo vira null, mas aqui simulamos a corrida (leitura do caminho antes)
+    await withTenant(T.ctx, (tx) => tx.delete(storedFiles).where(eq(storedFiles.caminho, e.arquivoPath!)), app.db);
+    expect(await excluirExame(T.ctx, p.id, id, deps)).toBe(true);
+  });
+
+  it('CHECK: caminho de arquivo de outro tenant é recusado pelo banco', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, A.ctx);
+    const alheio = `${B.tenantId}/exame/${randomUUID()}.pdf`;
+    await withTenant(B.ctx, (tx) => tx.insert(storedFiles).values({ tenantId: B.tenantId, tipo: 'exame', caminho: alheio, bytes: 1, mime: 'application/pdf' }), app.db);
+    await expect(
+      withTenant(A.ctx, (tx) => tx.insert(exams).values({ tenantId: A.tenantId, patientId: p.id, data: '2026-09-01', titulo: 'X', arquivoPath: alheio }), app.db),
+    ).rejects.toThrow();
+  });
+
+  it('concorrência: criar exame com laudo e excluir outro do mesmo paciente em paralelo não dá deadlock', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    for (let i = 0; i < 5; i++) {
+      const velho = await criarExame(T.ctx, T.tenant, p.id, { titulo: `V${i}`, data: '2026-09-01', valores: [], arquivo: PDF(500) }, deps);
+      const r = await Promise.all([
+        criarExame(T.ctx, T.tenant, p.id, { titulo: `N${i}`, data: '2026-09-01', valores: [], arquivo: PDF(500) }, deps),
+        excluirExame(T.ctx, p.id, velho, deps),
+      ]);
+      expect(r[1]).toBe(true);
+    }
+    expect(await listarExames(T.ctx, p.id, app.db)).toHaveLength(5);
+    expect(await usado(T.tenantId)).toBe(5 * 500);
   });
 });

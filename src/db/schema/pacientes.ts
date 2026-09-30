@@ -264,6 +264,7 @@ export const exams = pgTable(
   (t) => [
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'exams_paciente_fk' }),
     check('exams_titulo_tamanho', sql`char_length(${t.titulo}) between 1 and 120`),
+    check('exams_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/%'`),
     index('exams_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
   ],
 );

@@ -1,5 +1,6 @@
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { signFileUrl } from '@/lib/signed-url';
+import { formatarDecimal } from '@/lib/numero';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../prontuario';
@@ -7,6 +8,9 @@ import { excluirExameAction } from './actions';
 import { ExameForm } from './exame-form';
 
 export const dynamic = 'force-dynamic';
+
+/** Casas que o valor digitado tinha (até 6): não arredonda nem cai em notação exponencial. */
+const casasDe = (n: number) => (Number.isInteger(n) ? 0 : Math.min(6, (n.toFixed(6).replace(/0+$/, '').split('.')[1] ?? '').length));
 
 export default async function ExamesPage({ params }: PageProps<'/painel/pacientes/[id]/exames'>) {
   const { id } = await params;
@@ -53,7 +57,7 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
                   {e.valores.map((v, i) => (
                     <tr key={`${i}-${v.nome}`} className="border-t">
                       <td>{v.nome}</td>
-                      <td>{`${String(v.valor).replace('.', ',')}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
+                      <td>{`${formatarDecimal(v.valor, casasDe(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
                       <td>{v.referencia ?? '—'}</td>
                     </tr>
                   ))}

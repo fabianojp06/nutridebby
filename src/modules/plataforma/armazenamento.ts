@@ -49,6 +49,8 @@ export function resolverCaminho(dataDir: string, caminho: string): string {
  * Salva um arquivo do tenant. O tipo vem do conteúdo (nunca do nome); SVG nunca é guardado
  * (a Tarefa 10 converte o logo SVG em PNG antes). A cota é reservada na mesma transação do
  * registro: a linha do tenant fica travada até o commit, então uploads simultâneos não passam do limite.
+ * ORDEM DE TRAVAS (evita deadlock): dono do arquivo (paciente, em `antesDaReserva`) → tenant (cota) → `registrar`.
+ * É a mesma ordem de `apagarArquivo` (`naMesmaTransacao` → tenant).
  */
 export async function salvarArquivo(
   ctx: TenantContext,
@@ -58,6 +60,8 @@ export async function salvarArquivo(
     permitidos: readonly TipoArquivo['ext'][];
     /** Grava o registro que aponta para o arquivo (exame, exportação) na mesma transação. */
     registrar?: (tx: Tx, arquivo: ArquivoSalvo) => Promise<void>;
+    /** Roda na transação ANTES da reserva de cota: é onde se trava o dono do arquivo (paciente). */
+    antesDaReserva?: (tx: Tx) => Promise<void>;
   },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
@@ -75,6 +79,7 @@ export async function salvarArquivo(
     return await withTenant(
       ctx,
       async (tx) => {
+        if (input.antesDaReserva) await input.antesDaReserva(tx);
         const reserva = await tx
           .update(tenants)
           .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${bytes}` })
@@ -103,7 +108,8 @@ export async function salvarArquivo(
 
 /**
  * Apaga o registro e devolve o espaço; por padrão o arquivo sai do disco depois do commit (falha no `rm`
- * só vira aviso de arquivo órfão). `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
+ * só vira aviso de arquivo órfão). Ordem de travas: `naMesmaTransacao` (paciente/dono) → tenant (cota), igual a `salvarArquivo`.
+ * `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
  */
 export async function apagarArquivo(
   ctx: TenantContext,

@@ -1,0 +1,1 @@
+ALTER TABLE "exams" ADD CONSTRAINT "exams_arquivo_do_tenant" CHECK ("exams"."arquivo_path" is null or "exams"."arquivo_path" like "exams"."tenant_id"::text || '/%');
