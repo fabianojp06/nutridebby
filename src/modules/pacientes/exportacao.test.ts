@@ -642,7 +642,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
             imc: 22.22,
             percGordura: 24.44,
             protocolo: 'jp7',
-            circunferencias: { cintura: 80.5 },
+            circunferencias: { coxa: 50, cintura: 80.5 },
             dobrasMm: { triceps: 12 },
           },
         ],
@@ -672,7 +672,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const texto = textoDoPdf(pdf);
     for (const t of [
       'JP 7 dobras',
-      'Cintura 80,5 cm',
+      'Cintura 80,5 cm · Coxa 50 cm',
       'Tríceps 12 mm',
       'Pedidos do titular (LGPD)',
       'Exportação',

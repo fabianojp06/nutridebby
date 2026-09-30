@@ -36,11 +36,19 @@ const PROTOCOLO: Record<string, string> = {
 };
 const PEDIDO: Record<string, string> = { exportacao: 'Exportação', exclusao: 'Exclusão' };
 const SITUACAO: Record<string, string> = { aberto: 'aberto', concluido: 'concluído' };
-const ROTULO_CIRC = Object.fromEntries(CIRCUNFERENCIAS.map((c) => [c.id, c.rotulo]));
-const ROTULO_DOBRA = Object.fromEntries(DOBRAS.map((d) => [d.id, d.rotulo]));
-const medidas = (m: Record<string, number>, rotulos: Record<string, string>, unidade: string) =>
-  Object.entries(m)
-    .map(([k, v]) => `${rotulos[k] ?? k} ${num(v)} ${unidade}`)
+// Na ordem da tela (o jsonb não guarda a ordem das chaves); chave fora da lista vai no fim, pelo id
+const medidas = (
+  m: Record<string, number>,
+  lista: readonly { id: string; rotulo: string }[],
+  unidade: string,
+) =>
+  [
+    ...lista.filter((x) => x.id in m),
+    ...Object.keys(m)
+      .filter((k) => !lista.some((x) => x.id === k))
+      .map((id) => ({ id, rotulo: id })),
+  ]
+    .map((x) => `${x.rotulo} ${num(m[x.id])} ${unidade}`)
     .join(' · ');
 
 function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
@@ -70,10 +78,10 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
           <View key={i}>
             <Text>{`${br(a.data)}: peso ${num(a.pesoKg, 2)} kg · altura ${num(a.alturaCm, 1)} cm · IMC ${num(a.imc, 2)} · % de gordura ${num(a.percGordura, 2)} (${PROTOCOLO[a.protocolo] ?? a.protocolo})`}</Text>
             {Object.keys(a.circunferencias).length > 0 && (
-              <Text>{`Circunferências: ${medidas(a.circunferencias, ROTULO_CIRC, 'cm')}`}</Text>
+              <Text>{`Circunferências: ${medidas(a.circunferencias, CIRCUNFERENCIAS, 'cm')}`}</Text>
             )}
             {Object.keys(a.dobrasMm).length > 0 && (
-              <Text>{`Dobras: ${medidas(a.dobrasMm, ROTULO_DOBRA, 'mm')}`}</Text>
+              <Text>{`Dobras: ${medidas(a.dobrasMm, DOBRAS, 'mm')}`}</Text>
             )}
           </View>
         ))}
