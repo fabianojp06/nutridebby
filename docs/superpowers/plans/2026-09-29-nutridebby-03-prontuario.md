@@ -9556,6 +9556,7 @@ Depois do push: conferir no job `image` do CI a linha "Imagem comprimida: N MB (
 ## Fechamento do plano (após a Tarefa 14)
 
 ### Adiados para o Plano 04 (levar para "Itens adiados do Plano 03" ao escrevê-lo)
+- **Plano 06 (portal do paciente):** `stored_files` só tem RLS por tenant; antes de o portal ler arquivos com o papel `paciente`, restringir por paciente (achado de contexto do `/security-review` do PR #3 — hoje não explorável, nenhum código lê `stored_files` como paciente).
 - Normalização de texto (trim + espaços) repetida em `exames.ts`, `anamnese-tipos.ts`, `etiquetas.ts` e `atendimentos.ts` → um helper em `src/lib/text.ts`, ao lado de `normalizeEmail` (achado 8 da rodada 2 do `/code-review high`, PR #3; refatoração, não defeito — decisão do dono, 2026-09-30).
 - `salvarArquivo` agora grava o `.tmp` antes da transação: a limpeza de `.tmp` órfãos no worker (já anotada) cobre também esse caso.
 
