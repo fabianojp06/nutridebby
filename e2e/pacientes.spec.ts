@@ -133,3 +133,17 @@ test('anamnese: modelo com "Alergias" obrigatória recusa salvar vazia e depois 
   await expect(nutri.getByRole('heading', { name: new RegExp(`^${nomeModelo} · `) })).toBeVisible();
   await expect(nutri.getByLabel('Alergias (obrigatória)')).toHaveValue('Lactose');
 });
+
+test('arquivar tira da lista de ativos e mostra o selo; desarquivar devolve (US-018 "Arquivar")', async () => {
+  await nutri.goto(`${prontuario}/privacidade`);
+  nutri.once('dialog', (d) => d.accept());
+  await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
+  await expect(nutri.locator('header', { hasText: ANA.nome }).getByText('Arquivado', { exact: true })).toBeVisible(); // selo do prontuário
+  await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(ANA.email)}`);
+  await expect(nutri.getByText('Nenhum paciente encontrado.')).toBeVisible();
+  await nutri.goto(`/painel/pacientes?status=arquivado&busca=${encodeURIComponent(ANA.email)}`);
+  await expect(nutri.getByRole('link', { name: ANA.nome })).toBeVisible();
+  await nutri.goto(`${prontuario}/privacidade`);
+  await nutri.getByRole('button', { name: 'Desarquivar paciente' }).click();
+  await expect(nutri.getByRole('button', { name: 'Arquivar paciente' })).toBeVisible();
+});
