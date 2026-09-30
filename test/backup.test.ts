@@ -122,6 +122,8 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     writeFileSync(path.join(dados, 't1', 'logo', 'a.png'), 'versao-2');
     rmSync(path.join(dados, 't1', 'logo', 'b.png'));
     await rcat('data/historico/2026-08-01/velho.txt', 'x');
+    mkdirSync(path.join(dados, 't1', 'exportacao'), { recursive: true });
+    writeFileSync(path.join(dados, 't1', 'exportacao', 'e.zip'), 'zip');
     expect(await rodar('2026-10-05')).toBe(0);
     expect(await lsf('data/atual/t1/logo/')).toEqual(['a.png']);
     expect((await cat('data/atual/t1/logo/a.png')).toString()).toBe('versao-2');
@@ -129,6 +131,8 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect((await cat('data/historico/2026-10-05/t1/logo/a.png')).toString()).toBe('versao-1');
     expect(await lsf('data/historico/')).not.toContain('2026-08-01/');
     expect(await lsf('db/semanal/')).not.toContain('nutri-2026-10-05.dump');
+    expect(await lsf('data/atual/t1/')).toEqual(['logo/']); // o ZIP de exportação não vai para o R2
+    expect(await lsf('data/historico/2026-10-05/t1/')).not.toContain('exportacao/');
   });
 
   it('falha no dump: registra ok=false, não deixa arquivo parcial, ainda copia /data e sai com erro', async () => {
