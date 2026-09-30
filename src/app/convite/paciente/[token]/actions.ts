@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getAuth } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 import { requestIp } from '@/lib/request-ip';
 import { requireUser } from '@/lib/session';
 import { aceitarConvitePaciente, ConvitePacienteError, vincularContaExistente } from '@/modules/pacientes/convite-paciente';
@@ -29,7 +30,9 @@ export async function aceitarConvitePacienteAction(token: string, _prev: AceiteP
   try {
     // nextCookies grava o cookie de sessão na resposta desta Server Action
     await getAuth().api.signInEmail({ body: { email, password: senha }, headers: await headers() });
-  } catch {
+  } catch (e) {
+    // só o nome/código: a mensagem pode trazer e-mail (RNF-11)
+    logger.warn({ erro: e instanceof Error ? e.name : 'desconhecido', codigo: (e as { code?: unknown }).code }, 'login automático após o aceite do convite falhou');
     entrou = false; // a senha já foi gravada: cai no login normal
   }
   redirect(entrou ? '/p/inicio' : '/entrar?volta=%2Fp%2Finicio');

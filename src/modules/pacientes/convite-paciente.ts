@@ -171,11 +171,11 @@ async function prepararAceite(db: Db, token: string, aceitouTermo: boolean, now:
 }
 
 /** UPDATE … WHERE usado_em IS NULL trava a linha: o segundo envio simultâneo vê 0 linhas. */
-async function consumirConvite(tx: Tx, token: string, now: Date): Promise<void> {
+async function consumirConvite(tx: Tx, tenantId: string, token: string, now: Date): Promise<void> {
   const [c] = await tx
     .update(invites)
     .set({ usadoEm: now })
-    .where(and(eq(invites.tokenHash, sha256(token)), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm), gt(invites.expiraEm, now)))
+    .where(and(eq(invites.tokenHash, sha256(token)), eq(invites.tenantId, tenantId), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm), gt(invites.expiraEm, now)))
     .returning({ id: invites.id });
   if (!c) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido);
 }
@@ -225,7 +225,7 @@ export async function aceitarConvitePaciente(
         // T6-R1 do Plano 02: sempre paciente → convite, a mesma ordem de reenviarConvitePaciente e de
         // atualizarPaciente (troca de e-mail). A ordem invertida permitia deadlock (40P01) entre elas.
         const p = await travarPacienteDoConvite(tx, e.patientId);
-        await consumirConvite(tx, input.token, now);
+        await consumirConvite(tx, e.tenantId, input.token, now);
         await tx.insert(user).values({ id: userId, name: p.nome, email: p.email, emailVerified: true, appRole: 'paciente', createdAt: now, updatedAt: now });
         await tx.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: hash });
         await registrarAceiteTermo(tx, userId, e.tenantId, input.ip, now);
@@ -260,7 +260,7 @@ export async function vincularContaExistente(
     { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: input.userId, ip: input.ip },
     async (tx) => {
       const p = await travarPacienteDoConvite(tx, e.patientId); // paciente → convite (T6-R1)
-      await consumirConvite(tx, input.token, now);
+      await consumirConvite(tx, e.tenantId, input.token, now);
       await registrarAceiteTermo(tx, input.userId, e.tenantId, input.ip, now);
       await tx.update(patients).set({ userId: input.userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
     },
