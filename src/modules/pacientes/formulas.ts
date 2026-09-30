@@ -44,6 +44,19 @@ export function densidadeJP(p: Protocolo, sexo: Sexo, somaMm: number, idade: num
 /** Siri: %G = 495 / D − 450. */
 export const siri = (densidade: number): number => 495 / densidade - 450;
 
+/**
+ * Normalização única das dobras (servidor e prévia do navegador): cada valor arredondado a 1 casa,
+ * como é gravado; fora de [1, 100] mm (ou não numérico) vale ausente.
+ */
+export function dobrasNormalizadas(brutas: Partial<Record<DobraId, number | null | undefined>>): Partial<Record<DobraId, number>> {
+  const r: Partial<Record<DobraId, number>> = {};
+  for (const d of DOBRAS) {
+    const v = brutas[d.id];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= 100) r[d.id] = arredondar(v, 1);
+  }
+  return r;
+}
+
 export type ResultadoGordura = { ok: true; densidade: number; percGordura: number } | { ok: false; faltando: DobraId[] };
 
 /**
@@ -51,6 +64,7 @@ export type ResultadoGordura = { ok: true; densidade: number; percGordura: numbe
  * casas e o %G 2, mas o %G sai da densidade SEM arredondar (arredondar antes muda a 2ª casa).
  */
 export function calcularGordura(p: Protocolo, sexo: Sexo, idade: number, dobras: Partial<Record<DobraId, number | null>>): ResultadoGordura {
+  if (!Number.isFinite(idade)) throw new RangeError('Idade inválida para o cálculo do % de gordura');
   const necessarias = dobrasDoProtocolo(p, sexo);
   const faltando = necessarias.filter((d) => !(typeof dobras[d] === 'number' && Number.isFinite(dobras[d]) && (dobras[d] as number) >= 0));
   if (faltando.length) return { ok: false, faltando };

@@ -6,6 +6,7 @@ import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { anthropometry, auditLog } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { AntropometriaError, entradaDoFormulario, excluirAntropometria, listarAntropometrias, MSG_ANTROPO, registrarAntropometria } from './antropometria';
+import { calcularGordura, dobrasNormalizadas } from './formulas';
 import { MSG_CADASTRO_INCOMPLETO, PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -105,5 +106,36 @@ describe('registrarAntropometria (US-013)', () => {
     expect(await excluirAntropometria(T.ctx, outro.id, antiga.id, app.db)).toBe(false);
     expect(await excluirAntropometria(T.ctx, p.id, antiga.id, app.db)).toBe(true);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(anthropometry).where(eq(anthropometry.patientId, p.id)), app.db)).toHaveLength(1);
+  });
+});
+
+describe('correções da rodada 1', () => {
+  it('%G é calculado com as dobras arredondadas a 1 casa (o mesmo que a prévia) e difere do cálculo com o valor cru', async () => {
+    const T = await novoTenant(app.db);
+    const homem = await novoPaciente(app.db, T.ctx, { sexo: 'M', dataNascimento: '1996-01-15' });
+    const cru = { peitoral: 15.25, abdominal: 20.25, coxa: 15.25 };
+    const r = await registrarAntropometria(T.ctx, T.tenant, homem.id, entrada({ protocolo: 'jp3', dobra_peitoral: '15,25', dobra_abdominal: '20,25', dobra_coxa: '15,25' }), deps);
+    const [a] = await listarAntropometrias(T.ctx, homem.id, app.db);
+    const arred = calcularGordura('jp3', 'M', 30, dobrasNormalizadas(cru));
+    const bruto = calcularGordura('jp3', 'M', 30, cru);
+    if (!arred.ok || !bruto.ok) throw new Error('esperava ok');
+    expect(arred.percGordura).not.toBe(bruto.percGordura);
+    expect(a).toMatchObject({ id: r.id, percGordura: arred.percGordura, dobrasMm: { peitoral: 15.3, abdominal: 20.3, coxa: 15.3 } });
+  });
+
+  it('data da avaliação anterior ao nascimento: erro no campo data e nada salvo (T7-R1)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { sexo: 'M', dataNascimento: '1996-01-15' });
+    expect(await erros(registrarAntropometria(T.ctx, T.tenant, p.id, entrada({ data: '1996-01-14' }), deps))).toEqual({ data: 'A data não pode ser anterior à data de nascimento' });
+    expect(await listarAntropometrias(T.ctx, p.id, app.db)).toEqual([]);
+    await registrarAntropometria(T.ctx, T.tenant, p.id, entrada({ data: '1996-01-15' }), deps); // no dia do nascimento vale
+  });
+
+  it('calcularGordura rejeita idade não finita', () => {
+    for (const idade of [Number.NaN, Number.POSITIVE_INFINITY]) expect(() => calcularGordura('jp3', 'M', idade, {})).toThrow(RangeError);
+  });
+
+  it('dobrasNormalizadas: fora de 1–100 mm vira ausente', () => {
+    expect(dobrasNormalizadas({ coxa: 0.9, triceps: 100.5, peitoral: 1, abdominal: Number.NaN })).toEqual({ peitoral: 1 });
   });
 });

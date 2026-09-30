@@ -4,7 +4,7 @@ import { useActionState, useState, type ChangeEvent } from 'react';
 import { formatarDecimal, lerDecimal } from '@/lib/numero';
 import { CIRCUNFERENCIAS, MSG_ANTROPO } from '@/modules/pacientes/antropometria-constantes'; // nunca de antropometria.ts (servidor)
 import { idadeEm } from '@/modules/pacientes/datas';
-import { calcularGordura, DOBRAS, dobrasDoProtocolo, imc, type Protocolo, type Sexo } from '@/modules/pacientes/formulas';
+import { calcularGordura, DOBRAS, dobrasDoProtocolo, dobrasNormalizadas, imc, type Protocolo, type Sexo } from '@/modules/pacientes/formulas';
 import type { AntropometriaState } from './actions';
 
 type Props = {
@@ -41,8 +41,10 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
   const protocolo = (v.protocolo ?? 'nenhum') as Protocolo | 'nenhum';
   const visiveis = protocolo === 'nenhum' || !props.sexo ? DOBRAS : DOBRAS.filter((d) => dobrasDoProtocolo(protocolo, props.sexo!).includes(d.id));
   let previaGordura: string | null = null;
-  if (protocolo !== 'nenhum' && props.sexo && props.dataNascimento && v.data) {
-    const r = calcularGordura(protocolo, props.sexo, idadeEm(props.dataNascimento, v.data), Object.fromEntries(DOBRAS.map((d) => [d.id, num(`dobra_${d.id}`)])));
+  // mesmas faixas e arredondamento do servidor: a prévia nunca mostra o que o servidor recusaria
+  const dataOk = Boolean(v.data) && v.data <= props.hoje && (!props.dataNascimento || v.data >= props.dataNascimento);
+  if (protocolo !== 'nenhum' && props.sexo && props.dataNascimento && dataOk) {
+    const r = calcularGordura(protocolo, props.sexo, idadeEm(props.dataNascimento, v.data), dobrasNormalizadas(Object.fromEntries(DOBRAS.map((d) => [d.id, num(`dobra_${d.id}`)]))));
     previaGordura = r.ok ? `% de gordura: ${formatarDecimal(r.percGordura, 2)}` : MSG_ANTROPO.dobrasFaltando(dobrasDoProtocolo(protocolo, props.sexo).length);
   }
   const entrada = (k: string, rotulo: string, extra: { max?: string; type?: string; inputMode?: 'decimal' } = { inputMode: 'decimal' }) => (
@@ -60,7 +62,7 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
         {entrada('pesoKg', 'Peso (kg)')}
         {entrada('alturaCm', 'Altura (cm)')}
       </div>
-      <p aria-live="polite">{peso && altura && altura >= 30 ? `IMC: ${formatarDecimal(imc(peso, altura), 2)}` : 'IMC: informe peso e altura'}</p>
+      <p aria-live="polite">{peso !== null && altura !== null && peso >= 1 && peso <= 400 && altura >= 30 && altura <= 250 ? `IMC: ${formatarDecimal(imc(peso, altura), 2)}` : 'IMC: informe peso e altura'}</p>
       <fieldset className="space-y-2">
         <legend className="font-medium">Circunferências (cm)</legend>
         <div className="grid gap-3 sm:grid-cols-3">{CIRCUNFERENCIAS.map((c) => entrada(`circ_${c.id}`, c.rotulo))}</div>

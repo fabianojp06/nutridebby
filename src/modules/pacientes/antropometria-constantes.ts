@@ -16,6 +16,7 @@ export type CircunferenciaId = (typeof CIRCUNFERENCIAS)[number]['id'];
 export const MSG_ANTROPO = {
   data: 'Informe a data da avaliação',
   futuro: 'A data não pode ser no futuro',
+  antesDoNascimento: 'A data não pode ser anterior à data de nascimento',
   peso: 'Peso deve estar entre 1 e 400 kg',
   altura: 'Altura deve estar entre 30 e 250 cm',
   circunferencia: 'Circunferência deve estar entre 5 e 300 cm',

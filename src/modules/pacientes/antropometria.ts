@@ -8,7 +8,7 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
 import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
 import { dataValida, hojeNoFuso, idadeEm } from './datas';
-import { calcularGordura, DOBRAS, dobrasDoProtocolo, type DobraId, type Protocolo, type Sexo } from './formulas';
+import { calcularGordura, DOBRAS, dobrasDoProtocolo, dobrasNormalizadas, type DobraId, type Protocolo, type Sexo } from './formulas';
 
 export { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
 
@@ -79,17 +79,19 @@ export async function registrarAntropometria(
     const v = campo(CIRC, input.circunferencias[c.id], `circ_${c.id}`, erros);
     if (typeof v === 'number') circunferencias[c.id] = arredondar(v, 1);
   }
-  const dobras: Partial<Record<DobraId, number>> = {};
+  const dobrasBrutas: Partial<Record<DobraId, number>> = {};
   for (const d of DOBRAS) {
     const v = campo(DOBRA, input.dobras[d.id], `dobra_${d.id}`, erros);
-    if (typeof v === 'number') dobras[d.id] = arredondar(v, 1);
+    if (typeof v === 'number') dobrasBrutas[d.id] = v;
   }
+  const dobras = dobrasNormalizadas(dobrasBrutas);
   if (Object.keys(erros).length || peso === undefined || altura === undefined) throw new AntropometriaError(erros);
 
   return withTenant(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
+      if (p.dataNascimento && data < p.dataNascimento) throw new AntropometriaError({ data: MSG_ANTROPO.antesDoNascimento });
       let densidade: number | null = null;
       let percGordura: number | null = null;
       let aviso: string | null = null;
