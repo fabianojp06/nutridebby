@@ -113,6 +113,20 @@
       "when": 1790642618904,
       "tag": "0015_metricas_admin_fora_de_withtenant",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790729302327,
+      "tag": "0016_pacientes",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790729307027,
+      "tag": "0017_rls_pacientes",
+      "breakpoints": true
     }
   ]
 }

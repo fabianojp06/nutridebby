@@ -52,8 +52,8 @@ export async function findRlsViolations(db: Pool | PoolClient): Promise<RlsViola
            c.relforcerowsecurity as forced,
            exists (select 1 from pg_policies p where p.schemaname = 'public'
                    and p.tablename = c.relname and p.policyname = 'tenant_isolation') as has_tenant_policy,
-           exists (select 1 from information_schema.columns k where k.table_schema = 'public'
-                   and k.table_name = c.relname and k.column_name = 'patient_id') as has_patient_col,
+           (c.relname = 'patients' or exists (select 1 from information_schema.columns k where k.table_schema = 'public'
+                   and k.table_name = c.relname and k.column_name = 'patient_id')) as has_patient_col,
            exists (select 1 from pg_policies p where p.schemaname = 'public'
                    and p.tablename = c.relname and p.policyname = 'patient_isolation') as has_patient_policy
     ${TENANT_TABLES_SELECTION}

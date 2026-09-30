@@ -15,6 +15,11 @@ describe('guarda de RLS (US-006: "Nova tabela sem RLS quebra o CI")', () => {
     expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
   });
 
+  it('patients (titular na coluna id) também exige patient_isolation', async () => {
+    const { rows } = await owner.pool.query(`select 1 from pg_policies where schemaname = 'public' and tablename = 'patients' and policyname = 'patient_isolation'`);
+    expect(rows).toHaveLength(1);
+  });
+
   it('detecta uma tabela nova com tenant_id sem RLS (a guarda funciona)', async () => {
     const client = await owner.pool.connect();
     try {

@@ -136,11 +136,14 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
         for (let i = 0; i < n; i++) {
           await c.query(`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values ($1, 'logo', $2, 10, 'image/png')`, [t, `${t}/logo/${crypto.randomUUID()}.png`]);
         }
+        if (t === a) {
+          await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email, status) values ($1, 'Ativo', '1990-01-01', 'F', 'ativo@met.dev', 'ativo'), ($1, 'Arquivado', '1990-01-01', 'M', 'arq@met.dev', 'arquivado')`, [t]);
+        }
         await c.query('commit');
       }
       const { rows } = await c.query(`select tenant_id, arquivos::int as arquivos, pacientes_ativos from admin_tenant_metrics() where tenant_id = any($1)`, [[a, b]]);
       expect(Object.fromEntries(rows.map((r) => [r.tenant_id, r.arquivos]))).toEqual({ [a]: 2, [b]: 1 });
-      expect(rows.every((r) => r.pacientes_ativos === null)).toBe(true);
+      expect(Object.fromEntries(rows.map((r) => [r.tenant_id, Number(r.pacientes_ativos)]))).toEqual({ [a]: 1, [b]: 0 });
       // fora da função, sem contexto, o role da aplicação não vê nada
       expect((await c.query('select count(*)::int as n from stored_files')).rows[0].n).toBe(0);
     } finally {

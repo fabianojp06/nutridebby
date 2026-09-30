@@ -1,20 +1,35 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { getTableColumns, getTableName, is } from 'drizzle-orm';
+import { PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
+import * as schema from '@/db/schema';
+import { RLS_EXCEPTIONS } from '@/db/rls-guard';
 
 const ARQUIVOS_DO_ADMIN = [
   ...readdirSync(path.resolve('src/app/admin'), { recursive: true, withFileTypes: true })
-    .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !d.name.endsWith('.test.ts'))
+    .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
     .map((d) => path.join(d.parentPath, d.name)),
   path.resolve('src/modules/plataforma/contas.ts'),
   path.resolve('src/modules/plataforma/metricas.ts'),
   path.resolve('src/modules/plataforma/monitoramento.ts'),
   path.resolve('src/modules/plataforma/suspensao.ts'),
 ];
-// Tabelas 🔒 e a porta de entrada para elas: o código do admin não pode citar nenhuma
-const PROIBIDO = /\b(withTenant|storedFiles|auditLog|stored_files|audit_log)\b/;
+
+/**
+ * Item adiado do Plano 02 (T9): a lista de tabelas 🔒 vem do próprio schema — toda tabela com
+ * `tenantId` que não está nas exceções de RLS —, pelo nome no código e pelo nome no banco.
+ */
+const TABELAS_TENANT = Object.entries(schema)
+  .filter(([, v]) => is(v, PgTable) && 'tenantId' in getTableColumns(v as PgTable))
+  .map(([js, v]) => ({ js, sql: getTableName(v as PgTable) }))
+  .filter((t) => !RLS_EXCEPTIONS[t.sql]);
+const PROIBIDO = new RegExp(`\\b(withTenant|${TABELAS_TENANT.flatMap((t) => [t.js, t.sql]).join('|')})\\b`);
 
 describe('§4.1: o admin nunca consulta tabelas 🔒', () => {
+  it('a lista derivada do schema inclui as tabelas conhecidas', () => {
+    expect(TABELAS_TENANT.map((t) => t.sql)).toEqual(expect.arrayContaining(['audit_log', 'stored_files', 'patients']));
+  });
   it.each(ARQUIVOS_DO_ADMIN)('%s não acessa tabelas com tenant_id', (arquivo) => {
     expect(readFileSync(arquivo, 'utf8')).not.toMatch(PROIBIDO);
   });
