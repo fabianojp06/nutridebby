@@ -201,11 +201,20 @@ export const LIMITE_LISTA = 500;
 export type PacienteNaLista = Pick<PatientRow, 'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem'>;
 
 /**
- * Lista do painel (nome e contato, sem dado clínico — não audita; abrir o prontuário audita).
- * Busca sem acento por nome ou e-mail; `%`, `_` e `\` digitados são literais.
+ * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento por nome ou e-mail;
+ * `%`, `_` e `\` digitados são literais. Com `etiquetaId`, a lista diz quem tem "diabetes", "gestante":
+ * é dado de saúde (regra 8), então cada paciente devolvido gera uma leitura auditada de "Etiquetas".
  */
-export async function listarPacientes(ctx: TenantContext, filtro: { busca?: string; status?: StatusPaciente }, db: Db = getDb()): Promise<PacienteNaLista[]> {
+export async function listarPacientes(
+  ctx: TenantContext,
+  filtro: { busca?: string; status?: StatusPaciente; etiquetaId?: string },
+  db: Db = getDb(),
+): Promise<PacienteNaLista[]> {
+  if (filtro.etiquetaId !== undefined && !idValido(filtro.etiquetaId)) return [];
   const conds: SQL[] = [eq(patients.status, filtro.status ?? 'ativo')];
+  if (filtro.etiquetaId) {
+    conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
+  }
   const busca = filtro.busca?.trim();
   if (busca) {
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -213,8 +222,8 @@ export async function listarPacientes(ctx: TenantContext, filtro: { busca?: stri
   }
   return withTenant(
     ctx,
-    (tx) =>
-      tx
+    async (tx) => {
+      const r = await tx
         .select({
           id: patients.id,
           nome: patients.nome,
@@ -227,7 +236,10 @@ export async function listarPacientes(ctx: TenantContext, filtro: { busca?: stri
         .from(patients)
         .where(and(...conds))
         .orderBy(asc(patients.nome))
-        .limit(LIMITE_LISTA),
+        .limit(LIMITE_LISTA);
+      if (filtro.etiquetaId) for (const p of r) await auditRead(tx, { entidade: 'etiquetas', entidadeId: null, patientId: p.id });
+      return r;
+    },
     db,
   );
 }

@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { ConvitePacienteError, reenviarConvitePaciente } from '@/modules/pacientes/convite-paciente';
+import { EtiquetaError, salvarEtiquetasDoPaciente } from '@/modules/pacientes/etiquetas';
 import { atualizarPaciente, criarPaciente, PacienteError, type ErrosPaciente } from '@/modules/pacientes/pacientes';
 import { valoresDoFormulario, type ValoresPaciente } from './valores';
 
@@ -48,4 +49,22 @@ export async function reenviarConviteAction(patientId: string): Promise<void> {
     if (!(e instanceof ConvitePacienteError) && !(e instanceof PacienteBloqueadoError)) throw e;
   }
   revalidatePath(`/painel/pacientes/${patientId}`);
+}
+
+export type EtiquetasState = { erro?: string; ok?: boolean };
+
+export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasState, formData: FormData): Promise<EtiquetasState> {
+  const { ctx } = await requireNutri(`/painel/pacientes/${patientId}`);
+  try {
+    await salvarEtiquetasDoPaciente(ctx, patientId, {
+      etiquetas: formData.getAll('etiquetas').map(String),
+      nova: String(formData.get('nova') ?? ''),
+    });
+  } catch (e) {
+    if (e instanceof EtiquetaError || e instanceof PacienteBloqueadoError) return { erro: e.message };
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    throw e;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}`);
+  return { ok: true };
 }

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, customType, date, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, customType, date, foreignKey, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 import { tenants } from './platform';
 
@@ -53,3 +53,38 @@ export const patients = pgTable(
 );
 
 export type PatientRow = typeof patients.$inferSelect;
+
+/** US-019. Nome sem diferenciar maiúsculas ("Gestante" = "gestante"). A sessão de paciente não vê (staff_only). */
+export const patientTags = pgTable(
+  'patient_tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    nome: citext('nome').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('patient_tags_tenant_nome_unique').on(t.tenantId, t.nome),
+    unique('patient_tags_tenant_id_unique').on(t.tenantId, t.id),
+    check('patient_tags_nome_tamanho', sql`char_length(${t.nome}) between 1 and 40`),
+  ],
+);
+
+export const patientTagLinks = pgTable(
+  'patient_tag_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    tagId: uuid('tag_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('patient_tag_links_unique').on(t.patientId, t.tagId),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'patient_tag_links_paciente_fk' }),
+    foreignKey({ columns: [t.tenantId, t.tagId], foreignColumns: [patientTags.tenantId, patientTags.id], name: 'patient_tag_links_etiqueta_fk' }).onDelete('cascade'),
+    index('patient_tag_links_etiqueta_idx').on(t.tenantId, t.tagId),
+  ],
+);

@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
-import { findRlsViolations, listTenantTables } from './rls-guard';
+import { findRlsViolations, findStaffOnlyViolations, findStaleExceptions, listTenantTables, PATIENT_POLICY_EXCEPTIONS, RLS_EXCEPTIONS, STAFF_ONLY } from './rls-guard';
 
 const owner = makeDb(inject('ownerDatabaseUrl'));
 afterAll(() => owner.pool.end());
@@ -32,6 +32,24 @@ describe('guarda de RLS (US-006: "Nova tabela sem RLS quebra o CI")', () => {
       expect(v).toContainEqual({ table: 'tmp_sem_rls', problem: 'RLS não habilitada' });
       expect(v).toContainEqual({ table: 'tmp_sem_paciente', problem: 'sem política patient_isolation' });
       expect(v).toContainEqual({ table: 'tmp_particionada', problem: 'RLS não habilitada' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('staff_only (US-016, US-019)', () => {
+  it('toda tabela da lista STAFF_ONLY tem a política, e a lista não cita tabela inexistente', async () => {
+    expect(await findStaffOnlyViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { RLS_EXCEPTIONS, PATIENT_POLICY_EXCEPTIONS, STAFF_ONLY })).toEqual([]);
+  });
+  it('detecta a tabela da lista sem a política (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy staff_only on patient_tags');
+      expect(await findStaffOnlyViolations(client)).toContainEqual({ table: 'patient_tags', problem: 'sem política staff_only (app_enable_staff_only)' });
     } finally {
       await client.query('rollback');
       client.release();

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
+import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
 import { listarPacientes, type StatusPaciente } from '@/modules/pacientes/pacientes';
 import { Cabecalho } from '../cabecalho';
 
@@ -14,7 +15,9 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const sp = await searchParams;
   const busca = texto(sp.busca);
   const status: StatusPaciente = Object.hasOwn(SITUACOES, texto(sp.status)) ? (texto(sp.status) as StatusPaciente) : 'ativo';
-  const lista = await listarPacientes(ctx, { busca, status });
+  const etiquetaId = texto(sp.etiqueta);
+  const etiquetas = await listarEtiquetas(ctx);
+  const lista = await listarPacientes(ctx, { busca, status, etiquetaId: etiquetaId || undefined });
   const hoje = hojeNoFuso(tenant.fuso);
   return (
     <>
@@ -33,6 +36,13 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             <label htmlFor="status" className="block font-medium">Situação</label>
             <select id="status" name="status" defaultValue={status} className="rounded border p-2">
               {Object.entries(SITUACOES).map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="etiqueta" className="block font-medium">Etiqueta</label>
+            <select id="etiqueta" name="etiqueta" defaultValue={etiquetaId} className="rounded border p-2">
+              <option value="">Todas</option>
+              {etiquetas.map((e) => <option key={e.id} value={e.id}>{`${e.nome} (${e.pacientes})`}</option>)}
             </select>
           </div>
           <button className="rounded border px-4 py-2">Filtrar</button>

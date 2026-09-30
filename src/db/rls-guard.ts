@@ -95,3 +95,20 @@ export async function findStaleExceptions(
       .map((t) => `${mapa}: ${t}`),
   );
 }
+
+/** Tabelas que a sessão de paciente nunca vê (política RESTRICTIVE staff_only), com o motivo. */
+export const STAFF_ONLY: Record<string, string> = {
+  patient_tags: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
+  patient_tag_links: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
+};
+
+export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string }>(
+    `select tablename as t from pg_policies
+      where schemaname = 'public' and policyname = 'staff_only' and permissive = 'RESTRICTIVE'`,
+  );
+  const com = new Set(rows.map((r) => r.t));
+  return Object.keys(STAFF_ONLY)
+    .filter((t) => !com.has(t))
+    .map((table) => ({ table, problem: 'sem política staff_only (app_enable_staff_only)' }));
+}

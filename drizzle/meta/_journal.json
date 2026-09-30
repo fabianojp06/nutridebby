@@ -134,6 +134,20 @@
       "when": 1790730120047,
       "tag": "0018_convite_paciente",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790731502144,
+      "tag": "0019_etiquetas",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790731503126,
+      "tag": "0020_rls_etiquetas",
+      "breakpoints": true
     }
   ]
 }

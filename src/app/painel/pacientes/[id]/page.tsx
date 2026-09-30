@@ -1,6 +1,8 @@
+import { etiquetasDoPaciente, listarEtiquetas } from '@/modules/pacientes/etiquetas';
 import { situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
-import { atualizarPacienteAction, reenviarConviteAction } from '../actions';
+import { atualizarPacienteAction, reenviarConviteAction, salvarEtiquetasAction } from '../actions';
 import { PacienteForm } from '../paciente-form';
+import { EtiquetasForm } from './etiquetas-form';
 import { textoDoAcesso, valoresDoPaciente } from '../valores';
 import { carregarProntuario } from './prontuario';
 
@@ -10,6 +12,7 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const acesso = await situacaoDoAcesso(ctx, paciente);
+  const [todas, doPaciente] = await Promise.all([listarEtiquetas(ctx), etiquetasDoPaciente(ctx, paciente.id)]);
   const bloqueado = paciente.status === 'bloqueado';
   return (
     <div className="grid gap-8 md:grid-cols-2">
@@ -32,6 +35,11 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
             <button className="rounded border px-4 py-2">Reenviar convite</button>
           </form>
         )}
+      </section>
+      <section aria-labelledby="etiquetas-titulo" className="space-y-2">
+        <h2 id="etiquetas-titulo" className="text-lg font-semibold">Etiquetas</h2>
+        <p className="text-sm text-zinc-700">Só você vê as etiquetas. Use para filtrar a lista e direcionar conteúdos.</p>
+        <EtiquetasForm acao={salvarEtiquetasAction.bind(null, paciente.id)} todas={todas} doPaciente={doPaciente.map((e) => e.id)} somenteLeitura={bloqueado} />
       </section>
     </div>
   );
