@@ -13,12 +13,15 @@ type Props = {
   sexo: Sexo | null;
   dataNascimento: string | null;
   somenteLeitura: boolean;
+  consultationId?: string;
 };
 
-export function AntropometriaForm({ acao, hoje, sexo, dataNascimento, somenteLeitura }: Props) {
+export function AntropometriaForm({ acao, hoje, sexo, dataNascimento, somenteLeitura, consultationId }: Props) {
   const [state, action, pendente] = useActionState<AntropometriaState, FormData>(acao, {});
   return (
     <form action={action} className="space-y-4">
+      {consultationId && <input type="hidden" name="consultationId" value={consultationId} />}
+      {consultationId && <p className="text-sm text-zinc-700">Esta avaliação fica ligada ao atendimento.</p>}
       <fieldset disabled={somenteLeitura}>
         <Campos key={state.envio ?? 0} inicial={state.valores ?? { data: hoje, protocolo: 'nenhum' }} erros={state.erros ?? {}} hoje={hoje} sexo={sexo} dataNascimento={dataNascimento} />
       </fieldset>

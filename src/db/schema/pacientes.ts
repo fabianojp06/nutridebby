@@ -90,6 +90,51 @@ export const patientTagLinks = pgTable(
   ],
 );
 
+/** US-016. O que o paciente pode ver fica aqui (orientações); as notas privadas ficam em consultation_notes (staff_only). */
+export const consultations = pgTable(
+  'consultations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    data: date('data', { mode: 'string' }).notNull(),
+    orientacoesPaciente: text('orientacoes_paciente'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('consultations_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consultations_paciente_fk' }),
+    check('consultations_orientacoes_tamanho', sql`char_length(${t.orientacoesPaciente}) <= 5000`),
+    index('consultations_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+  ],
+);
+
+/** US-016 "Privacidade das notas": a sessão de paciente não vê esta tabela (staff_only). A FK tripla impede nota de um paciente no atendimento de outro. */
+export const consultationNotes = pgTable(
+  'consultation_notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    consultationId: uuid('consultation_id').notNull().unique(),
+    texto: text('texto').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consultation_notes_paciente_fk' }),
+    foreignKey({
+      columns: [t.tenantId, t.patientId, t.consultationId],
+      foreignColumns: [consultations.tenantId, consultations.patientId, consultations.id],
+      name: 'consultation_notes_atendimento_fk',
+    }).onDelete('cascade'),
+    check('consultation_notes_tamanho', sql`char_length(${t.texto}) between 1 and 20000`),
+  ],
+);
+
+export type ConsultationRow = typeof consultations.$inferSelect;
+
 /** US-013. `imc` é calculado pelo banco; densidade e %G, pelo serviço (Apêndice A), só com as dobras completas. */
 export const anthropometry = pgTable(
   'anthropometry',
@@ -97,6 +142,7 @@ export const anthropometry = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull(),
     patientId: uuid('patient_id').notNull(),
+    consultationId: uuid('consultation_id'),
     data: date('data', { mode: 'string' }).notNull(),
     pesoKg: numeric('peso_kg', { precision: 5, scale: 2, mode: 'number' }).notNull(),
     alturaCm: numeric('altura_cm', { precision: 5, scale: 1, mode: 'number' }).notNull(),
@@ -114,6 +160,11 @@ export const anthropometry = pgTable(
     check('anthropometry_altura_faixa', sql`${t.alturaCm} between 30 and 250`),
     check('anthropometry_protocolo_valido', sql`${t.protocolo} in ('jp3', 'jp7', 'nenhum')`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'anthropometry_paciente_fk' }),
+    foreignKey({
+      columns: [t.tenantId, t.patientId, t.consultationId],
+      foreignColumns: [consultations.tenantId, consultations.patientId, consultations.id],
+      name: 'anthropometry_atendimento_fk',
+    }),
     index('anthropometry_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
   ],
 );

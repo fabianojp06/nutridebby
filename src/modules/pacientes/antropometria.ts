@@ -1,11 +1,12 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
-import { anthropometry, type AnthropometryRow } from '@/db/schema';
+import { anthropometry, consultations, type AnthropometryRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { arredondar, decimalEntre, decimalOpcionalEntre } from '@/lib/numero';
 import { auditRead } from '@/modules/plataforma/audit';
 import { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
+import { MSG_ATENDIMENTO } from './atendimentos';
 import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
 import { dataValida, hojeNoFuso, idadeEm } from './datas';
 import { calcularGordura, DOBRAS, dobrasDoProtocolo, dobrasNormalizadas, type DobraId, type Protocolo, type Sexo } from './formulas';
@@ -27,6 +28,7 @@ export type EntradaAntropometria = {
   protocolo: unknown;
   circunferencias: Partial<Record<CircunferenciaId, unknown>>;
   dobras: Partial<Record<DobraId, unknown>>;
+  consultationId?: string | null;
 };
 
 /** Campos do formulário (`circ_<id>`, `dobra_<id>`) → entrada do serviço. */
@@ -38,6 +40,7 @@ export function entradaDoFormulario(v: Record<string, string>): EntradaAntropome
     protocolo: v.protocolo,
     circunferencias: Object.fromEntries(CIRCUNFERENCIAS.map((c) => [c.id, v[`circ_${c.id}`]])),
     dobras: Object.fromEntries(DOBRAS.map((d) => [d.id, v[`dobra_${d.id}`]])),
+    consultationId: v.consultationId || null,
   };
 }
 
@@ -91,6 +94,13 @@ export async function registrarAntropometria(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
+      const consultationId = input.consultationId || null;
+      if (consultationId) {
+        const [c] = idValido(consultationId)
+          ? await tx.select({ id: consultations.id }).from(consultations).where(and(eq(consultations.id, consultationId), eq(consultations.patientId, p.id)))
+          : [];
+        if (!c) throw new AntropometriaError({ geral: MSG_ATENDIMENTO.naoEncontrado });
+      }
       if (p.dataNascimento && data < p.dataNascimento) throw new AntropometriaError({ data: MSG_ANTROPO.antesDoNascimento });
       let densidade: number | null = null;
       let percGordura: number | null = null;
@@ -109,6 +119,7 @@ export async function registrarAntropometria(
         .values({
           tenantId: ctx.tenantId,
           patientId: p.id,
+          consultationId,
           data,
           pesoKg: arredondar(peso, 2),
           alturaCm: arredondar(altura, 1),

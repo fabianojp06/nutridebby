@@ -100,6 +100,7 @@ export async function findStaleExceptions(
 export const STAFF_ONLY: Record<string, string> = {
   patient_tags: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
   patient_tag_links: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
+  consultation_notes: 'US-016: o paciente nunca vê as notas privadas, nem no JSON da API',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

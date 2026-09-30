@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 
 const PROTOCOLO: Record<string, string> = { nenhum: '—', jp3: 'JP 3 dobras', jp7: 'JP 7 dobras' };
 
-export default async function AntropometriaPage({ params }: PageProps<'/painel/pacientes/[id]/antropometria'>) {
+export default async function AntropometriaPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/antropometria'>) {
   const { id } = await params;
+  const { atendimento } = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarAntropometrias(ctx, paciente.id);
   const bloqueado = paciente.status === 'bloqueado';
@@ -26,6 +27,7 @@ export default async function AntropometriaPage({ params }: PageProps<'/painel/p
           sexo={(paciente.sexo as Sexo | null) ?? null}
           dataNascimento={paciente.dataNascimento}
           somenteLeitura={bloqueado}
+          consultationId={typeof atendimento === 'string' ? atendimento : undefined}
         />
       </section>
       <section aria-labelledby="avaliacoes" className="space-y-3">

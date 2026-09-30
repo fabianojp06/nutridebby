@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
-import { listTenantTables, RLS_EXCEPTIONS } from '@/db/rls-guard';
+import { listTenantTables, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
 import { withTenant } from '@/db/tenant';
 
 /**
@@ -30,6 +30,9 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`insert into energy_calcs (tenant_id, patient_id, formula, peso_kg, altura_cm, idade, sexo, fator_atividade, tmb, get)
         values (${t}, ${p}, 'mifflin', 60, 165, 35, 'F', 1.55, 1295.25, 2007.64)`,
   anamnesis_templates: (t) => sql`insert into anamnesis_templates (tenant_id, nome, schema) values (${t}, 'Iso', '{"perguntas":[]}')`,
+  consultations: (t, p) => sql`insert into consultations (tenant_id, patient_id, data, orientacoes_paciente) values (${t}, ${p}, '2026-01-01', 'x')`,
+  consultation_notes: (t, p) => sql`with c as (insert into consultations (tenant_id, patient_id, data) values (${t}, ${p}, '2026-01-01') returning id)
+    insert into consultation_notes (tenant_id, patient_id, consultation_id, texto) select ${t}, ${p}, c.id, 'x' from c`,
   anamneses: (t, p) =>
     sql`insert into anamneses (tenant_id, patient_id, template_snapshot, data) values (${t}, ${p}, '{"nome":"Iso","perguntas":[]}', '2026-01-01')`,
   patient_tags: (t) => sql`insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`})`,
@@ -147,7 +150,10 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
   });
 
   it('staff_only: a sessão de paciente não vê nem grava nada nessas tabelas, nem as próprias linhas (US-016, US-019)', async () => {
-    for (const t of tabelas.filter((x) => soEquipe.has(x))) {
+    // itera a lista declarada (não o que o banco tem): tabela que perdeu a política não pode ser pulada em silêncio
+    for (const t of Object.keys(STAFF_ONLY)) {
+      expect(tabelas, t).toContain(t);
+      expect(soEquipe.has(t), t).toBe(true);
       expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
       const vistas = await comoP2(sql`select 1 from ${sql.identifier(t)}`);

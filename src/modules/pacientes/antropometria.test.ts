@@ -8,6 +8,7 @@ import { withTenant } from '@/db/tenant';
 import { AntropometriaError, entradaDoFormulario, excluirAntropometria, listarAntropometrias, MSG_ANTROPO, registrarAntropometria } from './antropometria';
 import { calcularGordura, dobrasNormalizadas } from './formulas';
 import { MSG_CADASTRO_INCOMPLETO, PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
+import { MSG_ATENDIMENTO, registrarAtendimento } from './atendimentos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -138,4 +139,14 @@ describe('correções da rodada 1', () => {
   it('dobrasNormalizadas: fora de 1–100 mm vira ausente', () => {
     expect(dobrasNormalizadas({ coxa: 0.9, triceps: 100.5, peitoral: 1, abdominal: Number.NaN })).toEqual({ peitoral: 1 });
   });
+});
+
+it('avaliação feita num atendimento fica ligada a ele; atendimento de outro paciente é recusado', async () => {
+  const T = await novoTenant(app.db);
+  const p = await novoPaciente(app.db, T.ctx);
+  const outro = await novoPaciente(app.db, T.ctx);
+  const at = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-09-01', notasPrivadas: '', orientacoes: '' }, deps);
+  const r = await registrarAntropometria(T.ctx, T.tenant, p.id, { ...entrada({}), consultationId: at }, deps);
+  expect((await listarAntropometrias(T.ctx, p.id, app.db)).find((a) => a.id === r.id)?.consultationId).toBe(at);
+  expect(await erros(registrarAntropometria(T.ctx, T.tenant, outro.id, { ...entrada({}), consultationId: at }, deps))).toEqual({ geral: MSG_ATENDIMENTO.naoEncontrado });
 });
