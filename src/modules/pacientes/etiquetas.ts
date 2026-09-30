@@ -13,7 +13,10 @@ export class EtiquetaError extends Error {
 
 export type Etiqueta = { id: string; nome: string };
 
-export async function listarEtiquetas(ctx: TenantContext, db: Db = getDb()): Promise<(Etiqueta & { pacientes: number })[]> {
+export async function listarEtiquetas(
+  ctx: TenantContext,
+  db: Db = getDb(),
+): Promise<(Etiqueta & { pacientes: number })[]> {
   return withTenant(
     ctx,
     (tx) =>
@@ -22,7 +25,10 @@ export async function listarEtiquetas(ctx: TenantContext, db: Db = getDb()): Pro
         .select({ id: patientTags.id, nome: patientTags.nome, pacientes: count(patients.id) })
         .from(patientTags)
         .leftJoin(patientTagLinks, eq(patientTagLinks.tagId, patientTags.id))
-        .leftJoin(patients, and(eq(patients.id, patientTagLinks.patientId), eq(patients.status, 'ativo')))
+        .leftJoin(
+          patients,
+          and(eq(patients.id, patientTagLinks.patientId), eq(patients.status, 'ativo')),
+        )
         .groupBy(patientTags.id)
         .orderBy(asc(patientTags.nome)),
     db,
@@ -30,7 +36,11 @@ export async function listarEtiquetas(ctx: TenantContext, db: Db = getDb()): Pro
 }
 
 /** Etiquetas do paciente (dado de saúde: "diabetes", "gestante") — leitura auditada. Paciente nunca vê (staff_only). */
-export async function etiquetasDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<Etiqueta[]> {
+export async function etiquetasDoPaciente(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<Etiqueta[]> {
   if (!idValido(patientId)) return [];
   return withTenant(
     ctx,
@@ -66,18 +76,39 @@ export async function salvarEtiquetasDoPaciente(
       await carregarPacienteParaEscrita(tx, patientId);
       const pedidas = input.etiquetas.filter(idValido);
       const validas = pedidas.length
-        ? (await tx.select({ id: patientTags.id }).from(patientTags).where(inArray(patientTags.id, pedidas))).map((e) => e.id)
+        ? (
+            await tx
+              .select({ id: patientTags.id })
+              .from(patientTags)
+              .where(inArray(patientTags.id, pedidas))
+          ).map((e) => e.id)
         : [];
       const alvo = new Set(validas);
       if (nova) {
-        await tx.insert(patientTags).values({ tenantId: ctx.tenantId, nome: nova }).onConflictDoNothing();
-        const [e] = await tx.select({ id: patientTags.id }).from(patientTags).where(eq(patientTags.nome, nova));
+        await tx
+          .insert(patientTags)
+          .values({ tenantId: ctx.tenantId, nome: nova })
+          .onConflictDoNothing();
+        const [e] = await tx
+          .select({ id: patientTags.id })
+          .from(patientTags)
+          .where(eq(patientTags.nome, nova));
         alvo.add(e.id);
       }
-      const atuais = (await tx.select({ tagId: patientTagLinks.tagId }).from(patientTagLinks).where(eq(patientTagLinks.patientId, patientId))).map((l) => l.tagId);
+      const atuais = (
+        await tx
+          .select({ tagId: patientTagLinks.tagId })
+          .from(patientTagLinks)
+          .where(eq(patientTagLinks.patientId, patientId))
+      ).map((l) => l.tagId);
       const remover = atuais.filter((id) => !alvo.has(id));
       const incluir = [...alvo].filter((id) => !atuais.includes(id));
-      if (remover.length) await tx.delete(patientTagLinks).where(and(eq(patientTagLinks.patientId, patientId), inArray(patientTagLinks.tagId, remover)));
+      if (remover.length)
+        await tx
+          .delete(patientTagLinks)
+          .where(
+            and(eq(patientTagLinks.patientId, patientId), inArray(patientTagLinks.tagId, remover)),
+          );
       if (incluir.length) {
         await tx
           .insert(patientTagLinks)

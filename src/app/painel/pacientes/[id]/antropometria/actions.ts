@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
-import { AntropometriaError, entradaDoFormulario, excluirAntropometria, registrarAntropometria } from '@/modules/pacientes/antropometria';
+import {
+  AntropometriaError,
+  entradaDoFormulario,
+  excluirAntropometria,
+  registrarAntropometria,
+} from '@/modules/pacientes/antropometria';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
 export type AntropometriaState = {
@@ -15,9 +20,16 @@ export type AntropometriaState = {
   envio?: number;
 };
 
-const textos = (f: FormData) => Object.fromEntries([...f.entries()].filter((e): e is [string, string] => typeof e[1] === 'string'));
+const textos = (f: FormData) =>
+  Object.fromEntries(
+    [...f.entries()].filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
 
-export async function registrarAntropometriaAction(patientId: string, _prev: AntropometriaState, formData: FormData): Promise<AntropometriaState> {
+export async function registrarAntropometriaAction(
+  patientId: string,
+  _prev: AntropometriaState,
+  formData: FormData,
+): Promise<AntropometriaState> {
   const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/antropometria`);
   const valores = textos(formData);
   try {
@@ -26,7 +38,8 @@ export async function registrarAntropometriaAction(patientId: string, _prev: Ant
     return { ok: true, aviso: r.aviso, envio: Date.now() };
   } catch (e) {
     if (e instanceof AntropometriaError) return { erros: e.erros, valores, envio: Date.now() };
-    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message }, valores, envio: Date.now() };
+    if (e instanceof PacienteBloqueadoError)
+      return { erros: { geral: e.message }, valores, envio: Date.now() };
     if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }

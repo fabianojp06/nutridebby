@@ -21,10 +21,19 @@ export class AtendimentoError extends Error {
   }
 }
 
-export type Atendimento = { id: string; data: string; orientacoesPaciente: string | null; notasPrivadas: string | null; createdAt: Date };
+export type Atendimento = {
+  id: string;
+  data: string;
+  orientacoesPaciente: string | null;
+  notasPrivadas: string | null;
+  createdAt: Date;
+};
 type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown };
 
-function validar(input: Entrada, hoje: string): { data: string; notas: string | null; orientacoes: string | null } {
+function validar(
+  input: Entrada,
+  hoje: string,
+): { data: string; notas: string | null; orientacoes: string | null } {
   const erros: Record<string, string> = {};
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_ATENDIMENTO.data;
@@ -39,19 +48,35 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   return { data, notas: notas || null, orientacoes: orientacoes || null };
 }
 
-async function gravarNota(tx: Tx, a: { tenantId: string; patientId: string; consultationId: string }, notas: string | null, now: Date) {
+async function gravarNota(
+  tx: Tx,
+  a: { tenantId: string; patientId: string; consultationId: string },
+  notas: string | null,
+  now: Date,
+) {
   if (!notas) {
-    await tx.delete(consultationNotes).where(eq(consultationNotes.consultationId, a.consultationId));
+    await tx
+      .delete(consultationNotes)
+      .where(eq(consultationNotes.consultationId, a.consultationId));
     return;
   }
   await tx
     .insert(consultationNotes)
     .values({ ...a, texto: notas, createdAt: now, updatedAt: now })
-    .onConflictDoUpdate({ target: consultationNotes.consultationId, set: { texto: notas, updatedAt: now } });
+    .onConflictDoUpdate({
+      target: consultationNotes.consultationId,
+      set: { texto: notas, updatedAt: now },
+    });
 }
 
 /** US-016: atendimento do dia (a partir da agenda no Plano 05). Notas vazias não criam linha em consultation_notes. */
-export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: string }, patientId: string, input: Entrada, deps: { db?: Db; now?: Date } = {}): Promise<string> {
+export async function registrarAtendimento(
+  ctx: TenantContext,
+  tenant: { fuso: string },
+  patientId: string,
+  input: Entrada,
+  deps: { db?: Db; now?: Date } = {},
+): Promise<string> {
   const now = deps.now ?? new Date();
   const v = validar(input, hojeNoFuso(tenant.fuso, now));
   return withTenant(
@@ -60,9 +85,21 @@ export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: s
       const p = await carregarPacienteParaEscrita(tx, patientId);
       const [c] = await tx
         .insert(consultations)
-        .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, createdAt: now, updatedAt: now })
+        .values({
+          tenantId: ctx.tenantId,
+          patientId: p.id,
+          data: v.data,
+          orientacoesPaciente: v.orientacoes,
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning({ id: consultations.id });
-      await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
+      await gravarNota(
+        tx,
+        { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id },
+        v.notas,
+        now,
+      );
       return c.id;
     },
     deps.db ?? getDb(),
@@ -91,7 +128,12 @@ export async function atualizarAtendimento(
             .returning({ id: consultations.id })
         : [];
       if (!c) throw new AtendimentoError({ geral: MSG_ATENDIMENTO.naoEncontrado });
-      await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
+      await gravarNota(
+        tx,
+        { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id },
+        v.notas,
+        now,
+      );
     },
     deps.db ?? getDb(),
   );
@@ -133,12 +175,21 @@ async function ler(tx: Tx, patientId: string, id?: string): Promise<Atendimento[
   return r;
 }
 
-export async function listarAtendimentos(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<Atendimento[]> {
+export async function listarAtendimentos(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<Atendimento[]> {
   if (!idValido(patientId)) return [];
   return withTenant(ctx, (tx) => ler(tx, patientId), db);
 }
 
-export async function buscarAtendimento(ctx: TenantContext, patientId: string, id: string, db: Db = getDb()): Promise<Atendimento | null> {
+export async function buscarAtendimento(
+  ctx: TenantContext,
+  patientId: string,
+  id: string,
+  db: Db = getDb(),
+): Promise<Atendimento | null> {
   if (!idValido(patientId) || !idValido(id)) return null;
   return (await withTenant(ctx, (tx) => ler(tx, patientId, id), db))[0] ?? null;
 }
@@ -148,7 +199,10 @@ export async function buscarAtendimento(ctx: TenantContext, patientId: string, i
  * — e, mesmo que tocasse, a política staff_only esconderia (US-016 "nem no JSON da API").
  * Recusa o contexto da nutricionista (devolveria as orientações de todos os pacientes) e audita a leitura.
  */
-export async function orientacoesDoPaciente(ctx: TenantContext, db: Db = getDb()): Promise<{ data: string; orientacoes: string }[]> {
+export async function orientacoesDoPaciente(
+  ctx: TenantContext,
+  db: Db = getDb(),
+): Promise<{ data: string; orientacoes: string }[]> {
   const patientId = ctx.role === 'paciente' ? ctx.patientId : undefined;
   if (!patientId) throw new Error('orientacoesDoPaciente só roda em sessão de paciente');
   const r = await withTenant(
@@ -157,9 +211,12 @@ export async function orientacoesDoPaciente(ctx: TenantContext, db: Db = getDb()
       const linhas = await tx
         .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
         .from(consultations)
-        .where(and(eq(consultations.patientId, patientId), isNotNull(consultations.orientacoesPaciente)))
+        .where(
+          and(eq(consultations.patientId, patientId), isNotNull(consultations.orientacoesPaciente)),
+        )
         .orderBy(desc(consultations.data));
-      if (linhas.length) await auditRead(tx, { entidade: 'atendimentos', entidadeId: null, patientId });
+      if (linhas.length)
+        await auditRead(tx, { entidade: 'atendimentos', entidadeId: null, patientId });
       return linhas;
     },
     db,

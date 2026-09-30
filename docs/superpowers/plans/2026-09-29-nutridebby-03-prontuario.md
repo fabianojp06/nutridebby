@@ -9555,6 +9555,10 @@ Depois do push: conferir no job `image` do CI a linha "Imagem comprimida: N MB (
 ---
 ## Fechamento do plano (após a Tarefa 14)
 
+### Adiados para o Plano 04 (levar para "Itens adiados do Plano 03" ao escrevê-lo)
+- Normalização de texto (trim + espaços) repetida em `exames.ts`, `anamnese-tipos.ts`, `etiquetas.ts` e `atendimentos.ts` → um helper em `src/lib/text.ts`, ao lado de `normalizeEmail` (achado 8 da rodada 2 do `/code-review high`, PR #3; refatoração, não defeito — decisão do dono, 2026-09-30).
+- `salvarArquivo` agora grava o `.tmp` antes da transação: a limpeza de `.tmp` órfãos no worker (já anotada) cobre também esse caso.
+
 - [ ] Rodar a revisão da entrega conforme o índice: revisor por tarefa (feito ao longo) → `/code-review high` no PR (base `plano-02-plataforma`) → corrigir → `/code-review high` (precisa sair sem problema confirmado) → `/security-review` com o **checklist reforçado** deste plano:
   - **Isolamento:** RLS por tenant e por paciente em toda tabela nova; `staff_only` em `consultation_notes`, `patient_tags`, `patient_tag_links` (paciente não vê nem as próprias linhas); FKs compostas/triplas impedindo referência cruzada; matriz `test/isolamento.test.ts` com todas as tabelas; `invites` como exceção justificada e sempre filtrada por tipo e tenant; guarda `sem-tabelas-tenant` derivada do schema.
   - **LGPD:** `auditRead` em toda leitura de dado de saúde (prontuário, anamnese, antropometria, gasto, exames, atendimentos, notas, etiquetas, evolução); `exportar`, `bloquear`, `anonimizar` registrados; exportação sem notas privadas e etiquetas; bloqueio só leitura; anonimização idempotente que apaga anexos; e-mails de sistema sem dado do paciente (o de exclusão vai só para o próprio titular).

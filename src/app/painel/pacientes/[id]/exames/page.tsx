@@ -1,6 +1,6 @@
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { signFileUrl } from '@/lib/signed-url';
-import { formatarDecimal } from '@/lib/numero';
+import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../prontuario';
@@ -8,9 +8,6 @@ import { excluirExameAction } from './actions';
 import { ExameForm } from './exame-form';
 
 export const dynamic = 'force-dynamic';
-
-/** Casas que o valor digitado tinha (até 6): não arredonda nem cai em notação exponencial. */
-const casasDe = (n: number) => (Number.isInteger(n) ? 0 : Math.min(6, (n.toFixed(6).replace(/0+$/, '').split('.')[1] ?? '').length));
 
 export default async function ExamesPage({ params }: PageProps<'/painel/pacientes/[id]/exames'>) {
   const { id } = await params;
@@ -21,24 +18,42 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
     <div className="space-y-8">
       {!bloqueado && (
         <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
-          <h2 id="novo-exame" className="text-lg font-semibold">Novo exame</h2>
+          <h2 id="novo-exame" className="text-lg font-semibold">
+            Novo exame
+          </h2>
           <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} />
         </section>
       )}
       <section aria-labelledby="exames" className="space-y-4">
-        <h2 id="exames" className="text-lg font-semibold">Exames</h2>
+        <h2 id="exames" className="text-lg font-semibold">
+          Exames
+        </h2>
         {lista.length === 0 && <p>Nenhum exame registrado.</p>}
         {lista.map((e) => (
-          <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded border p-3">
+          <article
+            key={e.id}
+            aria-labelledby={`exame-${e.id}`}
+            className="space-y-2 rounded border p-3"
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+              <h3
+                id={`exame-${e.id}`}
+                className="font-semibold"
+              >{`${e.titulo} · ${formatarData(e.data)}`}</h3>
               <span className="flex gap-4">
                 {e.arquivoPath && (
-                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">Baixar laudo</a>
+                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">
+                    Baixar laudo
+                  </a>
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
-                    <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
+                    <ConfirmarBotao
+                      mensagem="Excluir este exame e o laudo?"
+                      rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}
+                    >
+                      Excluir
+                    </ConfirmarBotao>
                   </form>
                 )}
               </span>
@@ -57,7 +72,7 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
                   {e.valores.map((v, i) => (
                     <tr key={`${i}-${v.nome}`} className="border-t">
                       <td>{v.nome}</td>
-                      <td>{`${formatarDecimal(v.valor, casasDe(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
+                      <td>{`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
                       <td>{v.referencia ?? '—'}</td>
                     </tr>
                   ))}

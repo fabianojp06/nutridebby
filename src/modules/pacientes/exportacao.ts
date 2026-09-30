@@ -111,7 +111,12 @@ export async function estadoDaExportacao(
         .where(and(eq(dataExports.id, exportId), eq(dataExports.patientId, patientId)));
       if (!e) return { estado: 'inexistente' };
       if (e.status === 'pendente' || e.status === 'falhou') return { estado: e.status };
-      if (e.status === 'pronta' && e.arquivoPath && e.expiraEm && e.expiraEm.getTime() > now.getTime()) {
+      if (
+        e.status === 'pronta' &&
+        e.arquivoPath &&
+        e.expiraEm &&
+        e.expiraEm.getTime() > now.getTime()
+      ) {
         // Regra 8: a página entrega o link do ZIP (prontuário inteiro) — cada abertura fica no histórico
         await auditRead(tx, { entidade: 'exportacoes', entidadeId: e.id, patientId });
         return { estado: 'pronta', caminho: e.arquivoPath, expiraEm: e.expiraEm };
@@ -132,8 +137,8 @@ export async function exportacoesRecentes(
   if (!idValido(patientId)) return [];
   const linhas = await withTenant(
     ctx,
-    (tx) =>
-      tx
+    async (tx) => {
+      const r = await tx
         .select({
           id: dataExports.id,
           status: dataExports.status,
@@ -144,7 +149,11 @@ export async function exportacoesRecentes(
         .from(dataExports)
         .where(eq(dataExports.patientId, patientId))
         .orderBy(desc(dataExports.createdAt))
-        .limit(5),
+        .limit(5);
+      // Regra 8: a lista (datas e estado dos pedidos) é leitura de tabela com patient_id
+      if (r.length) await auditRead(tx, { entidade: 'exportacoes', entidadeId: null, patientId });
+      return r;
+    },
     db,
   );
   return linhas.map(({ arquivoPath, ...r }) => ({

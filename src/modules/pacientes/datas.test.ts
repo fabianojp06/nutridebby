@@ -5,7 +5,16 @@ describe('datas do paciente (RN-06, RN-14, RN-17)', () => {
   it('dataValida aceita só AAAA-MM-DD que existe no calendário', () => {
     expect(dataValida('1991-03-10')).toBe(true);
     expect(dataValida('2024-02-29')).toBe(true);
-    for (const d of ['2026-02-30', '2025-02-29', '10/03/1991', '1991-3-10', '1899-12-31', '', 'amanhã']) expect(dataValida(d), d).toBe(false);
+    for (const d of [
+      '2026-02-30',
+      '2025-02-29',
+      '10/03/1991',
+      '1991-3-10',
+      '1899-12-31',
+      '',
+      'amanhã',
+    ])
+      expect(dataValida(d), d).toBe(false);
   });
   it('idadeEm conta anos completos; 29/02 completa ano em 01/03 nos anos comuns', () => {
     expect(idadeEm('1991-03-10', '2026-03-09')).toBe(34);

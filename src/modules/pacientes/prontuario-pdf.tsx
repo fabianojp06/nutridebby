@@ -1,5 +1,9 @@
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer';
+import { casasDecimais, formatarDecimal } from '@/lib/numero';
+import { CIRCUNFERENCIAS } from './antropometria-constantes';
+import { formatarData } from './datas';
 import type { DadosExportacao } from './exportacao-job';
+import { DOBRAS } from './formulas';
 
 // Helvetica padrão do PDF (WinAnsi): cobre os acentos do português; o resto passa por paraWinAnsi (abaixo)
 const s = StyleSheet.create({
@@ -21,8 +25,23 @@ const s = StyleSheet.create({
 });
 
 const SEXO: Record<string, string> = { F: 'Feminino', M: 'Masculino' };
-const br = (iso: string) => iso.split('-').reverse().join('/');
-const num = (v: number | null) => (v === null ? '-' : String(v).replace('.', ','));
+// Mesma formatação da tela (RNF-12): casas fixas onde a tela fixa; senão, as casas digitadas
+const br = formatarData;
+const num = (v: number | null, casas?: number) =>
+  v === null ? '-' : formatarDecimal(v, casas ?? casasDecimais(v));
+const PROTOCOLO: Record<string, string> = {
+  jp3: 'JP 3 dobras',
+  jp7: 'JP 7 dobras',
+  nenhum: 'sem protocolo de dobras',
+};
+const PEDIDO: Record<string, string> = { exportacao: 'Exportação', exclusao: 'Exclusão' };
+const SITUACAO: Record<string, string> = { aberto: 'aberto', concluido: 'concluído' };
+const ROTULO_CIRC = Object.fromEntries(CIRCUNFERENCIAS.map((c) => [c.id, c.rotulo]));
+const ROTULO_DOBRA = Object.fromEntries(DOBRAS.map((d) => [d.id, d.rotulo]));
+const medidas = (m: Record<string, number>, rotulos: Record<string, string>, unidade: string) =>
+  Object.entries(m)
+    .map(([k, v]) => `${rotulos[k] ?? k} ${num(v)} ${unidade}`)
+    .join(' · ');
 
 function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
   return (
@@ -48,9 +67,15 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         <Text style={s.secao}>Antropometria</Text>
         {d.antropometria.length === 0 && <Text>Nenhuma.</Text>}
         {d.antropometria.map((a, i) => (
-          <Text
-            key={i}
-          >{`${br(a.data)}: peso ${num(a.pesoKg)} kg · altura ${num(a.alturaCm)} cm · IMC ${num(a.imc)} · % de gordura ${num(a.percGordura)}`}</Text>
+          <View key={i}>
+            <Text>{`${br(a.data)}: peso ${num(a.pesoKg, 2)} kg · altura ${num(a.alturaCm, 1)} cm · IMC ${num(a.imc, 2)} · % de gordura ${num(a.percGordura, 2)} (${PROTOCOLO[a.protocolo] ?? a.protocolo})`}</Text>
+            {Object.keys(a.circunferencias).length > 0 && (
+              <Text>{`Circunferências: ${medidas(a.circunferencias, ROTULO_CIRC, 'cm')}`}</Text>
+            )}
+            {Object.keys(a.dobrasMm).length > 0 && (
+              <Text>{`Dobras: ${medidas(a.dobrasMm, ROTULO_DOBRA, 'mm')}`}</Text>
+            )}
+          </View>
         ))}
 
         <Text style={s.secao}>Gasto energético</Text>
@@ -58,7 +83,7 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         {d.gastoEnergetico.map((g, i) => (
           <Text
             key={i}
-          >{`${br(g.data)}: ${g.formula} · fator ${num(g.fatorAtividade)} · TMB ${g.tmbKcal} kcal · GET ${g.getKcal} kcal`}</Text>
+          >{`${br(g.data)}: ${g.formula} · fator ${num(g.fatorAtividade, 2)} · TMB ${g.tmbKcal} kcal · GET ${g.getKcal} kcal`}</Text>
         ))}
 
         <Text style={s.secao}>Exames</Text>
@@ -81,6 +106,14 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         {d.atendimentos.length === 0 && <Text>Nenhuma.</Text>}
         {d.atendimentos.map((a, i) => (
           <Text key={i}>{`${br(a.data)}: ${a.orientacoes ?? '-'}`}</Text>
+        ))}
+
+        <Text style={s.secao}>Pedidos do titular (LGPD)</Text>
+        {d.pedidosLgpd.length === 0 && <Text>Nenhum.</Text>}
+        {d.pedidosLgpd.map((r, i) => (
+          <Text
+            key={i}
+          >{`${PEDIDO[r.tipo] ?? r.tipo} · ${SITUACAO[r.status] ?? r.status} · prazo ${br(r.prazo)}`}</Text>
         ))}
 
         <View style={s.rodape} fixed>

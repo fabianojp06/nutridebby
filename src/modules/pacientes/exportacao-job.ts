@@ -13,6 +13,7 @@ import {
   exams,
   patients,
   privacyRequests,
+  storedFiles,
   user,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -178,7 +179,7 @@ export async function montarDados(
         .filter((q) => a.respostas[q.id] !== undefined)
         .map((q) => ({
           pergunta: q.rotulo,
-          resposta: texto(q.tipo, respostaParaCampo(a.respostas[q.id])),
+          resposta: `${texto(q.tipo, respostaParaCampo(a.respostas[q.id]))}${q.tipo === 'numero' && q.unidade ? ` ${q.unidade}` : ''}`,
         })),
     })),
     antropometria: an.map((a) => ({
@@ -241,8 +242,6 @@ async function lerLaudos(
       ausentes++;
     }
   }
-  if (ausentes)
-    logger.warn({ tenantId, ausentes }, 'laudo ausente no disco ficou fora da exportação');
   // Entram os que cabem no teto, na ordem dos exames; os demais ficam de fora com o aviso
   const arquivos: Record<string, Uint8Array> = {};
   let total = 0;
@@ -251,10 +250,21 @@ async function lerLaudos(
       dados.laudosForaDoZip = true;
       continue;
     }
-    arquivos[l.nome] = await readFile(resolverCaminho(dataDir, l.caminho));
+    let conteudo: Buffer;
+    try {
+      conteudo = await readFile(resolverCaminho(dataDir, l.caminho));
+    } catch (err) {
+      // Exame excluído entre o stat e a leitura: fica de fora como o que já não estava no disco
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      ausentes++;
+      continue;
+    }
+    arquivos[l.nome] = conteudo;
     dados.exames[l.indice].laudo = l.nome;
-    total += l.bytes;
+    total += conteudo.length;
   }
+  if (ausentes)
+    logger.warn({ tenantId, ausentes }, 'laudo ausente no disco ficou fora da exportação');
   return arquivos;
 }
 
@@ -518,6 +528,14 @@ export async function expirarExportacao(
   if (!e) return;
   // CLAUDE.md regra 9: o pedido deixa de apontar para o ZIP na mesma transação que apaga o arquivo
   const expirar = async (tx: Tx) => {
+    // Ordem de travas da anonimização (apagarArquivo: stored_files → data_exports pelo SET NULL):
+    // trava o arquivo antes do pedido, senão as duas juntas se travam em ordem inversa (deadlock)
+    if (e.arquivoPath)
+      await tx
+        .select({ id: storedFiles.id })
+        .from(storedFiles)
+        .where(eq(storedFiles.caminho, e.arquivoPath))
+        .for('update');
     await tx
       .update(dataExports)
       .set({ status: 'expirada', arquivoPath: null, updatedAt: new Date() })

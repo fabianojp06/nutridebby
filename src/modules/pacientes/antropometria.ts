@@ -9,7 +9,15 @@ import { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropome
 import { MSG_ATENDIMENTO } from './atendimentos';
 import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
 import { dataValida, hojeNoFuso, idadeEm } from './datas';
-import { calcularGordura, DOBRAS, dobrasDoProtocolo, dobrasNormalizadas, type DobraId, type Protocolo, type Sexo } from './formulas';
+import {
+  calcularGordura,
+  DOBRAS,
+  dobrasDoProtocolo,
+  dobrasNormalizadas,
+  type DobraId,
+  type Protocolo,
+  type Sexo,
+} from './formulas';
 
 export { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
 
@@ -44,7 +52,12 @@ export function entradaDoFormulario(v: Record<string, string>): EntradaAntropome
   };
 }
 
-function campo<T>(schema: z.ZodType<T>, valor: unknown, chave: string, erros: Record<string, string>): T | undefined {
+function campo<T>(
+  schema: z.ZodType<T>,
+  valor: unknown,
+  chave: string,
+  erros: Record<string, string>,
+): T | undefined {
   const r = schema.safeParse(valor);
   if (r.success) return r.data;
   erros[chave] = r.error.issues[0].message;
@@ -76,7 +89,8 @@ export async function registrarAntropometria(
   else if (data > hojeNoFuso(tenant.fuso, now)) erros.data = MSG_ANTROPO.futuro;
   const peso = campo(PESO, input.pesoKg, 'pesoKg', erros);
   const altura = campo(ALTURA, input.alturaCm, 'alturaCm', erros);
-  const protocolo: Protocolo | 'nenhum' = input.protocolo === 'jp3' || input.protocolo === 'jp7' ? input.protocolo : 'nenhum';
+  const protocolo: Protocolo | 'nenhum' =
+    input.protocolo === 'jp3' || input.protocolo === 'jp7' ? input.protocolo : 'nenhum';
   const circunferencias: Record<string, number> = {};
   for (const c of CIRCUNFERENCIAS) {
     const v = campo(CIRC, input.circunferencias[c.id], `circ_${c.id}`, erros);
@@ -88,7 +102,8 @@ export async function registrarAntropometria(
     if (typeof v === 'number') dobrasBrutas[d.id] = v;
   }
   const dobras = dobrasNormalizadas(dobrasBrutas);
-  if (Object.keys(erros).length || peso === undefined || altura === undefined) throw new AntropometriaError(erros);
+  if (Object.keys(erros).length || peso === undefined || altura === undefined)
+    throw new AntropometriaError(erros);
 
   return withTenant(
     ctx,
@@ -97,11 +112,15 @@ export async function registrarAntropometria(
       const consultationId = input.consultationId || null;
       if (consultationId) {
         const [c] = idValido(consultationId)
-          ? await tx.select({ id: consultations.id }).from(consultations).where(and(eq(consultations.id, consultationId), eq(consultations.patientId, p.id)))
+          ? await tx
+              .select({ id: consultations.id })
+              .from(consultations)
+              .where(and(eq(consultations.id, consultationId), eq(consultations.patientId, p.id)))
           : [];
         if (!c) throw new AntropometriaError({ geral: MSG_ATENDIMENTO.naoEncontrado });
       }
-      if (p.dataNascimento && data < p.dataNascimento) throw new AntropometriaError({ data: MSG_ANTROPO.antesDoNascimento });
+      if (p.dataNascimento && data < p.dataNascimento)
+        throw new AntropometriaError({ data: MSG_ANTROPO.antesDoNascimento });
       let densidade: number | null = null;
       let percGordura: number | null = null;
       let aviso: string | null = null;
@@ -139,7 +158,11 @@ export async function registrarAntropometria(
 }
 
 /** Avaliações do paciente, da mais recente para a mais antiga. Leitura de dado de saúde: auditada. */
-export async function listarAntropometrias(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<AnthropometryRow[]> {
+export async function listarAntropometrias(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<AnthropometryRow[]> {
   if (!idValido(patientId)) return [];
   return withTenant(
     ctx,
@@ -156,7 +179,12 @@ export async function listarAntropometrias(ctx: TenantContext, patientId: string
   );
 }
 
-export async function excluirAntropometria(ctx: TenantContext, patientId: string, id: string, db: Db = getDb()): Promise<boolean> {
+export async function excluirAntropometria(
+  ctx: TenantContext,
+  patientId: string,
+  id: string,
+  db: Db = getDb(),
+): Promise<boolean> {
   if (!idValido(id)) return false;
   return withTenant(
     ctx,

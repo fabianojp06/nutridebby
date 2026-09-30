@@ -3,8 +3,10 @@ import { z } from 'zod';
 import type { Tx } from '@/db/client';
 import { patients, type PatientRow } from '@/db/schema';
 
-export const MSG_BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
-export const MSG_CADASTRO_INCOMPLETO = 'Complete a data de nascimento e o sexo do paciente no cadastro.';
+export const MSG_BLOQUEADO =
+  'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
+export const MSG_CADASTRO_INCOMPLETO =
+  'Complete a data de nascimento e o sexo do paciente no cadastro.';
 
 export class PacienteNaoEncontradoError extends Error {
   override name = 'PacienteNaoEncontradoError';
@@ -21,7 +23,8 @@ export class PacienteBloqueadoError extends Error {
 }
 
 /** O id costuma vir da URL; sem isto, o cast para uuid no Postgres vira erro 500 (M6/G5 do Plano 02). */
-export const idValido = (id: unknown): id is string => typeof id === 'string' && z.guid().safeParse(id).success;
+export const idValido = (id: unknown): id is string =>
+  typeof id === 'string' && z.guid().safeParse(id).success;
 
 /**
  * Paciente travado (FOR UPDATE) antes de qualquer escrita no prontuário. Chamar dentro de withTenant:

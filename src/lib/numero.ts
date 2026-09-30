@@ -13,14 +13,25 @@ export function lerDecimal(v: unknown): number | null {
 
 /** Meio para cima em `casas` decimais (RN-14). Pela notação exponencial: 1.005 → 1.01 (e não 1.00). */
 export function arredondar(v: number, casas = 0): number {
-  if (!Number.isFinite(v) || String(v).includes('e')) return Math.round(v * 10 ** casas) / 10 ** casas;
+  if (!Number.isFinite(v) || String(v).includes('e'))
+    return Math.round(v * 10 ** casas) / 10 ** casas;
   return Number(`${Math.round(Number(`${v}e${casas}`))}e-${casas}`);
 }
 
 /** Vírgula decimal (RNF-12), sem separador de milhar ("2008 kcal", como a spec escreve). */
 export function formatarDecimal(v: number, casas: number): string {
-  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false }).format(arredondar(v, casas));
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+    useGrouping: false,
+  }).format(arredondar(v, casas));
 }
+
+/** Casas que o valor digitado tinha (até 6): não arredonda nem cai em notação exponencial. */
+export const casasDecimais = (n: number): number =>
+  Number.isInteger(n)
+    ? 0
+    : Math.min(6, (n.toFixed(6).replace(/0+$/, '').split('.')[1] ?? '').length);
 
 /** Campo numérico obrigatório de formulário: vazio, lixo ou fora de [min, max] → `msg`. */
 export const decimalEntre = (msg: string, min: number, max: number) =>

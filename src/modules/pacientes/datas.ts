@@ -6,7 +6,9 @@ export function dataValida(iso: string): boolean {
   if (!m) return false;
   const [a, mes, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const dt = new Date(Date.UTC(a, mes - 1, d));
-  return a >= 1900 && dt.getUTCFullYear() === a && dt.getUTCMonth() === mes - 1 && dt.getUTCDate() === d;
+  return (
+    a >= 1900 && dt.getUTCFullYear() === a && dt.getUTCMonth() === mes - 1 && dt.getUTCDate() === d
+  );
 }
 
 /**
@@ -21,7 +23,12 @@ export function idadeEm(nascimento: string, em: string): number {
 
 /** Hoje no fuso do tenant (RN-06), como 'AAAA-MM-DD' — nunca a data UTC do servidor. */
 export function hojeNoFuso(fuso: string, agora: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: fuso,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(agora);
 }
 
 /** 'AAAA-MM-DD' → 'dd/mm/aaaa' (RNF-12). */

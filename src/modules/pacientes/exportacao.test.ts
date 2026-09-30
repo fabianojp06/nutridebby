@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
@@ -44,6 +45,23 @@ afterAll(async () => {
 });
 
 const NOTA = 'suspeita de compulsão';
+
+/** Texto do PDF do @react-pdf (streams Flate, strings hex em WinAnsi): o suficiente para conferir o conteúdo. */
+function textoDoPdf(pdf: Buffer): string {
+  let texto = '';
+  for (const m of pdf.toString('latin1').matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let conteudo: string;
+    try {
+      conteudo = inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
+    } catch {
+      continue;
+    }
+    for (const h of conteudo.matchAll(/<([0-9a-fA-F]+)>/g))
+      texto += Buffer.from(h[1], 'hex').toString('latin1');
+    texto += '\n';
+  }
+  return texto;
+}
 
 async function prontuarioCompleto() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -309,6 +327,23 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       estado: 'expirada',
     });
     expect((await estadoDaExportacao(T.ctx, p.id, segundo, app.db, now)).estado).toBe('pronta');
+    expect(await exportacoesRecentes(T.ctx, p.id, app.db, now)).toHaveLength(2);
+    const lista = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .select()
+          .from(auditLog)
+          .where(
+            and(
+              eq(auditLog.patientId, p.id),
+              eq(auditLog.acao, 'ler'),
+              eq(auditLog.entidade, 'exportacoes'),
+            ),
+          ),
+      app.db,
+    );
+    expect(lista.filter((l) => l.entidadeId === null)).toHaveLength(1); // a lista da aba Privacidade também fica no histórico (regra 8)
     const zips = await withTenant(
       T.ctx,
       (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')),
@@ -557,17 +592,18 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         perguntas: [
           { tipo: 'sim_nao', rotulo: 'Fuma', obrigatoria: false },
           { tipo: 'texto_curto', rotulo: 'Observação', obrigatoria: false },
+          { tipo: 'numero', rotulo: 'Peso habitual', obrigatoria: false, unidade: 'kg' },
         ],
       },
       app.db,
     );
-    const [fuma, obs] = (await buscarModelo(T.ctx, modelo, app.db))!.schema.perguntas;
+    const [fuma, obs, peso] = (await buscarModelo(T.ctx, modelo, app.db))!.schema.perguntas;
     await preencherAnamnese(
       T.ctx,
       T.tenant,
       p.id,
       modelo,
-      { [fuma.id]: 'nao', [obs.id]: 'nao' },
+      { [fuma.id]: 'nao', [obs.id]: 'nao', [peso.id]: '70,5' },
       deps,
     );
     const { dados } = await withTenant(
@@ -578,7 +614,73 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.anamneses[0].respostas).toEqual([
       { pergunta: 'Fuma', resposta: 'Não' },
       { pergunta: 'Observação', resposta: 'nao' },
+      { pergunta: 'Peso habitual', resposta: '70,5 kg' }, // número com a unidade da pergunta
     ]);
+  });
+
+  it('PDF: circunferências, dobras com o protocolo e pedidos do titular aparecem; números no formato da tela, sem notação exponencial', async () => {
+    const pdf = await renderizarProntuario(
+      {
+        versao: 1,
+        geradoEm: now.toISOString(),
+        dataEmissao: '2026-10-01',
+        paciente: {
+          nome: 'Ana Souza',
+          dataNascimento: '1991-03-10',
+          sexo: 'F',
+          email: 'ana@ex.com',
+          telefone: null,
+          status: 'ativo',
+          cadastradoEm: now.toISOString(),
+        },
+        anamneses: [],
+        antropometria: [
+          {
+            data: '2026-09-01',
+            pesoKg: 60.5,
+            alturaCm: 165,
+            imc: 22.22,
+            percGordura: 24.44,
+            protocolo: 'jp7',
+            circunferencias: { cintura: 80.5 },
+            dobrasMm: { triceps: 12 },
+          },
+        ],
+        gastoEnergetico: [],
+        exames: [
+          {
+            data: '2026-09-01',
+            titulo: 'Traço',
+            temLaudo: false,
+            laudo: null,
+            valores: [{ nome: 'Marcador', valor: 0.0000001, unidade: 'mg/L', referencia: null }],
+          },
+        ],
+        atendimentos: [],
+        pedidosLgpd: [
+          {
+            tipo: 'exportacao',
+            status: 'concluido',
+            prazo: '2026-10-16',
+            concluidoEm: '2026-10-01T15:00:00.000Z',
+          },
+        ],
+        laudosForaDoZip: false,
+      },
+      'Debby Silva',
+    );
+    const texto = textoDoPdf(pdf);
+    for (const t of [
+      'JP 7 dobras',
+      'Cintura 80,5 cm',
+      'Tríceps 12 mm',
+      'Pedidos do titular (LGPD)',
+      'Exportação',
+      'prazo 16/10/2026',
+      'peso 60,50 kg',
+    ])
+      expect(texto).toContain(t);
+    expect(texto).not.toMatch(/\de-\d/);
   });
 
   it('PDF: caracteres fora do WinAnsi da Helvetica viram equivalentes, nunca outro caractere em silêncio', () => {

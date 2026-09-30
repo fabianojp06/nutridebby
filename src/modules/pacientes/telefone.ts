@@ -11,7 +11,8 @@ export function normalizarTelefone(txt: string): string | null {
     if (digitos.startsWith('55')) return brasileiro(digitos.slice(2));
     return /^[1-9]\d{7,14}$/.test(digitos) ? `+${digitos}` : null;
   }
-  if ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')) return brasileiro(digitos.slice(2));
+  if ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55'))
+    return brasileiro(digitos.slice(2));
   return brasileiro(digitos.replace(/^0+/, ''));
 }
 

@@ -27,7 +27,12 @@ export const MSG_PACIENTE = {
 
 export type TenantDoPaciente = Pick<TenantRow, 'fuso' | 'nomeExibicao'>;
 export type StatusPaciente = 'ativo' | 'arquivado' | 'bloqueado';
-export type ErrosPaciente = Partial<Record<'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'geral', string>>;
+export type ErrosPaciente = Partial<
+  Record<
+    'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'geral',
+    string
+  >
+>;
 
 export class PacienteError extends Error {
   override name = 'PacienteError';
@@ -45,13 +50,18 @@ export function pacienteSchema(hoje: string) {
         .string()
         .trim()
         .superRefine((v, ctx) => {
-          if (!dataValida(v)) return void ctx.addIssue({ code: 'custom', message: MSG_PACIENTE.nascimentoInvalido });
+          if (!dataValida(v))
+            return void ctx.addIssue({ code: 'custom', message: MSG_PACIENTE.nascimentoInvalido });
           const idade = idadeEm(v, hoje);
           if (idade < 18) ctx.addIssue({ code: 'custom', message: MSG_PACIENTE.menorDeIdade });
-          else if (idade > 120) ctx.addIssue({ code: 'custom', message: MSG_PACIENTE.nascimentoInvalido });
+          else if (idade > 120)
+            ctx.addIssue({ code: 'custom', message: MSG_PACIENTE.nascimentoInvalido });
         }),
       sexo: z.enum(['F', 'M'], { message: MSG_PACIENTE.sexo }),
-      email: z.string().transform(normalizeEmail).pipe(z.email({ message: MSG_PACIENTE.email })),
+      email: z
+        .string()
+        .transform(normalizeEmail)
+        .pipe(z.email({ message: MSG_PACIENTE.email })),
       telefone: z
         .string()
         .trim()
@@ -68,7 +78,11 @@ export function pacienteSchema(hoje: string) {
     })
     .superRefine((v, ctx) => {
       if (v.whatsappAutorizado && !v.telefone) {
-        ctx.addIssue({ code: 'custom', path: ['whatsappAutorizado'], message: MSG_PACIENTE.whatsappSemTelefone });
+        ctx.addIssue({
+          code: 'custom',
+          path: ['whatsappAutorizado'],
+          message: MSG_PACIENTE.whatsappSemTelefone,
+        });
       }
     });
 }
@@ -76,14 +90,19 @@ export function pacienteSchema(hoje: string) {
 type DadosPaciente = z.output<ReturnType<typeof pacienteSchema>>;
 type Deps = { db?: Db; now?: Date; appUrl?: string };
 
-function validar(tenant: TenantDoPaciente, input: Record<string, unknown>, now: Date): DadosPaciente {
+function validar(
+  tenant: TenantDoPaciente,
+  input: Record<string, unknown>,
+  now: Date,
+): DadosPaciente {
   const r = pacienteSchema(hojeNoFuso(tenant.fuso, now)).safeParse(input);
   if (!r.success) throw new PacienteError(primeiroErroPorCampo(r.error));
   return r.data;
 }
 
 function comoDuplicado(err: unknown): never {
-  if (uniqueViolation(err) === 'patients_tenant_email_unique') throw new PacienteError({ email: MSG_PACIENTE.emailDuplicado });
+  if (uniqueViolation(err) === 'patients_tenant_email_unique')
+    throw new PacienteError({ email: MSG_PACIENTE.emailDuplicado });
   throw err;
 }
 
@@ -96,15 +115,25 @@ function autorizacaoWhatsapp(
   atual: Pick<PatientRow, 'whatsappOptinEm' | 'whatsappOptinOrigem' | 'whatsappOptoutEm'> | null,
   now: Date,
 ) {
-  if (autorizado) return atual?.whatsappOptinEm || atual?.whatsappOptoutEm ? {} : { whatsappOptinEm: now, whatsappOptinOrigem: 'nutri' };
-  return atual?.whatsappOptinOrigem === 'nutri' || !atual ? { whatsappOptinEm: null, whatsappOptinOrigem: null } : {};
+  if (autorizado)
+    return atual?.whatsappOptinEm || atual?.whatsappOptoutEm
+      ? {}
+      : { whatsappOptinEm: now, whatsappOptinOrigem: 'nutri' };
+  return atual?.whatsappOptinOrigem === 'nutri' || !atual
+    ? { whatsappOptinEm: null, whatsappOptinOrigem: null }
+    : {};
 }
 
 /**
  * US-010: paciente `ativo`, `user_id` nulo. Em corrida, quem decide o e-mail repetido é a UNIQUE
  * (tenant_id, email) em citext — sem pré-checagem.
  */
-export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente, input: Record<string, unknown>, deps: Deps = {}): Promise<PatientRow> {
+export async function criarPaciente(
+  ctx: TenantContext,
+  tenant: TenantDoPaciente,
+  input: Record<string, unknown>,
+  deps: Deps = {},
+): Promise<PatientRow> {
   const db = deps.db ?? getDb();
   const now = deps.now ?? new Date();
   const v = validar(tenant, input, now);
@@ -128,7 +157,11 @@ export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente
           })
           .returning();
         // US-010: convite de 7 dias por e-mail na mesma transação (paciente criado ⇔ convite na fila)
-        await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+        await enviarConvitePaciente(tx, p, {
+          appUrl: deps.appUrl ?? getEnv().APP_URL,
+          nutri: tenant.nomeExibicao,
+          now,
+        });
         return p;
       },
       db,
@@ -155,7 +188,8 @@ export async function atualizarPaciente(
       async (tx) => {
         const atual = await carregarPacienteParaEscrita(tx, patientId);
         // O login do paciente é pelo e-mail: depois do aceite, trocar aqui separaria conta e prontuário
-        if (atual.userId && v.email !== normalizeEmail(atual.email)) throw new PacienteError({ email: MSG_PACIENTE.emailBloqueado });
+        if (atual.userId && v.email !== normalizeEmail(atual.email))
+          throw new PacienteError({ email: MSG_PACIENTE.emailBloqueado });
         const [p] = await tx
           .update(patients)
           .set({
@@ -171,7 +205,11 @@ export async function atualizarPaciente(
           .returning();
         // E-mail corrigido antes do aceite: o convite pendente ia para o endereço errado
         if (!p.userId && p.status === 'ativo' && atual.email !== p.email) {
-          await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+          await enviarConvitePaciente(tx, p, {
+            appUrl: deps.appUrl ?? getEnv().APP_URL,
+            nutri: tenant.nomeExibicao,
+            now,
+          });
         }
         return p;
       },
@@ -183,7 +221,11 @@ export async function atualizarPaciente(
 }
 
 /** Abrir o prontuário (US-007 "Leitura auditada"): a leitura vai para o audit_log na mesma transação. */
-export async function buscarPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<PatientRow | null> {
+export async function buscarPaciente(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<PatientRow | null> {
   if (!idValido(patientId)) return null;
   return withTenant(
     ctx,
@@ -198,7 +240,10 @@ export async function buscarPaciente(ctx: TenantContext, patientId: string, db: 
 }
 
 export const LIMITE_LISTA = 500;
-export type PacienteNaLista = Pick<PatientRow, 'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem'>;
+export type PacienteNaLista = Pick<
+  PatientRow,
+  'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem'
+>;
 
 /**
  * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento por nome ou e-mail;
@@ -213,12 +258,16 @@ export async function listarPacientes(
   if (filtro.etiquetaId !== undefined && !idValido(filtro.etiquetaId)) return [];
   const conds: SQL[] = [eq(patients.status, filtro.status ?? 'ativo')];
   if (filtro.etiquetaId) {
-    conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
+    conds.push(
+      sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`,
+    );
   }
   const busca = filtro.busca?.trim();
   if (busca) {
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    conds.push(sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`);
+    conds.push(
+      sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`,
+    );
   }
   return withTenant(
     ctx,
@@ -238,7 +287,11 @@ export async function listarPacientes(
         .orderBy(asc(patients.nome))
         .limit(LIMITE_LISTA);
       // Um INSERT só para a lista toda (até LIMITE_LISTA linhas)
-      if (filtro.etiquetaId && r.length) await auditRead(tx, r.map((p) => ({ entidade: 'etiquetas', entidadeId: null, patientId: p.id })));
+      if (filtro.etiquetaId && r.length)
+        await auditRead(
+          tx,
+          r.map((p) => ({ entidade: 'etiquetas', entidadeId: null, patientId: p.id })),
+        );
       return r;
     },
     db,
