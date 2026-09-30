@@ -51,3 +51,11 @@ describe('convite_paciente (US-010)', () => {
     expect(r.html).toContain('Entrar e aceitar o convite');
   });
 });
+
+describe('exclusao_atendida (US-018)', () => {
+  it('explica o que foi apagado e o que fica guardado por obrigação legal, com a data da anonimização', () => {
+    const r = renderEmail({ tipo: 'exclusao_atendida', para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
+    expect(r.subject).toBe('Seu pedido de exclusão de dados foi atendido');
+    for (const t of ['Debby Silva atendeu o seu pedido de exclusão de dados', 'Foram apagados agora', 'LGPD, art. 16, I', 'até 15/09/2046']) expect(r.text).toContain(t);
+  });
+});
