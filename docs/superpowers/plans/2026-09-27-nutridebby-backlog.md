@@ -4,6 +4,8 @@ Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As 
 
 **Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
 
+Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano detalhado dividiu um item; os IDs originais não mudam e o resumo conta só os itens principais.
+
 ## Trilha externa (fora do código)
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
@@ -43,16 +45,22 @@ Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As 
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P02-01 | E-mail transacional: Resend (prod) / Mailpit (dev), React Email, fila com retry | INT-02 | P01-10, E-05 | Dev | M | ⬜ |
-| P02-02 | Armazenamento `/data`: upload validado por magic bytes, URL assinada 5 min, contador e cota de 5 GB | RNF-06, RN-18, RNF-13 | P01-04 | Dev | M | ⬜ |
-| P02-03 | Admin: criar conta de nutricionista + convite de 72 h + reenviar | US-001 | P02-01 | Dev | M | ⬜ |
-| P02-04 | Primeiro acesso da nutricionista + aceite do DPA | US-002, RNF-08 | P02-03 | Dev | M | ⬜ |
-| P02-05 | Admin: suspender/reativar conta + tela "Conta temporariamente indisponível" | US-004, RN-15 | P02-03 | Dev | M | ⬜ |
-| P02-06 | Admin: métricas agregadas (função `SECURITY DEFINER`) + ajuste da cota de WhatsApp | §3, §4.1 | P02-03 | Dev | M | ⬜ |
-| P02-07 | Perfil e marca: logo, cor (contraste), CRN, endereço, link online padrão, antecedências, agendamento público on/off | US-005 | P02-02 | Dev | M | ⬜ |
-| P02-08 | Auditoria automática de leitura/alteração de dado de saúde + aba "Histórico de acessos" | US-007 | P01-04 | Dev | M | ⬜ |
-| P02-09 | Validação do Turnstile no servidor | INT-06 | E-06 | Dev | M | ⬜ |
-| P02-10 | Backup diário (`pg_dump` + rclone crypt → R2, sync de `/data`, retenção) + alerta de disco em 70% | RNF-05, RNF-13 | E-06, E-10 | Dev | M | ⬜ |
+| P02-01 | E-mail transacional: Resend (prod) / Mailpit (dev), React Email, fila com retry | INT-02 | P01-10, E-05 | Dev | M | ✅ |
+| P02-01a | ↳ Base: env por processo (`TRUSTED_PROXIES` obrigatória em produção), cofre AES-GCM, fila pg-boss compartilhada, orçamento da imagem no CI | INT-02 | P01-10 | Dev | M | ✅ |
+| P02-01b | ↳ E-mail: modelos React (`react-dom/server`), transportes Resend/Mailpit, job cifrado com 3 novas tentativas | INT-02 | P02-01a | Dev | M | ✅ |
+| P02-01c | ↳ "Esqueci minha senha" envia o e-mail; tokens do Better Auth em hash; E2E com Mailpit | INT-02, US-002 | P02-01b | Dev | M | ✅ |
+| P02-02 | Armazenamento `/data`: upload validado por magic bytes, URL assinada 5 min, contador e cota de 5 GB | RNF-06, RN-18, RNF-13 | P01-04 | Dev | M | ✅ |
+| P02-03 | Admin: criar conta de nutricionista + convite de 72 h + reenviar | US-001 | P02-01 | Dev | M | ✅ |
+| P02-04 | Primeiro acesso da nutricionista + aceite do DPA | US-002, RNF-08 | P02-03 | Dev | M | ✅ |
+| P02-05 | Admin: suspender/reativar conta + tela "Conta temporariamente indisponível" | US-004, RN-15 | P02-03 | Dev | M | ✅ |
+| P02-06 | Admin: métricas agregadas (função `SECURITY DEFINER`) + ajuste da cota de WhatsApp | §3, §4.1 | P02-03 | Dev | M | ✅ |
+| P02-07 | Perfil e marca: logo, cor (contraste), CRN, endereço, link online padrão, antecedências, agendamento público on/off | US-005 | P02-02 | Dev | M | ✅ |
+| P02-08 | Auditoria automática de leitura/alteração de dado de saúde + aba "Histórico de acessos" | US-007 | P01-04 | Dev | M | ✅ |
+| P02-09 | Validação do Turnstile no servidor | INT-06 | E-06 | Dev | M | ✅ |
+| P02-10 | Backup diário (`pg_dump` + rclone crypt → R2, sync de `/data`, retenção) + alerta de disco em 70% — **no host (systemd)**, desvio do Plano 02 | RNF-05, RNF-13 | E-06, E-10 | Dev | M | 🔄 |
+| P02-10a | ↳ Script do host (`pg_dump` no container `nutri_db`, rclone crypt, 7+4, `/data` com histórico de 30 dias) testado no CI | RNF-05 | P01-04 | Dev | M | 🔄 |
+| P02-10b | ↳ Worker confere o backup do dia e o disco (70%) e alerta o admin por e-mail; painel na administração | RNF-05, RNF-13 | P02-10a, P02-01b | Dev | M | ⬜ |
+| P02-11 | Ativação em produção com o dono (runbook): Resend/DNS, Turnstile, R2, `/data`, variáveis, swap/rclone no host, primeiro backup + restauração de conferência | RNF-05, INT-02, INT-06 | P02-01 a P02-10, E-05, E-06, E-10, P01-13 | Você + Dev | M | ⬜ |
 
 ## Plano 03 — Pacientes & prontuário (M2)
 
@@ -150,11 +158,11 @@ Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As 
 |---|---|---|---|
 | Trilha externa | 10 | 10 | 0 |
 | Plano 01 — Fundação | 15 | 15 | 0 |
-| Plano 02 — Plataforma | 10 | 10 | 0 |
+| Plano 02 — Plataforma | 11 | 11 | 0 |
 | Plano 03 — Pacientes & prontuário | 11 | 9 | 2 |
 | Plano 04 — Plano alimentar | 9 | 7 | 2 |
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
 | Plano 06 — Portal PWA | 11 | 8 | 3 |
 | Plano 07 — Conteúdo | 8 | 5 | 3 |
 | Plano 08 — Go-live | 9 | 8 | 1 |
-| **Total** | **95** | **84** | **11** |
+| **Total** | **96** | **85** | **11** |

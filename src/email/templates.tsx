@@ -1,0 +1,152 @@
+import type { ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { EmailMessage, RenderedEmail } from './types';
+
+// Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
+const COR = '#047857';
+
+function Layout({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <html lang="pt-BR">
+      {/* eslint-disable-next-line @next/next/no-head-element -- e-mail renderizado por react-dom/server, fora do grafo do Next (next/head não se aplica) */}
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width" />
+        <title>{titulo}</title>
+      </head>
+      <body style={{ margin: 0, backgroundColor: '#f4f4f5', fontFamily: 'Arial, Helvetica, sans-serif', color: '#18181b' }}>
+        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0}>
+          <tbody>
+            <tr>
+              <td align="center" style={{ padding: '24px 12px' }}>
+                <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} style={{ maxWidth: 560, backgroundColor: '#ffffff', borderRadius: 8 }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: '24px 28px 0', fontSize: 20, fontWeight: 700, color: COR }}>NutriDebby</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '16px 28px 28px', fontSize: 15, lineHeight: '22px' }}>{children}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p style={{ fontSize: 12, color: '#71717a', marginTop: 16 }}>Mensagem automática. Não responda este e-mail.</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  );
+}
+
+function P({ children }: { children: ReactNode }) {
+  return <p style={{ margin: '0 0 16px' }}>{children}</p>;
+}
+
+function Botao({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <p style={{ margin: '0 0 16px' }}>
+      <a href={href} style={{ display: 'inline-block', backgroundColor: COR, color: '#ffffff', padding: '12px 20px', borderRadius: 6, textDecoration: 'none', fontWeight: 700 }}>
+        {children}
+      </a>
+    </p>
+  );
+}
+
+function LinkReserva({ href }: { href: string }) {
+  return (
+    <p style={{ margin: 0, fontSize: 13, color: '#52525b' }}>
+      Se o botão não funcionar, copie e cole este endereço no navegador: <span style={{ wordBreak: 'break-all' }}>{href}</span>
+    </p>
+  );
+}
+
+const html = (el: ReactNode) => `<!doctype html>${renderToStaticMarkup(el)}`;
+
+export function renderEmail(msg: EmailMessage): RenderedEmail {
+  switch (msg.tipo) {
+    case 'convite_nutri': {
+      const subject = 'Seu acesso ao NutriDebby';
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            <P>{`Olá, ${msg.nome}!`}</P>
+            <P>Sua conta de nutricionista no NutriDebby foi criada. Para entrar, defina sua senha e aceite o contrato de tratamento de dados (DPA).</P>
+            <Botao href={msg.link}>Definir minha senha</Botao>
+            <P>O link vale por 72 horas e só pode ser usado uma vez. Se ele expirar, peça um novo ao suporte.</P>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [
+          `Olá, ${msg.nome}!`,
+          'Sua conta de nutricionista no NutriDebby foi criada. Para entrar, defina sua senha e aceite o contrato de tratamento de dados (DPA):',
+          msg.link,
+          'O link vale por 72 horas e só pode ser usado uma vez. Se ele expirar, peça um novo ao suporte.',
+        ].join('\n\n'),
+      };
+    }
+    case 'redefinir_senha': {
+      const subject = 'Redefinição de senha';
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            <P>Recebemos um pedido para redefinir a senha da sua conta no NutriDebby.</P>
+            <Botao href={msg.link}>Criar nova senha</Botao>
+            <P>O link vale por 1 hora e só pode ser usado uma vez. Se você não pediu a redefinição, ignore este e-mail: sua senha continua a mesma.</P>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [
+          'Recebemos um pedido para redefinir a senha da sua conta no NutriDebby. Para criar uma nova senha, acesse:',
+          msg.link,
+          'O link vale por 1 hora e só pode ser usado uma vez. Se você não pediu a redefinição, ignore este e-mail: sua senha continua a mesma.',
+        ].join('\n\n'),
+      };
+    }
+    case 'alerta_disco': {
+      const subject = `Alerta: disco da VPS em ${msg.percentual}%`;
+      const linhas = [
+        `O disco do servidor está com ${msg.percentual}% de uso (limite de alerta: 70%).`,
+        'Libere espaço ou amplie o disco antes que os uploads e os backups falhem.',
+      ];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.painelUrl}>Abrir a administração</Botao>
+          </Layout>,
+        ),
+        text: [...linhas, msg.painelUrl].join('\n\n'),
+      };
+    }
+    case 'alerta_backup': {
+      const subject = 'Alerta: backup diário não concluído';
+      const linhas = [
+        'O backup diário do NutriDebby não foi concluído nas últimas 26 horas.',
+        `Detalhe: ${msg.detalhe}`,
+        'Confira o serviço nutri-backup no servidor (journalctl -u nutri-backup) e rode o backup manualmente, se preciso.',
+      ];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.painelUrl}>Abrir a administração</Botao>
+          </Layout>,
+        ),
+        text: [...linhas, msg.painelUrl].join('\n\n'),
+      };
+    }
+    default: {
+      const nunca: never = msg;
+      throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
+    }
+  }
+}

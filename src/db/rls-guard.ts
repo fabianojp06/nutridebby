@@ -71,3 +71,23 @@ export async function findRlsViolations(db: Pool | PoolClient): Promise<RlsViola
   }
   return out;
 }
+
+/** Nomes citados nas listas de exceção que não existem no banco (lista esquecida após renomear/remover). */
+export async function findStaleExceptions(
+  db: Pool | PoolClient,
+  maps: Record<string, Record<string, string>>,
+): Promise<string[]> {
+  const nomes = [...new Set(Object.values(maps).flatMap((m) => Object.keys(m)))];
+  if (!nomes.length) return [];
+  const { rows } = await db.query<{ t: string }>(
+    `select c.relname as t from pg_class c join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      where c.relname = any($1)`,
+    [nomes],
+  );
+  const existentes = new Set(rows.map((r) => r.t));
+  return Object.entries(maps).flatMap(([mapa, m]) =>
+    Object.keys(m)
+      .filter((t) => !existentes.has(t))
+      .map((t) => `${mapa}: ${t}`),
+  );
+}

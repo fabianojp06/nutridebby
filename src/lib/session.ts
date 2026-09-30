@@ -3,20 +3,36 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getSessionCookie } from 'better-auth/cookies';
 import { getDb } from '@/db/client';
+import type { TenantRow } from '@/db/schema';
+import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession, type Auth } from './auth';
 import { logger } from './logger';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
-import { evaluateSession, homeFor, SECURITY_PATH, type AppRole } from './session-rules';
+import { evaluateSession, homeFor, SECURITY_PATH, SUSPENDED_PATH, type AppRole } from './session-rules';
 
 export type SessionData = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
 
 export async function requireUser(allowed: readonly AppRole[], path: string): Promise<SessionData> {
+  return (await requireUserComTenant(allowed, path)).data;
+}
+
+/**
+ * requireUser devolvendo também a linha do tenant já lida para o RN-15 (F8: quem precisa
+ * do tenant — requireNutri — não lê `tenants` de novo). `null` para admin.
+ */
+export async function requireUserComTenant(
+  allowed: readonly AppRole[],
+  path: string,
+): Promise<{ data: SessionData; tenant: TenantRow | null }> {
   const h = await headers();
   const auth = getAuth();
   // disableRefresh: a inatividade é avaliada com o updatedAt/expiresAt gravados, antes de
   // qualquer renovação (RNF-06); a renovação só acontece depois, em slideSession.
   const data = await auth.api.getSession({ headers: h, query: { disableRefresh: true } });
   const now = new Date();
+  const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
+  // RN-15: 1 leitura por PK; a suspensão vale na próxima requisição, mesmo com sessão aberta
+  const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
   const decision = evaluateSession({
     session: data?.session ?? null,
     user: data?.user ?? null,
@@ -24,6 +40,7 @@ export async function requireUser(allowed: readonly AppRole[], path: string): Pr
     now,
     path,
     hasSessionCookie: getSessionCookie(h, { cookiePrefix: 'nd' }) !== null,
+    tenantStatus: statusDe(tenant),
   });
   // Página pedida (caminho + query, gravada pelo proxy); sem ela, o caminho fixo da página
   const volta = encodeURIComponent(safeReturnPath(h.get(CURRENT_PATH_HEADER)) ?? path);
@@ -36,7 +53,7 @@ export async function requireUser(allowed: readonly AppRole[], path: string): Pr
         // A requisição já está autenticada; falhar a renovação não pode derrubar a página
         logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data!.user.id }, 'falha ao renovar a sessão');
       }
-      return data!;
+      return { data: data!, tenant };
     case 'login':
       redirect(`/entrar?volta=${volta}`);
     case 'expired':
@@ -44,6 +61,8 @@ export async function requireUser(allowed: readonly AppRole[], path: string): Pr
       redirect(`/entrar?expirada=1&volta=${volta}`);
     case 'setup-2fa':
       redirect(SECURITY_PATH);
+    case 'suspended':
+      redirect(SUSPENDED_PATH);
     case 'forbidden':
       redirect(homeFor(data!.user.appRole as AppRole));
     default: {

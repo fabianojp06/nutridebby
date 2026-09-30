@@ -27,11 +27,28 @@ export async function setup(project: TestProject) {
     GRANT SELECT, INSERT, UPDATE, DELETE ON rls_fixture_patient_items TO nutri_app_role;
     SELECT app_enable_tenant_rls('rls_fixture_patient_items');
     SELECT app_enable_patient_rls('rls_fixture_patient_items');
+    SELECT app_enable_audit('rls_fixture_patient_items', 'rls_fixture');
+
+    -- Tabela de saúde de exemplo para os testes de auditoria (Tarefa 4 do Plano 02)
+    CREATE TABLE IF NOT EXISTS audit_fixture_registros (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL,
+      patient_id uuid NOT NULL,
+      texto text NOT NULL
+    );
+    GRANT SELECT, INSERT, UPDATE, DELETE ON audit_fixture_registros TO nutri_app_role;
+    SELECT app_enable_tenant_rls('audit_fixture_registros');
+    SELECT app_enable_patient_rls('audit_fixture_registros');
+    SELECT app_enable_audit('audit_fixture_registros', 'registros_teste');
   `);
   await owner.end();
 
   project.provide('ownerDatabaseUrl', ownerUrl);
   project.provide('appDatabaseUrl', appUrl);
+  // Teste do script de backup (Tarefa 12): pg_dump e psql rodam DENTRO do container, como no host
+  project.provide('pgContainerId', container.getId());
+  project.provide('pgUser', container.getUsername());
+  project.provide('pgDatabase', container.getDatabase());
 }
 
 export async function teardown() {
@@ -42,5 +59,8 @@ declare module 'vitest' {
   export interface ProvidedContext {
     ownerDatabaseUrl: string;
     appDatabaseUrl: string;
+    pgContainerId: string;
+    pgUser: string;
+    pgDatabase: string;
   }
 }

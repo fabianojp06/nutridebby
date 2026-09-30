@@ -1,15 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
-import { account, user } from '@/db/schema';
-import { createAuth } from './auth';
+import { closeDb } from '@/db/client';
+import { account, session, tenants, user, verification } from '@/db/schema';
+import { EMAIL_FINALIDADE } from '@/email/queue';
+import type { EmailJobData, EmailMessage } from '@/email/types';
+import { getBoss, stopBoss } from '@/jobs/boss';
+import { logger } from '@/lib/logger';
+import { openSecret, sha256 } from './crypto';
+import { createAuth, type Auth } from './auth';
 import { hashPassword } from './password.server';
-import { defaultPasswordLinkSink, setPasswordLinkSink } from './password-links';
+import { setPasswordLinkSink } from './password-links';
+import type { ResultadoTurnstile } from './turnstile';
 
 const app = makeDb(inject('appDatabaseUrl'));
-const auth = createAuth(app.db);
+const auth = createAuth(app.db, { verificarTurnstile: async () => 'ok' });
 const email = `admin-${randomUUID().slice(0, 8)}@teste.dev`;
 const senha = 'Nutri2026segura';
 
@@ -37,7 +44,36 @@ beforeAll(async () => {
     id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha),
   });
 });
-afterAll(() => app.pool.end());
+afterAll(async () => {
+  await stopBoss();
+  await closeDb();
+  await app.pool.end();
+});
+
+/** Usuária própria para cada teste de e-mail (o job é encontrado pelo destinatário). */
+async function novaUsuaria(prefixo: string): Promise<string> {
+  const id = randomUUID();
+  const e = `${prefixo}-${id.slice(0, 8)}@teste.dev`;
+  await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri' });
+  await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+  return e;
+}
+
+async function linksEnviadosPara(destino: string): Promise<string[]> {
+  const jobs = await (await getBoss()).findJobs<EmailJobData>('email');
+  return jobs
+    .map((j) => JSON.parse(openSecret(j.data.selado, EMAIL_FINALIDADE)) as EmailMessage)
+    .filter((m): m is Extract<EmailMessage, { tipo: 'redefinir_senha' }> => m.tipo === 'redefinir_senha' && m.para === destino)
+    .map((m) => m.link);
+}
+
+/** F3: o enfileiramento sai do caminho da resposta — espera o job aparecer. */
+const linkPara = (destino: string) =>
+  vi.waitFor(async () => {
+    const links = await linksEnviadosPara(destino);
+    expect(links).toHaveLength(1);
+    return links[0];
+  });
 
 describe('Better Auth (US-002, RNF-06)', () => {
   it('guarda a senha em argon2id', async () => {
@@ -49,6 +85,61 @@ describe('Better Auth (US-002, RNF-06)', () => {
     const res = await post('/sign-in/email', { email, password: senha }, '10.0.0.1');
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toMatch(/nd\.session_token=/);
+  });
+
+  it('conta suspensa não abre sessão: HTTP 403 com CONTA_SUSPENSA (US-004, RN-15)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `bloq-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Bloq', status: 'suspensa' }).returning();
+    const id = randomUUID();
+    const e = `bloq-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    const res = await post('/sign-in/email', { email: e, password: senha }, '10.0.0.10');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+    expect(res.headers.get('set-cookie') ?? '').not.toMatch(/nd\.session_token=[^;]+;/);
+  });
+
+  it('login correndo com a suspensão não deixa sessão viva (M8, US-004)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `corr-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Corrida' }).returning();
+    const id = randomUUID();
+    const e = `corr-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    // Mesma ordem de suspenderConta: marca 'suspensa' e revoga as sessões — mas ainda sem COMMIT.
+    const suspensao = await app.pool.connect();
+    try {
+      await suspensao.query('begin');
+      await suspensao.query(`update tenants set status = 'suspensa' where id = $1`, [t.id]);
+      await suspensao.query(`delete from session where user_id = $1`, [id]);
+      // O login lê 'ativa' (a suspensão não foi confirmada) e grava a sessão depois do DELETE acima
+      const login = post('/sign-in/email', { email: e, password: senha }, '10.0.0.12');
+      await new Promise((ok) => setTimeout(ok, 1000));
+      await suspensao.query('commit');
+      const res = await login;
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 'CONTA_SUSPENSA' });
+    } finally {
+      suspensao.release();
+    }
+    expect(await app.db.select({ id: session.id }).from(session).where(eq(session.userId, id))).toEqual([]);
+  });
+
+  it('login de nutri lê a usuária uma vez só: o hook `after` não repete o findUserById do `before` (G7)', async () => {
+    const [t] = await app.db.insert(tenants).values({ slug: `g7-${randomUUID().slice(0, 8)}`, nomeExibicao: 'G7' }).returning();
+    const id = randomUUID();
+    const e = `g7-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Nutri', email: e, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    const { internalAdapter } = await auth.$context;
+    const porId = vi.spyOn(internalAdapter, 'findUserById');
+    try {
+      const res = await post('/sign-in/email', { email: e, password: senha }, '10.0.0.13');
+      expect(res.status).toBe(200);
+      expect(porId.mock.calls.filter(([u]) => u === id)).toHaveLength(1);
+    } finally {
+      porId.mockRestore();
+    }
+    expect(await app.db.select({ id: session.id }).from(session).where(eq(session.userId, id))).toHaveLength(1);
   });
 
   it('cadastro público está desativado', async () => {
@@ -99,31 +190,83 @@ describe('Better Auth (US-002, RNF-06)', () => {
     expect(sexta.status).toBe(429);
   });
 
-  it('recuperação de senha não registra o link nem o token no log', async () => {
-    const links: string[] = [];
+  it('recuperação de senha enfileira o e-mail; token e link não vão para o log (P02-01, PF-F4)', async () => {
+    const destino = await novaUsuaria('rec');
     const saida: string[] = [];
     const espioes = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
       vi.spyOn(console, m).mockImplementation((...args: unknown[]) => { saida.push(args.map(String).join(' ')); }),
     );
-    // captura o link para comparar, mas entrega pelo destino padrão (o que roda em produção hoje)
-    const restore = setPasswordLinkSink(async (l) => {
-      links.push(l.url);
-      await defaultPasswordLinkSink(l);
-    });
+    // PF-F4: também captura o que o logger (pino) do app/worker registraria.
+    // LOG_LEVEL='error' em teste (test/setup.ts) faria o pino descartar info/debug antes de
+    // chegar a qualquer destino — por isso o nível sobe para 'trace' na janela da captura.
+    // E, como o destino padrão do pino (sonic-boom) escreve direto no fd, sem passar por
+    // `process.stdout.write`, espiar esse método não pega nada: em vez disso, os métodos do
+    // logger são substituídos diretamente (mesma técnica do espião do console acima).
+    const nivelAnterior = logger.level;
+    logger.level = 'trace';
+    const espioesLogger = (['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const).map((m) =>
+      vi.spyOn(logger, m).mockImplementation((...args: unknown[]) => {
+        saida.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+      }),
+    );
     try {
-      await post('/request-password-reset', { email, redirectTo: '/definir-senha' }, '10.0.0.7');
-      await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7');
+      logger.info('sonda'); // prova que a captura de fato funciona (não é vácua)
+      expect((await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
+      expect((await post('/request-password-reset', { email: 'ninguem@teste.dev', redirectTo: '/definir-senha' }, '10.0.0.7')).status).toBe(200);
     } finally {
-      restore();
+      espioesLogger.forEach((e) => e.mockRestore());
+      logger.level = nivelAnterior;
       espioes.forEach((e) => e.mockRestore());
     }
-    expect(links).toHaveLength(1);
-    const token = new URL(links[0]).pathname.split('/').pop()!;
+    const link = await linkPara(destino);
+    expect(await linksEnviadosPara('ninguem@teste.dev')).toEqual([]);
+    const token = new URL(link).pathname.split('/').pop()!;
     const log = saida.join('\n');
-    expect(log).toContain('a***@teste.dev'); // o destino padrão registrou algo, com e-mail mascarado
+    expect(log).toContain('sonda');
     expect(log).not.toContain(token);
-    expect(log).not.toContain(links[0]);
-    expect(log).not.toContain(email);
+    expect(log).not.toContain(link);
+    expect(log).not.toContain(destino);
+  });
+
+  it('o token de redefinição fica só em hash na tabela verification (item adiado do Plano 01)', async () => {
+    const destino = await novaUsuaria('hash');
+    await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.8');
+    const link = await linkPara(destino);
+    const token = new URL(link).pathname.split('/').pop()!;
+    const ids = (await app.db.select({ i: verification.identifier }).from(verification)).map((r) => r.i);
+    expect(ids.some((i) => i.includes(token))).toBe(false);
+    expect(ids).toContain(sha256(`reset-password:${token}`));
+  });
+
+  it('o link do e-mail redefine a senha uma única vez', async () => {
+    const destino = await novaUsuaria('uso');
+    await post('/request-password-reset', { email: destino, redirectTo: '/definir-senha' }, '10.0.0.9');
+    const link = await linkPara(destino);
+    const token = new URL(link).pathname.split('/').pop()!;
+    expect((await post('/reset-password', { newPassword: 'OutraSenha2026x', token }, '10.0.0.9')).status).toBe(200);
+    const segunda = await post('/reset-password', { newPassword: 'MaisOutra2026y', token }, '10.0.0.9');
+    expect(segunda.status).toBe(400);
+    expect(await segunda.json()).toMatchObject({ code: 'INVALID_TOKEN' });
+  });
+
+  it('o link de redefinição vale 1 h: nasce com validade de 1 h e, vencido, é recusado (US-002, M3)', async () => {
+    let url = '';
+    const restore = setPasswordLinkSink((l) => { url = l.url; });
+    const antes = Date.now();
+    try {
+      expect((await post('/request-password-reset', { email, redirectTo: '/definir-senha' }, '10.0.0.11')).status).toBe(200);
+    } finally {
+      restore();
+    }
+    const token = new URL(url).pathname.split('/').pop()!;
+    const identificador = sha256(`reset-password:${token}`);
+    const [v] = await app.db.select({ expiresAt: verification.expiresAt }).from(verification).where(eq(verification.identifier, identificador));
+    expect(Math.abs(v.expiresAt.getTime() - (antes + 60 * 60 * 1000))).toBeLessThan(60_000);
+    // 1 h e 1 s depois do pedido: o mesmo registro, agora vencido
+    await app.db.update(verification).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(verification.identifier, identificador));
+    const res = await post('/reset-password', { newPassword: 'OutraSenha2026z', token }, '10.0.0.11');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'INVALID_TOKEN' });
   });
 
   it('recuperação de senha responde igual para e-mail inexistente', async () => {
@@ -149,5 +292,64 @@ describe('Better Auth (US-002, RNF-06)', () => {
     const res = await post('/reset-password', { newPassword: 'curta1', token }, '10.0.0.5');
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ message: 'A senha precisa ter pelo menos 10 caracteres.' });
+  });
+});
+
+describe('Turnstile na recuperação de senha (INT-06)', () => {
+  const pedir = (a: Auth, ip: string, token?: string) =>
+    a.handler(
+      new Request('http://localhost:3000/api/auth/request-password-reset', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': ip, ...(token ? { 'x-turnstile-token': token } : {}) },
+        body: JSON.stringify({ email, redirectTo: '/definir-senha' }),
+      }),
+    );
+  // INT-06 "antes de qualquer escrita": nem link entregue nem linha em verification
+  const links: string[] = [];
+  let antes = 0;
+  let restore = () => {};
+  beforeEach(async () => {
+    links.length = 0;
+    antes = (await app.db.select({ i: verification.id }).from(verification)).length;
+    restore = setPasswordLinkSink(({ url }) => { links.push(url); });
+  });
+  afterEach(() => restore());
+  const semEscrita = async (n: number, l: string[]) => {
+    expect(l).toHaveLength(0);
+    expect(await app.db.select({ i: verification.id }).from(verification)).toHaveLength(n);
+  };
+  const com = (r: ResultadoTurnstile) => createAuth(app.db, { verificarTurnstile: vi.fn(async () => r) });
+
+  it('token recusado → 403 TURNSTILE_INVALIDO', async () => {
+    const res = await pedir(com('invalido'), '10.4.0.1', 'tok');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INVALIDO', message: 'Confirme que você não é um robô.' });
+    await semEscrita(antes, links);
+  });
+
+  it('sem o cabeçalho x-turnstile-token → verificador chamado com (null, ip) e 403', async () => {
+    const verificar = vi.fn<(t: string | null, ip: string | null) => Promise<ResultadoTurnstile>>(async (t) => (t ? 'ok' : 'invalido'));
+    const res = await pedir(createAuth(app.db, { verificarTurnstile: verificar }), '10.4.0.4');
+    expect(res.status).toBe(403);
+    expect(verificar).toHaveBeenCalledWith(null, '10.4.0.4');
+    await semEscrita(antes, links);
+  });
+
+  it('Turnstile fora do ar → 503 "Tente novamente em alguns minutos", sem seguir', async () => {
+    const res = await pedir(com('indisponivel'), '10.4.0.2', 'tok');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: 'TURNSTILE_INDISPONIVEL', message: 'Tente novamente em alguns minutos' });
+    await semEscrita(antes, links);
+  });
+
+  it('o verificador recebe o token do cabeçalho e o IP do cliente', async () => {
+    const verificar = vi.fn<(t: string | null, ip: string | null) => Promise<ResultadoTurnstile>>(async () => 'ok');
+    const res = await pedir(createAuth(app.db, { verificarTurnstile: verificar }), '10.4.0.3', 'tok-123');
+    expect(res.status).toBe(200);
+    expect(verificar).toHaveBeenCalledWith('tok-123', '10.4.0.3');
+  });
+
+  it('chamada interna (auth.api, sem requisição HTTP) não passa pelo Turnstile — admin:criar', async () => {
+    await expect(com('invalido').api.requestPasswordReset({ body: { email, redirectTo: '/definir-senha' } })).resolves.toMatchObject({ status: true });
   });
 });

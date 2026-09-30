@@ -11,3 +11,4 @@ docs
 .superpowers
 *.tsbuildinfo
 docker-compose.dev.yml
+data/

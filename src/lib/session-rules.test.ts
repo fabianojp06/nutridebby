@@ -42,6 +42,16 @@ describe('evaluateSession (RNF-06, US-002, US-003)', () => {
   it('homeFor', () => {
     expect([homeFor('admin'), homeFor('nutri'), homeFor('paciente')]).toEqual(['/admin', '/painel', '/p/inicio']);
   });
+  it('conta suspensa → suspended, mesmo com sessão válida (RN-15)', () => {
+    expect(evaluateSession({ now, path: '/painel', allowed: ['nutri'], session: { updatedAt: recent }, user: { appRole: 'nutri' }, tenantStatus: 'suspensa' })).toBe('suspended');
+  });
+  it('conta ativa ou usuário sem tenant seguem a regra normal', () => {
+    expect(evaluateSession({ now, path: '/painel', allowed: ['nutri'], session: { updatedAt: recent }, user: { appRole: 'nutri' }, tenantStatus: 'ativa' })).toBe('ok');
+    expect(evaluateSession({ now, path: '/painel', allowed: ['nutri'], session: { updatedAt: recent }, user: { appRole: 'nutri' }, tenantStatus: null })).toBe('ok');
+  });
+  it('sessão ociosa de conta suspensa continua "expired" (a ociosidade vem antes)', () => {
+    expect(evaluateSession({ now, path: '/painel', allowed: ['nutri'], session: { updatedAt: idle }, user: { appRole: 'nutri' }, tenantStatus: 'suspensa' })).toBe('expired');
+  });
 });
 
 describe('expiresAt por papel (RNF-06)', () => {

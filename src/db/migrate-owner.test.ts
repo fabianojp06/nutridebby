@@ -66,6 +66,50 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     expect(schema.rows[0]).toEqual({ dono: 'nutri_app' });
   });
 
+  it('o role da aplicação não cria tabela temporária: TEMPORARY revogado de PUBLIC (M5)', async () => {
+    const priv = await owner.query(`select has_database_privilege('nutri_app', current_database(), 'TEMPORARY') as temp`);
+    expect(priv.rows[0]).toEqual({ temp: false });
+    await expect(app.query('create temp table desvio (i int)')).rejects.toThrow(/permission denied/);
+  });
+
+  it('REVOKE TEMPORARY sem efeito (migrator deixou de ser dono do banco) falha com mensagem clara, sem segredo (G6)', async () => {
+    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    try {
+      // Cenário do achado: outro role é dono do banco (o migrator só tem CREATE, que as migrations
+      // exigem) e PUBLIC tem TEMP; o REVOKE do migrator só gera WARNING
+      await su.query('ALTER DATABASE nutri OWNER TO CURRENT_USER');
+      await su.query('GRANT CREATE ON DATABASE nutri TO nutri_owner');
+      await su.query('GRANT TEMPORARY ON DATABASE nutri TO PUBLIC');
+      const erro = await runMigrations({ migratorUrl: ownerUrl, appUrl }).then(
+        () => null,
+        (e: Error) => e,
+      );
+      expect(erro?.message).toMatch(/nutri_app ainda pode criar tabela temporária no banco nutri/);
+      expect(erro?.message).toMatch(/pertencer ao migrator/);
+      expect(erro?.message).not.toMatch(/app-pw|owner-pw/);
+    } finally {
+      await su.query('REVOKE TEMPORARY ON DATABASE nutri FROM PUBLIC');
+      await su.query('REVOKE CREATE ON DATABASE nutri FROM nutri_owner');
+      await su.query('ALTER DATABASE nutri OWNER TO nutri_owner');
+      await su.end();
+    }
+    // de volta ao runbook: roda de novo sem erro e o role da aplicação segue sem TEMP
+    await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).resolves.toBeUndefined();
+    const priv = await owner.query(`select has_database_privilege('nutri_app', current_database(), 'TEMPORARY') as temp`);
+    expect(priv.rows[0]).toEqual({ temp: false });
+  });
+
+  it('TEMPORARY concedido direto ao role da aplicação também faz a migração parar (G6)', async () => {
+    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    try {
+      await su.query('GRANT TEMPORARY ON DATABASE nutri TO nutri_app');
+      await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).rejects.toThrow(/nutri_app ainda pode criar tabela temporária/);
+    } finally {
+      await su.query('REVOKE TEMPORARY ON DATABASE nutri FROM nutri_app');
+      await su.end();
+    }
+  });
+
   it('rodar de novo com o mesmo migrator é seguro (sincroniza a senha sem exigir superusuário)', async () => {
     await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).resolves.toBeUndefined();
   });
@@ -78,6 +122,29 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     } finally {
       await su.query('ALTER ROLE nutri_app NOCREATEDB');
       await su.end();
+    }
+  });
+
+  it('métricas do admin: a função SECURITY DEFINER conta por tenant sob FORCE RLS (dono sem superusuário)', async () => {
+    const c = await app.connect();
+    try {
+      const a = (await c.query(`insert into tenants (slug, nome_exibicao) values ('met-a', 'A') returning id`)).rows[0].id as string;
+      const b = (await c.query(`insert into tenants (slug, nome_exibicao) values ('met-b', 'B') returning id`)).rows[0].id as string;
+      for (const [t, n] of [[a, 2], [b, 1]] as const) {
+        await c.query('begin');
+        await c.query(`select set_config('app.tenant_id', $1, true)`, [t]);
+        for (let i = 0; i < n; i++) {
+          await c.query(`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values ($1, 'logo', $2, 10, 'image/png')`, [t, `${t}/logo/${crypto.randomUUID()}.png`]);
+        }
+        await c.query('commit');
+      }
+      const { rows } = await c.query(`select tenant_id, arquivos::int as arquivos, pacientes_ativos from admin_tenant_metrics() where tenant_id = any($1)`, [[a, b]]);
+      expect(Object.fromEntries(rows.map((r) => [r.tenant_id, r.arquivos]))).toEqual({ [a]: 2, [b]: 1 });
+      expect(rows.every((r) => r.pacientes_ativos === null)).toBe(true);
+      // fora da função, sem contexto, o role da aplicação não vê nada
+      expect((await c.query('select count(*)::int as n from stored_files')).rows[0].n).toBe(0);
+    } finally {
+      c.release();
     }
   });
 });

@@ -4,8 +4,9 @@ import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, session, user } from '@/db/schema';
+import { account, session, tenants, user } from '@/db/schema';
 import { makeDb } from '../../test/db';
+import { criarEEntrar } from '../../test/sessao';
 import { getAuth, slideSession } from './auth';
 import { logger } from './logger';
 import { hashPassword } from './password.server';
@@ -232,5 +233,14 @@ describe('expiração de sessão por papel (RNF-06, US-002) — integração', (
   it('sem cookie de sessão → login com ?volta', async () => {
     req.headers = new Headers();
     expect(await redirectDe(requireUser(['nutri'], '/painel'))).toBe('/entrar?volta=%2Fpainel');
+  });
+});
+
+describe('conta suspensa (RN-15)', () => {
+  it('sessão aberta de conta suspensa vai para /indisponivel (Review Focus 5)', async () => {
+    const [t] = await db.insert(tenants).values({ slug: `susp-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Susp' }).returning();
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, t.id)); // sem revogar: simula a corrida
+    expect(await redirectDe(requireComo(n.cookie, ['nutri'], '/painel'))).toBe('/indisponivel');
   });
 });

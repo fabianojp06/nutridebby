@@ -38,9 +38,9 @@ Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-de
 | Campo | Tipo | Obrig. | Validação | Erro |
 |---|---|---|---|---|
 | `nome_exibicao` | texto | Sim | 3–80 caracteres | "Informe o nome (3 a 80 caracteres)" |
-| `email` | e-mail | Sim | formato válido; único em `users` | "E-mail já cadastrado" |
+| `email` | e-mail | Sim | formato válido; único em `users` | "Informe um e-mail válido" (formato); "E-mail já cadastrado" (duplicado) |
 | `crn` | texto | Sim | `^CRN-?\d{1,2}\s?\d{3,6}$` (sem diferenciar maiúsc./minúsc.) | "CRN inválido. Ex.: CRN-3 12345" |
-| `slug` | texto | Sim | `^[a-z0-9-]{3,40}$`; único | "Endereço já em uso" |
+| `slug` | texto | Sim | `^[a-z0-9-]{3,40}$`; único | "Use de 3 a 40 letras minúsculas, números ou hífen" (formato); "Endereço já em uso" (duplicado) |
 
 ```gherkin
 Cenário: Criação com sucesso
@@ -62,6 +62,12 @@ Cenário: Convite expirado
   Então vê "Convite expirado. Peça um novo ao suporte."
   E o admin tem o botão "Reenviar convite" na lista de contas
 
+Cenário: Reenviar convite de conta suspensa
+  Dado que o tenant está suspenso
+  Quando o admin tenta "Reenviar convite"
+  Então vê "Conta suspensa: reative antes de reenviar o convite."
+  E nenhum e-mail é enviado (RN-15)
+
 Cenário: Primeiro admin
   Dado um banco recém-criado, sem nenhum admin
   Quando executo "pnpm admin:criar admin@<dominio>" no container
@@ -69,7 +75,7 @@ Cenário: Primeiro admin
   E não existe nenhuma tela pública para criar admin
 ```
 
-**Impacto:** `tenants`, `users`, `verifications`; `POST /api/admin/tenants`; e-mail (INT-02).
+**Impacto:** `tenants`, `users`, `verifications`, `invites`; e-mail (INT-02). **Plano 02:** a criação é uma Server Action da tela do admin, sem `POST /api/admin/tenants`.
 
 ## US-002 — Login, primeiro acesso e recuperação de senha · **M**
 
@@ -98,6 +104,13 @@ Cenário: Recuperação de senha sem revelar cadastro
   Quando peço recuperação para um e-mail qualquer
   Então vejo sempre "Se o e-mail estiver cadastrado, você receberá um link"
   E o link, se enviado, vale por 1 h e só pode ser usado uma vez
+
+Cenário: Recuperação protegida pelo Turnstile (INT-06)
+  Dado que o Turnstile ainda não entregou o token
+  Então o botão vem acompanhado da dica "Aguarde a verificação anti-robô." e fica desabilitado durante o envio
+  Quando o token é ausente ou inválido, o servidor responde 403 e vejo "Confirme que você não é um robô."
+  E quando o Turnstile está fora do ar, o servidor responde 503 e vejo "Tente novamente em alguns minutos"
+  E em ambos os casos nenhum link é enviado e nada é gravado
 
 Cenário: Expiração da sessão
   Dado que sou nutricionista sem atividade há 12 h
@@ -144,6 +157,8 @@ Cenário: Suspender
   E o lembrete pendente passa a status "ignorada" com motivo "tenant_suspenso"
   E nenhum dado do tenant é removido
 
+Nota de entrega (Plano 02): a tela "Conta temporariamente indisponível", a revogação das sessões e o bloqueio do login já valem; a mudança do lembrete pendente para "ignorada" (motivo "tenant_suspenso") e o reagendamento na reativação entram no P05-06, quando a tabela `notifications` existir. Hoje o job de e-mail já ignora tenant suspenso. Para pacientes, a checagem por vínculo entra no Plano 06.
+
 Cenário: Reativar
   Dado que o tenant "debby" está suspenso
   Quando o admin reativa o tenant
@@ -154,7 +169,14 @@ Cenário: Admin não vê prontuário
   Dado que estou logado como admin
   Quando chamo qualquer rota /api/painel/* ou /api/p/*
   Então recebo HTTP 403
+
+Cenário: Conta inexistente
+  Dado que a conta não existe mais
+  Quando o admin tenta suspender, reativar ou ajustar a cota dela
+  Então vê "Conta não encontrada."
 ```
+
+Nomes acessíveis por conta na lista do admin: "Reenviar convite para <nome de exibição>", "Suspender a conta <nome>", "Reativar a conta <nome>", campo "Cota mensal de WhatsApp de <nome>" e botão "Salvar a cota de <nome>".
 
 ## US-005 — Configurar perfil e marca · **M**
 
@@ -162,10 +184,11 @@ Cenário: Admin não vê prontuário
 
 | Campo | Validação |
 |---|---|
-| Logo | PNG/JPEG/SVG ≤ 2 MB; redimensionado para no máx. 512 px |
+| Logo | PNG/JPEG/SVG ≤ 2 MB; redimensionado para no máx. 512 px. SVG com filtros é recusado: "SVG com filtros não é aceito. Envie o logo em PNG." (o mesmo texto vale para SVG com `<!DOCTYPE` fora da forma comum dos editores — literal com `<` ou `>` ou subconjunto interno — ou com marcação XML sem fechamento). SVG que não termina de rasterizar em 5 s: "Não foi possível processar este SVG. Envie o logo em PNG." (HTTP 415). Só um logo é processado por vez no servidor: "Tente novamente em alguns instantes." (HTTP 429), e depois de um SVG interrompido os SVGs desse tenant ficam recusados por 10 min com o mesmo texto |
 | `cor_primaria` | hex `^#[0-9a-fA-F]{6}$`; contraste ≥ 4,5:1 com branco (senão: "Cor muito clara para texto branco") |
 | `antecedencia_min_h` | inteiro 0–72 |
 | `cancelamento_min_h` | inteiro 0–72 |
+| `link_online_padrao` | começa com `https://` ("Informe um link que comece com https://"); até 500 caracteres ("Use no máximo 500 caracteres") |
 
 ```gherkin
 Cenário: Marca aplicada
@@ -173,6 +196,8 @@ Cenário: Marca aplicada
   Quando o paciente abre o PWA e quando gero o PDF de um plano
   Então ambos exibem meu logo e usam a cor "#2E7D32"
 ```
+
+Nota de entrega (Plano 02): a marca é aplicada no painel; o PWA (Plano 06) e o PDF do plano (P04-09) passam a consumi-la por `getTenantBrand()`. **Risco residual aceito (2026-09-29):** a recusa de SVG com filtro é por varredura do texto e pode ser burlada por artifício de parser; o dano fica contido pelo processo filho morto em 5 s, um logo por vez e resfriamento de 10 min por tenant.
 
 ## US-006 — Isolamento entre tenants (história técnica) · **M**
 
@@ -222,7 +247,10 @@ Cenário: Consulta do log
   Dado que estou no prontuário do paciente P
   Quando abro a aba "Histórico de acessos"
   Então vejo os acessos a P em ordem decrescente, com paginação de 50 itens
+  E o histórico inclui leituras e alterações das tabelas filhas de P (antropometria, exames…), não só de `patients`
 ```
+
+Nota de entrega (Plano 02): o service `listAccessHistory` e o componente `HistoricoAcessos` já estão prontos e testados; a aba é montada no prontuário no P03-01, quando o prontuário existir.
 
 ---
 

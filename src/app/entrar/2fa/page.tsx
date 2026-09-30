@@ -1,10 +1,11 @@
 'use client';
 import { Suspense, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
 import { safeReturnPath } from '@/lib/safe-return';
 
 function Form() {
+  const router = useRouter();
   const params = useSearchParams();
   const [code, setCode] = useState('');
   const [usarRecuperacao, setUsarRecuperacao] = useState(false);
@@ -17,6 +18,11 @@ function Form() {
       ? await authClient.twoFactor.verifyBackupCode({ code })
       : await authClient.twoFactor.verifyTotp({ code, trustDevice: false });
     if (error) {
+      if (error.code === 'CONTA_SUSPENSA') {
+        // sem sessão aberta (o login falhou) — navegação client-side basta, nada a recarregar
+        router.push('/indisponivel');
+        return;
+      }
       return setErro(error.status === 429 ? 'Muitas tentativas. Tente novamente em 15 minutos.' : 'Código inválido.');
     }
     // pós-2FA exige navegação completa para recarregar a sessão

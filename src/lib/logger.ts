@@ -36,3 +36,11 @@ export function createLogger(destination?: pino.DestinationStream): pino.Logger 
 }
 
 export const logger = createLogger();
+
+/**
+ * Só o nome do erro (RNF-11): a mensagem de erros de fila/banco/rede pode citar e-mail,
+ * link ou parâmetros da consulta — nunca vai para o log.
+ */
+export function nomeDoErro(err: unknown): string {
+  return err instanceof Error ? err.name : typeof err;
+}

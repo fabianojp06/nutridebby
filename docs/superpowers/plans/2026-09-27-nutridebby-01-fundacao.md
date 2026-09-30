@@ -2870,7 +2870,7 @@ Expected: a 6ª resposta é `429`, mesmo trocando o `X-Forwarded-For` a cada cha
 ```markdown
 # NutriDebby
 
-SaaS multi-tenant de gestão de consultório de nutrição (spec: `docs/superpowers/specs/`, planos: `docs/superpowers/plans/`, backlog: https://claude.ai/artifact/DeHjnCr4xFDn7xE8DDuvM2).
+SaaS multi-tenant de gestão de consultório de nutrição (spec: `docs/superpowers/specs/`, planos: `docs/superpowers/plans/`, backlog: https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT).
 
 ## Stack
 Node 24 · pnpm · Next.js 16 (App Router, `src/proxy.ts`) · PostgreSQL 16 · Drizzle · Better Auth · pg-boss · Vitest + Testcontainers · Playwright.
@@ -3058,6 +3058,6 @@ git commit -m "spike(pwa): service worker via @serwist/turbopack registrado só 
 ## Fechamento do plano (após a Tarefa 15)
 
 - [x] Rodar a revisão da entrega conforme o índice: `/code-review high` → corrigir → `/code-review high` (limpo) → `/security-review`; registrar os resumos no PR.
-- [x] Atualizar o status das tarefas P01-01 a P01-15 no backlog (https://claude.ai/artifact/DeHjnCr4xFDn7xE8DDuvM2).
+- [x] Atualizar o status das tarefas P01-01 a P01-15 no backlog (https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT).
 - [x] Atualizar a spec (Apêndice C) com os "Desvios conscientes" desta página e o resultado da P-14.
 - [ ] Pedir ao dono o merge (= deploy).
