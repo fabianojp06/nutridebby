@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PatientRow } from '@/db/schema';
-import { seloDoPaciente, valoresDoFormulario, valoresDoPaciente } from './valores';
+import { seloDoPaciente, textoDoAcesso, valoresDoFormulario, valoresDoPaciente } from './valores';
 
 const base = {
   id: 'p', tenantId: 't', userId: null, nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', telefoneE164: '+5511912345678',
@@ -25,5 +25,16 @@ describe('valores do cadastro', () => {
     expect(seloDoPaciente({ ...base, status: 'arquivado' })).toBe('Arquivado');
     expect(seloDoPaciente({ ...base, status: 'bloqueado' })).toBe('Bloqueado (pedido de exclusão)');
     expect(seloDoPaciente({ ...base, origem: 'agendamento_publico', dataNascimento: null })).toBe('Completar cadastro');
+  });
+});
+
+describe('textoDoAcesso', () => {
+  it('descreve cada situação do convite, com a validade no fuso do tenant', () => {
+    expect(textoDoAcesso({ estado: 'ativo' }, 'America/Sao_Paulo')).toBe('Ativo: o paciente já criou a senha.');
+    expect(textoDoAcesso({ estado: 'pendente', expiraEm: new Date('2026-10-08T15:00:00Z') }, 'America/Sao_Paulo')).toBe(
+      'Convite enviado por e-mail. Vale até 08/10/2026, 12:00.',
+    );
+    expect(textoDoAcesso({ estado: 'expirado' }, 'America/Sao_Paulo')).toBe('Convite expirado. Reenvie para o paciente conseguir entrar.');
+    expect(textoDoAcesso({ estado: 'sem_convite' }, 'America/Sao_Paulo')).toBe('Nenhum convite pendente.');
   });
 });

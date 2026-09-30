@@ -144,6 +144,31 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.painelUrl].join('\n\n'),
       };
     }
+    case 'convite_paciente': {
+      const subject = `Convite de ${msg.nutri} no NutriDebby`;
+      const linhas = msg.contaExistente
+        ? [
+            `Olá, ${msg.nome}!`,
+            `Entre com sua conta existente para ver os dados da nutricionista ${msg.nutri}.`,
+            'Depois de entrar, confirme o termo de uso e privacidade para liberar o acompanhamento.',
+          ]
+        : [`Olá, ${msg.nome}!`, `${msg.nutri} convidou você para acompanhar seu tratamento pelo NutriDebby.`, 'Para começar, crie sua senha e leia o termo de uso e privacidade.'];
+      const validade = 'O link vale por 7 dias e só pode ser usado uma vez. Se ele expirar, peça um novo à sua nutricionista.';
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>{msg.contaExistente ? 'Entrar e aceitar o convite' : 'Criar minha senha'}</Botao>
+            <P>{validade}</P>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link, validade].join('\n\n'),
+      };
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

@@ -1,5 +1,7 @@
 import type { PatientRow } from '@/db/schema';
+import type { SituacaoAcesso } from '@/modules/pacientes/convite-paciente';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
+import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 
 /** O que o formulário de cadastro manda e recebe de volta num erro (PF-N9: nada do que foi digitado se perde). */
 export type ValoresPaciente = {
@@ -41,4 +43,17 @@ export function seloDoPaciente(p: Pick<PatientRow, 'status' | 'origem' | 'dataNa
   if (p.status === 'bloqueado') return 'Bloqueado (pedido de exclusão)';
   if (p.origem === 'agendamento_publico' && (!p.dataNascimento || !p.sexo)) return 'Completar cadastro';
   return null;
+}
+
+export function textoDoAcesso(s: SituacaoAcesso, fuso: string): string {
+  switch (s.estado) {
+    case 'ativo':
+      return 'Ativo: o paciente já criou a senha.';
+    case 'pendente':
+      return `Convite enviado por e-mail. Vale até ${formatarDataHora(s.expiraEm, fuso)}.`;
+    case 'expirado':
+      return 'Convite expirado. Reenvie para o paciente conseguir entrar.';
+    case 'sem_convite':
+      return 'Nenhum convite pendente.';
+  }
 }

@@ -4,10 +4,12 @@ import { getDb, type Db } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { patients, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido, PacienteNaoEncontradoError } from './base';
+import { enviarConvitePaciente } from './convite-paciente';
 import { dataValida, hojeNoFuso, idadeEm } from './datas';
 import { normalizarTelefone } from './telefone';
 
@@ -118,6 +120,8 @@ export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente
             updatedAt: now,
           })
           .returning();
+        // US-010: convite de 7 dias por e-mail na mesma transação (paciente criado ⇔ convite na fila)
+        await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
         return p;
       },
       db,
@@ -158,6 +162,10 @@ export async function atualizarPaciente(
           })
           .where(eq(patients.id, patientId))
           .returning();
+        // E-mail corrigido antes do aceite: o convite pendente ia para o endereço errado
+        if (!p.userId && p.status === 'ativo' && atual.email !== p.email) {
+          await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+        }
         return p;
       },
       db,

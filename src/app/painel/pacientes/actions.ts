@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { ConvitePacienteError, reenviarConvitePaciente } from '@/modules/pacientes/convite-paciente';
 import { atualizarPaciente, criarPaciente, PacienteError, type ErrosPaciente } from '@/modules/pacientes/pacientes';
 import { valoresDoFormulario, type ValoresPaciente } from './valores';
 
@@ -35,4 +36,16 @@ export async function atualizarPacienteAction(patientId: string, _prev: Paciente
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
   return { ok: true };
+}
+
+/** O botão só aparece quando reenviar vale; uma recusa aqui é corrida (outra aba) e a página já mostra a situação nova. */
+export async function reenviarConviteAction(patientId: string): Promise<void> {
+  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}`);
+  try {
+    await reenviarConvitePaciente(ctx, tenant, patientId);
+  } catch (e) {
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    if (!(e instanceof ConvitePacienteError) && !(e instanceof PacienteBloqueadoError)) throw e;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}`);
 }

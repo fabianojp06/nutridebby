@@ -33,3 +33,21 @@ describe('modelos de e-mail (INT-02)', () => {
     expect(b.text).toContain('banco sem backup desde 01/10/2026');
   });
 });
+
+describe('convite_paciente (US-010)', () => {
+  const base = { tipo: 'convite_paciente' as const, para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', link: 'http://localhost:3000/convite/paciente/abc' };
+  it('conta nova: criar a senha, 7 dias, uso único, link no texto e no botão', () => {
+    const r = renderEmail({ ...base, contaExistente: false });
+    expect(r.subject).toBe('Convite de Debby Silva no NutriDebby');
+    for (const t of ['Olá, Ana Souza!', 'Debby Silva convidou você para acompanhar seu tratamento pelo NutriDebby.', 'O link vale por 7 dias e só pode ser usado uma vez.', base.link]) {
+      expect(r.text).toContain(t);
+    }
+    expect(r.html).toContain('Criar minha senha');
+    expect(r.html).toContain(`href="${base.link}"`);
+  });
+  it('quem já tem conta: "Entre com sua conta existente para ver os dados da nutricionista <A>"', () => {
+    const r = renderEmail({ ...base, contaExistente: true });
+    expect(r.text).toContain('Entre com sua conta existente para ver os dados da nutricionista Debby Silva.');
+    expect(r.html).toContain('Entrar e aceitar o convite');
+  });
+});
