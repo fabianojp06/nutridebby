@@ -71,6 +71,11 @@ export async function enviarConvitePaciente(
   return { expiraEm };
 }
 
+/** RN-08 / US-018: arquivar ou bloquear o paciente invalida o convite ainda não usado. */
+export async function apagarConvitesPendentes(tx: Tx, tenantId: string, patientId: string): Promise<void> {
+  await tx.delete(invites).where(and(eq(invites.tipo, 'paciente'), eq(invites.tenantId, tenantId), eq(invites.patientId, patientId), isNull(invites.usadoEm)));
+}
+
 export type SituacaoAcesso = { estado: 'ativo' } | { estado: 'pendente'; expiraEm: Date } | { estado: 'expirado' } | { estado: 'sem_convite' };
 
 /** Situação do acesso ao portal para o prontuário. `invites` não tem RLS: o filtro por tenant é explícito. */
