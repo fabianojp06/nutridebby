@@ -134,6 +134,25 @@ test('anamnese: modelo com "Alergias" obrigatória recusa salvar vazia e depois 
   await expect(nutri.getByLabel('Alergias (obrigatória)')).toHaveValue('Lactose');
 });
 
+test('exportar dados: o worker gera o ZIP, o link chega por e-mail e baixa o arquivo (US-018 "Exportar")', async () => {
+  const pedido = new Date();
+  await nutri.goto(`${prontuario}/privacidade`);
+  await nutri.getByRole('button', { name: 'Exportar dados' }).click();
+  await expect(nutri).toHaveURL(/\/exportacoes\/[0-9a-f-]{36}$/);
+  const exportId = new URL(nutri.url()).pathname.split('/').pop()!;
+  const email = await esperarEmail(NUTRI.email, { assunto: 'Exportação de dados pronta', depoisDe: pedido });
+  const link = primeiroLink(email.texto, `/exportacoes/${exportId}`);
+  expect(email.texto).not.toContain(ANA.nome); // e-mail sem dado do paciente
+  await nutri.goto(link);
+  const baixando = nutri.waitForEvent('download');
+  await nutri.getByRole('link', { name: 'Baixar ZIP' }).click();
+  const download = await baixando;
+  expect(download.suggestedFilename()).toBe('exportacao.zip');
+  const conteudo = await download.createReadStream();
+  const [primeiro] = await conteudo.toArray();
+  expect(Buffer.from(primeiro).subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+});
+
 test('arquivar tira da lista de ativos e mostra o selo; desarquivar devolve (US-018 "Arquivar")', async () => {
   await nutri.goto(`${prontuario}/privacidade`);
   nutri.once('dialog', (d) => d.accept());
