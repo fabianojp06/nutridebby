@@ -8,6 +8,7 @@ import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { logger } from '@/lib/logger';
+import { anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { avisarAdmins, statfsDoDiretorio, verificarBackups, verificarDisco } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
@@ -57,6 +58,13 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       statfs: () => statfsDoDiretorio(env.DATA_DIR),
       avisar: (percentual, marcar) => paraAdmins((para) => ({ tipo: 'alerta_disco', para, percentual, painelUrl }), marcar),
     });
+  });
+
+  // US-018: fim do prazo de guarda — anonimiza os bloqueados vencidos e apaga os anexos
+  await boss.schedule('retencao-lgpd', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('retencao-lgpd', async () => {
+    const r = await anonimizarVencidos(getDb(), new Date(), { dataDir: env.DATA_DIR });
+    logger.info({ anonimizados: r.anonimizados }, 'retenção LGPD concluída');
   });
 
   await recordHeartbeat(getDb()); // batida imediata ao subir
