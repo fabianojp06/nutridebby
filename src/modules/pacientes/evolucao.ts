@@ -9,7 +9,7 @@ export const MSG_POUCOS_DADOS = 'Registre mais uma avaliação para ver a evolu�
 
 export type Ponto = { data: string; valor: number };
 export type SerieEvolucao = { id: string; rotulo: string; unidade: string; casas: number; pontos: Ponto[] };
-export type Diferenca = { rotulo: string; primeiro: Ponto; ultimo: Ponto; texto: string };
+export type Diferenca = { rotulo: string; casas: number; unidade: string; primeiro: Ponto; ultimo: Ponto; texto: string };
 
 /** Uma série por medida, só com as datas em que ela foi medida; série sem ponto some. */
 export function seriesDasAvaliacoes(avaliacoes: AnthropometryRow[]): SerieEvolucao[] {
@@ -52,7 +52,7 @@ export function diferencas(series: SerieEvolucao[]): Diferenca[] {
     .map((s) => {
       const primeiro = s.pontos[0];
       const ultimo = s.pontos[s.pontos.length - 1];
-      return { rotulo: s.rotulo, primeiro, ultimo, texto: formatarDiferenca(ultimo.valor - primeiro.valor, s.casas, s.unidade) };
+      return { rotulo: s.rotulo, casas: s.casas, unidade: s.unidade, primeiro, ultimo, texto: formatarDiferenca(ultimo.valor - primeiro.valor, s.casas, s.unidade) };
     });
 }
 

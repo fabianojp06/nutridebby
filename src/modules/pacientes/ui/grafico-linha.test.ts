@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GraficoLinha } from './grafico-linha';
 
 const render = (pontos: { data: string; valor: number }[], titulo = 'Glicemia de jejum') =>
@@ -28,5 +28,25 @@ describe('GraficoLinha', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
     expect(render([])).toBe('');
+  });
+});
+
+describe('GraficoLinha: marcas do eixo', () => {
+  const rotulosY = (html: string) => [...html.matchAll(/<text x="[\d.]+" y="[\d.]+" text-anchor="end"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).filter((t) => !t.includes('/'));
+  it('valores iguais: uma única marca no eixo y', () => {
+    const html = render([{ data: '2026-06-01', valor: 100 }, { data: '2026-07-01', valor: 100 }, { data: '2026-08-01', valor: 100 }]);
+    expect(rotulosY(html)).toEqual(['100']);
+  });
+  it('faixa estreita com 0 casas (95–96): sem rótulo repetido', () => {
+    const r = rotulosY(render([{ data: '2026-06-01', valor: 95 }, { data: '2026-07-01', valor: 96 }]));
+    expect(new Set(r).size).toBe(r.length);
+  });
+  it('sem console.error (chaves duplicadas) e sem data repetida quando as datas coincidem', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const html = render([{ data: '2026-06-01', valor: 100 }, { data: '2026-06-01', valor: 100 }]);
+    render([{ data: '2026-06-01', valor: 95 }, { data: '2026-07-01', valor: 96 }]);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect((html.match(/text-anchor="middle"[^>]*>01\/06\/2026</g) ?? []).length).toBe(1);
   });
 });

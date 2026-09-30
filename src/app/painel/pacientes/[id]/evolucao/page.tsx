@@ -30,7 +30,7 @@ export default async function EvolucaoPage({ params }: PageProps<'/painel/pacien
               </thead>
               <tbody>
                 {e.diferencas.map((d) => {
-                  const casas = e.series.find((s) => s.rotulo === d.rotulo)?.casas ?? 1;
+                  const { casas } = d;
                   return (
                     <tr key={d.rotulo} className="border-t">
                       <th scope="row" className="font-normal">{d.rotulo}</th>
