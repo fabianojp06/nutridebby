@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 import { tenants } from './platform';
+import type { ModeloSchema, Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
 
 export const citext = customType<{ data: string }>({ dataType: () => 'citext' });
 
@@ -149,3 +150,48 @@ export const energyCalcs = pgTable(
 );
 
 export type EnergyCalcRow = typeof energyCalcs.$inferSelect;
+
+/** US-012. "Excluir" = arquivar (as anamneses preenchidas guardam o snapshot). Um só modelo padrão por tenant. */
+export const anamnesisTemplates = pgTable(
+  'anamnesis_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    nome: text('nome').notNull(),
+    schema: jsonb('schema').$type<ModeloSchema>().notNull(),
+    padrao: boolean('padrao').notNull().default(false),
+    arquivadoEm: timestamp('arquivado_em', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('anamnesis_templates_tenant_id_unique').on(t.tenantId, t.id),
+    uniqueIndex('anamnesis_templates_padrao_idx').on(t.tenantId).where(sql`${t.padrao}`),
+    check('anamnesis_templates_nome_tamanho', sql`char_length(${t.nome}) between 1 and 80`),
+  ],
+);
+
+export const anamneses = pgTable(
+  'anamneses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    templateId: uuid('template_id'),
+    templateSnapshot: jsonb('template_snapshot').$type<SnapshotModelo>().notNull(),
+    respostas: jsonb('respostas').$type<Record<string, Resposta>>().notNull().default({}),
+    data: date('data', { mode: 'string' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'anamneses_paciente_fk' }),
+    foreignKey({ columns: [t.tenantId, t.templateId], foreignColumns: [anamnesisTemplates.tenantId, anamnesisTemplates.id], name: 'anamneses_modelo_fk' }),
+    index('anamneses_paciente_idx').on(t.tenantId, t.patientId, t.data),
+  ],
+);
+
+export type AnamnesisTemplateRow = typeof anamnesisTemplates.$inferSelect;
+export type AnamneseRow = typeof anamneses.$inferSelect;

@@ -106,3 +106,30 @@ test('antropometria: IMC e % de gordura aparecem ao digitar; JP 3 dobras da mulh
   await expect(linha).toContainText('22,86');
   await expect(linha).toContainText('24,44');
 });
+
+test('anamnese: modelo com "Alergias" obrigatória recusa salvar vazia e depois salva (US-012)', async () => {
+  await nutri.goto('/painel/anamnese/modelos');
+  await expect(nutri.getByText(/^Anamnese geral \(padrão\)/)).toBeVisible(); // "Modelo padrão"
+  await nutri.getByRole('link', { name: 'Novo modelo' }).click();
+  const nomeModelo = `Triagem ${sufixo}`;
+  await nutri.getByLabel('Nome do modelo').fill(nomeModelo);
+  await nutri.getByLabel('Texto da pergunta 1').fill('Alergias');
+  await nutri.getByLabel('Pergunta 1 obrigatória').check();
+  await nutri.getByRole('button', { name: 'Adicionar pergunta' }).click();
+  await nutri.getByLabel('Texto da pergunta 2').fill('Refeições por dia');
+  await nutri.getByLabel('Tipo da pergunta 2').selectOption('numero');
+  await nutri.getByRole('button', { name: 'Salvar modelo' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/anamnese\/modelos$/);
+
+  await nutri.goto(`${prontuario}/anamnese`);
+  await nutri.getByLabel('Modelo').selectOption({ label: nomeModelo });
+  await nutri.getByRole('button', { name: 'Preencher anamnese' }).click();
+  await nutri.getByLabel('Refeições por dia').fill('4');
+  await nutri.getByRole('button', { name: 'Salvar anamnese' }).click();
+  await expect(nutri.locator('p[role="alert"]')).toHaveText('Responda: Alergias');
+  await expect(nutri.getByLabel('Refeições por dia')).toHaveValue('4');
+  await nutri.getByLabel('Alergias (obrigatória)').fill('Lactose');
+  await nutri.getByRole('button', { name: 'Salvar anamnese' }).click();
+  await expect(nutri.getByRole('heading', { name: new RegExp(`^${nomeModelo} · `) })).toBeVisible();
+  await expect(nutri.getByLabel('Alergias (obrigatória)')).toHaveValue('Lactose');
+});
