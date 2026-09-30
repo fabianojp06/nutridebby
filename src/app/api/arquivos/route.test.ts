@@ -41,4 +41,13 @@ describe('GET /api/arquivos', () => {
     expect(maxAge).toBeGreaterThanOrEqual(0);
     expect(maxAge).toBeLessThanOrEqual(6); // bem longe dos 300 fixos de antes
   });
+  it('PDF é servido como anexo (o visualizador do navegador não abre documento em sandbox)', async () => {
+    const [t] = await getDb().insert(tenants).values({ slug: `rota3-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 3' }).returning();
+    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri' }, { tipo: 'exame', conteudo: Buffer.from('%PDF-1.7\nconteudo'), permitidos: ['pdf'] });
+    const res = await get(signFileUrl(a.caminho));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/pdf');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="documento.pdf"');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
 });

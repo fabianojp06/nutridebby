@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { storedFiles, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -52,7 +52,13 @@ export function resolverCaminho(dataDir: string, caminho: string): string {
  */
 export async function salvarArquivo(
   ctx: TenantContext,
-  input: { tipo: TipoDeArquivo; conteudo: Buffer; permitidos: readonly TipoArquivo['ext'][] },
+  input: {
+    tipo: TipoDeArquivo;
+    conteudo: Buffer;
+    permitidos: readonly TipoArquivo['ext'][];
+    /** Grava o registro que aponta para o arquivo (exame, exportação) na mesma transação. */
+    registrar?: (tx: Tx, arquivo: ArquivoSalvo) => Promise<void>;
+  },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
   const db = deps.db ?? getDb();
@@ -78,11 +84,13 @@ export async function salvarArquivo(
         await tx
           .insert(storedFiles)
           .values({ id, tenantId: ctx.tenantId, tipo: input.tipo, caminho, bytes, mime: real.mime, criadoPor: ctx.actorUserId ?? null });
+        const arquivo = { id, caminho, bytes, mime: real.mime };
+        if (input.registrar) await input.registrar(tx, arquivo);
         await mkdir(path.dirname(destino), { recursive: true, mode: 0o750 });
         await writeFile(tmp, input.conteudo, { mode: 0o640, flag: 'wx' });
         await rename(tmp, destino);
         gravado = true;
-        return { id, caminho, bytes, mime: real.mime };
+        return arquivo;
       },
       db,
     );
@@ -93,11 +101,14 @@ export async function salvarArquivo(
   }
 }
 
-/** Apaga o registro e devolve o espaço; o arquivo sai do disco depois do commit. */
+/**
+ * Apaga o registro e devolve o espaço; por padrão o arquivo sai do disco depois do commit (falha no `rm`
+ * só vira aviso de arquivo órfão). `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
+ */
 export async function apagarArquivo(
   ctx: TenantContext,
   filtro: { id: string } | { caminho: string },
-  deps: Deps = {},
+  deps: Deps & { naMesmaTransacao?: (tx: Tx) => Promise<boolean>; removerAntesDoCommit?: boolean } = {},
 ): Promise<boolean> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
@@ -105,19 +116,23 @@ export async function apagarArquivo(
   const apagado = await withTenant(
     ctx,
     async (tx) => {
+      if (deps.naMesmaTransacao && !(await deps.naMesmaTransacao(tx))) return null;
       const [row] = await tx.delete(storedFiles).where(onde).returning({ caminho: storedFiles.caminho, bytes: storedFiles.bytes });
       if (!row) return null;
       await tx
         .update(tenants)
         .set({ armazenamentoBytes: sql`greatest(${tenants.armazenamentoBytes} - ${row.bytes}, 0)` })
         .where(eq(tenants.id, ctx.tenantId));
+      if (deps.removerAntesDoCommit) await rm(resolverCaminho(dataDir, row.caminho), { force: true });
       return row;
     },
     db,
   );
   if (!apagado) return false;
-  await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
-    logger.warn({ err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
-  );
+  if (!deps.removerAntesDoCommit) {
+    await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
+      logger.warn({ err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
+    );
+  }
   return true;
 }

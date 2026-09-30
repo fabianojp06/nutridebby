@@ -54,6 +54,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   anamnese: 'Anamnese',
   atendimentos: 'Atendimento',
   notas_privadas: 'Notas privadas',
+  exames: 'Exames',
 };
 
 export type AccessHistoryItem = {

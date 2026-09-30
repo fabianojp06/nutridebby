@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { storedFiles, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -114,5 +114,44 @@ describe('nivelDeUso e resolverCaminho', () => {
   it('recusa caminhos que escapam do DATA_DIR', () => {
     for (const c of ['../x', '/etc/passwd', 'a/../../x', '']) expect(() => resolverCaminho(dataDir, c)).toThrow();
     expect(resolverCaminho(dataDir, 'a/b.png')).toBe(path.join(dataDir, 'a/b.png'));
+  });
+});
+
+describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
+  it('registrar que falha desfaz tudo: nem stored_files, nem arquivo, nem cota', async () => {
+    const ctx = await novoTenant();
+    let caminho = '';
+    await expect(
+      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (_tx, a) => { caminho = a.caminho; throw new Error('exame recusado'); } }, deps),
+    ).rejects.toThrow('exame recusado');
+    expect(existsSync(path.join(dataDir, caminho))).toBe(false);
+    expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
+    expect(await usado(ctx.tenantId)).toBe(0);
+  });
+  it('registrar grava na mesma transação que reserva a cota', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (tx, arq) => {
+      const [n] = (await tx.execute(sql`select count(*)::int as n from stored_files where caminho = ${arq.caminho}`)).rows as { n: number }[];
+      expect(n.n).toBe(1); // já visível dentro da transação
+    } }, deps);
+    expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
+  });
+  it('naMesmaTransacao = false desiste: o arquivo e a cota ficam', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, naMesmaTransacao: async () => false })).toBe(false);
+    expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
+    expect(await usado(ctx.tenantId)).toBe(108);
+  });
+  it('removerAntesDoCommit: se o rm falha, o registro continua (a anonimização tenta de novo)', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    const alvo = path.join(dataDir, a.caminho);
+    rmSync(alvo);
+    mkdirSync(path.join(alvo, 'x'), { recursive: true }); // um diretório não vazio no lugar: rm sem recursive falha
+    await expect(apagarArquivo(ctx, { id: a.id }, { ...deps, removerAntesDoCommit: true })).rejects.toThrow();
+    expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.id, a.id)), app.db)).toHaveLength(1);
+    rmSync(alvo, { recursive: true });
+    expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, removerAntesDoCommit: true })).toBe(true); // ENOENT com force: segue
   });
 });

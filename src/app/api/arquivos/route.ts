@@ -39,7 +39,8 @@ export async function GET(req: Request) {
       'cache-control': `private, max-age=${maxAge}`,
       'x-content-type-options': 'nosniff',
       'content-security-policy': "default-src 'none'; sandbox",
-      'content-disposition': 'inline',
+      // PDF em sandbox não abre no visualizador do Chrome: baixa (a CSP continua fechada para imagem e PDF)
+      'content-disposition': ext === 'pdf' ? 'attachment; filename="documento.pdf"' : 'inline',
       'referrer-policy': 'no-referrer',
     },
   });

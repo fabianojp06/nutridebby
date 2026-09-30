@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
-import { tenants } from './platform';
+import { storedFiles, tenants } from './platform';
 import type { ModeloSchema, Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
 
 export const citext = customType<{ data: string }>({ dataType: () => 'citext' });
@@ -246,3 +246,26 @@ export const anamneses = pgTable(
 
 export type AnamnesisTemplateRow = typeof anamnesisTemplates.$inferSelect;
 export type AnamneseRow = typeof anamneses.$inferSelect;
+
+/** US-015. O laudo é um stored_files (cota, URL assinada); apagar o arquivo pela API de armazenamento solta o vínculo sozinho. */
+export const exams = pgTable(
+  'exams',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    data: date('data', { mode: 'string' }).notNull(),
+    titulo: text('titulo').notNull(),
+    arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
+    valores: jsonb('valores').$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null }[]>().notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'exams_paciente_fk' }),
+    check('exams_titulo_tamanho', sql`char_length(${t.titulo}) between 1 and 120`),
+    index('exams_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+  ],
+);
+
+export type ExamRow = typeof exams.$inferSelect;
