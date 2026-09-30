@@ -59,3 +59,12 @@ describe('exclusao_atendida (US-018)', () => {
     for (const t of ['Debby Silva atendeu o seu pedido de exclusão de dados', 'Foram apagados agora', 'LGPD, art. 16, I', 'até 15/09/2046']) expect(r.text).toContain(t);
   });
 });
+
+describe('exportacao_pronta (US-018)', () => {
+  it('link de 24 h, sem nenhum dado do paciente', () => {
+    const r = renderEmail({ tipo: 'exportacao_pronta', para: 'debby@ex.com', link: 'http://localhost:3000/painel/pacientes/p/exportacoes/e' });
+    expect(r.subject).toBe('Exportação de dados pronta');
+    expect(r.text).toContain('24 horas');
+    expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
+  });
+});

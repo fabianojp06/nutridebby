@@ -56,6 +56,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   notas_privadas: 'Notas privadas',
   exames: 'Exames',
   pedidos_titular: 'Pedido do titular (LGPD)',
+  exportacoes: 'Exportação de dados',
 };
 
 export type AccessHistoryItem = {

@@ -291,3 +291,25 @@ export const privacyRequests = pgTable(
     index('privacy_requests_paciente_idx').on(t.tenantId, t.patientId, t.status),
   ],
 );
+
+/** US-018 "Exportar": estado do job e do link de 24 h. O ZIP é um stored_files (cota; some ao expirar). */
+export const dataExports = pgTable(
+  'data_exports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    status: text('status').notNull().default('pendente'),
+    arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
+    expiraEm: timestamp('expira_em', { withTimezone: true }),
+    solicitadoPor: uuid('solicitado_por').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('data_exports_status_valido', sql`${t.status} in ('pendente', 'pronta', 'falhou', 'expirada')`),
+    check('data_exports_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/%'`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'data_exports_paciente_fk' }),
+    index('data_exports_paciente_idx').on(t.tenantId, t.patientId, t.createdAt),
+  ],
+);

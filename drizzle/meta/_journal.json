@@ -239,6 +239,20 @@
       "when": 1790735770879,
       "tag": "0033_rls_privacidade",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790769896097,
+      "tag": "0034_exportacoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790769897082,
+      "tag": "0035_rls_exportacoes",
+      "breakpoints": true
     }
   ]
 }

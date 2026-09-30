@@ -190,6 +190,23 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: linhas.join('\n\n'),
       };
     }
+    case 'exportacao_pronta': {
+      const subject = 'Exportação de dados pronta';
+      const linhas = ['A exportação de dados que você pediu no NutriDebby está pronta.', 'O link vale por 24 horas e pede que você entre no painel.'];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>Baixar exportação</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
