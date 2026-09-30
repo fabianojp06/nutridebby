@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { and, asc, eq, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, ne, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
@@ -98,10 +98,11 @@ export type DadosExportacao = {
 type LaudoParaZip = { indice: number; caminho: string; nome: string };
 
 /** O ZIP é montado em memória no worker: acima disto, os laudos ficam de fora (com aviso), não a exportação. */
-export const LIMITE_LAUDOS_BYTES = 200 * 1024 ** 2;
+export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
 
-const texto = (v: string | string[]) =>
-  Array.isArray(v) ? v.join(', ') : v === 'sim' ? 'Sim' : v === 'nao' ? 'Não' : v;
+/** "Sim"/"Não" só na pergunta sim/não: em texto livre, "nao" é o que foi digitado. */
+const texto = (tipo: string, v: string | string[]) =>
+  Array.isArray(v) ? v.join(', ') : tipo === 'sim_nao' ? ({ sim: 'Sim', nao: 'Não' }[v] ?? v) : v;
 const NOME_FORMULA = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]));
 
 /**
@@ -177,7 +178,7 @@ export async function montarDados(
         .filter((q) => a.respostas[q.id] !== undefined)
         .map((q) => ({
           pergunta: q.rotulo,
-          resposta: texto(respostaParaCampo(a.respostas[q.id])),
+          resposta: texto(q.tipo, respostaParaCampo(a.respostas[q.id])),
         })),
     })),
     antropometria: an.map((a) => ({
@@ -242,14 +243,17 @@ async function lerLaudos(
   }
   if (ausentes)
     logger.warn({ tenantId, ausentes }, 'laudo ausente no disco ficou fora da exportação');
-  if (presentes.reduce((t, l) => t + l.bytes, 0) > limite) {
-    dados.laudosForaDoZip = true;
-    return {};
-  }
+  // Entram os que cabem no teto, na ordem dos exames; os demais ficam de fora com o aviso
   const arquivos: Record<string, Uint8Array> = {};
+  let total = 0;
   for (const l of presentes) {
+    if (total + l.bytes > limite) {
+      dados.laudosForaDoZip = true;
+      continue;
+    }
     arquivos[l.nome] = await readFile(resolverCaminho(dataDir, l.caminho));
     dados.exames[l.indice].laudo = l.nome;
+    total += l.bytes;
   }
   return arquivos;
 }
@@ -346,6 +350,7 @@ export async function gerarExportacao(
         tipo: 'exportacao',
         conteudo: Buffer.from(zip.buffer, zip.byteOffset, zip.length),
         permitidos: ['zip'],
+        naoBarrarPelaCota: true,
         // Trava o paciente (mesma ordem de travas dos laudos) e desiste se a anonimização chegou antes;
         // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {
@@ -386,6 +391,7 @@ export async function gerarExportacao(
       },
       { db, dataDir: deps.dataDir },
     );
+    await expirarAnteriores(ctx, pedido.patientId, pedido.id, { db, dataDir: deps.dataDir });
     return 'pronta';
   } catch (err) {
     if (err instanceof JaConcluidaError) return 'ignorada';
@@ -460,6 +466,42 @@ export async function expirarExportacoesVencidas(
     }
   }
   return { expiradas };
+}
+
+/**
+ * Um ZIP válido por paciente: o novo pronto apaga os anteriores (cota e disco). Falha aqui não desfaz a
+ * exportação nova — o job de expiração e a varredura diária apagam o resto.
+ */
+async function expirarAnteriores(
+  ctx: TenantContext,
+  patientId: string,
+  atual: string,
+  deps: { db: Db; dataDir: string },
+) {
+  try {
+    const anteriores = await withTenant(
+      ctx,
+      (tx) =>
+        tx
+          .select({ id: dataExports.id })
+          .from(dataExports)
+          .where(
+            and(
+              eq(dataExports.patientId, patientId),
+              eq(dataExports.status, 'pronta'),
+              ne(dataExports.id, atual),
+            ),
+          ),
+      deps.db,
+    );
+    for (const { id } of anteriores)
+      await expirarExportacao({ tenantId: ctx.tenantId, exportId: id }, deps);
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
+      'falha ao apagar exportação anterior',
+    );
+  }
 }
 
 /** Job `expirar-exportacao` (24 h depois): apaga o ZIP e marca o pedido como expirado. */

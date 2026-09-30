@@ -4,7 +4,7 @@ import { getDb, type Db } from '@/db/client';
 import { dataExports, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
-import { recordAudit } from '@/modules/plataforma/audit';
+import { auditRead, recordAudit } from '@/modules/plataforma/audit';
 import { idValido, PacienteNaoEncontradoError } from './base';
 
 export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link válido por 24 h
@@ -102,20 +102,24 @@ export async function estadoDaExportacao(
   now: Date = new Date(),
 ): Promise<EstadoExportacao> {
   if (!idValido(patientId) || !idValido(exportId)) return { estado: 'inexistente' };
-  const [e] = await withTenant(
+  return withTenant(
     ctx,
-    (tx) =>
-      tx
+    async (tx): Promise<EstadoExportacao> => {
+      const [e] = await tx
         .select()
         .from(dataExports)
-        .where(and(eq(dataExports.id, exportId), eq(dataExports.patientId, patientId))),
+        .where(and(eq(dataExports.id, exportId), eq(dataExports.patientId, patientId)));
+      if (!e) return { estado: 'inexistente' };
+      if (e.status === 'pendente' || e.status === 'falhou') return { estado: e.status };
+      if (e.status === 'pronta' && e.arquivoPath && e.expiraEm && e.expiraEm.getTime() > now.getTime()) {
+        // Regra 8: a página entrega o link do ZIP (prontuário inteiro) — cada abertura fica no histórico
+        await auditRead(tx, { entidade: 'exportacoes', entidadeId: e.id, patientId });
+        return { estado: 'pronta', caminho: e.arquivoPath, expiraEm: e.expiraEm };
+      }
+      return { estado: 'expirada' };
+    },
     db,
   );
-  if (!e) return { estado: 'inexistente' };
-  if (e.status === 'pendente' || e.status === 'falhou') return { estado: e.status };
-  if (e.status === 'pronta' && e.arquivoPath && e.expiraEm && e.expiraEm.getTime() > now.getTime())
-    return { estado: 'pronta', caminho: e.arquivoPath, expiraEm: e.expiraEm };
-  return { estado: 'expirada' };
 }
 
 /** Últimos pedidos, com o mesmo estado da página do link (pronta vencida ou sem arquivo = expirada). */

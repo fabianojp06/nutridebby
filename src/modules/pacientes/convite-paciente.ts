@@ -54,7 +54,7 @@ export async function enviarConvitePaciente(
 ): Promise<{ expiraEm: Date }> {
   const token = randomToken();
   const expiraEm = new Date(deps.now.getTime() + CONVITE_PACIENTE_VALIDADE_MS);
-  await tx.delete(invites).where(and(eq(invites.patientId, p.id), isNull(invites.usadoEm)));
+  await apagarConvitesPendentes(tx, p.tenantId, p.id); // CLAUDE.md regra 1: filtra tipo e tenant
   await tx.insert(invites).values({ tipo: 'paciente', tenantId: p.tenantId, patientId: p.id, tokenHash: sha256(token), expiraEm, createdAt: deps.now });
   const [conta] = await tx.select({ papel: user.appRole }).from(user).where(eq(user.email, p.email));
   await enqueueEmail(

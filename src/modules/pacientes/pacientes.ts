@@ -237,7 +237,8 @@ export async function listarPacientes(
         .where(and(...conds))
         .orderBy(asc(patients.nome))
         .limit(LIMITE_LISTA);
-      if (filtro.etiquetaId) for (const p of r) await auditRead(tx, { entidade: 'etiquetas', entidadeId: null, patientId: p.id });
+      // Um INSERT só para a lista toda (até LIMITE_LISTA linhas)
+      if (filtro.etiquetaId && r.length) await auditRead(tx, r.map((p) => ({ entidade: 'etiquetas', entidadeId: null, patientId: p.id })));
       return r;
     },
     db,

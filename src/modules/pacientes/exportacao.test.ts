@@ -4,11 +4,12 @@ import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
+import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { buscarModelo, preencherAnamnese, salvarModelo } from './anamnese';
@@ -22,7 +23,12 @@ import {
   MSG_EXPORTACAO,
   solicitarExportacao,
 } from './exportacao';
-import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from './exportacao-job';
+import {
+  expirarExportacao,
+  expirarExportacoesVencidas,
+  gerarExportacao,
+  montarDados,
+} from './exportacao-job';
 import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
 
@@ -117,6 +123,22 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const estado = await estadoDaExportacao(T.ctx, p.id, id, app.db, now);
     if (estado.estado !== 'pronta') throw new Error(estado.estado);
     expect(estado.expiraEm.toISOString()).toBe('2026-10-02T15:00:00.000Z');
+    const leituras = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .select()
+          .from(auditLog)
+          .where(
+            and(
+              eq(auditLog.acao, 'ler'),
+              eq(auditLog.entidade, 'exportacoes'),
+              eq(auditLog.entidadeId, id),
+            ),
+          ),
+      app.db,
+    );
+    expect(leituras).toHaveLength(1); // abrir o link com o ZIP pronto fica no "Histórico de acessos" (regra 8)
     expect(estado.caminho).toMatch(new RegExp(`^${T.tenantId}/exportacao/[0-9a-f-]{36}\\.zip$`));
     const zip = unzipSync(readFileSync(path.join(dataDir, estado.caminho)));
     expect(Object.keys(zip).sort()).toEqual(['dados.json', 'prontuario.pdf']);
@@ -203,6 +225,32 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       { titulo: 'Hemograma', data: '2026-09-10', valores: [], arquivo: PDF },
       deps,
     );
+    await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Lipidograma', data: '2026-09-20', valores: [], arquivo: PDF },
+      deps,
+    );
+    const cabe = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: cabe },
+        { ...deps, ultimaTentativa: false, limiteLaudosBytes: PDF.length + 10 },
+      ),
+    ).toBe('pronta');
+    const e0 = await estadoDaExportacao(T.ctx, p.id, cabe, app.db, now);
+    if (e0.estado !== 'pronta') throw new Error(e0.estado);
+    const d0 = JSON.parse(
+      strFromU8(unzipSync(readFileSync(path.join(dataDir, e0.caminho)))['dados.json']),
+    );
+    expect(d0.exames.map((e: { laudo: string | null }) => e.laudo)).toEqual([
+      null,
+      'laudos/2026-09-10-02.pdf',
+      null,
+    ]); // entram os que cabem, em ordem
+    expect(d0.laudosForaDoZip).toBe(true);
+
     const grande = await solicitarExportacao(T.ctx, p.id, deps);
     expect(
       await gerarExportacao(
@@ -240,6 +288,54 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       strFromU8(unzipSync(readFileSync(path.join(dataDir, e2.caminho)))['dados.json']),
     );
     expect(d2.exames[1]).toMatchObject({ temLaudo: true, laudo: null });
+  });
+
+  it('só um ZIP válido por paciente: o novo pronto apaga o anterior (e devolve a cota)', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const primeiro = await solicitarExportacao(T.ctx, p.id, deps);
+    await gerarExportacao(
+      { tenantId: T.tenantId, exportId: primeiro },
+      { ...deps, ultimaTentativa: false },
+    );
+    const segundo = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(segundo).not.toBe(primeiro);
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: segundo },
+        { ...deps, ultimaTentativa: false },
+      ),
+    ).toBe('pronta');
+    expect(await estadoDaExportacao(T.ctx, p.id, primeiro, app.db, now)).toEqual({
+      estado: 'expirada',
+    });
+    expect((await estadoDaExportacao(T.ctx, p.id, segundo, app.db, now)).estado).toBe('pronta');
+    const zips = await withTenant(
+      T.ctx,
+      (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')),
+      app.db,
+    );
+    expect(zips).toHaveLength(1);
+    expect(
+      (await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId)))[0].armazenamentoBytes,
+    ).toBe(zips[0].bytes);
+  });
+
+  it('cota esgotada não barra a exportação (obrigação legal, LGPD art. 18): o ZIP é gerado e conta na cota', async () => {
+    const { T, p } = await prontuarioCompleto();
+    await app.db
+      .update(tenants)
+      .set({ armazenamentoBytes: COTA_BYTES })
+      .where(eq(tenants.id, T.tenantId));
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: id },
+        { ...deps, ultimaTentativa: false },
+      ),
+    ).toBe('pronta');
+    expect(
+      (await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId)))[0].armazenamentoBytes,
+    ).toBeGreaterThan(COTA_BYTES);
   });
 
   it('24 h depois o arquivo some e o link diz que expirou; a cota volta', async () => {
@@ -448,6 +544,41 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const { T, p } = await prontuarioCompleto();
     await solicitarExportacao(T.ctx, p.id, deps);
     await expect(app.db.delete(user).where(eq(user.id, T.nutriId))).resolves.toBeDefined();
+  });
+
+  it('dados.json: "Sim"/"Não" só nas perguntas sim/não — texto livre sai como foi digitado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const modelo = await salvarModelo(
+      T.ctx,
+      null,
+      {
+        nome: 'Hábitos',
+        perguntas: [
+          { tipo: 'sim_nao', rotulo: 'Fuma', obrigatoria: false },
+          { tipo: 'texto_curto', rotulo: 'Observação', obrigatoria: false },
+        ],
+      },
+      app.db,
+    );
+    const [fuma, obs] = (await buscarModelo(T.ctx, modelo, app.db))!.schema.perguntas;
+    await preencherAnamnese(
+      T.ctx,
+      T.tenant,
+      p.id,
+      modelo,
+      { [fuma.id]: 'nao', [obs.id]: 'nao' },
+      deps,
+    );
+    const { dados } = await withTenant(
+      T.ctx,
+      (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo'),
+      app.db,
+    );
+    expect(dados.anamneses[0].respostas).toEqual([
+      { pergunta: 'Fuma', resposta: 'Não' },
+      { pergunta: 'Observação', resposta: 'nao' },
+    ]);
   });
 
   it('PDF: caracteres fora do WinAnsi da Helvetica viram equivalentes, nunca outro caractere em silêncio', () => {
