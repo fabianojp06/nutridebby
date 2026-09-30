@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import { sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from './client';
+import { sanitizarErroDeBanco } from './errors';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,7 +47,8 @@ export async function withTenant<T>(
   db: Db = getDb(),
 ): Promise<T> {
   assertContext(ctx);
-  return db.transaction(async (tx) => {
+  try {
+    return await db.transaction(async (tx) => {
     await tx.execute(sql`select
       set_config('app.tenant_id', ${ctx.tenantId}, true),
       set_config('app.role', ${ctx.role}, true),
@@ -54,5 +56,9 @@ export async function withTenant<T>(
       set_config('app.user_id', ${ctx.actorUserId ?? ''}, true),
       set_config('app.ip', ${ctx.ip ?? ''}, true)`);
     return fn(tx);
-  });
+    });
+  } catch (err) {
+    // DrizzleQueryError leva SQL + parâmetros na message; nada disso pode chegar a log/Sentry (RNF-11)
+    throw sanitizarErroDeBanco(err) ?? err;
+  }
 }

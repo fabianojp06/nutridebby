@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 /** Tabelas com patient_id que não levam o gatilho de auditoria, com a justificativa. */
 export const AUDIT_EXCEPTIONS: Record<string, string> = {
   audit_log: 'é o próprio registro de auditoria (append-only)',
+  invites: 'convite de acesso (hash do token, validade), não é dado de saúde',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */

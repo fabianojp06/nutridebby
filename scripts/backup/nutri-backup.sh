@@ -104,7 +104,8 @@ backup_arquivos() {
   local inicio limite ok=true detalhe=""
   inicio="$(date -u +%FT%TZ)"
   # G2: stderr do rclone fora do log (cita endpoint, bucket e caminhos com o UUID do tenant)
-  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" >/dev/null 2>&1; then
+  # US-018: o ZIP de exportação vive 24 h e é refeito a partir do banco; fora do backup para não sobreviver 30 dias no histórico
+  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" --exclude '/*/exportacao/**' >/dev/null 2>&1; then
     limite="$(date -d "$HOJE -${HISTORICO_DIAS} days" +%F)"
     podar_historico "$limite" || { ok=false; detalhe="retenção falhou"; }
     registrar arquivos "$ok" "" "$detalhe" "$inicio" || ok=false

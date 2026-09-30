@@ -4,34 +4,61 @@ import { inject } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
-import { listTenantTables, RLS_EXCEPTIONS } from '@/db/rls-guard';
+import { listTenantTables, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
 import { withTenant } from '@/db/tenant';
 
 /**
  * RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant
  * em todas as tabelas 🔒". Cada tabela nova com tenant_id PRECISA de uma fábrica aqui.
  *
- * PF-F3: as fábricas semeiam os DOIS tenants (A e B), cada um com os dois pacientes (P1 e P2),
- * para que o teste falhe tanto se uma política negar tudo (B não veria nem as próprias linhas)
- * quanto se ela liberar tudo (B veria as linhas de A).
+ * PF-F3: as fábricas semeiam os DOIS tenants (A e B), cada um com os seus dois pacientes, para que o
+ * teste falhe tanto se uma política negar tudo quanto se liberar tudo.
+ * P03: as tabelas filhas têm FK composta (tenant_id, patient_id) → patients, então cada tenant tem os
+ * próprios pacientes (PAC) e `patients` é semeada primeiro e apagada por último (ULTIMAS).
+ * Fábrica que precisa de uma linha-mãe (etiqueta, atendimento) cria a mãe no mesmo comando (CTE).
  */
 const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_log: (t, p) => sql`insert into audit_log (tenant_id, acao, entidade, patient_id) values (${t}, 'ler', 'isolamento', ${p})`,
+  data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id) values (${t}, ${p})`,
+  exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
+  privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
   stored_files: (t) =>
     sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values (${t}, 'logo', ${`${t}/logo/${randomUUID()}.png`}, 1, 'image/png')`,
   rls_fixture_patient_items: (t, p) => sql`insert into rls_fixture_patient_items (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,
   audit_fixture_registros: (t, p) => sql`insert into audit_fixture_registros (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,
+  patients: (t, p) =>
+    sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'Iso', '1990-01-01', 'F', ${`iso-${p}@teste.dev`})`,
+  anthropometry: (t, p) => sql`insert into anthropometry (tenant_id, patient_id, data, peso_kg, altura_cm) values (${t}, ${p}, '2026-01-01', 70, 175)`,
+  energy_calcs: (t, p) =>
+    sql`insert into energy_calcs (tenant_id, patient_id, formula, peso_kg, altura_cm, idade, sexo, fator_atividade, tmb, get)
+        values (${t}, ${p}, 'mifflin', 60, 165, 35, 'F', 1.55, 1295.25, 2007.64)`,
+  anamnesis_templates: (t) => sql`insert into anamnesis_templates (tenant_id, nome, schema) values (${t}, 'Iso', '{"perguntas":[]}')`,
+  consultations: (t, p) => sql`insert into consultations (tenant_id, patient_id, data, orientacoes_paciente) values (${t}, ${p}, '2026-01-01', 'x')`,
+  consultation_notes: (t, p) => sql`with c as (insert into consultations (tenant_id, patient_id, data) values (${t}, ${p}, '2026-01-01') returning id)
+    insert into consultation_notes (tenant_id, patient_id, consultation_id, texto) select ${t}, ${p}, c.id, 'x' from c`,
+  anamneses: (t, p) =>
+    sql`insert into anamneses (tenant_id, patient_id, template_snapshot, data) values (${t}, ${p}, '{"nome":"Iso","perguntas":[]}', '2026-01-01')`,
+  patient_tags: (t) => sql`insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`})`,
+  patient_tag_links: (t, p) => sql`with e as (insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`}) returning id)
+    insert into patient_tag_links (tenant_id, patient_id, tag_id) select ${t}, ${p}, e.id from e`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);
+/** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION para elas). */
+const ULTIMAS = ['anamnesis_templates', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 let A: string;
 let B: string;
-const P1 = randomUUID();
-const P2 = randomUUID();
+let PAC: Record<string, [string, string]> = {};
+let P1: string;
+let P2: string;
 let tabelas: string[] = [];
+let soEquipe = new Set<string>();
+
+const naOrdemDeCriacao = (ts: string[]) => [...ts.filter((t) => t === 'patients'), ...ts.filter((t) => t !== 'patients')];
+const naOrdemDeExclusao = (ts: string[]) => [...ts.filter((t) => !ULTIMAS.includes(t)), ...ULTIMAS.filter((t) => ts.includes(t))];
 
 beforeAll(async () => {
   const [a, b] = await app.db
@@ -43,11 +70,16 @@ beforeAll(async () => {
     .returning({ id: tenants.id });
   A = a.id;
   B = b.id;
-  tabelas = (await listTenantTables(owner.pool)).filter((t) => !RLS_EXCEPTIONS[t]);
+  PAC = { [A]: [randomUUID(), randomUUID()], [B]: [randomUUID(), randomUUID()] };
+  [P1, P2] = PAC[A];
+  tabelas = naOrdemDeCriacao((await listTenantTables(owner.pool)).filter((t) => !RLS_EXCEPTIONS[t]));
+  soEquipe = new Set(
+    (await owner.pool.query<{ t: string }>(`select tablename as t from pg_policies where schemaname = 'public' and policyname = 'staff_only'`)).rows.map((r) => r.t),
+  );
   for (const t of tabelas) {
     if (!FABRICAS[t]) continue;
     for (const tenantId of [A, B]) {
-      for (const p of [P1, P2]) await withTenant({ tenantId, role: 'nutri' }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
+      for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri' }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
   }
 });
@@ -56,13 +88,19 @@ afterAll(async () => {
   await owner.pool.end();
 });
 
-const temPaciente = async (t: string) =>
-  (
-    await owner.pool.query(
-      `select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'patient_id'`,
-      [t],
-    )
-  ).rowCount! > 0;
+/** Coluna do titular por tabela: em `patients` é o próprio `id` (app_enable_patient_rls('patients', 'id')). */
+const COLUNA_TITULAR: Record<string, string> = { patients: 'id' };
+/** O paciente nunca é apagado (arquiva, bloqueia, anonimiza), e as filhas `staff_only`, invisíveis para P2, seguram a FK. */
+const SEM_DELETE_DO_PACIENTE = new Set(['patients']);
+
+const colunaTitular = async (t: string): Promise<string | null> => {
+  if (COLUNA_TITULAR[t]) return COLUNA_TITULAR[t];
+  const r = await owner.pool.query(
+    `select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'patient_id'`,
+    [t],
+  );
+  return r.rowCount! > 0 ? 'patient_id' : null;
+};
 
 const contarTenant = async (t: string, tenantId: string) =>
   Number((await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1`, [tenantId])).rows[0].n);
@@ -73,9 +111,9 @@ const violaRls = (e: unknown) => {
   return c.code === '42501' && /row-level security/.test(c.message ?? '');
 };
 
-const contarPaciente = async (t: string, tenantId: string, patientId: string) =>
+const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
   Number(
-    (await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1 and patient_id = $2`, [tenantId, patientId]))
+    (await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1 and "${col}" = $2`, [tenantId, patientId]))
       .rows[0].n,
   );
 
@@ -98,22 +136,37 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
   });
 
-  it('WITH CHECK: a paciente P2 não grava linha de P1 nem move a própria linha para P1', async () => {
+  it('WITH CHECK: a paciente P2 não grava linha de P1 nem move a própria linha para P1 (inclusive em patients)', async () => {
     for (const t of tabelas) {
-      if (!(await temPaciente(t))) continue;
-      const antesP1 = await contarPaciente(t, A, P1);
+      const col = await colunaTitular(t);
+      if (!col || soEquipe.has(t)) continue;
+      const antesP1 = await contarPaciente(t, col, A, P1);
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      // a RLS (42501) é conferida antes da PK/UNIQUE e da FK: em patients o INSERT com id = P1 cai na política
       await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
-        expect(await contarPaciente(t, A, P2), t).toBeGreaterThan(0);
-        await expect(comoP2(sql`update ${sql.identifier(t)} set patient_id = ${P1}`), t).rejects.toSatisfy(violaRls);
+        expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
+        await expect(comoP2(sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`), t).rejects.toSatisfy(violaRls);
       }
-      expect(await contarPaciente(t, A, P1), t).toBe(antesP1);
+      expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1);
+    }
+  });
+
+  it('staff_only: a sessão de paciente não vê nem grava nada nessas tabelas, nem as próprias linhas (US-016, US-019)', async () => {
+    // itera a lista declarada (não o que o banco tem): tabela que perdeu a política não pode ser pulada em silêncio
+    for (const t of Object.keys(STAFF_ONLY)) {
+      expect(tabelas, t).toContain(t);
+      expect(soEquipe.has(t), t).toBe(true);
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      const vistas = await comoP2(sql`select 1 from ${sql.identifier(t)}`);
+      expect(vistas.rows.length, t).toBe(0);
+      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
     }
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {
-    for (const t of tabelas) {
+    for (const t of naOrdemDeExclusao(tabelas)) {
       const id = sql.identifier(t);
       const antesA = await contarTenant(t, A);
       await withTenant(
@@ -140,29 +193,31 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
   });
 
-  it('a paciente P2 só vê e só altera as próprias linhas; as de P1 (mesmo tenant) ficam intactas', async () => {
-    for (const t of tabelas) {
-      if (!(await temPaciente(t))) continue;
+  it('a paciente P2 só vê e só altera as próprias linhas; as de P1 (mesmo tenant) ficam intactas (inclusive em patients)', async () => {
+    for (const t of naOrdemDeExclusao(tabelas)) {
+      const col = await colunaTitular(t);
+      if (!col || soEquipe.has(t)) continue;
       const id = sql.identifier(t);
-      const antesP1 = await contarPaciente(t, A, P1);
+      const c = sql.identifier(col);
+      const antesP1 = await contarPaciente(t, col, A, P1);
+      const apaga = !SO_INSERE.has(t) && !SEM_DELETE_DO_PACIENTE.has(t);
       await withTenant(
         { tenantId: A, role: 'paciente', patientId: P2 },
         async (tx) => {
-          const vistas = await tx.execute(sql`select patient_id from ${id}`);
+          const vistas = await tx.execute(sql`select ${c} as titular from ${id}`);
           expect(vistas.rows.length, t).toBeGreaterThanOrEqual(1);
-          for (const row of vistas.rows) expect(row.patient_id, t).toBe(P2);
+          for (const row of vistas.rows) expect(row.titular, t).toBe(P2);
           if (SO_INSERE.has(t)) return;
-          const alteradas = await tx.execute(sql`update ${id} set patient_id = patient_id`);
+          const alteradas = await tx.execute(sql`update ${id} set ${c} = ${c}`);
           expect(alteradas.rowCount, t).toBe(vistas.rows.length);
+          if (!apaga) return;
           const apagadas = await tx.execute(sql`delete from ${id}`);
           expect(apagadas.rowCount, t).toBe(vistas.rows.length);
         },
         app.db,
       );
-      if (!SO_INSERE.has(t)) {
-        expect(await contarPaciente(t, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
-        expect(await contarPaciente(t, A, P2), t).toBe(0); // e o DELETE de P2 de fato aconteceu
-      }
+      expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
+      if (apaga) expect(await contarPaciente(t, col, A, P2), t).toBe(0); // e o DELETE de P2 de fato aconteceu
     }
   });
 });

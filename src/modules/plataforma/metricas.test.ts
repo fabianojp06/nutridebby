@@ -21,11 +21,11 @@ async function tenantComArquivos(n: number, bytes: number) {
 }
 
 describe('metricasPorTenant (§3: só contagens)', () => {
-  it('conta arquivos e armazenamento de cada tenant; pacientes/consultas/mensagens ainda nulos', async () => {
+  it('conta arquivos e armazenamento de cada tenant; pacientes ativos contados; consultas/mensagens ainda nulos', async () => {
     const a = await tenantComArquivos(3, 30);
     const b = await tenantComArquivos(1, 10);
     const m = await metricasPorTenant(app.db);
-    expect(m.get(a)).toEqual({ tenantId: a, arquivos: 3, armazenamentoBytes: 30, pacientesAtivos: null, consultasMes: null, mensagensWhatsappMes: null });
+    expect(m.get(a)).toEqual({ tenantId: a, arquivos: 3, armazenamentoBytes: 30, pacientesAtivos: 0, consultasMes: null, mensagensWhatsappMes: null });
     expect(m.get(b)?.arquivos).toBe(1);
   });
 

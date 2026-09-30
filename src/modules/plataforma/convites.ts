@@ -34,10 +34,10 @@ export function linkDoConvite(appUrl: string, token: string): string {
 export async function inspecionarConvite(q: Queryable, token: string, now: Date = new Date()): Promise<EstadoConvite> {
   if (!TOKEN.test(token)) return { estado: 'invalido' };
   const [c] = await q
-    .select({ userId: invites.userId, expiraEm: invites.expiraEm, usadoEm: invites.usadoEm, email: user.email, nome: user.name })
+    .select({ userId: user.id, expiraEm: invites.expiraEm, usadoEm: invites.usadoEm, email: user.email, nome: user.name })
     .from(invites)
     .innerJoin(user, eq(user.id, invites.userId))
-    .where(eq(invites.tokenHash, sha256(token)));
+    .where(and(eq(invites.tokenHash, sha256(token)), eq(invites.tipo, 'nutri')));
   if (!c || c.usadoEm) return { estado: 'invalido' };
   if (c.expiraEm.getTime() <= now.getTime()) return { estado: 'expirado' };
   return { estado: 'valido', userId: c.userId, email: c.email, nome: c.nome };
@@ -99,15 +99,15 @@ export async function aceitarConvite(
     const [c] = await tx
       .update(invites)
       .set({ usadoEm: now })
-      .where(and(eq(invites.tokenHash, sha256(input.token)), isNull(invites.usadoEm), gt(invites.expiraEm, now)))
-      .returning({ userId: invites.userId });
+      .where(and(eq(invites.tokenHash, sha256(input.token)), eq(invites.tipo, 'nutri'), isNull(invites.usadoEm), gt(invites.expiraEm, now)))
+      .returning({ id: invites.id });
     if (!c) {
       const estado = await inspecionarConvite(tx, input.token, now);
       throw new ConviteError(estado.estado === 'expirado' ? CONVITE_EXPIRADO : CONVITE_INVALIDO);
     }
-    await tx.insert(account).values({ id: randomUUID(), userId: c.userId, accountId: c.userId, providerId: 'credential', password: hash });
-    await tx.update(user).set({ emailVerified: true }).where(eq(user.id, c.userId));
-    await registrarAceiteDpa(tx, { userId: c.userId, tenantId: u.tenantId, ip: input.ip, now });
+    await tx.insert(account).values({ id: randomUUID(), userId: antes.userId, accountId: antes.userId, providerId: 'credential', password: hash });
+    await tx.update(user).set({ emailVerified: true }).where(eq(user.id, antes.userId));
+    await registrarAceiteDpa(tx, { userId: antes.userId, tenantId: u.tenantId, ip: input.ip, now });
     return { email: u.email };
   });
 }

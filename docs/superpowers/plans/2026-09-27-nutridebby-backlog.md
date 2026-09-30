@@ -120,7 +120,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P06-05 | Feed de diários + comentários da nutricionista | US-043 | P06-04 | Dev | S | ⬜ |
 | P06-06 | "Minha evolução" (respeitando o % de gordura oculto) | US-044 | P06-01 | Dev | S | ⬜ |
 | P06-07 | Lista de compras | US-045, RN-13 | P06-03 | Dev | S | ⬜ |
-| P06-08 | "Meus dados": exportar + pedir exclusão | US-046 | P03-11 | Dev | M | ⬜ |
+| P06-08 | "Meus dados": exportar + pedir exclusão; e anonimizar nome e e-mail da conta `user` do titular anonimizado que não tiver outro vínculo ativo (desvio consciente do Plano 03, decidido pelo dono em 2026-09-30: até aqui a anonimização só solta `patients.user_id`) | US-046, US-018 | P03-11 | Dev | M | ⬜ |
 | P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) | US-032, US-033 | P05-05 | Dev | M | ⬜ |
 | P06-10 | Auditoria axe das telas do PWA | RNF-10 | P06-01 a P06-09 | Dev | M | ⬜ |
 | P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) | RNF-06 | P06-01 | Dev | M | ⬜ |

@@ -13,6 +13,7 @@ const MIME: Record<string, string> = {
   webp: 'image/webp',
   heic: 'image/heic',
   pdf: 'application/pdf',
+  zip: 'application/zip',
 };
 const erro = (status: number) => new Response(null, { status, headers: { 'cache-control': 'no-store' } });
 
@@ -39,7 +40,8 @@ export async function GET(req: Request) {
       'cache-control': `private, max-age=${maxAge}`,
       'x-content-type-options': 'nosniff',
       'content-security-policy': "default-src 'none'; sandbox",
-      'content-disposition': 'inline',
+      // PDF em sandbox não abre no visualizador do Chrome: baixa (a CSP continua fechada para imagem e PDF)
+      'content-disposition': ext === 'zip' ? 'attachment; filename="exportacao.zip"' : ext === 'pdf' ? 'attachment; filename="documento.pdf"' : 'inline',
       'referrer-policy': 'no-referrer',
     },
   });

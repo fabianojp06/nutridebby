@@ -6,7 +6,7 @@ export const FILE_URL_TTL_S = 300; // §4: TTL 5 min
 
 /** <tenant>/<tipo>/<arquivo>.<ext> — o único formato servido (sem SVG, sem "..", sem caminho absoluto). */
 export const CAMINHO_ARQUIVO =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[a-z_]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|webp|heic|pdf)$/;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[a-z_]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|webp|heic|pdf|zip)$/;
 
 const assinar = (caminho: string, exp: number, secret: string) =>
   createHmac('sha256', secret).update(`${caminho}\n${exp}`).digest('base64url');

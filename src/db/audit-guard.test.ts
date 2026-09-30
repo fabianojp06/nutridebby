@@ -18,7 +18,8 @@ describe('guarda de auditoria (US-007: toda tabela de saúde é auditada)', () =
     try {
       await client.query('begin');
       await client.query('create table tmp_saude_sem_audit (id uuid primary key, tenant_id uuid not null, patient_id uuid not null)');
-      await client.query('create table patients (id uuid primary key, tenant_id uuid not null)');
+      // `patients` já existe (0016): remove o gatilho só nesta transação (rollback ao fim)
+      await client.query('drop trigger audit_row_change on patients');
       const v = await findAuditViolations(client);
       expect(v).toContainEqual({ table: 'tmp_saude_sem_audit', problem: 'sem gatilho de auditoria (app_enable_audit)' });
       expect(v).toContainEqual({ table: 'patients', problem: 'sem gatilho de auditoria (app_enable_audit)' });

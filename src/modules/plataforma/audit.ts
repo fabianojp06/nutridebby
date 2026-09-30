@@ -48,6 +48,15 @@ export const ACAO_ROTULO: Record<AuditAction, string> = {
 /** Nome amigável de cada entidade auditada. Cada plano acrescenta as suas tabelas. */
 export const ENTIDADE_ROTULO: Record<string, string> = {
   patients: 'Cadastro do paciente',
+  etiquetas: 'Etiquetas',
+  antropometria: 'Antropometria',
+  gasto_energetico: 'Gasto energético',
+  anamnese: 'Anamnese',
+  atendimentos: 'Atendimento',
+  notas_privadas: 'Notas privadas',
+  exames: 'Exames',
+  pedidos_titular: 'Pedido do titular (LGPD)',
+  exportacoes: 'Exportação de dados',
 };
 
 export type AccessHistoryItem = {

@@ -113,6 +113,160 @@
       "when": 1790642618904,
       "tag": "0015_metricas_admin_fora_de_withtenant",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790729302327,
+      "tag": "0016_pacientes",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790729307027,
+      "tag": "0017_rls_pacientes",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790730120047,
+      "tag": "0018_convite_paciente",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790731502144,
+      "tag": "0019_etiquetas",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790731503126,
+      "tag": "0020_rls_etiquetas",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790732144114,
+      "tag": "0021_antropometria",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790732145045,
+      "tag": "0022_rls_antropometria",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790732788281,
+      "tag": "0023_gasto_energetico",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790732789313,
+      "tag": "0024_rls_gasto_energetico",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790733200203,
+      "tag": "0025_anamnese",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790733201197,
+      "tag": "0026_rls_anamnese",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790733756370,
+      "tag": "0027_atendimentos",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790733757389,
+      "tag": "0028_rls_atendimentos",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790734260717,
+      "tag": "0029_exames",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790734261842,
+      "tag": "0030_rls_exames",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790734838180,
+      "tag": "0031_exames_arquivo_do_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790735769855,
+      "tag": "0032_privacidade",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790735770879,
+      "tag": "0033_rls_privacidade",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790769896097,
+      "tag": "0034_exportacoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790769897082,
+      "tag": "0035_rls_exportacoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790771215637,
+      "tag": "0036_exportacao_caminho",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790771521916,
+      "tag": "0037_exportacao_solicitante",
+      "breakpoints": true
     }
   ]
 }

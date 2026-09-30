@@ -1,0 +1,2 @@
+ALTER TABLE "data_exports" DROP CONSTRAINT "data_exports_arquivo_do_tenant";--> statement-breakpoint
+ALTER TABLE "data_exports" ADD CONSTRAINT "data_exports_arquivo_do_tenant" CHECK ("data_exports"."arquivo_path" is null or "data_exports"."arquivo_path" like "data_exports"."tenant_id"::text || '/exportacao/%');

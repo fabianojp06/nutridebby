@@ -33,3 +33,38 @@ describe('modelos de e-mail (INT-02)', () => {
     expect(b.text).toContain('banco sem backup desde 01/10/2026');
   });
 });
+
+describe('convite_paciente (US-010)', () => {
+  const base = { tipo: 'convite_paciente' as const, para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', link: 'http://localhost:3000/convite/paciente/abc' };
+  it('conta nova: criar a senha, 7 dias, uso único, link no texto e no botão', () => {
+    const r = renderEmail({ ...base, contaExistente: false });
+    expect(r.subject).toBe('Convite de Debby Silva no NutriDebby');
+    for (const t of ['Olá, Ana Souza!', 'Debby Silva convidou você para acompanhar seu tratamento pelo NutriDebby.', 'O link vale por 7 dias e só pode ser usado uma vez.', base.link]) {
+      expect(r.text).toContain(t);
+    }
+    expect(r.html).toContain('Criar minha senha');
+    expect(r.html).toContain(`href="${base.link}"`);
+  });
+  it('quem já tem conta: "Entre com sua conta existente para ver os dados da nutricionista <A>"', () => {
+    const r = renderEmail({ ...base, contaExistente: true });
+    expect(r.text).toContain('Entre com sua conta existente para ver os dados da nutricionista Debby Silva.');
+    expect(r.html).toContain('Entrar e aceitar o convite');
+  });
+});
+
+describe('exclusao_atendida (US-018)', () => {
+  it('explica o que foi apagado e o que fica guardado por obrigação legal, com a data da anonimização', () => {
+    const r = renderEmail({ tipo: 'exclusao_atendida', para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
+    expect(r.subject).toBe('Seu pedido de exclusão de dados foi atendido');
+    for (const t of ['Debby Silva atendeu o seu pedido de exclusão de dados', 'Foram apagados agora', 'LGPD, art. 16, I', 'até 15/09/2046']) expect(r.text).toContain(t);
+  });
+});
+
+describe('exportacao_pronta (US-018)', () => {
+  it('link de 24 h, sem nenhum dado do paciente', () => {
+    const r = renderEmail({ tipo: 'exportacao_pronta', para: 'debby@ex.com', link: 'http://localhost:3000/painel/pacientes/p/exportacoes/e' });
+    expect(r.subject).toBe('Exportação de dados pronta');
+    expect(r.text).toContain('24 horas');
+    expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
+  });
+});

@@ -13,6 +13,11 @@ export const QUEUES = {
   // Tarefa 13: o worker confere o backup do host (07h) e o disco da VPS (de hora em hora)
   'monitor-backup': { retryLimit: 2, retryDelay: 300, expireInSeconds: 120 },
   'monitor-disco': { retryLimit: 0, expireInSeconds: 60 },
+  // US-018: anonimização no fim do prazo de guarda (04h, depois do backup das 03h)
+  'retencao-lgpd': { retryLimit: 2, retryDelay: 600, expireInSeconds: 900 },
+  // US-018: ZIP da exportação (PDF no worker) e remoção do arquivo 24 h depois
+  'exportacao-paciente': { retryLimit: 2, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
+  'expirar-exportacao': { retryLimit: 3, retryDelay: 300, expireInSeconds: 120 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

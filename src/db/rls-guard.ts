@@ -8,6 +8,10 @@ export type RlsViolation = { table: string; problem: string };
  */
 export const RLS_EXCEPTIONS: Record<string, string> = {
   user: 'identidade global do Better Auth: login ocorre antes do contexto de tenant; acesso só via services do M1 (spec §4.1)',
+  consents:
+    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts e src/modules/pacientes/convite-paciente.ts',
+  invites:
+    'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin)',
 };
 
 /** Tabelas com patient_id que não precisam da política de paciente, com a justificativa. */
@@ -52,8 +56,8 @@ export async function findRlsViolations(db: Pool | PoolClient): Promise<RlsViola
            c.relforcerowsecurity as forced,
            exists (select 1 from pg_policies p where p.schemaname = 'public'
                    and p.tablename = c.relname and p.policyname = 'tenant_isolation') as has_tenant_policy,
-           exists (select 1 from information_schema.columns k where k.table_schema = 'public'
-                   and k.table_name = c.relname and k.column_name = 'patient_id') as has_patient_col,
+           (c.relname = 'patients' or exists (select 1 from information_schema.columns k where k.table_schema = 'public'
+                   and k.table_name = c.relname and k.column_name = 'patient_id')) as has_patient_col,
            exists (select 1 from pg_policies p where p.schemaname = 'public'
                    and p.tablename = c.relname and p.policyname = 'patient_isolation') as has_patient_policy
     ${TENANT_TABLES_SELECTION}
@@ -90,4 +94,22 @@ export async function findStaleExceptions(
       .filter((t) => !existentes.has(t))
       .map((t) => `${mapa}: ${t}`),
   );
+}
+
+/** Tabelas que a sessão de paciente nunca vê (política RESTRICTIVE staff_only), com o motivo. */
+export const STAFF_ONLY: Record<string, string> = {
+  patient_tags: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
+  patient_tag_links: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
+  consultation_notes: 'US-016: o paciente nunca vê as notas privadas, nem no JSON da API',
+};
+
+export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string }>(
+    `select tablename as t from pg_policies
+      where schemaname = 'public' and policyname = 'staff_only' and permissive = 'RESTRICTIVE'`,
+  );
+  const com = new Set(rows.map((r) => r.t));
+  return Object.keys(STAFF_ONLY)
+    .filter((t) => !com.has(t))
+    .map((table) => ({ table, problem: 'sem política staff_only (app_enable_staff_only)' }));
 }

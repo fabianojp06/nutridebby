@@ -144,6 +144,69 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.painelUrl].join('\n\n'),
       };
     }
+    case 'convite_paciente': {
+      const subject = `Convite de ${msg.nutri} no NutriDebby`;
+      const linhas = msg.contaExistente
+        ? [
+            `Olá, ${msg.nome}!`,
+            `Entre com sua conta existente para ver os dados da nutricionista ${msg.nutri}.`,
+            'Depois de entrar, confirme o termo de uso e privacidade para liberar o acompanhamento.',
+          ]
+        : [`Olá, ${msg.nome}!`, `${msg.nutri} convidou você para acompanhar seu tratamento pelo NutriDebby.`, 'Para começar, crie sua senha e leia o termo de uso e privacidade.'];
+      const validade = 'O link vale por 7 dias e só pode ser usado uma vez. Se ele expirar, peça um novo à sua nutricionista.';
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>{msg.contaExistente ? 'Entrar e aceitar o convite' : 'Criar minha senha'}</Botao>
+            <P>{validade}</P>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link, validade].join('\n\n'),
+      };
+    }
+    case 'exclusao_atendida': {
+      const subject = 'Seu pedido de exclusão de dados foi atendido';
+      const linhas = [
+        `Olá, ${msg.nome}!`,
+        `${msg.nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.`,
+        'Foram apagados agora: as autorizações de mensagens por WhatsApp e os convites de acesso. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
+        `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
+        'Se tiver dúvidas, fale com a sua nutricionista.',
+      ];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+          </Layout>,
+        ),
+        text: linhas.join('\n\n'),
+      };
+    }
+    case 'exportacao_pronta': {
+      const subject = 'Exportação de dados pronta';
+      const linhas = ['A exportação de dados que você pediu no NutriDebby está pronta.', 'O link vale por 24 horas e pede que você entre no painel.'];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>Baixar exportação</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

@@ -44,4 +44,9 @@ describe('detectarTipo (magic bytes, RNF-06)', () => {
     expect(detectarTipo(conteudo)).toBeNull();
     expect(performance.now() - inicio).toBeLessThan(50);
   });
+
+  it('reconhece ZIP (exportação de dados) pelo cabeçalho local "PK\\x03\\x04"', () => {
+    expect(detectarTipo(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]))).toEqual({ mime: 'application/zip', ext: 'zip' });
+    expect(detectarTipo(Buffer.from('PK'))).toBeNull();
+  });
 });

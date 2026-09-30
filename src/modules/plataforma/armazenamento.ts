@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { storedFiles, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -13,7 +13,8 @@ export const COTA_BYTES = 5 * 1024 ** 3; // RN-18: 5 GB por tenant
 export const COTA_AVISO = 0.8;
 export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o suporte.';
 
-export type TipoDeArquivo = 'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'orientacao_pdf' | 'exportacao';
+export type TipoDeArquivo =
+  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'orientacao_pdf' | 'exportacao';
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 
 export class CotaEsgotadaError extends Error {
@@ -31,9 +32,13 @@ export class TipoNaoPermitidoError extends Error {
 
 type Deps = { db?: Db; dataDir?: string };
 
-export function nivelDeUso(bytes: number): { percentual: number; nivel: 'ok' | 'aviso' | 'esgotado' } {
+export function nivelDeUso(bytes: number): {
+  percentual: number;
+  nivel: 'ok' | 'aviso' | 'esgotado';
+} {
   const percentual = Math.min(100, Math.floor((bytes / COTA_BYTES) * 100));
-  const nivel = bytes >= COTA_BYTES ? 'esgotado' : bytes >= COTA_BYTES * COTA_AVISO ? 'aviso' : 'ok';
+  const nivel =
+    bytes >= COTA_BYTES ? 'esgotado' : bytes >= COTA_BYTES * COTA_AVISO ? 'aviso' : 'ok';
   return { percentual, nivel };
 }
 
@@ -41,7 +46,8 @@ export function nivelDeUso(bytes: number): { percentual: number; nivel: 'ok' | '
 export function resolverCaminho(dataDir: string, caminho: string): string {
   const raiz = path.resolve(dataDir);
   const alvo = path.resolve(raiz, caminho);
-  if (!caminho || !alvo.startsWith(raiz + path.sep)) throw new Error('caminho fora do diretório de dados');
+  if (!caminho || !alvo.startsWith(raiz + path.sep))
+    throw new Error('caminho fora do diretório de dados');
   return alvo;
 }
 
@@ -49,16 +55,29 @@ export function resolverCaminho(dataDir: string, caminho: string): string {
  * Salva um arquivo do tenant. O tipo vem do conteúdo (nunca do nome); SVG nunca é guardado
  * (a Tarefa 10 converte o logo SVG em PNG antes). A cota é reservada na mesma transação do
  * registro: a linha do tenant fica travada até o commit, então uploads simultâneos não passam do limite.
+ * ORDEM DE TRAVAS (evita deadlock): dono do arquivo (paciente, em `antesDaReserva`) → tenant (cota) → `registrar`.
+ * É a mesma ordem de `apagarArquivo` (`naMesmaTransacao` → tenant).
  */
 export async function salvarArquivo(
   ctx: TenantContext,
-  input: { tipo: TipoDeArquivo; conteudo: Buffer; permitidos: readonly TipoArquivo['ext'][] },
+  input: {
+    tipo: TipoDeArquivo;
+    conteudo: Buffer;
+    permitidos: readonly TipoArquivo['ext'][];
+    /** Grava o registro que aponta para o arquivo (exame, exportação) na mesma transação. */
+    registrar?: (tx: Tx, arquivo: ArquivoSalvo) => Promise<void>;
+    /** Roda na transação ANTES da reserva de cota: é onde se trava o dono do arquivo (paciente). */
+    antesDaReserva?: (tx: Tx) => Promise<void>;
+    /** Só a exportação LGPD (obrigação legal, art. 18): o arquivo conta na cota, mas não é barrado por ela. */
+    naoBarrarPelaCota?: boolean;
+  },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
   const real = detectarTipo(input.conteudo);
-  if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext)) throw new TipoNaoPermitidoError();
+  if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext))
+    throw new TipoNaoPermitidoError();
   const id = randomUUID();
   const caminho = `${ctx.tenantId}/${input.tipo}/${id}.${real.ext}`;
   const destino = resolverCaminho(dataDir, caminho);
@@ -66,23 +85,43 @@ export async function salvarArquivo(
   const bytes = input.conteudo.length;
   let gravado = false;
   try {
+    // O conteúdo vai para o disco ANTES da transação: a linha do tenant (e o dono do arquivo) ficam
+    // travados só pelo `rename`, não pelo tempo de escrita de um arquivo grande
+    await mkdir(path.dirname(destino), { recursive: true, mode: 0o750 });
+    await writeFile(tmp, input.conteudo, { mode: 0o640, flag: 'wx' });
     return await withTenant(
       ctx,
       async (tx) => {
+        if (input.antesDaReserva) await input.antesDaReserva(tx);
         const reserva = await tx
           .update(tenants)
           .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${bytes}` })
-          .where(and(eq(tenants.id, ctx.tenantId), sql`${tenants.armazenamentoBytes} + ${bytes} <= ${COTA_BYTES}`))
+          .where(
+            and(
+              eq(tenants.id, ctx.tenantId),
+              input.naoBarrarPelaCota
+                ? undefined
+                : sql`${tenants.armazenamentoBytes} + ${bytes} <= ${COTA_BYTES}`,
+            ),
+          )
           .returning({ id: tenants.id });
         if (!reserva.length) throw new CotaEsgotadaError();
         await tx
           .insert(storedFiles)
-          .values({ id, tenantId: ctx.tenantId, tipo: input.tipo, caminho, bytes, mime: real.mime, criadoPor: ctx.actorUserId ?? null });
-        await mkdir(path.dirname(destino), { recursive: true, mode: 0o750 });
-        await writeFile(tmp, input.conteudo, { mode: 0o640, flag: 'wx' });
+          .values({
+            id,
+            tenantId: ctx.tenantId,
+            tipo: input.tipo,
+            caminho,
+            bytes,
+            mime: real.mime,
+            criadoPor: ctx.actorUserId ?? null,
+          });
+        const arquivo = { id, caminho, bytes, mime: real.mime };
+        if (input.registrar) await input.registrar(tx, arquivo);
         await rename(tmp, destino);
         gravado = true;
-        return { id, caminho, bytes, mime: real.mime };
+        return arquivo;
       },
       db,
     );
@@ -93,31 +132,50 @@ export async function salvarArquivo(
   }
 }
 
-/** Apaga o registro e devolve o espaço; o arquivo sai do disco depois do commit. */
+/**
+ * Apaga o registro e devolve o espaço; por padrão o arquivo sai do disco depois do commit (falha no `rm`
+ * só vira aviso de arquivo órfão). Ordem de travas: `naMesmaTransacao` (paciente/dono) → tenant (cota), igual a `salvarArquivo`.
+ * `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
+ */
 export async function apagarArquivo(
   ctx: TenantContext,
   filtro: { id: string } | { caminho: string },
-  deps: Deps = {},
+  deps: Deps & {
+    naMesmaTransacao?: (tx: Tx) => Promise<boolean>;
+    removerAntesDoCommit?: boolean;
+  } = {},
 ): Promise<boolean> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
-  const onde = 'id' in filtro ? eq(storedFiles.id, filtro.id) : eq(storedFiles.caminho, filtro.caminho);
+  const onde =
+    'id' in filtro ? eq(storedFiles.id, filtro.id) : eq(storedFiles.caminho, filtro.caminho);
   const apagado = await withTenant(
     ctx,
     async (tx) => {
-      const [row] = await tx.delete(storedFiles).where(onde).returning({ caminho: storedFiles.caminho, bytes: storedFiles.bytes });
+      if (deps.naMesmaTransacao && !(await deps.naMesmaTransacao(tx))) return null;
+      const [row] = await tx
+        .delete(storedFiles)
+        .where(onde)
+        .returning({ caminho: storedFiles.caminho, bytes: storedFiles.bytes });
       if (!row) return null;
       await tx
         .update(tenants)
         .set({ armazenamentoBytes: sql`greatest(${tenants.armazenamentoBytes} - ${row.bytes}, 0)` })
         .where(eq(tenants.id, ctx.tenantId));
+      if (deps.removerAntesDoCommit)
+        await rm(resolverCaminho(dataDir, row.caminho), { force: true });
       return row;
     },
     db,
   );
   if (!apagado) return false;
-  await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
-    logger.warn({ err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
-  );
+  if (!deps.removerAntesDoCommit) {
+    await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
+        'arquivo órfão no disco',
+      ),
+    );
+  }
   return true;
 }
