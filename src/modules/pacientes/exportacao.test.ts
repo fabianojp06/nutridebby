@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, dataExports, patients, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { buscarModelo, preencherAnamnese, salvarModelo } from './anamnese';
@@ -16,7 +16,12 @@ import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
 import { criarExame } from './exames';
-import { estadoDaExportacao, exportacoesRecentes, solicitarExportacao } from './exportacao';
+import {
+  estadoDaExportacao,
+  exportacoesRecentes,
+  MSG_EXPORTACAO,
+  solicitarExportacao,
+} from './exportacao';
 import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from './exportacao-job';
 import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
@@ -152,6 +157,91 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     ).toHaveLength(1);
   });
 
+  it('os laudos dos exames vão no ZIP, em laudos/, com o nome ligado ao exame no dados.json e no PDF', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(500, 7)]);
+    await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Hemograma', data: '2026-09-10', valores: [], arquivo: PDF },
+      deps,
+    );
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: id },
+        { ...deps, ultimaTentativa: false },
+      ),
+    ).toBe('pronta');
+    const estado = await estadoDaExportacao(T.ctx, p.id, id, app.db, now);
+    if (estado.estado !== 'pronta') throw new Error(estado.estado);
+    const zip = unzipSync(readFileSync(path.join(dataDir, estado.caminho)));
+    expect(Object.keys(zip).sort()).toEqual([
+      'dados.json',
+      'laudos/2026-09-10-02.pdf',
+      'prontuario.pdf',
+    ]);
+    expect(Buffer.from(zip['laudos/2026-09-10-02.pdf']).equals(PDF)).toBe(true);
+    const dados = JSON.parse(strFromU8(zip['dados.json']));
+    expect(
+      dados.exames.map((e: { titulo: string; laudo: string | null }) => [e.titulo, e.laudo]),
+    ).toEqual([
+      ['Rotina', null],
+      ['Hemograma', 'laudos/2026-09-10-02.pdf'],
+    ]);
+    expect(dados.laudosForaDoZip).toBe(false);
+  });
+
+  it('laudos acima do teto de memória ou sumidos do disco ficam de fora, com aviso — a exportação não falha', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(500)]);
+    await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Hemograma', data: '2026-09-10', valores: [], arquivo: PDF },
+      deps,
+    );
+    const grande = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: grande },
+        { ...deps, ultimaTentativa: false, limiteLaudosBytes: 100 },
+      ),
+    ).toBe('pronta');
+    const e1 = await estadoDaExportacao(T.ctx, p.id, grande, app.db, now);
+    if (e1.estado !== 'pronta') throw new Error(e1.estado);
+    const z1 = unzipSync(readFileSync(path.join(dataDir, e1.caminho)));
+    expect(Object.keys(z1).sort()).toEqual(['dados.json', 'prontuario.pdf']);
+    const d1 = JSON.parse(strFromU8(z1['dados.json']));
+    expect(d1.laudosForaDoZip).toBe(true);
+    expect(d1.exames[1]).toMatchObject({ titulo: 'Hemograma', temLaudo: true, laudo: null });
+
+    const [exame] = await withTenant(
+      T.ctx,
+      (tx) => tx.select().from(exams).where(eq(exams.titulo, 'Hemograma')),
+      app.db,
+    );
+    rmSync(path.join(dataDir, exame.arquivoPath!));
+    const sumido = await solicitarExportacao(T.ctx, p.id, {
+      ...deps,
+      now: new Date(now.getTime() + 31 * 60_000),
+    });
+    expect(
+      await gerarExportacao(
+        { tenantId: T.tenantId, exportId: sumido },
+        { ...deps, ultimaTentativa: false },
+      ),
+    ).toBe('pronta');
+    const e2 = await estadoDaExportacao(T.ctx, p.id, sumido, app.db, now);
+    if (e2.estado !== 'pronta') throw new Error(e2.estado);
+    const d2 = JSON.parse(
+      strFromU8(unzipSync(readFileSync(path.join(dataDir, e2.caminho)))['dados.json']),
+    );
+    expect(d2.exames[1]).toMatchObject({ temLaudo: true, laudo: null });
+  });
+
   it('24 h depois o arquivo some e o link diz que expirou; a cota volta', async () => {
     const { T, p } = await prontuarioCompleto();
     const id = await solicitarExportacao(T.ctx, p.id, deps);
@@ -250,6 +340,29 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     ).toEqual([]);
   });
 
+  it('paciente já anonimizado: o pedido é recusado (não há identificação a devolver) e nada vai para a fila', async () => {
+    const { T, p } = await prontuarioCompleto();
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .update(patients)
+          .set({ status: 'bloqueado', anonimizadoEm: now })
+          .where(eq(patients.id, p.id)),
+      app.db,
+    );
+    await expect(solicitarExportacao(T.ctx, p.id, deps)).rejects.toThrow(
+      MSG_EXPORTACAO.anonimizado,
+    );
+    expect(
+      await withTenant(
+        T.ctx,
+        (tx) => tx.select().from(dataExports).where(eq(dataExports.patientId, p.id)),
+        app.db,
+      ),
+    ).toEqual([]);
+  });
+
   it('pendente há mais de 30 min (job perdido) não prende o paciente: pedir de novo cria outro', async () => {
     const { T, p } = await prontuarioCompleto();
     const id = await solicitarExportacao(T.ctx, p.id, deps);
@@ -321,9 +434,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
         gastoEnergetico: [],
-        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, valores }],
+        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores }],
         atendimentos: [],
         pedidosLgpd: [],
+        laudosForaDoZip: false,
       },
       'Debby Silva',
     );

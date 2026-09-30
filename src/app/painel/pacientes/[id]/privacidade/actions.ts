@@ -10,7 +10,7 @@ import {
   desarquivarPaciente,
   LgpdError,
 } from '@/modules/pacientes/lgpd';
-import { solicitarExportacao } from '@/modules/pacientes/exportacao';
+import { ExportacaoIndisponivelError, solicitarExportacao } from '@/modules/pacientes/exportacao';
 
 const caminho = (id: string) => `/painel/pacientes/${id}/privacidade`;
 
@@ -62,6 +62,8 @@ export async function exportarAction(patientId: string): Promise<void> {
     id = await solicitarExportacao(ctx, patientId);
   } catch (e) {
     if (e instanceof PacienteNaoEncontradoError) notFound();
+    // Corrida com a anonimização (a página já esconde o botão): volta para a aba, que explica
+    if (e instanceof ExportacaoIndisponivelError) redirect(caminho(patientId));
     throw e;
   }
   redirect(`/painel/pacientes/${patientId}/exportacoes/${id}`);

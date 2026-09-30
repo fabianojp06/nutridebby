@@ -1,3 +1,5 @@
+import { readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
 import { and, asc, eq, lt, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
@@ -21,6 +23,7 @@ import { logger } from '@/lib/logger';
 import {
   apagarArquivo,
   CotaEsgotadaError,
+  resolverCaminho,
   salvarArquivo,
 } from '@/modules/plataforma/armazenamento';
 import {
@@ -80,12 +83,22 @@ export type DadosExportacao = {
     data: string;
     titulo: string;
     temLaudo: boolean;
+    /** Caminho do laudo dentro do ZIP (`laudos/…`); null se não há laudo ou se ele ficou de fora. */
+    laudo: string | null;
     valores: { nome: string; valor: number; unidade: string | null; referencia: string | null }[];
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
   pedidosLgpd: { tipo: string; status: string; prazo: string; concluidoEm: string | null }[];
+  /** Os laudos passaram do teto de memória da exportação e não foram no ZIP. */
+  laudosForaDoZip: boolean;
 };
+
+/** Laudo a copiar para o ZIP: `indice` em `exames`, `nome` sem texto do usuário (data + posição). */
+type LaudoParaZip = { indice: number; caminho: string; nome: string };
+
+/** O ZIP é montado em memória no worker: acima disto, os laudos ficam de fora (com aviso), não a exportação. */
+export const LIMITE_LAUDOS_BYTES = 200 * 1024 ** 2;
 
 const texto = (v: string | string[]) =>
   Array.isArray(v) ? v.join(', ') : v === 'sim' ? 'Sim' : v === 'nao' ? 'Não' : v;
@@ -101,7 +114,7 @@ export async function montarDados(
   patientId: string,
   now: Date,
   fuso: string,
-): Promise<DadosExportacao> {
+): Promise<{ dados: DadosExportacao; laudos: LaudoParaZip[] }> {
   const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
   const as = await tx
     .select()
@@ -133,7 +146,18 @@ export async function montarDados(
     .from(privacyRequests)
     .where(eq(privacyRequests.patientId, patientId))
     .orderBy(asc(privacyRequests.createdAt));
-  return {
+  const laudos: LaudoParaZip[] = ex.flatMap((e, i) =>
+    e.arquivoPath
+      ? [
+          {
+            indice: i,
+            caminho: e.arquivoPath,
+            nome: `laudos/${e.data}-${String(i + 1).padStart(2, '0')}${path.extname(e.arquivoPath)}`,
+          },
+        ]
+      : [],
+  );
+  const dados: DadosExportacao = {
     versao: 1,
     geradoEm: now.toISOString(),
     dataEmissao: hojeNoFuso(fuso, now),
@@ -180,6 +204,7 @@ export async function montarDados(
       data: e.data,
       titulo: e.titulo,
       temLaudo: !!e.arquivoPath,
+      laudo: null,
       valores: e.valores,
     })),
     atendimentos: at,
@@ -189,7 +214,44 @@ export async function montarDados(
       prazo: r.prazo,
       concluidoEm: r.concluidoEm?.toISOString() ?? null,
     })),
+    laudosForaDoZip: false,
   };
+  return { dados, laudos };
+}
+
+/**
+ * Lê os laudos de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto, nenhum vai
+ * (e `laudosForaDoZip` avisa); laudo que sumiu do disco fica de fora sem derrubar a exportação.
+ */
+async function lerLaudos(
+  dados: DadosExportacao,
+  laudos: LaudoParaZip[],
+  dataDir: string,
+  limite: number,
+  tenantId: string,
+): Promise<Record<string, Uint8Array>> {
+  const presentes: (LaudoParaZip & { bytes: number })[] = [];
+  let ausentes = 0;
+  for (const l of laudos) {
+    try {
+      presentes.push({ ...l, bytes: (await stat(resolverCaminho(dataDir, l.caminho))).size });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      ausentes++;
+    }
+  }
+  if (ausentes)
+    logger.warn({ tenantId, ausentes }, 'laudo ausente no disco ficou fora da exportação');
+  if (presentes.reduce((t, l) => t + l.bytes, 0) > limite) {
+    dados.laudosForaDoZip = true;
+    return {};
+  }
+  const arquivos: Record<string, Uint8Array> = {};
+  for (const l of presentes) {
+    arquivos[l.nome] = await readFile(resolverCaminho(dataDir, l.caminho));
+    dados.exames[l.indice].laudo = l.nome;
+  }
+  return arquivos;
 }
 
 type DadosJob = { tenantId: string; exportId: string };
@@ -203,6 +265,8 @@ type DepsJob = {
   ultimaTentativa: boolean;
   /** Testes trocam o PDF. */
   renderizar?: typeof renderizarProntuario;
+  /** Testes baixam o teto dos laudos. */
+  limiteLaudosBytes?: number;
 };
 
 /** Outro worker marcou o pedido antes: o `registrar` desiste e o salvarArquivo desfaz ZIP, registro e cota. */
@@ -250,10 +314,17 @@ export async function gerarExportacao(
   if (!pedido) return 'ignorada';
   try {
     const tenant = await buscarTenant(db, data.tenantId);
-    const dados = await withTenant(
+    const { dados, laudos } = await withTenant(
       ctx,
       (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo'),
       db,
+    );
+    const arquivosDosLaudos = await lerLaudos(
+      dados,
+      laudos,
+      deps.dataDir,
+      deps.limiteLaudosBytes ?? LIMITE_LAUDOS_BYTES,
+      data.tenantId,
     );
     const pdf = await (deps.renderizar ?? renderizarProntuario)(
       dados,
@@ -262,6 +333,10 @@ export async function gerarExportacao(
     const zip = zipSync({
       'dados.json': strToU8(JSON.stringify(dados, null, 2)),
       'prontuario.pdf': new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.length),
+      // Laudo (PDF/JPEG/PNG) já vem comprimido: guardado sem recomprimir, para poupar CPU do worker
+      ...Object.fromEntries(
+        Object.entries(arquivosDosLaudos).map(([nome, u8]) => [nome, [u8, { level: 0 }] as const]),
+      ),
     });
     const boss = deps.boss ?? (await getBoss());
     const expiraEm = new Date(now.getTime() + EXPORTACAO_VALIDADE_MS);

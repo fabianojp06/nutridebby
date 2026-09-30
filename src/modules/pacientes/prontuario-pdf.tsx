@@ -68,7 +68,7 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
             <Text
               style={s.rotulo}
               minPresenceAhead={28}
-            >{`${br(e.data)} · ${e.titulo}${e.temLaudo ? ' (laudo anexado no sistema)' : ''}`}</Text>
+            >{`${br(e.data)} · ${e.titulo}${e.laudo ? ` (laudo: ${e.laudo})` : e.temLaudo ? ' (laudo guardado no sistema, fora desta exportação)' : ''}`}</Text>
             {e.valores.map((v, j) => (
               <Text
                 key={j}

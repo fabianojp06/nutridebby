@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { formatarData } from '@/modules/pacientes/datas';
-import { exportacoesRecentes } from '@/modules/pacientes/exportacao';
+import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
 import { PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
 import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 import { carregarProntuario } from '../prontuario';
@@ -52,13 +52,20 @@ export default async function PrivacidadePage({
         <h2 id="exportacao" className="text-lg font-semibold">
           Exportar dados (LGPD)
         </h2>
-        <p>
-          Gera um ZIP com dados.json e prontuario.pdf de todo o prontuário, sem as notas privadas e
-          sem as etiquetas. O link chega por e-mail e vale por 24 horas.
-        </p>
-        <form action={exportarAction.bind(null, paciente.id)}>
-          <button className="rounded border px-4 py-2">Exportar dados</button>
-        </form>
+        {paciente.anonimizadoEm ? (
+          <p>{MSG_EXPORTACAO.anonimizado}</p>
+        ) : (
+          <>
+            <p>
+              Gera um ZIP com dados.json, prontuario.pdf e os laudos dos exames, de todo o
+              prontuário, sem as notas privadas e sem as etiquetas. O link chega por e-mail e vale
+              por 24 horas.
+            </p>
+            <form action={exportarAction.bind(null, paciente.id)}>
+              <button className="rounded border px-4 py-2">Exportar dados</button>
+            </form>
+          </>
+        )}
         {recentes.length > 0 && (
           <ul className="text-sm">
             {recentes.map((r) => (

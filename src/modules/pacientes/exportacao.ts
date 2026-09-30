@@ -11,6 +11,15 @@ export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link váli
 /** Pendente há mais que isto = o job se perdeu (3 tentativas de até 5 min + espera): um pedido novo é criado. */
 export const PENDENTE_MAX_MS = 30 * 60 * 1000;
 
+export const MSG_EXPORTACAO = {
+  anonimizado:
+    'Os dados de identificação deste paciente já foram anonimizados: não há exportação a gerar.',
+} as const;
+
+export class ExportacaoIndisponivelError extends Error {
+  override name = 'ExportacaoIndisponivelError';
+}
+
 export type EstadoExportacao =
   | { estado: 'pendente' }
   | { estado: 'pronta'; caminho: string; expiraEm: Date }
@@ -39,11 +48,13 @@ export async function solicitarExportacao(
     ctx,
     async (tx) => {
       const [p] = await tx
-        .select({ id: patients.id })
+        .select({ id: patients.id, anonimizadoEm: patients.anonimizadoEm })
         .from(patients)
         .where(eq(patients.id, patientId))
         .for('update');
       if (!p) throw new PacienteNaoEncontradoError();
+      // O job desistiria de qualquer forma (exportacao-job.ts): recusar aqui evita um "falhou" sem saída
+      if (p.anonimizadoEm) throw new ExportacaoIndisponivelError(MSG_EXPORTACAO.anonimizado);
       const [pendente] = await tx
         .select({ id: dataExports.id, createdAt: dataExports.createdAt })
         .from(dataExports)
