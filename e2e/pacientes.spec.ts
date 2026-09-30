@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { esperarEmail, primeiroLink } from './mailpit';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -46,6 +47,30 @@ test('cadastra paciente adulto; menor de 18 e e-mail repetido são recusados (US
 
   await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(`ana souza ${sufixo}`)}`);
   await expect(nutri.getByRole('link', { name: ANA.nome })).toBeVisible();
+});
+
+test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao portal; o link não vale de novo (US-010, US-011)', async ({ browser }) => {
+  const email = await esperarEmail(ANA.email, { assunto: 'Convite de Consultório E2E no NutriDebby' });
+  const link = primeiroLink(email.texto, '/convite/paciente/');
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.5.2' } });
+  const page = await ctx.newPage();
+  const resposta = await page.goto(link);
+  expect(resposta?.headers()['referrer-policy']).toBe('no-referrer');
+  await page.getByLabel('Nova senha').fill(ANA.senha);
+  await page.getByLabel('Repita a senha').fill(ANA.senha);
+  const continuar = page.getByRole('button', { name: 'Continuar' });
+  await expect(continuar).toBeDisabled(); // US-011 "Consentimento obrigatório"
+  await page.getByLabel(/^Li e aceito o Termo de Uso e Privacidade \(versão /).check();
+  await expect(page.getByLabel('Quero receber lembretes por WhatsApp')).toBeChecked(); // a nutricionista autorizou
+  await continuar.click();
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
+  await page.goto(link);
+  await expect(page.locator('p[role="alert"]')).toContainText('Convite inválido ou já usado.');
+  await ctx.close();
+
+  await nutri.goto(prontuario);
+  await expect(nutri.getByText('Ativo: o paciente já criou a senha.')).toBeVisible();
 });
 
 test('abrir o prontuário fica registrado no "Histórico de acessos" (US-007)', async () => {

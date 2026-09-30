@@ -108,6 +108,30 @@ describe('atualizarPaciente', () => {
     expect(q).toMatchObject({ nome: 'Ana S. Lima', whatsappOptinEm: null, whatsappOptinOrigem: null });
   });
 
+  it('desmarcar a autorização não apaga o consentimento que o próprio paciente deu (origem paciente) (US-011)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ whatsappAutorizado: true }), deps);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ whatsappOptinOrigem: 'paciente' }).where(eq(patients.id, p.id)), app.db);
+    const q = await atualizarPaciente(T.ctx, T.tenant, p.id, ana({ email: p.email, whatsappAutorizado: false }), deps);
+    expect(q).toMatchObject({ whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
+    expect(q.whatsappOptinEm?.toISOString()).toBe(now.toISOString());
+  });
+
+  it('marcar a autorização não desfaz o opt-out do paciente (US-010, US-011)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ whatsappAutorizado: true }), deps);
+    const optout = new Date('2026-10-02T10:00:00Z');
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ whatsappOptoutEm: optout }).where(eq(patients.id, p.id)), app.db);
+    const q = await atualizarPaciente(T.ctx, T.tenant, p.id, ana({ email: p.email, whatsappAutorizado: true }), deps);
+    expect(q.whatsappOptoutEm?.toISOString()).toBe(optout.toISOString());
+    expect(q.whatsappOptinEm?.toISOString()).toBe(now.toISOString());
+    // sem opt-in anterior mas com opt-out registrado: também não recria o opt-in
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ whatsappOptinEm: null, whatsappOptinOrigem: null }).where(eq(patients.id, p.id)), app.db);
+    const r = await atualizarPaciente(T.ctx, T.tenant, p.id, ana({ email: p.email, whatsappAutorizado: true }), deps);
+    expect(r).toMatchObject({ whatsappOptinEm: null, whatsappOptinOrigem: null });
+    expect(r.whatsappOptoutEm?.toISOString()).toBe(optout.toISOString());
+  });
+
   it('com acesso ativo o e-mail não muda; bloqueado é só leitura; id de outro tenant ou malformado = não encontrado', async () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);

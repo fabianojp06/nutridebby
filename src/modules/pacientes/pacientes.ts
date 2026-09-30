@@ -87,10 +87,17 @@ function comoDuplicado(err: unknown): never {
   throw err;
 }
 
-/** Autorização presencial (INT-01, `origem = 'nutri'`). O opt-out do próprio paciente nunca é desfeito aqui. */
-function autorizacaoWhatsapp(autorizado: boolean, atual: Pick<PatientRow, 'whatsappOptinEm'> | null, now: Date) {
-  if (autorizado) return atual?.whatsappOptinEm ? {} : { whatsappOptinEm: now, whatsappOptinOrigem: 'nutri' };
-  return { whatsappOptinEm: null, whatsappOptinOrigem: null };
+/**
+ * Autorização presencial (INT-01, `origem = 'nutri'`). Nunca desfaz uma escolha do paciente: o opt-out
+ * dele vale sobre o formulário da nutricionista, e desmarcar só apaga o opt-in de origem 'nutri'.
+ */
+function autorizacaoWhatsapp(
+  autorizado: boolean,
+  atual: Pick<PatientRow, 'whatsappOptinEm' | 'whatsappOptinOrigem' | 'whatsappOptoutEm'> | null,
+  now: Date,
+) {
+  if (autorizado) return atual?.whatsappOptinEm || atual?.whatsappOptoutEm ? {} : { whatsappOptinEm: now, whatsappOptinOrigem: 'nutri' };
+  return atual?.whatsappOptinOrigem === 'nutri' || !atual ? { whatsappOptinEm: null, whatsappOptinOrigem: null } : {};
 }
 
 /**

@@ -5,13 +5,18 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { invites, user } from '@/db/schema';
+import { account, auditLog, consents, invites, patients, tenants, user } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
+import { createAuth } from '@/lib/auth';
+import { verifyPassword } from '@/lib/password.server';
+import { entrar } from '../../../test/sessao';
 import { stopBoss } from '@/jobs/boss';
 import { sha256 } from '@/lib/crypto';
 import { aceitarConvite, CONVITE_INVALIDO, inspecionarConvite } from '@/modules/plataforma/convites';
 import { PacienteNaoEncontradoError } from './base';
-import { ConvitePacienteError, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso } from './convite-paciente';
-import { atualizarPaciente, criarPaciente } from './pacientes';
+import { aceitarConvitePaciente, ConvitePacienteError, inspecionarConvitePaciente, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso, vincularContaExistente } from './convite-paciente';
+import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes } from './pacientes';
+import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -109,5 +114,122 @@ describe('convite do paciente (US-010)', () => {
       aceitarConvite({ token, senha: 'Senha-muito-boa-2026', confirmacao: 'Senha-muito-boa-2026', aceitouDpa: true, ip: null }, { db: app.db, now }),
     ).rejects.toThrow(CONVITE_INVALIDO);
     expect(await pendentes(p.id)).toHaveLength(1); // usado_em continua nulo
+  });
+});
+
+const SENHA = 'Paciente2026segura';
+const auth = createAuth(app.db, { verificarTurnstile: async () => 'ok' });
+
+/** Paciente cadastrado pela nutricionista (com WhatsApp autorizado) + token do convite em claro. */
+async function convidado(extra: Record<string, unknown> = {}) {
+  const T = await novoTenant(app.db, 'Debby Silva');
+  const email = `ac-${s()}@ex.com`;
+  const p = await criarPaciente(T.ctx, T.tenant, { ...dados(email), telefone: '(11) 91234-5678', whatsappAutorizado: true, ...extra }, deps);
+  const [msg] = await emailsNaFila('convite_paciente', email);
+  return { T, p, email, token: tokenDe(msg.link) };
+}
+const aceite = (token: string, extra: Partial<Parameters<typeof aceitarConvitePaciente>[0]> = {}) =>
+  aceitarConvitePaciente({ token, senha: SENHA, confirmacao: SENHA, aceitouTermo: true, whatsapp: true, ip: '203.0.113.30', ...extra }, { db: app.db, now });
+const lerPaciente = async (T: { tenantId: string; ctx: Parameters<typeof withTenant>[0] }, id: string) =>
+  (await withTenant(T.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, id)), app.db))[0];
+
+describe('aceite do convite — conta nova (US-011)', () => {
+  it('cria a conta de paciente, grava a senha, o termo (versão, data, IP), liga o prontuário e o opt-in do próprio paciente', async () => {
+    const c = await convidado();
+    expect(await inspecionarConvitePaciente(app.db, c.token, now)).toMatchObject({ estado: 'valido', conta: 'nenhuma', nutri: 'Debby Silva', temTelefone: true, whatsappMarcado: true });
+    expect(await aceite(c.token)).toEqual({ email: c.email });
+    const [u] = await app.db.select().from(user).where(eq(user.email, c.email));
+    expect(u).toMatchObject({ appRole: 'paciente', tenantId: null, emailVerified: true, name: 'Ana Souza' });
+    const [acc] = await app.db.select().from(account).where(eq(account.userId, u.id));
+    expect(await verifyPassword(acc.password!, SENHA)).toBe(true);
+    const [cons] = await app.db.select().from(consents).where(eq(consents.userId, u.id));
+    expect(cons).toMatchObject({ termoVersao: TERMO_PACIENTE, tenantId: c.T.tenantId, ip: '203.0.113.30' });
+    const p = await lerPaciente(c.T, c.p.id);
+    expect(p).toMatchObject({ userId: u.id, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
+    const log = await withTenant(c.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, c.p.id), eq(auditLog.acao, 'alterar'))).orderBy(auditLog.criadoEm), app.db);
+    expect(log.at(-1)).toMatchObject({ actorUserId: u.id, ip: '203.0.113.30' });
+    await expect(entrar(auth, c.email, SENHA)).resolves.toMatch(/^nd\.session_token=/);
+    expect(await inspecionarConvitePaciente(app.db, c.token, now)).toEqual({ estado: 'invalido' });
+  });
+
+  it('sem o termo, com senha fraca ou senhas diferentes: nada é gravado e o convite continua valendo', async () => {
+    const c = await convidado();
+    await expect(aceite(c.token, { aceitouTermo: false })).rejects.toThrow(MSG_TERMO_NAO_ACEITO);
+    await expect(aceite(c.token, { senha: 'curta1', confirmacao: 'curta1' })).rejects.toThrow('A senha precisa ter pelo menos 10 caracteres.');
+    await expect(aceite(c.token, { confirmacao: 'Outra2026senha' })).rejects.toThrow('As senhas não conferem.');
+    expect(await app.db.select().from(user).where(eq(user.email, c.email))).toEqual([]);
+    await expect(aceite(c.token)).resolves.toEqual({ email: c.email });
+  });
+
+  it('desmarcar o WhatsApp que a nutricionista tinha autorizado grava o opt-out', async () => {
+    const c = await convidado();
+    await aceite(c.token, { whatsapp: false });
+    const p = await lerPaciente(c.T, c.p.id);
+    expect(p.whatsappOptinOrigem).toBe('nutri');
+    expect(p.whatsappOptoutEm?.toISOString()).toBe(now.toISOString());
+  });
+
+  it('duplo clique em "Continuar": uma conta só, os outros envios veem convite inválido (Review Focus 3)', async () => {
+    const c = await convidado();
+    const r = await Promise.allSettled([aceite(c.token), aceite(c.token), aceite(c.token)]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    for (const f of r.filter((x): x is PromiseRejectedResult => x.status === 'rejected')) {
+      expect((f.reason as Error).message).toBe(MSG_CONVITE_PACIENTE.invalido);
+    }
+    expect(await app.db.select().from(user).where(eq(user.email, c.email))).toHaveLength(1);
+  });
+
+  it('expirado, arquivado depois do convite, ou nutricionista suspensa: recusado', async () => {
+    const c = await convidado();
+    await expect(aceitarConvitePaciente({ token: c.token, senha: SENHA, confirmacao: SENHA, aceitouTermo: true, whatsapp: false, ip: null }, { db: app.db, now: new Date('2026-10-08T15:00:01Z') })).rejects.toThrow(
+      MSG_CONVITE_PACIENTE.expirado,
+    );
+    const arq = await convidado();
+    await withTenant(arq.T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arq.p.id)), app.db);
+    await expect(aceite(arq.token)).rejects.toThrow(MSG_CONVITE_PACIENTE.invalido);
+    const sus = await convidado();
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, sus.T.tenantId));
+    await expect(aceite(sus.token)).rejects.toThrow(MSG_CONVITE_PACIENTE.indisponivel);
+  });
+});
+
+describe('aceite do convite — quem já tem conta (US-010 "E-mail já usado por paciente de outra nutricionista")', () => {
+  it('a mesma conta passa a ter o vínculo com a segunda nutricionista; nenhum dado do tenant B aparece no A', async () => {
+    const primeiro = await convidado();
+    await aceite(primeiro.token);
+    const [u] = await app.db.select().from(user).where(eq(user.email, primeiro.email));
+    const B = await novoTenant(app.db, 'Outra Nutri');
+    const pB = await criarPaciente(B.ctx, B.tenant, { ...dados(primeiro.email), nome: 'Ana S.' }, deps);
+    const [msg] = (await emailsNaFila('convite_paciente', primeiro.email)).filter((m) => m.nutri === 'Outra Nutri');
+    expect(msg.contaExistente).toBe(true);
+    const tokenB = tokenDe(msg.link);
+    expect(await inspecionarConvitePaciente(app.db, tokenB, now)).toMatchObject({ estado: 'valido', conta: 'paciente' });
+    await vincularContaExistente({ token: tokenB, userId: u.id, aceitouTermo: true, whatsapp: false, ip: '203.0.113.31' }, { db: app.db, now });
+    expect((await lerPaciente(B, pB.id)).userId).toBe(u.id);
+    // mesma versão do termo, mas uma prova de aceite por nutricionista (controladora), com data e IP de cada vínculo
+    const aceites = await app.db.select().from(consents).where(eq(consents.userId, u.id));
+    expect(aceites.map((c) => [c.tenantId, c.ip]).sort()).toEqual([[B.tenantId, '203.0.113.31'], [primeiro.T.tenantId, '203.0.113.30']].sort());
+    // a nutricionista A não enxerga o prontuário nem o vínculo de B (US-006)
+    expect(await buscarPaciente(primeiro.T.ctx, pB.id, app.db)).toBeNull();
+    expect((await listarPacientes(primeiro.T.ctx, {}, app.db)).map((x) => x.nome)).not.toContain('Ana S.');
+    expect((await lerPaciente(primeiro.T, primeiro.p.id)).userId).toBe(u.id); // o vínculo de A segue o mesmo
+  });
+
+  it('conta de outro e-mail ou e-mail que é de nutricionista: mensagem clara e nada vinculado (Review Focus 3)', async () => {
+    const c = await convidado();
+    const outro = randomUUID();
+    await app.db.insert(user).values({ id: outro, name: 'Outra', email: `outra-${s()}@ex.com`, appRole: 'paciente' });
+    await expect(vincularContaExistente({ token: c.token, userId: outro, aceitouTermo: true, whatsapp: false, ip: null }, { db: app.db, now })).rejects.toThrow(
+      MSG_CONVITE_PACIENTE.outraConta,
+    );
+    expect((await lerPaciente(c.T, c.p.id)).userId).toBeNull();
+
+    const T = await novoTenant(app.db);
+    const emailDaNutri = `nutri-${s()}@ex.com`;
+    await app.db.insert(user).values({ id: randomUUID(), name: 'Nutri', email: emailDaNutri, appRole: 'nutri', tenantId: T.tenantId });
+    await criarPaciente(T.ctx, T.tenant, dados(emailDaNutri), deps);
+    const token = tokenDe((await emailsNaFila('convite_paciente', emailDaNutri))[0].link);
+    expect(await inspecionarConvitePaciente(app.db, token, now)).toMatchObject({ estado: 'valido', conta: 'equipe' });
+    await expect(aceite(token)).rejects.toThrow(MSG_CONVITE_PACIENTE.contaDeEquipe);
   });
 });

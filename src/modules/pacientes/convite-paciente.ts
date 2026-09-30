@@ -1,11 +1,18 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { invites, user, type PatientRow } from '@/db/schema';
+import { uniqueViolation } from '@/db/errors';
+import { account, consents, invites, patients, user, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
 import { randomToken, sha256 } from '@/lib/crypto';
+import { validatePasswordPolicy } from '@/lib/password-policy';
+import { commonPasswords, hashPassword } from '@/lib/password.server';
+import { normalizeEmail } from '@/lib/text';
+import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { carregarPacienteParaEscrita } from './base';
+import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
 
 export const CONVITE_PACIENTE_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000; // US-010: 7 dias
 
@@ -100,5 +107,163 @@ export async function reenviarConvitePaciente(
       return enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now: deps.now ?? new Date() });
     },
     deps.db ?? getDb(),
+  );
+}
+
+const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+export type EstadoConvitePaciente =
+  | {
+      estado: 'valido';
+      tenantId: string;
+      patientId: string;
+      nome: string;
+      email: string;
+      nutri: string;
+      tenantSuspenso: boolean;
+      temTelefone: boolean;
+      /** Opt-in vigente (da nutricionista ou do paciente): a caixa do WhatsApp vem marcada. */
+      whatsappMarcado: boolean;
+      /** Conta com o e-mail do convite: nenhuma, de paciente (outro tenant) ou da equipe (nutri/admin). */
+      conta: 'nenhuma' | 'paciente' | 'equipe';
+    }
+  | { estado: 'expirado' }
+  | { estado: 'invalido' };
+
+/** Lê o convite pelo token (sem sessão). O prontuário é lido no contexto do próprio paciente (RLS). */
+export async function inspecionarConvitePaciente(db: Db, token: string, now: Date = new Date()): Promise<EstadoConvitePaciente> {
+  if (!TOKEN.test(token)) return { estado: 'invalido' };
+  const [c] = await db
+    .select({ tenantId: invites.tenantId, patientId: invites.patientId, expiraEm: invites.expiraEm, usadoEm: invites.usadoEm })
+    .from(invites)
+    .where(and(eq(invites.tokenHash, sha256(token)), eq(invites.tipo, 'paciente')));
+  if (!c?.tenantId || !c.patientId || c.usadoEm) return { estado: 'invalido' };
+  if (c.expiraEm.getTime() <= now.getTime()) return { estado: 'expirado' };
+  const { tenantId, patientId } = c;
+  const tenant = await buscarTenant(db, tenantId);
+  const [p] = await withTenant({ tenantId, role: 'paciente', patientId }, (tx) => tx.select().from(patients).where(eq(patients.id, patientId)), db);
+  if (!tenant || !p || p.status !== 'ativo' || p.userId) return { estado: 'invalido' };
+  const [u] = await db.select({ papel: user.appRole }).from(user).where(eq(user.email, p.email));
+  return {
+    estado: 'valido',
+    tenantId,
+    patientId,
+    nome: p.nome,
+    email: p.email,
+    nutri: tenant.nomeExibicao,
+    tenantSuspenso: tenant.status === 'suspensa',
+    temTelefone: !!p.telefoneE164,
+    whatsappMarcado: !!p.whatsappOptinEm && !p.whatsappOptoutEm,
+    conta: !u ? 'nenhuma' : u.papel === 'paciente' ? 'paciente' : 'equipe',
+  };
+}
+
+type Valido = Extract<EstadoConvitePaciente, { estado: 'valido' }>;
+
+async function prepararAceite(db: Db, token: string, aceitouTermo: boolean, now: Date): Promise<Valido> {
+  if (!aceitouTermo) throw new ConvitePacienteError(MSG_TERMO_NAO_ACEITO, 'termo');
+  const e = await inspecionarConvitePaciente(db, token, now);
+  if (e.estado === 'expirado') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.expirado);
+  if (e.estado !== 'valido') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido);
+  if (e.tenantSuspenso) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.indisponivel); // RN-15
+  if (e.conta === 'equipe') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.contaDeEquipe); // §3: um papel por login
+  return e;
+}
+
+/** UPDATE … WHERE usado_em IS NULL trava a linha: o segundo envio simultâneo vê 0 linhas. */
+async function consumirConvite(tx: Tx, token: string, now: Date): Promise<void> {
+  const [c] = await tx
+    .update(invites)
+    .set({ usadoEm: now })
+    .where(and(eq(invites.tokenHash, sha256(token)), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm), gt(invites.expiraEm, now)))
+    .returning({ id: invites.id });
+  if (!c) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido);
+}
+
+async function travarPacienteDoConvite(tx: Tx, patientId: string): Promise<PatientRow> {
+  const [p] = await tx.select().from(patients).where(eq(patients.id, patientId)).for('update');
+  if (!p || p.status !== 'ativo' || p.userId) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido);
+  return p;
+}
+
+/** US-011: marcar = opt-in do próprio paciente; desmarcar o que estava autorizado = opt-out (INT-01). */
+function escolhaWhatsapp(quer: boolean, p: PatientRow, now: Date) {
+  if (!p.telefoneE164) return {};
+  if (quer) return { whatsappOptinEm: now, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null };
+  return p.whatsappOptinEm && !p.whatsappOptoutEm ? { whatsappOptoutEm: now } : {};
+}
+
+/** Uma prova de aceite por nutricionista (cada uma é controladora dos dados, RNF-08): (usuário, versão, tenant). */
+async function registrarAceiteTermo(tx: Tx, userId: string, tenantId: string, ip: string | null, now: Date): Promise<void> {
+  await tx.insert(consents).values({ userId, tenantId, termoVersao: TERMO_PACIENTE, aceitoEm: now, ip }).onConflictDoNothing();
+}
+
+/**
+ * Conta nova (US-011 "Aceite do convite"): consome o convite, cria o login de paciente (sem tenant:
+ * o vínculo é o prontuário), grava a senha, o termo e a escolha do WhatsApp — numa transação com o
+ * ator = o próprio paciente (auditoria da alteração em `patients`).
+ */
+export async function aceitarConvitePaciente(
+  input: { token: string; senha: string; confirmacao: string; aceitouTermo: boolean; whatsapp: boolean; ip: string | null },
+  deps: { db?: Db; now?: Date } = {},
+): Promise<{ email: string }> {
+  const db = deps.db ?? getDb();
+  const now = deps.now ?? new Date();
+  if (!input.aceitouTermo) throw new ConvitePacienteError(MSG_TERMO_NAO_ACEITO, 'termo');
+  const politica = validatePasswordPolicy(input.senha, commonPasswords());
+  if (politica) throw new ConvitePacienteError(politica, 'senha');
+  if (input.senha !== input.confirmacao) throw new ConvitePacienteError('As senhas não conferem.', 'confirmacao');
+  // T6-R2a do Plano 02: checagem barata antes do argon2 (~19 MB por chamada, VPS compartilhada)
+  const e = await prepararAceite(db, input.token, true, now);
+  if (e.conta !== 'nenhuma') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido); // conta existente: vincularContaExistente
+  const hash = await hashPassword(input.senha);
+  const userId = randomUUID();
+  try {
+    return await withTenant(
+      { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: userId, ip: input.ip },
+      async (tx) => {
+        // T6-R1 do Plano 02: sempre paciente → convite, a mesma ordem de reenviarConvitePaciente e de
+        // atualizarPaciente (troca de e-mail). A ordem invertida permitia deadlock (40P01) entre elas.
+        const p = await travarPacienteDoConvite(tx, e.patientId);
+        await consumirConvite(tx, input.token, now);
+        await tx.insert(user).values({ id: userId, name: p.nome, email: p.email, emailVerified: true, appRole: 'paciente', createdAt: now, updatedAt: now });
+        await tx.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: hash });
+        await registrarAceiteTermo(tx, userId, e.tenantId, input.ip, now);
+        await tx.update(patients).set({ userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
+        return { email: p.email };
+      },
+      db,
+    );
+  } catch (err) {
+    // Conta criada com o mesmo e-mail entre a checagem e o INSERT (outra aba, outro convite)
+    if (uniqueViolation(err) === 'user_email_unique') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.invalido);
+    throw err;
+  }
+}
+
+/**
+ * Quem já é paciente de outra nutricionista (US-010): entra com a conta existente e só confirma o termo
+ * e o WhatsApp. O e-mail da conta precisa ser o do convite — outro login não "adota" o prontuário.
+ */
+export async function vincularContaExistente(
+  input: { token: string; userId: string; aceitouTermo: boolean; whatsapp: boolean; ip: string | null },
+  deps: { db?: Db; now?: Date } = {},
+): Promise<void> {
+  const db = deps.db ?? getDb();
+  const now = deps.now ?? new Date();
+  const e = await prepararAceite(db, input.token, input.aceitouTermo, now);
+  const [u] = await db.select({ email: user.email, papel: user.appRole }).from(user).where(eq(user.id, input.userId));
+  if (!u || u.papel !== 'paciente' || normalizeEmail(u.email) !== normalizeEmail(e.email)) {
+    throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.outraConta);
+  }
+  await withTenant(
+    { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: input.userId, ip: input.ip },
+    async (tx) => {
+      const p = await travarPacienteDoConvite(tx, e.patientId); // paciente → convite (T6-R1)
+      await consumirConvite(tx, input.token, now);
+      await registrarAceiteTermo(tx, input.userId, e.tenantId, input.ip, now);
+      await tx.update(patients).set({ userId: input.userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
+    },
+    db,
   );
 }
