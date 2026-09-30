@@ -44,12 +44,24 @@
 | **Convite do paciente** | Mesma tabela `invites` do Plano 02, com `tipo = 'paciente'`, `tenant_id`, `patient_id` e `user_id` nulo; só o SHA-256 do token; 7 dias; um pendente por paciente. `invites` entra nas exceções de RLS e de auditoria (lida pelo token antes de existir sessão). Rota própria `/convite/paciente/<token>`. | O paciente sem conta cria a senha no aceite (conta `paciente` sem `tenant_id`); quem já é paciente de outro tenant entra com a conta existente e só confirma o termo. |
 | **Modelo padrão de anamnese** | Criado na primeira vez que o tenant lista os modelos (`garantirModeloPadrao`, índice único parcial `padrao`), não na criação da conta. | A criação da conta é do admin, que nunca toca tabela 🔒. "Excluir" modelo = arquivar; o padrão arquivado não volta. |
 | **Gráficos** | Componente SVG próprio renderizado no servidor (`GraficoLinha`), com dica nativa por ponto e tabela de dados. | Sem o Recharts (§9.1): zero JS de gráfico no navegador, zero bytes na imagem, acessível por tabela. |
-| **PDF e ZIP da exportação** | `@react-pdf/renderer` (fonte Helvetica padrão, cobre acentos) e `fflate` (`zipSync`), **só no worker** (`exportacao-job.ts`, fora do grafo do Next). ZIP guardado como `stored_files.tipo = 'exportacao'`; `detectarTipo`, `CAMINHO_ARQUIVO` e `/api/arquivos` passam a aceitar `.zip` (servido como anexo). | O P04-09 reaproveita o `@react-pdf/renderer`. A exportação ocupa cota até expirar (24 h). |
-| **Link de 24 h da exportação** | O e-mail aponta para `/painel/pacientes/<id>/exportacoes/<exportId>` (exige login); a página emite a URL assinada de 5 min enquanto `expira_em` não passou. Um job agendado para +24 h apaga o arquivo. | Continua valendo "servir só por `signFileUrl`" (CLAUDE.md regra 9). |
+| **PDF e ZIP da exportação** | `@react-pdf/renderer` (fonte Helvetica padrão, cobre acentos; `paraWinAnsi` troca "≥", "≤", "−" e o que sair do WinAnsi) e `fflate` (`zipSync`), **só no worker** (`exportacao-job.ts`, fora do grafo do Next). ZIP guardado como `stored_files.tipo = 'exportacao'`; `detectarTipo`, `CAMINHO_ARQUIVO` e `/api/arquivos` passam a aceitar `.zip` (servido como anexo). | O P04-09 reaproveita o `@react-pdf/renderer`. A exportação ocupa cota até expirar (24 h). |
+| **Link de 24 h da exportação** | O e-mail aponta para `/painel/pacientes/<id>/exportacoes/<exportId>` (exige login); a página emite a URL assinada de 5 min enquanto `expira_em` não passou. Um job agendado para +24 h apaga o arquivo; a varredura diária `retencao-lgpd` apaga o que esse job não conseguiu. ZIP e pedido nascem na mesma transação (`registrar` de `salvarArquivo`). | Continua valendo "servir só por `signFileUrl`" (CLAUDE.md regra 9). |
 | **Conteúdo da exportação** | `dados.json` e `prontuario.pdf` com todas as tabelas do paciente **exceto** as `staff_only` (notas privadas e etiquetas). | A exportação é entregue ao titular; US-016/US-019 proíbem que ele veja notas e etiquetas. |
 | **Paciente bloqueado** | Cadastro e prontuário viram só leitura (`carregarPacienteParaEscrita` recusa); convite recusado. Arquivado continua editável. | "Prontuário mantido … só para consulta da nutricionista" (US-018). |
 | **Prazo de guarda** | Constante `PRAZO_GUARDA_ANOS = 20` (referência da spec; P-01 pendente com CRN/advogado) contada da última data de atendimento (ou do bloqueio, se não houver). | Mudar o prazo = trocar a constante (e recalcular `anonimizar_apos` de quem já está bloqueado, se o advogado mandar). |
+| **Arquivo e registro juntos** | `salvarArquivo` ganha `registrar(tx, arquivo)` e `apagarArquivo` ganha `naMesmaTransacao(tx)` e `removerAntesDoCommit` (Tarefa 11). Exame e laudo, pedido de exportação e ZIP nascem e morrem na mesma transação. | Uma queda entre duas transações deixaria `stored_files` sem dono: cota ocupada para sempre e anexo fora do alcance da anonimização. |
+| **Prova do aceite por vínculo** | `consents.tenant_id` (nulo no DPA) com UNIQUE `(user_id, termo_versao, tenant_id) NULLS NOT DISTINCT`; `consents` entra em `RLS_EXCEPTIONS` (Tarefa 3). | O paciente com duas nutricionistas aceita o termo uma vez para cada controladora, com data e IP de cada aceite. |
 | **Anonimização** | Job diário `retencao-lgpd` às 04h (America/Sao_Paulo), varrendo `tenants` (inclusive suspensos): apaga os anexos (exames e exportações) e depois grava nome "Paciente anonimizado", e-mail `anonimo-<id>@anonimizado.invalid`, telefone e nascimento nulos, `user_id` nulo, `anonimizado_em`; `recordAudit('anonimizar')`. Idempotente. | O CHECK de nascimento/sexo passa a aceitar paciente anonimizado. |
+
+### Decisões do dono na revisão do plano (2026-09-30)
+
+Decidido pelo dono seguindo a recomendação, depois da revisão do plano por 5 revisores (antes da execução):
+
+| Tema | Decisão | Onde |
+|---|---|---|
+| ZIP de exportação no backup | Excluído do `rclone sync` de `/data` (`--exclude '/*/exportacao/**'`): o ZIP é refeito a partir do banco e não pode sobreviver 30 dias no histórico do R2, contra o "some em 24 h" | Tarefa 14, Step 9b (o dono instala o script novo na P02-11) |
+| Conta de login do titular anonimizado | A anonimização deste plano só solta `patients.user_id`; nome e e-mail da linha `user` do Better Auth ficam até o **P06-08** anonimizar a conta que não tiver outro vínculo (desvio consciente, registrado no backlog) | Tarefa 13; backlog P06-08 |
+| Nomes do modelo padrão de anamnese | Texto exato da spec (US-012): "Medicamentos", "Alergias/intolerâncias", "Álcool/tabaco", "Preferências e aversões" | Tarefa 9 |
 
 ### Desvios conscientes da spec (registrados aqui; atualizar a spec no fim do plano — v1.5)
 
@@ -69,7 +81,10 @@
 | US-018 "fotos do diário … e inscrições de push … apagados na hora" | Aqui apaga os opt-ins e os convites pendentes; fotos do diário (Plano 06) e inscrições de push (Plano 05) entram em `atenderPedidoExclusao` quando essas tabelas existirem | As tabelas ainda não existem |
 | US-018 "P não consegue mais entrar no portal deste tenant … sai das audiências" | Aqui: status `arquivado`/`bloqueado` gravado e respeitado no convite. Portal (Plano 06), notificações (P05-06) e audiências (P07-01) leem esse status | Portal, lembretes e conteúdos ainda não existem |
 | §3 métricas "nº de pacientes" | `admin_tenant_metrics()` passa a contar `pacientes_ativos` (status `ativo`) | Consultas e mensagens continuam `NULL` até o Plano 05 |
-| Textos novos de interface | "Informe uma data de nascimento válida"; "Informe o telefone para registrar a autorização de WhatsApp"; "O paciente já ativou o acesso; o e-mail não pode ser alterado."; "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."; convite: "Convite expirado. Peça um novo à sua nutricionista.", "Convite inválido ou já usado. Se você já criou sua senha, entre com seu e-mail e senha.", "Este convite foi enviado para outro e-mail. Saia desta conta e abra o link de novo.", "Este e-mail já é usado por outra conta. Peça à sua nutricionista para cadastrar outro e-mail.", "O paciente já ativou o acesso ao portal.", "Paciente arquivado ou bloqueado não recebe convite.", "Para continuar, aceite o Termo de Uso e Privacidade."; antropometria: "Informe a data da avaliação", "Altura deve estar entre 30 e 250 cm", "Circunferência deve estar entre 5 e 300 cm", "Dobra deve estar entre 1 e 100 mm", "A data não pode ser no futuro", "Complete a data de nascimento e o sexo do paciente no cadastro.", "Preencha as 3 dobras…" (mesma frase da spec para o JP 3); gasto energético: "Escolha a fórmula"; anamnese: "Informe o nome do modelo", "Inclua pelo menos uma pergunta", "Escolha o tipo da pergunta", "Informe o texto da pergunta", "Informe pelo menos 2 opções", "Resposta inválida: <pergunta>", "Modelo de anamnese não encontrado.", "Anamnese não encontrada."; etiquetas: "Use de 1 a 40 caracteres na etiqueta"; atendimentos: "Informe a data do atendimento", "Use no máximo 20000 caracteres nas notas privadas", "Use no máximo 5000 caracteres nas orientações", "Atendimento não encontrado."; exames: "Informe o título do exame", "Informe a data do exame", "Confira os valores: informe nome e valor numérico", "Não foi possível salvar o exame. Tente de novo."; evolução: "Nenhum valor de exame lançado."; LGPD: "Digite o nome do paciente exatamente como está no cadastro para confirmar."; exportação: estados da página de download ("…ainda está sendo gerada…", "Este link expirou…", "Não foi possível gerar…", "Exportação não encontrada."); e-mails `convite_paciente`, `exclusao_atendida`, `exportacao_pronta` | A spec não define essas mensagens |
+| §7 `consents` sem tenant | `consents.tenant_id` nulo no DPA, preenchido no termo do paciente | Prova do aceite por nutricionista (ver "Decisões de desenho") |
+| US-015 laudo "servido só por URL assinada" (abrir no navegador) | PDF servido como **download** (`content-disposition: attachment`), link "Baixar laudo" | O visualizador de PDF do Chrome não abre documento com a CSP `sandbox` de `/api/arquivos`; afrouxar a CSP abriria o PDF com a origem do app |
+| US-018 "anonimiza nome, e-mail…" | A linha `user` do Better Auth do titular fica identificada até o P06-08 | Decisão do dono (acima) |
+| Textos novos de interface | "Informe uma data de nascimento válida"; "Informe o telefone para registrar a autorização de WhatsApp"; "O paciente já ativou o acesso; o e-mail não pode ser alterado."; "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."; convite: "Convite expirado. Peça um novo à sua nutricionista.", "Convite inválido ou já usado. Se você já criou sua senha, entre com seu e-mail e senha.", "Este convite foi enviado para outro e-mail. Saia desta conta e abra o link de novo.", "Este e-mail já é usado por outra conta. Peça à sua nutricionista para cadastrar outro e-mail.", "O paciente já ativou o acesso ao portal.", "Paciente arquivado ou bloqueado não recebe convite.", "Para continuar, aceite o Termo de Uso e Privacidade."; antropometria: "Informe a data da avaliação", "Altura deve estar entre 30 e 250 cm", "Circunferência deve estar entre 5 e 300 cm", "Dobra deve estar entre 1 e 100 mm", "A data não pode ser no futuro", "Complete a data de nascimento e o sexo do paciente no cadastro.", "Preencha as 3 dobras…" (mesma frase da spec para o JP 3); gasto energético: "Escolha a fórmula"; anamnese: "Informe o nome do modelo", "Inclua pelo menos uma pergunta", "Use no máximo 100 perguntas", "Use no máximo 30 opções, com até 100 caracteres cada", "O modelo mudou enquanto você preenchia. Recarregue a página.", "Escolha o tipo da pergunta", "Informe o texto da pergunta", "Informe pelo menos 2 opções", "Resposta inválida: <pergunta>", "Modelo de anamnese não encontrado.", "Anamnese não encontrada."; etiquetas: "Use de 1 a 40 caracteres na etiqueta"; atendimentos: "Informe a data do atendimento", "Use no máximo 20000 caracteres nas notas privadas", "Use no máximo 5000 caracteres nas orientações", "Atendimento não encontrado."; exames: "Baixar laudo", "Tente novamente em alguns instantes." (dois envios de laudo ao mesmo tempo, mesmo texto do logo), "Informe o título do exame", "Informe a data do exame", "Confira os valores: informe nome e valor numérico", "Não foi possível salvar o exame. Tente de novo."; evolução: "Nenhum valor de exame lançado."; LGPD: "Digite o nome do paciente exatamente como está no cadastro para confirmar."; exportação: estados da página de download ("…ainda está sendo gerada…", "Este link expirou…", "Não foi possível gerar…", "Exportação não encontrada."); e-mails `convite_paciente`, `exclusao_atendida`, `exportacao_pronta` | A spec não define essas mensagens |
 
 ### Itens adiados do Plano 02
 
@@ -98,7 +113,8 @@
 
 ```
 .
-├── CLAUDE.md                                   # T1, T3, T5, T14 (exceções da regra 1, staff_only, FABRICAS)
+├── CLAUDE.md                                   # T1, T3, T5, T11, T14 (exceções da regra 1, staff_only, FABRICAS, arquivo+registro)
+├── scripts/backup/nutri-backup.sh              # T14 — ZIPs de exportação fora do sync (dono reinstala na P02-11)
 ├── drizzle/                                    # 0016–0034 (T1, T3, T5, T7–T11, T13, T14)
 ├── e2e/pacientes.spec.ts                       # T2, T4, T7, T9, T13
 ├── test/
@@ -107,7 +123,7 @@
 └── src/
     ├── components/confirmar-botao.tsx          # T7 (movido do admin)
     ├── db/
-    │   ├── rls-guard.ts · rls-guard.test.ts    # T3 (invites), T5 (STAFF_ONLY)
+    │   ├── rls-guard.ts · rls-guard.test.ts    # T1 (patients pela coluna id), T3 (invites, consents), T5 (STAFF_ONLY)
     │   ├── audit-guard.ts                      # T3 (invites)
     │   └── schema/{pacientes.ts,access.ts,index.ts}   # T1, T3, T5, T7–T11, T13, T14
     ├── email/{types.ts,templates.tsx,render.test.ts}  # T3, T13, T14
@@ -117,6 +133,7 @@
     │   ├── file-type.ts · signed-url.ts        # T14 (zip)
     ├── modules/plataforma/
     │   ├── audit.ts                            # rótulos de entidade (T1, T5, T7–T11, T13, T14)
+    │   ├── armazenamento.ts                    # T11 — registrar / naMesmaTransacao / removerAntesDoCommit
     │   ├── convites.ts                         # T3 (só tipo 'nutri')
     │   └── tenant-status.ts                    # T13 — listarTenantIds
     ├── modules/pacientes/
@@ -126,7 +143,7 @@
     │   ├── convite-paciente.ts · termo-paciente.ts   # T3, T4
     │   ├── etiquetas.ts                        # T5
     │   ├── formulas.ts                         # T6 (puro)
-    │   ├── antropometria.ts                    # T7
+    │   ├── antropometria.ts · antropometria-constantes.ts   # T7
     │   ├── gasto-energetico.ts                 # T8
     │   ├── anamnese.ts · anamnese-padrao.ts    # T9
     │   ├── atendimentos.ts                     # T10
@@ -155,14 +172,14 @@
                     └── exportacoes/[exportId]/page.tsx                         # T14
 ```
 
-**Ordem e dependências das tarefas:** 1 → 2 (cadastro e telas) → 3 → 4 (convite e aceite) · 5 (etiquetas; cria `staff_only`) · 6 (fórmulas, puro — pode ir a qualquer momento antes da 7) → 7 → 8 · 9 (anamnese) · 10 (atendimentos; usa `staff_only` da 5 e liga a antropometria da 7) · 11 (exames) → 12 (evolução; usa 7 e 11) · 13 (LGPD; usa 10 para a data da última consulta e 11 para os anexos) → 14 (exportação; lê todas as tabelas).
+**Ordem e dependências das tarefas:** 1 → 2 (cadastro e telas) → 3 → 4 (convite e aceite) · 5 (etiquetas; cria `staff_only`) · 6 (fórmulas, puro — pode ir a qualquer momento antes da 7) → 7 → 8 · 9 (anamnese) · 10 (atendimentos; usa `staff_only` da 5 e liga a antropometria da 7) · 11 (exames) → 12 (evolução; usa 7, 10 — a coluna `consultation_id` que a 10 acrescenta à antropometria aparece nas linhas do teste — e 11) · 13 (LGPD; usa 10 para a data da última consulta e 11 para os anexos) → 14 (exportação; lê todas as tabelas).
 
 ---
 ### Task 1: Cadastro de paciente — tabela `patients`, serviço, JSON com 404 fora do tenant e métricas (P03-01a)
 
 **Files:**
 - Create: `src/db/schema/pacientes.ts`, `drizzle/0016_pacientes.sql` (gerada), `drizzle/0017_rls_pacientes.sql` (custom), `src/modules/pacientes/base.ts`, `src/modules/pacientes/datas.ts`, `src/modules/pacientes/datas.test.ts`, `src/modules/pacientes/telefone.ts`, `src/modules/pacientes/telefone.test.ts`, `src/modules/pacientes/pacientes.ts`, `src/modules/pacientes/pacientes.test.ts`, `src/app/api/painel/pacientes/[id]/route.ts`, `src/app/api/painel/pacientes/[id]/route.test.ts`, `test/pacientes.ts`
-- Modify: `src/db/schema/index.ts`, `test/isolamento.test.ts` (reescrito), `src/app/admin/sem-tabelas-tenant.test.ts` (reescrito), `CLAUDE.md` (regra 9)
+- Modify: `src/db/schema/index.ts`, `src/db/rls-guard.ts` (`patients` exige `patient_isolation`), `src/modules/plataforma/metricas.test.ts` e `src/db/migrate-owner.test.ts` (`pacientes_ativos` deixa de ser nulo), `test/isolamento.test.ts` (reescrito), `src/app/admin/sem-tabelas-tenant.test.ts` (reescrito), `CLAUDE.md` (regra 9)
 
 **Interfaces:**
 - Consumes: `withTenant`, `TenantContext` (`@/db/tenant`); `getDb`, `Db`, `Tx` (`@/db/client`); `uniqueViolation` (`@/db/errors`); `auditRead` (`@/modules/plataforma/audit`); `normalizeEmail` (`@/lib/text`); `primeiroErroPorCampo` (`@/lib/validacao`); `requireApiNutri` (`@/lib/tenant-session`); `metricasPorTenant` (`@/modules/plataforma/metricas`); `criarEEntrar` (`test/sessao.ts`); `registrarAceiteDpa` (`@/modules/plataforma/dpa`); `listTenantTables`, `RLS_EXCEPTIONS` (`@/db/rls-guard`).
@@ -424,8 +441,38 @@ BEGIN
 END $$;
 ```
 
-Run: `pnpm test src/db/rls-guard.test.ts src/db/audit-guard.test.ts`
-Expected: PASS (sem a 0017, falhariam com "RLS não habilitada" e "sem gatilho de auditoria" em `patients`).
+Na guarda `src/db/rls-guard.ts`, `patients` guarda o titular na coluna `id` (não em `patient_id`), então a checagem de `patient_isolation` não a alcançaria. Em `findRlsViolations`, trocar a coluna `has_patient_col` por:
+
+```sql
+           (c.relname = 'patients' or exists (select 1 from information_schema.columns k where k.table_schema = 'public'
+                   and k.table_name = c.relname and k.column_name = 'patient_id')) as has_patient_col,
+```
+
+e acrescentar ao `src/db/rls-guard.test.ts`, no `describe` existente:
+
+```ts
+  it('patients (titular na coluna id) também exige patient_isolation', async () => {
+    const { rows } = await owner.pool.query(`select 1 from pg_policies where schemaname = 'public' and tablename = 'patients' and policyname = 'patient_isolation'`);
+    expect(rows).toHaveLength(1);
+  });
+```
+
+As métricas do admin passam a contar pacientes ativos: os dois testes do Plano 02 que esperavam `NULL` mudam. Em `src/modules/plataforma/metricas.test.ts`, no primeiro teste, trocar o título por `'conta arquivos e armazenamento de cada tenant; pacientes ativos contados; consultas/mensagens ainda nulos'` e `pacientesAtivos: null` por `pacientesAtivos: 0`. Em `src/db/migrate-owner.test.ts`, no teste "métricas do admin…", semear um paciente ativo e um arquivado em `a` dentro da mesma transação que grava os arquivos (logo depois do `for` de `stored_files`, com `if (t === a)`):
+
+```ts
+        if (t === a) {
+          await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email, status) values ($1, 'Ativo', '1990-01-01', 'F', 'ativo@met.dev', 'ativo'), ($1, 'Arquivado', '1990-01-01', 'M', 'arq@met.dev', 'arquivado')`, [t]);
+        }
+```
+
+e trocar `expect(rows.every((r) => r.pacientes_ativos === null)).toBe(true);` por:
+
+```ts
+      expect(Object.fromEntries(rows.map((r) => [r.tenant_id, Number(r.pacientes_ativos)]))).toEqual({ [a]: 1, [b]: 0 });
+```
+
+Run: `pnpm test src/db/rls-guard.test.ts src/db/audit-guard.test.ts src/modules/plataforma/metricas.test.ts src/db/migrate-owner.test.ts`
+Expected: PASS (sem a 0017, as guardas falhariam com "RLS não habilitada", "sem política patient_isolation" e "sem gatilho de auditoria" em `patients`; sem a troca dos testes, as métricas falhariam com `0 !== null`).
 
 - [ ] **Step 4: Helpers de teste** — criar `test/pacientes.ts`
 
@@ -1116,13 +1163,19 @@ afterAll(async () => {
   await owner.pool.end();
 });
 
-const temPaciente = async (t: string) =>
-  (
-    await owner.pool.query(
-      `select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'patient_id'`,
-      [t],
-    )
-  ).rowCount! > 0;
+/** Coluna do titular por tabela: em `patients` é o próprio `id` (app_enable_patient_rls('patients', 'id')). */
+const COLUNA_TITULAR: Record<string, string> = { patients: 'id' };
+/** O paciente nunca é apagado (arquiva, bloqueia, anonimiza), e as filhas `staff_only`, invisíveis para P2, seguram a FK. */
+const SEM_DELETE_DO_PACIENTE = new Set(['patients']);
+
+const colunaTitular = async (t: string): Promise<string | null> => {
+  if (COLUNA_TITULAR[t]) return COLUNA_TITULAR[t];
+  const r = await owner.pool.query(
+    `select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'patient_id'`,
+    [t],
+  );
+  return r.rowCount! > 0 ? 'patient_id' : null;
+};
 
 const contarTenant = async (t: string, tenantId: string) =>
   Number((await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1`, [tenantId])).rows[0].n);
@@ -1133,9 +1186,9 @@ const violaRls = (e: unknown) => {
   return c.code === '42501' && /row-level security/.test(c.message ?? '');
 };
 
-const contarPaciente = async (t: string, tenantId: string, patientId: string) =>
+const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
   Number(
-    (await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1 and patient_id = $2`, [tenantId, patientId]))
+    (await owner.pool.query(`select count(*)::int as n from "${t}" where tenant_id = $1 and "${col}" = $2`, [tenantId, patientId]))
       .rows[0].n,
   );
 
@@ -1158,17 +1211,19 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
   });
 
-  it('WITH CHECK: a paciente P2 não grava linha de P1 nem move a própria linha para P1', async () => {
+  it('WITH CHECK: a paciente P2 não grava linha de P1 nem move a própria linha para P1 (inclusive em patients)', async () => {
     for (const t of tabelas) {
-      if (!(await temPaciente(t)) || soEquipe.has(t)) continue;
-      const antesP1 = await contarPaciente(t, A, P1);
+      const col = await colunaTitular(t);
+      if (!col || soEquipe.has(t)) continue;
+      const antesP1 = await contarPaciente(t, col, A, P1);
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      // a RLS (42501) é conferida antes da PK/UNIQUE e da FK: em patients o INSERT com id = P1 cai na política
       await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
-        expect(await contarPaciente(t, A, P2), t).toBeGreaterThan(0);
-        await expect(comoP2(sql`update ${sql.identifier(t)} set patient_id = ${P1}`), t).rejects.toSatisfy(violaRls);
+        expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
+        await expect(comoP2(sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`), t).rejects.toSatisfy(violaRls);
       }
-      expect(await contarPaciente(t, A, P1), t).toBe(antesP1);
+      expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1);
     }
   });
 
@@ -1210,36 +1265,38 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
   });
 
-  it('a paciente P2 só vê e só altera as próprias linhas; as de P1 (mesmo tenant) ficam intactas', async () => {
-    for (const t of tabelas) {
-      if (!(await temPaciente(t)) || soEquipe.has(t)) continue;
+  it('a paciente P2 só vê e só altera as próprias linhas; as de P1 (mesmo tenant) ficam intactas (inclusive em patients)', async () => {
+    for (const t of naOrdemDeExclusao(tabelas)) {
+      const col = await colunaTitular(t);
+      if (!col || soEquipe.has(t)) continue;
       const id = sql.identifier(t);
-      const antesP1 = await contarPaciente(t, A, P1);
+      const c = sql.identifier(col);
+      const antesP1 = await contarPaciente(t, col, A, P1);
+      const apaga = !SO_INSERE.has(t) && !SEM_DELETE_DO_PACIENTE.has(t);
       await withTenant(
         { tenantId: A, role: 'paciente', patientId: P2 },
         async (tx) => {
-          const vistas = await tx.execute(sql`select patient_id from ${id}`);
+          const vistas = await tx.execute(sql`select ${c} as titular from ${id}`);
           expect(vistas.rows.length, t).toBeGreaterThanOrEqual(1);
-          for (const row of vistas.rows) expect(row.patient_id, t).toBe(P2);
+          for (const row of vistas.rows) expect(row.titular, t).toBe(P2);
           if (SO_INSERE.has(t)) return;
-          const alteradas = await tx.execute(sql`update ${id} set patient_id = patient_id`);
+          const alteradas = await tx.execute(sql`update ${id} set ${c} = ${c}`);
           expect(alteradas.rowCount, t).toBe(vistas.rows.length);
+          if (!apaga) return;
           const apagadas = await tx.execute(sql`delete from ${id}`);
           expect(apagadas.rowCount, t).toBe(vistas.rows.length);
         },
         app.db,
       );
-      if (!SO_INSERE.has(t)) {
-        expect(await contarPaciente(t, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
-        expect(await contarPaciente(t, A, P2), t).toBe(0); // e o DELETE de P2 de fato aconteceu
-      }
+      expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
+      if (apaga) expect(await contarPaciente(t, col, A, P2), t).toBe(0); // e o DELETE de P2 de fato aconteceu
     }
   });
 });
 ```
 
 Run: `pnpm test test/isolamento.test.ts`
-Expected: PASS (5 testes; o de `staff_only` passa sem iterar nada até a Tarefa 5). Conferir: removendo a fábrica `patients`, o primeiro teste falha listando `patients`.
+Expected: PASS (6 testes; o de `staff_only` passa sem iterar nada até a Tarefa 5). Conferir: removendo a fábrica `patients`, o primeiro teste falha listando `patients`; trocando temporariamente o `app_enable_patient_rls('patients', 'id')` da 0017 por nada (banco de teste recriado), os dois testes de P2 falham em `patients`.
 
 - [ ] **Step 9: Guarda do admin derivada do schema** — substituir `src/app/admin/sem-tabelas-tenant.test.ts` inteiro por:
 
@@ -1299,6 +1356,7 @@ Expected: tudo verde.
 ```bash
 git add src/db/schema/pacientes.ts src/db/schema/index.ts drizzle/0016_pacientes.sql drizzle/0017_rls_pacientes.sql drizzle/meta \
   src/modules/pacientes test/pacientes.ts test/isolamento.test.ts src/app/admin/sem-tabelas-tenant.test.ts \
+  src/db/rls-guard.ts src/db/rls-guard.test.ts src/modules/plataforma/metricas.test.ts src/db/migrate-owner.test.ts \
   'src/app/api/painel/pacientes/[id]' CLAUDE.md
 git commit -m "feat(pacientes): cadastro com RLS por tenant e paciente, idade no fuso, E.164, JSON com 404 fora do tenant e métricas de ativos (P03-01a)
 
@@ -1548,7 +1606,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const { ctx, tenant } = await requireNutri('/painel/pacientes');
   const sp = await searchParams;
   const busca = texto(sp.busca);
-  const status: StatusPaciente = texto(sp.status) in SITUACOES ? (texto(sp.status) as StatusPaciente) : 'ativo';
+  const status: StatusPaciente = Object.hasOwn(SITUACOES, texto(sp.status)) ? (texto(sp.status) as StatusPaciente) : 'ativo';
   const lista = await listarPacientes(ctx, { busca, status });
   const hoje = hojeNoFuso(tenant.fuso);
   return (
@@ -1792,7 +1850,8 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
 const sufixo = Date.now().toString(36);
-const ANA = { nome: 'Ana Souza', email: `ana-${sufixo}@nutridebby.test`, senha: `Ana${sufixo}2026` };
+// o seed do E2E não apaga pacientes: o sufixo no nome evita várias "Ana Souza" (strict mode) nas execuções locais seguintes
+const ANA = { nome: `Ana Souza ${sufixo}`, email: `ana-${sufixo}@nutridebby.test`, senha: `Ana${sufixo}2026` };
 let nutri: Page;
 let prontuario = '';
 
@@ -1817,7 +1876,7 @@ test('cadastra paciente adulto; menor de 18 e e-mail repetido são recusados (US
   await nutri.goto('/painel/pacientes/novo');
   await preencherCadastro(nutri, { nome: ANA.nome, email: ANA.email, nascimento: '2010-01-01' });
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
-  await expect(nutri.getByRole('alert')).toHaveText('O sistema atende apenas pacientes a partir de 18 anos');
+  await expect(nutri.locator('p[role="alert"]')).toHaveText('O sistema atende apenas pacientes a partir de 18 anos');
   await expect(nutri.getByLabel('Nome')).toHaveValue(ANA.nome); // PF-N9: nada do que foi digitado se perde
 
   await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
@@ -1830,7 +1889,7 @@ test('cadastra paciente adulto; menor de 18 e e-mail repetido são recusados (US
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
   await expect(nutri.getByText('Paciente já cadastrado com este e-mail')).toBeVisible();
 
-  await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent('ana souza')}`);
+  await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(`ana souza ${sufixo}`)}`);
   await expect(nutri.getByRole('link', { name: ANA.nome })).toBeVisible();
 });
 
@@ -1870,12 +1929,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/modules/pacientes/convite-paciente.ts`, `src/modules/pacientes/convite-paciente.test.ts`, `drizzle/0018_convite_paciente.sql` (gerada)
-- Modify: `src/db/schema/access.ts` (`invites`), `src/db/rls-guard.ts`, `src/db/audit-guard.ts`, `src/modules/plataforma/convites.ts` (só `tipo = 'nutri'`), `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/modules/pacientes/pacientes.ts`, `src/app/painel/pacientes/valores.ts`, `src/app/painel/pacientes/valores.test.ts`, `src/app/painel/pacientes/actions.ts`, `src/app/painel/pacientes/[id]/page.tsx`, `CLAUDE.md` (regra 1)
+- Modify: `src/db/schema/access.ts` (`invites`, `consents.tenant_id`), `src/db/rls-guard.ts`, `src/db/audit-guard.ts`, `src/modules/plataforma/convites.ts` (só `tipo = 'nutri'`), `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/modules/pacientes/pacientes.ts`, `src/app/painel/pacientes/valores.ts`, `src/app/painel/pacientes/valores.test.ts`, `src/app/painel/pacientes/actions.ts`, `src/app/painel/pacientes/[id]/page.tsx`, `CLAUDE.md` (regra 1)
 
 **Interfaces:**
 - Consumes: `carregarPacienteParaEscrita`, `PacienteBloqueadoError`, `PacienteNaoEncontradoError` (Tarefa 1); `criarPaciente`, `atualizarPaciente` (Tarefa 1); `enqueueEmail` (`@/email/queue`); `randomToken`, `sha256` (`@/lib/crypto`); `inspecionarConvite` (`@/modules/plataforma/convites`); `formatarDataHora` (`@/modules/plataforma/ui/historico-acessos`); `novoTenant`, `novoPaciente`, `emailsNaFila` (`test/pacientes.ts`).
 - Produces:
-  - Schema: `invites` com `tipo in ('nutri','paciente')`, `tenant_id`, `patient_id`, `user_id` nulo no convite de paciente; índice único parcial `invites_paciente_pendente_idx`.
+  - Schema: `invites` com `tipo in ('nutri','paciente')`, `tenant_id`, `patient_id`, `user_id` nulo no convite de paciente; índice único parcial `invites_paciente_pendente_idx`. `consents.tenant_id` (nulo no DPA) com UNIQUE `(user_id, termo_versao, tenant_id) NULLS NOT DISTINCT`; `invites` e `consents` em `RLS_EXCEPTIONS`.
   - `EmailMessage` ganha `{ tipo: 'convite_paciente'; para; nome; nutri; link; contaExistente: boolean }`.
   - `@/modules/pacientes/convite-paciente`: `CONVITE_PACIENTE_VALIDADE_MS`, `MSG_CONVITE_PACIENTE`, `class ConvitePacienteError { campo? }`, `linkDoConvitePaciente(appUrl, token)`, `enviarConvitePaciente(tx, p, { appUrl, nutri, now }): Promise<{ expiraEm: Date }>`, `type SituacaoAcesso`, `situacaoDoAcesso(ctx, p, db?, now?)`, `reenviarConvitePaciente(ctx, tenant, patientId, deps?)`.
   - `src/app/painel/pacientes/valores.ts`: `textoDoAcesso(s: SituacaoAcesso, fuso: string): string`.
@@ -1925,16 +1984,38 @@ export const invites = pgTable(
 );
 ```
 
-(O `consents` do mesmo arquivo continua igual; o `unique` segue importado por ele.)
+No mesmo arquivo, `consents` ganha o tenant do aceite: o paciente com dois vínculos aceita o termo uma vez para cada nutricionista (cada uma é controladora, RNF-08), e a prova (data, IP) precisa existir por vínculo. O DPA da nutricionista continua com `tenant_id` nulo (uma conta, um tenant); `NULLS NOT DISTINCT` mantém o "um aceite por versão" dele. Trocar a tabela `consents` inteira por:
+
+```ts
+export const consents = pgTable(
+  'consents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id),
+    /** Termo do paciente: o tenant do vínculo aceito. DPA da nutricionista: nulo. */
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    termoVersao: text('termo_versao').notNull(),
+    aceitoEm: timestamp('aceito_em', { withTimezone: true }).notNull().defaultNow(),
+    ip: text('ip'),
+  },
+  (t) => [unique('consents_user_termo_tenant_unique').on(t.userId, t.termoVersao, t.tenantId).nullsNotDistinct()],
+);
+```
+
+(O `unique` segue importado. `registrarAceiteDpa` não muda: o `onConflictDoNothing()` sem alvo vale para a UNIQUE nova. Conferir com `grep -rn consents_user_termo_unique src test` que nenhum código cita o nome antigo da constraint.)
 
 Run: `pnpm db:generate --name convite_paciente`
-Expected: `drizzle/0018_convite_paciente.sql` com `ALTER COLUMN "user_id" DROP NOT NULL`, `ADD COLUMN "tenant_id"`, `ADD COLUMN "patient_id"`, as FKs (`invites_tenant_id_tenants_id_fk`, `invites_paciente_fk` com `ON DELETE cascade`), o índice novo e os CHECKs (drop/add de `invites_tipo_valido`, add de `invites_alvo`). As linhas antigas (`nutri`) passam no CHECK novo.
+Expected: `drizzle/0018_convite_paciente.sql` com `ALTER COLUMN "user_id" DROP NOT NULL`, `ADD COLUMN "tenant_id"`, `ADD COLUMN "patient_id"`, as FKs (`invites_tenant_id_tenants_id_fk`, `invites_paciente_fk` com `ON DELETE cascade`), o índice novo e os CHECKs (drop/add de `invites_tipo_valido`, add de `invites_alvo`); e, em `consents`, `ADD COLUMN "tenant_id"`, a FK para `tenants`, `DROP CONSTRAINT "consents_user_termo_unique"` e `ADD CONSTRAINT "consents_user_termo_tenant_unique" UNIQUE NULLS NOT DISTINCT("user_id","termo_versao","tenant_id")`. As linhas antigas (`nutri`, DPA com tenant nulo) passam nos CHECKs e na UNIQUE novos. `consents` é append-only (Plano 02, T6-R2c): a migration só acrescenta coluna e troca a constraint, não reescreve linhas.
 
 Em `src/db/rls-guard.ts`, acrescentar ao `RLS_EXCEPTIONS`:
 
 ```ts
+  consents:
+    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts e src/modules/pacientes/convite-paciente.ts',
   invites:
-    'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts e src/modules/pacientes/convite-paciente.ts',
+    'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin)',
 ```
 
 Em `src/db/audit-guard.ts`, acrescentar ao `AUDIT_EXCEPTIONS`:
@@ -1944,7 +2025,10 @@ Em `src/db/audit-guard.ts`, acrescentar ao `AUDIT_EXCEPTIONS`:
 ```
 
 Run: `pnpm test src/db/rls-guard.test.ts src/db/audit-guard.test.ts test/isolamento.test.ts`
-Expected: PASS (`invites` passa a ter `tenant_id` e `patient_id`, e as exceções justificam; `findStaleExceptions` confere que existe).
+Expected: PASS (`invites` passa a ter `tenant_id` e `patient_id`, `consents` passa a ter `tenant_id`, e as exceções justificam; `findStaleExceptions` confere que existem).
+
+Run: `pnpm test src/modules/plataforma/dpa.test.ts src/modules/plataforma/primeiro-acesso.test.ts`
+Expected: PASS (o reaceite da mesma versão do DPA continua gravando uma linha só: `NULLS NOT DISTINCT`).
 
 - [ ] **Step 2: O convite da nutricionista ignora tokens de paciente** — em `src/modules/plataforma/convites.ts`:
 
@@ -2059,7 +2143,7 @@ import { closeDb } from '@/db/client';
 import { invites, user } from '@/db/schema';
 import { stopBoss } from '@/jobs/boss';
 import { sha256 } from '@/lib/crypto';
-import { inspecionarConvite } from '@/modules/plataforma/convites';
+import { aceitarConvite, CONVITE_INVALIDO, inspecionarConvite } from '@/modules/plataforma/convites';
 import { PacienteNaoEncontradoError } from './base';
 import { ConvitePacienteError, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso } from './convite-paciente';
 import { atualizarPaciente, criarPaciente } from './pacientes';
@@ -2146,12 +2230,20 @@ describe('convite do paciente (US-010)', () => {
     expect(await pendentes(p.id)).toHaveLength(1);
   });
 
-  it('o token do paciente não abre o primeiro acesso da nutricionista (/convite/<token>)', async () => {
+  // Guarda de regressão: hoje o CHECK invites_alvo (user_id nulo no convite de paciente) + o innerJoin(user)
+  // já barram o token; o filtro tipo = 'nutri' do Step 2 é a segunda camada. O que importa aqui é o efeito:
+  // nem abre a tela, nem consome o convite do paciente pela rota da nutricionista.
+  it('o token do paciente não abre nem consome o primeiro acesso da nutricionista (/convite/<token>)', async () => {
     const T = await novoTenant(app.db);
     const email = `nt-${s()}@ex.com`;
-    await criarPaciente(T.ctx, T.tenant, dados(email), deps);
+    const p = await criarPaciente(T.ctx, T.tenant, dados(email), deps);
     const [msg] = await emailsNaFila('convite_paciente', email);
-    expect(await inspecionarConvite(app.db, tokenDe(msg.link), now)).toEqual({ estado: 'invalido' });
+    const token = tokenDe(msg.link);
+    expect(await inspecionarConvite(app.db, token, now)).toEqual({ estado: 'invalido' });
+    await expect(
+      aceitarConvite({ token, senha: 'Senha-muito-boa-2026', confirmacao: 'Senha-muito-boa-2026', aceitouDpa: true, ip: null }, { db: app.db, now }),
+    ).rejects.toThrow(CONVITE_INVALIDO);
+    expect(await pendentes(p.id)).toHaveLength(1); // usado_em continua nulo
   });
 });
 ```
@@ -2359,7 +2451,7 @@ Em `src/app/painel/pacientes/[id]/page.tsx`: importar `situacaoDoAcesso` (`@/mod
       </section>
 ```
 
-- [ ] **Step 8: CLAUDE.md** — na regra 1, na lista de quem acessa a tabela `user` fora de `withTenant`, acrescentar depois de `src/modules/plataforma/monitoramento.ts (…)`: `, por src/modules/pacientes/convite-paciente.ts (convite e aceite do paciente, US-010/US-011: lê o papel da conta pelo e-mail, cria a conta do paciente e o aceite do termo)`; e no fim da regra: `A tabela invites (convites de nutricionista e de paciente) é exceção de RLS: só src/modules/plataforma/convites.ts e src/modules/pacientes/convite-paciente.ts a acessam, sempre filtrando por tipo (e por tenant, no de paciente).`
+- [ ] **Step 8: CLAUDE.md** — na regra 1, na lista de quem acessa a tabela `user` fora de `withTenant`, acrescentar depois de `src/modules/plataforma/monitoramento.ts (…)`: `, por src/modules/pacientes/convite-paciente.ts (convite e aceite do paciente, US-010/US-011: lê o papel da conta pelo e-mail, cria a conta do paciente e o aceite do termo), por test/pacientes.ts (helper de testes que cria a nutricionista do tenant)`; e no fim da regra: `A tabela invites (convites de nutricionista e de paciente) é exceção de RLS: só src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin) a acessam, sempre filtrando por tipo ou por user_id (e por tenant, no de paciente).`; e trocar `As tabelas sem \`tenant_id\` do M1 (\`tenants\`, \`invites\`, \`consents\`, \`backup_runs\`) seguem a mesma regra.` por `As tabelas do M1 fora da RLS (\`tenants\`, \`backup_runs\` e, com \`tenant_id\` mas em \`RLS_EXCEPTIONS\`, \`invites\` e \`consents\`) seguem a mesma regra.`
 
 - [ ] **Step 9: Suíte e commit**
 
@@ -2418,8 +2510,8 @@ import { withTenant } from '@/db/tenant';
 import { createAuth } from '@/lib/auth';
 import { verifyPassword } from '@/lib/password.server';
 import { entrar } from '../../../test/sessao';
-import { ctxPaciente } from '../../../test/pacientes';
 import { aceitarConvitePaciente, inspecionarConvitePaciente, vincularContaExistente } from './convite-paciente';
+import { buscarPaciente, listarPacientes } from './pacientes';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
 
 const SENHA = 'Paciente2026segura';
@@ -2448,10 +2540,10 @@ describe('aceite do convite — conta nova (US-011)', () => {
     const [acc] = await app.db.select().from(account).where(eq(account.userId, u.id));
     expect(await verifyPassword(acc.password!, SENHA)).toBe(true);
     const [cons] = await app.db.select().from(consents).where(eq(consents.userId, u.id));
-    expect(cons).toMatchObject({ termoVersao: TERMO_PACIENTE, ip: '203.0.113.30' });
+    expect(cons).toMatchObject({ termoVersao: TERMO_PACIENTE, tenantId: c.T.tenantId, ip: '203.0.113.30' });
     const p = await lerPaciente(c.T, c.p.id);
     expect(p).toMatchObject({ userId: u.id, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
-    const log = await withTenant(c.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, c.p.id), eq(auditLog.acao, 'alterar'))), app.db);
+    const log = await withTenant(c.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, c.p.id), eq(auditLog.acao, 'alterar'))).orderBy(auditLog.criadoEm), app.db);
     expect(log.at(-1)).toMatchObject({ actorUserId: u.id, ip: '203.0.113.30' });
     await expect(entrar(auth, c.email, SENHA)).resolves.toMatch(/^nd\.session_token=/);
     expect(await inspecionarConvitePaciente(app.db, c.token, now)).toEqual({ estado: 'invalido' });
@@ -2511,10 +2603,13 @@ describe('aceite do convite — quem já tem conta (US-010 "E-mail já usado por
     expect(await inspecionarConvitePaciente(app.db, tokenB, now)).toMatchObject({ estado: 'valido', conta: 'paciente' });
     await vincularContaExistente({ token: tokenB, userId: u.id, aceitouTermo: true, whatsapp: false, ip: '203.0.113.31' }, { db: app.db, now });
     expect((await lerPaciente(B, pB.id)).userId).toBe(u.id);
-    expect(await app.db.select().from(consents).where(eq(consents.userId, u.id))).toHaveLength(1); // mesma versão, um aceite
-    // o tenant A continua vendo só o próprio prontuário
-    const vistosA = await withTenant(ctxPaciente(primeiro.T.tenantId, primeiro.p.id), (tx) => tx.select({ id: patients.id }).from(patients), app.db);
-    expect(vistosA).toEqual([{ id: primeiro.p.id }]);
+    // mesma versão do termo, mas uma prova de aceite por nutricionista (controladora), com data e IP de cada vínculo
+    const aceites = await app.db.select().from(consents).where(eq(consents.userId, u.id));
+    expect(aceites.map((c) => [c.tenantId, c.ip]).sort()).toEqual([[B.tenantId, '203.0.113.31'], [primeiro.T.tenantId, '203.0.113.30']].sort());
+    // a nutricionista A não enxerga o prontuário nem o vínculo de B (US-006)
+    expect(await buscarPaciente(primeiro.T.ctx, pB.id, app.db)).toBeNull();
+    expect((await listarPacientes(primeiro.T.ctx, {}, app.db)).map((x) => x.nome)).not.toContain('Ana S.');
+    expect((await lerPaciente(primeiro.T, primeiro.p.id)).userId).toBe(u.id); // o vínculo de A segue o mesmo
   });
 
   it('conta de outro e-mail ou e-mail que é de nutricionista: mensagem clara e nada vinculado (Review Focus 3)', async () => {
@@ -2636,8 +2731,9 @@ function escolhaWhatsapp(quer: boolean, p: PatientRow, now: Date) {
   return p.whatsappOptinEm && !p.whatsappOptoutEm ? { whatsappOptoutEm: now } : {};
 }
 
-async function registrarAceiteTermo(tx: Tx, userId: string, ip: string | null, now: Date): Promise<void> {
-  await tx.insert(consents).values({ userId, termoVersao: TERMO_PACIENTE, aceitoEm: now, ip }).onConflictDoNothing();
+/** Uma prova de aceite por nutricionista (cada uma é controladora dos dados, RNF-08): (usuário, versão, tenant). */
+async function registrarAceiteTermo(tx: Tx, userId: string, tenantId: string, ip: string | null, now: Date): Promise<void> {
+  await tx.insert(consents).values({ userId, tenantId, termoVersao: TERMO_PACIENTE, aceitoEm: now, ip }).onConflictDoNothing();
 }
 
 /**
@@ -2664,11 +2760,13 @@ export async function aceitarConvitePaciente(
     return await withTenant(
       { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: userId, ip: input.ip },
       async (tx) => {
-        await consumirConvite(tx, input.token, now);
+        // T6-R1 do Plano 02: sempre paciente → convite, a mesma ordem de reenviarConvitePaciente e de
+        // atualizarPaciente (troca de e-mail). A ordem invertida permitia deadlock (40P01) entre elas.
         const p = await travarPacienteDoConvite(tx, e.patientId);
+        await consumirConvite(tx, input.token, now);
         await tx.insert(user).values({ id: userId, name: p.nome, email: p.email, emailVerified: true, appRole: 'paciente', createdAt: now, updatedAt: now });
         await tx.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: hash });
-        await registrarAceiteTermo(tx, userId, input.ip, now);
+        await registrarAceiteTermo(tx, userId, e.tenantId, input.ip, now);
         await tx.update(patients).set({ userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
         return { email: p.email };
       },
@@ -2699,9 +2797,9 @@ export async function vincularContaExistente(
   await withTenant(
     { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: input.userId, ip: input.ip },
     async (tx) => {
+      const p = await travarPacienteDoConvite(tx, e.patientId); // paciente → convite (T6-R1)
       await consumirConvite(tx, input.token, now);
-      const p = await travarPacienteDoConvite(tx, e.patientId);
-      await registrarAceiteTermo(tx, input.userId, input.ip, now);
+      await registrarAceiteTermo(tx, input.userId, e.tenantId, input.ip, now);
       await tx.update(patients).set({ userId: input.userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
     },
     db,
@@ -2796,6 +2894,9 @@ export function AceiteForm({ acao, pedeSenha, temTelefone, whatsappMarcado }: Pr
   const [senha, setSenha] = useState('');
   const [confirmacao, setConfirmacao] = useState('');
   const [termo, setTermo] = useState(false);
+  // controlada: o React 19 reseta campos não controlados depois de cada action, e um opt-in desmarcado
+  // voltaria marcado após um erro de senha (consentimento sem intenção)
+  const [whatsapp, setWhatsapp] = useState(whatsappMarcado);
   const senhaInvalida = state.campo === 'senha' || state.campo === 'confirmacao';
   return (
     <form action={action} className="space-y-3">
@@ -2817,7 +2918,7 @@ export function AceiteForm({ acao, pedeSenha, temTelefone, whatsappMarcado }: Pr
       </div>
       {temTelefone && (
         <div className="flex items-start gap-2">
-          <input id="whatsapp" name="whatsapp" type="checkbox" className="mt-1" defaultChecked={whatsappMarcado} />
+          <input id="whatsapp" name="whatsapp" type="checkbox" className="mt-1" checked={whatsapp} onChange={(e) => setWhatsapp(e.target.checked)} />
           <label htmlFor="whatsapp">Quero receber lembretes por WhatsApp</label>
         </div>
       )}
@@ -2936,7 +3037,7 @@ test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao porta
   await expect(page).toHaveURL(/\/p\/inicio$/);
   await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
   await page.goto(link);
-  await expect(page.getByRole('alert')).toContainText('Convite inválido ou já usado.');
+  await expect(page.locator('p[role="alert"]')).toContainText('Convite inválido ou já usado.');
   await ctx.close();
 
   await nutri.goto(prontuario);
@@ -3110,7 +3211,7 @@ import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, patientTagLinks, patientTags } from '@/db/schema';
+import { auditLog, patients, patientTagLinks, patientTags } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
 import { etiquetasDoPaciente, EtiquetaError, listarEtiquetas, MSG_ETIQUETA, salvarEtiquetasDoPaciente } from './etiquetas';
@@ -3129,6 +3230,12 @@ describe('etiquetas (US-019)', () => {
     expect((await listarPacientes(T.ctx, { etiquetaId: gestante.id }, app.db)).map((p) => p.nome)).toEqual(['Ana', 'Cris', 'Eva']);
     expect(await listarEtiquetas(T.ctx, app.db)).toEqual([{ id: gestante.id, nome: 'gestante', pacientes: 3 }]);
     expect(await listarPacientes(T.ctx, { etiquetaId: 'abc' }, app.db)).toEqual([]);
+    // filtrar por etiqueta revela quem tem a condição (dado de saúde): uma leitura auditada por paciente devolvido
+    const lidos = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'etiquetas'), eq(auditLog.acao, 'ler'))), app.db);
+    expect(lidos.map((l) => l.patientId).sort()).toEqual([ps[0].id, ps[2].id, ps[4].id].sort());
+    // a contagem do seletor é a mesma da lista padrão (só ativos)
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, ps[4].id)), app.db);
+    expect(await listarEtiquetas(T.ctx, app.db)).toEqual([{ id: gestante.id, nome: 'gestante', pacientes: 2 }]);
   });
 
   it('"Gestante" reaproveita "gestante"; salvar troca o conjunto inteiro; auditoria "criar"/"excluir" com a nutricionista', async () => {
@@ -3180,7 +3287,7 @@ Expected: FAIL — `Cannot find module './etiquetas'`.
 ```ts
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { patientTagLinks, patientTags } from '@/db/schema';
+import { patients, patientTagLinks, patientTags } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
@@ -3198,9 +3305,11 @@ export async function listarEtiquetas(ctx: TenantContext, db: Db = getDb()): Pro
     ctx,
     (tx) =>
       tx
-        .select({ id: patientTags.id, nome: patientTags.nome, pacientes: count(patientTagLinks.id) })
+        // conta só pacientes ativos: o mesmo universo da lista padrão, para o "(3)" do seletor bater com a lista
+        .select({ id: patientTags.id, nome: patientTags.nome, pacientes: count(patients.id) })
         .from(patientTags)
         .leftJoin(patientTagLinks, eq(patientTagLinks.tagId, patientTags.id))
+        .leftJoin(patients, and(eq(patients.id, patientTagLinks.patientId), eq(patients.status, 'ativo')))
         .groupBy(patientTags.id)
         .orderBy(asc(patientTags.nome)),
     db,
@@ -3268,9 +3377,14 @@ export async function salvarEtiquetasDoPaciente(
 }
 ```
 
-Em `src/modules/pacientes/pacientes.ts`, trocar a assinatura e o começo de `listarPacientes` por:
+Em `src/modules/pacientes/pacientes.ts`, trocar `listarPacientes` inteira (e o comentário acima dela) por:
 
 ```ts
+/**
+ * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento por nome ou e-mail;
+ * `%`, `_` e `\` digitados são literais. Com `etiquetaId`, a lista diz quem tem "diabetes", "gestante":
+ * é dado de saúde (regra 8), então cada paciente devolvido gera uma leitura auditada de "Etiquetas".
+ */
 export async function listarPacientes(
   ctx: TenantContext,
   filtro: { busca?: string; status?: StatusPaciente; etiquetaId?: string },
@@ -3281,9 +3395,35 @@ export async function listarPacientes(
   if (filtro.etiquetaId) {
     conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
   }
+  const busca = filtro.busca?.trim();
+  if (busca) {
+    const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    conds.push(sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`);
+  }
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx
+        .select({
+          id: patients.id,
+          nome: patients.nome,
+          email: patients.email,
+          status: patients.status,
+          dataNascimento: patients.dataNascimento,
+          userId: patients.userId,
+          origem: patients.origem,
+        })
+        .from(patients)
+        .where(and(...conds))
+        .orderBy(asc(patients.nome))
+        .limit(LIMITE_LISTA);
+      if (filtro.etiquetaId) for (const p of r) await auditRead(tx, { entidade: 'etiquetas', entidadeId: null, patientId: p.id });
+      return r;
+    },
+    db,
+  );
+}
 ```
-
-(o resto da função continua igual).
 
 Em `src/modules/plataforma/audit.ts`, acrescentar ao `ENTIDADE_ROTULO`: `etiquetas: 'Etiquetas',`.
 
@@ -3533,6 +3673,17 @@ describe('Apêndice A — casos obrigatórios', () => {
     expect(kcal(gastoTotal(f, 1.55))).toBe(2008);
   });
 
+  it('meio exato vira para cima mesmo com erro de ponto flutuante (RN-14)', () => {
+    // Mifflin homem 45 kg, 150 cm, 18 anos = 1302,5; × 1,40 = 1823,5 exato (JS: 1823,4999999999998)
+    const t = tmb('mifflin', { sexo: 'M', pesoKg: 45, alturaCm: 150, idade: 18 });
+    perto(t, 1302.5);
+    expect(kcal(t)).toBe(1303);
+    expect(gastoTotal(t, 1.4)).toBe(1823.5);
+    expect(kcal(gastoTotal(t, 1.4))).toBe(1824);
+    expect(kcal(gastoTotal(1075, 1.38))).toBe(1484); // JS: 1483,4999999999998
+    expect(kcal(1823.4999999999998)).toBe(1824);
+  });
+
   it('FAO/OMS: mulher 60 kg, 35 anos → 1351,0; faixas 18–29, 30–59 e 60+; não se aplica a menores (RN-17)', () => {
     perto(tmb('fao_oms', { sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 35 }), 1351);
     perto(tmb('fao_oms', { sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 29 }), 14.7 * 60 + 496);
@@ -3669,10 +3820,14 @@ export const FATOR_MIN = 1;
 export const FATOR_MAX = 2.5;
 
 /** GET = TMB × fator de atividade (com a TMB sem arredondar). */
-export const gastoTotal = (tmbKcal: number, fator: number): number => tmbKcal * fator;
+/**
+ * GET = TMB × fator, limpo do erro de ponto flutuante em 6 casas: 1302,5 × 1,40 dá 1823,4999999999998 em JS,
+ * e o meio para cima (RN-14) sairia 1823 em vez de 1824.
+ */
+export const gastoTotal = (tmbKcal: number, fator: number): number => arredondar(tmbKcal * fator, 6);
 
-/** RN-14: kcal inteiros, meio para cima. */
-export const kcal = (v: number): number => arredondar(v, 0);
+/** RN-14: kcal inteiros, meio para cima — depois de limpar o resíduo de ponto flutuante (6 casas). */
+export const kcal = (v: number): number => arredondar(arredondar(v, 6), 0);
 
 export function compararTmb(d: DadosTmb): Record<FormulaTmb, number> {
   return { harris_benedict: tmb('harris_benedict', d), mifflin: tmb('mifflin', d), fao_oms: tmb('fao_oms', d) };
@@ -3698,7 +3853,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 7: Antropometria — registro, validações, IMC e % de gordura (P03-06)
 
 **Files:**
-- Create: `drizzle/0021_antropometria.sql` (gerada), `drizzle/0022_rls_antropometria.sql` (custom), `src/modules/pacientes/antropometria.ts`, `src/modules/pacientes/antropometria.test.ts`, `src/app/painel/pacientes/[id]/antropometria/page.tsx`, `src/app/painel/pacientes/[id]/antropometria/actions.ts`, `src/app/painel/pacientes/[id]/antropometria/antropometria-form.tsx`, `src/components/confirmar-botao.tsx` (movido)
+- Create: `drizzle/0021_antropometria.sql` (gerada), `drizzle/0022_rls_antropometria.sql` (custom), `src/modules/pacientes/antropometria-constantes.ts`, `src/modules/pacientes/antropometria.ts`, `src/modules/pacientes/antropometria.test.ts`, `src/app/painel/pacientes/[id]/antropometria/page.tsx`, `src/app/painel/pacientes/[id]/antropometria/actions.ts`, `src/app/painel/pacientes/[id]/antropometria/antropometria-form.tsx`, `src/components/confirmar-botao.tsx` (movido)
 - Modify: `src/db/schema/pacientes.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts`, `src/app/painel/pacientes/[id]/abas.tsx`, `src/app/admin/page.tsx` (import do botão), `e2e/pacientes.spec.ts`
 - Delete: `src/app/admin/confirmar-botao.tsx`
 
@@ -3706,7 +3861,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `carregarPacienteParaEscrita`, `idValido`, `MSG_CADASTRO_INCOMPLETO`, `PacienteBloqueadoError`, `PacienteNaoEncontradoError` (Tarefa 1); `dataValida`, `hojeNoFuso`, `idadeEm`, `formatarData` (Tarefa 1); `calcularGordura`, `dobrasDoProtocolo`, `DOBRAS`, `imc`, `type DobraId`, `type Protocolo`, `type Sexo` (Tarefa 6); `decimalEntre`, `decimalOpcionalEntre`, `arredondar`, `formatarDecimal`, `lerDecimal` (Tarefa 6); `auditRead`; `carregarProntuario` (Tarefa 2).
 - Produces:
   - Schema: `anthropometry` 🔒 (`imc` gerado no banco, `circunferencias`/`dobras_mm` jsonb, `protocolo`, `densidade`, `perc_gordura`), `type AnthropometryRow`.
-  - `@/modules/pacientes/antropometria`: `CIRCUNFERENCIAS` (`{ id, rotulo }[]`), `type CircunferenciaId`, `MSG_ANTROPO`, `class AntropometriaError { erros: Record<string, string> }`, `type EntradaAntropometria`, `entradaDoFormulario(valores: Record<string, string>): EntradaAntropometria`, `registrarAntropometria(ctx, tenant, patientId, input, deps?): Promise<{ id: string; aviso: string | null }>`, `listarAntropometrias(ctx, patientId, db?): Promise<AnthropometryRow[]>` (mais recente primeiro, audita), `excluirAntropometria(ctx, patientId, id, db?): Promise<boolean>`.
+  - `@/modules/pacientes/antropometria-constantes` (sem imports, pode ir para o navegador): `CIRCUNFERENCIAS` (`{ id, rotulo }[]`), `type CircunferenciaId`, `MSG_ANTROPO`.
+  - `@/modules/pacientes/antropometria` (só servidor; reexporta as constantes): `CIRCUNFERENCIAS`, `type CircunferenciaId`, `MSG_ANTROPO`, `class AntropometriaError { erros: Record<string, string> }`, `type EntradaAntropometria`, `entradaDoFormulario(valores: Record<string, string>): EntradaAntropometria`, `registrarAntropometria(ctx, tenant, patientId, input, deps?): Promise<{ id: string; aviso: string | null }>`, `listarAntropometrias(ctx, patientId, db?): Promise<AnthropometryRow[]>` (mais recente primeiro, audita), `excluirAntropometria(ctx, patientId, id, db?): Promise<boolean>`.
   - `src/components/confirmar-botao.tsx`: `ConfirmarBotao({ mensagem, children, rotulo? })` (`rotulo` = nome acessível).
 
 - [ ] **Step 1: Tabela** — acrescentar ao `src/db/schema/pacientes.ts` (imports: `jsonb`, `numeric` de `drizzle-orm/pg-core`):
@@ -3884,19 +4040,13 @@ describe('registrarAntropometria (US-013)', () => {
 Run: `pnpm test src/modules/pacientes/antropometria.test.ts`
 Expected: FAIL — `Cannot find module './antropometria'`.
 
-- [ ] **Step 3: Implementar o serviço** — `src/modules/pacientes/antropometria.ts`
+- [ ] **Step 3: Implementar o serviço** — primeiro as constantes, num arquivo **sem nenhum import** (PF-B1/F8, como `marca-constantes.ts` e, na Tarefa 11, `exames-constantes.ts`): o formulário `'use client'` precisa delas, e importar `antropometria.ts` levaria `@/db/client` (pg, `@/env`), `@/db/tenant` e `audit.ts` para o bundle do navegador — o `pnpm build` quebra. `src/modules/pacientes/antropometria-constantes.ts`:
 
 ```ts
-import { and, desc, eq } from 'drizzle-orm';
-import type { z } from 'zod';
-import { getDb, type Db } from '@/db/client';
-import { anthropometry, type AnthropometryRow } from '@/db/schema';
-import { withTenant, type TenantContext } from '@/db/tenant';
-import { arredondar, decimalEntre, decimalOpcionalEntre } from '@/lib/numero';
-import { auditRead } from '@/modules/plataforma/audit';
-import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
-import { dataValida, hojeNoFuso, idadeEm } from './datas';
-import { calcularGordura, DOBRAS, dobrasDoProtocolo, type DobraId, type Protocolo, type Sexo } from './formulas';
+/**
+ * PF-B1/F8: constantes sem nenhum import, para o formulário `'use client'` da antropometria
+ * importá-las sem puxar `antropometria.ts` (pg, env, auditoria) para o navegador.
+ */
 
 export const CIRCUNFERENCIAS = [
   { id: 'braco', rotulo: 'Braço' },
@@ -3917,6 +4067,24 @@ export const MSG_ANTROPO = {
   dobra: 'Dobra deve estar entre 1 e 100 mm',
   dobrasFaltando: (n: number) => `Preencha as ${n} dobras para calcular o % de gordura`,
 } as const;
+```
+
+`src/modules/pacientes/antropometria.ts`:
+
+```ts
+import { and, desc, eq } from 'drizzle-orm';
+import type { z } from 'zod';
+import { getDb, type Db } from '@/db/client';
+import { anthropometry, type AnthropometryRow } from '@/db/schema';
+import { withTenant, type TenantContext } from '@/db/tenant';
+import { arredondar, decimalEntre, decimalOpcionalEntre } from '@/lib/numero';
+import { auditRead } from '@/modules/plataforma/audit';
+import { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
+import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
+import { dataValida, hojeNoFuso, idadeEm } from './datas';
+import { calcularGordura, DOBRAS, dobrasDoProtocolo, type DobraId, type Protocolo, type Sexo } from './formulas';
+
+export { CIRCUNFERENCIAS, MSG_ANTROPO, type CircunferenciaId } from './antropometria-constantes';
 
 /** Erros por campo: `data`, `pesoKg`, `alturaCm`, `circ_<id>`, `dobra_<id>`. */
 export class AntropometriaError extends Error {
@@ -4144,7 +4312,7 @@ export async function excluirAntropometriaAction(patientId: string, id: string):
 
 import { useActionState, useState, type ChangeEvent } from 'react';
 import { formatarDecimal, lerDecimal } from '@/lib/numero';
-import { CIRCUNFERENCIAS, MSG_ANTROPO } from '@/modules/pacientes/antropometria';
+import { CIRCUNFERENCIAS, MSG_ANTROPO } from '@/modules/pacientes/antropometria-constantes'; // nunca de antropometria.ts (servidor)
 import { idadeEm } from '@/modules/pacientes/datas';
 import { calcularGordura, DOBRAS, dobrasDoProtocolo, imc, type Protocolo, type Sexo } from '@/modules/pacientes/formulas';
 import type { AntropometriaState } from './actions';
@@ -4280,7 +4448,7 @@ export default async function AntropometriaPage({ params }: PageProps<'/painel/p
               {lista.map((a) => (
                 <tr key={a.id} className="border-t">
                   <td>{formatarData(a.data)}</td>
-                  <td>{formatarDecimal(a.pesoKg, 1)}</td>
+                  <td>{formatarDecimal(a.pesoKg, 2)}</td>
                   <td>{formatarDecimal(a.alturaCm, 1)}</td>
                   <td>{a.imc === null ? '—' : formatarDecimal(a.imc, 2)}</td>
                   <td>{a.percGordura === null ? '—' : formatarDecimal(a.percGordura, 2)}</td>
@@ -4333,7 +4501,7 @@ test('antropometria: IMC e % de gordura aparecem ao digitar; JP 3 dobras da mulh
 - [ ] **Step 7: Suíte e commit**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e`
-Expected: tudo verde (inclusive `e2e/plataforma.spec.ts`, que usa os botões com confirmação do admin).
+Expected: tudo verde (inclusive `e2e/plataforma.spec.ts`, que usa os botões com confirmação do admin). Conferir também que `grep -rn "modules/pacientes/antropometria'" src/app --include='*form.tsx'` não acha nada (o formulário cliente só importa `antropometria-constantes`).
 
 ```bash
 git add src/db/schema/pacientes.ts drizzle/0021_antropometria.sql drizzle/0022_rls_antropometria.sql drizzle/meta test/isolamento.test.ts \
@@ -4372,8 +4540,10 @@ export const energyCalcs = pgTable(
     idade: integer('idade').notNull(),
     sexo: text('sexo').notNull(),
     fatorAtividade: numeric('fator_atividade', { precision: 3, scale: 2, mode: 'number' }).notNull(),
-    tmb: numeric('tmb', { precision: 7, scale: 2, mode: 'number' }).notNull(),
-    get: numeric('get', { precision: 7, scale: 2, mode: 'number' }).notNull(),
+    // 6 casas: o mesmo valor que as fórmulas devolvem; com 2 casas, 1500,4951 viraria 1500,50 e a lista
+    // mostraria 1501 onde a tela de sucesso mostrou 1500 (arredondamento duplo, RN-14)
+    tmb: numeric('tmb', { precision: 12, scale: 6, mode: 'number' }).notNull(),
+    get: numeric('get', { precision: 12, scale: 6, mode: 'number' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -4451,7 +4621,7 @@ describe('gasto energético (US-014, RN-14)', () => {
     const r = await salvarCalculo(T.ctx, T.tenant, p.id, { formula: 'mifflin', pesoKg: '60', alturaCm: '165', fator: '1,55' }, deps);
     expect(r).toMatchObject({ tmb: 1295, get: 2008 });
     const [c] = await listarCalculos(T.ctx, p.id, app.db);
-    expect(c).toMatchObject({ id: r.id, formula: 'mifflin', idade: 35, sexo: 'F', fatorAtividade: 1.55, tmb: 1295.25, get: 2007.64 });
+    expect(c).toMatchObject({ id: r.id, formula: 'mifflin', idade: 35, sexo: 'F', fatorAtividade: 1.55, tmb: 1295.25, get: 2007.6375 }); // sem arredondar (6 casas)
     const log = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(eq(auditLog.entidadeId, r.id)), app.db);
     expect(log[0]).toMatchObject({ acao: 'criar', entidade: 'gasto_energetico', actorUserId: T.nutriId });
   });
@@ -4462,6 +4632,12 @@ describe('gasto energético (US-014, RN-14)', () => {
     expect(await erros(salvarCalculo(T.ctx, T.tenant, p.id, { formula: 'mifflin', pesoKg: '60', alturaCm: '165', fator: '3,0' }, deps))).toEqual({
       fator: 'Fator de atividade deve estar entre 1,00 e 2,50',
     });
+    // Review Focus 2 também no fator: lixo digitado vira a mensagem do campo, nunca NaN gravado
+    for (const fator of ['1,5O', '', 'abc', '1,55 x']) {
+      expect(await erros(salvarCalculo(T.ctx, T.tenant, p.id, { formula: 'mifflin', pesoKg: '60', alturaCm: '165', fator }, deps)), fator).toEqual({
+        fator: 'Fator de atividade deve estar entre 1,00 e 2,50',
+      });
+    }
     expect(await erros(salvarCalculo(T.ctx, T.tenant, p.id, { formula: 'x', pesoKg: '0', alturaCm: '165', fator: '1,2' }, deps))).toEqual({
       formula: MSG_GASTO.formula,
       pesoKg: 'Peso deve estar entre 1 e 400 kg',
@@ -4561,7 +4737,7 @@ export async function salvarCalculo(
       const g = gastoTotal(t, fatorAtividade);
       const [row] = await tx
         .insert(energyCalcs)
-        .values({ tenantId: ctx.tenantId, patientId: p.id, formula, ...dados, fatorAtividade, tmb: arredondar(t, 2), get: arredondar(g, 2), createdAt: now })
+        .values({ tenantId: ctx.tenantId, patientId: p.id, formula, ...dados, fatorAtividade, tmb: arredondar(t, 6), get: arredondar(g, 6), createdAt: now })
         .returning({ id: energyCalcs.id });
       return { id: row.id, tmb: kcal(t), get: kcal(g) };
     },
@@ -4662,7 +4838,7 @@ const valido = (n: number | null, min: number, max: number): n is number => type
 /** US-014 "Comparar fórmulas": as 3 TMB lado a lado enquanto digita; salva a escolhida com o fator. */
 export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
   const [state, action, pendente] = useActionState<CalculoState, FormData>(acao, {});
-  const [peso, setPeso] = useState(pesoKg === null ? '' : formatarDecimal(pesoKg, 1));
+  const [peso, setPeso] = useState(pesoKg === null ? '' : formatarDecimal(pesoKg, 2)); // peso é numeric(5,2): 60,25 não pode virar 60,3 na TMB
   const [altura, setAltura] = useState(alturaCm === null ? '' : formatarDecimal(alturaCm, 1));
   const [fator, setFator] = useState('1,20');
   const [formula, setFormula] = useState<FormulaTmb>('mifflin');
@@ -4789,7 +4965,7 @@ export default async function GastoEnergeticoPage({ params }: PageProps<'/painel
                 <tr key={c.id} className="border-t">
                   <td>{formatarDataHora(c.createdAt, tenant.fuso)}</td>
                   <td>{NOME[c.formula]}</td>
-                  <td>{`${formatarDecimal(c.pesoKg, 1)} kg / ${formatarDecimal(c.alturaCm, 1)} cm`}</td>
+                  <td>{`${formatarDecimal(c.pesoKg, 2)} kg / ${formatarDecimal(c.alturaCm, 1)} cm`}</td>
                   <td>{c.idade}</td>
                   <td>{formatarDecimal(c.fatorAtividade, 2)}</td>
                   <td>{kcal(c.tmb)}</td>
@@ -4882,6 +5058,14 @@ describe('validarModelo (US-012)', () => {
     });
     expect(r).toEqual({ ok: false, erros: { pergunta_0: MSG_ANAMNESE.rotulo, pergunta_1: MSG_ANAMNESE.opcoes, pergunta_2: MSG_ANAMNESE.tipo } });
   });
+  it('acima dos limites dá erro, nunca corta em silêncio: 101 perguntas, 31 opções, opção com 101 caracteres', () => {
+    const q = (i: number) => ({ tipo: 'texto_curto', rotulo: `P${i}`, obrigatoria: false });
+    expect(validarModelo({ nome: 'X', perguntas: Array.from({ length: 101 }, (_, i) => q(i)) })).toEqual({ ok: false, erros: { perguntas: MSG_ANAMNESE.muitasPerguntas } });
+    const opcoes = (o: string[]) => validarModelo({ nome: 'X', perguntas: [{ tipo: 'multipla_escolha', rotulo: 'M', obrigatoria: false, opcoes: o }] });
+    expect(opcoes(Array.from({ length: 31 }, (_, i) => `op${i}`))).toEqual({ ok: false, erros: { pergunta_0: MSG_ANAMNESE.muitasOpcoes } });
+    expect(opcoes(['A', 'x'.repeat(101)])).toEqual({ ok: false, erros: { pergunta_0: MSG_ANAMNESE.muitasOpcoes } });
+    expect(opcoes(Array.from({ length: 30 }, (_, i) => `op${i}`)).ok).toBe(true);
+  });
 });
 
 describe('validarRespostas', () => {
@@ -4959,6 +5143,8 @@ export const MSG_ANAMNESE = {
   rotulo: 'Informe o texto da pergunta',
   opcoes: 'Informe pelo menos 2 opções',
   tipo: 'Escolha o tipo da pergunta',
+  muitasPerguntas: 'Use no máximo 100 perguntas',
+  muitasOpcoes: 'Use no máximo 30 opções, com até 100 caracteres cada',
   modeloNaoEncontrado: 'Modelo de anamnese não encontrado.',
   responda: (rotulo: string) => `Responda: ${rotulo}`,
   invalida: (rotulo: string) => `Resposta inválida: ${rotulo}`,
@@ -4977,8 +5163,10 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
   const erros: Record<string, string> = {};
   const nome = texto(input.nome).slice(0, 80);
   if (!nome) erros.nome = MSG_ANAMNESE.nomeModelo;
-  const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas) ? input.perguntas.slice(0, LIMITE_PERGUNTAS) : [];
+  const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas) ? input.perguntas : [];
   if (!brutas.length) erros.perguntas = MSG_ANAMNESE.semPerguntas;
+  // nada é cortado em silêncio: o editor limita nome, rótulo e unidade (maxLength), mas não a lista de opções
+  if (brutas.length > LIMITE_PERGUNTAS) return { ok: false, erros: { ...erros, perguntas: MSG_ANAMNESE.muitasPerguntas } };
   const ids = new Set<string>();
   const perguntas: Pergunta[] = [];
   brutas.forEach((item, i) => {
@@ -4996,7 +5184,8 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
       if (unidade) p.unidade = unidade;
     }
     if (temOpcoes(tipo)) {
-      const opcoes = [...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o).slice(0, 100)).filter(Boolean))].slice(0, 30);
+      const opcoes = [...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o)).filter(Boolean))];
+      if (opcoes.length > 30 || opcoes.some((o) => o.length > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
       if (opcoes.length < 2) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.opcoes);
       p.opcoes = opcoes;
     }
@@ -5087,14 +5276,14 @@ export function modeloPadrao(): { nome: string; schema: ModeloSchema } {
       perguntas: [
         p('texto_longo', 'Queixa principal'),
         p('texto_longo', 'Histórico clínico'),
-        p('texto_longo', 'Medicamentos em uso'),
-        p('texto_longo', 'Alergias e intolerâncias'),
+        p('texto_longo', 'Medicamentos'),
+        p('texto_longo', 'Alergias/intolerâncias'),
         p('escolha_unica', 'Hábitos intestinais', { opcoes: ['Regular', 'Constipação', 'Diarreia frequente', 'Alterna constipação e diarreia'] }),
         p('numero', 'Sono', { unidade: 'horas por noite' }),
         p('texto_longo', 'Atividade física'),
         p('numero', 'Consumo de água', { unidade: 'litros por dia' }),
-        p('texto_curto', 'Álcool e tabaco'),
-        p('texto_longo', 'Preferências e aversões alimentares'),
+        p('texto_curto', 'Álcool/tabaco'),
+        p('texto_longo', 'Preferências e aversões'),
       ],
     },
   };
@@ -5222,8 +5411,9 @@ describe('modelos de anamnese (US-012)', () => {
     const [resumo] = listas[0];
     const modelo = await buscarModelo(T.ctx, resumo.id, app.db);
     expect(modelo?.schema.perguntas.map((p) => p.rotulo)).toEqual([
-      'Queixa principal', 'Histórico clínico', 'Medicamentos em uso', 'Alergias e intolerâncias', 'Hábitos intestinais',
-      'Sono', 'Atividade física', 'Consumo de água', 'Álcool e tabaco', 'Preferências e aversões alimentares',
+      // texto exato da spec (US-012 "Modelo padrão"; CLAUDE.md regra 4), só com a inicial maiúscula
+      'Queixa principal', 'Histórico clínico', 'Medicamentos', 'Alergias/intolerâncias', 'Hábitos intestinais',
+      'Sono', 'Atividade física', 'Consumo de água', 'Álcool/tabaco', 'Preferências e aversões',
     ]);
   });
 
@@ -5252,6 +5442,13 @@ describe('preencher anamnese', () => {
     const { T, p, modeloId, perguntas } = await comModelo([{ tipo: 'texto_curto', rotulo: 'Alergias', obrigatoria: true }]);
     expect(await erros(preencherAnamnese(T.ctx, T.tenant, p.id, modeloId, {}, { db: app.db, now }))).toEqual({ [perguntas[0].id]: 'Responda: Alergias' });
     expect(await withTenant(T.ctx, (tx) => tx.select().from(anamneses).where(eq(anamneses.patientId, p.id)), app.db)).toEqual([]);
+  });
+
+  it('editar e esvaziar uma obrigatória: "Responda: Alergias" e a resposta gravada continua a mesma', async () => {
+    const { T, p, modeloId, perguntas } = await comModelo([{ tipo: 'texto_curto', rotulo: 'Alergias', obrigatoria: true }]);
+    const id = await preencherAnamnese(T.ctx, T.tenant, p.id, modeloId, { [perguntas[0].id]: 'Lactose' }, { db: app.db, now });
+    expect(await erros(atualizarAnamnese(T.ctx, p.id, id, { [perguntas[0].id]: '  ' }, app.db))).toEqual({ [perguntas[0].id]: 'Responda: Alergias' });
+    expect((await buscarAnamnese(T.ctx, p.id, id, app.db))?.respostas).toEqual({ [perguntas[0].id]: 'Lactose' });
   });
 
   it('"Snapshot do modelo": alterar ou excluir pergunta depois não muda a anamnese já preenchida', async () => {
@@ -5503,13 +5700,18 @@ export async function arquivarModeloAction(id: string): Promise<void> {
 ```tsx
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import { TIPOS_PERGUNTA, type Pergunta, type TipoPergunta } from '@/modules/pacientes/anamnese-tipos';
 import type { ModeloState } from './actions';
 
 type Rascunho = { id: string; tipo: TipoPergunta; rotulo: string; obrigatoria: boolean; unidade: string; opcoes: string };
 const paraRascunho = (p: Pergunta): Rascunho => ({ id: p.id, tipo: p.tipo, rotulo: p.rotulo, obrigatoria: p.obrigatoria, unidade: p.unidade ?? '', opcoes: (p.opcoes ?? []).join('\n') });
-const nova = (): Rascunho => ({ id: crypto.randomUUID(), tipo: 'texto_curto', rotulo: '', obrigatoria: false, unidade: '', opcoes: '' });
+/**
+ * Id local e determinístico da pergunta nova (o servidor troca por um UUID em `validarModelo`): `crypto.randomUUID()`
+ * aqui daria ids diferentes no SSR e na hidratação (`rotulo-…`, `tipo-…` sem casar) e nem existe fora de HTTPS.
+ */
+const nova = (id: string): Rascunho => ({ id, tipo: 'texto_curto', rotulo: '', obrigatoria: false, unidade: '', opcoes: '' });
+const LIMITE_PERGUNTAS = 100;
 
 type Props = {
   acao: (prev: ModeloState, formData: FormData) => Promise<ModeloState>;
@@ -5520,7 +5722,8 @@ type Props = {
 export function ModeloEditor({ acao, inicial }: Props) {
   const [state, action, pendente] = useActionState<ModeloState, FormData>(acao, {});
   const [nome, setNome] = useState(inicial.nome);
-  const [perguntas, setPerguntas] = useState<Rascunho[]>(inicial.perguntas.length ? inicial.perguntas.map(paraRascunho) : [nova()]);
+  const seq = useRef(1);
+  const [perguntas, setPerguntas] = useState<Rascunho[]>(inicial.perguntas.length ? inicial.perguntas.map(paraRascunho) : [nova('nova-0')]);
   const e = state.erros ?? {};
   const mudar = (i: number, parte: Partial<Rascunho>) => setPerguntas((ps) => ps.map((p, j) => (j === i ? { ...p, ...parte } : p)));
   const mover = (i: number, d: -1 | 1) =>
@@ -5592,7 +5795,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
       {e.perguntas && <p role="alert" className="text-red-700">{e.perguntas}</p>}
       {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
       <div className="flex gap-3">
-        <button type="button" onClick={() => setPerguntas((ps) => [...ps, nova()])} className="rounded border px-4 py-2">Adicionar pergunta</button>
+        <button type="button" disabled={perguntas.length >= LIMITE_PERGUNTAS} onClick={() => setPerguntas((ps) => [...ps, nova(`nova-${seq.current++}`)])} className="rounded border px-4 py-2 disabled:opacity-50">Adicionar pergunta</button>
         <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar modelo</button>
       </div>
     </form>
@@ -5769,6 +5972,9 @@ export function AnamneseForm({ acao, perguntas, inicial, botao, somenteLeitura }
   const [state, action, pendente] = useActionState<AnamneseState, FormData>(acao, {});
   const valores = state.valores ?? inicial;
   const erros = state.erros ?? {};
+  // O modelo pode ter ganhado uma pergunta obrigatória depois que a tela abriu: o erro dela não tem campo aqui
+  const naTela = new Set(perguntas.map((p) => p.id));
+  const semCampo = Object.entries(erros).filter(([k]) => k !== 'geral' && !naTela.has(k)).map(([, v]) => v);
   return (
     <form action={action} className="space-y-4">
       <fieldset key={state.envio ?? 0} disabled={somenteLeitura} className="space-y-4">
@@ -5777,6 +5983,9 @@ export function AnamneseForm({ acao, perguntas, inicial, botao, somenteLeitura }
         ))}
       </fieldset>
       {erros.geral && <p role="alert" className="text-red-700">{erros.geral}</p>}
+      {semCampo.length > 0 && (
+        <p role="alert" className="text-red-700">{`O modelo mudou enquanto você preenchia. Recarregue a página. (${semCampo.join(' · ')})`}</p>
+      )}
       {state.ok && <p role="status">Anamnese salva.</p>}
       {!somenteLeitura && <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">{botao}</button>}
     </form>
@@ -5951,7 +6160,7 @@ test('anamnese: modelo com "Alergias" obrigatória recusa salvar vazia e depois 
   await nutri.getByRole('button', { name: 'Preencher anamnese' }).click();
   await nutri.getByLabel('Refeições por dia').fill('4');
   await nutri.getByRole('button', { name: 'Salvar anamnese' }).click();
-  await expect(nutri.getByRole('alert')).toHaveText('Responda: Alergias');
+  await expect(nutri.locator('p[role="alert"]')).toHaveText('Responda: Alergias');
   await expect(nutri.getByLabel('Refeições por dia')).toHaveValue('4');
   await nutri.getByLabel('Alergias (obrigatória)').fill('Lactose');
   await nutri.getByRole('button', { name: 'Salvar anamnese' }).click();
@@ -6088,7 +6297,7 @@ Expected: PASS (o teste `staff_only` da matriz agora itera também `consultation
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, consultationNotes } from '@/db/schema';
@@ -6110,7 +6319,12 @@ describe('atendimentos (US-016)', () => {
     const p = await novoPaciente(app.db, T.ctx);
     const id = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: NOTA, orientacoes: ORIENTACAO }, deps);
     expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ id, data: '2026-10-01', notasPrivadas: NOTA, orientacoesPaciente: ORIENTACAO });
-    const log = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'criar'))), app.db);
+    // filtra as duas entidades: o novoPaciente também grava "criar" em patients com o mesmo patient_id
+    const log = await withTenant(
+      T.ctx,
+      (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'criar'), inArray(auditLog.entidade, ['atendimentos', 'notas_privadas']))),
+      app.db,
+    );
     expect(log.map((l) => l.entidade).sort()).toEqual(['atendimentos', 'notas_privadas']);
     expect(log.every((l) => l.actorUserId === T.nutriId)).toBe(true);
   });
@@ -6123,10 +6337,29 @@ describe('atendimentos (US-016)', () => {
     const doPortal = await orientacoesDoPaciente(ctx, app.db);
     expect(doPortal).toEqual([{ data: '2026-10-01', orientacoes: ORIENTACAO }]);
     expect(JSON.stringify(doPortal)).not.toContain(NOTA);
+    const lidas = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'ler'), eq(auditLog.entidade, 'atendimentos'))), app.db);
+    expect(lidas).toHaveLength(1); // o próprio paciente lendo as orientações também fica no histórico (regra 8)
+    await expect(orientacoesDoPaciente(T.ctx, app.db)).rejects.toThrow(/sessão de paciente/); // nunca com o contexto da nutricionista
     expect(await withTenant(ctx, (tx) => tx.select().from(consultationNotes), app.db)).toEqual([]);
     const vistos = await listarAtendimentos(ctx, p.id, app.db);
     expect(JSON.stringify(vistos)).not.toContain(NOTA);
     expect(vistos[0].notasPrivadas).toBeNull();
+  });
+
+  it('WITH CHECK de consultation_notes: o tenant B não grava nota no atendimento de A (42501)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const pA = await novoPaciente(app.db, A.ctx);
+    const idA = await registrarAtendimento(A.ctx, A.tenant, pA.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: ORIENTACAO }, deps);
+    // a matriz de isolamento cria o atendimento na mesma CTE, então lá quem recusa é a RLS de consultations;
+    // aqui o atendimento já existe e só a política da própria consultation_notes pode barrar
+    const tentativa = withTenant(
+      B.ctx,
+      (tx) => tx.execute(sql`insert into consultation_notes (tenant_id, patient_id, consultation_id, texto) values (${A.tenantId}, ${pA.id}, ${idA}, 'x')`),
+      app.db,
+    );
+    await expect(tentativa).rejects.toSatisfy((e: unknown) => ((e as { cause?: { code?: string } }).cause ?? (e as { code?: string })).code === '42501');
+    expect((await buscarAtendimento(A.ctx, pA.id, idA, app.db))?.notasPrivadas).toBeNull();
   });
 
   it('editar troca as orientações e, com as notas vazias, apaga a nota', async () => {
@@ -6218,9 +6451,11 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_ATENDIMENTO.data;
   else if (data > hoje) erros.data = MSG_ATENDIMENTO.futuro;
-  const notas = typeof input.notasPrivadas === 'string' ? input.notasPrivadas.trim() : '';
+  // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir
+  const limpo = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
+  const notas = limpo(input.notasPrivadas);
   if (notas.length > 20000) erros.notasPrivadas = MSG_ATENDIMENTO.notas;
-  const orientacoes = typeof input.orientacoes === 'string' ? input.orientacoes.trim() : '';
+  const orientacoes = limpo(input.orientacoes);
   if (orientacoes.length > 5000) erros.orientacoes = MSG_ATENDIMENTO.orientacoes;
   if (Object.keys(erros).length) throw new AtendimentoError(erros);
   return { data, notas: notas || null, orientacoes: orientacoes || null };
@@ -6284,20 +6519,32 @@ export async function atualizarAtendimento(
   );
 }
 
+const COLUNAS = {
+  id: consultations.id,
+  data: consultations.data,
+  orientacoesPaciente: consultations.orientacoesPaciente,
+  createdAt: consultations.createdAt,
+};
+
+/**
+ * Só o atendimento aberto lê a nota (e audita "Notas privadas"): a lista mostra data e orientações, e
+ * lê-la com a nota gravaria "Visualizou Notas privadas" a cada visita, sem nota nenhuma na tela.
+ * Numa sessão de paciente, a política staff_only devolve a nota como nula (LEFT JOIN sem linha).
+ */
 async function ler(tx: Tx, patientId: string, id?: string): Promise<Atendimento[]> {
-  // Numa sessão de paciente, a política staff_only devolve a nota como nula (LEFT JOIN sem linha)
-  const r = await tx
-    .select({
-      id: consultations.id,
-      data: consultations.data,
-      orientacoesPaciente: consultations.orientacoesPaciente,
-      notasPrivadas: consultationNotes.texto,
-      createdAt: consultations.createdAt,
-    })
-    .from(consultations)
-    .leftJoin(consultationNotes, eq(consultationNotes.consultationId, consultations.id))
-    .where(id ? and(eq(consultations.patientId, patientId), eq(consultations.id, id)) : eq(consultations.patientId, patientId))
-    .orderBy(desc(consultations.data), desc(consultations.createdAt));
+  const r: Atendimento[] = id
+    ? await tx
+        .select({ ...COLUNAS, notasPrivadas: consultationNotes.texto })
+        .from(consultations)
+        .leftJoin(consultationNotes, eq(consultationNotes.consultationId, consultations.id))
+        .where(and(eq(consultations.patientId, patientId), eq(consultations.id, id)))
+    : (
+        await tx
+          .select(COLUNAS)
+          .from(consultations)
+          .where(eq(consultations.patientId, patientId))
+          .orderBy(desc(consultations.data), desc(consultations.createdAt))
+      ).map((a) => ({ ...a, notasPrivadas: null }));
   if (r.length) {
     const notas = r.some((a) => a.notasPrivadas !== null);
     await auditRead(tx, [
@@ -6321,16 +6568,22 @@ export async function buscarAtendimento(ctx: TenantContext, patientId: string, i
 /**
  * Para o portal (Plano 06): só as orientações, só do paciente da sessão. Não toca em consultation_notes
  * — e, mesmo que tocasse, a política staff_only esconderia (US-016 "nem no JSON da API").
+ * Recusa o contexto da nutricionista (devolveria as orientações de todos os pacientes) e audita a leitura.
  */
 export async function orientacoesDoPaciente(ctx: TenantContext, db: Db = getDb()): Promise<{ data: string; orientacoes: string }[]> {
+  const patientId = ctx.role === 'paciente' ? ctx.patientId : undefined;
+  if (!patientId) throw new Error('orientacoesDoPaciente só roda em sessão de paciente');
   const r = await withTenant(
     ctx,
-    (tx) =>
-      tx
+    async (tx) => {
+      const linhas = await tx
         .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
         .from(consultations)
-        .where(isNotNull(consultations.orientacoesPaciente))
-        .orderBy(desc(consultations.data)),
+        .where(and(eq(consultations.patientId, patientId), isNotNull(consultations.orientacoesPaciente)))
+        .orderBy(desc(consultations.data));
+      if (linhas.length) await auditRead(tx, { entidade: 'atendimentos', entidadeId: null, patientId });
+      return linhas;
+    },
     db,
   );
   return r.map((x) => ({ data: x.data, orientacoes: x.orientacoes ?? '' }));
@@ -6571,7 +6824,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `drizzle/0029_exames.sql` (gerada), `drizzle/0030_rls_exames.sql` (custom), `src/modules/pacientes/exames-constantes.ts`, `src/modules/pacientes/exames.ts`, `src/modules/pacientes/exames.test.ts`, `src/app/api/painel/pacientes/[id]/exames/route.ts`, `src/app/api/painel/pacientes/[id]/exames/route.test.ts`, `src/app/painel/pacientes/[id]/exames/page.tsx`, `src/app/painel/pacientes/[id]/exames/actions.ts`, `src/app/painel/pacientes/[id]/exames/exame-form.tsx`
-- Modify: `src/db/schema/pacientes.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts`, `src/app/painel/pacientes/[id]/abas.tsx`
+- Modify: `src/db/schema/pacientes.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts`, `src/modules/plataforma/armazenamento.ts` e `armazenamento.test.ts` (`registrar`, `naMesmaTransacao`, `removerAntesDoCommit`), `src/app/api/arquivos/route.ts` e `route.test.ts` (PDF como anexo), `CLAUDE.md` (regra 9), `src/app/painel/pacientes/[id]/abas.tsx`
 
 **Interfaces:**
 - Consumes: `salvarArquivo`, `apagarArquivo`, `TipoNaoPermitidoError`, `CotaEsgotadaError`, `MSG_COTA_ESGOTADA` (`@/modules/plataforma/armazenamento`); `storedFiles` (schema); `signFileUrl`, `verifyFileUrl` (`@/lib/signed-url`); `lerCorpoLimitado`, `CorpoGrandeError` (`@/lib/corpo`); `requireApiNutri`; `getEnv`; `carregarPacienteParaEscrita`, `idValido` (Tarefa 1); `dataValida`, `hojeNoFuso`, `formatarData` (Tarefa 1); `lerDecimal`, `formatarDecimal` (Tarefa 6); `auditRead`; `ConfirmarBotao` (Tarefa 7); `carregarProntuario`.
@@ -6698,6 +6951,7 @@ describe('exames (US-015)', () => {
       { nome: 'Glicemia de jejum', valor: 110, unidade: 'mg/dL', referencia: '70–99' },
     ]);
     expect(lerValores([{ nome: 'Glicemia', valor: 'alta' }])).toBeNull();
+    expect(lerValores([{ nome: 'Glicemia', valor: '9'.repeat(400) }])).toBeNull(); // Infinity não entra (viraria null no jsonb)
     expect(lerValores([{ nome: '', valor: '10' }])).toBeNull();
     expect(lerValores('lixo')).toBeNull();
     const T = await novoTenant(app.db);
@@ -6720,6 +6974,12 @@ describe('exames (US-015)', () => {
       { nome: 'HbA1c', unidade: '%', pontos: [{ data: '2026-06-01', valor: 5.9 }] },
     ]);
     expect(agruparMarcadores([])).toEqual([]);
+    // mesma glicemia em outra unidade é outra série (não mistura mg/dL com mmol/L)
+    const mistas = agruparMarcadores([
+      { data: '2026-06-01', valores: [{ nome: 'Glicemia', valor: 110, unidade: 'mg/dL', referencia: null }] },
+      { data: '2026-09-01', valores: [{ nome: 'glicemia', valor: 5.3, unidade: 'mmol/L', referencia: null }] },
+    ]);
+    expect(mistas.map((m) => [m.unidade, m.pontos.length])).toEqual([['mg/dL', 1], ['mmol/L', 1]]);
   });
 
   it('excluir apaga o laudo do disco e devolve a cota; apagar o arquivo pela API solta o vínculo (FK SET NULL)', async () => {
@@ -6750,6 +7010,126 @@ describe('exames (US-015)', () => {
 Run: `pnpm test src/modules/pacientes/exames.test.ts`
 Expected: FAIL — `Cannot find module './exames'`.
 
+- [ ] **Step 2b: Arquivo e registro na mesma transação** — o laudo e o exame (e, na Tarefa 14, o ZIP e o pedido de exportação) precisam nascer e morrer juntos: com duas transações, uma queda entre elas deixa um `stored_files` sem dono, que ocupa cota para sempre e escapa da anonimização (a Tarefa 13 acha os anexos pelo registro do paciente). Em `src/modules/plataforma/armazenamento.ts`:
+
+1. Import: `type Tx` de `@/db/client` (junto de `getDb`, `type Db`).
+2. `salvarArquivo` ganha o campo opcional `registrar` no `input`: roda **dentro** da transação que reserva a cota, depois do INSERT em `stored_files` e antes de o arquivo ir para o disco. Se ele lançar, nada fica (nem registro, nem arquivo, nem cota). Trocar a assinatura e o trecho do `insert` por:
+
+```ts
+export async function salvarArquivo(
+  ctx: TenantContext,
+  input: {
+    tipo: TipoDeArquivo;
+    conteudo: Buffer;
+    permitidos: readonly TipoArquivo['ext'][];
+    /** Grava o registro que aponta para o arquivo (exame, exportação) na mesma transação. */
+    registrar?: (tx: Tx, arquivo: ArquivoSalvo) => Promise<void>;
+  },
+  deps: Deps = {},
+): Promise<ArquivoSalvo> {
+```
+
+```ts
+        await tx
+          .insert(storedFiles)
+          .values({ id, tenantId: ctx.tenantId, tipo: input.tipo, caminho, bytes, mime: real.mime, criadoPor: ctx.actorUserId ?? null });
+        const arquivo = { id, caminho, bytes, mime: real.mime };
+        if (input.registrar) await input.registrar(tx, arquivo);
+        await mkdir(path.dirname(destino), { recursive: true, mode: 0o750 });
+        await writeFile(tmp, input.conteudo, { mode: 0o640, flag: 'wx' });
+        await rename(tmp, destino);
+        gravado = true;
+        return arquivo;
+```
+
+3. `apagarArquivo` ganha, em `deps`, `naMesmaTransacao?: (tx: Tx) => Promise<boolean>` (roda antes do DELETE; `false` desiste de tudo — o exame já não existia) e `removerAntesDoCommit?: boolean` (a anonimização da Tarefa 13 precisa saber que o arquivo saiu do disco: com a opção, o `rm` roda dentro da transação e uma falha desfaz o DELETE, para tentar de novo no dia seguinte). Trocar a função inteira por:
+
+```ts
+/**
+ * Apaga o registro e devolve o espaço; por padrão o arquivo sai do disco depois do commit (falha no `rm`
+ * só vira aviso de arquivo órfão). `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
+ */
+export async function apagarArquivo(
+  ctx: TenantContext,
+  filtro: { id: string } | { caminho: string },
+  deps: Deps & { naMesmaTransacao?: (tx: Tx) => Promise<boolean>; removerAntesDoCommit?: boolean } = {},
+): Promise<boolean> {
+  const db = deps.db ?? getDb();
+  const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
+  const onde = 'id' in filtro ? eq(storedFiles.id, filtro.id) : eq(storedFiles.caminho, filtro.caminho);
+  const apagado = await withTenant(
+    ctx,
+    async (tx) => {
+      if (deps.naMesmaTransacao && !(await deps.naMesmaTransacao(tx))) return null;
+      const [row] = await tx.delete(storedFiles).where(onde).returning({ caminho: storedFiles.caminho, bytes: storedFiles.bytes });
+      if (!row) return null;
+      await tx
+        .update(tenants)
+        .set({ armazenamentoBytes: sql`greatest(${tenants.armazenamentoBytes} - ${row.bytes}, 0)` })
+        .where(eq(tenants.id, ctx.tenantId));
+      if (deps.removerAntesDoCommit) await rm(resolverCaminho(dataDir, row.caminho), { force: true });
+      return row;
+    },
+    db,
+  );
+  if (!apagado) return false;
+  if (!deps.removerAntesDoCommit) {
+    await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
+      logger.warn({ err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
+    );
+  }
+  return true;
+}
+```
+
+Acrescentar ao `src/modules/plataforma/armazenamento.test.ts` (import `mkdirSync` de `node:fs` e `sql` de `drizzle-orm`, junto dos existentes):
+
+```ts
+describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
+  it('registrar que falha desfaz tudo: nem stored_files, nem arquivo, nem cota', async () => {
+    const ctx = await novoTenant();
+    let caminho = '';
+    await expect(
+      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (_tx, a) => { caminho = a.caminho; throw new Error('exame recusado'); } }, deps),
+    ).rejects.toThrow('exame recusado');
+    expect(existsSync(path.join(dataDir, caminho))).toBe(false);
+    expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
+    expect(await usado(ctx.tenantId)).toBe(0);
+  });
+  it('registrar grava na mesma transação que reserva a cota', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (tx, arq) => {
+      const [n] = (await tx.execute(sql`select count(*)::int as n from stored_files where caminho = ${arq.caminho}`)).rows as { n: number }[];
+      expect(n.n).toBe(1); // já visível dentro da transação
+    } }, deps);
+    expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
+  });
+  it('naMesmaTransacao = false desiste: o arquivo e a cota ficam', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, naMesmaTransacao: async () => false })).toBe(false);
+    expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
+    expect(await usado(ctx.tenantId)).toBe(108);
+  });
+  it('removerAntesDoCommit: se o rm falha, o registro continua (a anonimização tenta de novo)', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    const alvo = path.join(dataDir, a.caminho);
+    rmSync(alvo);
+    mkdirSync(path.join(alvo, 'x'), { recursive: true }); // um diretório não vazio no lugar: rm sem recursive falha
+    await expect(apagarArquivo(ctx, { id: a.id }, { ...deps, removerAntesDoCommit: true })).rejects.toThrow();
+    expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.id, a.id)), app.db)).toHaveLength(1);
+    rmSync(alvo, { recursive: true });
+    expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, removerAntesDoCommit: true })).toBe(true); // ENOENT com force: segue
+  });
+});
+```
+
+Run: `pnpm test src/modules/plataforma/armazenamento.test.ts`
+Expected: PASS (os testes antigos seguem iguais: sem as opções novas, nada muda).
+
+No CLAUDE.md, na regra 9, trocar "cota reservada na transação." por "cota reservada na transação; o registro que aponta para o arquivo (exame, exportação) é gravado no `registrar` de `salvarArquivo` e apagado no `naMesmaTransacao` de `apagarArquivo`, nunca numa transação separada."
+
 - [ ] **Step 3: Implementar o serviço** — primeiro as constantes que o formulário (navegador) também usa, sem dependência de servidor (mesmo padrão de `marca-constantes.ts` do Plano 02): `src/modules/pacientes/exames-constantes.ts`
 
 ```ts
@@ -6762,6 +7142,7 @@ export const MSG_EXAME = {
   data: 'Informe a data do exame',
   futuro: 'A data não pode ser no futuro',
   valores: 'Confira os valores: informe nome e valor numérico',
+  ocupado: 'Tente novamente em alguns instantes.', // mesmo texto do logo ocupado (Plano 02)
 } as const;
 ```
 
@@ -6769,7 +7150,7 @@ export const MSG_EXAME = {
 
 ```ts
 import { and, desc, eq } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
@@ -6802,7 +7183,8 @@ export function lerValores(bruto: unknown): ValorExame[] | null {
     const vazio = !nome && (valorTxt === undefined || valorTxt === '' || valorTxt === null);
     if (vazio) continue;
     const valor = lerDecimal(valorTxt);
-    if (!nome || typeof valor !== 'number' || Number.isNaN(valor)) return null;
+    // isFinite, não só isNaN: '9'.repeat(400) vira Infinity, que o jsonb gravaria como null
+    if (!nome || typeof valor !== 'number' || !Number.isFinite(valor)) return null;
     out.push({ nome, valor, unidade: texto(l.unidade, 20) || null, referencia: texto(l.referencia, 80) || null });
   }
   return out;
@@ -6811,8 +7193,9 @@ export function lerValores(bruto: unknown): ValorExame[] | null {
 type Entrada = { titulo: unknown; data: unknown; valores: unknown; arquivo: Buffer | null };
 
 /**
- * US-015. Ordem: valida tudo → confere o paciente → grava o arquivo (salvarArquivo: tipo pelo
- * conteúdo, cota na transação) → grava o exame. Se o exame falhar depois do arquivo, o arquivo sai.
+ * US-015. Ordem: valida tudo → confere o paciente (barato, antes de mexer em arquivo) → grava arquivo e
+ * exame na MESMA transação (`registrar` de salvarArquivo: tipo pelo conteúdo, cota reservada, exame
+ * inserido antes de o arquivo ir para o disco). Uma falha no meio não deixa laudo sem exame.
  */
 export async function criarExame(
   ctx: TenantContext,
@@ -6835,49 +7218,42 @@ export async function criarExame(
   if (Object.keys(erros).length || !valores) throw new ExameError(erros);
 
   await withTenant(ctx, (tx) => carregarPacienteParaEscrita(tx, patientId), db);
-  let caminho: string | null = null;
-  if (input.arquivo) {
-    try {
-      caminho = (await salvarArquivo(ctx, { tipo: 'exame', conteudo: input.arquivo, permitidos: ['pdf', 'jpg', 'png'] }, { db, dataDir: deps.dataDir })).caminho;
-    } catch (e) {
-      if (e instanceof TipoNaoPermitidoError) throw new ExameError({ arquivo: MSG_EXAME.arquivo });
-      throw e; // CotaEsgotadaError: quem chama traduz (RN-18)
-    }
-  }
+  const inserir = async (tx: Tx, arquivoPath: string | null) => {
+    const p = await carregarPacienteParaEscrita(tx, patientId); // de novo, na transação que grava (pode ter sido bloqueado)
+    const [e] = await tx
+      .insert(exams)
+      .values({ tenantId: ctx.tenantId, patientId: p.id, data, titulo, arquivoPath, valores, createdAt: now, updatedAt: now })
+      .returning({ id: exams.id });
+    return e.id;
+  };
+  if (!input.arquivo) return withTenant(ctx, (tx) => inserir(tx, null), db);
+  let id = '';
   try {
-    return await withTenant(
+    await salvarArquivo(
       ctx,
-      async (tx) => {
-        const p = await carregarPacienteParaEscrita(tx, patientId);
-        const [e] = await tx
-          .insert(exams)
-          .values({ tenantId: ctx.tenantId, patientId: p.id, data, titulo, arquivoPath: caminho, valores, createdAt: now, updatedAt: now })
-          .returning({ id: exams.id });
-        return e.id;
-      },
-      db,
+      { tipo: 'exame', conteudo: input.arquivo, permitidos: ['pdf', 'jpg', 'png'], registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)) },
+      { db, dataDir: deps.dataDir },
     );
-  } catch (err) {
-    if (caminho) await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir });
-    throw err;
+  } catch (e) {
+    if (e instanceof TipoNaoPermitidoError) throw new ExameError({ arquivo: MSG_EXAME.arquivo });
+    throw e; // CotaEsgotadaError: quem chama traduz (RN-18)
   }
+  return id;
 }
 
 export async function excluirExame(ctx: TenantContext, patientId: string, id: string, deps: { db?: Db; dataDir?: string } = {}): Promise<boolean> {
   const db = deps.db ?? getDb();
   if (!idValido(id)) return false;
-  const apagado = await withTenant(
-    ctx,
-    async (tx) => {
-      await carregarPacienteParaEscrita(tx, patientId);
-      const [e] = await tx.delete(exams).where(and(eq(exams.id, id), eq(exams.patientId, patientId))).returning({ caminho: exams.arquivoPath });
-      return e;
-    },
-    db,
-  );
-  if (!apagado) return false;
-  if (apagado.caminho) await apagarArquivo(ctx, { caminho: apagado.caminho }, { db, dataDir: deps.dataDir });
-  return true;
+  const doExame = and(eq(exams.id, id), eq(exams.patientId, patientId));
+  const apagarExame = async (tx: Tx) => {
+    await carregarPacienteParaEscrita(tx, patientId);
+    return (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
+  };
+  const [atual] = await withTenant(ctx, (tx) => tx.select({ caminho: exams.arquivoPath }).from(exams).where(doExame), db);
+  if (!atual) return false;
+  // exame e laudo saem na mesma transação; o arquivo deixa o disco depois do commit
+  if (atual.caminho) return apagarArquivo(ctx, { caminho: atual.caminho }, { db, dataDir: deps.dataDir, naMesmaTransacao: apagarExame });
+  return withTenant(ctx, apagarExame, db);
 }
 
 export async function listarExames(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<ExamRow[]> {
@@ -6895,19 +7271,22 @@ export async function listarExames(ctx: TenantContext, patientId: string, db: Db
 
 export type SerieMarcador = { nome: string; unidade: string | null; pontos: { data: string; valor: number }[] };
 
-/** Um marcador por nome (sem diferenciar maiúsculas/espaços), pontos em ordem cronológica, unidade do exame mais recente. */
+/**
+ * Um marcador por nome + unidade (sem diferenciar maiúsculas/espaços), pontos em ordem cronológica: glicemia em
+ * mg/dL e em mmol/L são duas séries — misturadas, o gráfico sairia errado.
+ */
 export function agruparMarcadores(lista: Pick<ExamRow, 'data' | 'valores'>[]): SerieMarcador[] {
   const series = new Map<string, SerieMarcador>();
+  const norm = (t: string | null) => (t ?? '').normalize('NFC').trim().toLowerCase();
   for (const e of [...lista].sort((a, b) => a.data.localeCompare(b.data))) {
     for (const v of e.valores) {
-      const chave = v.nome.normalize('NFC').trim().toLowerCase();
-      const s = series.get(chave) ?? { nome: v.nome.trim(), unidade: null, pontos: [] };
+      const chave = `${norm(v.nome)}\u0000${norm(v.unidade)}`;
+      const s = series.get(chave) ?? { nome: v.nome.trim(), unidade: v.unidade, pontos: [] };
       s.pontos.push({ data: e.data, valor: v.valor });
-      s.unidade = v.unidade ?? s.unidade;
       series.set(chave, s);
     }
   }
-  return [...series.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return [...series.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR') || norm(a.unidade).localeCompare(norm(b.unidade)));
 }
 
 export async function marcadoresDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<SerieMarcador[]> {
@@ -6925,10 +7304,12 @@ Expected: PASS.
 ```ts
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { listarExames } from '@/modules/pacientes/exames';
+import { COTA_BYTES, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
 import { novoPaciente } from '../../../../../../../test/pacientes';
 import { criarEEntrar } from '../../../../../../../test/sessao';
@@ -6980,6 +7361,19 @@ describe('POST /api/painel/pacientes/[id]/exames', () => {
     expect(await ruim.json()).toMatchObject({ erros: { titulo: 'Informe o título do exame', valores: expect.any(String) } });
   });
 
+  it('cota esgotada 507 com a mensagem do RN-18; paciente bloqueado 409; nada é gravado', async () => {
+    const A = await nutriComDpa();
+    const p = await novoPaciente(db, A.ctx);
+    const bloqueado = await novoPaciente(db, A.ctx, { status: 'bloqueado' });
+    const b = await enviar(bloqueado.id, { titulo: 'X', data: '2026-09-01', valores: '[]', arquivo: pdf(1000) }, A.cookie);
+    expect(b.status).toBe(409);
+    await db.update(tenants).set({ armazenamentoBytes: COTA_BYTES }).where(eq(tenants.id, A.ctx.tenantId));
+    const cheio = await enviar(p.id, { titulo: 'X', data: '2026-09-01', valores: '[]', arquivo: pdf(1000) }, A.cookie);
+    expect(cheio.status).toBe(507);
+    expect(await cheio.json()).toEqual({ erros: { arquivo: MSG_COTA_ESGOTADA } });
+    expect(await listarExames(A.ctx, p.id, db)).toEqual([]);
+  });
+
   it('paciente de outro tenant 404; sem sessão 401; outra origem 403', async () => {
     const A = await nutriComDpa();
     const B = await nutriComDpa();
@@ -6999,7 +7393,7 @@ Implementar `src/app/api/painel/pacientes/[id]/exames/route.ts`:
 ```ts
 import { getEnv } from '@/env';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
-import { requireApiNutri } from '@/lib/tenant-session';
+import { requireApiNutri, type ApiNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { criarExame, EXAME_MAX_BYTES, ExameError, MSG_EXAME } from '@/modules/pacientes/exames';
 import { CotaEsgotadaError, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
@@ -7010,6 +7404,11 @@ export const dynamic = 'force-dynamic';
 const LIMITE_CORPO = EXAME_MAX_BYTES + 256 * 1024;
 const resposta = (status: number, corpo: unknown) => Response.json(corpo, { status, headers: { 'cache-control': 'no-store' } });
 
+// Cada envio segura ~3 cópias de até 20 MB (corpo, FormData, Buffer do arquivo) numa VPS dividida com o CRM
+// de produção: no máximo 2 por processo, como o "um logo por vez" do Plano 02 (T10-R1c)
+const MAX_ENVIOS = 2;
+let enviosEmAndamento = 0;
+
 /** US-015: multipart (titulo, data, valores em JSON, arquivo opcional). Fora do proxy.ts, que não bufferiza /api. */
 export async function POST(req: Request, { params }: RouteContext<'/api/painel/pacientes/[id]/exames'>) {
   const origem = req.headers.get('origin');
@@ -7019,10 +7418,21 @@ export async function POST(req: Request, { params }: RouteContext<'/api/painel/p
   const { id } = await params;
 
   if (Number(req.headers.get('content-length') ?? 0) > LIMITE_CORPO) return resposta(413, { erros: { arquivo: MSG_EXAME.arquivo } });
+  if (enviosEmAndamento >= MAX_ENVIOS) return resposta(429, { erros: { geral: MSG_EXAME.ocupado } });
+  enviosEmAndamento++;
+  try {
+    return await receber(req, acesso, id);
+  } finally {
+    enviosEmAndamento--;
+  }
+}
+
+async function receber(req: Request, acesso: Extract<ApiNutri, { ok: true }>, id: string): Promise<Response> {
   let form: FormData;
   try {
     const corpo = await lerCorpoLimitado(req, LIMITE_CORPO);
-    form = await new Response(new Uint8Array(corpo), { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData();
+    // sem cópia: a visão aponta para o mesmo buffer do corpo
+    form = await new Response(new Uint8Array(corpo.buffer, corpo.byteOffset, corpo.length), { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData();
   } catch (e) {
     if (e instanceof CorpoGrandeError) return resposta(413, { erros: { arquivo: MSG_EXAME.arquivo } });
     return resposta(400, { erros: { geral: 'Formulário inválido.' } });
@@ -7211,7 +7621,7 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
               <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
               <span className="flex gap-4">
                 {e.arquivoPath && (
-                  <a href={signFileUrl(e.arquivoPath)} target="_blank" rel="noreferrer" className="underline">Abrir laudo</a>
+                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">Baixar laudo</a>
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
@@ -7251,6 +7661,29 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
 
 Em `abas.tsx`, acrescentar antes de `historico`: `{ seg: 'exames', rotulo: 'Exames' },`.
 
+- [ ] **Step 5b: Laudo em PDF sai como download** — é o primeiro PDF que `/api/arquivos` serve, e a resposta leva `content-security-policy: default-src 'none'; sandbox`: o visualizador de PDF do Chrome não abre documento em sandbox (a aba fica em branco). Em vez de afrouxar a CSP, o PDF vai como anexo. Em `src/app/api/arquivos/route.ts`, trocar `'content-disposition': 'inline',` por:
+
+```ts
+      // PDF em sandbox não abre no visualizador do Chrome: baixa (a CSP continua fechada para imagem e PDF)
+      'content-disposition': ext === 'pdf' ? 'attachment; filename="documento.pdf"' : 'inline',
+```
+
+Acrescentar ao `src/app/api/arquivos/route.test.ts`:
+
+```ts
+  it('PDF é servido como anexo (o visualizador do navegador não abre documento em sandbox)', async () => {
+    const [t] = await getDb().insert(tenants).values({ slug: `rota3-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 3' }).returning();
+    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri' }, { tipo: 'exame', conteudo: Buffer.from('%PDF-1.7\nconteudo'), permitidos: ['pdf'] });
+    const res = await get(signFileUrl(a.caminho));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/pdf');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="documento.pdf"');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
+```
+
+Run: `pnpm test src/app/api/arquivos/route.test.ts` → PASS.
+
 - [ ] **Step 6: Suíte e commit**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
@@ -7258,7 +7691,8 @@ Expected: tudo verde.
 
 ```bash
 git add src/db/schema/pacientes.ts drizzle/0029_exames.sql drizzle/0030_rls_exames.sql drizzle/meta test/isolamento.test.ts \
-  src/modules/pacientes src/modules/plataforma/audit.ts 'src/app/api/painel/pacientes/[id]/exames' src/app/painel/pacientes
+  src/modules/pacientes src/modules/plataforma/audit.ts src/modules/plataforma/armazenamento.ts src/modules/plataforma/armazenamento.test.ts \
+  src/app/api/arquivos CLAUDE.md 'src/app/api/painel/pacientes/[id]/exames' src/app/painel/pacientes
 git commit -m "feat(pacientes): exames com laudo validado pelo conteúdo, URL assinada, valores e séries por marcador (P03-08)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -7272,9 +7706,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `src/app/painel/pacientes/[id]/abas.tsx`
 
 **Interfaces:**
-- Consumes: `listarAntropometrias` (Tarefa 7), `CIRCUNFERENCIAS` (Tarefa 7); `marcadoresDoPaciente`, `type SerieMarcador` (Tarefa 11); `formatarDecimal`, `arredondar` (Tarefa 6); `formatarData` (Tarefa 1); `type AnthropometryRow`.
+- Consumes: `listarAntropometrias` (Tarefa 7), `CIRCUNFERENCIAS` (Tarefa 7); `AnthropometryRow.consultationId` (Tarefa 10); `marcadoresDoPaciente`, `type SerieMarcador` (Tarefa 11); `formatarDecimal`, `arredondar` (Tarefa 6); `formatarData` (Tarefa 1); `type AnthropometryRow`.
 - Produces:
-  - `@/modules/pacientes/evolucao`: `type Ponto = { data: string; valor: number }`, `type SerieEvolucao = { id; rotulo; unidade; casas; pontos }`, `type Diferenca = { rotulo; primeiro: Ponto; ultimo: Ponto; texto: string }`, `seriesDasAvaliacoes(avaliacoes): SerieEvolucao[]`, `diferencas(series): Diferenca[]`, `formatarDiferenca(v, casas, unidade): string`, `evolucaoDoPaciente(ctx, patientId, db?): Promise<{ avaliacoes: number; series; diferencas; marcadores: SerieMarcador[] }>`, `MSG_POUCOS_DADOS`.
+  - `@/modules/pacientes/evolucao`: `type Ponto = { data: string; valor: number }`, `type SerieEvolucao = { id; rotulo; unidade; casas; pontos }`, `type Diferenca = { rotulo; primeiro: Ponto; ultimo: Ponto; texto: string }`, `seriesDasAvaliacoes(avaliacoes): SerieEvolucao[]`, `diferencas(series): Diferenca[]`, `formatarDiferenca(v, casas, unidade): string`, `casasDoMarcador(pontos): number`, `evolucaoDoPaciente(ctx, patientId, db?): Promise<{ avaliacoes: number; series; diferencas; marcadores: SerieMarcador[] }>`, `MSG_POUCOS_DADOS`.
   - `@/modules/pacientes/ui/grafico-linha`: `GraficoLinha({ id, titulo, unidade, casas, pontos })` — SVG no servidor, dica nativa por ponto, tabela de dados. O Plano 06 ("Minha evolução") reaproveita.
 
 - [ ] **Step 1: Testes que falham** — `src/modules/pacientes/evolucao.test.ts`
@@ -7288,7 +7722,7 @@ import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, type AnthropometryRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
-import { diferencas, evolucaoDoPaciente, formatarDiferenca, seriesDasAvaliacoes } from './evolucao';
+import { casasDoMarcador, diferencas, evolucaoDoPaciente, formatarDiferenca, seriesDasAvaliacoes } from './evolucao';
 import { criarExame } from './exames';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -7302,6 +7736,14 @@ const av = (data: string, pesoKg: number, extra: Partial<AnthropometryRow> = {})
 });
 
 describe('evolução (US-017)', () => {
+  it('valor de exame mostra as casas que foram digitadas (até 3): 0,85 não vira 0,9, nem 5,95 vira 6,0', () => {
+    const pts = (...v: number[]) => v.map((valor, i) => ({ data: `2026-0${i + 1}-01`, valor }));
+    expect(casasDoMarcador(pts(110, 95))).toBe(0);
+    expect(casasDoMarcador(pts(0.85, 1.2))).toBe(2);
+    expect(casasDoMarcador(pts(5.95, 6))).toBe(2);
+    expect(casasDoMarcador(pts(0.12345))).toBe(3);
+  });
+
   it('séries em ordem cronológica: peso, IMC, %G (só onde houve) e cada circunferência medida', () => {
     const s = seriesDasAvaliacoes([
       av('2026-09-01', 69.2, { percGordura: 26.1, circunferencias: { cintura: 80 } }),
@@ -7413,6 +7855,11 @@ export function seriesDasAvaliacoes(avaliacoes: AnthropometryRow[]): SerieEvoluc
     serie('perc_gordura', '% de gordura', '%', 2, (a) => a.percGordura),
     ...CIRCUNFERENCIAS.map((c) => serie(`circ_${c.id}`, c.rotulo, 'cm', 1, (a) => a.circunferencias[c.id])),
   ].filter((s) => s.pontos.length > 0);
+}
+
+/** Casas para exibir um marcador de exame: o maior número de decimais digitado nos pontos, com teto de 3 (a aba Exames mostra o valor exato). */
+export function casasDoMarcador(pontos: Ponto[]): number {
+  return Math.min(3, Math.max(0, ...pontos.map((p) => (String(p.valor).split('.')[1] ?? '').length)));
 }
 
 /** US-017: "−3,2 kg" (sinal de menos tipográfico), "+1,0 kg", "0,0 kg". */
@@ -7536,7 +7983,7 @@ Expected: PASS.
 ```tsx
 import { formatarDecimal } from '@/lib/numero';
 import { formatarData } from '@/modules/pacientes/datas';
-import { evolucaoDoPaciente, MSG_POUCOS_DADOS } from '@/modules/pacientes/evolucao';
+import { casasDoMarcador, evolucaoDoPaciente, MSG_POUCOS_DADOS } from '@/modules/pacientes/evolucao';
 import { GraficoLinha } from '@/modules/pacientes/ui/grafico-linha';
 import { carregarProntuario } from '../prontuario';
 
@@ -7594,14 +8041,14 @@ export default async function EvolucaoPage({ params }: PageProps<'/painel/pacien
           <>
             <nav aria-label="Marcadores de exame">
               <ul className="flex flex-wrap gap-3 text-sm">
-                {e.marcadores.map((m, i) => <li key={m.nome}><a href={`#marcador-${i}`} className="underline">{m.nome}</a></li>)}
+                {e.marcadores.map((m, i) => <li key={`${m.nome}-${m.unidade ?? ''}`}><a href={`#marcador-${i}`} className="underline">{m.unidade ? `${m.nome} (${m.unidade})` : m.nome}</a></li>)}
               </ul>
             </nav>
             {e.marcadores.map((m, i) => (
-              <div key={m.nome} id={`marcador-${i}`} className="space-y-2">
-                <h3 className="font-semibold">{m.nome}</h3>
+              <div key={`${m.nome}-${m.unidade ?? ''}`} id={`marcador-${i}`} className="space-y-2">
+                <h3 className="font-semibold">{m.unidade ? `${m.nome} (${m.unidade})` : m.nome}</h3>
                 {m.pontos.length >= 2 ? (
-                  <GraficoLinha id={`marcador-grafico-${i}`} titulo={m.nome} unidade={m.unidade ?? ''} casas={m.pontos.some((p) => !Number.isInteger(p.valor)) ? 1 : 0} pontos={m.pontos} />
+                  <GraficoLinha id={`marcador-grafico-${i}`} titulo={m.nome} unidade={m.unidade ?? ''} casas={casasDoMarcador(m.pontos)} pontos={m.pontos} />
                 ) : (
                   <p>{`${formatarData(m.pontos[0].data)}: ${String(m.pontos[0].valor).replace('.', ',')}${m.unidade ? ` ${m.unidade}` : ''}`}</p>
                 )}
@@ -7879,6 +8326,7 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     const [exame] = await withTenant(T.ctx, (tx) => tx.select().from(exams).where(eq(exams.patientId, p.id)), app.db);
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
     const futuro = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2046-09-30' });
+    const noDia = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-10-01' }); // hoje em São Paulo
 
     const r = await anonimizarVencidos(app.db, now, { dataDir });
     expect(r.anonimizados).toBeGreaterThanOrEqual(1);
@@ -7892,6 +8340,7 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect(log).toHaveLength(1);
     expect(log[0].actorUserId).toBeNull();
     expect((await ler(T.ctx, futuro.id)).anonimizadoEm).toBeNull(); // prazo ainda não venceu
+    expect((await ler(T.ctx, noDia.id)).anonimizadoEm).toBeNull(); // "guardado até 01/10": no próprio dia, ainda não
 
     await anonimizarVencidos(app.db, now, { dataDir });
     expect(await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'anonimizar'))), app.db)).toHaveLength(1);
@@ -7914,7 +8363,7 @@ Expected: FAIL — `Cannot find module './lgpd'`.
 - [ ] **Step 4: Implementar** — `src/modules/pacientes/lgpd.ts`
 
 ```ts
-import { and, eq, isNotNull, isNull, lte, max, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, max, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { consultations, exams, invites, patients, privacyRequests } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -8034,26 +8483,36 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
 
 /**
  * US-018 "Fim do prazo de guarda": job diário (fila retencao-lgpd). Para cada tenant (§4.1: a varredura
- * parte de `tenants`), anonimiza quem está bloqueado com `anonimizar_apos` vencido no fuso do tenant.
- * Primeiro os anexos (idempotente: rodar de novo apaga o que faltou), depois a identificação.
+ * parte de `tenants`), anonimiza quem está bloqueado com `anonimizar_apos` já passado no fuso do tenant
+ * ("guardado até 15/09/2046; depois dessa data…": no próprio dia 15 ainda não).
+ * Primeiro os anexos, com o `rm` confirmado antes do commit (se o arquivo não sair do disco, o registro
+ * fica e o dia seguinte tenta de novo), depois a identificação. Um tenant com erro não para os outros.
  */
 export async function anonimizarVencidos(db: Db, now: Date, deps: { dataDir?: string } = {}): Promise<{ anonimizados: number }> {
   let anonimizados = 0;
   for (const t of await listarTenantsParaVarredura(db)) {
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
     const hoje = hojeNoFuso(t.fuso, now);
-    const vencidos = await withTenant(
-      ctx,
-      (tx) =>
-        tx
-          .select({ id: patients.id })
-          .from(patients)
-          .where(and(eq(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm), lte(patients.anonimizarApos, hoje))),
-      db,
-    );
+    let vencidos: { id: string }[];
+    try {
+      vencidos = await withTenant(
+        ctx,
+        (tx) =>
+          tx
+            .select({ id: patients.id })
+            .from(patients)
+            .where(and(eq(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm), lt(patients.anonimizarApos, hoje))),
+        db,
+      );
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: t.id }, 'falha ao listar pacientes a anonimizar');
+      continue;
+    }
     for (const { id } of vencidos) {
       try {
-        for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir });
+        for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
+          await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir, removerAntesDoCommit: true });
+        }
         const feito = await withTenant(
           ctx,
           async (tx) => {
@@ -8275,7 +8734,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `drizzle/0033_exportacoes.sql` (gerada), `drizzle/0034_rls_exportacoes.sql` (custom), `src/modules/pacientes/exportacao.ts`, `src/modules/pacientes/exportacao-job.ts`, `src/modules/pacientes/prontuario-pdf.tsx`, `src/modules/pacientes/exportacao.test.ts`, `src/app/painel/pacientes/[id]/exportacoes/[exportId]/page.tsx`
-- Modify: `package.json` + `pnpm-lock.yaml` (`@react-pdf/renderer`, `fflate`), `src/lib/file-type.ts`, `src/lib/file-type.test.ts`, `src/lib/signed-url.ts`, `src/app/api/arquivos/route.ts`, `src/app/api/arquivos/route.test.ts`, `src/db/schema/pacientes.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `src/modules/pacientes/lgpd.ts` (`anexosDoPaciente`), `src/app/painel/pacientes/[id]/privacidade/page.tsx`, `src/app/painel/pacientes/[id]/privacidade/actions.ts`, `CLAUDE.md` (regra 1)
+- Modify: `package.json` + `pnpm-lock.yaml` (`@react-pdf/renderer`, `fflate`), `src/lib/file-type.ts`, `src/lib/file-type.test.ts`, `src/lib/signed-url.ts`, `src/app/api/arquivos/route.ts`, `src/app/api/arquivos/route.test.ts`, `src/db/schema/pacientes.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `src/modules/pacientes/lgpd.ts` (`anexosDoPaciente`), `src/app/painel/pacientes/[id]/privacidade/page.tsx`, `src/app/painel/pacientes/[id]/privacidade/actions.ts`, `CLAUDE.md` (regra 1), `scripts/backup/nutri-backup.sh` e `test/backup.test.ts` (ZIPs de exportação fora do backup)
 
 **Interfaces:**
 - Consumes: `salvarArquivo`, `apagarArquivo`, `CotaEsgotadaError` (Plano 02); `signFileUrl`; `recordAudit`; `enqueueEmail`; `getBoss` (`@/jobs/boss`); `fromDrizzle` (`pg-boss`); `tenantIsActive`, `buscarTenant` (`@/modules/plataforma/tenant-status`); `respostaParaCampo`, `type Pergunta` (Tarefa 9); `kcal`, `FORMULAS_TMB` (Tarefa 6); `patients`, `anamneses`, `anthropometry`, `energyCalcs`, `exams`, `consultations`, `privacyRequests` (schema); `idValido`, `PacienteNaoEncontradoError` (Tarefa 1); `anexosDoPaciente` (Tarefa 13).
@@ -8285,7 +8744,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - Filas `exportacao-paciente` e `expirar-exportacao` (payload `{ tenantId, exportId }`, sem dado pessoal).
   - `EmailMessage` ganha `{ tipo: 'exportacao_pronta'; para; link }` (sem nada do paciente).
   - `@/modules/pacientes/exportacao` (app): `EXPORTACAO_VALIDADE_MS`, `type EstadoExportacao`, `solicitarExportacao(ctx, patientId, deps?): Promise<string>`, `estadoDaExportacao(ctx, patientId, exportId, db?, now?)`, `exportacoesRecentes(ctx, patientId, db?)`, `linkDaExportacao(appUrl, patientId, exportId)`.
-  - `@/modules/pacientes/exportacao-job` (só worker): `type DadosExportacao`, `montarDados(tx, patientId, now): Promise<DadosExportacao>`, `gerarExportacao(data, deps): Promise<'pronta' | 'ignorada' | 'falhou'>`, `expirarExportacao(data, deps): Promise<void>`.
+  - `@/modules/pacientes/exportacao-job` (só worker): `type DadosExportacao`, `montarDados(tx, patientId, now, fuso): Promise<DadosExportacao>`, `gerarExportacao(data, deps): Promise<'pronta' | 'ignorada' | 'falhou'>`, `expirarExportacao(data, deps): Promise<void>`, `expirarExportacoesVencidas(db, now, deps?): Promise<{ expiradas: number }>`, `paraWinAnsi(t): string` (em `prontuario-pdf.tsx`).
   - `@/modules/pacientes/prontuario-pdf`: `renderizarProntuario(dados, nutri): Promise<Buffer>`. O P04-09 reaproveita o `@react-pdf/renderer`.
 
 - [ ] **Step 1: Dependências e orçamento da imagem** — `pnpm add --save-exact @react-pdf/renderer fflate` (a versão mais nova que o *minimum-release-age* aceitar; em 2026-09-29 eram `@react-pdf/renderer@4.9.0` e `fflate@0.8.3`). Registrar as versões no commit. Conferir o peso: `du -sh node_modules/.pnpm/@react-pdf* node_modules/.pnpm/fontkit* node_modules/.pnpm/fflate*` — esperado na casa de 20–30 MB descomprimidos. O orçamento de verdade é o job `image` do CI (≤ 260 MB comprimida; hoje 230 MB): conferir no primeiro push da tarefa. **Se passar de 260 MB, parar e avisar o dono** (não subir o limite, não trocar a biblioteca sem combinar).
@@ -8303,7 +8762,7 @@ Em `src/lib/file-type.ts`: acrescentar `| { mime: 'application/zip'; ext: 'zip' 
 
 Em `src/lib/signed-url.ts`, na regex `CAMINHO_ARQUIVO`, trocar `(png|jpg|webp|heic|pdf)` por `(png|jpg|webp|heic|pdf|zip)`.
 
-Em `src/app/api/arquivos/route.ts`: acrescentar `zip: 'application/zip',` ao `MIME` e trocar `'content-disposition': 'inline',` por `'content-disposition': ext === 'zip' ? 'attachment; filename="exportacao.zip"' : 'inline',`.
+Em `src/app/api/arquivos/route.ts`: acrescentar `zip: 'application/zip',` ao `MIME` e trocar a linha do `content-disposition` (a da Tarefa 11) por `'content-disposition': ext === 'zip' ? 'attachment; filename="exportacao.zip"' : ext === 'pdf' ? 'attachment; filename="documento.pdf"' : 'inline',`.
 
 Acrescentar ao `src/app/api/arquivos/route.test.ts` um caso no mesmo estilo dos existentes: gravar `Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0])` em `<DATA_DIR>/<tenant>/exportacao/<uuid>.zip`, pedir a URL de `signFileUrl` e conferir `content-type: application/zip` e `content-disposition: attachment; filename="exportacao.zip"`.
 
@@ -8415,7 +8874,8 @@ import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
 import { criarExame } from './exames';
 import { estadoDaExportacao, solicitarExportacao } from './exportacao';
-import { expirarExportacao, gerarExportacao } from './exportacao-job';
+import { expirarExportacao, expirarExportacoesVencidas, gerarExportacao } from './exportacao-job';
+import { paraWinAnsi } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -8499,15 +8959,54 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect((await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId)))[0].armazenamentoBytes).toBe(0);
   });
 
-  it('tenant suspenso: o job não gera nada (RN-15); falha na última tentativa marca "falhou"', async () => {
+  it('tenant suspenso: o job não gera nada (RN-15) e o pedido vira "falhou"; reativado, pedir de novo cria outro job', async () => {
     const { T, p } = await prontuarioCompleto();
     const id = await solicitarExportacao(T.ctx, p.id, deps);
     await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, T.tenantId));
     expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false })).toBe('ignorada');
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'falhou' });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')), app.db)).toEqual([]);
     await app.db.update(tenants).set({ status: 'ativa' }).where(eq(tenants.id, T.tenantId));
+    const novo = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(novo).not.toBe(id);
+    const jobs = await (await getBoss()).findJobs<{ exportId: string }>('exportacao-paciente');
+    expect(jobs.filter((j) => j.data.exportId === novo)).toHaveLength(1);
+  });
+
+  it('falha na última tentativa marca "falhou" e não deixa ZIP nem cota', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
     const quebrado = { ...deps, ultimaTentativa: true, renderizar: async () => Promise.reject(new Error('pdf quebrou')) };
     expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, quebrado)).toBe('falhou');
     expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'falhou' });
+    expect((await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId)))[0].armazenamentoBytes).toBe(0);
+  });
+
+  it('pendente há mais de 30 min (job perdido) não prende o paciente: pedir de novo cria outro', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const depois = { ...deps, now: new Date(now.getTime() + 31 * 60_000) };
+    const novo = await solicitarExportacao(T.ctx, p.id, depois);
+    expect(novo).not.toBe(id);
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, depois.now)).toEqual({ estado: 'falhou' });
+  });
+
+  it('varredura diária: pronta vencida perde o ZIP mesmo sem o job de expiração; pendente de ontem vira "falhou"', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false });
+    const esquecido = await solicitarExportacao(T.ctx, (await novoPaciente(app.db, T.ctx)).id, deps);
+    const r = await expirarExportacoesVencidas(app.db, new Date('2026-10-02T15:00:01Z'), { dataDir });
+    expect(r.expiradas).toBeGreaterThanOrEqual(1);
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'expirada' });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')), app.db)).toEqual([]);
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.id, esquecido)), app.db);
+    expect(e.status).toBe('falhou');
+  });
+
+  it('PDF: caracteres fora do WinAnsi da Helvetica viram equivalentes, nunca outro caractere em silêncio', () => {
+    expect(paraWinAnsi('≥ 40 mg/dL · ≤ 99 · −3,2 kg')).toBe('>= 40 mg/dL · <= 99 · -3,2 kg');
+    expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
   it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job ou @react-pdf', () => {
@@ -8533,6 +9032,8 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { idValido, PacienteNaoEncontradoError } from './base';
 
 export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link válido por 24 h
+/** Pendente há mais que isto = o job se perdeu (3 tentativas de até 5 min + espera): um pedido novo é criado. */
+export const PENDENTE_MAX_MS = 30 * 60 * 1000;
 
 export type EstadoExportacao =
   | { estado: 'pendente' }
@@ -8547,7 +9048,8 @@ export function linkDaExportacao(appUrl: string, patientId: string, exportId: st
 
 /**
  * "Exportar dados": grava o pedido, o `exportar` no audit_log e o job na mesma transação. Um pedido
- * ainda sendo gerado é reaproveitado (duplo clique não gera dois ZIPs). Vale também para bloqueado.
+ * ainda sendo gerado é reaproveitado (duplo clique não gera dois ZIPs); pendente há mais de 30 min é
+ * dado como perdido (job expirado, worker que caiu): vira "falhou" e nasce outro. Vale também para bloqueado.
  */
 export async function solicitarExportacao(ctx: TenantContext, patientId: string, deps: { db?: Db; now?: Date; boss?: PgBoss } = {}): Promise<string> {
   if (!idValido(patientId)) throw new PacienteNaoEncontradoError();
@@ -8558,8 +9060,12 @@ export async function solicitarExportacao(ctx: TenantContext, patientId: string,
     async (tx) => {
       const [p] = await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, patientId)).for('update');
       if (!p) throw new PacienteNaoEncontradoError();
-      const [pendente] = await tx.select({ id: dataExports.id }).from(dataExports).where(and(eq(dataExports.patientId, p.id), eq(dataExports.status, 'pendente')));
-      if (pendente) return pendente.id;
+      const [pendente] = await tx
+        .select({ id: dataExports.id, createdAt: dataExports.createdAt })
+        .from(dataExports)
+        .where(and(eq(dataExports.patientId, p.id), eq(dataExports.status, 'pendente')));
+      if (pendente && now.getTime() - pendente.createdAt.getTime() <= PENDENTE_MAX_MS) return pendente.id;
+      if (pendente) await tx.update(dataExports).set({ status: 'falhou', updatedAt: now }).where(eq(dataExports.id, pendente.id));
       const [e] = await tx
         .insert(dataExports)
         .values({ tenantId: ctx.tenantId, patientId: p.id, solicitadoPor: ctx.actorUserId ?? null, createdAt: now, updatedAt: now })
@@ -8604,7 +9110,7 @@ export async function exportacoesRecentes(ctx: TenantContext, patientId: string,
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer';
 import type { DadosExportacao } from './exportacao-job';
 
-// Helvetica padrão do PDF (WinAnsi): cobre os acentos do português; sem "−" tipográfico (fora do WinAnsi)
+// Helvetica padrão do PDF (WinAnsi): cobre os acentos do português; o resto passa por paraWinAnsi (abaixo)
 const s = StyleSheet.create({
   pagina: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', lineHeight: 1.4 },
   titulo: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
@@ -8622,7 +9128,7 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
     <Document title="Prontuário" author={nutri} creator="NutriDebby" producer="NutriDebby">
       <Page size="A4" style={s.pagina}>
         <Text style={s.titulo}>Prontuário nutricional</Text>
-        <Text>{`${d.paciente.nome} · emitido em ${d.geradoEm.slice(0, 10).split('-').reverse().join('/')} · ${nutri}`}</Text>
+        <Text>{`${d.paciente.nome} · emitido em ${br(d.dataEmissao)} · ${nutri}`}</Text>
 
         <Text style={s.secao}>Identificação</Text>
         <Text>{`Nascimento: ${d.paciente.dataNascimento ? br(d.paciente.dataNascimento) : '-'} · Sexo: ${d.paciente.sexo ?? '-'} · E-mail: ${d.paciente.email} · Telefone: ${d.paciente.telefone ?? '-'}`}</Text>
@@ -8670,15 +9176,26 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
   );
 }
 
+/**
+ * A Helvetica padrão só tem o conjunto WinAnsi: "≥ 40" (referência de exame), "−", emoji e afins sairiam
+ * como outro caractere, sem erro. Troca os comuns por equivalentes e o resto por "?".
+ */
+const EQUIVALENTES: Record<string, string> = { '≥': '>=', '≤': '<=', '−': '-', '→': '->' };
+const FORA_DO_WINANSI = /[^\n\x20-\x7e\xa0-\xff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/gu;
+export function paraWinAnsi(t: string): string {
+  return t.replace(/[≥≤−→]/g, (c) => EQUIVALENTES[c] ?? c).replace(FORA_DO_WINANSI, '?');
+}
+
 export async function renderizarProntuario(dados: DadosExportacao, nutri: string): Promise<Buffer> {
-  return renderToBuffer(<Prontuario d={dados} nutri={nutri} />);
+  const limpo = JSON.parse(JSON.stringify(dados), (_k, v: unknown) => (typeof v === 'string' ? paraWinAnsi(v) : v)) as DadosExportacao;
+  return renderToBuffer(<Prontuario d={limpo} nutri={paraWinAnsi(nutri)} />);
 }
 ```
 
 `src/modules/pacientes/exportacao-job.ts`
 
 ```ts
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
@@ -8686,10 +9203,12 @@ import { anamneses, anthropometry, consultations, dataExports, energyCalcs, exam
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
+import { getEnv } from '@/env';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, CotaEsgotadaError, salvarArquivo } from '@/modules/plataforma/armazenamento';
-import { buscarTenant, tenantIsActive } from '@/modules/plataforma/tenant-status';
+import { buscarTenant, listarTenantsParaVarredura, tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { respostaParaCampo } from './anamnese-tipos';
+import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
 import { FORMULAS_TMB, kcal } from './formulas';
 import { formatarTelefone } from './telefone';
@@ -8700,6 +9219,8 @@ import { renderizarProntuario } from './prontuario-pdf';
 export type DadosExportacao = {
   versao: 1;
   geradoEm: string;
+  /** Data da emissão no fuso do tenant (RN-06): 22h em São Paulo ainda é o mesmo dia. */
+  dataEmissao: string;
   paciente: { nome: string; dataNascimento: string | null; sexo: string | null; email: string; telefone: string | null; status: string; cadastradoEm: string };
   anamneses: { data: string; modelo: string; respostas: { pergunta: string; resposta: string }[] }[];
   antropometria: { data: string; pesoKg: number; alturaCm: number; imc: number | null; percGordura: number | null; protocolo: string; circunferencias: Record<string, number>; dobrasMm: Record<string, number> }[];
@@ -8713,20 +9234,27 @@ export type DadosExportacao = {
 const texto = (v: string | string[]) => (Array.isArray(v) ? v.join(', ') : v === 'sim' ? 'Sim' : v === 'nao' ? 'Não' : v);
 const NOME_FORMULA = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]));
 
-/** Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas). */
-export async function montarDados(tx: Tx, patientId: string, now: Date): Promise<DadosExportacao> {
+/**
+ * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas). Consultas em sequência:
+ * uma transação é uma conexão só, e consultas paralelas nela geram o aviso de descontinuação do pg 8.23
+ * (erro no pg 9).
+ */
+export async function montarDados(tx: Tx, patientId: string, now: Date, fuso: string): Promise<DadosExportacao> {
   const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
-  const [as, an, gs, ex, at, pr] = await Promise.all([
-    tx.select().from(anamneses).where(eq(anamneses.patientId, patientId)).orderBy(asc(anamneses.data)),
-    tx.select().from(anthropometry).where(eq(anthropometry.patientId, patientId)).orderBy(asc(anthropometry.data)),
-    tx.select().from(energyCalcs).where(eq(energyCalcs.patientId, patientId)).orderBy(asc(energyCalcs.createdAt)),
-    tx.select().from(exams).where(eq(exams.patientId, patientId)).orderBy(asc(exams.data)),
-    tx.select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente }).from(consultations).where(eq(consultations.patientId, patientId)).orderBy(asc(consultations.data)),
-    tx.select().from(privacyRequests).where(eq(privacyRequests.patientId, patientId)).orderBy(asc(privacyRequests.createdAt)),
-  ]);
+  const as = await tx.select().from(anamneses).where(eq(anamneses.patientId, patientId)).orderBy(asc(anamneses.data));
+  const an = await tx.select().from(anthropometry).where(eq(anthropometry.patientId, patientId)).orderBy(asc(anthropometry.data));
+  const gs = await tx.select().from(energyCalcs).where(eq(energyCalcs.patientId, patientId)).orderBy(asc(energyCalcs.createdAt));
+  const ex = await tx.select().from(exams).where(eq(exams.patientId, patientId)).orderBy(asc(exams.data));
+  const at = await tx
+    .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
+    .from(consultations)
+    .where(eq(consultations.patientId, patientId))
+    .orderBy(asc(consultations.data));
+  const pr = await tx.select().from(privacyRequests).where(eq(privacyRequests.patientId, patientId)).orderBy(asc(privacyRequests.createdAt));
   return {
     versao: 1,
     geradoEm: now.toISOString(),
+    dataEmissao: hojeNoFuso(fuso, now),
     paciente: {
       nome: p.nome,
       dataNascimento: p.dataNascimento,
@@ -8747,7 +9275,7 @@ export async function montarDados(tx: Tx, patientId: string, now: Date): Promise
       data: a.data, pesoKg: a.pesoKg, alturaCm: a.alturaCm, imc: a.imc, percGordura: a.percGordura, protocolo: a.protocolo, circunferencias: a.circunferencias, dobrasMm: a.dobrasMm,
     })),
     gastoEnergetico: gs.map((g) => ({
-      data: g.createdAt.toISOString().slice(0, 10), formula: NOME_FORMULA[g.formula] ?? g.formula, pesoKg: g.pesoKg, alturaCm: g.alturaCm, idade: g.idade,
+      data: hojeNoFuso(fuso, g.createdAt), formula: NOME_FORMULA[g.formula] ?? g.formula, pesoKg: g.pesoKg, alturaCm: g.alturaCm, idade: g.idade,
       fatorAtividade: g.fatorAtividade, tmbKcal: kcal(g.tmb), getKcal: kcal(g.get),
     })),
     exames: ex.map((e) => ({ data: e.data, titulo: e.titulo, temLaudo: !!e.arquivoPath, valores: e.valores })),
@@ -8769,56 +9297,99 @@ type DepsJob = {
   renderizar?: typeof renderizarProntuario;
 };
 
+/** Outro worker marcou o pedido antes: o `registrar` desiste e o salvarArquivo desfaz ZIP, registro e cota. */
+class JaConcluidaError extends Error {}
+
 /**
  * Job `exportacao-paciente`. Idempotente: só age sobre pedido `pendente` (um retry depois do sucesso
- * não gera outro ZIP). Tenant suspenso: não gera (RN-15). Erro: o pg-boss tenta de novo; na última
- * tentativa, o pedido fica "falhou" (a nutricionista pede de novo).
+ * não gera outro ZIP). Tenant suspenso: não gera (RN-15) e marca "falhou" — senão o pedido ficaria
+ * pendente para sempre e "Exportar dados" devolveria o mesmo id sem job. Erro: o pg-boss tenta de novo;
+ * na última tentativa, "falhou" (a nutricionista pede de novo). ZIP, pedido "pronta", e-mail e job de
+ * expiração vão na MESMA transação (`registrar`): uma queda no meio não deixa ZIP sem dono em /data.
  */
 export async function gerarExportacao(data: DadosJob, deps: DepsJob): Promise<'pronta' | 'ignorada' | 'falhou'> {
   const { db } = deps;
   const now = deps.now ?? new Date();
   const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
-  if (!(await tenantIsActive(db, data.tenantId))) return 'ignorada';
+  const marcarFalhou = () =>
+    withTenant(ctx, (tx) => tx.update(dataExports).set({ status: 'falhou', updatedAt: now }).where(and(eq(dataExports.id, data.exportId), eq(dataExports.status, 'pendente'))), db);
+  if (!(await tenantIsActive(db, data.tenantId))) {
+    await marcarFalhou();
+    return 'ignorada';
+  }
   const [pedido] = await withTenant(ctx, (tx) => tx.select().from(dataExports).where(and(eq(dataExports.id, data.exportId), eq(dataExports.status, 'pendente'))), db);
   if (!pedido) return 'ignorada';
-  let caminho: string | null = null;
   try {
     const tenant = await buscarTenant(db, data.tenantId);
-    const dados = await withTenant(ctx, (tx) => montarDados(tx, pedido.patientId, now), db);
+    const dados = await withTenant(ctx, (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo'), db);
     const pdf = await (deps.renderizar ?? renderizarProntuario)(dados, tenant?.nomeExibicao ?? 'NutriDebby');
-    const zip = zipSync({ 'dados.json': strToU8(JSON.stringify(dados, null, 2)), 'prontuario.pdf': new Uint8Array(pdf) });
-    caminho = (await salvarArquivo(ctx, { tipo: 'exportacao', conteudo: Buffer.from(zip), permitidos: ['zip'] }, { db, dataDir: deps.dataDir })).caminho;
+    const zip = zipSync({ 'dados.json': strToU8(JSON.stringify(dados, null, 2)), 'prontuario.pdf': new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.length) });
     const boss = deps.boss ?? (await getBoss());
     const expiraEm = new Date(now.getTime() + EXPORTACAO_VALIDADE_MS);
-    const pronto = await withTenant(
+    await salvarArquivo(
       ctx,
-      async (tx) => {
-        const [e] = await tx
-          .update(dataExports)
-          .set({ status: 'pronta', arquivoPath: caminho, expiraEm, updatedAt: now })
-          .where(and(eq(dataExports.id, pedido.id), eq(dataExports.status, 'pendente')))
-          .returning({ id: dataExports.id });
-        if (!e) return false;
-        const [quem] = pedido.solicitadoPor ? await tx.select({ email: user.email }).from(user).where(eq(user.id, pedido.solicitadoPor)) : [];
-        if (quem) await enqueueEmail({ tipo: 'exportacao_pronta', para: quem.email, link: linkDaExportacao(deps.appUrl, pedido.patientId, pedido.id) }, { tenantId: data.tenantId, tx, boss });
-        await boss.send('expirar-exportacao', data, { startAfter: expiraEm, db: fromDrizzle(tx, sql) });
-        return true;
+      {
+        tipo: 'exportacao',
+        conteudo: Buffer.from(zip.buffer, zip.byteOffset, zip.length),
+        permitidos: ['zip'],
+        registrar: async (tx, arquivo) => {
+          const [e] = await tx
+            .update(dataExports)
+            .set({ status: 'pronta', arquivoPath: arquivo.caminho, expiraEm, updatedAt: now })
+            .where(and(eq(dataExports.id, pedido.id), eq(dataExports.status, 'pendente')))
+            .returning({ id: dataExports.id });
+          if (!e) throw new JaConcluidaError();
+          const [quem] = pedido.solicitadoPor ? await tx.select({ email: user.email }).from(user).where(eq(user.id, pedido.solicitadoPor)) : [];
+          if (quem) await enqueueEmail({ tipo: 'exportacao_pronta', para: quem.email, link: linkDaExportacao(deps.appUrl, pedido.patientId, pedido.id) }, { tenantId: data.tenantId, tx, boss });
+          await boss.send('expirar-exportacao', data, { startAfter: expiraEm, db: fromDrizzle(tx, sql) });
+        },
       },
-      db,
+      { db, dataDir: deps.dataDir },
     );
-    if (!pronto) {
-      await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir }); // outro worker concluiu antes
-      return 'ignorada';
-    }
     return 'pronta';
   } catch (err) {
-    if (caminho) await apagarArquivo(ctx, { caminho }, { db, dataDir: deps.dataDir }).catch(() => undefined);
+    if (err instanceof JaConcluidaError) return 'ignorada';
     const definitivo = deps.ultimaTentativa || err instanceof CotaEsgotadaError;
     logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: data.tenantId, exportId: data.exportId, definitivo }, 'falha ao gerar exportação');
     if (!definitivo) throw err;
-    await withTenant(ctx, (tx) => tx.update(dataExports).set({ status: 'falhou', updatedAt: now }).where(eq(dataExports.id, pedido.id)), db);
+    await marcarFalhou();
     return 'falhou';
   }
+}
+
+/**
+ * Rede de segurança do "some em 24 h", chamada pelo job diário `retencao-lgpd`: pedidos prontos já
+ * vencidos (o `expirar-exportacao` esgotou as tentativas) perdem o ZIP; pendentes esquecidos há mais de
+ * um dia (worker caiu na última tentativa) viram "falhou".
+ */
+export async function expirarExportacoesVencidas(db: Db, now: Date, deps: { dataDir?: string } = {}): Promise<{ expiradas: number }> {
+  let expiradas = 0;
+  for (const t of await listarTenantsParaVarredura(db)) {
+    const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
+    try {
+      const vencidas = await withTenant(
+        ctx,
+        (tx) => tx.select({ id: dataExports.id }).from(dataExports).where(and(eq(dataExports.status, 'pronta'), lt(dataExports.expiraEm, now))),
+        db,
+      );
+      for (const { id } of vencidas) {
+        await expirarExportacao({ tenantId: t.id, exportId: id }, { db, dataDir: deps.dataDir ?? getEnv().DATA_DIR });
+        expiradas++;
+      }
+      await withTenant(
+        ctx,
+        (tx) =>
+          tx
+            .update(dataExports)
+            .set({ status: 'falhou', updatedAt: now })
+            .where(and(eq(dataExports.status, 'pendente'), lt(dataExports.createdAt, new Date(now.getTime() - EXPORTACAO_VALIDADE_MS)))),
+        db,
+      );
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: t.id }, 'falha ao expirar exportações vencidas');
+    }
+  }
+  return { expiradas };
 }
 
 /** Job `expirar-exportacao` (24 h depois): apaga o ZIP e marca o pedido como expirado. */
@@ -8845,7 +9416,14 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
 Run: `pnpm test src/modules/pacientes/exportacao.test.ts src/modules/pacientes/lgpd.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Worker** — em `src/worker/index.ts` (imports `gerarExportacao`, `expirarExportacao` de `@/modules/pacientes/exportacao-job`), depois do bloco da `retencao-lgpd`:
+- [ ] **Step 7: Worker** — em `src/worker/index.ts` (imports `gerarExportacao`, `expirarExportacao`, `expirarExportacoesVencidas` de `@/modules/pacientes/exportacao-job`). No handler da `retencao-lgpd` (Tarefa 13), depois do `logger.info` da anonimização, acrescentar a rede de segurança das 24 h:
+
+```ts
+    const x = await expirarExportacoesVencidas(getDb(), new Date(), { dataDir: env.DATA_DIR });
+    logger.info({ expiradas: x.expiradas }, 'exportações vencidas apagadas');
+```
+
+E, depois do bloco da `retencao-lgpd`:
 
 ```ts
   // US-018: exportação do paciente (ZIP com JSON + PDF) e expiração do link em 24 h
@@ -8936,14 +9514,34 @@ export default async function ExportacaoPage({ params }: PageProps<'/painel/paci
 
 - [ ] **Step 9: CLAUDE.md** — na regra 1, na lista de quem acessa a tabela `user` fora de `withTenant`, acrescentar `, por src/modules/pacientes/exportacao-job.ts (e-mail de quem pediu a exportação, US-018)`; e na regra 9, acrescentar ao fim: `A exportação (ZIP) é o único uso de 'zip' em permitidos; PDF e ZIP (@react-pdf/renderer, fflate) só no worker — nenhuma rota importa exportacao-job.ts (teste em exportacao.test.ts).`
 
+- [ ] **Step 9b: Backup sem os ZIPs de exportação** (decisão do dono em 2026-09-30, seguindo a recomendação) — o `rclone sync` de `/data` copiava o ZIP para o R2, e depois de apagado ele ficava mais 30 dias no `--backup-dir`, contra o "some em 24 h" (US-018). O ZIP é derivado do banco (que tem backup próprio), então não precisa de cópia. Em `scripts/backup/nutri-backup.sh`, em `backup_arquivos`, trocar a linha do `rclone sync` por:
+
+```bash
+  # US-018: o ZIP de exportação vive 24 h e é refeito a partir do banco; fora do backup para não sobreviver 30 dias no histórico
+  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" --exclude '/*/exportacao/**' >/dev/null 2>&1; then
+```
+
+Em `test/backup.test.ts`, no teste "dia seguinte…", antes do `rodar('2026-10-05')`, acrescentar `mkdirSync(path.join(dados, 't1', 'exportacao'), { recursive: true }); writeFileSync(path.join(dados, 't1', 'exportacao', 'e.zip'), 'zip');` e, depois das asserções existentes:
+
+```ts
+    expect(await lsf('data/atual/t1/')).toEqual(['logo/']); // o ZIP de exportação não vai para o R2
+    expect(await lsf('data/historico/2026-10-05/t1/')).not.toContain('exportacao/');
+```
+
+Run: `pnpm test test/backup.test.ts` (é o único jeito permitido de rodar o script — CLAUDE.md regra 10)
+Expected: PASS.
+
+**Regra 10:** o script mudou → o dono reinstala no host. Como a instalação ainda não aconteceu (P02-11 pendente, depende da P01-13), basta a P02-11 instalar a versão nova; registrar isso na descrição do PR.
+
 - [ ] **Step 10: Suíte, imagem e commit**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
-Expected: tudo verde. Com o worker e o `next start` no ar, conferir à mão uma vez: "Exportar dados" → e-mail no Mailpit → link → "Baixar ZIP" abre o download, e o `prontuario.pdf` do ZIP abre com acentos corretos.
+Expected: tudo verde. Conferir também que o PDF e o ZIP ficaram fora do bundle do Next (o teste do Step 4 só olha imports diretos de `src/app`): `grep -rlE "@react-pdf|fflate" .next/server .next/static` não acha nada. Com o worker e o `next start` no ar, conferir à mão uma vez: "Exportar dados" → e-mail no Mailpit → link → "Baixar ZIP" abre o download, e o `prontuario.pdf` do ZIP abre com acentos corretos.
 
 ```bash
 git add package.json pnpm-lock.yaml src/lib src/app/api/arquivos src/db/schema/pacientes.ts drizzle/0033_exportacoes.sql drizzle/0034_rls_exportacoes.sql drizzle/meta \
-  test/isolamento.test.ts src/modules/pacientes src/modules/plataforma/audit.ts src/email src/jobs/queues.ts src/worker/index.ts src/app/painel/pacientes CLAUDE.md
+  test/isolamento.test.ts src/modules/pacientes src/modules/plataforma/audit.ts src/email src/jobs/queues.ts src/worker/index.ts src/app/painel/pacientes CLAUDE.md \
+  scripts/backup/nutri-backup.sh test/backup.test.ts
 git commit -m "feat(pacientes): exportação LGPD em ZIP (dados.json + prontuario.pdf) pelo worker, link de 24 h e expiração (P03-11b)
 
 @react-pdf/renderer <versão> e fflate <versão> (só no worker)
@@ -8959,16 +9557,16 @@ Depois do push: conferir no job `image` do CI a linha "Imagem comprimida: N MB (
 - [ ] Rodar a revisão da entrega conforme o índice: revisor por tarefa (feito ao longo) → `/code-review high` no PR (base `plano-02-plataforma`) → corrigir → `/code-review high` (precisa sair sem problema confirmado) → `/security-review` com o **checklist reforçado** deste plano:
   - **Isolamento:** RLS por tenant e por paciente em toda tabela nova; `staff_only` em `consultation_notes`, `patient_tags`, `patient_tag_links` (paciente não vê nem as próprias linhas); FKs compostas/triplas impedindo referência cruzada; matriz `test/isolamento.test.ts` com todas as tabelas; `invites` como exceção justificada e sempre filtrada por tipo e tenant; guarda `sem-tabelas-tenant` derivada do schema.
   - **LGPD:** `auditRead` em toda leitura de dado de saúde (prontuário, anamnese, antropometria, gasto, exames, atendimentos, notas, etiquetas, evolução); `exportar`, `bloquear`, `anonimizar` registrados; exportação sem notas privadas e etiquetas; bloqueio só leitura; anonimização idempotente que apaga anexos; e-mails de sistema sem dado do paciente (o de exclusão vai só para o próprio titular).
-  - **Uploads:** laudo por conteúdo (PDF/JPEG/PNG), 20 MB com corpo limitado, cota, URL assinada de 5 min, `zip` aceito só pela exportação e servido como anexo.
+  - **Uploads:** laudo por conteúdo (PDF/JPEG/PNG), 20 MB com corpo limitado, cota, URL assinada de 5 min, `zip` aceito só pela exportação e servido como anexo; PDF servido como anexo; laudo e exame, ZIP e pedido gravados na mesma transação; ZIP fora do backup do R2.
   - **Autenticação:** convite de paciente só em hash, 7 dias, uso único mesmo com envios simultâneos; conta existente só vincula com o mesmo e-mail; e-mail de conta da equipe recusado; tenant suspenso barra o aceite.
   - **Logs:** nenhum nome, medida, resposta, nota ou valor de exame em log/erro.
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema confirmado depois da 3ª rodada, parar e avisar o dono.
 - [ ] Atualizar o status de P03-01 a P03-11 no backlog (arquivo `2026-09-27-nutridebby-backlog.md` — que ainda mostra os Planos 01 e 02 como ⬜; acertar também essas linhas — e o artefato https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT, coleção `tasks`).
-- [ ] Atualizar a spec para a **v1.5** (Apêndice C e corpo) com os "Desvios conscientes" desta página: convite/aceite do paciente no Plano 03 (e o que ficou para o 06), termo provisório, `consultation_notes` + `staff_only`, FKs compostas, `anamnesis_templates.padrao/arquivado_em`, `data_exports`, `exams.arquivo_path` com FK, gráficos sem Recharts, `@react-pdf/renderer` e `fflate` só no worker, `PRAZO_GUARDA_ANOS`, métrica de pacientes ativos, textos novos de interface — e a **divergência do Harris-Benedict** (1370,47 → 1370, não 1371) para a Debby validar (P-08).
+- [ ] Atualizar a spec para a **v1.5** (Apêndice C e corpo) com os "Desvios conscientes" desta página: convite/aceite do paciente no Plano 03 (e o que ficou para o 06), termo provisório, `consultation_notes` + `staff_only`, FKs compostas, `anamnesis_templates.padrao/arquivado_em`, `data_exports`, `exams.arquivo_path` com FK, gráficos sem Recharts, `@react-pdf/renderer` e `fflate` só no worker, `PRAZO_GUARDA_ANOS`, métrica de pacientes ativos, `consents.tenant_id`, laudo PDF como download, ZIP de exportação fora do backup (RNF-05), conta `user` do titular anonimizada só no P06-08, textos novos de interface — e a **divergência do Harris-Benedict** (1370,47 → 1370, não 1371) para a Debby validar (P-08).
 - [ ] Anotar para os próximos planos:
   - **P04-05:** botão "Usar como meta do plano" (`meal_plans.energy_calc_id` → `energy_calcs`); **P04-09:** reaproveitar `@react-pdf/renderer` (já na imagem) e `getTenantBrand`.
   - **Plano 05:** `consultations.appointment_id` + "Iniciar atendimento" a partir da agenda; lembretes só para `patients.status = 'ativo'` e WhatsApp só com `whatsapp_optin_em` preenchido **e** `whatsapp_optout_em` vazio; **P05-11** convite por WhatsApp (US-010); inscrições de push apagadas em `atenderPedidoExclusao`; `admin_tenant_metrics()` troca `consultas_mes`/`mensagens_whatsapp_mes`.
-  - **Plano 06:** login do paciente com vários vínculos — a busca "em quais tenants este `user_id` é paciente" precisa atravessar a RLS de `patients` (função `SECURITY DEFINER` que devolve só `tenant_id`/`patient_id`/`status`, no molde de `admin_tenant_metrics`); portal bloqueado para vínculo `arquivado`/`bloqueado` (RN-08); `orientacoesDoPaciente` e `GraficoLinha` reaproveitados; "Minha evolução" respeitando `mostrar_perc_gordura_paciente`; US-046 reaproveita `solicitarExportacao` e registra `privacy_requests` abertos; novo aceite quando `TERMO_PACIENTE_VERSAO` mudar; "Perfil > Notificações" grava `whatsapp_optout_em`; fotos do diário apagadas em `atenderPedidoExclusao` e incluídas em `anexosDoPaciente`.
+  - **Plano 06:** login do paciente com vários vínculos — a busca "em quais tenants este `user_id` é paciente" precisa atravessar a RLS de `patients` (função `SECURITY DEFINER` que devolve só `tenant_id`/`patient_id`/`status`, no molde de `admin_tenant_metrics`); portal bloqueado para vínculo `arquivado`/`bloqueado` (RN-08); `orientacoesDoPaciente` e `GraficoLinha` reaproveitados; "Minha evolução" respeitando `mostrar_perc_gordura_paciente`; US-046 reaproveita `solicitarExportacao` e registra `privacy_requests` abertos; novo aceite quando `TERMO_PACIENTE_VERSAO` mudar; "Perfil > Notificações" grava `whatsapp_optout_em`; fotos do diário apagadas em `atenderPedidoExclusao` e incluídas em `anexosDoPaciente`; **P06-08:** a anonimização passa a apagar nome e e-mail da linha `user` do titular que não tiver outro vínculo ativo (decisão do dono, 2026-09-30).
   - **Plano 07:** a audiência por etiqueta é avaliada na leitura (RN-12), mas `patient_tag_links` é `staff_only` — a sessão de paciente não enxerga os próprios vínculos. A checagem de audiência precisa de uma função `SECURITY DEFINER` que responda só "este conteúdo é visível para este paciente?" (sem devolver as etiquetas), ou ser resolvida fora da sessão do paciente.
 - [ ] Lembrar o dono: **P01-13 (Easypanel + primeiro deploy) continua pendente**; o merge dos PRs #1, #2 e deste só com OK explícito (merge = deploy), com snapshot no hPanel antes.
 
