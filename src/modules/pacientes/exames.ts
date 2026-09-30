@@ -3,11 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
-import {
-  apagarArquivo,
-  salvarArquivo,
-  TipoNaoPermitidoError,
-} from '@/modules/plataforma/armazenamento';
+import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
 import { dataValida, hojeNoFuso } from './datas';
@@ -15,12 +11,7 @@ import { EXAME_MAX_BYTES, MSG_EXAME } from './exames-constantes';
 
 export { EXAME_MAX_BYTES, MSG_EXAME };
 
-export type ValorExame = {
-  nome: string;
-  valor: number;
-  unidade: string | null;
-  referencia: string | null;
-};
+export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null };
 
 export class ExameError extends Error {
   override name = 'ExameError';
@@ -31,10 +22,8 @@ export class ExameError extends Error {
 
 const MAX_LINHAS = 50;
 const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria notação exponencial na tela
-const texto = (v: unknown, max: number) =>
-  typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '';
-const passaDoLimite = (v: unknown, max: number) =>
-  typeof v === 'string' && v.trim().replace(/\s+/g, ' ').length > max;
+const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
+const passaDoLimite = (v: unknown, max: number) => typeof v === 'string' && v.trim().replace(/\s+/g, ' ').length > max;
 
 /** Linhas de valores do formulário. Linha toda vazia é ignorada; nome sem valor numérico (ou o contrário) → null. */
 export function lerValores(bruto: unknown): ValorExame[] | null {
@@ -43,31 +32,15 @@ export function lerValores(bruto: unknown): ValorExame[] | null {
   if (bruto.length > MAX_LINHAS) return null; // recusa em vez de cortar: dado de saúde não some em silêncio
   for (const l of bruto as Record<string, unknown>[]) {
     if (l !== null && typeof l !== 'object') return null;
-    if (
-      passaDoLimite(l?.nome, 80) ||
-      passaDoLimite(l?.unidade, 20) ||
-      passaDoLimite(l?.referencia, 80)
-    )
-      return null;
+    if (passaDoLimite(l?.nome, 80) || passaDoLimite(l?.unidade, 20) || passaDoLimite(l?.referencia, 80)) return null;
     const nome = texto(l?.nome, 80);
     const valorTxt = l?.valor;
     const vazio = !nome && (valorTxt === undefined || valorTxt === '' || valorTxt === null);
     if (vazio) continue;
     const valor = lerDecimal(valorTxt);
     // isFinite, não só isNaN: '9'.repeat(400) vira Infinity, que o jsonb gravaria como null
-    if (
-      !nome ||
-      typeof valor !== 'number' ||
-      !Number.isFinite(valor) ||
-      Math.abs(valor) >= MAX_VALOR
-    )
-      return null;
-    out.push({
-      nome,
-      valor,
-      unidade: texto(l.unidade, 20) || null,
-      referencia: texto(l.referencia, 80) || null,
-    });
+    if (!nome || typeof valor !== 'number' || !Number.isFinite(valor) || Math.abs(valor) >= MAX_VALOR) return null;
+    out.push({ nome, valor, unidade: texto(l.unidade, 20) || null, referencia: texto(l.referencia, 80) || null });
   }
   return out;
 }
@@ -104,16 +77,7 @@ export async function criarExame(
     const p = await carregarPacienteParaEscrita(tx, patientId); // de novo, na transação que grava (pode ter sido bloqueado)
     const [e] = await tx
       .insert(exams)
-      .values({
-        tenantId: ctx.tenantId,
-        patientId: p.id,
-        data,
-        titulo,
-        arquivoPath,
-        valores,
-        createdAt: now,
-        updatedAt: now,
-      })
+      .values({ tenantId: ctx.tenantId, patientId: p.id, data, titulo, arquivoPath, valores, createdAt: now, updatedAt: now })
       .returning({ id: exams.id });
     return e.id;
   };
@@ -128,8 +92,7 @@ export async function criarExame(
         permitidos: ['pdf', 'jpg', 'png'],
         // paciente travado ANTES da cota: mesma ordem de excluirExame (senão, deadlock)
         antesDaReserva: async (tx) => void (await carregarPacienteParaEscrita(tx, patientId)),
-        registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)),
-      },
+        registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)) },
       { db, dataDir: deps.dataDir },
     );
   } catch (e) {
@@ -139,12 +102,7 @@ export async function criarExame(
   return id;
 }
 
-export async function excluirExame(
-  ctx: TenantContext,
-  patientId: string,
-  id: string,
-  deps: { db?: Db; dataDir?: string } = {},
-): Promise<boolean> {
+export async function excluirExame(ctx: TenantContext, patientId: string, id: string, deps: { db?: Db; dataDir?: string } = {}): Promise<boolean> {
   const db = deps.db ?? getDb();
   if (!idValido(patientId) || !idValido(id)) return false;
   const doExame = and(eq(exams.id, id), eq(exams.patientId, patientId));
@@ -154,38 +112,22 @@ export async function excluirExame(
     exameApagado = (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
     return exameApagado;
   };
-  const [atual] = await withTenant(
-    ctx,
-    (tx) => tx.select({ caminho: exams.arquivoPath }).from(exams).where(doExame),
-    db,
-  );
+  const [atual] = await withTenant(ctx, (tx) => tx.select({ caminho: exams.arquivoPath }).from(exams).where(doExame), db);
   if (!atual) return false;
   // exame e laudo saem na mesma transação; o arquivo deixa o disco depois do commit
   if (atual.caminho) {
-    await apagarArquivo(
-      ctx,
-      { caminho: atual.caminho },
-      { db, dataDir: deps.dataDir, naMesmaTransacao: apagarExame },
-    );
+    await apagarArquivo(ctx, { caminho: atual.caminho }, { db, dataDir: deps.dataDir, naMesmaTransacao: apagarExame });
     return exameApagado; // o registro do arquivo pode já ter sumido (FK SET NULL): o exame saiu do mesmo jeito
   }
   return withTenant(ctx, apagarExame, db);
 }
 
-export async function listarExames(
-  ctx: TenantContext,
-  patientId: string,
-  db: Db = getDb(),
-): Promise<ExamRow[]> {
+export async function listarExames(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<ExamRow[]> {
   if (!idValido(patientId)) return [];
   return withTenant(
     ctx,
     async (tx) => {
-      const r = await tx
-        .select()
-        .from(exams)
-        .where(eq(exams.patientId, patientId))
-        .orderBy(desc(exams.data), desc(exams.createdAt));
+      const r = await tx.select().from(exams).where(eq(exams.patientId, patientId)).orderBy(desc(exams.data), desc(exams.createdAt));
       if (r.length) await auditRead(tx, { entidade: 'exames', entidadeId: null, patientId });
       return r;
     },
@@ -193,11 +135,7 @@ export async function listarExames(
   );
 }
 
-export type SerieMarcador = {
-  nome: string;
-  unidade: string | null;
-  pontos: { data: string; valor: number }[];
-};
+export type SerieMarcador = { nome: string; unidade: string | null; pontos: { data: string; valor: number }[] };
 
 /**
  * Um marcador por nome + unidade (sem diferenciar maiúsculas/espaços), pontos em ordem cronológica: glicemia em
@@ -214,17 +152,9 @@ export function agruparMarcadores(lista: Pick<ExamRow, 'data' | 'valores'>[]): S
       series.set(chave, s);
     }
   }
-  return [...series.values()].sort(
-    (a, b) =>
-      norm(a.nome).localeCompare(norm(b.nome), 'pt-BR') ||
-      norm(a.unidade).localeCompare(norm(b.unidade)),
-  );
+  return [...series.values()].sort((a, b) => norm(a.nome).localeCompare(norm(b.nome), 'pt-BR') || norm(a.unidade).localeCompare(norm(b.unidade)));
 }
 
-export async function marcadoresDoPaciente(
-  ctx: TenantContext,
-  patientId: string,
-  db: Db = getDb(),
-): Promise<SerieMarcador[]> {
+export async function marcadoresDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<SerieMarcador[]> {
   return agruparMarcadores(await listarExames(ctx, patientId, db));
 }

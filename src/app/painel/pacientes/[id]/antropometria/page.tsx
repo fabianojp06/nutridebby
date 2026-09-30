@@ -11,10 +11,7 @@ export const dynamic = 'force-dynamic';
 
 const PROTOCOLO: Record<string, string> = { nenhum: '—', jp3: 'JP 3 dobras', jp7: 'JP 7 dobras' };
 
-export default async function AntropometriaPage({
-  params,
-  searchParams,
-}: PageProps<'/painel/pacientes/[id]/antropometria'>) {
+export default async function AntropometriaPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/antropometria'>) {
   const { id } = await params;
   const { atendimento } = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
@@ -23,9 +20,7 @@ export default async function AntropometriaPage({
   return (
     <div className="space-y-8">
       <section aria-labelledby="nova-avaliacao" className="max-w-3xl space-y-3">
-        <h2 id="nova-avaliacao" className="text-lg font-semibold">
-          Nova avaliação
-        </h2>
+        <h2 id="nova-avaliacao" className="text-lg font-semibold">Nova avaliação</h2>
         <AntropometriaForm
           acao={registrarAntropometriaAction.bind(null, paciente.id)}
           hoje={hojeNoFuso(tenant.fuso)}
@@ -36,16 +31,12 @@ export default async function AntropometriaPage({
         />
       </section>
       <section aria-labelledby="avaliacoes" className="space-y-3">
-        <h2 id="avaliacoes" className="text-lg font-semibold">
-          Avaliações
-        </h2>
+        <h2 id="avaliacoes" className="text-lg font-semibold">Avaliações</h2>
         {lista.length === 0 ? (
           <p>Nenhuma avaliação registrada.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <caption className="sr-only">
-              Avaliações antropométricas, da mais recente para a mais antiga
-            </caption>
+            <caption className="sr-only">Avaliações antropométricas, da mais recente para a mais antiga</caption>
             <thead>
               <tr>
                 <th scope="col">Data</th>
@@ -54,11 +45,7 @@ export default async function AntropometriaPage({
                 <th scope="col">IMC</th>
                 <th scope="col">% de gordura</th>
                 <th scope="col">Protocolo</th>
-                {!bloqueado && (
-                  <th scope="col">
-                    <span className="sr-only">Ações</span>
-                  </th>
-                )}
+                {!bloqueado && <th scope="col"><span className="sr-only">Ações</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -73,12 +60,7 @@ export default async function AntropometriaPage({
                   {!bloqueado && (
                     <td>
                       <form action={excluirAntropometriaAction.bind(null, paciente.id, a.id)}>
-                        <ConfirmarBotao
-                          mensagem="Excluir esta avaliação?"
-                          rotulo={`Excluir a avaliação de ${formatarData(a.data)}`}
-                        >
-                          Excluir
-                        </ConfirmarBotao>
+                        <ConfirmarBotao mensagem="Excluir esta avaliação?" rotulo={`Excluir a avaliação de ${formatarData(a.data)}`}>Excluir</ConfirmarBotao>
                       </form>
                     </td>
                   )}

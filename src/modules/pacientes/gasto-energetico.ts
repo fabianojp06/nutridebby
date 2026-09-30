@@ -7,16 +7,7 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { MSG_ANTROPO } from './antropometria-constantes';
 import { carregarPacienteParaEscrita, idValido, MSG_CADASTRO_INCOMPLETO } from './base';
 import { hojeNoFuso, idadeEm } from './datas';
-import {
-  FATOR_MAX,
-  FATOR_MIN,
-  FORMULAS_TMB,
-  gastoTotal,
-  kcal,
-  tmb,
-  type FormulaTmb,
-  type Sexo,
-} from './formulas';
+import { FATOR_MAX, FATOR_MIN, FORMULAS_TMB, gastoTotal, kcal, tmb, type FormulaTmb, type Sexo } from './formulas';
 
 export const MSG_GASTO = {
   fator: 'Fator de atividade deve estar entre 1,00 e 2,50',
@@ -49,9 +40,7 @@ export async function salvarCalculo(
   const db = deps.db ?? getDb();
   const now = deps.now ?? new Date();
   const erros: Record<string, string> = {};
-  const formula = FORMULAS_TMB.some((f) => f.id === input.formula)
-    ? (input.formula as FormulaTmb)
-    : null;
+  const formula = FORMULAS_TMB.some((f) => f.id === input.formula) ? (input.formula as FormulaTmb) : null;
   if (!formula) erros.formula = MSG_GASTO.formula;
   const peso = PESO.safeParse(input.pesoKg);
   if (!peso.success) erros.pesoKg = peso.error.issues[0].message;
@@ -69,12 +58,7 @@ export async function salvarCalculo(
       const idade = idadeEm(p.dataNascimento, hojeNoFuso(tenant.fuso, now));
       // RN-17: menor de 18 (ou nascimento no futuro) não entra na conta; a tabela também recusa (check)
       if (!Number.isFinite(idade) || idade < 18) throw new GastoError({ geral: MSG_GASTO.menor });
-      const dados = {
-        sexo: p.sexo as Sexo,
-        pesoKg: arredondar(peso.data, 2),
-        alturaCm: arredondar(altura.data, 1),
-        idade,
-      };
+      const dados = { sexo: p.sexo as Sexo, pesoKg: arredondar(peso.data, 2), alturaCm: arredondar(altura.data, 1), idade };
       const fatorAtividade = arredondar(fator.data, 2);
       const t = tmb(formula, dados);
       const g = gastoTotal(t, fatorAtividade);
@@ -82,16 +66,7 @@ export async function salvarCalculo(
       const gGravado = arredondar(g, 6);
       const [row] = await tx
         .insert(energyCalcs)
-        .values({
-          tenantId: ctx.tenantId,
-          patientId: p.id,
-          formula,
-          ...dados,
-          fatorAtividade,
-          tmb: tGravado,
-          get: gGravado,
-          createdAt: now,
-        })
+        .values({ tenantId: ctx.tenantId, patientId: p.id, formula, ...dados, fatorAtividade, tmb: tGravado, get: gGravado, createdAt: now })
         .returning({ id: energyCalcs.id });
       // kcal() do mesmo valor gravado: a mensagem de sucesso e a lista mostram o mesmo inteiro
       return { id: row.id, tmb: kcal(tGravado), get: kcal(gGravado) };
@@ -100,22 +75,13 @@ export async function salvarCalculo(
   );
 }
 
-export async function listarCalculos(
-  ctx: TenantContext,
-  patientId: string,
-  db: Db = getDb(),
-): Promise<EnergyCalcRow[]> {
+export async function listarCalculos(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<EnergyCalcRow[]> {
   if (!idValido(patientId)) return [];
   return withTenant(
     ctx,
     async (tx) => {
-      const r = await tx
-        .select()
-        .from(energyCalcs)
-        .where(eq(energyCalcs.patientId, patientId))
-        .orderBy(desc(energyCalcs.createdAt));
-      if (r.length)
-        await auditRead(tx, { entidade: 'gasto_energetico', entidadeId: null, patientId });
+      const r = await tx.select().from(energyCalcs).where(eq(energyCalcs.patientId, patientId)).orderBy(desc(energyCalcs.createdAt));
+      if (r.length) await auditRead(tx, { entidade: 'gasto_energetico', entidadeId: null, patientId });
       return r;
     },
     db,
@@ -123,11 +89,7 @@ export async function listarCalculos(
 }
 
 /** Peso e altura da avaliação mais recente, para preencher o cálculo (US-014 "com última antropometria"). */
-export async function medidasRecentes(
-  ctx: TenantContext,
-  patientId: string,
-  db: Db = getDb(),
-): Promise<{ pesoKg: number | null; alturaCm: number | null }> {
+export async function medidasRecentes(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<{ pesoKg: number | null; alturaCm: number | null }> {
   if (!idValido(patientId)) return { pesoKg: null, alturaCm: null };
   return withTenant(
     ctx,

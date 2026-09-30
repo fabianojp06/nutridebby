@@ -2,16 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { arredondar, formatarDecimal, lerDecimal } from '@/lib/numero';
-import {
-  compararTmb,
-  FATOR_MAX,
-  FATOR_MIN,
-  FORMULAS_TMB,
-  gastoTotal,
-  kcal,
-  type FormulaTmb,
-  type Sexo,
-} from '@/modules/pacientes/formulas';
+import { compararTmb, FATOR_MAX, FATOR_MIN, FORMULAS_TMB, gastoTotal, kcal, type FormulaTmb, type Sexo } from '@/modules/pacientes/formulas';
 import type { CalculoState } from './actions';
 
 type Props = {
@@ -22,8 +13,7 @@ type Props = {
   alturaCm: number | null;
 };
 
-const valido = (n: number | null, min: number, max: number): n is number =>
-  typeof n === 'number' && !Number.isNaN(n) && n >= min && n <= max;
+const valido = (n: number | null, min: number, max: number): n is number => typeof n === 'number' && !Number.isNaN(n) && n >= min && n <= max;
 
 /** US-014 "Comparar fórmulas": as 3 TMB lado a lado enquanto digita; salva a escolhida com o fator. */
 export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
@@ -36,13 +26,9 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
   const a = lerDecimal(altura);
   const f = lerDecimal(fator);
   // mesmos arredondamentos que o servidor grava (peso 2 casas, altura 1)
-  const comparacao =
-    valido(p, 1, 400) && valido(a, 30, 250)
-      ? compararTmb({ sexo, pesoKg: arredondar(p, 2), alturaCm: arredondar(a, 1), idade })
-      : null;
+  const comparacao = valido(p, 1, 400) && valido(a, 30, 250) ? compararTmb({ sexo, pesoKg: arredondar(p, 2), alturaCm: arredondar(a, 1), idade }) : null;
   const e = state.erros ?? {};
-  const erroDe = (k: string) =>
-    e[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {};
+  const erroDe = (k: string) => (e[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {});
   return (
     <form action={action} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -54,23 +40,9 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
           ] as const
         ).map(([k, rotulo, valor, set]) => (
           <div key={k} className="space-y-1">
-            <label htmlFor={k} className="block font-medium">
-              {rotulo}
-            </label>
-            <input
-              id={k}
-              name={k}
-              inputMode="decimal"
-              value={valor}
-              onChange={(ev) => set(ev.target.value)}
-              className="w-full rounded border p-2"
-              {...erroDe(k)}
-            />
-            {e[k] && (
-              <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">
-                {e[k]}
-              </p>
-            )}
+            <label htmlFor={k} className="block font-medium">{rotulo}</label>
+            <input id={k} name={k} inputMode="decimal" value={valor} onChange={(ev) => set(ev.target.value)} className="w-full rounded border p-2" {...erroDe(k)} />
+            {e[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{e[k]}</p>}
           </div>
         ))}
       </div>
@@ -93,46 +65,21 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
               return (
                 <tr key={fo.id} className="border-t">
                   <td>
-                    <input
-                      id={`formula-${fo.id}`}
-                      name="formula"
-                      type="radio"
-                      value={fo.id}
-                      checked={formula === fo.id}
-                      onChange={() => setFormula(fo.id)}
-                    />
+                    <input id={`formula-${fo.id}`} name="formula" type="radio" value={fo.id} checked={formula === fo.id} onChange={() => setFormula(fo.id)} />
                   </td>
-                  <td>
-                    <label htmlFor={`formula-${fo.id}`}>{fo.nome}</label>
-                  </td>
+                  <td><label htmlFor={`formula-${fo.id}`}>{fo.nome}</label></td>
                   <td>{t === undefined ? '—' : String(kcal(t))}</td>
-                  <td>
-                    {t === undefined || !valido(f, FATOR_MIN, FATOR_MAX)
-                      ? '—'
-                      : String(kcal(gastoTotal(t, arredondar(f, 2))))}
-                  </td>
+                  <td>{t === undefined || !valido(f, FATOR_MIN, FATOR_MAX) ? '—' : String(kcal(gastoTotal(t, arredondar(f, 2))))}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        {e.formula && (
-          <p role="alert" className="text-sm text-red-700">
-            {e.formula}
-          </p>
-        )}
+        {e.formula && <p role="alert" className="text-sm text-red-700">{e.formula}</p>}
       </fieldset>
-      {e.geral && (
-        <p role="alert" className="text-red-700">
-          {e.geral}
-        </p>
-      )}
-      {state.ok && (
-        <p role="status">{`Cálculo salvo: TMB ${state.ok.tmb} kcal, GET ${state.ok.get} kcal.`}</p>
-      )}
-      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">
-        Salvar cálculo
-      </button>
+      {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
+      {state.ok && <p role="status">{`Cálculo salvo: TMB ${state.ok.tmb} kcal, GET ${state.ok.get} kcal.`}</p>}
+      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar cálculo</button>
     </form>
   );
 }

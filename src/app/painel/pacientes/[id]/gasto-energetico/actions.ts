@@ -8,11 +8,7 @@ import { GastoError, salvarCalculo } from '@/modules/pacientes/gasto-energetico'
 
 export type CalculoState = { erros?: Record<string, string>; ok?: { tmb: number; get: number } };
 
-export async function salvarCalculoAction(
-  patientId: string,
-  _prev: CalculoState,
-  formData: FormData,
-): Promise<CalculoState> {
+export async function salvarCalculoAction(patientId: string, _prev: CalculoState, formData: FormData): Promise<CalculoState> {
   const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/gasto-energetico`);
   try {
     const r = await salvarCalculo(ctx, tenant, patientId, {

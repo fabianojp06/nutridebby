@@ -12,31 +12,17 @@ export const dynamic = 'force-dynamic';
 
 const NOME = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]));
 
-export default async function GastoEnergeticoPage({
-  params,
-}: PageProps<'/painel/pacientes/[id]/gasto-energetico'>) {
+export default async function GastoEnergeticoPage({ params }: PageProps<'/painel/pacientes/[id]/gasto-energetico'>) {
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
-  const [medidas, calculos] = await Promise.all([
-    medidasRecentes(ctx, paciente.id),
-    listarCalculos(ctx, paciente.id),
-  ]);
+  const [medidas, calculos] = await Promise.all([medidasRecentes(ctx, paciente.id), listarCalculos(ctx, paciente.id)]);
   const cadastroCompleto = !!paciente.dataNascimento && !!paciente.sexo;
-  const idade = paciente.dataNascimento
-    ? idadeEm(paciente.dataNascimento, hojeNoFuso(tenant.fuso))
-    : null;
-  const podeCalcular =
-    cadastroCompleto &&
-    paciente.status !== 'bloqueado' &&
-    idade !== null &&
-    Number.isFinite(idade) &&
-    idade >= 18;
+  const idade = paciente.dataNascimento ? idadeEm(paciente.dataNascimento, hojeNoFuso(tenant.fuso)) : null;
+  const podeCalcular = cadastroCompleto && paciente.status !== 'bloqueado' && idade !== null && Number.isFinite(idade) && idade >= 18;
   return (
     <div className="space-y-8">
       <section aria-labelledby="novo-calculo" className="max-w-3xl space-y-3">
-        <h2 id="novo-calculo" className="text-lg font-semibold">
-          Calcular gasto energético
-        </h2>
+        <h2 id="novo-calculo" className="text-lg font-semibold">Calcular gasto energético</h2>
         {!cadastroCompleto ? (
           <p role="status">{MSG_CADASTRO_INCOMPLETO}</p>
         ) : podeCalcular ? (
@@ -52,16 +38,12 @@ export default async function GastoEnergeticoPage({
         ) : null}
       </section>
       <section aria-labelledby="calculos" className="space-y-3">
-        <h2 id="calculos" className="text-lg font-semibold">
-          Cálculos salvos
-        </h2>
+        <h2 id="calculos" className="text-lg font-semibold">Cálculos salvos</h2>
         {calculos.length === 0 ? (
           <p>Nenhum cálculo salvo.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <caption className="sr-only">
-              Cálculos de gasto energético, do mais recente para o mais antigo
-            </caption>
+            <caption className="sr-only">Cálculos de gasto energético, do mais recente para o mais antigo</caption>
             <thead>
               <tr>
                 <th scope="col">Quando</th>

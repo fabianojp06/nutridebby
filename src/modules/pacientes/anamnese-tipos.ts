@@ -13,14 +13,7 @@ export const TIPOS_PERGUNTA = [
 ] as const;
 export type TipoPergunta = (typeof TIPOS_PERGUNTA)[number]['id'];
 
-export type Pergunta = {
-  id: string;
-  tipo: TipoPergunta;
-  rotulo: string;
-  obrigatoria: boolean;
-  unidade?: string;
-  opcoes?: string[];
-};
+export type Pergunta = { id: string; tipo: TipoPergunta; rotulo: string; obrigatoria: boolean; unidade?: string; opcoes?: string[] };
 export type ModeloSchema = { perguntas: Pergunta[] };
 /** Cópia do modelo no momento do preenchimento (US-012 "Snapshot do modelo"). */
 export type SnapshotModelo = { nome: string; perguntas: Pergunta[] };
@@ -46,21 +39,16 @@ const tipoValido = (t: unknown): t is TipoPergunta => TIPOS_PERGUNTA.some((x) =>
 const temOpcoes = (t: TipoPergunta) => t === 'escolha_unica' || t === 'multipla_escolha';
 
 /** Modelo digitado no editor → modelo limpo, ou erros por campo (`nome`, `perguntas`, `pergunta_<n>`). */
-export function validarModelo(input: {
-  nome: unknown;
-  perguntas: unknown;
-}):
-  { ok: true; nome: string; perguntas: Pergunta[] } | { ok: false; erros: Record<string, string> } {
+export function validarModelo(input: { nome: unknown; perguntas: unknown }):
+  | { ok: true; nome: string; perguntas: Pergunta[] }
+  | { ok: false; erros: Record<string, string> } {
   const erros: Record<string, string> = {};
   const nome = texto(input.nome).slice(0, 80);
   if (!nome) erros.nome = MSG_ANAMNESE.nomeModelo;
-  const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas)
-    ? input.perguntas
-    : [];
+  const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas) ? input.perguntas : [];
   if (!brutas.length) erros.perguntas = MSG_ANAMNESE.semPerguntas;
   // nada é cortado em silêncio: o editor limita nome, rótulo e unidade (maxLength), mas não a lista de opções
-  if (brutas.length > LIMITE_PERGUNTAS)
-    return { ok: false, erros: { ...erros, perguntas: MSG_ANAMNESE.muitasPerguntas } };
+  if (brutas.length > LIMITE_PERGUNTAS) return { ok: false, erros: { ...erros, perguntas: MSG_ANAMNESE.muitasPerguntas } };
   const ids = new Set<string>();
   const perguntas: Pergunta[] = [];
   brutas.forEach((item, i) => {
@@ -78,11 +66,8 @@ export function validarModelo(input: {
       if (unidade) p.unidade = unidade;
     }
     if (temOpcoes(tipo)) {
-      const opcoes = [
-        ...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o)).filter(Boolean)),
-      ];
-      if (opcoes.length > 30 || opcoes.some((o) => o.length > 100))
-        return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
+      const opcoes = [...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o)).filter(Boolean))];
+      if (opcoes.length > 30 || opcoes.some((o) => o.length > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
       if (opcoes.length < 2) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.opcoes);
       p.opcoes = opcoes;
     }
@@ -95,17 +80,12 @@ export function validarModelo(input: {
 export function validarRespostas(
   perguntas: Pergunta[],
   bruto: Record<string, unknown>,
-):
-  { ok: true; respostas: Record<string, Resposta> } | { ok: false; erros: Record<string, string> } {
+): { ok: true; respostas: Record<string, Resposta> } | { ok: false; erros: Record<string, string> } {
   const respostas: Record<string, Resposta> = {};
   const erros: Record<string, string> = {};
   for (const p of perguntas) {
     const v = bruto[p.id];
-    const vazio =
-      v === undefined ||
-      v === null ||
-      (typeof v === 'string' && !v.trim()) ||
-      (Array.isArray(v) && v.length === 0);
+    const vazio = v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && v.length === 0);
     if (vazio) {
       if (p.obrigatoria) erros[p.id] = MSG_ANAMNESE.responda(p.rotulo);
       continue;
@@ -137,9 +117,7 @@ function converter(p: Pergunta, v: unknown): Resposta | undefined {
       return typeof v === 'string' && p.opcoes?.includes(v) ? v : undefined;
     case 'multipla_escolha': {
       const l = Array.isArray(v) ? v : [v];
-      return l.every((x) => typeof x === 'string' && p.opcoes?.includes(x))
-        ? [...new Set(l as string[])]
-        : undefined;
+      return l.every((x) => typeof x === 'string' && p.opcoes?.includes(x)) ? [...new Set(l as string[])] : undefined;
     }
     case 'data':
       return typeof v === 'string' && dataValida(v.trim()) ? v.trim() : undefined;
@@ -147,17 +125,9 @@ function converter(p: Pergunta, v: unknown): Resposta | undefined {
 }
 
 /** Campos `r_<id>` do formulário (múltipla escolha: vários valores com o mesmo nome). */
-export function respostasDoFormulario(
-  perguntas: Pergunta[],
-  f: FormData,
-): Record<string, string | string[]> {
+export function respostasDoFormulario(perguntas: Pergunta[], f: FormData): Record<string, string | string[]> {
   return Object.fromEntries(
-    perguntas.map((p) => [
-      p.id,
-      p.tipo === 'multipla_escolha'
-        ? f.getAll(`r_${p.id}`).map(String)
-        : String(f.get(`r_${p.id}`) ?? ''),
-    ]),
+    perguntas.map((p) => [p.id, p.tipo === 'multipla_escolha' ? f.getAll(`r_${p.id}`).map(String) : String(f.get(`r_${p.id}`) ?? '')]),
   );
 }
 

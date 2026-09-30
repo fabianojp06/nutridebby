@@ -1,20 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { arredondar } from '@/lib/numero';
-import {
-  calcularGordura,
-  compararTmb,
-  densidadeJP,
-  dobrasDoProtocolo,
-  gastoTotal,
-  imc,
-  kcal,
-  siri,
-  tmb,
-} from './formulas';
+import { calcularGordura, compararTmb, densidadeJP, dobrasDoProtocolo, gastoTotal, imc, kcal, siri, tmb } from './formulas';
 
 /** Apêndice A: "casos de teste unitário obrigatórios do cálculo (tolerância ±0,01)". */
-const perto = (v: number, esperado: number) =>
-  expect(Math.abs(v - esperado), `${v} ≠ ${esperado}`).toBeLessThanOrEqual(0.01);
+const perto = (v: number, esperado: number) => expect(Math.abs(v - esperado), `${v} ≠ ${esperado}`).toBeLessThanOrEqual(0.01);
 
 describe('Apêndice A — casos obrigatórios', () => {
   it('IMC: 70 kg, 175 cm → 22,86', () => {
@@ -54,16 +43,12 @@ describe('Apêndice A — casos obrigatórios', () => {
     perto(tmb('fao_oms', { sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 29 }), 14.7 * 60 + 496);
     perto(tmb('fao_oms', { sexo: 'M', pesoKg: 70, alturaCm: 175, idade: 30 }), 11.6 * 70 + 879);
     perto(tmb('fao_oms', { sexo: 'M', pesoKg: 70, alturaCm: 175, idade: 60 }), 13.5 * 70 + 487);
-    expect(() => tmb('fao_oms', { sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 17 })).toThrow(
-      RangeError,
-    );
+    expect(() => tmb('fao_oms', { sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 17 })).toThrow(RangeError);
   });
 
   it('US-014 "Comparar fórmulas": Harris-Benedict 1370, Mifflin 1295, FAO/OMS 1351', () => {
     const r = compararTmb({ sexo: 'F', pesoKg: 60, alturaCm: 165, idade: 35 });
-    expect({ hb: kcal(r.harris_benedict), mifflin: kcal(r.mifflin), fao: kcal(r.fao_oms) }).toEqual(
-      { hb: 1370, mifflin: 1295, fao: 1351 },
-    );
+    expect({ hb: kcal(r.harris_benedict), mifflin: kcal(r.mifflin), fao: kcal(r.fao_oms) }).toEqual({ hb: 1370, mifflin: 1295, fao: 1351 });
   });
 
   it('Jackson & Pollock 3 dobras + Siri: homem 30 anos, S = 50 → D 1,06432 e %G 15,08; mulher 35 anos, S = 60 → D 1,04333 e %G 24,44', () => {
@@ -77,68 +62,31 @@ describe('Apêndice A — casos obrigatórios', () => {
   });
 
   it('Jackson & Pollock 7 dobras (mesmas fórmulas da spec): homem 30, S = 100 → 14,63; mulher 35, S = 100 → 20,92', () => {
-    const sete = (v: number) =>
-      Object.fromEntries(
-        dobrasDoProtocolo('jp7', 'M').map((d, i) => [
-          d,
-          i === 0 ? v - 6 * Math.floor(v / 7) : Math.floor(v / 7),
-        ]),
-      );
+    const sete = (v: number) => Object.fromEntries(dobrasDoProtocolo('jp7', 'M').map((d, i) => [d, i === 0 ? v - 6 * Math.floor(v / 7) : Math.floor(v / 7)]));
     expect(Object.values(sete(100)).reduce((a, b) => a + b, 0)).toBe(100);
-    expect(calcularGordura('jp7', 'M', 30, sete(100))).toMatchObject({
-      ok: true,
-      percGordura: 14.63,
-    });
-    expect(calcularGordura('jp7', 'F', 35, sete(100))).toMatchObject({
-      ok: true,
-      percGordura: 20.92,
-    });
+    expect(calcularGordura('jp7', 'M', 30, sete(100))).toMatchObject({ ok: true, percGordura: 14.63 });
+    expect(calcularGordura('jp7', 'F', 35, sete(100))).toMatchObject({ ok: true, percGordura: 20.92 });
   });
 
   it('dobras de cada protocolo e "Dobra faltando" (US-013)', () => {
     expect(dobrasDoProtocolo('jp3', 'M')).toEqual(['peitoral', 'abdominal', 'coxa']);
     expect(dobrasDoProtocolo('jp3', 'F')).toEqual(['triceps', 'suprailiaca', 'coxa']);
-    expect(dobrasDoProtocolo('jp7', 'F')).toEqual([
-      'peitoral',
-      'axilar_media',
-      'triceps',
-      'subescapular',
-      'abdominal',
-      'suprailiaca',
-      'coxa',
-    ]);
-    const semAxilar = {
-      peitoral: 10,
-      triceps: 10,
-      subescapular: 10,
-      abdominal: 10,
-      suprailiaca: 10,
-      coxa: 10,
-    };
-    expect(calcularGordura('jp7', 'F', 35, semAxilar)).toEqual({
-      ok: false,
-      faltando: ['axilar_media'],
-    });
-    expect(calcularGordura('jp3', 'M', 30, { peitoral: 15, abdominal: null, coxa: 15 })).toEqual({
-      ok: false,
-      faltando: ['abdominal'],
-    });
+    expect(dobrasDoProtocolo('jp7', 'F')).toEqual(['peitoral', 'axilar_media', 'triceps', 'subescapular', 'abdominal', 'suprailiaca', 'coxa']);
+    const semAxilar = { peitoral: 10, triceps: 10, subescapular: 10, abdominal: 10, suprailiaca: 10, coxa: 10 };
+    expect(calcularGordura('jp7', 'F', 35, semAxilar)).toEqual({ ok: false, faltando: ['axilar_media'] });
+    expect(calcularGordura('jp3', 'M', 30, { peitoral: 15, abdominal: null, coxa: 15 })).toEqual({ ok: false, faltando: ['abdominal'] });
   });
 });
 
 describe('endurecimento P03-06', () => {
   it('calcularGordura: dobra NaN, Infinity ou negativa conta como faltando', () => {
     for (const x of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
-      expect(calcularGordura('jp3', 'M', 30, { peitoral: x, abdominal: 20, coxa: 15 }).ok).toBe(
-        false,
-      );
+      expect(calcularGordura('jp3', 'M', 30, { peitoral: x, abdominal: 20, coxa: 15 }).ok).toBe(false);
     }
   });
   it('tmb: idade não finita lança RangeError (não cai na faixa 60+ da FAO)', () => {
     for (const idade of [Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => tmb('fao_oms', { sexo: 'M', pesoKg: 70, alturaCm: 175, idade })).toThrow(
-        RangeError,
-      );
+      expect(() => tmb('fao_oms', { sexo: 'M', pesoKg: 70, alturaCm: 175, idade })).toThrow(RangeError);
     }
   });
 });

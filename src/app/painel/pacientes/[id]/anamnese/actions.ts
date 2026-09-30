@@ -3,37 +3,20 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
-import {
-  AnamneseError,
-  atualizarAnamnese,
-  buscarModelo,
-  perguntasDaAnamnese,
-  preencherAnamnese,
-} from '@/modules/pacientes/anamnese';
+import { AnamneseError, atualizarAnamnese, buscarModelo, perguntasDaAnamnese, preencherAnamnese } from '@/modules/pacientes/anamnese';
 import { respostasDoFormulario } from '@/modules/pacientes/anamnese-tipos';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
-export type AnamneseState = {
-  erros?: Record<string, string>;
-  valores?: Record<string, string | string[]>;
-  ok?: boolean;
-  envio?: number;
-};
+export type AnamneseState = { erros?: Record<string, string>; valores?: Record<string, string | string[]>; ok?: boolean; envio?: number };
 
 function tratar(e: unknown, valores: Record<string, string | string[]>): AnamneseState {
   if (e instanceof AnamneseError) return { erros: e.erros, valores, envio: Date.now() };
-  if (e instanceof PacienteBloqueadoError)
-    return { erros: { geral: e.message }, valores, envio: Date.now() };
+  if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message }, valores, envio: Date.now() };
   if (e instanceof PacienteNaoEncontradoError) notFound();
   throw e;
 }
 
-export async function preencherAnamneseAction(
-  patientId: string,
-  modeloId: string,
-  _prev: AnamneseState,
-  formData: FormData,
-): Promise<AnamneseState> {
+export async function preencherAnamneseAction(patientId: string, modeloId: string, _prev: AnamneseState, formData: FormData): Promise<AnamneseState> {
   const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/anamnese`);
   const modelo = await buscarModelo(ctx, modeloId);
   if (!modelo) notFound();
@@ -47,12 +30,7 @@ export async function preencherAnamneseAction(
   redirect(`/painel/pacientes/${patientId}/anamnese/${id}`);
 }
 
-export async function atualizarAnamneseAction(
-  patientId: string,
-  anamneseId: string,
-  _prev: AnamneseState,
-  formData: FormData,
-): Promise<AnamneseState> {
+export async function atualizarAnamneseAction(patientId: string, anamneseId: string, _prev: AnamneseState, formData: FormData): Promise<AnamneseState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/anamnese/${anamneseId}`);
   const perguntas = await perguntasDaAnamnese(ctx, patientId, anamneseId);
   if (!perguntas) notFound();

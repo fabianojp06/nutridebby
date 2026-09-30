@@ -18,42 +18,24 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
     <div className="space-y-8">
       {!bloqueado && (
         <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
-          <h2 id="novo-exame" className="text-lg font-semibold">
-            Novo exame
-          </h2>
+          <h2 id="novo-exame" className="text-lg font-semibold">Novo exame</h2>
           <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} />
         </section>
       )}
       <section aria-labelledby="exames" className="space-y-4">
-        <h2 id="exames" className="text-lg font-semibold">
-          Exames
-        </h2>
+        <h2 id="exames" className="text-lg font-semibold">Exames</h2>
         {lista.length === 0 && <p>Nenhum exame registrado.</p>}
         {lista.map((e) => (
-          <article
-            key={e.id}
-            aria-labelledby={`exame-${e.id}`}
-            className="space-y-2 rounded border p-3"
-          >
+          <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded border p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3
-                id={`exame-${e.id}`}
-                className="font-semibold"
-              >{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+              <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
               <span className="flex gap-4">
                 {e.arquivoPath && (
-                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">
-                    Baixar laudo
-                  </a>
+                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">Baixar laudo</a>
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
-                    <ConfirmarBotao
-                      mensagem="Excluir este exame e o laudo?"
-                      rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}
-                    >
-                      Excluir
-                    </ConfirmarBotao>
+                    <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
                   </form>
                 )}
               </span>

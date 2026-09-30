@@ -12,22 +12,13 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const acesso = await situacaoDoAcesso(ctx, paciente);
-  const [todas, doPaciente] = await Promise.all([
-    listarEtiquetas(ctx),
-    etiquetasDoPaciente(ctx, paciente.id),
-  ]);
+  const [todas, doPaciente] = await Promise.all([listarEtiquetas(ctx), etiquetasDoPaciente(ctx, paciente.id)]);
   const bloqueado = paciente.status === 'bloqueado';
   return (
     <div className="grid gap-8 md:grid-cols-2">
       <section aria-labelledby="cadastro-titulo" className="max-w-xl space-y-3">
-        <h2 id="cadastro-titulo" className="text-lg font-semibold">
-          Cadastro
-        </h2>
-        {bloqueado && (
-          <p role="status">
-            Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.
-          </p>
-        )}
+        <h2 id="cadastro-titulo" className="text-lg font-semibold">Cadastro</h2>
+        {bloqueado && <p role="status">Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.</p>}
         <PacienteForm
           acao={atualizarPacienteAction.bind(null, paciente.id)}
           inicial={valoresDoPaciente(paciente)}
@@ -37,9 +28,7 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
         />
       </section>
       <section aria-labelledby="acesso-titulo" className="space-y-2">
-        <h2 id="acesso-titulo" className="text-lg font-semibold">
-          Acesso ao portal
-        </h2>
+        <h2 id="acesso-titulo" className="text-lg font-semibold">Acesso ao portal</h2>
         <p>{textoDoAcesso(acesso, tenant.fuso)}</p>
         {acesso.estado !== 'ativo' && paciente.status === 'ativo' && (
           <form action={reenviarConviteAction.bind(null, paciente.id)}>
@@ -48,18 +37,9 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
         )}
       </section>
       <section aria-labelledby="etiquetas-titulo" className="space-y-2">
-        <h2 id="etiquetas-titulo" className="text-lg font-semibold">
-          Etiquetas
-        </h2>
-        <p className="text-sm text-zinc-700">
-          Só você vê as etiquetas. Use para filtrar a lista e direcionar conteúdos.
-        </p>
-        <EtiquetasForm
-          acao={salvarEtiquetasAction.bind(null, paciente.id)}
-          todas={todas}
-          doPaciente={doPaciente.map((e) => e.id)}
-          somenteLeitura={bloqueado}
-        />
+        <h2 id="etiquetas-titulo" className="text-lg font-semibold">Etiquetas</h2>
+        <p className="text-sm text-zinc-700">Só você vê as etiquetas. Use para filtrar a lista e direcionar conteúdos.</p>
+        <EtiquetasForm acao={salvarEtiquetasAction.bind(null, paciente.id)} todas={todas} doPaciente={doPaciente.map((e) => e.id)} somenteLeitura={bloqueado} />
       </section>
     </div>
   );

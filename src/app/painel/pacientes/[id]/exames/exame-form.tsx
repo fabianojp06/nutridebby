@@ -5,13 +5,7 @@ import { useRouter } from 'next/navigation';
 import { EXAME_MAX_BYTES, MSG_EXAME } from '@/modules/pacientes/exames-constantes';
 
 type Linha = { chave: number; nome: string; valor: string; unidade: string; referencia: string };
-const vazia = (chave: number): Linha => ({
-  chave,
-  nome: '',
-  valor: '',
-  unidade: '',
-  referencia: '',
-});
+const vazia = (chave: number): Linha => ({ chave, nome: '', valor: '', unidade: '', referencia: '' });
 
 /** Envia por fetch (multipart) para o Route Handler: laudo de até 20 MB não cabe no limite das Server Actions. */
 export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string }) {
@@ -21,38 +15,20 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
   const [erros, setErros] = useState<Record<string, string>>({});
   const [enviando, setEnviando] = useState(false);
   const [ok, setOk] = useState(false);
-  const mudar = (i: number, k: keyof Linha, v: string) =>
-    setLinhas((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+  const mudar = (i: number, k: keyof Linha, v: string) => setLinhas((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
 
   async function enviar(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     setOk(false);
     const fd = new FormData(ev.currentTarget);
     const arquivo = fd.get('arquivo');
-    if (arquivo instanceof File && arquivo.size > EXAME_MAX_BYTES)
-      return setErros({ arquivo: MSG_EXAME.arquivo });
-    fd.set(
-      'valores',
-      JSON.stringify(
-        linhas.map(({ nome, valor, unidade, referencia }) => ({
-          nome,
-          valor,
-          unidade,
-          referencia,
-        })),
-      ),
-    );
+    if (arquivo instanceof File && arquivo.size > EXAME_MAX_BYTES) return setErros({ arquivo: MSG_EXAME.arquivo });
+    fd.set('valores', JSON.stringify(linhas.map(({ nome, valor, unidade, referencia }) => ({ nome, valor, unidade, referencia }))));
     setEnviando(true);
     try {
-      const r = await fetch(`/api/painel/pacientes/${patientId}/exames`, {
-        method: 'POST',
-        body: fd,
-      });
+      const r = await fetch(`/api/painel/pacientes/${patientId}/exames`, { method: 'POST', body: fd });
       const corpo = (await r.json().catch(() => ({}))) as { erros?: Record<string, string> };
-      if (!r.ok)
-        return setErros(
-          corpo.erros ?? { geral: 'Não foi possível salvar o exame. Tente de novo.' },
-        );
+      if (!r.ok) return setErros(corpo.erros ?? { geral: 'Não foi possível salvar o exame. Tente de novo.' });
       setErros({});
       setLinhas([vazia(Date.now())]);
       form.current?.reset();
@@ -65,57 +41,25 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
     }
   }
 
-  const aria = (k: string) =>
-    erros[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {};
-  const erro = (k: string) =>
-    erros[k] && (
-      <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">
-        {erros[k]}
-      </p>
-    );
+  const aria = (k: string) => (erros[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {});
+  const erro = (k: string) => erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{erros[k]}</p>;
   return (
     <form ref={form} onSubmit={enviar} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
-          <label htmlFor="titulo" className="block font-medium">
-            Título do exame
-          </label>
-          <input
-            id="titulo"
-            name="titulo"
-            maxLength={120}
-            className="w-full rounded border p-2"
-            {...aria('titulo')}
-          />
+          <label htmlFor="titulo" className="block font-medium">Título do exame</label>
+          <input id="titulo" name="titulo" maxLength={120} className="w-full rounded border p-2" {...aria('titulo')} />
           {erro('titulo')}
         </div>
         <div className="space-y-1">
-          <label htmlFor="data" className="block font-medium">
-            Data do exame
-          </label>
-          <input
-            id="data"
-            name="data"
-            type="date"
-            max={hoje}
-            defaultValue={hoje}
-            className="rounded border p-2"
-            {...aria('data')}
-          />
+          <label htmlFor="data" className="block font-medium">Data do exame</label>
+          <input id="data" name="data" type="date" max={hoje} defaultValue={hoje} className="rounded border p-2" {...aria('data')} />
           {erro('data')}
         </div>
       </div>
       <div className="space-y-1">
-        <label htmlFor="arquivo" className="block font-medium">
-          Laudo (opcional)
-        </label>
-        <input
-          id="arquivo"
-          name="arquivo"
-          type="file"
-          accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
-          {...aria('arquivo')}
-        />
+        <label htmlFor="arquivo" className="block font-medium">Laudo (opcional)</label>
+        <input id="arquivo" name="arquivo" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" {...aria('arquivo')} />
         <p className="text-sm text-zinc-700">PDF, JPEG ou PNG de até 20 MB.</p>
         {erro('arquivo')}
       </div>
@@ -132,43 +76,19 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
               ] as const
             ).map(([k, rotulo]) => (
               <div key={k} className="space-y-1">
-                <label htmlFor={`${k}-${l.chave}`} className="block text-sm">
-                  {rotulo}
-                </label>
-                <input
-                  id={`${k}-${l.chave}`}
-                  {...aria('valores')}
-                  value={l[k]}
-                  onChange={(ev) => mudar(i, k, ev.target.value)}
-                  inputMode={k === 'valor' ? 'decimal' : undefined}
-                  className="w-full rounded border p-2"
-                />
+                <label htmlFor={`${k}-${l.chave}`} className="block text-sm">{rotulo}</label>
+                <input id={`${k}-${l.chave}`} {...aria('valores')} value={l[k]} onChange={(ev) => mudar(i, k, ev.target.value)} inputMode={k === 'valor' ? 'decimal' : undefined} className="w-full rounded border p-2" />
               </div>
             ))}
-            <button
-              type="button"
-              onClick={() => setLinhas((ls) => ls.filter((_, j) => j !== i))}
-              className="self-end underline"
-              aria-label={`Remover o valor ${i + 1}`}
-            >
-              Remover
-            </button>
+            <button type="button" onClick={() => setLinhas((ls) => ls.filter((_, j) => j !== i))} className="self-end underline" aria-label={`Remover o valor ${i + 1}`}>Remover</button>
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => setLinhas((ls) => [...ls, vazia(Date.now())])}
-          className="rounded border px-3 py-1"
-        >
-          Adicionar valor
-        </button>
+        <button type="button" onClick={() => setLinhas((ls) => [...ls, vazia(Date.now())])} className="rounded border px-3 py-1">Adicionar valor</button>
         {erro('valores')}
       </fieldset>
       {erro('geral')}
       {ok && <p role="status">Exame salvo.</p>}
-      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white">
-        Salvar exame
-      </button>
+      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar exame</button>
     </form>
   );
 }
