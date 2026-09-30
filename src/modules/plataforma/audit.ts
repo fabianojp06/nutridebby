@@ -50,6 +50,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   patients: 'Cadastro do paciente',
   etiquetas: 'Etiquetas',
   antropometria: 'Antropometria',
+  gasto_energetico: 'Gasto energético',
 };
 
 export type AccessHistoryItem = {

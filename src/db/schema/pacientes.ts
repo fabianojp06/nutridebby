@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, customType, date, foreignKey, index, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 import { tenants } from './platform';
 
@@ -118,3 +118,34 @@ export const anthropometry = pgTable(
 );
 
 export type AnthropometryRow = typeof anthropometry.$inferSelect;
+
+/** US-014. Guarda o que entrou na conta (peso, altura, idade, sexo) e o resultado sem arredondar; a tela mostra kcal inteiros. */
+export const energyCalcs = pgTable(
+  'energy_calcs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    formula: text('formula').notNull(),
+    pesoKg: numeric('peso_kg', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+    alturaCm: numeric('altura_cm', { precision: 5, scale: 1, mode: 'number' }).notNull(),
+    idade: integer('idade').notNull(),
+    sexo: text('sexo').notNull(),
+    fatorAtividade: numeric('fator_atividade', { precision: 3, scale: 2, mode: 'number' }).notNull(),
+    // 6 casas: o mesmo valor que as fórmulas devolvem; com 2 casas, 1500,4951 viraria 1500,50 e a lista
+    // mostraria 1501 onde a tela de sucesso mostrou 1500 (arredondamento duplo, RN-14)
+    tmb: numeric('tmb', { precision: 12, scale: 6, mode: 'number' }).notNull(),
+    get: numeric('get', { precision: 12, scale: 6, mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('energy_calcs_formula_valida', sql`${t.formula} in ('harris_benedict', 'mifflin', 'fao_oms')`),
+    check('energy_calcs_fator_faixa', sql`${t.fatorAtividade} between 1.00 and 2.50`),
+    check('energy_calcs_sexo_valido', sql`${t.sexo} in ('F', 'M')`),
+    check('energy_calcs_idade_adulto', sql`${t.idade} >= 18`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'energy_calcs_paciente_fk' }),
+    index('energy_calcs_paciente_idx').on(t.tenantId, t.patientId, t.createdAt),
+  ],
+);
+
+export type EnergyCalcRow = typeof energyCalcs.$inferSelect;
