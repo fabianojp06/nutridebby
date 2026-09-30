@@ -87,3 +87,22 @@ test('paciente de outro tenant ou id inválido → 404', async () => {
   expect(r?.status()).toBe(404);
   expect((await nutri.request.get('/api/painel/pacientes/abc')).status()).toBe(404);
 });
+
+test('antropometria: IMC e % de gordura aparecem ao digitar; JP 3 dobras da mulher de 35 anos = 24,44 (US-013)', async () => {
+  await nutri.goto(`${prontuario}/antropometria`);
+  await nutri.getByLabel('Data da avaliação').fill('2026-09-01');
+  await nutri.getByLabel('Peso (kg)').fill('70');
+  await nutri.getByLabel('Altura (cm)').fill('175');
+  await expect(nutri.getByText('IMC: 22,86')).toBeVisible();
+  await nutri.getByLabel('Protocolo de dobras').selectOption('jp3');
+  await nutri.getByLabel('Tríceps').fill('20');
+  await nutri.getByLabel('Supra-ilíaca').fill('20');
+  await expect(nutri.getByText('Preencha as 3 dobras para calcular o % de gordura')).toBeVisible();
+  await nutri.getByLabel('Coxa', { exact: true }).last().fill('20');
+  await expect(nutri.getByText('% de gordura: 24,44')).toBeVisible();
+  await nutri.getByRole('button', { name: 'Salvar avaliação' }).click();
+  await expect(nutri.getByRole('status')).toHaveText('Avaliação salva.');
+  const linha = nutri.getByRole('row', { name: /01\/09\/2026/ });
+  await expect(linha).toContainText('22,86');
+  await expect(linha).toContainText('24,44');
+});

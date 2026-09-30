@@ -33,3 +33,9 @@ describe('números digitados em pt-BR (RNF-12, Review Focus 2)', () => {
     expect(circ.safeParse({ c: '2' }).success).toBe(false);
   });
 });
+
+describe('lerDecimal: resultado não finito (endurecimento P03-06)', () => {
+  it("'9' repetido 400 vezes vira NaN, nunca Infinity", () => {
+    expect(lerDecimal('9'.repeat(400))).toBeNaN();
+  });
+});

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 /** Seções do prontuário. Cada tarefa acrescenta a sua ANTES de 'historico'. */
 export const ABAS: readonly { seg: string; rotulo: string }[] = [
   { seg: '', rotulo: 'Resumo' },
+  { seg: 'antropometria', rotulo: 'Antropometria' },
   { seg: 'historico', rotulo: 'Histórico de acessos' },
 ];
 

@@ -77,3 +77,16 @@ describe('Apêndice A — casos obrigatórios', () => {
     expect(calcularGordura('jp3', 'M', 30, { peitoral: 15, abdominal: null, coxa: 15 })).toEqual({ ok: false, faltando: ['abdominal'] });
   });
 });
+
+describe('endurecimento P03-06', () => {
+  it('calcularGordura: dobra NaN, Infinity ou negativa conta como faltando', () => {
+    for (const x of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(calcularGordura('jp3', 'M', 30, { peitoral: x, abdominal: 20, coxa: 15 }).ok).toBe(false);
+    }
+  });
+  it('tmb: idade não finita lança RangeError (não cai na faixa 60+ da FAO)', () => {
+    for (const idade of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => tmb('fao_oms', { sexo: 'M', pesoKg: 70, alturaCm: 175, idade })).toThrow(RangeError);
+    }
+  });
+});

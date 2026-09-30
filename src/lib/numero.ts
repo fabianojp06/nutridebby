@@ -7,7 +7,8 @@ export function lerDecimal(v: unknown): number | null {
   const t = v.trim();
   if (!t) return null;
   if (!/^-?\d+([.,]\d+)?$/.test(t)) return Number.NaN;
-  return Number(t.replace(',', '.'));
+  const n = Number(t.replace(',', '.'));
+  return Number.isFinite(n) ? n : Number.NaN;
 }
 
 /** Meio para cima em `casas` decimais (RN-14). Pela notação exponencial: 1.005 → 1.01 (e não 1.00). */

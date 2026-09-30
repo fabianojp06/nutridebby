@@ -148,6 +148,20 @@
       "when": 1790731503126,
       "tag": "0020_rls_etiquetas",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790732144114,
+      "tag": "0021_antropometria",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790732145045,
+      "tag": "0022_rls_antropometria",
+      "breakpoints": true
     }
   ]
 }

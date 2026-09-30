@@ -6,7 +6,7 @@ import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas
 import { metricasPorTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
-import { ConfirmarBotao } from './confirmar-botao';
+import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { CotaForm } from './cota-form';
 import { PainelInfra } from './painel-infra';
 

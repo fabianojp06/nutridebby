@@ -25,6 +25,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_fixture_registros: (t, p) => sql`insert into audit_fixture_registros (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,
   patients: (t, p) =>
     sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'Iso', '1990-01-01', 'F', ${`iso-${p}@teste.dev`})`,
+  anthropometry: (t, p) => sql`insert into anthropometry (tenant_id, patient_id, data, peso_kg, altura_cm) values (${t}, ${p}, '2026-01-01', 70, 175)`,
   patient_tags: (t) => sql`insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`})`,
   patient_tag_links: (t, p) => sql`with e as (insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`}) returning id)
     insert into patient_tag_links (tenant_id, patient_id, tag_id) select ${t}, ${p}, e.id from e`,

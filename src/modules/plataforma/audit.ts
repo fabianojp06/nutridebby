@@ -49,6 +49,7 @@ export const ACAO_ROTULO: Record<AuditAction, string> = {
 export const ENTIDADE_ROTULO: Record<string, string> = {
   patients: 'Cadastro do paciente',
   etiquetas: 'Etiquetas',
+  antropometria: 'Antropometria',
 };
 
 export type AccessHistoryItem = {

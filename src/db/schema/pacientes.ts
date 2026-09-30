@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, customType, date, foreignKey, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, customType, date, foreignKey, index, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 import { tenants } from './platform';
 
@@ -88,3 +88,33 @@ export const patientTagLinks = pgTable(
     index('patient_tag_links_etiqueta_idx').on(t.tenantId, t.tagId),
   ],
 );
+
+/** US-013. `imc` é calculado pelo banco; densidade e %G, pelo serviço (Apêndice A), só com as dobras completas. */
+export const anthropometry = pgTable(
+  'anthropometry',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    data: date('data', { mode: 'string' }).notNull(),
+    pesoKg: numeric('peso_kg', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+    alturaCm: numeric('altura_cm', { precision: 5, scale: 1, mode: 'number' }).notNull(),
+    imc: numeric('imc', { precision: 6, scale: 2, mode: 'number' }).generatedAlwaysAs(sql`round(peso_kg / ((altura_cm / 100) * (altura_cm / 100)), 2)`),
+    circunferencias: jsonb('circunferencias').$type<Record<string, number>>().notNull().default({}),
+    dobrasMm: jsonb('dobras_mm').$type<Record<string, number>>().notNull().default({}),
+    protocolo: text('protocolo').notNull().default('nenhum'),
+    densidade: numeric('densidade', { precision: 6, scale: 5, mode: 'number' }),
+    percGordura: numeric('perc_gordura', { precision: 5, scale: 2, mode: 'number' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('anthropometry_peso_faixa', sql`${t.pesoKg} between 1 and 400`),
+    check('anthropometry_altura_faixa', sql`${t.alturaCm} between 30 and 250`),
+    check('anthropometry_protocolo_valido', sql`${t.protocolo} in ('jp3', 'jp7', 'nenhum')`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'anthropometry_paciente_fk' }),
+    index('anthropometry_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+  ],
+);
+
+export type AnthropometryRow = typeof anthropometry.$inferSelect;

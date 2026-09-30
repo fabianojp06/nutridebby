@@ -52,7 +52,7 @@ export type ResultadoGordura = { ok: true; densidade: number; percGordura: numbe
  */
 export function calcularGordura(p: Protocolo, sexo: Sexo, idade: number, dobras: Partial<Record<DobraId, number | null>>): ResultadoGordura {
   const necessarias = dobrasDoProtocolo(p, sexo);
-  const faltando = necessarias.filter((d) => typeof dobras[d] !== 'number');
+  const faltando = necessarias.filter((d) => !(typeof dobras[d] === 'number' && Number.isFinite(dobras[d]) && (dobras[d] as number) >= 0));
   if (faltando.length) return { ok: false, faltando };
   const soma = necessarias.reduce((s, d) => s + (dobras[d] as number), 0);
   const densidade = densidadeJP(p, sexo, soma, idade);
@@ -70,6 +70,7 @@ export type DadosTmb = { sexo: Sexo; pesoKg: number; alturaCm: number; idade: nu
 /** TMB em kcal, sem arredondar (RN-14 arredonda só na exibição, com `kcal`). */
 export function tmb(f: FormulaTmb, d: DadosTmb): number {
   const { sexo, pesoKg: P, alturaCm: A, idade: I } = d;
+  if (!Number.isFinite(I)) throw new RangeError('Idade inválida para o cálculo da TMB');
   switch (f) {
     case 'harris_benedict':
       return sexo === 'M' ? 66.47 + 13.75 * P + 5.003 * A - 6.755 * I : 655.1 + 9.563 * P + 1.85 * A - 4.676 * I;
