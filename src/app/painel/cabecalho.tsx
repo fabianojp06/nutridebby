@@ -16,6 +16,7 @@ export function Cabecalho({ tenant }: { tenant: TenantRow }) {
       </div>
       <nav aria-label="Menu do painel" className="flex gap-4 text-sm">
         <Link href="/painel">Início</Link>
+        <Link href="/painel/pacientes">Pacientes</Link>
         <Link href="/painel/configuracoes">Perfil e marca</Link>
         <Link href="/conta/seguranca">Segurança</Link>
       </nav>
