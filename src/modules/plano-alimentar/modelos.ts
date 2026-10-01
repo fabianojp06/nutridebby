@@ -40,16 +40,23 @@ export async function listarModelos(ctx: TenantContext, db: Db = getDb()) {
   );
 }
 
-/** US-024 "Salvar plano como modelo": copia refeições e itens para um modelo novo (sem paciente). */
+/**
+ * US-024 "Salvar plano como modelo": copia refeições e itens para um modelo novo (sem paciente).
+ * Plano de paciente bloqueado ou anonimizado (US-018) não vira modelo: o prontuário dele é só para consulta.
+ * Travas na ordem do salvamento e da publicação: paciente → plano.
+ */
 export async function salvarComoModelo(ctx: TenantContext, planId: string, tituloEntrada: unknown, deps: Deps = {}): Promise<{ id: string }> {
   const t = titulo(tituloEntrada);
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
   return withTenant(
     ctx,
     async (tx) => {
-      // FOR SHARE já na primeira leitura: cabeçalho, refeições e itens da mesma versão (o salvamento em curso termina antes)
+      const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
+      if (!antes) throw new PlanoNaoEncontradoError();
+      if (antes.patientId) await carregarPacienteParaEscrita(tx, antes.patientId); // bloqueado/anonimizado → PacienteBloqueadoError
+      // FOR SHARE: cabeçalho, refeições e itens da mesma versão (o salvamento em curso termina antes)
       const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('share');
-      if (!p) throw new PlanoNaoEncontradoError();
+      if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
       if (p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId }); // copiar lê o plano do paciente
       const [m] = await tx
         .insert(mealPlans)

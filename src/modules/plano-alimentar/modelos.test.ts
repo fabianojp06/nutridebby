@@ -3,10 +3,10 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, mealItems, mealPlans, meals } from '@/db/schema';
+import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { PlanoError, PlanoNaoEncontradoError } from './erros';
@@ -130,6 +130,30 @@ describe('modelos de plano: limites e isolamento', () => {
     const m = (await carregarPlano(T.ctx, (await copia).id, app.db))!;
     expect(m.orientacoes).toBe('Versão nova.');
     expect(m.refeicoes.map((r) => [r.nome, r.itens.length])).toEqual([['Almoço', 2], ['Jantar', 1]]);
+  });
+
+  it('paciente bloqueado ou anonimizado (US-018, só consulta): o plano dele não vira modelo; um modelo continua sendo copiado', async () => {
+    const T = await novoTenant(app.db);
+    const modelos = async () => (await listarModelos(T.ctx, app.db)).length;
+    const planoDe = async (estado: Partial<typeof patients.$inferInsert>) => {
+      const p = await novoPaciente(app.db, T.ctx);
+      const { id } = await criarRascunho(T.ctx, p.id, deps);
+      await salvarRascunho(T.ctx, id, conteudo(0, 'Plano do paciente'), deps);
+      await withTenant(T.ctx, (tx) => tx.update(patients).set(estado).where(eq(patients.id, p.id)), app.db);
+      return id;
+    };
+    const bloqueado = await planoDe({ status: 'bloqueado' });
+    await expect(salvarComoModelo(T.ctx, bloqueado, 'Do bloqueado', deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    // como a anonimização (lgpd.ts) deixa o paciente: bloqueado, sem nome e com a data da anonimização
+    const anonimizado = await planoDe({ status: 'bloqueado', nome: 'Paciente anonimizado', anonimizadoEm: new Date() });
+    await expect(salvarComoModelo(T.ctx, anonimizado, 'Do anonimizado', deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    expect(await modelos()).toBe(0); // nenhum modelo criado
+
+    const { id: modelo } = await criarModelo(T.ctx, 'Base', deps);
+    await salvarRascunho(T.ctx, modelo, conteudo(0), deps);
+    const { id: copia } = await salvarComoModelo(T.ctx, modelo, 'Cópia da base', deps);
+    expect((await carregarPlano(T.ctx, copia, app.db))!.refeicoes[0].itens).toHaveLength(2);
+    expect(await modelos()).toBe(2);
   });
 
   it('plano de outro tenant não vira modelo; plano de paciente não é aceito como modelo nem pode ser excluído como modelo', async () => {

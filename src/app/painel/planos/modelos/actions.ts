@@ -39,6 +39,7 @@ export async function salvarComoModeloAction(planId: string, _prev: ModeloState,
     await salvarComoModelo(ctx, planId, fd.get('titulo'));
   } catch (e) {
     if (e instanceof PlanoError) return { erro: mensagem(e) };
+    if (e instanceof PacienteBloqueadoError) return { erro: e.message }; // a página já esconde o botão: corrida com o bloqueio
     if (e instanceof PlanoNaoEncontradoError) notFound();
     throw e;
   }
