@@ -93,6 +93,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P04-07 | Modelos de plano — **entregue:** "Salvar como modelo", "Criar modelo", "Criar a partir de modelo" e "Excluir modelo"; a nota de privacidade do texto livre está na spec v1.6 (RNF-08) (`dfc5e49`, `632be77`) | US-024 | P04-05 | Dev | S | ✅ |
 | P04-08 | Publicação e versionamento (índice único parcial) + aviso ao paciente — **entregue sem o aviso:** 1 plano publicado e 1 rascunho por paciente, nutrientes congelados na publicação, "Editar" cria a versão seguinte; o push/e-mail ao paciente foi adiado para o Plano 06 (desvio da spec v1.6) (`652b0c0`) | US-025, RN-01 | P04-05 | Dev | M | ✅ |
 | P04-09 | PDF gerado pelo worker na publicação — **entregue:** PDF com a marca gerado pelo worker, "Baixar PDF" no painel, "Gerar o PDF de novo", varredura de PDF pendente há mais de 1 h e limpeza de `.tmp` órfãos (`c2384b2`, `2c5423f`; correções da revisão final `57c6d2c`, `b966dba`, `c9b8826`) | US-026 | P04-08 | Dev | M | ✅ |
+| P04-10 | Débitos do Plano 04 (PR #5, rodada 2 do `/code-review`, itens 7–9, adiados com OK do dono): exportação lendo as versões do plano em lote (hoje N+1); inserts de refeições/itens em lote no `salvarRascunho`; helper único de trava paciente → plano (hoje repetido em 4 funções) | PR #5 | P04-09 | Dev | S | ⬜ |
 
 ## Plano 05 — Agenda & lembretes (M4)
 
@@ -115,6 +116,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
+| P06-00 | Pré-requisitos de segurança/LGPD antes de existir sessão de paciente (revisão final do Plano 04, spec v1.6): escrita só da equipe (políticas `RESTRICTIVE`) em `foods`, `food_measures` e `anamnesis_templates`, com testes; rascunho fora da exportação do titular (US-046); decidir se a auditoria de edições do rascunho fica visível ao paciente; `stored_files` restrito por paciente (download do PDF no portal) | D12, US-046 | Plano 04 | Dev | M | ⬜ |
 | P06-01 | PWA: manifest, service worker, instalação (Android + tutorial iOS), plano disponível offline | US-040 | P01-15, Plano 04 | Dev | M | ⬜ |
 | P06-02 | Inscrição de push + push de teste; registro de acesso diário (`access_events`) | US-040, CS-02 | P06-01, P05-10 | Dev | M | ⬜ |
 | P06-03 | Tela "Meu plano" + download do PDF | US-041 | P06-01, P04-09 | Dev | M | ⬜ |
@@ -156,7 +158,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Resumo
 
-**Situação em 2026-10-01** (o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT ainda espelha só os Planos 01–03; falta lançar o Plano 04 nele): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); Plano 04 feito na branch `plano-04-plano-alimentar`, com merge e deploy pendentes das revisões do PR e do OK do dono; 54 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 44 ⬜ (Planos 05–08 e itens externos E-04, E-07, E-08, E-09).
+**Situação em 2026-10-01** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); Plano 04 feito na branch `plano-04-plano-alimentar` (PR #5), com merge e deploy pendentes das revisões do PR e do OK do dono; 54 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 46 ⬜ (P04-10, P06-00, Planos 05–08 e itens externos E-04, E-07, E-08, E-09).
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
@@ -164,9 +166,9 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | Plano 01 — Fundação | 15 | 15 | 0 |
 | Plano 02 — Plataforma | 11 | 11 | 0 |
 | Plano 03 — Pacientes & prontuário | 11 | 9 | 2 |
-| Plano 04 — Plano alimentar | 9 | 7 | 2 |
+| Plano 04 — Plano alimentar | 10 | 7 | 3 |
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
-| Plano 06 — Portal PWA | 11 | 8 | 3 |
+| Plano 06 — Portal PWA | 12 | 9 | 3 |
 | Plano 07 — Conteúdo | 8 | 5 | 3 |
 | Plano 08 — Go-live | 9 | 8 | 1 |
-| **Total** | **96** | **85** | **11** |
+| **Total** | **98** | **86** | **12** |
