@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
+import type { Db } from '@/db/client';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { MSG_ALIMENTO } from './alimentos-constantes';
@@ -82,5 +83,14 @@ describe('alimentos próprios (US-021)', () => {
     expect(await carregarAlimento(A.ctx, id, app.db)).toBeNull();
     expect(await carregarAlimento(A.ctx, 'abc', app.db)).toBeNull();
     expect(await erros(excluirAlimento(A.ctx, 'abc', deps))).toEqual({ geral: MSG_ALIMENTO.naoEncontrado });
+  });
+});
+
+describe('alimento em uso (Review Focus 4)', () => {
+  it('violação de FK sem nome de constraint (pg com constraint vazia) também vira "alimento em uso", não 500', async () => {
+    const T = await novoTenant(app.db);
+    const semNome = Object.assign(new Error('violação de FK'), { code: '23503', severity: 'ERROR' }); // pg sem `constraint`
+    const db = { transaction: async () => Promise.reject(semNome) } as unknown as Db;
+    expect(await erros(excluirAlimento(T.ctx, '00000000-0000-4000-8000-000000000001', { db }))).toEqual({ geral: MSG_ALIMENTO.emUso });
   });
 });

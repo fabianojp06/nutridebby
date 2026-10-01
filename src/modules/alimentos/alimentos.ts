@@ -105,7 +105,7 @@ export async function excluirAlimento(ctx: TenantContext, id: string, deps: { db
       deps.db ?? getDb(),
     );
   } catch (e) {
-    if (fkViolation(e)) throw new AlimentoError({ geral: MSG_ALIMENTO.emUso });
+    if (fkViolation(e) !== null) throw new AlimentoError({ geral: MSG_ALIMENTO.emUso }); // '' = FK sem nome de constraint: também é FK
     throw e;
   }
 }
