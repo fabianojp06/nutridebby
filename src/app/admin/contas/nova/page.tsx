@@ -12,7 +12,7 @@ export default async function NovaContaPage() {
       <Link href="/admin" className="text-sm underline">Voltar</Link>
       <h1 className="text-2xl font-semibold">Nova conta de nutricionista</h1>
       <p className="text-sm">A nutricionista recebe por e-mail um convite válido por 72 horas para definir a senha e aceitar o contrato de tratamento de dados.</p>
-      <NovaContaForm linkPublicoBase={new URL('/n/', getEnv().APP_URL).href} />
+      <NovaContaForm linkPublicoBase={`${getEnv().APP_URL.replace(/\/$/, '')}/n/`} />
     </main>
   );
 }

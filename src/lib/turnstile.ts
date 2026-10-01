@@ -8,6 +8,7 @@ export type ResultadoTurnstile = 'ok' | 'invalido' | 'indisponivel';
 export type FalhaTurnstile = { motivo: 'rede' | 'timeout' | 'http' | 'resposta' | 'config'; status?: number; codigos?: string[] };
 
 const CODIGOS_CONFIG = ['missing-input-secret', 'invalid-input-secret'];
+const CODIGOS_TOKEN = ['missing-input-response', 'invalid-input-response', 'timeout-or-duplicate'];
 
 /**
  * INT-06: valida o token no servidor antes de qualquer escrita. Fora do ar = 'indisponivel'
@@ -38,20 +39,26 @@ export async function verifyTurnstile(
   } catch (e) {
     return falha({ motivo: e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError' || e.message === 'abortado') ? 'timeout' : 'rede' });
   }
+  // Um único caminho para o corpo, em 200 ou em HTTP de erro: a Cloudflare responde segredo errado
+  // com HTTP 400 e os códigos no corpo. Corpo de erro só é lido se for JSON (página de proxy, não).
+  const ehJson = res.ok || (res.headers.get('content-type') ?? '').includes('json');
+  const dados = ehJson ? ((await res.json().catch(() => null)) as { success?: unknown } | null) : null;
+  if (res.ok && dados?.success === true) return 'ok';
+  const codigos = lerCodigos(dados);
+  // segredo ausente/errado é erro de configuração nosso, não "robô": falha fechada, mas como indisponível
+  if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return falha({ motivo: 'config', status: res.status, codigos });
   if (!res.ok) {
-    // A Cloudflare responde segredo errado com HTTP 400 e os códigos no corpo: sem lê-los, o log
-    // não diz que o problema é a TURNSTILE_SECRET_KEY. Nunca "invalido" aqui: falha fechada.
-    const erro = (await res.json().catch(() => null)) as { 'error-codes'?: unknown } | null;
-    const codigos = Array.isArray(erro?.['error-codes']) ? erro['error-codes'].filter((c): c is string => typeof c === 'string') : [];
-    if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return falha({ motivo: 'config', status: res.status, codigos });
+    // token vencido/repetido/inválido é problema do formulário, não da Cloudflare, mesmo vindo como erro HTTP
+    if (codigos.length && codigos.every((c) => CODIGOS_TOKEN.includes(c))) return 'invalido';
     return falha(codigos.length ? { motivo: 'http', status: res.status, codigos } : { motivo: 'http', status: res.status });
   }
-  const dados = (await res.json().catch(() => null)) as { success?: boolean; 'error-codes'?: string[] } | null;
   if (!dados) return falha({ motivo: 'resposta', status: res.status });
-  if (dados.success === true) return 'ok';
-  const codigos = dados['error-codes'] ?? [];
-  // segredo ausente/errado é erro de configuração nosso, não "robô": falha fechada, mas como indisponível
-  if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return falha({ motivo: 'config', codigos });
   if (codigos.includes('internal-error')) return falha({ motivo: 'http', codigos });
   return 'invalido';
+}
+
+/** Códigos vindos de fora vão para o log: só strings, no máximo 5, cada uma com até 64 caracteres. */
+function lerCodigos(corpo: unknown): string[] {
+  const c = corpo && typeof corpo === 'object' ? (corpo as { 'error-codes'?: unknown })['error-codes'] : undefined;
+  return Array.isArray(c) ? c.filter((x): x is string => typeof x === 'string').slice(0, 5).map((x) => x.slice(0, 64)) : [];
 }

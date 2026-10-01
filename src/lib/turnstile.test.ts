@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TURNSTILE_SITEVERIFY, verifyTurnstile } from './turnstile';
 
-const resposta = (corpo: unknown, status = 200) => vi.fn(async () => new Response(JSON.stringify(corpo), { status }));
+// Como a Cloudflare responde: JSON com content-type application/json, também nos erros HTTP
+const resposta = (corpo: unknown, status = 200) =>
+  vi.fn(async () => new Response(JSON.stringify(corpo), { status, headers: { 'content-type': 'application/json' } }));
 const secret = '1x0000000000000000000000000000000AA';
 
 describe('verifyTurnstile (INT-06)', () => {
@@ -42,7 +44,7 @@ describe('verifyTurnstile (INT-06)', () => {
     for (const codigo of ['invalid-input-secret', 'missing-input-secret']) {
       const onFalha = vi.fn();
       expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': [codigo] }) })).toBe('indisponivel');
-      expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', codigos: [codigo] });
+      expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', status: 200, codigos: [codigo] });
     }
   });
   it('segredo inválido vem com HTTP 400 (comportamento real da Cloudflare) → onFalha "config" com os códigos', async () => {
@@ -56,6 +58,31 @@ describe('verifyTurnstile (INT-06)', () => {
     const f = resposta({ success: false, 'error-codes': ['bad-request'] }, 400);
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
     expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400, codigos: ['bad-request'] });
+  });
+  it('erro de token com HTTP de erro continua "invalido" (o usuário vê "Confirme que você não é um robô.")', async () => {
+    for (const codigo of ['timeout-or-duplicate', 'invalid-input-response']) {
+      expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': [codigo] }, 400) })).toBe('invalido');
+    }
+  });
+  it('"error-codes" com tipo inesperado não vira exceção (M17), em 200 ou em HTTP de erro', async () => {
+    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': 'invalid-input-secret' }) })).toBe('invalido');
+    const onFalha = vi.fn();
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': { a: 1 } }, 400) })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400 });
+  });
+  it('códigos vindos de fora vão ao log limitados (no máximo 5, cada um com até 64 caracteres)', async () => {
+    const onFalha = vi.fn();
+    const muitos = Array.from({ length: 50 }, (_, i) => `codigo-${i}-${'x'.repeat(200)}`);
+    await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': muitos }, 400) });
+    const { codigos } = onFalha.mock.calls[0][0] as { codigos: string[] };
+    expect(codigos).toHaveLength(5);
+    expect(codigos.every((c) => c.length <= 64)).toBe(true);
+  });
+  it('HTTP de erro com corpo que não é JSON (página de proxy) → "http" com o status, sem ler o corpo', async () => {
+    const onFalha = vi.fn();
+    const f = vi.fn(async () => new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 502 });
   });
   it('200 com corpo que não é JSON → indisponivel (motivo "resposta")', async () => {
     const onFalha = vi.fn();
