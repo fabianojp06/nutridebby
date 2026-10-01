@@ -5,6 +5,7 @@ import { uniqueViolation } from '@/db/errors';
 import { foodMeasures, foods, type MedidaCaseira } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { decimalEntre } from '@/lib/numero';
+import { normalizarTexto } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { MSG_MEDIDA } from './medidas-constantes';
 
@@ -27,7 +28,6 @@ export class MedidaError extends Error {
 }
 
 const idValido = (id: unknown): id is string => typeof id === 'string' && z.guid().safeParse(id).success;
-const normalizar = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '');
 
 type LinhaMedida = { taco_id: string; nome: string; plural: string; gramas: string; referencia_ibge: string };
 
@@ -78,8 +78,8 @@ export async function medidasDoAlimento(ctx: TenantContext, foodId: string, db: 
 }
 
 const schemaMedida = z.object({
-  nome: z.unknown().transform(normalizar).pipe(z.string().min(2, MSG_MEDIDA.nome).max(60, MSG_MEDIDA.nome)),
-  plural: z.unknown().transform(normalizar).pipe(z.string().min(2, MSG_MEDIDA.nome).max(60, MSG_MEDIDA.nome)),
+  nome: z.unknown().transform(normalizarTexto).pipe(z.string().min(2, MSG_MEDIDA.nome).max(60, MSG_MEDIDA.nome)),
+  plural: z.unknown().transform(normalizarTexto).pipe(z.string().min(2, MSG_MEDIDA.nome).max(60, MSG_MEDIDA.nome)),
   gramas: decimalEntre(MSG_MEDIDA.gramas, 0.1, 5000),
 });
 
