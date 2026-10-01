@@ -65,7 +65,7 @@ describe('verifyTurnstile (INT-06)', () => {
     }
   });
   it('"error-codes" com tipo inesperado não vira exceção (M17), em 200 ou em HTTP de erro', async () => {
-    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': 'invalid-input-secret' }) })).toBe('invalido');
+    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': 'invalid-input-secret' }) })).toBe('indisponivel');
     const onFalha = vi.fn();
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': { a: 1 } }, 400) })).toBe('indisponivel');
     expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400 });
@@ -78,11 +78,40 @@ describe('verifyTurnstile (INT-06)', () => {
     expect(codigos).toHaveLength(5);
     expect(codigos.every((c) => c.length <= 64)).toBe(true);
   });
-  it('HTTP de erro com corpo que não é JSON (página de proxy) → "http" com o status, sem ler o corpo', async () => {
+  it('HTTP de erro com corpo que não é JSON (página de proxy) → "http" com o status; o corpo é consumido e descartado', async () => {
     const onFalha = vi.fn();
     const f = vi.fn(async () => new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
     expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 502 });
+  });
+  it('classifica pela lista inteira de códigos: segredo errado depois de 5 códigos de token ainda é "config"', async () => {
+    const onFalha = vi.fn();
+    const codigos = ['timeout-or-duplicate', 'invalid-input-response', 'missing-input-response', 'timeout-or-duplicate', 'invalid-input-response', 'invalid-input-secret'];
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': codigos }, 400) })).toBe('indisponivel');
+    expect(onFalha.mock.calls[0][0]).toMatchObject({ motivo: 'config', status: 400 });
+  });
+  it('mesmo código, mesma classificação em 200 ou HTTP de erro: código desconhecido é falha nossa, com log', async () => {
+    for (const status of [200, 400]) {
+      const onFalha = vi.fn();
+      expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': ['bad-request'] }, status) })).toBe('indisponivel');
+      expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status, codigos: ['bad-request'] });
+    }
+  });
+  it('"internal-error" também leva o status', async () => {
+    const onFalha = vi.fn();
+    await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': ['internal-error'] }) });
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 200, codigos: ['internal-error'] });
+  });
+  it('corpo JSON de erro é lido mesmo sem content-type de JSON', async () => {
+    const onFalha = vi.fn();
+    const f = vi.fn(async () => new Response(JSON.stringify({ success: false, 'error-codes': ['invalid-input-secret'] }), { status: 400, headers: { 'content-type': 'text/plain' } }));
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', status: 400, codigos: ['invalid-input-secret'] });
+  });
+  it('200 sem sucesso e sem nenhum código → indisponivel (motivo "resposta"), não "robô"', async () => {
+    const onFalha = vi.fn();
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false }) })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'resposta', status: 200 });
   });
   it('200 com corpo que não é JSON → indisponivel (motivo "resposta")', async () => {
     const onFalha = vi.fn();

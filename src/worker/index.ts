@@ -22,6 +22,7 @@ import {
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { recordHeartbeat } from './heartbeat';
+import { urlDoApp } from '@/lib/url-do-app';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
   // createSchema: false — ver Plano 01, Tarefa 10 (o schema pgboss é do role da aplicação)
@@ -50,7 +51,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     });
   });
 
-  const painelUrl = `${env.APP_URL.replace(/\/$/, '')}/admin`;
+  const painelUrl = urlDoApp(env.APP_URL, '/admin');
   // F5: todos os e-mails de um alerta numa só transação (com a instância do worker)
   const paraAdmins = (
     montar: (para: string) => Parameters<typeof enqueueEmail>[0],

@@ -39,26 +39,31 @@ export async function verifyTurnstile(
   } catch (e) {
     return falha({ motivo: e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError' || e.message === 'abortado') ? 'timeout' : 'rede' });
   }
-  // Um único caminho para o corpo, em 200 ou em HTTP de erro: a Cloudflare responde segredo errado
-  // com HTTP 400 e os códigos no corpo. Corpo de erro só é lido se for JSON (página de proxy, não).
-  const ehJson = res.ok || (res.headers.get('content-type') ?? '').includes('json');
-  const dados = ehJson ? ((await res.json().catch(() => null)) as { success?: unknown } | null) : null;
+  // O corpo é lido em qualquer status e sem depender do content-type: a Cloudflare manda segredo
+  // errado como HTTP 400. Corpo que não é JSON (página de proxy) é consumido e descartado.
+  const dados = (await res.json().catch(() => null)) as { success?: unknown } | null;
   if (res.ok && dados?.success === true) return 'ok';
-  const codigos = lerCodigos(dados);
+  const codigos = codigosDe(dados);
+  const comCodigos = (motivo: FalhaTurnstile['motivo']) =>
+    falha({ motivo, status: res.status, ...(codigos.length ? { codigos: paraLog(codigos) } : {}) });
+  // Classifica pela lista inteira e pelo código, não pelo status; só o que vai ao log é limitado.
   // segredo ausente/errado é erro de configuração nosso, não "robô": falha fechada, mas como indisponível
-  if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return falha({ motivo: 'config', status: res.status, codigos });
-  if (!res.ok) {
-    // token vencido/repetido/inválido é problema do formulário, não da Cloudflare, mesmo vindo como erro HTTP
-    if (codigos.length && codigos.every((c) => CODIGOS_TOKEN.includes(c))) return 'invalido';
-    return falha(codigos.length ? { motivo: 'http', status: res.status, codigos } : { motivo: 'http', status: res.status });
-  }
-  if (!dados) return falha({ motivo: 'resposta', status: res.status });
-  if (codigos.includes('internal-error')) return falha({ motivo: 'http', codigos });
-  return 'invalido';
+  if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return comCodigos('config');
+  if (codigos.includes('internal-error')) return comCodigos('http');
+  // token vencido/repetido/inválido é problema do formulário: "Confirme que você não é um robô."
+  if (codigos.length && codigos.every((c) => CODIGOS_TOKEN.includes(c))) return 'invalido';
+  // código desconhecido (ex.: bad-request) ou HTTP de erro: falha nossa ou da Cloudflare, com log
+  if (codigos.length || !res.ok) return comCodigos('http');
+  return comCodigos('resposta'); // 200 sem sucesso e sem códigos, ou corpo que não é JSON
 }
 
-/** Códigos vindos de fora vão para o log: só strings, no máximo 5, cada uma com até 64 caracteres. */
-function lerCodigos(corpo: unknown): string[] {
+/** Códigos do corpo: só strings (corpo malformado não vira exceção, M17). */
+function codigosDe(corpo: unknown): string[] {
   const c = corpo && typeof corpo === 'object' ? (corpo as { 'error-codes'?: unknown })['error-codes'] : undefined;
-  return Array.isArray(c) ? c.filter((x): x is string => typeof x === 'string').slice(0, 5).map((x) => x.slice(0, 64)) : [];
+  return Array.isArray(c) ? c.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** Códigos vindos de fora vão para o log limitados: no máximo 5, cada um com até 64 caracteres. */
+function paraLog(codigos: string[]): string[] {
+  return codigos.slice(0, 5).map((c) => c.slice(0, 64));
 }

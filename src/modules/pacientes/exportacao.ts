@@ -6,6 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { auditRead, recordAudit } from '@/modules/plataforma/audit';
 import { idValido, PacienteNaoEncontradoError } from './base';
+import { urlDoApp } from '@/lib/url-do-app';
 
 export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link válido por 24 h
 /** Pendente há mais que isto = o job se perdeu (3 tentativas de até 5 min + espera): um pedido novo é criado. */
@@ -28,7 +29,7 @@ export type EstadoExportacao =
   | { estado: 'inexistente' };
 
 export function linkDaExportacao(appUrl: string, patientId: string, exportId: string): string {
-  return `${appUrl.replace(/\/$/, '')}/painel/pacientes/${patientId}/exportacoes/${exportId}`;
+  return urlDoApp(appUrl, `/painel/pacientes/${patientId}/exportacoes/${exportId}`);
 }
 
 /**
