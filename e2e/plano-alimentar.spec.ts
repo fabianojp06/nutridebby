@@ -132,3 +132,94 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await nutri.getByLabel('Buscar alimento').fill(`Leite da casa ${sufixo}`);
   await expect(nutri.getByRole('status')).toHaveText('Nenhum alimento encontrado.');
 });
+
+let prontuario = '';
+let editor = '';
+const ALIMENTO_130 = `Alimento 130 ${sufixo}`;
+
+test('editor: cálculo ao vivo, medida caseira, meta por faixa e salvamento automático com aviso offline (US-022, US-020)', async () => {
+  // Alimento de 130 kcal/100 g (cenário "Cálculo do item")
+  await nutri.goto('/painel/alimentos/novo');
+  await nutri.getByLabel('Nome').fill(ALIMENTO_130);
+  await nutri.getByLabel('Grupo').selectOption('Miscelâneas');
+  for (const [rotulo, v] of [['Energia (kcal)', '130'], ['Proteína (g)', '10'], ['Carboidrato (g)', '15'], ['Lipídio (g)', '3'], ['Fibra (g)', '1']] as const) await nutri.getByLabel(rotulo).fill(v);
+  await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
+  await expect(nutri.getByRole('heading', { name: ALIMENTO_130 })).toBeVisible();
+
+  await nutri.goto('/painel/pacientes/novo');
+  await nutri.getByLabel('Nome').fill(`Paciente Plano ${sufixo}`);
+  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
+  await nutri.getByLabel('Feminino').check();
+  await nutri.getByLabel('E-mail').fill(`plano-${sufixo}@nutridebby.test`);
+  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Plano ${sufixo}` })).toBeVisible();
+  prontuario = new URL(nutri.url()).pathname;
+
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  await nutri.getByRole('button', { name: 'Criar plano' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();
+  editor = new URL(nutri.url()).pathname;
+
+  await nutri.getByLabel('Meta (kcal)').fill('500'); // o servidor aceita meta de 500 a 10000 kcal
+  await nutri.getByRole('button', { name: 'Adicionar refeição' }).click();
+  await nutri.getByLabel('Refeição', { exact: true }).fill('Almoço');
+  await nutri.getByLabel('Horário de Almoço').fill('12:00');
+  await nutri.getByLabel('Adicionar alimento em Almoço').fill(ALIMENTO_130);
+  await nutri.getByRole('option', { name: new RegExp(ALIMENTO_130) }).click();
+  await nutri.getByLabel(`Gramas de ${ALIMENTO_130}`).fill('150');
+  await expect(nutri.getByText('Total do dia: 195 kcal')).toBeVisible(); // 130 × 150 / 100
+  await expect(nutri.getByTestId('indicador-meta')).toHaveText('Fora da meta (−61%)'); // (195 − 500) / 500
+
+  // Medida caseira do seed IBGE: arroz, 4 colheres de sopa cheias = 100 g = 128 kcal
+  await nutri.getByLabel('Adicionar alimento em Almoço').fill('arroz tipo 1 cozido');
+  await nutri.getByRole('option', { name: /Arroz, tipo 1, cozido/ }).click();
+  await nutri.getByLabel('Quantidade de Arroz, tipo 1, cozido').fill('4');
+  await expect(nutri.getByText('4 colheres de sopa cheias · 100 g · 128 kcal')).toBeVisible();
+  await expect(nutri.getByText('Total do dia: 323 kcal')).toBeVisible(); // 195 + 128
+  await expect(nutri.getByTestId('indicador-meta')).toHaveText('Fora da meta (−35,4%)'); // (323 − 500) / 500
+
+  // Meta por faixa (RN-02), sempre com texto: até 5% verde, até 10% amarelo, acima vermelho
+  const gramas = nutri.getByLabel(`Gramas de ${ALIMENTO_130}`);
+  await gramas.fill('300'); // 390 + 128 = 518
+  await expect(nutri.getByTestId('indicador-meta')).toHaveText('Dentro da meta (+3,6%)');
+  await gramas.fill('320'); // 416 + 128 = 544
+  await expect(nutri.getByTestId('indicador-meta')).toHaveText('Atenção (+8,8%)');
+  await gramas.fill('330'); // 429 + 128 = 557
+  await expect(nutri.getByTestId('indicador-meta')).toHaveText('Fora da meta (+11,4%)');
+  await gramas.fill('150');
+  await expect(nutri.getByText('Total do dia: 323 kcal')).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+
+  await nutri.reload();
+  await expect(nutri).toHaveURL(editor);
+  await expect(nutri.getByLabel(`Gramas de ${ALIMENTO_130}`)).toHaveValue('150');
+  await expect(nutri.getByText('Total do dia: 323 kcal')).toBeVisible();
+
+  // "se a conexão cair, vejo 'Alterações não salvas' e o salvamento é repetido quando a conexão voltar"
+  await nutri.context().setOffline(true);
+  await nutri.getByLabel(`Gramas de ${ALIMENTO_130}`).fill('100');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  await nutri.context().setOffline(false);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10000 });
+  await nutri.reload();
+  await expect(nutri.getByLabel(`Gramas de ${ALIMENTO_130}`)).toHaveValue('100');
+});
+
+test('editor: edição em outra aba mostra o aviso de conflito e o salvamento não insiste (D7)', async () => {
+  const outra = await nutri.context().newPage();
+  await outra.goto(editor);
+  await nutri.goto(editor);
+  await outra.getByLabel('Orientações gerais').fill('Beber água ao longo do dia.');
+  await expect(outra.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+  await outra.close();
+
+  await nutri.getByLabel('Orientações gerais').fill('Outra orientação.'); // revisão velha: 409
+  await expect(nutri.getByRole('status').filter({ hasText: 'Este plano foi alterado em outra aba. Recarregue a página para continuar.' })).toBeVisible({ timeout: 5000 });
+  await nutri.getByLabel('Orientações gerais').fill('Mais uma edição.'); // o aviso fica, não vira "Salvando…"
+  await expect(nutri.getByRole('status').filter({ hasText: 'Este plano foi alterado em outra aba' })).toBeVisible();
+
+  await nutri.getByRole('button', { name: 'Recarregar' }).click();
+  await expect(nutri.getByLabel('Orientações gerais')).toHaveValue('Beber água ao longo do dia.'); // o que a outra aba salvou
+  await nutri.getByLabel('Orientações gerais').fill(''); // deixa o rascunho como estava para as próximas tarefas
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+});

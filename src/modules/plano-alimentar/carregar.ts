@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { foods, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -73,4 +73,22 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
 export async function carregarPlano(ctx: TenantContext, planId: string, db: Db = getDb()): Promise<PlanoCompleto | null> {
   if (!idValido(planId)) return null;
   return withTenant(ctx, (tx) => lerPlanoNaTransacao(tx, planId), db);
+}
+
+/** Versões do plano do paciente (mais nova primeiro) — tela "Plano alimentar" do prontuário. */
+export async function listarPlanosDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()) {
+  if (!idValido(patientId)) return [];
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx
+        .select({ id: mealPlans.id, versao: mealPlans.versao, status: mealPlans.status, titulo: mealPlans.titulo, publicadoEm: mealPlans.publicadoEm, pdfStatus: mealPlans.pdfStatus })
+        .from(mealPlans)
+        .where(eq(mealPlans.patientId, patientId))
+        .orderBy(desc(mealPlans.versao));
+      if (r.length) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: null, patientId });
+      return r.map((x) => ({ ...x, status: x.status as StatusPlano, pdfStatus: x.pdfStatus as PlanoCompleto['pdfStatus'], publicadoEm: x.publicadoEm?.toISOString() ?? null }));
+    },
+    db,
+  );
 }
