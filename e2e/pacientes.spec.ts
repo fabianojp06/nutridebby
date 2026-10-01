@@ -73,6 +73,22 @@ test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao porta
   await expect(nutri.getByText('Ativo: o paciente já criou a senha.')).toBeVisible();
 });
 
+test('o paciente sai pelo "Sair" do portal: cai em /entrar e /p/inicio deixa de abrir (US-002 "Sair")', async ({ browser }) => {
+  const page = await entrarComo(browser, ANA.email, ANA.senha, '10.9.5.8');
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
+  const antes = await page.context().cookies();
+  await page.getByRole('button', { name: 'Sair', exact: true }).click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  await page.goto('/p/inicio');
+  await expect(page).toHaveURL(/\/entrar\?volta=%2Fp%2Finicio$/);
+  await page.context().addCookies(antes); // sessão apagada no servidor: o cookie antigo não abre o portal
+  await page.goto('/p/inicio');
+  await expect(page).toHaveURL(/\/entrar/);
+  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toHaveCount(0);
+  await page.context().close();
+});
+
 test('abrir o prontuário fica registrado no "Histórico de acessos" (US-007)', async () => {
   await nutri.goto(prontuario);
   await nutri.getByRole('link', { name: 'Histórico de acessos' }).click();

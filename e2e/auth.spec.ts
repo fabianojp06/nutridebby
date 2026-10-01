@@ -20,6 +20,8 @@ test('admin sem 2FA é obrigado a ativar e depois chega à administração', asy
   await page.getByLabel('Senha').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page).toHaveURL(/\/conta\/seguranca/);
+  // obrigado a ativar o 2FA: precisa poder sair sem configurar (US-002 "Sair")
+  await expect(page.getByRole('button', { name: 'Sair', exact: true })).toBeVisible();
   await page.getByLabel('Confirme sua senha').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Ativar verificação em duas etapas' }).click();
   const secret = (await page.getByTestId('totp-secret').textContent())!.trim();
@@ -45,6 +47,29 @@ test('login com 2FA preserva caminho e query do ?volta até o destino', async ({
   await page.getByRole('button', { name: 'Verificar' }).click();
   await expect(page).toHaveURL(/\/conta\/seguranca\?aba=2fa$/);
   await expect(page.getByText('A verificação em duas etapas está ativa.')).toBeVisible();
+  await ctx.close();
+});
+
+test('admin sai pelo "Sair" do topo da administração; /admin deixa de abrir (US-002 "Sair")', async ({ browser }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.7' } });
+  const page = await ctx.newPage();
+  await page.goto('/entrar');
+  await page.getByLabel('E-mail').fill(ADMIN.email);
+  await page.getByLabel('Senha').fill(ADMIN.password);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page).toHaveURL(/\/entrar\/2fa/);
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: adminTotpSecret }).generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
+  // no topo de todas as páginas do admin (layout comum), não só na lista de contas
+  const sair = page.getByRole('banner').getByRole('button', { name: 'Sair', exact: true });
+  await expect(sair).toBeVisible();
+  await page.goto('/admin/contas/nova');
+  await expect(sair).toBeVisible();
+  await sair.click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/entrar\?volta=%2Fadmin$/);
   await ctx.close();
 });
 

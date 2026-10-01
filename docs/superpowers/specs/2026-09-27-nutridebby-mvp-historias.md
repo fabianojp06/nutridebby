@@ -118,6 +118,25 @@ Cenário: Expiração da sessão
   Dado que sou nutricionista sem atividade há 12 h
   Quando faço qualquer requisição
   Então sou redirecionada para o login
+
+Cenário: Sair
+  Dado que estou logado em qualquer área (painel, administração, portal do paciente, "Segurança da conta", aceite do DPA ou "Conta temporariamente indisponível")
+  Quando clico em "Sair"
+  Então a sessão deste navegador é encerrada (POST /sair, só da própria origem) e vou para /entrar
+  E abrir /painel, /admin ou /p/inicio de novo me manda para /entrar
+  E se outra aba já saiu, "Sair" nesta aba também leva a /entrar, sem erro
+  E em "Conta temporariamente indisponível" o botão só aparece para quem tem sessão
+
+Cenário: Sair sem conseguir encerrar a sessão
+  Dado que o servidor não conseguiu apagar a minha sessão
+  Quando clico em "Sair"
+  Então continuo logado e vejo "Não foi possível sair agora. Tente de novo." com o botão "Sair" e "Voltar ao início"
+
+Cenário: Sair com alteração pendente no editor de plano
+  Dado que estou no editor do plano alimentar e o salvamento automático ainda não enviou a minha edição
+  Quando clico em "Sair"
+  Então a edição é enviada e, gravada, saio sem diálogo
+  E sem rede, com erro de campo, conflito entre abas ou se o envio não gravar, vejo "Há alterações que ainda não foram salvas. Sair mesmo assim?" (cancelar mantém no editor; com tudo salvo, sai sem perguntar)
 ```
 
 **Impacto:** Better Auth; `users`, `sessions`, `verifications`.
