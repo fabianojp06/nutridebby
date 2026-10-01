@@ -101,7 +101,7 @@ export async function editarPublicado(ctx: TenantContext, planId: string, deps: 
           versao: await proximaVersao(tx, antes.patientId),
         })
         .returning({ id: mealPlans.id });
-      await copiarConteudo(tx, p.id, { id: novo.id, patientId: antes.patientId, tenantId: ctx.tenantId });
+      await copiarConteudo(tx, p.id, novo.id);
       return { id: novo.id, criado: true };
     },
     deps.db ?? getDb(),

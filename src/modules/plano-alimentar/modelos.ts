@@ -47,14 +47,15 @@ export async function salvarComoModelo(ctx: TenantContext, planId: string, titul
   return withTenant(
     ctx,
     async (tx) => {
-      const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId));
+      // FOR SHARE já na primeira leitura: cabeçalho, refeições e itens da mesma versão (o salvamento em curso termina antes)
+      const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('share');
       if (!p) throw new PlanoNaoEncontradoError();
       if (p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId }); // copiar lê o plano do paciente
       const [m] = await tx
         .insert(mealPlans)
         .values({ tenantId: ctx.tenantId, isTemplate: true, titulo: t, metaKcal: p.metaKcal, orientacoes: p.orientacoes, origemPlanId: p.id })
         .returning({ id: mealPlans.id });
-      await copiarConteudo(tx, p.id, { id: m.id, patientId: null, tenantId: ctx.tenantId });
+      await copiarConteudo(tx, p.id, m.id);
       return m;
     },
     deps.db ?? getDb(),
@@ -67,8 +68,8 @@ export async function criarDeModelo(ctx: TenantContext, modeloId: string, patien
   return withTenant(
     ctx,
     async (tx) => {
-      await carregarPacienteParaEscrita(tx, patientId);
-      const [m] = await tx.select().from(mealPlans).where(and(eq(mealPlans.id, modeloId), eq(mealPlans.isTemplate, true)));
+      await carregarPacienteParaEscrita(tx, patientId); // paciente → modelo (FOR SHARE: a edição do modelo em curso termina antes)
+      const [m] = await tx.select().from(mealPlans).where(and(eq(mealPlans.id, modeloId), eq(mealPlans.isTemplate, true))).for('share');
       if (!m) throw new PlanoNaoEncontradoError();
       const [existe] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'rascunho')));
       if (existe) throw new PlanoError({ geral: MSG_PLANO.rascunhoExiste });
@@ -76,7 +77,7 @@ export async function criarDeModelo(ctx: TenantContext, modeloId: string, patien
         .insert(mealPlans)
         .values({ tenantId: ctx.tenantId, patientId, titulo: m.titulo, metaKcal: m.metaKcal, orientacoes: m.orientacoes, origemPlanId: m.id, versao: await proximaVersao(tx, patientId) })
         .returning({ id: mealPlans.id });
-      await copiarConteudo(tx, m.id, { id: p.id, patientId, tenantId: ctx.tenantId });
+      await copiarConteudo(tx, m.id, p.id);
       return p;
     },
     deps.db ?? getDb(),

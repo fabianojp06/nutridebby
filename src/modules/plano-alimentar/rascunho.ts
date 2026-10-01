@@ -228,8 +228,16 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   }
 }
 
-/** Copia refeições e itens (ids novos) de um plano para outro: modelos (Tarefa 9) e "Editar" (Tarefa 10). */
-export async function copiarConteudo(tx: Tx, origemId: string, destino: { id: string; patientId: string | null; tenantId: string }): Promise<void> {
+/**
+ * Copia refeições e itens (ids novos) de um plano para outro: modelos (Tarefa 9) e "Editar" (Tarefa 10).
+ * A origem fica travada FOR SHARE antes das leituras (um salvamento automático em curso, FOR UPDATE, termina antes:
+ * refeições e itens saem da mesma versão). Paciente e tenant das linhas novas vêm do plano de destino no banco.
+ * Quem trava o paciente o faz antes de chamar (paciente → tenant → plano, como no salvamento e na publicação).
+ */
+export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string): Promise<void> {
+  const [origem] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.id, origemId)).for('share');
+  const [destino] = await tx.select({ id: mealPlans.id, patientId: mealPlans.patientId, tenantId: mealPlans.tenantId }).from(mealPlans).where(eq(mealPlans.id, destinoId));
+  if (!origem || !destino) throw new PlanoNaoEncontradoError();
   const rs = await tx.select().from(meals).where(eq(meals.planId, origemId));
   const its = await tx.select().from(mealItems).where(eq(mealItems.planId, origemId));
   const novoIdRefeicao = new Map(rs.map((r) => [r.id, crypto.randomUUID()]));

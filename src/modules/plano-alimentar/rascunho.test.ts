@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import { auditLog, mealPlans, patients } from '@/db/schema';
+import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -197,7 +197,7 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
       async (tx) => {
         expect(await proximaVersao(tx, p.id)).toBe(2);
         const [m] = await tx.insert(mealPlans).values({ tenantId: T.tenantId, patientId: null, isTemplate: true, titulo: 'Modelo' }).returning({ id: mealPlans.id });
-        await copiarConteudo(tx, id, { id: m.id, patientId: null, tenantId: T.tenantId });
+        await copiarConteudo(tx, id, m.id);
         return m.id;
       },
       app.db,
@@ -210,6 +210,31 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const [pao, tapioca] = modelo!.refeicoes[0].itens;
     expect(tapioca.substituiItemId).toBe(pao.id);
     expect(modelo!.refeicoes[1].itens[0]).toMatchObject({ quantidadeG: 100, medidaCaseiraTxt: '4 colheres de sopa cheias', medida: COLHER });
+  });
+
+  it('copiarConteudo: o paciente das refeições e itens copiados vem do plano de destino no banco', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    await salvarRascunho(T.ctx, id, conteudo(0), deps);
+    const outro = await novoPaciente(app.db, T.ctx);
+    const pacientes = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [m] = await tx.insert(mealPlans).values({ tenantId: T.tenantId, isTemplate: true, titulo: 'Modelo' }).returning({ id: mealPlans.id });
+        const [d] = await tx.insert(mealPlans).values({ tenantId: T.tenantId, patientId: outro.id, titulo: 'Plano do outro', versao: 1 }).returning({ id: mealPlans.id });
+        await copiarConteudo(tx, id, m.id);
+        await copiarConteudo(tx, id, d.id);
+        const de = async (planId: string) => {
+          const rs = await tx.select({ x: meals.patientId }).from(meals).where(eq(meals.planId, planId));
+          const its = await tx.select({ x: mealItems.patientId }).from(mealItems).where(eq(mealItems.planId, planId));
+          expect(rs.length * its.length).toBeGreaterThan(0);
+          return [...new Set([...rs, ...its].map((r) => r.x))];
+        };
+        return { modelo: await de(m.id), outro: await de(d.id) };
+      },
+      app.db,
+    );
+    expect(pacientes).toEqual({ modelo: [null], outro: [outro.id] });
   });
 
   it('mover item (com a sua substituição) para outra refeição', async () => {

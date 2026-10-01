@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, mealPlans } from '@/db/schema';
+import { auditLog, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -92,6 +92,44 @@ describe('modelos de plano: limites e isolamento', () => {
     expect(s.substituiItemId).toBe(p.id);
     const leituras = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, ana.id), eq(auditLog.entidade, 'plano_alimentar'), eq(auditLog.entidadeId, id), eq(auditLog.acao, 'ler'))), app.db);
     expect(leituras.length).toBeGreaterThan(0);
+  });
+
+  it('salvar como modelo espera o salvamento automático em curso (FOR SHARE na origem): cabeçalho, refeições e itens da mesma versão', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const { id } = await criarRascunho(T.ctx, ana.id, deps);
+    await salvarRascunho(T.ctx, id, conteudo(0, 'Plano de Ana'), deps);
+    let travou!: () => void;
+    let soltar!: () => void;
+    const travado = new Promise<void>((r) => (travou = r));
+    const solto = new Promise<void>((r) => (soltar = r));
+    // um "salvamento automático" que trava o plano (FOR UPDATE, como salvarRascunho) e só grava e confirma depois
+    const salvamento = withTenant(
+      T.ctx,
+      async (tx) => {
+        await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.id, id)).for('update');
+        travou();
+        await solto;
+        const jantar = randomUUID();
+        await tx.insert(meals).values({ id: jantar, tenantId: T.tenantId, patientId: ana.id, planId: id, nome: 'Jantar', ordem: 1 });
+        await tx.insert(mealItems).values({ id: randomUUID(), tenantId: T.tenantId, patientId: ana.id, planId: id, mealId: jantar, foodId: idTaco(3), quantidadeG: 80, ordem: 0 });
+        await tx.update(mealPlans).set({ orientacoes: 'Versão nova.' }).where(eq(mealPlans.id, id));
+      },
+      app.db,
+    );
+    await travado;
+    let terminou = false;
+    const copia = salvarComoModelo(T.ctx, id, 'Modelo durante o salvamento', deps).finally(() => (terminou = true));
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      expect(terminou).toBe(false); // a cópia espera a trava do salvamento
+    } finally {
+      soltar();
+      await salvamento;
+    }
+    const m = (await carregarPlano(T.ctx, (await copia).id, app.db))!;
+    expect(m.orientacoes).toBe('Versão nova.');
+    expect(m.refeicoes.map((r) => [r.nome, r.itens.length])).toEqual([['Almoço', 2], ['Jantar', 1]]);
   });
 
   it('plano de outro tenant não vira modelo; plano de paciente não é aceito como modelo nem pode ser excluído como modelo', async () => {
