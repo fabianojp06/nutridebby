@@ -64,7 +64,7 @@ export async function publicarPlano(ctx: TenantContext, patientId: string, planI
       if (congelados.rowCount !== completo.refeicoes.reduce((n, r) => n + r.itens.length, 0)) throw new Error('Não foi possível congelar os valores dos alimentos do plano');
       await tx
         .update(mealPlans)
-        .set({ status: 'publicado', publicadoEm: now, pdfStatus: 'pendente', pdfPath: null, updatedAt: now })
+        .set({ status: 'publicado', publicadoEm: now, pdfStatus: 'pendente', pdfPedidoEm: now, pdfPath: null, updatedAt: now })
         .where(eq(mealPlans.id, planId));
       const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano');
@@ -133,9 +133,10 @@ export async function pedirNovoPdf(ctx: TenantContext, patientId: string, planId
       if (!p?.pdfStatus) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava, ou rascunho
       if (p.pdfStatus === 'pendente') throw new PdfEmPreparoError();
       if (p.pdfStatus === 'pronto') return;
+      const now = deps.now ?? new Date();
       await tx
         .update(mealPlans)
-        .set({ pdfStatus: 'pendente', updatedAt: deps.now ?? new Date() })
+        .set({ pdfStatus: 'pendente', pdfPedidoEm: now, updatedAt: now })
         .where(eq(mealPlans.id, planId));
       const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano'); // desfaz: o plano não fica "pendente" sem job

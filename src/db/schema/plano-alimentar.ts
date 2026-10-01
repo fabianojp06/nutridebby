@@ -40,6 +40,8 @@ export const mealPlans = pgTable(
     orientacoes: text('orientacoes').notNull().default(''),
     pdfPath: text('pdf_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
     pdfStatus: text('pdf_status'),
+    /** US-026: quando o PDF atual foi pedido (pdf_status virou 'pendente'); a rede de segurança mede a idade do pendente por aqui. */
+    pdfPedidoEm: timestamp('pdf_pedido_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

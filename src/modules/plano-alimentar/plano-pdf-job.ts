@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { mealPlans, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -117,6 +117,8 @@ export const PDF_PENDENTE_MAX_MS = 3600_000;
  * o worker que cai na última tentativa, o job que expira ou um erro de banco antes do `try` deixariam o plano
  * em 'pendente' para sempre, sem botão de nova tentativa. Pendente há mais de 1 h vira 'falhou' e o painel
  * oferece "Gerar o PDF de novo". Rodada periódica pelo worker (fila `expirar-plano-pdf`, de 15 em 15 min).
+ * A idade conta do pedido do PDF (`pdf_pedido_em`), não do `updated_at`, que outras gravações renovam (arquivar a
+ * versão anterior na publicação); plano pendente de antes da coluna, sem a data, mede pelo `updated_at`.
  * Um tenant com erro não para os outros. Devolve quantos planos viraram 'falhou'.
  */
 export async function expirarPdfsPendentes(db: Db, now: Date, idadeMinMs = PDF_PENDENTE_MAX_MS): Promise<number> {
@@ -130,7 +132,7 @@ export async function expirarPdfsPendentes(db: Db, now: Date, idadeMinMs = PDF_P
           tx
             .update(mealPlans)
             .set({ pdfStatus: 'falhou', updatedAt: now })
-            .where(and(eq(mealPlans.pdfStatus, 'pendente'), lt(mealPlans.updatedAt, limite)))
+            .where(and(eq(mealPlans.pdfStatus, 'pendente'), lt(sql`coalesce(${mealPlans.pdfPedidoEm}, ${mealPlans.updatedAt})`, limite)))
             .returning({ id: mealPlans.id }),
         db,
       );
