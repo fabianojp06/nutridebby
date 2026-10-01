@@ -83,6 +83,83 @@ describe('estado do editor (US-022)', () => {
     expect(podeAdicionarRefeicao(e)).toBe(true);
   });
 
+  it('"Grupo de substituição": tapioca e cuscuz entram logo depois do pão e não somam no total (US-023, RN-02)', () => {
+    const pao = { ...arroz, id: 'f-pao', nome: 'Pão, trigo, francês', porCem: { kcal: 300, proteinaG: 8, carboidratoG: 58.6, lipidioG: 3.1, fibraG: 2.3 }, medidas: [] };
+    const tapioca = { ...proprio, id: 'f-tap', nome: 'Tapioca, com manteiga', porCem: { kcal: 348, proteinaG: 0.1, carboidratoG: 63.6, lipidioG: 10.9, fibraG: 0 } };
+    const cuscuz = { ...proprio, id: 'f-cus', nome: 'Cuscuz, de milho, cozido com sal', porCem: { kcal: 113, proteinaG: 2.2, carboidratoG: 25.3, lipidioG: 0.7, fibraG: 2.1 } };
+    const e = aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'pao', alimento: pao },
+      { tipo: 'quantidade', itemId: 'pao', valor: '50' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'cafe', alimento: proprio },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'tap', alimento: tapioca, substituiItemId: 'pao' },
+      { tipo: 'quantidade', itemId: 'tap', valor: '40' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'cus', alimento: cuscuz, substituiItemId: 'pao' },
+    );
+    expect(e.refeicoes[0].itens.map((i) => i.id)).toEqual(['pao', 'tap', 'cus', 'cafe']);
+    expect(totalDoDia(refeicoesParaCalculo(e)).kcal).toBe(280); // pão 150 + item de 130 kcal com 100 g; substituições fora
+    expect(paraEnvio(e, 0).refeicoes[0].itens.filter((i) => i.substituiItemId === 'pao').map((i) => i.id)).toEqual(['tap', 'cus']);
+  });
+
+  it('substituição que não aponta para um principal da mesma refeição não entra e não conta como edição', () => {
+    const e = aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' },
+      { tipo: 'novaRefeicao', id: 'r2' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a', alimento: arroz },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 's', alimento: proprio, substituiItemId: 'a' },
+    );
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: proprio, substituiItemId: 'nao-existe' })).toBe(e);
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r2', id: 'x', alimento: proprio, substituiItemId: 'a' })).toBe(e); // principal de outra refeição
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: proprio, substituiItemId: 's' })).toBe(e); // substituição de substituição
+  });
+
+  describe('mover itens com substituições (US-023)', () => {
+    // a (a1, a2) · b (b1) · c — cada principal anda junto com as suas substituições
+    const montar = () =>
+      aplicar(
+        estadoInicial(plano),
+        { tipo: 'novaRefeicao', id: 'r1' },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a', alimento: arroz },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'b', alimento: proprio },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'c', alimento: proprio },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a1', alimento: proprio, substituiItemId: 'a' },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a2', alimento: proprio, substituiItemId: 'a' },
+        { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'b1', alimento: proprio, substituiItemId: 'b' },
+      );
+    const ordem = (e: EstadoEditor) => e.refeicoes[0].itens.map((i) => i.id);
+
+    it('principal sobe e desce com as suas substituições, trocando com o bloco inteiro do vizinho', () => {
+      const e = montar();
+      expect(ordem(e)).toEqual(['a', 'a1', 'a2', 'b', 'b1', 'c']);
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'b', direcao: -1 }))).toEqual(['b', 'b1', 'a', 'a1', 'a2', 'c']);
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'a', direcao: 1 }))).toEqual(['b', 'b1', 'a', 'a1', 'a2', 'c']);
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'c', direcao: -1 }))).toEqual(['a', 'a1', 'a2', 'c', 'b', 'b1']);
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'b', direcao: 1 }))).toEqual(['a', 'a1', 'a2', 'c', 'b', 'b1']);
+      // dois passos seguidos: c passa por cima do bloco de b e depois do de a, sem separar ninguém de suas substituições
+      const duas = reduzir(reduzir(e, { tipo: 'moverItem', itemId: 'c', direcao: -1 }), { tipo: 'moverItem', itemId: 'c', direcao: -1 });
+      expect(ordem(duas)).toEqual(['c', 'a', 'a1', 'a2', 'b', 'b1']);
+    });
+
+    it('nas pontas da lista o principal não se move e o estado é o mesmo objeto (não conta como edição)', () => {
+      const e = montar();
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'a', direcao: -1 })).toBe(e);
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'c', direcao: 1 })).toBe(e);
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'nao-existe', direcao: 1 })).toBe(e);
+    });
+
+    it('substituição só troca de lugar com as do mesmo principal; nas pontas do grupo não faz nada', () => {
+      const e = montar();
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'a1', direcao: 1 }))).toEqual(['a', 'a2', 'a1', 'b', 'b1', 'c']);
+      expect(ordem(reduzir(e, { tipo: 'moverItem', itemId: 'a2', direcao: -1 }))).toEqual(['a', 'a2', 'a1', 'b', 'b1', 'c']);
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'a1', direcao: -1 })).toBe(e); // acima dela só está o principal
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'a2', direcao: 1 })).toBe(e); // abaixo dela começa o bloco de b
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'b1', direcao: -1 })).toBe(e);
+      expect(reduzir(e, { tipo: 'moverItem', itemId: 'b1', direcao: 1 })).toBe(e); // abaixo dela está c
+    });
+  });
+
   it('erro do servidor sem campo na tela (geral, substituição, id que sumiu) vai para o aviso do topo, sem repetir mensagem', () => {
     const e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: proprio });
     expect(

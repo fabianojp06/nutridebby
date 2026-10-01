@@ -259,6 +259,9 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeDisabled();
   await expect(nutri.locator('#limite-refeicoes')).toHaveText(LIMITE);
   await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 200 itens: sem busca, com o motivo
+  const substituir = nutri.getByRole('button', { name: /^Adicionar substituição para/ }).first();
+  await expect(substituir).toBeDisabled(); // a substituição também é item: no limite não abre a busca e aponta o motivo
+  await expect(substituir).toHaveAccessibleDescription(LIMITE);
   await expect(nutri.getByText(LIMITE)).toHaveCount(16); // 1 do botão + 1 em cada refeição
 
   nutri.once('dialog', (d) => void d.accept());
@@ -282,4 +285,69 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   // O texto de observação tem teto de 2000 caracteres na própria caixa (o servidor recusaria acima disso)
   await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '2000');
   await expect(nutri.getByLabel('Orientações gerais')).toHaveAttribute('maxlength', '2000');
+});
+
+test('substituições: ligadas ao principal, fora do total, com kcal própria e diferença (US-023)', async () => {
+  await nutri.goto(editor);
+  const totalAntes = await nutri.getByText(/^Total do dia: \d+ kcal/).textContent();
+  await nutri.getByRole('button', { name: 'Adicionar refeição' }).click();
+  await nutri.getByLabel('Refeição', { exact: true }).last().fill('Café da manhã');
+  await nutri.getByLabel('Horário de Café da manhã').fill('07:30');
+  await nutri.getByLabel('Adicionar alimento em Café da manhã').fill('pao trigo frances');
+  await nutri.getByRole('option', { name: /^Pão, trigo, francês/ }).click();
+  await expect(nutri.getByText('1 unidade · 50 g · 150 kcal')).toBeVisible(); // seed IBGE: pão francês, unidade = 50 g
+  const totalComPao = await nutri.getByText(/^Total do dia: \d+ kcal/).textContent();
+  expect(totalComPao).not.toBe(totalAntes);
+
+  await nutri.getByRole('button', { name: 'Adicionar substituição para Pão, trigo, francês' }).click();
+  await nutri.getByLabel('Substituição para Pão, trigo, francês').fill('tapioca com manteiga');
+  await nutri.getByRole('option', { name: /Tapioca, com manteiga/ }).click();
+  await nutri.getByLabel('Gramas de Tapioca, com manteiga').fill('40');
+  await expect(nutri.getByText('139 kcal (−11 kcal)')).toBeVisible(); // 348 × 0,4 = 139; 139 − 150
+  await expect(nutri.getByText(/^Total do dia: \d+ kcal/)).toHaveText(totalComPao!); // a substituição não soma (RN-02)
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+});
+
+test('substituições: o principal anda com as suas substituições, que só se reordenam entre si (US-023)', async () => {
+  await nutri.goto(editor);
+  const cafe = nutri.getByRole('region', { name: 'Café da manhã' });
+  const linhas = cafe.getByRole('list').first().getByRole('listitem');
+  await expect(linhas).toHaveCount(2); // pão e a tapioca do teste anterior
+
+  // segundo principal (alimento próprio) no fim da refeição; segunda substituição do pão
+  await cafe.getByLabel('Adicionar alimento em Café da manhã').fill(ALIMENTO_130);
+  await nutri.getByRole('option', { name: new RegExp(ALIMENTO_130) }).click();
+  await cafe.getByRole('button', { name: 'Adicionar substituição para Pão, trigo, francês' }).click();
+  await nutri.getByLabel('Substituição para Pão, trigo, francês').fill('cuscuz de milho');
+  await nutri.getByRole('option', { name: /^Cuscuz, de milho, cozido/ }).first().click();
+  await expect(linhas).toHaveCount(4);
+  await expect(linhas.nth(0)).toContainText('Pão, trigo, francês');
+  await expect(linhas.nth(1)).toContainText('Tapioca, com manteiga');
+  await expect(linhas.nth(2)).toContainText('Cuscuz, de milho, cozido'); // entra logo depois das substituições que o pão já tinha
+  await expect(linhas.nth(3)).toContainText(ALIMENTO_130);
+
+  // subir o segundo principal troca com o bloco inteiro do pão (pão + 2 substituições)
+  await cafe.getByRole('button', { name: `Subir ${ALIMENTO_130}` }).click();
+  await expect(linhas.nth(0)).toContainText(ALIMENTO_130);
+  await expect(linhas.nth(1)).toContainText('Pão, trigo, francês');
+  await expect(linhas.nth(2)).toContainText('Tapioca, com manteiga');
+  await expect(linhas.nth(3)).toContainText('Cuscuz, de milho, cozido');
+
+  // a substituição só troca com outra substituição do mesmo principal; na ponta do grupo não faz nada
+  await cafe.getByRole('button', { name: 'Subir Tapioca, com manteiga' }).click();
+  await expect(linhas.nth(2)).toContainText('Tapioca, com manteiga');
+  await cafe.getByRole('button', { name: 'Descer Tapioca, com manteiga' }).click();
+  await expect(linhas.nth(2)).toContainText('Cuscuz, de milho, cozido');
+  await expect(linhas.nth(3)).toContainText('Tapioca, com manteiga');
+  await cafe.getByRole('button', { name: 'Descer Tapioca, com manteiga' }).click(); // última do grupo
+  await expect(linhas.nth(3)).toContainText('Tapioca, com manteiga');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+
+  // a ordem foi salva e o principal continua à frente das suas substituições
+  await nutri.reload();
+  const depois = nutri.getByRole('region', { name: 'Café da manhã' }).getByRole('list').first().getByRole('listitem');
+  await expect(depois.nth(0)).toContainText(ALIMENTO_130);
+  await expect(depois.nth(1)).toContainText('Pão, trigo, francês');
+  await expect(depois.nth(2)).toContainText('Cuscuz, de milho, cozido');
+  await expect(depois.nth(3)).toContainText('Tapioca, com manteiga');
 });

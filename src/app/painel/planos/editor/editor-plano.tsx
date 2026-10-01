@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useReducer, type ReactNode } from 'react';
+import { useMemo, useReducer, useState, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { diferencaKcal, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
@@ -134,7 +134,7 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: 
 
       <ul className="space-y-2">
         {r.itens.map((i) => (
-          <ItemLinha key={i.id} i={i} principal={r.itens.find((x) => x.id === i.substituiItemId) ?? null} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} />
+          <ItemLinha key={i.id} i={i} refeicaoId={r.id} principal={r.itens.find((x) => x.id === i.substituiItemId) ?? null} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeAdicionarItem} limiteId={`${r.id}-limite`} />
         ))}
       </ul>
 
@@ -142,7 +142,7 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: 
         (podeAdicionarItem ? (
           <BuscaAlimento rotulo={`Adicionar alimento em ${r.nome || 'refeição'}`} aoEscolher={(a) => despachar({ tipo: 'adicionarItem', refeicaoId: r.id, id: novoId(), alimento: a })} />
         ) : (
-          <p className="text-sm text-zinc-600">{MSG_PLANO.limite}</p>
+          <p id={`${r.id}-limite`} className="text-sm text-zinc-600">{MSG_PLANO.limite}</p>
         ))}
 
       <div className="space-y-1">
@@ -159,7 +159,20 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: 
   );
 }
 
-function ItemLinha({ i, principal, despachar, somenteLeitura, erro }: { i: ItemEstado; principal: ItemEstado | null; despachar: (a: Acao) => void; somenteLeitura: boolean; erro: (c: string) => string | undefined }) {
+type ItemLinhaProps = {
+  i: ItemEstado;
+  refeicaoId: string;
+  principal: ItemEstado | null;
+  despachar: (a: Acao) => void;
+  somenteLeitura: boolean;
+  erro: (c: string) => string | undefined;
+  podeAdicionarItem: boolean;
+  /** Id do aviso de limite da refeição: o botão de substituição desabilitado aponta para ele. */
+  limiteId: string;
+};
+
+function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, podeAdicionarItem, limiteId }: ItemLinhaProps) {
+  const [substituindo, setSubstituindo] = useState(false);
   const g = gramasDoItem(i);
   const n = g === null ? null : nutrientesDoItem(i.porCem, g);
   const gp = principal ? gramasDoItem(principal) : null;
@@ -207,7 +220,7 @@ function ItemLinha({ i, principal, despachar, somenteLeitura, erro }: { i: ItemE
       <p className="text-sm" data-testid={`kcal-${i.id}`}>
         {i.medida && q !== null && Number.isFinite(q) && q > 0 && g !== null && <span>{textoMedida(q, i.medida)} · {formatarDecimal(g, casasDecimais(g))} g · </span>}
         {n === null ? '—' : n.semValor.includes('kcal') ? MSG_PLANO.semValor : `${kcalTexto(n.kcal)} kcal`}
-        {principal && n && np && <span className="ml-1 text-zinc-600">({diferencaKcal(n.kcal, np.kcal)})</span>}
+        {principal && n && np && <span className="text-zinc-600"> ({diferencaKcal(n.kcal, np.kcal)})</span>}
       </p>
       {errQ && <p id={`${i.id}-erro`} role="alert" className="w-full text-sm text-red-700">{errQ}</p>}
       {erro(`item:${i.id}:foodId`) && <p role="alert" className="w-full text-sm text-red-700">{erro(`item:${i.id}:foodId`)}</p>}
@@ -216,6 +229,29 @@ function ItemLinha({ i, principal, despachar, somenteLeitura, erro }: { i: ItemE
           <button type="button" aria-label={`Subir ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: -1 })}>↑</button>
           <button type="button" aria-label={`Descer ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: 1 })}>↓</button>
           <button type="button" className="underline" onClick={() => despachar({ tipo: 'removerItem', itemId: i.id })}>Remover {i.nome}</button>
+        </div>
+      )}
+      {!somenteLeitura && i.substituiItemId === null && (
+        <div className="w-full space-y-1">
+          <button
+            type="button"
+            className="text-sm underline disabled:opacity-50"
+            aria-expanded={substituindo && podeAdicionarItem}
+            disabled={!podeAdicionarItem}
+            aria-describedby={podeAdicionarItem ? undefined : limiteId}
+            onClick={() => setSubstituindo((v) => !v)}
+          >
+            Adicionar substituição para {i.nome}
+          </button>
+          {substituindo && podeAdicionarItem && (
+            <BuscaAlimento
+              rotulo={`Substituição para ${i.nome}`}
+              aoEscolher={(a) => {
+                despachar({ tipo: 'adicionarItem', refeicaoId, id: novoId(), alimento: a, substituiItemId: i.id });
+                setSubstituindo(false);
+              }}
+            />
+          )}
         </div>
       )}
     </li>

@@ -110,7 +110,15 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
         qtdTexto: m ? '1' : '',
         quantidadeTexto: m ? numTexto(m.gramas) : '100',
       };
-      return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.refeicaoId ? { ...r, itens: [...r.itens, novo] } : r)) };
+      const destino = e.refeicoes.find((r) => r.id === a.refeicaoId);
+      if (!destino) return e;
+      if (!novo.substituiItemId) return { ...e, refeicoes: e.refeicoes.map((r) => (r === destino ? { ...r, itens: [...r.itens, novo] } : r)) };
+      // US-023: a substituição aponta para um principal da mesma refeição e fica junto dele (depois das que ele já tem)
+      const k = destino.itens.findIndex((i) => i.id === novo.substituiItemId);
+      if (k < 0 || destino.itens[k].substituiItemId !== null) return e; // o servidor recusaria: nada muda
+      let fim = k + 1;
+      while (fim < destino.itens.length && destino.itens[fim].substituiItemId === novo.substituiItemId) fim++;
+      return { ...e, refeicoes: e.refeicoes.map((r) => (r === destino ? { ...r, itens: [...r.itens.slice(0, fim), novo, ...r.itens.slice(fim)] } : r)) };
     }
     case 'quantidade':
       return noItem(e, a.itemId, (i) => ({ ...i, quantidadeTexto: a.valor }));
@@ -123,16 +131,43 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return noItem(e, a.itemId, (i) => ({ ...i, qtdTexto: a.valor }));
     case 'removerItem':
       return nosItens(e, (its) => its.filter((i) => i.id !== a.itemId && i.substituiItemId !== a.itemId));
-    case 'moverItem':
-      return nosItens(e, (its) => {
-        const k = its.findIndex((i) => i.id === a.itemId);
-        const j = k + a.direcao;
-        if (k < 0 || j < 0 || j >= its.length) return its;
-        const novo = [...its];
-        [novo[k], novo[j]] = [novo[j], novo[k]];
-        return novo;
-      });
+    case 'moverItem': {
+      const r = e.refeicoes.find((x) => x.itens.some((i) => i.id === a.itemId));
+      if (!r) return e;
+      const itens = moverNaRefeicao(r.itens, a.itemId, a.direcao);
+      return itens === r.itens ? e : { ...e, refeicoes: e.refeicoes.map((x) => (x === r ? { ...x, itens } : x)) };
+    }
   }
+}
+
+/**
+ * US-023: o principal anda com as suas substituições, como um bloco que troca de lugar com o bloco vizinho; a
+ * substituição só se reordena entre as do mesmo principal (nas pontas do grupo não faz nada). Devolve a própria
+ * lista quando nada muda.
+ */
+function moverNaRefeicao(its: ItemEstado[], itemId: string, direcao: -1 | 1): ItemEstado[] {
+  const item = its.find((i) => i.id === itemId);
+  if (!item) return its;
+  const principais = new Set(its.filter((i) => i.substituiItemId === null).map((i) => i.id));
+  const filho = (i: ItemEstado) => i.substituiItemId !== null && principais.has(i.substituiItemId);
+
+  if (filho(item)) {
+    const grupo = its.map((x, idx) => (x.substituiItemId === item.substituiItemId ? idx : -1)).filter((idx) => idx >= 0);
+    const de = grupo.findIndex((idx) => its[idx].id === itemId);
+    const para = de + direcao;
+    if (para < 0 || para >= grupo.length) return its;
+    const novo = [...its];
+    [novo[grupo[de]], novo[grupo[para]]] = [novo[grupo[para]], novo[grupo[de]]];
+    return novo;
+  }
+
+  // principal (ou, em dado antigo, substituição sem principal na refeição): bloco = ele + as substituições dele
+  const blocos = its.filter((i) => !filho(i)).map((i) => [i, ...its.filter((x) => filho(x) && x.substituiItemId === i.id)]);
+  const de = blocos.findIndex((b) => b[0].id === itemId);
+  const para = de + direcao;
+  if (para < 0 || para >= blocos.length) return its;
+  [blocos[de], blocos[para]] = [blocos[para], blocos[de]];
+  return blocos.flat();
 }
 
 /**
