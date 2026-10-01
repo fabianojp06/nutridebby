@@ -353,3 +353,24 @@ describe('Turnstile na recuperação de senha (INT-06)', () => {
     await expect(com('invalido').api.requestPasswordReset({ body: { email, redirectTo: '/definir-senha' } })).resolves.toMatchObject({ status: true });
   });
 });
+
+describe('logger do Better Auth (RNF-11, CLAUDE.md regra 3)', () => {
+  // O logger padrão faz console.error(mensagem, ...args), e o erro do Drizzle que o Better Auth passa como arg carrega
+  // o SQL e os `params` (o token da sessão). Só o nível e a mensagem fixa podem sair, e pelo pino.
+  it.each(['error', 'warn'] as const)('%s: manda ao pino só a mensagem, sem os args (nem o token dentro deles)', async (nivel) => {
+    const token = `tok-${randomUUID()}`;
+    const pino = vi.spyOn(logger, nivel).mockImplementation(() => undefined);
+    const consoles = [vi.spyOn(console, 'error').mockImplementation(() => undefined), vi.spyOn(console, 'warn').mockImplementation(() => undefined), vi.spyOn(console, 'log').mockImplementation(() => undefined)];
+    try {
+      const contexto = await createAuth(app.db).$context;
+      const falha = Object.assign(new Error(`Failed query: delete from "session" where "token" = $1\nparams: ${token}`), { name: 'DrizzleQueryError', params: [token] });
+      contexto.logger[nivel]('Failed to delete session from database', falha, { params: [token] });
+
+      expect(pino.mock.calls).toEqual([['Failed to delete session from database']]);
+      for (const c of consoles) expect(JSON.stringify(c.mock.calls)).not.toContain(token);
+    } finally {
+      pino.mockRestore();
+      for (const c of consoles) c.mockRestore();
+    }
+  });
+});

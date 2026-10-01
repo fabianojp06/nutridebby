@@ -56,6 +56,10 @@ export function createAuth(
     baseURL,
     secret: opts.secret ?? getEnv().AUTH_SECRET,
     trustedOrigins: [baseURL],
+    // RNF-11 / CLAUDE.md regra 3: o logger padrão faz console.error(mensagem, ...args), e o erro do Drizzle que o Better
+    // Auth passa como arg carrega o SQL e os `params` (o token da sessão, a senha). Só o nível e a mensagem fixa saem,
+    // pelo pino; os args ficam de fora.
+    logger: { log: (nivel, mensagem) => logger[nivel](mensagem) },
     database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
     // Tokens (redefinição, estado do 2FA) guardados só como SHA-256 em verification.identifier:
     // quem ler o banco não consegue usar um link pendente. Linhas antigas em claro ainda são
