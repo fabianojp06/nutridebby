@@ -2,7 +2,7 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
 import { paraWinAnsi } from '@/modules/pacientes/prontuario-pdf';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
-import { diferencaKcal, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from './calculo';
+import { diferencaKcal, gTexto, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from './calculo';
 import type { PlanoCompleto, RefeicaoPlano } from './tipos';
 
 /** Só o worker importa este arquivo (US-026; fora do grafo do Next — guarda em exportacao.test.ts). */
@@ -28,6 +28,8 @@ const s = StyleSheet.create({
   rodape: { position: 'absolute', bottom: 20, left: 36, right: 36, fontSize: 8, color: '#666666', flexDirection: 'row', justifyContent: 'space-between' },
 });
 
+/** Helvetica padrão (WinAnsi): todo texto do PDF passa por aqui, inclusive o calculado (o "−" de "−11 kcal" vira "-"). */
+const w = paraWinAnsi;
 const gramas = (g: number) => `${formatarDecimal(g, casasDecimais(g))} g`;
 const quantidade = (i: RefeicaoPlano['itens'][number]) => (i.medidaCaseiraTxt ? `${i.medidaCaseiraTxt} (${gramas(i.quantidadeG)})` : gramas(i.quantidadeG));
 const porHorario = (rs: RefeicaoPlano[]) => [...rs].sort((a, b) => a.horario.localeCompare(b.horario));
@@ -50,19 +52,27 @@ function Plano({ d }: { d: DadosPdfPlano }) {
         <Text style={s.titulo}>{plano.titulo}</Text>
         <Text>Paciente: {d.paciente}</Text>
         <Text>Data: {d.data}</Text>
-        {plano.mostrarCalorias && <Text>Total do dia: {kcalTexto(total.kcal)} kcal</Text>}
+        {plano.mostrarCalorias && (
+          <View>
+            <Text>{w(`Total do dia: ${kcalTexto(total.kcal)} kcal`)}</Text>
+            <Text>{w(`Proteína: ${gTexto(total.proteinaG)} g · Carboidrato: ${gTexto(total.carboidratoG)} g · Lipídio: ${gTexto(total.lipidioG)} g · Fibra: ${gTexto(total.fibraG)} g`)}</Text>
+          </View>
+        )}
         {porHorario(plano.refeicoes).map((r) => (
           <View key={r.id} wrap={false}>
             <Text style={s.refeicao} minPresenceAhead={28}>
               {r.nome} · {r.horario}
-              {plano.mostrarCalorias ? `  (${kcalTexto(totalDosItens(calculo(r)).kcal)} kcal)` : ''}
+              {plano.mostrarCalorias ? w(`  (${kcalTexto(totalDosItens(calculo(r)).kcal)} kcal)`) : ''}
             </Text>
             {r.itens.map((i) => {
               const n = nutrientesDoItem(i.porCem, i.quantidadeG);
               const principal = r.itens.find((x) => x.id === i.substituiItemId);
-              const kcal = plano.mostrarCalorias ? (n.semValor.includes('kcal') ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
+              const semKcal = n.semValor.includes('kcal');
+              const kcal = plano.mostrarCalorias ? w(semKcal ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
               if (!principal) return <Text key={i.id} style={s.item}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
-              const dif = plano.mostrarCalorias ? ` (${diferencaKcal(n.kcal, nutrientesDoItem(principal.porCem, principal.quantidadeG).kcal)})` : '';
+              // sem kcal na TACO (do item ou do principal) não há diferença a mostrar: nada, em vez de um valor enganoso
+              const np = nutrientesDoItem(principal.porCem, principal.quantidadeG);
+              const dif = plano.mostrarCalorias && !semKcal && !np.semValor.includes('kcal') ? w(` (${diferencaKcal(n.kcal, np.kcal)})`) : '';
               return <Text key={i.id} style={s.sub}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
             })}
             {r.observacao && <Text style={s.obs}>{r.observacao}</Text>}
@@ -85,7 +95,6 @@ function Plano({ d }: { d: DadosPdfPlano }) {
 
 /** Helvetica padrão (WinAnsi), como o prontuário: todo texto passa por paraWinAnsi (emoji e afins viram "?"). */
 export async function renderizarPlano(d: DadosPdfPlano): Promise<Buffer> {
-  const w = paraWinAnsi;
   const plano: PlanoCompleto = {
     ...d.plano,
     titulo: w(d.plano.titulo),

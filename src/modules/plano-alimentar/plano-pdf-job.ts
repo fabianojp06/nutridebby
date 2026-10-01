@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { mealPlans, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { COR_PADRAO } from '@/modules/plataforma/marca-constantes';
-import { buscarTenant, tenantIsActive } from '@/modules/plataforma/tenant-status';
+import { buscarTenant, listarTenantsParaVarredura, tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { lerPlanoNaTransacao } from './carregar';
 import { renderizarPlano } from './plano-pdf';
 
@@ -103,4 +103,38 @@ export async function gerarPdfDoPlano(data: DadosJobPdf, deps: DepsJobPdf): Prom
     }
     throw e; // pg-boss tenta de novo
   }
+}
+
+/** As tentativas do job terminam em minutos (fila `plano-pdf`: 3 tentativas, 30 s de espera com backoff, 120 s cada). */
+export const PDF_PENDENTE_MAX_MS = 3600_000;
+
+/**
+ * Rede de segurança do "Seu PDF está sendo preparado" (como `expirarExportacoesVencidas` na exportação):
+ * o worker que cai na última tentativa, o job que expira ou um erro de banco antes do `try` deixariam o plano
+ * em 'pendente' para sempre, sem botão de nova tentativa. Pendente há mais de 1 h vira 'falhou' e o painel
+ * oferece "Gerar o PDF de novo". Rodada periódica pelo worker (fila `expirar-plano-pdf`, de 15 em 15 min).
+ * Um tenant com erro não para os outros. Devolve quantos planos viraram 'falhou'.
+ */
+export async function expirarPdfsPendentes(db: Db, now: Date, idadeMinMs = PDF_PENDENTE_MAX_MS): Promise<number> {
+  const limite = new Date(now.getTime() - idadeMinMs);
+  let expirados = 0;
+  for (const t of await listarTenantsParaVarredura(db)) {
+    try {
+      const r = await withTenant(
+        { tenantId: t.id, role: 'worker' },
+        (tx) =>
+          tx
+            .update(mealPlans)
+            .set({ pdfStatus: 'falhou', updatedAt: now })
+            .where(and(eq(mealPlans.pdfStatus, 'pendente'), lt(mealPlans.updatedAt, limite)))
+            .returning({ id: mealPlans.id }),
+        db,
+      );
+      expirados += r.length;
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), tenantId: t.id }, 'falha ao expirar PDFs de plano pendentes');
+    }
+  }
+  if (expirados) logger.warn({ planos: expirados }, 'PDFs de plano pendentes há mais de 1 h marcados como falhou');
+  return expirados;
 }

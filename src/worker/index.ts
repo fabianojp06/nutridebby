@@ -22,7 +22,7 @@ import {
   verificarDisco,
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
-import { gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
+import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
 import { recordHeartbeat } from './heartbeat';
 import { urlDoApp } from '@/lib/url-do-app';
 
@@ -124,6 +124,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       });
     },
   );
+  await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('expirar-plano-pdf', async () => {
+    await expirarPdfsPendentes(getDb(), new Date());
+  });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('limpar-tmp', async () => {
     const n = await limparTmpOrfaos(env.DATA_DIR, new Date());
