@@ -38,7 +38,14 @@ export async function verifyTurnstile(
   } catch (e) {
     return falha({ motivo: e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError' || e.message === 'abortado') ? 'timeout' : 'rede' });
   }
-  if (!res.ok) return falha({ motivo: 'http', status: res.status });
+  if (!res.ok) {
+    // A Cloudflare responde segredo errado com HTTP 400 e os códigos no corpo: sem lê-los, o log
+    // não diz que o problema é a TURNSTILE_SECRET_KEY. Nunca "invalido" aqui: falha fechada.
+    const erro = (await res.json().catch(() => null)) as { 'error-codes'?: unknown } | null;
+    const codigos = Array.isArray(erro?.['error-codes']) ? erro['error-codes'].filter((c): c is string => typeof c === 'string') : [];
+    if (codigos.some((c) => CODIGOS_CONFIG.includes(c))) return falha({ motivo: 'config', status: res.status, codigos });
+    return falha(codigos.length ? { motivo: 'http', status: res.status, codigos } : { motivo: 'http', status: res.status });
+  }
   const dados = (await res.json().catch(() => null)) as { success?: boolean; 'error-codes'?: string[] } | null;
   if (!dados) return falha({ motivo: 'resposta', status: res.status });
   if (dados.success === true) return 'ok';

@@ -45,6 +45,18 @@ describe('verifyTurnstile (INT-06)', () => {
       expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', codigos: [codigo] });
     }
   });
+  it('segredo inválido vem com HTTP 400 (comportamento real da Cloudflare) → onFalha "config" com os códigos', async () => {
+    const onFalha = vi.fn();
+    const f = resposta({ success: false, 'error-codes': ['invalid-input-secret'], messages: [] }, 400);
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', status: 400, codigos: ['invalid-input-secret'] });
+  });
+  it('HTTP de erro com códigos que não são de configuração → "http" com status e códigos; nunca "invalido"', async () => {
+    const onFalha = vi.fn();
+    const f = resposta({ success: false, 'error-codes': ['bad-request'] }, 400);
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400, codigos: ['bad-request'] });
+  });
   it('200 com corpo que não é JSON → indisponivel (motivo "resposta")', async () => {
     const onFalha = vi.fn();
     const f = vi.fn(async () => new Response('<html>oops</html>', { status: 200 }));
