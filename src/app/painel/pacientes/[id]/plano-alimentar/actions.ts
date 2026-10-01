@@ -75,20 +75,26 @@ export async function editarPublicadoAction(patientId: string, planId: string): 
 }
 
 /**
- * US-026 "Gerar o PDF de novo": só de 'falhou'; volta a pendente e o worker gera outra vez. Já em preparo: o motivo
- * na tela; já pronto: nada a fazer, a página recarregada mostra "Baixar PDF". Plano que não é do paciente da URL:
- * "Plano não encontrado.", sem efeito.
+ * US-026 "Gerar o PDF de novo": só de 'falhou'; volta a pendente e o worker gera outra vez. Já em preparo (aba velha
+ * que ainda mostra "falhou"): o motivo e a página revalidada, que passa a mostrar "Seu PDF está sendo preparado" e a
+ * acompanhar o PDF; já pronto: nada a fazer, a página revalidada mostra "Baixar PDF". Plano que não é do paciente da
+ * URL: "Plano não encontrado.", sem efeito.
  */
 export async function pedirNovoPdfAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
-  const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
+  const pagina = `/painel/pacientes/${patientId}/plano-alimentar/${planId}`;
+  const { ctx } = await requireNutri(pagina);
   try {
     await pedirNovoPdf(ctx, patientId, planId);
   } catch (e) {
+    if (e instanceof PdfEmPreparoError) {
+      revalidatePath(pagina);
+      return { erro: e.message };
+    }
     // bloqueado: a página já esconde o botão (corrida com o bloqueio)
-    if (e instanceof PdfEmPreparoError || e instanceof PlanoNaoEncontradoError || e instanceof PacienteBloqueadoError) return { erro: e.message };
+    if (e instanceof PlanoNaoEncontradoError || e instanceof PacienteBloqueadoError) return { erro: e.message };
     if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }
-  revalidatePath(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
+  revalidatePath(pagina);
   return {};
 }
