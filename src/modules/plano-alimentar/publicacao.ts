@@ -108,13 +108,20 @@ export async function editarPublicado(ctx: TenantContext, planId: string, deps: 
   );
 }
 
-/** "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação (fila recusou → desfaz). */
+/**
+ * "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação (fila recusou → desfaz).
+ * Paciente bloqueado ou anonimizado (US-018) não ganha PDF novo: gerar é tratar dado de quem pediu a exclusão.
+ * Travas: paciente → plano, como na publicação e no job.
+ */
 export async function pedirNovoPdf(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<void> {
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
   const boss = deps.boss ?? (await getBoss());
   await withTenant(
     ctx,
     async (tx) => {
+      const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
+      if (!antes?.patientId) throw new PlanoNaoEncontradoError();
+      await carregarPacienteParaEscrita(tx, antes.patientId); // bloqueado/anonimizado → PacienteBloqueadoError
       const r = await tx
         .update(mealPlans)
         .set({ pdfStatus: 'pendente', updatedAt: deps.now ?? new Date() })

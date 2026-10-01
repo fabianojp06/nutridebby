@@ -13,6 +13,7 @@ import { patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { idTaco } from '@/modules/alimentos/taco';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { gTexto, totalDoDia } from './calculo';
@@ -259,6 +260,29 @@ describe('PDF do plano (US-026)', () => {
     const recusa = { send: async () => null } as unknown as PgBoss;
     await expect(pedirNovoPdf(T.ctx, id, { ...deps, boss: recusa })).rejects.toThrow('A fila recusou o PDF do plano');
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
+  });
+
+  it('paciente bloqueado (pedido de exclusão, US-018): "Gerar o PDF de novo" é recusado e o job não grava PDF novo', async () => {
+    const bloquear = (t: TenantDeTeste, patientId: string) =>
+      withTenant(t.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, patientId)), app.db);
+    const jobs = async (planId: string) => (await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [planId])).rows[0].n;
+    const status = async (planId: string) => (await owner.pool.query(`select pdf_status, pdf_path from meal_plans where id = $1`, [planId])).rows[0];
+
+    const T = await novoTenant(app.db);
+    const a = await planoPublicado(T);
+    await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [a.id]);
+    await bloquear(T, a.p.id);
+    await expect(pedirNovoPdf(T.ctx, a.id, deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    expect(await status(a.id)).toEqual({ pdf_status: 'falhou', pdf_path: null });
+    expect(await jobs(a.id)).toBe(1); // só o da publicação
+
+    // publicado antes do bloqueio, com o job ainda na fila: não gera o PDF depois do pedido de exclusão
+    const T2 = await novoTenant(app.db);
+    const b = await planoPublicado(T2);
+    await bloquear(T2, b.p.id);
+    expect(await job(T2, b.id)).toBe('ignorado');
+    expect(await status(b.id)).toEqual({ pdf_status: 'falhou', pdf_path: null });
+    expect(await withTenant(T2.ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
   });
 
   it('pendente esquecido há mais de 1 h vira "falhou" (rede de segurança); recente, pronto e rascunho ficam; o painel pode pedir de novo', async () => {

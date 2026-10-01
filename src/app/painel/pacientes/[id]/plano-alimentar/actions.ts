@@ -75,6 +75,8 @@ export async function pedirNovoPdfAction(patientId: string, planId: string): Pro
     await pedirNovoPdf(ctx, planId);
   } catch (e) {
     if (e instanceof PlanoNaoEncontradoError) return { erro: 'O PDF já está sendo preparado.' };
+    if (e instanceof PacienteBloqueadoError) return { erro: e.message }; // a página já esconde o botão: corrida com o bloqueio
+    if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }
   revalidatePath(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);

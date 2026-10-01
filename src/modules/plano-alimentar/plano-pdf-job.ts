@@ -16,8 +16,12 @@ export type DadosJobPdf = { tenantId: string; planId: string };
 export type DepsJobPdf = { db: Db; dataDir: string; now?: Date; ultimaTentativa: boolean; renderizar?: typeof renderizarPlano };
 
 class JaProntoError extends Error {}
-/** O paciente foi anonimizado (US-018) antes da gravação: o PDF não deve ficar no disco depois disso. */
-class PacienteAnonimizadoError extends Error {}
+/**
+ * O paciente foi bloqueado (pedido de exclusão atendido) ou anonimizado (US-018) antes da gravação: o PDF novo não é
+ * gravado. Gerar é um tratamento novo do dado de quem pediu a exclusão; o prontuário dele fica só para consulta
+ * (o PDF que já existia continua para download até a anonimização, que o apaga).
+ */
+class TitularComExclusaoError extends Error {}
 
 /**
  * US-026 "Geração na publicação": lê o plano publicado (valores congelados, D10), gera o PDF com a marca
@@ -68,15 +72,15 @@ export async function gerarPdfDoPlano(data: DadosJobPdf, deps: DepsJobPdf): Prom
         tipo: 'plano_pdf',
         conteudo: pdf,
         permitidos: ['pdf'],
-        // Trava o paciente antes do plano (mesma ordem da publicação) e desiste se a anonimização chegou antes;
-        // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
+        // Trava o paciente antes do plano (mesma ordem da publicação) e desiste se o bloqueio ou a anonimização chegou
+        // antes; a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {
           const [pac] = await tx
-            .select({ anonimizadoEm: patients.anonimizadoEm })
+            .select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm })
             .from(patients)
             .where(eq(patients.id, lido.patientId))
             .for('update');
-          if (!pac || pac.anonimizadoEm) throw new PacienteAnonimizadoError();
+          if (!pac || pac.status === 'bloqueado' || pac.anonimizadoEm) throw new TitularComExclusaoError();
         },
         registrar: async (tx, arq) => {
           const r = await tx
@@ -92,7 +96,7 @@ export async function gerarPdfDoPlano(data: DadosJobPdf, deps: DepsJobPdf): Prom
     return 'pronto';
   } catch (e) {
     if (e instanceof JaProntoError) return 'ignorado';
-    if (e instanceof PacienteAnonimizadoError) {
+    if (e instanceof TitularComExclusaoError) {
       await marcarFalhou();
       return 'ignorado';
     }

@@ -770,6 +770,12 @@ Cenário: PDF que não ficou pronto (Plano 04)
   Dado que o worker esgotou as tentativas, a cota de armazenamento acabou, ou o PDF ficou pendente por mais de 1 h
   Então a tela mostra "Não foi possível gerar o PDF. Tente de novo." com o botão "Gerar o PDF de novo"
   E se o PDF já está sendo preparado, o botão responde "O PDF já está sendo preparado."
+
+Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
+  Dado que o pedido de exclusão do paciente foi atendido
+  Então o PDF que já existe continua em "Baixar PDF" (consulta) até a anonimização
+  Mas nenhum PDF novo é gerado: o job da fila desiste e marca "falhou", "Gerar o PDF de novo" é recusado com "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."
+  E no lugar do botão a tela mostra "Não foi possível gerar o PDF."
 ```
 
 Nota de entrega (Plano 04): no painel, o PDF pronto aparece como o botão "Baixar PDF" (link assinado de 5 min). Enquanto "Seu PDF está sendo preparado", a tela consulta só o estado do PDF a cada 3 s, por até 1 minuto, pela rota `GET /api/painel/planos/[id]/pdf?paciente=<id>`, que devolve apenas o status (`pendente`/`pronto`/`falhou`) e não registra leitura do prontuário, porque o status de geração não é dado de saúde; depois desse minuto é preciso recarregar a página. Uma varredura do worker (a cada 15 min) troca por "falhou" o PDF pendente há mais de 1 h, para a nutricionista sempre ter a saída "Gerar o PDF de novo". O PDF usa Helvetica (WinAnsi), como o do prontuário: caracteres fora desse conjunto (ex.: emoji) saem como "?". A conferência visual do desenho do PDF (refeição grande, logo) fica para o deploy.

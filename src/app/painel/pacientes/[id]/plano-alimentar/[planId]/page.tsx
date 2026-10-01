@@ -40,7 +40,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
               <BotaoAcao acao={publicarAction.bind(null, paciente.id, plano.id)} rotulo="Publicar" confirmar="Publicar esta versão para o paciente? A versão publicada hoje será arquivada." exigirSalvo />
             )}
             {plano.status === 'publicado' && !bloqueado && <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, plano.id)} rotulo="Editar" principal={false} />}
-            {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} />}
+            {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} bloqueado={bloqueado} />}
             {!bloqueado && <SalvarComoModelo acao={salvarComoModeloAction.bind(null, plano.id)} tituloSugerido={plano.titulo} />}
             {editavel && (
               <BotaoAcao acao={descartarRascunhoAction.bind(null, paciente.id, plano.id)} rotulo="Descartar rascunho" confirmar="Descartar este rascunho?" principal={false} />
