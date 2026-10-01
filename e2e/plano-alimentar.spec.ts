@@ -400,3 +400,44 @@ test('criar a partir de modelo: rascunho do paciente com as refeições do model
   await nutri.goto(planoUrl);
   await expect(nutri.getByLabel('Refeição', { exact: true }).first()).toHaveValue('Almoço');
 });
+
+test('publicar v1, editar cria v2 com a v1 ainda publicada, publicar v2 arquiva a v1 (US-025, RN-01)', async () => {
+  await nutri.goto(editor);
+  const publicar = nutri.getByRole('button', { name: 'Publicar' });
+  const gramasAlmoco = nutri.getByRole('region', { name: 'Almoço' }).getByLabel(`Gramas de ${ALIMENTO_130}`); // o alimento também está no café da manhã
+  await expect(publicar).toBeEnabled();
+
+  // Só se publica o que está salvo: sem rede, "Publicar" fica desabilitado até o salvamento voltar
+  await nutri.context().setOffline(true);
+  await gramasAlmoco.fill('120');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  await expect(publicar).toBeDisabled();
+  await nutri.context().setOffline(false);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10000 });
+  await expect(publicar).toBeEnabled();
+
+  nutri.once('dialog', (d) => void d.accept());
+  await publicar.click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
+  await expect(nutri.getByText('Versão 1 · Publicado')).toBeVisible();
+  await expect(gramasAlmoco).toBeDisabled();
+  await expect(gramasAlmoco).toHaveValue('120'); // o que estava salvo é o que foi publicado
+
+  await nutri.getByRole('button', { name: 'Editar', exact: true }).click();
+  await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 2' })).toBeVisible();
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  await expect(nutri.getByRole('row', { name: /Versão 1/ })).toContainText('Publicado');
+  await expect(nutri.getByRole('row', { name: /Versão 2/ })).toContainText('Rascunho');
+  await expect(nutri.getByRole('button', { name: 'Editar o plano publicado' })).toHaveCount(0); // já há rascunho
+
+  await nutri.getByRole('link', { name: 'Continuar o rascunho (versão 2)' }).click();
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Publicar' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  await expect(nutri.getByRole('row', { name: /Versão 1/ })).toContainText('Arquivado');
+  await expect(nutri.getByRole('row', { name: /Versão 2/ })).toContainText('Publicado');
+  await expect(nutri.getByRole('button', { name: 'Editar o plano publicado' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Criar plano' })).toHaveCount(0);
+  editor = (await nutri.getByRole('link', { name: 'Versão 2' }).getAttribute('href'))!; // a v2 publicada (a Tarefa 11 usa)
+});

@@ -7,12 +7,14 @@ import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { carregarPlano } from '@/modules/plano-alimentar/carregar';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { carregarProntuario } from '../../prontuario';
-import { descartarRascunhoAction } from '../actions';
+import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
+import { BotaoAcao } from '../botao-acao';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PlanoPage({ params }: PageProps<'/painel/pacientes/[id]/plano-alimentar/[planId]'>) {
+export default async function PlanoPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/plano-alimentar/[planId]'>) {
   const { id, planId } = await params;
+  const { publicado } = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const plano = await carregarPlano(ctx, planId);
   if (!plano || plano.patientId !== paciente.id) notFound();
@@ -22,12 +24,17 @@ export default async function PlanoPage({ params }: PageProps<'/painel/pacientes
     <section className="space-y-4">
       <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar`} className="text-sm underline">Voltar às versões</Link>
       <h2 className="text-xl font-semibold">Plano alimentar — versão {plano.versao}</h2>
+      {publicado === '1' && plano.status === 'publicado' && <p role="status" className="rounded bg-emerald-50 p-3">Plano publicado.</p>}
       <EditorPlano
         plano={plano}
         contexto={contexto}
         somenteLeitura={!rascunho}
         acoes={
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-wrap items-start gap-4">
+            {rascunho && (
+              <BotaoAcao acao={publicarAction.bind(null, paciente.id, plano.id)} rotulo="Publicar" confirmar="Publicar esta versão para o paciente? A versão publicada hoje será arquivada." exigirSalvo />
+            )}
+            {plano.status === 'publicado' && <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, plano.id)} rotulo="Editar" principal={false} />}
             <SalvarComoModelo acao={salvarComoModeloAction.bind(null, plano.id)} tituloSugerido={plano.titulo} />
             {rascunho && (
               <form action={descartarRascunhoAction.bind(null, paciente.id, plano.id)}>

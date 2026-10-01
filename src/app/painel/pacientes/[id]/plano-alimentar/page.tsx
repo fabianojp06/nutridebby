@@ -6,7 +6,7 @@ import { listarModelos } from '@/modules/plano-alimentar/modelos';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
 import { CriarDeModelo } from './criar-de-modelo';
-import { criarRascunhoAction } from './actions';
+import { criarRascunhoAction, editarPublicadoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +17,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const planos = await listarPlanosDoPaciente(ctx, paciente.id);
   const rascunho = planos.find((p) => p.status === 'rascunho');
+  const publicado = planos.find((p) => p.status === 'publicado');
   const modelos = rascunho ? [] : await listarModelos(ctx); // "Criar a partir de modelo" só aparece sem rascunho
   return (
     <section className="space-y-4">
@@ -24,8 +25,10 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
       <div className="flex flex-wrap gap-3">
         {rascunho ? (
           <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="rounded bg-emerald-700 px-4 py-2 text-white">Continuar o rascunho (versão {rascunho.versao})</Link>
+        ) : publicado ? (
+          <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
         ) : (
-          !planos.some((p) => p.status === 'publicado') && <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
+          <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
         )}
         {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
       </div>

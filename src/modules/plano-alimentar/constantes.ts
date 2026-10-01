@@ -21,6 +21,7 @@ export const MSG_PLANO = {
   invalido: 'Não foi possível salvar estes dados. Recarregue a página.',
   naoEncontrado: 'Plano não encontrado.',
   naoEditavel: 'Este plano já foi publicado e não pode ser alterado. Use "Editar" para criar uma nova versão.',
+  naoPublicado: 'Esta versão não está mais publicada. Recarregue a página.',
   rascunhoExiste: 'Já existe um rascunho para este paciente.',
   publicarVazio: 'Inclua pelo menos uma refeição com um alimento para publicar.',
   publicarHorario: 'Informe o horário de todas as refeições.',

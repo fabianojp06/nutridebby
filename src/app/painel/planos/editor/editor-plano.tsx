@@ -11,6 +11,7 @@ import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import { errosSemCampo, estadoInicial, gramasDoItem, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
+import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
 
 type Props = { plano: PlanoCompleto; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode };
@@ -48,7 +49,7 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
             <button type="button" onClick={() => window.location.reload()} className="ml-2 underline">Recarregar</button>
           )}
         </p>
-        {acoes}
+        <SalvamentoContext value={salvamento.status}>{acoes}</SalvamentoContext>
       </div>
       {avisos.map((m) => (
         <p key={m} role="alert" className="text-sm text-red-700">{m}</p>
