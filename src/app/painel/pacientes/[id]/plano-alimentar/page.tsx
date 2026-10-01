@@ -1,8 +1,11 @@
 import Link from 'next/link';
+import { criarDeModeloAction } from '@/app/painel/planos/modelos/actions';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
+import { listarModelos } from '@/modules/plano-alimentar/modelos';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
+import { CriarDeModelo } from './criar-de-modelo';
 import { criarRascunhoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +17,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const planos = await listarPlanosDoPaciente(ctx, paciente.id);
   const rascunho = planos.find((p) => p.status === 'rascunho');
+  const modelos = rascunho ? [] : await listarModelos(ctx); // "Criar a partir de modelo" só aparece sem rascunho
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold">Plano alimentar</h2>
@@ -23,6 +27,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
         ) : (
           !planos.some((p) => p.status === 'publicado') && <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
         )}
+        {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
       </div>
       {planos.length === 0 ? (
         <p>Nenhum plano ainda.</p>

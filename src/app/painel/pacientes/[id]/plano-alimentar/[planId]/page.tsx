@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { EditorPlano } from '@/app/painel/planos/editor/editor-plano';
+import { salvarComoModeloAction } from '@/app/painel/planos/modelos/actions';
+import { SalvarComoModelo } from '@/app/painel/planos/salvar-como-modelo';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { carregarPlano } from '@/modules/plano-alimentar/carregar';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
@@ -25,11 +27,14 @@ export default async function PlanoPage({ params }: PageProps<'/painel/pacientes
         contexto={contexto}
         somenteLeitura={!rascunho}
         acoes={
-          rascunho && (
-            <form action={descartarRascunhoAction.bind(null, paciente.id, plano.id)}>
-              <ConfirmarBotao mensagem="Descartar este rascunho?">Descartar rascunho</ConfirmarBotao>
-            </form>
-          )
+          <div className="flex flex-wrap gap-4">
+            <SalvarComoModelo acao={salvarComoModeloAction.bind(null, plano.id)} tituloSugerido={plano.titulo} />
+            {rascunho && (
+              <form action={descartarRascunhoAction.bind(null, paciente.id, plano.id)}>
+                <ConfirmarBotao mensagem="Descartar este rascunho?">Descartar rascunho</ConfirmarBotao>
+              </form>
+            )}
+          </div>
         }
       />
     </section>

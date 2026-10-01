@@ -351,3 +351,52 @@ test('substituições: o principal anda com as suas substituições, que só se 
   await expect(depois.nth(2)).toContainText('Cuscuz, de milho, cozido');
   await expect(depois.nth(3)).toContainText('Tapioca, com manteiga');
 });
+
+test('salvar como modelo e abrir o modelo (US-024)', async () => {
+  await nutri.goto(editor);
+  await nutri.getByLabel('Nome do modelo').fill(`Modelo ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Salvar como modelo' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  await nutri.goto('/painel/planos/modelos');
+  await nutri.getByRole('link', { name: `Modelo ${sufixo}` }).click();
+  await expect(nutri.getByRole('heading', { name: `Modelo: Modelo ${sufixo}` })).toBeVisible();
+  await expect(nutri.getByLabel('Refeição', { exact: true }).first()).toHaveValue('Almoço');
+  await expect(nutri.getByText('Mostrar calorias ao paciente')).toHaveCount(0); // modelo não tem paciente
+});
+
+test('criar a partir de modelo: rascunho do paciente com as refeições do modelo; excluir o modelo não muda o plano (US-024)', async () => {
+  // Paciente próprio: o rascunho compartilhado das próximas tarefas não pode ser tocado
+  await nutri.goto('/painel/pacientes/novo');
+  await nutri.getByLabel('Nome').fill(`Paciente Modelo ${sufixo}`);
+  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
+  await nutri.getByLabel('Feminino').check();
+  await nutri.getByLabel('E-mail').fill(`modelo-${sufixo}@nutridebby.test`);
+  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Modelo ${sufixo}` })).toBeVisible();
+  const pront = new URL(nutri.url()).pathname;
+
+  await nutri.goto(`${pront}/plano-alimentar`);
+  await nutri.getByLabel('Modelo', { exact: true }).selectOption({ label: `Modelo ${sufixo}` });
+  await nutri.getByRole('button', { name: 'Criar a partir de modelo' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();
+  const planoUrl = new URL(nutri.url()).pathname;
+  await expect(nutri.getByLabel('Título')).toHaveValue('Modelo ' + sufixo);
+  await expect(nutri.getByLabel('Meta (kcal)')).toHaveValue('500');
+  await expect(nutri.getByLabel('Refeição', { exact: true }).first()).toHaveValue('Almoço');
+  await expect(nutri.getByLabel('Mostrar calorias ao paciente')).toBeVisible(); // plano de paciente tem os controles de paciente
+
+  // com rascunho, só "Continuar o rascunho": não há como criar outro a partir de modelo
+  await nutri.goto(`${pront}/plano-alimentar`);
+  await expect(nutri.getByRole('link', { name: 'Continuar o rascunho (versão 1)' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Criar a partir de modelo' })).toHaveCount(0);
+
+  // excluir o modelo (com confirmação) não altera o plano criado a partir dele
+  await nutri.goto('/painel/planos/modelos');
+  await nutri.getByRole('link', { name: `Modelo ${sufixo}` }).click();
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Excluir modelo' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/planos\/modelos$/);
+  await expect(nutri.getByRole('link', { name: `Modelo ${sufixo}` })).toHaveCount(0);
+  await nutri.goto(planoUrl);
+  await expect(nutri.getByLabel('Refeição', { exact: true }).first()).toHaveValue('Almoço');
+});
