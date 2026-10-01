@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CorpoSalvamento, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
-import { ehNavegacaoInterna } from './navegacao';
+import { ehCliqueEmSair, ehNavegacaoInterna, haAlteracaoNaoSalva } from './navegacao';
 import { enviosIncertosDepois, interpretarResposta, type RespostaSalvamento } from './resposta';
 
 /** `parado`: repetir não adianta (conflito entre abas, paciente bloqueado, versão publicada, sessão expirada, plano
@@ -30,6 +30,8 @@ export type ConferirRevisao = { paciente: string | null; aoDesatualizar: (revisa
  * Sem rede: "Alterações não salvas" e nova tentativa a cada 5 s e quando o navegador volta a ficar online.
  * Saída por link interno (US-022): o envio que o debounce segurava sai na hora; se a edição pode se perder
  * (conflito, última tentativa sem sucesso, ou envio em voo com edição esperando), pede confirmação antes.
+ * Saída pelo botão "Sair" (`data-sair`, um formulário): o logout derrubaria o envio da desmontagem (401), então
+ * qualquer coisa não salva (status diferente de 'salvo' ou edição esperando o debounce) pede confirmação.
  * Com `conferir`: ao montar, confere se a revisão da página ainda é a do servidor (ver o efeito abaixo).
  */
 export function useSalvamento(planId: string, revisaoInicial: number, montarEnvio: (revisao: number) => RascunhoEnviado, edicoes: number, conferir: ConferirRevisao | null = null) {
@@ -39,9 +41,11 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   const revisao = useRef(revisaoInicial);
   const montar = useRef(montarEnvio);
   const atual = useRef(edicoes); // edições feitas até a última renderização
+  const statusAtual = useRef<StatusSalvamento>('salvo'); // o status da última renderização, para o listener de clique
   useEffect(() => {
     montar.current = montarEnvio; // sempre o estado da última renderização, sem tocar em ref durante o render
     atual.current = edicoes;
+    statusAtual.current = status;
   });
   const emVoo = useRef(false);
   const pendente = useRef(false);
@@ -180,11 +184,21 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   // Link interno quando o envio na saída não garante a edição: parado (não envia), última tentativa sem sucesso
   // (sem rede ou erro de campo: a próxima também falharia) ou PUT em voo com edição esperando. Captura no document,
   // antes do onClick do <Link>: cancelar no confirm impede a navegação.
+  // O botão "Sair" (`data-sair`) é um formulário, não um link: o logout acontece antes do envio da desmontagem (que
+  // levaria 401), então aqui vale uma regra mais larga — qualquer status que não seja 'salvo', ou edição esperando o
+  // debounce, pede confirmação; tudo salvo sai direto. Cancelar impede o envio do formulário.
   useEffect(() => {
     const aoClicar = (e: MouseEvent) => {
+      const alvo = e.target instanceof Element ? e.target : null;
+      if (ehCliqueEmSair(e, alvo?.closest('[data-sair]') != null)) {
+        if (!haAlteracaoNaoSalva(statusAtual.current, agendado.current) || window.confirm(MSG_SAIR_SEM_SALVAR)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const podePerder = parado.current || falhou.current || (emVoo.current && (pendente.current || agendado.current));
       if (!podePerder) return;
-      const a = e.target instanceof Element ? e.target.closest('a[href]') : null;
+      const a = alvo ? alvo.closest('a[href]') : null;
       const link = a instanceof HTMLAnchorElement ? { href: a.href, target: a.target, temDownload: a.hasAttribute('download') } : null;
       if (!ehNavegacaoInterna(e, link, window.location.href) || window.confirm(MSG_SAIR_SEM_SALVAR)) return;
       e.preventDefault();

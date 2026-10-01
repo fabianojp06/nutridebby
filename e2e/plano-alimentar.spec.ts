@@ -418,6 +418,51 @@ test('editor: sair por um link interno logo depois de editar não perde a ediç�
   await expect(gramasAlmoco).toHaveValue(antes);
 });
 
+test('editor: "Sair" com alteração pendente pede confirmação; cancelar mantém no editor, e com tudo salvo sai sem perguntar (US-002, US-022)', async ({ browser }) => {
+  const MSG = 'Há alterações que ainda não foram salvas. Sair mesmo assim?';
+  // contexto próprio: sair encerra a sessão, e o `nutri` dos demais testes precisa continuar logado
+  const page = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.6.7');
+  await expect(page).toHaveURL(/\/painel$/);
+  await page.goto(editor);
+  const orientacoes = page.getByLabel('Orientações gerais');
+  const sair = page.getByRole('button', { name: 'Sair', exact: true });
+  const salvo = page.getByRole('status').filter({ hasText: 'Salvo' });
+  await expect(salvo).toBeVisible();
+  const original = await orientacoes.inputValue();
+  const perguntas: string[] = [];
+  page.on('dialog', (d) => {
+    perguntas.push(d.message());
+    void d.dismiss(); // cancelar: a nutricionista continua no editor
+  });
+
+  // "na hora", antes dos 800 ms do salvamento automático (edição esperando o debounce)
+  await orientacoes.fill('Antes de sair pelo botão.');
+  await sair.click();
+  await expect.poll(() => perguntas).toEqual([MSG]);
+  await expect(page).toHaveURL(editor);
+  await expect(salvo).toBeVisible({ timeout: 5000 }); // cancelou: a edição continuou e foi salva
+
+  // status diferente de "Salvo": sem rede
+  await page.context().setOffline(true);
+  await orientacoes.fill('Sem rede.');
+  await expect(page.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  await sair.click();
+  await expect.poll(() => perguntas).toEqual([MSG, MSG]);
+  await expect(page).toHaveURL(editor);
+  await page.context().setOffline(false);
+  await expect(salvo).toBeVisible({ timeout: 10_000 });
+
+  // tudo salvo: sai direto, sem confirmação
+  await orientacoes.fill(original); // deixa o rascunho como estava
+  await expect(salvo).toBeVisible({ timeout: 5000 });
+  await sair.click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  expect(perguntas).toHaveLength(2);
+  await page.goto(editor);
+  await expect(page).toHaveURL(/\/entrar\?volta=/);
+  await page.context().close();
+});
+
 test('editor: "Voltar" do navegador depois de sair do editor mostra o que foi salvo e a próxima edição salva sem conflito (US-022, D7)', async () => {
   await nutri.goto(editor);
   const orientacoes = nutri.getByLabel('Orientações gerais');

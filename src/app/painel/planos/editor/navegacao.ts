@@ -21,3 +21,21 @@ export function ehNavegacaoInterna(c: Clique, link: LinkClicado | null, atual: s
   if (destino.origin !== aqui.origin) return false;
   return !(destino.pathname === aqui.pathname && destino.search === aqui.search && destino.hash !== '');
 }
+
+/**
+ * Clique no botão "Sair" (`data-sair`): um formulário, não um link — `ehNavegacaoInterna` não o pega. Ao enviar, a sessão
+ * acaba e a edição que ainda não chegou ao servidor se perderia (o envio da desmontagem do editor chegaria depois do
+ * logout e levaria 401). Vale com qualquer modificador: o formulário é enviado do mesmo jeito. Só fica de fora o clique que
+ * outro listener já tratou.
+ */
+export function ehCliqueEmSair(c: Pick<Clique, 'defaultPrevented'>, dentroDeSair: boolean): boolean {
+  return dentroDeSair && !c.defaultPrevented;
+}
+
+/**
+ * Sair encerra a sessão, e o envio que o debounce segurava não garante a edição: qualquer status que não seja 'salvo'
+ * (salvando, sem rede, erro de campo, parado) ou edição esperando os 800 ms pede confirmação. Tudo salvo sai direto.
+ */
+export function haAlteracaoNaoSalva(status: string, edicaoEsperando: boolean): boolean {
+  return status !== 'salvo' || edicaoEsperando;
+}
