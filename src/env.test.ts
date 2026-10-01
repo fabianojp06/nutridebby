@@ -182,4 +182,9 @@ describe('parseWorkerEnv (worker)', () => {
   it('RESEND_API_KEY em branco (placeholder de .env) conta como ausente: mensagem de negócio, não de tipo', () => {
     expect(() => parseWorkerEnv({ ...w, NODE_ENV: 'production', RESEND_API_KEY: '' })).toThrow(/RESEND_API_KEY é obrigatória/);
   });
+  it('APP_URL normalizado: sem query, sem hash e sem barras no fim (links montados por urlDoApp)', () => {
+    expect(parseEnv({ ...base, APP_URL: 'https://app.exemplo.com//?x=1#y' }).APP_URL).toBe('https://app.exemplo.com');
+    expect(parseEnv({ ...base, APP_URL: 'https://exemplo.com/nutri/' }).APP_URL).toBe('https://exemplo.com/nutri');
+    expect(parseWorkerEnv({ ...w, APP_URL: 'http://localhost:3100/', MAILPIT_URL: 'http://localhost:8025' }).APP_URL).toBe('http://localhost:3100');
+  });
 });

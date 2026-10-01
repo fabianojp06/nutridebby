@@ -65,10 +65,16 @@ const dataDir = z
   .min(1, { message: 'DATA_DIR é obrigatória' })
   .transform((p) => path.resolve(p));
 
+/** APP_URL sem query, hash nem barras finais: `urlDoApp` só concatena o caminho (PR #4, item adiado). */
+const appUrl = z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }).transform((v) => {
+  const u = new URL(v);
+  return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+});
+
 /** App Next.js e admin:criar (Better Auth). */
 const appSchema = serverSchema
   .extend({
-    APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
+    APP_URL: appUrl,
     AUTH_SECRET: z.string({ message: 'AUTH_SECRET é obrigatória' }).min(32, {
       message: 'AUTH_SECRET precisa de pelo menos 32 caracteres',
     }),
@@ -121,7 +127,7 @@ const EMAIL_FROM = /^([^<>]*<[^@<>\s]+@[^@<>\s]+>|[^@<>\s]+@[^@<>\s]+)$/;
 /** Worker: banco com o role da aplicação + o que os jobs usam (e-mail, links, segredos da fila). */
 const workerSchema = serverSchema
   .extend({
-    APP_URL: z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exemplo.com)' }),
+    APP_URL: appUrl,
     ENCRYPTION_KEY: encryptionKeySchema,
     DATA_DIR: dataDir,
     EMAIL_FROM: z
