@@ -20,6 +20,7 @@ export const MSG_PLANO = {
   conflito: 'Este plano foi alterado em outra aba. Recarregue a página para continuar.',
   invalido: 'Não foi possível salvar estes dados. Recarregue a página.',
   naoEncontrado: 'Plano não encontrado.',
+  grande: 'Plano grande demais.',
   naoEditavel: 'Este plano já foi publicado e não pode ser alterado. Use "Editar" para criar uma nova versão.',
   naoPublicado: 'Esta versão não está mais publicada. Recarregue a página.',
   rascunhoExiste: 'Já existe um rascunho para este paciente.',

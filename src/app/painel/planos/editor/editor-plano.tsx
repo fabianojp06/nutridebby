@@ -17,6 +17,8 @@ import { useSalvamento } from './use-salvamento';
 type Props = { plano: PlanoDoCliente; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode };
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
+/** Somente leitura: versão publicada ou arquivada, ou rascunho de paciente bloqueado. */
+const ROTULO_STATUS = { rascunho: 'Rascunho', publicado: 'Publicado', arquivado: 'Arquivado' } as const;
 
 export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: Props) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
@@ -44,8 +46,8 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p role="status" aria-live="polite" className={`text-sm ${salvamento.status === 'salvo' ? 'text-zinc-600' : 'font-semibold text-amber-800'}`}>
-          {somenteLeitura ? `Versão ${plano.versao} · ${plano.status === 'publicado' ? 'Publicado' : 'Arquivado'}` : salvamento.mensagem}
-          {salvamento.status === 'conflito' && (
+          {somenteLeitura ? `Versão ${plano.versao} · ${ROTULO_STATUS[plano.status]}` : salvamento.mensagem}
+          {salvamento.status === 'parado' && (
             <button type="button" onClick={() => window.location.reload()} className="ml-2 underline">Recarregar</button>
           )}
         </p>

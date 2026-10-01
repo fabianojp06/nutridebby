@@ -18,20 +18,23 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   const planos = await listarPlanosDoPaciente(ctx, paciente.id);
   const rascunho = planos.find((p) => p.status === 'rascunho');
   const publicado = planos.find((p) => p.status === 'publicado');
-  const modelos = rascunho ? [] : await listarModelos(ctx); // "Criar a partir de modelo" só aparece sem rascunho
+  const bloqueado = paciente.status === 'bloqueado'; // US-018: só consulta, sem criar nem editar versões
+  const modelos = rascunho || bloqueado ? [] : await listarModelos(ctx); // "Criar a partir de modelo" só aparece sem rascunho
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold">Plano alimentar</h2>
-      <div className="flex flex-wrap gap-3">
-        {rascunho ? (
-          <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="rounded bg-emerald-700 px-4 py-2 text-white">Continuar o rascunho (versão {rascunho.versao})</Link>
-        ) : publicado ? (
-          <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
-        ) : (
-          <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
-        )}
-        {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
-      </div>
+      {!bloqueado && (
+        <div className="flex flex-wrap gap-3">
+          {rascunho ? (
+            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="rounded bg-emerald-700 px-4 py-2 text-white">Continuar o rascunho (versão {rascunho.versao})</Link>
+          ) : publicado ? (
+            <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
+          ) : (
+            <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
+          )}
+          {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
+        </div>
+      )}
       {planos.length === 0 ? (
         <p>Nenhum plano ainda.</p>
       ) : (

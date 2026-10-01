@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
+import { mealPlans, patients } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { getAuth } from '@/lib/auth';
 import { idTaco } from '@/modules/alimentos/taco';
+import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { criarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { novoPaciente } from '../../../../../../test/pacientes';
@@ -35,7 +39,7 @@ describe('PUT /api/painel/planos/[id] (US-022 "Salvamento automático", D7)', ()
     expect(await ok.json()).toEqual({ revisao: 1 });
     const velho = await put(id, corpo(0), A.cookie);
     expect(velho.status).toBe(409);
-    expect(await velho.json()).toEqual({ erro: MSG_PLANO.conflito });
+    expect(await velho.json()).toEqual({ erro: MSG_PLANO.conflito, codigo: 'conflito' });
     const invalido = await put(id, corpo(1, 'abc'), A.cookie);
     expect(invalido.status).toBe(422);
     expect(Object.values((await invalido.json()).erros)).toEqual([MSG_PLANO.quantidade]);
@@ -44,6 +48,23 @@ describe('PUT /api/painel/planos/[id] (US-022 "Salvamento automático", D7)', ()
     expect((await put(id, corpo(1))).status).toBe(401);
     expect((await get(id, A.cookie)).status).toBe(200);
     expect((await get(id, B.cookie)).status).toBe(404);
+  });
+
+  it('409 diz o motivo: paciente bloqueado e versão já publicada não são "alterado em outra aba"', async () => {
+    const A = await nutriComDpa(db, auth);
+    const p = await novoPaciente(db, A.ctx);
+    const { id } = await criarRascunho(A.ctx, p.id, { db });
+    await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), db);
+    const bloqueado = await put(id, corpo(0), A.cookie);
+    expect(bloqueado.status).toBe(409);
+    expect(await bloqueado.json()).toEqual({ erro: MSG_BLOQUEADO, codigo: 'bloqueado' });
+
+    const q = await novoPaciente(db, A.ctx);
+    const r = await criarRascunho(A.ctx, q.id, { db });
+    await withTenant(A.ctx, (tx) => tx.update(mealPlans).set({ status: 'publicado', publicadoEm: new Date() }).where(eq(mealPlans.id, r.id)), db);
+    const publicado = await put(r.id, corpo(0), A.cookie);
+    expect(publicado.status).toBe(409);
+    expect(await publicado.json()).toEqual({ erro: MSG_PLANO.naoEditavel, codigo: 'nao_editavel' });
   });
 
   it('GET não manda o caminho interno do arquivo do PDF ao cliente (só o status)', async () => {

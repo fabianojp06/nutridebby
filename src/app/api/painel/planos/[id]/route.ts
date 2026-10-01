@@ -28,14 +28,17 @@ export async function PUT(req: Request, { params }: RouteContext<'/api/painel/pl
     // lê no máximo LIMITE_CORPO bytes (não confia no Content-Length); acima disso, 413 sem carregar o resto
     entrada = JSON.parse((await lerCorpoLimitado(req, LIMITE_CORPO)).toString('utf8'));
   } catch (e) {
-    if (e instanceof CorpoGrandeError) return json(413, { erro: 'Plano grande demais.' });
+    if (e instanceof CorpoGrandeError) return json(413, { erro: MSG_PLANO.grande });
     return json(422, { erros: { geral: MSG_PLANO.invalido } });
   }
   try {
     return json(200, await salvarRascunho(acesso.ctx, id, entrada));
   } catch (e) {
     if (e instanceof PlanoError) return json(422, { erros: e.erros });
-    if (e instanceof ConflitoRevisaoError || e instanceof PlanoNaoEditavelError || e instanceof PacienteBloqueadoError) return json(409, { erro: e.message });
+    // 409 com o motivo: o editor para nos três, mas só o `conflito` é "alterado em outra aba"
+    if (e instanceof ConflitoRevisaoError) return json(409, { erro: e.message, codigo: 'conflito' });
+    if (e instanceof PacienteBloqueadoError) return json(409, { erro: e.message, codigo: 'bloqueado' });
+    if (e instanceof PlanoNaoEditavelError) return json(409, { erro: e.message, codigo: 'nao_editavel' });
     if (e instanceof PlanoNaoEncontradoError || e instanceof PacienteNaoEncontradoError) return json(404, { erro: new PlanoNaoEncontradoError().message });
     throw e;
   }

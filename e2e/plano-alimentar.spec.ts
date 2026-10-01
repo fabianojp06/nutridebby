@@ -7,6 +7,7 @@ test.describe.configure({ mode: 'serial' });
 
 const sufixo = Date.now().toString(36);
 const VALORES = 'Valores por 100 g: energia entre 0 e 900 kcal; os demais entre 0 e 100 g';
+const BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
 let nutri: Page;
 
 test.beforeAll(async ({ browser }) => {
@@ -283,6 +284,16 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
   await expect(nutri.getByRole('alert').filter({ hasText: LIMITE })).toHaveCount(0);
 
+  // Sessão expirada (401): o editor para e diz o motivo, em vez de repetir para sempre como "sem rede"
+  await nutri.route('**/api/painel/planos/*', (rota) =>
+    rota.request().method() === 'PUT' ? rota.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ erro: 'Sessão expirada. Entre de novo.' }) }) : rota.continue(),
+  );
+  await nutri.getByLabel('Título').fill('Plano sem sessão');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Sessão expirada. Entre de novo.' })).toBeVisible({ timeout: 5000 });
+  await nutri.unroute('**/api/painel/planos/*');
+  await nutri.getByRole('button', { name: 'Recarregar' }).click();
+  await expect(nutri.getByLabel('Título')).toHaveValue('Plano com limites e salvo'); // nada foi gravado sem sessão
+
   // O texto de observação tem teto de 2000 caracteres na própria caixa (o servidor recusaria acima disso)
   await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '2000');
   await expect(nutri.getByLabel('Orientações gerais')).toHaveAttribute('maxlength', '2000');
@@ -435,6 +446,50 @@ test('criar a partir de modelo: rascunho do paciente com as refeições do model
   await expect(nutri.getByRole('link', { name: `Modelo ${sufixo}` })).toHaveCount(0);
   await nutri.goto(planoUrl);
   await expect(nutri.getByLabel('Refeição', { exact: true }).first()).toHaveValue('Almoço');
+});
+
+test('paciente bloqueado com o editor aberto: salvar e descartar mostram o motivo; o plano abre só para consulta (US-018, US-022)', async () => {
+  const nome = `Paciente Bloqueio ${sufixo}`;
+  await nutri.goto('/painel/pacientes/novo');
+  await nutri.getByLabel('Nome').fill(nome);
+  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
+  await nutri.getByLabel('Feminino').check();
+  await nutri.getByLabel('E-mail').fill(`bloqueio-${sufixo}@nutridebby.test`);
+  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(nutri.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+  const pront = new URL(nutri.url()).pathname;
+  await nutri.goto(`${pront}/plano-alimentar`);
+  await nutri.getByRole('button', { name: 'Criar plano' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();
+  const planoUrl = new URL(nutri.url()).pathname;
+
+  // outra aba atende o pedido de exclusão (US-018) enquanto o editor continua aberto
+  const outra = await nutri.context().newPage();
+  await outra.goto(`${pront}/privacidade`);
+  await outra.getByLabel('Digite o nome do paciente para confirmar').fill(nome);
+  await outra.getByRole('button', { name: 'Atender pedido de exclusão' }).click();
+  await expect(outra.getByText(/^Pedido atendido em/)).toBeVisible();
+  await outra.close();
+
+  await nutri.getByLabel('Título').fill('Plano depois do bloqueio');
+  await expect(nutri.getByRole('status').filter({ hasText: BLOQUEADO })).toBeVisible({ timeout: 5000 }); // não "alterado em outra aba"
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Descartar rascunho' }).click();
+  await expect(nutri.getByRole('alert').filter({ hasText: BLOQUEADO })).toBeVisible();
+  await expect(nutri).toHaveURL(planoUrl);
+
+  // aberto de novo: só consulta, sem ações de escrita
+  await nutri.goto(planoUrl);
+  await expect(nutri.getByText(BLOQUEADO)).toBeVisible();
+  await expect(nutri.getByText('Versão 1 · Rascunho')).toBeVisible();
+  await expect(nutri.getByLabel('Título')).toBeDisabled();
+  await expect(nutri.getByLabel('Título')).toHaveValue('Plano alimentar'); // o rascunho não foi alterado nem descartado
+  for (const botao of ['Publicar', 'Descartar rascunho', 'Salvar como modelo', 'Adicionar refeição'])
+    await expect(nutri.getByRole('button', { name: botao })).toHaveCount(0);
+  await nutri.goto(`${pront}/plano-alimentar`);
+  await expect(nutri.getByRole('link', { name: 'Versão 1' })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: /^Continuar o rascunho/ })).toHaveCount(0);
+  await expect(nutri.getByRole('button', { name: 'Criar plano' })).toHaveCount(0);
 });
 
 test('publicar v1, editar cria v2 com a v1 ainda publicada, publicar v2 arquiva a v1 (US-025, RN-01)', async () => {

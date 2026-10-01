@@ -1,17 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
 import { ehNavegacaoInterna } from './navegacao';
+import { interpretarResposta, type RespostaSalvamento } from './resposta';
 
-export type StatusSalvamento = 'salvo' | 'salvando' | 'offline' | 'conflito' | 'erro';
+/** `parado`: repetir não adianta (conflito entre abas, paciente bloqueado, versão publicada, sessão expirada, plano
+ * que sumiu, corpo grande demais); a linha de salvamento mostra o motivo e o editor não insiste. */
+export type StatusSalvamento = 'salvo' | 'salvando' | 'offline' | 'erro' | 'parado';
 
-const MENSAGEM: Record<StatusSalvamento, string> = {
+const MENSAGEM: Record<Exclude<StatusSalvamento, 'parado'>, string> = {
   salvo: 'Salvo',
   salvando: 'Salvando…',
   offline: 'Alterações não salvas',
-  conflito: MSG_PLANO.conflito,
   erro: 'Corrija os campos destacados para salvar.',
 };
 const ESPERA_MS = 800; // US-022: salvo em até 2 s
@@ -26,6 +27,7 @@ const MSG_SAIR_SEM_SALVAR = 'Há alterações que ainda não foram salvas. Sair 
  */
 export function useSalvamento(planId: string, revisaoInicial: number, montarEnvio: (revisao: number) => RascunhoEnviado, edicoes: number) {
   const [status, setStatus] = useState<StatusSalvamento>('salvo');
+  const [motivo, setMotivo] = useState(''); // mensagem do `parado`
   const [erros, setErros] = useState<Record<string, string>>({});
   const revisao = useRef(revisaoInicial);
   const montar = useRef(montarEnvio);
@@ -36,7 +38,7 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   });
   const emVoo = useRef(false);
   const pendente = useRef(false);
-  const parado = useRef(false); // conflito: não insiste
+  const parado = useRef(false); // não insiste (ver `parado` em StatusSalvamento)
   const falhou = useRef(false); // a última tentativa não salvou (sem rede ou erro de campo)
   const agendado = useRef(false); // há edição esperando os 800 ms
 
@@ -53,27 +55,32 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
         pendente.current = false;
         setStatus('salvando');
         const enviadas = atual.current;
+        let resposta: RespostaSalvamento;
         try {
           const r = await fetch(`/api/painel/planos/${planId}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(montar.current(revisao.current)),
           });
-          if (r.ok) {
-            revisao.current = ((await r.json()) as { revisao: number }).revisao;
-            falhou.current = false;
-            setErros({});
-            // "Salvo" só se nada foi digitado depois do envio (senão a edição nova ainda está por salvar)
-            setStatus(pendente.current || atual.current !== enviadas ? 'salvando' : 'salvo');
-          } else if (r.status === 409) {
-            parado.current = true;
-            setStatus('conflito');
-          } else if (r.status === 422) {
-            falhou.current = true;
-            setErros(((await r.json()) as { erros: Record<string, string> }).erros);
-            setStatus('erro');
-          } else throw new Error(String(r.status));
+          resposta = interpretarResposta(r.status, await r.json().catch(() => null));
         } catch {
+          resposta = { tipo: 'incerto' }; // sem rede, ou a resposta se perdeu no caminho
+        }
+        if (resposta.tipo === 'salvo') {
+          revisao.current = resposta.revisao;
+          falhou.current = false;
+          setErros({});
+          // "Salvo" só se nada foi digitado depois do envio (senão a edição nova ainda está por salvar)
+          setStatus(pendente.current || atual.current !== enviadas ? 'salvando' : 'salvo');
+        } else if (resposta.tipo === 'campos') {
+          falhou.current = true;
+          setErros(resposta.erros);
+          setStatus('erro');
+        } else if (resposta.tipo === 'parar') {
+          parado.current = true;
+          setMotivo(resposta.mensagem);
+          setStatus('parado');
+        } else {
           falhou.current = true;
           setStatus('offline');
         }
@@ -83,11 +90,11 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
     }
   }, [planId]);
 
-  // Nova edição: "Salvando…" já na renderização (padrão "ajustar estado ao mudar prop"); o conflito não é apagado.
+  // Nova edição: "Salvando…" já na renderização (padrão "ajustar estado ao mudar prop"); o `parado` não é apagado.
   const [vistas, setVistas] = useState(edicoes);
   if (edicoes !== vistas) {
     setVistas(edicoes);
-    if (edicoes > 0) setStatus((s) => (s === 'conflito' ? s : 'salvando'));
+    if (edicoes > 0) setStatus((s) => (s === 'parado' ? s : 'salvando'));
   }
 
   useEffect(() => {
@@ -125,13 +132,13 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
 
   useEffect(() => {
     const avisar = (e: BeforeUnloadEvent) => {
-      if (status !== 'salvo' && status !== 'conflito') e.preventDefault();
+      if (status !== 'salvo' && status !== 'parado') e.preventDefault(); // parado: nada mais será salvo (e "Recarregar" não pergunta)
     };
     window.addEventListener('beforeunload', avisar);
     return () => window.removeEventListener('beforeunload', avisar);
   }, [status]);
 
-  // Link interno quando o envio na saída não garante a edição: conflito (não envia), última tentativa sem sucesso
+  // Link interno quando o envio na saída não garante a edição: parado (não envia), última tentativa sem sucesso
   // (sem rede ou erro de campo: a próxima também falharia) ou PUT em voo com edição esperando. Captura no document,
   // antes do onClick do <Link>: cancelar no confirm impede a navegação.
   useEffect(() => {
@@ -148,5 +155,5 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
     return () => document.removeEventListener('click', aoClicar, true);
   }, []);
 
-  return { status, erros, mensagem: MENSAGEM[status] };
+  return { status, erros, mensagem: status === 'parado' ? motivo : MENSAGEM[status] };
 }

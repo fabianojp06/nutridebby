@@ -4,7 +4,7 @@ import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
 import { logger } from './logger';
 import type { SessionData } from './session';
-import { evaluateSession, type AppRole } from './session-rules';
+import { evaluateSession, MSG_SESSAO_EXPIRADA, type AppRole } from './session-rules';
 
 /** `tenant`: a linha já lida para o RN-15 (null para admin). */
 export type ApiAuth = { ok: true; data: SessionData; tenant: TenantRow | null } | { ok: false; response: Response };
@@ -39,7 +39,7 @@ export async function requireApiUser(req: Request, allowed: readonly AppRole[]):
       return { ok: true, data: data!, tenant };
     case 'login':
     case 'expired':
-      return recusaApi(401, 'Sessão expirada. Entre de novo.');
+      return recusaApi(401, MSG_SESSAO_EXPIRADA);
     case 'suspended':
       return recusaApi(403, 'Conta temporariamente indisponível');
     case 'setup-2fa':
