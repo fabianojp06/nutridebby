@@ -58,8 +58,10 @@ function Plano({ d }: { d: DadosPdfPlano }) {
             <Text>{w(`Proteína: ${gTexto(total.proteinaG)} g · Carboidrato: ${gTexto(total.carboidratoG)} g · Lipídio: ${gTexto(total.lipidioG)} g · Fibra: ${gTexto(total.fibraG)} g`)}</Text>
           </View>
         )}
+        {/* A refeição quebra entre páginas (uma maior que a página seria cortada); o título não fica sozinho no
+            fim da página (minPresenceAhead) e cada linha de item fica inteira (wrap={false} só no item). */}
         {porHorario(plano.refeicoes).map((r) => (
-          <View key={r.id} wrap={false}>
+          <View key={r.id}>
             <Text style={s.refeicao} minPresenceAhead={28}>
               {r.nome} · {r.horario}
               {plano.mostrarCalorias ? w(`  (${kcalTexto(totalDosItens(calculo(r)).kcal)} kcal)`) : ''}
@@ -69,11 +71,11 @@ function Plano({ d }: { d: DadosPdfPlano }) {
               const principal = r.itens.find((x) => x.id === i.substituiItemId);
               const semKcal = n.semValor.includes('kcal');
               const kcal = plano.mostrarCalorias ? w(semKcal ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
-              if (!principal) return <Text key={i.id} style={s.item}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
+              if (!principal) return <Text key={i.id} style={s.item} wrap={false}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
               // sem kcal na TACO (do item ou do principal) não há diferença a mostrar: nada, em vez de um valor enganoso
               const np = nutrientesDoItem(principal.porCem, principal.quantidadeG);
               const dif = plano.mostrarCalorias && !semKcal && !np.semValor.includes('kcal') ? w(` (${diferencaKcal(n.kcal, np.kcal)})`) : '';
-              return <Text key={i.id} style={s.sub}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
+              return <Text key={i.id} style={s.sub} wrap={false}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
             })}
             {r.observacao && <Text style={s.obs}>{r.observacao}</Text>}
           </View>

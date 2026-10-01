@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { textoDoPdf } from '../../../test/pdf';
+import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { patients, storedFiles, tenants } from '@/db/schema';
@@ -21,7 +21,7 @@ import { renderizarPlano } from './plano-pdf';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { pedirNovoPdf, publicarPlano } from './publicacao';
 import { criarRascunho, salvarRascunho } from './rascunho';
-import type { RascunhoEnviado } from './tipos';
+import type { PlanoCompleto, RascunhoEnviado } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -130,6 +130,30 @@ describe('PDF do plano (US-026)', () => {
     expect(texto).toContain('ou Pão, trigo, francês');
     expect(texto).toContain('150 kcal'); // o pão continua com a própria kcal
     expect(texto).not.toMatch(/\([+-]\d+ kcal\)/); // nenhuma diferença (seria "-150" ou "+150": o item sem valor conta 0)
+  });
+
+  it('refeição maior que a página continua na página seguinte: nenhum item ou observação fica de fora', async () => {
+    const itens = Array.from({ length: 60 }, (_, k) => ({
+      id: randomUUID(), foodId: idTaco(1 + k), nome: `Alimento número ${k + 1}`, origem: 'TACO' as const,
+      porCem: { kcal: 100, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, medidas: [],
+      quantidadeG: 100, medida: null, medidaCaseiraTxt: null, substituiItemId: null,
+    }));
+    const plano: PlanoCompleto = {
+      id: randomUUID(), patientId: randomUUID(), isTemplate: false, titulo: 'Plano grande', metaKcal: null, energyCalcId: null, status: 'publicado',
+      versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', pdfStatus: 'pendente', pdfPath: null,
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', itens }],
+    };
+    const avisos = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const pdf = await renderizarPlano({ plano, nutricionista: { nome: 'Debby Silva', crn: null }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null });
+      expect(paginasDoPdf(pdf)).toBeGreaterThanOrEqual(2);
+      const texto = textoDoPdf(pdf);
+      expect(texto).toContain('Alimento número 60');
+      expect(texto).toContain('Observação no fim do almoço');
+      expect(avisos).not.toHaveBeenCalled(); // o react-pdf avisa quando um bloco sem quebra passa da página (e corta)
+    } finally {
+      avisos.mockRestore();
+    }
   });
 
   it('6 refeições e 40 itens: PDF em até 5 s de processamento', async () => {

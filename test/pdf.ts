@@ -16,3 +16,6 @@ export function textoDoPdf(pdf: Buffer): string {
   }
   return texto;
 }
+
+/** Páginas do PDF: os objetos `/Type /Page` (o `/Type /Pages` da árvore não conta). */
+export const paginasDoPdf = (pdf: Buffer): number => pdf.toString('latin1').match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
