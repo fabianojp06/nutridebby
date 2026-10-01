@@ -10,10 +10,11 @@ import type { PlanoCompleto, PlanoDoCliente, StatusPlano } from './tipos';
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
 
 /**
- * Plano inteiro na transação. Rascunho/modelo: valores atuais dos alimentos + medidas para trocar.
+ * Plano inteiro na transação. Rascunho/modelo: valores atuais dos alimentos + medidas para trocar (só se o chamador
+ * for mostrar o editor: `comMedidas: false` na publicação e na exportação, que não as usam).
  * Publicado/arquivado: a cópia congelada na publicação (D10), sem medidas para trocar.
  */
-export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { auditar?: boolean } = {}): Promise<PlanoCompleto | null> {
+export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { auditar?: boolean; comMedidas?: boolean } = {}): Promise<PlanoCompleto | null> {
   if (!idValido(planId)) return null;
   const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId));
   if (!p) return null;
@@ -25,7 +26,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     .where(and(eq(mealItems.planId, p.id)))
     .orderBy(asc(mealItems.ordem));
   const editavel = p.status === 'rascunho';
-  const medidas = editavel ? await medidasDeVarios(tx, its.map((x) => x.i.foodId)) : new Map();
+  const medidas = editavel && opts.comMedidas !== false ? await medidasDeVarios(tx, its.map((x) => x.i.foodId)) : new Map();
   if (opts.auditar !== false && p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId });
   return {
     id: p.id,

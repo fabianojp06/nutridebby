@@ -72,8 +72,8 @@ function Plano({ d }: { d: DadosPdfPlano }) {
               const semKcal = n.semValor.includes('kcal');
               const kcal = plano.mostrarCalorias ? w(semKcal ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
               if (!principal) return <Text key={i.id} style={s.item} wrap={false}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
-              const d = diferencaKcalDoItem(n, nutrientesDoItem(principal.porCem, principal.quantidadeG));
-              const dif = plano.mostrarCalorias && d ? w(` (${d})`) : '';
+              const difKcal = diferencaKcalDoItem(n, nutrientesDoItem(principal.porCem, principal.quantidadeG));
+              const dif = plano.mostrarCalorias && difKcal ? w(` (${difKcal})`) : '';
               return <Text key={i.id} style={s.sub} wrap={false}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
             })}
             {r.observacao && <Text style={s.obs}>{r.observacao}</Text>}

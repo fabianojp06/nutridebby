@@ -5,6 +5,7 @@ import { uniqueViolation } from '@/db/errors';
 import { foodMeasures, foods, type MedidaCaseira } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { decimalEntre } from '@/lib/numero';
+import { idValido } from '@/modules/pacientes/base';
 import { normalizarTexto } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { MSG_MEDIDA } from './medidas-constantes';
@@ -26,8 +27,6 @@ export class MedidaError extends Error {
     super('Medida inválida');
   }
 }
-
-const idValido = (id: unknown): id is string => typeof id === 'string' && z.guid().safeParse(id).success;
 
 type LinhaMedida = { taco_id: string; nome: string; plural: string; gramas: string; referencia_ibge: string };
 

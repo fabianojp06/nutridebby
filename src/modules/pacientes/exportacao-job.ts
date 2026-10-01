@@ -163,7 +163,7 @@ export async function montarDados(
   const ids = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, patientId)).orderBy(asc(mealPlans.versao));
   const planos: DadosExportacao['planos'] = [];
   for (const { id } of ids) {
-    const pl = await lerPlanoNaTransacao(tx, id, { auditar: false }); // a exportação já registra "exportar"
+    const pl = await lerPlanoNaTransacao(tx, id, { auditar: false, comMedidas: false }); // a exportação já registra "exportar"
     if (!pl) continue;
     planos.push({
       versao: pl.versao,

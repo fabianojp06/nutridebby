@@ -39,7 +39,7 @@ export async function publicarPlano(ctx: TenantContext, planId: string, deps: De
       const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
       if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
       if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
-      const completo = (await lerPlanoNaTransacao(tx, planId, { auditar: false }))!;
+      const completo = (await lerPlanoNaTransacao(tx, planId, { auditar: false, comMedidas: false }))!;
       exigirPublicavel(completo);
 
       await tx

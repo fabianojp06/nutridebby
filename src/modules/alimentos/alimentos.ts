@@ -5,6 +5,7 @@ import { fkViolation } from '@/db/errors';
 import { foods } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { decimalEntre } from '@/lib/numero';
+import { idValido } from '@/modules/pacientes/base';
 import { normalizarTexto } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { GRAMAS_MAX, KCAL_MAX, MSG_ALIMENTO } from './alimentos-constantes';
@@ -30,7 +31,6 @@ export class AlimentoError extends Error {
   }
 }
 
-const idValido = (id: unknown): id is string => typeof id === 'string' && z.guid().safeParse(id).success;
 const gramas = decimalEntre(MSG_ALIMENTO.valores, 0, GRAMAS_MAX);
 const schema = z.object({
   nome: z.unknown().transform(normalizarTexto).pipe(z.string().min(2, MSG_ALIMENTO.nome).max(120, MSG_ALIMENTO.nome)),

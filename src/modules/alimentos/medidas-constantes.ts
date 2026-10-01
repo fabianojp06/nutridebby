@@ -5,7 +5,6 @@ export const MSG_MEDIDA = {
   gramas: 'Gramas da medida devem estar entre 0,1 e 5000',
   duplicada: 'Você já tem uma medida com esse nome para este alimento.',
   alimento: 'Alimento não encontrado.',
-  qtd: 'Informe a quantidade da medida (ex.: 2 ou 1,5)',
 } as const;
 
 /** Quantidade de medidas aceita num item (ex.: 4 colheres). */
