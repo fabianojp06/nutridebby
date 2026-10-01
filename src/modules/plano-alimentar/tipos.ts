@@ -36,9 +36,13 @@ export type PlanoCompleto = {
   mostrarCalorias: boolean;
   orientacoes: string;
   pdfStatus: 'pendente' | 'pronto' | 'falhou' | null;
+  /** Caminho interno do arquivo: só no servidor (download por signFileUrl); nunca vai ao cliente (`PlanoDoCliente`). */
   pdfPath: string | null;
   refeicoes: RefeicaoPlano[];
 };
+
+/** O que o editor (cliente) e o JSON da API recebem: sem o caminho interno do PDF (`paraCliente`, carregar.ts). */
+export type PlanoDoCliente = Omit<PlanoCompleto, 'pdfPath'> & { pdfPath?: never };
 
 /** Corpo do PUT do salvamento automático (D7). Quantidade e meta vão como texto digitado. */
 export type RascunhoEnviado = {

@@ -1,7 +1,7 @@
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { requireApiNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
-import { carregarPlano } from '@/modules/plano-alimentar/carregar';
+import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from '@/modules/plano-alimentar/erros';
 import { salvarRascunho } from '@/modules/plano-alimentar/rascunho';
@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: RouteContext<'/api/painel/pl
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return acesso.response;
   const plano = await carregarPlano(acesso.ctx, (await params).id);
-  return plano ? json(200, plano) : json(404, { erro: new PlanoNaoEncontradoError().message });
+  return plano ? json(200, paraCliente(plano)) : json(404, { erro: new PlanoNaoEncontradoError().message });
 }
 
 /** US-022 "Salvamento automático" (D7). */

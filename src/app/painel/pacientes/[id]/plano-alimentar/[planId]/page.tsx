@@ -4,7 +4,7 @@ import { EditorPlano } from '@/app/painel/planos/editor/editor-plano';
 import { salvarComoModeloAction } from '@/app/painel/planos/modelos/actions';
 import { SalvarComoModelo } from '@/app/painel/planos/salvar-como-modelo';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
-import { carregarPlano } from '@/modules/plano-alimentar/carregar';
+import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
@@ -27,7 +27,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
       <h2 className="text-xl font-semibold">Plano alimentar — versão {plano.versao}</h2>
       {publicado === '1' && plano.status === 'publicado' && <p role="status" className="rounded bg-emerald-50 p-3">Plano publicado.</p>}
       <EditorPlano
-        plano={plano}
+        plano={paraCliente(plano)}
         contexto={contexto}
         somenteLeitura={!rascunho}
         acoes={

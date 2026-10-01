@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
-import { carregarPlano } from '@/modules/plano-alimentar/carregar';
+import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { Cabecalho } from '../../../cabecalho';
 import { EditorPlano } from '../../editor/editor-plano';
 import { excluirModeloAction } from '../actions';
@@ -21,7 +21,7 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
         <Link href="/painel/planos/modelos" className="text-sm underline">Voltar aos modelos</Link>
         <h1 className="text-2xl font-semibold">Modelo: {modelo.titulo}</h1>
         <EditorPlano
-          plano={modelo}
+          plano={paraCliente(modelo)}
           contexto={null}
           acoes={
             <form action={excluirModeloAction.bind(null, modelo.id)}>

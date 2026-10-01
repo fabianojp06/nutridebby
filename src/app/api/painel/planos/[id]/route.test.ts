@@ -46,6 +46,17 @@ describe('PUT /api/painel/planos/[id] (US-022 "Salvamento automático", D7)', ()
     expect((await get(id, B.cookie)).status).toBe(404);
   });
 
+  it('GET não manda o caminho interno do arquivo do PDF ao cliente (só o status)', async () => {
+    const A = await nutriComDpa(db, auth);
+    const p = await novoPaciente(db, A.ctx);
+    const { id } = await criarRascunho(A.ctx, p.id, { db });
+    const r = await get(id, A.cookie);
+    expect(r.status).toBe(200);
+    const corpo = await r.json();
+    expect(corpo).toHaveProperty('pdfStatus');
+    expect(corpo).not.toHaveProperty('pdfPath');
+  });
+
   it('corpo que não é JSON é 422; corpo acima de 512 KB é 413', async () => {
     const A = await nutriComDpa(db, auth);
     const p = await novoPaciente(db, A.ctx);

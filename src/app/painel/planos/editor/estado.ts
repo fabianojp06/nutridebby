@@ -3,7 +3,7 @@ import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import type { ItemPlano, PlanoCompleto, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
+import type { ItemPlano, PlanoDoCliente, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
 export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCaseiraTxt'> & {
@@ -37,7 +37,7 @@ export const podeAdicionarItem = (e: EstadoEditor): boolean => totalDeItens(e) <
 
 const numTexto = (n: number) => formatarDecimal(n, casasDecimais(n));
 
-export function estadoInicial(p: PlanoCompleto): EstadoEditor {
+export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
   return {
     titulo: p.titulo,
     metaTexto: p.metaKcal === null ? '' : String(p.metaKcal),

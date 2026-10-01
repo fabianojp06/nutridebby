@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { totalDoDia } from '@/modules/plano-alimentar/calculo';
-import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
+import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
 
-const plano: PlanoCompleto = {
+const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
-  publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null, pdfPath: null, refeicoes: [],
+  publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null, refeicoes: [],
 };
 const arroz: AlimentoEncontrado = {
   id: 'f-arroz', nome: 'Arroz, tipo 1, cozido', grupo: 'Cereais e derivados', origem: 'TACO',

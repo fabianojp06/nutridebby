@@ -7,14 +7,14 @@ import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
-import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
+import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
 
-type Props = { plano: PlanoCompleto; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode };
+type Props = { plano: PlanoDoCliente; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode };
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
 

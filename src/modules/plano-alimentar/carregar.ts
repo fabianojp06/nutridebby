@@ -5,7 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
-import type { PlanoCompleto, StatusPlano } from './tipos';
+import type { PlanoCompleto, PlanoDoCliente, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
 
@@ -67,6 +67,13 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
         }),
     })),
   };
+}
+
+/** Plano para o cliente (props do editor, JSON da API): sem o caminho interno do arquivo do PDF. */
+export function paraCliente(p: PlanoCompleto): PlanoDoCliente {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { pdfPath, ...resto } = p;
+  return resto;
 }
 
 /** Leitura auditada (RNF-08) de um plano do tenant; modelo não tem paciente e não gera leitura auditada. */
