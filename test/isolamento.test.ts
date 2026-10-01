@@ -47,11 +47,20 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   food_measures: (t) =>
     sql`insert into food_measures (tenant_id, food_id, nome, plural, gramas)
         values (${t}, '00000000-0000-4000-8000-000000000003', ${`Iso ${randomUUID().slice(0, 8)}`}, 'Isos', 10)`,
+  meal_plans: (t, p) => sql`insert into meal_plans (tenant_id, patient_id, titulo, status) values (${t}, ${p}, 'Iso', 'publicado')`,
+  meals: (t, p) =>
+    sql`with pl as (insert into meal_plans (tenant_id, patient_id, titulo, status) values (${t}, ${p}, 'Iso', 'arquivado') returning id)
+        insert into meals (id, tenant_id, patient_id, plan_id, nome, ordem) select gen_random_uuid(), ${t}, ${p}, pl.id, 'Café', 0 from pl`,
+  meal_items: (t, p) =>
+    sql`with pl as (insert into meal_plans (tenant_id, patient_id, titulo, status) values (${t}, ${p}, 'Iso', 'arquivado') returning id),
+             ml as (insert into meals (id, tenant_id, patient_id, plan_id, nome, ordem) select gen_random_uuid(), ${t}, ${p}, pl.id, 'Café', 0 from pl returning id, plan_id)
+        insert into meal_items (id, tenant_id, patient_id, plan_id, meal_id, food_id, quantidade_g, ordem)
+        select gen_random_uuid(), ${t}, ${p}, ml.plan_id, ml.id, '00000000-0000-4000-8000-000000000003', 100, 0 from ml`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);
 /** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`). */
-const ULTIMAS = ['anamnesis_templates', 'foods', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'anamnesis_templates', 'foods', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));

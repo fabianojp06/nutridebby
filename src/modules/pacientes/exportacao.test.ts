@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,8 @@ import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
+import { idTaco } from '@/modules/alimentos/taco';
+import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -131,6 +134,11 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
 
   it('o job gera o ZIP com dados.json e prontuario.pdf — sem notas privadas nem etiquetas — e manda o link de 24 h por e-mail', async () => {
     const { T, p } = await prontuarioCompleto();
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, { db: app.db });
     const id = await solicitarExportacao(T.ctx, p.id, deps);
     expect(
       await gerarExportacao(
@@ -169,6 +177,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia' },
     ]);
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
+    expect(dados.planos).toEqual([
+      { versao: 1, status: 'rascunho', titulo: 'Plano alimentar', publicadoEm: null, metaKcal: null, orientacoes: '',
+        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
+    ]);
     expect(json).not.toContain(NOTA); // US-016
     expect(json).not.toContain('etiqueta-secreta'); // US-019
     const [nutri] = await app.db.select().from(user).where(eq(user.id, T.nutriId));
@@ -567,6 +579,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         gastoEnergetico: [],
         exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores }],
         atendimentos: [],
+        planos: [],
         pedidosLgpd: [],
         laudosForaDoZip: false,
       },
@@ -657,6 +670,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           },
         ],
         atendimentos: [],
+        planos: [],
         pedidosLgpd: [
           {
             tipo: 'exportacao',
