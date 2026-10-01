@@ -20,6 +20,8 @@ export const QUEUES = {
   'expirar-exportacao': { retryLimit: 3, retryDelay: 300, expireInSeconds: 120 },
   /** US-026: PDF do plano gerado pelo worker na publicação (≤ 30 s). Payload { tenantId, planId }. */
   'plano-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 03 (c): .tmp órfãos de salvarArquivo (queda no meio da gravação), todo dia às 04h
+  'limpar-tmp': { retryLimit: 1, retryDelay: 600, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

@@ -5,7 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from '@/modules/plano-alimentar/erros';
-import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
+import { editarPublicado, pedirNovoPdf, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, descartarRascunho } from '@/modules/plano-alimentar/rascunho';
 
 export type AcaoPlanoState = { erro?: string };
@@ -63,4 +63,17 @@ export async function editarPublicadoAction(patientId: string, planId: string): 
     throw e;
   }
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${id}`);
+}
+
+/** US-026 "Gerar o PDF de novo": só de 'falhou'; volta a pendente e o worker gera outra vez. */
+export async function pedirNovoPdfAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
+  const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
+  try {
+    await pedirNovoPdf(ctx, planId);
+  } catch (e) {
+    if (e instanceof PlanoNaoEncontradoError) return { erro: 'O PDF já está sendo preparado.' };
+    throw e;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
+  return {};
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
@@ -178,4 +178,26 @@ export async function apagarArquivo(
     );
   }
   return true;
+}
+
+/** Plano 03 (c): `salvarArquivo` grava `<destino>.<pid>.tmp` antes da transação; uma queda deixa o .tmp. */
+export async function limparTmpOrfaos(dataDir: string, agora: Date, idadeMinMs = 24 * 3600_000): Promise<number> {
+  let apagados = 0;
+  for (const tenant of await readdir(dataDir, { withFileTypes: true }).catch(() => [])) {
+    if (!tenant.isDirectory()) continue;
+    for (const tipo of await readdir(path.join(dataDir, tenant.name), { withFileTypes: true })) {
+      if (!tipo.isDirectory()) continue;
+      const pasta = path.join(dataDir, tenant.name, tipo.name);
+      for (const f of await readdir(pasta)) {
+        if (!/\.\d+\.tmp$/.test(f)) continue;
+        const caminho = path.join(pasta, f);
+        // um .tmp que acabou de virar o arquivo final (rename) some entre o readdir e o stat: não é órfão
+        const info = await stat(caminho).catch(() => null);
+        if (!info || agora.getTime() - info.mtimeMs < idadeMinMs) continue;
+        await rm(caminho, { force: true });
+        apagados++;
+      }
+    }
+  }
+  return apagados;
 }

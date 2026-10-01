@@ -107,3 +107,22 @@ export async function editarPublicado(ctx: TenantContext, planId: string, deps: 
     deps.db ?? getDb(),
   );
 }
+
+/** "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação. */
+export async function pedirNovoPdf(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<void> {
+  if (!idValido(planId)) throw new PlanoNaoEncontradoError();
+  const boss = deps.boss ?? (await getBoss());
+  await withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx
+        .update(mealPlans)
+        .set({ pdfStatus: 'pendente', updatedAt: deps.now ?? new Date() })
+        .where(and(eq(mealPlans.id, planId), eq(mealPlans.pdfStatus, 'falhou')))
+        .returning({ id: mealPlans.id });
+      if (!r.length) throw new PlanoNaoEncontradoError();
+      await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
+    },
+    deps.db ?? getDb(),
+  );
+}

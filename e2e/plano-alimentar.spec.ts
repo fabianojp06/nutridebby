@@ -441,3 +441,13 @@ test('publicar v1, editar cria v2 com a v1 ainda publicada, publicar v2 arquiva 
   await expect(nutri.getByRole('button', { name: 'Criar plano' })).toHaveCount(0);
   editor = (await nutri.getByRole('link', { name: 'Versão 2' }).getAttribute('href'))!; // a v2 publicada (a Tarefa 11 usa)
 });
+
+test('PDF gerado pelo worker na publicação e baixado pelo painel (US-026)', async () => {
+  await nutri.goto(editor); // v2 publicada na Tarefa 10
+  await expect(nutri.getByRole('link', { name: 'Baixar PDF' })).toBeVisible({ timeout: 30_000 }); // ≤ 30 s
+  const href = await nutri.getByRole('link', { name: 'Baixar PDF' }).getAttribute('href');
+  const r = await nutri.request.get(href!);
+  expect(r.status()).toBe(200);
+  expect(r.headers()['content-type']).toBe('application/pdf');
+  expect((await r.body()).subarray(0, 5).toString()).toBe('%PDF-');
+});

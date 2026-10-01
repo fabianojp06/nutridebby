@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inflateSync } from 'node:zlib';
 import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
@@ -48,23 +48,6 @@ afterAll(async () => {
 });
 
 const NOTA = 'suspeita de compulsão';
-
-/** Texto do PDF do @react-pdf (streams Flate, strings hex em WinAnsi): o suficiente para conferir o conteúdo. */
-function textoDoPdf(pdf: Buffer): string {
-  let texto = '';
-  for (const m of pdf.toString('latin1').matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
-    let conteudo: string;
-    try {
-      conteudo = inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
-    } catch {
-      continue;
-    }
-    for (const h of conteudo.matchAll(/<([0-9a-fA-F]+)>/g))
-      texto += Buffer.from(h[1], 'hex').toString('latin1');
-    texto += '\n';
-  }
-  return texto;
-}
 
 async function prontuarioCompleto() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -702,14 +685,14 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
-  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job ou @react-pdf', () => {
+  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job, plano-pdf ou @react-pdf', () => {
     const arquivos = readdirSync(path.resolve('src/app'), {
       recursive: true,
       withFileTypes: true,
     }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name));
     for (const d of arquivos)
       expect(readFileSync(path.join(d.parentPath, d.name), 'utf8'), d.name).not.toMatch(
-        /exportacao-job|@react-pdf|prontuario-pdf/,
+        /exportacao-job|@react-pdf|prontuario-pdf|plano-pdf/,
       );
   });
 });

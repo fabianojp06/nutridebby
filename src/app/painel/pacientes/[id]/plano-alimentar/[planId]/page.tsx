@@ -9,6 +9,7 @@ import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
 import { BotaoAcao } from '../botao-acao';
+import { PdfDoPlano } from './pdf-do-plano';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
               <BotaoAcao acao={publicarAction.bind(null, paciente.id, plano.id)} rotulo="Publicar" confirmar="Publicar esta versão para o paciente? A versão publicada hoje será arquivada." exigirSalvo />
             )}
             {plano.status === 'publicado' && <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, plano.id)} rotulo="Editar" principal={false} />}
+            {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} />}
             <SalvarComoModelo acao={salvarComoModeloAction.bind(null, plano.id)} tituloSugerido={plano.titulo} />
             {rascunho && (
               <form action={descartarRascunhoAction.bind(null, paciente.id, plano.id)}>

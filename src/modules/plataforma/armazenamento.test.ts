@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -12,6 +13,7 @@ import {
   apagarArquivo,
   COTA_BYTES,
   CotaEsgotadaError,
+  limparTmpOrfaos,
   nivelDeUso,
   resolverCaminho,
   salvarArquivo,
@@ -153,5 +155,26 @@ describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
     expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.id, a.id)), app.db)).toHaveLength(1);
     rmSync(alvo, { recursive: true });
     expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, removerAntesDoCommit: true })).toBe(true); // ENOENT com force: segue
+  });
+});
+
+describe('.tmp órfãos (item adiado do Plano 03)', () => {
+  it('limparTmpOrfaos apaga só .tmp de salvarArquivo com mais de 24 h (queda no meio da gravação)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'tmp-orfaos-'));
+    const pasta = path.join(dir, '00000000-0000-4000-8000-000000000001', 'exame');
+    mkdirSync(pasta, { recursive: true });
+    const velho = path.join(pasta, 'a.pdf.123.tmp');
+    const novo = path.join(pasta, 'b.pdf.456.tmp');
+    const normal = path.join(pasta, 'c.pdf');
+    for (const f of [velho, novo, normal]) writeFileSync(f, 'x');
+    const agora = new Date('2026-10-02T12:00:00Z');
+    await utimes(velho, new Date('2026-10-01T10:00:00Z'), new Date('2026-10-01T10:00:00Z'));
+    await utimes(novo, new Date('2026-10-02T11:00:00Z'), new Date('2026-10-02T11:00:00Z'));
+    await utimes(normal, new Date('2026-09-01T10:00:00Z'), new Date('2026-09-01T10:00:00Z'));
+    expect(await limparTmpOrfaos(dir, agora)).toBe(1);
+    expect(existsSync(velho)).toBe(false);
+    expect(existsSync(novo)).toBe(true);
+    expect(existsSync(normal)).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
