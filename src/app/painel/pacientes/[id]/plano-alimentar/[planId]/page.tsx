@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { EditorPlano } from '@/app/painel/planos/editor/editor-plano';
 import { salvarComoModeloAction } from '@/app/painel/planos/modelos/actions';
 import { SalvarComoModelo } from '@/app/painel/planos/salvar-como-modelo';
-import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { carregarProntuario } from '../../prontuario';
@@ -39,9 +38,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
             {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} />}
             <SalvarComoModelo acao={salvarComoModeloAction.bind(null, plano.id)} tituloSugerido={plano.titulo} />
             {rascunho && (
-              <form action={descartarRascunhoAction.bind(null, paciente.id, plano.id)}>
-                <ConfirmarBotao mensagem="Descartar este rascunho?">Descartar rascunho</ConfirmarBotao>
-              </form>
+              <BotaoAcao acao={descartarRascunhoAction.bind(null, paciente.id, plano.id)} rotulo="Descartar rascunho" confirmar="Descartar este rascunho?" principal={false} />
             )}
           </div>
         }

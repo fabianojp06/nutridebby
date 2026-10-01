@@ -266,14 +266,18 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   if (subs.length) await tx.insert(mealItems).values(subs);
 }
 
-export async function descartarRascunho(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<void> {
-  if (!idValido(planId)) throw new PlanoNaoEncontradoError();
+/** "Descartar rascunho": só o rascunho do paciente da URL (plano de outro paciente → não encontrado); paciente bloqueado não descarta. */
+export async function descartarRascunho(ctx: TenantContext, patientId: string, planId: string, deps: Deps = {}): Promise<void> {
+  if (!idValido(planId) || !idValido(patientId)) throw new PlanoNaoEncontradoError();
   await withTenant(
     ctx,
     async (tx) => {
-      const [p] = await tx.select().from(mealPlans).where(and(eq(mealPlans.id, planId), eq(mealPlans.status, 'rascunho'), eq(mealPlans.isTemplate, false)));
+      const [p] = await tx
+        .select({ id: mealPlans.id })
+        .from(mealPlans)
+        .where(and(eq(mealPlans.id, planId), eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'rascunho'), eq(mealPlans.isTemplate, false)));
       if (!p) throw new PlanoNaoEncontradoError();
-      await carregarPacienteParaEscrita(tx, p.patientId!);
+      await carregarPacienteParaEscrita(tx, patientId);
       await tx.delete(mealPlans).where(and(eq(mealPlans.id, planId), eq(mealPlans.status, 'rascunho')));
     },
     deps.db ?? getDb(),

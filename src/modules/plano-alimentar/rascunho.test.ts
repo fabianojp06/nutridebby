@@ -278,8 +278,19 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), app.db);
     await expect(salvarRascunho(A.ctx, id, conteudo(0), deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
     await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'ativo' }).where(eq(patients.id, p.id)), app.db);
-    await descartarRascunho(A.ctx, id, deps);
+    await descartarRascunho(A.ctx, p.id, id, deps);
     expect(await carregarPlano(A.ctx, id, app.db)).toBeNull();
+  });
+
+  it('descartar confere o paciente da URL: plano de outro paciente não é apagado; paciente bloqueado não descarta', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await comRascunho(T);
+    const outro = await novoPaciente(app.db, T.ctx);
+    await expect(descartarRascunho(T.ctx, outro.id, id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
+    expect(await carregarPlano(T.ctx, id, app.db)).not.toBeNull();
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), app.db);
+    await expect(descartarRascunho(T.ctx, p.id, id, deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    expect(await carregarPlano(T.ctx, id, app.db)).not.toBeNull();
   });
 
   it('carregar plano de paciente registra leitura auditada (RNF-08)', async () => {

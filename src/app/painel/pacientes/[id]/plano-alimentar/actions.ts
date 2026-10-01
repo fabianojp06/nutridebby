@@ -24,12 +24,15 @@ export async function criarRascunhoAction(patientId: string): Promise<AcaoPlanoS
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${id}`);
 }
 
-export async function descartarRascunhoAction(patientId: string, planId: string): Promise<void> {
+/** "Descartar rascunho" (com `useActionState`): paciente bloqueado mostra o motivo e o rascunho fica. */
+export async function descartarRascunhoAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar`);
   try {
-    await descartarRascunho(ctx, planId);
+    await descartarRascunho(ctx, patientId, planId);
   } catch (e) {
-    if (!(e instanceof PlanoNaoEncontradoError || e instanceof PacienteBloqueadoError)) throw e;
+    if (e instanceof PacienteBloqueadoError) return { erro: e.message };
+    // já descartado (outra aba) ou plano que não é deste paciente: nada a apagar, volta à lista de versões
+    if (!(e instanceof PlanoNaoEncontradoError)) throw e;
   }
   revalidatePath(`/painel/pacientes/${patientId}/plano-alimentar`);
   redirect(`/painel/pacientes/${patientId}/plano-alimentar`);
