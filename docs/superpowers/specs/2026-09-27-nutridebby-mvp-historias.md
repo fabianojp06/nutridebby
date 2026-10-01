@@ -574,7 +574,7 @@ Na tela Alimentos (Plano 04) o botão de cadastro é "Cadastrar meu alimento". A
 |---|---|---|
 | `nome` | 2–120 caracteres | "Informe o nome do alimento (2 a 120 caracteres)" |
 | `grupo` | um dos grupos da TACO | "Escolha o grupo do alimento" |
-| energia, proteína, carboidrato, lipídio e fibra (por 100 g) | energia de 0 a 900 kcal; os demais de 0 a 100 g; nenhum em branco | "Valores por 100 g: informe números entre 0 e 900" |
+| energia, proteína, carboidrato, lipídio e fibra (por 100 g) | energia de 0 a 900 kcal; os demais de 0 a 100 g; nenhum em branco | "Valores por 100 g: energia entre 0 e 900 kcal; os demais entre 0 e 100 g" |
 
 ```gherkin
 Cenário: Alimento da TACO não pode ser alterado (Plano 04)
