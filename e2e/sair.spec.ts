@@ -53,6 +53,22 @@ test('"Sair" também em "Segurança da conta", no aceite do DPA e em "Conta temp
   await page.context().close();
 });
 
+test('as páginas de alimentos também mostram o menu do painel com "Sair" (lista, novo e a página de um alimento)', async ({ browser }) => {
+  const page = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.7.3');
+  await expect(page).toHaveURL(/\/painel$/);
+  const menu = page.getByRole('navigation', { name: 'Menu do painel' });
+  const CHUCHU = '/painel/alimentos/00000000-0000-4000-8000-000000000112'; // TACO: "Chuchu, cozido"
+  for (const rota of ['/painel/alimentos', '/painel/alimentos/novo', CHUCHU]) {
+    await page.goto(rota);
+    await expect(menu, rota).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Alimentos', exact: true }), rota).toBeVisible();
+    await expect(menu.getByRole('button', { name: 'Sair', exact: true }), rota).toBeVisible();
+  }
+  await menu.getByRole('button', { name: 'Sair', exact: true }).click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  await page.context().close();
+});
+
 test('páginas públicas não têm o botão "Sair"', async ({ page }) => {
   for (const rota of ['/entrar', '/esqueci-senha', '/definir-senha?token=token-invalido', '/convite/token-invalido']) {
     await page.goto(rota);

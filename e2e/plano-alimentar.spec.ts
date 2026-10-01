@@ -110,6 +110,7 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await expect(nutri.getByText('Sem valor na TACO').first()).toBeVisible();
   await nutri.getByRole('button', { name: 'Duplicar como meu alimento' }).click();
   await expect(nutri).toHaveURL(/\/painel\/alimentos\/[0-9a-f-]{36}\/editar\?incompleto=1$/);
+  await expect(nutri.getByRole('navigation', { name: 'Menu do painel' }).getByRole('button', { name: 'Sair', exact: true })).toBeVisible(); // menu do painel também na edição
   await expect(nutri.getByRole('status')).toHaveText('A TACO não tem todos os valores deste alimento: confira os campos com 0.');
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Leite e derivados'); // veio da cópia
   await nutri.getByLabel('Nome').fill(`Leite da casa ${sufixo}`);
