@@ -1,6 +1,6 @@
 import { getDb, type Db } from '@/db/client';
 import type { TenantContext } from '@/db/tenant';
-import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { kcal } from '@/modules/pacientes/formulas';
 import { listarCalculos, medidasRecentes } from '@/modules/pacientes/gasto-energetico';
 
@@ -16,7 +16,7 @@ export async function contextoDoPaciente(ctx: TenantContext, patientId: string, 
     calculos: calculos.map((c) => ({
       id: c.id,
       kcal: kcal(c.get),
-      rotulo: `${NOME_FORMULA[c.formula] ?? c.formula} · ${formatarData(hojeNoFuso(fuso, c.createdAt))} · ${kcal(c.get)} kcal`, // data no fuso do tenant (RN-06)
+      rotulo: `${NOME_FORMULA[c.formula] ?? c.formula} · ${formatarDataNoFuso(c.createdAt, fuso)} · ${kcal(c.get)} kcal`, // data no fuso do tenant (RN-06)
     })),
   };
 }

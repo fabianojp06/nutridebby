@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataValida, formatarData, hojeNoFuso, idadeEm, somarAnos, somarDias } from './datas';
+import { dataValida, formatarData, formatarDataNoFuso, hojeNoFuso, idadeEm, somarAnos, somarDias } from './datas';
 
 describe('datas do paciente (RN-06, RN-14, RN-17)', () => {
   it('dataValida aceita só AAAA-MM-DD que existe no calendário', () => {
@@ -20,6 +20,11 @@ describe('datas do paciente (RN-06, RN-14, RN-17)', () => {
   });
   it('formatarData exibe dd/mm/aaaa (RNF-12)', () => {
     expect(formatarData('2026-09-01')).toBe('01/09/2026');
+  });
+  it('formatarDataNoFuso: instante (Date ou ISO) vira o dia do tenant, não o dia UTC (RN-06)', () => {
+    expect(formatarDataNoFuso('2026-10-02T01:00:00.000Z', 'America/Sao_Paulo')).toBe('01/10/2026');
+    expect(formatarDataNoFuso(new Date('2026-10-02T03:00:00Z'), 'America/Sao_Paulo')).toBe('02/10/2026');
+    expect(formatarDataNoFuso('2026-10-02T01:00:00.000Z', 'UTC')).toBe('02/10/2026');
   });
 });
 

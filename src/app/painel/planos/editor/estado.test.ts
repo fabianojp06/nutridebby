@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { totalDoDia } from '@/modules/plano-alimentar/calculo';
 import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
-import { estadoInicial, gramasDoItem, paraEnvio, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
+import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
+import { errosSemCampo, estadoInicial, gramasDoItem, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
 
 const plano: PlanoCompleto = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
@@ -61,5 +62,46 @@ describe('estado do editor (US-022)', () => {
     expect(paraEnvio(e, 0)).toMatchObject({ metaKcal: '2008', energyCalcId: 'calc' });
     e = reduzir(e, { tipo: 'meta', valor: '1900' });
     expect(paraEnvio(e, 0)).toMatchObject({ metaKcal: '1900', energyCalcId: null });
+  });
+
+  it('"Limites do plano": a 16ª refeição e o 201º item (principal ou substituição) não entram (RN/US-022)', () => {
+    let e = estadoInicial(plano);
+    for (let k = 0; k < MAX_REFEICOES; k++) e = reduzir(e, { tipo: 'novaRefeicao', id: `r${k}` });
+    expect(e.refeicoes).toHaveLength(MAX_REFEICOES);
+    expect(podeAdicionarRefeicao(e)).toBe(false);
+    expect(reduzir(e, { tipo: 'novaRefeicao', id: 'r-extra' })).toBe(e); // mesmo objeto: nada mudou, não conta como edição
+
+    for (let k = 0; k < MAX_ITENS; k++) e = reduzir(e, { tipo: 'adicionarItem', refeicaoId: `r${k % 2}`, id: `i${k}`, alimento: proprio });
+    expect(e.refeicoes.reduce((n, r) => n + r.itens.length, 0)).toBe(MAX_ITENS);
+    expect(podeAdicionarItem(e)).toBe(false);
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r0', id: 'i-extra', alimento: proprio })).toBe(e);
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r0', id: 's-extra', alimento: proprio, substituiItemId: 'i0' })).toBe(e);
+
+    e = reduzir(e, { tipo: 'removerItem', itemId: 'i0' }); // liberou uma vaga
+    expect(podeAdicionarItem(e)).toBe(true);
+    e = reduzir(e, { tipo: 'removerRefeicao', id: 'r3' });
+    expect(podeAdicionarRefeicao(e)).toBe(true);
+  });
+
+  it('erro do servidor sem campo na tela (geral, substituição, id que sumiu) vai para o aviso do topo, sem repetir mensagem', () => {
+    const e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: proprio });
+    expect(
+      errosSemCampo(e, {
+        titulo: 'Informe o título',
+        metaKcal: 'Meta inválida',
+        orientacoes: 'Texto longo',
+        'refeicao:r1:nome': 'Nome',
+        'refeicao:r1:horario': 'Horário',
+        'refeicao:r1:observacao': 'Texto longo',
+        'item:i1:quantidadeG': 'Quantidade',
+        'item:i1:medida': 'Quantidade',
+        'item:i1:foodId': 'Alimento',
+      }),
+    ).toEqual([]);
+    expect(errosSemCampo(e, { geral: 'O plano pode ter até 15 refeições e 200 itens.', 'item:i1:substituiItemId': 'Substituição', 'item:sumiu:quantidadeG': 'Substituição', 'refeicao:sumiu:nome': 'Nome' })).toEqual([
+      'O plano pode ter até 15 refeições e 200 itens.',
+      'Substituição',
+      'Nome',
+    ]);
   });
 });

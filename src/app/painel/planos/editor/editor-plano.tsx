@@ -5,11 +5,11 @@ import { useMemo, useReducer, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { diferencaKcal, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
-import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
+import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
-import { estadoInicial, gramasDoItem, paraEnvio, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
+import { errosSemCampo, estadoInicial, gramasDoItem, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
 import { useSalvamento } from './use-salvamento';
 
@@ -20,7 +20,10 @@ const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no rend
 export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: Props) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
-    (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => ({ estado: reduzir(s.estado, a), edicoes: s.edicoes + 1 }),
+    (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
+      const novo = reduzir(s.estado, a);
+      return novo === s.estado ? s : { estado: novo, edicoes: s.edicoes + 1 }; // ação recusada (limite do plano) não é edição
+    },
     plano,
     (p) => ({ estado: estadoInicial(p), edicoes: 0 }),
   );
@@ -32,6 +35,9 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
   })();
   const erro = (chave: string) => salvamento.erros[chave];
   const comPaciente = plano.patientId !== null;
+  const avisos = errosSemCampo(estado, salvamento.erros);
+  const podeRefeicao = podeAdicionarRefeicao(estado);
+  const podeItem = podeAdicionarItem(estado);
 
   return (
     <div className="space-y-6">
@@ -44,6 +50,9 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
         </p>
         {acoes}
       </div>
+      {avisos.map((m) => (
+        <p key={m} role="alert" className="text-sm text-red-700">{m}</p>
+      ))}
 
       <fieldset disabled={somenteLeitura} className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1 sm:col-span-2">
@@ -84,23 +93,26 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
       <PainelTotais total={total} meta={meta} pesoKg={contexto?.pesoKg ?? null} mostrarGkg={comPaciente} />
 
       {estado.refeicoes.map((r, k) => (
-        <Refeicao key={r.id} r={r} k={k} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} />
+        <Refeicao key={r.id} r={r} k={k} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} />
       ))}
 
       {!somenteLeitura && (
-        <button type="button" onClick={() => despachar({ tipo: 'novaRefeicao', id: novoId() })} className="rounded border px-4 py-2">Adicionar refeição</button>
+        <div className="space-y-1">
+          <button type="button" disabled={!podeRefeicao} aria-describedby={podeRefeicao ? undefined : 'limite-refeicoes'} onClick={() => despachar({ tipo: 'novaRefeicao', id: novoId() })} className="rounded border px-4 py-2 disabled:opacity-50">Adicionar refeição</button>
+          {!podeRefeicao && <p id="limite-refeicoes" className="text-sm text-zinc-600">{MSG_PLANO.limite}</p>}
+        </div>
       )}
 
       <div className="space-y-1">
         <label htmlFor="orientacoes" className="block font-medium">Orientações gerais</label>
-        <textarea id="orientacoes" rows={4} disabled={somenteLeitura} value={estado.orientacoes} onChange={(e) => despachar({ tipo: 'orientacoes', valor: e.target.value })} className="w-full rounded border p-2" />
-        {erro('orientacoes') && <p role="alert" className="text-sm text-red-700">{erro('orientacoes')}</p>}
+        <textarea id="orientacoes" rows={4} maxLength={MAX_TEXTO} disabled={somenteLeitura} value={estado.orientacoes} onChange={(e) => despachar({ tipo: 'orientacoes', valor: e.target.value })} aria-invalid={erro('orientacoes') ? true : undefined} aria-describedby={erro('orientacoes') ? 'orientacoes-erro' : undefined} className="w-full rounded border p-2" />
+        {erro('orientacoes') && <p id="orientacoes-erro" role="alert" className="text-sm text-red-700">{erro('orientacoes')}</p>}
       </div>
     </div>
   );
 }
 
-function Refeicao({ r, k, despachar, somenteLeitura, erro }: { r: RefeicaoEstado; k: number; despachar: (a: Acao) => void; somenteLeitura: boolean; erro: (c: string) => string | undefined }) {
+function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: { r: RefeicaoEstado; k: number; despachar: (a: Acao) => void; somenteLeitura: boolean; erro: (c: string) => string | undefined; podeAdicionarItem: boolean }) {
   const totalRefeicao = totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
   const chave = `refeicao:${r.id}`;
   return (
@@ -126,13 +138,17 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro }: { r: RefeicaoEstado
         ))}
       </ul>
 
-      {!somenteLeitura && (
-        <BuscaAlimento rotulo={`Adicionar alimento em ${r.nome || 'refeição'}`} aoEscolher={(a) => despachar({ tipo: 'adicionarItem', refeicaoId: r.id, id: novoId(), alimento: a })} />
-      )}
+      {!somenteLeitura &&
+        (podeAdicionarItem ? (
+          <BuscaAlimento rotulo={`Adicionar alimento em ${r.nome || 'refeição'}`} aoEscolher={(a) => despachar({ tipo: 'adicionarItem', refeicaoId: r.id, id: novoId(), alimento: a })} />
+        ) : (
+          <p className="text-sm text-zinc-600">{MSG_PLANO.limite}</p>
+        ))}
 
       <div className="space-y-1">
         <label htmlFor={`${r.id}-obs`} className="block font-medium">Observação</label>
-        <textarea id={`${r.id}-obs`} rows={2} disabled={somenteLeitura} value={r.observacao} onChange={(e) => despachar({ tipo: 'refeicao', id: r.id, campo: 'observacao', valor: e.target.value })} className="w-full rounded border p-2" />
+        <textarea id={`${r.id}-obs`} rows={2} maxLength={MAX_TEXTO} disabled={somenteLeitura} value={r.observacao} onChange={(e) => despachar({ tipo: 'refeicao', id: r.id, campo: 'observacao', valor: e.target.value })} aria-invalid={erro(`${chave}:observacao`) ? true : undefined} aria-describedby={erro(`${chave}:observacao`) ? `${r.id}-obs-erro` : undefined} className="w-full rounded border p-2" />
+        {erro(`${chave}:observacao`) && <p id={`${r.id}-obs-erro`} role="alert" className="text-sm text-red-700">{erro(`${chave}:observacao`)}</p>}
       </div>
       {!somenteLeitura && (
         <button type="button" onClick={() => { if (window.confirm(`Remover ${r.nome || 'esta refeição'}?`)) despachar({ tipo: 'removerRefeicao', id: r.id }); }} className="text-sm underline">

@@ -29,6 +29,15 @@ describe('meta do plano a partir do gasto energético (US-014 → US-022) e peso
     expect(await contextoDoPaciente(T.ctx, p.id, T.tenant.fuso, app.db)).toEqual({ pesoKg: 60, calculos: [{ id: c.id, rotulo: 'Mifflin-St Jeor · 01/10/2026 · 2008 kcal', kcal: 2008 }] });
   });
 
+  it('o rótulo do cálculo usa a data no fuso do tenant: 01h UTC de 02/10 ainda é 01/10 em São Paulo (RN-06)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await salvarCalculo(T.ctx, T.tenant, p.id, { formula: 'mifflin', pesoKg: '60', alturaCm: '165', fator: '1,55' }, { db: app.db, now: new Date('2026-10-02T01:00:00Z') });
+    const { calculos } = await contextoDoPaciente(T.ctx, p.id, 'America/Sao_Paulo', app.db);
+    expect(calculos).toEqual([{ id: c.id, rotulo: 'Mifflin-St Jeor · 01/10/2026 · 2008 kcal', kcal: 2008 }]);
+    expect((await contextoDoPaciente(T.ctx, p.id, 'UTC', app.db)).calculos[0].rotulo).toContain('02/10/2026'); // mesmo instante, outro fuso
+  });
+
   it('"Usar como meta do plano" grava a meta e o cálculo de origem; cálculo de outro paciente é recusado', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);

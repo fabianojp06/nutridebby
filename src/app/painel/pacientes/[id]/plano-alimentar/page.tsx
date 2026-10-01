@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatarData } from '@/modules/pacientes/datas';
+import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
@@ -11,7 +11,7 @@ const STATUS = { rascunho: 'Rascunho', publicado: 'Publicado', arquivado: 'Arqui
 
 export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/pacientes/[id]/plano-alimentar'>) {
   const { id } = await params;
-  const { ctx, paciente } = await carregarProntuario(id);
+  const { ctx, tenant, paciente } = await carregarProntuario(id);
   const planos = await listarPlanosDoPaciente(ctx, paciente.id);
   const rascunho = planos.find((p) => p.status === 'rascunho');
   return (
@@ -38,7 +38,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
                 <td><Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${p.id}`} className="underline">Versão {p.versao}</Link></td>
                 <td>{p.titulo}</td>
                 <td>{STATUS[p.status]}</td>
-                <td>{p.publicadoEm ? formatarData(p.publicadoEm.slice(0, 10)) : '—'}</td>
+                <td>{p.publicadoEm ? formatarDataNoFuso(p.publicadoEm, tenant.fuso) : '—'}</td>
               </tr>
             ))}
           </tbody>

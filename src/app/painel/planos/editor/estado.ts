@@ -2,6 +2,7 @@ import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
+import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import type { ItemPlano, PlanoCompleto, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
@@ -28,6 +29,11 @@ export type Acao =
   | { tipo: 'qtdMedida'; itemId: string; valor: string }
   | { tipo: 'removerItem'; itemId: string }
   | { tipo: 'moverItem'; itemId: string; direcao: -1 | 1 };
+
+/** Limites do servidor (15 refeições, 200 itens com as substituições): passando deles o PUT inteiro é recusado. */
+export const totalDeItens = (e: EstadoEditor): number => e.refeicoes.reduce((n, r) => n + r.itens.length, 0);
+export const podeAdicionarRefeicao = (e: EstadoEditor): boolean => e.refeicoes.length < MAX_REFEICOES;
+export const podeAdicionarItem = (e: EstadoEditor): boolean => totalDeItens(e) < MAX_ITENS;
 
 const numTexto = (n: number) => formatarDecimal(n, casasDecimais(n));
 
@@ -83,12 +89,14 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
     case 'orientacoes':
       return { ...e, orientacoes: a.valor };
     case 'novaRefeicao':
+      if (!podeAdicionarRefeicao(e)) return e;
       return { ...e, refeicoes: [...e.refeicoes, { id: a.id, nome: `Refeição ${e.refeicoes.length + 1}`, horario: '', observacao: '', itens: [] }] };
     case 'refeicao':
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, [a.campo]: a.valor } : r)) };
     case 'removerRefeicao':
       return { ...e, refeicoes: e.refeicoes.filter((r) => r.id !== a.id) };
     case 'adicionarItem': {
+      if (!podeAdicionarItem(e)) return e;
       const m = a.alimento.medidas[0];
       const novo: ItemEstado = {
         id: a.id,
@@ -125,6 +133,19 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
         return novo;
       });
   }
+}
+
+/**
+ * Erros do servidor (D7) que nenhum campo da tela mostra — `geral`, `item:<id>:substituiItemId`, campo de item ou
+ * refeição que já saiu da tela. Vão para o aviso do topo, para o "Corrija os campos destacados" nunca ficar sem destaque.
+ */
+export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>): string[] {
+  const campos = new Set(['titulo', 'metaKcal', 'orientacoes']);
+  for (const r of e.refeicoes) {
+    for (const c of ['nome', 'horario', 'observacao']) campos.add(`refeicao:${r.id}:${c}`);
+    for (const i of r.itens) for (const c of ['quantidadeG', 'medida', 'foodId']) campos.add(`item:${i.id}:${c}`);
+  }
+  return [...new Set(Object.entries(erros).filter(([chave]) => !campos.has(chave)).map(([, msg]) => msg))];
 }
 
 export const refeicoesParaCalculo = (e: EstadoEditor): { itens: ItemCalculo[] }[] =>

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 
@@ -222,4 +223,63 @@ test('editor: edição em outra aba mostra o aviso de conflito e o salvamento n�
   await expect(nutri.getByLabel('Orientações gerais')).toHaveValue('Beber água ao longo do dia.'); // o que a outra aba salvou
   await nutri.getByLabel('Orientações gerais').fill(''); // deixa o rascunho como estava para as próximas tarefas
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+});
+
+test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
+  const LIMITE = 'O plano pode ter até 15 refeições e 200 itens.';
+  // Paciente próprio: o plano do teste anterior segue como as próximas tarefas esperam
+  await nutri.goto('/painel/pacientes/novo');
+  await nutri.getByLabel('Nome').fill(`Paciente Limites ${sufixo}`);
+  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
+  await nutri.getByLabel('Feminino').check();
+  await nutri.getByLabel('E-mail').fill(`limites-${sufixo}@nutridebby.test`);
+  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Limites ${sufixo}` })).toBeVisible();
+  const pront = new URL(nutri.url()).pathname;
+  await nutri.goto(`${pront}/plano-alimentar`);
+  await nutri.getByRole('button', { name: 'Criar plano' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();
+  const planoUrl = new URL(nutri.url()).pathname;
+  const api = `/api/painel/planos/${planoUrl.split('/').pop()}`;
+
+  // 15 refeições e 200 itens chegam ao servidor pela própria API (a tela não deixa passar disso)
+  const atual = (await (await nutri.request.get(api)).json()) as { revisao: number; titulo: string };
+  const chuchu = '00000000-0000-4000-8000-000000000112';
+  const refeicoes = Array.from({ length: 15 }, (_, k) => ({
+    id: randomUUID(),
+    nome: `Refeição ${k + 1}`,
+    horario: '',
+    observacao: '',
+    itens: k === 0 ? Array.from({ length: 200 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })) : [],
+  }));
+  const r = await nutri.request.put(api, { data: { revisao: atual.revisao, titulo: atual.titulo, metaKcal: '', energyCalcId: null, mostrarCalorias: false, orientacoes: '', refeicoes } });
+  expect(r.status()).toBe(200);
+
+  await nutri.reload();
+  await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeDisabled();
+  await expect(nutri.locator('#limite-refeicoes')).toHaveText(LIMITE);
+  await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 200 itens: sem busca, com o motivo
+  await expect(nutri.getByText(LIMITE)).toHaveCount(16); // 1 do botão + 1 em cada refeição
+
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Remover refeição' }).last().click(); // 14 refeições: volta a poder adicionar
+  await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeEnabled();
+  await expect(nutri.locator('#limite-refeicoes')).toHaveCount(0);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+
+  // Erro `geral` do servidor (422 sem campo): aparece como alerta, e o salvamento volta quando o servidor volta
+  await nutri.route('**/api/painel/planos/*', (rota) =>
+    rota.request().method() === 'PUT' ? rota.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ erros: { geral: LIMITE } }) }) : rota.continue(),
+  );
+  await nutri.getByLabel('Título').fill('Plano com limites');
+  await expect(nutri.getByRole('alert').filter({ hasText: LIMITE })).toBeVisible({ timeout: 5000 });
+  await expect(nutri.getByRole('status').filter({ hasText: 'Corrija os campos destacados para salvar.' })).toBeVisible();
+  await nutri.unroute('**/api/painel/planos/*');
+  await nutri.getByLabel('Título').fill('Plano com limites e salvo');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+  await expect(nutri.getByRole('alert').filter({ hasText: LIMITE })).toHaveCount(0);
+
+  // O texto de observação tem teto de 2000 caracteres na própria caixa (o servidor recusaria acima disso)
+  await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '2000');
+  await expect(nutri.getByLabel('Orientações gerais')).toHaveAttribute('maxlength', '2000');
 });
