@@ -1,6 +1,6 @@
 # NutriDebby MVP — Backlog
 
-Fonte: spec v1.2 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
+Fonte: spec v1.5 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
 
 **Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
 
@@ -10,36 +10,36 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| E-01 | Criar repositório privado no GitHub e corrigir o token do MCP do GitHub | P-09 | — | Você | M | ⬜ |
-| E-02 | Definir nome do produto e domínio; registro A de `app.<dominio>` → IP da VPS | P-03 | — | Você | M | ⬜ |
-| E-03 | Criar projeto `nutri` no Easypanel (`nutri_app`, `nutri_worker`, `nutri_db`) | §9.4 | E-02 | Você | M | ⬜ |
+| E-01 | Criar repositório privado no GitHub e corrigir o token do MCP do GitHub | P-09 | — | Você | M | 🔄 |
+| E-02 | Definir nome do produto e domínio; registro A de `app.<dominio>` → IP da VPS | P-03 | — | Você | M | ✅ |
+| E-03 | Criar projeto `nutri` no Easypanel (`nutri_app`, `nutri_worker`, `nutri_db`) | §9.4 | E-02 | Você | M | ✅ |
 | E-04 | Verificação da Meta Business + app WhatsApp Cloud API + número + 3 templates | INT-01, P-04 | — | Você | M | ⬜ |
-| E-05 | Conta no Resend + domínio verificado (SPF, DKIM, DMARC) | INT-02 | E-02 | Você | M | ⬜ |
-| E-06 | Bucket privado no Cloudflare R2 + chave com escopo; chaves do Turnstile | RNF-05, INT-06 | — | Você | M | ⬜ |
+| E-05 | Conta no Resend + domínio verificado (SPF, DKIM, DMARC) | INT-02 | E-02 | Você | M | ✅ |
+| E-06 | Bucket privado no Cloudflare R2 + chave com escopo; chaves do Turnstile | RNF-05, INT-06 | — | Você | M | 🔄 |
 | E-07 | Conta no Sentry | RNF-11 | — | Você | M | ⬜ |
 | E-08 | Lista dos ~150 alimentos mais usados, taxa de faltas atual, validação das fórmulas | P-08, P-10, P-15 | — | Debby | M | ⬜ |
 | E-09 | Termo do paciente, DPA e prazo de guarda do prontuário | P-01, P-02 | — | Você + Adv. | M | ⬜ |
-| E-10 | VPS: 2 GB de swap + `postgresql-client-16` e `rclone` no host (com confirmação) | RNF-03 | — | Dev (após OK) | M | ⬜ |
+| E-10 | VPS: 2 GB de swap + `postgresql-client-16` e `rclone` no host (com confirmação) | RNF-03 | — | Dev (após OK) | M | ✅ |
 
 ## Plano 01 — Fundação
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P01-01 | Scaffold Next.js 16 + TypeScript strict + pnpm + ESLint/Prettier + Vitest | §9.1 | — | Dev | M | ⬜ |
-| P01-02 | Ambiente dev: docker compose (Postgres 16 + Mailpit), env validado com Zod, `.env.example` | §9.4, §9.6 | P01-01 | Dev | M | ⬜ |
-| P01-03 | Banco: cliente Drizzle, bootstrap dos roles (migrator e app sem `BYPASSRLS`), extensões | RNF-07 | P01-02 | Dev | M | ⬜ |
-| P01-04 | Núcleo multi-tenant: `withTenant` (tenant/papel/paciente), funções SQL de RLS por tenant e por paciente, tabelas `tenants` e `audit_log` | §4.1, RNF-07 | P01-03 | Dev | M | ⬜ |
-| P01-05 | Testes de isolamento: catálogo (toda tabela com `tenant_id` tem RLS forçada) + acesso cruzado entre tenants e entre pacientes (Testcontainers) | US-006 | P01-04 | Dev | M | ⬜ |
-| P01-06 | Better Auth: e-mail/senha com argon2id, sessões (12 h equipe / 30 d paciente), rate limit de login, papéis | US-002, RNF-06 | P01-04 | Dev | M | ⬜ |
-| P01-07 | 2FA TOTP: ativação, códigos de recuperação, obrigatório para admin | US-003 | P01-06 | Dev | M | ⬜ |
-| P01-08 | Telas de login, 2FA e recuperação de senha + roteamento por perfil (`proxy.ts`) + E2E Playwright | US-002 | P01-07 | Dev | M | ⬜ |
-| P01-09 | CLI `pnpm admin:criar` (link de definição de senha no terminal até o e-mail do Plano 02) | US-001 | P01-06 | Dev | M | ⬜ |
-| P01-10 | Worker pg-boss + heartbeat + `/api/health` (banco + worker) + logs pino | RNF-04, RNF-11 | P01-03 | Dev | M | ⬜ |
-| P01-11 | Dockerfile standalone (comandos app/worker, migrate no start) | §9.7 | P01-10 | Dev | M | ⬜ |
-| P01-12 | CI (lint, tipos, Vitest, RLS, build, E2E) + CD (GHCR → webhook do Easypanel) | §9.7 | P01-11, E-01 | Dev | M | ⬜ |
-| P01-13 | Configurar serviços no Easypanel (limites RNF-03, volume, domínio) + primeiro deploy | RNF-03 | P01-12, E-02, E-03 | Você + Dev | M | ⬜ |
-| P01-14 | `CLAUDE.md` do projeto, `.mcp.json` (Postgres MCP dev, shadcn, next-devtools), desativar plugins Vercel/Supabase | §9.3 | P01-01 | Dev | M | ⬜ |
-| P01-15 | Spike PWA: Serwist + Turbopack no Next 16 | P-14 | P01-01 | Dev | M | ⬜ |
+| P01-01 | Scaffold Next.js 16 + TypeScript strict + pnpm + ESLint/Prettier + Vitest | §9.1 | — | Dev | M | ✅ |
+| P01-02 | Ambiente dev: docker compose (Postgres 16 + Mailpit), env validado com Zod, `.env.example` | §9.4, §9.6 | P01-01 | Dev | M | ✅ |
+| P01-03 | Banco: cliente Drizzle, bootstrap dos roles (migrator e app sem `BYPASSRLS`), extensões | RNF-07 | P01-02 | Dev | M | ✅ |
+| P01-04 | Núcleo multi-tenant: `withTenant` (tenant/papel/paciente), funções SQL de RLS por tenant e por paciente, tabelas `tenants` e `audit_log` | §4.1, RNF-07 | P01-03 | Dev | M | ✅ |
+| P01-05 | Testes de isolamento: catálogo (toda tabela com `tenant_id` tem RLS forçada) + acesso cruzado entre tenants e entre pacientes (Testcontainers) | US-006 | P01-04 | Dev | M | ✅ |
+| P01-06 | Better Auth: e-mail/senha com argon2id, sessões (12 h equipe / 30 d paciente), rate limit de login, papéis | US-002, RNF-06 | P01-04 | Dev | M | ✅ |
+| P01-07 | 2FA TOTP: ativação, códigos de recuperação, obrigatório para admin | US-003 | P01-06 | Dev | M | ✅ |
+| P01-08 | Telas de login, 2FA e recuperação de senha + roteamento por perfil (`proxy.ts`) + E2E Playwright | US-002 | P01-07 | Dev | M | ✅ |
+| P01-09 | CLI `pnpm admin:criar` (link de definição de senha no terminal até o e-mail do Plano 02) | US-001 | P01-06 | Dev | M | ✅ |
+| P01-10 | Worker pg-boss + heartbeat + `/api/health` (banco + worker) + logs pino | RNF-04, RNF-11 | P01-03 | Dev | M | ✅ |
+| P01-11 | Dockerfile standalone (comandos app/worker, migrate no start) | §9.7 | P01-10 | Dev | M | ✅ |
+| P01-12 | CI (lint, tipos, Vitest, RLS, build, E2E) + CD (GHCR → webhook do Easypanel) | §9.7 | P01-11, E-01 | Dev | M | ✅ |
+| P01-13 | Configurar serviços no Easypanel (limites RNF-03, volume, domínio) + primeiro deploy | RNF-03 | P01-12, E-02, E-03 | Você + Dev | M | ✅ |
+| P01-14 | `CLAUDE.md` do projeto, `.mcp.json` (Postgres MCP dev, shadcn, next-devtools), desativar plugins Vercel/Supabase | §9.3 | P01-01 | Dev | M | ✅ |
+| P01-15 | Spike PWA: Serwist + Turbopack no Next 16 | P-14 | P01-01 | Dev | M | ✅ |
 
 ## Plano 02 — Plataforma (M1)
 
@@ -57,26 +57,26 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P02-07 | Perfil e marca: logo, cor (contraste), CRN, endereço, link online padrão, antecedências, agendamento público on/off | US-005 | P02-02 | Dev | M | ✅ |
 | P02-08 | Auditoria automática de leitura/alteração de dado de saúde + aba "Histórico de acessos" | US-007 | P01-04 | Dev | M | ✅ |
 | P02-09 | Validação do Turnstile no servidor | INT-06 | E-06 | Dev | M | ✅ |
-| P02-10 | Backup diário (`pg_dump` + rclone crypt → R2, sync de `/data`, retenção) + alerta de disco em 70% — **no host (systemd)**, desvio do Plano 02 | RNF-05, RNF-13 | E-06, E-10 | Dev | M | 🔄 |
-| P02-10a | ↳ Script do host (`pg_dump` no container `nutri_db`, rclone crypt, 7+4, `/data` com histórico de 30 dias) testado no CI | RNF-05 | P01-04 | Dev | M | 🔄 |
-| P02-10b | ↳ Worker confere o backup do dia e o disco (70%) e alerta o admin por e-mail; painel na administração | RNF-05, RNF-13 | P02-10a, P02-01b | Dev | M | ⬜ |
-| P02-11 | Ativação em produção com o dono (runbook): Resend/DNS, Turnstile, R2, `/data`, variáveis, swap/rclone no host, primeiro backup + restauração de conferência | RNF-05, INT-02, INT-06 | P02-01 a P02-10, E-05, E-06, E-10, P01-13 | Você + Dev | M | ⬜ |
+| P02-10 | Backup diário (`pg_dump` + rclone crypt → R2, sync de `/data`, retenção) + alerta de disco em 70% — **no host (systemd)**, desvio do Plano 02 | RNF-05, RNF-13 | E-06, E-10 | Dev | M | ✅ |
+| P02-10a | ↳ Script do host (`pg_dump` no container `nutri_db`, rclone crypt, 7+4, `/data` com histórico de 30 dias) testado no CI | RNF-05 | P01-04 | Dev | M | ✅ |
+| P02-10b | ↳ Worker confere o backup do dia e o disco (70%) e alerta o admin por e-mail; painel na administração | RNF-05, RNF-13 | P02-10a, P02-01b | Dev | M | ✅ |
+| P02-11 | Ativação em produção com o dono (runbook): Resend/DNS, Turnstile, R2, `/data`, variáveis, swap/rclone no host, primeiro backup + restauração de conferência | RNF-05, INT-02, INT-06 | P02-01 a P02-10, E-05, E-06, E-10, P01-13 | Você + Dev | M | 🔄 |
 
 ## Plano 03 — Pacientes & prontuário (M2)
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P03-01 | Cadastro de paciente (validações, ≥ 18 anos) + convite por e-mail + autorização de WhatsApp registrada | US-010, RN-17 | Plano 02 | Dev | M | ⬜ |
-| P03-02 | Aceite do convite: senha, termo versionado, opt-in/opt-out de WhatsApp, escolha de nutricionista (mais de um vínculo) | US-011 | P03-01 | Dev | M | ⬜ |
-| P03-03 | Etiquetas de paciente + filtro | US-019 | P03-01 | Dev | S | ⬜ |
-| P03-04 | Modelos de anamnese (editor, 7 tipos de pergunta, modelo padrão) + preenchimento com snapshot | US-012 | P03-01 | Dev | M | ⬜ |
-| P03-05 | Biblioteca de fórmulas (IMC, JP3/JP7, Siri, Harris-Benedict, Mifflin, FAO/OMS) com os casos do Apêndice A | Apêndice A, RN-14 | — | Dev | M | ⬜ |
-| P03-06 | Antropometria: registro, validações, % de gordura | US-013 | P03-05 | Dev | M | ⬜ |
-| P03-07 | Gasto energético: comparar fórmulas, fator de atividade, usar como meta | US-014 | P03-05 | Dev | M | ⬜ |
-| P03-08 | Exames: upload, valores e gráfico | US-015 | P02-02 | Dev | S | ⬜ |
-| P03-09 | Registro de atendimento (notas privadas × orientações ao paciente) | US-016 | P03-01 | Dev | M | ⬜ |
-| P03-10 | Evolução: gráficos e diferenças entre avaliações | US-017 | P03-06 | Dev | M | ⬜ |
-| P03-11 | LGPD: arquivar, exportar ZIP, bloquear (pedido de exclusão), job de anonimização após o prazo | US-018, RNF-08 | P03-01 | Dev | M | ⬜ |
+| P03-01 | Cadastro de paciente (validações, ≥ 18 anos) + convite por e-mail + autorização de WhatsApp registrada | US-010, RN-17 | Plano 02 | Dev | M | ✅ |
+| P03-02 | Aceite do convite: senha, termo versionado, opt-in/opt-out de WhatsApp, escolha de nutricionista (mais de um vínculo) | US-011 | P03-01 | Dev | M | ✅ |
+| P03-03 | Etiquetas de paciente + filtro | US-019 | P03-01 | Dev | S | ✅ |
+| P03-04 | Modelos de anamnese (editor, 7 tipos de pergunta, modelo padrão) + preenchimento com snapshot | US-012 | P03-01 | Dev | M | ✅ |
+| P03-05 | Biblioteca de fórmulas (IMC, JP3/JP7, Siri, Harris-Benedict, Mifflin, FAO/OMS) com os casos do Apêndice A | Apêndice A, RN-14 | — | Dev | M | ✅ |
+| P03-06 | Antropometria: registro, validações, % de gordura | US-013 | P03-05 | Dev | M | ✅ |
+| P03-07 | Gasto energético: comparar fórmulas, fator de atividade, usar como meta | US-014 | P03-05 | Dev | M | ✅ |
+| P03-08 | Exames: upload, valores e gráfico | US-015 | P02-02 | Dev | S | ✅ |
+| P03-09 | Registro de atendimento (notas privadas × orientações ao paciente) | US-016 | P03-01 | Dev | M | ✅ |
+| P03-10 | Evolução: gráficos e diferenças entre avaliações | US-017 | P03-06 | Dev | M | ✅ |
+| P03-11 | LGPD: arquivar, exportar ZIP, bloquear (pedido de exclusão), job de anonimização após o prazo | US-018, RNF-08 | P03-01 | Dev | M | ✅ |
 
 ## Plano 04 — Plano alimentar (M3)
 
@@ -153,6 +153,8 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P08-09 | Go-live: conta da Debby em produção + checklist assinado | CS-01 | P08-01 a P08-08 | Você | M | ⬜ |
 
 ## Resumo
+
+**Situação em 2026-10-01** (espelho do painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); 45 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 53 ⬜ (Planos 04–08 e itens externos E-04, E-07, E-08, E-09).
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
