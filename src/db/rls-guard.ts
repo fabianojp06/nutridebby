@@ -4,7 +4,7 @@ export type RlsViolation = { table: string; problem: string };
 
 /**
  * Tabelas com tenant_id que seguem outra regra, com a justificativa.
- * Ex. futuro (Plano 04): foods: 'tenant_id nulo = TACO; política própria de leitura'.
+ * foods não é exceção: tem tenant_isolation e, além dela, a política taco_leitura (só SELECT) para as linhas da TACO (Plano 04, D1).
  */
 export const RLS_EXCEPTIONS: Record<string, string> = {
   user: 'identidade global do Better Auth: login ocorre antes do contexto de tenant; acesso só via services do M1 (spec §4.1)',

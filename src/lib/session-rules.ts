@@ -9,6 +9,8 @@ export const SESSION_REFRESH_MS = 15 * 60 * 1000;
 export const SECURITY_PATH = '/conta/seguranca';
 /** RN-15: tela mostrada a quem é de uma conta suspensa. */
 export const SUSPENDED_PATH = '/indisponivel';
+/** 401 das rotas de API (e o que o editor do plano mostra quando o salvamento recebe 401). */
+export const MSG_SESSAO_EXPIRADA = 'Sessão expirada. Entre de novo.';
 
 export function homeFor(role: AppRole): string {
   return role === 'admin' ? '/admin' : role === 'nutri' ? '/painel' : '/p/inicio';

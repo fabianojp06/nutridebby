@@ -57,6 +57,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   exames: 'Exames',
   pedidos_titular: 'Pedido do titular (LGPD)',
   exportacoes: 'Exportação de dados',
+  plano_alimentar: 'Plano alimentar',
 };
 
 export type AccessHistoryItem = {

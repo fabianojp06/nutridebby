@@ -4,8 +4,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
 import { novoPaciente, novoTenant } from '../../test/pacientes';
-import { user } from './schema';
-import { DbError, uniqueViolation } from './errors';
+import { foodMeasures, user } from './schema';
+import { DbError, fkViolation, uniqueViolation } from './errors';
 import './client'; // instala a sanitização em todas as consultas do Drizzle
 import { withTenant } from './tenant';
 
@@ -31,6 +31,24 @@ describe('withTenant: erros de banco sem dados (RNF-11, CLAUDE.md regra 3)', () 
     }
     expect(uniqueViolation(err)).toMatch(/patients/);
     expect((err as DbError).code).toBe('23505');
+  });
+
+  it('FK violada vira DbError sem dados; fkViolation() acha a constraint e ignora unique e erros comuns', async () => {
+    const T = await novoTenant(app.db);
+    const err = await withTenant(
+      T.ctx,
+      (tx) => tx.insert(foodMeasures).values({ tenantId: T.ctx.tenantId, foodId: crypto.randomUUID(), nome: 'Medida-Sigilosa-XYZ', plural: 'Medidas-Sigilosas-XYZ', gramas: 10 }),
+      app.db,
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(DbError);
+    expect(inspect(err, { depth: 10 })).not.toContain('Medida-Sigilosa-XYZ');
+    expect(fkViolation(err)).toBe('food_measures_food_id_foods_id_fk');
+    expect(uniqueViolation(err)).toBeNull();
+    expect(fkViolation(new Error('outro'))).toBeNull();
+    expect(fkViolation(null)).toBeNull();
   });
 
   it('erros que não são de banco passam sem alteração', async () => {

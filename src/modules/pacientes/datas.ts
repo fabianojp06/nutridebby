@@ -30,6 +30,11 @@ export function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
+/** Instante (Date ou ISO) como 'dd/mm/aaaa' do dia no fuso do tenant (RN-06), nunca o dia UTC. */
+export function formatarDataNoFuso(instante: Date | string, fuso: string): string {
+  return formatarData(hojeNoFuso(fuso, new Date(instante)));
+}
+
 /** 'AAAA-MM-DD' + anos (29/02 → 28/02 quando o ano de destino não é bissexto). */
 export function somarAnos(iso: string, anos: number): string {
   const [a, m, d] = iso.split('-').map(Number);

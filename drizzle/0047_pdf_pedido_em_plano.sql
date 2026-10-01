@@ -1,0 +1,1 @@
+ALTER TABLE "meal_plans" ADD COLUMN "pdf_pedido_em" timestamp with time zone;

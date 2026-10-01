@@ -1,15 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inflateSync } from 'node:zlib';
 import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
+import { idTaco } from '@/modules/alimentos/taco';
+import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -45,23 +48,6 @@ afterAll(async () => {
 });
 
 const NOTA = 'suspeita de compulsão';
-
-/** Texto do PDF do @react-pdf (streams Flate, strings hex em WinAnsi): o suficiente para conferir o conteúdo. */
-function textoDoPdf(pdf: Buffer): string {
-  let texto = '';
-  for (const m of pdf.toString('latin1').matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
-    let conteudo: string;
-    try {
-      conteudo = inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
-    } catch {
-      continue;
-    }
-    for (const h of conteudo.matchAll(/<([0-9a-fA-F]+)>/g))
-      texto += Buffer.from(h[1], 'hex').toString('latin1');
-    texto += '\n';
-  }
-  return texto;
-}
 
 async function prontuarioCompleto() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -131,6 +117,11 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
 
   it('o job gera o ZIP com dados.json e prontuario.pdf — sem notas privadas nem etiquetas — e manda o link de 24 h por e-mail', async () => {
     const { T, p } = await prontuarioCompleto();
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, { db: app.db });
     const id = await solicitarExportacao(T.ctx, p.id, deps);
     expect(
       await gerarExportacao(
@@ -169,6 +160,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia' },
     ]);
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
+    expect(dados.planos).toEqual([
+      { versao: 1, status: 'rascunho', titulo: 'Plano alimentar', publicadoEm: null, metaKcal: null, orientacoes: '',
+        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
+    ]);
     expect(json).not.toContain(NOTA); // US-016
     expect(json).not.toContain('etiqueta-secreta'); // US-019
     const [nutri] = await app.db.select().from(user).where(eq(user.id, T.nutriId));
@@ -567,6 +562,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         gastoEnergetico: [],
         exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores }],
         atendimentos: [],
+        planos: [],
         pedidosLgpd: [],
         laudosForaDoZip: false,
       },
@@ -657,6 +653,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           },
         ],
         atendimentos: [],
+        planos: [],
         pedidosLgpd: [
           {
             tipo: 'exportacao',
@@ -688,14 +685,14 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
-  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job ou @react-pdf', () => {
+  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job, plano-pdf ou @react-pdf', () => {
     const arquivos = readdirSync(path.resolve('src/app'), {
       recursive: true,
       withFileTypes: true,
     }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name));
     for (const d of arquivos)
       expect(readFileSync(path.join(d.parentPath, d.name), 'utf8'), d.name).not.toMatch(
-        /exportacao-job|@react-pdf|prontuario-pdf/,
+        /exportacao-job|@react-pdf|prontuario-pdf|plano-pdf/,
       );
   });
 });

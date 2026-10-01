@@ -1,0 +1,45 @@
+taco_id,nome,plural,gramas,referencia_ibge
+1,colher de sopa cheia,colheres de sopa cheias,20,Arroz integral cozido - colher de sopa cheia
+1,colher de arroz cheia,colheres de arroz cheias,63,Arroz integral cozido - colher de arroz cheia
+1,escumadeira média cheia,escumadeiras médias cheias,59,Arroz integral cozido - escumadeira média cheia
+3,colher de sopa cheia,colheres de sopa cheias,25,Arroz cozido - colher de sopa cheia
+3,colher de arroz cheia,colheres de arroz cheias,45,Arroz cozido - colher de arroz cheia
+3,escumadeira média cheia,escumadeiras médias cheias,85,Arroz cozido - escumadeira média cheia
+7,colher de sopa cheia,colheres de sopa cheias,15,Aveia flocos - colher de sopa cheia
+13,unidade,unidades,5,Biscoito cream cracker - unidade
+53,unidade,unidades,50,Pão francês - unidade
+78,folha média,folhas médias,10,Alface - folha média
+91,colher de sopa cheia,colheres de sopa cheias,30,Batata inglesa cozida - colher de sopa cheia
+91,unidade pequena,unidades pequenas,70,Batata inglesa cozida - unidade pequena
+91,escumadeira média cheia,escumadeiras médias cheias,80,Batata inglesa cozida - escumadeira média cheia
+100,colher de sopa cheia (picado),colheres de sopa cheias (picado),10,Brócolis cozido - colher de sopa cheia picado
+110,unidade média,unidades médias,120,Cenoura crua - unidade média
+110,colher de sopa cheia (ralada),colheres de sopa cheias (ralada),12,Cenoura crua - colher de sopa cheia ralada
+122,colher de sopa cheia,colheres de sopa cheias,16,Farinha de mandioca - colher de sopa cheia
+122,colher de sobremesa cheia,colheres de sobremesa cheias,10,Farinha de mandioca - colher de sobremesa cheia
+157,fatia média,fatias médias,15,Tomate - fatia média
+163,colher de sopa cheia (picado),colheres de sopa cheias (picado),45,Abacate - colher de sopa cheio picado
+182,unidade,unidades,75,Banana prata - unidade
+214,unidade média,unidades médias,180,Laranja - unidade média
+222,unidade média,unidades médias,150,Maçã - unidade média
+222,unidade pequena,unidades pequenas,90,Maçã - unidade pequena
+226,colher de sopa cheia,colheres de sopa cheias,40,Mamão papaya - colher de sopa cheia
+226,unidade pequena,unidades pequenas,270,Mamão papaya - unidade pequena
+261,colher de chá cheia,colheres de chá cheias,8,Manteiga - colher de chá cheia
+261,ponta de faca,pontas de faca,5,Manteiga - ponta de faca
+272,colher de sopa,colheres de sopa,8,Óleo - colher de sopa
+377,bife médio,bifes médios,100,Bife bovino - unidade média
+448,unidade,unidades,200,Iogurte natural - unidade
+461,fatia média,fatias médias,30,Queijo minas frescal - fatia média
+463,fatia média,fatias médias,20,Queijo mussarela - fatia média
+468,colher de sopa cheia,colheres de sopa cheias,30,Requeijão cremoso - colher de sopa cheia
+488,unidade média,unidades médias,45,Ovo de galinha cozido - unidade média
+494,colher de chá cheia,colheres de chá cheias,5,Açúcar refinado - colher de chá cheia
+494,colher de sopa cheia,colheres de sopa cheias,24,Açúcar refinado - colher de sopa cheia
+533,pedaço médio,pedaços médios,135,Cuscuz de milho - pedaço médio
+561,colher de sopa cheia,colheres de sopa cheias,17,Feijão branco cozido - colher de sopa cheia
+561,colher de arroz cheia,colheres de arroz cheias,35,Feijão branco cozido - colher de arroz cheia
+561,concha média cheia,conchas médias cheias,140,Feijão branco cozido - concha média cheia
+567,colher de sopa cheia,colheres de sopa cheias,17,Feijão branco cozido - colher de sopa cheia
+567,colher de arroz cheia,colheres de arroz cheias,35,Feijão branco cozido - colher de arroz cheia
+567,concha média cheia,conchas médias cheias,140,Feijão branco cozido - concha média cheia

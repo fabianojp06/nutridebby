@@ -18,6 +18,12 @@ export const QUEUES = {
   // US-018: ZIP da exportação (PDF no worker) e remoção do arquivo 24 h depois
   'exportacao-paciente': { retryLimit: 2, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   'expirar-exportacao': { retryLimit: 3, retryDelay: 300, expireInSeconds: 120 },
+  /** US-026: PDF do plano gerado pelo worker na publicação (≤ 30 s). Payload { tenantId, planId }. */
+  'plano-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // US-026: pendente esquecido (worker caiu na última tentativa, job expirado) vira "falhou" para o painel oferecer nova tentativa
+  'expirar-plano-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 120 },
+  // Plano 03 (c): .tmp órfãos de salvarArquivo (queda no meio da gravação), todo dia às 04h
+  'limpar-tmp': { retryLimit: 1, retryDelay: 600, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

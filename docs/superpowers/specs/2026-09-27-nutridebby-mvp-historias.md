@@ -518,6 +518,11 @@ Cenário: Busca tolerante a acento
   Quando digito "feijao carioca"
   Então "Feijão, carioca, cozido" aparece entre os 5 primeiros resultados em ≤ 300 ms
 
+Cenário: Busca sem resultado ou com falha (Plano 04)
+  Quando nenhum alimento corresponde ao que digitei
+  Então vejo "Nenhum alimento encontrado."
+  E quando a busca falha, vejo "Não foi possível buscar agora. Tente de novo."
+
 Cenário: Origem visível
   Então cada resultado mostra o selo "TACO" ou "Meu alimento"
 
@@ -530,7 +535,23 @@ Cenário: Alimento sem medida caseira
   Dado um alimento sem medidas no seed
   Então só posso informar gramas
   E vejo o atalho "Cadastrar medida caseira", que grava em food_measures do meu tenant
+
+Cenário: Cadastro de medida caseira (Plano 04)
+  Dado o alimento "Arroz, tipo 1, cozido" aberto na tela Alimentos
+  Quando cadastro a medida "pires pequeno" (plural "pires pequenos") com 120 g
+  Então vejo `Medida "pires pequeno" cadastrada.` e ela passa a valer nos planos
+  E o nome da medida não pode repetir o de outra medida do mesmo alimento, nem o de uma medida do IBGE dele
 ```
+
+| Campo da medida | Validação | Erro |
+|---|---|---|
+| nome e plural | 2–60 caracteres | "Informe o nome da medida e o plural" |
+| gramas | de 0,1 a 5000 | "Gramas da medida devem estar entre 0,1 e 5000" |
+| nome | único por alimento no tenant, também em relação às medidas do IBGE do alimento | "Você já tem uma medida com esse nome para este alimento." |
+
+Textos da tela (Plano 04): alimento sem medida, "Sem medida caseira: no plano, informe a quantidade em gramas ou cadastre uma medida abaixo."; alimento sem valor de energia na TACO, "Sem valor na TACO"; alimento que não existe ou é de outro tenant, "Alimento não encontrado.". A medida fica no singular abaixo de 2 ("1,5 colher de sopa cheia") e no plural a partir de 2. A lista de resultados é navegável pelo teclado (setas, Enter, Esc): na tela Alimentos cada resultado é um link e o Enter abre o alimento destacado; no editor do plano, escolher o resultado adiciona o item.
+
+Nota de entrega (Plano 04): o seed do IBGE tem 28 alimentos básicos (44 medidas), não os 150 (INT-04, P-10, E-08). Uma medida própria com o mesmo nome de uma medida do IBGE do mesmo alimento é recusada no cadastro, porque o seletor do editor mostraria dois rótulos iguais com gramas diferentes; nesse caso a mensagem é a mesma de nome repetido, "Você já tem uma medida com esse nome para este alimento." (`MSG_MEDIDA.duplicada`), que é ligeiramente inexata para uma medida do IBGE (a nutricionista não a "tem"); um texto próprio fica para o dono decidir.
 
 ## US-021 — Cadastrar alimento próprio · **S**
 
@@ -547,6 +568,26 @@ Cenário: TACO não editável
   Então só vejo o botão "Duplicar como meu alimento"
 ```
 
+Na tela Alimentos (Plano 04) o botão de cadastro é "Cadastrar meu alimento". Ao duplicar, as medidas do IBGE do original vêm junto e continuam com a origem "IBGE" (a origem é da medida, não do alimento). Se a TACO não tem todos os valores do original, a tela de edição da cópia mostra "A TACO não tem todos os valores deste alimento: confira os campos com 0."
+
+| Campo | Validação | Erro |
+|---|---|---|
+| `nome` | 2–120 caracteres | "Informe o nome do alimento (2 a 120 caracteres)" |
+| `grupo` | um dos grupos da TACO | "Escolha o grupo do alimento" |
+| energia, proteína, carboidrato, lipídio e fibra (por 100 g) | energia de 0 a 900 kcal; os demais de 0 a 100 g; nenhum em branco | "Valores por 100 g: energia entre 0 e 900 kcal; os demais entre 0 e 100 g" |
+
+```gherkin
+Cenário: Alimento da TACO não pode ser alterado (Plano 04)
+  Quando uma requisição tenta alterar ou apagar um alimento da TACO
+  Então vejo "Alimentos da TACO não podem ser alterados. Use "Duplicar como meu alimento"."
+
+Cenário: Alimento em uso (Plano 04)
+  Dado um "Meu alimento" que já está num plano alimentar
+  Quando tento excluí-lo
+  Então vejo "Este alimento está em um plano e não pode ser excluído."
+  E o plano publicado não muda se eu corrigir o alimento depois (RN-01)
+```
+
 ## US-022 — Montar plano com cálculo em tempo real · **M**
 
 **Como** nutricionista, **quero** montar refeições e ver os totais recalculados ao vivo, **para** fechar a meta com precisão.
@@ -558,6 +599,10 @@ Cenário: Cálculo do item
   Então o item mostra 195 kcal
   E os totais da refeição e do dia são atualizados em ≤ 100 ms
 
+Cenário: Alimento sem valor na TACO (Plano 04)
+  Dado um alimento sem energia na TACO (ex.: "Leite, de vaca, integral")
+  Então o item mostra "Sem valor na TACO" no lugar da kcal e conta 0 nos totais, sem NaN
+
 Cenário: Indicador de meta (RN-02)
   Dado meta_kcal = 2000
   Quando o total do dia é 2080 kcal
@@ -566,16 +611,46 @@ Cenário: Indicador de meta (RN-02)
   Então fica amarelo (7,5%)
   Quando o total do dia é 2300 kcal
   Então fica vermelho (15%)
+  E o indicador tem texto, não só cor: "Dentro da meta (+4%)", "Atenção (+7,5%)" ou "Fora da meta (+15%)" (com "−" abaixo da meta)
 
 Cenário: Distribuição de macros
   Então vejo proteína, carboidrato e lipídio em g, em g/kg de peso e em % do VET
   E a fibra total em g
+  E o g/kg usa o peso da última antropometria; sem antropometria vejo "—" e a dica "Registre a antropometria para ver g/kg" (Plano 04)
+  E o modelo de plano, que não tem paciente, não mostra a coluna g/kg
 
 Cenário: Salvamento automático
   Quando altero qualquer item
   Então o rascunho é salvo em até 2 s, sem clicar em "Salvar"
   E se a conexão cair, vejo "Alterações não salvas" e o salvamento é repetido quando a conexão voltar
+
+Cenário: Duas abas no mesmo rascunho (Plano 04)
+  Dado o mesmo rascunho aberto em duas abas, e a primeira já salvou uma alteração
+  Quando a segunda tenta salvar com a revisão antiga
+  Então vê "Este plano foi alterado em outra aba. Recarregue a página para continuar." e nada é sobrescrito em silêncio
+
+Cenário: Sair do editor com alteração pendente (Plano 04)
+  Quando clico num link interno logo depois de editar
+  Então a edição que esperava os 800 ms é enviada na hora e a navegação segue sem aviso
+  Mas se a edição pode se perder (conflito entre abas, última tentativa sem sucesso, ou envio em andamento com outra edição esperando)
+  Então vejo "Há alterações que ainda não foram salvas. Sair mesmo assim?" e, se cancelo, continuo no editor
 ```
+
+Estados da linha de salvamento (Plano 04): "Salvando…", "Salvo", "Alterações não salvas" (sem rede, nova tentativa ao voltar a conexão e a cada 5 s) e "Corrija os campos destacados para salvar." (erro de campo). O servidor compara o rascunho com o banco e aplica só o que mudou, então o histórico de acessos registra uma linha por item realmente alterado, não uma por salvamento. O envio acontece 800 ms depois da última edição.
+
+| Campo | Validação | Erro |
+|---|---|---|
+| `titulo` | 1–120 caracteres | "Informe o título do plano (até 120 caracteres)" |
+| nome da refeição | 1–60 caracteres | "Informe o nome da refeição (até 60 caracteres)" |
+| `horario` | HH:MM (obrigatório só para publicar) | "Horário inválido (use HH:MM)" |
+| quantidade do item | de 0,1 a 5000 g | "Quantidade deve estar entre 0,1 e 5000 g" |
+| `meta_kcal` | de 500 a 10000 kcal | "Meta deve estar entre 500 e 10000 kcal" |
+| `orientacoes` e `observacao` | até 2000 caracteres | "Texto muito longo (até 2000 caracteres)." |
+| plano | até 15 refeições e 200 itens (os botões de adicionar ficam desabilitados, com este texto) | "O plano pode ter até 15 refeições e 200 itens." |
+| cálculo de gasto usado como meta | do mesmo paciente | "Cálculo de gasto energético não encontrado." |
+| alimento do item | existente e visível ao tenant | "Alimento não encontrado." |
+
+Outras mensagens do salvamento (Plano 04): requisição inválida, "Não foi possível salvar estes dados. Recarregue a página."; corpo acima de 512 KB, "Plano grande demais."; plano inexistente ou de outro tenant, "Plano não encontrado."; sessão expirada, "Sessão expirada. Entre de novo."; paciente bloqueado, "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.". Nesses casos, no conflito entre abas e na versão já publicada, a linha de salvamento mostra o motivo, oferece "Recarregar" e o editor para de tentar; sem rede ou com erro do servidor (5xx) continua "Alterações não salvas", com nova tentativa. Cada envio leva uma chave (`envio`); se a resposta de um envio que gravou se perde, a tentativa seguinte é aceita em vez de virar um falso "alterado em outra aba". Com o paciente bloqueado, o plano abre só para consulta ("Versão N · Rascunho", sem publicar, editar, salvar como modelo nem descartar), e a lista de versões não oferece criar nem editar. Um item cuja medida própria foi excluída mostra a opção "{nome} (removida)", com os gramas gravados, e pode voltar a gramas; as medidas aparecem com os gramas em vírgula decimal, com as casas que têm ("concha (12,25 g)"). Ao abrir, o editor confere a revisão do plano: se a página veio do "Voltar" do navegador com um conteúdo antigo, ou outra aba gravou depois, os dados são recarregados em vez de a próxima edição dar "Este plano foi alterado em outra aba". Botões e rótulos do editor: "Criar plano", "Continuar o rascunho (versão N)", "Editar o plano publicado", "Descartar rascunho" (confirma "Descartar este rascunho?"), "Usar como meta do plano" (escolhe um cálculo de gasto energético do paciente), "Adicionar refeição", "Orientações gerais" e "Mostrar calorias ao paciente".
 
 ## US-023 — Substituições · **M**
 
@@ -585,10 +660,22 @@ Cenário: Salvamento automático
 Cenário: Grupo de substituição
   Dado o item principal "Pão francês 50 g" no café da manhã
   Quando adiciono as substituições "Tapioca 40 g" e "Cuscuz 100 g"
-  Então elas ficam em grupo_substituicao ligado ao item principal
+  Então elas ficam ligadas ao item principal por substitui_item_id (Plano 04: em vez de grupo_substituicao)
   E não entram no total do dia (RN-02)
   E cada substituição mostra a própria kcal e a diferença para o principal (ex.: "+12 kcal")
+
+Cenário: Substituição ou principal sem valor na TACO (Plano 04)
+  Dado que um dos dois lados não tem energia na TACO
+  Então a linha mostra "Sem valor na TACO" no lugar da kcal e nenhuma diferença, no editor e no PDF (a diferença contaria 0 no lado sem valor e daria um número enganoso, como "−150 kcal")
+
+Cenário: Mover e remover (Plano 04)
+  Quando movo um item principal com ↑ ou ↓
+  Então as substituições dele vão junto e ele pula o grupo inteiro do vizinho
+  E uma substituição só se move dentro do próprio grupo
+  E remover o principal remove as substituições dele
 ```
+
+No editor (Plano 04) o botão é "Adicionar substituição para {alimento}" e só existe em item principal; com 200 itens ele fica desabilitado, com "O plano pode ter até 15 refeições e 200 itens.". Uma substituição que não aponta para um principal da mesma refeição é recusada: "A substituição precisa estar ligada a um alimento principal da mesma refeição."
 
 ## US-024 — Modelos de plano · **S**
 
@@ -604,7 +691,24 @@ Cenário: Criar a partir de modelo
 Cenário: Salvar plano como modelo
   Quando clico em "Salvar como modelo" em um plano
   Então uma cópia com is_template = true e patient_id nulo é criada
+
+Cenário: Salvar como modelo só com tudo salvo (Plano 04)
+  Dado que o editor ainda diz "Salvando…", "Alterações não salvas" ou mostra erro de campo
+  Então "Salvar como modelo" fica desabilitado, com a dica "Só dá para continuar com as alterações salvas." (a dica não aparece durante "Salvando…"), porque a cópia sai do que está no banco
+  E ao salvar vejo "Modelo salvo."
+
+Cenário: Gerenciar modelos (Plano 04)
+  Quando abro "Modelos de plano"
+  Então posso "Criar modelo" (vazio), abri-lo para editar e usar "Excluir modelo" (os planos criados a partir dele não mudam)
+  E o modelo não se publica nem tem g/kg
+  E "Criar a partir de modelo" só aparece para o paciente que ainda não tem rascunho: um rascunho por paciente, e uma corrida recusa com "Já existe um rascunho para este paciente."
+
+Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
+  Dado que o pedido de exclusão do paciente foi atendido (ou ele já foi anonimizado)
+  Então o plano dele não vira modelo: "Salvar como modelo" não aparece e, numa corrida com o bloqueio, é recusado com "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."
 ```
+
+Nota de privacidade (Plano 04, ver RNF-08): ao salvar um plano de paciente como modelo, as `orientacoes` e as `observacao` das refeições vão junto. Esse texto livre sai do alcance da RLS por paciente, da exportação e da exclusão do titular. A nutricionista (controladora) deve revisá-lo antes de salvar; a tela ainda não avisa.
 
 ## US-025 — Publicar plano (versionamento) · **M**
 
@@ -614,7 +718,7 @@ Cenário: Salvar plano como modelo
 Cenário: Primeira publicação
   Quando publico o rascunho do paciente P
   Então o status vira "publicado" com versao 1
-  E P recebe push "Seu novo plano alimentar está disponível"
+  E P recebe push "Seu novo plano alimentar está disponível" (adiado para o Plano 06, ver a nota de entrega abaixo)
 
 Cenário: Nova versão arquiva a anterior (RN-01)
   Dado que P tem o plano v1 publicado
@@ -626,7 +730,23 @@ Cenário: Nova versão arquiva a anterior (RN-01)
 
 Cenário: Rascunho invisível
   Então o paciente nunca vê planos com status "rascunho" (nem pela API)
+  E isso vale no banco, pela política paciente_sem_rascunho (§4.1), não só na API (Plano 04)
+
+Cenário: Publicar só com tudo salvo e completo (Plano 04)
+  Dado que o editor ainda diz "Salvando…", "Alterações não salvas" ou mostra erro de campo
+  Então "Publicar" fica desabilitado, com a dica "Só dá para continuar com as alterações salvas." (a dica não aparece durante "Salvando…")
+  E publicar pede a confirmação "Publicar esta versão para o paciente? A versão publicada hoje será arquivada." e, com sucesso, mostra "Plano publicado."
+  E o plano é recusado, com o motivo, se não tem alimento ("Inclua pelo menos uma refeição com um alimento para publicar."), se falta horário ("Informe o horário de todas as refeições.") ou se uma refeição está vazia ("A refeição "{nome}" não tem alimentos.")
+
+Cenário: Versão publicada não se altera (Plano 04)
+  Quando uma requisição tenta salvar um plano já publicado
+  Então vejo "Este plano já foi publicado e não pode ser alterado. Use "Editar" para criar uma nova versão."
+  E "Editar" só existe na versão publicada: numa versão já arquivada vejo "Esta versão não está mais publicada. Recarregue a página."
+  E se o paciente já tem rascunho, "Editar" abre esse rascunho em vez de criar outro (um rascunho por paciente, RN-01)
+  E "Publicar" e "Editar" só valem para o plano do paciente da tela: um plano de outro paciente (ou que não existe mais) responde "Plano não encontrado." e nada muda
 ```
+
+Nota de entrega (Plano 04): o push e o e-mail de aviso na publicação ficam para o Plano 06 (P06: push + e-mail), porque o portal do paciente e o push só existem lá e um aviso agora levaria o paciente a uma tela vazia; o ponto de entrada está comentado em `publicarPlano` (`publicacao.ts`), para entrar na mesma transação. Publicar congela em cada item a cópia dos valores dos alimentos (`nutrientes`, RN-01). Na lista de versões, a data de publicação é exibida no fuso do tenant (RN-06).
 
 ## US-026 — PDF do plano · **M**
 
@@ -637,18 +757,35 @@ Cenário: Conteúdo do PDF
   Quando gero o PDF do plano publicado
   Então ele tem: logo, nome e CRN da nutricionista, nome do paciente, data, refeições com horário, itens com medida caseira e gramas, substituições, orientações e a fonte "TACO 4ª ed. — NEPA/UNICAMP" no rodapé
   E os totais nutricionais só aparecem se eu marcar "Mostrar calorias ao paciente" (meal_plans.mostrar_calorias, padrão: desmarcado; vale também para o PWA)
+  E, com a opção marcada, o PDF traz "Total do dia: N kcal" e, na linha seguinte, "Proteína: N g · Carboidrato: N g · Lipídio: N g · Fibra: N g" (Plano 04), o total de kcal de cada refeição e a kcal de cada item ("—" no item sem energia na TACO), e a diferença de kcal da substituição só quando os dois lados têm valor
 
 Cenário: Geração na publicação
   Quando publico um plano
   Então o worker gera o PDF e grava meal_plans.pdf_path em ≤ 30 s
   E o download pelo painel ou pelo PWA é imediato (sem gerar de novo)
   E um plano com 6 refeições e 40 itens gera o PDF em ≤ 5 s de processamento
+  E uma refeição maior que a página continua na página seguinte, sem cortar item nem observação (Plano 04)
 
 Cenário: Download antes de o PDF ficar pronto
   Dado que o PDF ainda está sendo gerado
   Quando o paciente toca em "Baixar PDF"
   Então vê "Seu PDF está sendo preparado" e o botão é liberado quando o arquivo fica pronto
+
+Cenário: PDF que não ficou pronto (Plano 04)
+  Dado que o worker esgotou as tentativas, a cota de armazenamento acabou, ou o PDF ficou pendente por mais de 1 h
+  Então a tela mostra "Não foi possível gerar o PDF. Tente de novo." com o botão "Gerar o PDF de novo"
+  E se o PDF já está sendo preparado, o botão responde "O PDF já está sendo preparado."
+  E se o PDF já ficou pronto (outra aba pediu antes), o botão não dá erro e a tela passa a mostrar "Baixar PDF"
+  E de um plano de outro paciente, o botão responde "Plano não encontrado." e nada vai para a fila
+
+Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
+  Dado que o pedido de exclusão do paciente foi atendido
+  Então o PDF que já existe continua em "Baixar PDF" (consulta) até a anonimização
+  Mas nenhum PDF novo é gerado: o job da fila desiste e marca "falhou", "Gerar o PDF de novo" é recusado com "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."
+  E no lugar do botão a tela mostra "Não foi possível gerar o PDF."
 ```
+
+Nota de entrega (Plano 04): no painel, o PDF pronto aparece como o botão "Baixar PDF" (link assinado de 5 min). Enquanto "Seu PDF está sendo preparado", a tela consulta só o estado do PDF a cada 3 s, por até 1 minuto, pela rota `GET /api/painel/planos/[id]/pdf?paciente=<id>`, que devolve apenas o status (`pendente`/`pronto`/`falhou`) e não registra leitura do prontuário, porque o status de geração não é dado de saúde; depois desse minuto é preciso recarregar a página. Uma varredura do worker (a cada 15 min) troca por "falhou" o PDF pendente há mais de 1 h, contada do pedido do PDF (`meal_plans.pdf_pedido_em`, gravado na publicação e no "Gerar o PDF de novo"; outra gravação no plano, como arquivá-lo ao publicar a versão seguinte, não renova o prazo), para a nutricionista sempre ter a saída "Gerar o PDF de novo". O PDF usa Helvetica (WinAnsi), como o do prontuário: caracteres fora desse conjunto (ex.: emoji) saem como "?". A conferência visual do desenho do PDF (refeição grande, logo) fica para o deploy.
 
 ---
 
@@ -912,6 +1049,8 @@ Cenário: Baixar PDF
   Então recebo o mesmo PDF da US-026
 ```
 
+Nota (Plano 04): o banco já esconde o `rascunho` do paciente (política `paciente_sem_rascunho`, §4.1) e `stored_files` do PDF ainda é restrita só por tenant; o que falta antes de existir sessão de paciente está na pendência P-16.
+
 ## US-042 — Diário alimentar · **M**
 
 **Como** paciente, **quero** registrar o que comi com texto e foto, **para** que minha nutricionista acompanhe.
@@ -988,7 +1127,7 @@ Cenário: Marcar comprado
 ```gherkin
 Cenário: Exportar meus dados
   Quando toco em "Baixar meus dados" em Perfil > Privacidade
-  Então recebo por e-mail um link (24 h) para o ZIP da US-018, só com dados visíveis ao paciente (sem notas privadas)
+  Então recebo por e-mail um link (24 h) para o ZIP da US-018, só com dados visíveis ao paciente (sem notas privadas e sem planos alimentares em `rascunho`, ver P-16)
 
 Cenário: Pedir exclusão
   Quando toco em "Pedir exclusão dos meus dados"

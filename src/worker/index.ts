@@ -14,6 +14,7 @@ import {
   gerarExportacao,
 } from '@/modules/pacientes/exportacao-job';
 import { anonimizarVencidos } from '@/modules/pacientes/lgpd';
+import { limparTmpOrfaos } from '@/modules/plataforma/armazenamento';
 import {
   avisarAdmins,
   statfsDoDiretorio,
@@ -21,6 +22,7 @@ import {
   verificarDisco,
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
+import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
 import { recordHeartbeat } from './heartbeat';
 import { urlDoApp } from '@/lib/url-do-app';
 
@@ -108,6 +110,28 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   );
   await boss.work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
     await expirarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR });
+  });
+
+  // US-026: PDF do plano alimentar na publicação (≤ 30 s) e limpeza diária dos .tmp órfãos de /data
+  await boss.work(
+    'plano-pdf',
+    { includeMetadata: true },
+    async ([job]: JobWithMetadata<{ tenantId: string; planId: string }>[]) => {
+      await gerarPdfDoPlano(job.data, {
+        db: getDb(),
+        dataDir: env.DATA_DIR,
+        ultimaTentativa: job.retryCount >= job.retryLimit,
+      });
+    },
+  );
+  await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('expirar-plano-pdf', async () => {
+    await expirarPdfsPendentes(getDb(), new Date());
+  });
+  await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('limpar-tmp', async () => {
+    const n = await limparTmpOrfaos(env.DATA_DIR, new Date());
+    if (n) logger.info({ apagados: n }, 'arquivos .tmp órfãos removidos');
   });
 
   await recordHeartbeat(getDb()); // batida imediata ao subir

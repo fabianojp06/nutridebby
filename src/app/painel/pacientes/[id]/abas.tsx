@@ -13,6 +13,7 @@ export const ABAS: readonly { seg: string; rotulo: string }[] = [
   { seg: 'exames', rotulo: 'Exames' },
   { seg: 'evolucao', rotulo: 'Evolução' },
   { seg: 'privacidade', rotulo: 'Privacidade' },
+  { seg: 'plano-alimentar', rotulo: 'Plano alimentar' },
   { seg: 'historico', rotulo: 'Histórico de acessos' },
 ];
 

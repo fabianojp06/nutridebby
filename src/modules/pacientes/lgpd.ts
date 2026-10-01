@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, isNull, lt, max, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { consultations, dataExports, exams, patients, privacyRequests } from '@/db/schema';
+import { consultations, dataExports, exams, mealPlans, patients, privacyRequests } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { logger } from '@/lib/logger';
@@ -156,7 +156,7 @@ export async function atenderPedidoExclusao(
   );
 }
 
-/** Arquivos em /data ligados ao paciente: laudos e exportações. */
+/** Arquivos em /data ligados ao paciente: laudos, exportações e PDFs de plano. */
 export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<string[]> {
   const deExames = await tx
     .select({ c: exams.arquivoPath })
@@ -166,7 +166,11 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
     .select({ c: dataExports.arquivoPath })
     .from(dataExports)
     .where(and(eq(dataExports.patientId, patientId), isNotNull(dataExports.arquivoPath)));
-  return [...deExames, ...deExportacoes].map((e) => e.c!);
+  const dePlanos = await tx
+    .select({ c: mealPlans.pdfPath })
+    .from(mealPlans)
+    .where(and(eq(mealPlans.patientId, patientId), isNotNull(mealPlans.pdfPath)));
+  return [...deExames, ...deExportacoes, ...dePlanos].map((e) => e.c!);
 }
 
 /**

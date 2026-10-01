@@ -12,3 +12,4 @@ docs
 *.tsbuildinfo
 docker-compose.dev.yml
 data/
+seeds

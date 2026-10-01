@@ -2,6 +2,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { patients, patientTagLinks, patientTags } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { normalizarTexto } from '@/lib/text';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
 
@@ -58,7 +59,7 @@ export async function salvarEtiquetasDoPaciente(
   input: { etiquetas: string[]; nova?: string },
   db: Db = getDb(),
 ): Promise<void> {
-  const nova = input.nova?.trim().replace(/\s+/g, ' ') ?? '';
+  const nova = normalizarTexto(input.nova);
   if (nova.length > 40) throw new EtiquetaError(MSG_ETIQUETA.nome);
   await withTenant(
     ctx,

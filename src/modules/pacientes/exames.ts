@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
+import { normalizarTexto } from '@/lib/text';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
@@ -22,8 +23,8 @@ export class ExameError extends Error {
 
 const MAX_LINHAS = 50;
 const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria notação exponencial na tela
-const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
-const passaDoLimite = (v: unknown, max: number) => typeof v === 'string' && v.trim().replace(/\s+/g, ' ').length > max;
+const texto = (v: unknown, max: number) => normalizarTexto(v).slice(0, max);
+const passaDoLimite = (v: unknown, max: number) => normalizarTexto(v).length > max;
 
 /** Linhas de valores do formulário. Linha toda vazia é ignorada; nome sem valor numérico (ou o contrário) → null. */
 export function lerValores(bruto: unknown): ValorExame[] | null {

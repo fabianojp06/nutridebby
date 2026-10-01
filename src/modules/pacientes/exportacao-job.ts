@@ -11,6 +11,7 @@ import {
   dataExports,
   energyCalcs,
   exams,
+  mealPlans,
   patients,
   privacyRequests,
   storedFiles,
@@ -32,6 +33,7 @@ import {
   listarTenantsParaVarredura,
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
+import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
 import { respostaParaCampo } from './anamnese-tipos';
 import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
@@ -90,6 +92,16 @@ export type DadosExportacao = {
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
+  /** Planos alimentares (todas as versões e o rascunho); publicado/arquivado com os valores congelados (D10). */
+  planos: {
+    versao: number;
+    status: string;
+    titulo: string;
+    publicadoEm: string | null;
+    metaKcal: number | null;
+    orientacoes: string;
+    refeicoes: { nome: string; horario: string; observacao: string; itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null }[] }[];
+  }[];
   pedidosLgpd: { tipo: string; status: string; prazo: string; concluidoEm: string | null }[];
   /** Os laudos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
@@ -148,6 +160,31 @@ export async function montarDados(
     .from(privacyRequests)
     .where(eq(privacyRequests.patientId, patientId))
     .orderBy(asc(privacyRequests.createdAt));
+  const ids = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, patientId)).orderBy(asc(mealPlans.versao));
+  const planos: DadosExportacao['planos'] = [];
+  for (const { id } of ids) {
+    const pl = await lerPlanoNaTransacao(tx, id, { auditar: false, comMedidas: false }); // a exportação já registra "exportar"
+    if (!pl) continue;
+    planos.push({
+      versao: pl.versao,
+      status: pl.status,
+      titulo: pl.titulo,
+      publicadoEm: pl.publicadoEm,
+      metaKcal: pl.metaKcal,
+      orientacoes: pl.orientacoes,
+      refeicoes: pl.refeicoes.map((r) => ({
+        nome: r.nome,
+        horario: r.horario,
+        observacao: r.observacao,
+        itens: r.itens.map((i) => ({
+          alimento: i.nome,
+          quantidadeG: i.quantidadeG,
+          medida: i.medidaCaseiraTxt,
+          substituiDe: i.substituiItemId ? (r.itens.find((x) => x.id === i.substituiItemId)?.nome ?? null) : null,
+        })),
+      })),
+    });
+  }
   const laudos: LaudoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
@@ -210,6 +247,7 @@ export async function montarDados(
       valores: e.valores,
     })),
     atendimentos: at,
+    planos,
     pedidosLgpd: pr.map((r) => ({
       tipo: r.tipo,
       status: r.status,

@@ -1,4 +1,5 @@
 import { lerDecimal } from '@/lib/numero';
+import { normalizarTexto } from '@/lib/text';
 import { dataValida } from './datas';
 
 /** US-012: os 7 tipos de pergunta. Arquivo puro: o editor de modelos e o formulário usam no navegador. */
@@ -34,7 +35,7 @@ export const MSG_ANAMNESE = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIMITE_PERGUNTAS = 100;
-const texto = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '');
+const texto = normalizarTexto;
 const tipoValido = (t: unknown): t is TipoPergunta => TIPOS_PERGUNTA.some((x) => x.id === t);
 const temOpcoes = (t: TipoPergunta) => t === 'escolha_unica' || t === 'multipla_escolha';
 
