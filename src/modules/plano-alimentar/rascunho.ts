@@ -43,9 +43,11 @@ export async function criarRascunho(ctx: TenantContext, patientId: string, deps:
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };
 type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number };
-type Validado = { revisao: number; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
+type Validado = { revisao: number; envio: string; envioAnterior: string | null; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
 
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** D7: chave de idempotência de cada PUT (uuid do cliente) e, opcional, a do envio anterior sem resposta. */
+const chavesSchema = z.object({ envio: z.uuid(), envioAnterior: z.uuid().optional() });
 const medidaSchema = z.object({
   nome: z.string().trim().min(1).max(60),
   plural: z.string().trim().min(1).max(60),
@@ -57,6 +59,8 @@ const medidaSchema = z.object({
 function validar(entrada: unknown): Validado {
   const o = (entrada ?? {}) as Record<string, unknown>;
   if (typeof o !== 'object' || !Array.isArray(o.refeicoes) || !Number.isInteger(o.revisao)) throw new PlanoError({ geral: MSG_PLANO.invalido });
+  const chaves = chavesSchema.safeParse({ envio: o.envio, envioAnterior: o.envioAnterior });
+  if (!chaves.success) throw new PlanoError({ geral: MSG_PLANO.invalido });
   const erros: Record<string, string> = {};
   const titulo = normalizarTexto(o.titulo);
   if (!titulo || titulo.length > 120) erros.titulo = MSG_PLANO.titulo;
@@ -122,6 +126,8 @@ function validar(entrada: unknown): Validado {
   if (Object.keys(erros).length) throw new PlanoError(erros);
   return {
     revisao: o.revisao as number,
+    envio: chaves.data.envio,
+    envioAnterior: chaves.data.envioAnterior ?? null,
     titulo,
     metaKcal: metaN === null ? null : arredondar(metaN, 0),
     energyCalcId: idValido(o.energyCalcId) ? o.energyCalcId : null,
@@ -140,6 +146,9 @@ const iguais = (a: unknown, b: unknown) => JSON.stringify(canonico(a)) === JSON.
 /**
  * D7: aplica só a diferença entre o que o editor mandou e o banco (o gatilho de auditoria registra só o que mudou).
  * Ordem de travas igual à da publicação: paciente → plano.
+ * Trava otimista com repetição segura: vale a revisão atual, ou a anterior se `envioAnterior` é o envio gravado por
+ * último (a resposta dele se perdeu e a tela não soube da revisão nova). O corpo é o rascunho inteiro e a gravação é
+ * por diferença, então reaplicar inclui as edições novas sem desfazer nada da outra tentativa.
  */
 export async function salvarRascunho(ctx: TenantContext, planId: string, entrada: unknown, deps: Deps = {}): Promise<{ revisao: number }> {
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
@@ -155,7 +164,8 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
         if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
         if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
-        if (p.revisao !== v.revisao) throw new ConflitoRevisaoError();
+        const repeticao = v.envioAnterior !== null && v.envioAnterior === p.ultimoEnvio && v.revisao + 1 === p.revisao;
+        if (p.revisao !== v.revisao && !repeticao) throw new ConflitoRevisaoError();
 
         if (v.energyCalcId) {
           // o cálculo precisa ser do mesmo paciente (modelo não tem paciente nem cálculo)
@@ -213,6 +223,7 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
             mostrarCalorias: v.mostrarCalorias,
             orientacoes: v.orientacoes,
             revisao: p.revisao + 1,
+            ultimoEnvio: v.envio,
             updatedAt: now,
           })
           .where(eq(mealPlans.id, planId))

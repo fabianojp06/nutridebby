@@ -15,7 +15,7 @@ const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 const deps = { db: app.db, now: new Date('2026-10-01T15:00:00Z') };
 const corpo = (energyCalcId: string | null, metaKcal: string) => ({
-  revisao: 0, titulo: 'Plano', metaKcal, energyCalcId, mostrarCalorias: false, orientacoes: '',
+  revisao: 0, envio: randomUUID(), titulo: 'Plano', metaKcal, energyCalcId, mostrarCalorias: false, orientacoes: '',
   refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
 });
 

@@ -22,7 +22,7 @@ import { renderizarPlano } from './plano-pdf';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { pedirNovoPdf, publicarPlano } from './publicacao';
 import { criarRascunho, salvarRascunho } from './rascunho';
-import type { PlanoCompleto, RascunhoEnviado } from './tipos';
+import type { CorpoSalvamento, PlanoCompleto } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -38,10 +38,10 @@ const deps = { db: app.db, now };
 const job = (T: TenantDeTeste, planId: string, extra: Partial<Parameters<typeof gerarPdfDoPlano>[1]> = {}) =>
   gerarPdfDoPlano({ tenantId: T.tenantId, planId }, { db: app.db, dataDir, now, ultimaTentativa: false, ...extra });
 
-function conteudo(mostrarCalorias: boolean): RascunhoEnviado {
+function conteudo(mostrarCalorias: boolean): CorpoSalvamento {
   const pao = randomUUID();
   return {
-    revisao: 0, titulo: 'Plano de Ana', metaKcal: '2000', mostrarCalorias, orientacoes: 'Beber 2 litros de água por dia.',
+    revisao: 0, envio: randomUUID(), titulo: 'Plano de Ana', metaKcal: '2000', mostrarCalorias, orientacoes: 'Beber 2 litros de água por dia.',
     refeicoes: [
       { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Prato colorido', itens: [
         { id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: { nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: 25, qtd: 4 }, substituiItemId: null },
@@ -117,7 +117,7 @@ describe('PDF do plano (US-026)', () => {
     const [leite, pao, leite2, pao2] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
     const item = (i: string, foodId: string, g: string, sub: string | null) => ({ id: i, foodId, quantidadeG: g, medida: null, substituiItemId: sub });
     await salvarRascunho(T.ctx, id, {
-      revisao: 0, titulo: 'Sem kcal', metaKcal: '', mostrarCalorias: true, orientacoes: '',
+      revisao: 0, envio: randomUUID(), titulo: 'Sem kcal', metaKcal: '', mostrarCalorias: true, orientacoes: '',
       refeicoes: [
         { id: randomUUID(), nome: 'Lanche A', horario: '10:00', observacao: '', itens: [item(pao, idTaco(53), '50', null), item(leite, idTaco(458), '200', pao)] }, // substituição sem kcal
         { id: randomUUID(), nome: 'Lanche B', horario: '16:00', observacao: '', itens: [item(leite2, idTaco(458), '200', null), item(pao2, idTaco(53), '50', leite2)] }, // principal sem kcal
@@ -165,7 +165,7 @@ describe('PDF do plano (US-026)', () => {
       id: randomUUID(), nome: `Refeição ${r + 1}`, horario: `${String(7 + 2 * r).padStart(2, '0')}:00`, observacao: 'Observação da refeição',
       itens: Array.from({ length: r < 4 ? 7 : 6 }, (_, i) => ({ id: randomUUID(), foodId: idTaco(1 + ((r * 7 + i) % 597)), quantidadeG: '100', medida: null, substituiItemId: null })),
     }));
-    await salvarRascunho(T.ctx, id, { revisao: 0, titulo: 'Grande', metaKcal: '', mostrarCalorias: true, orientacoes: '', refeicoes }, deps);
+    await salvarRascunho(T.ctx, id, { revisao: 0, envio: randomUUID(), titulo: 'Grande', metaKcal: '', mostrarCalorias: true, orientacoes: '', refeicoes }, deps);
     await publicarPlano(T.ctx, id, deps);
     const t0 = performance.now();
     expect(await job(T, id)).toBe('pronto');

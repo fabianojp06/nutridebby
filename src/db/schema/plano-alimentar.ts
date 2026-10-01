@@ -32,6 +32,8 @@ export const mealPlans = pgTable(
     versao: integer('versao').notNull().default(1),
     /** D7: trava otimista do salvamento automático. */
     revisao: integer('revisao').notNull().default(0),
+    /** D7: `envio` (uuid do cliente) do último salvamento gravado; aceita a repetição de um envio cuja resposta se perdeu. */
+    ultimoEnvio: uuid('ultimo_envio'),
     publicadoEm: timestamp('publicado_em', { withTimezone: true }),
     origemPlanId: uuid('origem_plan_id'),
     mostrarCalorias: boolean('mostrar_calorias').notNull().default(false),

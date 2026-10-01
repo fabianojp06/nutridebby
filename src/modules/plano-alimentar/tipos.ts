@@ -44,7 +44,7 @@ export type PlanoCompleto = {
 /** O que o editor (cliente) e o JSON da API recebem: sem o caminho interno do PDF (`paraCliente`, carregar.ts). */
 export type PlanoDoCliente = Omit<PlanoCompleto, 'pdfPath'> & { pdfPath?: never };
 
-/** Corpo do PUT do salvamento automático (D7). Quantidade e meta vão como texto digitado. */
+/** Conteúdo do rascunho no PUT do salvamento automático (D7). Quantidade e meta vão como texto digitado. */
 export type RascunhoEnviado = {
   revisao: number;
   titulo: string;
@@ -60,4 +60,12 @@ export type RascunhoEnviado = {
     observacao: string;
     itens: { id: string; foodId: string; quantidadeG: string; medida: MedidaDoItem | null; substituiItemId: string | null }[];
   }[];
+};
+
+/** Corpo do PUT do salvamento automático (D7): o conteúdo do rascunho e a chave de idempotência do envio. */
+export type CorpoSalvamento = RascunhoEnviado & {
+  /** uuid novo a cada PUT; o salvamento que dá certo o grava em `meal_plans.ultimo_envio`. */
+  envio: string;
+  /** O `envio` de uma tentativa sem resposta confiável (rede, 5xx): se foi ela a última gravada, a revisão de antes vale. */
+  envioAnterior?: string;
 };

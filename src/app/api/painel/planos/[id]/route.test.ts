@@ -24,7 +24,7 @@ const put = (id: string, corpo: unknown, cookie?: string) =>
   PUT(new Request(url(id), { method: 'PUT', body: JSON.stringify(corpo), headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) } }), { params: Promise.resolve({ id }) });
 const get = (id: string, cookie?: string) => GET(new Request(url(id), { headers: cookie ? { cookie } : {} }), { params: Promise.resolve({ id }) });
 const corpo = (revisao: number, quantidadeG = '100') => ({
-  revisao, titulo: 'Plano', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+  revisao, envio: randomUUID(), titulo: 'Plano', metaKcal: '', mostrarCalorias: false, orientacoes: '',
   refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG, medida: null, substituiItemId: null }] }],
 });
 

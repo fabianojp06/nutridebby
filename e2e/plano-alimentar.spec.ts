@@ -254,7 +254,7 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
     observacao: '',
     itens: k === 0 ? Array.from({ length: 200 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })) : [],
   }));
-  const r = await nutri.request.put(api, { data: { revisao: atual.revisao, titulo: atual.titulo, metaKcal: '', energyCalcId: null, mostrarCalorias: false, orientacoes: '', refeicoes } });
+  const r = await nutri.request.put(api, { data: { revisao: atual.revisao, envio: randomUUID(), titulo: atual.titulo, metaKcal: '', energyCalcId: null, mostrarCalorias: false, orientacoes: '', refeicoes } });
   expect(r.status()).toBe(200);
 
   await nutri.reload();
@@ -284,6 +284,25 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
   await expect(nutri.getByRole('alert').filter({ hasText: LIMITE })).toHaveCount(0);
 
+  // Resposta perdida depois de gravar (D7): o servidor gravou e a tela não soube; a nova tentativa leva a chave do
+  // envio incerto e é aceita, em vez de virar um falso "alterado em outra aba"
+  let perdida = false;
+  await nutri.route('**/api/painel/planos/*', async (rota) => {
+    if (rota.request().method() !== 'PUT' || perdida) return rota.continue();
+    perdida = true;
+    const gravou = await rota.fetch(); // chega ao servidor e grava
+    expect(gravou.status()).toBe(200);
+    await rota.abort('connectionreset'); // a resposta não chega à tela
+  });
+  await nutri.getByLabel('Título').fill('Plano com resposta perdida');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  await nutri.unroute('**/api/painel/planos/*');
+  await nutri.getByLabel('Orientações gerais').fill('Depois da resposta perdida.');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10000 });
+  await nutri.reload();
+  await expect(nutri.getByLabel('Título')).toHaveValue('Plano com resposta perdida');
+  await expect(nutri.getByLabel('Orientações gerais')).toHaveValue('Depois da resposta perdida.');
+
   // Sessão expirada (401): o editor para e diz o motivo, em vez de repetir para sempre como "sem rede"
   await nutri.route('**/api/painel/planos/*', (rota) =>
     rota.request().method() === 'PUT' ? rota.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ erro: 'Sessão expirada. Entre de novo.' }) }) : rota.continue(),
@@ -292,7 +311,7 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await expect(nutri.getByRole('status').filter({ hasText: 'Sessão expirada. Entre de novo.' })).toBeVisible({ timeout: 5000 });
   await nutri.unroute('**/api/painel/planos/*');
   await nutri.getByRole('button', { name: 'Recarregar' }).click();
-  await expect(nutri.getByLabel('Título')).toHaveValue('Plano com limites e salvo'); // nada foi gravado sem sessão
+  await expect(nutri.getByLabel('Título')).toHaveValue('Plano com resposta perdida'); // nada foi gravado sem sessão
 
   // O texto de observação tem teto de 2000 caracteres na própria caixa (o servidor recusaria acima disso)
   await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '2000');

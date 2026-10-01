@@ -12,13 +12,13 @@ import { MSG_PLANO } from './constantes';
 import { PlanoError, PlanoNaoEncontradoError } from './erros';
 import { criarDeModelo, criarModelo, excluirModelo, listarModelos, salvarComoModelo } from './modelos';
 import { criarRascunho, salvarRascunho } from './rascunho';
-import type { RascunhoEnviado } from './tipos';
+import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 const deps = { db: app.db };
-const conteudo = (revisao: number, titulo = 'Emagrecimento 1600 kcal'): RascunhoEnviado => ({
-  revisao, titulo, metaKcal: '1600', mostrarCalorias: false, orientacoes: 'Evitar frituras.',
+const conteudo = (revisao: number, titulo = 'Emagrecimento 1600 kcal'): CorpoSalvamento => ({
+  revisao, envio: randomUUID(), titulo, metaKcal: '1600', mostrarCalorias: false, orientacoes: 'Evitar frituras.',
   refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [
     { id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: { nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: 25, qtd: 4 }, substituiItemId: null },
     { id: randomUUID(), foodId: idTaco(561), quantidadeG: '140', medida: null, substituiItemId: null },

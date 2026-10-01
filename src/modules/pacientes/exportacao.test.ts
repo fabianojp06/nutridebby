@@ -119,7 +119,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const { T, p } = await prontuarioCompleto();
     const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
     await salvarRascunho(T.ctx, planId, {
-      revisao: 0, titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
     }, { db: app.db });
     const id = await solicitarExportacao(T.ctx, p.id, deps);

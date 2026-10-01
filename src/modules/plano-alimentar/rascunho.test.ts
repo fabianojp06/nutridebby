@@ -11,7 +11,7 @@ import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEncontradoError } from './erros';
 import { copiarConteudo, criarRascunho, descartarRascunho, proximaVersao, salvarRascunho } from './rascunho';
-import type { RascunhoEnviado } from './tipos';
+import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -30,9 +30,10 @@ const erros = async (p: Promise<unknown>) => {
 const COLHER = { nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: 25, qtd: 4 };
 
 /** Rascunho com Café (pão francês 50 g + tapioca como substituição) e Almoço (arroz: 4 colheres de sopa cheias). */
-function conteudo(revisao: number, ids = { cafe: randomUUID(), almoco: randomUUID(), pao: randomUUID(), sub: randomUUID(), arroz: randomUUID() }): RascunhoEnviado {
+function conteudo(revisao: number, ids = { cafe: randomUUID(), almoco: randomUUID(), pao: randomUUID(), sub: randomUUID(), arroz: randomUUID() }): CorpoSalvamento {
   return {
     revisao,
+    envio: randomUUID(),
     titulo: 'Plano de Ana',
     metaKcal: '2000',
     mostrarCalorias: false,
@@ -105,6 +106,48 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const antes = await alterar();
     await salvarRascunho(T.ctx, id, { ...c1, revisao: 1 }, deps);
     expect(await alterar()).toBe(antes + 1); // só o meal_plans (revisão): o item não é regravado
+  });
+
+  describe('envio repetido depois de uma resposta perdida (D7, chave de idempotência)', () => {
+    it('com o envioAnterior que o banco gravou por último, a revisão de antes é aceita e devolve a revisão +1', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      const a = randomUUID();
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps)).toEqual({ revisao: 1 }); // gravou; a resposta se perde
+      const repetido = { ...conteudo(0), envio: randomUUID(), envioAnterior: a, titulo: 'Depois da resposta perdida' }; // a tela ainda está na revisão 0
+      expect(await salvarRascunho(T.ctx, id, repetido, deps)).toEqual({ revisao: 2 });
+      expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ titulo: 'Depois da resposta perdida', revisao: 2 });
+    });
+
+    it('envioAnterior errado ou ausente com a revisão de antes: conflito, nada gravado', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      await salvarRascunho(T.ctx, id, conteudo(0), deps); // outra aba gravou a revisão 1
+      for (const envioAnterior of [randomUUID(), undefined])
+        await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior, titulo: 'Aba velha' }, deps), String(envioAnterior)).rejects.toBeInstanceOf(ConflitoRevisaoError);
+      expect((await carregarPlano(T.ctx, id, app.db))?.titulo).toBe('Plano de Ana');
+    });
+
+    it('revisão 2 atrás é conflito mesmo com o envio certo', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      await salvarRascunho(T.ctx, id, conteudo(0), deps);
+      const b = randomUUID();
+      await salvarRascunho(T.ctx, id, { ...conteudo(1), envio: b }, deps);
+      await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior: b, titulo: 'Velho' }, deps)).rejects.toBeInstanceOf(ConflitoRevisaoError);
+      expect((await carregarPlano(T.ctx, id, app.db))?.revisao).toBe(2);
+    });
+
+    it('envio é obrigatório e as duas chaves são uuid', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { envio, ...semEnvio } = conteudo(0);
+      expect(await erros(salvarRascunho(T.ctx, id, semEnvio, deps))).toEqual({ geral: MSG_PLANO.invalido });
+      expect(await erros(salvarRascunho(T.ctx, id, { ...conteudo(0), envio: 'abc' }, deps))).toEqual({ geral: MSG_PLANO.invalido });
+      expect(await erros(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior: 'abc' }, deps))).toEqual({ geral: MSG_PLANO.invalido });
+      expect((await carregarPlano(T.ctx, id, app.db))?.revisao).toBe(0);
+    });
   });
 
   it('Review Focus 1: revisão velha (outra aba) recebe conflito e nada é gravado', async () => {

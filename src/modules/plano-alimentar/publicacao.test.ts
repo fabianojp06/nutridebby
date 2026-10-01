@@ -32,7 +32,7 @@ const deps = { db: app.db, now: new Date('2026-10-01T15:00:00Z') };
 
 const item = (foodId: string, quantidadeG = '100', substituiItemId: string | null = null) => ({ id: randomUUID(), foodId, quantidadeG, medida: null, substituiItemId });
 const corpo = (revisao: number, itens = [item(idTaco(3))], horario = '12:00') => ({
-  revisao, titulo: 'Plano de Ana', metaKcal: '2000', mostrarCalorias: false, orientacoes: '',
+  revisao, envio: randomUUID(), titulo: 'Plano de Ana', metaKcal: '2000', mostrarCalorias: false, orientacoes: '',
   refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario, observacao: '', itens }],
 });
 
