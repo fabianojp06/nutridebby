@@ -82,6 +82,17 @@ export async function carregarPlano(ctx: TenantContext, planId: string, db: Db =
   return withTenant(ctx, (tx) => lerPlanoNaTransacao(tx, planId), db);
 }
 
+/**
+ * Só o estado da geração do PDF de um plano do paciente (polling do "Seu PDF está sendo preparado", US-026).
+ * Sem auditoria: não devolve dado de saúde (nem o caminho do arquivo). Plano de outro paciente ou de outro tenant
+ * (RLS) → undefined.
+ */
+export async function statusDoPdf(ctx: TenantContext, planId: string, patientId: string, db: Db = getDb()): Promise<PlanoCompleto['pdfStatus'] | undefined> {
+  if (!idValido(planId) || !idValido(patientId)) return undefined;
+  const [p] = await withTenant(ctx, (tx) => tx.select({ pdfStatus: mealPlans.pdfStatus }).from(mealPlans).where(and(eq(mealPlans.id, planId), eq(mealPlans.patientId, patientId))), db);
+  return p ? (p.pdfStatus as PlanoCompleto['pdfStatus']) : undefined;
+}
+
 /** Versões do plano do paciente (mais nova primeiro) — tela "Plano alimentar" do prontuário. */
 export async function listarPlanosDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()) {
   if (!idValido(patientId)) return [];

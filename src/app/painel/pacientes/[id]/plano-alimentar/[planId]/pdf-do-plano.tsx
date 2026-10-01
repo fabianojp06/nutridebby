@@ -19,7 +19,7 @@ export function PdfDoPlano({ plano, patientId }: { plano: PlanoCompleto; patient
     return (
       <p role="status" className="text-zinc-700">
         Seu PDF está sendo preparado
-        <AtualizarEnquanto />
+        <AtualizarEnquanto planId={plano.id} patientId={patientId} />
       </p>
     );
   return null;

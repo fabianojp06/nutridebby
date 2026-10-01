@@ -434,6 +434,8 @@ test('publicar v1, editar cria v2 com a v1 ainda publicada, publicar v2 arquiva 
   nutri.once('dialog', (d) => void d.accept());
   await nutri.getByRole('button', { name: 'Publicar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
+  // US-026: o "Baixar PDF" é liberado na mesma tela (o painel consulta só o estado do PDF, sem recarregar a cada 3 s)
+  await expect(nutri.getByRole('link', { name: 'Baixar PDF' })).toBeVisible({ timeout: 30_000 });
   await nutri.goto(`${prontuario}/plano-alimentar`);
   await expect(nutri.getByRole('row', { name: /Versão 1/ })).toContainText('Arquivado');
   await expect(nutri.getByRole('row', { name: /Versão 2/ })).toContainText('Publicado');
