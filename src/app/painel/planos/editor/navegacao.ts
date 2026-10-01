@@ -1,3 +1,5 @@
+import type { StatusSalvamento } from './use-salvamento';
+
 /** O que interessa do clique (o `MouseEvent` do navegador serve). */
 export type Clique = { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; defaultPrevented: boolean };
 /** O `<a href>` clicado (ou null, se o clique não foi num link). */
@@ -23,19 +25,27 @@ export function ehNavegacaoInterna(c: Clique, link: LinkClicado | null, atual: s
 }
 
 /**
- * Clique no botão "Sair" (`data-sair`): um formulário, não um link — `ehNavegacaoInterna` não o pega. Ao enviar, a sessão
- * acaba e a edição que ainda não chegou ao servidor se perderia (o envio da desmontagem do editor chegaria depois do
- * logout e levaria 401). Vale com qualquer modificador: o formulário é enviado do mesmo jeito. Só fica de fora o clique que
- * outro listener já tratou.
+ * Há edição que ainda não está no servidor? Qualquer status que não seja 'salvo' (salvando, sem rede, erro de campo,
+ * parado) ou edição esperando os 800 ms do salvamento automático. Tudo salvo e nada esperando: não há.
  */
-export function ehCliqueEmSair(c: Pick<Clique, 'defaultPrevented'>, dentroDeSair: boolean): boolean {
-  return dentroDeSair && !c.defaultPrevented;
+export function haAlteracaoNaoSalva(status: StatusSalvamento, edicaoEsperando: boolean): boolean {
+  return status !== 'salvo' || edicaoEsperando;
 }
 
+/** O que o botão "Sair" (`data-sair`, um formulário, não um link) faz no editor. */
+export type SaidaDoEditor = 'direto' | 'enviar-antes' | 'confirmar';
+
 /**
- * Sair encerra a sessão, e o envio que o debounce segurava não garante a edição: qualquer status que não seja 'salvo'
- * (salvando, sem rede, erro de campo, parado) ou edição esperando os 800 ms pede confirmação. Tudo salvo sai direto.
+ * "Sair" encerra a sessão, e o envio que o editor faz ao desmontar chegaria depois do logout (401): a edição se perderia
+ * sem aviso. Então:
+ * - `direto`: tudo salvo e nada esperando;
+ * - `enviar-antes`: só o debounce pendente (ou um envio normal em voo): o editor envia na hora, espera gravar e então
+ *   sai; se não gravar, cai na confirmação;
+ * - `confirmar`: o envio não resolve (sem rede, erro de campo, conflito/paciente bloqueado, última tentativa sem
+ *   sucesso): pede confirmação antes de descartar.
  */
-export function haAlteracaoNaoSalva(status: string, edicaoEsperando: boolean): boolean {
-  return status !== 'salvo' || edicaoEsperando;
+export function comoSair(status: StatusSalvamento, s: { edicaoEsperando: boolean; falhou: boolean; parado: boolean }): SaidaDoEditor {
+  if (!haAlteracaoNaoSalva(status, s.edicaoEsperando)) return 'direto';
+  if (s.falhou || s.parado || status === 'offline' || status === 'erro' || status === 'parado') return 'confirmar';
+  return 'enviar-antes';
 }

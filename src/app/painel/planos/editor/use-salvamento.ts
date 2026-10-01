@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CorpoSalvamento, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
-import { ehCliqueEmSair, ehNavegacaoInterna, haAlteracaoNaoSalva } from './navegacao';
+import { comoSair, ehNavegacaoInterna } from './navegacao';
 import { enviosIncertosDepois, interpretarResposta, type RespostaSalvamento } from './resposta';
 
 /** `parado`: repetir não adianta (conflito entre abas, paciente bloqueado, versão publicada, sessão expirada, plano
@@ -30,8 +30,9 @@ export type ConferirRevisao = { paciente: string | null; aoDesatualizar: (revisa
  * Sem rede: "Alterações não salvas" e nova tentativa a cada 5 s e quando o navegador volta a ficar online.
  * Saída por link interno (US-022): o envio que o debounce segurava sai na hora; se a edição pode se perder
  * (conflito, última tentativa sem sucesso, ou envio em voo com edição esperando), pede confirmação antes.
- * Saída pelo botão "Sair" (`data-sair`, um formulário): o logout derrubaria o envio da desmontagem (401), então
- * qualquer coisa não salva (status diferente de 'salvo' ou edição esperando o debounce) pede confirmação.
+ * Saída pelo botão "Sair" (`data-sair`, um formulário): o logout derrubaria o envio da desmontagem (401). Só o debounce
+ * pendente: envia na hora, espera gravar e então sai (sem diálogo); falha, sem rede, erro de campo, conflito ou parado,
+ * ou o envio que não gravou: pede confirmação (`comoSair`).
  * Com `conferir`: ao montar, confere se a revisão da página ainda é a do servidor (ver o efeito abaixo).
  */
 export function useSalvamento(planId: string, revisaoInicial: number, montarEnvio: (revisao: number) => RascunhoEnviado, edicoes: number, conferir: ConferirRevisao | null = null) {
@@ -41,11 +42,9 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   const revisao = useRef(revisaoInicial);
   const montar = useRef(montarEnvio);
   const atual = useRef(edicoes); // edições feitas até a última renderização
-  const statusAtual = useRef<StatusSalvamento>('salvo'); // o status da última renderização, para o listener de clique
   useEffect(() => {
     montar.current = montarEnvio; // sempre o estado da última renderização, sem tocar em ref durante o render
     atual.current = edicoes;
-    statusAtual.current = status;
   });
   const emVoo = useRef(false);
   const pendente = useRef(false);
@@ -57,13 +56,11 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   const incertos = useRef<string[]>([]);
   const agendado = useRef(false); // há edição esperando os 800 ms
 
-  const salvar = useCallback(async () => {
-    if (parado.current) return;
-    if (emVoo.current) {
-      pendente.current = true;
-      return;
-    }
-    emVoo.current = true;
+  const laco = useRef<Promise<void> | null>(null); // o laço de envio em andamento (o "Sair" espera por ele)
+  const saindo = useRef(false); // a usuária escolheu sair (o envio do formulário "Sair" já foi decidido): sem pergunta do navegador
+  const aguardandoSair = useRef(false); // "Sair" esperando o envio gravar: cliques repetidos não abrem outra espera
+
+  const executar = useCallback(async () => {
     try {
       // edição que chega com um envio em voo (`pendente`) é enviada logo depois, com a revisão nova
       do {
@@ -107,6 +104,19 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
       emVoo.current = false;
     }
   }, [planId]);
+
+  // Resolve quando o envio em andamento (e os que ele encadeiam) termina: o "Sair" espera por ele. Com um envio em voo,
+  // a edição nova só marca `pendente` (o laço a envia depois) e devolve o laço que já corre.
+  const salvar = useCallback((): Promise<void> => {
+    if (parado.current) return Promise.resolve();
+    if (emVoo.current) {
+      pendente.current = true;
+      return laco.current ?? Promise.resolve();
+    }
+    emVoo.current = true;
+    laco.current = executar();
+    return laco.current;
+  }, [executar]);
 
   // O "Voltar" do navegador reaproveita a página que o App Router guardou (Next 16: as páginas "are reused during
   // browser back/forward navigation"), com o conteúdo e a revisão de quando ela foi aberta; outra aba também pode ter
@@ -175,6 +185,7 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
 
   useEffect(() => {
     const avisar = (e: BeforeUnloadEvent) => {
+      if (saindo.current) return; // já escolheu sair (confirmou ou o envio gravou): o navegador não pergunta de novo
       if (status !== 'salvo' && status !== 'parado') e.preventDefault(); // parado: nada mais será salvo (e "Recarregar" não pergunta)
     };
     window.addEventListener('beforeunload', avisar);
@@ -184,16 +195,41 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   // Link interno quando o envio na saída não garante a edição: parado (não envia), última tentativa sem sucesso
   // (sem rede ou erro de campo: a próxima também falharia) ou PUT em voo com edição esperando. Captura no document,
   // antes do onClick do <Link>: cancelar no confirm impede a navegação.
-  // O botão "Sair" (`data-sair`) é um formulário, não um link: o logout acontece antes do envio da desmontagem (que
-  // levaria 401), então aqui vale uma regra mais larga — qualquer status que não seja 'salvo', ou edição esperando o
-  // debounce, pede confirmação; tudo salvo sai direto. Cancelar impede o envio do formulário.
+  // O botão "Sair" (`data-sair`) é um formulário (POST /sair, página inteira), não um link: o logout acontece antes do
+  // envio da desmontagem, que levaria 401. `comoSair` decide: tudo salvo sai direto; só o debounce pendente envia na
+  // hora e espera gravar (sem diálogo) antes de enviar o formulário de saída; sem rede, erro de campo, conflito,
+  // parado ou envio que não gravou pede confirmação (aceitar descarta a edição por escolha da usuária; offline, o
+  // navegador mostra a página de sem conexão e a sessão segue até ela sair com rede).
   useEffect(() => {
+    const sairDeVez = (form: HTMLFormElement) => {
+      saindo.current = true;
+      form.requestSubmit(); // não dispara `click`: o listener abaixo não intercepta de novo
+    };
     const aoClicar = (e: MouseEvent) => {
       const alvo = e.target instanceof Element ? e.target : null;
-      if (ehCliqueEmSair(e, alvo?.closest('[data-sair]') != null)) {
-        if (!haAlteracaoNaoSalva(statusAtual.current, agendado.current) || window.confirm(MSG_SAIR_SEM_SALVAR)) return;
+      const botaoSair = !e.defaultPrevented ? alvo?.closest('[data-sair]') : null;
+      if (botaoSair) {
+        const form = botaoSair.closest('form');
+        const saida = comoSair(status, { edicaoEsperando: agendado.current, falhou: falhou.current, parado: parado.current });
+        if (!form || saida === 'direto') return;
         e.preventDefault();
         e.stopPropagation();
+        if (saida === 'confirmar') {
+          if (window.confirm(MSG_SAIR_SEM_SALVAR)) sairDeVez(form);
+          return;
+        }
+        if (aguardandoSair.current) return;
+        aguardandoSair.current = true;
+        void (async () => {
+          try {
+            agendado.current = false; // o envio sai agora; o temporizador do debounce, se disparar, só repete o último estado
+            await salvar().catch(() => undefined);
+            const gravou = !parado.current && !falhou.current && !agendado.current && !emVoo.current;
+            if (gravou || window.confirm(MSG_SAIR_SEM_SALVAR)) sairDeVez(form);
+          } finally {
+            aguardandoSair.current = false;
+          }
+        })();
         return;
       }
       const podePerder = parado.current || falhou.current || (emVoo.current && (pendente.current || agendado.current));
@@ -206,7 +242,7 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
     };
     document.addEventListener('click', aoClicar, true);
     return () => document.removeEventListener('click', aoClicar, true);
-  }, []);
+  }, [status, salvar]);
 
   return { status, erros, mensagem: status === 'parado' ? motivo : MENSAGEM[status] };
 }

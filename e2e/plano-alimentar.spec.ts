@@ -419,10 +419,43 @@ test('editor: sair por um link interno logo depois de editar não perde a ediç�
   await expect(gramasAlmoco).toHaveValue(antes);
 });
 
-test('editor: "Sair" com alteração pendente pede confirmação; cancelar mantém no editor, e com tudo salvo sai sem perguntar (US-002, US-022)', async ({ browser }) => {
-  const MSG = 'Há alterações que ainda não foram salvas. Sair mesmo assim?';
+test('editor: "Sair" logo depois de editar envia a edição antes de sair, sem diálogo; ao entrar de novo o valor está salvo (US-002, US-022)', async ({ browser }) => {
   // contexto próprio: sair encerra a sessão, e o `nutri` dos demais testes precisa continuar logado
   const page = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.6.7');
+  await expect(page).toHaveURL(/\/painel$/);
+  await page.goto(editor);
+  const orientacoes = page.getByLabel('Orientações gerais');
+  const salvo = page.getByRole('status').filter({ hasText: 'Salvo' });
+  await expect(salvo).toBeVisible();
+  const original = await orientacoes.inputValue();
+  const texto = `Enviada ao sair ${sufixo}.`;
+  const dialogos: string[] = [];
+  page.on('dialog', (d) => {
+    dialogos.push(d.message());
+    void d.dismiss();
+  });
+
+  // "na hora", antes dos 800 ms do salvamento automático: o editor envia a edição, espera gravar e só então sai
+  const put = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/api/painel/planos/'), { timeout: 10_000 });
+  await orientacoes.fill(texto);
+  await page.getByRole('button', { name: 'Sair', exact: true }).click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  expect((await put).status()).toBe(200); // gravou (e antes do logout: um 401 aqui perderia a edição)
+  expect(dialogos).toEqual([]);
+  await page.context().close();
+
+  const outra = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.6.8');
+  await expect(outra).toHaveURL(/\/painel$/);
+  await outra.goto(editor);
+  await expect(outra.getByLabel('Orientações gerais')).toHaveValue(texto);
+  await outra.getByLabel('Orientações gerais').fill(original); // deixa o rascunho como estava
+  await expect(outra.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+  await outra.context().close();
+});
+
+test('editor: "Sair" sem rede pede confirmação e cancelar mantém no editor; com tudo salvo sai sem perguntar (US-002, US-022)', async ({ browser }) => {
+  const MSG = 'Há alterações que ainda não foram salvas. Sair mesmo assim?';
+  const page = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.6.9');
   await expect(page).toHaveURL(/\/painel$/);
   await page.goto(editor);
   const orientacoes = page.getByLabel('Orientações gerais');
@@ -436,29 +469,23 @@ test('editor: "Sair" com alteração pendente pede confirmação; cancelar mant�
     void d.dismiss(); // cancelar: a nutricionista continua no editor
   });
 
-  // "na hora", antes dos 800 ms do salvamento automático (edição esperando o debounce)
-  await orientacoes.fill('Antes de sair pelo botão.');
-  await sair.click();
-  await expect.poll(() => perguntas).toEqual([MSG]);
-  await expect(page).toHaveURL(editor);
-  await expect(salvo).toBeVisible({ timeout: 5000 }); // cancelou: a edição continuou e foi salva
-
-  // status diferente de "Salvo": sem rede
+  // sem rede: "Alterações não salvas", a edição não tem como chegar ao servidor
   await page.context().setOffline(true);
   await orientacoes.fill('Sem rede.');
   await expect(page.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
   await sair.click();
-  await expect.poll(() => perguntas).toEqual([MSG, MSG]);
+  await expect.poll(() => perguntas).toEqual([MSG]);
   await expect(page).toHaveURL(editor);
+  await expect(page.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible();
   await page.context().setOffline(false);
-  await expect(salvo).toBeVisible({ timeout: 10_000 });
+  await expect(salvo).toBeVisible({ timeout: 10_000 }); // continuou no editor e salvou
 
   // tudo salvo: sai direto, sem confirmação
   await orientacoes.fill(original); // deixa o rascunho como estava
   await expect(salvo).toBeVisible({ timeout: 5000 });
   await sair.click();
   await expect(page).toHaveURL(/\/entrar$/);
-  expect(perguntas).toHaveLength(2);
+  expect(perguntas).toHaveLength(1);
   await page.goto(editor);
   await expect(page).toHaveURL(/\/entrar\?volta=/);
   await page.context().close();
