@@ -118,6 +118,13 @@ Cenário: Expiração da sessão
   Dado que sou nutricionista sem atividade há 12 h
   Quando faço qualquer requisição
   Então sou redirecionada para o login
+
+Cenário: Sair
+  Dado que estou logado em qualquer área (painel, administração, portal do paciente, "Segurança da conta", aceite do DPA ou "Conta temporariamente indisponível")
+  Quando clico em "Sair"
+  Então a sessão deste navegador é encerrada e vou para /entrar
+  E abrir /painel, /admin ou /p/inicio de novo me manda para /entrar
+  E no editor do plano alimentar, com alteração ainda não salva, vejo antes "Há alterações que ainda não foram salvas. Sair mesmo assim?" (cancelar mantém no editor; com tudo salvo, sai sem perguntar)
 ```
 
 **Impacto:** Better Auth; `users`, `sessions`, `verifications`.
