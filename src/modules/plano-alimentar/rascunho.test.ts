@@ -94,6 +94,19 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     expect(novos).toBe(2); // o item do arroz e o meal_plans
   });
 
+  it('quantidade digitada com 3 ou mais casas grava 2 casas, e salvar de novo o mesmo não regrava nem audita o item', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await comRascunho(T);
+    const c = conteudo(0);
+    const c1 = { ...c, refeicoes: [c.refeicoes[0], { ...c.refeicoes[1], itens: [{ ...c.refeicoes[1].itens[0], quantidadeG: '33.333', medida: null }] }] };
+    await salvarRascunho(T.ctx, id, c1, deps);
+    expect((await carregarPlano(T.ctx, id, app.db))!.refeicoes[1].itens[0].quantidadeG).toBe(33.33);
+    const alterar = async () => (await auditDoPlano(T, p.id)).filter((a) => a.acao === 'alterar').length;
+    const antes = await alterar();
+    await salvarRascunho(T.ctx, id, { ...c1, revisao: 1 }, deps);
+    expect(await alterar()).toBe(antes + 1); // só o meal_plans (revisão): o item não é regravado
+  });
+
   it('Review Focus 1: revisão velha (outra aba) recebe conflito e nada é gravado', async () => {
     const T = await novoTenant(app.db);
     const { id } = await comRascunho(T);

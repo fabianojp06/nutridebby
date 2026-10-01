@@ -99,7 +99,11 @@ function validar(entrada: unknown): Validado {
           medida = m.data;
           gramas = lerQuantidade(gramasDaMedida(m.data.qtd, m.data.gramas));
         }
-      } else gramas = lerQuantidade(i.quantidadeG);
+      } else {
+        // a coluna é numeric(7,2): com 3 ou mais casas, o valor gravado nunca bateria com o enviado (UPDATE e audit_log a cada salvamento)
+        const g = lerQuantidade(i.quantidadeG);
+        gramas = g === null ? null : arredondar(g, 2);
+      }
       if (gramas === null && !erros[`${ci}:medida`]) erros[`${ci}:quantidadeG`] = MSG_PLANO.quantidade;
       const sub = i.substituiItemId ?? null;
       if (sub !== null && (sub === i.id || !principais.has(sub))) erros[`${ci}:substituiItemId`] = MSG_PLANO.substituicao;
