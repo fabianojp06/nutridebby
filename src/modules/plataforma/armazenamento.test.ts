@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { storedFiles, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { logger } from '@/lib/logger';
 import {
   apagarArquivo,
   COTA_BYTES,
@@ -176,5 +177,34 @@ describe('.tmp órfãos (item adiado do Plano 03)', () => {
     expect(existsSync(novo)).toBe(true);
     expect(existsSync(normal)).toBe(true);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('pasta ilegível de um tenant ou de um tipo não interrompe a varredura: registra o motivo e segue para os outros', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'tmp-orfaos-'));
+    const [semLeitura, tipoSemLeitura, ok] = ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-0000000000a3'];
+    for (const t of [semLeitura, tipoSemLeitura, ok]) mkdirSync(path.join(dir, t, 'exame'), { recursive: true });
+    const velho = path.join(dir, ok, 'exame', 'a.pdf.123.tmp');
+    writeFileSync(velho, 'x');
+    await utimes(velho, new Date('2026-10-01T10:00:00Z'), new Date('2026-10-01T10:00:00Z'));
+    chmodSync(path.join(dir, semLeitura), 0o000); // readdir do tenant falha (EACCES)
+    chmodSync(path.join(dir, tipoSemLeitura, 'exame'), 0o000); // readdir do tipo falha
+    const avisos = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    try {
+      expect(await limparTmpOrfaos(dir, new Date('2026-10-02T12:00:00Z'))).toBe(1);
+      expect(existsSync(velho)).toBe(false);
+      const registrados = avisos.mock.calls.map(([o]) => o as Record<string, unknown>);
+      expect(registrados).toEqual(
+        expect.arrayContaining([
+          { tenantId: semLeitura, motivo: 'EACCES' },
+          { tenantId: tipoSemLeitura, motivo: 'EACCES' },
+        ]),
+      );
+      expect(JSON.stringify(avisos.mock.calls)).not.toContain(dir); // sem caminho no log
+    } finally {
+      avisos.mockRestore();
+      chmodSync(path.join(dir, semLeitura), 0o755);
+      chmodSync(path.join(dir, tipoSemLeitura, 'exame'), 0o755);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

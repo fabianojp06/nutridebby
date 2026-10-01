@@ -180,22 +180,39 @@ export async function apagarArquivo(
   return true;
 }
 
-/** Plano 03 (c): `salvarArquivo` grava `<destino>.<pid>.tmp` antes da transação; uma queda deixa o .tmp. */
+const motivoDoErro = (err: unknown): string =>
+  err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : 'erro';
+
+/**
+ * Plano 03 (c): `salvarArquivo` grava `<destino>.<pid>.tmp` antes da transação; uma queda deixa o .tmp.
+ * Uma pasta ilegível (ou que some no meio) e um .tmp que não sai não param a varredura dos outros tenants:
+ * o log leva só o tenant e o motivo, nunca o caminho.
+ */
 export async function limparTmpOrfaos(dataDir: string, agora: Date, idadeMinMs = 24 * 3600_000): Promise<number> {
+  const avisar = (tenantId: string, err: unknown) => logger.warn({ tenantId, motivo: motivoDoErro(err) }, 'falha na limpeza de .tmp órfãos');
+  const ler = (pasta: string, tenantId: string) =>
+    readdir(pasta, { withFileTypes: true }).catch((err: unknown) => {
+      avisar(tenantId, err);
+      return [];
+    });
   let apagados = 0;
   for (const tenant of await readdir(dataDir, { withFileTypes: true }).catch(() => [])) {
     if (!tenant.isDirectory()) continue;
-    for (const tipo of await readdir(path.join(dataDir, tenant.name), { withFileTypes: true })) {
+    for (const tipo of await ler(path.join(dataDir, tenant.name), tenant.name)) {
       if (!tipo.isDirectory()) continue;
       const pasta = path.join(dataDir, tenant.name, tipo.name);
-      for (const f of await readdir(pasta)) {
-        if (!/\.\d+\.tmp$/.test(f)) continue;
-        const caminho = path.join(pasta, f);
+      for (const f of await ler(pasta, tenant.name)) {
+        if (!/\.\d+\.tmp$/.test(f.name)) continue;
+        const caminho = path.join(pasta, f.name);
         // um .tmp que acabou de virar o arquivo final (rename) some entre o readdir e o stat: não é órfão
         const info = await stat(caminho).catch(() => null);
         if (!info || agora.getTime() - info.mtimeMs < idadeMinMs) continue;
-        await rm(caminho, { force: true });
-        apagados++;
+        try {
+          await rm(caminho, { force: true });
+          apagados++;
+        } catch (err) {
+          avisar(tenant.name, err);
+        }
       }
     }
   }
