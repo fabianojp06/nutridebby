@@ -44,6 +44,7 @@ export function createAuth(
     opts.verificarTurnstile ?? ((token: string | null, ip: string | null) => verifyTurnstile(token, {
         secret: getEnv().TURNSTILE_SECRET_KEY,
         ip,
+        hostname: new URL(baseURL).hostname,
         // só motivo/status/códigos: nunca token, segredo, IP ou e-mail (CLAUDE.md regra 3)
         onFalha: ({ motivo, status, codigos }) => {
           if (motivo === 'config') logger.error({ motivo, status, codigos }, 'Turnstile indisponível');

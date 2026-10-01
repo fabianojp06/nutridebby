@@ -65,7 +65,7 @@ describe('verifyTurnstile (INT-06)', () => {
     }
   });
   it('"error-codes" com tipo inesperado não vira exceção (M17), em 200 ou em HTTP de erro', async () => {
-    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': 'invalid-input-secret' }) })).toBe('indisponivel');
+    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': 'invalid-input-secret' }) })).toBe('invalido');
     const onFalha = vi.fn();
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': { a: 1 } }, 400) })).toBe('indisponivel');
     expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400 });
@@ -90,12 +90,11 @@ describe('verifyTurnstile (INT-06)', () => {
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': codigos }, 400) })).toBe('indisponivel');
     expect(onFalha.mock.calls[0][0]).toMatchObject({ motivo: 'config', status: 400 });
   });
-  it('mesmo código, mesma classificação em 200 ou HTTP de erro: código desconhecido é falha nossa, com log', async () => {
-    for (const status of [200, 400]) {
-      const onFalha = vi.fn();
-      expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': ['bad-request'] }, status) })).toBe('indisponivel');
-      expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status, codigos: ['bad-request'] });
-    }
+  it('código desconhecido: em 200 segue "invalido" (comportamento original); em HTTP de erro é falha com log', async () => {
+    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false, 'error-codes': ['bad-request'] }) })).toBe('invalido');
+    const onFalha = vi.fn();
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': ['bad-request'] }, 400) })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 400, codigos: ['bad-request'] });
   });
   it('"internal-error" também leva o status', async () => {
     const onFalha = vi.fn();
@@ -108,10 +107,42 @@ describe('verifyTurnstile (INT-06)', () => {
     expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
     expect(onFalha).toHaveBeenCalledWith({ motivo: 'config', status: 400, codigos: ['invalid-input-secret'] });
   });
-  it('200 sem sucesso e sem nenhum código → indisponivel (motivo "resposta"), não "robô"', async () => {
+  it('200 sem sucesso e sem nenhum código → "invalido" (comportamento original)', async () => {
+    expect(await verifyTurnstile('tok', { secret, fetchImpl: resposta({ success: false }) })).toBe('invalido');
+  });
+  it('Cloudflare com erro 5xx é indisponível mesmo que mande código de token (não culpa o usuário)', async () => {
     const onFalha = vi.fn();
-    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false }) })).toBe('indisponivel');
-    expect(onFalha).toHaveBeenCalledWith({ motivo: 'resposta', status: 200 });
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: resposta({ success: false, 'error-codes': ['timeout-or-duplicate'] }, 503) })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 503, codigos: ['timeout-or-duplicate'] });
+  });
+  it('tempo esgotado lendo o corpo é "timeout", não "http"', async () => {
+    const onFalha = vi.fn();
+    const lento = vi.fn(async (_u: string, init?: RequestInit) => {
+      const corpo = new ReadableStream({
+        start(ctrl) {
+          init?.signal?.addEventListener('abort', () => ctrl.error(new DOMException('abortado', 'TimeoutError')));
+        },
+      });
+      return new Response(corpo, { status: 502, headers: { 'content-type': 'application/json' } });
+    });
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: lento as unknown as typeof fetch, timeoutMs: 20 })).toBe('indisponivel');
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'timeout' });
+  });
+  it('corpo de erro grande demais (Content-Length) não é lido', async () => {
+    const onFalha = vi.fn();
+    const json = vi.fn();
+    const f = vi.fn(async () => ({ ok: false, status: 502, headers: new Headers({ 'content-length': String(1024 * 1024) }), json, body: { cancel: vi.fn(async () => undefined) } }) as unknown as Response);
+    expect(await verifyTurnstile('tok', { secret, onFalha, fetchImpl: f })).toBe('indisponivel');
+    expect(json).not.toHaveBeenCalled();
+    expect(onFalha).toHaveBeenCalledWith({ motivo: 'http', status: 502 });
+  });
+  it('hostname: token resolvido em outro domínio é recusado; o certo passa; chave de teste não é conferida', async () => {
+    const hostname = 'nutri.exemplo.com';
+    expect(await verifyTurnstile('tok', { secret, hostname, fetchImpl: resposta({ success: true, hostname }) })).toBe('ok');
+    expect(await verifyTurnstile('tok', { secret, hostname, fetchImpl: resposta({ success: true, hostname: 'outro.exemplo.com' }) })).toBe('invalido');
+    expect(await verifyTurnstile('tok', { secret, hostname, fetchImpl: resposta({ success: true }) })).toBe('invalido');
+    // chaves de teste da Cloudflare devolvem example.com; produção recusa essas chaves (env.ts)
+    expect(await verifyTurnstile('tok', { secret, hostname, fetchImpl: resposta({ success: true, hostname: 'example.com', metadata: { result_with_testing_key: true } }) })).toBe('ok');
   });
   it('200 com corpo que não é JSON → indisponivel (motivo "resposta")', async () => {
     const onFalha = vi.fn();

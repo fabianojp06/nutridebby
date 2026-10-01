@@ -15,7 +15,7 @@ export function NovaContaForm({ linkPublicoBase }: { linkPublicoBase: string }) 
       <Campo id="email" rotulo="E-mail" type="email" autoComplete="off" required defaultValue={v.email} erro={e.email} />
       <Campo id="crn" rotulo="CRN" required defaultValue={v.crn} erro={e.crn} dica="Ex.: CRN-3 12345" />
       <Campo id="slug" rotulo="Endereço da página" required defaultValue={v.slug} erro={e.slug}
-        dica={`Será o link da página pública de agendamento: ${linkPublicoBase}seu-endereco (não é o endereço do consultório).`} />
+        dica={`Vai compor o link da página pública de agendamento, quando ela estiver disponível: ${linkPublicoBase}seu-endereco. Não é o endereço do consultório.`} />
       {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
       <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Criar conta</button>
     </form>

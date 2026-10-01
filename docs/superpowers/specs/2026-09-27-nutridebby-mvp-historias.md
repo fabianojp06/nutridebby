@@ -42,6 +42,8 @@ Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-de
 | `crn` | texto | Sim | `^CRN-?\d{1,2}\s?\d{3,6}$` (sem diferenciar maiúsc./minúsc.) | "CRN inválido. Ex.: CRN-3 12345" |
 | `slug` | texto | Sim | `^[a-z0-9-]{3,40}$`; único | "Use de 3 a 40 letras minúsculas, números ou hífen" (formato); "Endereço já em uso" (duplicado) |
 
+Na tela, o campo `slug` tem o rótulo "Endereço da página" e a dica "Vai compor o link da página pública de agendamento, quando ela estiver disponível: `<APP_URL>/n/seu-endereco`. Não é o endereço do consultório." (v1.5: o rótulo "Endereço" sozinho era confundido com o endereço do consultório).
+
 ```gherkin
 Cenário: Criação com sucesso
   Dado que estou logado como admin
