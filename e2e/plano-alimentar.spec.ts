@@ -352,6 +352,41 @@ test('substituições: o principal anda com as suas substituições, que só se 
   await expect(depois.nth(3)).toContainText('Tapioca, com manteiga');
 });
 
+test('editor: sair por um link interno logo depois de editar não perde a edição; com o salvamento falhando, pede confirmação (US-022)', async () => {
+  await nutri.goto(editor);
+  const gramasAlmoco = nutri.getByRole('region', { name: 'Almoço' }).getByLabel(`Gramas de ${ALIMENTO_130}`);
+  const voltar = nutri.getByRole('link', { name: 'Voltar às versões' });
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible();
+  const antes = await gramasAlmoco.inputValue();
+
+  // clique "na hora", antes dos 800 ms do salvamento automático: a edição vai ao servidor quando a página desmonta
+  const put = nutri.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/api/painel/planos/'), { timeout: 10_000 });
+  await gramasAlmoco.fill('135');
+  await voltar.click();
+  await expect(nutri).toHaveURL(`${prontuario}/plano-alimentar`);
+  expect((await put).status()).toBe(200);
+  await nutri.goto(editor);
+  await expect(gramasAlmoco).toHaveValue('135');
+
+  // sem rede a edição não salva: o link interno pede confirmação, e cancelar mantém a nutricionista no editor
+  await nutri.context().setOffline(true);
+  await gramasAlmoco.fill(antes);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  let aviso = '';
+  nutri.once('dialog', (d) => {
+    aviso = d.message();
+    void d.dismiss();
+  });
+  await voltar.click();
+  await expect.poll(() => aviso).toBe('Há alterações que ainda não foram salvas. Sair mesmo assim?');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible();
+  await nutri.context().setOffline(false);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10000 }); // continuou no editor e salvou
+  await expect(nutri).toHaveURL(editor);
+  await nutri.reload();
+  await expect(gramasAlmoco).toHaveValue(antes);
+});
+
 test('salvar como modelo e abrir o modelo (US-024)', async () => {
   await nutri.goto(editor);
   await nutri.getByLabel('Nome do modelo').fill(`Modelo ${sufixo}`);
@@ -407,14 +442,17 @@ test('publicar v1, editar cria v2 com a v1 ainda publicada, publicar v2 arquiva 
   const gramasAlmoco = nutri.getByRole('region', { name: 'Almoço' }).getByLabel(`Gramas de ${ALIMENTO_130}`); // o alimento também está no café da manhã
   await expect(publicar).toBeEnabled();
 
-  // Só se publica o que está salvo: sem rede, "Publicar" fica desabilitado até o salvamento voltar
+  // Só se publica (ou se salva como modelo) o que está salvo: sem rede, os dois botões ficam desabilitados até o salvamento voltar
+  const salvarModelo = nutri.getByRole('button', { name: 'Salvar como modelo' });
   await nutri.context().setOffline(true);
   await gramasAlmoco.fill('120');
   await expect(nutri.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
   await expect(publicar).toBeDisabled();
+  await expect(salvarModelo).toBeDisabled();
   await nutri.context().setOffline(false);
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10000 });
   await expect(publicar).toBeEnabled();
+  await expect(salvarModelo).toBeEnabled();
 
   nutri.once('dialog', (d) => void d.accept());
   await publicar.click();
