@@ -5,6 +5,8 @@ export const META_MAX = 10000;
 export const MAX_REFEICOES = 15;
 export const MAX_ITENS = 200;
 export const MAX_TEXTO = 2000;
+/** D7: envios sem resposta confirmada que o editor manda em `enviosIncertos`. */
+export const MAX_ENVIOS_INCERTOS = 20;
 
 export const MSG_PLANO = {
   quantidade: 'Quantidade deve estar entre 0,1 e 5000 g',

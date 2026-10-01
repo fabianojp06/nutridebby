@@ -108,45 +108,75 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     expect(await alterar()).toBe(antes + 1); // só o meal_plans (revisão): o item não é regravado
   });
 
-  describe('envio repetido depois de uma resposta perdida (D7, chave de idempotência)', () => {
-    it('com o envioAnterior que o banco gravou por último, a revisão de antes é aceita e devolve a revisão +1', async () => {
+  describe('envios sem resposta confirmada (D7, chaves de idempotência em enviosIncertos)', () => {
+    // a tela está na revisão 0 o tempo todo: nenhuma resposta chegou
+    const plano = async (T: TenantDeTeste, id: string) => (await carregarPlano(T.ctx, id, app.db))!;
+
+    it('A grava e perde a resposta, B grava e perde, C (com A e B na lista) é aceito', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      const [a, b] = [randomUUID(), randomUUID()];
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps)).toEqual({ revisao: 1 });
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: b, enviosIncertos: [a] }, deps)).toEqual({ revisao: 2 });
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a, b], titulo: 'C' }, deps)).toEqual({ revisao: 3 });
+      expect(await plano(T, id)).toMatchObject({ titulo: 'C', revisao: 3 });
+    });
+
+    it('A não grava, B grava e perde a resposta, C (com A e B na lista) é aceito', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      const [a, b] = [randomUUID(), randomUUID()]; // A nem chegou ao servidor
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: b, enviosIncertos: [a] }, deps)).toEqual({ revisao: 1 });
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a, b], titulo: 'C' }, deps)).toEqual({ revisao: 2 });
+      expect(await plano(T, id)).toMatchObject({ titulo: 'C', revisao: 2 });
+    });
+
+    it('A grava e perde a resposta, B nem chega, C (com A e B na lista) é aceito', async () => {
+      const T = await novoTenant(app.db);
+      const { id } = await comRascunho(T);
+      const [a, b] = [randomUUID(), randomUUID()];
+      await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps);
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a, b], titulo: 'C' }, deps)).toEqual({ revisao: 2 });
+      expect(await plano(T, id)).toMatchObject({ titulo: 'C', revisao: 2 });
+    });
+
+    it('um 422 no meio não resolve a incerteza: A grava e perde a resposta, B é recusado (422), C só passa com A na lista', async () => {
       const T = await novoTenant(app.db);
       const { id } = await comRascunho(T);
       const a = randomUUID();
-      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps)).toEqual({ revisao: 1 }); // gravou; a resposta se perde
-      const repetido = { ...conteudo(0), envio: randomUUID(), envioAnterior: a, titulo: 'Depois da resposta perdida' }; // a tela ainda está na revisão 0
-      expect(await salvarRascunho(T.ctx, id, repetido, deps)).toEqual({ revisao: 2 });
-      expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ titulo: 'Depois da resposta perdida', revisao: 2 });
+      await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps);
+      expect(await erros(salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a], titulo: '' }, deps))).toEqual({ titulo: MSG_PLANO.titulo }); // recusado antes de ler o banco
+      await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), titulo: 'C' }, deps)).rejects.toBeInstanceOf(ConflitoRevisaoError); // lista zerada no 422: falso conflito
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a], titulo: 'C' }, deps)).toEqual({ revisao: 2 });
     });
 
-    it('envioAnterior errado ou ausente com a revisão de antes: conflito, nada gravado', async () => {
+    it('outra aba grava no meio: conflito, mesmo com o nosso envio gravado antes na lista', async () => {
       const T = await novoTenant(app.db);
       const { id } = await comRascunho(T);
-      await salvarRascunho(T.ctx, id, conteudo(0), deps); // outra aba gravou a revisão 1
-      for (const envioAnterior of [randomUUID(), undefined])
-        await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior, titulo: 'Aba velha' }, deps), String(envioAnterior)).rejects.toBeInstanceOf(ConflitoRevisaoError);
-      expect((await carregarPlano(T.ctx, id, app.db))?.titulo).toBe('Plano de Ana');
+      const a = randomUUID();
+      await salvarRascunho(T.ctx, id, { ...conteudo(0), envio: a }, deps); // nosso, resposta perdida
+      await salvarRascunho(T.ctx, id, { ...conteudo(1), titulo: 'Outra aba' }, deps); // outra aba, já na revisão 1
+      await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: [a], titulo: 'C' }, deps)).rejects.toBeInstanceOf(ConflitoRevisaoError);
+      expect(await plano(T, id)).toMatchObject({ titulo: 'Outra aba', revisao: 2 });
     });
 
-    it('revisão 2 atrás é conflito mesmo com o envio certo', async () => {
+    it('lista sem o último envio gravado (ou sem lista): conflito, nada gravado', async () => {
       const T = await novoTenant(app.db);
       const { id } = await comRascunho(T);
       await salvarRascunho(T.ctx, id, conteudo(0), deps);
-      const b = randomUUID();
-      await salvarRascunho(T.ctx, id, { ...conteudo(1), envio: b }, deps);
-      await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior: b, titulo: 'Velho' }, deps)).rejects.toBeInstanceOf(ConflitoRevisaoError);
-      expect((await carregarPlano(T.ctx, id, app.db))?.revisao).toBe(2);
+      for (const enviosIncertos of [[randomUUID(), randomUUID()], [], undefined])
+        await expect(salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos, titulo: 'Aba velha' }, deps), String(enviosIncertos)).rejects.toBeInstanceOf(ConflitoRevisaoError);
+      expect(await plano(T, id)).toMatchObject({ titulo: 'Plano de Ana', revisao: 1 });
     });
 
-    it('envio é obrigatório e as duas chaves são uuid', async () => {
+    it('envio é obrigatório; as chaves são uuid e a lista tem no máximo 20', async () => {
       const T = await novoTenant(app.db);
       const { id } = await comRascunho(T);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { envio, ...semEnvio } = conteudo(0);
-      expect(await erros(salvarRascunho(T.ctx, id, semEnvio, deps))).toEqual({ geral: MSG_PLANO.invalido });
-      expect(await erros(salvarRascunho(T.ctx, id, { ...conteudo(0), envio: 'abc' }, deps))).toEqual({ geral: MSG_PLANO.invalido });
-      expect(await erros(salvarRascunho(T.ctx, id, { ...conteudo(0), envioAnterior: 'abc' }, deps))).toEqual({ geral: MSG_PLANO.invalido });
-      expect((await carregarPlano(T.ctx, id, app.db))?.revisao).toBe(0);
+      for (const ruim of [semEnvio, { ...conteudo(0), envio: 'abc' }, { ...conteudo(0), enviosIncertos: ['abc'] }, { ...conteudo(0), enviosIncertos: Array.from({ length: 21 }, () => randomUUID()) }])
+        expect(await erros(salvarRascunho(T.ctx, id, ruim, deps))).toEqual({ geral: MSG_PLANO.invalido });
+      expect(await salvarRascunho(T.ctx, id, { ...conteudo(0), enviosIncertos: Array.from({ length: 20 }, () => randomUUID()) }, deps)).toEqual({ revisao: 1 });
     });
   });
 

@@ -66,6 +66,7 @@ export type RascunhoEnviado = {
 export type CorpoSalvamento = RascunhoEnviado & {
   /** uuid novo a cada PUT; o salvamento que dá certo o grava em `meal_plans.ultimo_envio`. */
   envio: string;
-  /** O `envio` de uma tentativa sem resposta confiável (rede, 5xx): se foi ela a última gravada, a revisão de antes vale. */
-  envioAnterior?: string;
+  /** Os `envio` sem resposta confirmada (rede, 5xx) desde a última confirmada, no máximo 20: se o último gravado no
+   * plano é um deles, a revisão antiga da tela ainda vale. */
+  enviosIncertos?: string[];
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
-import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
-import { interpretarResposta } from './resposta';
+import { MAX_ENVIOS_INCERTOS, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
+import { enviosIncertosDepois, interpretarResposta } from './resposta';
 
 describe('resposta do PUT do salvamento automático (US-022, D7)', () => {
   it('2xx com a revisão: salvo; 422: erros dos campos', () => {
@@ -30,5 +30,24 @@ describe('resposta do PUT do salvamento automático (US-022, D7)', () => {
   it('5xx, 2xx sem revisão (corpo perdido) e 408/429: resultado incerto, tenta de novo', () => {
     for (const s of [500, 502, 503, 504, 408, 429]) expect(interpretarResposta(s, null), String(s)).toEqual({ tipo: 'incerto' });
     expect(interpretarResposta(200, null)).toEqual({ tipo: 'incerto' });
+  });
+});
+
+describe('envios sem resposta confirmada (enviosIncertos, D7)', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, k) => `e${k}`);
+
+  it('"salvo" zera; sem resposta confirmada o envio entra; 4xx com corpo mantém a lista (diz só que este envio não gravou)', () => {
+    expect(enviosIncertosDepois(['a', 'b'], 'c', { tipo: 'salvo', revisao: 3 })).toEqual([]);
+    expect(enviosIncertosDepois(['a'], 'b', { tipo: 'incerto' })).toEqual(['a', 'b']);
+    expect(enviosIncertosDepois(['a'], 'b', { tipo: 'campos', erros: { titulo: MSG_PLANO.titulo } })).toEqual(['a']);
+    expect(enviosIncertosDepois(['a'], 'b', { tipo: 'parar', mensagem: MSG_PLANO.conflito })).toEqual(['a']);
+  });
+
+  it(`no máximo ${MAX_ENVIOS_INCERTOS}: fica o primeiro (o que perdeu a resposta quando a conexão caiu) e os mais novos`, () => {
+    const cheia = enviosIncertosDepois(ids(MAX_ENVIOS_INCERTOS), 'novo', { tipo: 'incerto' });
+    expect(cheia).toHaveLength(MAX_ENVIOS_INCERTOS);
+    expect(cheia[0]).toBe('e0');
+    expect(cheia.at(-1)).toBe('novo');
+    expect(cheia).not.toContain('e1');
   });
 });

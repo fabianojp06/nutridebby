@@ -9,7 +9,7 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import { lerQuantidade } from './calculo';
-import { MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_PLANO } from './constantes';
+import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_PLANO } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 
 type Deps = { db?: Db; now?: Date };
@@ -43,11 +43,11 @@ export async function criarRascunho(ctx: TenantContext, patientId: string, deps:
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };
 type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number };
-type Validado = { revisao: number; envio: string; envioAnterior: string | null; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
+type Validado = { revisao: number; envio: string; enviosIncertos: string[]; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
 
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** D7: chave de idempotência de cada PUT (uuid do cliente) e, opcional, a do envio anterior sem resposta. */
-const chavesSchema = z.object({ envio: z.uuid(), envioAnterior: z.uuid().optional() });
+/** D7: chave de idempotência de cada PUT (uuid do cliente) e as dos envios sem resposta confirmada. */
+const chavesSchema = z.object({ envio: z.uuid(), enviosIncertos: z.array(z.uuid()).max(MAX_ENVIOS_INCERTOS).optional() });
 const medidaSchema = z.object({
   nome: z.string().trim().min(1).max(60),
   plural: z.string().trim().min(1).max(60),
@@ -59,7 +59,7 @@ const medidaSchema = z.object({
 function validar(entrada: unknown): Validado {
   const o = (entrada ?? {}) as Record<string, unknown>;
   if (typeof o !== 'object' || !Array.isArray(o.refeicoes) || !Number.isInteger(o.revisao)) throw new PlanoError({ geral: MSG_PLANO.invalido });
-  const chaves = chavesSchema.safeParse({ envio: o.envio, envioAnterior: o.envioAnterior });
+  const chaves = chavesSchema.safeParse({ envio: o.envio, enviosIncertos: o.enviosIncertos });
   if (!chaves.success) throw new PlanoError({ geral: MSG_PLANO.invalido });
   const erros: Record<string, string> = {};
   const titulo = normalizarTexto(o.titulo);
@@ -127,7 +127,7 @@ function validar(entrada: unknown): Validado {
   return {
     revisao: o.revisao as number,
     envio: chaves.data.envio,
-    envioAnterior: chaves.data.envioAnterior ?? null,
+    enviosIncertos: chaves.data.enviosIncertos ?? [],
     titulo,
     metaKcal: metaN === null ? null : arredondar(metaN, 0),
     energyCalcId: idValido(o.energyCalcId) ? o.energyCalcId : null,
@@ -146,9 +146,9 @@ const iguais = (a: unknown, b: unknown) => JSON.stringify(canonico(a)) === JSON.
 /**
  * D7: aplica só a diferença entre o que o editor mandou e o banco (o gatilho de auditoria registra só o que mudou).
  * Ordem de travas igual à da publicação: paciente → plano.
- * Trava otimista com repetição segura: vale a revisão atual, ou a anterior se `envioAnterior` é o envio gravado por
- * último (a resposta dele se perdeu e a tela não soube da revisão nova). O corpo é o rascunho inteiro e a gravação é
- * por diferença, então reaplicar inclui as edições novas sem desfazer nada da outra tentativa.
+ * Trava otimista com repetição segura: vale a revisão atual, ou uma revisão anterior se o envio gravado por último
+ * está em `enviosIncertos` (envios desta tela cuja resposta se perdeu). O corpo é o rascunho inteiro e a gravação é
+ * por diferença, então reaplicar inclui as edições novas sem desfazer nada das tentativas anteriores.
  */
 export async function salvarRascunho(ctx: TenantContext, planId: string, entrada: unknown, deps: Deps = {}): Promise<{ revisao: number }> {
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
@@ -164,7 +164,10 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
         if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
         if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
-        const repeticao = v.envioAnterior !== null && v.envioAnterior === p.ultimoEnvio && v.revisao + 1 === p.revisao;
+        // Por que o aceite com revisão antiga é seguro: todo envio desta tela leva a mesma revisão N (nenhuma resposta
+        // chegou). Se outra aba gravasse depois de N, `ultimo_envio` seria o dela, fora da lista, e nenhum envio desta
+        // tela passaria mais (todos com N < revisão). Logo, `ultimo_envio` na lista ⇒ todo commit desde N é desta tela.
+        const repeticao = p.revisao > v.revisao && p.ultimoEnvio !== null && v.enviosIncertos.includes(p.ultimoEnvio);
         if (p.revisao !== v.revisao && !repeticao) throw new ConflitoRevisaoError();
 
         if (v.energyCalcId) {

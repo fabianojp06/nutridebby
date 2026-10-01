@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CorpoSalvamento, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
 import { ehNavegacaoInterna } from './navegacao';
-import { interpretarResposta, type RespostaSalvamento } from './resposta';
+import { enviosIncertosDepois, interpretarResposta, type RespostaSalvamento } from './resposta';
 
 /** `parado`: repetir não adianta (conflito entre abas, paciente bloqueado, versão publicada, sessão expirada, plano
  * que sumiu, corpo grande demais); a linha de salvamento mostra o motivo e o editor não insiste. */
@@ -40,10 +40,10 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
   const pendente = useRef(false);
   const parado = useRef(false); // não insiste (ver `parado` em StatusSalvamento)
   const falhou = useRef(false); // a última tentativa não salvou (sem rede ou erro de campo)
-  // D7: `envio` da primeira tentativa sem resposta confiável desde o último "Salvo". Os PUT seguintes o levam como
-  // `envioAnterior`: se ela gravou (a resposta é que se perdeu), o servidor aceita a revisão de antes em vez de dar um
-  // falso conflito. Fica a primeira: as repetições sem rede quase nunca chegam ao servidor; a que perdeu a resposta, sim.
-  const incerto = useRef<string | null>(null);
+  // D7: os `envio` sem resposta confirmada desde o último "Salvo" (enviosIncertosDepois). Os PUT seguintes os levam:
+  // se o último gravado é um deles (a resposta é que se perdeu), o servidor aceita a revisão antiga em vez de dar um
+  // falso conflito.
+  const incertos = useRef<string[]>([]);
   const agendado = useRef(false); // há edição esperando os 800 ms
 
   const salvar = useCallback(async () => {
@@ -60,7 +60,7 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
         setStatus('salvando');
         const enviadas = atual.current;
         const envio = crypto.randomUUID();
-        const corpo: CorpoSalvamento = { ...montar.current(revisao.current), envio, ...(incerto.current ? { envioAnterior: incerto.current } : {}) };
+        const corpo: CorpoSalvamento = { ...montar.current(revisao.current), envio, ...(incertos.current.length ? { enviosIncertos: incertos.current } : {}) };
         let resposta: RespostaSalvamento;
         try {
           const r = await fetch(`/api/painel/planos/${planId}`, {
@@ -72,9 +72,9 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
         } catch {
           resposta = { tipo: 'incerto' }; // sem rede, ou a resposta se perdeu no caminho
         }
+        incertos.current = enviosIncertosDepois(incertos.current, envio, resposta);
         if (resposta.tipo === 'salvo') {
           revisao.current = resposta.revisao;
-          incerto.current = null;
           falhou.current = false;
           setErros({});
           // "Salvo" só se nada foi digitado depois do envio (senão a edição nova ainda está por salvar)
@@ -88,7 +88,6 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
           setMotivo(resposta.mensagem);
           setStatus('parado');
         } else {
-          incerto.current ??= envio;
           falhou.current = true;
           setStatus('offline');
         }
