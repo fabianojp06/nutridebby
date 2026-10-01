@@ -73,6 +73,22 @@ export function gramasDoItem(i: ItemEstado): number | null {
   return lerQuantidade(gramasDaMedida(q, i.medida.gramas));
 }
 
+/**
+ * Valor do <option> de cada medida do item: a posição dela na lista. O nome não serve de valor: uma "Minha medida"
+ * pode repetir o nome de uma do IBGE (cadastrada antes da trava em `cadastrarMedida`) com outros gramas.
+ */
+export function opcaoDaMedida(i: ItemEstado): string {
+  const m = i.medida;
+  const k = m ? i.medidas.findIndex((x) => x.nome === m.nome && x.gramas === m.gramas) : -1;
+  return k < 0 ? '' : String(k);
+}
+
+/** A medida da opção escolhida, com os gramas dela; '' (gramas) ou opção que não existe → null. */
+export function medidaDaOpcao(i: ItemEstado, valor: string): ItemEstado['medida'] {
+  const m = valor === '' ? undefined : i.medidas[Number(valor)];
+  return m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null;
+}
+
 const nosItens = (e: EstadoEditor, f: (itens: ItemEstado[]) => ItemEstado[]): EstadoEditor => ({ ...e, refeicoes: e.refeicoes.map((r) => ({ ...r, itens: f(r.itens) })) });
 const noItem = (e: EstadoEditor, id: string, f: (i: ItemEstado) => ItemEstado) => nosItens(e, (its) => its.map((i) => (i.id === id ? f(i) : i)));
 

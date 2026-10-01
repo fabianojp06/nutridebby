@@ -3,7 +3,7 @@ import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { totalDoDia } from '@/modules/plano-alimentar/calculo';
 import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import { errosSemCampo, estadoInicial, gramasDoItem, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
+import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
 
 const plano: PlanoCompleto = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
@@ -34,6 +34,16 @@ describe('estado do editor (US-022)', () => {
     expect(e.refeicoes[0].itens[0]).toMatchObject({ medida: null, quantidadeTexto: '100' });
     e = reduzir(e, { tipo: 'quantidade', itemId: 'i1', valor: '1,5' });
     expect(gramasDoItem(e.refeicoes[0].itens[0])).toBe(1.5);
+  });
+
+  it('medida própria com o nome de uma do IBGE: escolher a própria aplica os gramas dela, não os do IBGE', () => {
+    const comPropria: AlimentoEncontrado = { ...arroz, medidas: [...arroz.medidas, { id: 'm-propria', origem: 'Minha medida', nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: 30 }] };
+    let e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: comPropria });
+    expect(opcaoDaMedida(e.refeicoes[0].itens[0])).toBe('0'); // entra com a primeira (IBGE, 25 g)
+    e = reduzir(e, { tipo: 'medida', itemId: 'i1', medida: medidaDaOpcao(e.refeicoes[0].itens[0], '1') });
+    expect(gramasDoItem(e.refeicoes[0].itens[0])).toBe(30);
+    expect(opcaoDaMedida(e.refeicoes[0].itens[0])).toBe('1'); // o select continua na própria
+    expect(medidaDaOpcao(e.refeicoes[0].itens[0], '')).toBeNull(); // "gramas"
   });
 
   it('"Cálculo do item": 150 g de 130 kcal/100 g → 195 kcal no total do dia; quantidade inválida não vira NaN', () => {

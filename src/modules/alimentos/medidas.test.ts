@@ -54,7 +54,7 @@ describe('medidas do alimento', () => {
     expect(await excluirMedida(A.ctx, m.id!, app.db)).toBe(true);
   });
 
-  it('validação: nome/plural, gramas com vírgula, faixa, duplicada e alimento invisível', async () => {
+  it('validação: nome/plural, gramas com vírgula, faixa, duplicada (também com o IBGE) e alimento invisível', async () => {
     const A = await novoTenant(app.db);
     const arroz = idTaco(3);
     expect(await erros(cadastrarMedida(A.ctx, arroz, { nome: 'x', plural: '', gramas: '0' }, { db: app.db }))).toEqual({
@@ -66,6 +66,11 @@ describe('medidas do alimento', () => {
     }
     await cadastrarMedida(A.ctx, arroz, { nome: 'xícara', plural: 'xícaras', gramas: '160,5' }, { db: app.db });
     expect(await erros(cadastrarMedida(A.ctx, arroz, { nome: 'xícara', plural: 'xícaras', gramas: '150' }, { db: app.db }))).toEqual({ nome: MSG_MEDIDA.duplicada });
+    // homônima de uma medida do IBGE do mesmo alimento: o editor não teria como distinguir as duas
+    for (const nome of ['colher de sopa cheia', ' colher  de sopa cheia '])
+      expect(await erros(cadastrarMedida(A.ctx, arroz, { nome, plural: 'colheres de sopa cheias', gramas: '30' }, { db: app.db })), nome).toEqual({ nome: MSG_MEDIDA.duplicada });
+    expect(await cadastrarMedida(A.ctx, arroz, { nome: 'colher de sopa bem cheia', plural: 'colheres de sopa bem cheias', gramas: '30' }, { db: app.db })).toMatchObject({ origem: 'Minha medida', gramas: 30 });
+    expect(await cadastrarMedida(A.ctx, idTaco(112), { nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: '30' }, { db: app.db })).toMatchObject({ origem: 'Minha medida' }); // o chuchu não tem essa medida do IBGE
     expect(await erros(cadastrarMedida(A.ctx, '00000000-0000-4000-8000-999999999999', { nome: 'xícara', plural: 'xícaras', gramas: '1' }, { db: app.db }))).toEqual({
       geral: MSG_MEDIDA.alimento,
     });

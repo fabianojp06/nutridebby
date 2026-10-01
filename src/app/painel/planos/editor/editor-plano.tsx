@@ -9,7 +9,7 @@ import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
-import { errosSemCampo, estadoInicial, gramasDoItem, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
+import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
@@ -195,15 +195,12 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
             <label htmlFor={`${i.id}-medida`} className="block text-sm">Medida de {i.nome}</label>
             <select
               id={`${i.id}-medida`}
-              value={i.medida?.nome ?? ''}
-              onChange={(e) => {
-                const m = i.medidas.find((x) => x.nome === e.target.value);
-                despachar({ tipo: 'medida', itemId: i.id, medida: m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null });
-              }}
+              value={opcaoDaMedida(i)}
+              onChange={(e) => despachar({ tipo: 'medida', itemId: i.id, medida: medidaDaOpcao(i, e.target.value) })}
               className="rounded border p-2"
             >
               <option value="">gramas</option>
-              {i.medidas.map((m) => <option key={`${m.origem}-${m.nome}`} value={m.nome}>{m.nome} ({m.gramas} g)</option>)}
+              {i.medidas.map((m, k) => <option key={`${m.origem}-${m.nome}`} value={String(k)}>{m.nome} ({m.gramas} g)</option>)}
             </select>
           </div>
         )}

@@ -101,8 +101,10 @@ export async function cadastrarMedida(
     return await withTenant(
       ctx,
       async (tx) => {
-        const [f] = await tx.select({ id: foods.id }).from(foods).where(eq(foods.id, foodId)); // RLS: TACO ou do próprio tenant
+        const [f] = await tx.select({ id: foods.id, medidas: foods.medidasCaseiras }).from(foods).where(eq(foods.id, foodId)); // RLS: TACO ou do próprio tenant
         if (!f) throw new MedidaError({ geral: MSG_MEDIDA.alimento });
+        // homônima de uma do IBGE do mesmo alimento: no editor as duas teriam o mesmo nome
+        if (f.medidas.some((m) => normalizarTexto(m.nome) === r.data.nome)) throw new MedidaError({ nome: MSG_MEDIDA.duplicada });
         const [m] = await tx
           .insert(foodMeasures)
           .values({ tenantId: ctx.tenantId, foodId, nome: r.data.nome, plural: r.data.plural, gramas: r.data.gramas })
