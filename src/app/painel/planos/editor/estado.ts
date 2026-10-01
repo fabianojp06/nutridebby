@@ -1,6 +1,6 @@
 import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
-import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
+import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import type { ItemPlano, PlanoDoCliente, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
@@ -88,7 +88,7 @@ const posicaoDaMedida = (i: ItemEstado): number => {
  * item usa e "gramas" volta a funcionar.
  */
 export function opcoesDeMedida(i: ItemEstado): { valor: string; rotulo: string }[] {
-  const opcoes = i.medidas.map((m, k) => ({ valor: String(k), rotulo: `${m.nome} (${m.gramas} g)` }));
+  const opcoes = i.medidas.map((m, k) => ({ valor: String(k), rotulo: `${m.nome} (${gramasDaMedidaTexto(m.gramas)})` }));
   return i.medida && posicaoDaMedida(i) < 0 ? [...opcoes, { valor: REMOVIDA, rotulo: `${i.medida.nome} (removida)` }] : opcoes;
 }
 

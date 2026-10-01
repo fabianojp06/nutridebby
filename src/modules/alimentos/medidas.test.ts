@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { gramasDaMedida, MSG_MEDIDA, textoMedida } from './medidas-constantes';
+import { gramasDaMedida, gramasDaMedidaTexto, MSG_MEDIDA, textoMedida } from './medidas-constantes';
 import { cadastrarMedida, excluirMedida, MedidaError, medidasDoAlimento } from './medidas';
 import { idTaco } from './taco';
 
@@ -31,6 +31,11 @@ describe('texto e gramas da medida (US-020, D5)', () => {
     expect(textoMedida(2.25, colher)).toBe('2,25 colheres de sopa cheias');
     expect(gramasDaMedida(1.5, 17)).toBe(25.5);
     expect(gramasDaMedida(1 / 3, 50)).toBe(16.67);
+  });
+  it('gramas da medida na tela: vírgula decimal e as casas que a medida tem, sem arredondar (RNF-12)', () => {
+    expect(gramasDaMedidaTexto(12.5)).toBe('12,5 g');
+    expect(gramasDaMedidaTexto(12.25)).toBe('12,25 g');
+    expect(gramasDaMedidaTexto(30)).toBe('30 g');
   });
 });
 

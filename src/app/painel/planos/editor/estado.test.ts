@@ -69,6 +69,13 @@ describe('estado do editor (US-022)', () => {
     expect(opcoesDeMedida(e.refeicoes[0].itens[0])).toEqual([{ valor: '0', rotulo: 'colher de sopa cheia (25 g)' }]); // a removida some com a troca
   });
 
+  it('rótulo da medida no select com vírgula decimal e as casas que a medida tem (RNF-12): 12,5 g, 12,25 g, 30 g', () => {
+    const medida = (nome: string, gramas: number) => ({ id: null, origem: 'IBGE' as const, nome, plural: nome, gramas });
+    const comMedidas: AlimentoEncontrado = { ...arroz, medidas: [medida('concha', 12.5), medida('colher', 12.25), medida('escumadeira', 30)] };
+    const e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: comMedidas });
+    expect(opcoesDeMedida(e.refeicoes[0].itens[0]).map((o) => o.rotulo)).toEqual(['concha (12,5 g)', 'colher (12,25 g)', 'escumadeira (30 g)']);
+  });
+
   it('"Cálculo do item": 150 g de 130 kcal/100 g → 195 kcal no total do dia; quantidade inválida não vira NaN', () => {
     let e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: proprio }, { tipo: 'quantidade', itemId: 'i1', valor: '150' });
     expect(totalDoDia(refeicoesParaCalculo(e)).kcal).toBe(195);

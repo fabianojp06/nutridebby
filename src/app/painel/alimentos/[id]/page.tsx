@@ -4,6 +4,7 @@ import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { formatarDecimal } from '@/lib/numero';
 import { requireNutri } from '@/lib/tenant-session';
 import { carregarAlimento } from '@/modules/alimentos/alimentos';
+import { gramasDaMedidaTexto } from '@/modules/alimentos/medidas-constantes';
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
 import { cadastrarMedidaAction, duplicarAlimentoAction, excluirAlimentoAction, excluirMedidaAction } from '../actions';
 import { Selo } from '../busca-alimento';
@@ -59,7 +60,7 @@ export default async function AlimentoPage({ params }: PageProps<'/painel/alimen
           <ul className="space-y-1">
             {a.medidas.map((m) => (
               <li key={`${m.origem}-${m.id ?? m.nome}`} className="flex items-center gap-3">
-                <span>{m.nome} — {formatarDecimal(m.gramas, m.gramas % 1 ? 1 : 0)} g</span>
+                <span>{m.nome} — {gramasDaMedidaTexto(m.gramas)}</span>
                 <span className="text-xs text-zinc-600">{m.origem}</span>
                 {m.id && (
                   <form action={excluirMedidaAction.bind(null, a.id, m.id)}>
