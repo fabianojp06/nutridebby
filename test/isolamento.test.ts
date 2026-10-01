@@ -41,11 +41,14 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   patient_tags: (t) => sql`insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`})`,
   patient_tag_links: (t, p) => sql`with e as (insert into patient_tags (tenant_id, nome) values (${t}, ${`iso-${randomUUID().slice(0, 8)}`}) returning id)
     insert into patient_tag_links (tenant_id, patient_id, tag_id) select ${t}, ${p}, e.id from e`,
+  foods: (t) =>
+    sql`insert into foods (tenant_id, nome, grupo, kcal, proteina_g, carboidrato_g, lipidio_g, fibra_g)
+        values (${t}, 'Iso', 'Miscelâneas', 100, 1, 1, 1, 1)`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);
-/** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION para elas). */
-const ULTIMAS = ['anamnesis_templates', 'patients'];
+/** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`). */
+const ULTIMAS = ['anamnesis_templates', 'foods', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -175,14 +178,16 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           // SELECT sem filtro: RLS precisa devolver só (e todas) as linhas de B — não zero (política que nega
           // tudo) nem inclui A (política que libera tudo).
           const vistas = await tx.execute(sql`select tenant_id from ${id}`);
-          expect(vistas.rows.length, t).toBeGreaterThanOrEqual(1);
-          for (const row of vistas.rows) expect(row.tenant_id, t).toBe(B);
+          // D1: em foods, B também lê a TACO (tenant_id nulo), mas só altera e apaga as próprias linhas
+          const proprias = vistas.rows.filter((row) => row.tenant_id === B);
+          expect(proprias.length, t).toBeGreaterThanOrEqual(1);
+          for (const row of vistas.rows) expect(row.tenant_id === B || (t === 'foods' && row.tenant_id === null), t).toBe(true);
           if (SO_INSERE.has(t)) return;
-          // UPDATE e DELETE sem filtro: só podem afetar as linhas que a própria RLS já mostrou (as de B).
+          // UPDATE e DELETE sem filtro: só podem afetar as linhas próprias que a RLS mostrou
           const alteradas = await tx.execute(sql`update ${id} set tenant_id = tenant_id`);
-          expect(alteradas.rowCount, t).toBe(vistas.rows.length);
+          expect(alteradas.rowCount, t).toBe(proprias.length);
           const apagadas = await tx.execute(sql`delete from ${id}`);
-          expect(apagadas.rowCount, t).toBe(vistas.rows.length);
+          expect(apagadas.rowCount, t).toBe(proprias.length);
         },
         app.db,
       );

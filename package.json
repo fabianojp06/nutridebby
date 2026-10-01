@@ -20,7 +20,9 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/worker/index.ts",
     "admin:criar": "tsx --env-file-if-exists=.env.local scripts/admin-criar.ts",
-    "e2e:seed": "tsx --env-file-if-exists=.env.local scripts/e2e-seed.ts"
+    "e2e:seed": "tsx --env-file-if-exists=.env.local scripts/e2e-seed.ts",
+    "seed:taco": "tsx scripts/seeds/gerar-taco.ts",
+    "seed:medidas": "tsx scripts/seeds/gerar-medidas.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.1",
@@ -60,7 +62,8 @@
     "prettier": "^3.9.9",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "5.0.2"
+    "vitest": "5.0.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "packageManager": "pnpm@12.6.0"
 }
