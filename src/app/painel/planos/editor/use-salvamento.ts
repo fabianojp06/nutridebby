@@ -20,12 +20,19 @@ const REPETIR_MS = 5000;
 const MSG_SAIR_SEM_SALVAR = 'Há alterações que ainda não foram salvas. Sair mesmo assim?';
 
 /**
+ * Conferência da revisão ao abrir: `paciente` do plano (nulo em modelo) e quem recarrega a página e remonta o editor
+ * (`EditorPlano`) quando o servidor já está adiante.
+ */
+export type ConferirRevisao = { paciente: string | null; aoDesatualizar: (revisao: number) => void };
+
+/**
  * D7: a cada edição (`edicoes` muda), espera 800 ms e envia o rascunho inteiro com a revisão atual.
  * Sem rede: "Alterações não salvas" e nova tentativa a cada 5 s e quando o navegador volta a ficar online.
  * Saída por link interno (US-022): o envio que o debounce segurava sai na hora; se a edição pode se perder
  * (conflito, última tentativa sem sucesso, ou envio em voo com edição esperando), pede confirmação antes.
+ * Com `conferir`: ao montar, confere se a revisão da página ainda é a do servidor (ver o efeito abaixo).
  */
-export function useSalvamento(planId: string, revisaoInicial: number, montarEnvio: (revisao: number) => RascunhoEnviado, edicoes: number) {
+export function useSalvamento(planId: string, revisaoInicial: number, montarEnvio: (revisao: number) => RascunhoEnviado, edicoes: number, conferir: ConferirRevisao | null = null) {
   const [status, setStatus] = useState<StatusSalvamento>('salvo');
   const [motivo, setMotivo] = useState(''); // mensagem do `parado`
   const [erros, setErros] = useState<Record<string, string>>({});
@@ -96,6 +103,31 @@ export function useSalvamento(planId: string, revisaoInicial: number, montarEnvi
       emVoo.current = false;
     }
   }, [planId]);
+
+  // O "Voltar" do navegador reaproveita a página que o App Router guardou (Next 16: as páginas "are reused during
+  // browser back/forward navigation"), com o conteúdo e a revisão de quando ela foi aberta; outra aba também pode ter
+  // gravado depois. Ao montar, consulta só a revisão (rota leve, sem auditoria). Servidor adiante, sem envio desta
+  // tela a caminho (senão a revisão nova pode ser a dele): avisa quem recarrega a página e remonta o editor, em vez
+  // de a primeira edição dar um falso "alterado em outra aba" por cima de um conteúdo velho.
+  const paciente = conferir?.paciente ?? null;
+  const aoDesatualizar = conferir?.aoDesatualizar;
+  useEffect(() => {
+    if (!aoDesatualizar) return;
+    let vivo = true;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/painel/planos/${planId}/revisao${paciente ? `?paciente=${paciente}` : ''}`, { cache: 'no-store' });
+        if (!vivo || !r.ok) return;
+        const { revisao: doServidor } = (await r.json()) as { revisao: number };
+        if (vivo && doServidor > revisao.current && !emVoo.current) aoDesatualizar(doServidor);
+      } catch {
+        // sem rede: segue com a página como está (se ela estiver velha, o salvamento mostra o conflito)
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [planId, paciente, aoDesatualizar]);
 
   // Nova edição: "Salvando…" já na renderização (padrão "ajustar estado ao mudar prop"); o `parado` não é apagado.
   const [vistas, setVistas] = useState(edicoes);

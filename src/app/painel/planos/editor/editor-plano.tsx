@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useReducer, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useMemo, useReducer, useState, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
@@ -20,7 +21,31 @@ const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no rend
 /** Somente leitura: versão publicada ou arquivada, ou rascunho de paciente bloqueado. */
 const ROTULO_STATUS = { rascunho: 'Rascunho', publicado: 'Publicado', arquivado: 'Arquivado' } as const;
 
-export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: Props) {
+/**
+ * Remonta o editor (geração nova na `key`) só quando a conferência ao abrir achou o servidor adiante da página e os
+ * dados recarregados (`router.refresh()`) chegaram: o estado local nasce de novo do plano atual. Outra renderização
+ * da página com revisão nova (ex.: a action de "Salvar como modelo" revalida e a página vem com a revisão que este
+ * editor mesmo gravou) não remonta: o editor continua com o que está na tela, a revisão dele já é a do servidor.
+ */
+export function EditorPlano(props: Props) {
+  const router = useRouter();
+  const [geracao, setGeracao] = useState(0);
+  const [esperada, setEsperada] = useState<number | null>(null); // revisão do servidor que a página ainda não trouxe
+  if (esperada !== null && props.plano.revisao >= esperada) {
+    setEsperada(null);
+    setGeracao((g) => g + 1);
+  }
+  const aoDesatualizar = useCallback(
+    (revisao: number) => {
+      setEsperada(revisao);
+      router.refresh();
+    },
+    [router],
+  );
+  return <Editor key={geracao} {...props} aoDesatualizar={aoDesatualizar} />;
+}
+
+function Editor({ plano, contexto, somenteLeitura = false, acoes, aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
     (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
@@ -30,7 +55,8 @@ export function EditorPlano({ plano, contexto, somenteLeitura = false, acoes }: 
     plano,
     (p) => ({ estado: estadoInicial(p), edicoes: 0 }),
   );
-  const salvamento = useSalvamento(plano.id, plano.revisao, (rev) => paraEnvio(estado, rev), somenteLeitura ? 0 : edicoes);
+  // somente leitura não grava, então a revisão não muda: nada a conferir
+  const salvamento = useSalvamento(plano.id, plano.revisao, (rev) => paraEnvio(estado, rev), somenteLeitura ? 0 : edicoes, somenteLeitura ? null : { paciente: plano.patientId, aoDesatualizar });
   const total = useMemo(() => totalDoDia(refeicoesParaCalculo(estado)), [estado]);
   const meta = (() => {
     const n = lerDecimal(estado.metaTexto);

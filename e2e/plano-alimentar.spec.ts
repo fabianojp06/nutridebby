@@ -418,6 +418,26 @@ test('editor: sair por um link interno logo depois de editar não perde a ediç�
   await expect(gramasAlmoco).toHaveValue(antes);
 });
 
+test('editor: "Voltar" do navegador depois de sair do editor mostra o que foi salvo e a próxima edição salva sem conflito (US-022, D7)', async () => {
+  await nutri.goto(editor);
+  const orientacoes = nutri.getByLabel('Orientações gerais');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible();
+  await orientacoes.fill('Antes de sair do editor.');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+  await nutri.getByRole('link', { name: 'Voltar às versões' }).click();
+  await expect(nutri).toHaveURL(`${prontuario}/plano-alimentar`);
+
+  await nutri.goBack();
+  await expect(nutri).toHaveURL(editor);
+  await expect(orientacoes).toHaveValue('Antes de sair do editor.'); // não o conteúdo de quando o editor foi aberto
+  await orientacoes.fill('Depois de voltar.');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 }); // não "alterado em outra aba"
+  await nutri.reload();
+  await expect(orientacoes).toHaveValue('Depois de voltar.');
+  await orientacoes.fill(''); // deixa o rascunho como estava para as próximas tarefas
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
+});
+
 test('salvar como modelo e abrir o modelo (US-024)', async () => {
   await nutri.goto(editor);
   await nutri.getByLabel('Nome do modelo').fill(`Modelo ${sufixo}`);

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { foods, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -92,6 +92,18 @@ export async function statusDoPdf(ctx: TenantContext, planId: string, patientId:
   if (!idValido(planId) || !idValido(patientId)) return undefined;
   const [p] = await withTenant(ctx, (tx) => tx.select({ pdfStatus: mealPlans.pdfStatus }).from(mealPlans).where(and(eq(mealPlans.id, planId), eq(mealPlans.patientId, patientId))), db);
   return p ? (p.pdfStatus as PlanoCompleto['pdfStatus']) : undefined;
+}
+
+/**
+ * Só a revisão do plano (D7): o editor confere ao abrir se a página não veio do cache do "Voltar" do navegador (ou
+ * se outra aba gravou depois). Sem auditoria: não devolve dado de saúde. `patientId` nulo = modelo. Plano de outro
+ * paciente, de outro tenant (RLS), modelo pedido como plano de paciente ou o contrário → undefined.
+ */
+export async function revisaoDoPlano(ctx: TenantContext, planId: string, patientId: string | null, db: Db = getDb()): Promise<number | undefined> {
+  if (!idValido(planId) || (patientId !== null && !idValido(patientId))) return undefined;
+  const doDono = patientId === null ? isNull(mealPlans.patientId) : eq(mealPlans.patientId, patientId);
+  const [p] = await withTenant(ctx, (tx) => tx.select({ revisao: mealPlans.revisao }).from(mealPlans).where(and(eq(mealPlans.id, planId), doDono)), db);
+  return p?.revisao;
 }
 
 /** Versões do plano do paciente (mais nova primeiro) — tela "Plano alimentar" do prontuário. */
