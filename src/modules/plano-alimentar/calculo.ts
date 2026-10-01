@@ -86,3 +86,12 @@ export function diferencaKcal(sub: number, principal: number): string {
   const d = arredondar(sub, 0) - arredondar(principal, 0);
   return `${sinal(d)}${Math.abs(d)} kcal`;
 }
+
+type NutrientesDoItem = ReturnType<typeof nutrientesDoItem>;
+
+/**
+ * Diferença do editor e do PDF: sem kcal na TACO na substituição ou no principal, nenhuma (o lado sem valor conta 0
+ * e daria um número clínico enganoso, ex.: "−150 kcal").
+ */
+export const diferencaKcalDoItem = (sub: NutrientesDoItem, principal: NutrientesDoItem): string | null =>
+  sub.semValor.includes('kcal') || principal.semValor.includes('kcal') ? null : diferencaKcal(sub.kcal, principal.kcal);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
-import { diferencaKcal, distribuicaoMacros, gTexto, indicadorMeta, kcalTexto, lerQuantidade, nutrientesDoItem, totalDoDia, totalDosItens, type ItemCalculo } from './calculo';
+import { diferencaKcal, diferencaKcalDoItem, distribuicaoMacros, gTexto, indicadorMeta, kcalTexto, lerQuantidade, nutrientesDoItem, totalDoDia, totalDosItens, type ItemCalculo } from './calculo';
 
 const porCem = (kcal: number | null, p: number | null = 0, c: number | null = 0, l: number | null = 0, f: number | null = 0): Nutrientes100 => ({ kcal, proteinaG: p, carboidratoG: c, lipidioG: l, fibraG: f });
 const item = (id: string, g: number | null, pc = porCem(100), sub: string | null = null): ItemCalculo => ({ id, quantidadeG: g, porCem: pc, substituiItemId: sub });
@@ -69,6 +69,15 @@ describe('distribuição de macros e exibição', () => {
     expect(diferencaKcal(150.2, 150)).toBe('0 kcal');
     expect(kcalTexto(194.5)).toBe('195');
     expect(gTexto(0.75)).toBe('0,8');
+  });
+
+  it('diferença da substituição só quando os dois lados têm kcal na TACO (editor e PDF, US-023)', () => {
+    const leite = nutrientesDoItem({ kcal: null, proteinaG: 3, carboidratoG: 4.7, lipidioG: 3, fibraG: 0 }, 200); // "Sem valor na TACO"
+    const pao = nutrientesDoItem(porCem(300, 8, 59, 3, 2), 50);
+    const tapioca = nutrientesDoItem(porCem(348, 0, 86, 0, 0), 40);
+    expect(diferencaKcalDoItem(tapioca, pao)).toBe('−11 kcal');
+    expect(diferencaKcalDoItem(leite, pao)).toBeNull(); // substituição sem kcal: nada de "−150 kcal"
+    expect(diferencaKcalDoItem(pao, leite)).toBeNull(); // principal sem kcal
   });
 
   it('recalcular 6 refeições × 40 itens leva bem menos de 100 ms (RNF-01)', () => {

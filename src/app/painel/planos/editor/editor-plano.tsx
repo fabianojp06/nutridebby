@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useReducer, useState, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
-import { diferencaKcal, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
+import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
@@ -178,6 +178,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
   const n = g === null ? null : nutrientesDoItem(i.porCem, g);
   const gp = principal ? gramasDoItem(principal) : null;
   const np = principal && gp !== null ? nutrientesDoItem(principal.porCem, gp) : null;
+  const dif = n && np ? diferencaKcalDoItem(n, np) : null; // sem kcal na TACO de um dos lados: nenhuma, como no PDF
   const errQ = erro(`item:${i.id}:quantidadeG`) ?? erro(`item:${i.id}:medida`) ?? (g === null ? MSG_PLANO.quantidade : undefined);
   const q = lerDecimal(i.qtdTexto);
   return (
@@ -221,7 +222,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
       <p className="text-sm" data-testid={`kcal-${i.id}`}>
         {i.medida && q !== null && Number.isFinite(q) && q > 0 && g !== null && <span>{textoMedida(q, i.medida)} · {formatarDecimal(g, casasDecimais(g))} g · </span>}
         {n === null ? '—' : n.semValor.includes('kcal') ? MSG_PLANO.semValor : `${kcalTexto(n.kcal)} kcal`}
-        {principal && n && np && <span className="text-zinc-600"> ({diferencaKcal(n.kcal, np.kcal)})</span>}
+        {dif && <span className="text-zinc-600"> ({dif})</span>}
       </p>
       {errQ && <p id={`${i.id}-erro`} role="alert" className="w-full text-sm text-red-700">{errQ}</p>}
       {erro(`item:${i.id}:foodId`) && <p role="alert" className="w-full text-sm text-red-700">{erro(`item:${i.id}:foodId`)}</p>}

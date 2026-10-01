@@ -2,7 +2,7 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
 import { paraWinAnsi } from '@/modules/pacientes/prontuario-pdf';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
-import { diferencaKcal, gTexto, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from './calculo';
+import { diferencaKcalDoItem, gTexto, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from './calculo';
 import type { PlanoCompleto, RefeicaoPlano } from './tipos';
 
 /** Só o worker importa este arquivo (US-026; fora do grafo do Next — guarda em exportacao.test.ts). */
@@ -72,9 +72,8 @@ function Plano({ d }: { d: DadosPdfPlano }) {
               const semKcal = n.semValor.includes('kcal');
               const kcal = plano.mostrarCalorias ? w(semKcal ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
               if (!principal) return <Text key={i.id} style={s.item} wrap={false}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
-              // sem kcal na TACO (do item ou do principal) não há diferença a mostrar: nada, em vez de um valor enganoso
-              const np = nutrientesDoItem(principal.porCem, principal.quantidadeG);
-              const dif = plano.mostrarCalorias && !semKcal && !np.semValor.includes('kcal') ? w(` (${diferencaKcal(n.kcal, np.kcal)})`) : '';
+              const d = diferencaKcalDoItem(n, nutrientesDoItem(principal.porCem, principal.quantidadeG));
+              const dif = plano.mostrarCalorias && d ? w(` (${d})`) : '';
               return <Text key={i.id} style={s.sub} wrap={false}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
             })}
             {r.observacao && <Text style={s.obs}>{r.observacao}</Text>}
