@@ -25,6 +25,7 @@ export const MSG_PLANO = {
   grande: 'Plano grande demais.',
   naoEditavel: 'Este plano já foi publicado e não pode ser alterado. Use "Editar" para criar uma nova versão.',
   naoPublicado: 'Esta versão não está mais publicada. Recarregue a página.',
+  pdfPreparando: 'O PDF já está sendo preparado.',
   rascunhoExiste: 'Já existe um rascunho para este paciente.',
   publicarVazio: 'Inclua pelo menos uma refeição com um alimento para publicar.',
   publicarHorario: 'Informe o horário de todas as refeições.',

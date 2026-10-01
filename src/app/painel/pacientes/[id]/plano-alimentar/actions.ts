@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
-import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from '@/modules/plano-alimentar/erros';
+import { PdfEmPreparoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from '@/modules/plano-alimentar/erros';
 import { editarPublicado, pedirNovoPdf, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, descartarRascunho } from '@/modules/plano-alimentar/rascunho';
 
@@ -74,14 +74,18 @@ export async function editarPublicadoAction(patientId: string, planId: string): 
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${id}`);
 }
 
-/** US-026 "Gerar o PDF de novo": só de 'falhou'; volta a pendente e o worker gera outra vez. */
+/**
+ * US-026 "Gerar o PDF de novo": só de 'falhou'; volta a pendente e o worker gera outra vez. Já em preparo: o motivo
+ * na tela; já pronto: nada a fazer, a página recarregada mostra "Baixar PDF". Plano que não é do paciente da URL:
+ * "Plano não encontrado.", sem efeito.
+ */
 export async function pedirNovoPdfAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
   try {
     await pedirNovoPdf(ctx, patientId, planId);
   } catch (e) {
-    if (e instanceof PlanoNaoEncontradoError) return { erro: 'O PDF já está sendo preparado.' };
-    if (e instanceof PacienteBloqueadoError) return { erro: e.message }; // a página já esconde o botão: corrida com o bloqueio
+    // bloqueado: a página já esconde o botão (corrida com o bloqueio)
+    if (e instanceof PdfEmPreparoError || e instanceof PlanoNaoEncontradoError || e instanceof PacienteBloqueadoError) return { erro: e.message };
     if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }

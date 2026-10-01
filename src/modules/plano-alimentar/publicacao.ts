@@ -7,7 +7,7 @@ import { getBoss } from '@/jobs/boss';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerPlanoNaTransacao } from './carregar';
 import { MSG_PLANO } from './constantes';
-import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
+import { PdfEmPreparoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { copiarConteudo, proximaVersao } from './rascunho';
 import type { PlanoCompleto } from './tipos';
 
@@ -114,7 +114,9 @@ export async function editarPublicado(ctx: TenantContext, patientId: string, pla
 }
 
 /**
- * "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação (fila recusou → desfaz).
+ * "Gerar o PDF de novo": enfileira só de 'falhou' (volta a 'pendente' na mesma transação; fila recusou → desfaz).
+ * Já 'pendente' → PdfEmPreparoError; já 'pronto' (outra aba pediu, ou o worker terminou entre a tela e o clique) →
+ * nada a fazer, sem erro: a página recarregada mostra "Baixar PDF". Rascunho não tem PDF → não encontrado.
  * Paciente bloqueado ou anonimizado (US-018) não ganha PDF novo: gerar é tratar dado de quem pediu a exclusão.
  * Travas: paciente → plano, como na publicação e no job.
  */
@@ -127,12 +129,14 @@ export async function pedirNovoPdf(ctx: TenantContext, patientId: string, planId
       const [antes] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(doPaciente(patientId, planId));
       if (!antes) throw new PlanoNaoEncontradoError();
       await carregarPacienteParaEscrita(tx, patientId); // bloqueado/anonimizado → PacienteBloqueadoError
-      const r = await tx
+      const [p] = await tx.select({ pdfStatus: mealPlans.pdfStatus }).from(mealPlans).where(doPaciente(patientId, planId)).for('update');
+      if (!p?.pdfStatus) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava, ou rascunho
+      if (p.pdfStatus === 'pendente') throw new PdfEmPreparoError();
+      if (p.pdfStatus === 'pronto') return;
+      await tx
         .update(mealPlans)
         .set({ pdfStatus: 'pendente', updatedAt: deps.now ?? new Date() })
-        .where(and(doPaciente(patientId, planId), eq(mealPlans.pdfStatus, 'falhou')))
-        .returning({ id: mealPlans.id });
-      if (!r.length) throw new PlanoNaoEncontradoError();
+        .where(eq(mealPlans.id, planId));
       const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano'); // desfaz: o plano não fica "pendente" sem job
     },

@@ -18,7 +18,7 @@ import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { gTexto, totalDoDia } from './calculo';
 import { carregarPlano } from './carregar';
-import { PlanoNaoEncontradoError } from './erros';
+import { PdfEmPreparoError, PlanoNaoEncontradoError } from './erros';
 import { renderizarPlano } from './plano-pdf';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { pedirNovoPdf, publicarPlano } from './publicacao';
@@ -238,13 +238,20 @@ describe('PDF do plano (US-026)', () => {
     expect(pdf!.toString('latin1')).toContain('/Subtype /Image');
   });
 
-  it('"Gerar o PDF de novo" só vale para "falhou": pendente, pronto, id inválido ou plano de outro tenant não enfileiram nada', async () => {
+  it('"Gerar o PDF de novo" só enfileira de "falhou": pendente → "O PDF já está sendo preparado."; pronto → nada a fazer; id inválido, rascunho ou outro tenant → não encontrado', async () => {
     const T = await novoTenant(app.db);
     const { p, id } = await planoPublicado(T);
-    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pendente
+    const estado = async () => (await owner.pool.query(`select pdf_status, pdf_path, updated_at from meal_plans where id = $1`, [id])).rows[0];
+    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).rejects.toBeInstanceOf(PdfEmPreparoError); // pendente
+    expect(new PdfEmPreparoError().message).toBe('O PDF já está sendo preparado.'); // o texto que a action mostra
     expect(await job(T, id)).toBe('pronto');
-    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pronto
+    const pronto = await estado();
+    // pronto (outra aba já gerou, ou o worker terminou entre a tela e o clique): sem erro, a página mostra "Baixar PDF"
+    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).resolves.toBeUndefined();
+    expect(await estado()).toEqual(pronto); // nada muda: nem o arquivo nem o updated_at
     await expect(pedirNovoPdf(T.ctx, p.id, 'nao-e-um-id', deps)).rejects.toThrow(PlanoNaoEncontradoError);
+    const { id: rascunho } = await criarRascunho(T.ctx, (await novoPaciente(app.db, T.ctx)).id, deps);
+    await expect(pedirNovoPdf(T.ctx, p.id, rascunho, deps)).rejects.toThrow(PlanoNaoEncontradoError); // rascunho não tem PDF
     const outro = await novoTenant(app.db);
     await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
     await expect(pedirNovoPdf(outro.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // RLS: outro tenant
