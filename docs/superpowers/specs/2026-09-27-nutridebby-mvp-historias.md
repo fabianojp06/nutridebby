@@ -650,7 +650,7 @@ Estados da linha de salvamento (Plano 04): "Salvando…", "Salvo", "Alterações
 | cálculo de gasto usado como meta | do mesmo paciente | "Cálculo de gasto energético não encontrado." |
 | alimento do item | existente e visível ao tenant | "Alimento não encontrado." |
 
-Outras mensagens do salvamento (Plano 04): requisição inválida, "Não foi possível salvar estes dados. Recarregue a página."; corpo acima de 512 KB, "Plano grande demais."; plano inexistente ou de outro tenant, "Plano não encontrado."; sessão expirada, "Sessão expirada. Entre de novo."; paciente bloqueado, "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.". Nesses casos, no conflito entre abas e na versão já publicada, a linha de salvamento mostra o motivo, oferece "Recarregar" e o editor para de tentar; sem rede ou com erro do servidor (5xx) continua "Alterações não salvas", com nova tentativa. Cada envio leva uma chave (`envio`); se a resposta de um envio que gravou se perde, a tentativa seguinte é aceita em vez de virar um falso "alterado em outra aba". Com o paciente bloqueado, o plano abre só para consulta ("Versão N · Rascunho", sem publicar, editar, salvar como modelo nem descartar), e a lista de versões não oferece criar nem editar. Um item cuja medida própria foi excluída mostra a opção "{nome} (removida)", com os gramas gravados, e pode voltar a gramas. Botões e rótulos do editor: "Criar plano", "Continuar o rascunho (versão N)", "Editar o plano publicado", "Descartar rascunho" (confirma "Descartar este rascunho?"), "Usar como meta do plano" (escolhe um cálculo de gasto energético do paciente), "Adicionar refeição", "Orientações gerais" e "Mostrar calorias ao paciente".
+Outras mensagens do salvamento (Plano 04): requisição inválida, "Não foi possível salvar estes dados. Recarregue a página."; corpo acima de 512 KB, "Plano grande demais."; plano inexistente ou de outro tenant, "Plano não encontrado."; sessão expirada, "Sessão expirada. Entre de novo."; paciente bloqueado, "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.". Nesses casos, no conflito entre abas e na versão já publicada, a linha de salvamento mostra o motivo, oferece "Recarregar" e o editor para de tentar; sem rede ou com erro do servidor (5xx) continua "Alterações não salvas", com nova tentativa. Cada envio leva uma chave (`envio`); se a resposta de um envio que gravou se perde, a tentativa seguinte é aceita em vez de virar um falso "alterado em outra aba". Com o paciente bloqueado, o plano abre só para consulta ("Versão N · Rascunho", sem publicar, editar, salvar como modelo nem descartar), e a lista de versões não oferece criar nem editar. Um item cuja medida própria foi excluída mostra a opção "{nome} (removida)", com os gramas gravados, e pode voltar a gramas; as medidas aparecem com os gramas em vírgula decimal, com as casas que têm ("concha (12,25 g)"). Ao abrir, o editor confere a revisão do plano: se a página veio do "Voltar" do navegador com um conteúdo antigo, ou outra aba gravou depois, os dados são recarregados em vez de a próxima edição dar "Este plano foi alterado em outra aba". Botões e rótulos do editor: "Criar plano", "Continuar o rascunho (versão N)", "Editar o plano publicado", "Descartar rascunho" (confirma "Descartar este rascunho?"), "Usar como meta do plano" (escolhe um cálculo de gasto energético do paciente), "Adicionar refeição", "Orientações gerais" e "Mostrar calorias ao paciente".
 
 ## US-023 — Substituições · **M**
 
@@ -702,6 +702,10 @@ Cenário: Gerenciar modelos (Plano 04)
   Então posso "Criar modelo" (vazio), abri-lo para editar e usar "Excluir modelo" (os planos criados a partir dele não mudam)
   E o modelo não se publica nem tem g/kg
   E "Criar a partir de modelo" só aparece para o paciente que ainda não tem rascunho: um rascunho por paciente, e uma corrida recusa com "Já existe um rascunho para este paciente."
+
+Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
+  Dado que o pedido de exclusão do paciente foi atendido (ou ele já foi anonimizado)
+  Então o plano dele não vira modelo: "Salvar como modelo" não aparece e, numa corrida com o bloqueio, é recusado com "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta."
 ```
 
 Nota de privacidade (Plano 04, ver RNF-08): ao salvar um plano de paciente como modelo, as `orientacoes` e as `observacao` das refeições vão junto. Esse texto livre sai do alcance da RLS por paciente, da exportação e da exclusão do titular. A nutricionista (controladora) deve revisá-lo antes de salvar; a tela ainda não avisa.
@@ -739,6 +743,7 @@ Cenário: Versão publicada não se altera (Plano 04)
   Então vejo "Este plano já foi publicado e não pode ser alterado. Use "Editar" para criar uma nova versão."
   E "Editar" só existe na versão publicada: numa versão já arquivada vejo "Esta versão não está mais publicada. Recarregue a página."
   E se o paciente já tem rascunho, "Editar" abre esse rascunho em vez de criar outro (um rascunho por paciente, RN-01)
+  E "Publicar" e "Editar" só valem para o plano do paciente da tela: um plano de outro paciente (ou que não existe mais) responde "Plano não encontrado." e nada muda
 ```
 
 Nota de entrega (Plano 04): o push e o e-mail de aviso na publicação ficam para o Plano 06 (P06: push + e-mail), porque o portal do paciente e o push só existem lá e um aviso agora levaria o paciente a uma tela vazia; o ponto de entrada está comentado em `publicarPlano` (`publicacao.ts`), para entrar na mesma transação. Publicar congela em cada item a cópia dos valores dos alimentos (`nutrientes`, RN-01). Na lista de versões, a data de publicação é exibida no fuso do tenant (RN-06).
@@ -770,6 +775,8 @@ Cenário: PDF que não ficou pronto (Plano 04)
   Dado que o worker esgotou as tentativas, a cota de armazenamento acabou, ou o PDF ficou pendente por mais de 1 h
   Então a tela mostra "Não foi possível gerar o PDF. Tente de novo." com o botão "Gerar o PDF de novo"
   E se o PDF já está sendo preparado, o botão responde "O PDF já está sendo preparado."
+  E se o PDF já ficou pronto (outra aba pediu antes), o botão não dá erro e a tela passa a mostrar "Baixar PDF"
+  E de um plano de outro paciente, o botão responde "Plano não encontrado." e nada vai para a fila
 
 Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
   Dado que o pedido de exclusão do paciente foi atendido
@@ -778,7 +785,7 @@ Cenário: Paciente bloqueado por pedido de exclusão (Plano 04, US-018)
   E no lugar do botão a tela mostra "Não foi possível gerar o PDF."
 ```
 
-Nota de entrega (Plano 04): no painel, o PDF pronto aparece como o botão "Baixar PDF" (link assinado de 5 min). Enquanto "Seu PDF está sendo preparado", a tela consulta só o estado do PDF a cada 3 s, por até 1 minuto, pela rota `GET /api/painel/planos/[id]/pdf?paciente=<id>`, que devolve apenas o status (`pendente`/`pronto`/`falhou`) e não registra leitura do prontuário, porque o status de geração não é dado de saúde; depois desse minuto é preciso recarregar a página. Uma varredura do worker (a cada 15 min) troca por "falhou" o PDF pendente há mais de 1 h, para a nutricionista sempre ter a saída "Gerar o PDF de novo". O PDF usa Helvetica (WinAnsi), como o do prontuário: caracteres fora desse conjunto (ex.: emoji) saem como "?". A conferência visual do desenho do PDF (refeição grande, logo) fica para o deploy.
+Nota de entrega (Plano 04): no painel, o PDF pronto aparece como o botão "Baixar PDF" (link assinado de 5 min). Enquanto "Seu PDF está sendo preparado", a tela consulta só o estado do PDF a cada 3 s, por até 1 minuto, pela rota `GET /api/painel/planos/[id]/pdf?paciente=<id>`, que devolve apenas o status (`pendente`/`pronto`/`falhou`) e não registra leitura do prontuário, porque o status de geração não é dado de saúde; depois desse minuto é preciso recarregar a página. Uma varredura do worker (a cada 15 min) troca por "falhou" o PDF pendente há mais de 1 h, contada do pedido do PDF (`meal_plans.pdf_pedido_em`, gravado na publicação e no "Gerar o PDF de novo"; outra gravação no plano, como arquivá-lo ao publicar a versão seguinte, não renova o prazo), para a nutricionista sempre ter a saída "Gerar o PDF de novo". O PDF usa Helvetica (WinAnsi), como o do prontuário: caracteres fora desse conjunto (ex.: emoji) saem como "?". A conferência visual do desenho do PDF (refeição grande, logo) fica para o deploy.
 
 ---
 
