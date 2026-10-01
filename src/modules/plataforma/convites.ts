@@ -6,6 +6,7 @@ import { randomToken, sha256 } from '@/lib/crypto';
 import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
 import { DPA_NAO_ACEITO, registrarAceiteDpa } from './dpa';
+import { urlDoApp } from '@/lib/url-do-app';
 
 export const CONVITE_NUTRI_VALIDADE_MS = 72 * 60 * 60 * 1000; // US-001: 72 h
 export const CONVITE_EXPIRADO = 'Convite expirado. Peça um novo ao suporte.';
@@ -28,7 +29,7 @@ export async function criarConvite(q: Queryable, userId: string, now: Date = new
 }
 
 export function linkDoConvite(appUrl: string, token: string): string {
-  return `${appUrl.replace(/\/$/, '')}/convite/${token}`;
+  return urlDoApp(appUrl, `/convite/${token}`);
 }
 
 export async function inspecionarConvite(q: Queryable, token: string, now: Date = new Date()): Promise<EstadoConvite> {

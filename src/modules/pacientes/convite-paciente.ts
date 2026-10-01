@@ -13,6 +13,7 @@ import { normalizeEmail } from '@/lib/text';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { carregarPacienteParaEscrita } from './base';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
+import { urlDoApp } from '@/lib/url-do-app';
 
 export const CONVITE_PACIENTE_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000; // US-010: 7 dias
 
@@ -38,7 +39,7 @@ export class ConvitePacienteError extends Error {
 }
 
 export function linkDoConvitePaciente(appUrl: string, token: string): string {
-  return `${appUrl.replace(/\/$/, '')}/convite/paciente/${token}`;
+  return urlDoApp(appUrl, `/convite/paciente/${token}`);
 }
 
 /**

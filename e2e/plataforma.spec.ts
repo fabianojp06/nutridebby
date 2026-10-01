@@ -21,7 +21,11 @@ test('admin cria a conta; e-mail com maiúsculas e espaços é aceito; endereço
   await admin.getByLabel('Nome de exibição').fill(NUTRI.nome);
   await admin.getByLabel('E-mail').fill(`  ${NUTRI.email.toUpperCase()} `);
   await admin.getByLabel('CRN').fill('CRN-3 12345');
-  await admin.getByLabel('Endereço', { exact: true }).fill(NUTRI.slug);
+  // O campo é o link da página pública, não o endereço da rua: o rótulo e a dica deixam isso claro
+  const endereco = admin.getByLabel('Endereço da página', { exact: true });
+  // a dica vem do APP_URL do servidor, que pode diferir do endereço do navegador (localhost × 127.0.0.1)
+  await expect(endereco).toHaveAccessibleDescription(/quando ela estiver disponível: https?:\/\/\S+\/n\/seu-endereco\. Não é o endereço do consultório\./);
+  await endereco.fill(NUTRI.slug);
   await admin.getByRole('button', { name: 'Criar conta' }).click();
   await expect(admin.getByRole('status')).toHaveText('Conta criada. O convite foi enviado para o e-mail da nutricionista.');
   const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
@@ -36,7 +40,7 @@ test('admin cria a conta; e-mail com maiúsculas e espaços é aceito; endereço
   await admin.getByLabel('Nome de exibição').fill('Outra Pessoa');
   await admin.getByLabel('E-mail').fill(`outra-${sufixo}@nutridebby.test`);
   await admin.getByLabel('CRN').fill('CRN-3 12345');
-  await admin.getByLabel('Endereço', { exact: true }).fill(NUTRI.slug);
+  await admin.getByLabel('Endereço da página', { exact: true }).fill(NUTRI.slug);
   await admin.getByRole('button', { name: 'Criar conta' }).click();
   await expect(admin.getByText('Endereço já em uso')).toBeVisible();
 });
@@ -108,7 +112,7 @@ test('conta suspensa entre o aceite do convite e o login automático leva a /ind
   await admin.getByLabel('Nome de exibição').fill(nome);
   await admin.getByLabel('E-mail').fill(email);
   await admin.getByLabel('CRN').fill('CRN-3 12345');
-  await admin.getByLabel('Endereço', { exact: true }).fill(slug);
+  await admin.getByLabel('Endereço da página', { exact: true }).fill(slug);
   await admin.getByRole('button', { name: 'Criar conta' }).click();
   await expect(admin.getByRole('status')).toHaveText('Conta criada. O convite foi enviado para o e-mail da nutricionista.');
 
