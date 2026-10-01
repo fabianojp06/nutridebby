@@ -17,7 +17,8 @@ export function AlimentoForm({ acao, inicial, rotuloBotao }: { acao: (s: Aliment
       <Campo id="nome" rotulo="Nome" required defaultValue={v.nome} erro={e.nome} />
       <div className="space-y-1">
         <label htmlFor="grupo" className="block font-medium">Grupo</label>
-        <select id="grupo" name="grupo" defaultValue={v.grupo} aria-invalid={e.grupo ? true : undefined} aria-describedby={e.grupo ? 'grupo-erro' : undefined} className="w-full rounded border p-2">
+        {/* key: o React não re-sincroniza o defaultValue de um <select>, e o reset automático do formulário voltaria à opção inicial */}
+        <select key={v.grupo} id="grupo" name="grupo" defaultValue={v.grupo} aria-invalid={e.grupo ? true : undefined} aria-describedby={e.grupo ? 'grupo-erro' : undefined} className="w-full rounded border p-2">
           <option value="">Escolha…</option>
           {GRUPOS_TACO.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>

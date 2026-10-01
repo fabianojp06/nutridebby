@@ -58,6 +58,16 @@ test('meu alimento: cadastro com selo, TACO só com "Duplicar como meu alimento"
   await expect(nutri.getByText('Valores por 100 g: informe números entre 0 e 900').first()).toBeVisible();
   await expect(nutri.getByLabel('Nome')).toHaveValue('x'); // o que foi digitado não se perde
   await expect(nutri.getByLabel('Energia (kcal)')).toHaveValue('901');
+  // o grupo escolhido também sobrevive ao erro de outro campo (o <select> não volta para "Escolha…")
+  await nutri.getByLabel('Grupo').selectOption('Frutas e derivados');
+  await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
+  await expect(nutri.getByText('Valores por 100 g: informe números entre 0 e 900').first()).toBeVisible();
+  await expect(nutri.getByText('Escolha o grupo do alimento')).toHaveCount(0);
+  await expect(nutri.getByLabel('Grupo')).toHaveValue('Frutas e derivados');
+  await nutri.getByLabel('Grupo').selectOption('Produtos açucarados'); // trocar de novo depois de um erro também vale
+  await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
+  await expect(nutri.getByText('Valores por 100 g: informe números entre 0 e 900').first()).toBeVisible();
+  await expect(nutri.getByLabel('Grupo')).toHaveValue('Produtos açucarados');
   await nutri.getByLabel('Nome').fill(`Pão low carb ${sufixo}`);
   await nutri.getByLabel('Grupo').selectOption('Cereais e derivados');
   await nutri.getByLabel('Energia (kcal)').fill('250');
@@ -98,11 +108,19 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await nutri.getByRole('button', { name: 'Duplicar como meu alimento' }).click();
   await expect(nutri).toHaveURL(/\/painel\/alimentos\/[0-9a-f-]{36}\/editar\?incompleto=1$/);
   await expect(nutri.getByRole('status')).toHaveText('A TACO não tem todos os valores deste alimento: confira os campos com 0.');
+  await expect(nutri.getByLabel('Grupo')).toHaveValue('Leite e derivados'); // veio da cópia
   await nutri.getByLabel('Nome').fill(`Leite da casa ${sufixo}`);
+  await nutri.getByLabel('Grupo').selectOption('Bebidas (alcoólicas e não alcoólicas)');
+  await nutri.getByLabel('Energia (kcal)').fill('901'); // erro em outro campo: o grupo trocado não pode voltar ao antigo
+  await nutri.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect(nutri.getByText('Valores por 100 g: informe números entre 0 e 900').first()).toBeVisible();
+  await expect(nutri.getByLabel('Grupo')).toHaveValue('Bebidas (alcoólicas e não alcoólicas)');
+  await expect(nutri.getByLabel('Nome')).toHaveValue(`Leite da casa ${sufixo}`);
   await nutri.getByLabel('Energia (kcal)').fill('61');
   await nutri.getByLabel('Proteína (g)').fill('3,2'); // vírgula decimal (RNF-12)
   await nutri.getByRole('button', { name: 'Salvar alterações' }).click();
   await expect(nutri.getByRole('heading', { name: `Leite da casa ${sufixo}` })).toBeVisible();
+  await expect(nutri.getByText('Bebidas (alcoólicas e não alcoólicas)', { exact: true })).toBeVisible(); // o grupo novo foi salvo, não o antigo
   await expect(nutri.getByText('Meu alimento', { exact: true })).toBeVisible();
   await expect(nutri.getByRole('row', { name: /Energia/ })).toContainText('61 kcal');
   await expect(nutri.getByRole('row', { name: /Proteína/ })).toContainText('3,2 g');
