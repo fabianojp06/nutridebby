@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, jsonb, numeric, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { check, index, jsonb, numeric, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { GRUPOS_TACO } from '../../modules/alimentos/grupos'; // relativo: o drizzle-kit não resolve o alias @/
 import { tenants } from './platform';
 
@@ -49,3 +49,25 @@ export const foods = pgTable(
 );
 
 export type FoodRow = typeof foods.$inferSelect;
+
+/** US-020 "Cadastrar medida caseira": medidas da nutricionista (complementam o seed do IBGE em foods.medidas_caseiras). */
+export const foodMeasures = pgTable(
+  'food_measures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    foodId: uuid('food_id').notNull().references(() => foods.id, { onDelete: 'cascade' }),
+    nome: text('nome').notNull(),
+    plural: text('plural').notNull(),
+    gramas: numeric('gramas', { precision: 7, scale: 2, mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('food_measures_nome_unique').on(t.tenantId, t.foodId, t.nome),
+    check('food_measures_gramas_faixa', sql`${t.gramas} between 0.1 and 5000`),
+    check('food_measures_nome_tamanho', sql`char_length(${t.nome}) between 2 and 60 and char_length(${t.plural}) between 2 and 60`),
+    index('food_measures_alimento_idx').on(t.tenantId, t.foodId),
+  ],
+);
+
+export type FoodMeasureRow = typeof foodMeasures.$inferSelect;

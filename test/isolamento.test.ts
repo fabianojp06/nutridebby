@@ -44,6 +44,9 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   foods: (t) =>
     sql`insert into foods (tenant_id, nome, grupo, kcal, proteina_g, carboidrato_g, lipidio_g, fibra_g)
         values (${t}, 'Iso', 'Miscelâneas', 100, 1, 1, 1, 1)`,
+  food_measures: (t) =>
+    sql`insert into food_measures (tenant_id, food_id, nome, plural, gramas)
+        values (${t}, '00000000-0000-4000-8000-000000000003', ${`Iso ${randomUUID().slice(0, 8)}`}, 'Isos', 10)`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);

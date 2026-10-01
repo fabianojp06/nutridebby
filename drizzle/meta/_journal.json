@@ -288,6 +288,27 @@
       "when": 1790863702671,
       "tag": "0040_rls_alimentos",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790864259311,
+      "tag": "0041_medidas_caseiras",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790864267123,
+      "tag": "0042_seed_medidas_ibge",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790864268192,
+      "tag": "0043_rls_medidas",
+      "breakpoints": true
     }
   ]
 }
