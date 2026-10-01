@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
+import type { PgBoss } from 'pg-boss';
 import sharp from 'sharp';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
@@ -249,6 +250,15 @@ describe('PDF do plano (US-026)', () => {
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
     const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [id]);
     expect(n.rows[0].n).toBe(1); // só o da publicação
+  });
+
+  it('"Gerar o PDF de novo" com a fila recusando o job: erro e o plano continua "falhou" (nada fica pendente sem job)', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await planoPublicado(T);
+    await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
+    const recusa = { send: async () => null } as unknown as PgBoss;
+    await expect(pedirNovoPdf(T.ctx, id, { ...deps, boss: recusa })).rejects.toThrow('A fila recusou o PDF do plano');
+    expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
   });
 
   it('pendente esquecido há mais de 1 h vira "falhou" (rede de segurança); recente, pronto e rascunho ficam; o painel pode pedir de novo', async () => {

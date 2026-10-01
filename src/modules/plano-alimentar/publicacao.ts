@@ -108,7 +108,7 @@ export async function editarPublicado(ctx: TenantContext, planId: string, deps: 
   );
 }
 
-/** "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação. */
+/** "Gerar o PDF de novo": só de 'falhou'; volta a 'pendente' e enfileira na mesma transação (fila recusou → desfaz). */
 export async function pedirNovoPdf(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<void> {
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
   const boss = deps.boss ?? (await getBoss());
@@ -121,7 +121,8 @@ export async function pedirNovoPdf(ctx: TenantContext, planId: string, deps: Dep
         .where(and(eq(mealPlans.id, planId), eq(mealPlans.pdfStatus, 'falhou')))
         .returning({ id: mealPlans.id });
       if (!r.length) throw new PlanoNaoEncontradoError();
-      await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
+      const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
+      if (!job) throw new Error('A fila recusou o PDF do plano'); // desfaz: o plano não fica "pendente" sem job
     },
     deps.db ?? getDb(),
   );
