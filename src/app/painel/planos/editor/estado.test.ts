@@ -3,7 +3,7 @@ import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { totalDoDia } from '@/modules/plano-alimentar/calculo';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
+import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
 
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
@@ -44,6 +44,29 @@ describe('estado do editor (US-022)', () => {
     expect(gramasDoItem(e.refeicoes[0].itens[0])).toBe(30);
     expect(opcaoDaMedida(e.refeicoes[0].itens[0])).toBe('1'); // o select continua na própria
     expect(medidaDaOpcao(e.refeicoes[0].itens[0], '')).toBeNull(); // "gramas"
+  });
+
+  it('medida gravada que saiu da lista (medida própria excluída): opção "(removida)" selecionada, com os gramas gravados; "gramas" volta a funcionar', () => {
+    const pires = { nome: 'pires pequeno', plural: 'pires pequenos', gramas: 60 };
+    const comItem: PlanoDoCliente = {
+      ...plano,
+      refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', itens: [
+        { id: 'i1', foodId: arroz.id, nome: arroz.nome, origem: 'TACO', porCem: arroz.porCem, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
+      ] }],
+    };
+    let e = estadoInicial(comItem);
+    const item = e.refeicoes[0].itens[0];
+    expect(opcaoDaMedida(item)).toBe('removida');
+    expect(opcoesDeMedida(item)).toEqual([
+      { valor: '0', rotulo: 'colher de sopa cheia (25 g)' },
+      { valor: 'removida', rotulo: 'pires pequeno (removida)' },
+    ]);
+    expect(medidaDaOpcao(item, 'removida')).toEqual(pires);
+    expect(gramasDoItem(item)).toBe(120);
+    expect(opcoesDeMedida({ ...item, medidas: [] })).toEqual([{ valor: 'removida', rotulo: 'pires pequeno (removida)' }]); // alimento sem outras medidas
+    e = reduzir(e, { tipo: 'medida', itemId: 'i1', medida: medidaDaOpcao(item, '') }); // "gramas"
+    expect(e.refeicoes[0].itens[0]).toMatchObject({ medida: null, quantidadeTexto: '120' });
+    expect(opcoesDeMedida(e.refeicoes[0].itens[0])).toEqual([{ valor: '0', rotulo: 'colher de sopa cheia (25 g)' }]); // a removida some com a troca
   });
 
   it('"Cálculo do item": 150 g de 130 kcal/100 g → 195 kcal no total do dia; quantidade inválida não vira NaN', () => {

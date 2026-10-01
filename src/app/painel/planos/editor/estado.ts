@@ -73,18 +73,35 @@ export function gramasDoItem(i: ItemEstado): number | null {
   return lerQuantidade(gramasDaMedida(q, i.medida.gramas));
 }
 
-/**
- * Valor do <option> de cada medida do item: a posição dela na lista. O nome não serve de valor: uma "Minha medida"
- * pode repetir o nome de uma do IBGE (cadastrada antes da trava em `cadastrarMedida`) com outros gramas.
- */
-export function opcaoDaMedida(i: ItemEstado): string {
+/** Valor da opção da medida gravada no item que não está mais na lista do alimento (medida própria excluída). */
+const REMOVIDA = 'removida';
+
+const posicaoDaMedida = (i: ItemEstado): number => {
   const m = i.medida;
-  const k = m ? i.medidas.findIndex((x) => x.nome === m.nome && x.gramas === m.gramas) : -1;
-  return k < 0 ? '' : String(k);
+  return m ? i.medidas.findIndex((x) => x.nome === m.nome && x.gramas === m.gramas) : -1;
+};
+
+/**
+ * Opções do select de medida: as do alimento, com a posição na lista como valor (o nome não serve: uma "Minha medida"
+ * pode repetir o nome de uma do IBGE com outros gramas, cadastrada antes da trava em `cadastrarMedida`). Se a medida
+ * gravada no item saiu da lista, ela entra como "{nome} (removida)", com os gramas gravados: o select mostra o que o
+ * item usa e "gramas" volta a funcionar.
+ */
+export function opcoesDeMedida(i: ItemEstado): { valor: string; rotulo: string }[] {
+  const opcoes = i.medidas.map((m, k) => ({ valor: String(k), rotulo: `${m.nome} (${m.gramas} g)` }));
+  return i.medida && posicaoDaMedida(i) < 0 ? [...opcoes, { valor: REMOVIDA, rotulo: `${i.medida.nome} (removida)` }] : opcoes;
+}
+
+/** Valor selecionado no select: '' (gramas), a posição da medida ou a removida. */
+export function opcaoDaMedida(i: ItemEstado): string {
+  if (!i.medida) return '';
+  const k = posicaoDaMedida(i);
+  return k < 0 ? REMOVIDA : String(k);
 }
 
 /** A medida da opção escolhida, com os gramas dela; '' (gramas) ou opção que não existe → null. */
 export function medidaDaOpcao(i: ItemEstado, valor: string): ItemEstado['medida'] {
+  if (valor === REMOVIDA) return i.medida;
   const m = valor === '' ? undefined : i.medidas[Number(valor)];
   return m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null;
 }

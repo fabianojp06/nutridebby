@@ -9,7 +9,7 @@ import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
-import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
+import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
@@ -190,7 +190,8 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
         )}
       </div>
       <fieldset disabled={somenteLeitura} className="flex flex-wrap items-end gap-2">
-        {i.medidas.length > 0 && (
+        {/* com a medida gravada fora da lista (medida própria excluída), o select aparece mesmo sem outras medidas */}
+        {(i.medidas.length > 0 || (i.medida && !somenteLeitura)) && (
           <div className="space-y-1">
             <label htmlFor={`${i.id}-medida`} className="block text-sm">Medida de {i.nome}</label>
             <select
@@ -200,7 +201,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
               className="rounded border p-2"
             >
               <option value="">gramas</option>
-              {i.medidas.map((m, k) => <option key={`${m.origem}-${m.nome}`} value={String(k)}>{m.nome} ({m.gramas} g)</option>)}
+              {opcoesDeMedida(i).map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
             </select>
           </div>
         )}
