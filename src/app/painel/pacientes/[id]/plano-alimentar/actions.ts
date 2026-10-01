@@ -38,31 +38,37 @@ export async function descartarRascunhoAction(patientId: string, planId: string)
   redirect(`/painel/pacientes/${patientId}/plano-alimentar`);
 }
 
-/** US-025: publica o rascunho (arquiva o publicado anterior, congela os nutrientes e enfileira o PDF). */
+/**
+ * US-025: publica o rascunho (arquiva o publicado anterior, congela os nutrientes e enfileira o PDF).
+ * Plano que não é do paciente da URL (ou que já não existe): "Plano não encontrado." e nada muda.
+ */
 export async function publicarAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
   try {
-    await publicarPlano(ctx, planId);
+    await publicarPlano(ctx, patientId, planId);
   } catch (e) {
     if (e instanceof PlanoError) return { erro: Object.values(e.erros)[0] };
-    if (e instanceof PlanoNaoEditavelError || e instanceof PacienteBloqueadoError) return { erro: e.message };
-    if (e instanceof PlanoNaoEncontradoError || e instanceof PacienteNaoEncontradoError) notFound();
+    if (e instanceof PlanoNaoEditavelError || e instanceof PacienteBloqueadoError || e instanceof PlanoNaoEncontradoError) return { erro: e.message };
+    if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }
   revalidatePath(`/painel/pacientes/${patientId}/plano-alimentar`, 'layout');
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${planId}?publicado=1`);
 }
 
-/** US-025 "Editar": cria a próxima versão em rascunho a partir do publicado (ou abre o rascunho que já existe). */
+/**
+ * US-025 "Editar": cria a próxima versão em rascunho a partir do publicado (ou abre o rascunho que já existe).
+ * Plano que não é do paciente da URL: "Plano não encontrado." e nenhum rascunho é criado.
+ */
 export async function editarPublicadoAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
   let id: string;
   try {
-    ({ id } = await editarPublicado(ctx, planId));
+    ({ id } = await editarPublicado(ctx, patientId, planId));
   } catch (e) {
     if (e instanceof PlanoError) return { erro: Object.values(e.erros)[0] };
-    if (e instanceof PacienteBloqueadoError) return { erro: e.message };
-    if (e instanceof PlanoNaoEncontradoError || e instanceof PacienteNaoEncontradoError) notFound();
+    if (e instanceof PacienteBloqueadoError || e instanceof PlanoNaoEncontradoError) return { erro: e.message };
+    if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${id}`);
@@ -72,7 +78,7 @@ export async function editarPublicadoAction(patientId: string, planId: string): 
 export async function pedirNovoPdfAction(patientId: string, planId: string): Promise<AcaoPlanoState> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/plano-alimentar/${planId}`);
   try {
-    await pedirNovoPdf(ctx, planId);
+    await pedirNovoPdf(ctx, patientId, planId);
   } catch (e) {
     if (e instanceof PlanoNaoEncontradoError) return { erro: 'O PDF já está sendo preparado.' };
     if (e instanceof PacienteBloqueadoError) return { erro: e.message }; // a página já esconde o botão: corrida com o bloqueio

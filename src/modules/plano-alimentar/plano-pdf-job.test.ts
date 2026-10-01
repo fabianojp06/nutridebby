@@ -60,7 +60,7 @@ async function planoPublicado(T: TenantDeTeste, mostrarCalorias = false) {
   const p = await novoPaciente(app.db, T.ctx);
   const { id } = await criarRascunho(T.ctx, p.id, deps);
   await salvarRascunho(T.ctx, id, conteudo(mostrarCalorias), deps);
-  await publicarPlano(T.ctx, id, deps);
+  await publicarPlano(T.ctx, p.id, id, deps);
   return { p, id };
 }
 
@@ -124,7 +124,7 @@ describe('PDF do plano (US-026)', () => {
         { id: randomUUID(), nome: 'Lanche B', horario: '16:00', observacao: '', itens: [item(leite2, idTaco(458), '200', null), item(pao2, idTaco(53), '50', leite2)] }, // principal sem kcal
       ],
     }, deps);
-    await publicarPlano(T.ctx, id, deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
     let pdf: Buffer | null = null;
     expect(await job(T, id, { renderizar: async (d) => (pdf = await renderizarPlano(d)) })).toBe('pronto');
     const texto = textoDoPdf(pdf!);
@@ -167,7 +167,7 @@ describe('PDF do plano (US-026)', () => {
       itens: Array.from({ length: r < 4 ? 7 : 6 }, (_, i) => ({ id: randomUUID(), foodId: idTaco(1 + ((r * 7 + i) % 597)), quantidadeG: '100', medida: null, substituiItemId: null })),
     }));
     await salvarRascunho(T.ctx, id, { revisao: 0, envio: randomUUID(), titulo: 'Grande', metaKcal: '', mostrarCalorias: true, orientacoes: '', refeicoes }, deps);
-    await publicarPlano(T.ctx, id, deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
     const t0 = performance.now();
     expect(await job(T, id)).toBe('pronto');
     expect(performance.now() - t0).toBeLessThan(5000);
@@ -194,7 +194,7 @@ describe('PDF do plano (US-026)', () => {
     expect((await carregarPlano(T3.ctx, c.id, app.db))?.pdfStatus).toBe('pendente');
     expect(await job(T3, c.id, { renderizar: quebra, ultimaTentativa: true })).toBe('falhou');
     // "Gerar o PDF de novo": volta a pendente e enfileira
-    await pedirNovoPdf(T3.ctx, c.id, deps);
+    await pedirNovoPdf(T3.ctx, c.p.id, c.id, deps);
     expect((await carregarPlano(T3.ctx, c.id, app.db))?.pdfStatus).toBe('pendente');
     const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [c.id]);
     expect(n.rows[0].n).toBe(2); // o da publicação + o do pedido novo
@@ -240,14 +240,26 @@ describe('PDF do plano (US-026)', () => {
 
   it('"Gerar o PDF de novo" só vale para "falhou": pendente, pronto, id inválido ou plano de outro tenant não enfileiram nada', async () => {
     const T = await novoTenant(app.db);
-    const { id } = await planoPublicado(T);
-    await expect(pedirNovoPdf(T.ctx, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pendente
+    const { p, id } = await planoPublicado(T);
+    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pendente
     expect(await job(T, id)).toBe('pronto');
-    await expect(pedirNovoPdf(T.ctx, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pronto
-    await expect(pedirNovoPdf(T.ctx, 'nao-e-um-id', deps)).rejects.toThrow(PlanoNaoEncontradoError);
+    await expect(pedirNovoPdf(T.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // pronto
+    await expect(pedirNovoPdf(T.ctx, p.id, 'nao-e-um-id', deps)).rejects.toThrow(PlanoNaoEncontradoError);
     const outro = await novoTenant(app.db);
     await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
-    await expect(pedirNovoPdf(outro.ctx, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // RLS: outro tenant
+    await expect(pedirNovoPdf(outro.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // RLS: outro tenant
+    expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
+    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [id]);
+    expect(n.rows[0].n).toBe(1); // só o da publicação
+  });
+
+  it('"Gerar o PDF de novo" de plano de outro paciente (o da URL é outro): "Plano não encontrado." e nada vai para a fila', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await planoPublicado(T);
+    const bia = await novoPaciente(app.db, T.ctx);
+    await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
+    await expect(pedirNovoPdf(T.ctx, bia.id, id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
+    await expect(pedirNovoPdf(T.ctx, 'nao-e-um-id', id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
     const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [id]);
     expect(n.rows[0].n).toBe(1); // só o da publicação
@@ -255,10 +267,10 @@ describe('PDF do plano (US-026)', () => {
 
   it('"Gerar o PDF de novo" com a fila recusando o job: erro e o plano continua "falhou" (nada fica pendente sem job)', async () => {
     const T = await novoTenant(app.db);
-    const { id } = await planoPublicado(T);
+    const { p, id } = await planoPublicado(T);
     await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
     const recusa = { send: async () => null } as unknown as PgBoss;
-    await expect(pedirNovoPdf(T.ctx, id, { ...deps, boss: recusa })).rejects.toThrow('A fila recusou o PDF do plano');
+    await expect(pedirNovoPdf(T.ctx, p.id, id, { ...deps, boss: recusa })).rejects.toThrow('A fila recusou o PDF do plano');
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
   });
 
@@ -272,7 +284,7 @@ describe('PDF do plano (US-026)', () => {
     const a = await planoPublicado(T);
     await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [a.id]);
     await bloquear(T, a.p.id);
-    await expect(pedirNovoPdf(T.ctx, a.id, deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    await expect(pedirNovoPdf(T.ctx, a.p.id, a.id, deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
     expect(await status(a.id)).toEqual({ pdf_status: 'falhou', pdf_path: null });
     expect(await jobs(a.id)).toBe(1); // só o da publicação
 
@@ -307,7 +319,7 @@ describe('PDF do plano (US-026)', () => {
     expect(await expirarPdfsPendentes(app.db, new Date('2000-01-01T02:00:00Z'))).toBe(0); // idempotente
 
     // o botão "Gerar o PDF de novo" volta a funcionar e o job gera
-    await pedirNovoPdf(T.ctx, esquecido.id, deps);
+    await pedirNovoPdf(T.ctx, esquecido.p.id, esquecido.id, deps);
     expect(await status(esquecido.id)).toBe('pendente');
     expect(await job(T, esquecido.id)).toBe('pronto');
   });

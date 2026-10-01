@@ -21,22 +21,27 @@ function exigirPublicavel(p: PlanoCompleto) {
 }
 
 /**
+ * Só o plano do paciente da URL: plano de outro paciente (ou modelo, que não tem paciente) não é encontrado, como
+ * o inexistente e o de outro tenant (RLS). Vale na leitura sem trava (antes de travar o paciente) e na releitura.
+ */
+const doPaciente = (patientId: string, planId: string) => and(eq(mealPlans.id, planId), eq(mealPlans.patientId, patientId));
+
+/**
  * US-025 / RN-01, numa transação: arquiva o publicado anterior, congela os nutrientes dos itens (D10),
  * publica e enfileira o PDF (US-026). Travas na mesma ordem do salvamento: paciente → plano.
  * Plano 06: o aviso ao paciente (push + e-mail, adiado — ver desvios) entra aqui, enfileirado nesta transação.
  */
-export async function publicarPlano(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<{ versao: number }> {
-  if (!idValido(planId)) throw new PlanoNaoEncontradoError();
+export async function publicarPlano(ctx: TenantContext, patientId: string, planId: string, deps: Deps = {}): Promise<{ versao: number }> {
+  if (!idValido(planId) || !idValido(patientId)) throw new PlanoNaoEncontradoError();
   const now = deps.now ?? new Date();
   const boss = deps.boss ?? (await getBoss());
   return withTenant(
     ctx,
     async (tx) => {
-      const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
-      if (!antes) throw new PlanoNaoEncontradoError();
-      if (!antes.patientId) throw new PlanoNaoEditavelError(); // modelo não se publica
-      await carregarPacienteParaEscrita(tx, antes.patientId);
-      const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
+      const [antes] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(doPaciente(patientId, planId));
+      if (!antes) throw new PlanoNaoEncontradoError(); // modelo também: não se publica
+      await carregarPacienteParaEscrita(tx, patientId);
+      const [p] = await tx.select().from(mealPlans).where(doPaciente(patientId, planId)).for('update');
       if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
       if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
       const completo = (await lerPlanoNaTransacao(tx, planId, { auditar: false, comMedidas: false }))!;
@@ -45,7 +50,7 @@ export async function publicarPlano(ctx: TenantContext, planId: string, deps: De
       await tx
         .update(mealPlans)
         .set({ status: 'arquivado', updatedAt: now })
-        .where(and(eq(mealPlans.patientId, antes.patientId), eq(mealPlans.status, 'publicado')));
+        .where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
       // D10: cópia dos valores por 100 g e do nome de cada alimento no momento da publicação
       const congelados = await tx.execute(sql`
         update meal_items mi set nutrientes = jsonb_build_object(
@@ -74,31 +79,31 @@ export async function publicarPlano(ctx: TenantContext, planId: string, deps: De
  * Só a versão publicada se edita: uma aba velha que ainda mostra "Editar" numa versão já arquivada
  * não pode criar o rascunho a partir do conteúdo antigo.
  */
-export async function editarPublicado(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<{ id: string; criado: boolean }> {
-  if (!idValido(planId)) throw new PlanoNaoEncontradoError();
+export async function editarPublicado(ctx: TenantContext, patientId: string, planId: string, deps: Deps = {}): Promise<{ id: string; criado: boolean }> {
+  if (!idValido(planId) || !idValido(patientId)) throw new PlanoNaoEncontradoError();
   return withTenant(
     ctx,
     async (tx) => {
-      const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
-      if (!antes || !antes.patientId) throw new PlanoNaoEncontradoError();
-      await carregarPacienteParaEscrita(tx, antes.patientId);
-      const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)); // com o paciente travado: a publicação em curso já terminou
+      const [antes] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(doPaciente(patientId, planId));
+      if (!antes) throw new PlanoNaoEncontradoError();
+      await carregarPacienteParaEscrita(tx, patientId);
+      const [p] = await tx.select().from(mealPlans).where(doPaciente(patientId, planId)); // com o paciente travado: a publicação em curso já terminou
       if (!p) throw new PlanoNaoEncontradoError();
       if (p.status !== 'publicado') throw new PlanoError({ geral: MSG_PLANO.naoPublicado });
-      const [rasc] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, antes.patientId), eq(mealPlans.status, 'rascunho')));
+      const [rasc] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'rascunho')));
       if (rasc) return { id: rasc.id, criado: false };
       const [novo] = await tx
         .insert(mealPlans)
         .values({
           tenantId: ctx.tenantId,
-          patientId: antes.patientId,
+          patientId,
           titulo: p.titulo,
           metaKcal: p.metaKcal,
           energyCalcId: p.energyCalcId,
           mostrarCalorias: p.mostrarCalorias,
           orientacoes: p.orientacoes,
           origemPlanId: p.id,
-          versao: await proximaVersao(tx, antes.patientId),
+          versao: await proximaVersao(tx, patientId),
         })
         .returning({ id: mealPlans.id });
       await copiarConteudo(tx, p.id, novo.id);
@@ -113,19 +118,19 @@ export async function editarPublicado(ctx: TenantContext, planId: string, deps: 
  * Paciente bloqueado ou anonimizado (US-018) não ganha PDF novo: gerar é tratar dado de quem pediu a exclusão.
  * Travas: paciente → plano, como na publicação e no job.
  */
-export async function pedirNovoPdf(ctx: TenantContext, planId: string, deps: Deps = {}): Promise<void> {
-  if (!idValido(planId)) throw new PlanoNaoEncontradoError();
+export async function pedirNovoPdf(ctx: TenantContext, patientId: string, planId: string, deps: Deps = {}): Promise<void> {
+  if (!idValido(planId) || !idValido(patientId)) throw new PlanoNaoEncontradoError();
   const boss = deps.boss ?? (await getBoss());
   await withTenant(
     ctx,
     async (tx) => {
-      const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
-      if (!antes?.patientId) throw new PlanoNaoEncontradoError();
-      await carregarPacienteParaEscrita(tx, antes.patientId); // bloqueado/anonimizado → PacienteBloqueadoError
+      const [antes] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(doPaciente(patientId, planId));
+      if (!antes) throw new PlanoNaoEncontradoError();
+      await carregarPacienteParaEscrita(tx, patientId); // bloqueado/anonimizado → PacienteBloqueadoError
       const r = await tx
         .update(mealPlans)
         .set({ pdfStatus: 'pendente', updatedAt: deps.now ?? new Date() })
-        .where(and(eq(mealPlans.id, planId), eq(mealPlans.pdfStatus, 'falhou')))
+        .where(and(doPaciente(patientId, planId), eq(mealPlans.pdfStatus, 'falhou')))
         .returning({ id: mealPlans.id });
       if (!r.length) throw new PlanoNaoEncontradoError();
       const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
