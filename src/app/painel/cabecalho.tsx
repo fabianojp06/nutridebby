@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { TenantRow } from '@/db/schema';
+import { BotaoSair } from '@/components/botao-sair';
 import { getTenantBrand } from '@/modules/plataforma/marca';
 
 /** Cabeçalho do painel com a marca da nutricionista (US-005 "Marca aplicada"). */
@@ -14,7 +15,7 @@ export function Cabecalho({ tenant }: { tenant: TenantRow }) {
         )}
         <p className="text-lg font-semibold">{marca.nome}</p>
       </div>
-      <nav aria-label="Menu do painel" className="flex gap-4 text-sm">
+      <nav aria-label="Menu do painel" className="flex items-center gap-4 text-sm">
         <Link href="/painel">Início</Link>
         <Link href="/painel/pacientes">Pacientes</Link>
         <Link href="/painel/alimentos">Alimentos</Link>
@@ -22,6 +23,7 @@ export function Cabecalho({ tenant }: { tenant: TenantRow }) {
         <Link href="/painel/anamnese/modelos">Modelos de anamnese</Link>
         <Link href="/painel/configuracoes">Perfil e marca</Link>
         <Link href="/conta/seguranca">Segurança</Link>
+        <BotaoSair className="hover:underline" />
       </nav>
     </header>
   );
