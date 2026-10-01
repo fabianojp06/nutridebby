@@ -1,6 +1,6 @@
 # NutriDebby MVP — Backlog
 
-Fonte: spec v1.5 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
+Fonte: spec v1.6 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
 
 **Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
 
@@ -80,17 +80,19 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 04 — Plano alimentar (M3)
 
+**Situação em 2026-10-01:** os 9 itens estão feitos na branch `plano-04-plano-alimentar` (commits `0cae87d` a `5d053a5`, em cima de `e154466`). **Merge e deploy pendentes:** faltam as revisões do PR (`/code-review high` duas rodadas e `/security-review`) e o OK explícito do dono (merge = deploy; snapshot no hPanel antes). Spec atualizada para a v1.6. O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais. **Para o Plano 06** (spec v1.6, P-16, antes de qualquer sessão de paciente): escrita só da equipe em `foods`, `food_measures` e `anamnesis_templates` (políticas `RESTRICTIVE`), filtro de rascunho na exportação do titular (US-046), decisão sobre a auditoria de rascunho visível ao paciente, `stored_files` restrita por paciente no download do PDF, e o aviso "Seu novo plano alimentar está disponível" (push + e-mail, adiado do P04-08).
+
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P04-01 | Seed TACO 4ª ed. (tratamento de "Tr" e "NA") + índice de busca sem acento | INT-04 | Plano 03 | Dev | M | ⬜ |
-| P04-02 | Seed de medidas caseiras IBGE para os 150 alimentos + `food_measures` | P-10 | P04-01, E-08 | Dev | M | ⬜ |
-| P04-03 | Busca de alimentos em ≤ 300 ms, com selo TACO / Meu alimento | US-020 | P04-01 | Dev | M | ⬜ |
-| P04-04 | Alimentos próprios + "Duplicar como meu alimento" | US-021 | P04-03 | Dev | S | ⬜ |
-| P04-05 | Editor de plano: refeições, itens, cálculo no cliente, indicador de meta, macros, salvamento automático | US-022, RN-02 | P04-03 | Dev | M | ⬜ |
-| P04-06 | Substituições | US-023 | P04-05 | Dev | M | ⬜ |
-| P04-07 | Modelos de plano | US-024 | P04-05 | Dev | S | ⬜ |
-| P04-08 | Publicação e versionamento (índice único parcial) + aviso ao paciente | US-025, RN-01 | P04-05 | Dev | M | ⬜ |
-| P04-09 | PDF gerado pelo worker na publicação | US-026 | P04-08 | Dev | M | ⬜ |
+| P04-01 | Seed TACO 4ª ed. (tratamento de "Tr" e "NA") + índice de busca sem acento — **entregue:** seed gerado da planilha oficial da NEPA (`Tr` → 0; `NA`, `*` e vazio → NULL), `app_unaccent` + índice GIN, RLS de `foods` com `taco_leitura` (`0cae87d`) | INT-04 | Plano 03 | Dev | M | ✅ |
+| P04-02 | Seed de medidas caseiras IBGE para os 150 alimentos + `food_measures` — **entregue com 28 alimentos / 44 medidas** conferidos na tabela do IBGE (desvio da spec v1.6); os demais até 150 aguardam a lista da Debby (E-08) e entram só editando `seeds/medidas-ibge.csv`; medida própria não repete o nome de uma medida do IBGE do mesmo alimento (`0ce29ca`, `a9a91a8`) | P-10 | P04-01, E-08 | Dev | M | ✅ |
+| P04-03 | Busca de alimentos em ≤ 300 ms, com selo TACO / Meu alimento — **entregue:** busca sem acento (p95 de 22 ms com 3000 alimentos), selo, API e tela Alimentos (`4dbc8ba`) | US-020 | P04-01 | Dev | M | ✅ |
+| P04-04 | Alimentos próprios + "Duplicar como meu alimento" — **entregue:** "Cadastrar meu alimento", edição, exclusão (bloqueada se estiver num plano), duplicação e cadastro de medida caseira (`1f375b4`, `ff3bdf9`) | US-021 | P04-03 | Dev | S | ✅ |
+| P04-05 | Editor de plano: refeições, itens, cálculo no cliente, indicador de meta, macros, salvamento automático — **entregue:** cálculo RN-02 puro, tabelas com RLS por paciente e sem rascunho para paciente, salvamento por diferença com trava de revisão, meta do gasto energético, aviso offline e confirmação ao sair com edição pendente (`fcfcf7e`, `acc9b2a`, `5d9d0c9`, `bf6e973`; correções da revisão final `862b861`, `dec0f46`, `5d053a5`) | US-022, RN-02 | P04-03 | Dev | M | ✅ |
+| P04-06 | Substituições — **entregue:** ligadas ao item principal por `substitui_item_id`, fora do total, com a diferença de kcal; mover o principal leva as substituições junto (`3b8eebe`) | US-023 | P04-05 | Dev | M | ✅ |
+| P04-07 | Modelos de plano — **entregue:** "Salvar como modelo", "Criar modelo", "Criar a partir de modelo" e "Excluir modelo"; a nota de privacidade do texto livre está na spec v1.6 (RNF-08) (`dfc5e49`, `632be77`) | US-024 | P04-05 | Dev | S | ✅ |
+| P04-08 | Publicação e versionamento (índice único parcial) + aviso ao paciente — **entregue sem o aviso:** 1 plano publicado e 1 rascunho por paciente, nutrientes congelados na publicação, "Editar" cria a versão seguinte; o push/e-mail ao paciente foi adiado para o Plano 06 (desvio da spec v1.6) (`652b0c0`) | US-025, RN-01 | P04-05 | Dev | M | ✅ |
+| P04-09 | PDF gerado pelo worker na publicação — **entregue:** PDF com a marca gerado pelo worker, "Baixar PDF" no painel, "Gerar o PDF de novo", varredura de PDF pendente há mais de 1 h e limpeza de `.tmp` órfãos (`c2384b2`, `2c5423f`; correções da revisão final `57c6d2c`, `b966dba`, `c9b8826`) | US-026 | P04-08 | Dev | M | ✅ |
 
 ## Plano 05 — Agenda & lembretes (M4)
 
@@ -154,7 +156,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Resumo
 
-**Situação em 2026-10-01** (espelho do painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); 45 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 53 ⬜ (Planos 04–08 e itens externos E-04, E-07, E-08, E-09).
+**Situação em 2026-10-01** (o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT ainda espelha só os Planos 01–03; falta lançar o Plano 04 nele): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); Plano 04 feito na branch `plano-04-plano-alimentar`, com merge e deploy pendentes das revisões do PR e do OK do dono; 54 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 44 ⬜ (Planos 05–08 e itens externos E-04, E-07, E-08, E-09).
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
