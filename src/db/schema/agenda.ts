@@ -74,9 +74,11 @@ export const appointments = pgTable(
   (t) => [
     check('appointments_periodo_valido', sql`${t.fim} > ${t.inicio} and ${t.fim} - ${t.inicio} <= interval '8 hours'`),
     check('appointments_modalidade_valida', sql`${t.modalidade} in ('presencial', 'online')`),
+    // migration 0066 (revisão final): `is not null` explícito — sem ele, online com link nulo dava NULL (lógica de 3 valores)
+    // e o CHECK deixava passar; `\S+` como o `linkValido` da aplicação (consultas.ts)
     check(
       'appointments_link_online',
-      sql`(${t.modalidade} = 'presencial' and ${t.linkOnline} is null) or (${t.modalidade} = 'online' and ${t.linkOnline} ~ '^https://' and char_length(${t.linkOnline}) <= 500)`,
+      sql`(${t.modalidade} = 'presencial' and ${t.linkOnline} is null) or (${t.modalidade} = 'online' and ${t.linkOnline} is not null and ${t.linkOnline} ~ '^https://\\S+$' and char_length(${t.linkOnline}) <= 500)`,
     ),
     check('appointments_status_valido', sql`${t.status} in ('agendada', 'confirmada', 'cancelada', 'realizada', 'faltou')`),
     check('appointments_origem_valida', sql`${t.origem} in ('nutri', 'paciente')`),
@@ -185,6 +187,8 @@ export const publicBookingRequests = pgTable(
   (t) => [
     check('public_booking_requests_modalidade', sql`${t.modalidade} in ('presencial', 'online')`),
     check('public_booking_requests_nome', sql`char_length(${t.nome}) between 2 and 120`),
+    // migration 0066 (revisão final): a consulta criada pelo pedido, do mesmo consultório (NO ACTION: consulta não é apagada)
+    foreignKey({ columns: [t.tenantId, t.appointmentId], foreignColumns: [appointments.tenantId, appointments.id], name: 'public_booking_requests_consulta_fk' }),
     index('public_booking_requests_email_idx').on(t.tenantId, t.email, t.createdAt),
     index('public_booking_requests_criado_idx').on(t.tenantId, t.createdAt),
   ],

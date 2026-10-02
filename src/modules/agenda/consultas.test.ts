@@ -1,5 +1,5 @@
 import { inspect } from 'node:util';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
@@ -256,6 +256,50 @@ describe('alterar data e hora (US-031, D17)', () => {
     const outro = await novoTenant(app.db);
     await expect(moverConsulta(outro.ctx, tenantAgenda(outro), id, entrada, deps)).rejects.toThrow(MSG_AGENDA.naoEncontrada);
     await expect(moverConsulta(T.ctx, tenantAgenda(T), 'nao-e-uuid', entrada, deps)).rejects.toThrow(MSG_AGENDA.naoEncontrada);
+  });
+});
+
+/** SQLSTATE e constraint do erro de banco (DbError sanitizado pelo withTenant), ou null se gravou. */
+const violacao = async (p: Promise<unknown>): Promise<{ code: unknown; constraint: unknown } | null> => {
+  try {
+    await p;
+    return null;
+  } catch (e) {
+    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
+    return { code, constraint };
+  }
+};
+
+describe('restrições do banco da agenda (migration 0066, revisão final)', () => {
+  it('CHECK appointments_link_online: online exige link https:// sem espaço (nulo não passa — lógica de 3 valores); presencial, sem link', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    let h = 0;
+    const gravar = (extra: Partial<typeof appointments.$inferInsert>) => consultaDireta(app.db, T.ctx, ana.id, em('2026-11-02', `${String(8 + h++).padStart(2, '0')}:00`), 60, extra);
+    const recusa = { code: '23514', constraint: 'appointments_link_online' };
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: null }))).toEqual(recusa);
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: 'http://meet.example.test/x' }))).toEqual(recusa);
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: 'https://' }))).toEqual(recusa);
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: 'https://meet.example.test/a b' }))).toEqual(recusa);
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: `https://x.dev/${'a'.repeat(487)}` }))).toEqual(recusa); // 501
+    expect(await violacao(gravar({ modalidade: 'presencial', linkOnline: 'https://meet.example.test/x' }))).toEqual(recusa);
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: `https://x.dev/${'a'.repeat(486)}` }))).toBeNull(); // 500
+    expect(await violacao(gravar({ modalidade: 'online', linkOnline: 'https://anonimizado.invalid' }))).toBeNull(); // o que a anonimização grava (lgpd.ts)
+    expect(await violacao(gravar({ modalidade: 'presencial', linkOnline: null }))).toBeNull();
+  });
+
+  it('FK public_booking_requests_consulta_fk: o pedido só aponta para uma consulta do mesmo consultório', async () => {
+    const [A, B] = [await novoTenant(app.db), await novoTenant(app.db)];
+    const [pa, pb] = [await novoPaciente(app.db, A.ctx), await novoPaciente(app.db, B.ctx)];
+    const daA = await consultaDireta(app.db, A.ctx, pa.id, em('2026-11-03', '09:00'));
+    const daB = await consultaDireta(app.db, B.ctx, pb.id, em('2026-11-03', '09:00'));
+    const pedido = (appointmentId: string) =>
+      withTenant(A.ctx, (tx) => tx.execute(sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em, appointment_id)
+        values (gen_random_uuid(), ${A.tenantId}, gen_random_uuid()::text, 'x', ${`fk-${appointmentId}@teste.dev`}, 'Iso', now(), 'presencial', 't', now(), ${appointmentId})`), app.db);
+    const recusa = { code: '23503', constraint: 'public_booking_requests_consulta_fk' };
+    expect(await violacao(pedido('00000000-0000-4000-8000-0000000000ff'))).toEqual(recusa);
+    expect(await violacao(pedido(daB))).toEqual(recusa);
+    expect(await violacao(pedido(daA))).toBeNull();
   });
 });
 
