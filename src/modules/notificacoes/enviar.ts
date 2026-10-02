@@ -1,13 +1,14 @@
 import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
+import { appointments, notifications, patients, pushSubscriptions, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
-import { emailDaNotificacao, textoWhatsapp } from './mensagens';
+import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
+import type { InscricaoPush, ProvedorPush, ResultadoPush } from './push';
 import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 import { lerConexao } from './whatsapp/conexao';
 import { avisarSeChegou80, CONTA_COTA, contaCota, FORA_DA_COTA, usoDoMes } from './whatsapp/cota';
@@ -19,7 +20,7 @@ export type Resultado =
   | { status: 'ignorada'; motivo: MotivoIgnorada }
   | { status: 'repetir'; erro: string }
   | { status: 'falhou'; erro: string };
-/** Tarefa 13 acrescenta `push` (e o padrão no ajudante `depsDeEnvio` de test/notificacoes.ts, R12). */
+/** Padrões dos testes no ajudante `depsDeEnvio` (test/notificacoes.ts, R12). */
 export type DepsEnvio = {
   db: Db;
   agora: () => Date;
@@ -28,6 +29,8 @@ export type DepsEnvio = {
   email: { transport: EmailTransport; from: string };
   /** null = WhatsApp desligado na plataforma (sem as variáveis da Evolution). */
   whatsapp: ProvedorWhatsapp | null;
+  /** null = push desligado na plataforma (sem as variáveis do VAPID, D19). */
+  push: ProvedorPush | null;
 };
 
 export const LOTE_POR_EXECUCAO = 40;
@@ -94,11 +97,70 @@ async function enviarWhatsapp(c: ContextoEnvio, deps: DepsEnvio): Promise<Result
   return r.definitivo ? { status: 'falhou', erro: r.codigo } : { status: 'repetir', erro: r.codigo };
 }
 
-/** Um envio por canal. Tarefa 13 troca `push`. */
+/** D19: o push vale até o início da consulta (no máximo 24 h; o serviço descarta depois disso o que não entregou). */
+const TTL_PUSH_MAX_S = 86_400;
+
+/**
+ * INT-03 (D14, D19): todos os dispositivos do vínculo. As inscrições são lidas numa transação já fechada quando o
+ * serviço de push é chamado (uma conexão por transação); 404/410 apagam a inscrição numa transação própria, depois.
+ * D6 (no máximo uma vez): se algum dispositivo recebeu, "enviada" — os outros não recebem de novo; repete só se ninguém
+ * recebeu e alguma falha foi passageira. Todas mortas = "sem_inscricao".
+ */
+async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
+  if (!deps.push) return ignorar('push_desligado');
+  const ctx: TenantContext = { tenantId: c.tenant.id, role: 'worker' };
+  const inscricoes = await withTenant(
+    ctx,
+    (tx) => tx.select({ id: pushSubscriptions.id, endpoint: pushSubscriptions.endpoint, p256dh: pushSubscriptions.p256dh, auth: pushSubscriptions.auth }).from(pushSubscriptions).where(eq(pushSubscriptions.patientId, c.paciente.id)),
+    deps.db,
+  );
+  if (!inscricoes.length) return ignorar('sem_inscricao');
+  const p = pushDaNotificacao(c, deps);
+  if (!p) return { status: 'falhou', erro: 'sem_modelo' };
+  const ate = c.consulta ? Math.round((c.consulta.inicio.getTime() - c.agora.getTime()) / 1000) : TTL_PUSH_MAX_S;
+  const ttl = Math.min(TTL_PUSH_MAX_S, Math.max(60, ate));
+  const payload = JSON.stringify(p);
+  let entregues = 0;
+  let passageira: string | null = null;
+  let definitiva: string | null = null;
+  const mortas: string[] = [];
+  for (const i of inscricoes) {
+    const r = await enviarAoDispositivo(c, deps.push, i, payload, ttl);
+    if (r.ok) entregues++;
+    else if (r.remover) mortas.push(i.id);
+    else if (r.definitivo) definitiva ??= r.codigo;
+    else passageira ??= r.codigo;
+  }
+  if (mortas.length) {
+    try {
+      await withTenant(ctx, (tx) => tx.delete(pushSubscriptions).where(inArray(pushSubscriptions.id, mortas)), deps.db);
+    } catch (err) {
+      // a mensagem já pode ter saído para outro dispositivo: a falha da limpeza não vira nova tentativa (D6); a próxima limpa
+      logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'push', err: nomeDoErro(err) }, 'falha ao apagar inscrições de push');
+    }
+  }
+  if (entregues) return { status: 'enviada' };
+  if (passageira) return { status: 'repetir', erro: passageira };
+  if (definitiva) return { status: 'falhou', erro: definitiva };
+  return ignorar('sem_inscricao'); // todas mortas (404/410)
+}
+
+/** O provedor devolve as falhas como resultado; se lançar, não se sabe se saiu: não repete (D6), como o WhatsApp. */
+async function enviarAoDispositivo(c: ContextoEnvio, push: ProvedorPush, i: InscricaoPush, payload: string, ttl: number): Promise<ResultadoPush> {
+  try {
+    return await push.enviar(i, payload, ttl);
+  } catch (err) {
+    // RNF-11: só o nome do erro — a mensagem pode trazer o endpoint do dispositivo
+    logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'push', err: nomeDoErro(err) }, 'falha no provedor de push');
+    return { ok: false, remover: false, definitivo: true, codigo: 'sem_resposta' };
+  }
+}
+
+/** Um envio por canal. */
 const CANAIS_ENVIO: Record<Canal, (c: ContextoEnvio, deps: DepsEnvio) => Promise<Resultado>> = {
   email: enviarEmail,
   whatsapp: enviarWhatsapp,
-  push: async () => ignorar('push_desligado'),
+  push: enviarPush,
 };
 
 /** As devidas (pendentes, vencidas) de alguns canais — e, se pedido, só de alguns tipos —, mais antigas primeiro, travadas com SKIP LOCKED. */

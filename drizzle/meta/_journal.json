@@ -421,6 +421,20 @@
       "when": 1790940794828,
       "tag": "0059_metricas_agenda",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790950919276,
+      "tag": "0060_push_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790950952069,
+      "tag": "0061_rls_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

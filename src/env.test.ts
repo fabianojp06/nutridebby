@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import webpush from 'web-push';
 import { EVOLUTION_WEBHOOK_SECRET_EXEMPLO, parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
 
 const DATABASE_URL = 'postgres://nutri_app:app@localhost:54329/nutri';
@@ -231,5 +232,34 @@ describe('WhatsApp pela Evolution (D1, D4)', () => {
     const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
     expect(parseWorkerEnv({ ...w, EVOLUTION_API_URL: evo.EVOLUTION_API_URL, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY }).EVOLUTION_API_KEY).toBe(evo.EVOLUTION_API_KEY);
     expect(() => parseWorkerEnv({ ...w, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
+  });
+});
+
+describe('push (INT-03): VAPID no worker', () => {
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  // par gerado na hora, só para este teste (nunca gravado em arquivo)
+  const par = webpush.generateVAPIDKeys();
+  const vapid = { VAPID_PUBLIC_KEY: par.publicKey, VAPID_PRIVATE_KEY: par.privateKey, VAPID_SUBJECT: 'mailto:suporte@exemplo.com' };
+  it('as três juntas ou nenhuma; formato das chaves e do subject', () => {
+    expect(parseWorkerEnv({ ...w, ...vapid }).VAPID_SUBJECT).toBe('mailto:suporte@exemplo.com');
+    expect(parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'https://nutridebby.com.br' }).VAPID_PUBLIC_KEY).toBe(par.publicKey);
+    expect(parseWorkerEnv(w).VAPID_PUBLIC_KEY).toBeUndefined();
+    expect(parseWorkerEnv({ ...w, VAPID_PUBLIC_KEY: '', VAPID_PRIVATE_KEY: '', VAPID_SUBJECT: '' }).VAPID_SUBJECT).toBeUndefined(); // linhas em branco do .env.example
+    expect(() => parseWorkerEnv({ ...w, VAPID_PUBLIC_KEY: vapid.VAPID_PUBLIC_KEY })).toThrow(/juntas/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'suporte@exemplo.com' })).toThrow(/mailto:/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'http://exemplo.com' })).toThrow(/mailto:/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_PRIVATE_KEY: 'curta' })).toThrow(/VAPID_PRIVATE_KEY/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_PUBLIC_KEY: `${par.publicKey}=` })).toThrow(/VAPID_PUBLIC_KEY deve ser/);
+  });
+  it('chave pública e privada do mesmo par (senão todo push volta 403); a mensagem não repete as chaves', () => {
+    const outro = webpush.generateVAPIDKeys();
+    let msg = '';
+    try {
+      parseWorkerEnv({ ...w, ...vapid, VAPID_PRIVATE_KEY: outro.privateKey });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toMatch(/não são do mesmo par/);
+    expect(msg.includes(outro.privateKey) || msg.includes(par.publicKey), 'a mensagem não pode trazer as chaves').toBe(false);
   });
 });

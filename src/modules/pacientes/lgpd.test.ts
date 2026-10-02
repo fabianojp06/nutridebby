@@ -8,7 +8,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, exams, invites, patients, privacyRequests, storedFiles, user } from '@/db/schema';
+import { auditLog, exams, invites, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
@@ -47,6 +47,19 @@ describe('arquivar (US-018 "Arquivar", RN-08)', () => {
 });
 
 describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => {
+  it('apaga as inscrições de push do paciente (só as dele, D14); com o nome errado, nada é apagado', async () => {
+    const T = await novoTenant(app.db);
+    const [ana, bia] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' })];
+    for (const p of [ana, ana, bia]) {
+      await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: `https://push.example.test/${randomUUID()}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
+    }
+    await expect(atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Outro nome', deps)).rejects.toThrow(MSG_LGPD.confirmarNome);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db)).toHaveLength(3); // recusado: nada apagado
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, ana.nome, deps);
+    const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
+    expect(restam.map((s) => s.patientId)).toEqual([bia.id]);
+  });
+
   it('confirmar com outro nome não muda nada; com o nome (sem diferenciar maiúsculas/espaços) bloqueia, apaga opt-ins, conclui o pedido, audita e avisa o paciente', async () => {
     const T = await novoTenant(app.db, 'Debby Silva');
     const email = `exc-${randomUUID().slice(0, 8)}@ex.com`;

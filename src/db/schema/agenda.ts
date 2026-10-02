@@ -225,3 +225,32 @@ export const whatsappConexoes = pgTable(
 );
 
 export type WhatsappConexaoRow = typeof whatsappConexoes.$inferSelect;
+
+/**
+ * INT-03 / D14: inscrição de push por vínculo e dispositivo. Gravada pelo P06-02 (sessão do paciente); o worker
+ * envia e apaga as que o serviço de push devolve 404/410. Apagada na exclusão LGPD (US-018). Endereço técnico do
+ * dispositivo, sem dado clínico: fora da auditoria (AUDIT_EXCEPTIONS).
+ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    patientId: uuid('patient_id').notNull(),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('push_subscriptions_vinculo_endpoint_unique').on(t.tenantId, t.patientId, t.endpoint),
+    check('push_subscriptions_endpoint_https', sql`${t.endpoint} ~ '^https://' and char_length(${t.endpoint}) <= 1000`),
+    check('push_subscriptions_chaves', sql`${t.p256dh} ~ '^[A-Za-z0-9_-]{80,100}$' and ${t.auth} ~ '^[A-Za-z0-9_-]{16,30}$'`),
+    check('push_subscriptions_user_agent', sql`char_length(${t.userAgent}) <= 300`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'push_subscriptions_paciente_fk' }),
+    // sem índice próprio por (tenant_id, patient_id): é o prefixo do índice do UNIQUE acima
+  ],
+);
+
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

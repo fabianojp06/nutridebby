@@ -1,3 +1,4 @@
+import { createECDH } from 'node:crypto';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
@@ -187,6 +188,23 @@ const appSchema = serverSchema
 
 const EMAIL_FROM = /^([^<>]*<[^@<>\s]+@[^@<>\s]+>|[^@<>\s]+@[^@<>\s]+)$/;
 
+/** INT-03 (D19): chaves do VAPID em base64url sem `=` — pública P-256 não comprimida (65 bytes) e privada (32 bytes). */
+const VAPID_PUBLICA = /^[A-Za-z0-9_-]{87}$/;
+const VAPID_PRIVADA = /^[A-Za-z0-9_-]{43}$/;
+/**
+ * A privada gera a pública? Uma das duas trocada (colada errado, rotação pela metade) faria todo push voltar 403 do
+ * serviço de push, em silêncio: o worker não sobe. Nunca lança nem devolve as chaves.
+ */
+function vapidDoMesmoPar(publica: string, privada: string): boolean {
+  try {
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(Buffer.from(privada, 'base64url'));
+    return ecdh.getPublicKey().equals(Buffer.from(publica, 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
 /** Worker: banco com o role da aplicação + o que os jobs usam (e-mail, links, segredos da fila). */
 const workerSchema = serverSchema
   .extend({
@@ -202,6 +220,15 @@ const workerSchema = serverSchema
     EVOLUTION_API_URL: evolutionUrl,
     EVOLUTION_API_KEY: evolutionKey,
     WHATSAPP_SANDBOX: whatsappSandbox,
+    // INT-03: chaves do push (gere com: npx web-push generate-vapid-keys). Sem elas, o push fica desligado
+    VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
+    VAPID_PRIVATE_KEY: opcional(z.string().regex(VAPID_PRIVADA, { message: 'VAPID_PRIVATE_KEY deve ser a chave privada em base64url (43 caracteres)' }).optional()),
+    VAPID_SUBJECT: opcional(
+      z
+        .string()
+        .refine((v) => /^(mailto:|https:\/\/)/.test(v) && URL.canParse(v), { message: 'VAPID_SUBJECT deve começar com mailto: ou https://' })
+        .optional(),
+    ),
   })
   .transform((e) => ({
     ...e,
@@ -222,6 +249,13 @@ const workerSchema = serverSchema
       ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
     }
     if (e.WHATSAPP_SANDBOX === '1' && !e.MAILPIT_URL) ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória com WHATSAPP_SANDBOX=1' });
+    const vapid = [e.VAPID_PUBLIC_KEY, e.VAPID_PRIVATE_KEY, e.VAPID_SUBJECT];
+    if (vapid.some(Boolean) && !vapid.every(Boolean)) {
+      ctx.addIssue({ code: 'custom', path: ['VAPID_PUBLIC_KEY'], message: 'Configure VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT juntas (ou nenhuma)' });
+    }
+    if (e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY && VAPID_PUBLICA.test(e.VAPID_PUBLIC_KEY) && VAPID_PRIVADA.test(e.VAPID_PRIVATE_KEY) && !vapidDoMesmoPar(e.VAPID_PUBLIC_KEY, e.VAPID_PRIVATE_KEY)) {
+      ctx.addIssue({ code: 'custom', path: ['VAPID_PRIVATE_KEY'], message: 'VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY não são do mesmo par (gere as duas juntas com: npx web-push generate-vapid-keys)' });
+    }
   });
 
 /** Só scripts/migrate.ts: DATABASE_URL entra para criar/conferir o role de login da aplicação. */

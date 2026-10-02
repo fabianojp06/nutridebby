@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, isNull, lt, max, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { consultations, dataExports, exams, mealPlans, patients, privacyRequests } from '@/db/schema';
+import { consultations, dataExports, exams, mealPlans, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { logger } from '@/lib/logger';
@@ -69,9 +69,9 @@ const nomeParaConferir = (s: string) =>
 
 /**
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
- * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites).
+ * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push).
  * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o
- * e-mail ao paciente na fila. Planos 05 e 06: apagar aqui também inscrições de push e fotos do diário.
+ * e-mail ao paciente na fila. Plano 06: apagar aqui também as fotos do diário.
  */
 export async function atenderPedidoExclusao(
   ctx: TenantContext,
@@ -134,6 +134,8 @@ export async function atenderPedidoExclusao(
         })
         .where(eq(patients.id, p.id));
       await apagarConvitesPendentes(tx, ctx.tenantId, p.id);
+      // US-018: "inscrições de push … apagadas na hora" (só as deste vínculo — D14)
+      await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',

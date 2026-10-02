@@ -58,7 +58,7 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     expect(lerLinkConsulta(token, chaveLinks, em('2026-10-15', '14:00'))).toMatchObject({ tenantId: T.tenantId, appointmentId: id, expirado: false });
   });
 
-  it('sem WhatsApp na plataforma (whatsapp: null) e sem push configurado (até a Tarefa 13): "ignorada" com o motivo', async () => {
+  it('sem WhatsApp na plataforma (whatsapp: null) e sem VAPID (push: null): "ignorada" com o motivo', async () => {
     const T = await novoTenant(app.db);
     const { id } = await marcada(T);
     await processarNotificacoes(deps(em('2026-10-15', '14:00')), { tenantId: T.tenantId });

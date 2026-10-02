@@ -60,3 +60,24 @@ export function textoWhatsapp(c: ContextoEnvio, deps: { appUrl: string; chaveLin
       return null;
   }
 }
+
+/**
+ * D19: texto do push sem dado de saúde — só o horário e a nutricionista (nada do paciente, da modalidade nem do local);
+ * o toque abre o link da consulta. Vai cifrado até o dispositivo, mas aparece na tela de bloqueio.
+ */
+export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): { titulo: string; corpo: string; url: string | null } | null {
+  if (!c.consulta) return null;
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant }, deps);
+  switch (c.n.tipo) {
+    case 'lembrete_24h': // D7: adiado para as 08:00 do dia da consulta → "hoje"
+      return { titulo: `Consulta ${ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'hoje' : 'amanhã'} às ${d.hora}`, corpo: `Com ${d.nutri}. Toque para confirmar ou remarcar.`, url: d.link };
+    case 'lembrete_2h':
+      return { titulo: `Consulta hoje às ${d.hora}`, corpo: `Com ${d.nutri}.`, url: d.link };
+    case 'consulta_marcada':
+      return { titulo: 'Consulta marcada', corpo: `${d.quando}, com ${d.nutri}.`, url: d.link };
+    case 'consulta_cancelada':
+      return { titulo: 'Consulta cancelada', corpo: `${d.quando}, com ${d.nutri}.`, url: null };
+    default:
+      return null;
+  }
+}

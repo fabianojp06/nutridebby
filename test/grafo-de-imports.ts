@@ -1,0 +1,90 @@
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+
+const RAIZ = path.resolve('.');
+const EXTENSOES = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
+
+/**
+ * Especificadores importados em tempo de execução (pela árvore sintática do TypeScript): `import`, `export … from`,
+ * `import('…')` e `require('…')`. `import type`/`export type` (a declaração inteira) somem na compilação e não contam;
+ * `import { type X }` conta (pode sobrar como `import {} from`) — erra para o lado seguro.
+ */
+function especificadores(fonte: string, arquivo: string): string[] {
+  const sf = ts.createSourceFile(arquivo, fonte, ts.ScriptTarget.Latest, false, arquivo.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  const visitar = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n)) {
+      if (!n.importClause?.isTypeOnly && ts.isStringLiteral(n.moduleSpecifier)) out.push(n.moduleSpecifier.text);
+    } else if (ts.isExportDeclaration(n)) {
+      if (!n.isTypeOnly && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) out.push(n.moduleSpecifier.text);
+    } else if (ts.isCallExpression(n)) {
+      const chamada = n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === 'require');
+      const [arg] = n.arguments;
+      if (chamada && arg && ts.isStringLiteralLike(arg)) out.push(arg.text);
+    }
+    ts.forEachChild(n, visitar);
+  };
+  visitar(sf);
+  return out;
+}
+
+/** Arquivo do projeto que o especificador aponta (alias `@/` = `src/`), ou null para pacote (node_modules, node:). */
+function resolver(spec: string, de: string): string | null {
+  const base = spec.startsWith('@/') ? path.join(RAIZ, 'src', spec.slice(2)) : spec.startsWith('.') ? path.resolve(path.dirname(de), spec) : null;
+  if (!base) return null;
+  for (const c of [base, ...EXTENSOES.map((e) => base + e)]) if (existsSync(c) && statSync(c).isFile()) return c;
+  throw new Error(`grafo de imports: não resolvi '${spec}' em ${path.relative(RAIZ, de)}`);
+}
+
+const nomeDoPacote = (spec: string) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]);
+
+export type Grafo = {
+  /** Arquivos alcançados (caminho relativo à raiz do projeto) → quem importou primeiro (null = raiz). */
+  arquivos: Map<string, string | null>;
+  /** Pacotes importados por algum arquivo alcançado → o primeiro arquivo que importou. */
+  pacotes: Map<string, string>;
+};
+
+/** Tudo o que as raízes alcançam em tempo de execução, direta ou indiretamente (sem entrar em node_modules). */
+export function grafoDeImports(raizes: readonly string[]): Grafo {
+  const arquivos = new Map<string, string | null>();
+  const pacotes = new Map<string, string>();
+  const fila: string[] = [];
+  for (const r of raizes) {
+    const rel = path.relative(RAIZ, path.resolve(r));
+    if (!arquivos.has(rel)) {
+      arquivos.set(rel, null);
+      fila.push(rel);
+    }
+  }
+  while (fila.length) {
+    const atual = fila.shift()!;
+    const abs = path.join(RAIZ, atual);
+    for (const spec of especificadores(readFileSync(abs, 'utf8'), abs)) {
+      const alvo = resolver(spec, abs);
+      if (!alvo) {
+        if (!pacotes.has(nomeDoPacote(spec))) pacotes.set(nomeDoPacote(spec), atual);
+        continue;
+      }
+      const rel = path.relative(RAIZ, alvo);
+      if (!/\.tsx?$/.test(rel) || arquivos.has(rel)) continue; // CSS, JSON etc.: folha
+      arquivos.set(rel, atual);
+      fila.push(rel);
+    }
+  }
+  return { arquivos, pacotes };
+}
+
+/** O caminho de importação até `arquivo` (para a mensagem de erro do teste). */
+export function caminhoAte(g: Grafo, arquivo: string): string[] {
+  const c: string[] = [];
+  for (let a: string | null | undefined = arquivo; a; a = g.arquivos.get(a)) c.unshift(a);
+  return c;
+}
+
+/** Arquivos .ts/.tsx de uma pasta, recursivo. */
+export const fontesDe = (pasta: string): string[] =>
+  readdirSync(path.resolve(pasta), { recursive: true, withFileTypes: true })
+    .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
+    .map((d) => path.join(d.parentPath, d.name));

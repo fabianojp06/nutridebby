@@ -14,6 +14,7 @@ import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
+import { pushDoAmbiente } from '@/modules/notificacoes/push';
 import { provedorDoAmbiente } from '@/modules/notificacoes/whatsapp/ambiente';
 import { FINALIDADE_EVENTO, processarEventoWhatsapp, type EventoWhatsapp } from '@/modules/notificacoes/whatsapp/webhook';
 import {
@@ -69,8 +70,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     chaveLinks: chaveDosLinks(encryptionKey()),
     email: { transport, from: env.EMAIL_FROM },
     whatsapp: provedorDoAmbiente(env),
+    push: pushDoAmbiente(env), // INT-03 / D19: web-push só aqui no worker (R1)
   };
   logger.info({ whatsapp: depsEnvio.whatsapp?.nome ?? 'desligado' }, 'canal de WhatsApp'); // só o modo: nunca URL nem chave
+  logger.info({ push: depsEnvio.push ? 'ligado' : 'desligado' }, 'canal de push'); // nunca as chaves do VAPID
   // D16 (fila serial): um job de `notificacoes` por vez neste worker (padrão do boss.work: localConcurrency 1)
   await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work<{ tenantId?: string }>('notificacoes', async ([job]) => {
