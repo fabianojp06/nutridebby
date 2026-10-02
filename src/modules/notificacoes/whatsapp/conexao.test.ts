@@ -100,10 +100,10 @@ describe('conexão do WhatsApp: itens da revisão da T9', () => {
     await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(5));
     expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(1);
     expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: depois(4).agora, conectadaAntes: true });
-    // reconectou pelo QR; a queda seguinte avisa de novo (uma por desconexão)
+    // reconectou pelo QR; a queda seguinte, passadas 6 h do e-mail, avisa de novo (revisão 1, item 6)
     await conectarWhatsapp(T.ctx, whatsappFalso(), depois(9));
     await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, depois(10));
-    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(13));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(4 + 6 * 60));
     expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(2);
   });
 
@@ -117,6 +117,24 @@ describe('conexão do WhatsApp: itens da revisão da T9', () => {
     await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(4)); // o QR expirou
     expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(1);
     expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: depois(4).agora, conectadaAntes: true });
+  });
+
+  it('revisão 1 (item 6): no máximo um e-mail de desconexão a cada 6 h por consultório — "open"/"close" alternados (JWT capturado) não disparam e-mails; a queda dentro da janela atualiza o estado e o painel', async () => {
+    const T = await novoTenant(app.db);
+    const email = await emailDaNutri(T.nutriId);
+    const h = (x: number) => ({ ...deps, agora: new Date(deps.agora.getTime() + x * 3_600_000) });
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, h(0));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, h(0.5)); // e-mail
+    for (const x of [1, 1.25, 1.5]) {
+      await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, h(x));
+      await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, h(x + 0.1)); // 1 h depois: sem e-mail
+    }
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(1);
+    expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: h(1.6).agora });
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, h(7));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, h(7.5)); // 7 h depois do e-mail
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(2);
   });
 
   it('(b) serviço fora do ar ao conectar: não cria a linha nem deixa a conexão presa em "conectando" (o aviso de desconectado continua)', async () => {

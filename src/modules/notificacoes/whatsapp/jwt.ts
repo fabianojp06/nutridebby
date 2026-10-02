@@ -9,7 +9,11 @@ export function chaveDoWebhook(segredo: string, instancia: string): string {
   return Buffer.from(hkdfSync('sha256', Buffer.from(segredo, 'utf8'), Buffer.alloc(0), `nutridebby:webhook-jwt:${instancia}`, 32)).toString('base64url');
 }
 
-export type VerificacaoJwt = { ok: true } | { ok: false; motivo: 'formato' | 'algoritmo' | 'assinatura' | 'expirado' | 'emissor' };
+/**
+ * `aceitoPorS`: por quanto tempo, no máximo, este JWT pode ser aceito — do primeiro segundo (iat − folga) ao último
+ * (exp + folga, inteiro). A marca anti-repetição do pedido dura isso (D4 b, revisão 1 da T12).
+ */
+export type VerificacaoJwt = { ok: true; aceitoPorS: number } | { ok: false; motivo: 'formato' | 'algoritmo' | 'assinatura' | 'expirado' | 'emissor' };
 
 const json = (s: string): Record<string, unknown> | null => {
   try {
@@ -38,12 +42,15 @@ export function verificarJwtWebhook(token: string, chave: string, agora: Date): 
   const esperado = createHmac('sha256', Buffer.from(chave, 'utf8')).update(`${h}.${p}`).digest();
   const recebido = Buffer.from(s, 'base64url');
   if (recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) return { ok: false, motivo: 'assinatura' };
+  // revisão 1 da T12: só a grafia canônica — o último caractere tem 2 bits que o decodificador ignora; sem isto, 4 grafias
+  // da mesma assinatura passariam (e cada uma com a sua marca anti-repetição)
+  if (recebido.toString('base64url') !== s) return { ok: false, motivo: 'assinatura' };
   const c = json(p);
   if (!c || typeof c.exp !== 'number' || typeof c.iat !== 'number') return { ok: false, motivo: 'formato' };
   const seg = Math.floor(agora.getTime() / 1000);
   if (c.exp + FOLGA_S < seg || c.iat - FOLGA_S > seg || c.exp - c.iat > VALIDADE_MAX_S) return { ok: false, motivo: 'expirado' };
   if (c.app !== 'evolution' || c.action !== 'webhook') return { ok: false, motivo: 'emissor' };
-  return { ok: true };
+  return { ok: true, aceitoPorS: c.exp - c.iat + 2 * FOLGA_S + 1 };
 }
 
 /** Testes e E2E: o mesmo JWT que a Evolution gera com o `jwt_key` da instância (jsonwebtoken.sign, HS256). */

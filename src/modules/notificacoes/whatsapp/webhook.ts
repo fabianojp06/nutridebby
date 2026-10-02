@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, gt, gte, inArray } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
+import { fromDrizzle } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, notifications, type AppointmentRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -9,7 +10,7 @@ import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { sealSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { confirmarPresenca, ConsultaMudouError, pedirRemarcacao } from '@/modules/agenda/cancelamento';
-import { chaveDoLimite, consumirLimite, liberarLimite } from '@/modules/agenda/limite-ip';
+import { chaveDoLimite, consumirLimite } from '@/modules/agenda/limite-ip';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { dispararEnvio, fallbackPorEmail } from '../agendar';
 import { atualizarEstadoConexao, tenantDaInstancia } from './conexao';
@@ -20,8 +21,6 @@ import { interpretarResposta, type Intencao } from './respostas';
 /** Finalidade do `sealSecret` do evento na fila `whatsapp-evento` (D5). */
 export const FINALIDADE_EVENTO = 'whatsapp-evento';
 const LIMITE_CORPO = 256 * 1024;
-/** D4 (b): a marca anti-repetição vale o tempo de vida do JWT (exp 600 s) + a folga de relógio (60 s). */
-export const REPETICAO_S = 660;
 /** Uma resposta "1"/"2" vale para o lembrete enviado àquele número nas últimas 26 h (24 h + folga). */
 const JANELA_RESPOSTA_MS = 26 * 3_600_000;
 
@@ -40,7 +39,12 @@ const texto = (v: unknown): string | null => (typeof v === 'string' ? v : null);
  * `close` (aparelho desconectado, sessão encerrada) e `refused` (QR esgotado) = desconectada. O e-mail de desconexão é
  * decidido em `atualizarEstadoConexao`.
  */
-const ESTADOS: Record<string, EstadoConexao> = { open: 'conectada', connecting: 'conectando', close: 'desconectada', refused: 'desconectada' };
+const ESTADOS = new Map<string, EstadoConexao>([
+  ['open', 'conectada'],
+  ['connecting', 'conectando'],
+  ['close', 'desconectada'],
+  ['refused', 'desconectada'],
+]); // Map, não objeto: "__proto__"/"constructor" não viram estado (revisão 1, item 5)
 
 /**
  * Eventos `messages.upsert`, `messages.update` e `connection.update` da Evolution v2 (corpo `{ event, instance, data }`).
@@ -72,18 +76,24 @@ export function classificarEvento(corpo: unknown): EventoWhatsapp | null {
   if (c.event === 'connection.update') {
     // D4 (a): o número só vale para a própria instância (a do corpo, já amarrada ao JWT); `data.instance` de outra → descarta
     if (d.instance !== undefined && d.instance !== instancia) return null;
-    const estado = typeof d.state === 'string' ? ESTADOS[d.state] : undefined;
+    const estado = typeof d.state === 'string' ? ESTADOS.get(d.state) : undefined;
     if (!estado) return null;
     return { tipo: 'conexao', instancia, estado, numero: estado === 'conectada' && typeof d.wuid === 'string' ? e164DoJid(d.wuid) : null };
   }
   return null;
 }
 
-/** D5: o evento reduzido vai cifrado para a fila (traz o número do paciente). */
-export async function enfileirarEventoWhatsapp(ev: EventoWhatsapp): Promise<void> {
-  const id = await (await getBoss()).send('whatsapp-evento', { selado: sealSecret(JSON.stringify(ev), FINALIDADE_EVENTO) });
+/**
+ * D5: o evento reduzido vai cifrado para a fila (traz o número do paciente) — na transação `tx` da marca anti-repetição
+ * (revisão 1, item 4: o `send` do pg-boss com `fromDrizzle(tx, sql)`, a exceção conhecida de "uma conexão por transação").
+ */
+export async function enfileirarEventoWhatsapp(ev: EventoWhatsapp, tx: Tx): Promise<void> {
+  const id = await (await getBoss()).send('whatsapp-evento', { selado: sealSecret(JSON.stringify(ev), FINALIDADE_EVENTO) }, { db: fromDrizzle(tx, sql) });
   if (!id) throw new Error('A fila de eventos do WhatsApp recusou o evento');
 }
+
+/** D4 (b): a marca anti-repetição de um pedido — HMAC (em `chaveDoLimite`) do JWT + SHA-256 do corpo. */
+export const marcaDoPedido = (token: string, bruto: Buffer): string => chaveDoLimite('webhook', `${token}.${createHash('sha256').update(bruto).digest('base64url')}`);
 
 const recusar = (motivo: string) => {
   logger.warn({ motivo }, 'webhook do WhatsApp recusado'); // só o motivo: nunca JWT, corpo, número ou instância
@@ -96,7 +106,7 @@ const OK = () => Response.json({ ok: true });
  * repetição do mesmo pedido (b: 200 sem efeito, R2/US-035), reduz e enfileira (cifrado); responde em ≤ 2 s. 401 só para
  * autenticação inválida (a Evolution não repete 401). Nada do corpo vai para log (traz número, texto e o campo `apikey`).
  */
-export async function receberWebhook(req: Request, o: { segredo: string | undefined; agora?: Date; db?: Db; enfileirar: (ev: EventoWhatsapp) => Promise<void> }): Promise<Response> {
+export async function receberWebhook(req: Request, o: { segredo: string | undefined; agora?: Date; db?: Db; enfileirar: (ev: EventoWhatsapp, tx: Tx) => Promise<void> }): Promise<Response> {
   if (!o.segredo) return new Response(null, { status: 404 });
   const agora = o.agora ?? new Date();
   const m = /^Bearer ([A-Za-z0-9._-]+)$/.exec(req.headers.get('authorization') ?? '');
@@ -117,16 +127,16 @@ export async function receberWebhook(req: Request, o: { segredo: string | undefi
   if (!v.ok) return recusar(v.motivo);
   const ev = classificarEvento(corpo);
   if (!ev) return OK(); // grupos, mensagens próprias, mídia, texto que não é "1"/"2": descartados sem gravar nada
-  // D4 (b): o mesmo pedido só vale uma vez. O JWT da Evolution não tem jti e é igual no mesmo segundo: a marca é JWT + corpo
+  // D4 (b): o mesmo pedido só vale uma vez. O JWT da Evolution não tem jti e é igual no mesmo segundo: a marca é JWT + corpo.
+  // Revisão 1: a marca dura enquanto este JWT pode ser aceito (item 3) e é gravada na MESMA transação do evento na fila
+  // (item 4) — se enfileirar falhar ou o processo cair no meio, não fica marca e a repetição da Evolution (5xx) passa.
+  // `public_rate_limits` e a fila não têm tenant_id: transação simples, sem withTenant.
   const db = o.db ?? getDb();
-  const marca = chaveDoLimite('webhook', `${m[1]}.${createHash('sha256').update(bruto).digest('base64url')}`);
-  if (!(await consumirLimite(db, marca, 1, REPETICAO_S, agora))) return OK(); // R2: repetido → 200, sem enfileirar
-  try {
-    await o.enfileirar(ev);
-  } catch (e) {
-    await liberarLimite(db, marca); // a Evolution repete o pedido (5xx) e ele precisa passar
-    throw e;
-  }
+  const marca = marcaDoPedido(m[1], bruto);
+  await db.transaction(async (tx) => {
+    if (!(await consumirLimite(tx, marca, 1, v.aceitoPorS, agora))) return; // R2: repetido → 200, sem enfileirar
+    await o.enfileirar(ev, tx);
+  });
   return OK();
 }
 
@@ -137,8 +147,8 @@ const RANK: Record<string, number> = { enviada: 1, entregue: 2, lida: 3 };
  * tinha falhado volta. Travas: a linha do WhatsApp, depois (sem esperar, SKIP LOCKED) a do e-mail — nunca consultas
  * nem pacientes.
  */
-async function atualizarStatus(tenantId: string, ev: Extract<EventoWhatsapp, { tipo: 'status' }>, db: Db, agora: Date): Promise<void> {
-  await withTenant(
+async function atualizarStatus(tenantId: string, ev: Extract<EventoWhatsapp, { tipo: 'status' }>, db: Db, agora: Date): Promise<boolean> {
+  return withTenant(
     { tenantId, role: 'worker' },
     async (tx) => {
       const [n] = await tx
@@ -146,15 +156,18 @@ async function atualizarStatus(tenantId: string, ev: Extract<EventoWhatsapp, { t
         .from(notifications)
         .where(and(eq(notifications.canal, 'whatsapp'), eq(notifications.providerMsgId, ev.id)))
         .for('update');
-      if (!n) return; // mensagem que o NutriDebby não mandou (a nutricionista usa o mesmo número), ou de outro consultório (RLS)
+      // mensagem que o NutriDebby não mandou (a nutricionista usa o mesmo número), de outro consultório (RLS) — ou que o
+      // worker ainda não registrou (o id é gravado depois da resposta da Evolution)
+      if (!n) return false;
       if (ev.status === 'falhou') {
-        if (n.status !== 'enviada') return; // entregue/lida não "desfalham"; repetido não faz nada
+        if (n.status !== 'enviada') return true; // entregue/lida não "desfalham"; repetido não faz nada
         const [f] = await tx.update(notifications).set({ status: 'falhou', erro: 'erro_entrega', updatedAt: agora }).where(eq(notifications.id, n.id)).returning();
         await fallbackPorEmail(tx, f, agora);
-        return;
+        return true;
       }
       // eventos fora de ordem e repetidos não voltam o estado
       if ((RANK[ev.status] ?? 0) > (RANK[n.status] ?? 99)) await tx.update(notifications).set({ status: ev.status, updatedAt: agora }).where(eq(notifications.id, n.id));
+      return true;
     },
     db,
   );
@@ -162,8 +175,8 @@ async function atualizarStatus(tenantId: string, ev: Extract<EventoWhatsapp, { t
 
 /**
  * US-035: "1"/"2" vale para o lembrete de WhatsApp enviado àquele número (o `jid` que a Evolution devolveu no envio)
- * nas últimas 26 h, de consulta futura e ativa, no horário do lembrete (D17) — o citado, se houver; senão o mais
- * recente. A ação roda como o próprio paciente (RLS por paciente) e confere de novo, sob a trava, que a consulta ainda
+ * nas últimas 26 h, de consulta futura e ativa, no horário do lembrete (D17) — o citado, se a resposta cita um deles
+ * (citou outra mensagem: nada); sem citação, o mais recente. A ação roda como o próprio paciente (RLS por paciente) e confere de novo, sob a trava, que a consulta ainda
  * está no horário do lembrete (`inicioDoLink`). A resposta ao paciente é gravada na mesma transação, só se a ação valeu
  * (`naMesmaTransacao`), e é uma linha única por consulta e horário: repetir não responde de novo.
  * Travas: paciente → consulta → notificações (a ordem de moverConsulta/cancelarConsulta/avisarPaciente).
@@ -195,7 +208,10 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
     db,
   );
   const doNumero = candidatos.filter((x) => x.jid && digitosDoJid(x.jid) === ev.de);
-  const alvo = (ev.citado ? doNumero.find((x) => x.msgId === ev.citado) : undefined) ?? doNumero[0];
+  // revisão 1 (item 1): citou uma mensagem? Só vale se for um destes lembretes. Citar a mensagem que a nutricionista digitou
+  // no mesmo número (D2), um lembrete de horário antigo (D17), de consulta cancelada ou o convite não age sobre outra
+  // consulta nem responde. Sem citação: o lembrete mais recente (D3)
+  const alvo = ev.citado ? doNumero.find((x) => x.msgId === ev.citado) : doNumero[0];
   if (!alvo?.appointmentId || !alvo.inicio) return;
   const comoPaciente: TenantContext = { tenantId, role: 'paciente', patientId: alvo.patientId };
   const tipo = ev.intencao === 'confirmar' ? 'resposta_confirmacao' : 'resposta_remarcar';
@@ -217,13 +233,28 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
   }
 }
 
-/** Worker (fila whatsapp-evento): conexão, status e respostas, todos idempotentes (a Evolution repete eventos). */
-export async function processarEventoWhatsapp(ev: EventoWhatsapp, deps: { db?: Db; agora?: Date; appUrl?: string } = {}): Promise<void> {
+/** O ERROR chegou antes de o worker registrar o id da mensagem: a fila repete o job (sem o id na mensagem: RNF-11). */
+export class MensagemSemRegistroError extends Error {
+  override name = 'MensagemSemRegistroError';
+  constructor() {
+    super('ERROR de uma mensagem ainda sem registro: a fila tenta de novo');
+  }
+}
+
+/**
+ * Worker (fila whatsapp-evento): conexão, status e respostas, todos idempotentes (a Evolution repete eventos).
+ * `ultimaTentativa`: a última vez que a fila entrega este job (revisão 1, item 7).
+ */
+export async function processarEventoWhatsapp(ev: EventoWhatsapp, deps: { db?: Db; agora?: Date; appUrl?: string; ultimaTentativa?: boolean } = {}): Promise<void> {
   const tenantId = tenantDaInstancia(ev.instancia);
   if (!tenantId) return;
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
   if (ev.tipo === 'conexao') await atualizarEstadoConexao(tenantId, { estado: ev.estado, numero: ev.numero }, { db, agora, appUrl: deps.appUrl });
-  else if (ev.tipo === 'status') await atualizarStatus(tenantId, ev, db, agora);
+  else if (ev.tipo === 'status') {
+    // revisão 1 (item 7): o ERROR pode chegar antes de o envio gravar o id (registrarResultado) — a fila repete com espera
+    // (whatsapp-evento: 3 vezes, ~3,5 min) e, na última, desiste em silêncio; entregue/lida de id desconhecido: descartados
+    if (!(await atualizarStatus(tenantId, ev, db, agora)) && ev.status === 'falhou' && !deps.ultimaTentativa) throw new MensagemSemRegistroError();
+  }
   else await tratarResposta(tenantId, ev, db, agora, deps.appUrl ?? getEnv().APP_URL);
 }

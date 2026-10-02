@@ -83,9 +83,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   });
 
   // INT-01/D5: eventos do webhook do WhatsApp (conexão, status de entrega, resposta "1"/"2"), já reduzidos e cifrados pela rota
-  await boss.work<{ selado: string }>('whatsapp-evento', async ([job]) => {
+  // (revisão 1 da T12: ERROR antes de o envio gravar o id volta para a fila; na última tentativa, desiste em silêncio)
+  await boss.work('whatsapp-evento', { includeMetadata: true }, async ([job]: JobWithMetadata<{ selado: string }>[]) => {
     const ev = JSON.parse(openSecret(job.data.selado, FINALIDADE_EVENTO)) as EventoWhatsapp;
-    await processarEventoWhatsapp(ev, { db: getDb(), appUrl: env.APP_URL });
+    await processarEventoWhatsapp(ev, { db: getDb(), appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
 
   // RN-16 / LGPD (minimização): pedidos da página pública (contato e código) somem em 24 h; contadores de limite, em 1 dia

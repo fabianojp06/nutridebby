@@ -7,7 +7,7 @@ import { depsDeEnvio } from '../../../../test/notificacoes';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
 import { conexaoDeTeste, whatsappFalso } from '../../../../test/whatsapp';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, tenants, user, whatsappConexoes } from '@/db/schema';
+import { appointments, notifications, patients, publicRateLimits, tenants, user, whatsappConexoes } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
@@ -16,7 +16,7 @@ import { moverConsulta } from '@/modules/agenda/consultas';
 import { processarNotificacoes } from '../enviar';
 import { situacaoDaCota } from './cota';
 import { assinarJwtWebhook, chaveDoWebhook } from './jwt';
-import { classificarEvento, processarEventoWhatsapp, receberWebhook, type EventoWhatsapp } from './webhook';
+import { classificarEvento, marcaDoPedido, processarEventoWhatsapp, receberWebhook, type EventoWhatsapp } from './webhook';
 
 // a corrida "a nutricionista muda o horário entre a busca do lembrete e a confirmação" (implementação real por baixo)
 vi.mock('@/modules/agenda/cancelamento', async (importOriginal) => {
@@ -66,7 +66,7 @@ async function lembreteEnviado(T: TenantDeTeste, { inicio = em('2026-10-16', '14
 }
 const consulta = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0];
 const respostas = (T: TenantDeTeste, id: string) => withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.canal, 'whatsapp'))), app.db);
-const processar = async (corpo: unknown, d = deps) => {
+const processar = async (corpo: unknown, d: Parameters<typeof processarEventoWhatsapp>[1] = deps) => {
   const ev = classificarEvento(corpo);
   if (ev) await processarEventoWhatsapp(ev, d);
   return ev;
@@ -103,6 +103,16 @@ describe('classificarEvento (D5: o texto nunca sai da rota)', () => {
     expect(classificarEvento({ event: 'connection.update', instance: inst, data: { state: 'connecting' } })).toMatchObject({ estado: 'conectando', numero: null });
     // D4 (a): número só para a própria instância — `data.instance` de outra instância é descartado
     expect(classificarEvento({ event: 'connection.update', instance: inst, data: { instance: 'nd-1c7e4d2f-9b8e-4d3c-8a21-2b3c4d5e6f70', state: 'open', wuid: JID } })).toBeNull();
+  });
+});
+
+describe('classificarEvento: revisão 1', () => {
+  it('(item 5) estado de conexão desconhecido — inclusive "__proto__", "constructor" e outros nomes do Object — é descartado', () => {
+    const inst = 'nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f';
+    for (const state of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf', 'qualquer']) {
+      const corpo = JSON.parse(`{"event":"connection.update","instance":"${inst}","data":{"state":"${state}"}}`) as unknown;
+      expect(classificarEvento(corpo), state).toBeNull();
+    }
   });
 });
 
@@ -272,7 +282,7 @@ describe('processarEventoWhatsapp (US-035)', () => {
     const T = await tenant();
     const { c, msgId } = await lembreteEnviado(T);
     const inst = `nd-${T.tenantId}`;
-    const st = (status: string, id = msgId, instancia = inst) => processar({ event: 'messages.update', instance: instancia, data: { keyId: id, fromMe: true, status } });
+    const st = (status: string, id = msgId, instancia = inst) => processar({ event: 'messages.update', instance: instancia, data: { keyId: id, fromMe: true, status } }, { ...deps, ultimaTentativa: true });
     await st('DELIVERY_ACK');
     await st('READ');
     await st('DELIVERY_ACK'); // fora de ordem
@@ -336,6 +346,58 @@ describe('processarEventoWhatsapp (US-035)', () => {
     }
     // o e-mail estava com o gravar: ele decide (reescreve a linha que não saiu); o fallback não espera nem duplica
     expect((await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, whats.id)), app.db))[0]).toMatchObject({ status: 'falhou', erro: 'erro_entrega' });
+  });
+
+  it('revisão 1 (item 1): citando uma mensagem que não é um lembrete válido (mensagem que a nutricionista digitou, lembrete de horário antigo), nada muda e nada responde; citando o outro lembrete válido, só ele', async () => {
+    const T = await tenant();
+    const inst = `nd-${T.tenantId}`;
+    // mãe e filha no mesmo número: dois lembretes válidos; o da filha (b) é o mais recente
+    const a = await lembreteEnviado(T, { inicio: em('2026-10-16', '09:00') });
+    await withTenant(T.ctx, (tx) => tx.update(notifications).set({ enviadaEm: em('2026-10-15', '09:00') }).where(eq(notifications.providerMsgId, a.msgId)), app.db);
+    const b = await lembreteEnviado(T, { inicio: em('2026-10-16', '16:00') });
+    // um terceiro lembrete, de consulta que a nutricionista mudou de horário depois do envio (fora pelo D17)
+    const velho = await lembreteEnviado(T, { inicio: em('2026-10-17', '10:00') });
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ inicio: em('2026-10-19', '10:00'), fim: em('2026-10-19', '11:00') }).where(eq(appointments.id, velho.c)), app.db);
+    await processar(upsert(inst, 'Não posso', { contextInfo: { stanzaId: `MANUAL-${randomUUID()}` } })); // responde à mensagem manual "Consegue vir às 13:30?"
+    await processar(upsert(inst, 'Ok', { contextInfo: { stanzaId: `MANUAL-${randomUUID()}` } }));
+    await processar(upsert(inst, '2', { contextInfo: { stanzaId: velho.msgId } }));
+    for (const x of [a, b, velho]) {
+      expect(await consulta(T, x.c)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
+      expect((await respostas(T, x.c)).filter((n) => n.tipo !== 'lembrete_24h')).toEqual([]);
+    }
+    const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
+    expect(await emailsNaFila('aviso_agenda', nutri.email)).toEqual([]);
+    await processar(upsert(inst, '1', { contextInfo: { stanzaId: a.msgId } })); // cita o lembrete mais antigo, ainda válido
+    expect((await consulta(T, a.c)).status).toBe('confirmada');
+    expect((await consulta(T, b.c)).status).toBe('agendada');
+  });
+
+  it('revisão 1 (item 7): ERROR que chega antes de o envio gravar o id da mensagem volta para a fila e vale quando o id aparece; entregue/lida de id desconhecido são descartados; na última tentativa, desiste em silêncio', async () => {
+    const T = await tenant();
+    await conexaoDeTeste(app.db, T.ctx, 'conectada');
+    const p = await novoPaciente(app.db, T.ctx, { telefoneE164: '+5511912345678', whatsappOptinEm: agora, whatsappOptinOrigem: 'nutri' });
+    const inicio = em('2026-10-16', '14:00');
+    const c = await consultaDireta(app.db, T.ctx, p.id, inicio);
+    const base = { tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: inicio, tipo: 'lembrete_24h', agendadaPara: em('2026-10-15', '14:00') };
+    // o worker chamou a Evolution e ainda não gravou o resultado: "enviando", sem o id
+    const [w] = await withTenant(T.ctx, (tx) => tx.insert(notifications).values([{ ...base, canal: 'whatsapp', status: 'enviando', tentativas: 1 }, { ...base, canal: 'email', status: 'falhou', erro: 'email' }]).returning(), app.db);
+    const id = `WA-${randomUUID()}`;
+    const inst = `nd-${T.tenantId}`;
+    const erro = classificarEvento({ event: 'messages.update', instance: inst, data: { keyId: id, fromMe: true, status: 'ERROR' } })!;
+    const falha = await processarEventoWhatsapp(erro, deps).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(falha).toBeInstanceOf(Error); // a fila repete (com espera)
+    expect(falha!.message).not.toContain(id);
+    expect(await processarEventoWhatsapp(classificarEvento({ event: 'messages.update', instance: inst, data: { keyId: id, fromMe: true, status: 'DELIVERY_ACK' } })!, deps)).toBeUndefined();
+    await expect(processarEventoWhatsapp(erro, { ...deps, ultimaTentativa: true })).resolves.toBeUndefined();
+    // o registrarResultado grava o id; a repetição do ERROR vale
+    await withTenant(T.ctx, (tx) => tx.update(notifications).set({ status: 'enviada', providerMsgId: id, providerJid: JID, enviadaEm: agora }).where(eq(notifications.id, w.id)), app.db);
+    await processarEventoWhatsapp(erro, deps);
+    const ns = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.appointmentId, c)), app.db);
+    expect(ns.find((n) => n.canal === 'whatsapp')).toMatchObject({ status: 'falhou', erro: 'erro_entrega' });
+    expect(ns.find((n) => n.canal === 'email')).toMatchObject({ status: 'pendente' });
   });
 
   it('conexão: "open" grava "conectada" e o número', async () => {
@@ -403,5 +465,41 @@ describe('receberWebhook (D4, D5)', () => {
     await expect(receberWebhook(req(outro, t), { ...o, enfileirar: async () => { throw new Error('fila fora do ar'); } })).rejects.toThrow('fila fora do ar');
     expect((await receberWebhook(req(outro, t), o)).status).toBe(200);
     expect(fila).toHaveLength(3);
+  });
+  it('revisão 1 (item 3): a marca dura enquanto o JWT é aceito (do 1º ao último segundo, até exp + 60 s), não 660 s desde a chegada', async () => {
+    fila.length = 0;
+    const t0 = new Date('2026-10-16T12:00:00Z');
+    const iat = Math.floor(t0.getTime() / 1000);
+    // validade máxima aceita (exp = iat + 900): chega no 1º segundo aceito (iat − 60) e volta no último (exp + 60)
+    const longo = assinarJwtWebhook(chaveDoWebhook(S, A), t0, { exp: iat + 900 });
+    const um = JSON.stringify(upsert(A, '1'));
+    expect((await receberWebhook(req(um, longo), { ...o, agora: new Date(t0.getTime() - 60_000) })).status).toBe(200);
+    expect((await receberWebhook(req(um, longo), { ...o, agora: new Date(t0.getTime() + 960_999) })).status).toBe(200);
+    expect(fila).toHaveLength(1);
+    // o JWT padrão da Evolution (exp = iat + 600), repetido em exp + 60 s
+    const padrao = assinarJwtWebhook(chaveDoWebhook(S, A), t0);
+    const dois = JSON.stringify(upsert(A, '2'));
+    await receberWebhook(req(dois, padrao), { ...o, agora: t0 });
+    expect((await receberWebhook(req(dois, padrao), { ...o, agora: new Date(t0.getTime() + 660_000) })).status).toBe(200);
+    expect(fila).toHaveLength(2);
+  });
+
+  it('revisão 1 (item 4): a marca e o evento na fila são uma escrita só — enquanto o evento entra na fila a marca ainda não vale para ninguém (uma queda aqui não perde o evento); se enfileirar falhar, nada fica e a repetição passa', async () => {
+    fila.length = 0;
+    const marcas = async (chave: string) => (await app.db.select().from(publicRateLimits).where(eq(publicRateLimits.chave, chave))).length;
+    const t = jwtDe(A);
+    const corpo = JSON.stringify(upsert(A, 'sim'));
+    const marca = marcaDoPedido(t, Buffer.from(corpo));
+    let vistaDurante = -1;
+    const espiando = { ...o, enfileirar: async (ev: EventoWhatsapp) => { vistaDurante = await marcas(marca); fila.push(ev); } };
+    expect((await receberWebhook(req(corpo, t), espiando)).status).toBe(200);
+    expect(vistaDurante).toBe(0);
+    expect(await marcas(marca)).toBe(1);
+    expect(fila).toHaveLength(1);
+    const outro = JSON.stringify(upsert(A, 'confirmo'));
+    await expect(receberWebhook(req(outro, t), { ...o, enfileirar: async () => { throw new Error('fila fora do ar'); } })).rejects.toThrow('fila fora do ar');
+    expect(await marcas(marcaDoPedido(t, Buffer.from(outro)))).toBe(0);
+    expect((await receberWebhook(req(outro, t), o)).status).toBe(200);
+    expect(fila).toHaveLength(2);
   });
 });

@@ -11,7 +11,7 @@ export function interpretarResposta(texto: string): Intencao | null {
   if (texto.length > 60) return null;
   const t = texto
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/\p{M}/gu, '') // marcas combinantes (acentos) que o NFD separou
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')

@@ -200,7 +200,7 @@ export const publicRateLimits = pgTable('public_rate_limits', {
 
 /**
  * D2: uma instância da Evolution por tenant (`nd-<tenantId>`). Estado vindo do webhook (connection.update) e da
- * consulta do painel. `aviso_desconexao_em`: e-mail de desconexão já mandado; `aviso_cota_mes`: 'AAAA-MM' do aviso de 80% (Tarefa 11).
+ * consulta do painel. `aviso_desconexao_em`: o último e-mail de desconexão (no máximo um a cada 6 h); `aviso_cota_mes`: 'AAAA-MM' do aviso de 80% (Tarefa 11).
  */
 export const whatsappConexoes = pgTable(
   'whatsapp_conexoes',

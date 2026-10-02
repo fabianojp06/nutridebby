@@ -45,6 +45,9 @@ export async function situacaoDoWhatsapp(ctx: TenantContext, ligado: boolean, db
 
 type Deps = { db?: Db; agora?: Date; appUrl?: string };
 
+/** D18 (revisão 1 da T12, item 6): no máximo um e-mail de desconexão a cada 6 h por consultório. */
+const INTERVALO_AVISO_DESCONEXAO_MS = 6 * 3_600_000;
+
 /**
  * "Conectar WhatsApp": pede o QR ao provedor e só então grava a conexão como "conectando" (cria na primeira vez).
  * Revisão da T9 (b): com o serviço fora do ar (WhatsappIndisponivelError) nada é gravado — a conexão não fica presa em
@@ -80,10 +83,11 @@ export async function sincronizarEstado(ctx: TenantContext, provedor: ProvedorWh
 }
 
 /**
- * "Desconectar WhatsApp" pelo painel: sem e-mail de aviso (foi a própria nutricionista). Revisão da T9 (c): o aviso é
- * marcado ANTES de chamar o provedor — o webhook do logout pode ser processado antes do UPDATE final e, marcado, não
- * manda e-mail. Se o serviço falhar, a marca volta ao que era (a conexão continua; uma queda de verdade depois ainda
- * avisa) e o erro sobe para a tela.
+ * "Desconectar WhatsApp" pelo painel: sem e-mail de aviso (foi a própria nutricionista). Revisão da T9 (c): a
+ * desconexão (`desconectada_em`) é marcada ANTES de chamar o provedor — o webhook do logout pode ser processado antes do
+ * UPDATE final e, com a desconexão já registrada, não manda e-mail. Revisão 1 da T12 (item 6): a marca é a desconexão, não
+ * `aviso_desconexao_em` (o último e-mail mandado), para a desconexão pelo painel não gastar a vez do e-mail de uma queda
+ * de verdade. Se o serviço falhar, a marca volta (a conexão continua; uma queda depois ainda avisa) e o erro sobe.
  */
 export async function desconectarWhatsapp(ctx: TenantContext, provedor: ProvedorWhatsapp, deps: Deps = {}): Promise<void> {
   const db = deps.db ?? getDb();
@@ -91,8 +95,8 @@ export async function desconectarWhatsapp(ctx: TenantContext, provedor: Provedor
   const antes = await withTenant(
     ctx,
     async (tx) => {
-      const [c] = await tx.select({ id: whatsappConexoes.id, aviso: whatsappConexoes.avisoDesconexaoEm }).from(whatsappConexoes).where(eq(whatsappConexoes.tenantId, ctx.tenantId)).for('update');
-      if (c) await tx.update(whatsappConexoes).set({ avisoDesconexaoEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.id, c.id));
+      const [c] = await tx.select({ id: whatsappConexoes.id, desconectadaEm: whatsappConexoes.desconectadaEm }).from(whatsappConexoes).where(eq(whatsappConexoes.tenantId, ctx.tenantId)).for('update');
+      if (c && !c.desconectadaEm) await tx.update(whatsappConexoes).set({ desconectadaEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.id, c.id));
       return c ?? null;
     },
     db,
@@ -100,11 +104,11 @@ export async function desconectarWhatsapp(ctx: TenantContext, provedor: Provedor
   try {
     await provedor.desconectar(instanciaDoTenant(ctx.tenantId));
   } catch (e) {
-    if (antes) {
+    if (antes && !antes.desconectadaEm) {
       await withTenant(
         ctx,
         // só se ninguém mexeu: um "close" processado no meio (o logout saiu, a resposta não voltou) mantém a marca
-        (tx) => tx.update(whatsappConexoes).set({ avisoDesconexaoEm: antes.aviso }).where(and(eq(whatsappConexoes.id, antes.id), eq(whatsappConexoes.avisoDesconexaoEm, agora), ne(whatsappConexoes.estado, 'desconectada'))),
+        (tx) => tx.update(whatsappConexoes).set({ desconectadaEm: null }).where(and(eq(whatsappConexoes.id, antes.id), eq(whatsappConexoes.desconectadaEm, agora), ne(whatsappConexoes.estado, 'desconectada'))),
         db,
       );
     }
@@ -112,7 +116,7 @@ export async function desconectarWhatsapp(ctx: TenantContext, provedor: Provedor
   }
   await withTenant(
     ctx,
-    (tx) => tx.update(whatsappConexoes).set({ estado: 'desconectada', desconectadaEm: agora, avisoDesconexaoEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.tenantId, ctx.tenantId)),
+    (tx) => tx.update(whatsappConexoes).set({ estado: 'desconectada', desconectadaEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.tenantId, ctx.tenantId)),
     db,
   );
 }
@@ -122,9 +126,11 @@ export async function desconectarWhatsapp(ctx: TenantContext, provedor: Provedor
  * provedor não informou) = sem mudança (revisão da T9 d: o polling não reescreve "conectada em").
  * Revisão da T9 (a): "conectando" só vale fora de uma sessão conectada (QR na tela); com a sessão conectada é a
  * reconexão do Baileys e o estado fica. Desconexão (D18): "desconectada" depois de ter estado conectada desde a última
- * desconexão — direto ou passando por "conectando" (o "Conectar" pediu outro QR) — grava `desconectada_em` e, se não foi
- * pelo painel (`aviso_desconexao_em` já marcado), manda um e-mail à nutricionista: um por desconexão. QR que expira sem
- * nunca ter conectado não avisa.
+ * desconexão — direto ou passando por "conectando" (o "Conectar" pediu outro QR) — grava `desconectada_em` (a do painel
+ * já vem gravada: não conta como queda) e manda um e-mail à nutricionista. Revisão 1 da T12 (item 6): no máximo um e-mail a
+ * cada 6 h por consultório (`aviso_desconexao_em` = o último), para "open"/"close" alternados (JWT capturado) não
+ * dispararem e-mails sem fim; a queda dentro da janela atualiza o estado e o painel. QR que expira sem nunca ter
+ * conectado não avisa.
  */
 export async function atualizarEstadoConexao(tenantId: string, novo: { estado: EstadoConexao; numero?: string | null }, deps: Deps = {}): Promise<void> {
   const db = deps.db ?? getDb();
@@ -140,12 +146,12 @@ export async function atualizarEstadoConexao(tenantId: string, novo: { estado: E
       if (novo.estado === 'conectando' && c.estado === 'conectada') return;
       if (novo.estado === 'conectada') {
         // já conectada: só o número mudou (o aparelho trocou de número sem passar por "desconectada")
-        const set = c.estado === 'conectada' ? { numeroE164: numero, updatedAt: agora } : { estado: 'conectada', numeroE164: numero ?? c.numeroE164, conectadaEm: agora, desconectadaEm: null, avisoDesconexaoEm: null, updatedAt: agora };
+        const set = c.estado === 'conectada' ? { numeroE164: numero, updatedAt: agora } : { estado: 'conectada', numeroE164: numero ?? c.numeroE164, conectadaEm: agora, desconectadaEm: null, updatedAt: agora };
         await tx.update(whatsappConexoes).set(set).where(eq(whatsappConexoes.id, c.id));
         return;
       }
       const caiu = novo.estado === 'desconectada' && c.conectadaEm !== null && c.desconectadaEm === null;
-      const avisar = caiu && !c.avisoDesconexaoEm;
+      const avisar = caiu && (!c.avisoDesconexaoEm || c.avisoDesconexaoEm.getTime() <= agora.getTime() - INTERVALO_AVISO_DESCONEXAO_MS);
       await tx
         .update(whatsappConexoes)
         .set({ estado: novo.estado, ...(caiu ? { desconectadaEm: agora } : {}), ...(avisar ? { avisoDesconexaoEm: agora } : {}), updatedAt: agora })

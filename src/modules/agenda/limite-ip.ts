@@ -1,6 +1,6 @@
 import { createHmac, hkdfSync } from 'node:crypto';
 import { eq, lt, sql } from 'drizzle-orm';
-import type { Db } from '@/db/client';
+import type { Db, Tx } from '@/db/client';
 import { publicRateLimits } from '@/db/schema';
 import { encryptionKey } from '@/lib/crypto';
 
@@ -17,8 +17,11 @@ export function chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook', valor: stri
   return `${tipo}:${createHmac('sha256', chaveDosLimites()).update(valor).digest('base64url')}`;
 }
 
-/** Conta mais uma tentativa na janela, de forma atômica, e diz se ainda está dentro do limite. */
-export async function consumirLimite(db: Db, chaveLimite: string, limite: number, janelaS: number, agora: Date): Promise<boolean> {
+/**
+ * Conta mais uma tentativa na janela, de forma atômica, e diz se ainda está dentro do limite. Aceita uma transação: a
+ * marca anti-repetição do webhook é gravada junto do evento na fila (revisão 1 da T12).
+ */
+export async function consumirLimite(db: Db | Tx, chaveLimite: string, limite: number, janelaS: number, agora: Date): Promise<boolean> {
   const virou = sql`public_rate_limits.janela_inicio <= ${agora}::timestamptz - make_interval(secs => ${janelaS})`;
   const r = await db.execute<{ contagem: number }>(sql`
     insert into public_rate_limits (chave, janela_inicio, contagem) values (${chaveLimite}, ${agora}, 1)
@@ -30,8 +33,7 @@ export async function consumirLimite(db: Db, chaveLimite: string, limite: number
 }
 
 /**
- * Zera um contador: o seed do E2E (o visitante da página pública começa cada execução do zero) e a marca
- * anti-repetição do webhook quando enfileirar falha (D4 b) — a repetição da Evolution precisa passar.
+ * Zera um contador: o seed do E2E (o visitante da página pública começa cada execução do zero).
  */
 export async function liberarLimite(db: Db, chaveLimite: string): Promise<void> {
   await db.delete(publicRateLimits).where(eq(publicRateLimits.chave, chaveLimite));
