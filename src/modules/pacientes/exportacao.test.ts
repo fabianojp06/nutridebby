@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
@@ -685,14 +686,13 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
-  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job, plano-pdf ou @react-pdf', () => {
-    const arquivos = readdirSync(path.resolve('src/app'), {
-      recursive: true,
-      withFileTypes: true,
-    }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name));
-    for (const d of arquivos)
-      expect(readFileSync(path.join(d.parentPath, d.name), 'utf8'), d.name).not.toMatch(
-        /exportacao-job|@react-pdf|prontuario-pdf|plano-pdf/,
-      );
+  it('o PDF e o ZIP ficam fora do grafo do Next: nada de src/app (nem proxy, instrumentation, next.config) alcança exportacao-job, prontuario-pdf, plano-pdf ou @react-pdf, direta ou indiretamente', () => {
+    // R11 (T13): o mesmo grafo transitivo da guarda do push (test/grafo-de-imports.ts), em vez da busca por texto nos imports diretos
+    const g = grafoDeImports(raizesDoNext());
+    expect(g.arquivos.has('src/modules/pacientes/exportacao.ts'), 'o grafo anda de verdade (a tela de privacidade pede a exportação)').toBe(true);
+    for (const proibido of ['src/modules/pacientes/exportacao-job.ts', 'src/modules/pacientes/prontuario-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf-job.ts']) {
+      expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
+    }
+    for (const pacote of ['@react-pdf/renderer', 'fflate']) expect(g.pacotes.get(pacote), `${pacote} importado (no grafo do Next) por`).toBeUndefined();
   });
 });

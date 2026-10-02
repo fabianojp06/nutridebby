@@ -102,9 +102,12 @@ const TTL_PUSH_MAX_S = 86_400;
 
 /**
  * INT-03 (D14, D19): todos os dispositivos do vínculo. As inscrições são lidas numa transação já fechada quando o
- * serviço de push é chamado (uma conexão por transação); 404/410 apagam a inscrição numa transação própria, depois.
- * D6 (no máximo uma vez): se algum dispositivo recebeu, "enviada" — os outros não recebem de novo; repete só se ninguém
- * recebeu e alguma falha foi passageira. Todas mortas = "sem_inscricao".
+ * serviço de push é chamado (uma conexão por transação); as mortas ou inválidas (404/410, endereço recusado, chaves
+ * que não cifram) são apagadas numa transação própria, depois. D6 (no máximo uma vez): algum dispositivo recebeu →
+ * "enviada", os outros não recebem de novo; algum pode ter recebido (resultado incerto: timeout, conexão caída depois
+ * de enviar, exceção do provedor) → "falhou"/"sem_resposta", sem nova tentativa — nem pela falha passageira de outro
+ * dispositivo, que reenviaria a todos (rodada 1). Só repete se nenhum recebeu, nenhum ficou incerto e alguma falha foi
+ * passageira. Todas mortas = "sem_inscricao".
  */
 async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
   if (!deps.push) return ignorar('push_desligado');
@@ -121,6 +124,7 @@ async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado>
   const ttl = Math.min(TTL_PUSH_MAX_S, Math.max(60, ate));
   const payload = JSON.stringify(p);
   let entregues = 0;
+  let incerta: string | null = null;
   let passageira: string | null = null;
   let definitiva: string | null = null;
   const mortas: string[] = [];
@@ -128,6 +132,7 @@ async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado>
     const r = await enviarAoDispositivo(c, deps.push, i, payload, ttl);
     if (r.ok) entregues++;
     else if (r.remover) mortas.push(i.id);
+    else if (r.incerto) incerta ??= r.codigo;
     else if (r.definitivo) definitiva ??= r.codigo;
     else passageira ??= r.codigo;
   }
@@ -140,6 +145,7 @@ async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado>
     }
   }
   if (entregues) return { status: 'enviada' };
+  if (incerta) return { status: 'falhou', erro: incerta };
   if (passageira) return { status: 'repetir', erro: passageira };
   if (definitiva) return { status: 'falhou', erro: definitiva };
   return ignorar('sem_inscricao'); // todas mortas (404/410)
@@ -152,7 +158,7 @@ async function enviarAoDispositivo(c: ContextoEnvio, push: ProvedorPush, i: Insc
   } catch (err) {
     // RNF-11: só o nome do erro — a mensagem pode trazer o endpoint do dispositivo
     logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'push', err: nomeDoErro(err) }, 'falha no provedor de push');
-    return { ok: false, remover: false, definitivo: true, codigo: 'sem_resposta' };
+    return { ok: false, remover: false, definitivo: true, incerto: true, codigo: 'sem_resposta' };
   }
 }
 

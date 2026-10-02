@@ -8,35 +8,81 @@ import { pedidoNaoSaiu } from '@/lib/rede';
  */
 
 export type InscricaoPush = { endpoint: string; p256dh: string; auth: string };
-/** `remover`: inscrição morta (404/410), apagar. `definitivo`: não adianta tentar de novo — ou não se sabe se saiu (D6). */
-export type ResultadoPush = { ok: true } | { ok: false; remover: boolean; definitivo: boolean; codigo: string };
+/**
+ * `remover`: inscrição morta ou inválida (404/410, endereço fora dos serviços de push, chaves que não cifram) — apagar.
+ * `definitivo`: não adianta tentar de novo. `incerto`: o pedido pode ter sido aceito (timeout, conexão caída depois de
+ * enviar, exceção do provedor) — nunca repete, nem por causa de outro dispositivo do mesmo paciente (D6).
+ */
+export type ResultadoPush = { ok: true } | { ok: false; remover: boolean; definitivo: boolean; codigo: string; incerto?: boolean };
 export interface ProvedorPush {
   enviar(i: InscricaoPush, payload: string, ttlS: number): Promise<ResultadoPush>;
+}
+
+/**
+ * Rodada 1 da revisão: os serviços de push dos navegadores — Chrome/Edge/Android (FCM), Firefox (Mozilla), Safari
+ * (Apple) e Windows (WNS). O endpoint vem do navegador do paciente (P06-02): o worker só faz POST para estes hosts.
+ * `*.` = só subdomínios (`web.push.apple.com`), nunca o domínio sozinho nem algo que só termine com o texto.
+ */
+export const SERVICOS_DE_PUSH = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', '*.push.apple.com', '*.notify.windows.com'] as const;
+
+/**
+ * O endpoint é de um serviço de push conhecido? Só `https:`, porta padrão, sem usuário/senha e na forma canônica (o
+ * `web-push` relê o endereço com o `url.parse` antigo: a forma canônica não deixa os dois leitores discordarem do host).
+ * Senão (IP, nome interno da rede do Easypanel, `localhost`, parecido como `fcm.googleapis.com.evil.tld`): não envia.
+ */
+export function endpointDePush(endpoint: string): boolean {
+  if (!URL.canParse(endpoint)) return false;
+  const u = new URL(endpoint);
+  if (u.protocol !== 'https:' || u.username || u.password || u.port !== '' || u.href !== endpoint) return false;
+  return SERVICOS_DE_PUSH.some((s) => (s.startsWith('*.') ? u.hostname.endsWith(s.slice(1)) && u.hostname.length > s.length - 1 : u.hostname === s));
 }
 
 /** INT-03: o serviço de push tem 10 s para aceitar (como o WhatsApp, INT-01). */
 const TIMEOUT_MS = 10_000;
 
+type Vapid = { publicKey: string; privateKey: string; subject: string };
+
+/** As opções do pedido — as mesmas para montar (conferência local) e para enviar. */
+export function opcoesDeEnvio(o: Vapid, ttlS: number) {
+  return {
+    vapidDetails: { subject: o.subject, publicKey: o.publicKey, privateKey: o.privateKey },
+    TTL: ttlS,
+    timeout: TIMEOUT_MS,
+    urgency: 'normal' as const,
+  };
+}
+
+const assinatura = (i: InscricaoPush) => ({ endpoint: i.endpoint, keys: { p256dh: i.p256dh, auth: i.auth } });
+
 /**
- * INT-03: `web-push` com VAPID. 404/410 = inscrição morta (apagar); outro 4xx = definitivo; 429 e 5xx = o serviço
- * respondeu que não aceitou, tentar de novo. Sem resposta HTTP, D6 (no máximo uma vez, como o WhatsApp): só repete se o
- * pedido nem saiu (conexão recusada, DNS, rota); timeout e conexão caída depois de enviar podem ter entregado.
+ * INT-03: `web-push` com VAPID. Antes da rede: endpoint fora de SERVICOS_DE_PUSH ou pedido que não se monta com as
+ * chaves da inscrição (p256dh fora da curva, auth curta — a configuração do VAPID já foi conferida na criação) →
+ * inscrição inválida, apagar, nada sai. Na rede: 404/410 = inscrição morta (apagar); outro 4xx = definitivo; 429 e
+ * 5xx = o serviço respondeu que não aceitou, tentar de novo. Sem resposta HTTP, D6 (no máximo uma vez, como o
+ * WhatsApp): só repete se o pedido nem saiu (conexão recusada, DNS, rota); timeout e conexão caída depois de enviar
+ * podem ter entregado (`incerto`).
  */
-export function webPushProvedor(o: { publicKey: string; privateKey: string; subject: string; enviar?: typeof webpush.sendNotification }): ProvedorPush {
+export function webPushProvedor(o: Vapid & { enviar?: typeof webpush.sendNotification }): ProvedorPush {
+  // a configuração do VAPID inválida derruba aqui (subida do worker), não apaga inscrições depois (src/env.ts já confere)
+  webpush.getVapidHeaders('https://fcm.googleapis.com', o.subject, o.publicKey, o.privateKey, 'aes128gcm');
   const enviar = o.enviar ?? webpush.sendNotification;
   return {
     async enviar(i, payload, ttlS) {
+      if (!endpointDePush(i.endpoint)) return { ok: false, remover: true, definitivo: true, codigo: 'endpoint_recusado' };
+      const opcoes = opcoesDeEnvio(o, ttlS);
       try {
-        await enviar({ endpoint: i.endpoint, keys: { p256dh: i.p256dh, auth: i.auth } }, payload, {
-          vapidDetails: { subject: o.subject, publicKey: o.publicKey, privateKey: o.privateKey },
-          TTL: ttlS,
-          timeout: TIMEOUT_MS,
-          urgency: 'normal',
-        });
+        webpush.generateRequestDetails(assinatura(i), payload, opcoes); // só monta e cifra, sem rede
+      } catch {
+        return { ok: false, remover: true, definitivo: true, codigo: 'inscricao_invalida' };
+      }
+      try {
+        await enviar(assinatura(i), payload, opcoes);
         return { ok: true };
       } catch (e) {
         const status = (e as { statusCode?: unknown } | null)?.statusCode;
-        if (typeof status !== 'number') return pedidoNaoSaiu(e) ? { ok: false, remover: false, definitivo: false, codigo: 'rede' } : { ok: false, remover: false, definitivo: true, codigo: 'sem_resposta' };
+        if (typeof status !== 'number') {
+          return pedidoNaoSaiu(e) ? { ok: false, remover: false, definitivo: false, codigo: 'rede' } : { ok: false, remover: false, definitivo: true, incerto: true, codigo: 'sem_resposta' };
+        }
         if (status === 404 || status === 410) return { ok: false, remover: true, definitivo: true, codigo: `http_${status}` };
         if (status >= 400 && status < 500 && status !== 429) return { ok: false, remover: false, definitivo: true, codigo: `http_${status}` };
         return { ok: false, remover: false, definitivo: false, codigo: `http_${status}` };

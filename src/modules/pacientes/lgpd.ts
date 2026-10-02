@@ -244,6 +244,8 @@ export async function anonimizarVencidos(
             // desfaz tudo e fica para o dia seguinte, que apaga o ZIP antes (exportacao-job.ts)
             if (r.length && (await anexosDoPaciente(tx, id)).length)
               throw new Error('anexo novo durante a anonimização');
+            // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
+            if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             if (r.length)
               await recordAudit(tx, {
                 acao: 'anonimizar',

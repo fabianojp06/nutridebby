@@ -137,6 +137,19 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'anonimizar'))), app.db)).toHaveLength(1);
   });
 
+  it('rodada 1: a anonimização apaga também as inscrições de push gravadas depois do pedido (só as do vínculo)', async () => {
+    const T = await novoTenant(app.db);
+    const vencido = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    for (const p of [vencido, vencido, outro]) {
+      await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: `https://push.example.test/${randomUUID()}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
+    }
+    await anonimizarVencidos(app.db, now, { dataDir });
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
+    expect(restam.map((s) => s.patientId)).toEqual([outro.id]);
+  });
+
   it('nome digitado errado ou paciente de outro tenant: nada acontece', async () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);

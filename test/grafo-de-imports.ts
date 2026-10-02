@@ -4,6 +4,9 @@ import ts from 'typescript';
 
 const RAIZ = path.resolve('.');
 const EXTENSOES = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
+/** Fontes que o grafo percorre (o resto — CSS, JSON, imagens — é folha). */
+const CODIGO = /\.(tsx?|mts|cts|jsx?|mjs|cjs)$/;
+const tipoDoScript = (arquivo: string) => (/\.tsx$/.test(arquivo) ? ts.ScriptKind.TSX : /\.(jsx?|mjs|cjs)$/.test(arquivo) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
 
 /**
  * Especificadores importados em tempo de execução (pela árvore sintática do TypeScript): `import`, `export … from`,
@@ -11,7 +14,7 @@ const EXTENSOES = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
  * `import { type X }` conta (pode sobrar como `import {} from`) — erra para o lado seguro.
  */
 function especificadores(fonte: string, arquivo: string): string[] {
-  const sf = ts.createSourceFile(arquivo, fonte, ts.ScriptTarget.Latest, false, arquivo.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(arquivo, fonte, ts.ScriptTarget.Latest, false, tipoDoScript(arquivo));
   const out: string[] = [];
   const visitar = (n: ts.Node): void => {
     if (ts.isImportDeclaration(n)) {
@@ -30,11 +33,11 @@ function especificadores(fonte: string, arquivo: string): string[] {
 }
 
 /** Arquivo do projeto que o especificador aponta (alias `@/` = `src/`), ou null para pacote (node_modules, node:). */
-function resolver(spec: string, de: string): string | null {
-  const base = spec.startsWith('@/') ? path.join(RAIZ, 'src', spec.slice(2)) : spec.startsWith('.') ? path.resolve(path.dirname(de), spec) : null;
+function resolver(spec: string, de: string, raiz: string): string | null {
+  const base = spec.startsWith('@/') ? path.join(raiz, 'src', spec.slice(2)) : spec.startsWith('.') ? path.resolve(path.dirname(de), spec) : null;
   if (!base) return null;
   for (const c of [base, ...EXTENSOES.map((e) => base + e)]) if (existsSync(c) && statSync(c).isFile()) return c;
-  throw new Error(`grafo de imports: não resolvi '${spec}' em ${path.relative(RAIZ, de)}`);
+  throw new Error(`grafo de imports: não resolvi '${spec}' em ${path.relative(raiz, de)}`);
 }
 
 const nomeDoPacote = (spec: string) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]);
@@ -47,12 +50,12 @@ export type Grafo = {
 };
 
 /** Tudo o que as raízes alcançam em tempo de execução, direta ou indiretamente (sem entrar em node_modules). */
-export function grafoDeImports(raizes: readonly string[]): Grafo {
+export function grafoDeImports(raizes: readonly string[], raiz = RAIZ): Grafo {
   const arquivos = new Map<string, string | null>();
   const pacotes = new Map<string, string>();
   const fila: string[] = [];
   for (const r of raizes) {
-    const rel = path.relative(RAIZ, path.resolve(r));
+    const rel = path.relative(raiz, path.resolve(r));
     if (!arquivos.has(rel)) {
       arquivos.set(rel, null);
       fila.push(rel);
@@ -60,15 +63,15 @@ export function grafoDeImports(raizes: readonly string[]): Grafo {
   }
   while (fila.length) {
     const atual = fila.shift()!;
-    const abs = path.join(RAIZ, atual);
+    const abs = path.join(raiz, atual);
     for (const spec of especificadores(readFileSync(abs, 'utf8'), abs)) {
-      const alvo = resolver(spec, abs);
+      const alvo = resolver(spec, abs, raiz);
       if (!alvo) {
         if (!pacotes.has(nomeDoPacote(spec))) pacotes.set(nomeDoPacote(spec), atual);
         continue;
       }
-      const rel = path.relative(RAIZ, alvo);
-      if (!/\.tsx?$/.test(rel) || arquivos.has(rel)) continue; // CSS, JSON etc.: folha
+      const rel = path.relative(raiz, alvo);
+      if (!CODIGO.test(rel) || arquivos.has(rel)) continue; // CSS, JSON etc.: folha
       arquivos.set(rel, atual);
       fila.push(rel);
     }
@@ -83,8 +86,22 @@ export function caminhoAte(g: Grafo, arquivo: string): string[] {
   return c;
 }
 
-/** Arquivos .ts/.tsx de uma pasta, recursivo. */
+/** Arquivos .ts/.tsx de uma pasta, recursivo (sem os testes). */
 export const fontesDe = (pasta: string): string[] =>
   readdirSync(path.resolve(pasta), { recursive: true, withFileTypes: true })
     .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
     .map((d) => path.join(d.parentPath, d.name));
+
+/** Arquivos especiais que o Next compila além das rotas (`proxy`/`middleware`, `instrumentation`, `next.config`). */
+const ESPECIAIS_DO_NEXT = [
+  ...['proxy', 'middleware', 'instrumentation', 'instrumentation-client'].flatMap((n) => [`src/${n}.ts`, `src/${n}.js`, `${n}.ts`, `${n}.js`]),
+  ...['ts', 'mts', 'js', 'mjs', 'cjs'].map((e) => `next.config.${e}`),
+];
+
+/**
+ * R1 / R11: as raízes do grafo do Next — todo `src/app/**` e os arquivos especiais que existirem. Quem criar um
+ * `src/instrumentation.ts` ou trocar o `next.config` entra na guarda sem mexer nela.
+ */
+export function raizesDoNext(raiz = RAIZ): string[] {
+  return [...fontesDe(path.join(raiz, 'src/app')), ...ESPECIAIS_DO_NEXT.map((f) => path.join(raiz, f)).filter((f) => existsSync(f))];
+}
