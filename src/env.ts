@@ -77,6 +77,16 @@ const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY p
 const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
 /**
+ * Produção de verdade: NODE_ENV=production fora de localhost (o E2E com `next start` roda como produção em localhost).
+ * M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru.
+ */
+const emProducao = (e: { NODE_ENV: string; APP_URL: string }) => e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL);
+/**
+ * O valor que o `.env.example` traz para o dev com WHATSAPP_SANDBOX=1: é público, então é recusado em produção (como as
+ * chaves de teste do Turnstile) — senão o `jwt_key` de toda instância sairia de um texto conhecido (D4 a).
+ */
+export const EVOLUTION_WEBHOOK_SECRET_EXEMPLO = 'dev-webhook-secret-com-pelo-menos-32-caracteres';
+/**
  * D4 (c): endereço da rede interna do Docker/Easypanel — nome de serviço (sem ponto) ou IPv4 privado. O IPv4 é
  * conferido como IP (um nome como `10.exemplo.com` não passa) e o nome só com letras, dígitos, `_` e `-` (um IPv6
  * literal, que também não tem ponto, não passa).
@@ -125,13 +135,16 @@ const appSchema = serverSchema
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
-    // M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru
-    if (e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL)) {
+    if (emProducao(e)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SITE_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
       }
       if (/^[123]x0000000000/.test(e.TURNSTILE_SECRET_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SECRET_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
+      }
+      // D4 (a): o segredo do .env.example é público (a mensagem não repete o valor)
+      if (e.EVOLUTION_WEBHOOK_SECRET === EVOLUTION_WEBHOOK_SECRET_EXEMPLO) {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_SECRET'], message: 'EVOLUTION_WEBHOOK_SECRET de exemplo não pode ser usada em produção (gere com: openssl rand -base64 48)' });
       }
     }
     if (e.NODE_ENV === 'production' && e.TRUSTED_PROXIES.length === 0) {
@@ -149,7 +162,7 @@ const appSchema = serverSchema
       ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_SECRET juntas (ou nenhuma)' });
     }
     // D4 (c): em produção, a Evolution chama o app pela rede interna; a URL pública só como opção explícita
-    if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL) && e.EVOLUTION_API_URL) {
+    if (emProducao(e) && e.EVOLUTION_API_URL) {
       if (!e.EVOLUTION_WEBHOOK_URL) {
         ctx.addIssue({
           code: 'custom',
@@ -165,7 +178,7 @@ const appSchema = serverSchema
       }
     }
     if (e.WHATSAPP_SANDBOX === '1') {
-      if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL)) ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
+      if (emProducao(e)) ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
       if (!e.EVOLUTION_WEBHOOK_SECRET) {
         ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_SECRET'], message: 'EVOLUTION_WEBHOOK_SECRET é obrigatória com WHATSAPP_SANDBOX=1 (o E2E assina os webhooks)' });
       }
@@ -205,7 +218,7 @@ const workerSchema = serverSchema
     if (Boolean(e.EVOLUTION_API_URL) !== Boolean(e.EVOLUTION_API_KEY)) {
       ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL e EVOLUTION_API_KEY juntas (ou nenhuma)' });
     }
-    if (e.WHATSAPP_SANDBOX === '1' && e.NODE_ENV === 'production' && !ehLocal(e.APP_URL)) {
+    if (e.WHATSAPP_SANDBOX === '1' && emProducao(e)) {
       ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
     }
     if (e.WHATSAPP_SANDBOX === '1' && !e.MAILPIT_URL) ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória com WHATSAPP_SANDBOX=1' });

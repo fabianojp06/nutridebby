@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
+import { EVOLUTION_WEBHOOK_SECRET_EXEMPLO, parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
 
 const DATABASE_URL = 'postgres://nutri_app:app@localhost:54329/nutri';
 const DATABASE_URL_MIGRATOR = 'postgres://nutri_owner:owner@localhost:54329/nutri';
@@ -210,6 +211,15 @@ describe('WhatsApp pela Evolution (D1, D4)', () => {
       expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: falsa }), falsa).toThrow(/endereço interno/);
     }
     expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica, EVOLUTION_WEBHOOK_URL_PUBLICA: '1' }).EVOLUTION_WEBHOOK_URL_PUBLICA).toBe('1');
+  });
+  it('produção: o segredo de exemplo do .env.example é recusado (como as chaves de teste do Turnstile); em localhost e em dev vale', () => {
+    const exemplo = { EVOLUTION_WEBHOOK_SECRET: EVOLUTION_WEBHOOK_SECRET_EXEMPLO };
+    expect(() => parseEnv({ ...prod, ...evo, ...exemplo, EVOLUTION_WEBHOOK_URL: interna })).toThrow(/EVOLUTION_WEBHOOK_SECRET de exemplo não pode ser usada em produção/);
+    expect(parseEnv({ ...prod, APP_URL: 'http://localhost:3000', WHATSAPP_SANDBOX: '1', ...exemplo }).WHATSAPP_SANDBOX).toBe('1'); // E2E com `next start`
+    expect(parseEnv({ ...base, WHATSAPP_SANDBOX: '1', ...exemplo }).WHATSAPP_SANDBOX).toBe('1');
+    // a constante é o valor que o .env.example traz (sem imprimir o valor se divergir)
+    const linha = /^EVOLUTION_WEBHOOK_SECRET=(.*)$/m.exec(readFileSync(new URL('../.env.example', import.meta.url), 'utf8'))?.[1];
+    expect(linha === EVOLUTION_WEBHOOK_SECRET_EXEMPLO, '.env.example e EVOLUTION_WEBHOOK_SECRET_EXEMPLO divergem').toBe(true);
   });
   it('sandbox: recusado em produção fora de localhost; exige o segredo do webhook (o E2E assina os eventos); só o segredo, sem URL e chave, não é configuração pela metade', () => {
     expect(() => parseEnv({ ...prod, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) })).toThrow(/WHATSAPP_SANDBOX só fora de produção/);

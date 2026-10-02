@@ -27,7 +27,7 @@ describe('Evolution API (D1)', () => {
     expect(JSON.parse(String(chamadas[0].init.body))).toEqual({ number: '5511912345678', text: 'Olá', delay: 1200, linkPreview: false });
   });
 
-  it('falhas: número sem WhatsApp e 401/404 são definitivas; 5xx e rede caída repetem; timeout é definitivo (pode ter saído: no máximo 1)', async () => {
+  it('falhas: número sem WhatsApp e 401/404 são definitivas; 5xx e conexão recusada repetem; timeout é definitivo (pode ter saído: no máximo 1)', async () => {
     const envio = { instancia: 'nd-t1', numero: '5511900000000', texto: 'x' };
     const com = (r: { status: number; body?: unknown } | Error) => evolutionProvedor({ ...config, fetchImpl: fetchFalso({ 'POST /message/sendText/nd-t1': r }).f }).enviarTexto(envio);
     expect(await com({ status: 400, body: { status: 400, error: 'Bad Request', response: { message: [{ exists: false, jid: '5511900000000@s.whatsapp.net', number: '5511900000000' }] } } })).toEqual({ ok: false, definitivo: true, codigo: 'numero_sem_whatsapp' });
@@ -38,6 +38,20 @@ describe('Evolution API (D1)', () => {
     expect(await com(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }))).toEqual({ ok: false, definitivo: false, codigo: 'indisponivel' });
     expect(await com(Object.assign(new Error('timeout'), { name: 'TimeoutError' }))).toEqual({ ok: false, definitivo: true, codigo: 'sem_resposta' });
     expect(await com({ status: 201, body: { nada: true } })).toEqual({ ok: false, definitivo: true, codigo: 'resposta_invalida' });
+  });
+
+  it('rede (D6, no máximo uma vez): só repete o que falhou antes de o pedido sair (conexão recusada, DNS); conexão derrubada depois de enviar é definitiva', async () => {
+    const envio = { instancia: 'nd-t1', numero: '5511912345678', texto: 'x' };
+    const com = (e: Error) => evolutionProvedor({ ...config, fetchImpl: fetchFalso({ 'POST /message/sendText/nd-t1': e }).f }).enviarTexto(envio);
+    const rede = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+    const repete = { ok: false, definitivo: false, codigo: 'indisponivel' };
+    const saiuTalvez = { ok: false, definitivo: true, codigo: 'sem_resposta' };
+    for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) expect(await com(rede(code)), code).toEqual(repete);
+    // `localhost` com IPv4 e IPv6 recusando: AggregateError com os dois erros
+    const recusadas = Object.assign(new AggregateError([Object.assign(new Error('a'), { code: 'ECONNREFUSED' }), Object.assign(new Error('b'), { code: 'ECONNREFUSED' })]), { code: 'ECONNREFUSED' });
+    expect(await com(Object.assign(new TypeError('fetch failed'), { cause: recusadas }))).toEqual(repete);
+    for (const code of ['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE']) expect(await com(rede(code)), code).toEqual(saiuTalvez);
+    expect(await com(new TypeError('fetch failed')), 'sem causa conhecida').toEqual(saiuTalvez);
   });
 
   it('conectar: cria a instância que falta, configura o webhook com o jwt_key DESTA instância (D4 a) e devolve o QR', async () => {

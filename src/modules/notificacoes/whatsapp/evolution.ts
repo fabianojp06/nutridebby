@@ -7,6 +7,20 @@ type Opcoes = { url: string; apiKey: string; webhookUrl: string; webhookSecret?:
 type Resposta = { status: number; json: unknown; texto: string };
 const falha = (definitivo: boolean, codigo: CodigoFalha): ResultadoEnvio => ({ ok: false, definitivo, codigo });
 
+/** Erros de rede da fase de conexão (recusada, DNS, rota): o pedido não chegou a sair, repetir não duplica. */
+const ANTES_DE_ENVIAR = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+
+/**
+ * D6 (WhatsApp no máximo uma vez): o `fetch` falhou antes de o pedido sair? Lê `cause.code` (ou o de cada erro do
+ * AggregateError quando o nome resolve para IPv4 e IPv6). Qualquer outra falha — conexão derrubada depois de enviar
+ * (ECONNRESET, UND_ERR_SOCKET), erro sem código — pode ter sido aceita pela Evolution: não repete.
+ */
+function naoSaiu(err: unknown): boolean {
+  const causa = (err as { cause?: { code?: unknown; errors?: unknown } } | null)?.cause;
+  const codigos = Array.isArray(causa?.errors) ? causa.errors.map((x: { code?: unknown } | null) => x?.code) : [causa?.code];
+  return codigos.length > 0 && codigos.every((c) => typeof c === 'string' && ANTES_DE_ENVIAR.has(c));
+}
+
 /**
  * D1: cliente HTTP da Evolution API v2.3.7 (Baileys). Corpo do sendText conforme o DTO da v2
  * (`{ number, text }`; a página da documentação ainda mostra `textMessage.text`, formato da v1).
@@ -53,8 +67,8 @@ export function evolutionProvedor(o: Opcoes): ProvedorWhatsapp {
       try {
         r = await chamar('POST', `/message/sendText/${inst(e.instancia)}`, { number: e.numero, text: e.texto, delay: 1200, linkPreview: false });
       } catch (err) {
-        const timeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
-        return falha(timeout, timeout ? 'sem_resposta' : 'indisponivel');
+        // timeout (10 s, inclusive lendo a resposta) e conexão derrubada podem ter saído: definitivo. Só a falha de conexão repete.
+        return naoSaiu(err) ? falha(false, 'indisponivel') : falha(true, 'sem_resposta');
       }
       if (r.status === 200 || r.status === 201) {
         const k = (r.json as { key?: { id?: unknown; remoteJid?: unknown } } | null)?.key;
