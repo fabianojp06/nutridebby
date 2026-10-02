@@ -4,8 +4,12 @@ import { inject } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
-import { listTenantTables, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
+import { listTenantTables, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
 import { withTenant } from '@/db/tenant';
+
+let seqConsulta = 0;
+/** Cada chamada ganha um horário próprio de 1 h (EXCLUDE appointments_sem_sobreposicao). */
+const horaIso = () => sql`'2030-01-01T00:00:00Z'::timestamptz + ${++seqConsulta} * interval '2 hours'`;
 
 /**
  * RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant
@@ -60,11 +64,15 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade) values (${t}, 2, '08:00', '12:00', 60, 'presencial')`,
   availability_blocks: (t) =>
     sql`insert into availability_blocks (tenant_id, inicio, fim, motivo) values (${t}, '2030-01-01T03:00:00Z', '2030-01-02T03:00:00Z', 'Iso')`,
+  appointments: (t, p) => {
+    const h = horaIso();
+    return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri')`;
+  },
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);
 /** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`). */
-const ULTIMAS = ['meals', 'meal_plans', 'anamnesis_templates', 'foods', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'anamnesis_templates', 'foods', 'appointments', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -182,6 +190,26 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       expect(vistas.rows.length, t).toBe(0);
       await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
     }
+  });
+
+  it('publico (D11): só lê e grava o que PUBLICO_LIBERADO declara; o resto — notas, anamnese… — dá 0 linhas e recusa a escrita', async () => {
+    const comoPublico = (q: SQL) => withTenant({ tenantId: A, role: 'publico' }, (tx) => tx.execute(q), app.db);
+    for (const t of tabelas) {
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      const pode = PUBLICO_LIBERADO[t]?.comandos ?? [];
+      const vistas = (await comoPublico(sql`select tenant_id from ${sql.identifier(t)}`)).rows;
+      if (pode.includes('select')) {
+        expect(vistas.length, t).toBeGreaterThan(0);
+        for (const row of vistas) expect(row.tenant_id, t).toBe(A); // nem o publico atravessa tenants
+      } else expect(vistas.length, t).toBe(0);
+      if (pode.includes('insert')) await expect(comoPublico(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRls);
+      else await expect(comoPublico(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
+      if (SO_INSERE.has(t)) continue; // UPDATE/DELETE já negados por permissão
+      if (!pode.includes('update')) expect((await comoPublico(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+      if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
+    }
+    expect((await comoPublico(sql`select 1 from consultation_notes`)).rows).toEqual([]);
+    expect((await comoPublico(sql`select 1 from anamneses`)).rows).toEqual([]);
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {

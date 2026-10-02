@@ -5,8 +5,14 @@ import { sanitizarErroDeBanco } from './errors';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type TenantRole = 'nutri' | 'paciente' | 'worker';
-const ROLES: readonly TenantRole[] = ['nutri', 'paciente', 'worker'];
+/**
+ * `publico` (Plano 05, D11): contexto de sistema das páginas sem login (/n/<slug>, link da consulta) e do
+ * cálculo de horários livres. No banco, toda tabela com tenant_id nega o `publico` (RESTRICTIVE `publico_negado`),
+ * menos as de `PUBLICO_LIBERADO` (src/db/rls-guard.ts), só nos comandos listados. A RLS não restringe colunas:
+ * por isso o `publico` só é usado dentro de funções fechadas de src/modules/agenda que devolvem o mínimo (intervalos, ids).
+ */
+export type TenantRole = 'nutri' | 'paciente' | 'worker' | 'publico';
+const ROLES: readonly TenantRole[] = ['nutri', 'paciente', 'worker', 'publico'];
 
 export type TenantContext = {
   tenantId: string;

@@ -5,7 +5,7 @@ import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
 import { novoPaciente, novoTenant } from '../../test/pacientes';
 import { foodMeasures, user } from './schema';
-import { DbError, fkViolation, uniqueViolation } from './errors';
+import { DbError, exclusionViolation, fkViolation, uniqueViolation } from './errors';
 import './client'; // instala a sanitização em todas as consultas do Drizzle
 import { withTenant } from './tenant';
 
@@ -49,6 +49,13 @@ describe('withTenant: erros de banco sem dados (RNF-11, CLAUDE.md regra 3)', () 
     expect(uniqueViolation(err)).toBeNull();
     expect(fkViolation(new Error('outro'))).toBeNull();
     expect(fkViolation(null)).toBeNull();
+  });
+
+  it('exclusionViolation() acha a restrição EXCLUDE (23P01) no erro ou no cause e ignora o resto', () => {
+    expect(exclusionViolation({ code: '23P01', constraint: 'appointments_sem_sobreposicao' })).toBe('appointments_sem_sobreposicao');
+    expect(exclusionViolation(Object.assign(new Error('x'), { cause: { code: '23P01', constraint: 'c' } }))).toBe('c');
+    expect(exclusionViolation({ code: '23505', constraint: 'u' })).toBeNull();
+    expect(exclusionViolation(new Error('x'))).toBeNull();
   });
 
   it('erros que não são de banco passam sem alteração', async () => {

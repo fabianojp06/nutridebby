@@ -351,6 +351,20 @@
       "when": 1790903857876,
       "tag": "0049_rls_agenda_disponibilidade",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790904995532,
+      "tag": "0050_consultas",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790905000381,
+      "tag": "0051_rls_consultas",
+      "breakpoints": true
     }
   ]
 }

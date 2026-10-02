@@ -117,6 +117,12 @@ describe('withTenant', () => {
     expect(semAtor.rows[0].u).toBeNull();
   });
 
+  it("papel 'publico' (página pública e horários livres, D11): sem paciente, sem ator; com patientId é recusado", async () => {
+    const r = await withTenant({ tenantId: A, role: 'publico' }, (tx) => tx.execute<{ r: string }>(sql`select app_current_role() as r`), app.db);
+    expect(r.rows[0].r).toBe('publico');
+    await expect(withTenant({ tenantId: A, role: 'publico', patientId: randomUUID() }, async () => 1, app.db)).rejects.toThrow(/patientId/);
+  });
+
   it('recusa papel fora da lista, ator que não é uuid e IP inválido (item adiado do Plano 01)', async () => {
     await expect(withTenant({ tenantId: A, role: 'admin' as never }, async () => 1, app.db)).rejects.toThrow(/papel/);
     await expect(withTenant({ tenantId: A, role: 'nutri', actorUserId: 'x' }, async () => 1, app.db)).rejects.toThrow(/actorUserId/);

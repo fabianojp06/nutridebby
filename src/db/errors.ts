@@ -20,6 +20,17 @@ export function fkViolation(err: unknown): string | null {
   return null;
 }
 
+/** Nome da restrição EXCLUDE violada (Postgres 23P01), olhando também o `cause` do erro do Drizzle. */
+export function exclusionViolation(err: unknown): string | null {
+  let e: unknown = err;
+  for (let i = 0; e && typeof e === 'object' && i < 5; i++) {
+    const pg = e as { code?: unknown; constraint?: unknown; cause?: unknown };
+    if (pg.code === '23P01') return typeof pg.constraint === 'string' ? pg.constraint : '';
+    e = pg.cause;
+  }
+  return null;
+}
+
 type PgLike = { name?: unknown; code?: unknown; constraint?: unknown; table?: unknown; column?: unknown; message?: unknown; severity?: unknown; cause?: unknown };
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length <= 128 ? v : undefined);
 // Classes SQLSTATE cujas mensagens só citam nomes de objetos ou texto fixo das nossas funções (23 integridade, 40 transação, 42501 privilégio, P0001/55000 RAISE das nossas funções)
