@@ -1,0 +1,2 @@
+ALTER TABLE "notifications" DROP CONSTRAINT "notifications_consulta_versao_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "notifications_versao_unique" ON "notifications" USING btree ("appointment_id","canal","tipo","inicio_consulta") WHERE "notifications"."tipo" in ('lembrete_24h', 'lembrete_2h', 'resposta_confirmacao', 'resposta_remarcar');

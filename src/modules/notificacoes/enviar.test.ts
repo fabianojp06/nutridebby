@@ -10,7 +10,7 @@ import { appointments, notifications, patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
-import { agendarPelaNutri } from '@/modules/agenda/consultas';
+import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
@@ -106,6 +106,50 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: cedo, canal: 'email', tipo: 'lembrete_2h', agendadaPara: em('2026-10-16', '21:50') }), app.db);
     await processarNotificacoes(deps(em('2026-10-16', '22:00')), { tenantId: T.tenantId });
     expect(await linha(T, c, 'lembrete_2h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'horario_silencioso' });
+  });
+
+  it('14:00 → 15:00 → 14:00: cada mudança do início manda uma "Consulta marcada" nova (3 ao todo, a última diz 14:00); os lembretes de 14:00 voltam a valer sem duplicar', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await marcada(T);
+    const t = transporteFalso();
+    await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId });
+    const minuto = (n: number) => new Date(marcadaEm.getTime() + n * 60_000);
+    for (const [n, hora] of [[1, '15:00'], [2, '14:00']] as const) {
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: minuto(n) });
+      await processarNotificacoes(deps(minuto(n), t), { tenantId: T.tenantId });
+    }
+    expect(t.enviados.map((e) => e.subject)).toEqual([
+      'Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)',
+      'Consulta marcada: sex., 16/10/2026 às 15:00 (horário de Brasília)',
+      'Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)',
+    ]);
+    const todas = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.appointmentId, id)), app.db);
+    const lembretes = (hora: string) => todas.filter((l) => l.tipo.startsWith('lembrete') && l.inicioConsulta?.getTime() === em('2026-10-16', hora).getTime());
+    // uma linha por (canal, tipo) em cada início: as de 14:00 foram reabertas, não duplicadas
+    expect(lembretes('14:00').map((l) => `${l.tipo}/${l.canal}/${l.status}`).sort()).toEqual([
+      'lembrete_24h/email/pendente', 'lembrete_24h/push/pendente', 'lembrete_24h/whatsapp/pendente',
+      'lembrete_2h/email/pendente', 'lembrete_2h/push/pendente', 'lembrete_2h/whatsapp/pendente',
+    ]);
+    expect(lembretes('15:00').every((l) => l.status === 'ignorada' && l.motivoIgnorada === 'consulta_remarcada')).toBe(true);
+    expect(lembretes('15:00')).toHaveLength(6);
+  });
+
+  it('o aviso de um início que mudou antes de sair não sai: 14:00 → 15:00 → 14:00 sem envio no meio manda só o último', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await marcada(T);
+    const t = transporteFalso();
+    await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId }); // a marcação (14:00) saiu
+    for (const hora of ['15:00', '14:00']) {
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: marcadaEm });
+    }
+    await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId });
+    expect(t.enviados.map((e) => e.subject)).toEqual(Array(2).fill('Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)'));
+    const avisos = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'), eq(notifications.canal, 'email'))), app.db);
+    expect(avisos.map((l) => `${l.inicioConsulta?.toISOString()}/${l.status}/${l.motivoIgnorada}`).sort()).toEqual([
+      `${em('2026-10-16', '14:00').toISOString()}/enviada/null`,
+      `${em('2026-10-16', '14:00').toISOString()}/enviada/null`,
+      `${em('2026-10-16', '15:00').toISOString()}/ignorada/consulta_remarcada`,
+    ]);
   });
 
   it('a volta do cron começa num tenant diferente a cada minuto (D6, rodada 1)', () => {

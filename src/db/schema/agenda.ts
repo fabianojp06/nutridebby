@@ -1,5 +1,5 @@
-import { sql } from 'drizzle-orm';
-import { check, foreignKey, index, pgTable, smallint, text, time, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { sql, type SQL } from 'drizzle-orm';
+import { check, foreignKey, index, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid, type PgColumn } from 'drizzle-orm/pg-core';
 import { patients } from './pacientes';
 import { tenants } from './platform';
 
@@ -96,8 +96,20 @@ export const appointments = pgTable(
 export type AppointmentRow = typeof appointments.$inferSelect;
 
 /**
- * RN-05 / D6: uma linha por (consulta, canal, tipo, início da consulta). Marcar de novo no mesmo horário ou reativar
- * reescreve só a linha que não saiu; mudar o horário cria linhas novas — a enviada é imutável (cota, métricas, histórico).
+ * D6: tipos com no máximo uma linha por (consulta, canal, tipo, início da consulta) — os lembretes e as respostas
+ * "1"/"2" (Tarefa 12). Os avisos de evento ("Consulta marcada", "Consulta cancelada") ficam fora: cada mudança do início
+ * gera um aviso novo (complemento da Tarefa 5). Lista única: o índice parcial (schema → migration gerada) e o
+ * `ON CONFLICT` de `gravar` (src/modules/notificacoes/agendar.ts) usam `tipoUmPorHorario`.
+ */
+export const TIPOS_UM_POR_HORARIO = ['lembrete_24h', 'lembrete_2h', 'resposta_confirmacao', 'resposta_remarcar'] as const;
+
+/** Predicado do índice parcial, com literais: o `ON CONFLICT … WHERE` só encontra o índice se o predicado for o mesmo (sem parâmetros). */
+export const tipoUmPorHorario = (tipo: PgColumn): SQL => sql`${tipo} in (${sql.raw(TIPOS_UM_POR_HORARIO.map((t) => `'${t}'`).join(', '))})`;
+
+/**
+ * RN-05 / D6: lembretes e respostas têm uma linha por (consulta, canal, tipo, início da consulta) — índice único parcial
+ * `notifications_versao_unique`. Marcar de novo no mesmo horário ou reativar reescreve só a linha que não saiu; mudar o
+ * horário cria linhas novas — a enviada é imutável (cota, métricas, histórico). Avisos de evento: uma linha por evento.
  * As condições de cada canal (opt-in, cota, inscrição…) são conferidas no envio. Registro técnico: sem auditoria (D10).
  * `provider_jid`: destino real no WhatsApp (casa a resposta "1"/"2"); `conteudo_selado`: convite com link cifrado até o envio;
  * `inicio_consulta`: o horário da consulta para o qual a linha foi planejada (nulo só sem consulta: convite).
@@ -131,7 +143,7 @@ export const notifications = pgTable(
     check('notifications_motivo_so_ignorada', sql`(${t.status} = 'ignorada') = (${t.motivoIgnorada} is not null)`),
     check('notifications_erro_tamanho', sql`char_length(${t.erro}) <= 60`),
     check('notifications_versao_da_consulta', sql`(${t.appointmentId} is null) = (${t.inicioConsulta} is null)`),
-    unique('notifications_consulta_versao_unique').on(t.appointmentId, t.canal, t.tipo, t.inicioConsulta),
+    uniqueIndex('notifications_versao_unique').on(t.appointmentId, t.canal, t.tipo, t.inicioConsulta).where(tipoUmPorHorario(t.tipo)),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'notifications_paciente_fk' }),
     foreignKey({ columns: [t.tenantId, t.patientId, t.appointmentId], foreignColumns: [appointments.tenantId, appointments.patientId, appointments.id], name: 'notifications_consulta_fk' }),
     index('notifications_devidas_idx').on(t.tenantId, t.status, t.agendadaPara),

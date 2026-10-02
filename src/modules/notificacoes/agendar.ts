@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
 import { fromDrizzle } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, notifications, type NotificationRow } from '@/db/schema';
+import { appointments, notifications, tipoUmPorHorario, TIPOS_UM_POR_HORARIO, type NotificationRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
@@ -50,17 +50,20 @@ export type ConsultaParaLembrete = { tenantId: string; patientId: string; appoin
 type Linha = Pick<typeof notifications.$inferInsert, 'tenantId' | 'patientId' | 'appointmentId' | 'inicioConsulta' | 'canal' | 'tipo' | 'status' | 'motivoIgnorada' | 'agendadaPara'>;
 
 /**
- * D6 (rodada 1 do /code-review): (consulta, canal, tipo, início da consulta) é UNIQUE. Marcar de novo no mesmo horário
- * ou reativar reescreve só a linha que NÃO saiu (`pendente`, `ignorada`, `falhou`); a enviada (e a que está saindo)
- * é imutável — não volta a "pendente" nem perde `enviada_em`/`provider_msg_id` (cota, métricas, histórico).
+ * D6 (rodada 1 do /code-review): para os tipos de TIPOS_UM_POR_HORARIO, (consulta, canal, tipo, início da consulta) é
+ * único (índice parcial `notifications_versao_unique`). Marcar de novo no mesmo horário ou reativar reescreve só a linha
+ * que NÃO saiu (`pendente`, `ignorada`, `falhou`); a enviada (e a que está saindo) é imutável — não volta a "pendente"
+ * nem perde `enviada_em`/`provider_msg_id` (cota, métricas, histórico). Só para esses tipos: aviso de evento não passa aqui.
  */
 async function gravar(tx: Tx, linhas: Linha[], agora: Date): Promise<void> {
   if (!linhas.length) return;
+  if (linhas.some((l) => !(TIPOS_UM_POR_HORARIO as readonly string[]).includes(l.tipo))) throw new Error('gravar: tipo fora da chave única (aviso de evento usa avisarPaciente)');
   await tx
     .insert(notifications)
     .values(linhas.map((l) => ({ ...l, tentativas: 0, createdAt: agora, updatedAt: agora })))
     .onConflictDoUpdate({
       target: [notifications.appointmentId, notifications.canal, notifications.tipo, notifications.inicioConsulta],
+      targetWhere: tipoUmPorHorario(notifications.tipo),
       set: { status: sql`excluded.status`, motivoIgnorada: sql`excluded.motivo_ignorada`, agendadaPara: sql`excluded.agendada_para`, tentativas: 0, erro: null, updatedAt: agora },
       setWhere: inArray(notifications.status, ['pendente', 'ignorada', 'falhou']),
     });
@@ -96,13 +99,31 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
   );
 }
 
-/** US-031 / US-033: "Consulta marcada" (também ao mudar o horário) e "Consulta cancelada", por e-mail e push, já. */
+/**
+ * US-031 / US-033: "Consulta marcada" (também a cada mudança do início) e "Consulta cancelada", por e-mail e push, já.
+ * Aviso de evento, fora da chave única: cada evento ganha linhas próprias — voltar a um início que já teve aviso enviado
+ * avisa de novo (14:00 → 15:00 → 14:00 = 3 avisos). O aviso do mesmo tipo ainda pendente para outro início vira
+ * "consulta_remarcada"; o que já saiu fica como está. Idempotente: o mesmo evento (mesmo tipo e início, aviso ainda
+ * pendente) não gera um segundo. Quem chama segura a trava da consulta (`lerConsultaParaEscrita`, ou a linha recém-criada
+ * na mesma transação): duas chamadas para a mesma consulta não correm juntas.
+ */
 export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada', agora: Date): Promise<void> {
   if (tipo === 'consulta_marcada' && c.inicio.getTime() <= agora.getTime()) return; // encaixe registrado depois (D22)
-  await gravar(
-    tx,
-    (['email', 'push'] as const).map((canal) => ({ tenantId: c.tenantId, patientId: c.patientId, appointmentId: c.appointmentId, inicioConsulta: c.inicio, canal, tipo, status: 'pendente', motivoIgnorada: null, agendadaPara: agora })),
-    agora,
+  const pendentes = await tx
+    .select({ id: notifications.id, canal: notifications.canal, inicioConsulta: notifications.inicioConsulta })
+    .from(notifications)
+    .where(and(eq(notifications.appointmentId, c.appointmentId), eq(notifications.tipo, tipo), eq(notifications.status, 'pendente')))
+    .for('update');
+  const doMesmoInicio = (p: (typeof pendentes)[number]) => p.inicioConsulta?.getTime() === c.inicio.getTime();
+  const deOutroInicio = pendentes.filter((p) => !doMesmoInicio(p)).map((p) => p.id);
+  if (deOutroInicio.length) {
+    await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada', updatedAt: agora }).where(inArray(notifications.id, deOutroInicio));
+  }
+  const jaAvisados = new Set(pendentes.filter(doMesmoInicio).map((p) => p.canal));
+  const canais = (['email', 'push'] as const).filter((canal) => !jaAvisados.has(canal));
+  if (!canais.length) return;
+  await tx.insert(notifications).values(
+    canais.map((canal) => ({ tenantId: c.tenantId, patientId: c.patientId, appointmentId: c.appointmentId, inicioConsulta: c.inicio, canal, tipo, status: 'pendente', agendadaPara: agora, createdAt: agora, updatedAt: agora })),
   );
 }
 

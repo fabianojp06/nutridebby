@@ -4,12 +4,13 @@ import { em, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications } from '@/db/schema';
+import { appointments, notifications, TIPOS_UM_POR_HORARIO } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
+import { partesNoFuso } from '@/modules/agenda/fuso';
 import { suspenderConta, reativarConta } from '@/modules/plataforma/suspensao';
-import { adiarLembrete, emHorarioSilencioso, fimDoSilencio, ignorarPendentesDoTenant, planejarLembretes, reagendarTenantReativado } from './agendar';
+import { adiarLembrete, avisarPaciente, emHorarioSilencioso, fimDoSilencio, ignorarPendentesDoTenant, planejarLembretes, reagendarTenantReativado } from './agendar';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -113,6 +114,35 @@ describe('lembretes da consulta no banco', () => {
     expect(c).toMatchObject({ modalidade: 'online', linkOnline: 'https://meet.exemplo.com/abc', fim: em('2026-10-16', '14:45') }); // a alteração valeu
     expect(porId(await linhas(T.ctx, id))).toEqual(antes); // mesmas linhas, mesmas situações (nem `updated_at` mudou)
     expect(await pedidos()).toBe(pedidosAntes);
+  });
+
+  it('avisarPaciente repetido para o mesmo evento (mesmo início, ainda pendente) não duplica; um início novo deixa o pendente do antigo como "consulta_remarcada"', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const alvo = { tenantId: T.tenantId, patientId: ana.id, appointmentId: id, inicio: em('2026-10-16', '14:00') };
+    const avisos = async () =>
+      (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'))), app.db)).map((l) => `${l.canal}/${l.status}`).sort();
+    const antes = await avisos();
+    expect(antes).toEqual(['email/pendente', 'push/pendente']);
+    for (let i = 0; i < 2; i++) await withTenant(T.ctx, (tx) => avisarPaciente(tx, alvo, 'consulta_marcada', new Date(now.getTime() + (i + 1) * 60_000)), app.db);
+    expect(await avisos()).toEqual(antes);
+    // chamada direta (como a das Tarefas 7 e 8, sem agendarLembretes antes): o próprio aviso descarta o pendente de outro início
+    await withTenant(T.ctx, (tx) => avisarPaciente(tx, { ...alvo, inicio: em('2026-10-16', '15:00') }, 'consulta_marcada', now), app.db);
+    const linhasDoAviso = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'))), app.db);
+    expect(linhasDoAviso.map((l) => `${partesNoFuso(l.inicioConsulta!, SP).hora}/${l.canal}/${l.status}/${l.motivoIgnorada}`).sort()).toEqual([
+      '14:00/email/ignorada/consulta_remarcada', '14:00/push/ignorada/consulta_remarcada', '15:00/email/pendente/null', '15:00/push/pendente/null',
+    ]);
+  });
+
+  it('a chave única parcial do banco vale só para os tipos de TIPOS_UM_POR_HORARIO (lista num lugar só)', async () => {
+    const { rows } = await app.pool.query<{ def: string }>(`select indexdef as def from pg_indexes where tablename = 'notifications' and indexname = 'notifications_versao_unique'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].def).toMatch(/^CREATE UNIQUE INDEX .* \(appointment_id, canal, tipo, inicio_consulta\) WHERE /);
+    const noBanco = [...rows[0].def.split(' WHERE ')[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]).sort();
+    expect(noBanco).toEqual([...TIPOS_UM_POR_HORARIO].sort());
+    expect([...TIPOS_UM_POR_HORARIO].sort()).toEqual(['lembrete_24h', 'lembrete_2h', 'resposta_confirmacao', 'resposta_remarcar']);
+    expect((await app.pool.query(`select 1 from pg_constraint where conname = 'notifications_consulta_versao_unique'`)).rows).toEqual([]);
   });
 
   it('US-004: suspender enfileira o job; o worker troca os pendentes para "tenant_suspenso"; reativar reagenda os futuros', async () => {
