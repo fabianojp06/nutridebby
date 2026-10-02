@@ -226,3 +226,11 @@ test('página pública: horário, Turnstile, código por e-mail e "Novo paciente
   await expect(nutri.getByText('Completar cadastro')).toBeVisible();
   await visitante.context().close();
 });
+
+test('WhatsApp: tela de conexão mostra o QR (D2)', async () => {
+  await nutri.goto('/painel/whatsapp');
+  await expect(nutri.getByText('Use, de preferência, um número só do consultório. Os lembretes saem do número conectado.')).toBeVisible();
+  await nutri.getByRole('button', { name: 'Conectar WhatsApp' }).click();
+  await expect(nutri.getByRole('img', { name: 'QR code para conectar o WhatsApp' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Gerar novo QR code' })).toBeVisible();
+});

@@ -400,6 +400,20 @@
       "when": 1790917219001,
       "tag": "0056_rls_agendamento_publico",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790936277813,
+      "tag": "0057_whatsapp_conexoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790936281818,
+      "tag": "0058_rls_whatsapp_conexoes",
+      "breakpoints": true
     }
   ]
 }

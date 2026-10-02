@@ -32,7 +32,9 @@ export type EmailMessage =
       /** "sex., 16/10/2026 às 09:00 (horário de Brasília)" */
       quando: string;
       link: string;
-    };
+    }
+  /** D18: o celular saiu de "Aparelhos conectados" (não foi pelo painel); `link` = /painel/whatsapp. */
+  | { tipo: 'whatsapp_desconectado'; para: string; link: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

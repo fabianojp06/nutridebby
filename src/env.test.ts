@@ -188,3 +188,38 @@ describe('parseWorkerEnv (worker)', () => {
     expect(parseWorkerEnv({ ...w, APP_URL: 'http://localhost:3100/', MAILPIT_URL: 'http://localhost:8025' }).APP_URL).toBe('http://localhost:3100');
   });
 });
+
+describe('WhatsApp pela Evolution (D1, D4)', () => {
+  const evo = { EVOLUTION_API_URL: 'http://nutri_evolution:8080', EVOLUTION_API_KEY: 'k'.repeat(32), EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) };
+  const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '0x4AAAAAAArealsecret' };
+  const interna = 'http://nutridebby_app:3000/api/webhooks/whatsapp';
+  it('app: as três juntas ou nenhuma; segredo com 32+ caracteres', () => {
+    expect(parseEnv({ ...base, ...evo }).EVOLUTION_API_URL).toBe('http://nutri_evolution:8080');
+    expect(parseEnv(base).EVOLUTION_API_URL).toBeUndefined();
+    expect(() => parseEnv({ ...base, EVOLUTION_API_URL: evo.EVOLUTION_API_URL })).toThrow(/juntas/);
+    expect(() => parseEnv({ ...base, ...evo, EVOLUTION_WEBHOOK_SECRET: 'curto' })).toThrow(/32 caracteres/);
+  });
+  it('produção (rodada 1): só uma das três → erro; o webhook só por endereço interno, a URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1 (D4)', () => {
+    for (const so of ['EVOLUTION_API_URL', 'EVOLUTION_API_KEY', 'EVOLUTION_WEBHOOK_SECRET'] as const) expect(() => parseEnv({ ...prod, [so]: evo[so] }), so).toThrow(/juntas/);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: interna }).EVOLUTION_WEBHOOK_URL).toBe(interna);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: 'http://10.0.1.7:3000/api/webhooks/whatsapp' }).EVOLUTION_API_URL).toBe(evo.EVOLUTION_API_URL);
+    expect(() => parseEnv({ ...prod, ...evo })).toThrow(/EVOLUTION_WEBHOOK_URL é obrigatória em produção/);
+    const publica = 'https://app.exemplo.com/api/webhooks/whatsapp';
+    expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica })).toThrow(/endereço interno/);
+    for (const falsa of ['http://10.exemplo.com/api/webhooks/whatsapp', 'http://[2001:db8::1]:3000/api/webhooks/whatsapp', 'http://8.8.8.8/api/webhooks/whatsapp']) {
+      expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: falsa }), falsa).toThrow(/endereço interno/);
+    }
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica, EVOLUTION_WEBHOOK_URL_PUBLICA: '1' }).EVOLUTION_WEBHOOK_URL_PUBLICA).toBe('1');
+  });
+  it('sandbox: recusado em produção fora de localhost; exige o segredo do webhook (o E2E assina os eventos); só o segredo, sem URL e chave, não é configuração pela metade', () => {
+    expect(() => parseEnv({ ...prod, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) })).toThrow(/WHATSAPP_SANDBOX só fora de produção/);
+    expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1' })).toThrow(/EVOLUTION_WEBHOOK_SECRET/);
+    expect(parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) }).WHATSAPP_SANDBOX).toBe('1');
+    expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32), EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
+  });
+  it('worker: URL e chave juntas ou nenhuma; não exige o segredo do webhook', () => {
+    const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+    expect(parseWorkerEnv({ ...w, EVOLUTION_API_URL: evo.EVOLUTION_API_URL, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY }).EVOLUTION_API_KEY).toBe(evo.EVOLUTION_API_KEY);
+    expect(() => parseWorkerEnv({ ...w, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
+  });
+});

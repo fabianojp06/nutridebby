@@ -104,6 +104,7 @@ export const STAFF_ONLY: Record<string, string> = {
   availability_rules: 'US-030 / D11: o paciente só recebe horários livres já calculados, nunca as regras',
   availability_blocks: 'US-030 / D11: o motivo do bloqueio pode ser pessoal ("Médico")',
   public_booking_requests: 'RN-16: pedido da página pública (código, contato) — só o contexto publico e a equipe',
+  whatsapp_conexoes: 'D2: número e estado do WhatsApp do consultório — só a equipe',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

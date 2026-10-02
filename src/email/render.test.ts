@@ -106,3 +106,11 @@ describe('codigo_agendamento (RN-16, D12)', () => {
     expect(r.html).toContain('042917');
   });
 });
+
+describe('whatsapp_desconectado (D18)', () => {
+  it('WhatsApp desconectado: o que aconteceu e o link para conectar de novo', () => {
+    const r = renderEmail({ tipo: 'whatsapp_desconectado', para: 'd@x.dev', link: 'https://x.dev/painel/whatsapp' });
+    expect(r.subject).toBe('Seu WhatsApp foi desconectado do NutriDebby');
+    expect(r.text).toContain('Conectar o WhatsApp de novo: https://x.dev/painel/whatsapp');
+  });
+});

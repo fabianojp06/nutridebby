@@ -77,6 +77,9 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   public_booking_requests: (t) =>
     sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em)
         values (gen_random_uuid(), ${t}, ${randomUUID()}, 'x', ${`iso-${randomUUID().slice(0, 8)}@teste.dev`}, 'Iso', '2030-01-01T12:00:00Z', 'presencial', 't', now() + interval '10 minutes')`,
+  // uma linha por tenant (tenant_id UNIQUE): a fábrica roda duas vezes por tenant
+  whatsapp_conexoes: (t) =>
+    sql`insert into whatsapp_conexoes (tenant_id, instancia) select ${t}, ${`nd-${t}`} where not exists (select 1 from whatsapp_conexoes where tenant_id = ${t})`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);

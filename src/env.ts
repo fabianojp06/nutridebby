@@ -71,6 +71,22 @@ const appUrl = z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exem
   return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
 });
 
+/** D1: WhatsApp pela Evolution API — opcional; sem as variáveis, o WhatsApp fica desligado (lembretes por e-mail e push). */
+const evolutionUrl = opcional(z.url({ message: 'EVOLUTION_API_URL deve ser uma URL (ex.: http://nutri_evolution:8080)' }).optional());
+const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY precisa de pelo menos 16 caracteres' }).optional());
+const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
+const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
+/**
+ * D4 (c): endereço da rede interna do Docker/Easypanel — nome de serviço (sem ponto) ou IPv4 privado. O IPv4 é
+ * conferido como IP (um nome como `10.exemplo.com` não passa) e o nome só com letras, dígitos, `_` e `-` (um IPv6
+ * literal, que também não tem ponto, não passa).
+ */
+const ehHostInterno = (url: string) => {
+  if (!URL.canParse(url)) return false;
+  const h = new URL(url).hostname;
+  return /^[a-z0-9_-]+$/i.test(h) || (isIP(h) === 4 && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h));
+};
+
 /** App Next.js e admin:criar (Better Auth). */
 const appSchema = serverSchema
   .extend({
@@ -100,11 +116,17 @@ const appSchema = serverSchema
           message: 'TRUSTED_PROXIES deve ser uma lista de IPs/CIDRs separados por vírgula',
         }),
     ),
+    EVOLUTION_API_URL: evolutionUrl,
+    EVOLUTION_API_KEY: evolutionKey,
+    EVOLUTION_WEBHOOK_SECRET: opcional(z.string().min(32, { message: 'EVOLUTION_WEBHOOK_SECRET precisa de pelo menos 32 caracteres' }).optional()),
+    EVOLUTION_WEBHOOK_URL: opcional(z.url({ message: 'EVOLUTION_WEBHOOK_URL deve ser uma URL' }).optional()),
+    EVOLUTION_WEBHOOK_URL_PUBLICA: opcional(z.enum(['0', '1'], { message: 'EVOLUTION_WEBHOOK_URL_PUBLICA deve ser 0 ou 1' }).optional()),
+    WHATSAPP_SANDBOX: whatsappSandbox,
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
     // M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru
-    if (e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !['localhost', '127.0.0.1'].includes(new URL(e.APP_URL).hostname)) {
+    if (e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SITE_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
       }
@@ -119,6 +141,34 @@ const appSchema = serverSchema
         message:
           'TRUSTED_PROXIES é obrigatória em produção (CIDR da rede do Traefik/Swarm); sem ela o limite de tentativas vira um balde global',
       });
+    }
+    const evo = [e.EVOLUTION_API_URL, e.EVOLUTION_API_KEY, e.EVOLUTION_WEBHOOK_SECRET];
+    // rodada 1: o sandbox (dev/CI/E2E) usa só o segredo (o E2E assina os webhooks) — sem URL e chave não é configuração pela metade
+    const soSandbox = e.WHATSAPP_SANDBOX === '1' && !e.EVOLUTION_API_URL && !e.EVOLUTION_API_KEY;
+    if (evo.some(Boolean) && !evo.every(Boolean) && !soSandbox) {
+      ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_SECRET juntas (ou nenhuma)' });
+    }
+    // D4 (c): em produção, a Evolution chama o app pela rede interna; a URL pública só como opção explícita
+    if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL) && e.EVOLUTION_API_URL) {
+      if (!e.EVOLUTION_WEBHOOK_URL) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['EVOLUTION_WEBHOOK_URL'],
+          message: 'EVOLUTION_WEBHOOK_URL é obrigatória em produção (endereço interno do app, ex.: http://nutridebby_app:3000/api/webhooks/whatsapp)',
+        });
+      } else if (!ehHostInterno(e.EVOLUTION_WEBHOOK_URL) && e.EVOLUTION_WEBHOOK_URL_PUBLICA !== '1') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['EVOLUTION_WEBHOOK_URL'],
+          message: 'EVOLUTION_WEBHOOK_URL precisa ser um endereço interno (nome do serviço ou IP privado); URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1',
+        });
+      }
+    }
+    if (e.WHATSAPP_SANDBOX === '1') {
+      if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL)) ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
+      if (!e.EVOLUTION_WEBHOOK_SECRET) {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_SECRET'], message: 'EVOLUTION_WEBHOOK_SECRET é obrigatória com WHATSAPP_SANDBOX=1 (o E2E assina os webhooks)' });
+      }
     }
   });
 
@@ -136,6 +186,9 @@ const workerSchema = serverSchema
     EMAIL_TRANSPORT: opcional(z.enum(['resend', 'mailpit']).optional()),
     RESEND_API_KEY: opcional(z.string().min(1).optional()),
     MAILPIT_URL: opcional(z.url({ message: 'MAILPIT_URL deve ser uma URL (ex.: http://localhost:8025)' }).optional()),
+    EVOLUTION_API_URL: evolutionUrl,
+    EVOLUTION_API_KEY: evolutionKey,
+    WHATSAPP_SANDBOX: whatsappSandbox,
   })
   .transform((e) => ({
     ...e,
@@ -149,6 +202,13 @@ const workerSchema = serverSchema
     if (e.EMAIL_TRANSPORT === 'mailpit' && !e.MAILPIT_URL) {
       ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória para enviar pelo Mailpit' });
     }
+    if (Boolean(e.EVOLUTION_API_URL) !== Boolean(e.EVOLUTION_API_KEY)) {
+      ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL e EVOLUTION_API_KEY juntas (ou nenhuma)' });
+    }
+    if (e.WHATSAPP_SANDBOX === '1' && e.NODE_ENV === 'production' && !ehLocal(e.APP_URL)) {
+      ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
+    }
+    if (e.WHATSAPP_SANDBOX === '1' && !e.MAILPIT_URL) ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória com WHATSAPP_SANDBOX=1' });
   });
 
 /** Só scripts/migrate.ts: DATABASE_URL entra para criar/conferir o role de login da aplicação. */

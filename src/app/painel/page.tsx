@@ -1,12 +1,15 @@
+import Link from 'next/link';
 import { formatarBytes } from '@/lib/format';
 import { requireNutri } from '@/lib/tenant-session';
+import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
 import { Cabecalho } from './cabecalho';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PainelHome() {
-  const { data, tenant } = await requireNutri('/painel');
+  const { data, tenant, ctx } = await requireNutri('/painel');
+  const whatsapp = await situacaoDoWhatsapp(ctx, provedorDoApp() !== null);
   return (
     <>
       <Cabecalho tenant={tenant} />
@@ -24,6 +27,11 @@ export default async function PainelHome() {
           }
           return null;
         })()}
+        {whatsapp.ligado && whatsapp.conectadaAntes && whatsapp.estado === 'desconectada' && (
+          <p role="alert" className="rounded bg-amber-50 p-3 text-amber-900">
+            WhatsApp desconectado. Os lembretes estão saindo só por e-mail e notificação no app. <Link href="/painel/whatsapp" className="underline">Conectar de novo</Link>
+          </p>
+        )}
         <p>Conectado como {data.user.email}.</p>
       </main>
     </>

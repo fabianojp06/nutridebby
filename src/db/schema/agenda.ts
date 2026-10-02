@@ -194,3 +194,31 @@ export const publicRateLimits = pgTable('public_rate_limits', {
   janelaInicio: timestamp('janela_inicio', { withTimezone: true }).notNull(),
   contagem: integer('contagem').notNull(),
 });
+
+/**
+ * D2: uma instância da Evolution por tenant (`nd-<tenantId>`). Estado vindo do webhook (connection.update) e da
+ * consulta do painel. `aviso_desconexao_em`: e-mail de desconexão já mandado; `aviso_cota_mes`: 'AAAA-MM' do aviso de 80% (Tarefa 11).
+ */
+export const whatsappConexoes = pgTable(
+  'whatsapp_conexoes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().unique().references(() => tenants.id),
+    instancia: text('instancia').notNull().unique(),
+    estado: text('estado').notNull().default('desconectada'),
+    numeroE164: text('numero_e164'),
+    conectadaEm: timestamp('conectada_em', { withTimezone: true }),
+    desconectadaEm: timestamp('desconectada_em', { withTimezone: true }),
+    avisoDesconexaoEm: timestamp('aviso_desconexao_em', { withTimezone: true }),
+    avisoCotaMes: text('aviso_cota_mes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('whatsapp_conexoes_estado_valido', sql`${t.estado} in ('conectada', 'conectando', 'desconectada')`),
+    check('whatsapp_conexoes_instancia_do_tenant', sql`${t.instancia} = 'nd-' || ${t.tenantId}::text`),
+    check('whatsapp_conexoes_numero_e164', sql`${t.numeroE164} is null or ${t.numeroE164} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  ],
+);
+
+export type WhatsappConexaoRow = typeof whatsappConexoes.$inferSelect;

@@ -26,7 +26,7 @@ const [consultorio] = await db
   .returning({ id: tenants.id });
 
 // Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
-const AGENDA_E2E = ['public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
+const AGENDA_E2E = ['whatsapp_conexoes', 'public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
 await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
 }, db);

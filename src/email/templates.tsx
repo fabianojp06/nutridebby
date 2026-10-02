@@ -264,6 +264,12 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         `Use o código ${msg.codigo} para confirmar o agendamento com ${msg.nutri}.`,
         'Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail.',
       ]);
+    case 'whatsapp_desconectado':
+      return simples(
+        'Seu WhatsApp foi desconectado do NutriDebby',
+        ['O WhatsApp do consultório foi desconectado (o celular saiu de "Aparelhos conectados" ou ficou muito tempo sem internet).', 'Os lembretes estão saindo só por e-mail e notificação no app.'],
+        { href: msg.link, rotulo: 'Conectar o WhatsApp de novo' },
+      );
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
