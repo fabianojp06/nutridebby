@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { whatsappConexoes, type WhatsappConexaoRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -45,11 +45,16 @@ export async function situacaoDoWhatsapp(ctx: TenantContext, ligado: boolean, db
 
 type Deps = { db?: Db; agora?: Date; appUrl?: string };
 
-/** "Conectar WhatsApp": grava a conexão como "conectando" (cria na primeira vez) e pede o QR ao provedor. */
+/**
+ * "Conectar WhatsApp": pede o QR ao provedor e só então grava a conexão como "conectando" (cria na primeira vez).
+ * Revisão da T9 (b): com o serviço fora do ar (WhatsappIndisponivelError) nada é gravado — a conexão não fica presa em
+ * "conectando" e o aviso de desconectado do painel continua.
+ */
 export async function conectarWhatsapp(ctx: TenantContext, provedor: ProvedorWhatsapp, deps: Deps = {}): Promise<Conexao> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
   const instancia = instanciaDoTenant(ctx.tenantId);
+  const r = await provedor.conectar(instancia);
   await withTenant(
     ctx,
     (tx) =>
@@ -59,7 +64,6 @@ export async function conectarWhatsapp(ctx: TenantContext, provedor: ProvedorWha
         .onConflictDoUpdate({ target: whatsappConexoes.tenantId, set: { estado: 'conectando', updatedAt: agora } }),
     db,
   );
-  const r = await provedor.conectar(instancia);
   if (r.estado === 'conectada') await atualizarEstadoConexao(ctx.tenantId, { estado: 'conectada' }, deps);
   return r;
 }
@@ -75,11 +79,37 @@ export async function sincronizarEstado(ctx: TenantContext, provedor: ProvedorWh
   return situacaoDoWhatsapp(ctx, true, db);
 }
 
-/** "Desconectar WhatsApp" pelo painel: sem e-mail de aviso (foi a própria nutricionista). */
+/**
+ * "Desconectar WhatsApp" pelo painel: sem e-mail de aviso (foi a própria nutricionista). Revisão da T9 (c): o aviso é
+ * marcado ANTES de chamar o provedor — o webhook do logout pode ser processado antes do UPDATE final e, marcado, não
+ * manda e-mail. Se o serviço falhar, a marca volta ao que era (a conexão continua; uma queda de verdade depois ainda
+ * avisa) e o erro sobe para a tela.
+ */
 export async function desconectarWhatsapp(ctx: TenantContext, provedor: ProvedorWhatsapp, deps: Deps = {}): Promise<void> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  await provedor.desconectar(instanciaDoTenant(ctx.tenantId));
+  const antes = await withTenant(
+    ctx,
+    async (tx) => {
+      const [c] = await tx.select({ id: whatsappConexoes.id, aviso: whatsappConexoes.avisoDesconexaoEm }).from(whatsappConexoes).where(eq(whatsappConexoes.tenantId, ctx.tenantId)).for('update');
+      if (c) await tx.update(whatsappConexoes).set({ avisoDesconexaoEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.id, c.id));
+      return c ?? null;
+    },
+    db,
+  );
+  try {
+    await provedor.desconectar(instanciaDoTenant(ctx.tenantId));
+  } catch (e) {
+    if (antes) {
+      await withTenant(
+        ctx,
+        // só se ninguém mexeu: um "close" processado no meio (o logout saiu, a resposta não voltou) mantém a marca
+        (tx) => tx.update(whatsappConexoes).set({ avisoDesconexaoEm: antes.aviso }).where(and(eq(whatsappConexoes.id, antes.id), eq(whatsappConexoes.avisoDesconexaoEm, agora), ne(whatsappConexoes.estado, 'desconectada'))),
+        db,
+      );
+    }
+    throw e;
+  }
   await withTenant(
     ctx,
     (tx) => tx.update(whatsappConexoes).set({ estado: 'desconectada', desconectadaEm: agora, avisoDesconexaoEm: agora, updatedAt: agora }).where(eq(whatsappConexoes.tenantId, ctx.tenantId)),
@@ -88,25 +118,33 @@ export async function desconectarWhatsapp(ctx: TenantContext, provedor: Provedor
 }
 
 /**
- * connection.update (webhook) ou polling. Só atualiza conexão que existe (o webhook nunca cria). De "conectada"
- * para "desconectada" sem ter sido pelo painel: e-mail à nutricionista, uma vez por desconexão (D18).
+ * connection.update (webhook) ou polling. Só atualiza conexão que existe (o webhook nunca cria). Número `null` (o
+ * provedor não informou) = sem mudança (revisão da T9 d: o polling não reescreve "conectada em").
+ * Revisão da T9 (a): "conectando" só vale fora de uma sessão conectada (QR na tela); com a sessão conectada é a
+ * reconexão do Baileys e o estado fica. Desconexão (D18): "desconectada" depois de ter estado conectada desde a última
+ * desconexão — direto ou passando por "conectando" (o "Conectar" pediu outro QR) — grava `desconectada_em` e, se não foi
+ * pelo painel (`aviso_desconexao_em` já marcado), manda um e-mail à nutricionista: um por desconexão. QR que expira sem
+ * nunca ter conectado não avisa.
  */
 export async function atualizarEstadoConexao(tenantId: string, novo: { estado: EstadoConexao; numero?: string | null }, deps: Deps = {}): Promise<void> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
+  const numero = novo.numero ?? undefined;
   await withTenant(
     { tenantId, role: 'worker' },
     async (tx) => {
       const [c] = await tx.select().from(whatsappConexoes).where(eq(whatsappConexoes.tenantId, tenantId)).for('update');
-      if (!c || (c.estado === novo.estado && (novo.numero === undefined || novo.numero === c.numeroE164))) return;
+      if (!c || (c.estado === novo.estado && (numero === undefined || numero === c.numeroE164))) return;
+      // "connecting" com a sessão conectada = o Baileys reconectando a mesma sessão (segundos): não pisca o painel nem
+      // ignora lembretes no meio; uma queda de verdade termina em "close" (desconectada, com e-mail)
+      if (novo.estado === 'conectando' && c.estado === 'conectada') return;
       if (novo.estado === 'conectada') {
-        await tx
-          .update(whatsappConexoes)
-          .set({ estado: 'conectada', numeroE164: novo.numero ?? c.numeroE164, conectadaEm: agora, desconectadaEm: null, avisoDesconexaoEm: null, updatedAt: agora })
-          .where(eq(whatsappConexoes.id, c.id));
+        // já conectada: só o número mudou (o aparelho trocou de número sem passar por "desconectada")
+        const set = c.estado === 'conectada' ? { numeroE164: numero, updatedAt: agora } : { estado: 'conectada', numeroE164: numero ?? c.numeroE164, conectadaEm: agora, desconectadaEm: null, avisoDesconexaoEm: null, updatedAt: agora };
+        await tx.update(whatsappConexoes).set(set).where(eq(whatsappConexoes.id, c.id));
         return;
       }
-      const caiu = c.estado === 'conectada' && novo.estado === 'desconectada';
+      const caiu = novo.estado === 'desconectada' && c.conectadaEm !== null && c.desconectadaEm === null;
       const avisar = caiu && !c.avisoDesconexaoEm;
       await tx
         .update(whatsappConexoes)

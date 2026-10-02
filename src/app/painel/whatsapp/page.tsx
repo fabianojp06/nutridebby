@@ -1,12 +1,11 @@
-import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { formatarQuando } from '@/modules/agenda/fuso';
 import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { Cabecalho } from '../cabecalho';
-import { desconectarAction } from './actions';
 import { ConectarWhatsapp } from './conectar';
+import { DesconectarWhatsapp } from './desconectar';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,9 +24,7 @@ export default async function WhatsappPage() {
         ) : s.estado === 'conectada' ? (
           <section className="space-y-3">
             <p role="status">{`Conectado ao número ${s.numero ? formatarTelefone(s.numero) : '(número ainda não informado)'}.`}</p>
-            <form action={desconectarAction}>
-              <ConfirmarBotao mensagem="Desconectar o WhatsApp? Os lembretes passam a sair só por e-mail e notificação no app.">Desconectar WhatsApp</ConfirmarBotao>
-            </form>
+            <DesconectarWhatsapp />
           </section>
         ) : (
           <section className="space-y-3">

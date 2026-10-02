@@ -9,6 +9,7 @@ import { user, whatsappConexoes } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { atualizarEstadoConexao, conectarWhatsapp, desconectarWhatsapp, instanciaDoTenant, situacaoDoWhatsapp, sincronizarEstado, tenantDaInstancia } from './conexao';
+import { WhatsappIndisponivelError, type ProvedorWhatsapp } from './provedor';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -17,6 +18,17 @@ afterAll(async () => {
   await app.pool.end();
 });
 const deps = { db: app.db, agora: new Date('2026-10-14T12:00:00Z'), appUrl: 'http://localhost:3000' };
+const emailDaNutri = async (nutriId: string) => (await app.db.select({ email: user.email }).from(user).where(eq(user.id, nutriId)))[0].email;
+const linha = async (ctx: Parameters<typeof situacaoDoWhatsapp>[0]) => (await withTenant(ctx, (tx) => tx.select().from(whatsappConexoes), app.db))[0];
+const fora = (): ProvedorWhatsapp => ({
+  ...whatsappFalso(),
+  conectar: async () => {
+    throw new WhatsappIndisponivelError('Evolution respondeu HTTP 502');
+  },
+  desconectar: async () => {
+    throw new WhatsappIndisponivelError('Evolution respondeu HTTP 502');
+  },
+});
 
 describe('conexão do WhatsApp por tenant (D2)', () => {
   it('instância nd-<tenantId>, e de volta; nada fora do formato', () => {
@@ -66,5 +78,85 @@ describe('conexão do WhatsApp por tenant (D2)', () => {
     await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
     const p = await novoPaciente(app.db, T.ctx);
     expect(await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.select().from(whatsappConexoes), app.db)).toEqual([]);
+  });
+});
+
+describe('conexão do WhatsApp: itens da revisão da T9', () => {
+  const depois = (min: number) => ({ ...deps, agora: new Date(deps.agora.getTime() + min * 60_000) });
+
+  it('(a) reconexão da mesma sessão ("connecting" depois de "open") não pisca nem avisa; a queda ("close") avisa uma vez; QR que expira sem nunca conectar não avisa', async () => {
+    const T = await novoTenant(app.db);
+    const email = await emailDaNutri(T.nutriId);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectando' }, deps); // QR na tela
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, deps); // QR expirou ("refused"): nunca conectou
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toEqual([]);
+    expect(await linha(T.ctx)).toMatchObject({ estado: 'desconectada', desconectadaEm: null });
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, depois(1));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectando' }, depois(2)); // o Baileys reconecta a mesma sessão…
+    expect(await linha(T.ctx)).toMatchObject({ estado: 'conectada', conectadaEm: depois(1).agora }); // … sem piscar (os lembretes seguem saindo)
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectando' }, depois(3));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(4)); // … e a sessão cai ("close")
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(5));
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(1);
+    expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: depois(4).agora, conectadaAntes: true });
+    // reconectou pelo QR; a queda seguinte avisa de novo (uma por desconexão)
+    await conectarWhatsapp(T.ctx, whatsappFalso(), depois(9));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, depois(10));
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(13));
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(2);
+  });
+
+  it('(a) estava conectada desde a última desconexão e caiu passando por "conectando" (gravado pelo "Conectar" de novo): avisa e marca a desconexão', async () => {
+    const T = await novoTenant(app.db);
+    const email = await emailDaNutri(T.nutriId);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, deps);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), depois(1)); // a sessão se perdeu sem aviso; o "Conectar" pede outro QR
+    expect(await linha(T.ctx)).toMatchObject({ estado: 'conectando', desconectadaEm: null });
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(4)); // o QR expirou
+    expect(await emailsNaFila('whatsapp_desconectado', email)).toHaveLength(1);
+    expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: depois(4).agora, conectadaAntes: true });
+  });
+
+  it('(b) serviço fora do ar ao conectar: não cria a linha nem deixa a conexão presa em "conectando" (o aviso de desconectado continua)', async () => {
+    const T = await novoTenant(app.db);
+    await expect(conectarWhatsapp(T.ctx, fora(), deps)).rejects.toThrow(WhatsappIndisponivelError);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(whatsappConexoes), app.db)).toEqual([]);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(1));
+    await expect(conectarWhatsapp(T.ctx, fora(), depois(2))).rejects.toThrow(WhatsappIndisponivelError);
+    expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada', desconectadaEm: depois(1).agora, conectadaAntes: true });
+  });
+
+  it('(c) "Desconectar": o "close" da Evolution que chega antes de a chamada terminar não manda e-mail; serviço fora do ar → erro, nada muda e a queda seguinte ainda avisa', async () => {
+    const T = await novoTenant(app.db);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, deps);
+    const w = whatsappFalso();
+    // o webhook do logout é processado enquanto o DELETE /instance/logout ainda não voltou
+    const comWebhook: ProvedorWhatsapp = { ...w, desconectar: async () => atualizarEstadoConexao(T.tenantId, { estado: 'desconectada' }, depois(1)) };
+    await desconectarWhatsapp(T.ctx, comWebhook, depois(1));
+    expect(await emailsNaFila('whatsapp_desconectado', await emailDaNutri(T.nutriId))).toEqual([]);
+    expect(await situacaoDoWhatsapp(T.ctx, true, app.db)).toMatchObject({ estado: 'desconectada' });
+
+    const U = await novoTenant(app.db);
+    await conectarWhatsapp(U.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(U.tenantId, { estado: 'conectada', numero: '+5511912345678' }, deps);
+    await expect(desconectarWhatsapp(U.ctx, fora(), depois(1))).rejects.toThrow(WhatsappIndisponivelError);
+    expect(await linha(U.ctx)).toMatchObject({ estado: 'conectada', avisoDesconexaoEm: null, desconectadaEm: null });
+    await atualizarEstadoConexao(U.tenantId, { estado: 'desconectada' }, depois(2));
+    expect(await emailsNaFila('whatsapp_desconectado', await emailDaNutri(U.nutriId))).toHaveLength(1);
+  });
+
+  it('(d) polling que não informa o número (null): não reescreve "conectada em" nem apaga o número', async () => {
+    const T = await novoTenant(app.db);
+    await conectarWhatsapp(T.ctx, whatsappFalso(), deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511912345678' }, deps);
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: null }, depois(1));
+    expect(await linha(T.ctx)).toMatchObject({ estado: 'conectada', numeroE164: '+5511912345678', conectadaEm: deps.agora, updatedAt: deps.agora });
+    await atualizarEstadoConexao(T.tenantId, { estado: 'conectada', numero: '+5511900002222' }, depois(2)); // outro número: muda
+    expect(await linha(T.ctx)).toMatchObject({ numeroE164: '+5511900002222' });
   });
 });

@@ -24,15 +24,20 @@ export async function conectarAction(): Promise<ConectarState> {
   }
 }
 
-export async function desconectarAction(): Promise<void> {
+export type DesconectarState = { erro?: string };
+
+/** Revisão da T9 (c): o serviço fora do ar aparece na tela (a conexão continua; a nutricionista tenta de novo). */
+export async function desconectarAction(): Promise<DesconectarState> {
   const { ctx } = await requireNutri('/painel/whatsapp');
   const provedor = provedorDoApp();
-  if (!provedor) return;
+  if (!provedor) return {};
   try {
     await desconectarWhatsapp(ctx, provedor);
   } catch (e) {
     if (!(e instanceof WhatsappIndisponivelError)) throw e;
     logger.warn({ tenantId: ctx.tenantId, err: e.message }, 'falha ao desconectar o WhatsApp');
+    return { erro: MSG_FORA };
   }
   revalidatePath('/painel/whatsapp');
+  return {};
 }
