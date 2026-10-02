@@ -411,12 +411,26 @@ describe('página pública (US-032, RN-16)', () => {
 
   it('limpeza diária: pedidos com mais de 24 h somem (LGPD: minimização); os recentes ficam', async () => {
     const T = await consultorio();
-    const velho = pedido();
-    const novo = pedido(em('2026-10-16', '10:00'));
-    await solicitarCodigo(T.slug, velho, deps({ agora: new Date(agora.getTime() - 25 * 3_600_000) }));
-    await solicitarCodigo(T.slug, novo, deps());
-    expect(await limparPedidosPublicos(app.db, agora)).toBeGreaterThanOrEqual(1);
+    // datas de 2001: a limpeza varre todos os tenants e não pode alcançar as linhas dos outros arquivos de teste, que
+    // rodam em paralelo no mesmo banco (isolamento.test.ts grava pedidos com now())
+    const linha = (email: string, createdAt: Date) => ({
+      id: randomUUID(),
+      tenantId: T.tenantId,
+      tokenHash: randomUUID(),
+      codigoHash: 'x',
+      email,
+      nome: 'Ana Souza',
+      inicio: em('2001-01-05', '09:00'),
+      modalidade: 'presencial',
+      termoVersao: TERMO_PACIENTE,
+      expiraEm: new Date(createdAt.getTime() + 10 * 60_000),
+      createdAt,
+    });
+    const velho = `velho-${randomUUID().slice(0, 8)}@ex.com`;
+    const novo = `novo-${randomUUID().slice(0, 8)}@ex.com`;
+    await withTenant(T.ctx, (tx) => tx.insert(publicBookingRequests).values([linha(velho, new Date('2001-01-01T00:00:00Z')), linha(novo, new Date('2001-01-02T12:00:00Z'))]), app.db);
+    expect(await limparPedidosPublicos(app.db, new Date('2001-01-03T00:00:00Z'))).toBeGreaterThanOrEqual(1);
     const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
-    expect(restam.map((r) => r.email)).toEqual([novo.email]);
+    expect(restam.map((r) => r.email)).toEqual([novo]);
   });
 });
