@@ -1,14 +1,16 @@
-import { and, asc, eq, inArray, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
 import { appointments, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
-import { logger } from '@/lib/logger';
+import { logger, nomeDoErro } from '@/lib/logger';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { adiarLembrete, emHorarioSilencioso, ignorarPendentesDoTenant } from './agendar';
-import { emailDaNotificacao } from './mensagens';
+import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
+import { emailDaNotificacao, textoWhatsapp } from './mensagens';
 import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
+import { lerConexao } from './whatsapp/conexao';
+import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './whatsapp/provedor';
 
 export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date };
 export type Resultado =
@@ -16,8 +18,16 @@ export type Resultado =
   | { status: 'ignorada'; motivo: MotivoIgnorada }
   | { status: 'repetir'; erro: string }
   | { status: 'falhou'; erro: string };
-/** Tarefas 10 e 13 acrescentam `whatsapp` e `push` (e o ajudante `depsDeEnvio` de test/notificacoes.ts, R12). */
-export type DepsEnvio = { db: Db; agora: () => Date; appUrl: string; chaveLinks: Buffer; email: { transport: EmailTransport; from: string } };
+/** Tarefa 13 acrescenta `push` (e o padrão no ajudante `depsDeEnvio` de test/notificacoes.ts, R12). */
+export type DepsEnvio = {
+  db: Db;
+  agora: () => Date;
+  appUrl: string;
+  chaveLinks: Buffer;
+  email: { transport: EmailTransport; from: string };
+  /** null = WhatsApp desligado na plataforma (sem as variáveis da Evolution). */
+  whatsapp: ProvedorWhatsapp | null;
+};
 
 export const LOTE_POR_EXECUCAO = 40;
 /** D6 (rodada 1): parte mínima de cada tenant numa volta do cron; o que sobrar do lote vai para quem encheu a parte. */
@@ -50,44 +60,107 @@ async function enviarEmail(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado
     const chave = `notificacao:${c.n.id}:${c.consulta?.inicio.toISOString() ?? 'sem-consulta'}`;
     await deps.email.transport.send({ from: deps.email.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: chave });
     return { status: 'enviada' };
-  } catch {
+  } catch (err) {
+    // RNF-11: só o nome do erro — a mensagem do provedor pode trazer o destinatário
+    logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'email', err: nomeDoErro(err) }, 'falha no transporte de e-mail');
     return { status: 'repetir', erro: 'email' };
   }
 }
 
-/** Um envio por canal. Tarefa 10 troca `whatsapp`; Tarefa 13 troca `push`. */
+/**
+ * INT-01 (Evolution): pré-condições na hora do envio (D6). A conexão é lida numa transação própria, já fechada quando o
+ * provedor é chamado (uma conexão por transação). Só a falha passageira repete; a definitiva — e o timeout, em que não se
+ * sabe se a mensagem saiu — não (no máximo uma vez, D6).
+ */
+async function enviarWhatsapp(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
+  if (!deps.whatsapp) return ignorar('whatsapp_desligado');
+  const conexao = await withTenant({ tenantId: c.tenant.id, role: 'worker' }, lerConexao, deps.db);
+  if (!conexao || conexao.estado !== 'conectada') return ignorar('whatsapp_desconectado');
+  if (!c.paciente.whatsappOptinEm || c.paciente.whatsappOptoutEm) return ignorar('sem_optin'); // INT-01: opt-in antes de qualquer mensagem
+  if (!c.paciente.telefoneE164) return ignorar('sem_telefone');
+  const texto = textoWhatsapp(c, deps);
+  if (!texto) return { status: 'falhou', erro: 'sem_modelo' };
+  let r: ResultadoEnvio;
+  try {
+    r = await deps.whatsapp.enviarTexto({ instancia: conexao.instancia, numero: digitosDoE164(c.paciente.telefoneE164), texto });
+  } catch (err) {
+    // o provedor devolve as falhas como resultado; se lançar, não se sabe se a mensagem saiu: não repete (D6)
+    logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'whatsapp', err: nomeDoErro(err) }, 'falha no provedor de WhatsApp');
+    return { status: 'falhou', erro: 'sem_resposta' };
+  }
+  if (r.ok) return { status: 'enviada', providerMsgId: r.id, providerJid: r.jid };
+  return r.definitivo ? { status: 'falhou', erro: r.codigo } : { status: 'repetir', erro: r.codigo };
+}
+
+/** Um envio por canal. Tarefa 13 troca `push`. */
 const CANAIS_ENVIO: Record<Canal, (c: ContextoEnvio, deps: DepsEnvio) => Promise<Resultado>> = {
   email: enviarEmail,
-  whatsapp: async () => ignorar('whatsapp_desligado'),
+  whatsapp: enviarWhatsapp,
   push: async () => ignorar('push_desligado'),
 };
 
 /** As devidas (pendentes, vencidas) de alguns canais — e, se pedido, só de alguns tipos —, mais antigas primeiro, travadas com SKIP LOCKED. */
 type Devidas = (canais: readonly Canal[], max: number, tipos?: readonly string[]) => Promise<NotificationRow[]>;
 
-/** WhatsApps devidos desta rodada: quais reservar e quais já ficam sem cota (Tarefa 10: ritmo; Tarefa 11: cota). */
-async function escolherWhatsapp(_tx: Tx, _tenant: TenantRow, _agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
-  return { reservar: await devidas(['whatsapp'], max), semCota: [] };
+/** D16: no máximo 8 WhatsApps por minuto por tenant (anti-bloqueio). O que passar fica "pendente" para a próxima volta. */
+export const WHATSAPP_POR_MINUTO = 8;
+
+/**
+ * D16: vagas do minuto deste tenant — as que saíram no último minuto e as que estão saindo ocupam vaga. A trava (até o
+ * fim da transação da reserva) faz um worker por vez decidir o ritmo do tenant, mesmo que um dia haja mais de um.
+ */
+async function vagasDoMinuto(tx: Tx, tenant: TenantRow, agora: Date): Promise<number> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('whatsapp-envio'), hashtext(${tenant.id}))`);
+  const [{ n }] = await tx
+    .select({ n: count() })
+    .from(notifications)
+    .where(and(eq(notifications.canal, 'whatsapp'), or(eq(notifications.status, 'enviando'), gt(notifications.enviadaEm, new Date(agora.getTime() - 60_000)))));
+  return Math.max(0, WHATSAPP_POR_MINUTO - n);
+}
+
+/** WhatsApps desta rodada (Tarefa 11 acrescenta a cota). Sem vaga no minuto, nem busca: o resto fica para a próxima volta. */
+async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
+  if (max <= 0) return { reservar: [], semCota: [] };
+  const livres = Math.min(max, await vagasDoMinuto(tx, tenant, agora));
+  return { reservar: livres > 0 ? await devidas(['whatsapp'], livres) : [], semCota: [] };
 }
 
 /**
  * D7 na reserva (rodada 1 do /code-review): lembrete que venceu e sairia no horário silencioso — worker parado, conta
  * reativada à noite — não sai às 23:30. Na 1ª tentativa, vai para as 08:00 se ainda fizer sentido (`adiarLembrete`);
- * senão, "ignorada"/"horario_silencioso". Vale para os três canais (a RN-05 não distingue); novas tentativas seguem (D7).
+ * senão, "ignorada"/"horario_silencioso". Fora do silêncio (revisão da T5), o de 24 h atrasado que perdeu o sentido — o
+ * de 2 h já venceu e cobre a reta final — não sai junto dele: "ignorada"/"prazo_passado". Vale para os três canais (a
+ * RN-05 não distingue); novas tentativas seguem (D7).
  */
-async function segurarSilenciosos(tx: Tx, tenant: TenantRow, agora: Date): Promise<void> {
+async function segurarAtrasados(tx: Tx, tenant: TenantRow, agora: Date): Promise<void> {
+  const silencio = emHorarioSilencioso(agora, tenant.fuso);
   const ls = await tx
     .select({ id: notifications.id, tipo: notifications.tipo, inicio: appointments.inicio })
     .from(notifications)
     .innerJoin(appointments, eq(appointments.id, notifications.appointmentId))
-    .where(and(eq(notifications.status, 'pendente'), lte(notifications.agendadaPara, agora), eq(notifications.tentativas, 0), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h'])))
+    .where(
+      and(
+        eq(notifications.status, 'pendente'),
+        lte(notifications.agendadaPara, agora),
+        eq(notifications.tentativas, 0),
+        silencio
+          ? inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h'])
+          : // fora do silêncio, só o de 24 h que pode ter perdido o sentido: a consulta começa em até 2 h
+            and(eq(notifications.tipo, 'lembrete_24h'), lte(appointments.inicio, new Date(agora.getTime() + ANTECEDENCIA_MS.lembrete_2h))),
+      ),
+    )
     .for('update', { of: notifications, skipLocked: true });
   for (const l of ls) {
-    const para = adiarLembrete(l.tipo as TipoLembrete, l.inicio, tenant.fuso, agora);
-    await tx
-      .update(notifications)
-      .set(para ? { agendadaPara: para, updatedAt: agora } : { status: 'ignorada', motivoIgnorada: 'horario_silencioso', updatedAt: agora })
-      .where(eq(notifications.id, l.id));
+    const tipo = l.tipo as TipoLembrete;
+    if (silencio) {
+      const para = adiarLembrete(tipo, l.inicio, tenant.fuso, agora);
+      await tx
+        .update(notifications)
+        .set(para ? { agendadaPara: para, updatedAt: agora } : { status: 'ignorada', motivoIgnorada: 'horario_silencioso', updatedAt: agora })
+        .where(eq(notifications.id, l.id));
+    } else if (!lembreteFazSentido(tipo, l.inicio, tenant.fuso, agora)) {
+      await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'prazo_passado', updatedAt: agora }).where(eq(notifications.id, l.id));
+    }
   }
 }
 
@@ -103,7 +176,7 @@ async function reservar(ctx: TenantContext, tenant: TenantRow, deps: DepsEnvio, 
       // RN-15: relido sob trava — uma suspensão confirmada depois da leitura do tenant (processarTenant) não deixa nada
       // sair; o que ficou pendente vira "tenant_suspenso" no job "suspenso" ou na próxima volta
       if ((await getTenantStatus(tx, tenant.id, { aguardarSuspensao: true })) !== 'ativa') return [];
-      if (emHorarioSilencioso(agora, tenant.fuso)) await segurarSilenciosos(tx, tenant, agora);
+      await segurarAtrasados(tx, tenant, agora);
       const devidas: Devidas = async (canais, max, tipos) =>
         max <= 0
           ? []
@@ -188,7 +261,7 @@ async function enviarUma(ctx: TenantContext, tenant: TenantRow, n: NotificationR
     r = motivoParaIgnorar(c) ?? (await CANAIS_ENVIO[n.canal as Canal](c, deps));
   } catch (err) {
     // RNF-11: só o nome do erro (mensagens de provedor podem trazer número ou e-mail)
-    logger.warn({ tenantId: ctx.tenantId, notificacaoId: n.id, canal: n.canal, err: err instanceof Error ? err.name : 'erro' }, 'falha ao enviar notificação');
+    logger.warn({ tenantId: ctx.tenantId, notificacaoId: n.id, canal: n.canal, err: nomeDoErro(err) }, 'falha ao enviar notificação');
     r = { status: 'repetir', erro: 'excecao' };
   }
   await registrarResultado(ctx, tenant, n, r, deps);
@@ -240,7 +313,7 @@ async function processarComSeguranca(tenantId: string, deps: DepsEnvio, limite: 
     return await processarTenant(tenantId, deps, limite);
   } catch (err) {
     // um tenant com problema não para os outros; o que ficou "enviando" é destravado na próxima volta
-    logger.error({ tenantId, err: err instanceof Error ? err.name : 'erro' }, 'falha ao processar as notificações do tenant');
+    logger.error({ tenantId, err: nomeDoErro(err) }, 'falha ao processar as notificações do tenant');
     return 0;
   }
 }

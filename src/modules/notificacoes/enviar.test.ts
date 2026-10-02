@@ -10,6 +10,7 @@ import { appointments, notifications, patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
+import { logger } from '@/lib/logger';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
@@ -57,7 +58,7 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     expect(lerLinkConsulta(token, chaveLinks, em('2026-10-15', '14:00'))).toMatchObject({ tenantId: T.tenantId, appointmentId: id, expirado: false });
   });
 
-  it('sem WhatsApp e sem push configurados (até as Tarefas 10 e 13): "ignorada" com o motivo', async () => {
+  it('sem WhatsApp na plataforma (whatsapp: null) e sem push configurado (até a Tarefa 13): "ignorada" com o motivo', async () => {
     const T = await novoTenant(app.db);
     const { id } = await marcada(T);
     await processarNotificacoes(deps(em('2026-10-15', '14:00')), { tenantId: T.tenantId });
@@ -106,6 +107,27 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: cedo, canal: 'email', tipo: 'lembrete_2h', agendadaPara: em('2026-10-16', '21:50') }), app.db);
     await processarNotificacoes(deps(em('2026-10-16', '22:00')), { tenantId: T.tenantId });
     expect(await linha(T, c, 'lembrete_2h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'horario_silencioso' });
+  });
+
+  it('D7 (revisão da T5): fora do silêncio, o lembrete de 24 h atrasado não sai junto do de 2 h, que cobre a reta final; com o de 2 h no silêncio, vale até 30 min antes do início', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await marcada(T); // 16/10 às 14:00: o worker parou antes de 15/10 14:00 e só voltou em 16/10 12:30
+    const volta = deps(em('2026-10-16', '12:30'));
+    await processarNotificacoes(volta, { tenantId: T.tenantId });
+    expect(volta.transport.enviados.map((e) => e.subject).filter((s) => s.startsWith('Lembrete'))).toEqual(['Lembrete: sua consulta é hoje às 14:00']);
+    expect(await linha(T, id, 'lembrete_24h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'prazo_passado' });
+    expect(await linha(T, id, 'lembrete_2h', 'email')).toMatchObject({ status: 'enviada' });
+    // consulta às 08:30: o de 2 h (06:30) caiu no silêncio — o de 24 h atrasado ainda sai às 08:00 (30 min antes), como no adiamento
+    await marcada(T, { data: '2026-10-17', hora: '08:30' });
+    const as8 = deps(em('2026-10-17', '08:00'));
+    await processarNotificacoes(as8, { tenantId: T.tenantId });
+    expect(as8.transport.enviados.map((e) => e.subject).filter((s) => s.startsWith('Lembrete'))).toEqual(['Lembrete: sua consulta é hoje às 08:30']);
+    // consulta às 08:20: às 08:00 já faltam menos de 30 min — não sai
+    const tarde = await marcada(T, { data: '2026-10-18', hora: '08:20' });
+    const as8b = deps(em('2026-10-18', '08:00'));
+    await processarNotificacoes(as8b, { tenantId: T.tenantId });
+    expect(as8b.transport.enviados.filter((e) => e.subject.startsWith('Lembrete'))).toEqual([]);
+    expect(await linha(T, tarde.id, 'lembrete_24h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'prazo_passado' });
   });
 
   it('14:00 → 15:00 → 14:00: cada mudança do início manda uma "Consulta marcada" nova (3 ao todo, a última diz 14:00); os lembretes de 14:00 voltam a valer sem duplicar', async () => {
@@ -171,6 +193,26 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     }
     await processarNotificacoes(deps(agora, t), { tenantId: T.tenantId });
     expect(await linha(T, id, 'consulta_marcada', 'email')).toMatchObject({ status: 'falhou', erro: 'email', tentativas: 4 });
+  });
+
+  it('falha do transporte de e-mail: o log leva o nome do erro (RNF-11), nunca a mensagem nem o destinatário', async () => {
+    const T = await novoTenant(app.db);
+    const { ana } = await marcada(T);
+    const recusa = Object.assign(new Error(`recusado para ${ana.email}`), { name: 'ResendError' });
+    const transport: TransporteFalso = {
+      enviados: [],
+      async send() {
+        throw recusa;
+      },
+    };
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      await processarNotificacoes(deps(marcadaEm, transport), { tenantId: T.tenantId });
+      expect(aviso).toHaveBeenCalledWith(expect.objectContaining({ tenantId: T.tenantId, canal: 'email', err: 'ResendError' }), 'falha no transporte de e-mail');
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain(ana.email);
+    } finally {
+      aviso.mockRestore();
+    }
   });
 
   it('worker caiu no meio (Review Focus 4): e-mail "enviando" há 15 min volta (mesma chave); WhatsApp vira "falhou"/"interrompido" e nunca repete', async () => {

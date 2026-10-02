@@ -14,6 +14,7 @@ import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
+import { provedorDoAmbiente } from '@/modules/notificacoes/whatsapp/ambiente';
 import {
   expirarExportacao,
   expirarExportacoesVencidas,
@@ -66,7 +67,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     appUrl: env.APP_URL,
     chaveLinks: chaveDosLinks(encryptionKey()),
     email: { transport, from: env.EMAIL_FROM },
+    whatsapp: provedorDoAmbiente(env),
   };
+  logger.info({ whatsapp: depsEnvio.whatsapp?.nome ?? 'desligado' }, 'canal de WhatsApp'); // só o modo: nunca URL nem chave
+  // D16 (fila serial): um job de `notificacoes` por vez neste worker (padrão do boss.work: localConcurrency 1)
   await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work<{ tenantId?: string }>('notificacoes', async ([job]) => {
     await processarNotificacoes(depsEnvio, { tenantId: job.data?.tenantId });

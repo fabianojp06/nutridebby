@@ -23,15 +23,23 @@ export function fimDoSilencio(agora: Date, fuso: string): Date {
 }
 
 /**
+ * D7: o lembrete ainda faz sentido se sair em `quando` — o de 24 h só até o lembrete de 2 h (que cobre a reta final), ou
+ * até 30 min antes do início quando o de 2 h caiu no silêncio; o de 2 h, até 30 min antes. Vale para o adiamento às
+ * 08:00 e para o atrasado fora do silêncio (revisão da T5: o de 24 h não sai junto do de 2 h).
+ */
+export function lembreteFazSentido(tipo: TipoLembrete, inicio: Date, fuso: string, quando: Date): boolean {
+  const de2h = new Date(inicio.getTime() - ANTECEDENCIA_MS.lembrete_2h);
+  if (tipo === 'lembrete_24h' && !emHorarioSilencioso(de2h, fuso)) return quando.getTime() < de2h.getTime();
+  return quando.getTime() <= inicio.getTime() - 30 * 60_000;
+}
+
+/**
  * D7 na reserva (rodada 1 do /code-review): lembrete que venceu e sairia no horário silencioso (worker parado,
- * reativação à noite) vai para as 08:00 se ainda fizer sentido — o de 24 h só até o lembrete de 2 h (que cobre a reta
- * final), ou até 30 min antes do início quando o de 2 h caiu no silêncio; o de 2 h, até 30 min antes. Senão, null (ignorar).
+ * reativação à noite) vai para as 08:00 se ainda fizer sentido (`lembreteFazSentido`). Senão, null (ignorar).
  */
 export function adiarLembrete(tipo: TipoLembrete, inicio: Date, fuso: string, agora: Date): Date | null {
   const as8 = fimDoSilencio(agora, fuso);
-  const de2h = new Date(inicio.getTime() - ANTECEDENCIA_MS.lembrete_2h);
-  if (tipo === 'lembrete_24h' && !emHorarioSilencioso(de2h, fuso)) return as8.getTime() < de2h.getTime() ? as8 : null;
-  return as8.getTime() <= inicio.getTime() - 30 * 60_000 ? as8 : null;
+  return lembreteFazSentido(tipo, inicio, fuso, as8) ? as8 : null;
 }
 
 export type PlanoLembrete = { tipo: TipoLembrete; agendadaPara: Date } & ({ status: 'pendente' } | { status: 'ignorada'; motivo: 'prazo_passado' | 'horario_silencioso' });
