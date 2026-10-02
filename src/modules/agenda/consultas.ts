@@ -5,10 +5,10 @@ import { appointments, patients, type AppointmentRow, type TenantRow } from '@/d
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { dataValida } from '@/modules/pacientes/datas';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { DURACAO_MAX, DURACAO_MIN, MSG_AGENDA } from './constantes';
 import { lerBloqueios, lerRegras } from './disponibilidade';
-import { paraInstante, partesNoFuso } from './fuso';
+import { dataDaAgendaValida, paraInstante, partesNoFuso } from './fuso';
 import { dentroDoHorario, gerarHorarios, HORA_HHMM, sobrepoe, textoAparado, type Horario, type Intervalo, type Modalidade } from './horarios';
 
 export type StatusConsulta = 'agendada' | 'confirmada' | 'cancelada' | 'realizada' | 'faltou';
@@ -70,10 +70,10 @@ export async function repetirSeDeadlock<T>(operacao: () => Promise<T>): Promise<
 
 type HorarioValidado = Intervalo & { modalidade: Modalidade; linkOnline: string | null };
 
-function validarHorario(tenant: Pick<TenantAgenda, 'fuso' | 'linkOnlinePadrao'>, input: EntradaConsulta, erros: Record<string, string>): HorarioValidado | null {
+function validarHorario(tenant: Pick<TenantAgenda, 'fuso' | 'linkOnlinePadrao'>, input: EntradaConsulta, erros: Record<string, string>, now: Date): HorarioValidado | null {
   const data = textoAparado(input.data);
   const hora = textoAparado(input.hora);
-  if (!dataValida(data)) erros.data = MSG_AGENDA.dataInvalida;
+  if (!dataDaAgendaValida(data, hojeNoFuso(tenant.fuso, now))) erros.data = MSG_AGENDA.dataInvalida; // D22: passado vale; teto hoje + 5 anos
   if (!HORA_HHMM.test(hora)) erros.hora = MSG_AGENDA.horaInvalida;
   const duracao = Number(textoAparado(String(input.duracaoMin ?? '')));
   if (!Number.isInteger(duracao) || duracao < DURACAO_MIN || duracao > DURACAO_MAX) erros.duracaoMin = MSG_AGENDA.duracao;
@@ -123,9 +123,9 @@ export async function agendarPelaNutri(ctx: TenantContext, tenant: TenantAgenda,
   const erros: Record<string, string> = {};
   const patientId = idValido(input.patientId) ? input.patientId : null;
   if (!patientId) erros.patientId = MSG_AGENDA.pacienteObrigatorio;
-  const v = validarHorario(tenant, input, erros);
-  if (!v || !patientId) throw new ConsultaError(erros);
   const now = deps.now ?? new Date();
+  const v = validarHorario(tenant, input, erros, now);
+  if (!v || !patientId) throw new ConsultaError(erros);
   const db = deps.db ?? getDb();
   try {
     return await repetirSeDeadlock(() => withTenant(
@@ -169,9 +169,9 @@ export async function lerConsultaParaEscrita(tx: Tx, id: string): Promise<Appoin
  */
 export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id: string, input: EntradaConsulta, deps: Deps = {}): Promise<{ avisos: AvisoAgenda[] }> {
   const erros: Record<string, string> = {};
-  const v = validarHorario(tenant, input, erros);
-  if (!v) throw new ConsultaError(erros);
   const now = deps.now ?? new Date();
+  const v = validarHorario(tenant, input, erros, now);
+  if (!v) throw new ConsultaError(erros);
   const db = deps.db ?? getDb();
   try {
     return await repetirSeDeadlock(() => withTenant(

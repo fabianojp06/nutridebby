@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diaCurto, diaDaSemana, formatarQuando, inicioDoDia, inicioDoMes, inicioDoMesSeguinte, paraInstante, partesNoFuso, quandoComFuso, rotuloDoFuso, segundaDaSemana } from './fuso';
+import { dataDaAgendaOuHoje, dataDaAgendaValida, diaCurto, diaDaSemana, formatarQuando, inicioDoDia, inicioDoMes, inicioDoMesSeguinte, paraInstante, partesNoFuso, quandoComFuso, rotuloDoFuso, segundaDaSemana } from './fuso';
 
 const SP = 'America/Sao_Paulo';
 const NY = 'America/New_York';
@@ -46,5 +46,29 @@ describe('fuso do tenant (RN-06)', () => {
     expect(quandoComFuso(i, SP)).toBe('sex., 16/10/2026 às 14:00 (horário de Brasília)');
     expect(diaCurto('2026-10-16')).toBe('sex., 16/10');
     expect(rotuloDoFuso('America/Manaus')).toMatch(/^horário/);
+  });
+});
+
+describe('teto de datas da agenda (revisão final, ruling da T2–T4)', () => {
+  const hoje = '2026-10-02';
+  it('de 1900 até hoje + 5 anos (no fuso do tenant); 9999-12-31 e data inexistente são recusadas', () => {
+    expect(dataDaAgendaValida('1900-01-01', hoje)).toBe(true);
+    expect(dataDaAgendaValida('1899-12-31', hoje)).toBe(false);
+    expect(dataDaAgendaValida('2031-10-02', hoje)).toBe(true);
+    expect(dataDaAgendaValida('2031-10-03', hoje)).toBe(false);
+    expect(dataDaAgendaValida('9999-12-31', hoje)).toBe(false);
+    expect(dataDaAgendaValida('2026-02-30', hoje)).toBe(false);
+    expect(dataDaAgendaValida('2026-10-2', hoje)).toBe(false);
+    // 29/02 + 5 anos = 28/02 (ano comum)
+    expect(dataDaAgendaValida('2029-02-28', '2024-02-29')).toBe(true);
+    expect(dataDaAgendaValida('2029-03-01', '2024-02-29')).toBe(false);
+  });
+
+  it('páginas da agenda (?data=): fora do teto, lixo ou ausente → hoje, nunca exceção', () => {
+    expect(dataDaAgendaOuHoje('2026-12-25', hoje)).toBe('2026-12-25');
+    expect(dataDaAgendaOuHoje('9999-12-31', hoje)).toBe(hoje);
+    expect(dataDaAgendaOuHoje('1800-01-01', hoje)).toBe(hoje);
+    expect(dataDaAgendaOuHoje(['2026-12-25'], hoje)).toBe(hoje);
+    expect(dataDaAgendaOuHoje(undefined, hoje)).toBe(hoje);
   });
 });

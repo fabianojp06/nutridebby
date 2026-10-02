@@ -129,6 +129,18 @@ describe('agendar pela nutricionista (US-031)', () => {
     expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T, { fuso: 'America/New_York' }), { patientId: ana.id, data: '2026-03-08', hora: '02:30', duracaoMin: '60', modalidade: 'presencial' }, deps))).toEqual({ hora: MSG_AGENDA.horaInexistente });
   });
 
+  it('teto de datas (revisão final): 9999-12-31 23:30 e depois de hoje + 5 anos → "Informe uma data válida" no campo, nunca 500; até hoje + 5 anos e no passado (encaixe, D22) marca', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const base = { patientId: ana.id, hora: '23:30', duracaoMin: '60', modalidade: 'presencial' };
+    expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, data: '9999-12-31' }, deps))).toEqual({ data: MSG_AGENDA.dataInvalida });
+    expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, data: '2031-10-02' }, deps))).toEqual({ data: MSG_AGENDA.dataInvalida }); // hoje (deps.now) = 01/10/2026
+    await expect(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, data: '2031-10-01' }, deps)).resolves.toMatchObject({ id: expect.any(String) });
+    await expect(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, data: '2020-01-01' }, deps)).resolves.toMatchObject({ id: expect.any(String) });
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-15', '09:00'));
+    expect(await erros(moverConsulta(T.ctx, tenantAgenda(T), id, { data: '9999-12-31', hora: '23:30', duracaoMin: '60', modalidade: 'presencial' }, deps))).toEqual({ data: MSG_AGENDA.dataInvalida });
+  });
+
   it('paciente arquivado → "Paciente arquivado: desarquive para agendar."; bloqueado → PacienteBloqueadoError; de outro consultório → não encontrado', async () => {
     const T = await novoTenant(app.db);
     const arq = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });

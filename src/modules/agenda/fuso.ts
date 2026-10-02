@@ -1,4 +1,4 @@
-import { formatarData, somarDias } from '@/modules/pacientes/datas';
+import { dataValida, formatarData, somarAnos, somarDias } from '@/modules/pacientes/datas';
 
 /** RN-06: tudo gravado em UTC; calendário e relógio são os do fuso do tenant. Só Intl, sem biblioteca. */
 export type PartesNoFuso = { data: string; hora: string; diaSemana: number; minutos: number };
@@ -102,3 +102,20 @@ export function quandoComFuso(instante: Date, fuso: string): string {
 }
 
 export { somarDias };
+
+/** Teto das datas da agenda: até quantos anos depois de hoje (no fuso do tenant) uma consulta, um bloqueio ou `?data=` vale. */
+export const ANOS_FUTUROS_AGENDA = 5;
+
+/**
+ * Revisão final (ruling da T2–T4): data da agenda = 'AAAA-MM-DD' que existe, de 1900 até hoje + 5 anos (`hoje` no fuso
+ * do tenant, `hojeNoFuso`). Sem o teto, 9999-12-31 virava o ano 10000 em `somarDias`/`toISOString` e dava 500 (RangeError,
+ * ou 22009 no banco). Fora dela: "Informe uma data válida" no campo (consulta, bloqueio) ou a página volta para hoje.
+ */
+export function dataDaAgendaValida(data: string, hoje: string): boolean {
+  return dataValida(data) && data <= somarAnos(hoje, ANOS_FUTUROS_AGENDA);
+}
+
+/** `?data=` das páginas da agenda: a data pedida, se for uma data da agenda; senão hoje. */
+export function dataDaAgendaOuHoje(pedida: unknown, hoje: string): string {
+  return typeof pedida === 'string' && dataDaAgendaValida(pedida, hoje) ? pedida : hoje;
+}

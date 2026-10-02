@@ -128,6 +128,12 @@ describe('bloqueios (US-030)', () => {
     expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-01-01', dataFim: '2027-01-02' }, deps))).toEqual({ dataFim: MSG_AGENDA.bloqueioLongo });
     expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-20', motivo: 'x'.repeat(121) }, deps))).toEqual({ motivo: MSG_AGENDA.motivoLongo });
     expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-02-30' }, deps))).toEqual({ dataInicio: MSG_AGENDA.dataInvalida });
+    // teto de datas da agenda (revisão final): hoje + 5 anos no fuso do tenant; 9999-12-31 não dá 500
+    const now = new Date('2026-10-01T12:00:00Z');
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '9999-12-31' }, { ...deps, now }))).toEqual({ dataInicio: MSG_AGENDA.dataInvalida });
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2031-09-30', dataFim: '9999-12-31' }, { ...deps, now }))).toEqual({ dataFim: MSG_AGENDA.dataInvalida });
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2031-10-02', horaInicio: '08:00', horaFim: '09:00' }, { ...deps, now }))).toEqual({ dataInicio: MSG_AGENDA.dataInvalida });
+    await expect(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2031-10-01' }, { ...deps, now })).resolves.toEqual(expect.any(String));
     await excluirBloqueio(T.ctx, id, app.db);
     await expect(excluirBloqueio(T.ctx, 'nao-e-uuid', app.db)).resolves.toBeUndefined();
   });
@@ -138,7 +144,11 @@ describe('bloqueios (US-030)', () => {
     // 08/03/2026, 02:30 não existe em Nova York (os relógios pulam de 02:00 para 03:00)
     expect(await erros(criarBloqueio(T.ctx, { fuso: NY }, { dataInicio: '2026-03-08', horaInicio: '02:30', horaFim: '05:00' }, deps))).toEqual({ horaInicio: MSG_AGENDA.horaInexistente });
     expect(await erros(criarBloqueio(T.ctx, { fuso: NY }, { dataInicio: '2026-03-08', horaInicio: '01:00', horaFim: '02:30' }, deps))).toEqual({ horaFim: MSG_AGENDA.horaInexistente });
-    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', horaInicio: '18:00', horaFim: '14:00' }, deps))).toEqual({ dataFim: MSG_AGENDA.dataFinalAntes });
+    // revisão final: no mesmo dia, fim antes (ou igual) do início é erro da hora de fim, não da data final
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', horaInicio: '18:00', horaFim: '14:00' }, deps))).toEqual({ horaFim: MSG_AGENDA.fimAntesDoInicio });
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', dataFim: '2026-10-16', horaInicio: '14:00', horaFim: '14:00' }, deps))).toEqual({ horaFim: MSG_AGENDA.fimAntesDoInicio });
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', horaFim: '00:00' }, deps))).toEqual({ horaFim: MSG_AGENDA.fimAntesDoInicio });
+    expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', horaInicio: '08:00', dataFim: '2026-10-15', horaFim: '18:00' }, deps))).toEqual({ dataFim: MSG_AGENDA.dataFinalAntes });
     expect(await erros(criarBloqueio(T.ctx, { fuso: SP }, { dataInicio: '2026-10-16', horaInicio: '25:00', horaFim: '7:5' }, deps))).toEqual({ horaInicio: MSG_AGENDA.horaInvalida, horaFim: MSG_AGENDA.horaInvalida });
     expect(await listarBloqueios(T.ctx, new Date('2020-01-01T00:00:00Z'), new Date('2040-01-01T00:00:00Z'), app.db)).toEqual([]);
   });

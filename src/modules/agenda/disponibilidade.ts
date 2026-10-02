@@ -4,9 +4,9 @@ import { availabilityBlocks, availabilityRules } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
-import { dataValida } from '@/modules/pacientes/datas';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { DURACAO_MAX, DURACAO_MIN, MAX_REGRAS, MSG_AGENDA } from './constantes';
-import { inicioDoDia, paraInstante, somarDias } from './fuso';
+import { dataDaAgendaValida, inicioDoDia, paraInstante, somarDias } from './fuso';
 import { HORA_HHMM, minutosDe, textoAparado, type Intervalo, type ModalidadeRegra, type Regra } from './horarios';
 
 export type RegraSalva = Regra & { id: string };
@@ -98,8 +98,10 @@ export async function criarBloqueio(ctx: TenantContext, tenant: { fuso: string }
   const horaInicio = textoAparado(input.horaInicio);
   const horaFim = textoAparado(input.horaFim);
   const motivo = normalizarTexto(input.motivo);
-  if (!dataValida(dataInicio)) erros.dataInicio = MSG_AGENDA.dataInvalida;
-  if (dataFimInformada && !dataValida(dataFimInformada)) erros.dataFim = MSG_AGENDA.dataInvalida;
+  const now = deps.now ?? new Date();
+  const hoje = hojeNoFuso(tenant.fuso, now);
+  if (!dataDaAgendaValida(dataInicio, hoje)) erros.dataInicio = MSG_AGENDA.dataInvalida;
+  if (dataFimInformada && !dataDaAgendaValida(dataFimInformada, hoje)) erros.dataFim = MSG_AGENDA.dataInvalida;
   if (horaInicio && !HORA_HHMM.test(horaInicio)) erros.horaInicio = MSG_AGENDA.horaInvalida;
   if (horaFim && !HORA_HHMM.test(horaFim)) erros.horaFim = MSG_AGENDA.horaInvalida;
   if (motivo.length > 120) erros.motivo = MSG_AGENDA.motivoLongo;
@@ -110,11 +112,13 @@ export async function criarBloqueio(ctx: TenantContext, tenant: { fuso: string }
     fim = horaFim ? paraInstante(dataFim, horaFim, tenant.fuso) : inicioDoDia(somarDias(dataFim, 1), tenant.fuso);
     if (!inicio) erros.horaInicio = MSG_AGENDA.horaInexistente;
     if (!fim) erros.horaFim = MSG_AGENDA.horaInexistente;
-    if (inicio && fim && fim.getTime() <= inicio.getTime()) erros.dataFim = MSG_AGENDA.dataFinalAntes;
-    else if (inicio && fim && fim.getTime() - inicio.getTime() > BLOQUEIO_MAX_MS) erros.dataFim = MSG_AGENDA.bloqueioLongo;
+    // revisão final: data final antes da inicial é erro da data; com as datas em ordem (mesmo dia), é a hora de fim
+    if (inicio && fim && fim.getTime() <= inicio.getTime()) {
+      if (dataFim < dataInicio) erros.dataFim = MSG_AGENDA.dataFinalAntes;
+      else erros.horaFim = MSG_AGENDA.fimAntesDoInicio;
+    } else if (inicio && fim && fim.getTime() - inicio.getTime() > BLOQUEIO_MAX_MS) erros.dataFim = MSG_AGENDA.bloqueioLongo;
   }
   if (Object.keys(erros).length) throw new DisponibilidadeError(erros);
-  const now = deps.now ?? new Date();
   return withTenant(
     ctx,
     async (tx) => {

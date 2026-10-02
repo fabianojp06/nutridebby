@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { listarAgenda } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
-import { diaCurto, inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
+import { dataDaAgendaOuHoje, diaCurto, inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
-import { dataValida, formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { Cabecalho } from '../cabecalho';
 import { ItemConsulta } from './item-consulta';
 import { lerVisao, periodoDaVisao, type Visao } from './periodo';
@@ -18,7 +18,7 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
   const sp = await searchParams;
   const visao = lerVisao(sp.visao);
   const hoje = hojeNoFuso(tenant.fuso);
-  const data = typeof sp.data === 'string' && dataValida(sp.data) ? sp.data : hoje;
+  const data = dataDaAgendaOuHoje(sp.data, hoje); // teto de datas da agenda: 9999-12-31 → hoje, nunca 500
   const p = periodoDaVisao(visao, data);
   const de = inicioDoDia(p.dias[0], tenant.fuso);
   const ate = inicioDoDia(somarDias(p.dias.at(-1)!, 1), tenant.fuso);

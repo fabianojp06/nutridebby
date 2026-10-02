@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
-import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
+import { dataDaAgendaOuHoje } from '@/modules/agenda/fuso';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarPacientes } from '@/modules/pacientes/pacientes';
 import { Cabecalho } from '../../cabecalho';
 import { agendarAction } from '../actions';
@@ -12,7 +13,7 @@ export default async function NovaConsultaPage({ searchParams }: PageProps<'/pai
   const { ctx, tenant } = await requireNutri('/painel/agenda/nova');
   const sp = await searchParams;
   const pacientes = await listarPacientes(ctx, { status: 'ativo' });
-  const data = typeof sp.data === 'string' && dataValida(sp.data) ? sp.data : hojeNoFuso(tenant.fuso);
+  const data = dataDaAgendaOuHoje(sp.data, hojeNoFuso(tenant.fuso));
   // `?paciente=` que não é de um paciente ativo da lista fica sem seleção (o <select> sem opção igual escolheria o primeiro paciente)
   const patientId = typeof sp.paciente === 'string' && pacientes.some((p) => p.id === sp.paciente) ? sp.paciente : '';
   return (
