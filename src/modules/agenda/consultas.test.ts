@@ -176,6 +176,31 @@ describe('alterar data e hora (US-031, D17)', () => {
     expect(await buscarConsulta(T.ctx, id, app.db)).toMatchObject({ inicio: em('2026-10-15', '09:30'), status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
   });
 
+  it('mudar só a modalidade (mesmo início): continua "confirmada", com a confirmação e o pedido de remarcação (R3, D17)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const pedido = new Date('2026-10-02T15:00:00Z');
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-15', '09:00'), 60, { status: 'confirmada', confirmadaVia: 'whatsapp', pedidoRemarcacaoEm: pedido });
+    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-15', hora: '09:00', duracaoMin: '45', modalidade: 'online', linkOnline: 'https://meet.google.com/abc-defg-hij' }, deps);
+    expect(await buscarConsulta(T.ctx, id, app.db)).toMatchObject({
+      inicio: em('2026-10-15', '09:00'),
+      fim: em('2026-10-15', '09:45'),
+      modalidade: 'online',
+      linkOnline: 'https://meet.google.com/abc-defg-hij',
+      status: 'confirmada',
+      confirmadaVia: 'whatsapp',
+      pedidoRemarcacaoEm: pedido,
+    });
+  });
+
+  it('mudar o início de uma consulta confirmada pelo link: volta a "agendada", sem confirmação nem pedido de remarcação (R3, D17)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-15', '09:00'), 60, { status: 'confirmada', confirmadaVia: 'link', pedidoRemarcacaoEm: new Date('2026-10-02T15:00:00Z') });
+    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora: '09:00', duracaoMin: '60', modalidade: 'presencial' }, deps);
+    expect(await buscarConsulta(T.ctx, id, app.db)).toMatchObject({ inicio: em('2026-10-16', '09:00'), status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
+  });
+
   it('por cima de outra consulta: "Conflito com a consulta de <nome> às <hora>"; a consulta fica como estava', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });

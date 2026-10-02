@@ -142,8 +142,9 @@ export async function lerConsultaParaEscrita(tx: Tx, id: string): Promise<Appoin
 }
 
 /**
- * D17: "Alterar data e hora" pela nutricionista — a mesma consulta, de volta a "agendada" (a confirmação
- * e o pedido de remarcação eram do horário antigo). Ordem das travas: paciente → consulta.
+ * D17: "Alterar data e hora" pela nutricionista — a mesma consulta. Se o início muda, volta a "agendada" e
+ * perde a confirmação e o pedido de remarcação (eram do horário antigo); mudar só a duração, a modalidade
+ * ou o link mantém a situação (R3). Ordem das travas: paciente → consulta.
  */
 export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id: string, input: EntradaConsulta, deps: Deps = {}): Promise<{ avisos: AvisoAgenda[] }> {
   const erros: Record<string, string> = {};
@@ -163,14 +164,18 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
         if (!STATUS_ATIVOS.includes(c.status as StatusConsulta)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
         const choque = await mensagemDeConflito(tx, v, tenant.fuso, id);
         if (choque) throw new ConsultaError({ geral: choque });
+        const inicioMudou = v.inicio.getTime() !== c.inicio.getTime();
+        const horarioNovo = inicioMudou ? { status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null } : {};
         await tx
           .update(appointments)
-          .set({ inicio: v.inicio, fim: v.fim, modalidade: v.modalidade, linkOnline: v.linkOnline, status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null, updatedAt: now })
+          .set({ inicio: v.inicio, fim: v.fim, modalidade: v.modalidade, linkOnline: v.linkOnline, ...horarioNovo, updatedAt: now })
           .where(eq(appointments.id, id));
-        // Tarefa 5 (R3): só quando o INÍCIO muda (`v.inicio.getTime() !== c.inicio.getTime()`) — lembretes do horário
-        // novo como linhas novas (os pendentes do horário antigo viram ignorados `consulta_remarcada`; os já enviados
-        // ficam como estão, D17: linha enviada é imutável), "Consulta marcada" ao paciente e dispararEnvio. Mudar só a
-        // duração, a modalidade ou o link não replaneja nem avisa: os pendentes saem com os dados novos, lidos no envio.
+        if (inicioMudou) {
+          // Tarefa 5 (R3): lembretes do horário novo como linhas novas (os pendentes do horário antigo viram ignorados
+          // `consulta_remarcada`; os já enviados ficam como estão, D17: linha enviada é imutável), "Consulta marcada"
+          // ao paciente e dispararEnvio entram aqui. Mudar só a duração, a modalidade ou o link não replaneja nem
+          // avisa: os pendentes saem com os dados novos, lidos no envio.
+        }
         return { avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
       db,
