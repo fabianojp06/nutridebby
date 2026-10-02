@@ -4,11 +4,12 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, exams, invites, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
+import { appointments, auditLog, consents, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
@@ -165,6 +166,67 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
     const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
     expect(restam.map((s) => s.patientId)).toEqual([outro.id]);
+  });
+
+  it('Tarefa 15 (D10, D13): apaga o motivo do cancelamento, o link online e o destino do WhatsApp; os aceites do termo ficam sem IP e sem a conta', async () => {
+    const T = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const uid = randomUUID();
+    await app.db.insert(user).values({ id: uid, name: 'Ana', email: `conta-${uid.slice(0, 8)}@ex.com`, appRole: 'paciente' });
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-30', userId: uid });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const cancelada = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-10T12:00:00Z'), 60, {
+      modalidade: 'online', linkOnline: 'https://meet.example/ana-souza', status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now, motivoCancelamento: 'Viagem com a Ana',
+    });
+    const presencial = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-11T12:00:00Z'), 60, { status: 'realizada' });
+    const daBia = await consultaDireta(app.db, T.ctx, outro.id, new Date('2026-09-12T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now, motivoCancelamento: 'Viagem da Bia' });
+    const inicio = new Date('2026-09-10T12:00:00Z');
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values([
+      { tenantId: T.tenantId, patientId: p.id, appointmentId: cancelada, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada', agendadaPara: new Date('2026-09-09T12:00:00Z'), enviadaEm: new Date('2026-09-09T12:00:00Z'), providerJid: '5511912345678@s.whatsapp.net', providerMsgId: `msg-${randomUUID()}` },
+      { tenantId: T.tenantId, patientId: p.id, canal: 'whatsapp', tipo: 'convite_paciente', status: 'pendente', agendadaPara: now, conteudoSelado: 'selado-de-teste' },
+    ]), app.db);
+    await app.db.insert(consents).values([
+      { userId: uid, tenantId: T.tenantId, termoVersao: 'termo-v1', aceitoEm: new Date('2026-01-01T12:00:00Z'), ip: '198.51.100.7' }, // pela conta (convite)
+      { tenantId: T.tenantId, patientId: p.id, termoVersao: 'termo-v1', aceitoEm: new Date('2026-02-01T12:00:00Z'), ip: '198.51.100.8' }, // página pública, mesma versão
+      { tenantId: T.tenantId, patientId: p.id, termoVersao: 'termo-v2', aceitoEm: new Date('2026-03-01T12:00:00Z'), ip: '198.51.100.9' },
+      { userId: uid, tenantId: B.tenantId, termoVersao: 'termo-v1', aceitoEm: new Date('2026-04-01T12:00:00Z'), ip: '198.51.100.10' }, // a mesma conta em outro consultório
+      { tenantId: T.tenantId, patientId: outro.id, termoVersao: 'termo-v1', aceitoEm: new Date('2026-05-01T12:00:00Z'), ip: '198.51.100.11' },
+    ]);
+
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    const cs = await withTenant(T.ctx, (tx) => tx.select().from(appointments), app.db);
+    const de = (id: string) => cs.find((c) => c.id === id)!;
+    expect(de(cancelada)).toMatchObject({ motivoCancelamento: null, linkOnline: 'https://anonimizado.invalid', status: 'cancelada', modalidade: 'online' });
+    expect(de(presencial)).toMatchObject({ linkOnline: null, status: 'realizada' });
+    expect(de(daBia).motivoCancelamento).toBe('Viagem da Bia'); // só o titular
+    const ns = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.patientId, p.id)), app.db);
+    expect(ns.map((n) => [n.tipo, n.status, n.motivoIgnorada, n.providerJid, n.conteudoSelado]).sort()).toEqual([
+      ['convite_paciente', 'ignorada', 'paciente_inativo', null, null],
+      ['lembrete_24h', 'enviada', null, null, null],
+    ]);
+    const aceites = await app.db.select().from(consents).where(eq(consents.tenantId, T.tenantId));
+    const resumo = aceites.map((c) => [c.patientId, c.userId, c.termoVersao, c.aceitoEm.toISOString(), c.ip]).sort((a, b) => `${a[0]}${a[2]}`.localeCompare(`${b[0]}${b[2]}`));
+    expect(resumo).toEqual(
+      [
+        [p.id, null, 'termo-v1', '2026-01-01T12:00:00.000Z', null], // fica um por versão, com a data mais antiga
+        [p.id, null, 'termo-v2', '2026-03-01T12:00:00.000Z', null],
+        [outro.id, null, 'termo-v1', '2026-05-01T12:00:00.000Z', '198.51.100.11'],
+      ].sort((a, b) => `${a[0]}${a[2]}`.localeCompare(`${b[0]}${b[2]}`)),
+    );
+    expect((await app.db.select().from(consents).where(eq(consents.tenantId, B.tenantId))).map((c) => [c.userId, c.ip])).toEqual([[uid, '198.51.100.10']]);
+  });
+
+  it('app_anonimizar_aceites: só no contexto worker e só para paciente bloqueado ainda não anonimizado (42501)', async () => {
+    const T = await novoTenant(app.db);
+    const ativo = await novoPaciente(app.db, T.ctx);
+    const bloqueado = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2046-01-01' });
+    const codigo = (e: unknown) => ((e as { cause?: { code?: string } }).cause ?? (e as { code?: string })).code;
+    const chamar = (ctx: Parameters<typeof withTenant>[0], id: string) => withTenant(ctx, (tx) => tx.execute(sql`select app_anonimizar_aceites(${id})`), app.db);
+    await expect(chamar(T.ctx, bloqueado.id)).rejects.toSatisfy((e) => codigo(e) === '42501'); // nutri
+    await expect(chamar({ tenantId: T.tenantId, role: 'worker' }, ativo.id)).rejects.toSatisfy((e) => codigo(e) === '42501');
+    await expect(chamar({ tenantId: randomUUID(), role: 'worker' }, bloqueado.id)).rejects.toSatisfy((e) => codigo(e) === '42501'); // outro tenant
+    await expect(app.db.execute(sql`update consents set ip = null where false`)).rejects.toSatisfy((e) => codigo(e) === '42501'); // append-only para a aplicação
   });
 
   it('nome digitado errado ou paciente de outro tenant: nada acontece', async () => {

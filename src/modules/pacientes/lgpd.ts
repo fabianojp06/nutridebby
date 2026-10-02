@@ -1,6 +1,6 @@
-import { and, eq, isNotNull, isNull, lt, max, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { consultations, dataExports, exams, mealPlans, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
+import { appointments, consultations, dataExports, exams, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { logger } from '@/lib/logger';
@@ -176,6 +176,27 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
 }
 
 /**
+ * D10 (Tarefa 15): textos livres e destinos de mensagem do titular na agenda. O motivo do cancelamento sai; o link da
+ * consulta online vira um endereço inválido (o CHECK exige https para online); o número do WhatsApp (`provider_jid`)
+ * sai das mensagens; o que ainda estava na fila não sai mais (o convite cifrado é apagado). Horários, situação, canal e
+ * tipo ficam (histórico da agenda e métricas, sem identificação).
+ */
+async function anonimizarAgenda(tx: Tx, patientId: string, now: Date): Promise<void> {
+  await tx
+    .update(appointments)
+    .set({ motivoCancelamento: null, linkOnline: sql`case when ${appointments.modalidade} = 'online' then 'https://anonimizado.invalid' end`, updatedAt: now })
+    .where(and(eq(appointments.patientId, patientId), or(isNotNull(appointments.motivoCancelamento), isNotNull(appointments.linkOnline))));
+  await tx
+    .update(notifications)
+    .set({ status: 'ignorada', motivoIgnorada: 'paciente_inativo', conteudoSelado: null, updatedAt: now })
+    .where(and(eq(notifications.patientId, patientId), eq(notifications.status, 'pendente')));
+  await tx
+    .update(notifications)
+    .set({ providerJid: null, conteudoSelado: null, updatedAt: now })
+    .where(and(eq(notifications.patientId, patientId), or(isNotNull(notifications.providerJid), isNotNull(notifications.conteudoSelado))));
+}
+
+/**
  * US-018 "Fim do prazo de guarda": job diário (fila retencao-lgpd). Para cada tenant (§4.1: a varredura
  * parte de `tenants`), anonimiza quem está bloqueado com `anonimizar_apos` já passado no fuso do tenant
  * ("guardado até 15/09/2046; depois dessa data…": no próprio dia 15 ainda não).
@@ -227,6 +248,11 @@ export async function anonimizarVencidos(
         const feito = await withTenant(
           ctx,
           async (tx) => {
+            // outra execução já anonimizou: nada a fazer (idempotente, sem erro)
+            const [pendente] = await tx.select({ id: patients.id }).from(patients).where(and(eq(patients.id, id), isNull(patients.anonimizadoEm))).for('update');
+            if (!pendente) return false;
+            // D13 (Tarefa 15): aceites do termo sem IP e sem a conta — antes do UPDATE, que solta a conta (0065)
+            await tx.execute(sql`select app_anonimizar_aceites(${id})`);
             const r = await tx
               .update(patients)
               .set({
@@ -246,6 +272,7 @@ export async function anonimizarVencidos(
               throw new Error('anexo novo durante a anonimização');
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
+            if (r.length) await anonimizarAgenda(tx, id, now);
             if (r.length)
               await recordAudit(tx, {
                 acao: 'anonimizar',

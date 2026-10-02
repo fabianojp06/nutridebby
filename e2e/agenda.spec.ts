@@ -327,3 +327,28 @@ test('convite por WhatsApp no cadastro: aviso sem link, com o e-mail mascarado; 
     await expect(nutri.getByText(/^Convite por WhatsApp: enviado em /)).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 20_000 });
 });
+
+test('presença: consulta de ontem → "Faltou"; "Iniciar atendimento" → "Realizada"; indicadores no painel (US-037)', async () => {
+  const ontem = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() - 86_400_000));
+  await marcar(`Dora Agenda ${sufixo} (dora-${sufixo}@ex.com)`, ontem, '07:00');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await nutri.getByRole('button', { name: 'Faltou' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada.' })).toBeVisible();
+  await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Faltou')).toBeVisible();
+  await marcar(`Carla Agenda ${sufixo} (carla-${sufixo}@ex.com)`, ontem, '06:00');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  const urlDaConsulta = nutri.url().split('?')[0];
+  await nutri.getByRole('link', { name: 'Iniciar atendimento' }).click();
+  await expect(nutri.getByText(/^Atendimento da consulta de /)).toBeVisible();
+  await expect(nutri.getByLabel('Data do atendimento')).toHaveValue(ontem);
+  await nutri.getByRole('button', { name: 'Registrar atendimento' }).click();
+  await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}$/);
+  await nutri.goto(urlDaConsulta);
+  await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Realizada')).toBeVisible();
+  await expect(nutri.getByRole('link', { name: 'Iniciar atendimento' })).toHaveCount(0);
+  await nutri.goto('/painel');
+  await expect(nutri.getByRole('heading', { name: 'Agenda' })).toBeVisible();
+  await expect(nutri.getByText(/^Consultas do mês: \d+$/)).toBeVisible();
+  await expect(nutri.getByText(/^Taxa de faltas do mês: (\d+,\d% \(\d+ de \d+\)|Sem dados)$/)).toBeVisible();
+  await expect(nutri.getByText(/^Mês anterior: (\d+,\d%|Sem dados)$/)).toBeVisible();
+});

@@ -99,11 +99,18 @@ export const consultations = pgTable(
     patientId: uuid('patient_id').notNull(),
     data: date('data', { mode: 'string' }).notNull(),
     orientacoesPaciente: text('orientacoes_paciente'),
+    /**
+     * Plano 05: atendimento iniciado pela agenda ("Iniciar atendimento"). Uma consulta, no máximo um atendimento. A FK
+     * composta (mesmo tenant e mesmo paciente) para `appointments` fica só na migration custom 0064: o schema da agenda
+     * importa este arquivo, e declarar aqui criaria um import circular.
+     */
+    appointmentId: uuid('appointment_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     unique('consultations_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
+    uniqueIndex('consultations_consulta_idx').on(t.appointmentId).where(sql`${t.appointmentId} is not null`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consultations_paciente_fk' }),
     check('consultations_orientacoes_tamanho', sql`char_length(${t.orientacoesPaciente}) <= 5000`),
     index('consultations_paciente_data_idx').on(t.tenantId, t.patientId, t.data),

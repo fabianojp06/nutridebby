@@ -9,7 +9,7 @@ export type RlsViolation = { table: string; problem: string };
 export const RLS_EXCEPTIONS: Record<string, string> = {
   user: 'identidade global do Better Auth: login ocorre antes do contexto de tenant; acesso só via services do M1 (spec §4.1)',
   consents:
-    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts, src/modules/pacientes/convite-paciente.ts e src/modules/agenda/agendamento-publico.ts (aceite da página pública, D13)',
+    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts, src/modules/pacientes/convite-paciente.ts, src/modules/agenda/agendamento-publico.ts (aceite da página pública, D13) e src/modules/pacientes/exportacao-job.ts (leitura dos aceites do titular no dados.json); a anonimização (src/modules/pacientes/lgpd.ts) só pela função app_anonimizar_aceites (0065)',
   invites:
     'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin)',
 };

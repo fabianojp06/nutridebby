@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { consultationNotes, consultations } from '@/db/schema';
+import { uniqueViolation } from '@/db/errors';
+import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
@@ -12,6 +13,8 @@ export const MSG_ATENDIMENTO = {
   notas: 'Use no máximo 20000 caracteres nas notas privadas',
   orientacoes: 'Use no máximo 5000 caracteres nas orientações',
   naoEncontrado: 'Atendimento não encontrado.',
+  consultaJaAtendida: 'Esta consulta já tem um atendimento registrado.',
+  consultaInvalida: 'Consulta não encontrada para este paciente.',
 } as const;
 
 export class AtendimentoError extends Error {
@@ -22,7 +25,8 @@ export class AtendimentoError extends Error {
 }
 
 export type Atendimento = { id: string; data: string; orientacoesPaciente: string | null; notasPrivadas: string | null; createdAt: Date };
-type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown };
+/** `appointmentId` (Plano 05): só no registro, quando o atendimento é iniciado pela agenda; a edição ignora. */
+type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown; appointmentId?: unknown };
 
 function validar(input: Entrada, hoje: string): { data: string; notas: string | null; orientacoes: string | null } {
   const erros: Record<string, string> = {};
@@ -50,23 +54,41 @@ async function gravarNota(tx: Tx, a: { tenantId: string; patientId: string; cons
     .onConflictDoUpdate({ target: consultationNotes.consultationId, set: { texto: notas, updatedAt: now } });
 }
 
-/** US-016: atendimento do dia (a partir da agenda no Plano 05). Notas vazias não criam linha em consultation_notes. */
+/**
+ * US-016: atendimento do dia. Notas vazias não criam linha em consultation_notes.
+ * Plano 05 ("Iniciar atendimento" na agenda): com `appointmentId`, a consulta precisa ser deste paciente e não
+ * cancelada; o atendimento fica ligado a ela (no máximo um por consulta) e ela vira "realizada" — inclusive a marcada
+ * como "faltou" por engano: houve atendimento. Ordem das travas: paciente → consulta (a mesma da agenda).
+ */
 export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: string }, patientId: string, input: Entrada, deps: { db?: Db; now?: Date } = {}): Promise<string> {
   const now = deps.now ?? new Date();
   const v = validar(input, hojeNoFuso(tenant.fuso, now));
-  return withTenant(
-    ctx,
-    async (tx) => {
-      const p = await carregarPacienteParaEscrita(tx, patientId);
-      const [c] = await tx
-        .insert(consultations)
-        .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, createdAt: now, updatedAt: now })
-        .returning({ id: consultations.id });
-      await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
-      return c.id;
-    },
-    deps.db ?? getDb(),
-  );
+  const appointmentId = input.appointmentId === undefined || input.appointmentId === null || input.appointmentId === '' ? null : input.appointmentId;
+  try {
+    return await withTenant(
+      ctx,
+      async (tx) => {
+        const p = await carregarPacienteParaEscrita(tx, patientId);
+        if (appointmentId !== null) {
+          const [c] = idValido(appointmentId)
+            ? await tx.select().from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, p.id))).for('update')
+            : [];
+          if (!c || c.status === 'cancelada') throw new AtendimentoError({ geral: MSG_ATENDIMENTO.consultaInvalida });
+          if (c.status !== 'realizada') await tx.update(appointments).set({ status: 'realizada', presencaEm: now, updatedAt: now }).where(eq(appointments.id, c.id));
+        }
+        const [c] = await tx
+          .insert(consultations)
+          .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, appointmentId: appointmentId as string | null, createdAt: now, updatedAt: now })
+          .returning({ id: consultations.id });
+        await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
+        return c.id;
+      },
+      deps.db ?? getDb(),
+    );
+  } catch (e) {
+    if (uniqueViolation(e) === 'consultations_consulta_idx') throw new AtendimentoError({ geral: MSG_ATENDIMENTO.consultaJaAtendida });
+    throw e;
+  }
 }
 
 export async function atualizarAtendimento(

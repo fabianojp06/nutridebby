@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, ne, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { exclusionViolation } from '@/db/errors';
 import { appointments, patients, type AppointmentRow, type TenantRow } from '@/db/schema';
@@ -224,6 +224,23 @@ export async function listarAgenda(ctx: TenantContext, de: Date, ate: Date, db: 
   const rs = await withTenant(
     ctx,
     (tx) => tx.select(COLUNAS).from(appointments).innerJoin(patients, eq(patients.id, appointments.patientId)).where(and(lt(appointments.inicio, ate), gt(appointments.fim, de))).orderBy(asc(appointments.inicio)),
+    db,
+  );
+  return rs.map(comoConsulta);
+}
+
+/** Listas do painel (pendências, novidades): mesmo formato da agenda, com o nome numa consulta só; sem leitura auditada (D10). */
+export async function listarConsultas(ctx: TenantContext, onde: SQL | undefined, o: { ordem: 'asc' | 'desc'; limite: number }, db: Db = getDb()): Promise<Consulta[]> {
+  const rs = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select(COLUNAS)
+        .from(appointments)
+        .innerJoin(patients, eq(patients.id, appointments.patientId))
+        .where(onde)
+        .orderBy(o.ordem === 'asc' ? asc(appointments.inicio) : desc(appointments.inicio))
+        .limit(o.limite),
     db,
   );
   return rs.map(comoConsulta);

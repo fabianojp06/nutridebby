@@ -1,0 +1,2 @@
+ALTER TABLE "consultations" ADD COLUMN "appointment_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX "consultations_consulta_idx" ON "consultations" USING btree ("appointment_id") WHERE "consultations"."appointment_id" is not null;

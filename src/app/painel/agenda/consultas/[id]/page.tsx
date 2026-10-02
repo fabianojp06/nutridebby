@@ -6,13 +6,16 @@ import { buscarConsulta, STATUS_ATIVOS } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
+import { MSG_PRESENCA } from '@/modules/agenda/presenca';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { Cabecalho } from '../../../cabecalho';
-import { cancelarAction, moverAction } from '../../actions';
+import { cancelarAction, moverAction, presencaAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
 import { CancelarForm } from './cancelar-form';
+import { PresencaForm } from './presenca';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +28,12 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const emBloqueio = (await listarBloqueios(ctx, c.inicio, c.fim)).some((b) => sobrepoe(b, c));
   const lembretes = await listarNotificacoesDaConsulta(ctx, c.id);
   const p = partesNoFuso(c.inicio, tenant.fuso);
-  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : null;
+  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : sp.ok === 'presenca' ? MSG_PRESENCA.registrada : null;
   const ativa = STATUS_ATIVOS.includes(c.status);
+  const agora = new Date();
+  const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
+  // o atendimento tem data de hoje ou antes (US-016): consulta de outro dia ainda não começa por aqui
+  const podeAtender = ativa && p.data <= hojeNoFuso(tenant.fuso, agora);
   return (
     <>
       <Cabecalho tenant={tenant} />
@@ -43,7 +50,15 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
         </header>
         {ok && <p role="status" className="rounded bg-emerald-50 p-3">{ok}</p>}
         {lerAvisos(sp.avisos).map((a) => <p key={a} role="status" className="rounded bg-amber-50 p-3 text-amber-900">{AVISO_ROTULO[a]}</p>)}
-        {/* Tarefa 15: Registrar presença e Iniciar atendimento */}
+        {comecou && (
+          <section aria-labelledby="presenca" className="space-y-2">
+            <h2 id="presenca" className="text-lg font-semibold">Registrar presença</h2>
+            <PresencaForm realizada={presencaAction.bind(null, c.id, 'realizada')} faltou={presencaAction.bind(null, c.id, 'faltou')} />
+          </section>
+        )}
+        {podeAtender && (
+          <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-block rounded bg-emerald-700 px-3 py-1.5 text-white">Iniciar atendimento</Link></p>
+        )}
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">
             <h2 id="alterar" className="text-lg font-semibold">Alterar data e hora</h2>

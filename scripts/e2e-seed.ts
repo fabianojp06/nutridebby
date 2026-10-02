@@ -28,6 +28,8 @@ const [consultorio] = await db
 // Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
 const AGENDA_E2E = ['whatsapp_conexoes', 'public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
 await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
+  // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
+  await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado

@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, consultationNotes } from '@/db/schema';
+import { auditLog, consultationNotes, consultations } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { buscarConsulta } from '@/modules/agenda/consultas';
 import { AtendimentoError, atualizarAtendimento, buscarAtendimento, listarAtendimentos, MSG_ATENDIMENTO, orientacoesDoPaciente, registrarAtendimento } from './atendimentos';
 import { PacienteNaoEncontradoError } from './base';
 
@@ -100,5 +102,38 @@ describe('atendimentos (US-016)', () => {
     const cruzada = withTenant(A.ctx, (tx) => tx.execute(sql`insert into consultation_notes (tenant_id, patient_id, consultation_id, texto) values (${A.tenantId}, ${p2.id}, ${de1}, 'x')`), app.db);
     await expect(cruzada).rejects.toSatisfy((e: unknown) => ((e as { cause?: { code?: string } }).cause ?? (e as { code?: string })).code === '23503');
     expect(await buscarAtendimento(A.ctx, p1.id, randomUUID(), app.db)).toBeNull();
+  });
+
+  it('"Iniciar atendimento" da agenda: liga a consulta, marca "realizada"; a mesma consulta não tem dois atendimentos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'));
+    const entrada = (appointmentId: string) => ({ data: '2026-09-30', notasPrivadas: '', orientacoes: '', appointmentId });
+    const id = await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps);
+    const [linha] = await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.id, id)), app.db);
+    expect(linha.appointmentId).toBe(c);
+    expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('realizada');
+    await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaJaAtendida } });
+    const outro = await novoPaciente(app.db, T.ctx);
+    await expect(registrarAtendimento(T.ctx, T.tenant, outro.id, entrada(c), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaInvalida } });
+    // id malformado, consulta de outro tenant ou cancelada: recusado sem gravar nada
+    const B = await novoTenant(app.db);
+    const doB = await consultaDireta(app.db, B.ctx, (await novoPaciente(app.db, B.ctx)).id, new Date('2026-09-30T12:00:00Z'));
+    const cancelada = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-29T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now });
+    for (const invalida of ['nao-e-uuid', doB, cancelada]) {
+      await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(invalida), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaInvalida } });
+    }
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.patientId, p.id)), app.db)).toHaveLength(1);
+    // sem consulta (aba Atendimentos): como antes
+    const solto = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...entrada(''), data: '2026-10-01' }, deps);
+    expect((await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.id, solto)), app.db))[0].appointmentId).toBeNull();
+  });
+
+  it('consulta marcada como "faltou" por engano: o atendimento corrige para "realizada"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'), 60, { status: 'faltou' });
+    await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-09-30', notasPrivadas: '', orientacoes: '', appointmentId: c }, deps);
+    expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('realizada');
   });
 });

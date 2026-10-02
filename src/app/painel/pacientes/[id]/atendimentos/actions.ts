@@ -22,7 +22,8 @@ export async function registrarAtendimentoAction(patientId: string, _prev: Atend
   const valores = valoresDo(formData);
   let id: string;
   try {
-    id = await registrarAtendimento(ctx, tenant, patientId, valores);
+    // Plano 05: "Iniciar atendimento" pela agenda manda o id da consulta (só o registro usa)
+    id = await registrarAtendimento(ctx, tenant, patientId, { ...valores, appointmentId: String(formData.get('appointmentId') ?? '') });
   } catch (e) {
     return tratar(e, valores);
   }

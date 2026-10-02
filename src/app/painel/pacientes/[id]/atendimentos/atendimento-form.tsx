@@ -9,9 +9,11 @@ type Props = {
   hoje: string;
   botao: string;
   somenteLeitura: boolean;
+  /** Plano 05: atendimento iniciado pela agenda — liga o registro à consulta (só no registro, nunca na edição). */
+  consultaId?: string;
 };
 
-export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura }: Props) {
+export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura, consultaId }: Props) {
   const [state, action, pendente] = useActionState<AtendimentoState, FormData>(acao, {});
   const v = state.valores ?? inicial;
   const e = state.erros ?? {};
@@ -19,6 +21,7 @@ export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura }: 
   const erro = (k: string) => e[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{e[k]}</p>;
   return (
     <form action={action} className="space-y-4">
+      {consultaId && <input type="hidden" name="appointmentId" value={consultaId} />}
       <fieldset disabled={somenteLeitura} className="space-y-4">
         <div className="space-y-1">
           <label htmlFor="data" className="block font-medium">Data do atendimento</label>
