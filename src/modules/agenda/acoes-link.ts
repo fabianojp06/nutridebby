@@ -41,8 +41,9 @@ type Falha = { estado: 'invalido' | 'expirado' | 'indisponivel' };
 
 /**
  * Token → tenant ativo + dono da consulta (lido no contexto `publico`: só o `patient_id`, o início e a situação do
- * paciente). Indisponível como o tenant suspenso (RN-15): paciente arquivado, bloqueado ou anonimizado (RN-08, US-018,
- * rodada 1) e consulta que não está mais no início do token (a nutricionista mudou o horário; revisão da T5).
+ * paciente). Indisponível: tenant suspenso (RN-15) e paciente arquivado, bloqueado ou anonimizado (RN-08, US-018,
+ * rodada 1). Expirado: a consulta já começou ou não está mais no início do token — a nutricionista mudou o horário
+ * depois do link (revisão da T5; o paciente recebeu outro link na "Consulta marcada" do horário novo).
  */
 async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falha> {
   const agora = deps.agora ?? new Date();
@@ -65,8 +66,8 @@ async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falh
     db,
   );
   if (!c) return { estado: 'invalido' };
-  if (!noInicioDoLink(c.inicio, l.expiraEm)) return { estado: 'indisponivel' };
   if (c.status !== 'ativo' || c.anonimizadoEm) return { estado: 'indisponivel' };
+  if (!noInicioDoLink(c.inicio, l.expiraEm)) return { estado: 'expirado' };
   return { tenant, appointmentId: l.appointmentId, patientId: c.patientId, inicioDoLink: l.expiraEm, agora, db };
 }
 
@@ -86,13 +87,14 @@ async function exigir(token: string, deps: DepsLink): Promise<Resolvido> {
 
 /**
  * O que muda entre abrir o link e agir vira o mesmo estado do resolver, nunca 500: paciente bloqueado/anonimizado
- * (rodada 1) ou consulta movida (revisão da T5) → indisponível; consulta ou paciente que sumiu → link inválido.
+ * (rodada 1) → indisponível; consulta movida (revisão da T5) → expirado; consulta ou paciente que sumiu → link inválido.
  */
 async function comoLink<T>(f: () => Promise<T>): Promise<T> {
   try {
     return await f();
   } catch (e) {
-    if (e instanceof PacienteBloqueadoError || e instanceof ConsultaMudouError) throw new LinkError(MSG_AGENDA.contaIndisponivel);
+    if (e instanceof PacienteBloqueadoError) throw new LinkError(MSG_AGENDA.contaIndisponivel);
+    if (e instanceof ConsultaMudouError) throw new LinkError(MSG_AGENDA.linkExpirado);
     if (e instanceof ConsultaNaoEncontradaError || e instanceof PacienteNaoEncontradoError) throw new LinkError(MSG_AGENDA.linkInvalido);
     throw e;
   }
@@ -104,7 +106,7 @@ export async function abrirLinkConsulta(token: string, deps: DepsLink = {}): Pro
   if (!('tenant' in r)) return r;
   const [c] = await withTenant(comoPaciente(r), (tx) => tx.select().from(appointments).where(eq(appointments.id, r.appointmentId)), r.db);
   if (!c) return { estado: 'invalido' };
-  if (!noInicioDoLink(c.inicio, r.inicioDoLink)) return { estado: 'indisponivel' }; // movida entre as duas leituras
+  if (!noInicioDoLink(c.inicio, r.inicioDoLink)) return { estado: 'expirado' }; // movida entre as duas leituras
   if (c.inicio.getTime() <= r.agora.getTime()) return { estado: 'expirado' };
   const modalidade = c.modalidade as Modalidade;
   const ativa = STATUS_ATIVOS.includes(c.status as StatusConsulta);
@@ -129,6 +131,11 @@ export async function horariosDoLink(token: string, de: Date, ate: Date, deps: D
   const r = await resolver(token, deps);
   if (!('tenant' in r)) return [];
   return horariosVisiveis(await horariosParaPaciente(r.tenant, r.agora, { db: r.db, de, ate, ignorarConsultaId: r.appointmentId }), r.tenant.fuso);
+}
+
+/** US-035: o que a tela diz depois de "Confirmar presença" (texto do paciente quando não dá mais para confirmar). */
+export function retornoDaConfirmacao(r: 'confirmada' | 'ja_confirmada' | 'nao_confirmavel'): { ok: string } | { erro: string } {
+  return r === 'nao_confirmavel' ? { erro: MSG_AGENDA.naoConfirmavel } : { ok: MSG_AGENDA.presencaConfirmada };
 }
 
 export async function confirmarPeloLink(token: string, deps: DepsLink = {}): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'> {

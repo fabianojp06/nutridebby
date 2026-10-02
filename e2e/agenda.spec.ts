@@ -180,5 +180,13 @@ test('link da consulta fora do prazo (RN-04): só "Avisar que preciso remarcar";
   await expect(paciente.getByRole('button', { name: 'Avisar que preciso remarcar' })).toHaveCount(0); // uma vez só
   await nutri.goto(consultaNoPainel);
   await expect(nutri.getByText('Paciente pediu para remarcar')).toBeVisible();
+
+  // a nutricionista cancela com a página do paciente aberta: "Confirmar presença" não confirma mais (texto do paciente)
+  nutri.once('dialog', (d) => d.accept());
+  await nutri.getByRole('button', { name: 'Cancelar consulta' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta cancelada.' })).toBeVisible();
+  await paciente.getByRole('button', { name: 'Confirmar presença' }).click();
+  await expect(paciente.getByRole('alert').filter({ hasText: 'Esta consulta não pode mais ser confirmada.' })).toBeVisible();
+  await expect(paciente.getByRole('status').filter({ hasText: 'Esta consulta foi cancelada.' })).toBeVisible();
   await paciente.context().close();
 });

@@ -7,7 +7,7 @@ import { closeDb } from '@/db/client';
 import { appointments, auditLog, patients, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, remarcarPeloLink } from './acoes-link';
+import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, remarcarPeloLink, retornoDaConfirmacao } from './acoes-link';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, moverConsulta } from './consultas';
 import { assinarLinkConsulta, chaveDosLinks } from './link-consulta';
@@ -23,6 +23,8 @@ afterAll(async () => {
 const chave = chaveDosLinks(Buffer.alloc(32, 9));
 const deps = (agora: Date) => ({ db: app.db, agora, chave, ip: '203.0.113.9', appUrl: 'http://localhost:3000' });
 const indisponivel = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.contaIndisponivel;
+// controlador (complemento): link de um início que a consulta não tem mais = link expirado, não "conta indisponível"
+const expirado = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.linkExpirado;
 
 async function cenario() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -35,6 +37,13 @@ async function cenario() {
 const lerConsulta = async (T: Awaited<ReturnType<typeof cenario>>['T'], id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0];
 
 describe('link da consulta (D20, US-033, US-035)', () => {
+  it('controlador (complemento): o retorno de "Confirmar presença" para o paciente tem texto próprio quando não dá mais para confirmar', () => {
+    expect(retornoDaConfirmacao('confirmada')).toEqual({ ok: 'Presença confirmada. Até lá!' });
+    expect(retornoDaConfirmacao('ja_confirmada')).toEqual({ ok: 'Presença confirmada. Até lá!' });
+    expect(retornoDaConfirmacao('nao_confirmavel')).toEqual({ erro: 'Esta consulta não pode mais ser confirmada.' });
+    expect(MSG_AGENDA.naoConfirmavel).toBe('Esta consulta não pode mais ser confirmada.');
+  });
+
   it('abre com nutricionista, quando (com fuso) e o que pode fazer; o GET não muda nada', async () => {
     const { T, id, token } = await cenario();
     expect(await abrirLinkConsulta(token, deps(em('2026-10-14', '09:00')))).toMatchObject({
@@ -99,12 +108,12 @@ describe('link da consulta (D20, US-033, US-035)', () => {
     }
   });
 
-  it('revisão da T5: link de um início que a consulta não tem mais (a nutricionista mudou o horário, para antes ou para depois) → "indisponivel" e nada muda; o link novo vale', async () => {
-    const { T, id, token } = await cenario(); // link de 16/10 às 14:00
+  it('revisão da T5: link de um início que a consulta não tem mais (a nutricionista mudou o horário, para antes ou para depois) → "expirado" ("Este link expirou.") e nada muda; o link novo vale', async () => {
+    const { T, ana, id, token } = await cenario(); // link de 16/10 às 14:00
     const d = deps(em('2026-10-14', '09:00'));
     for (const hora of ['10:00', '18:00']) {
       await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-14', '08:00') });
-      expect(await abrirLinkConsulta(token, d), hora).toEqual({ estado: 'indisponivel' });
+      expect(await abrirLinkConsulta(token, d), hora).toEqual({ estado: 'expirado' });
       expect(await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), d)).toEqual([]);
       const acoes = [
         () => confirmarPeloLink(token, d),
@@ -112,14 +121,17 @@ describe('link da consulta (D20, US-033, US-035)', () => {
         () => remarcarPeloLink(token, { inicio: em('2026-10-17', '16:00').toISOString(), modalidade: 'presencial' }, d),
         () => avisarRemarcacaoPeloLink(token, d),
       ];
-      for (const acao of acoes) await expect(acao()).rejects.toSatisfy(indisponivel);
+      for (const acao of acoes) await expect(acao()).rejects.toSatisfy(expirado);
     }
     expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', inicio: em('2026-10-16', '18:00'), confirmadaVia: null, pedidoRemarcacaoEm: null });
     const novo = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio: em('2026-10-16', '18:00') }, chave);
     expect(await abrirLinkConsulta(novo, d)).toMatchObject({ estado: 'ok', quando: 'sex., 16/10/2026 às 18:00 (horário de Brasília)' });
+    // "indisponível" fica para conta suspensa e paciente inativo — e vale antes do "expirado" do link antigo
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, ana.id)), app.db);
+    expect(await abrirLinkConsulta(token, d)).toEqual({ estado: 'indisponivel' });
   });
 
-  it('revisão da T5: a nutricionista muda o horário entre abrir o link e clicar — a ação, presa na trava da consulta, confere o início de novo e recusa como "indisponivel"', async () => {
+  it('revisão da T5: a nutricionista muda o horário entre abrir o link e clicar — a ação, presa na trava da consulta, confere o início de novo e recusa como link expirado', async () => {
     const { T, id, token } = await cenario();
     const outra = await app.pool.connect();
     let confirmada = false;
@@ -140,7 +152,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       await outra.query(`update appointments set inicio = inicio - interval '2 hours', fim = fim - interval '2 hours' where id = $1`, [id]);
       await outra.query('commit');
       confirmada = true;
-      expect(indisponivel(await resultado)).toBe(true);
+      expect(expirado(await resultado)).toBe(true);
     } finally {
       if (!confirmada) await outra.query('rollback').catch(() => undefined);
       outra.release();

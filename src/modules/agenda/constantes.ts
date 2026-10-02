@@ -54,6 +54,8 @@ export const MSG_AGENDA = {
   presencaConfirmada: 'Presença confirmada. Até lá!',
   remarcada: (quando: string) => `Consulta remarcada para ${quando}.`,
   linkExpirado: 'Este link expirou.',
+  /** Complemento da T7: texto do paciente (o `naoAlteravel` é da equipe). */
+  naoConfirmavel: 'Esta consulta não pode mais ser confirmada.',
   linkInvalido: 'Link inválido.',
   consultaJaCancelada: 'Esta consulta foi cancelada.',
   avisoDeRemarcacao: 'Avisamos sua nutricionista. Ela vai entrar em contato.',

@@ -19,7 +19,7 @@ import { noInicioDoLink } from './link-consulta';
  */
 type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date };
 
-/** D20: a consulta mudou de horário depois de o link sair — o link antigo não serve mais para agir sobre ela. */
+/** D20: a consulta mudou de horário depois de o link sair — o link antigo expirou para ela ("Este link expirou."). */
 export class ConsultaMudouError extends Error {
   override name = 'ConsultaMudouError';
 }

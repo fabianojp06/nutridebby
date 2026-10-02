@@ -3,7 +3,7 @@
 import { refresh } from 'next/cache';
 import { getEnv } from '@/env';
 import { requestIp } from '@/lib/request-ip';
-import { avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, LinkError, remarcarPeloLink } from '@/modules/agenda/acoes-link';
+import { avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, LinkError, remarcarPeloLink, retornoDaConfirmacao } from '@/modules/agenda/acoes-link';
 import { MSG_AGENDA } from '@/modules/agenda/constantes';
 import { ConsultaError } from '@/modules/agenda/consultas';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -31,7 +31,7 @@ async function executar(f: () => Promise<AcaoLinkState>): Promise<AcaoLinkState>
 const deps = async () => ({ ip: await requestIp(), appUrl: getEnv().APP_URL });
 
 export async function confirmarAction(token: string): Promise<AcaoLinkState> {
-  return executar(async () => ((await confirmarPeloLink(token, await deps())) === 'nao_confirmavel' ? { erro: MSG_AGENDA.naoAlteravel } : { ok: MSG_AGENDA.presencaConfirmada }));
+  return executar(async () => retornoDaConfirmacao(await confirmarPeloLink(token, await deps())));
 }
 
 export async function cancelarAction(token: string): Promise<AcaoLinkState> {
