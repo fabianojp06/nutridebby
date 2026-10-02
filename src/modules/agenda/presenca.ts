@@ -1,39 +1,47 @@
-import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { appointments } from '@/db/schema';
+import { appointments, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { formatarDecimal } from '@/lib/numero';
-import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
+import { idValido } from '@/modules/pacientes/base';
+import { travarPacienteDaConsulta } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
-import { ConsultaError, ConsultaNaoEncontradaError, lerConsultaParaEscrita, listarConsultas, STATUS_ATIVOS, type Consulta } from './consultas';
+import { ConsultaError, lerConsultaParaEscrita, listarConsultas, STATUS_ATIVOS, type Consulta } from './consultas';
 import { inicioDoMes, inicioDoMesSeguinte } from './fuso';
 
 export const MSG_PRESENCA = {
   antesDoInicio: 'A presença só pode ser registrada depois do início da consulta.',
   registrada: 'Presença registrada.',
+  /** Rodada 1: houve atendimento ligado à consulta — "Faltou" contaria uma falta com atendimento (CS-03). */
+  temAtendimento: 'Esta consulta tem um atendimento registrado.',
   pendencias: (n: number) => `${n} ${n === 1 ? 'consulta' : 'consultas'} sem registro de presença`,
 } as const;
 
 export type SituacaoPresenca = 'realizada' | 'faltou';
 const DIA_MS = 86_400_000;
 
+/** Já existe atendimento ligado à consulta ("Iniciar atendimento", Plano 05). */
+const temAtendimento = sql`exists (select 1 from ${consultations} where ${consultations.appointmentId} = ${appointments.id})`;
+
 /**
- * US-037: depois do início, "realizada" ou "faltou" (pode corrigir). Cancelada não. Paciente bloqueado (pedido de
- * exclusão) → PacienteBloqueadoError, como em moverConsulta. Ordem das travas: paciente → consulta.
+ * US-037: depois do início, "realizada" ou "faltou" (pode corrigir). Cancelada não; "faltou" com atendimento ligado não.
+ * Rodada 1: vale também para paciente bloqueado ou anonimizado — é o histórico da agenda, não edição do prontuário
+ * (senão a pendência nunca sairia). Trava como o cancelamento da nutricionista: paciente (`FOR KEY SHARE`) → consulta.
  */
 export async function registrarPresenca(ctx: TenantContext, id: string, situacao: SituacaoPresenca, deps: { db?: Db; now?: Date } = {}): Promise<void> {
   const agora = deps.now ?? new Date();
   await withTenant(
     ctx,
     async (tx) => {
-      if (!idValido(id)) throw new ConsultaNaoEncontradaError();
-      const [antes] = await tx.select({ patientId: appointments.patientId }).from(appointments).where(eq(appointments.id, id));
-      if (!antes) throw new ConsultaNaoEncontradaError();
-      await carregarPacienteParaEscrita(tx, antes.patientId);
+      await travarPacienteDaConsulta(tx, id); // id inválido ou de outro tenant → ConsultaNaoEncontradaError
       const c = await lerConsultaParaEscrita(tx, id);
       if (c.status === 'cancelada') throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
       if (c.inicio.getTime() > agora.getTime()) throw new ConsultaError({ geral: MSG_PRESENCA.antesDoInicio });
       if (c.status === situacao) return;
+      if (situacao === 'faltou') {
+        const [a] = await tx.select({ id: consultations.id }).from(consultations).where(eq(consultations.appointmentId, id)).limit(1);
+        if (a) throw new ConsultaError({ geral: MSG_PRESENCA.temAtendimento });
+      }
       await tx.update(appointments).set({ status: situacao, presencaEm: agora, updatedAt: agora }).where(eq(appointments.id, id));
     },
     deps.db ?? getDb(),
@@ -103,4 +111,15 @@ export async function novidadesDaAgenda(ctx: TenantContext, agora: Date, db: Db 
   const marcadasPeloPaciente = await listarConsultas(ctx, and(eq(appointments.origem, 'paciente'), gte(appointments.createdAt, semana), ativas), { ordem: 'asc', limite: 20 }, db);
   const canceladasPeloPaciente = await listarConsultas(ctx, and(eq(appointments.canceladoPor, 'paciente'), gte(appointments.canceladaEm, semana)), { ordem: 'desc', limite: 20 }, db);
   return { pedidosRemarcacao, marcadasPeloPaciente, canceladasPeloPaciente };
+}
+
+/**
+ * Rodada 1: "Iniciar atendimento" — consulta deste paciente, já começada, não cancelada e ainda sem atendimento ligado
+ * (inclusive "realizada"/"faltou": registrar o atendimento corrige a falta). A página da consulta (link) e a de
+ * atendimentos (`?consulta=`: aviso e campo oculto) usam a mesma regra. Id inválido ou de outro paciente → null.
+ */
+export async function consultaParaIniciarAtendimento(ctx: TenantContext, patientId: string, id: string, agora: Date, db: Db = getDb()): Promise<Consulta | null> {
+  if (!idValido(id) || !idValido(patientId)) return null;
+  const onde = and(eq(appointments.id, id), eq(appointments.patientId, patientId), ne(appointments.status, 'cancelada'), lte(appointments.inicio, agora), sql`not ${temAtendimento}`);
+  return (await listarConsultas(ctx, onde, { ordem: 'asc', limite: 1 }, db))[0] ?? null;
 }

@@ -328,24 +328,44 @@ test('convite por WhatsApp no cadastro: aviso sem link, com o e-mail mascarado; 
   }).toPass({ timeout: 20_000 });
 });
 
-test('presença: consulta de ontem → "Faltou"; "Iniciar atendimento" → "Realizada"; indicadores no painel (US-037)', async () => {
-  const ontem = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() - 86_400_000));
-  await marcar(`Dora Agenda ${sufixo} (dora-${sufixo}@ex.com)`, ontem, '07:00');
+/** Data ('AAAA-MM-DD') e hora ('HH:MM') de um instante no fuso do consultório do E2E. */
+function noFusoDoConsultorio(instante: Date): { data: string; hora: string } {
+  const fuso = 'America/Sao_Paulo';
+  return {
+    data: new Intl.DateTimeFormat('en-CA', { timeZone: fuso }).format(instante),
+    hora: new Intl.DateTimeFormat('en-GB', { timeZone: fuso, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instante),
+  };
+}
+
+test('presença: consulta que já começou → "Faltou"; "Iniciar atendimento" → "Realizada"; indicadores no painel (US-037)', async () => {
+  // rodada 1: independente dos outros testes — pacientes próprios e horários relativos a agora (no passado, onde
+  // nenhum outro teste marca: os outros usam a semana livre/bloqueada daqui a ~30 dias e a quinta seguinte)
+  const hana = `Hana Presenca ${sufixo}`;
+  const iara = `Iara Presenca ${sufixo}`;
+  await novoPaciente(hana, `hana-${sufixo}@ex.com`);
+  await novoPaciente(iara, `iara-${sufixo}@ex.com`);
+  const minuto = Math.floor(Date.now() / 60_000) * 60_000;
+  const faltou = noFusoDoConsultorio(new Date(minuto - 2 * 3_600_000)); // 60 min, terminou há 1 h
+  const atendida = noFusoDoConsultorio(new Date(minuto - 4 * 3_600_000)); // 60 min, terminou há 3 h
+  await marcar(`${hana} (hana-${sufixo}@ex.com)`, faltou.data, faltou.hora);
   await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
   await nutri.getByRole('button', { name: 'Faltou' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada.' })).toBeVisible();
   await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Faltou')).toBeVisible();
-  await marcar(`Carla Agenda ${sufixo} (carla-${sufixo}@ex.com)`, ontem, '06:00');
+  await marcar(`${iara} (iara-${sufixo}@ex.com)`, atendida.data, atendida.hora);
   await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
   const urlDaConsulta = nutri.url().split('?')[0];
   await nutri.getByRole('link', { name: 'Iniciar atendimento' }).click();
   await expect(nutri.getByText(/^Atendimento da consulta de /)).toBeVisible();
-  await expect(nutri.getByLabel('Data do atendimento')).toHaveValue(ontem);
+  await expect(nutri.getByLabel('Data do atendimento')).toHaveValue(atendida.data);
   await nutri.getByRole('button', { name: 'Registrar atendimento' }).click();
   await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}$/);
   await nutri.goto(urlDaConsulta);
   await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Realizada')).toBeVisible();
-  await expect(nutri.getByRole('link', { name: 'Iniciar atendimento' })).toHaveCount(0);
+  await expect(nutri.getByRole('link', { name: 'Iniciar atendimento' })).toHaveCount(0); // já tem atendimento
+  // "Faltou" com atendimento registrado é recusado (rodada 1)
+  await nutri.getByRole('button', { name: 'Faltou' }).click();
+  await expect(nutri.getByRole('alert').filter({ hasText: 'Esta consulta tem um atendimento registrado.' })).toBeVisible();
   await nutri.goto('/painel');
   await expect(nutri.getByRole('heading', { name: 'Agenda' })).toBeVisible();
   await expect(nutri.getByText(/^Consultas do mês: \d+$/)).toBeVisible();

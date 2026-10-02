@@ -2,11 +2,15 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { eq } from 'drizzle-orm';
 import { closeDb } from '@/db/client';
+import { patients } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { MSG_AGENDA } from './constantes';
 import { buscarConsulta, ConsultaError } from './consultas';
-import { contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, pendenciasDePresenca, registrarPresenca, textoTaxa } from './presenca';
+import { consultaParaIniciarAtendimento, contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, pendenciasDePresenca, registrarPresenca, textoTaxa } from './presenca';
+import { registrarAtendimento } from '@/modules/pacientes/atendimentos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -87,5 +91,56 @@ describe('presença e falta (US-037, CS-03)', () => {
     const n = await novidadesDaAgenda(T.ctx, agora, app.db);
     expect([n.pedidosRemarcacao.length, n.marcadasPeloPaciente.length, n.canceladasPeloPaciente.length]).toEqual([1, 1, 1]);
     expect(n.marcadasPeloPaciente[0]).toMatchObject({ paciente: ana.nome, origem: 'paciente' });
+  });
+
+  it('rodada 1: paciente bloqueado ou anonimizado — a pendência de presença pode ser resolvida e sai da contagem', async () => {
+    const T = await novoTenant(app.db);
+    const bloqueada = await novoPaciente(app.db, T.ctx);
+    const anonimizada = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const c1 = await consultaDireta(app.db, T.ctx, bloqueada.id, em('2026-10-10', '09:00'));
+    const c2 = await consultaDireta(app.db, T.ctx, anonimizada.id, em('2026-10-11', '09:00'));
+    // pedido de exclusão depois da consulta (US-018): bloqueado; e o outro já anonimizado
+    await withTenant(T.ctx, async (tx) => {
+      await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora, anonimizarApos: '2046-10-12' }).where(eq(patients.id, bloqueada.id));
+      await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora, anonimizarApos: '2026-10-12', anonimizadoEm: agora }).where(eq(patients.id, anonimizada.id));
+    }, app.db);
+    expect(await contarPendenciasDePresenca(T.ctx, agora, app.db)).toBe(2);
+    await registrarPresenca(T.ctx, c1, 'realizada', { db: app.db, now: agora });
+    await registrarPresenca(T.ctx, c2, 'faltou', { db: app.db, now: agora });
+    expect((await buscarConsulta(T.ctx, c1, app.db))?.status).toBe('realizada');
+    expect((await buscarConsulta(T.ctx, c2, app.db))?.status).toBe('faltou');
+    expect(await contarPendenciasDePresenca(T.ctx, agora, app.db)).toBe(0);
+    expect(await pendenciasDePresenca(T.ctx, agora, app.db)).toEqual([]);
+  });
+
+  it('rodada 1: "Faltou" é recusado quando a consulta tem atendimento registrado; "Realizada" continua valendo', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-19', '09:00'));
+    await registrarAtendimento(T.ctx, T.tenant, ana.id, { data: '2026-10-19', notasPrivadas: '', orientacoes: '', appointmentId: c }, { db: app.db, now: agora });
+    expect(await erro(registrarPresenca(T.ctx, c, 'faltou', { db: app.db, now: agora }))).toEqual({ geral: MSG_PRESENCA.temAtendimento });
+    expect(MSG_PRESENCA.temAtendimento).toBe('Esta consulta tem um atendimento registrado.');
+    expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('realizada');
+    await registrarPresenca(T.ctx, c, 'realizada', { db: app.db, now: agora });
+  });
+
+  it('rodada 1: "Iniciar atendimento" — consulta deste paciente, já começada, não cancelada e sem atendimento (inclusive "realizada"/"faltou")', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const pode = async (patientId: string, id: string) => (await consultaParaIniciarAtendimento(T.ctx, patientId, id, agora, app.db))?.id ?? null;
+    const agendada = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '11:30')); // começou há 30 min
+    const faltou = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-19', '09:00'), 60, { status: 'faltou' });
+    const realizada = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-18', '09:00'), 60, { status: 'realizada' });
+    const futura = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '13:00')); // hoje, mais tarde
+    const cancelada = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-17', '09:00'), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: agora });
+    const atendida = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '09:00'));
+    await registrarAtendimento(T.ctx, T.tenant, ana.id, { data: '2026-10-16', notasPrivadas: '', orientacoes: '', appointmentId: atendida }, { db: app.db, now: agora });
+    expect(await pode(ana.id, agendada)).toBe(agendada);
+    expect(await pode(ana.id, faltou)).toBe(faltou);
+    expect(await pode(ana.id, realizada)).toBe(realizada);
+    for (const nao of [futura, cancelada, atendida]) expect(await pode(ana.id, nao)).toBeNull();
+    expect(await pode(bia.id, agendada)).toBeNull(); // consulta de outro paciente
+    expect(await pode(ana.id, 'nao-e-uuid')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { buscarConsulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
+import { consultaParaIniciarAtendimento } from '@/modules/agenda/presenca';
 import { listarAtendimentos } from '@/modules/pacientes/atendimentos';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
@@ -15,9 +15,9 @@ export default async function AtendimentosPage({ params, searchParams }: PagePro
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarAtendimentos(ctx, paciente.id);
   const hoje = hojeNoFuso(tenant.fuso);
-  // Plano 05: "Iniciar atendimento" na agenda (?consulta=<id>) — só consulta deste paciente; outra coisa é ignorada
-  const consulta = typeof sp.consulta === 'string' ? await buscarConsulta(ctx, sp.consulta) : null;
-  const daConsulta = consulta && consulta.patientId === paciente.id && consulta.status !== 'cancelada' ? consulta : null;
+  // Plano 05: "Iniciar atendimento" na agenda (?consulta=<id>) — a mesma regra do link (deste paciente, já começada, não
+  // cancelada, sem atendimento ligado); outra coisa é ignorada (sem aviso nem campo oculto)
+  const daConsulta = typeof sp.consulta === 'string' ? await consultaParaIniciarAtendimento(ctx, paciente.id, sp.consulta, new Date()) : null;
   const diaDaConsulta = daConsulta ? partesNoFuso(daConsulta.inicio, tenant.fuso).data : null;
   const dataInicial = diaDaConsulta && diaDaConsulta < hoje ? diaDaConsulta : hoje;
   return (

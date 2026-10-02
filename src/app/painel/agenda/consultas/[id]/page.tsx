@@ -6,10 +6,9 @@ import { buscarConsulta, STATUS_ATIVOS } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
-import { MSG_PRESENCA } from '@/modules/agenda/presenca';
+import { consultaParaIniciarAtendimento, MSG_PRESENCA } from '@/modules/agenda/presenca';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
-import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { Cabecalho } from '../../../cabecalho';
 import { cancelarAction, moverAction, presencaAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
@@ -32,8 +31,8 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const ativa = STATUS_ATIVOS.includes(c.status);
   const agora = new Date();
   const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
-  // o atendimento tem data de hoje ou antes (US-016): consulta de outro dia ainda não começa por aqui
-  const podeAtender = ativa && p.data <= hojeNoFuso(tenant.fuso, agora);
+  // rodada 1: já começou, não cancelada e sem atendimento ligado (também "realizada"/"faltou")
+  const podeAtender = (await consultaParaIniciarAtendimento(ctx, c.patientId, c.id, agora)) !== null;
   return (
     <>
       <Cabecalho tenant={tenant} />

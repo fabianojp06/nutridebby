@@ -60,14 +60,13 @@ export async function cancelarAction(id: string, _prev: ConsultaState, fd: FormD
   redirect(`/painel/agenda/consultas/${id}?ok=cancelada`);
 }
 
-/** US-037: "Realizada" ou "Faltou" depois do início (pode corrigir). Paciente bloqueado → mensagem no lugar do 500. */
+/** US-037: "Realizada" ou "Faltou" depois do início (pode corrigir); erros do domínio aparecem com role="alert". */
 export async function presencaAction(id: string, situacao: SituacaoPresenca): Promise<ConsultaState> {
   const { ctx } = await requireNutri(`/painel/agenda/consultas/${id}`);
   if (situacao !== 'realizada' && situacao !== 'faltou') notFound(); // argumento ligado no servidor; nunca outro valor
   try {
     await registrarPresenca(ctx, id, situacao);
   } catch (e) {
-    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message } };
     return tratar(e, {});
   }
   revalidatePath('/painel/agenda');

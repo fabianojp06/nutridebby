@@ -150,4 +150,42 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
       c.release();
     }
   });
+
+  it('aceites na anonimização (0065): a função SECURITY DEFINER do migrator sem superusuário limpa o IP sob FORCE RLS; recusa paciente não bloqueado', async () => {
+    const c = await app.connect();
+    const emWorker = async (t: string) => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [t]);
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao) values ('anon-aceites', 'A') returning id`)).rows[0].id as string;
+      await emWorker(t);
+      const [bloqueada, ativa] = (
+        await c.query(
+          `insert into patients (tenant_id, nome, data_nascimento, sexo, email, status, bloqueado_em, anonimizar_apos)
+           values ($1, 'Bloqueada', '1990-01-01', 'F', 'bloq@anon.dev', 'bloqueado', now(), '2026-01-01'),
+                  ($1, 'Ativa', '1990-01-01', 'F', 'ativa@anon.dev', 'ativo', null, null) returning id`,
+          [t],
+        )
+      ).rows.map((r) => r.id as string);
+      await c.query('commit');
+      await c.query(
+        `insert into consents (tenant_id, patient_id, termo_versao, aceito_em, ip) values ($1, $2, 'termo-v1', '2026-01-01T12:00:00Z', '198.51.100.7'), ($1, $3, 'termo-v1', '2026-01-02T12:00:00Z', '198.51.100.8')`,
+        [t, bloqueada, ativa],
+      );
+      await emWorker(t);
+      await c.query('select app_anonimizar_aceites($1)', [bloqueada]);
+      await c.query('commit');
+      const { rows } = await c.query(`select patient_id, termo_versao, aceito_em, ip from consents where tenant_id = $1 order by aceito_em`, [t]);
+      expect(rows.map((r) => [r.patient_id, r.termo_versao, (r.aceito_em as Date).toISOString(), r.ip])).toEqual([
+        [bloqueada, 'termo-v1', '2026-01-01T12:00:00.000Z', null],
+        [ativa, 'termo-v1', '2026-01-02T12:00:00.000Z', '198.51.100.8'],
+      ]);
+      await emWorker(t);
+      await expect(c.query('select app_anonimizar_aceites($1)', [ativa])).rejects.toMatchObject({ code: '42501' });
+      await c.query('rollback');
+    } finally {
+      c.release();
+    }
+  });
 });

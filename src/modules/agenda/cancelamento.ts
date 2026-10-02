@@ -55,7 +55,7 @@ async function pacienteAtivo(tx: Tx, ctx: TenantContext): Promise<{ nome: string
  * esperava o paciente que a remarcação já segurava: deadlock (40P01). `FOR KEY SHARE` (a trava da própria FK), sem
  * `carregarPacienteParaEscrita`: a nutricionista cancela também consulta de paciente bloqueado ou anonimizado.
  */
-async function travarPacienteDaConsulta(tx: Tx, id: string): Promise<string> {
+export async function travarPacienteDaConsulta(tx: Tx, id: string): Promise<string> {
   if (!idValido(id)) throw new ConsultaNaoEncontradaError();
   const [c] = await tx.select({ patientId: appointments.patientId }).from(appointments).where(eq(appointments.id, id));
   if (!c) throw new ConsultaNaoEncontradaError();

@@ -53,7 +53,6 @@ const NOTA = 'suspeita de compulsão';
 /** Tarefa 15: o que nunca sai no dados.json — o motivo que só a nutricionista vê e os dados técnicos de envio. */
 const MOTIVO_DA_NUTRI = 'paciente difícil, cobrar antes';
 const JID = '5511912345678@s.whatsapp.net';
-const MSG_ID = 'ID-DA-EVOLUTION-123';
 const SELADO = 'conteudo-selado-de-teste';
 const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/token-secreto-do-aparelho';
 
@@ -131,6 +130,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
     }, { db: app.db });
     // Tarefa 15: agenda, lembretes, aceites do termo e dispositivos de push do titular
+    const MSG_ID = `ID-DA-EVOLUTION-${randomUUID()}`; // rodada 1: provider_msg_id é UNIQUE no banco compartilhado pelos testes
     const inicio = new Date('2026-09-15T12:00:00Z');
     const consulta = await consultaDireta(app.db, T.ctx, p.id, inicio, 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now, motivoCancelamento: MOTIVO_DA_NUTRI });
     await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-20T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'paciente', canceladaEm: now, motivoCancelamento: 'Remarcada pelo paciente', origem: 'paciente' });
