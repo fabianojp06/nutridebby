@@ -245,6 +245,20 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ['Se não puder ir, use o mesmo link para remarcar ou cancelar.'],
       );
     }
+    case 'aviso_agenda': {
+      // D18: o nome do paciente fica só no corpo, não no assunto (o assunto aparece em notificações e listas).
+      const { subject, linha } = {
+        marcada: { subject: 'Consulta marcada pelo paciente', linha: `${msg.paciente} marcou uma consulta para ${msg.quando}.` },
+        remarcada: { subject: 'Consulta remarcada pelo paciente', linha: `${msg.paciente} remarcou a consulta para ${msg.quando}.` },
+        cancelada: { subject: 'Consulta cancelada pelo paciente', linha: `${msg.paciente} cancelou a consulta de ${msg.quando}.` },
+        pedido_remarcacao: { subject: 'Paciente pediu para remarcar', linha: `${msg.paciente} pediu para remarcar a consulta de ${msg.quando}.` },
+        novo_paciente_publico: {
+          subject: 'Novo paciente via agendamento online',
+          linha: `${msg.paciente} marcou uma consulta pela sua página de agendamento para ${msg.quando}. Complete o cadastro (data de nascimento e sexo) antes do atendimento.`,
+        },
+      }[msg.evento];
+      return simples(subject, [linha], { href: msg.link, rotulo: 'Ver na agenda' });
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

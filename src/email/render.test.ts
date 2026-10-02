@@ -86,3 +86,13 @@ describe('consulta (US-031, US-033, US-034)', () => {
     expect(c.html).not.toContain('/consulta/');
   });
 });
+
+describe('aviso_agenda (US-032, D18)', () => {
+  it('aviso à nutricionista: assunto sem nome do paciente; nome e horário no corpo', () => {
+    const r = renderEmail({ tipo: 'aviso_agenda', para: 'debby@ex.com', evento: 'novo_paciente_publico', paciente: 'Ana Souza', quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)', link: 'https://x.dev/painel/agenda/consultas/1' });
+    expect(r.subject).toBe('Novo paciente via agendamento online');
+    expect(r.text).toContain('Ana Souza marcou uma consulta pela sua página de agendamento para sex., 16/10/2026 às 09:00 (horário de Brasília).');
+    expect(r.text).toContain('Ver na agenda: https://x.dev/painel/agenda/consultas/1');
+    expect(renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido_remarcacao', paciente: 'Ana', quando: 'q', link: 'https://x' }).subject).toBe('Paciente pediu para remarcar');
+  });
+});

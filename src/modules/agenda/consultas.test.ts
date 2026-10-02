@@ -1,9 +1,9 @@
 import { inspect } from 'node:util';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
-import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { appointments, auditLog } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -25,38 +25,7 @@ afterAll(async () => {
 const deps = { db: app.db, now: new Date('2026-10-01T12:00:00Z') };
 const SP = 'America/Sao_Paulo';
 
-/**
- * Corrida perdida no banco, sem depender do relógio: outra transação grava a consulta e segura o `commit`;
- * `acao` checa (não vê a linha ainda não confirmada), grava e fica presa no EXCLUDE; só então a outra confirma.
- */
-async function perdeCorridaNoBanco(T: TenantDeTeste, patientId: string, inicio: Date, acao: () => Promise<unknown>): Promise<unknown> {
-  const outra = await app.pool.connect();
-  let confirmada = false;
-  try {
-    await outra.query('begin');
-    await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
-    await outra.query(`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values ($1, $2, $3, $4, 'presencial', 'nutri')`, [
-      T.tenantId, patientId, inicio, new Date(inicio.getTime() + 3_600_000),
-    ]);
-    const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
-    const resultado = acao().then(
-      () => null,
-      (e: unknown) => e,
-    );
-    for (let i = 0; ; i++) {
-      const presa = await owner.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid]);
-      if (presa.rowCount) break;
-      if (i > 200) throw new Error('a gravação não ficou presa no EXCLUDE');
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    await outra.query('commit');
-    confirmada = true;
-    return await resultado;
-  } finally {
-    if (!confirmada) await outra.query('rollback').catch(() => undefined); // não devolve ao pool com transação aberta
-    outra.release();
-  }
-}
+const pools = { app: app.pool, owner: owner.pool };
 
 const erros = async (p: Promise<unknown>) => {
   try {
@@ -101,7 +70,7 @@ describe('agendar pela nutricionista (US-031)', () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
     const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
-    const err = await perdeCorridaNoBanco(T, ana.id, em('2026-10-15', '14:00'), () =>
+    const err = await perdeCorridaNoBanco(pools, T, ana.id, em('2026-10-15', '14:00'), () =>
       agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: bia.id, data: '2026-10-15', hora: '14:30', duracaoMin: '60', modalidade: 'presencial' }, deps),
     );
     expect(err).toBeInstanceOf(ConsultaError);
@@ -232,7 +201,7 @@ describe('alterar data e hora (US-031, D17)', () => {
     const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
     const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
     const id = await consultaDireta(app.db, T.ctx, bia.id, em('2026-10-15', '13:30')); // 13:30–14:30 cruza o horário novo
-    const err = await perdeCorridaNoBanco(T, ana.id, em('2026-10-15', '14:30'), () =>
+    const err = await perdeCorridaNoBanco(pools, T, ana.id, em('2026-10-15', '14:30'), () =>
       moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-15', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, deps),
     );
     expect((err as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.conflito('Ana Souza', '14:30') });
