@@ -101,6 +101,8 @@ export const STAFF_ONLY: Record<string, string> = {
   patient_tags: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
   patient_tag_links: 'US-019: o paciente não vê etiquetas, nem no JSON da API',
   consultation_notes: 'US-016: o paciente nunca vê as notas privadas, nem no JSON da API',
+  availability_rules: 'US-030 / D11: o paciente só recebe horários livres já calculados, nunca as regras',
+  availability_blocks: 'US-030 / D11: o motivo do bloqueio pode ser pessoal ("Médico")',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

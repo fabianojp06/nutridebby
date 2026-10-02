@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { account, tenants, user } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { hashPassword } from '@/lib/password.server';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
@@ -21,6 +22,12 @@ const [consultorio] = await db
     set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0 },
   })
   .returning({ id: tenants.id });
+
+// Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
+const AGENDA_E2E = ['availability_blocks', 'availability_rules'];
+await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
+  for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
+}, db);
 
 await db.delete(user).where(eq(user.email, E2E_ADMIN.email));
 const adminId = randomUUID();

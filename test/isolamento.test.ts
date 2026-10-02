@@ -56,6 +56,10 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
              ml as (insert into meals (id, tenant_id, patient_id, plan_id, nome, ordem) select gen_random_uuid(), ${t}, ${p}, pl.id, 'Café', 0 from pl returning id, plan_id)
         insert into meal_items (id, tenant_id, patient_id, plan_id, meal_id, food_id, quantidade_g, ordem)
         select gen_random_uuid(), ${t}, ${p}, ml.plan_id, ml.id, '00000000-0000-4000-8000-000000000003', 100, 0 from ml`,
+  availability_rules: (t) =>
+    sql`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade) values (${t}, 2, '08:00', '12:00', 60, 'presencial')`,
+  availability_blocks: (t) =>
+    sql`insert into availability_blocks (tenant_id, inicio, fim, motivo) values (${t}, '2030-01-01T03:00:00Z', '2030-01-02T03:00:00Z', 'Iso')`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);

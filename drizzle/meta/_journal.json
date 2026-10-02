@@ -337,6 +337,20 @@
       "when": 1790881991821,
       "tag": "0047_pdf_pedido_em_plano",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790903830160,
+      "tag": "0048_agenda_disponibilidade",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790903857876,
+      "tag": "0049_rls_agenda_disponibilidade",
+      "breakpoints": true
     }
   ]
 }
