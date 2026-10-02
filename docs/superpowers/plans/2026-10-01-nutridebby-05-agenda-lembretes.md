@@ -4,24 +4,25 @@
 
 **Goal:** A nutricionista define os horários de atendimento e os bloqueios, marca, altera e cancela consultas numa agenda de dia, semana e lista; o paciente marca, confirma, cancela e remarca pelo link da consulta e pela página pública `/n/<slug>` (Turnstile + código por e-mail); lembretes de 24 h e 2 h saem por e-mail, WhatsApp (Evolution API, número da própria nutricionista) e push, com horário silencioso, cota de WhatsApp, confirmação por resposta "1"/"2" e registro de presença/falta com a taxa de faltas (CS-03).
 
-**Architecture:** Dois módulos novos: `src/modules/agenda` (fuso e horários livres puros, disponibilidade, consultas com `EXCLUDE` no Postgres contra sobreposição, agendamento pelo paciente, cancelamento/remarcação, link assinado da consulta, página pública, presença) e `src/modules/notificacoes` (motor de lembretes por estado no banco: uma linha por consulta × tipo × canal, varredura do worker a cada minuto que reserva, envia e registra; canais e-mail, WhatsApp e push atrás de interfaces de provedor com implementação de teste/sandbox). O WhatsApp usa a **Evolution API** autohospedada (decisão do dono, 2026-10-01): uma instância por tenant (`nd-<tenantId>`), conectada por QR code no painel; o webhook é autenticado por JWT HS256 (`jwt_key`) e processado na fila. Sem as variáveis da Evolution, o WhatsApp fica desligado e os lembretes seguem por e-mail e push; sem as do VAPID, o push fica desligado.
+**Architecture:** Dois módulos novos: `src/modules/agenda` (fuso e horários livres puros, disponibilidade, consultas com `EXCLUDE` no Postgres contra sobreposição, agendamento pelo paciente, cancelamento/remarcação, link assinado da consulta, página pública, presença) e `src/modules/notificacoes` (motor de lembretes por estado no banco: uma linha por consulta × tipo × canal, varredura do worker a cada minuto que reserva, envia e registra; canais e-mail, WhatsApp e push atrás de interfaces de provedor com implementação de teste/sandbox). O WhatsApp usa a **Evolution API** autohospedada (decisão do dono, 2026-10-01): uma instância por tenant (`nd-<tenantId>`), conectada por QR code no painel; o webhook é autenticado por JWT HS256 com uma chave **por instância** (`jwt_key` derivado do segredo), recusa a repetição do mesmo pedido, chega por endereço interno e é processado na fila. O contexto sem login (`publico`) é barrado no próprio banco em toda tabela que o fluxo público não precisa. Sem as variáveis da Evolution, o WhatsApp fica desligado e os lembretes seguem por e-mail e push; sem as do VAPID, o push fica desligado.
 
 **Tech Stack:** Node 24 · pnpm 12 · Next.js 16.3 (App Router, Route Handlers, Server Actions, `PageProps`/`RouteContext`) · React 19.2 · PostgreSQL 16 (`btree_gist` já instalada na migration 0000, `EXCLUDE USING gist`, `tstzrange`) · Drizzle 0.45 · pg-boss 12.34 · Zod 4 · `web-push` 3.6.7 (**novo**, só no worker) + `@types/web-push` 3.6.4 (dev) · Evolution API v2.3.7 (serviço externo, imagem `evoapicloud/evolution-api:v2.3.7`, sem SDK: `fetch`) · `qrcode` 1.5.4 (já instalado; QR do sandbox) · Vitest 5 + Testcontainers · Playwright 1.63.
 
 **Spec:** [`../specs/2026-09-27-nutridebby-mvp-design.md`](../specs/2026-09-27-nutridebby-mvp-design.md) (v1.6: §4.1, §6 INT-01/INT-02/INT-03/INT-06, §7 `availability_rules`/`availability_blocks`/`appointments`/`notifications`/`push_subscriptions`/`consents`/`tenants`, §8 RN-03 a RN-06, RN-08, RN-09, RN-15, RN-16, RN-17, §11 P-04/P-06, CS-03) e [`../specs/2026-09-27-nutridebby-mvp-historias.md`](../specs/2026-09-27-nutridebby-mvp-historias.md) (US-030 a US-037; US-004 e US-010 nas partes que dependem do Plano 05). Índice: [`2026-09-27-nutridebby-00-indice.md`](2026-09-27-nutridebby-00-indice.md). Backlog: [`2026-09-27-nutridebby-backlog.md`](2026-09-27-nutridebby-backlog.md) (P05-01 a P05-12).
 
-> **Mudança do dono (2026-10-01):** o WhatsApp do MVP passa da WhatsApp Cloud API da Meta para a **Evolution API** (https://docs.evolutionfoundation.com.br/evolution-api). INT-01, D-07 e o E-04 da spec viram "Desvios conscientes" (abaixo) e a spec é atualizada no fechamento. Fatos da Evolution conferidos na documentação oficial **e no código-fonte da v2.3.7** (a documentação OpenAPI ainda mostra o corpo da v1 em alguns pontos): `POST /message/sendText/{instance}` com cabeçalho `apikey` e corpo `{ number, text, delay?, linkPreview? }` (DTO `SendTextDto`; a página da documentação mostra `textMessage.text`, formato antigo), resposta com `key.id` e `key.remoteJid`; número sem WhatsApp → HTTP 400 com `exists: false`; `POST /instance/create`, `GET /instance/connect/{instance}` (QR em `base64`), `GET /instance/connectionState/{instance}` (`open`/`connecting`/`close`), `DELETE /instance/logout/{instance}`; `POST /webhook/set/{instance}` com `{ webhook: { enabled, url, headers, byEvents, base64, events } }`; eventos `messages.upsert` (resposta do paciente; `remoteJid` em `@lid` já trocado pelo `remoteJidAlt`), `messages.update` (`keyId` + `SERVER_ACK`/`DELIVERY_ACK`/`READ`/`PLAYED`/`ERROR`), `connection.update` (`state` + `wuid`); **sem HMAC de corpo**, mas o cabeçalho especial `jwt_key` do webhook da instância faz a Evolution mandar `Authorization: Bearer <JWT HS256>` (`{ iat, exp: iat + 600, app: 'evolution', action: 'webhook' }`, v2.3.0+); o webhook global **não** manda cabeçalhos (por isso o plano usa o webhook por instância); o corpo do webhook traz um campo `apikey` (nulo com `AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false`); botões interativos (`/message/sendButtons`) existem, mas não são confiáveis via Baileys.
+> **Mudança do dono (2026-10-01):** o WhatsApp do MVP passa da WhatsApp Cloud API da Meta para a **Evolution API** (https://docs.evolutionfoundation.com.br/evolution-api). INT-01, D-07 e o E-04 da spec viram "Desvios conscientes" (abaixo) e a spec é atualizada no fechamento. Fatos da Evolution conferidos na documentação oficial **e no código-fonte da v2.3.7** (a documentação OpenAPI ainda mostra o corpo da v1 em alguns pontos): `POST /message/sendText/{instance}` com cabeçalho `apikey` e corpo `{ number, text, delay?, linkPreview? }` (DTO `SendTextDto`; a página da documentação mostra `textMessage.text`, formato antigo), resposta com `key.id` e `key.remoteJid`; número sem WhatsApp → HTTP 400 com `exists: false`; `POST /instance/create`, `GET /instance/connect/{instance}` (QR em `base64`), `GET /instance/connectionState/{instance}` (`open`/`connecting`/`close`), `DELETE /instance/logout/{instance}`; `POST /webhook/set/{instance}` com `{ webhook: { enabled, url, headers, byEvents, base64, events } }`; eventos `messages.upsert` (resposta do paciente; `remoteJid` em `@lid` já trocado pelo `remoteJidAlt`), `messages.update` (`keyId` + `SERVER_ACK`/`DELIVERY_ACK`/`READ`/`PLAYED`/`ERROR`), `connection.update` (`state` + `wuid`); **sem HMAC de corpo**, mas o cabeçalho especial `jwt_key` do webhook da instância faz a Evolution mandar `Authorization: Bearer <JWT HS256>` (`{ iat, exp: iat + 600, app: 'evolution', action: 'webhook' }`, v2.3.0+); o webhook global **não** manda cabeçalhos (por isso o plano usa o webhook por instância); o JWT é **determinístico** — sem `jti`, sem instância e sem nada do evento: dois eventos da mesma instância no mesmo segundo levam o mesmo JWT (`WebhookController.generateJwtToken`); a Evolution repete o **mesmo** pedido (mesmo JWT e corpo) em 5xx/timeout, até 10 vezes, e desiste em 400/401/403/404/422 (`retryWebhookRequest`); o corpo do webhook traz um campo `apikey` com o token da instância **só** com `AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true` (`ChannelStartupService.sendDataWebhook`; nulo com `false`, que o runbook usa — o plano não depende desse campo, D4); `POST /instance/create` aceita `token` (senão gera um UUID); botões interativos (`/message/sendButtons`) existem, mas não são confiáveis via Baileys.
 
 ## Global Constraints
 
 - Tudo dos Planos 01–04 continua valendo: Node 24, TypeScript `strict`, `pnpm install --frozen-lockfile` no CI, `src/proxy.ts` (não `middleware.ts`), porta **3100** em dev/E2E local (a 3000 da VPS é o Easypanel), **3000** em containers e CI; `requireNutri` na entrada de toda página e Server Action da nutricionista; `requireApiNutri` em todo Route Handler dela; ids de rota conferidos com `idValido` (id inválido = 404, nunca 500).
 - **Base:** `main` em `31330b5`. Se o PR do botão "Sair" (branch `botao-sair`, spec v1.7) entrar na `main` antes, fazer rebase e manter o `BotaoSair` no `Cabecalho` (as Tarefas 4 e 9 só acrescentam links ao `<nav>`); a atualização da spec no fechamento vira a versão seguinte à que estiver na `main`.
-- Toda tabela nova com `tenant_id`: depois de `pnpm db:generate`, migration custom `rls_<tabela>` com `SELECT app_enable_tenant_rls('<tabela>');`; com `patient_id`, também `SELECT app_enable_patient_rls('<tabela>');`; tabela que o paciente nunca vê (regras, bloqueios, conexão do WhatsApp, pedidos da página pública): `SELECT app_enable_staff_only('<tabela>');` + entrada em `STAFF_ONLY` (`src/db/rls-guard.ts`). Entrada nova em `FABRICAS` de `test/isolamento.test.ts` (fábrica que precisa de linha-mãe cria a mãe no mesmo comando; tabela referenciada com FK `NO ACTION` entra em `ULTIMAS`; tabela com uma linha só por tenant usa `insert … select … where not exists`, porque a fábrica roda duas vezes por tenant). CLAUDE.md regras 1, 2 e 8.
+- Toda tabela nova com `tenant_id`: depois de `pnpm db:generate`, migration custom `rls_<tabela>` com `SELECT app_enable_tenant_rls('<tabela>');`; com `patient_id`, também `SELECT app_enable_patient_rls('<tabela>');`; tabela que o paciente nunca vê (regras, bloqueios, conexão do WhatsApp, pedidos da página pública): `SELECT app_enable_staff_only('<tabela>');` + entrada em `STAFF_ONLY` (`src/db/rls-guard.ts`). Entrada nova em `FABRICAS` de `test/isolamento.test.ts` (fábrica que precisa de linha-mãe cria a mãe no mesmo comando; tabela referenciada com FK `NO ACTION` entra em `ULTIMAS`; tabela com uma linha só por tenant usa `insert … select … where not exists`, porque a fábrica roda duas vezes por tenant). CLAUDE.md regras 1, 2 e 8. **Contexto `publico` (D11, a partir da Tarefa 3):** `app_enable_tenant_rls` passa a criar também a política RESTRICTIVE `publico_negado` — toda tabela nova nasce fechada para o contexto sem login; a tabela que o fluxo público precisa troca essa política pelas de comando com `SELECT app_allow_publico('<tabela>', '<comando>', …);` **e** uma entrada em `PUBLICO_LIBERADO` (`src/db/rls-guard.ts`), com o motivo. A guarda `findPublicoViolations` quebra o CI se as duas coisas não baterem.
+- **Uma conexão por transação:** dentro do callback de um `withTenant` (ou de `db.transaction`) só se usa o `tx` recebido — nada de chamar função que abre outro `withTenant`/`getDb()` (ex.: `horariosLivres`, `escolherHorario`, `buscarTenant`). O que precisa de outra leitura é calculado **antes** de abrir a transação e revalidado dentro dela (pelo `EXCLUDE`, pela trava). Com o pool `max: 10`, dez pedidos assim esgotam as conexões e travam o app. Exceção conhecida: o `send` do pg-boss com `db: fromDrizzle(tx, sql)` usa a própria transação (o pg-boss tem pool próprio).
 - **Auditoria (RNF-08, Decisão D10):** `appointments` é dado de saúde adjacente → `app_enable_audit('appointments', 'agenda')` (escritas auditadas pelo gatilho; ninguém precisa chamar `recordAudit` para criar/alterar/cancelar). A **leitura** da agenda (nome, hora, situação) não é auditada, como a lista de pacientes. `notifications`, `push_subscriptions` e `consents` (que passa a ter `patient_id`) ficam em `AUDIT_EXCEPTIONS`, com o motivo.
 - Migrations sempre com `DATABASE_URL_MIGRATOR` (CLAUDE.md regra 7). `btree_gist` já existe (migration 0000; extensão *trusted*, criada pelo `nutri_owner` sem superusuário — `src/db/migrate-owner.test.ts` prova); nenhuma extensão nova.
 - **Fuso (RN-06):** tudo gravado em UTC (`timestamptz`); calendário, horário silencioso, virada do mês da cota e textos usam `tenants.fuso` com as funções de `src/modules/agenda/fuso.ts` (só `Intl`, sem biblioteca nova). Nunca `new Date().getDate()`/`getHours()` do servidor (UTC). Datas `dd/mm/aaaa`, horas `HH:MM` (RNF-12), e nas mensagens ao paciente a sigla do fuso: "14:00 (horário de Brasília)".
 - **Fila:** o motor de lembretes é **estado no banco** (`notifications.status`/`agendada_para`) varrido pelo worker a cada minuto (fila `notificacoes`, `* * * * *`, `America/Sao_Paulo`), não um job atrasado por lembrete — o pg-boss apaga job "created" depois de 14 dias (`retentionSeconds` padrão), e uma consulta pode ser marcada com 60 dias de antecedência. Ações que precisam de envio imediato (confirmação da marcação, resposta no WhatsApp) chamam `dispararEnvio(tx, tenantId)`, que enfileira a mesma varredura só daquele tenant, na mesma transação.
-- **WhatsApp (D1–D5):** Evolution API por instância de tenant; nada de botões interativos; texto transacional só (lembretes, convite, respostas "1"/"2"); no máximo **8 mensagens por minuto por tenant** e fila serial; respostas do paciente reduzidas a `confirmar`/`remarcar` **na rota do webhook** (o texto da mensagem nunca é gravado, enfileirado nem logado). Sem `EVOLUTION_API_URL` + `EVOLUTION_API_KEY` (+ `EVOLUTION_WEBHOOK_SECRET` no app) o WhatsApp fica desligado; `WHATSAPP_SANDBOX=1` (dev, CI, E2E; recusado em produção fora de `localhost`) troca o envio pelo Mailpit.
+- **WhatsApp (D1–D5):** Evolution API por instância de tenant; nada de botões interativos; texto transacional só (lembretes, convite, respostas "1"/"2"); no máximo **8 mensagens por minuto por tenant** e fila serial; respostas do paciente reduzidas a `confirmar`/`remarcar` **na rota do webhook** (o texto da mensagem nunca é gravado, enfileirado nem logado). Sem `EVOLUTION_API_URL` + `EVOLUTION_API_KEY` (+ `EVOLUTION_WEBHOOK_SECRET` no app) o WhatsApp fica desligado; em produção, `EVOLUTION_WEBHOOK_URL` é obrigatória e interna (rede do Docker/Easypanel; a URL pública só com `EVOLUTION_WEBHOOK_URL_PUBLICA=1`, D4); `WHATSAPP_SANDBOX=1` (dev, CI, E2E; recusado em produção fora de `localhost`) troca o envio pelo Mailpit.
 - **Push (D19):** envio com `web-push` + VAPID só no worker; 404/410 → inscrição apagada; payload sem dado de saúde. A tela de inscrição é do P06-02 (Plano 06), que grava em `push_subscriptions` com a sessão do paciente.
 - **Página pública e link da consulta:** nunca devolvem dado de outro paciente (horários são só intervalos livres, calculados no contexto `publico`); a página pública valida o Turnstile no servidor antes de qualquer escrita de negócio (o contador do limite por IP é a única escrita antes); respostas iguais para e-mail cadastrado ou não; o link da consulta é um token HMAC que expira no início da consulta, nunca muda estado num `GET` (pré-visualização de link do WhatsApp abre a URL) e a página tem `Referrer-Policy: no-referrer`.
 - RNF-11 / CLAUDE.md regra 3: nada de nome, e-mail, telefone, texto de mensagem, link com token, código de 6 dígitos, `apikey`, JWT ou corpo de webhook em log/Sentry; logs só com ids, canal, tipo, motivo e código de erro. Respostas da Evolution nunca são logadas (trazem número e QR).
@@ -35,23 +36,23 @@
 
 | # | Tema | Decisão | Custo / consequência |
 |---|---|---|---|
-| D1 ★ | Provedor do WhatsApp | **Evolution API v2.3.7** autohospedada (Baileys, "WhatsApp Web"), atrás da interface `ProvedorWhatsapp` (`enviarTexto`, `conectar`, `estado`, `desconectar`) com três implementações: `evolution` (produção), `sandbox` (dev/CI/E2E: a mensagem vira e-mail no Mailpit para `<número>@whatsapp.sandbox`, QR fictício) e `fake` (Vitest). Liga só com as variáveis (app: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`, opcional `EVOLUTION_WEBHOOK_URL`; worker: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`) | **Sem custo por mensagem** (a Meta não cobra). Custa RAM da VPS: estimar **~250–400 MB** (Node + Prisma + ~30–60 MB por número conectado); limite de **512 MB** no Easypanel. Precisa de um PostgreSQL (usa um banco `evolution` separado dentro do `nutri_db`, com role próprio) e **não** precisa de Redis (`CACHE_LOCAL_ENABLED=true`). Total do RNF-03 passa de 2,5 GB para ~3 GB dos ~5,5 GB livres (o `cursoia_crm` continua isolado pelos limites). **Risco:** automação não oficial pode levar o número a ser bloqueado pelo WhatsApp — mitigado por D16 |
+| D1 ★ | Provedor do WhatsApp | **Evolution API v2.3.7** autohospedada (Baileys, "WhatsApp Web"), atrás da interface `ProvedorWhatsapp` (`enviarTexto`, `conectar`, `estado`, `desconectar`) com três implementações: `evolution` (produção), `sandbox` (dev/CI/E2E: a mensagem vira e-mail no Mailpit para `<número>@whatsapp.sandbox`, QR fictício) e `fake` (Vitest). Liga só com as variáveis (app: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL` — opcional em dev, obrigatória e interna em produção —, opcional `EVOLUTION_WEBHOOK_URL_PUBLICA`; worker: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`) | **Sem custo por mensagem** (a Meta não cobra). Custa RAM da VPS: estimar **~250–400 MB** (Node + Prisma + ~30–60 MB por número conectado); limite de **512 MB** no Easypanel. Precisa de um PostgreSQL (usa um banco `evolution` separado dentro do `nutri_db`, com role próprio) e **não** precisa de Redis (`CACHE_LOCAL_ENABLED=true`). Total do RNF-03 passa de 2,5 GB para ~3 GB dos ~5,5 GB livres (o `cursoia_crm` continua isolado pelos limites). **Risco:** automação não oficial pode levar o número a ser bloqueado pelo WhatsApp — mitigado por D16 |
 | D2 ★ | Instância | **Uma por tenant** (`nd-<tenantId>`): cada nutricionista conecta o próprio número por QR code em "WhatsApp" no painel; recomendação na tela: usar um número só do consultório (WhatsApp Business no celular do consultório) | Um bloqueio atinge só aquele consultório (com número único da plataforma, todos os clientes cairiam juntos); o paciente reconhece o número e as respostas livres chegam à própria nutricionista. **Privacidade:** a Evolution recebe todas as mensagens que chegam àquele número; o NutriDebby só aproveita "1"/"2" de quem recebeu lembrete e descarta o resto na rota (nada gravado), mas a Evolution guarda o que a configuração mandar (o runbook desliga o armazenamento de mensagens) e escreve as mensagens recebidas no próprio log do container (`console.log` no código dela) — declarar no DPA (P-02) e manter o log do serviço `nutri_evolution` curto. Fica para o dono: preferir o número único da plataforma (como na spec, D-07) no piloto |
 | D3 | Confirmar / remarcar (US-035) | **Resposta por texto** interpretada no webhook — "1", "sim", "confirmo" → confirmar; "2", "remarcar", "preciso remarcar", "não posso" → remarcar (sem acento, maiúsculas e pontuação) — **mais um link assinado** em todo lembrete (WhatsApp e e-mail) para a página `/consulta/<token>` com "Confirmar presença", "Cancelar consulta" e "Remarcar". Nada de botões interativos (não confiáveis no Baileys) | A confirmação funciona mesmo sem WhatsApp (pelo link do e-mail). Selos: "Confirmada via WhatsApp" e "Confirmada pelo link" |
-| D4 | Autenticação do webhook | Cabeçalho `jwt_key` na configuração do webhook da instância → a Evolution manda `Authorization: Bearer <JWT HS256>`; a rota confere: só `alg = HS256`, HMAC-SHA256 em tempo constante com `EVOLUTION_WEBHOOK_SECRET` (≥ 32 caracteres), `exp` (10 min, folga de 60 s), `iat` não no futuro, `app = 'evolution'`, `action = 'webhook'`; instância no formato `nd-<uuid>` de um tenant com conexão. Inválido → **401** (a Evolution não repete 401). Recomendação do runbook: URL interna da rede do Easypanel (`EVOLUTION_WEBHOOK_URL=http://<serviço do app>:3000/api/webhooks/whatsapp`), sem expor a Evolution na internet | Um JWT capturado vale 10 min; repetir um evento é inofensivo (D6) |
-| D5 | Processamento do webhook | A rota (≤ 2 s) confere o JWT, lê no máximo 256 KB, reduz o evento ao mínimo (resposta → só `confirmar`/`remarcar` + número + id; status → id + status; conexão → estado + número) e enfileira **cifrado** (`sealSecret`, finalidade `whatsapp-evento`) na fila `whatsapp-evento`; o resto (grupos, mensagens próprias, mídia, texto que não é "1"/"2") → 200 e descartado | O texto que o paciente digita nunca é gravado, enfileirado nem logado |
-| D6 | Envio e idempotência | Uma linha por (consulta, canal, tipo) (`UNIQUE`), criada na marcação para **os três canais**; as condições (opt-in, telefone, conexão, cota, inscrição, paciente ativo, consulta ativa, tenant ativo) são conferidas **na hora do envio** e viram `ignorada` + motivo. O worker reserva (`pendente → enviando`, `FOR UPDATE SKIP LOCKED`) antes de chamar o provedor; WhatsApp e push são **no máximo uma vez** (linha presa em `enviando` > 15 min vira `falhou`/`interrompido`); e-mail repete com segurança (chave de idempotência do Resend `notificacao:<id>:<início da consulta>`). Status do WhatsApp só avança (`enviada` → `entregue` → `lida`) | Satisfaz US-034 "Sem duplicidade" mesmo com o worker caindo no meio do envio; um evento repetido do webhook não muda nada |
-| D7 | Horário silencioso (RN-05) | Lembrete cujo horário cai em [21:00, 08:00) no fuso do tenant fica `ignorada`/`horario_silencioso` (não é adiado); 08:00 em ponto vale. Novas tentativas do mesmo envio (1, 5 e 25 min) não esperam o fim do horário silencioso | No pior caso, uma nova tentativa sai às 21:24 |
+| D4 | Autenticação do webhook (revista na rodada 1 do `/code-review`) | Cabeçalho `jwt_key` na configuração do webhook da instância → a Evolution manda `Authorization: Bearer <JWT HS256>`; a rota confere: só `alg = HS256`, HMAC-SHA256 em tempo constante, `exp` (10 min, folga de 60 s), `iat` não no futuro, `app = 'evolution'`, `action = 'webhook'`. Inválido → **401** (a Evolution não repete 401). Três camadas: **(a) amarrado à instância** — o `jwt_key` de cada instância é `chaveDoWebhook(EVOLUTION_WEBHOOK_SECRET, 'nd-<tenantId>')` (HKDF; o segredo-mestre, ≥ 32 caracteres, nunca sai do app); a rota lê o corpo (≤ 256 KB), pega `instance` e confere o JWT com a chave **dessa** instância — um JWT de um consultório não vale para outro, e o `connection.update` só grava número na instância do próprio tenant. (O campo `apikey` do corpo não é usado: só vem com `AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true`, e ele é o token que **envia** mensagens pela instância — circular em todo webhook e ficar no log da Evolution seria pior que a chave derivada.) **(b) sem repetição** — o JWT da Evolution não tem `jti` e é igual para eventos do mesmo segundo, então a marca é o HMAC de "JWT + SHA-256 do corpo", gravada em `public_rate_limits` por 11 min (`consumirLimite` com limite 1); o mesmo pedido de novo → 401 (se enfileirar falhar, a marca é apagada e a repetição da Evolution passa). **(c) endereço interno** — em produção, `EVOLUTION_WEBHOOK_URL` é obrigatória e precisa ser interna (nome de serviço do Docker/Easypanel, sem ponto, ou IP privado); a URL pública só com `EVOLUTION_WEBHOOK_URL_PUBLICA=1`, opção documentada no runbook | Um JWT capturado só vale para aquela instância, por 10 min, e não serve para repetir o mesmo pedido; com a URL interna, capturar exige estar na rede do Docker. A Evolution não assina o corpo: quem capturar um pedido ainda pode montar outro corpo **da mesma instância** nesses 10 min — por isso a URL interna é obrigatória em produção. Trocar o segredo-mestre exige "Conectar WhatsApp" de novo em cada consultório (reconfigura o `jwt_key`) |
+| D5 | Processamento do webhook | A rota (≤ 2 s) exige o `Bearer`, lê no máximo 256 KB, confere o JWT com a chave da instância do corpo e a repetição (D4), reduz o evento ao mínimo (resposta → só `confirmar`/`remarcar` + número + id; status → id + status; conexão → estado + número) e enfileira **cifrado** (`sealSecret`, finalidade `whatsapp-evento`) na fila `whatsapp-evento`; o resto (grupos, mensagens próprias, mídia, texto que não é "1"/"2") → 200 e descartado | O texto que o paciente digita nunca é gravado, enfileirado nem logado |
+| D6 | Envio e idempotência (revista na rodada 1 do `/code-review`) | Uma linha por (consulta, canal, tipo, **início da consulta**) (`UNIQUE`; coluna `inicio_consulta`, obrigatória quando há consulta), criada na marcação para **os três canais**; as condições (opt-in, telefone, conexão, cota, inscrição, paciente ativo, consulta ativa, tenant ativo, horário da consulta igual ao da linha) são conferidas **na hora do envio** e viram `ignorada` + motivo. **Linha enviada é imutável:** marcar de novo no mesmo horário só reescreve linha `pendente`/`ignorada`/`falhou` (`ON CONFLICT … DO UPDATE … WHERE`); mudar o horário cria linhas novas para o horário novo e a pendente do horário antigo vira `ignorada`/`consulta_remarcada` — a enviada (e a que está saindo) fica como está, com `enviada_em` e o id do provedor, e continua contando na cota e nas métricas (só a anonimização LGPD apaga o `provider_jid`, Tarefa 15). O worker reserva (`pendente → enviando`, `FOR UPDATE SKIP LOCKED`) antes de chamar o provedor, **canal por canal**: e-mail e push primeiro, o WhatsApp com o que sobrar e só se o tenant ainda tem vaga no minuto (D16) — um acúmulo de WhatsApp nunca ocupa a vez dos outros canais; a volta do cron dá a cada tenant uma parte do lote (`max(5, 40 ÷ tenants)`, o que sobrar vai para quem encheu a parte) e começa num tenant diferente a cada minuto, sem perder o limite global de 40. WhatsApp e push são **no máximo uma vez** (linha presa em `enviando` > 15 min vira `falhou`/`interrompido`); e-mail repete com segurança (chave de idempotência do Resend `notificacao:<id>:<início da consulta>`). Status do WhatsApp só avança (`enviada` → `entregue` → `lida`) | Satisfaz US-034 "Sem duplicidade" (no máximo um por tipo, canal e horário da consulta) mesmo com o worker caindo no meio do envio; um evento repetido do webhook não muda nada; a tela da consulta mostra também o histórico do horário antigo ("Não enviado: consulta remarcada") |
+| D7 | Horário silencioso (RN-05; revista na rodada 1 do `/code-review`) | **No planejamento:** lembrete cujo horário cai em [21:00, 08:00) no fuso do tenant fica `ignorada`/`horario_silencioso` (não é adiado); 08:00 em ponto vale. **Na reserva para envio** (worker parado, conta reativada à noite, fila atrasada): lembrete que venceu e seria enviado dentro de [21:00, 08:00), na 1ª tentativa, é **adiado para as 08:00** se ainda fizer sentido — o de 24 h, se as 08:00 ficarem antes do lembrete de 2 h (que cobre a reta final), ou até 30 min antes do início quando o de 2 h caiu no silêncio; o de 2 h, até 30 min antes do início — senão fica `ignorada`/`horario_silencioso`. O de 24 h que sai no dia da consulta diz "hoje", não "amanhã". A RN-05 não distingue canal: vale para **e-mail, WhatsApp e push**. Só lembretes: confirmação da marcação, aviso de cancelamento, convite e respostas "1"/"2" respondem a uma ação feita agora e saem na hora. Novas tentativas do mesmo envio (1, 5 e 25 min) não esperam o fim do horário silencioso | No pior caso, uma nova tentativa sai às 21:24; um lembrete atrasado às 23:30 sai às 08:00 |
 | D8 | Fuso | `src/modules/agenda/fuso.ts` sobre `Intl.DateTimeFormat`: hora local inexistente (início do horário de verão) é pulada na geração de horários e recusada no agendamento ("Este horário não existe neste dia (mudança de horário de verão)."); hora repetida usa a primeira ocorrência | Sem dependência nova; testes com `America/New_York` cobrem as mudanças |
 | D9 | Conflito | `EXCLUDE USING gist (tenant_id WITH =, tstzrange(inicio, fim, '[)') WITH &&) WHERE (status <> 'cancelada')` sobre as colunas `inicio`/`fim` (em vez da coluna `periodo`); consultas `realizada`/`faltou` continuam ocupando o horário. A restrição vale acima da RLS: a corrida entre dois pacientes (que não se veem) é decidida pelo banco | Erro 23P01 vira "Esse horário acabou de ser ocupado. Escolha outro." (paciente) ou "Conflito com a consulta de <nome> às HH:MM" (nutricionista) |
 | D10 | LGPD da agenda | `appointments` com RLS por paciente e gatilho de auditoria (entidade `agenda`, rótulo "Agenda" no "Histórico de acessos"); leitura da agenda sem `auditRead` (nome + hora + situação, mesmo critério da lista de pacientes); `notifications` com RLS por paciente, sem auditoria (registro técnico de entrega, sem dado clínico); `motivo_cancelamento` e `provider_jid` apagados na anonimização (Tarefa 15) | O "Histórico de acessos" do paciente mostra quem marcou, mudou ou cancelou cada consulta, sem uma linha por abertura da agenda |
-| D11 | Horários livres sem vazar dados | Calculados num contexto novo **`publico`** do `withTenant` (`TenantRole`), que lê regras, bloqueios e só `inicio`/`fim` das consultas, e devolve só intervalos. Sessões de paciente nunca leem regras/bloqueios (`staff_only`) nem consultas de outros (RLS) | O contexto `publico` não tem ator (auditoria com IP) e só é usado em funções fechadas da agenda |
+| D11 | Horários livres sem vazar dados (defesa no banco desde a rodada 1 do `/code-review`) | Calculados num contexto novo **`publico`** do `withTenant` (`TenantRole`), que lê regras, bloqueios e só `inicio`/`fim` das consultas, e devolve só intervalos. Sessões de paciente nunca leem regras/bloqueios (`staff_only`) nem consultas de outros (RLS). **No banco:** negar por padrão — `app_enable_tenant_rls` cria a política RESTRICTIVE `publico_negado` (o `publico` não lê nem grava nada) em toda tabela com `tenant_id`, inclusive nas antigas (a migration 0051 aplica em todas) e nas que ainda vão nascer; `app_allow_publico(tabela, comandos…)` troca essa política por uma RESTRICTIVE por comando negado, liberando **só** o que o fluxo público usa: `availability_rules`/`availability_blocks` (`select`), `appointments` (`select`, `insert`), `patients` (`select`, `insert`), `notifications` (`select`, `insert`: o `INSERT … ON CONFLICT` exige ler a linha nova), `audit_log` (`insert`: o gatilho de auditoria roda com o papel de quem grava), `public_booking_requests` (`select`, `insert`, `update`). A lista explícita é `PUBLICO_LIBERADO` (`src/db/rls-guard.ts`) e a guarda confere que o banco bate com ela | Negar por padrão (em vez de "negar tabela a tabela"): tabela nova nasce fechada mesmo se alguém esquecer, e o que é liberado fica numa lista curta e revisável. A RLS não restringe colunas (o papel do banco é o mesmo): "só `inicio`/`fim`" continua garantido pelas funções fechadas de `src/modules/agenda`; o banco garante que notas, anamnese, exames, planos etc. dão 0 linhas para o `publico`. O contexto `publico` não tem ator (auditoria com IP) |
 | D12 | Página pública | Dois passos: pedido (nome, e-mail, telefone opcional, "Tenho 18 anos ou mais", termo, opt-in de WhatsApp, Turnstile) → **código de 6 dígitos** no e-mail (10 min, 5 tentativas) → consulta. Limites: 10 tentativas por IP por hora (HTTP 429), 1 código por e-mail a cada 60 s e 5 por hora, 3 consultas futuras por e-mail (conferido **depois** do código, para não revelar quem é paciente). E-mail de paciente ativo → a consulta vai para esse paciente (ele provou o e-mail); arquivado/bloqueado → "Não foi possível agendar por aqui. Fale com sua nutricionista." O botão "Entrar (já sou paciente)" fica para o Plano 06 | Respostas iguais para e-mail cadastrado ou não até o código ser confirmado |
 | D13 | Termo aceito na página pública | `consents` ganha `patient_id` (com `tenant_id`) e `user_id` passa a aceitar nulo, com CHECK "conta ou paciente" e `UNIQUE NULLS NOT DISTINCT (user_id, termo_versao, tenant_id, patient_id)` | O visitante ainda não tem conta; a prova de aceite fica onde as outras ficam |
 | D14 | `push_subscriptions` | Com `tenant_id` e `patient_id` (🔒, RLS por paciente) em vez de só `user_id`: o envio roda no `withTenant` do worker sem atravessar tenants, a exclusão LGPD apaga só as do vínculo e o P06-02 grava uma linha por vínculo ativo do dispositivo. `UNIQUE (tenant_id, patient_id, endpoint)` | Desvio do §4.1/§7 (registrado) |
 | D15 ★ | Cota (RN-09) | Continua por tenant e mês civil no fuso do tenant, padrão **500**, agora como **limite de uso** (protege o número contra bloqueio e a VPS), não de custo: conta lembretes e convites aceitos pela Evolution; respostas automáticas a "1"/"2" não contam; 80% → aviso no painel + e-mail "Você usou 80% dos WhatsApps do mês" (uma vez por mês); 100% → `ignorada`/`cota_esgotada` até o mês seguinte ou até o admin ampliar (vale na hora) | Nenhum custo; o dono pode preferir outro padrão |
 | D16 ★ | Ritmo de envio (anti-bloqueio) | Fila serial (1 envio por vez no worker), no máximo **8 mensagens por minuto por tenant**, `delay` de 1,2 s ("digitando…") da Evolution, `linkPreview` desligado; nada de disparo em massa (convite só no cadastro, 2 lembretes por consulta, 1 resposta por consulta) | Num pico (muitos lembretes às 08:00) o último pode sair alguns minutos depois |
-| D17 | Remarcar | Pelo **paciente** = cancelar a antiga (`cancelado_por = 'paciente'`) + criar a nova (`remarcada_de`) numa transação (US-033); pela **nutricionista** = "Alterar data e hora" da mesma consulta, que atualiza as linhas de lembrete existentes (§7 "atualizada, não duplicada") e volta a situação para "Agendada" | O histórico do paciente mostra as duas consultas |
+| D17 | Remarcar | Pelo **paciente** = cancelar a antiga (`cancelado_por = 'paciente'`) + criar a nova (`remarcada_de`) numa transação (US-033); pela **nutricionista** = "Alterar data e hora" da mesma consulta, que volta a situação para "Agendada"; os lembretes ainda pendentes do horário antigo viram `ignorada`/`consulta_remarcada` e o horário novo ganha linhas próprias (D6, rodada 1 do `/code-review` — o enviado não é reaberto). Mudar só a duração ou a modalidade mantém o horário e as mesmas linhas: os lembretes pendentes saem com os dados novos (lidos no envio), sem nova "Consulta marcada" | O histórico do paciente mostra as duas consultas; a tela da consulta mostra os lembretes dos dois horários |
 | D18 | Avisos à nutricionista | E-mail pela fila `email` (consulta marcada, remarcada ou cancelada pelo paciente, pedido de remarcação, novo paciente da página pública, WhatsApp desconectado, 80% da cota) + quadro "Agenda" no painel inicial (Tarefa 15). Sem tabela de notificações internas | O e-mail da nutricionista vem de `user` (CLAUDE.md regra 1: `src/modules/agenda/aviso-nutri.ts` entra na lista) |
 | D19 | Push | Envio já aqui (P05-10): `web-push`, VAPID (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` no worker), TTL até o início da consulta, 404/410 apagam a inscrição; payload `{ titulo, corpo, url }` sem dado de saúde ("Consulta amanhã às 14:00"). A inscrição e o push de teste são do P06-02 | Até o Plano 06, `sem_inscricao` em todas as linhas de push (esperado) |
 | D20 | Link assinado da consulta | Token de 71 caracteres: versão + tenant + consulta + validade (início da consulta) + HMAC-SHA256 truncado em 128 bits, com chave derivada (HKDF) de `ENCRYPTION_KEY` (app e worker já têm; nenhuma variável nova). Ações pelo link rodam com o contexto `paciente` do dono da consulta (RLS por paciente) e o IP de quem clicou | Quem tiver o link pode confirmar/cancelar/remarcar aquela consulta (como num convite de calendário); `Referrer-Policy: no-referrer` |
@@ -62,13 +63,14 @@
 
 | Spec | Neste plano | Motivo |
 |---|---|---|
-| INT-01 (WhatsApp Cloud API da Meta, templates aprovados, `X-Hub-Signature-256`, `hub.verify_token`, `WHATSAPP_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_APP_SECRET`/`WHATSAPP_VERIFY_TOKEN`/`WHATSAPP_API_VERSION`) | **Evolution API** (D1): texto simples no lugar de templates; webhook com JWT HS256 do `jwt_key` (D4), sem `GET` de verificação; variáveis `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL`, `WHATSAPP_SANDBOX`; chave de idempotência = id da mensagem da Evolution (`key.id`/`keyId`). Mantidos: timeout de 10 s, 3 novas tentativas em 1, 5 e 25 min, fallback por e-mail, opt-in obrigatório antes de qualquer mensagem | Mudança do dono (2026-10-01): sem verificação da Meta nem custo por conversa |
+| INT-01 (WhatsApp Cloud API da Meta, templates aprovados, `X-Hub-Signature-256`, `hub.verify_token`, `WHATSAPP_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_APP_SECRET`/`WHATSAPP_VERIFY_TOKEN`/`WHATSAPP_API_VERSION`) | **Evolution API** (D1): texto simples no lugar de templates; webhook com JWT HS256 do `jwt_key` derivado por instância, sem repetição e por endereço interno (D4), sem `GET` de verificação; variáveis `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL`, `EVOLUTION_WEBHOOK_URL_PUBLICA`, `WHATSAPP_SANDBOX`; chave de idempotência = id da mensagem da Evolution (`key.id`/`keyId`). Mantidos: timeout de 10 s, 3 novas tentativas em 1, 5 e 25 min, fallback por e-mail, opt-in obrigatório antes de qualquer mensagem | Mudança do dono (2026-10-01): sem verificação da Meta nem custo por conversa |
 | D-07 "número único da plataforma no MVP" (e Fase 3 "número próprio") | Número da própria nutricionista, uma instância por tenant (D2 ★) | Bloqueio isolado por consultório; respostas chegam à nutricionista |
 | E-04 "Verificação da Meta Business + app + número + 3 templates" | **E-04 revisado:** subir a Evolution no Easypanel (serviço `nutri_evolution`, banco `evolution` no `nutri_db`), configurar as variáveis no app e no worker e a Debby conectar o número pelo QR do painel (runbook no fim) | Mudança do dono |
 | US-035 botões *quick reply* "Confirmo"/"Preciso remarcar" | Resposta "1"/"2" (e palavras) + link assinado em todo lembrete (D3); selo "Confirmada via WhatsApp" mantido, "Confirmada pelo link" novo | Botões não confiáveis no Baileys |
 | RN-09 "cota … para controlar o custo" / "aceita pela API da Meta" | Mesma regra como limite de uso (D15 ★), contando mensagens aceitas pela Evolution | Não há custo por mensagem |
+| RN-05 "horário de envio no intervalo [21:00, 08:00)" → `ignorada` | No planejamento, igual. Na **reserva para envio**, o lembrete que venceu e sairia no silêncio (worker parado, conta reativada à noite) é adiado para as 08:00 quando ainda faz sentido para o tipo — senão `ignorada`/`horario_silencioso` —, em todos os canais (a RN-05 não distingue); o de 24 h que sai no dia da consulta diz "hoje" (D7) | Rodada 1 do `/code-review`: o envio atrasado saía de madrugada |
 | §7 `appointments.periodo tstzrange` | Colunas `inicio`/`fim` + `EXCLUDE` sobre `tstzrange(inicio, fim, '[)')` (D9); colunas a mais: `confirmada_via`, `cancelada_em`, `remarcada_de`, `presenca_em`, `updated_at`; `origem` só `nutri`/`paciente` (o paciente da página pública marca como `paciente`) | Drizzle não tem tipo `tstzrange`; a faixa é expressão da restrição |
-| §7 `notifications` | Status a mais `enviando` (reserva antes do envio, D6); colunas `provider_jid` (destino real no WhatsApp, para casar a resposta), `enviada_em` (base da cota), `erro` (código curto), `conteudo_selado` (convite por WhatsApp com o link cifrado até o envio); tipos `lembrete_24h`, `lembrete_2h`, `consulta_marcada`, `consulta_cancelada`, `convite_paciente`, `resposta_confirmacao`, `resposta_remarcar` | At-most-once, cota por mês e resposta ao paciente |
+| §7 `notifications` | Status a mais `enviando` (reserva antes do envio, D6); colunas `provider_jid` (destino real no WhatsApp, para casar a resposta), `enviada_em` (base da cota), `erro` (código curto), `conteudo_selado` (convite por WhatsApp com o link cifrado até o envio), `inicio_consulta` (versão: `UNIQUE (appointment_id, canal, tipo, inicio_consulta)` no lugar de §7/US-034 "UNIQUE appointment_id + canal + tipo" — remarcar cria linhas novas e a enviada fica como registro, D6); motivo a mais `consulta_remarcada`; tipos `lembrete_24h`, `lembrete_2h`, `consulta_marcada`, `consulta_cancelada`, `convite_paciente`, `resposta_confirmacao`, `resposta_remarcar` | At-most-once, cota por mês, resposta ao paciente e lembrete enviado imutável (rodada 1 do `/code-review`) |
 | §7 `push_subscriptions` sem `tenant_id` (§4.1: "acesso só pelos services do M1") | Com `tenant_id` + `patient_id`, RLS por paciente (D14) | Isolamento no banco e exclusão LGPD por vínculo |
 | §7 `consents` (`user_id` obrigatório) | `user_id` nulo + `patient_id` para o aceite da página pública (D13) | O visitante ainda não tem conta |
 | Tabelas novas não previstas | `whatsapp_conexoes` 🔒 (estado da instância, avisos de desconexão e de 80%), `public_booking_requests` 🔒 (pedido da página pública com o código, apagado em 24 h), `public_rate_limits` (sem `tenant_id`: contadores por IP/e-mail com HMAC, só `src/modules/agenda/limite-ip.ts` acessa) | Fluxos novos |
@@ -76,7 +78,7 @@
 | US-031 "a Ana recebe e-mail e push de confirmação" | E-mail sempre; push só com inscrição (P06-02) | O PWA e a inscrição são do Plano 06 |
 | US-032 "precisa entrar (se já for paciente)" na página pública | O código por e-mail serve também para quem já é paciente (D12); o "Entrar" fica para o Plano 06 | O portal ainda não existe |
 | US-032 / US-033 / P05-03 / P05-05 pelo PWA | Domínio completo (agendar, cancelar, remarcar com RN-03/RN-04) usado pela página pública e pelo link da consulta; a tela no PWA é o P06-09 | O portal é do Plano 06 |
-| Textos novos de interface | Agenda: "Agenda", "Horários de atendimento", "Adicionar horário", "Dia da semana", "Início", "Fim", "Duração", "Modalidade", "Presencial", "Online", "Presencial ou online", "A duração deve ser de 15 a 240 minutos", "O horário precisa caber pelo menos uma consulta", "Este horário se sobrepõe a outro do mesmo dia.", "Informe um horário válido (HH:MM)", "Limite de 30 horários de atendimento.", "Bloqueios", "Adicionar bloqueio", "Data inicial", "Data final", "Motivo (opcional)", "A data final deve ser igual ou posterior à inicial", "O bloqueio pode ter no máximo 366 dias", "Use no máximo 120 caracteres", "Bloqueado: {motivo}", "Nova consulta", "Paciente", "Selecione o paciente", "Data", "Hora", "Link da chamada", "Informe uma data válida", "Este horário não existe neste dia (mudança de horário de verão).", "Paciente arquivado: desarquive para agendar.", "Consulta marcada.", "Consulta não encontrada.", "Alterar data e hora", "Consulta alterada.", "Só dá para alterar consulta agendada ou confirmada.", "Dia", "Semana", "Lista", "Hoje", "Anterior", "Próximo", "Nenhuma consulta neste período.", "Agendada", "Confirmada", "Cancelada", "Realizada", "Faltou", "Confirmada pelo link", "Cancelada pelo paciente", "Cancelar consulta", "Motivo do cancelamento (opcional)", "Cancelar esta consulta? O paciente recebe um aviso por e-mail.", "Consulta cancelada.", "Esta consulta não pode mais ser cancelada." · Lembretes: "Lembretes", "Lembrete de 24 h", "Lembrete de 2 h", "Confirmação da marcação", "Aviso de cancelamento", "Convite", "Resposta ao paciente", "E-mail", "WhatsApp", "Notificação no app", "Agendado para {quando}", "Enviando…", "Enviado em {quando}", "Entregue", "Lido", "Falhou", e os motivos ("Não enviado: horário silencioso (21h–8h)", "… já tinha passado do horário", "… consulta cancelada", "… consulta encerrada", "… paciente arquivado ou bloqueado", "… conta suspensa", "… sem autorização de WhatsApp", "… sem telefone", "… WhatsApp não configurado na plataforma", "… WhatsApp desconectado", "… cota de WhatsApp do mês esgotada", "… paciente sem notificações no app", "… notificações no app não configuradas") · Link da consulta: "Sua consulta", "Confirmar presença", "Presença confirmada. Até lá!", "Remarcar", "Escolha um novo horário", "Remarcar para este horário", "Consulta remarcada para {quando}.", "Este link expirou.", "Link inválido.", "Esta consulta foi cancelada.", "Nenhum horário livre nos próximos 60 dias. Fale com sua nutricionista.", "Esse horário não está mais disponível. Escolha outro.", "Avisar que preciso remarcar", "Avisamos sua nutricionista. Ela vai entrar em contato.", "Semana anterior", "Próxima semana", "Presença confirmada", "Consulta realizada", "Consulta encerrada" · Mensagens (e-mail/WhatsApp/push): "Lembrete: sua consulta é amanhã às {hora}", "Lembrete: sua consulta é hoje às {hora}", "Consulta marcada: {quando}", "Consulta cancelada: {quando}", "Confirmar presença ou remarcar", "Responda 1 para confirmar ou 2 se precisar remarcar.", "Tudo bem! Para escolher outro horário, use o link: …", "Consulta amanhã às {hora}", "Seu código para agendar com {nutri}: {código}", avisos à nutricionista ("Consulta marcada pelo paciente", "Consulta remarcada pelo paciente", "Consulta cancelada pelo paciente", "Paciente pediu para remarcar", "Novo paciente via agendamento online", "Ver na agenda"), "Seu WhatsApp foi desconectado do NutriDebby" · Página pública: "Agendar consulta com {nome}", "Escolha a modalidade", "Escolha o horário", "Seus dados", "Telefone (opcional)", "Tenho 18 anos ou mais", "Confirme que você tem 18 anos ou mais", "Quero receber lembretes por WhatsApp", "Informe o telefone para receber lembretes por WhatsApp", "Enviar código", "Enviamos um código de 6 dígitos para {e-mail}. Ele vale por 10 minutos.", "Código", "Confirmar agendamento", "Código incorreto.", "Código expirado. Peça um novo código.", "Muitas tentativas com código errado. Peça um novo código.", "Aguarde 1 minuto para pedir outro código.", "Muitas tentativas. Tente novamente mais tarde.", "Não foi possível agendar por aqui. Fale com sua nutricionista.", "Consulta marcada para {quando}. Enviamos a confirmação para o seu e-mail.", "Escolha um horário", "Nenhum horário livre nesta semana." · WhatsApp: "WhatsApp", "Conectar WhatsApp", "Gerar novo QR code", "No celular, abra o WhatsApp > Aparelhos conectados > Conectar um aparelho e aponte para este código.", "QR code para conectar o WhatsApp", "Conectado ao número {telefone}.", "Desconectar WhatsApp", "Desconectar o WhatsApp? Os lembretes passam a sair só por e-mail e notificação no app.", "WhatsApp desconectado. Os lembretes estão saindo só por e-mail e notificação no app.", "O WhatsApp ainda não está disponível na plataforma. Os lembretes saem por e-mail.", "Use, de preferência, um número só do consultório. Os lembretes saem do número conectado.", "Não foi possível falar com o serviço de WhatsApp. Tente de novo em alguns minutos.", "WhatsApps do mês: {usadas} de {cota}", "Cota de WhatsApp do mês esgotada: os lembretes seguem por e-mail e notificação no app até o mês que vem." · Painel: "Consultas do mês", "Taxa de faltas do mês: {x}% ({faltas} de {total})", "Mês anterior: {y}%", "Sem dados", "Pedidos de remarcação", "Marcadas pelo paciente (últimos 7 dias)", "Canceladas pelo paciente (últimos 7 dias)", "Iniciar atendimento", "Registrar presença", "Realizada", "Faltou", "Presença registrada.", "A presença só pode ser registrada depois do início da consulta.", "Convite por WhatsApp: {situação}" | Formulários e estados novos |
+| Textos novos de interface | Agenda: "Agenda", "Horários de atendimento", "Adicionar horário", "Dia da semana", "Início", "Fim", "Duração", "Modalidade", "Presencial", "Online", "Presencial ou online", "A duração deve ser de 15 a 240 minutos", "O horário precisa caber pelo menos uma consulta", "Este horário se sobrepõe a outro do mesmo dia.", "Informe um horário válido (HH:MM)", "Limite de 30 horários de atendimento.", "Bloqueios", "Adicionar bloqueio", "Data inicial", "Data final", "Motivo (opcional)", "A data final deve ser igual ou posterior à inicial", "O bloqueio pode ter no máximo 366 dias", "Use no máximo 120 caracteres", "Bloqueado: {motivo}", "Nova consulta", "Paciente", "Selecione o paciente", "Data", "Hora", "Link da chamada", "Informe uma data válida", "Este horário não existe neste dia (mudança de horário de verão).", "Paciente arquivado: desarquive para agendar.", "Consulta marcada.", "Consulta não encontrada.", "Alterar data e hora", "Consulta alterada.", "Só dá para alterar consulta agendada ou confirmada.", "Dia", "Semana", "Lista", "Hoje", "Anterior", "Próximo", "Nenhuma consulta neste período.", "Agendada", "Confirmada", "Cancelada", "Realizada", "Faltou", "Confirmada pelo link", "Cancelada pelo paciente", "Cancelar consulta", "Motivo do cancelamento (opcional)", "Cancelar esta consulta? O paciente recebe um aviso por e-mail.", "Consulta cancelada.", "Esta consulta não pode mais ser cancelada." · Lembretes: "Lembretes", "Lembrete de 24 h", "Lembrete de 2 h", "Confirmação da marcação", "Aviso de cancelamento", "Convite", "Resposta ao paciente", "E-mail", "WhatsApp", "Notificação no app", "Agendado para {quando}", "Enviando…", "Enviado em {quando}", "Entregue", "Lido", "Falhou", e os motivos ("Não enviado: horário silencioso (21h–8h)", "… já tinha passado do horário", "… consulta cancelada", "… consulta remarcada", "… consulta encerrada", "… paciente arquivado ou bloqueado", "… conta suspensa", "… sem autorização de WhatsApp", "… sem telefone", "… WhatsApp não configurado na plataforma", "… WhatsApp desconectado", "… cota de WhatsApp do mês esgotada", "… paciente sem notificações no app", "… notificações no app não configuradas") · Link da consulta: "Sua consulta", "Confirmar presença", "Presença confirmada. Até lá!", "Remarcar", "Escolha um novo horário", "Remarcar para este horário", "Consulta remarcada para {quando}.", "Este link expirou.", "Link inválido.", "Esta consulta foi cancelada.", "Nenhum horário livre nos próximos 60 dias. Fale com sua nutricionista.", "Esse horário não está mais disponível. Escolha outro.", "Avisar que preciso remarcar", "Avisamos sua nutricionista. Ela vai entrar em contato.", "Semana anterior", "Próxima semana", "Presença confirmada", "Consulta realizada", "Consulta encerrada" · Mensagens (e-mail/WhatsApp/push): "Lembrete: sua consulta é amanhã às {hora}", "Lembrete: sua consulta é hoje às {hora}", "Consulta marcada: {quando}", "Consulta cancelada: {quando}", "Confirmar presença ou remarcar", "Responda 1 para confirmar ou 2 se precisar remarcar.", "Tudo bem! Para escolher outro horário, use o link: …", "Consulta amanhã às {hora}", "Seu código para agendar com {nutri}: {código}", avisos à nutricionista ("Consulta marcada pelo paciente", "Consulta remarcada pelo paciente", "Consulta cancelada pelo paciente", "Paciente pediu para remarcar", "Novo paciente via agendamento online", "Ver na agenda"), "Seu WhatsApp foi desconectado do NutriDebby" · Página pública: "Agendar consulta com {nome}", "Escolha a modalidade", "Escolha o horário", "Seus dados", "Telefone (opcional)", "Tenho 18 anos ou mais", "Confirme que você tem 18 anos ou mais", "Quero receber lembretes por WhatsApp", "Informe o telefone para receber lembretes por WhatsApp", "Enviar código", "Enviamos um código de 6 dígitos para {e-mail}. Ele vale por 10 minutos.", "Código", "Confirmar agendamento", "Código incorreto.", "Código expirado. Peça um novo código.", "Muitas tentativas com código errado. Peça um novo código.", "Aguarde 1 minuto para pedir outro código.", "Muitas tentativas. Tente novamente mais tarde.", "Não foi possível agendar por aqui. Fale com sua nutricionista.", "Consulta marcada para {quando}. Enviamos a confirmação para o seu e-mail.", "Escolha um horário", "Nenhum horário livre nesta semana." · WhatsApp: "WhatsApp", "Conectar WhatsApp", "Gerar novo QR code", "No celular, abra o WhatsApp > Aparelhos conectados > Conectar um aparelho e aponte para este código.", "QR code para conectar o WhatsApp", "Conectado ao número {telefone}.", "Desconectar WhatsApp", "Desconectar o WhatsApp? Os lembretes passam a sair só por e-mail e notificação no app.", "WhatsApp desconectado. Os lembretes estão saindo só por e-mail e notificação no app.", "O WhatsApp ainda não está disponível na plataforma. Os lembretes saem por e-mail.", "Use, de preferência, um número só do consultório. Os lembretes saem do número conectado.", "Não foi possível falar com o serviço de WhatsApp. Tente de novo em alguns minutos.", "WhatsApps do mês: {usadas} de {cota}", "Cota de WhatsApp do mês esgotada: os lembretes seguem por e-mail e notificação no app até o mês que vem." · Painel: "Consultas do mês", "Taxa de faltas do mês: {x}% ({faltas} de {total})", "Mês anterior: {y}%", "Sem dados", "Pedidos de remarcação", "Marcadas pelo paciente (últimos 7 dias)", "Canceladas pelo paciente (últimos 7 dias)", "Iniciar atendimento", "Registrar presença", "Realizada", "Faltou", "Presença registrada.", "A presença só pode ser registrada depois do início da consulta.", "Convite por WhatsApp: {situação}" | Formulários e estados novos |
 
 ### Itens adiados de planos anteriores
 
@@ -99,10 +101,11 @@
 ## Review Focus
 
 1. **Dois pacientes (ou visitantes) no mesmo horário ao mesmo tempo**, e a nutricionista marcando por cima de uma consulta existente. Esperado: exatamente uma consulta criada; o outro paciente vê "Esse horário acabou de ser ocupado. Escolha outro."; a nutricionista vê "Conflito com a consulta de Ana Souza às 09:00"; nenhum dado do outro paciente aparece para o paciente. Testes nas Tarefas 3, 6 e 8.
-2. **Bordas de fuso e de relógio.** Consulta às 08:00 (lembrete de 2 h às 06:00 → silencioso), lembrete às 20:59 / 21:00 / 07:59 / 08:00, consulta criada em cima da hora, virada do mês às 23:59 de Brasília (02:59 UTC), dia com mudança de horário de verão num fuso que tem. Esperado: exatamente as regras da RN-05/RN-06 e da RN-09 no fuso do tenant, nunca no UTC do servidor. Testes nas Tarefas 1, 5 e 11.
+2. **Bordas de fuso e de relógio.** Consulta às 08:00 (lembrete de 2 h às 06:00 → silencioso), lembrete às 20:59 / 21:00 / 07:59 / 08:00, consulta criada em cima da hora, virada do mês às 23:59 de Brasília (02:59 UTC), dia com mudança de horário de verão num fuso que tem, lembrete que venceu com o worker parado e seria enviado às 23:30, lembrete de 2 h que venceu às 22:00 para consulta às 07:00. Esperado: exatamente as regras da RN-05/RN-06 e da RN-09 no fuso do tenant, nunca no UTC do servidor; o atrasado sai às 08:00 (dizendo "hoje"), o de 2 h que só caberia depois da consulta fica `horario_silencioso` (D7). Testes nas Tarefas 1, 5 e 11.
 3. **Resposta no WhatsApp que não bate com nada.** "1" de um número sem lembrete recente, "2" duas vezes, "1" depois do início da consulta, texto livre ("sim, mas atraso 10 min"), número que o WhatsApp devolve sem o 9º dígito, mensagem em `@lid`, dois pacientes com o mesmo telefone. Esperado: só o lembrete enviado àquele `jid` nas últimas 26 h, de consulta futura e ativa, muda de estado; repetido não muda de novo nem responde de novo; o resto é ignorado sem gravar o texto. Testes na Tarefa 12.
-4. **Consulta mudada depois de o lembrete estar na fila, e o worker caindo no meio do envio.** A nutricionista altera a hora, o paciente remarca, o admin suspende a conta, o worker reinicia entre a chamada à Evolution e a gravação. Esperado: o lembrete sai para a hora nova (a linha é atualizada, não duplicada), nada sai para consulta cancelada ou tenant suspenso, e WhatsApp/push nunca saem duas vezes. Testes nas Tarefas 5 e 10.
-5. **Abuso e privacidade na página pública.** E-mail de outro paciente, cabeçalho `X-Forwarded-For` forjado, 11ª tentativa na hora, código chutado, e-mail com 3 consultas futuras, página desativada, tenant suspenso. Esperado: nenhum dado revelado antes do código (mesma resposta para qualquer e-mail), HTTP 429 a partir da 11ª tentativa pelo IP real (`TRUSTED_PROXIES`), 5 erros de código invalidam o pedido, "Você já tem 3 consultas marcadas…" só depois do código certo. Testes na Tarefa 8.
+4. **Consulta mudada depois de o lembrete estar na fila, e o worker caindo no meio do envio.** A nutricionista altera a hora (antes e depois de o lembrete sair), o paciente remarca, o admin suspende e reativa a conta (com os jobs fora de ordem), o worker reinicia entre a chamada à Evolution e a gravação, 100 WhatsApps atrasados de um consultório. Esperado: o lembrete sai para a hora nova (linhas novas; a pendente da hora antiga vira "consulta remarcada"; a enviada nunca é reaberta e continua contando na cota), nada sai para consulta cancelada ou tenant suspenso, um job "suspenso" atrasado não ignora nada depois da reativação, WhatsApp/push nunca saem duas vezes, e o acúmulo de WhatsApp não segura e-mail e push de nenhum tenant. Testes nas Tarefas 5, 10 e 11.
+5. **Abuso e privacidade na página pública, no link da consulta e no webhook.** E-mail de outro paciente, cabeçalho `X-Forwarded-For` forjado, 11ª tentativa na hora, código chutado, e-mail com 3 consultas futuras, página desativada, tenant suspenso. Esperado: nenhum dado revelado antes do código (mesma resposta para qualquer e-mail), HTTP 429 a partir da 11ª tentativa pelo IP real (`TRUSTED_PROXIES`), 5 erros de código invalidam o pedido, "Você já tem 3 consultas marcadas…" só depois do código certo; o contexto `publico` lê 0 linhas de notas, anamnese e de toda tabela fora de `PUBLICO_LIBERADO`; paciente arquivado, bloqueado ou anonimizado não age pelo link da consulta ("Conta temporariamente indisponível", nunca 500); o webhook recusa JWT de outra instância, pedido repetido e, em produção, URL que não seja interna. Testes nas Tarefas 3, 7, 8, 9 e 12.
+6. **Nunca abrir uma segunda conexão dentro de uma transação.** Dentro de um `withTenant`, nada de chamar função que abre outro `withTenant`/`getDb()` (`horariosLivres`, `escolherHorario`, `buscarTenant`…): o horário e outras leituras são feitos antes e revalidados dentro (pelo `EXCLUDE`, pela trava). Esperado: remarcar pelo paciente conclui com um pool de **uma** conexão. Teste na Tarefa 7.
 
 ---
 
@@ -111,7 +114,7 @@
 ```
 drizzle/
   0048_agenda_disponibilidade (gerada) · 0049_rls_agenda_disponibilidade (custom)            # T2
-  0050_consultas (gerada) · 0051_rls_consultas (custom: RLS, auditoria, EXCLUDE)                # T3
+  0050_consultas (gerada) · 0051_rls_consultas (custom: publico negado, RLS, auditoria, EXCLUDE) # T3
   0052_notificacoes (gerada) · 0053_rls_notificacoes (custom)                                   # T5
   0054_agendamento_publico (gerada: pedidos, limites, consents) · 0055_rls_agendamento_publico  # T8
   0056_whatsapp_conexoes (gerada) · 0057_rls_whatsapp_conexoes (custom)                         # T9
@@ -123,7 +126,7 @@ src/db/schema/access.ts                 # T8 — consents com patient_id
 src/db/schema/pacientes.ts              # T15 — consultations.appointment_id
 src/db/tenant.ts (+test)                # T3 — papel 'publico'
 src/db/errors.ts (+ db-error.test)      # T3 — exclusionViolation
-src/db/rls-guard.ts · audit-guard.ts    # T2, T5, T8, T9, T13 — STAFF_ONLY, AUDIT_EXCEPTIONS, RLS_EXCEPTIONS (consents)
+src/db/rls-guard.ts (+test) · audit-guard.ts  # T2, T3, T5, T8, T9, T13 — STAFF_ONLY, PUBLICO_LIBERADO (T3), AUDIT_EXCEPTIONS, RLS_EXCEPTIONS (consents)
 src/env.ts (+test) · .env.example       # T9, T13 — EVOLUTION_*, WHATSAPP_SANDBOX, VAPID_*
 src/email/types.ts · templates.tsx (+ render.test)                                  # T5, T6, T8, T9, T11
 src/jobs/queues.ts · src/worker/index.ts                                             # T5, T9, T10, T12, T13
@@ -134,16 +137,17 @@ src/modules/agenda/
   link-consulta.ts (+test)                                                          # T5
   aviso-nutri.ts · agendamento-paciente.ts (+test)                                  # T6
   cancelamento.ts (+test) · acoes-link.ts (+test)                                   # T7
-  limite-ip.ts (+test) · agendamento-publico.ts (+test)                             # T8
+  limite-ip.ts (+test) · agendamento-publico.ts (+test)                             # T8 (T12 usa limite-ip para a marca anti-repetição do webhook)
   presenca.ts (+test)                                                               # T15
 src/modules/notificacoes/
   tipos.ts · agendar.ts (+test) · mensagens.ts (+test) · enviar.ts (+test)          # T5 (T10, T11, T13 estendem)
   whatsapp/provedor.ts · evolution.ts (+test) · sandbox.ts (+test) · conexao.ts (+test)  # T9
   whatsapp/cota.ts (+test)                                                          # T11
-  whatsapp/jwt.ts (+test) · whatsapp/respostas.ts (+test) · whatsapp/webhook.ts (+test)  # T12
+  whatsapp/jwt.ts (+test)                                                          # T9 (chaveDoWebhook), T12 (verificar/assinar)
+  whatsapp/respostas.ts (+test) · whatsapp/webhook.ts (+test)                     # T12
   push.ts (+test)                                                                   # T13
 src/modules/pacientes/{pacientes,convite-paciente,lgpd,exportacao-job,atendimentos}.ts (+ convite-whatsapp.test)  # T13, T14, T15
-src/modules/plataforma/{suspensao,audit}.ts                                         # T3, T5
+src/modules/plataforma/{suspensao,audit,tenant-status}.ts                           # T3, T5, T8 (buscarTenantPorSlug)
 src/app/painel/agenda/
   horarios/{page,regra-form,bloqueio-form}.tsx · horarios/actions.ts                 # T2
   periodo.ts (+test) · page.tsx · item-consulta.tsx · consulta-form.tsx · nova/page.tsx · actions.ts  # T4 (T7, T15 estendem actions)
@@ -158,9 +162,9 @@ src/app/painel/{page,cabecalho}.tsx                                             
 src/app/painel/pacientes/{paciente-form,actions,valores}.tsx · [id]/atendimentos/…  # T14, T15
 next.config.ts                                                                       # T7 — no-referrer em /consulta
 test/agenda.ts · test/whatsapp.ts · test/isolamento.test.ts                          # T2+, T9, todas
-e2e/agenda.spec.ts · e2e/whatsapp.ts                                                 # T2, T4, T7, T8, T9, T12
+e2e/agenda.spec.ts · e2e/whatsapp.ts                                                 # T2, T4, T7, T8, T9, T12 (e2e/whatsapp.ts nasce na T12)
 .github/workflows/ci.yml · package.json · pnpm-lock.yaml                             # T9, T13
-CLAUDE.md                                                                            # T6, T8 — regra 1 (aviso-nutri, consents, public_rate_limits)
+CLAUDE.md                                                                            # T3 — regra 2 (contexto publico); T6, T8 — regra 1 (aviso-nutri, consents, public_rate_limits)
 ```
 
 **Ordem e dependências das tarefas:** 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15. A Tarefa 1 é pura (sem banco); 2–4 entregam a agenda da nutricionista sem lembretes; 5 liga o motor (só e-mail); 6–8 trazem o paciente; 9–12 o WhatsApp; 13 o push; 14 e 15 fecham os itens que dependem de tudo.
@@ -1155,13 +1159,15 @@ git commit -m "feat(agenda): horários de atendimento e bloqueios (US-030)"
 
 **Files:**
 - Create: `drizzle/0050_consultas.sql` (gerada), `drizzle/0051_rls_consultas.sql` (custom), `src/modules/agenda/consultas.ts`, `src/modules/agenda/consultas.test.ts`, `test/agenda.ts`
-- Modify: `src/db/schema/agenda.ts`, `src/db/tenant.ts`, `src/db/tenant.test.ts`, `src/db/errors.ts`, `src/db/db-error.test.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts` (`ENTIDADE_ROTULO`), `scripts/e2e-seed.ts` (`AGENDA_E2E`)
+- Modify: `src/db/schema/agenda.ts`, `src/db/tenant.ts`, `src/db/tenant.test.ts`, `src/db/errors.ts`, `src/db/db-error.test.ts`, `src/db/rls-guard.ts` (`PUBLICO_LIBERADO`, `findPublicoViolations`), `src/db/rls-guard.test.ts`, `test/isolamento.test.ts`, `src/modules/plataforma/audit.ts` (`ENTIDADE_ROTULO`), `scripts/e2e-seed.ts` (`AGENDA_E2E`), `CLAUDE.md` (regra 2)
 
 **Interfaces:**
 - Consumes: `availabilityRules`/`availabilityBlocks`, `lerRegras`, `lerBloqueios` (Tarefa 2); `gerarHorarios`, `dentroDoHorario`, `sobrepoe`, `type Horario`, `type Modalidade`, `paraInstante`, `partesNoFuso`, `MSG_AGENDA`, `DURACAO_MIN`, `DURACAO_MAX` (Tarefa 1); `carregarPacienteParaEscrita`, `idValido`, `PacienteNaoEncontradoError`, `PacienteBloqueadoError` (`@/modules/pacientes/base`); `dataValida` (`@/modules/pacientes/datas`); `patients`, `tenants`, `type TenantRow`.
 - Produces:
   - Schema: `appointments` 🔒 (RLS por paciente, auditoria `agenda`, `EXCLUDE appointments_sem_sobreposicao`), `type AppointmentRow`.
   - `@/db/tenant`: `TenantRole` ganha `'publico'` (contexto de sistema das páginas públicas e do cálculo de horários livres; sem `patientId`, ator opcional ausente).
+  - SQL (migration 0051): `app_deny_publico(tbl regclass)` (RESTRICTIVE `publico_negado`, FOR ALL), `app_allow_publico(tbl regclass, VARIADIC comandos text[])` (troca por `publico_sem_<comando>` só nos comandos não listados); `app_enable_tenant_rls` passa a chamar `app_deny_publico` (tabela nova nasce fechada); todas as tabelas já existentes com `tenant_isolation` ganham `publico_negado`.
+  - `@/db/rls-guard`: `type ComandoPublico = 'select' | 'insert' | 'update' | 'delete'`, `PUBLICO_LIBERADO: Record<string, { comandos: readonly ComandoPublico[]; motivo: string }>`, `findPublicoViolations(db): Promise<RlsViolation[]>`; `findStaleExceptions` passa a aceitar `Record<string, Record<string, unknown>>`.
   - `@/db/errors`: `exclusionViolation(err): string | null` (SQLSTATE 23P01).
   - `@/modules/agenda/consultas`: `type StatusConsulta`, `type AvisoAgenda = 'fora_do_horario' | 'dentro_de_bloqueio'`, `type TenantAgenda = Pick<TenantRow, 'id' | 'fuso' | 'nomeExibicao' | 'linkOnlinePadrao' | 'enderecoConsultorio' | 'antecedenciaMinH' | 'cancelamentoMinH' | 'status' | 'agendamentoPublicoAtivo'>`, `type Consulta`, `type EntradaConsulta`, `class ConsultaError { erros }`, `ConsultaNaoEncontradaError`, `STATUS_ATIVOS: readonly StatusConsulta[]` (`agendada`, `confirmada`), `linkValido(v: string): boolean`, `ehSobreposicao(err): boolean`, `agendarPelaNutri(ctx, tenant, input, deps?): Promise<{ id: string; avisos: AvisoAgenda[] }>`, `moverConsulta(ctx, tenant, id, input, deps?): Promise<{ avisos: AvisoAgenda[] }>`, `listarAgenda(ctx, de, ate, db?): Promise<Consulta[]>`, `buscarConsulta(ctx, id, db?): Promise<Consulta | null>`, `lerConsultaParaEscrita(tx, id): Promise<AppointmentRow>` (trava `FOR UPDATE`), `horariosLivres(tenant, de, ate, opts?: { db?: Db; ignorarConsultaId?: string }): Promise<Horario[]>`.
   - `test/agenda.ts`: `SP`, `em(data, hora): Date`, `tenantAgenda(T, extra?): TenantAgenda`, `semanaToda(db, ctx, extra?)` (regras de domingo a sábado, 08:00–20:00, 60 min, `ambas`), `consultaDireta(db, ctx, patientId, inicio, minutos?, extra?): Promise<string>`.
@@ -1201,8 +1207,9 @@ Expected: FAIL (`papel inválido para withTenant` e `exclusionViolation is not a
 ```ts
 /**
  * `publico` (Plano 05, D11): contexto de sistema das páginas sem login (/n/<slug>, link da consulta) e do
- * cálculo de horários livres. Vê o tenant como a equipe (as políticas só restringem `paciente`), por isso
- * só é usado dentro de funções fechadas de src/modules/agenda que devolvem o mínimo (intervalos, ids).
+ * cálculo de horários livres. No banco, toda tabela com tenant_id nega o `publico` (RESTRICTIVE `publico_negado`),
+ * menos as de `PUBLICO_LIBERADO` (src/db/rls-guard.ts), só nos comandos listados. A RLS não restringe colunas:
+ * por isso o `publico` só é usado dentro de funções fechadas de src/modules/agenda que devolvem o mínimo (intervalos, ids).
  */
 export type TenantRole = 'nutri' | 'paciente' | 'worker' | 'publico';
 const ROLES: readonly TenantRole[] = ['nutri', 'paciente', 'worker', 'publico'];
@@ -1286,15 +1293,87 @@ export type AppointmentRow = typeof appointments.$inferSelect;
 
 Run: `pnpm db:generate --name consultas` → `drizzle/0050_consultas.sql` (confira os 9 CHECKs, as 2 FKs compostas, os 2 UNIQUE e os 2 índices).
 
-Run: `pnpm drizzle-kit generate --custom --name rls_consultas` e preencher `drizzle/0051_rls_consultas.sql`:
+Run: `pnpm drizzle-kit generate --custom --name rls_consultas` e preencher `drizzle/0051_rls_consultas.sql` (primeiro o contexto `publico` no banco — D11, rodada 1 do `/code-review` —, depois a tabela):
 
 ```sql
+-- D11: o contexto `publico` (páginas sem login) não toca tabela nenhuma, a não ser as de PUBLICO_LIBERADO
+-- (src/db/rls-guard.ts), só nos comandos listados. RESTRICTIVE: soma-se (AND) às políticas de tenant/paciente.
+CREATE OR REPLACE FUNCTION app_deny_publico(tbl regclass) RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE c text;
+BEGIN
+  FOREACH c IN ARRAY ARRAY['select', 'insert', 'update', 'delete'] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %s', 'publico_sem_' || c, tbl);
+  END LOOP;
+  EXECUTE format('DROP POLICY IF EXISTS publico_negado ON %s', tbl);
+  EXECUTE format(
+    'CREATE POLICY publico_negado ON %s AS RESTRICTIVE FOR ALL '
+    'USING (app_current_role() IS DISTINCT FROM %L) WITH CHECK (app_current_role() IS DISTINCT FROM %L)',
+    tbl, 'publico', 'publico');
+END $$;
+--> statement-breakpoint
+-- Libera ao `publico` só os comandos listados: uma política RESTRICTIVE por comando que continua negado.
+-- (SELECT … FOR UPDATE/SHARE também exige 'update'; INSERT … RETURNING/ON CONFLICT exige 'select'.)
+CREATE OR REPLACE FUNCTION app_allow_publico(tbl regclass, VARIADIC comandos text[]) RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE c text;
+BEGIN
+  IF NOT comandos <@ ARRAY['select', 'insert', 'update', 'delete'] THEN
+    RAISE EXCEPTION 'app_allow_publico: comando inválido em % (use select, insert, update, delete)', comandos;
+  END IF;
+  EXECUTE format('DROP POLICY IF EXISTS publico_negado ON %s', tbl);
+  FOREACH c IN ARRAY ARRAY['select', 'insert', 'update', 'delete'] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %s', 'publico_sem_' || c, tbl);
+    CONTINUE WHEN c = ANY (comandos);
+    IF c = 'insert' THEN
+      EXECUTE format('CREATE POLICY %I ON %s AS RESTRICTIVE FOR INSERT WITH CHECK (app_current_role() IS DISTINCT FROM %L)',
+        'publico_sem_' || c, tbl, 'publico');
+    ELSE
+      EXECUTE format('CREATE POLICY %I ON %s AS RESTRICTIVE FOR %s USING (app_current_role() IS DISTINCT FROM %L)',
+        'publico_sem_' || c, tbl, upper(c), 'publico');
+    END IF;
+  END LOOP;
+END $$;
+--> statement-breakpoint
+-- Tabela nova nasce fechada para o `publico`: o mesmo corpo da 0000 + app_deny_publico no fim.
+CREATE OR REPLACE FUNCTION app_enable_tenant_rls(tbl regclass) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', tbl);
+  EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY', tbl);
+  EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %s', tbl);
+  EXECUTE format(
+    'CREATE POLICY tenant_isolation ON %s AS PERMISSIVE FOR ALL '
+    'USING (tenant_id = app_current_tenant()) WITH CHECK (tenant_id = app_current_tenant())', tbl);
+  PERFORM app_deny_publico(tbl);
+END $$;
+--> statement-breakpoint
+-- As tabelas que já existem (Planos 01–04 e Tarefa 2) também ficam fechadas
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT tablename FROM pg_policies WHERE schemaname = 'public' AND policyname = 'tenant_isolation' LOOP
+    PERFORM app_deny_publico(format('public.%I', t)::regclass);
+  END LOOP;
+END $$;
+--> statement-breakpoint
+-- PUBLICO_LIBERADO: horários livres (Tarefa 3), dono do link da consulta (Tarefa 7) e página pública (Tarefa 8)
+SELECT app_allow_publico('availability_rules', 'select');
+--> statement-breakpoint
+SELECT app_allow_publico('availability_blocks', 'select');
+--> statement-breakpoint
+SELECT app_allow_publico('patients', 'select', 'insert');
+--> statement-breakpoint
+SELECT app_allow_publico('audit_log', 'insert');
+--> statement-breakpoint
 SELECT app_enable_tenant_rls('appointments');
 --> statement-breakpoint
 SELECT app_enable_patient_rls('appointments');
 --> statement-breakpoint
 -- D10: dado de saúde adjacente — criar, alterar e cancelar vão para o "Histórico de acessos" do paciente
 SELECT app_enable_audit('appointments', 'agenda');
+--> statement-breakpoint
+SELECT app_allow_publico('appointments', 'select', 'insert');
 --> statement-breakpoint
 -- D9 / RN-03: duas consultas não canceladas do mesmo tenant nunca se sobrepõem. A restrição vale acima da
 -- RLS: a corrida entre dois pacientes (que não se veem) é decidida aqui. O "=" do uuid no GiST vem do
@@ -1326,8 +1405,110 @@ e no `FABRICAS`:
 
 Em `scripts/e2e-seed.ts`: `const AGENDA_E2E = ['appointments', 'availability_blocks', 'availability_rules'];`.
 
+`src/db/rls-guard.ts` — a lista explícita do contexto `publico` e a guarda (D11; `findStaleExceptions` passa a aceitar `maps: Record<string, Record<string, unknown>>`):
+
+```ts
+export type ComandoPublico = 'select' | 'insert' | 'update' | 'delete';
+const COMANDOS: readonly ComandoPublico[] = ['select', 'insert', 'update', 'delete'];
+
+/**
+ * D11: tabelas que o contexto `publico` (páginas sem login) pode tocar, só com estes comandos. Toda outra tabela
+ * com tenant_id tem `publico_negado` (app_enable_tenant_rls). Liberar = `SELECT app_allow_publico(...)` + entrada aqui.
+ */
+export const PUBLICO_LIBERADO: Record<string, { comandos: readonly ComandoPublico[]; motivo: string }> = {
+  availability_rules: { comandos: ['select'], motivo: 'horários livres (horariosLivres)' },
+  availability_blocks: { comandos: ['select'], motivo: 'horários livres (horariosLivres)' },
+  appointments: { comandos: ['select', 'insert'], motivo: 'início/fim nos horários livres, dono do link da consulta e a consulta marcada pela página pública' },
+  patients: { comandos: ['select', 'insert'], motivo: 'situação do dono do link; paciente da página pública (procura pelo e-mail e cria)' },
+  audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria roda com o papel de quem grava (patients, appointments da página pública)' },
+};
+
+/** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega o `publico`, ou bate exatamente com PUBLICO_LIBERADO. */
+export async function findPublicoViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string }>(
+    `select tablename as t, policyname as pol, cmd, permissive from pg_policies
+      where schemaname = 'public' and policyname like 'publico%'`,
+  );
+  const out: RlsViolation[] = [];
+  for (const table of await listTenantTables(db)) {
+    if (RLS_EXCEPTIONS[table]) continue;
+    const pols = rows.filter((r) => r.t === table);
+    const liberado = PUBLICO_LIBERADO[table];
+    if (!liberado) {
+      if (pols.length !== 1 || pols[0].pol !== 'publico_negado' || pols[0].cmd !== 'ALL' || pols[0].permissive !== 'RESTRICTIVE') {
+        out.push({ table, problem: pols.some((p) => p.pol !== 'publico_negado') ? 'liberada ao publico sem entrada em PUBLICO_LIBERADO' : 'sem política publico_negado (app_enable_tenant_rls/app_deny_publico)' });
+      }
+      continue;
+    }
+    const esperadas = COMANDOS.filter((c) => !liberado.comandos.includes(c)).map((c) => `publico_sem_${c}`).sort();
+    const atuais = pols.filter((p) => p.permissive === 'RESTRICTIVE').map((p) => p.pol).sort();
+    if (pols.length !== atuais.length || JSON.stringify(atuais) !== JSON.stringify(esperadas)) {
+      out.push({ table, problem: `políticas do publico diferentes de PUBLICO_LIBERADO (esperado ${esperadas.join(', ') || 'nenhuma'})` });
+    }
+  }
+  return out;
+}
+```
+
+`src/db/rls-guard.test.ts` (imports `findPublicoViolations`, `PUBLICO_LIBERADO`; o `findStaleExceptions` do teste de `staff_only` ganha `PUBLICO_LIBERADO` no mapa):
+
+```ts
+describe('contexto publico (D11)', () => {
+  it('toda tabela com tenant_id nega o publico ou bate com PUBLICO_LIBERADO; a lista não cita tabela inexistente', async () => {
+    expect(await findPublicoViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { PUBLICO_LIBERADO })).toEqual([]);
+  });
+  it('tabela nova nasce fechada; liberar sem declarar, ou perder a política, quebra (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('create table tmp_publico (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_publico')`);
+      await client.query('create table tmp_liberada (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_liberada')`);
+      await client.query(`select app_allow_publico('tmp_liberada', 'select')`);
+      let v = await findPublicoViolations(client);
+      expect(v.map((x) => x.table)).not.toContain('tmp_publico');
+      expect(v).toContainEqual({ table: 'tmp_liberada', problem: 'liberada ao publico sem entrada em PUBLICO_LIBERADO' });
+      await client.query('drop policy publico_negado on tmp_publico');
+      await client.query('drop policy publico_sem_update on appointments'); // a lista exige; sumiu → acusa
+      v = await findPublicoViolations(client);
+      expect(v).toContainEqual({ table: 'tmp_publico', problem: 'sem política publico_negado (app_enable_tenant_rls/app_deny_publico)' });
+      expect(v.map((x) => x.table)).toContain('appointments');
+      await expect(client.query(`select app_allow_publico('tmp_publico', 'truncate')`)).rejects.toThrow(/comando inválido/);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+```
+
+`test/isolamento.test.ts` (import `PUBLICO_LIBERADO` de `@/db/rls-guard`), depois do teste de `staff_only`:
+
+```ts
+  it('publico (D11): só lê e grava o que PUBLICO_LIBERADO declara; o resto — notas, anamnese… — dá 0 linhas e recusa a escrita', async () => {
+    const comoPublico = (q: SQL) => withTenant({ tenantId: A, role: 'publico' }, (tx) => tx.execute(q), app.db);
+    for (const t of tabelas) {
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      const pode = PUBLICO_LIBERADO[t]?.comandos ?? [];
+      const vistas = (await comoPublico(sql`select 1 from ${sql.identifier(t)}`)).rows.length;
+      if (pode.includes('select')) expect(vistas, t).toBeGreaterThan(0);
+      else expect(vistas, t).toBe(0);
+      if (!pode.includes('insert')) await expect(comoPublico(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
+      if (SO_INSERE.has(t)) continue; // UPDATE/DELETE já negados por permissão
+      if (!pode.includes('update')) expect((await comoPublico(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+      if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
+    }
+    expect((await comoPublico(sql`select 1 from consultation_notes`)).rows).toEqual([]);
+    expect((await comoPublico(sql`select 1 from anamneses`)).rows).toEqual([]);
+  });
+```
+
+`CLAUDE.md`, regra 2, no fim: "Contexto `publico` (páginas sem login, Plano 05): `app_enable_tenant_rls` já nega tudo a ele (`publico_negado`); tabela que o fluxo público precisa ganha `SELECT app_allow_publico('<tabela>', '<comando>', …);` e a entrada em `PUBLICO_LIBERADO` (`src/db/rls-guard.ts`) — a guarda `findPublicoViolations` quebra o CI se esquecer."
+
 Run: `pnpm test src/db test/isolamento.test.ts`
-Expected: PASS (as guardas de RLS e de auditoria aceitam `appointments`; a matriz cobre tenant e paciente).
+Expected: PASS (as guardas de RLS, de auditoria e do `publico` aceitam `appointments`; a matriz cobre tenant, paciente e o contexto `publico`).
 
 - [ ] **Step 4: Ajudantes de teste** — `test/agenda.ts`
 
@@ -1803,8 +1984,8 @@ Expected: PASS (11 testes novos em `consultas.test.ts`; isolamento com `appointm
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/db/schema/agenda.ts drizzle/0050_consultas.sql drizzle/0051_rls_consultas.sql drizzle/meta src/db/tenant.ts src/db/tenant.test.ts src/db/errors.ts src/db/db-error.test.ts test/isolamento.test.ts test/agenda.ts src/modules/agenda/consultas.ts src/modules/agenda/consultas.test.ts src/modules/plataforma/audit.ts scripts/e2e-seed.ts
-git commit -m "feat(agenda): consultas com EXCLUDE contra sobreposição, papel publico e horários livres (US-031, RN-03)"
+git add src/db/schema/agenda.ts drizzle/0050_consultas.sql drizzle/0051_rls_consultas.sql drizzle/meta src/db/tenant.ts src/db/tenant.test.ts src/db/errors.ts src/db/db-error.test.ts src/db/rls-guard.ts src/db/rls-guard.test.ts CLAUDE.md test/isolamento.test.ts test/agenda.ts src/modules/agenda/consultas.ts src/modules/agenda/consultas.test.ts src/modules/plataforma/audit.ts scripts/e2e-seed.ts
+git commit -m "feat(agenda): consultas com EXCLUDE contra sobreposição, papel publico (negado no banco por padrão) e horários livres (US-031, RN-03)"
 ```
 
 ---
@@ -2297,16 +2478,16 @@ git commit -m "feat(agenda): agenda de dia, semana e lista, nova consulta e alte
 
 **Files:**
 - Create: `drizzle/0052_notificacoes.sql` (gerada), `drizzle/0053_rls_notificacoes.sql` (custom), `src/modules/notificacoes/tipos.ts`, `src/modules/notificacoes/tipos.test.ts`, `src/modules/notificacoes/agendar.ts`, `src/modules/notificacoes/agendar.test.ts`, `src/modules/notificacoes/mensagens.ts`, `src/modules/notificacoes/enviar.ts`, `src/modules/notificacoes/enviar.test.ts`, `src/modules/agenda/link-consulta.ts`, `src/modules/agenda/link-consulta.test.ts`, `test/email.ts`
-- Modify: `src/db/schema/agenda.ts`, `src/db/audit-guard.ts` (`AUDIT_EXCEPTIONS`), `test/isolamento.test.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `src/modules/agenda/consultas.ts`, `src/modules/agenda/consultas.test.ts` (`afterAll`), `src/modules/plataforma/suspensao.ts`, `src/modules/plataforma/suspensao.test.ts`, `src/app/painel/agenda/consultas/[id]/page.tsx`, `scripts/e2e-seed.ts`, `e2e/agenda.spec.ts`
+- Modify: `src/db/schema/agenda.ts`, `src/db/audit-guard.ts` (`AUDIT_EXCEPTIONS`), `src/db/rls-guard.ts` (`PUBLICO_LIBERADO`), `test/isolamento.test.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `src/modules/agenda/consultas.ts`, `src/modules/agenda/consultas.test.ts` (`afterAll`), `src/modules/plataforma/suspensao.ts`, `src/modules/plataforma/suspensao.test.ts`, `src/app/painel/agenda/consultas/[id]/page.tsx`, `scripts/e2e-seed.ts`, `e2e/agenda.spec.ts`
 
 **Interfaces:**
-- Consumes: `appointments`, `type AppointmentRow`, `STATUS_ATIVOS` (Tarefa 3); `partesNoFuso`, `quandoComFuso`, `formatarQuando` (Tarefa 1); `patients`, `type PatientRow`, `type TenantRow`; `buscarTenant`, `listarTenantsParaVarredura` (`@/modules/plataforma/tenant-status`); `renderEmail`, `type EmailTransport`, `type OutgoingEmail`; `getBoss`, `fromDrizzle` (`pg-boss`); `encryptionKey` (`@/lib/crypto`); `urlDoApp`; `logger`.
+- Consumes: `appointments`, `type AppointmentRow`, `STATUS_ATIVOS` (Tarefa 3); `partesNoFuso`, `paraInstante`, `somarDias`, `quandoComFuso`, `formatarQuando` (Tarefa 1); `patients`, `type PatientRow`, `type TenantRow`; `buscarTenant`, `getTenantStatus`, `listarTenantsParaVarredura` (`@/modules/plataforma/tenant-status`); `renderEmail`, `type EmailTransport`, `type OutgoingEmail`; `getBoss`, `fromDrizzle` (`pg-boss`); `encryptionKey` (`@/lib/crypto`); `urlDoApp`; `logger`.
 - Produces:
   - Schema: `notifications` 🔒 (RLS por paciente, sem auditoria), `type NotificationRow`.
   - `@/modules/notificacoes/tipos`: `CANAIS`, `type Canal`, `type TipoNotificacao`, `type TipoLembrete`, `type StatusNotificacao`, `type MotivoIgnorada`, `ehLembrete(t): t is TipoLembrete`, `ROTULO_TIPO`, `ROTULO_CANAL`, `ROTULO_MOTIVO`, `situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motivoIgnorada' | 'agendadaPara' | 'enviadaEm'>, fuso: string): string`.
-  - `@/modules/notificacoes/agendar`: `ANTECEDENCIA_MS`, `emHorarioSilencioso(instante, fuso): boolean`, `type PlanoLembrete`, `planejarLembretes(inicio, fuso, agora): PlanoLembrete[]`, `type ConsultaParaLembrete = { tenantId; patientId; appointmentId; inicio: Date }`, `agendarLembretes(tx, c, fuso, agora)`, `avisarPaciente(tx, c, tipo: 'consulta_marcada' | 'consulta_cancelada', agora)`, `cancelarLembretes(tx, appointmentId, agora)`, `dispararEnvio(tx, tenantId)`, `ignorarPendentesDoTenant(db, tenantId, agora)`, `reagendarTenantReativado(db, tenantId, agora)`, `listarNotificacoesDaConsulta(ctx, appointmentId, db?)`.
-  - `@/modules/notificacoes/enviar`: `type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date }`, `type Resultado`, `type DepsEnvio = { db; agora: () => Date; appUrl: string; chaveLinks: Buffer; email: { transport: EmailTransport; from: string } }` (Tarefas 10 e 13 acrescentam `whatsapp` e `push`), `ESPERAS_S`, `TRAVADA_MS`, `LOTE_POR_EXECUCAO`, `motivoParaIgnorar(c): Resultado | null`, `processarNotificacoes(deps, opts?: { tenantId?: string }): Promise<{ processadas: number }>`. Pontos de extensão internos: `escolher` (T10/T11), `CANAIS_ENVIO.whatsapp` (T10), `CANAIS_ENVIO.push` (T13), `aposEnvio` (T11).
-  - `@/modules/notificacoes/mensagens`: `primeiroNome(nome)`, `dadosDaConsulta(c, deps): { nutri; quando; hora; modalidade; local; link }`, `emailDaNotificacao(c, deps): EmailMessage | null`.
+  - `@/modules/notificacoes/agendar`: `ANTECEDENCIA_MS`, `emHorarioSilencioso(instante, fuso): boolean`, `fimDoSilencio(agora, fuso): Date` (as próximas 08:00), `adiarLembrete(tipo, inicio, fuso, agora): Date | null` (D7 na reserva), `type PlanoLembrete`, `planejarLembretes(inicio, fuso, agora): PlanoLembrete[]`, `type ConsultaParaLembrete = { tenantId; patientId; appointmentId; inicio: Date }`, `agendarLembretes(tx, c, fuso, agora)` (a pendente de outro horário da mesma consulta vira `consulta_remarcada`), `avisarPaciente(tx, c, tipo: 'consulta_marcada' | 'consulta_cancelada', agora)`, `cancelarLembretes(tx, appointmentId, agora)`, `dispararEnvio(tx, tenantId)`, `ignorarPendentesDoTenant(db, tenantId, agora)` e `reagendarTenantReativado(db, tenantId, agora)` (os dois releem o status do tenant sob `FOR SHARE` na mesma transação), `listarNotificacoesDaConsulta(ctx, appointmentId, db?)`.
+  - `@/modules/notificacoes/enviar`: `type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date }`, `type Resultado`, `type DepsEnvio = { db; agora: () => Date; appUrl: string; chaveLinks: Buffer; email: { transport: EmailTransport; from: string } }` (Tarefas 10 e 13 acrescentam `whatsapp` e `push`), `ESPERAS_S`, `TRAVADA_MS`, `LOTE_POR_EXECUCAO`, `LOTE_MIN_POR_TENANT`, `ordemDaRodada(ids, agora)`, `motivoParaIgnorar(c): Resultado | null`, `processarNotificacoes(deps, opts?: { tenantId?: string }): Promise<{ processadas: number }>`. Pontos de extensão internos: `escolherWhatsapp` (T10/T11), `CANAIS_ENVIO.whatsapp` (T10), `CANAIS_ENVIO.push` (T13), `aposEnvio` (T11).
+  - `@/modules/notificacoes/mensagens`: `primeiroNome(nome)`, `ehHoje(c): boolean` (envio no dia da consulta, no fuso), `dadosDaConsulta(c, deps): { nutri; quando; hora; modalidade; local; link }`, `emailDaNotificacao(c, deps): EmailMessage | null`.
   - `@/modules/agenda/link-consulta`: `chaveDosLinks(encryptionKey: Buffer): Buffer`, `assinarLinkConsulta(c: { tenantId; appointmentId; inicio: Date }, chave): string`, `lerLinkConsulta(token, chave, agora): (LinkConsulta & { expirado: boolean }) | null`, `urlDaConsulta(appUrl, token): string`, `type LinkConsulta = { tenantId; appointmentId; expiraEm: Date }`.
   - `EmailMessage` ganha `{ tipo: 'consulta'; evento: 'lembrete_24h' | 'lembrete_2h' | 'consulta_marcada' | 'consulta_cancelada'; para; nome; nutri; quando; hora; modalidade: 'presencial' | 'online'; local: string | null; link: string | null }`; `templates.tsx` ganha o ajudante `simples(subject, linhas, botao?, depois?)`.
   - Filas `notificacoes` (cron `* * * * *` + envio imediato `{ tenantId }`) e `agenda-tenant` (`{ tenantId, evento: 'suspenso' | 'reativado' }`).
@@ -2316,9 +2497,11 @@ git commit -m "feat(agenda): agenda de dia, semana e lista, nova consulta e alte
 
 ```ts
 /**
- * RN-05 / D6: uma linha por (consulta, canal, tipo) — remarcar ou reativar ATUALIZA a linha (§7). As condições
- * de cada canal (opt-in, cota, inscrição…) são conferidas no envio. Registro técnico: sem gatilho de auditoria (D10).
- * `provider_jid`: destino real no WhatsApp (casa a resposta "1"/"2"); `conteudo_selado`: convite com link cifrado até o envio.
+ * RN-05 / D6: uma linha por (consulta, canal, tipo, início da consulta). Marcar de novo no mesmo horário ou reativar
+ * reescreve só a linha que não saiu; mudar o horário cria linhas novas — a enviada é imutável (cota, métricas, histórico).
+ * As condições de cada canal (opt-in, cota, inscrição…) são conferidas no envio. Registro técnico: sem auditoria (D10).
+ * `provider_jid`: destino real no WhatsApp (casa a resposta "1"/"2"); `conteudo_selado`: convite com link cifrado até o envio;
+ * `inicio_consulta`: o horário da consulta para o qual a linha foi planejada (nulo só sem consulta: convite).
  */
 export const notifications = pgTable(
   'notifications',
@@ -2336,6 +2519,7 @@ export const notifications = pgTable(
     providerJid: text('provider_jid'),
     conteudoSelado: text('conteudo_selado'),
     tentativas: smallint('tentativas').notNull().default(0),
+    inicioConsulta: timestamp('inicio_consulta', { withTimezone: true }),
     agendadaPara: timestamp('agendada_para', { withTimezone: true }).notNull(),
     enviadaEm: timestamp('enviada_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2347,7 +2531,8 @@ export const notifications = pgTable(
     check('notifications_status_valido', sql`${t.status} in ('pendente', 'enviando', 'enviada', 'entregue', 'lida', 'falhou', 'ignorada')`),
     check('notifications_motivo_so_ignorada', sql`(${t.status} = 'ignorada') = (${t.motivoIgnorada} is not null)`),
     check('notifications_erro_tamanho', sql`char_length(${t.erro}) <= 60`),
-    unique('notifications_consulta_canal_tipo_unique').on(t.appointmentId, t.canal, t.tipo),
+    check('notifications_versao_da_consulta', sql`(${t.appointmentId} is null) = (${t.inicioConsulta} is null)`),
+    unique('notifications_consulta_versao_unique').on(t.appointmentId, t.canal, t.tipo, t.inicioConsulta),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'notifications_paciente_fk' }),
     foreignKey({ columns: [t.tenantId, t.patientId, t.appointmentId], foreignColumns: [appointments.tenantId, appointments.patientId, appointments.id], name: 'notifications_consulta_fk' }),
     index('notifications_devidas_idx').on(t.tenantId, t.status, t.agendadaPara),
@@ -2358,7 +2543,7 @@ export const notifications = pgTable(
 export type NotificationRow = typeof notifications.$inferSelect;
 ```
 
-Run: `pnpm db:generate --name notificacoes` → `drizzle/0052_notificacoes.sql`.
+Run: `pnpm db:generate --name notificacoes` → `drizzle/0052_notificacoes.sql` (confira os 6 CHECKs, a FK composta com a consulta e o UNIQUE de 4 colunas).
 
 Run: `pnpm drizzle-kit generate --custom --name rls_notificacoes` e preencher `drizzle/0053_rls_notificacoes.sql`:
 
@@ -2366,7 +2551,13 @@ Run: `pnpm drizzle-kit generate --custom --name rls_notificacoes` e preencher `d
 SELECT app_enable_tenant_rls('notifications');
 --> statement-breakpoint
 SELECT app_enable_patient_rls('notifications');
+--> statement-breakpoint
+-- D11: os lembretes da consulta marcada pela página pública (Tarefa 8) nascem no contexto publico;
+-- o INSERT … ON CONFLICT exige ler a linha nova ('select'). Nada de update/delete.
+SELECT app_allow_publico('notifications', 'select', 'insert');
 ```
+
+`src/db/rls-guard.ts`, `PUBLICO_LIBERADO`: `notifications: { comandos: ['select', 'insert'], motivo: 'lembretes da consulta marcada pela página pública (INSERT … ON CONFLICT lê a linha nova)' },`.
 
 `src/db/audit-guard.ts`, no `AUDIT_EXCEPTIONS`:
 
@@ -2380,8 +2571,8 @@ SELECT app_enable_patient_rls('notifications');
   notifications: (t, p) => {
     const h = horaIso();
     return sql`with c as (insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem)
-        values (${t}, ${p}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri') returning id)
-      insert into notifications (tenant_id, patient_id, appointment_id, canal, tipo, agendada_para) select ${t}, ${p}, c.id, 'email', 'lembrete_24h', now() from c`;
+        values (${t}, ${p}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri') returning id, inicio)
+      insert into notifications (tenant_id, patient_id, appointment_id, inicio_consulta, canal, tipo, agendada_para) select ${t}, ${p}, c.id, c.inicio, 'email', 'lembrete_24h', now() from c`;
   },
 ```
 
@@ -2480,7 +2671,7 @@ export type TipoLembrete = 'lembrete_24h' | 'lembrete_2h';
 export type TipoNotificacao = TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar';
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
-  | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
+  | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
   | 'sem_optin' | 'sem_telefone' | 'whatsapp_desligado' | 'whatsapp_desconectado' | 'cota_esgotada' | 'sem_inscricao' | 'push_desligado';
 
 export const ehLembrete = (t: string): t is TipoLembrete => t === 'lembrete_24h' || t === 'lembrete_2h';
@@ -2499,6 +2690,7 @@ export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
   prazo_passado: 'já tinha passado do horário',
   horario_silencioso: 'horário silencioso (21h–8h)',
   consulta_cancelada: 'consulta cancelada',
+  consulta_remarcada: 'consulta remarcada',
   consulta_encerrada: 'consulta encerrada',
   paciente_inativo: 'paciente arquivado ou bloqueado',
   tenant_suspenso: 'conta suspensa',
@@ -2550,6 +2742,7 @@ describe('situação do lembrete em texto', () => {
     expect(situacaoDaNotificacao({ ...base, status: 'lida' }, SP)).toBe('Lido');
     expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'horario_silencioso' }, SP)).toBe('Não enviado: horário silencioso (21h–8h)');
     expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'cota_esgotada' }, SP)).toBe('Não enviado: cota de WhatsApp do mês esgotada');
+    expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'consulta_remarcada' }, SP)).toBe('Não enviado: consulta remarcada');
   });
 });
 ```
@@ -2571,7 +2764,7 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { suspenderConta, reativarConta } from '@/modules/plataforma/suspensao';
-import { emHorarioSilencioso, ignorarPendentesDoTenant, planejarLembretes, reagendarTenantReativado } from './agendar';
+import { adiarLembrete, emHorarioSilencioso, fimDoSilencio, ignorarPendentesDoTenant, planejarLembretes, reagendarTenantReativado } from './agendar';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -2604,6 +2797,14 @@ describe('planejarLembretes (RN-05, US-034)', () => {
   it('bordas do silêncio [21:00, 08:00) no fuso do tenant (Review Focus 2)', () => {
     expect(['20:59', '21:00', '07:59', '08:00'].map((h) => emHorarioSilencioso(em('2026-10-16', h), SP))).toEqual([false, true, true, false]);
   });
+  it('D7 na reserva (rodada 1): lembrete que venceu no silêncio vai para as 08:00 só se ainda fizer sentido para o tipo', () => {
+    expect(fimDoSilencio(em('2026-10-15', '21:00'), SP)).toEqual(em('2026-10-16', '08:00'));
+    expect(fimDoSilencio(em('2026-10-16', '07:59'), SP)).toEqual(em('2026-10-16', '08:00'));
+    expect(adiarLembrete('lembrete_24h', em('2026-10-16', '14:00'), SP, em('2026-10-15', '23:30'))).toEqual(em('2026-10-16', '08:00'));
+    expect(adiarLembrete('lembrete_24h', em('2026-10-16', '10:00'), SP, em('2026-10-16', '06:00'))).toBeNull(); // o de 2 h sai às 08:00
+    expect(adiarLembrete('lembrete_24h', em('2026-10-16', '09:00'), SP, em('2026-10-16', '06:00'))).toEqual(em('2026-10-16', '08:00')); // o de 2 h (07:00) caiu no silêncio
+    expect(adiarLembrete('lembrete_2h', em('2026-10-17', '07:00'), SP, em('2026-10-16', '22:00'))).toBeNull(); // as 08:00 já seriam depois da consulta
+  });
 });
 
 describe('lembretes da consulta no banco', () => {
@@ -2626,17 +2827,25 @@ describe('lembretes da consulta no banco', () => {
     expect(jobs.some((j) => j.data.tenantId === T.tenantId)).toBe(true);
   });
 
-  it('alterar a hora ATUALIZA as mesmas linhas (§7: não duplica) para o horário novo', async () => {
+  it('alterar a hora (D6/D17, rodada 1): o horário novo ganha linhas próprias, a pendente do antigo vira "consulta_remarcada" e a enviada não é reaberta; o mesmo horário de novo não duplica', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
     const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
-    const antes = await linhas(T.ctx, id);
-    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-17', hora: '08:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const enviadaEm = em('2026-10-15', '14:00');
+    await withTenant(T.ctx, (tx) => tx.update(notifications).set({ status: 'enviada', enviadaEm, tentativas: 1 }).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'lembrete_24h'), eq(notifications.canal, 'email'))), app.db);
+    const novo = { data: '2026-10-17', hora: '08:00', duracaoMin: '60', modalidade: 'presencial' };
+    await moverConsulta(T.ctx, tenantAgenda(T), id, novo, { db: app.db, now: em('2026-10-15', '15:00') });
     const depois = await linhas(T.ctx, id);
-    expect(depois.map((l) => l.id).sort()).toEqual(antes.map((l) => l.id).sort());
-    const l2h = depois.filter((l) => l.tipo === 'lembrete_2h');
-    expect(l2h.every((l) => l.status === 'ignorada' && l.motivoIgnorada === 'horario_silencioso')).toBe(true);
-    expect(depois.find((l) => l.tipo === 'lembrete_24h' && l.canal === 'email')?.agendadaPara).toEqual(em('2026-10-16', '08:00'));
+    const doHorario = (data: string, hora: string) => depois.filter((l) => l.inicioConsulta?.getTime() === em(data, hora).getTime());
+    const antigo = doHorario('2026-10-16', '14:00');
+    const atual = doHorario('2026-10-17', '08:00');
+    expect(antigo.find((l) => l.tipo === 'lembrete_24h' && l.canal === 'email')).toMatchObject({ status: 'enviada', enviadaEm, tentativas: 1 });
+    expect(antigo.filter((l) => l.status === 'pendente')).toEqual([]);
+    expect(antigo.filter((l) => l.tipo === 'lembrete_2h').every((l) => l.status === 'ignorada' && l.motivoIgnorada === 'consulta_remarcada')).toBe(true);
+    expect(atual.filter((l) => l.tipo === 'lembrete_2h').every((l) => l.status === 'ignorada' && l.motivoIgnorada === 'horario_silencioso')).toBe(true);
+    expect(atual.find((l) => l.tipo === 'lembrete_24h' && l.canal === 'email')).toMatchObject({ status: 'pendente', agendadaPara: em('2026-10-16', '08:00') });
+    await moverConsulta(T.ctx, tenantAgenda(T), id, { ...novo, duracaoMin: '45' }, { db: app.db, now: em('2026-10-15', '15:00') });
+    expect(await linhas(T.ctx, id)).toHaveLength(depois.length); // mesmo horário: as mesmas linhas
   });
 
   it('US-004: suspender enfileira o job; o worker troca os pendentes para "tenant_suspenso"; reativar reagenda os futuros', async () => {
@@ -2656,6 +2865,25 @@ describe('lembretes da consulta no banco', () => {
     const marcada = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'))), app.db);
     expect(marcada.every((l) => l.motivoIgnorada === 'tenant_suspenso')).toBe(true);
   });
+
+  it('US-004 (rodada 1): jobs fora de ordem — o "suspenso" atrasado, que roda depois da reativação, não ignora nada; o "reativado" atrasado não reabre nada numa nova suspensão', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const lembretes = async () => (await linhas(T.ctx, id)).filter((l) => l.tipo.startsWith('lembrete'));
+    await suspenderConta(T.tenantId, T.nutriId, app.db);
+    await reativarConta(T.tenantId, T.nutriId, app.db);
+    await reagendarTenantReativado(app.db, T.tenantId, now); // o "reativado" rodou primeiro…
+    await ignorarPendentesDoTenant(app.db, T.tenantId, now); // …e o "suspenso" depois: o status relido sob trava é "ativa"
+    expect((await lembretes()).every((l) => l.status === 'pendente')).toBe(true);
+    await suspenderConta(T.tenantId, T.nutriId, app.db);
+    await ignorarPendentesDoTenant(app.db, T.tenantId, now);
+    await reagendarTenantReativado(app.db, T.tenantId, now); // "reativado" atrasado de antes: a conta está suspensa
+    expect((await lembretes()).every((l) => l.status === 'ignorada' && l.motivoIgnorada === 'tenant_suspenso')).toBe(true);
+    await reativarConta(T.tenantId, T.nutriId, app.db);
+    await reagendarTenantReativado(app.db, T.tenantId, now); // a reativação reagenda o que a suspensão ignorou
+    expect((await lembretes()).every((l) => l.status === 'pendente' && l.motivoIgnorada === null)).toBe(true);
+  });
 });
 ```
 
@@ -2665,14 +2893,14 @@ Expected: FAIL ("Failed to resolve import './agendar'").
 - [ ] **Step 5: Implementar o agendamento** — `src/modules/notificacoes/agendar.ts`
 
 ```ts
-import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
 import { fromDrizzle } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, notifications, type NotificationRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
-import { partesNoFuso } from '@/modules/agenda/fuso';
-import { buscarTenant } from '@/modules/plataforma/tenant-status';
+import { paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
+import { buscarTenant, getTenantStatus } from '@/modules/plataforma/tenant-status';
 import { CANAIS, type TipoLembrete } from './tipos';
 
 export const ANTECEDENCIA_MS: Record<TipoLembrete, number> = { lembrete_24h: 24 * 3_600_000, lembrete_2h: 2 * 3_600_000 };
@@ -2681,6 +2909,24 @@ export const ANTECEDENCIA_MS: Record<TipoLembrete, number> = { lembrete_24h: 24 
 export function emHorarioSilencioso(instante: Date, fuso: string): boolean {
   const { minutos } = partesNoFuso(instante, fuso);
   return minutos >= 21 * 60 || minutos < 8 * 60;
+}
+
+/** As próximas 08:00 no fuso do tenant (o fim do horário silencioso em que `agora` está). 08:00 sempre existe (DST não mexe nessa hora). */
+export function fimDoSilencio(agora: Date, fuso: string): Date {
+  const { data, minutos } = partesNoFuso(agora, fuso);
+  return paraInstante(minutos >= 21 * 60 ? somarDias(data, 1) : data, '08:00', fuso)!;
+}
+
+/**
+ * D7 na reserva (rodada 1 do /code-review): lembrete que venceu e sairia no horário silencioso (worker parado,
+ * reativação à noite) vai para as 08:00 se ainda fizer sentido — o de 24 h só até o lembrete de 2 h (que cobre a reta
+ * final), ou até 30 min antes do início quando o de 2 h caiu no silêncio; o de 2 h, até 30 min antes. Senão, null (ignorar).
+ */
+export function adiarLembrete(tipo: TipoLembrete, inicio: Date, fuso: string, agora: Date): Date | null {
+  const as8 = fimDoSilencio(agora, fuso);
+  const de2h = new Date(inicio.getTime() - ANTECEDENCIA_MS.lembrete_2h);
+  if (tipo === 'lembrete_24h' && !emHorarioSilencioso(de2h, fuso)) return as8.getTime() < de2h.getTime() ? as8 : null;
+  return as8.getTime() <= inicio.getTime() - 30 * 60_000 ? as8 : null;
 }
 
 export type PlanoLembrete = { tipo: TipoLembrete; agendadaPara: Date } & ({ status: 'pendente' } | { status: 'ignorada'; motivo: 'prazo_passado' | 'horario_silencioso' });
@@ -2696,33 +2942,36 @@ export function planejarLembretes(inicio: Date, fuso: string, agora: Date): Plan
 }
 
 export type ConsultaParaLembrete = { tenantId: string; patientId: string; appointmentId: string; inicio: Date };
-type Linha = Pick<typeof notifications.$inferInsert, 'tenantId' | 'patientId' | 'appointmentId' | 'canal' | 'tipo' | 'status' | 'motivoIgnorada' | 'agendadaPara'>;
+type Linha = Pick<typeof notifications.$inferInsert, 'tenantId' | 'patientId' | 'appointmentId' | 'inicioConsulta' | 'canal' | 'tipo' | 'status' | 'motivoIgnorada' | 'agendadaPara'>;
 
-/** §7: (consulta, canal, tipo) é UNIQUE — marcar de novo, alterar ou reativar ATUALIZA a linha, que volta a valer do zero. */
+/**
+ * D6 (rodada 1 do /code-review): (consulta, canal, tipo, início da consulta) é UNIQUE. Marcar de novo no mesmo horário
+ * ou reativar reescreve só a linha que NÃO saiu (`pendente`, `ignorada`, `falhou`); a enviada (e a que está saindo)
+ * é imutável — não volta a "pendente" nem perde `enviada_em`/`provider_msg_id` (cota, métricas, histórico).
+ */
 async function gravar(tx: Tx, linhas: Linha[], agora: Date): Promise<void> {
   if (!linhas.length) return;
   await tx
     .insert(notifications)
     .values(linhas.map((l) => ({ ...l, tentativas: 0, createdAt: agora, updatedAt: agora })))
     .onConflictDoUpdate({
-      target: [notifications.appointmentId, notifications.canal, notifications.tipo],
-      set: {
-        status: sql`excluded.status`,
-        motivoIgnorada: sql`excluded.motivo_ignorada`,
-        agendadaPara: sql`excluded.agendada_para`,
-        tentativas: 0,
-        erro: null,
-        providerMsgId: null,
-        providerJid: null,
-        enviadaEm: null,
-        conteudoSelado: null,
-        updatedAt: agora,
-      },
+      target: [notifications.appointmentId, notifications.canal, notifications.tipo, notifications.inicioConsulta],
+      set: { status: sql`excluded.status`, motivoIgnorada: sql`excluded.motivo_ignorada`, agendadaPara: sql`excluded.agendada_para`, tentativas: 0, erro: null, updatedAt: agora },
+      setWhere: inArray(notifications.status, ['pendente', 'ignorada', 'falhou']),
     });
+}
+
+/** D17 (rodada 1): o horário da consulta mudou — o que ainda não saiu para o horário antigo vira "consulta_remarcada". */
+async function descartarHorarioAntigo(tx: Tx, c: ConsultaParaLembrete, agora: Date): Promise<void> {
+  await tx
+    .update(notifications)
+    .set({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada', updatedAt: agora })
+    .where(and(eq(notifications.appointmentId, c.appointmentId), eq(notifications.status, 'pendente'), ne(notifications.inicioConsulta, c.inicio)));
 }
 
 /** RN-05 / D6: 24 h e 2 h antes, nos três canais; as condições de cada canal são conferidas no envio. */
 export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: string, agora: Date): Promise<void> {
+  await descartarHorarioAntigo(tx, c, agora);
   await gravar(
     tx,
     planejarLembretes(c.inicio, fuso, agora).flatMap((p) =>
@@ -2730,6 +2979,7 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
         tenantId: c.tenantId,
         patientId: c.patientId,
         appointmentId: c.appointmentId,
+        inicioConsulta: c.inicio,
         canal,
         tipo: p.tipo,
         status: p.status,
@@ -2741,10 +2991,14 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
   );
 }
 
-/** US-031 / US-033: "Consulta marcada" (também ao alterar) e "Consulta cancelada", por e-mail e push, já. */
+/** US-031 / US-033: "Consulta marcada" (também ao mudar o horário) e "Consulta cancelada", por e-mail e push, já. */
 export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada', agora: Date): Promise<void> {
   if (tipo === 'consulta_marcada' && c.inicio.getTime() <= agora.getTime()) return; // encaixe registrado depois (D22)
-  await gravar(tx, (['email', 'push'] as const).map((canal) => ({ tenantId: c.tenantId, patientId: c.patientId, appointmentId: c.appointmentId, canal, tipo, status: 'pendente', motivoIgnorada: null, agendadaPara: agora })), agora);
+  await gravar(
+    tx,
+    (['email', 'push'] as const).map((canal) => ({ tenantId: c.tenantId, patientId: c.patientId, appointmentId: c.appointmentId, inicioConsulta: c.inicio, canal, tipo, status: 'pendente', motivoIgnorada: null, agendadaPara: agora })),
+    agora,
+  );
 }
 
 /** US-033: o que ainda não saiu da consulta cancelada vira "ignorada". */
@@ -2761,22 +3015,32 @@ export async function dispararEnvio(tx: Tx, tenantId: string): Promise<void> {
   if (!id) throw new Error('A fila de notificações recusou o envio');
 }
 
-/** US-004 / RN-15: tenant suspenso — nada pendente sai. Roda no worker (o admin nunca toca tabela 🔒). */
+/**
+ * US-004 / RN-15: tenant suspenso — nada pendente sai. Roda no worker (o admin nunca toca tabela 🔒). Rodada 1: o
+ * status é relido sob trava (`FOR SHARE` em `tenants`, na mesma transação). Um job "suspenso" atrasado, que roda
+ * depois da reativação, não ignora nada; uma reativação concorrente espera esta transação e o job "reativado" dela
+ * reagenda o que foi ignorado aqui.
+ */
 export async function ignorarPendentesDoTenant(db: Db, tenantId: string, agora: Date): Promise<void> {
   await withTenant(
     { tenantId, role: 'worker' },
-    (tx) => tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'tenant_suspenso', updatedAt: agora }).where(eq(notifications.status, 'pendente')),
+    async (tx) => {
+      if ((await getTenantStatus(tx, tenantId, { aguardarSuspensao: true })) !== 'suspensa') return;
+      await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'tenant_suspenso', updatedAt: agora }).where(eq(notifications.status, 'pendente'));
+    },
     db,
   );
 }
 
 /** US-004 "Reativar": os lembretes ignorados pela suspensão, de consultas futuras ativas, voltam a valer (RN-05). */
 export async function reagendarTenantReativado(db: Db, tenantId: string, agora: Date): Promise<void> {
-  const tenant = await buscarTenant(db, tenantId);
-  if (!tenant || tenant.status !== 'ativa') return;
+  const tenant = await buscarTenant(db, tenantId); // o fuso; lido antes da transação (uma conexão por vez)
+  if (!tenant) return;
   await withTenant(
     { tenantId, role: 'worker' },
     async (tx) => {
+      // rodada 1: relido sob trava — um "reativado" atrasado, que roda depois de uma nova suspensão, não reabre nada
+      if ((await getTenantStatus(tx, tenantId, { aguardarSuspensao: true })) !== 'ativa') return;
       const alvo = await tx
         .selectDistinct({ id: appointments.id, inicio: appointments.inicio })
         .from(notifications)
@@ -2787,7 +3051,7 @@ export async function reagendarTenantReativado(db: Db, tenantId: string, agora: 
           await tx
             .update(notifications)
             .set({ status: p.status, motivoIgnorada: p.status === 'ignorada' ? p.motivo : null, agendadaPara: p.agendadaPara, tentativas: 0, erro: null, updatedAt: agora })
-            .where(and(eq(notifications.appointmentId, c.id), eq(notifications.tipo, p.tipo), eq(notifications.motivoIgnorada, 'tenant_suspenso')));
+            .where(and(eq(notifications.appointmentId, c.id), eq(notifications.inicioConsulta, c.inicio), eq(notifications.tipo, p.tipo), eq(notifications.motivoIgnorada, 'tenant_suspenso')));
         }
       }
     },
@@ -2995,7 +3259,7 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { agendarPelaNutri } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
-import { processarNotificacoes, TRAVADA_MS, type DepsEnvio } from './enviar';
+import { ordemDaRodada, processarNotificacoes, TRAVADA_MS, type DepsEnvio } from './enviar';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -3055,9 +3319,39 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     expect(await linha(T, b.id, 'consulta_marcada', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
     const p = await novoPaciente(app.db, T.ctx);
     const c = await consultaDireta(app.db, T.ctx, p.id, em('2026-10-16', '09:00'));
-    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, canal: 'email', tipo: 'lembrete_2h', agendadaPara: em('2026-10-16', '07:00') }), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: em('2026-10-16', '09:00'), canal: 'email', tipo: 'lembrete_2h', agendadaPara: em('2026-10-16', '07:00') }), app.db);
     await processarNotificacoes(deps(em('2026-10-16', '09:30')), { tenantId: T.tenantId });
     expect(await linha(T, c, 'lembrete_2h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'prazo_passado' });
+    // D6/D17: linha planejada para um horário que a consulta já não tem (a hora mudou depois da reserva) não sai
+    const d = await consultaDireta(app.db, T.ctx, p.id, em('2026-10-20', '09:00'));
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: d, inicioConsulta: em('2026-10-19', '09:00'), canal: 'email', tipo: 'lembrete_24h', agendadaPara: em('2026-10-18', '09:00') }), app.db);
+    await processarNotificacoes(deps(em('2026-10-18', '09:00')), { tenantId: T.tenantId });
+    expect(await linha(T, d, 'lembrete_24h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada' });
+  });
+
+  it('horário silencioso na reserva (D7, rodada 1): o lembrete que venceu com o worker parado sai às 08:00 dizendo "hoje"; o de 2 h que só caberia depois da consulta é ignorado', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await marcada(T); // 16/10 às 14:00: o de 24 h venceu em 15/10 às 14:00
+    const noite = deps(em('2026-10-15', '23:30'));
+    await processarNotificacoes(noite, { tenantId: T.tenantId });
+    expect(noite.transport.enviados.filter((e) => e.subject.startsWith('Lembrete'))).toEqual([]);
+    expect(await linha(T, id, 'lembrete_24h', 'email')).toMatchObject({ status: 'pendente', tentativas: 0, agendadaPara: em('2026-10-16', '08:00') });
+    const manha = deps(em('2026-10-16', '08:00'));
+    await processarNotificacoes(manha, { tenantId: T.tenantId });
+    expect(manha.transport.enviados.map((e) => e.subject)).toContain('Lembrete: sua consulta é hoje às 14:00');
+    expect(await linha(T, id, 'lembrete_24h', 'email')).toMatchObject({ status: 'enviada' });
+    // o de 2 h de uma consulta às 07:00 que venceu às 21:50: as 08:00 já seriam depois do início
+    const p = await novoPaciente(app.db, T.ctx);
+    const cedo = em('2026-10-17', '07:00');
+    const c = await consultaDireta(app.db, T.ctx, p.id, cedo);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: cedo, canal: 'email', tipo: 'lembrete_2h', agendadaPara: em('2026-10-16', '21:50') }), app.db);
+    await processarNotificacoes(deps(em('2026-10-16', '22:00')), { tenantId: T.tenantId });
+    expect(await linha(T, c, 'lembrete_2h', 'email')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'horario_silencioso' });
+  });
+
+  it('a volta do cron começa num tenant diferente a cada minuto (D6, rodada 1)', () => {
+    expect([0, 1, 2, 3].map((m) => ordemDaRodada(['a', 'b', 'c'], new Date(m * 60_000))[0])).toEqual(['a', 'b', 'c', 'a']);
+    expect(ordemDaRodada([], new Date())).toEqual([]);
   });
 
   it('INT-02: e-mail recusado → novas tentativas em 1, 2 e 4 min; depois "falhou"', async () => {
@@ -3125,6 +3419,10 @@ import type { ContextoEnvio } from './enviar';
 
 export const primeiroNome = (nome: string) => nome.trim().split(/\s+/)[0] || nome;
 
+/** D7 (rodada 1): o envio cai no dia da consulta, no fuso do tenant — o lembrete de 24 h adiado para as 08:00 diz "hoje". */
+export const ehHoje = (c: { consulta: AppointmentRow; tenant: TenantRow; agora: Date }) =>
+  partesNoFuso(c.agora, c.tenant.fuso).data === partesNoFuso(c.consulta.inicio, c.tenant.fuso).data;
+
 /** Dados comuns às mensagens de uma consulta; o link assinado (D20) vai em todas, menos no cancelamento. */
 export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow }, deps: { appUrl: string; chaveLinks: Buffer }) {
   const modalidade = c.consulta.modalidade as 'presencial' | 'online';
@@ -3143,7 +3441,9 @@ export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; cha
   const evento = c.n.tipo;
   if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada')) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant }, deps);
-  return { tipo: 'consulta', evento, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link: evento === 'consulta_cancelada' ? null : d.link };
+  // D7: o de 24 h que sai no dia da consulta usa o texto "de hoje" (o do lembrete de 2 h), nunca "amanhã"
+  const doDia = evento === 'lembrete_24h' && ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'lembrete_2h' : evento;
+  return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link: evento === 'consulta_cancelada' ? null : d.link };
 }
 ```
 
@@ -3158,9 +3458,9 @@ import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
 import { logger } from '@/lib/logger';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { ignorarPendentesDoTenant } from './agendar';
+import { adiarLembrete, emHorarioSilencioso, ignorarPendentesDoTenant } from './agendar';
 import { emailDaNotificacao } from './mensagens';
-import { ehLembrete, type Canal, type MotivoIgnorada } from './tipos';
+import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 
 export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date };
 export type Resultado =
@@ -3171,6 +3471,8 @@ export type Resultado =
 export type DepsEnvio = { db: Db; agora: () => Date; appUrl: string; chaveLinks: Buffer; email: { transport: EmailTransport; from: string } };
 
 export const LOTE_POR_EXECUCAO = 40;
+/** D6 (rodada 1): parte mínima de cada tenant numa volta do cron; o que sobrar do lote vai para quem encheu a parte. */
+export const LOTE_MIN_POR_TENANT = 5;
 /** D6: reservada há mais que isto = o worker caiu entre reservar e registrar. */
 export const TRAVADA_MS = 15 * 60_000;
 /** INT-02: e-mail em 1, 2 e 4 min; INT-01: WhatsApp em 1, 5 e 25 min; push como o WhatsApp. */
@@ -3184,6 +3486,8 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada')) return null;
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');
   if (c.consulta.status === 'realizada' || c.consulta.status === 'faltou') return ignorar('consulta_encerrada');
+  // D6/D17: linha planejada para outro horário (reservada antes de a nutricionista mudar a hora) não sai
+  if (c.n.inicioConsulta && c.n.inicioConsulta.getTime() !== c.consulta.inicio.getTime()) return ignorar('consulta_remarcada');
   if (c.consulta.inicio.getTime() <= c.agora.getTime()) return ignorar('prazo_passado');
   return null;
 }
@@ -3209,25 +3513,59 @@ const CANAIS_ENVIO: Record<Canal, (c: ContextoEnvio, deps: DepsEnvio) => Promise
   push: async () => ignorar('push_desligado'),
 };
 
-/** Quais das devidas saem nesta rodada e quais já ficam sem cota (Tarefas 10 e 11: ritmo e cota do WhatsApp). */
-async function escolher(_tx: Tx, _tenant: TenantRow, devidas: NotificationRow[], _agora: Date): Promise<{ reservar: string[]; semCota: string[] }> {
-  return { reservar: devidas.map((n) => n.id), semCota: [] };
+/** As devidas (pendentes, vencidas) de alguns canais — e, se pedido, só de alguns tipos —, mais antigas primeiro, travadas com SKIP LOCKED. */
+type Devidas = (canais: readonly Canal[], max: number, tipos?: readonly string[]) => Promise<NotificationRow[]>;
+
+/** WhatsApps devidos desta rodada: quais reservar e quais já ficam sem cota (Tarefa 10: ritmo; Tarefa 11: cota). */
+async function escolherWhatsapp(_tx: Tx, _tenant: TenantRow, _agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
+  return { reservar: await devidas(['whatsapp'], max), semCota: [] };
 }
 
-/** D6: reserva o que venceu (pendente → enviando, tentativas + 1) numa transação curta; o envio acontece fora dela. */
+/**
+ * D7 na reserva (rodada 1 do /code-review): lembrete que venceu e sairia no horário silencioso — worker parado, conta
+ * reativada à noite — não sai às 23:30. Na 1ª tentativa, vai para as 08:00 se ainda fizer sentido (`adiarLembrete`);
+ * senão, "ignorada"/"horario_silencioso". Vale para os três canais (a RN-05 não distingue); novas tentativas seguem (D7).
+ */
+async function segurarSilenciosos(tx: Tx, tenant: TenantRow, agora: Date): Promise<void> {
+  const ls = await tx
+    .select({ id: notifications.id, tipo: notifications.tipo, inicio: appointments.inicio })
+    .from(notifications)
+    .innerJoin(appointments, eq(appointments.id, notifications.appointmentId))
+    .where(and(eq(notifications.status, 'pendente'), lte(notifications.agendadaPara, agora), eq(notifications.tentativas, 0), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h'])))
+    .for('update', { of: notifications, skipLocked: true });
+  for (const l of ls) {
+    const para = adiarLembrete(l.tipo as TipoLembrete, l.inicio, tenant.fuso, agora);
+    await tx
+      .update(notifications)
+      .set(para ? { agendadaPara: para, updatedAt: agora } : { status: 'ignorada', motivoIgnorada: 'horario_silencioso', updatedAt: agora })
+      .where(eq(notifications.id, l.id));
+  }
+}
+
+/**
+ * D6: reserva o que venceu (pendente → enviando, tentativas + 1) numa transação curta; o envio acontece fora dela.
+ * Rodada 1: canal por canal — e-mail e push primeiro, o WhatsApp com o que sobrar (e só com vaga no minuto, D16):
+ * um acúmulo de WhatsApp nunca ocupa a vez dos outros canais.
+ */
 async function reservar(ctx: TenantContext, tenant: TenantRow, deps: DepsEnvio, agora: Date, limite: number): Promise<NotificationRow[]> {
   return withTenant(
     ctx,
     async (tx) => {
-      const devidas = await tx
-        .select()
-        .from(notifications)
-        .where(and(eq(notifications.status, 'pendente'), lte(notifications.agendadaPara, agora)))
-        .orderBy(asc(notifications.agendadaPara))
-        .limit(limite)
-        .for('update', { skipLocked: true });
-      const { reservar: ids, semCota } = await escolher(tx, tenant, devidas, agora);
-      if (semCota.length) await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'cota_esgotada', updatedAt: agora }).where(inArray(notifications.id, semCota));
+      if (emHorarioSilencioso(agora, tenant.fuso)) await segurarSilenciosos(tx, tenant, agora);
+      const devidas: Devidas = async (canais, max, tipos) =>
+        max <= 0
+          ? []
+          : tx
+              .select()
+              .from(notifications)
+              .where(and(eq(notifications.status, 'pendente'), lte(notifications.agendadaPara, agora), inArray(notifications.canal, [...canais]), tipos ? inArray(notifications.tipo, [...tipos]) : undefined))
+              .orderBy(asc(notifications.agendadaPara))
+              .limit(max)
+              .for('update', { skipLocked: true });
+      const outras = await devidas(['email', 'push'], limite);
+      const w = await escolherWhatsapp(tx, tenant, agora, limite - outras.length, devidas);
+      if (w.semCota.length) await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'cota_esgotada', updatedAt: agora }).where(inArray(notifications.id, w.semCota));
+      const ids = [...outras, ...w.reservar].map((n) => n.id);
       if (!ids.length) return [];
       return tx.update(notifications).set({ status: 'enviando', tentativas: sql`${notifications.tentativas} + 1`, updatedAt: agora }).where(inArray(notifications.id, ids)).returning();
     },
@@ -3253,7 +3591,8 @@ async function aoFalhar(tx: Tx, n: NotificationRow, agora: Date): Promise<void> 
   await tx
     .update(notifications)
     .set({ status: 'pendente', agendadaPara: agora, tentativas: 0, erro: null, updatedAt: agora })
-    .where(and(eq(notifications.appointmentId, n.appointmentId), eq(notifications.canal, 'email'), eq(notifications.tipo, n.tipo), eq(notifications.status, 'falhou')));
+    // o e-mail do MESMO horário da consulta (CHECK: com consulta, `inicio_consulta` existe)
+    .where(and(eq(notifications.appointmentId, n.appointmentId), eq(notifications.inicioConsulta, n.inicioConsulta!), eq(notifications.canal, 'email'), eq(notifications.tipo, n.tipo), eq(notifications.status, 'falhou')));
 }
 
 /** Tarefa 11: depois de um envio aceito (aviso de 80% da cota). */
@@ -3337,25 +3676,50 @@ async function processarTenant(tenantId: string, deps: DepsEnvio, limite: number
   return lote.length;
 }
 
-/** RN-05: varre os tenants (cron de 1 min) ou só um (envio imediato); no máximo LOTE_POR_EXECUCAO por execução. */
+/** D6 (rodada 1): a cada minuto a volta do cron começa num tenant diferente — com mais tenants que lote, ninguém fica sempre por último. */
+export function ordemDaRodada<T>(ids: readonly T[], agora: Date): T[] {
+  if (!ids.length) return [];
+  const k = Math.floor(agora.getTime() / 60_000) % ids.length;
+  return [...ids.slice(k), ...ids.slice(0, k)];
+}
+
+async function processarComSeguranca(tenantId: string, deps: DepsEnvio, limite: number): Promise<number> {
+  try {
+    return await processarTenant(tenantId, deps, limite);
+  } catch (err) {
+    // um tenant com problema não para os outros; o que ficou "enviando" é destravado na próxima volta
+    logger.error({ tenantId, err: err instanceof Error ? err.name : 'erro' }, 'falha ao processar as notificações do tenant');
+    return 0;
+  }
+}
+
+/**
+ * RN-05: varre os tenants (cron de 1 min) ou só um (envio imediato); no máximo LOTE_POR_EXECUCAO por execução.
+ * Rodada 1 (D6): cada tenant tem uma parte do lote (`max(5, 40 ÷ tenants)`) numa volta que começa num tenant diferente
+ * a cada minuto; o que sobrar vai, numa segunda passada, para quem encheu a parte.
+ */
 export async function processarNotificacoes(deps: DepsEnvio, opts: { tenantId?: string } = {}): Promise<{ processadas: number }> {
-  const alvos = opts.tenantId ? [opts.tenantId] : (await listarTenantsParaVarredura(deps.db)).map((t) => t.id);
+  const alvos = opts.tenantId ? [opts.tenantId] : ordemDaRodada((await listarTenantsParaVarredura(deps.db)).map((t) => t.id), deps.agora());
+  const parte = Math.max(LOTE_MIN_POR_TENANT, Math.ceil(LOTE_POR_EXECUCAO / Math.max(1, alvos.length)));
   let processadas = 0;
+  const cheios: string[] = [];
   for (const tenantId of alvos) {
     if (processadas >= LOTE_POR_EXECUCAO) break;
-    try {
-      processadas += await processarTenant(tenantId, deps, LOTE_POR_EXECUCAO - processadas);
-    } catch (err) {
-      // um tenant com problema não para os outros; o que ficou "enviando" é destravado na próxima volta
-      logger.error({ tenantId, err: err instanceof Error ? err.name : 'erro' }, 'falha ao processar as notificações do tenant');
-    }
+    const limite = Math.min(parte, LOTE_POR_EXECUCAO - processadas);
+    const n = await processarComSeguranca(tenantId, deps, limite);
+    processadas += n;
+    if (n >= limite) cheios.push(tenantId);
+  }
+  for (const tenantId of cheios) {
+    if (processadas >= LOTE_POR_EXECUCAO) break;
+    processadas += await processarComSeguranca(tenantId, deps, LOTE_POR_EXECUCAO - processadas);
   }
   return { processadas };
 }
 ```
 
 Run: `pnpm test src/modules/notificacoes`
-Expected: PASS (tipos 1, agendar 7, enviar 7).
+Expected: PASS (tipos 1, agendar 9, enviar 9).
 
 - [ ] **Step 9: Fila, worker e tela de lembretes**
 
@@ -3439,7 +3803,7 @@ Expected: PASS (3 testes).
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/db/schema/agenda.ts drizzle/0052_notificacoes.sql drizzle/0053_rls_notificacoes.sql drizzle/meta src/db/audit-guard.ts test/isolamento.test.ts test/email.ts src/modules/notificacoes src/modules/agenda/link-consulta.ts src/modules/agenda/link-consulta.test.ts src/modules/agenda/consultas.ts src/modules/agenda/consultas.test.ts src/email src/jobs/queues.ts src/worker/index.ts src/modules/plataforma/suspensao.ts src/modules/plataforma/suspensao.test.ts src/app/painel/agenda/consultas scripts/e2e-seed.ts e2e/agenda.spec.ts
+git add src/db/schema/agenda.ts drizzle/0052_notificacoes.sql drizzle/0053_rls_notificacoes.sql drizzle/meta src/db/audit-guard.ts src/db/rls-guard.ts test/isolamento.test.ts test/email.ts src/modules/notificacoes src/modules/agenda/link-consulta.ts src/modules/agenda/link-consulta.test.ts src/modules/agenda/consultas.ts src/modules/agenda/consultas.test.ts src/email src/jobs/queues.ts src/worker/index.ts src/modules/plataforma/suspensao.ts src/modules/plataforma/suspensao.test.ts src/app/painel/agenda/consultas scripts/e2e-seed.ts e2e/agenda.spec.ts
 git commit -m "feat(notificacoes): motor de lembretes 24 h/2 h com horário silencioso, e-mail e link assinado (RN-05, US-034, US-004)"
 ```
 
@@ -3770,11 +4134,11 @@ git commit -m "feat(agenda): agendamento pelo paciente com janela, corrida decid
 - Modify: `src/modules/agenda/horarios.ts`, `src/modules/agenda/horarios.test.ts`, `src/app/painel/agenda/actions.ts`, `src/app/painel/agenda/consultas/[id]/page.tsx`, `next.config.ts`, `e2e/agenda.spec.ts`
 
 **Interfaces:**
-- Consumes: `lerConsultaParaEscrita`, `STATUS_ATIVOS`, `ConsultaError`, `ehSobreposicao`, `type TenantAgenda`, `type StatusConsulta`, `appointments` (Tarefa 3); `escolherHorario`, `gravarConsultaDoPaciente`, `horariosParaPaciente`, `janelaDoPaciente` (Tarefa 6); `avisarNutri` (Tarefa 6); `cancelarLembretes`, `avisarPaciente`, `dispararEnvio` (Tarefa 5); `chaveDosLinks`, `lerLinkConsulta` (Tarefa 5); `quandoComFuso`, `diaCurto`, `partesNoFuso`, `inicioDoDia`, `somarDias` (Tarefa 1); `MSG_AGENDA`; `carregarPacienteParaEscrita`; `buscarTenant`; `encryptionKey`; `requestIp`; `normalizarTexto`.
+- Consumes: `lerConsultaParaEscrita`, `STATUS_ATIVOS`, `ConsultaError`, `ehSobreposicao`, `type TenantAgenda`, `type StatusConsulta`, `appointments` (Tarefa 3); `escolherHorario`, `gravarConsultaDoPaciente`, `horariosParaPaciente`, `janelaDoPaciente` (Tarefa 6); `avisarNutri` (Tarefa 6); `cancelarLembretes`, `avisarPaciente`, `dispararEnvio` (Tarefa 5); `chaveDosLinks`, `lerLinkConsulta` (Tarefa 5); `quandoComFuso`, `diaCurto`, `partesNoFuso`, `inicioDoDia`, `somarDias` (Tarefa 1); `MSG_AGENDA`; `carregarPacienteParaEscrita`, `PacienteBloqueadoError`, `patients`; `buscarTenant`; `encryptionKey`; `requestIp`; `normalizarTexto`.
 - Produces:
   - `@/modules/agenda/horarios`: `type HorarioVisivel = { inicio: string; dia: string; data: string; hora: string; modalidades: Modalidade[] }`, `horariosVisiveis(hs: Horario[], fuso: string): HorarioVisivel[]`.
-  - `@/modules/agenda/cancelamento`: `podeAlterarPeloPaciente(inicio: Date, cancelamentoMinH: number, agora: Date): boolean`, `cancelarConsulta(ctx, tenant, id, o: { por: 'nutri' | 'paciente'; motivo?: unknown }, deps?)`, `remarcarComoPaciente(ctx, tenant, id, novo: { inicio: unknown; modalidade: unknown }, deps?): Promise<{ id: string; inicio: Date }>`, `confirmarPresenca(ctx, id, via: 'whatsapp' | 'link', deps?): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'>`, `pedirRemarcacao(ctx, tenant, id, deps?): Promise<boolean>` (true só na primeira vez).
-  - `@/modules/agenda/acoes-link`: `class LinkError`, `type EstadoLink`, `type DepsLink = { db?; agora?; chave?; ip?; appUrl? }`, `abrirLinkConsulta(token, deps?)`, `horariosDoLink(token, de, ate, deps?): Promise<HorarioVisivel[]>`, `confirmarPeloLink(token, deps?)`, `cancelarPeloLink(token, deps?)`, `remarcarPeloLink(token, input, deps?): Promise<{ quando: string }>`, `avisarRemarcacaoPeloLink(token, deps?)`.
+  - `@/modules/agenda/cancelamento`: `podeAlterarPeloPaciente(inicio: Date, cancelamentoMinH: number, agora: Date): boolean`, `cancelarConsulta(ctx, tenant, id, o: { por: 'nutri' | 'paciente'; motivo?: unknown }, deps?)`, `remarcarComoPaciente(ctx, tenant, id, novo: { inicio: unknown; modalidade: unknown }, deps?): Promise<{ id: string; inicio: Date }>` (o horário é escolhido **antes** da transação; o `EXCLUDE` revalida dentro), `confirmarPresenca(ctx, id, via: 'whatsapp' | 'link', deps?): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'>`, `pedirRemarcacao(ctx, tenant, id, deps?): Promise<boolean>` (true só na primeira vez). Confirmar, pedir remarcação e cancelar/remarcar pelo paciente exigem sessão de paciente **ativo** (arquivado, bloqueado ou anonimizado: `nao_confirmavel` / `false` / "Para alterar, fale com sua nutricionista." / `PacienteBloqueadoError`).
+  - `@/modules/agenda/acoes-link`: `class LinkError`, `type EstadoLink` (`indisponivel` também para paciente arquivado, bloqueado ou anonimizado), `type DepsLink = { db?; agora?; chave?; ip?; appUrl? }`, `abrirLinkConsulta(token, deps?)`, `horariosDoLink(token, de, ate, deps?): Promise<HorarioVisivel[]>`, `confirmarPeloLink(token, deps?)`, `cancelarPeloLink(token, deps?)`, `remarcarPeloLink(token, input, deps?): Promise<{ quando: string }>`, `avisarRemarcacaoPeloLink(token, deps?)`.
   - `SeletorHorarios({ horarios: HorarioVisivel[]; modalidade?: Modalidade; erro?: string })` — também usado pela página pública (Tarefa 8).
   - Página `/consulta/[token]` (`?semana=AAAA-MM-DD`), `cancelarAction(id, prev, fd)` no painel.
 
@@ -3812,14 +4176,18 @@ Run: `pnpm test src/modules/agenda/horarios.test.ts` → PASS (8 testes).
 
 ```ts
 import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, user } from '@/db/schema';
+import * as schema from '@/db/schema';
+import { appointments, notifications, patients, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { agendarComoPaciente } from './agendamento-paciente';
 import { cancelarConsulta, confirmarPresenca, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
@@ -3893,6 +4261,40 @@ describe('remarcar e cancelar (US-033)', () => {
     expect(await erro(cancelarConsulta(T.ctx, tenantAgenda(T), id, { por: 'nutri' }, vinteHorasAntes))).toEqual({ geral: MSG_AGENDA.naoCancelavel });
   });
 
+  it('Review Focus 6 (rodada 1): remarcar com um pool de UMA conexão conclui — o horário é escolhido antes da transação, nunca numa segunda conexão dentro dela', async () => {
+    const umaConexao = new Pool({ connectionString: inject('appDatabaseUrl'), max: 1 });
+    try {
+      const T = await novoTenant(app.db);
+      await semanaToda(app.db, T.ctx);
+      const ana = await novoPaciente(app.db, T.ctx);
+      const ctx = ctxPaciente(T.tenantId, ana.id);
+      const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-10', '09:00')));
+      const db1 = drizzle({ client: umaConexao, schema });
+      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, { db: db1, now: em('2026-10-11', '09:00'), appUrl: 'http://localhost:3000' })).resolves.toMatchObject({ inicio: em('2026-10-17', '10:00') });
+    } finally {
+      await umaConexao.end();
+    }
+  }, 15_000);
+
+  it('rodada 1 (RN-08, US-018): paciente arquivado, bloqueado ou anonimizado não confirma, não pede remarcação, não cancela nem remarca', async () => {
+    for (const mudanca of [{ status: 'arquivado' }, { status: 'bloqueado' }, { anonimizadoEm: em('2026-10-01', '09:00') }]) {
+      const T = await novoTenant(app.db);
+      await semanaToda(app.db, T.ctx);
+      const ana = await novoPaciente(app.db, T.ctx);
+      const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
+      await withTenant(T.ctx, (tx) => tx.update(patients).set(mudanca).where(eq(patients.id, ana.id)), app.db);
+      const ctx = ctxPaciente(T.tenantId, ana.id);
+      const d = deps(em('2026-10-10', '09:00'));
+      expect(await confirmarPresenca(ctx, id, 'whatsapp', d), JSON.stringify(mudanca)).toBe('nao_confirmavel');
+      expect(await pedirRemarcacao(ctx, tenantAgenda(T), id, d)).toBe(false);
+      expect(await erro(cancelarConsulta(ctx, tenantAgenda(T), id, { por: 'paciente' }, d))).toEqual({ geral: MSG_AGENDA.foraDoPrazo });
+      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, d)).rejects.toSatisfy(
+        (e: unknown) => e instanceof PacienteBloqueadoError || (e instanceof ConsultaError && e.erros.geral === MSG_AGENDA.naoAgendavel),
+      );
+      expect(await consulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
+    }
+  });
+
   it('paciente não cancela consulta de outro paciente (RLS) e o motivo tem até 300 caracteres', async () => {
     const T = await novoTenant(app.db);
     const [p1, p2] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
@@ -3939,7 +4341,7 @@ Expected: FAIL ("Failed to resolve import './cancelamento'").
 
 ```ts
 import { eq } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -3962,6 +4364,16 @@ export function podeAlterarPeloPaciente(inicio: Date, cancelamentoMinH: number, 
   return inicio.getTime() - agora.getTime() >= cancelamentoMinH * 3_600_000;
 }
 
+/**
+ * RN-08 / US-018 (rodada 1 do /code-review): paciente arquivado, bloqueado ou anonimizado não age pela agenda (link,
+ * WhatsApp, PWA). Trava o paciente (`FOR SHARE`) antes da consulta — a mesma ordem de moverConsulta (paciente → consulta).
+ */
+async function pacienteAtivo(tx: Tx, ctx: TenantContext): Promise<boolean> {
+  if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('ação do paciente exige sessão de paciente');
+  const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ctx.patientId)).for('share');
+  return !!p && p.status === 'ativo' && !p.anonimizadoEm;
+}
+
 /** US-033 / RN-04: a nutricionista cancela a qualquer momento; o paciente, dentro do prazo. O paciente recebe o aviso. */
 export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda, id: string, o: { por: 'nutri' | 'paciente'; motivo?: unknown }, deps: Deps = {}): Promise<void> {
   const motivo = normalizarTexto(o.motivo);
@@ -3970,6 +4382,7 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
   await withTenant(
     ctx,
     async (tx) => {
+      if (o.por === 'paciente' && !(await pacienteAtivo(tx, ctx))) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo }); // RN-08
       const c = await lerConsultaParaEscrita(tx, id); // RLS: o paciente só alcança a própria
       if (!ativa(c.status)) throw new ConsultaError({ geral: MSG_AGENDA.naoCancelavel });
       if (o.por === 'paciente' && !podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora)) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo });
@@ -3993,12 +4406,16 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
 /**
  * US-033 / D17: o paciente remarca = cancela a antiga e cria a nova (`remarcada_de`) numa transação; o horário
  * novo é validado ignorando a própria consulta. Travas: paciente → consulta (mesma ordem de moverConsulta).
+ * Review Focus 6 (rodada 1): `escolherHorario` abre a própria transação (contexto publico) — por isso roda ANTES desta,
+ * nunca dentro (seria uma segunda conexão com a trava do paciente e da consulta presa; pool max: 10). Dentro, o
+ * EXCLUDE revalida o horário (outro paciente pode ter marcado no meio: "Esse horário acabou de ser ocupado").
  */
 export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, novo: { inicio: unknown; modalidade: unknown }, deps: Deps = {}): Promise<{ id: string; inicio: Date }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('remarcarComoPaciente exige sessão de paciente');
   if (tenant.status !== 'ativa') throw new ConsultaError({ geral: MSG_AGENDA.contaIndisponivel });
   const db = deps.db ?? getDb();
   const agora = deps.now ?? new Date();
+  const h = await escolherHorario(tenant, novo.inicio, novo.modalidade, agora, { db, ignorarConsultaId: id });
   try {
     return await withTenant(
       ctx,
@@ -4008,7 +4425,6 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
         const c = await lerConsultaParaEscrita(tx, id);
         if (!ativa(c.status)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
         if (!podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora)) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo });
-        const h = await escolherHorario(tenant, novo.inicio, novo.modalidade, agora, { db, ignorarConsultaId: id });
         await tx
           .update(appointments)
           .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
@@ -4025,12 +4441,13 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
   }
 }
 
-/** US-035: "1" no WhatsApp ou "Confirmar presença" no link. Idempotente; só antes do início. */
+/** US-035: "1" no WhatsApp ou "Confirmar presença" no link. Idempotente; só antes do início e só de paciente ativo (RN-08). */
 export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'whatsapp' | 'link', deps: Deps = {}): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'> {
   const agora = deps.now ?? new Date();
   return withTenant(
     ctx,
     async (tx) => {
+      if (!(await pacienteAtivo(tx, ctx))) return 'nao_confirmavel';
       const c = await lerConsultaParaEscrita(tx, id);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return 'nao_confirmavel';
       if (c.status === 'confirmada') return 'ja_confirmada';
@@ -4041,12 +4458,13 @@ export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'wh
   );
 }
 
-/** US-035 "Preciso remarcar": marca o pedido e avisa a nutricionista — uma vez só (repetir não avisa de novo). */
+/** US-035 "Preciso remarcar": marca o pedido e avisa a nutricionista — uma vez só (repetir não avisa de novo); só paciente ativo. */
 export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, id: string, deps: Deps = {}): Promise<boolean> {
   const agora = deps.now ?? new Date();
   return withTenant(
     ctx,
     async (tx) => {
+      if (!(await pacienteAtivo(tx, ctx))) return false;
       const c = await lerConsultaParaEscrita(tx, id);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime() || c.pedidoRemarcacaoEm) return false;
       await tx.update(appointments).set({ pedidoRemarcacaoEm: agora, updatedAt: agora }).where(eq(appointments.id, id));
@@ -4061,7 +4479,7 @@ export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, 
 ```
 
 Run: `pnpm test src/modules/agenda/cancelamento.test.ts`
-Expected: PASS (7 testes).
+Expected: PASS (9 testes).
 
 - [ ] **Step 5: Testes das ações pelo link (falham)** — `src/modules/agenda/acoes-link.test.ts`
 
@@ -4072,10 +4490,10 @@ import { consultaDireta, em, semanaToda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, auditLog, tenants } from '@/db/schema';
+import { appointments, auditLog, patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { abrirLinkConsulta, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, remarcarPeloLink } from './acoes-link';
+import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, remarcarPeloLink } from './acoes-link';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError } from './consultas';
 import { assinarLinkConsulta, chaveDosLinks } from './link-consulta';
@@ -4135,6 +4553,24 @@ describe('link da consulta (D20, US-033, US-035)', () => {
     const outro = await cenario();
     await expect(cancelarPeloLink(outro.token, deps(em('2026-10-16', '09:00')))).rejects.toSatisfy((e: unknown) => e instanceof ConsultaError && e.erros.geral === MSG_AGENDA.foraDoPrazo);
   });
+
+  it('rodada 1 (RN-08, US-018): paciente arquivado, bloqueado ou anonimizado → link "indisponivel"; confirmar, cancelar, remarcar e avisar recusam (nunca 500) e nada muda', async () => {
+    for (const mudanca of [{ status: 'arquivado' }, { status: 'bloqueado' }, { anonimizadoEm: em('2026-10-01', '09:00') }]) {
+      const { T, ana, id, token } = await cenario();
+      await withTenant(T.ctx, (tx) => tx.update(patients).set(mudanca).where(eq(patients.id, ana.id)), app.db);
+      const d = deps(em('2026-10-14', '09:00'));
+      expect(await abrirLinkConsulta(token, d), JSON.stringify(mudanca)).toEqual({ estado: 'indisponivel' });
+      expect(await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), d)).toEqual([]);
+      const acoes = [
+        () => confirmarPeloLink(token, d),
+        () => cancelarPeloLink(token, d),
+        () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, d),
+        () => avisarRemarcacaoPeloLink(token, d),
+      ];
+      for (const acao of acoes) await expect(acao()).rejects.toSatisfy((e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.contaIndisponivel);
+      expect((await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0]).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
+    }
+  });
 });
 ```
 
@@ -4145,9 +4581,10 @@ Run: `pnpm test src/modules/agenda/acoes-link.test.ts` → FAIL (módulo não ex
 ```ts
 import { eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { appointments, type TenantRow } from '@/db/schema';
+import { appointments, patients, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { encryptionKey } from '@/lib/crypto';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { horariosParaPaciente } from './agendamento-paciente';
 import { cancelarConsulta, confirmarPresenca, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
@@ -4182,7 +4619,10 @@ export type EstadoLink =
 type Resolvido = { tenant: TenantRow; appointmentId: string; patientId: string; agora: Date; db: Db };
 type Falha = { estado: 'invalido' | 'expirado' | 'indisponivel' };
 
-/** Token → tenant ativo + dono da consulta (lido no contexto `publico`, só o `patient_id`). */
+/**
+ * Token → tenant ativo + dono da consulta (lido no contexto `publico`: só o `patient_id` e a situação do paciente).
+ * Rodada 1: paciente arquivado, bloqueado ou anonimizado (RN-08, US-018) → "indisponivel", como o tenant suspenso.
+ */
 async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falha> {
   const agora = deps.agora ?? new Date();
   const db = deps.db ?? getDb();
@@ -4192,8 +4632,19 @@ async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falh
   const tenant = await buscarTenant(db, l.tenantId);
   if (!tenant) return { estado: 'invalido' };
   if (tenant.status !== 'ativa') return { estado: 'indisponivel' }; // RN-15
-  const [c] = await withTenant({ tenantId: tenant.id, role: 'publico' }, (tx) => tx.select({ patientId: appointments.patientId }).from(appointments).where(eq(appointments.id, l.appointmentId)), db);
-  return c ? { tenant, appointmentId: l.appointmentId, patientId: c.patientId, agora, db } : { estado: 'invalido' };
+  const [c] = await withTenant(
+    { tenantId: tenant.id, role: 'publico' },
+    (tx) =>
+      tx
+        .select({ patientId: appointments.patientId, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
+        .from(appointments)
+        .innerJoin(patients, eq(patients.id, appointments.patientId))
+        .where(eq(appointments.id, l.appointmentId)),
+    db,
+  );
+  if (!c) return { estado: 'invalido' };
+  if (c.status !== 'ativo' || c.anonimizadoEm) return { estado: 'indisponivel' };
+  return { tenant, appointmentId: l.appointmentId, patientId: c.patientId, agora, db };
 }
 
 /** D20: as ações rodam como o próprio paciente (RLS por paciente), sem ator, com o IP de quem clicou. */
@@ -4203,6 +4654,16 @@ async function exigir(token: string, deps: DepsLink): Promise<Resolvido> {
   const r = await resolver(token, deps);
   if ('tenant' in r) return r;
   throw new LinkError(r.estado === 'expirado' ? MSG_AGENDA.linkExpirado : r.estado === 'indisponivel' ? MSG_AGENDA.contaIndisponivel : MSG_AGENDA.linkInvalido);
+}
+
+/** Rodada 1: paciente bloqueado/anonimizado entre abrir o link e agir → o mesmo "indisponível" do resolver (nunca 500). */
+async function comoLink<T>(f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    if (e instanceof PacienteBloqueadoError) throw new LinkError(MSG_AGENDA.contaIndisponivel);
+    throw e;
+  }
 }
 
 /** Leitura da página (GET): nunca muda estado — a pré-visualização de link do WhatsApp abre a URL. */
@@ -4239,28 +4700,28 @@ export async function horariosDoLink(token: string, de: Date, ate: Date, deps: D
 
 export async function confirmarPeloLink(token: string, deps: DepsLink = {}): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'> {
   const r = await exigir(token, deps);
-  return confirmarPresenca(comoPaciente(r, deps.ip), r.appointmentId, 'link', { db: r.db, now: r.agora });
+  return comoLink(() => confirmarPresenca(comoPaciente(r, deps.ip), r.appointmentId, 'link', { db: r.db, now: r.agora }));
 }
 
 export async function cancelarPeloLink(token: string, deps: DepsLink = {}): Promise<void> {
   const r = await exigir(token, deps);
-  await cancelarConsulta(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, { por: 'paciente' }, { db: r.db, now: r.agora, appUrl: deps.appUrl });
+  await comoLink(() => cancelarConsulta(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, { por: 'paciente' }, { db: r.db, now: r.agora, appUrl: deps.appUrl }));
 }
 
 export async function remarcarPeloLink(token: string, input: { inicio: unknown; modalidade: unknown }, deps: DepsLink = {}): Promise<{ quando: string }> {
   const r = await exigir(token, deps);
-  const novo = await remarcarComoPaciente(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, input, { db: r.db, now: r.agora, appUrl: deps.appUrl });
+  const novo = await comoLink(() => remarcarComoPaciente(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, input, { db: r.db, now: r.agora, appUrl: deps.appUrl }));
   return { quando: quandoComFuso(novo.inicio, r.tenant.fuso) };
 }
 
 /** Fora do prazo do RN-04: o paciente só consegue avisar a nutricionista (US-035 "Preciso remarcar"). */
 export async function avisarRemarcacaoPeloLink(token: string, deps: DepsLink = {}): Promise<void> {
   const r = await exigir(token, deps);
-  await pedirRemarcacao(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, { db: r.db, now: r.agora, appUrl: deps.appUrl });
+  await comoLink(() => pedirRemarcacao(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, { db: r.db, now: r.agora, appUrl: deps.appUrl }));
 }
 ```
 
-Run: `pnpm test src/modules/agenda/acoes-link.test.ts` → PASS (4 testes).
+Run: `pnpm test src/modules/agenda/acoes-link.test.ts` → PASS (5 testes).
 
 - [ ] **Step 7: Seletor de horários e página do link**
 
@@ -4305,6 +4766,7 @@ import { requestIp } from '@/lib/request-ip';
 import { avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, LinkError, remarcarPeloLink } from '@/modules/agenda/acoes-link';
 import { MSG_AGENDA } from '@/modules/agenda/constantes';
 import { ConsultaError } from '@/modules/agenda/consultas';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 
 export type AcaoLinkState = { ok?: string; erro?: string; erroHorario?: string };
 
@@ -4315,6 +4777,8 @@ async function executar(token: string, f: () => Promise<string>): Promise<AcaoLi
     return { ok };
   } catch (e) {
     if (e instanceof LinkError) return { erro: e.message };
+    // rodada 1 (US-018): o acoes-link já converte; aqui é a última rede — paciente bloqueado nunca vira 500
+    if (e instanceof PacienteBloqueadoError) return { erro: MSG_AGENDA.contaIndisponivel };
     if (e instanceof ConsultaError) return e.erros.inicio ? { erroHorario: e.erros.inicio } : { erro: e.erros.geral ?? Object.values(e.erros)[0] };
     throw e;
   }
@@ -4590,12 +5054,13 @@ git commit -m "feat(agenda): cancelar, remarcar e confirmar pelo link assinado d
 
 **Files:**
 - Create: `drizzle/0054_agendamento_publico.sql` (gerada), `drizzle/0055_rls_agendamento_publico.sql` (custom), `src/modules/agenda/limite-ip.ts`, `src/modules/agenda/limite-ip.test.ts`, `src/modules/agenda/agendamento-publico.ts`, `src/modules/agenda/agendamento-publico.test.ts`, `src/app/api/n/[slug]/resposta.ts`, `src/app/api/n/[slug]/codigo/route.ts`, `src/app/api/n/[slug]/codigo/route.test.ts`, `src/app/api/n/[slug]/confirmar/route.ts`, `src/app/api/n/[slug]/horario/route.ts`, `src/app/n/[slug]/page.tsx`, `src/app/n/[slug]/agendar-form.tsx`
-- Modify: `src/db/schema/agenda.ts`, `src/db/schema/access.ts` (`consents`), `src/db/rls-guard.ts` (`STAFF_ONLY`, texto de `RLS_EXCEPTIONS.consents`), `src/db/audit-guard.ts`, `test/isolamento.test.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `CLAUDE.md` (regra 1), `scripts/e2e-seed.ts`, `e2e/agenda.spec.ts`
+- Modify: `src/db/schema/agenda.ts`, `src/db/schema/access.ts` (`consents`), `src/db/rls-guard.ts` (`STAFF_ONLY`, `PUBLICO_LIBERADO`, texto de `RLS_EXCEPTIONS.consents`), `src/db/audit-guard.ts`, `src/modules/plataforma/tenant-status.ts` (`buscarTenantPorSlug`), `test/isolamento.test.ts`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/jobs/queues.ts`, `src/worker/index.ts`, `CLAUDE.md` (regra 1), `scripts/e2e-seed.ts`, `e2e/agenda.spec.ts`
 
 **Interfaces:**
-- Consumes: `escolherHorario`, `gravarConsultaDoPaciente`, `horariosParaPaciente`, `type HorarioEscolhido` (Tarefa 6); `ConsultaError`, `ehSobreposicao`, `appointments` (Tarefa 3); `horariosVisiveis`, `type HorarioVisivel` (Tarefa 7); `SeletorHorarios` (Tarefa 7); `quandoComFuso`, `diaDaSemana`, `inicioDoDia`, `somarDias` (Tarefa 1); `MSG_AGENDA`, `MAX_CONSULTAS_FUTURAS_PUBLICO`; `verifyTurnstile`, `MSG_TURNSTILE_FORA`, `MSG_TURNSTILE_INVALIDO`, `type ResultadoTurnstile`; `TurnstileWidget`; `TERMO_PACIENTE`, `TERMO_PACIENTE_ROTULO`, `TERMO_PACIENTE_PARAGRAFOS`, `TERMO_PACIENTE_TITULO`, `MSG_TERMO_NAO_ACEITO`; `normalizarTelefone`; `normalizeEmail`, `normalizarTexto`; `randomToken`, `sha256`, `safeEqual`, `encryptionKey`; `clientIp`; `lerCorpoLimitado`, `CorpoGrandeError`; `enqueueEmail`; `citext`, `patients`, `consents`, `tenants`.
+- Consumes: `escolherHorario`, `gravarConsultaDoPaciente`, `horariosParaPaciente`, `type HorarioEscolhido` (Tarefa 6); `ConsultaError`, `ehSobreposicao`, `appointments` (Tarefa 3); `horariosVisiveis`, `type HorarioVisivel` (Tarefa 7); `SeletorHorarios` (Tarefa 7); `quandoComFuso`, `diaDaSemana`, `inicioDoDia`, `somarDias` (Tarefa 1); `MSG_AGENDA`, `MAX_CONSULTAS_FUTURAS_PUBLICO`; `verifyTurnstile`, `MSG_TURNSTILE_FORA`, `MSG_TURNSTILE_INVALIDO`, `type ResultadoTurnstile`; `TurnstileWidget`; `TERMO_PACIENTE`, `TERMO_PACIENTE_ROTULO`, `TERMO_PACIENTE_PARAGRAFOS`, `TERMO_PACIENTE_TITULO`, `MSG_TERMO_NAO_ACEITO`; `normalizarTelefone`; `normalizeEmail`, `normalizarTexto`; `randomToken`, `sha256`, `safeEqual`, `encryptionKey`; `clientIp`; `lerCorpoLimitado`, `CorpoGrandeError`; `enqueueEmail`; `citext`, `patients`, `consents`; `listarTenantsParaVarredura`.
 - Produces:
-  - Schema: `publicBookingRequests` 🔒 staff_only, `publicRateLimits` (sem `tenant_id`), `consents.patientId` + `consents.userId` nulo (D13).
+  - Schema: `publicBookingRequests` 🔒 staff_only (liberada ao contexto `publico` em `select`, `insert`, `update` — D11), `publicRateLimits` (sem `tenant_id`), `consents.patientId` + `consents.userId` nulo (D13).
+  - `@/modules/plataforma/tenant-status`: `buscarTenantPorSlug(db, slug): Promise<TenantRow | null>` (formato inválido → `null` sem consultar; `tenants` só se lê em `src/modules/plataforma`, CLAUDE.md regra 1).
   - `@/modules/agenda/limite-ip`: `chaveDoLimite(tipo: 'ip' | 'email-hora', valor: string): string`, `consumirLimite(db, chave, limite, janelaS, agora): Promise<boolean>`, `limparLimites(db, agora): Promise<number>`.
   - `@/modules/agenda/agendamento-publico`: `MSG_PUBLICO`, `class PublicoError { status: number; erros: Record<string, string> }`, `type PaginaPublica`, `carregarPaginaPublica(slug, opts: { semana?: unknown; agora?: Date; db?: Db }): Promise<PaginaPublica>`, `type DepsPublico = { db?; agora?; ip: string | null; verificarTurnstile: (token: string | null) => Promise<ResultadoTurnstile>; appUrl? }`, `solicitarCodigo(slug, input, deps): Promise<{ pedido: string }>`, `type ResultadoConfirmacao = { estado: 'agendada'; quando: string } | { estado: 'horario_ocupado'; horarios: HorarioVisivel[] }`, `confirmarCodigo(slug, input, deps)`, `escolherOutroHorario(slug, input, deps)`, `limparPedidosPublicos(db, agora): Promise<number>`.
   - Rotas `POST /api/n/[slug]/codigo` (200 `{ pedido }` · 422 `{ erros }` · 403/503 `{ erro }` (Turnstile) · 409 · 404 · 429 · 400 JSON inválido · 413), `POST /api/n/[slug]/confirmar` e `POST /api/n/[slug]/horario` (200 `ResultadoConfirmacao` · 422 · 409 · 410 · 429).
@@ -4684,10 +5149,14 @@ Run: `pnpm drizzle-kit generate --custom --name rls_agendamento_publico` e preen
 SELECT app_enable_tenant_rls('public_booking_requests');
 --> statement-breakpoint
 SELECT app_enable_staff_only('public_booking_requests');
+--> statement-breakpoint
+-- D11: o pedido da página pública é lido, criado e atualizado (tentativas, verificado, concluído; SELECT … FOR UPDATE) no contexto publico
+SELECT app_allow_publico('public_booking_requests', 'select', 'insert', 'update');
 ```
 
 `src/db/rls-guard.ts`:
 - `STAFF_ONLY`: `public_booking_requests: 'RN-16: pedido da página pública (código, contato) — só o contexto publico e a equipe',`
+- `PUBLICO_LIBERADO`: `public_booking_requests: { comandos: ['select', 'insert', 'update'], motivo: 'pedido da página pública: cria, confere o código (FOR UPDATE) e conclui' },`
 - `RLS_EXCEPTIONS.consents`: o fim do texto passa a "…acesso só por src/modules/plataforma/dpa.ts, src/modules/pacientes/convite-paciente.ts e src/modules/agenda/agendamento-publico.ts (aceite da página pública, D13)".
 
 `src/db/audit-guard.ts`, `AUDIT_EXCEPTIONS`: `consents: 'prova de aceite do termo (versão, data, IP), append-only; não é dado de saúde',`.
@@ -4813,6 +5282,7 @@ import { appointments, consents, patients, publicBookingRequests, tenants, user 
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
+import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 import { carregarPaginaPublica, confirmarCodigo, escolherOutroHorario, MSG_PUBLICO, PublicoError, solicitarCodigo, type DepsPublico } from './agendamento-publico';
 import { MSG_AGENDA } from './constantes';
 
@@ -4860,6 +5330,9 @@ describe('página pública (US-032, RN-16)', () => {
     expect(await carregarPaginaPublica(D.slug, { agora, db: app.db })).toEqual({ estado: 'desativada', nome: 'Debby Silva' });
     expect(await carregarPaginaPublica('nao-existe-xyz', { agora, db: app.db })).toEqual({ estado: 'nao_encontrada' });
     expect(await carregarPaginaPublica('../x', { agora, db: app.db })).toEqual({ estado: 'nao_encontrada' });
+    // a leitura de `tenants` é da plataforma (CLAUDE.md regra 1)
+    expect((await buscarTenantPorSlug(app.db, T.slug))?.id).toBe(T.tenantId);
+    expect(await buscarTenantPorSlug(app.db, "x' or '1'='1")).toBeNull();
   });
 
   it('fluxo feliz: código no e-mail → paciente novo sem nascimento/sexo, consulta, aceite do termo e aviso "novo paciente"', async () => {
@@ -4956,14 +5429,27 @@ describe('página pública (US-032, RN-16)', () => {
 Run: `pnpm test src/modules/agenda/agendamento-publico.test.ts`
 Expected: FAIL ("Failed to resolve import './agendamento-publico'").
 
-- [ ] **Step 5: Implementar** — `src/modules/agenda/agendamento-publico.ts`
+- [ ] **Step 5: Implementar** — `src/modules/plataforma/tenant-status.ts` e `src/modules/agenda/agendamento-publico.ts`
+
+Em `src/modules/plataforma/tenant-status.ts` (rodada 1 do `/code-review`: `tenants` não tem `tenant_id` nem RLS — só serviços de `src/modules/plataforma` a leem, CLAUDE.md regra 1; a página pública e o E2E usam esta função):
+
+```ts
+/** Plano 05 (página pública /n/<slug>, E2E): o tenant pelo endereço. Formato inválido → null sem consultar (tenants_slug_formato). */
+export async function buscarTenantPorSlug(db: Db, slug: string): Promise<TenantRow | null> {
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) return null;
+  const [row] = await db.select().from(tenants).where(eq(tenants.slug, slug));
+  return row ?? null;
+}
+```
+
+`src/modules/agenda/agendamento-publico.ts`:
 
 ```ts
 import { createHmac, hkdfSync, randomInt, randomUUID } from 'node:crypto';
 import { and, count, eq, gt, inArray, lt, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
-import { appointments, consents, patients, publicBookingRequests, tenants, type TenantRow } from '@/db/schema';
+import { appointments, consents, patients, publicBookingRequests, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
@@ -4972,7 +5458,7 @@ import { normalizeEmail, normalizarTexto } from '@/lib/text';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, type ResultadoTurnstile } from '@/lib/turnstile';
 import { normalizarTelefone } from '@/modules/pacientes/telefone';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
-import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
+import { buscarTenantPorSlug, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, type HorarioEscolhido } from './agendamento-paciente';
 import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
 import { ConsultaError, ehSobreposicao } from './consultas';
@@ -5012,7 +5498,6 @@ export type PaginaPublica =
 export type DepsPublico = { db?: Db; agora?: Date; ip: string | null; verificarTurnstile: (token: string | null) => Promise<ResultadoTurnstile>; appUrl?: string };
 export type ResultadoConfirmacao = { estado: 'agendada'; quando: string } | { estado: 'horario_ocupado'; horarios: HorarioVisivel[] };
 
-const SLUG = /^[a-z0-9-]{3,40}$/;
 const CODIGO_VALIDADE_MS = 10 * 60_000;
 const VERIFICADO_VALIDADE_MS = 30 * 60_000;
 const MAX_ERROS_CODIGO = 5;
@@ -5025,12 +5510,6 @@ const hashDoCodigo = (pedidoId: string, codigo: string) =>
     .update(`${pedidoId}:${codigo}`)
     .digest('base64url');
 
-async function tenantPeloSlug(db: Db, slug: string): Promise<TenantRow | null> {
-  if (!SLUG.test(slug)) return null;
-  const [t] = await db.select().from(tenants).where(eq(tenants.slug, slug));
-  return t ?? null;
-}
-
 const segunda = (data: string) => somarDias(data, -((diaDaSemana(data) + 6) % 7));
 
 async function horariosDaSemana(tenant: TenantRow, semana: string, agora: Date, db: Db): Promise<HorarioVisivel[]> {
@@ -5042,7 +5521,7 @@ async function horariosDaSemana(tenant: TenantRow, semana: string, agora: Date, 
 export async function carregarPaginaPublica(slug: string, opts: { semana?: unknown; agora?: Date; db?: Db } = {}): Promise<PaginaPublica> {
   const db = opts.db ?? getDb();
   const agora = opts.agora ?? new Date();
-  const t = await tenantPeloSlug(db, slug);
+  const t = await buscarTenantPorSlug(db, slug);
   if (!t) return { estado: 'nao_encontrada' };
   if (t.status !== 'ativa') return { estado: 'suspensa', nome: t.nomeExibicao }; // RN-15
   if (!t.agendamentoPublicoAtivo) return { estado: 'desativada', nome: t.nomeExibicao };
@@ -5076,7 +5555,7 @@ async function abrir(slug: string, deps: DepsPublico): Promise<{ db: Db; agora: 
   const agora = deps.agora ?? new Date();
   // RN-16: 10 tentativas por IP por hora (o contador é a única escrita antes do Turnstile; D12)
   if (!(await consumirLimite(db, chaveDoLimite('ip', deps.ip ?? 'desconhecido'), LIMITE_IP_HORA, 3600, agora))) throw new PublicoError(429, { geral: MSG_PUBLICO.muitasTentativas });
-  const tenant = await tenantPeloSlug(db, slug);
+  const tenant = await buscarTenantPorSlug(db, slug);
   if (!tenant || tenant.status !== 'ativa' || !tenant.agendamentoPublicoAtivo) throw new PublicoError(404, { geral: MSG_PUBLICO.indisponivel });
   return { db, agora, tenant };
 }
@@ -5677,7 +6156,7 @@ Expected: PASS (5 testes).
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/db/schema drizzle/0054_agendamento_publico.sql drizzle/0055_rls_agendamento_publico.sql drizzle/meta src/db/rls-guard.ts src/db/audit-guard.ts test/isolamento.test.ts src/modules/agenda src/email src/jobs/queues.ts src/worker/index.ts src/app/api/n src/app/n CLAUDE.md scripts/e2e-seed.ts e2e/agenda.spec.ts
+git add src/db/schema drizzle/0054_agendamento_publico.sql drizzle/0055_rls_agendamento_publico.sql drizzle/meta src/db/rls-guard.ts src/db/audit-guard.ts test/isolamento.test.ts src/modules/agenda src/modules/plataforma/tenant-status.ts src/email src/jobs/queues.ts src/worker/index.ts src/app/api/n src/app/n CLAUDE.md scripts/e2e-seed.ts e2e/agenda.spec.ts
 git commit -m "feat(agenda): página pública de agendamento com Turnstile, código por e-mail e limites (US-032, RN-16)"
 ```
 
@@ -5685,7 +6164,7 @@ git commit -m "feat(agenda): página pública de agendamento com Turnstile, cód
 ### Task 9: WhatsApp pela Evolution API — provedor, sandbox, variáveis, conexão por QR code no painel (P05-07a)
 
 **Files:**
-- Create: `drizzle/0056_whatsapp_conexoes.sql` (gerada), `drizzle/0057_rls_whatsapp_conexoes.sql` (custom), `src/modules/notificacoes/whatsapp/provedor.ts`, `src/modules/notificacoes/whatsapp/evolution.ts`, `src/modules/notificacoes/whatsapp/evolution.test.ts`, `src/modules/notificacoes/whatsapp/sandbox.ts`, `src/modules/notificacoes/whatsapp/sandbox.test.ts`, `src/modules/notificacoes/whatsapp/ambiente.ts`, `src/modules/notificacoes/whatsapp/conexao.ts`, `src/modules/notificacoes/whatsapp/conexao.test.ts`, `src/app/api/painel/whatsapp/estado/route.ts`, `src/app/api/painel/whatsapp/estado/route.test.ts`, `src/app/painel/whatsapp/page.tsx`, `src/app/painel/whatsapp/actions.ts`, `src/app/painel/whatsapp/conectar.tsx`, `test/whatsapp.ts`, `e2e/whatsapp.ts`
+- Create: `drizzle/0056_whatsapp_conexoes.sql` (gerada), `drizzle/0057_rls_whatsapp_conexoes.sql` (custom), `src/modules/notificacoes/whatsapp/provedor.ts`, `src/modules/notificacoes/whatsapp/evolution.ts`, `src/modules/notificacoes/whatsapp/evolution.test.ts`, `src/modules/notificacoes/whatsapp/sandbox.ts`, `src/modules/notificacoes/whatsapp/sandbox.test.ts`, `src/modules/notificacoes/whatsapp/ambiente.ts`, `src/modules/notificacoes/whatsapp/jwt.ts`, `src/modules/notificacoes/whatsapp/jwt.test.ts`, `src/modules/notificacoes/whatsapp/conexao.ts`, `src/modules/notificacoes/whatsapp/conexao.test.ts`, `src/app/api/painel/whatsapp/estado/route.ts`, `src/app/api/painel/whatsapp/estado/route.test.ts`, `src/app/painel/whatsapp/page.tsx`, `src/app/painel/whatsapp/actions.ts`, `src/app/painel/whatsapp/conectar.tsx`, `test/whatsapp.ts`
 - Modify: `src/db/schema/agenda.ts`, `src/db/rls-guard.ts` (`STAFF_ONLY`), `test/isolamento.test.ts`, `src/env.ts`, `src/env.test.ts`, `.env.example`, `.github/workflows/ci.yml`, `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/app/painel/cabecalho.tsx`, `src/app/painel/page.tsx`, `scripts/e2e-seed.ts`, `e2e/agenda.spec.ts`
 
 **Interfaces:**
@@ -5693,14 +6172,15 @@ git commit -m "feat(agenda): página pública de agendamento com Turnstile, cód
 - Produces:
   - Schema: `whatsappConexoes` 🔒 staff_only (`tenant_id` UNIQUE, `instancia = 'nd-' || tenant_id`), `type WhatsappConexaoRow`.
   - `@/modules/notificacoes/whatsapp/provedor`: `type EnvioTexto = { instancia: string; numero: string; texto: string }` (`numero` só dígitos com DDI), `type ResultadoEnvio = { ok: true; id: string; jid: string } | { ok: false; definitivo: boolean; codigo: CodigoFalha }`, `type CodigoFalha = 'numero_sem_whatsapp' | 'recusado' | 'nao_autorizado' | 'instancia_inexistente' | 'indisponivel' | 'sem_resposta' | 'resposta_invalida'`, `type EstadoConexao = 'conectada' | 'conectando' | 'desconectada'`, `type Conexao = { estado: 'conectada' } | { estado: 'qr'; qr: string }`, `interface ProvedorWhatsapp { nome; enviarTexto; conectar; estado; desconectar }`, `class WhatsappIndisponivelError`, `digitosDoE164(e164): string`, `digitosDoJid(jid): string`, `e164DoJid(jid): string | null`.
-  - `@/modules/notificacoes/whatsapp/evolution`: `evolutionProvedor(o: { url; apiKey; webhookUrl; webhookSecret?; fetchImpl?; timeoutMs? }): ProvedorWhatsapp`, `EVENTOS_WEBHOOK`.
+  - `@/modules/notificacoes/whatsapp/jwt`: `chaveDoWebhook(segredo: string, instancia: string): string` (D4 (a): o `jwt_key` de cada instância, HKDF do segredo-mestre; a Tarefa 12 acrescenta `verificarJwtWebhook` e `assinarJwtWebhook`).
+  - `@/modules/notificacoes/whatsapp/evolution`: `evolutionProvedor(o: { url; apiKey; webhookUrl; webhookSecret?; fetchImpl?; timeoutMs? }): ProvedorWhatsapp` (o webhook de cada instância leva `jwt_key: chaveDoWebhook(webhookSecret, instância)`), `EVENTOS_WEBHOOK`.
   - `@/modules/notificacoes/whatsapp/sandbox`: `sandboxProvedor(o: { mailpitUrl?; from?; fetchImpl? }): ProvedorWhatsapp`.
   - `@/modules/notificacoes/whatsapp/ambiente`: `type ModoWhatsapp = 'evolution' | 'sandbox' | 'desligado'`, `modoWhatsapp(e): ModoWhatsapp`, `provedorDoAmbiente(e, fetchImpl?): ProvedorWhatsapp | null`.
   - `@/modules/notificacoes/whatsapp/conexao`: `instanciaDoTenant(tenantId): string`, `tenantDaInstancia(instancia: unknown): string | null`, `type SituacaoWhatsapp = { ligado: boolean; estado: EstadoConexao; numero: string | null; desconectadaEm: Date | null; conectadaAntes: boolean }`, `lerConexao(tx): Promise<WhatsappConexaoRow | null>`, `situacaoDoWhatsapp(ctx, ligado: boolean, db?)`, `conectarWhatsapp(ctx, provedor, deps?): Promise<Conexao>`, `sincronizarEstado(ctx, provedor, deps?): Promise<SituacaoWhatsapp>`, `desconectarWhatsapp(ctx, provedor, deps?)`, `atualizarEstadoConexao(tenantId, novo: { estado: EstadoConexao; numero?: string | null }, deps: { db?; agora?; appUrl? }): Promise<void>`, `provedorDoApp(): ProvedorWhatsapp | null`.
-  - Variáveis: app `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET` (as três juntas ou nenhuma), `EVOLUTION_WEBHOOK_URL` (opcional), `WHATSAPP_SANDBOX`; worker `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` (juntas ou nenhuma), `WHATSAPP_SANDBOX`.
+  - Variáveis: app `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET` (as três juntas ou nenhuma — com `WHATSAPP_SANDBOX=1` fora de produção, só o segredo basta), `EVOLUTION_WEBHOOK_URL` (opcional em dev; em produção obrigatória e interna), `EVOLUTION_WEBHOOK_URL_PUBLICA` (`1` = aceitar URL pública, opção explícita do runbook), `WHATSAPP_SANDBOX`; worker `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` (juntas ou nenhuma), `WHATSAPP_SANDBOX`.
   - `GET /api/painel/whatsapp/estado` → `{ estado, numero }`; página `/painel/whatsapp`.
   - `EmailMessage` ganha `{ tipo: 'whatsapp_desconectado'; para; link }`.
-  - `test/whatsapp.ts`: `whatsappFalso(opts?)`, `conexaoDeTeste(db, ctx, estado?)`; `e2e/whatsapp.ts`: `webhookAssinado(request, corpo)` (Tarefa 12).
+  - `test/whatsapp.ts`: `whatsappFalso(opts?)`, `conexaoDeTeste(db, ctx, estado?)` (o `e2e/whatsapp.ts` com o webhook assinado nasce na Tarefa 12).
 
 - [ ] **Step 1: Tabela** — acrescentar a `src/db/schema/agenda.ts`
 
@@ -5758,19 +6238,30 @@ Run: `pnpm test src/db test/isolamento.test.ts` → PASS.
 - [ ] **Step 2: Variáveis (testes falham)** — em `src/env.test.ts`
 
 ```ts
-describe('WhatsApp pela Evolution (D1)', () => {
+describe('WhatsApp pela Evolution (D1, D4)', () => {
   const evo = { EVOLUTION_API_URL: 'http://nutri_evolution:8080', EVOLUTION_API_KEY: 'k'.repeat(32), EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) };
+  const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '0x4AAAAAAArealsecret' };
+  const interna = 'http://nutridebby_app:3000/api/webhooks/whatsapp';
   it('app: as três juntas ou nenhuma; segredo com 32+ caracteres', () => {
     expect(parseEnv({ ...base, ...evo }).EVOLUTION_API_URL).toBe('http://nutri_evolution:8080');
     expect(parseEnv(base).EVOLUTION_API_URL).toBeUndefined();
     expect(() => parseEnv({ ...base, EVOLUTION_API_URL: evo.EVOLUTION_API_URL })).toThrow(/juntas/);
     expect(() => parseEnv({ ...base, ...evo, EVOLUTION_WEBHOOK_SECRET: 'curto' })).toThrow(/32 caracteres/);
   });
-  it('sandbox: recusado em produção fora de localhost; exige o segredo do webhook (o E2E assina os eventos)', () => {
-    const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '0x4AAAAAAArealsecret' };
+  it('produção (rodada 1): só uma das três → erro; o webhook só por endereço interno, a URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1 (D4)', () => {
+    for (const so of ['EVOLUTION_API_URL', 'EVOLUTION_API_KEY', 'EVOLUTION_WEBHOOK_SECRET'] as const) expect(() => parseEnv({ ...prod, [so]: evo[so] }), so).toThrow(/juntas/);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: interna }).EVOLUTION_WEBHOOK_URL).toBe(interna);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: 'http://10.0.1.7:3000/api/webhooks/whatsapp' }).EVOLUTION_API_URL).toBe(evo.EVOLUTION_API_URL);
+    expect(() => parseEnv({ ...prod, ...evo })).toThrow(/EVOLUTION_WEBHOOK_URL é obrigatória em produção/);
+    const publica = 'https://app.exemplo.com/api/webhooks/whatsapp';
+    expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica })).toThrow(/endereço interno/);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica, EVOLUTION_WEBHOOK_URL_PUBLICA: '1' }).EVOLUTION_WEBHOOK_URL_PUBLICA).toBe('1');
+  });
+  it('sandbox: recusado em produção fora de localhost; exige o segredo do webhook (o E2E assina os eventos); só o segredo, sem URL e chave, não é configuração pela metade', () => {
     expect(() => parseEnv({ ...prod, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) })).toThrow(/WHATSAPP_SANDBOX só fora de produção/);
     expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1' })).toThrow(/EVOLUTION_WEBHOOK_SECRET/);
     expect(parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) }).WHATSAPP_SANDBOX).toBe('1');
+    expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32), EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
   });
   it('worker: URL e chave juntas ou nenhuma; não exige o segredo do webhook', () => {
     const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
@@ -5792,6 +6283,12 @@ const evolutionUrl = opcional(z.url({ message: 'EVOLUTION_API_URL deve ser uma U
 const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY precisa de pelo menos 16 caracteres' }).optional());
 const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
+/** D4 (c): endereço da rede interna do Docker/Easypanel — nome de serviço (sem ponto) ou IPv4 privado. */
+const ehHostInterno = (url: string) => {
+  if (!URL.canParse(url)) return false;
+  const h = new URL(url).hostname;
+  return !h.includes('.') || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
+};
 ```
 
 No `appSchema.extend({ … })`:
@@ -5801,6 +6298,7 @@ No `appSchema.extend({ … })`:
     EVOLUTION_API_KEY: evolutionKey,
     EVOLUTION_WEBHOOK_SECRET: opcional(z.string().min(32, { message: 'EVOLUTION_WEBHOOK_SECRET precisa de pelo menos 32 caracteres' }).optional()),
     EVOLUTION_WEBHOOK_URL: opcional(z.url({ message: 'EVOLUTION_WEBHOOK_URL deve ser uma URL' }).optional()),
+    EVOLUTION_WEBHOOK_URL_PUBLICA: opcional(z.enum(['0', '1'], { message: 'EVOLUTION_WEBHOOK_URL_PUBLICA deve ser 0 ou 1' }).optional()),
     WHATSAPP_SANDBOX: whatsappSandbox,
 ```
 
@@ -5808,8 +6306,18 @@ e no `superRefine` do app, no fim:
 
 ```ts
     const evo = [e.EVOLUTION_API_URL, e.EVOLUTION_API_KEY, e.EVOLUTION_WEBHOOK_SECRET];
-    if (evo.some(Boolean) && !evo.every(Boolean)) {
+    // rodada 1: o sandbox (dev/CI/E2E) usa só o segredo (o E2E assina os webhooks) — sem URL e chave não é configuração pela metade
+    const soSandbox = e.WHATSAPP_SANDBOX === '1' && !e.EVOLUTION_API_URL && !e.EVOLUTION_API_KEY;
+    if (evo.some(Boolean) && !evo.every(Boolean) && !soSandbox) {
       ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_SECRET juntas (ou nenhuma)' });
+    }
+    // D4 (c): em produção, a Evolution chama o app pela rede interna; a URL pública só como opção explícita
+    if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL) && e.EVOLUTION_API_URL) {
+      if (!e.EVOLUTION_WEBHOOK_URL) {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_URL'], message: 'EVOLUTION_WEBHOOK_URL é obrigatória em produção (endereço interno do app, ex.: http://nutridebby_app:3000/api/webhooks/whatsapp)' });
+      } else if (!ehHostInterno(e.EVOLUTION_WEBHOOK_URL) && e.EVOLUTION_WEBHOOK_URL_PUBLICA !== '1') {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_URL'], message: 'EVOLUTION_WEBHOOK_URL precisa ser um endereço interno (nome do serviço ou IP privado); URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1' });
+      }
     }
     if (e.WHATSAPP_SANDBOX === '1') {
       if (e.NODE_ENV === 'production' && !ehLocal(e.APP_URL)) ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
@@ -5838,8 +6346,11 @@ EVOLUTION_API_URL=
 EVOLUTION_API_KEY=
 # só app: segredo do JWT do webhook (o mesmo que vai em `jwt_key`; gere com: openssl rand -base64 48)
 EVOLUTION_WEBHOOK_SECRET=dev-webhook-secret-com-pelo-menos-32-caracteres
-# só app (opcional): URL que a Evolution chama; padrão APP_URL + /api/webhooks/whatsapp
+# só app: URL que a Evolution chama. Dev: opcional (padrão APP_URL + /api/webhooks/whatsapp).
+# Produção: obrigatória e interna (ex.: http://nutridebby_app:3000/api/webhooks/whatsapp) — D4
 EVOLUTION_WEBHOOK_URL=
+# só app: 1 = aceitar uma EVOLUTION_WEBHOOK_URL pública em produção (opção explícita do runbook; o padrão é recusar)
+EVOLUTION_WEBHOOK_URL_PUBLICA=
 # dev/CI/E2E: mensagens vão para o Mailpit (<número>@whatsapp.sandbox); recusado em produção
 WHATSAPP_SANDBOX=1
 ```
@@ -5848,11 +6359,33 @@ WHATSAPP_SANDBOX=1
 
 Run: `pnpm test src/env.test.ts` → PASS.
 
-- [ ] **Step 4: Provedor e Evolution (testes falham)** — `src/modules/notificacoes/whatsapp/evolution.test.ts`
+- [ ] **Step 4: Chave do webhook, provedor e Evolution (testes falham)**
+
+`src/modules/notificacoes/whatsapp/jwt.test.ts` (a Tarefa 12 acrescenta os testes do JWT):
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { chaveDoWebhook } from './jwt';
+
+describe('chave do webhook por instância (D4 a)', () => {
+  it('uma chave por instância, estável, sem o segredo-mestre dentro', () => {
+    const S = 's'.repeat(40);
+    const a = chaveDoWebhook(S, 'nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f');
+    expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(chaveDoWebhook(S, 'nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f')).toBe(a);
+    expect(chaveDoWebhook(S, 'nd-1c7e4d2f-9b8e-4d3c-8a21-2b3c4d5e6f70')).not.toBe(a);
+    expect(chaveDoWebhook('t'.repeat(40), 'nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f')).not.toBe(a);
+    expect(a).not.toContain(S.slice(0, 8));
+  });
+});
+```
+
+`src/modules/notificacoes/whatsapp/evolution.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
 import { evolutionProvedor } from './evolution';
+import { chaveDoWebhook } from './jwt';
 
 type Chamada = { url: string; init: RequestInit };
 function fetchFalso(respostas: Record<string, { status: number; body?: unknown } | Error>) {
@@ -5892,7 +6425,7 @@ describe('Evolution API (D1)', () => {
     expect(await com({ status: 201, body: { nada: true } })).toEqual({ ok: false, definitivo: true, codigo: 'resposta_invalida' });
   });
 
-  it('conectar: cria a instância que falta, configura o webhook com jwt_key e devolve o QR', async () => {
+  it('conectar: cria a instância que falta, configura o webhook com o jwt_key DESTA instância (D4 a) e devolve o QR', async () => {
     const qr = 'data:image/png;base64,iVBORw0KGgo=';
     const { f, chamadas } = fetchFalso({
       'GET /instance/connectionState/nd-t1': { status: 404 },
@@ -5903,8 +6436,9 @@ describe('Evolution API (D1)', () => {
     expect(await evolutionProvedor({ ...config, fetchImpl: f }).conectar('nd-t1')).toEqual({ estado: 'qr', qr });
     expect(JSON.parse(String(chamadas[1].init.body))).toMatchObject({ instanceName: 'nd-t1', integration: 'WHATSAPP-BAILEYS', qrcode: true, groupsIgnore: true, readMessages: false, syncFullHistory: false });
     expect(JSON.parse(String(chamadas[2].init.body))).toEqual({
-      webhook: { enabled: true, url: config.webhookUrl, headers: { jwt_key: config.webhookSecret }, byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'] },
+      webhook: { enabled: true, url: config.webhookUrl, headers: { jwt_key: chaveDoWebhook(config.webhookSecret, 'nd-t1') }, byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'] },
     });
+    expect(String(chamadas[2].init.body)).not.toContain(config.webhookSecret); // o segredo-mestre nunca sai do app
   });
 
   it('conectar já conectado → "conectada"; estado pelo fetchInstances com o número; erro do serviço não vaza a chave', async () => {
@@ -5960,6 +6494,21 @@ Run: `pnpm test src/modules/notificacoes/whatsapp` → FAIL (módulos não exist
 
 - [ ] **Step 5: Implementar o provedor**
 
+`src/modules/notificacoes/whatsapp/jwt.ts` (a Tarefa 12 acrescenta a verificação):
+
+```ts
+import { hkdfSync } from 'node:crypto';
+
+/**
+ * D4 (a), rodada 1 do /code-review: o `jwt_key` de cada instância é derivado do segredo-mestre
+ * (EVOLUTION_WEBHOOK_SECRET, que nunca sai do app). Um JWT de um consultório não vale para outro.
+ * Trocar o segredo-mestre exige reconectar (o "Conectar WhatsApp" reconfigura o webhook da instância).
+ */
+export function chaveDoWebhook(segredo: string, instancia: string): string {
+  return Buffer.from(hkdfSync('sha256', Buffer.from(segredo, 'utf8'), Buffer.alloc(0), `nutridebby:webhook-jwt:${instancia}`, 32)).toString('base64url');
+}
+```
+
 `src/modules/notificacoes/whatsapp/provedor.ts`:
 
 ```ts
@@ -5998,6 +6547,7 @@ export function e164DoJid(jid: string): string | null {
 `src/modules/notificacoes/whatsapp/evolution.ts`:
 
 ```ts
+import { chaveDoWebhook } from './jwt';
 import { e164DoJid, WhatsappIndisponivelError, type CodigoFalha, type ProvedorWhatsapp, type ResultadoEnvio } from './provedor';
 
 export const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'] as const;
@@ -6079,9 +6629,10 @@ export function evolutionProvedor(o: Opcoes): ProvedorWhatsapp {
           syncFullHistory: false,
         });
       }
-      // D4: a cada conexão o webhook é (re)configurado — troca de segredo ou de URL vale a partir daqui
+      // D4: a cada conexão o webhook é (re)configurado — troca de segredo ou de URL vale a partir daqui. O jwt_key é o
+      // DESTA instância (derivado do segredo-mestre): o JWT que a Evolution gera só vale para ela (D4 a).
       await exigir('POST', `/webhook/set/${inst(instancia)}`, {
-        webhook: { enabled: true, url: o.webhookUrl, headers: { jwt_key: o.webhookSecret }, byEvents: false, base64: false, events: [...EVENTOS_WEBHOOK] },
+        webhook: { enabled: true, url: o.webhookUrl, headers: { jwt_key: chaveDoWebhook(o.webhookSecret, instancia) }, byEvents: false, base64: false, events: [...EVENTOS_WEBHOOK] },
       });
       const q = await exigir('GET', `/instance/connect/${inst(instancia)}`);
       const j = q.json as { base64?: unknown; instance?: { state?: unknown } } | null;
@@ -6192,7 +6743,7 @@ export function provedorDoAmbiente(e: Ambiente, fetchImpl?: typeof fetch): Prove
 }
 ```
 
-Run: `pnpm test src/modules/notificacoes/whatsapp` → PASS (6 testes).
+Run: `pnpm test src/modules/notificacoes/whatsapp` → PASS (7 testes).
 
 - [ ] **Step 6: Conexão do tenant (testes falham)** — `test/whatsapp.ts` e `src/modules/notificacoes/whatsapp/conexao.test.ts`
 
@@ -6691,29 +7242,7 @@ e, depois do aviso de armazenamento:
         )}
 ```
 
-- [ ] **Step 9: E2E** — `e2e/whatsapp.ts` (usado aqui e na Tarefa 12) e o teste
-
-`e2e/whatsapp.ts`:
-
-```ts
-import { createHmac } from 'node:crypto';
-import type { APIRequestContext } from '@playwright/test';
-
-const SEGREDO = process.env.EVOLUTION_WEBHOOK_SECRET ?? 'dev-webhook-secret-com-pelo-menos-32-caracteres';
-
-/** O mesmo JWT HS256 que a Evolution gera a partir do `jwt_key` (D4). */
-function jwt(): string {
-  const iat = Math.floor(Date.now() / 1000);
-  const b = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const corpo = `${b({ alg: 'HS256', typ: 'JWT' })}.${b({ iat, exp: iat + 600, app: 'evolution', action: 'webhook' })}`;
-  return `${corpo}.${createHmac('sha256', Buffer.from(SEGREDO, 'utf8')).update(corpo).digest('base64url')}`;
-}
-
-/** Simula a Evolution chamando o webhook do app (sandbox do E2E). */
-export async function webhookAssinado(request: APIRequestContext, corpo: unknown) {
-  return request.post('/api/webhooks/whatsapp', { data: corpo, headers: { authorization: `Bearer ${jwt()}` } });
-}
-```
+- [ ] **Step 9: E2E** — a tela de conexão (o `e2e/whatsapp.ts`, com o webhook assinado pela chave da instância, nasce na Tarefa 12)
 
 Em `e2e/agenda.spec.ts`:
 
@@ -6733,7 +7262,7 @@ Expected: PASS (6 testes).
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/db/schema/agenda.ts drizzle/0056_whatsapp_conexoes.sql drizzle/0057_rls_whatsapp_conexoes.sql drizzle/meta src/db/rls-guard.ts test/isolamento.test.ts src/env.ts src/env.test.ts .env.example .github/workflows/ci.yml src/modules/notificacoes/whatsapp src/email src/app/api/painel/whatsapp src/app/painel/whatsapp src/app/painel/cabecalho.tsx src/app/painel/page.tsx test/whatsapp.ts e2e/whatsapp.ts e2e/agenda.spec.ts scripts/e2e-seed.ts
+git add src/db/schema/agenda.ts drizzle/0056_whatsapp_conexoes.sql drizzle/0057_rls_whatsapp_conexoes.sql drizzle/meta src/db/rls-guard.ts test/isolamento.test.ts src/env.ts src/env.test.ts .env.example .github/workflows/ci.yml src/modules/notificacoes/whatsapp src/email src/app/api/painel/whatsapp src/app/painel/whatsapp src/app/painel/cabecalho.tsx src/app/painel/page.tsx test/whatsapp.ts e2e/agenda.spec.ts scripts/e2e-seed.ts
 git commit -m "feat(whatsapp): provedor Evolution API com sandbox, variáveis e conexão por QR code no painel (D1, D2)"
 ```
 
@@ -6749,7 +7278,7 @@ git commit -m "feat(whatsapp): provedor Evolution API com sandbox, variáveis e 
 - Produces:
   - `DepsEnvio` ganha `whatsapp: ProvedorWhatsapp | null`.
   - `@/modules/notificacoes/mensagens`: `FINALIDADE_CONTEUDO = 'notificacao-conteudo'` (texto pronto e cifrado em `notifications.conteudo_selado`; a Tarefa 14 usa no convite), `textoWhatsapp(c: ContextoEnvio, deps: { appUrl; chaveLinks }): string | null`.
-  - `@/modules/notificacoes/enviar`: `WHATSAPP_POR_MINUTO = 8`; `escolher` com o ritmo (D16); `CANAIS_ENVIO.whatsapp = enviarWhatsapp`.
+  - `@/modules/notificacoes/enviar`: `WHATSAPP_POR_MINUTO = 8`; `vagasDoMinuto(tx, tenant, agora)` (interna) e `escolherWhatsapp` com o ritmo (D16: sem vaga no minuto, nem busca); `CANAIS_ENVIO.whatsapp = enviarWhatsapp`.
 
 - [ ] **Step 1: Textos (falham)** — `src/modules/notificacoes/mensagens.test.ts`
 
@@ -6827,7 +7356,7 @@ Run: `pnpm test src/modules/notificacoes/mensagens.test.ts` → PASS (3 testes).
 - [ ] **Step 3: Testes do canal WhatsApp (falham)** — `src/modules/notificacoes/enviar-whatsapp.test.ts`
 
 ```ts
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
@@ -6838,9 +7367,11 @@ import { closeDb } from '@/db/client';
 import { notifications, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { sealSecret } from '@/lib/crypto';
 import { agendarPelaNutri } from '@/modules/agenda/consultas';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { processarNotificacoes, WHATSAPP_POR_MINUTO, type DepsEnvio } from './enviar';
+import { FINALIDADE_CONTEUDO } from './mensagens';
 import type { ResultadoEnvio } from './whatsapp/provedor';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -6937,8 +7468,9 @@ describe('WhatsApp nos lembretes (INT-01 adaptado, D6)', () => {
     await conexaoDeTeste(app.db, T.ctx, 'conectada');
     for (let i = 0; i < WHATSAPP_POR_MINUTO + 2; i++) {
       const p = await novoPaciente(app.db, T.ctx, comWhats);
-      const c = await consultaDireta(app.db, T.ctx, p.id, em('2026-10-16', `${String(8 + i).padStart(2, '0')}:00`));
-      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, canal: 'whatsapp', tipo: 'lembrete_24h', agendadaPara: em('2026-10-15', '08:00') }), app.db);
+      const inicio = em('2026-10-16', `${String(8 + i).padStart(2, '0')}:00`);
+      const c = await consultaDireta(app.db, T.ctx, p.id, inicio);
+      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', agendadaPara: em('2026-10-15', '08:00') }), app.db);
     }
     const w = whatsappFalso();
     await processarNotificacoes(deps(em('2026-10-15', '08:00'), w), { tenantId: T.tenantId });
@@ -6947,6 +7479,35 @@ describe('WhatsApp nos lembretes (INT-01 adaptado, D6)', () => {
     expect(w.enviados).toHaveLength(WHATSAPP_POR_MINUTO); // ainda no mesmo minuto
     await processarNotificacoes(deps(em('2026-10-15', '08:01'), w), { tenantId: T.tenantId });
     expect(w.enviados).toHaveLength(WHATSAPP_POR_MINUTO + 2);
+  });
+
+  it('rodada 1 (D6): 100 WhatsApps atrasados de um tenant não seguram o e-mail e o push dele nem os de outro tenant na mesma volta do cron', async () => {
+    // setembro: nenhum outro teste deixa linha vencida antes disso (a volta do cron passa por todos os tenants do banco)
+    const agora = em('2026-09-14', '10:00');
+    const T = await novoTenant(app.db);
+    const U = await novoTenant(app.db);
+    await conexaoDeTeste(app.db, T.ctx, 'conectada');
+    const p = await novoPaciente(app.db, T.ctx, comWhats);
+    const selado = sealSecret('Convite de teste', FINALIDADE_CONTEUDO);
+    await withTenant(
+      T.ctx,
+      (tx) => tx.execute(sql`insert into notifications (tenant_id, patient_id, canal, tipo, conteudo_selado, agendada_para)
+        select ${T.tenantId}, ${p.id}, 'whatsapp', 'convite_paciente', ${selado}, ${em('2026-09-14', '09:00')}::timestamptz from generate_series(1, 100)`),
+      app.db,
+    );
+    const consultas: Record<string, string> = {};
+    for (const X of [T, U]) {
+      const q = await novoPaciente(app.db, X.ctx, comWhats);
+      consultas[X.tenantId] = (await agendarPelaNutri(X.ctx, tenantAgenda(X), { patientId: q.id, data: '2026-10-20', hora: '10:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: agora })).id;
+    }
+    const w = whatsappFalso();
+    const t = transporteFalso();
+    await processarNotificacoes(deps(agora, w, t)); // a volta do cron: todos os tenants
+    for (const X of [T, U]) {
+      expect(await linha(X, consultas[X.tenantId], 'consulta_marcada', 'email'), X.tenantId).toMatchObject({ status: 'enviada' });
+      expect((await linha(X, consultas[X.tenantId], 'consulta_marcada', 'push')).status, X.tenantId).not.toBe('pendente');
+    }
+    expect(w.enviados).toHaveLength(WHATSAPP_POR_MINUTO); // o WhatsApp andou no ritmo, sem passar dele
   });
 
   it('paciente que revogou o WhatsApp depois de marcar não recebe (US-011 "Revogar")', async () => {
@@ -7000,33 +7561,27 @@ async function enviarWhatsapp(c: ContextoEnvio, deps: DepsEnvio): Promise<Result
 }
 ```
 
-E o ritmo, substituindo a função `escolher` da Tarefa 5:
+E o ritmo, substituindo a função `escolherWhatsapp` da Tarefa 5:
 
 ```ts
 /** D16: no máximo 8 WhatsApps por minuto por tenant (anti-bloqueio). O que passar fica "pendente" para a próxima volta. */
 export const WHATSAPP_POR_MINUTO = 8;
 
-/** Quais das devidas saem nesta rodada e quais já ficam sem cota (Tarefa 11: cota do WhatsApp). */
-async function escolher(tx: Tx, tenant: TenantRow, devidas: NotificationRow[], agora: Date): Promise<{ reservar: string[]; semCota: string[] }> {
-  const reservar: string[] = [];
-  let livres = 0;
-  if (devidas.some((n) => n.canal === 'whatsapp')) {
-    // um worker por vez decide o ritmo deste tenant (mesmo que um dia haja mais de uma instância do worker)
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('whatsapp-envio'), hashtext(${tenant.id}))`);
-    const [{ n }] = await tx
-      .select({ n: count() })
-      .from(notifications)
-      .where(and(eq(notifications.canal, 'whatsapp'), or(eq(notifications.status, 'enviando'), gt(notifications.enviadaEm, new Date(agora.getTime() - 60_000)))));
-    livres = Math.max(0, WHATSAPP_POR_MINUTO - n);
-  }
-  for (const n of devidas) {
-    if (n.canal !== 'whatsapp') reservar.push(n.id);
-    else if (livres > 0) {
-      livres--;
-      reservar.push(n.id);
-    }
-  }
-  return { reservar, semCota: [] };
+/** D16: vagas do minuto deste tenant. Um worker por vez decide o ritmo dele (mesmo que um dia haja mais de uma instância). */
+async function vagasDoMinuto(tx: Tx, tenant: TenantRow, agora: Date): Promise<number> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('whatsapp-envio'), hashtext(${tenant.id}))`);
+  const [{ n }] = await tx
+    .select({ n: count() })
+    .from(notifications)
+    .where(and(eq(notifications.canal, 'whatsapp'), or(eq(notifications.status, 'enviando'), gt(notifications.enviadaEm, new Date(agora.getTime() - 60_000)))));
+  return Math.max(0, WHATSAPP_POR_MINUTO - n);
+}
+
+/** WhatsApps desta rodada (Tarefa 11 acrescenta a cota). Sem vaga no minuto, nem busca: o resto fica para a próxima volta. */
+async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
+  if (max <= 0) return { reservar: [], semCota: [] };
+  const livres = Math.min(max, await vagasDoMinuto(tx, tenant, agora));
+  return { reservar: livres > 0 ? await devidas(['whatsapp'], livres) : [], semCota: [] };
 }
 ```
 
@@ -7035,7 +7590,7 @@ Em `src/modules/notificacoes/enviar.test.ts`, o `deps(...)` passa a incluir `wha
 Em `src/worker/index.ts` (import `provedorDoAmbiente` de `@/modules/notificacoes/whatsapp/ambiente`): no `depsEnvio`, `whatsapp: provedorDoAmbiente(env),` e, logo depois, `logger.info({ whatsapp: depsEnvio.whatsapp?.nome ?? 'desligado' }, 'canal de WhatsApp');` (só o modo: nunca URL nem chave). A fila `notificacoes` continua com um job por vez no worker (padrão do `boss.work`: `localConcurrency` 1) — isso é a "fila serial" da D16.
 
 Run: `pnpm test src/modules/notificacoes`
-Expected: PASS (6 testes novos em `enviar-whatsapp.test.ts`; os anteriores verdes).
+Expected: PASS (7 testes novos em `enviar-whatsapp.test.ts`; os anteriores verdes).
 
 (O E2E do WhatsApp — conexão pelo webhook, lembrete no sandbox e resposta "1"/"2" — fica no Step 7 da Tarefa 12, que tem a rota do webhook.)
 
@@ -7051,12 +7606,12 @@ git commit -m "feat(whatsapp): lembretes por WhatsApp com pré-condições, nova
 
 **Files:**
 - Create: `src/modules/notificacoes/whatsapp/cota.ts`, `src/modules/notificacoes/whatsapp/cota.test.ts`, `drizzle/0058_metricas_agenda.sql` (custom)
-- Modify: `src/modules/notificacoes/enviar.ts` (`escolher`, `aposEnvio`), `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/app/painel/whatsapp/page.tsx`, `src/app/painel/page.tsx`, `src/modules/plataforma/metricas.test.ts`
+- Modify: `src/modules/notificacoes/enviar.ts` (`escolherWhatsapp`, `aposEnvio`), `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/app/painel/whatsapp/page.tsx`, `src/app/painel/page.tsx`, `src/modules/plataforma/metricas.test.ts`
 
 **Interfaces:**
-- Consumes: `notifications`, `whatsappConexoes`, `type NotificationRow`, `type TenantRow`; `inicioDoMes`, `inicioDoMesSeguinte`, `partesNoFuso` (Tarefa 1); `avisarNutri` (Tarefa 6); `urlDoApp`; `escolher`, `aposEnvio`, `WHATSAPP_POR_MINUTO` (Tarefas 5 e 10).
+- Consumes: `notifications`, `whatsappConexoes`, `type NotificationRow`, `type TenantRow`; `inicioDoMes`, `inicioDoMesSeguinte`, `partesNoFuso` (Tarefa 1); `avisarNutri` (Tarefa 6); `urlDoApp`; `escolherWhatsapp`, `vagasDoMinuto`, `aposEnvio`, `WHATSAPP_POR_MINUTO` (Tarefas 5 e 10); `agendarPelaNutri`, `moverConsulta` (Tarefa 3).
 - Produces:
-  - `@/modules/notificacoes/whatsapp/cota`: `CONTA_COTA`, `contaCota(tipo): boolean`, `mesDe(instante, fuso): string` ('AAAA-MM'), `usoDoMes(tx, fuso, agora, opts?: { comEnviando?: boolean }): Promise<number>`, `type NivelCota = 'ok' | 'aviso' | 'esgotada'`, `nivelDaCota(usadas, cota): NivelCota`, `type SituacaoCota = { usadas: number; cota: number; nivel: NivelCota }`, `situacaoDaCota(ctx, tenant, agora?, db?): Promise<SituacaoCota>`, `avisarSeChegou80(tx, tenant, agora, appUrl): Promise<void>`, `MSG_COTA`.
+  - `@/modules/notificacoes/whatsapp/cota`: `CONTA_COTA`, `FORA_DA_COTA` (respostas "1"/"2"), `contaCota(tipo): boolean`, `mesDe(instante, fuso): string` ('AAAA-MM'), `usoDoMes(tx, fuso, agora, opts?: { comEnviando?: boolean }): Promise<number>`, `type NivelCota = 'ok' | 'aviso' | 'esgotada'`, `nivelDaCota(usadas, cota): NivelCota`, `type SituacaoCota = { usadas: number; cota: number; nivel: NivelCota }`, `situacaoDaCota(ctx, tenant, agora?, db?): Promise<SituacaoCota>`, `avisarSeChegou80(tx, tenant, agora, appUrl): Promise<void>`, `MSG_COTA`.
   - `admin_tenant_metrics()` devolve `consultas_mes` (consultas não canceladas do mês do tenant) e `mensagens_whatsapp_mes` (WhatsApps que contam na cota, aceitos no mês).
   - `EmailMessage` ganha `{ tipo: 'cota_whatsapp'; para; usadas: number; cota: number; link }`.
 
@@ -7065,7 +7620,7 @@ git commit -m "feat(whatsapp): lembretes por WhatsApp com pré-condições, nova
 ```ts
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em } from '../../../../test/agenda';
+import { consultaDireta, em, tenantAgenda } from '../../../../test/agenda';
 import { makeDb } from '../../../../test/db';
 import { transporteFalso } from '../../../../test/email';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
@@ -7074,6 +7629,7 @@ import { closeDb } from '@/db/client';
 import { notifications, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { processarNotificacoes, type DepsEnvio } from '../enviar';
 import { nivelDaCota, situacaoDaCota, usoDoMes } from './cota';
@@ -7094,8 +7650,9 @@ const deps = (agora: Date, whatsapp = whatsappFalso()): DepsEnvio => ({
 async function devidos(T: TenantDeTeste, n: number, vence: Date, dia = '2026-10-20') {
   for (let i = 0; i < n; i++) {
     const p = await novoPaciente(app.db, T.ctx, comWhats);
-    const c = await consultaDireta(app.db, T.ctx, p.id, em(dia, `${String(8 + i).padStart(2, '0')}:00`));
-    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, canal: 'whatsapp', tipo: 'lembrete_24h', agendadaPara: vence }), app.db);
+    const inicio = em(dia, `${String(8 + i).padStart(2, '0')}:00`);
+    const c = await consultaDireta(app.db, T.ctx, p.id, inicio);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', agendadaPara: vence }), app.db);
   }
 }
 const cota = (T: TenantDeTeste, n: number) => app.db.update(tenants).set({ waCotaMensal: n }).where(eq(tenants.id, T.tenantId));
@@ -7117,8 +7674,10 @@ describe('cota de WhatsApp (RN-09, US-036)', () => {
       { tipo: 'lembrete_2h', canal: 'whatsapp', enviadaEm: em('2026-11-01', '00:30') },
     ];
     for (const [i, l] of linhas.entries()) {
-      const c = await consultaDireta(app.db, T.ctx, p.id, new Date(em('2026-12-01', '08:00').getTime() + i * 7_200_000));
-      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: l.tipo === 'convite_paciente' ? null : c, canal: l.canal, tipo: l.tipo, status: 'enviada', agendadaPara: l.enviadaEm, enviadaEm: l.enviadaEm }), app.db);
+      const inicio = new Date(em('2026-12-01', '08:00').getTime() + i * 7_200_000);
+      const c = await consultaDireta(app.db, T.ctx, p.id, inicio);
+      const semConsulta = l.tipo === 'convite_paciente';
+      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: semConsulta ? null : c, inicioConsulta: semConsulta ? null : inicio, canal: l.canal, tipo: l.tipo, status: 'enviada', agendadaPara: l.enviadaEm, enviadaEm: l.enviadaEm }), app.db);
     }
     expect(await withTenant(T.ctx, (tx) => usoDoMes(tx, SP, em('2026-10-31', '23:59')), app.db)).toBe(2);
     expect(await withTenant(T.ctx, (tx) => usoDoMes(tx, SP, em('2026-11-01', '00:00')), app.db)).toBe(1); // virada do mês
@@ -7140,6 +7699,24 @@ describe('cota de WhatsApp (RN-09, US-036)', () => {
     await devidos(T, 1, new Date(vence.getTime() + 60_000), '2026-10-21');
     await processarNotificacoes(deps(new Date(vence.getTime() + 61_000), w), { tenantId: T.tenantId });
     expect(w.enviados).toHaveLength(3);
+  });
+
+  it('rodada 1 (D6): o lembrete enviado é imutável — enviar, a nutricionista mudar a hora e enviar de novo contam 2; mudar a hora não reduz o uso do mês', async () => {
+    const T = await novoTenant(app.db);
+    await conexaoDeTeste(app.db, T.ctx, 'conectada');
+    const p = await novoPaciente(app.db, T.ctx, comWhats);
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-01', '09:00') });
+    const w = whatsappFalso();
+    const uso = (agora: Date) => withTenant(T.ctx, (tx) => usoDoMes(tx, SP, agora), app.db);
+    await processarNotificacoes(deps(em('2026-10-15', '14:00'), w), { tenantId: T.tenantId });
+    expect(await uso(em('2026-10-15', '15:00'))).toBe(1);
+    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-17', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-15', '15:00') });
+    expect(await uso(em('2026-10-15', '15:00'))).toBe(1); // a enviada continua lá, com enviada_em
+    await processarNotificacoes(deps(em('2026-10-16', '14:00'), w), { tenantId: T.tenantId });
+    expect(w.enviados).toHaveLength(2);
+    expect(await uso(em('2026-10-16', '15:00'))).toBe(2);
+    const enviadas = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.canal, 'whatsapp'), eq(notifications.status, 'enviada'))), app.db);
+    expect(enviadas.map((n) => n.inicioConsulta?.toISOString()).sort()).toEqual([em('2026-10-16', '14:00').toISOString(), em('2026-10-17', '14:00').toISOString()]);
   });
 
   it('80%: e-mail "Você usou 80% dos WhatsApps do mês" uma vez por mês', async () => {
@@ -7176,6 +7753,8 @@ import { inicioDoMes, inicioDoMesSeguinte, partesNoFuso } from '@/modules/agenda
 
 /** D15: o que conta na cota — lembretes e convite. Respostas automáticas a "1"/"2" (dentro da conversa) não contam. */
 export const CONTA_COTA = ['lembrete_24h', 'lembrete_2h', 'convite_paciente'] as const;
+/** Os outros tipos que saem por WhatsApp (as respostas): seguem o ritmo, mas não a cota. */
+export const FORA_DA_COTA = ['resposta_confirmacao', 'resposta_remarcar'] as const;
 export const contaCota = (tipo: string) => (CONTA_COTA as readonly string[]).includes(tipo);
 export const mesDe = (instante: Date, fuso: string) => partesNoFuso(instante, fuso).data.slice(0, 7);
 
@@ -7228,38 +7807,29 @@ export async function avisarSeChegou80(tx: Tx, tenant: TenantRow, agora: Date, a
 }
 ```
 
-Em `src/modules/notificacoes/enviar.ts` (imports `contaCota`, `usoDoMes`, `avisarSeChegou80` de `./whatsapp/cota`) — `escolher` passa a (substitui a da Tarefa 10):
+Em `src/modules/notificacoes/enviar.ts` (imports `contaCota`, `FORA_DA_COTA`, `CONTA_COTA`, `usoDoMes`, `avisarSeChegou80` de `./whatsapp/cota`) — `escolherWhatsapp` passa a (substitui a da Tarefa 10; `vagasDoMinuto` fica como está):
 
 ```ts
-/** D15 + D16: cota do mês (RN-09) e ritmo de 8/min. Sem cota → "cota_esgotada" já; sem vaga no minuto → fica para a próxima volta. */
-async function escolher(tx: Tx, tenant: TenantRow, devidas: NotificationRow[], agora: Date): Promise<{ reservar: string[]; semCota: string[] }> {
-  const reservar: string[] = [];
-  const semCota: string[] = [];
-  let livres = 0;
-  let saldo = 0;
-  if (devidas.some((n) => n.canal === 'whatsapp')) {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('whatsapp-envio'), hashtext(${tenant.id}))`);
-    const [{ n }] = await tx
-      .select({ n: count() })
-      .from(notifications)
-      .where(and(eq(notifications.canal, 'whatsapp'), or(eq(notifications.status, 'enviando'), gt(notifications.enviadaEm, new Date(agora.getTime() - 60_000)))));
-    livres = Math.max(0, WHATSAPP_POR_MINUTO - n);
-    saldo = tenant.waCotaMensal - (await usoDoMes(tx, tenant.fuso, agora, { comEnviando: true })); // lido agora: o admin ampliar vale na hora
+/**
+ * D15 + D16: cota do mês (RN-09) e ritmo de 8/min. Cota esgotada → os que contam viram "cota_esgotada" já, sem gastar
+ * vaga; sem vaga no minuto → nem busca (fica para a próxima volta). E-mail e push já foram reservados antes (D6).
+ */
+async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
+  if (max <= 0) return { reservar: [], semCota: [] };
+  const livres = Math.min(max, await vagasDoMinuto(tx, tenant, agora));
+  let saldo = tenant.waCotaMensal - (await usoDoMes(tx, tenant.fuso, agora, { comEnviando: true })); // lido agora: o admin ampliar vale na hora
+  if (saldo <= 0) {
+    const semCota = (await devidas(['whatsapp'], max, CONTA_COTA)).map((n) => n.id);
+    return { reservar: livres > 0 ? await devidas(['whatsapp'], livres, FORA_DA_COTA) : [], semCota };
   }
-  for (const n of devidas) {
-    if (n.canal !== 'whatsapp') {
-      reservar.push(n.id);
-      continue;
-    }
-    const conta = contaCota(n.tipo);
-    if (conta && saldo <= 0) {
-      semCota.push(n.id);
-      continue;
-    }
-    if (livres <= 0) continue;
-    livres--;
-    if (conta) saldo--;
-    reservar.push(n.id);
+  const reservar: NotificationRow[] = [];
+  const semCota: string[] = [];
+  for (const n of livres > 0 ? await devidas(['whatsapp'], livres) : []) {
+    if (!contaCota(n.tipo)) reservar.push(n);
+    else if (saldo > 0) {
+      saldo--;
+      reservar.push(n);
+    } else semCota.push(n.id);
   }
   return { reservar, semCota };
 }
@@ -7302,7 +7872,7 @@ async function aposEnvio(tx: Tx, tenant: TenantRow, n: NotificationRow, agora: D
   });
 ```
 
-Run: `pnpm test src/modules/notificacoes src/email` → PASS (4 testes novos em `cota.test.ts`).
+Run: `pnpm test src/modules/notificacoes src/email` → PASS (5 testes novos em `cota.test.ts`).
 
 - [ ] **Step 3: Painel** — uso e avisos
 
@@ -7410,26 +7980,25 @@ git commit -m "feat(whatsapp): cota mensal por tenant com aviso de 80%, bloqueio
 ### Task 12: Webhook do WhatsApp — JWT, status de entrega, resposta "1"/"2", conexão, idempotência (P05-08)
 
 **Files:**
-- Create: `src/modules/notificacoes/whatsapp/jwt.ts`, `src/modules/notificacoes/whatsapp/jwt.test.ts`, `src/modules/notificacoes/whatsapp/respostas.ts`, `src/modules/notificacoes/whatsapp/respostas.test.ts`, `src/modules/notificacoes/whatsapp/webhook.ts`, `src/modules/notificacoes/whatsapp/webhook.test.ts`, `src/app/api/webhooks/whatsapp/route.ts`
-- Modify: `src/modules/notificacoes/enviar.ts` (exporta `fallbackPorEmail`), `src/jobs/queues.ts`, `src/worker/index.ts`, `e2e/whatsapp.ts`, `e2e/agenda.spec.ts`
+- Create: `src/modules/notificacoes/whatsapp/respostas.ts`, `src/modules/notificacoes/whatsapp/respostas.test.ts`, `src/modules/notificacoes/whatsapp/webhook.ts`, `src/modules/notificacoes/whatsapp/webhook.test.ts`, `src/app/api/webhooks/whatsapp/route.ts`, `e2e/whatsapp.ts`
+- Modify: `src/modules/notificacoes/whatsapp/jwt.ts` e `jwt.test.ts` (da Tarefa 9), `src/modules/agenda/limite-ip.ts` e `limite-ip.test.ts` (marca anti-repetição), `src/modules/notificacoes/enviar.ts` (exporta `fallbackPorEmail`), `src/jobs/queues.ts`, `src/worker/index.ts`, `e2e/agenda.spec.ts`
 
 **Interfaces:**
-- Consumes: `tenantDaInstancia`, `atualizarEstadoConexao` (Tarefa 9); `digitosDoJid`, `e164DoJid`, `type EstadoConexao` (Tarefa 9); `confirmarPresenca`, `pedirRemarcacao` (Tarefa 7); `dispararEnvio` (Tarefa 5); `aoFalhar` de `enviar.ts` (Tarefa 5, exportado aqui como `fallbackPorEmail`); `buscarTenant`; `sealSecret`, `openSecret`; `lerCorpoLimitado`, `CorpoGrandeError`; `getBoss`; `logger`.
+- Consumes: `tenantDaInstancia`, `atualizarEstadoConexao` (Tarefa 9); `chaveDoWebhook` (Tarefa 9); `digitosDoJid`, `e164DoJid`, `type EstadoConexao` (Tarefa 9); `confirmarPresenca`, `pedirRemarcacao` (Tarefa 7); `dispararEnvio` (Tarefa 5); `aoFalhar` de `enviar.ts` (Tarefa 5, exportado aqui como `fallbackPorEmail`); `chaveDoLimite`, `consumirLimite` (Tarefa 8); `buscarTenant`, `buscarTenantPorSlug` (E2E); `sealSecret`, `openSecret`; `lerCorpoLimitado`, `CorpoGrandeError`; `getBoss`; `logger`.
 - Produces:
-  - `@/modules/notificacoes/whatsapp/jwt`: `type VerificacaoJwt`, `verificarJwtWebhook(token, segredo, agora): VerificacaoJwt`, `assinarJwtWebhook(segredo, agora, extra?): string` (testes e E2E).
+  - `@/modules/notificacoes/whatsapp/jwt` (acrescenta à Tarefa 9): `type VerificacaoJwt`, `verificarJwtWebhook(token, chave, agora): VerificacaoJwt` (a `chave` é a da instância: `chaveDoWebhook(segredo, instância)`), `assinarJwtWebhook(chave, agora, extra?): string` (testes e E2E).
+  - `@/modules/agenda/limite-ip`: `chaveDoLimite` aceita o tipo `'webhook'`; `liberarLimite(db, chave): Promise<void>`.
   - `@/modules/notificacoes/whatsapp/respostas`: `type Intencao = 'confirmar' | 'remarcar'`, `interpretarResposta(texto: string): Intencao | null`.
-  - `@/modules/notificacoes/whatsapp/webhook`: `type EventoWhatsapp`, `classificarEvento(corpo: unknown): EventoWhatsapp | null`, `FINALIDADE_EVENTO = 'whatsapp-evento'`, `enfileirarEventoWhatsapp(ev): Promise<void>`, `receberWebhook(req, o: { segredo: string | undefined; agora?: Date; enfileirar: (ev: EventoWhatsapp) => Promise<void> }): Promise<Response>`, `processarEventoWhatsapp(ev, deps: { db?; agora?; appUrl? }): Promise<void>`.
-  - `POST /api/webhooks/whatsapp` (sem segredo configurado: 404; JWT inválido: 401; JSON inválido: 400; > 256 KB: 413; senão 200 `{ ok: true }` em ≤ 2 s).
+  - `@/modules/notificacoes/whatsapp/webhook`: `type EventoWhatsapp`, `classificarEvento(corpo: unknown): EventoWhatsapp | null` (`connection.update` com `data.instance` de outra instância → `null`), `FINALIDADE_EVENTO = 'whatsapp-evento'`, `REPETICAO_S = 660`, `enfileirarEventoWhatsapp(ev): Promise<void>`, `receberWebhook(req, o: { segredo: string | undefined; agora?: Date; db?: Db; enfileirar: (ev: EventoWhatsapp) => Promise<void> }): Promise<Response>`, `processarEventoWhatsapp(ev, deps: { db?; agora?; appUrl? }): Promise<void>`.
+  - `POST /api/webhooks/whatsapp` (sem segredo configurado: 404; sem `Bearer`: 401; > 256 KB: 413; JSON inválido: 400; instância fora do formato, JWT que não é o da instância do corpo, expirado ou pedido repetido: 401; senão 200 `{ ok: true }` em ≤ 2 s).
+  - `e2e/whatsapp.ts`: `idDoTenant(slug)` (por `buscarTenantPorSlug`), `webhookAssinado(request, corpo)` (JWT com a chave da instância do corpo).
   - Fila `whatsapp-evento` (payload cifrado).
 
 - [ ] **Step 1: JWT e respostas (puros)** — testes
 
-`src/modules/notificacoes/whatsapp/jwt.test.ts`:
+`src/modules/notificacoes/whatsapp/jwt.test.ts` (o import passa a `import { assinarJwtWebhook, chaveDoWebhook, verificarJwtWebhook } from './jwt';`; acrescentar, depois do `describe` da Tarefa 9):
 
 ```ts
-import { describe, expect, it } from 'vitest';
-import { assinarJwtWebhook, verificarJwtWebhook } from './jwt';
-
 const S = 'segredo-do-webhook-com-pelo-menos-32-caracteres';
 const agora = new Date('2026-10-16T12:00:00Z');
 
@@ -7449,6 +8018,13 @@ describe('JWT do webhook da Evolution (D4)', () => {
     expect(verificarJwtWebhook(t, S, new Date(agora.getTime() + 12 * 60_000))).toEqual({ ok: false, motivo: 'expirado' });
     expect(verificarJwtWebhook(assinarJwtWebhook(S, agora, { app: 'outro' }), S, agora)).toEqual({ ok: false, motivo: 'emissor' });
     expect(verificarJwtWebhook('x.y', S, agora)).toEqual({ ok: false, motivo: 'formato' });
+  });
+  it('D4 (a): o JWT assinado com a chave de uma instância não vale com a de outra, nem com o segredo-mestre', () => {
+    const [a, b] = ['nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', 'nd-1c7e4d2f-9b8e-4d3c-8a21-2b3c4d5e6f70'].map((i) => chaveDoWebhook(S, i));
+    const t = assinarJwtWebhook(a, agora);
+    expect(verificarJwtWebhook(t, a, agora)).toEqual({ ok: true });
+    expect(verificarJwtWebhook(t, b, agora)).toEqual({ ok: false, motivo: 'assinatura' });
+    expect(verificarJwtWebhook(assinarJwtWebhook(S, agora), a, agora)).toEqual({ ok: false, motivo: 'assinatura' });
   });
 });
 ```
@@ -7472,10 +8048,9 @@ describe('resposta do paciente (D3)', () => {
 
 Run: `pnpm test src/modules/notificacoes/whatsapp/jwt.test.ts src/modules/notificacoes/whatsapp/respostas.test.ts` → FAIL.
 
-`src/modules/notificacoes/whatsapp/jwt.ts`:
+`src/modules/notificacoes/whatsapp/jwt.ts` (o import da Tarefa 9 passa a `import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';`; `chaveDoWebhook` continua igual; acrescentar):
 
 ```ts
-import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export type VerificacaoJwt = { ok: true } | { ok: false; motivo: 'formato' | 'algoritmo' | 'assinatura' | 'expirado' | 'emissor' };
 
@@ -7492,13 +8067,14 @@ const json = (s: string): Record<string, unknown> | null => {
  * D4: o `jwt_key` do webhook da instância (Evolution v2.3+) vira `Authorization: Bearer <JWT HS256>` com
  * { iat, exp: iat + 600, app: 'evolution', action: 'webhook' }. Só HS256 (nada de "none" nem RS*), assinatura
  * comparada em tempo constante, exp com 60 s de folga de relógio, iat não muito no futuro e validade máxima de 15 min.
+ * `chave` = `chaveDoWebhook(segredo, instância)` — a da instância que o corpo diz ser (D4 a).
  */
-export function verificarJwtWebhook(token: string, segredo: string, agora: Date): VerificacaoJwt {
+export function verificarJwtWebhook(token: string, chave: string, agora: Date): VerificacaoJwt {
   const partes = token.split('.');
   if (token.length > 2048 || partes.length !== 3 || partes.some((p) => !/^[A-Za-z0-9_-]+$/.test(p))) return { ok: false, motivo: 'formato' };
   const [h, p, s] = partes;
   if (json(h)?.alg !== 'HS256') return { ok: false, motivo: 'algoritmo' };
-  const esperado = createHmac('sha256', Buffer.from(segredo, 'utf8')).update(`${h}.${p}`).digest();
+  const esperado = createHmac('sha256', Buffer.from(chave, 'utf8')).update(`${h}.${p}`).digest();
   const recebido = Buffer.from(s, 'base64url');
   if (recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) return { ok: false, motivo: 'assinatura' };
   const c = json(p);
@@ -7509,12 +8085,12 @@ export function verificarJwtWebhook(token: string, segredo: string, agora: Date)
   return { ok: true };
 }
 
-/** Testes e E2E: o mesmo JWT que a Evolution gera (jsonwebtoken.sign, HS256). */
-export function assinarJwtWebhook(segredo: string, agora: Date, extra: Record<string, unknown> = {}): string {
+/** Testes e E2E: o mesmo JWT que a Evolution gera com o `jwt_key` da instância (jsonwebtoken.sign, HS256). */
+export function assinarJwtWebhook(chave: string, agora: Date, extra: Record<string, unknown> = {}): string {
   const iat = Math.floor(agora.getTime() / 1000);
   const b = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
   const corpo = `${b({ alg: 'HS256', typ: 'JWT' })}.${b({ iat, exp: iat + 600, app: 'evolution', action: 'webhook', ...extra })}`;
-  return `${corpo}.${createHmac('sha256', Buffer.from(segredo, 'utf8')).update(corpo).digest('base64url')}`;
+  return `${corpo}.${createHmac('sha256', Buffer.from(chave, 'utf8')).update(corpo).digest('base64url')}`;
 }
 ```
 
@@ -7557,7 +8133,7 @@ import { closeDb } from '@/db/client';
 import { appointments, notifications, user, whatsappConexoes } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { assinarJwtWebhook } from './jwt';
+import { assinarJwtWebhook, chaveDoWebhook } from './jwt';
 import { classificarEvento, processarEventoWhatsapp, receberWebhook, type EventoWhatsapp } from './webhook';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -7579,7 +8155,7 @@ async function lembreteEnviado(T: TenantDeTeste, inicio = em('2026-10-16', '14:0
   await conexaoDeTeste(app.db, T.ctx, 'conectada');
   const p = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza', telefoneE164: '+5511912345678', whatsappOptinEm: agora, whatsappOptinOrigem: 'nutri' });
   const c = await consultaDireta(app.db, T.ctx, p.id, inicio);
-  await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada', providerMsgId: msgId, providerJid: JID, agendadaPara: em('2026-10-15', '14:00'), enviadaEm: em('2026-10-15', '14:00') }), app.db);
+  await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, appointmentId: c, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada', providerMsgId: msgId, providerJid: JID, agendadaPara: em('2026-10-15', '14:00'), enviadaEm: em('2026-10-15', '14:00') }), app.db);
   return { p, c, msgId };
 }
 const consulta = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0];
@@ -7609,6 +8185,8 @@ describe('classificarEvento (D5: o texto nunca sai da rota)', () => {
     expect(classificarEvento({ event: 'messages.update', instance: inst, data: { keyId: 'WA1', fromMe: true, status: 'SERVER_ACK' } })).toBeNull();
     expect(classificarEvento({ event: 'connection.update', instance: inst, data: { instance: inst, state: 'open', wuid: JID } })).toEqual({ tipo: 'conexao', instancia: inst, estado: 'conectada', numero: '+5511912345678' });
     expect(classificarEvento({ event: 'connection.update', instance: inst, data: { state: 'close', statusReason: 401 } })).toMatchObject({ estado: 'desconectada', numero: null });
+    // D4 (a): número só para a própria instância — `data.instance` de outra instância é descartado
+    expect(classificarEvento({ event: 'connection.update', instance: inst, data: { instance: 'nd-1c7e4d2f-9b8e-4d3c-8a21-2b3c4d5e6f70', state: 'open', wuid: JID } })).toBeNull();
   });
 });
 
@@ -7639,7 +8217,7 @@ describe('processarEventoWhatsapp (US-035)', () => {
     const a = await lembreteEnviado(T, em('2026-10-16', '09:00'), 'WA-A');
     await withTenant(T.ctx, (tx) => tx.update(notifications).set({ enviadaEm: em('2026-10-15', '09:00') }).where(eq(notifications.providerMsgId, 'WA-A')), app.db);
     const c2 = await consultaDireta(app.db, T.ctx, a.p.id, em('2026-10-16', '16:00'));
-    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: a.p.id, appointmentId: c2, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'lida', providerMsgId: 'WA-B', providerJid: JID, agendadaPara: em('2026-10-15', '14:00'), enviadaEm: em('2026-10-15', '14:00') }), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: a.p.id, appointmentId: c2, inicioConsulta: em('2026-10-16', '16:00'), canal: 'whatsapp', tipo: 'lembrete_24h', status: 'lida', providerMsgId: 'WA-B', providerJid: JID, agendadaPara: em('2026-10-15', '14:00'), enviadaEm: em('2026-10-15', '14:00') }), app.db);
     await processar(upsert(`nd-${T.tenantId}`, '1', { contextInfo: { stanzaId: 'WA-A' } }));
     expect((await consulta(T, a.c)).status).toBe('confirmada');
     expect((await consulta(T, c2)).status).toBe('agendada');
@@ -7670,7 +8248,7 @@ describe('processarEventoWhatsapp (US-035)', () => {
     await st('DELIVERY_ACK'); // fora de ordem
     expect((await respostas(T, c)).find((n) => n.tipo === 'lembrete_24h')?.status).toBe('lida');
     const o = await lembreteEnviado(T, em('2026-10-17', '14:00'), 'WA-ERR');
-    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: o.p.id, appointmentId: o.c, canal: 'email', tipo: 'lembrete_24h', status: 'falhou', erro: 'email', agendadaPara: agora }), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: o.p.id, appointmentId: o.c, inicioConsulta: em('2026-10-17', '14:00'), canal: 'email', tipo: 'lembrete_24h', status: 'falhou', erro: 'email', agendadaPara: agora }), app.db);
     await processar({ event: 'messages.update', instance: inst, data: { keyId: 'WA-ERR', fromMe: true, status: 'ERROR' } });
     const ns = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.appointmentId, o.c)), app.db);
     expect(ns.find((n) => n.canal === 'whatsapp')).toMatchObject({ status: 'falhou', erro: 'erro_entrega' });
@@ -7688,31 +8266,71 @@ describe('processarEventoWhatsapp (US-035)', () => {
 
 describe('receberWebhook (D4, D5)', () => {
   const S = 's'.repeat(40);
+  const A = 'nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f';
+  const B = 'nd-1c7e4d2f-9b8e-4d3c-8a21-2b3c4d5e6f70';
+  const jwtDe = (instancia: string) => assinarJwtWebhook(chaveDoWebhook(S, instancia), new Date());
   const req = (corpo: string, token?: string) => new Request('http://localhost/api/webhooks/whatsapp', { method: 'POST', body: corpo, headers: token ? { authorization: `Bearer ${token}` } : {} });
-  it('sem segredo: 404; sem JWT ou inválido: 401 sem enfileirar; JSON inválido: 400; válido: 200 e enfileira só o evento reduzido', async () => {
-    const fila: EventoWhatsapp[] = [];
-    const enfileirar = async (ev: EventoWhatsapp) => void fila.push(ev);
-    const corpo = JSON.stringify(upsert('nd-0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', '1'));
-    expect((await receberWebhook(req(corpo), { segredo: undefined, enfileirar })).status).toBe(404);
-    expect((await receberWebhook(req(corpo), { segredo: S, enfileirar })).status).toBe(401);
-    expect((await receberWebhook(req(corpo, assinarJwtWebhook('outro'.repeat(8), new Date())), { segredo: S, enfileirar })).status).toBe(401);
+  const fila: EventoWhatsapp[] = [];
+  const o = { segredo: S, db: app.db, enfileirar: async (ev: EventoWhatsapp) => void fila.push(ev) };
+
+  it('sem segredo: 404; sem JWT: 401 sem enfileirar; > 256 KB: 413; JSON inválido: 400; válido: 200 e enfileira só o evento reduzido', async () => {
+    fila.length = 0;
+    const corpo = JSON.stringify(upsert(A, '1'));
+    expect((await receberWebhook(req(corpo), { ...o, segredo: undefined })).status).toBe(404);
+    expect((await receberWebhook(req(corpo), o)).status).toBe(401);
     expect(fila).toEqual([]);
-    expect((await receberWebhook(req('{x', assinarJwtWebhook(S, new Date())), { segredo: S, enfileirar })).status).toBe(400);
-    const ok = await receberWebhook(req(corpo, assinarJwtWebhook(S, new Date())), { segredo: S, enfileirar });
+    expect((await receberWebhook(req(JSON.stringify({ x: 'y'.repeat(300 * 1024) }), jwtDe(A)), o)).status).toBe(413);
+    expect((await receberWebhook(req('{x', jwtDe(A)), o)).status).toBe(400);
+    const ok = await receberWebhook(req(corpo, jwtDe(A)), o);
     expect(ok.status).toBe(200);
     expect(fila).toHaveLength(1);
-    expect(await (await receberWebhook(req(JSON.stringify({ event: 'chats.update', instance: 'x', data: {} }), assinarJwtWebhook(S, new Date())), { segredo: S, enfileirar })).json()).toEqual({ ok: true });
+    expect(await (await receberWebhook(req(JSON.stringify({ event: 'chats.update', instance: A, data: {} }), jwtDe(A)), o)).json()).toEqual({ ok: true });
     expect(fila).toHaveLength(1);
-    expect((await receberWebhook(req(JSON.stringify({ x: 'y'.repeat(300 * 1024) }), assinarJwtWebhook(S, new Date())), { segredo: S, enfileirar })).status).toBe(413);
+  });
+
+  it('D4 (a): JWT da instância de outro consultório, do segredo-mestre (sem a chave da instância) ou corpo sem instância válida → 401 sem enfileirar', async () => {
+    fila.length = 0;
+    expect((await receberWebhook(req(JSON.stringify(upsert(B, '1')), jwtDe(A)), o)).status).toBe(401); // corpo de B com o JWT de A
+    expect((await receberWebhook(req(JSON.stringify(upsert(A, '1')), assinarJwtWebhook(S, new Date())), o)).status).toBe(401);
+    expect((await receberWebhook(req(JSON.stringify(upsert('outra-instancia', '1')), jwtDe('outra-instancia')), o)).status).toBe(401);
+    expect(fila).toEqual([]);
+  });
+
+  it('D4 (b): o mesmo pedido (JWT + corpo) repetido → 401; outro evento no mesmo segundo, com o mesmo JWT, passa; se enfileirar falhar, a repetição da Evolution passa', async () => {
+    fila.length = 0;
+    const t = jwtDe(A);
+    const um = JSON.stringify(upsert(A, '1'));
+    expect((await receberWebhook(req(um, t), o)).status).toBe(200);
+    expect((await receberWebhook(req(um, t), o)).status).toBe(401);
+    expect((await receberWebhook(req(JSON.stringify(upsert(A, '2')), t), o)).status).toBe(200); // o JWT da Evolution é o mesmo no mesmo segundo
+    expect(fila).toHaveLength(2);
+    const outro = JSON.stringify(upsert(A, 'sim'));
+    await expect(receberWebhook(req(outro, t), { ...o, enfileirar: async () => { throw new Error('fila fora do ar'); } })).rejects.toThrow('fila fora do ar');
+    expect((await receberWebhook(req(outro, t), o)).status).toBe(200);
+    expect(fila).toHaveLength(3);
   });
 });
 ```
 
-Run: `pnpm test src/modules/notificacoes/whatsapp/webhook.test.ts` → FAIL.
+Em `src/modules/agenda/limite-ip.test.ts` (import `liberarLimite`):
+
+```ts
+  it('D4 (b), rodada 1: marca de uma vez só (webhook) — a 2ª é recusada; liberar apaga a marca', async () => {
+    const chave = chaveDoLimite('webhook', `jwt.${Date.now()}.${Math.random()}`);
+    const t0 = new Date('2026-10-16T12:00:00Z');
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(false);
+    await liberarLimite(app.db, chave);
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
+  });
+```
+
+Run: `pnpm test src/modules/notificacoes/whatsapp/webhook.test.ts src/modules/agenda/limite-ip.test.ts` → FAIL.
 
 - [ ] **Step 3: Implementar** — em `src/modules/notificacoes/enviar.ts`, renomeie `aoFalhar` para `fallbackPorEmail` e exporte (`export async function fallbackPorEmail(tx: Tx, n: NotificationRow, agora: Date)`), trocando as duas chamadas. Depois, `src/modules/notificacoes/whatsapp/webhook.ts`:
 
 ```ts
+import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, gte, inArray } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { appointments, notifications } from '@/db/schema';
@@ -7723,16 +8341,19 @@ import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { sealSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { confirmarPresenca, pedirRemarcacao } from '@/modules/agenda/cancelamento';
+import { chaveDoLimite, consumirLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { dispararEnvio } from '../agendar';
 import { fallbackPorEmail } from '../enviar';
 import { atualizarEstadoConexao, tenantDaInstancia } from './conexao';
-import { verificarJwtWebhook } from './jwt';
+import { chaveDoWebhook, verificarJwtWebhook } from './jwt';
 import { digitosDoJid, e164DoJid, type EstadoConexao } from './provedor';
 import { interpretarResposta, type Intencao } from './respostas';
 
 export const FINALIDADE_EVENTO = 'whatsapp-evento';
 const LIMITE_CORPO = 256 * 1024;
+/** D4 (b): a marca anti-repetição vale o tempo de vida do JWT (exp 600 s) + a folga de relógio (60 s). */
+export const REPETICAO_S = 660;
 /** Uma resposta "1"/"2" vale para o lembrete enviado àquele número nas últimas 26 h (24 h + folga). */
 const JANELA_RESPOSTA_MS = 26 * 3_600_000;
 
@@ -7765,6 +8386,8 @@ export function classificarEvento(corpo: unknown): EventoWhatsapp | null {
     return status ? { tipo: 'status', instancia, id: d.keyId, status } : null;
   }
   if (c.event === 'connection.update') {
+    // D4 (a): o número só vale para a própria instância (a do corpo, já amarrada ao JWT); `data.instance` de outra → descarta
+    if (d.instance !== undefined && d.instance !== instancia) return null;
     const estado = d.state === 'open' ? 'conectada' : d.state === 'connecting' ? 'conectando' : d.state === 'close' || d.state === 'refused' ? 'desconectada' : null;
     if (!estado) return null;
     return { tipo: 'conexao', instancia, estado, numero: typeof d.wuid === 'string' ? e164DoJid(d.wuid) : null };
@@ -7777,27 +8400,47 @@ export async function enfileirarEventoWhatsapp(ev: EventoWhatsapp): Promise<void
   if (!id) throw new Error('A fila de eventos do WhatsApp recusou o evento');
 }
 
+const recusar = (motivo: string) => {
+  logger.warn({ motivo }, 'webhook do WhatsApp recusado'); // só o motivo: nunca JWT, corpo ou instância
+  return Response.json({ erro: 'Não autorizado.' }, { status: 401 });
+};
+
 /**
- * INT-01/D4/D5: confere o JWT, lê no máximo 256 KB, reduz e enfileira (cifrado); responde em ≤ 2 s. 401 não é
- * repetido pela Evolution. Nada do corpo vai para log (traz número, texto e o campo `apikey`).
+ * INT-01/D4/D5: exige o `Bearer`, lê no máximo 256 KB, confere o JWT com a chave da instância do corpo (a), recusa a
+ * repetição do mesmo pedido (b), reduz e enfileira (cifrado); responde em ≤ 2 s. 401 não é repetido pela Evolution.
+ * Nada do corpo vai para log (traz número, texto e o campo `apikey`).
  */
-export async function receberWebhook(req: Request, o: { segredo: string | undefined; agora?: Date; enfileirar: (ev: EventoWhatsapp) => Promise<void> }): Promise<Response> {
+export async function receberWebhook(req: Request, o: { segredo: string | undefined; agora?: Date; db?: Db; enfileirar: (ev: EventoWhatsapp) => Promise<void> }): Promise<Response> {
   if (!o.segredo) return new Response(null, { status: 404 });
+  const agora = o.agora ?? new Date();
   const m = /^Bearer ([A-Za-z0-9._-]+)$/.exec(req.headers.get('authorization') ?? '');
-  const v = m ? verificarJwtWebhook(m[1], o.segredo, o.agora ?? new Date()) : ({ ok: false, motivo: 'formato' } as const);
-  if (!v.ok) {
-    logger.warn({ motivo: v.motivo }, 'webhook do WhatsApp recusado');
-    return Response.json({ erro: 'Não autorizado.' }, { status: 401 });
-  }
+  if (!m) return recusar('formato');
+  let bruto: Buffer;
   let corpo: unknown;
   try {
-    corpo = JSON.parse((await lerCorpoLimitado(req, LIMITE_CORPO)).toString('utf8'));
+    bruto = await lerCorpoLimitado(req, LIMITE_CORPO);
+    corpo = JSON.parse(bruto.toString('utf8'));
   } catch (e) {
     if (e instanceof CorpoGrandeError) return Response.json({ erro: 'Grande demais.' }, { status: 413 });
     return Response.json({ erro: 'JSON inválido.' }, { status: 400 });
   }
+  // D4 (a): o JWT tem de ser o da instância que o corpo diz ser — um consultório não fala por outro
+  const instancia = obj(corpo)?.instance;
+  if (typeof instancia !== 'string' || !tenantDaInstancia(instancia)) return recusar('instancia');
+  const v = verificarJwtWebhook(m[1], chaveDoWebhook(o.segredo, instancia), agora);
+  if (!v.ok) return recusar(v.motivo);
   const ev = classificarEvento(corpo);
-  if (ev) await o.enfileirar(ev);
+  if (!ev) return Response.json({ ok: true });
+  // D4 (b): o mesmo pedido só vale uma vez. O JWT da Evolution não tem jti e é igual no mesmo segundo: a marca é JWT + corpo
+  const db = o.db ?? getDb();
+  const marca = chaveDoLimite('webhook', `${m[1]}.${createHash('sha256').update(bruto).digest('base64url')}`);
+  if (!(await consumirLimite(db, marca, 1, REPETICAO_S, agora))) return recusar('repetido');
+  try {
+    await o.enfileirar(ev);
+  } catch (e) {
+    await liberarLimite(db, marca); // a Evolution repete o pedido (5xx) e ele precisa passar
+    throw e;
+  }
   return Response.json({ ok: true });
 }
 
@@ -7834,7 +8477,7 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
     { tenantId, role: 'worker' },
     (tx) =>
       tx
-        .select({ msgId: notifications.providerMsgId, jid: notifications.providerJid, appointmentId: appointments.id, patientId: appointments.patientId })
+        .select({ msgId: notifications.providerMsgId, jid: notifications.providerJid, appointmentId: appointments.id, patientId: appointments.patientId, inicio: appointments.inicio })
         .from(notifications)
         .innerJoin(appointments, eq(appointments.id, notifications.appointmentId))
         .where(
@@ -7862,7 +8505,8 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
       const tipo = ev.intencao === 'confirmar' ? 'resposta_confirmacao' : 'resposta_remarcar';
       const novas = await tx
         .insert(notifications)
-        .values({ tenantId, patientId: alvo.patientId, appointmentId: alvo.appointmentId, canal: 'whatsapp', tipo, agendadaPara: agora, createdAt: agora, updatedAt: agora })
+        // uma resposta por consulta e horário (UNIQUE com inicio_consulta, D6): repetir "1" não responde de novo
+        .values({ tenantId, patientId: alvo.patientId, appointmentId: alvo.appointmentId, inicioConsulta: alvo.inicio, canal: 'whatsapp', tipo, agendadaPara: agora, createdAt: agora, updatedAt: agora })
         .onConflictDoNothing()
         .returning({ id: notifications.id });
       if (novas.length) await dispararEnvio(tx, tenantId);
@@ -7883,7 +8527,18 @@ export async function processarEventoWhatsapp(ev: EventoWhatsapp, deps: { db?: D
 }
 ```
 
-Run: `pnpm test src/modules/notificacoes/whatsapp` → PASS (webhook: 9 testes).
+`src/modules/agenda/limite-ip.ts`: o tipo de `chaveDoLimite` passa a `'ip' | 'email-hora' | 'webhook'` e, no fim:
+
+```ts
+/** D4 (b): desfaz a marca quando o pedido não chegou a valer (a fila recusou) — a repetição da Evolution precisa passar. */
+export async function liberarLimite(db: Db, chaveLimite: string): Promise<void> {
+  await db.delete(publicRateLimits).where(eq(publicRateLimits.chave, chaveLimite));
+}
+```
+
+(import `eq` de `drizzle-orm`, junto de `lt` e `sql`; o comentário de `publicRateLimits` passa a "contadores da página pública e marcas anti-repetição do webhook do WhatsApp").
+
+Run: `pnpm test src/modules/notificacoes/whatsapp src/modules/agenda/limite-ip.test.ts` → PASS (webhook: 11 testes; limite: 3).
 
 - [ ] **Step 4: Rota, fila e worker**
 
@@ -7913,23 +8568,37 @@ export function POST(req: Request) {
   });
 ```
 
-- [ ] **Step 5: E2E** — `e2e/whatsapp.ts` ganha o id do consultório; o teste usa o webhook assinado
+- [ ] **Step 5: E2E** — `e2e/whatsapp.ts` (id do consultório e webhook assinado com a chave da instância); o teste usa o webhook assinado
 
-Acrescentar a `e2e/whatsapp.ts`:
+`e2e/whatsapp.ts` (o Playwright resolve o `@/` pelo `paths` do `tsconfig.json`; `jwt.ts` só usa `node:crypto`):
 
 ```ts
+import type { APIRequestContext } from '@playwright/test';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import * as schema from '@/db/schema';
+import { assinarJwtWebhook, chaveDoWebhook } from '@/modules/notificacoes/whatsapp/jwt';
+import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 
-/** Id do consultório do E2E (`tenants` não tem RLS; leitura direta com o role da aplicação). */
+const SEGREDO = process.env.EVOLUTION_WEBHOOK_SECRET ?? 'dev-webhook-secret-com-pelo-menos-32-caracteres';
+
+/** Id do consultório do E2E — pela mesma função da plataforma (CLAUDE.md regra 1: `tenants` só por src/modules/plataforma). */
 export async function idDoTenant(slug: string): Promise<string> {
   // CI: DATABASE_URL do job; local: o padrão do .env.example (o Playwright não lê o .env.local)
   const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://nutri_app:dev-app@localhost:54329/nutri', max: 1 });
   try {
-    const r = await pool.query<{ id: string }>('select id from tenants where slug = $1', [slug]);
-    return r.rows[0].id;
+    const t = await buscarTenantPorSlug(drizzle({ client: pool, schema }), slug);
+    if (!t) throw new Error(`consultório ${slug} não existe (rode pnpm e2e:seed)`);
+    return t.id;
   } finally {
     await pool.end();
   }
+}
+
+/** Simula a Evolution chamando o webhook do app (sandbox do E2E): JWT HS256 com o `jwt_key` da instância do corpo (D4 a). */
+export async function webhookAssinado(request: APIRequestContext, corpo: { instance: string } & Record<string, unknown>) {
+  const jwt = assinarJwtWebhook(chaveDoWebhook(SEGREDO, corpo.instance), new Date());
+  return request.post('/api/webhooks/whatsapp', { data: corpo, headers: { authorization: `Bearer ${jwt}` } });
 }
 ```
 
@@ -7954,8 +8623,8 @@ Expected: PASS (7 testes).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/modules/notificacoes src/app/api/webhooks src/jobs/queues.ts src/worker/index.ts e2e
-git commit -m "feat(whatsapp): webhook com JWT, status de entrega, resposta 1/2 e conexão, idempotentes (US-035, D4, D5)"
+git add src/modules/notificacoes src/modules/agenda/limite-ip.ts src/modules/agenda/limite-ip.test.ts src/app/api/webhooks src/jobs/queues.ts src/worker/index.ts e2e
+git commit -m "feat(whatsapp): webhook com JWT por instância e sem repetição, status de entrega, resposta 1/2 e conexão, idempotentes (US-035, D4, D5)"
 ```
 
 ---
@@ -8222,8 +8891,8 @@ export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chav
   if (!c.consulta) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant }, deps);
   switch (c.n.tipo) {
-    case 'lembrete_24h':
-      return { titulo: `Consulta amanhã às ${d.hora}`, corpo: `Com ${d.nutri}. Toque para confirmar ou remarcar.`, url: d.link };
+    case 'lembrete_24h': // D7: adiado para as 08:00 do dia da consulta → "hoje"
+      return { titulo: `Consulta ${ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'hoje' : 'amanhã'} às ${d.hora}`, corpo: `Com ${d.nutri}. Toque para confirmar ou remarcar.`, url: d.link };
     case 'lembrete_2h':
       return { titulo: `Consulta hoje às ${d.hora}`, corpo: `Com ${d.nutri}.`, url: d.link };
     case 'consulta_marcada':
@@ -8997,7 +9666,7 @@ Em `src/modules/pacientes/exportacao.test.ts`, no teste do `dados.json`: grave u
             }
 ```
 
-Em `src/modules/pacientes/lgpd.test.ts`, no teste "anonimiza nome, e-mail…": grave antes uma consulta cancelada com `motivoCancelamento: 'Viagem com a Ana'` e uma notificação com `providerJid: '5511912345678@s.whatsapp.net'`; depois de `anonimizarVencidos`, confira os dois `null`.
+Em `src/modules/pacientes/lgpd.test.ts`, no teste "anonimiza nome, e-mail…": grave antes uma consulta cancelada com `motivoCancelamento: 'Viagem com a Ana'` e uma notificação com `providerJid: '5511912345678@s.whatsapp.net'` (ligada à consulta, com `inicioConsulta` igual ao início dela — CHECK `notifications_versao_da_consulta`); depois de `anonimizarVencidos`, confira os dois `null`.
 
 Run: `pnpm test src/modules/pacientes src/modules/agenda`
 Expected: PASS.
@@ -9050,7 +9719,7 @@ Não faz parte do PR: é configuração de serviço (regra do servidor: pelo Eas
 
 2. **Serviço `nutri_evolution`** (App no projeto `nutri` do Easypanel): imagem `evoapicloud/evolution-api:v2.3.7`; **sem domínio** (só rede interna); volume em `/evolution/instances`; limite de **512 MB** de memória e 0,5 vCPU. Variáveis (nomes; os valores ficam só no Easypanel):
    - `SERVER_TYPE=http`, `SERVER_PORT=8080`, `SERVER_URL=http://<nome interno do serviço>:8080`
-   - `AUTHENTICATION_API_KEY=<openssl rand -hex 32>` e `AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false` (sem isso o corpo do webhook traz a chave)
+   - `AUTHENTICATION_API_KEY=<openssl rand -hex 32>` e `AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false` (sem isso o corpo de todo webhook traz o token da instância, que envia mensagens por ela; o NutriDebby não usa esse campo — D4)
    - `DATABASE_PROVIDER=postgresql`, `DATABASE_CONNECTION_URI=postgresql://evolution:<senha>@<nome interno do nutri_db>:5432/evolution?schema=evolution_api`, `DATABASE_CONNECTION_CLIENT_NAME=nutridebby`
    - Guardar o mínimo: `DATABASE_SAVE_DATA_INSTANCE=true` e `false` em `DATABASE_SAVE_DATA_NEW_MESSAGE`, `DATABASE_SAVE_MESSAGE_UPDATE`, `DATABASE_SAVE_DATA_CONTACTS`, `DATABASE_SAVE_DATA_CHATS`, `DATABASE_SAVE_DATA_LABELS`, `DATABASE_SAVE_DATA_HISTORIC`, `DATABASE_SAVE_IS_ON_WHATSAPP`
    - Sem Redis: `CACHE_REDIS_ENABLED=false`, `CACHE_LOCAL_ENABLED=true`
@@ -9059,7 +9728,8 @@ Não faz parte do PR: é configuração de serviço (regra do servidor: pelo Eas
    - Observação de privacidade (D2): a Evolution escreve as mensagens recebidas no próprio log do container; manter a retenção de log desse serviço curta e não compartilhar o log.
 
 3. **Variáveis do NutriDebby no Easypanel** (gerar o segredo do webhook com `openssl rand -base64 48`; as chaves do push com `npx web-push generate-vapid-keys`, uma vez, guardadas fora da VPS):
-   - `nutri_app`: `EVOLUTION_API_URL=http://<nome interno do nutri_evolution>:8080`, `EVOLUTION_API_KEY` (= `AUTHENTICATION_API_KEY`), `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL=http://<nome interno do nutri_app>:3000/api/webhooks/whatsapp` (o webhook não passa pela internet).
+   - `nutri_app`: `EVOLUTION_API_URL=http://<nome interno do nutri_evolution>:8080`, `EVOLUTION_API_KEY` (= `AUTHENTICATION_API_KEY`), `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL=http://<nome interno do nutri_app>:3000/api/webhooks/whatsapp` (**obrigatória** em produção e interna — nome do serviço, sem ponto, ou IP privado: o webhook não passa pela internet; D4 c). Só se um dia a Evolution ficar fora da VPS: URL pública + `EVOLUTION_WEBHOOK_URL_PUBLICA=1` (opção explícita; o webhook fica exposto e passa a depender só do JWT por instância e da recusa de repetição) — decidir com o dono antes.
+   - O `EVOLUTION_WEBHOOK_SECRET` é o segredo-mestre: cada instância recebe um `jwt_key` derivado dele no "Conectar WhatsApp" (D4 a). Trocar o segredo exige cada consultório clicar em "Conectar WhatsApp" de novo (reconfigura o webhook; o número continua conectado) — até lá, os webhooks dessa instância dão 401.
    - `nutri_worker`: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (`mailto:` do suporte).
    - **Nunca** `WHATSAPP_SANDBOX` em produção (a validação recusa).
    - Reiniciar `nutri_app` e `nutri_worker` para ler as variáveis (pede confirmação; regra 3 do servidor).
@@ -9075,15 +9745,15 @@ Não faz parte do PR: é configuração de serviço (regra do servidor: pelo Eas
 ## Fechamento do plano (após a Tarefa 15)
 
 - [ ] Revisão da entrega conforme o índice: revisor por tarefa (feito ao longo) → `/code-review high` no PR → corrigir → `/code-review high` (precisa sair sem problema confirmado) → `/security-review` com o **checklist reforçado** deste plano:
-  - **Isolamento/RLS:** `availability_rules`, `availability_blocks`, `whatsapp_conexoes` e `public_booking_requests` com `staff_only`; `appointments`, `notifications` e `push_subscriptions` com RLS por paciente; todas na matriz de `test/isolamento.test.ts`; o papel `publico` só em funções de `src/modules/agenda` que devolvem intervalos/ids (D11); o `EXCLUDE` decide a corrida mesmo com pacientes que não se veem (D9); ações pelo link e pelo webhook rodam como o paciente dono da consulta (RLS), nunca como equipe.
-  - **Página pública e link da consulta:** Turnstile no servidor antes de qualquer escrita de negócio; 10 tentativas/IP/hora (IP real via `TRUSTED_PROXIES`; HMAC na chave); 1 código/e-mail/min e 5/h; código de 6 dígitos com HMAC, 10 min, 5 erros; mesma resposta para e-mail cadastrado ou não; 3 consultas futuras conferidas depois do código; pedidos apagados em 24 h; corpo JSON ≤ 8 KB; o link é HMAC de 128 bits, expira no início da consulta, nunca muda estado em `GET`, tem `Referrer-Policy: no-referrer` e `noindex`.
-  - **Webhook do WhatsApp:** só HS256, comparação em tempo constante, `exp`/`iat`, `app`/`action`; 401 sem enfileirar; corpo ≤ 256 KB; o texto do paciente reduzido a `confirmar`/`remarcar` na rota e o evento enfileirado cifrado; nada do corpo em log; idempotente (status só avança, resposta única por consulta); a resposta só vale para o `jid` do lembrete enviado nas últimas 26 h, de consulta futura e ativa.
-  - **Provedor:** `apikey` e respostas da Evolution nunca em log ou mensagem de erro; WhatsApp e push no máximo uma vez (timeout é definitivo); cota e ritmo de 8/min por tenant; sandbox recusado em produção; sem variáveis, desligado.
+  - **Isolamento/RLS:** `availability_rules`, `availability_blocks`, `whatsapp_conexoes` e `public_booking_requests` com `staff_only`; `appointments`, `notifications` e `push_subscriptions` com RLS por paciente; todas na matriz de `test/isolamento.test.ts`; o papel `publico` só em funções de `src/modules/agenda` que devolvem intervalos/ids (D11) **e negado no banco** (`publico_negado` em toda tabela com `tenant_id`, inclusive as novas; só `PUBLICO_LIBERADO`, com os comandos mínimos, e a guarda `findPublicoViolations` verde); nenhum `withTenant`/`getDb()` dentro de outra transação (Review Focus 6); o `EXCLUDE` decide a corrida mesmo com pacientes que não se veem (D9); ações pelo link e pelo webhook rodam como o paciente dono da consulta (RLS), nunca como equipe.
+  - **Página pública e link da consulta:** Turnstile no servidor antes de qualquer escrita de negócio; 10 tentativas/IP/hora (IP real via `TRUSTED_PROXIES`; HMAC na chave); 1 código/e-mail/min e 5/h; código de 6 dígitos com HMAC, 10 min, 5 erros; mesma resposta para e-mail cadastrado ou não; 3 consultas futuras conferidas depois do código; pedidos apagados em 24 h; corpo JSON ≤ 8 KB; o link é HMAC de 128 bits, expira no início da consulta, nunca muda estado em `GET`, tem `Referrer-Policy: no-referrer` e `noindex`; paciente arquivado, bloqueado ou anonimizado → "indisponível" no link e recusa em confirmar/cancelar/remarcar/avisar (nunca 500).
+  - **Webhook do WhatsApp:** só HS256, comparação em tempo constante, `exp`/`iat`, `app`/`action`; JWT conferido com a chave **da instância do corpo** (`chaveDoWebhook`; o segredo-mestre nunca sai do app); o mesmo pedido (JWT + corpo) recusado na repetição; `connection.update` só grava número na própria instância; em produção, `EVOLUTION_WEBHOOK_URL` interna (a pública só com `EVOLUTION_WEBHOOK_URL_PUBLICA=1`); 401 sem enfileirar; corpo ≤ 256 KB; o texto do paciente reduzido a `confirmar`/`remarcar` na rota e o evento enfileirado cifrado; nada do corpo em log; idempotente (status só avança, resposta única por consulta); a resposta só vale para o `jid` do lembrete enviado nas últimas 26 h, de consulta futura e ativa.
+  - **Provedor e motor de envio:** `apikey` e respostas da Evolution nunca em log ou mensagem de erro; WhatsApp e push no máximo uma vez (timeout é definitivo); cota e ritmo de 8/min por tenant; reserva canal por canal (o WhatsApp acumulado não segura e-mail/push) e parte do lote por tenant com rodízio; lembrete enviado imutável (remarcar cria linhas novas; cota e métricas não diminuem); horário silencioso também na reserva (adiado para as 08:00 ou ignorado); suspensão/reativação relidas sob trava; sandbox recusado em produção; sem variáveis, desligado.
   - **LGPD/RNF-08:** escritas em `appointments` auditadas (entidade "Agenda"); `notifications` sem texto de mensagem (só o convite, cifrado até o envio); exportação com consultas e lembretes; anonimização apaga `motivo_cancelamento`, link online e `provider_jid`; exclusão apaga as inscrições de push do vínculo; aceite do termo da página pública em `consents` (D13); `aviso-nutri.ts` só lê o e-mail da nutricionista.
   - **Logs:** nada de nome, e-mail, telefone, texto de mensagem, código, link com token, JWT ou corpo de webhook (só ids, canal, tipo, motivo e código de erro).
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema confirmado depois da 3ª rodada, parar e avisar o dono.
 - [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P05-01 a P05-12 (com as subtarefas P05-01a/b, P05-02a/b, P05-07a/b criadas por este plano) e o **E-04 revisado** ("Evolution API no Easypanel + conectar o número por QR", responsável: dono; runbook acima).
-- [ ] Atualizar a spec para a versão seguinte à da `main` (Apêndice C e corpo) com os "Desvios conscientes" desta página: INT-01 pela Evolution (texto, JWT do `jwt_key`, variáveis `EVOLUTION_*`/`WHATSAPP_SANDBOX`, sem `GET` de verificação), D-07 → número de cada nutricionista, E-04 revisado, US-035 por resposta "1"/"2" + link assinado (selo "Confirmada pelo link"), RN-09 como limite de uso, §7 (`appointments.inicio/fim` + `EXCLUDE`, colunas novas; `notifications` com `enviando`, `provider_jid`, `enviada_em`, `erro`, `conteudo_selado` e os tipos; `push_subscriptions` com `tenant_id`/`patient_id`; `consents.patient_id`; tabelas `whatsapp_conexoes`, `public_booking_requests`, `public_rate_limits`; `consultations.appointment_id`), §4.1 (papel `publico`; módulos `agenda` e `notificacoes`), RNF-03 (+512 MB do `nutri_evolution`), §9.6 (variáveis), US-031/US-032 (push só com inscrição; "Entrar" no Plano 06), e os textos novos de interface.
+- [ ] Atualizar a spec para a versão seguinte à da `main` (Apêndice C e corpo) com os "Desvios conscientes" desta página: INT-01 pela Evolution (texto, JWT do `jwt_key`, variáveis `EVOLUTION_*`/`WHATSAPP_SANDBOX`, sem `GET` de verificação), D-07 → número de cada nutricionista, E-04 revisado, US-035 por resposta "1"/"2" + link assinado (selo "Confirmada pelo link"), RN-09 como limite de uso, §7 (`appointments.inicio/fim` + `EXCLUDE`, colunas novas; `notifications` com `enviando`, `provider_jid`, `enviada_em`, `erro`, `conteudo_selado`, `inicio_consulta` (UNIQUE com a consulta, o canal e o tipo; enviada imutável), o motivo `consulta_remarcada` e os tipos; RN-05 com o horário silencioso também na reserva (D7); `push_subscriptions` com `tenant_id`/`patient_id`; `consents.patient_id`; tabelas `whatsapp_conexoes`, `public_booking_requests`, `public_rate_limits`; `consultations.appointment_id`), §4.1 (papel `publico`, negado no banco por padrão; módulos `agenda` e `notificacoes`), RNF-03 (+512 MB do `nutri_evolution`), §9.6 (variáveis, com `EVOLUTION_WEBHOOK_URL` interna obrigatória em produção e `EVOLUTION_WEBHOOK_URL_PUBLICA`), US-031/US-032 (push só com inscrição; "Entrar" no Plano 06), e os textos novos de interface.
 - [ ] Anotar para os próximos planos:
   - **Plano 06 (portal):** P06-02 grava `push_subscriptions` com a sessão do paciente, uma linha por vínculo ativo (contrato na Tarefa 13) e passa `VAPID_PUBLIC_KEY` ao app; P06-09 é a tela sobre `horariosParaPaciente`, `agendarComoPaciente`, `remarcarComoPaciente`, `cancelarConsulta(por: 'paciente')` e `confirmarPresenca`; a página pública ganha "Entrar (já sou paciente)"; RN-06 no PWA (sigla do fuso quando o aparelho estiver em outro); "Perfil > Notificações" grava `whatsapp_optout_em` (o envio já respeita); o portal lista as consultas do paciente com a RLS por paciente.
   - **Plano 08 (go-live):** k6 inclui a varredura de notificações; monitor externo também do `nutri_evolution` (ou alerta no painel quando a conexão cair, que já existe); retenção curta do log da Evolution; o DPA (P-02) declara a Evolution como suboperadora técnica autohospedada e o tratamento das mensagens que chegam ao número.
@@ -9122,9 +9792,11 @@ Não faz parte do PR: é configuração de serviço (regra do servidor: pelo Eas
 
 **2. Placeholders:** nenhum "TBD"/"implementar depois"; todo passo de código tem o código. Os trechos em prosa são trocas mecânicas em arquivos existentes (imports, `AGENDA_E2E`, `afterAll`, `deps` com `whatsapp`/`push: null`, objetos esperados de testes existentes), com o texto exato a usar.
 
-**3. Consistência de tipos e nomes:** `Regra`/`Intervalo`/`Horario`/`Modalidade` (T1) → `lerRegras`/`lerBloqueios` (T2) → `horariosLivres` (T3) → `horariosParaPaciente`/`escolherHorario`/`HorarioEscolhido` (T6) → `horariosVisiveis`/`HorarioVisivel`/`SeletorHorarios` (T7) → página pública (T8); `TenantAgenda` (T3) em T6–T8; `ConsultaError`/`ehSobreposicao`/`lerConsultaParaEscrita`/`STATUS_ATIVOS` (T3) em T6, T7, T15; `agendarLembretes`/`avisarPaciente`/`cancelarLembretes`/`dispararEnvio` (T5) em T3, T6, T7, T12, T14; `DepsEnvio` cresce em T10 (`whatsapp`) e T13 (`push`), e os `deps(...)` dos testes anteriores são atualizados na mesma tarefa; `escolher` (T5 → T10 → T11) e `aposEnvio` (T5 → T11) têm a versão completa a cada troca; `ProvedorWhatsapp`/`EnvioTexto`/`ResultadoEnvio` (T9) em T10 e testes; `tenantDaInstancia`/`atualizarEstadoConexao` (T9) em T12; `FINALIDADE_CONTEUDO` (T10) em T14; `chaveDosLinks`/`assinarLinkConsulta` (T5) em T7 e T10; `fallbackPorEmail` (renomeado de `aoFalhar` na T12); `MSG_AGENDA` (T1) concentra os textos das Tarefas 2–8.
+**3. Consistência de tipos e nomes:** `Regra`/`Intervalo`/`Horario`/`Modalidade` (T1) → `lerRegras`/`lerBloqueios` (T2) → `horariosLivres` (T3) → `horariosParaPaciente`/`escolherHorario`/`HorarioEscolhido` (T6) → `horariosVisiveis`/`HorarioVisivel`/`SeletorHorarios` (T7) → página pública (T8); `TenantAgenda` (T3) em T6–T8; `ConsultaError`/`ehSobreposicao`/`lerConsultaParaEscrita`/`STATUS_ATIVOS` (T3) em T6, T7, T15; `agendarLembretes`/`avisarPaciente`/`cancelarLembretes`/`dispararEnvio` (T5) em T3, T6, T7, T12, T14; `DepsEnvio` cresce em T10 (`whatsapp`) e T13 (`push`), e os `deps(...)` dos testes anteriores são atualizados na mesma tarefa; `escolherWhatsapp` (T5 → T10 → T11, com o tipo `Devidas` da T5 e `vagasDoMinuto` da T10) e `aposEnvio` (T5 → T11) têm a versão completa a cada troca; `inicioConsulta` (T5) em toda linha de `notifications` ligada a consulta — `agendarLembretes`/`avisarPaciente` (T5), a resposta "1"/"2" (T12) e os `insert` diretos dos testes das T5, T10, T11, T12 e T15; `chaveDoWebhook` (T9) em `evolution.ts` (T9), `receberWebhook` e `e2e/whatsapp.ts` (T12); `buscarTenantPorSlug` (T8) na página pública e no E2E (T12); `PUBLICO_LIBERADO` (T3) cresce em T5 (`notifications`) e T8 (`public_booking_requests`), sempre junto do `app_allow_publico` da migration; `ProvedorWhatsapp`/`EnvioTexto`/`ResultadoEnvio` (T9) em T10 e testes; `tenantDaInstancia`/`atualizarEstadoConexao` (T9) em T12; `FINALIDADE_CONTEUDO` (T10) em T14; `chaveDosLinks`/`assinarLinkConsulta` (T5) em T7 e T10; `fallbackPorEmail` (renomeado de `aoFalhar` na T12); `MSG_AGENDA` (T1) concentra os textos das Tarefas 2–8.
 
-**4. Review Focus:** 1 (corrida) → T3 "corrida", T6 "corrida pelo mesmo horário", T8 "horário ocupado entre o pedido e o código"; 2 (fuso/relógio) → T1 (DST, virada do mês), T5 (bordas 20:59–08:00, "em cima da hora"), T11 (31/10 23:30); 3 (resposta que não bate) → T12 ("nada muda", citado, repetido, 26 h, outro número); 4 (consulta mudada / worker caindo) → T5 ("ATUALIZA as mesmas linhas", "worker caiu no meio", suspensão), T10 (timeout definitivo, fallback); 5 (abuso/privacidade na página pública) → T8 (Turnstile, 429, código, 3 consultas depois do código, mesma resposta).
+**4. Review Focus:** 1 (corrida) → T3 "corrida", T6 "corrida pelo mesmo horário", T8 "horário ocupado entre o pedido e o código"; 2 (fuso/relógio) → T1 (DST, virada do mês), T5 (bordas 20:59–08:00, "em cima da hora", `adiarLembrete`, "horário silencioso na reserva"), T11 (31/10 23:30); 3 (resposta que não bate) → T12 ("nada muda", citado, repetido, 26 h, outro número); 4 (consulta mudada / worker caindo) → T5 ("alterar a hora" com linhas novas e a enviada intacta, "worker caiu no meio", suspensão, jobs fora de ordem, `consulta_remarcada` na hora do envio), T10 (timeout definitivo, fallback, 100 WhatsApps atrasados), T11 (enviar → remarcar → enviar conta 2); 5 (abuso/privacidade) → T3 (`publico` na matriz de isolamento e na guarda), T7 (paciente arquivado/bloqueado/anonimizado no link), T8 (Turnstile, 429, código, 3 consultas depois do código, mesma resposta), T9 (variáveis de produção), T12 (JWT de outra instância, segredo-mestre, repetição); 6 (uma conexão por transação) → T7 (remarcar com pool de 1 conexão).
+
+**5. Rodada 1 do `/code-review` (PR #7) — o que mudou no plano:** (1) T9: com o sandbox e só o segredo, a regra "juntas" não vale; produção com só uma das três → erro. (2) T7: `remarcarComoPaciente` escolhe o horário antes da transação (Global Constraints e Review Focus 6; nenhum outro `withTenant`/`getDb()` aninhado no plano — `concluir`, `agendarComoPaciente`, `processarTenant` e o webhook já liam antes ou depois). (3) T5: `ignorarPendentesDoTenant` e `reagendarTenantReativado` releem o status do tenant com `FOR SHARE` na mesma transação. (4) T5/T13: horário silencioso também na reserva, adiando para as 08:00 quando faz sentido, em todos os canais (D7). (5) T9/T12: webhook com chave por instância, recusa de repetição e URL interna em produção (D4). (6) T3/T5/T8: contexto `publico` negado no banco por padrão + `PUBLICO_LIBERADO` + guarda + matriz (D11). (7) T5/T10/T11: reserva canal por canal, parte do lote por tenant e rodízio (D6). (8) T5/T11/T12: `inicio_consulta` na chave única, enviada imutável, `consulta_remarcada` (D6/D17). (9) T8/T12: `buscarTenantPorSlug` em `tenant-status.ts`, usada pela página pública e pelo E2E. (10) T7: paciente inativo/bloqueado/anonimizado no link da consulta.
 
 ## Execução
 
