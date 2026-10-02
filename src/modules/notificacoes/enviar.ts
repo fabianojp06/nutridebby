@@ -120,9 +120,12 @@ async function vagasDoMinuto(tx: Tx, tenant: TenantRow, agora: Date): Promise<nu
 }
 
 /**
- * D15 + D16: cota do mês (RN-09) e ritmo de 8/min. Cota esgotada → os que contam viram "cota_esgotada" já, sem gastar
- * vaga; sem vaga no minuto → nem busca (fica para a próxima volta). E-mail e push já foram reservados antes (D6). Sem
- * provedor (`ligado` falso), nada sai: nem trava do ritmo nem cota — as linhas viram "whatsapp_desligado" no envio.
+ * D15 + D16: cota do mês (RN-09) e ritmo de 8/min. Cota esgotada (o uso do mês, contado no início da volta, já chegou
+ * à cota) → os que contam viram "cota_esgotada" já, sem gastar vaga; sem vaga no minuto → nem busca (fica para a
+ * próxima volta). Com saldo, a volta reserva no máximo o saldo; o que passar dele fica "pendente", como no ritmo: a
+ * próxima volta reconta pelo uso real — uma reservada que o envio ignora (sem opt-in, desconectado…) não gasta a cota
+ * das outras (rodada 1 da revisão). E-mail e push já foram reservados antes (D6). Sem provedor (`ligado` falso), nada
+ * sai: nem trava do ritmo nem cota — as linhas viram "whatsapp_desligado" no envio.
  */
 async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas, ligado: boolean): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
   if (max <= 0) return { reservar: [], semCota: [] };
@@ -135,15 +138,14 @@ async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: num
     return { reservar: livres > 0 ? await devidas(['whatsapp'], livres, FORA_DA_COTA) : [], semCota };
   }
   const reservar: NotificationRow[] = [];
-  const semCota: string[] = [];
   for (const n of livres > 0 ? await devidas(['whatsapp'], livres) : []) {
-    if (!contaCota(n.tipo)) reservar.push(n);
-    else if (saldo > 0) {
+    if (contaCota(n.tipo)) {
+      if (saldo <= 0) continue; // sem saldo nesta volta: fica "pendente" (a trava do SKIP LOCKED sai com a transação)
       saldo--;
-      reservar.push(n);
-    } else semCota.push(n.id);
+    }
+    reservar.push(n);
   }
-  return { reservar, semCota };
+  return { reservar, semCota: [] };
 }
 
 /**
@@ -210,7 +212,7 @@ async function reservar(ctx: TenantContext, tenant: TenantRow, deps: DepsEnvio, 
               .for('update', { skipLocked: true });
       const outras = await devidas(['email', 'push'], limite);
       const w = await escolherWhatsapp(tx, tenant, agora, limite - outras.length, devidas, deps.whatsapp !== null);
-      if (w.semCota.length) await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'cota_esgotada', updatedAt: agora }).where(inArray(notifications.id, w.semCota));
+      if (w.semCota.length) await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'cota_esgotada', conteudoSelado: null, updatedAt: agora }).where(inArray(notifications.id, w.semCota));
       const ids = [...outras, ...w.reservar].map((n) => n.id);
       if (!ids.length) return [];
       return tx.update(notifications).set({ status: 'enviando', tentativas: sql`${notifications.tentativas} + 1`, updatedAt: agora }).where(inArray(notifications.id, ids)).returning();
