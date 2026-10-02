@@ -269,6 +269,27 @@ export async function buscarConsulta(ctx: TenantContext, id: string, db: Db = ge
 }
 
 /**
+ * Revisão final: o motivo que a nutricionista escreveu ao cancelar ("Só você vê." no formulário), para a página da consulta
+ * no painel. Só dela: sessão de outro papel é erro de programação; o motivo do paciente ("Remarcada pelo paciente") não
+ * entra. Nunca vai para o link da consulta, e-mail, WhatsApp, PWA nem para a exportação (exportacao-job leva só o do
+ * paciente). Leitura da agenda: sem auditRead (D10).
+ */
+export async function motivoDoCancelamentoDaNutri(ctx: TenantContext, id: string, db: Db = getDb()): Promise<string | null> {
+  if (ctx.role !== 'nutri') throw new Error('o motivo do cancelamento é só da nutricionista');
+  if (!idValido(id)) return null;
+  const [r] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ motivo: appointments.motivoCancelamento })
+        .from(appointments)
+        .where(and(eq(appointments.id, id), eq(appointments.status, 'cancelada'), eq(appointments.canceladoPor, 'nutri'))),
+    db,
+  );
+  return r?.motivo ?? null;
+}
+
+/**
  * D11: horários livres no contexto `publico` (sem ator): lê regras, bloqueios e só início/fim das consultas
  * não canceladas, e devolve só intervalos — nunca quem ocupa. A margem de 8 h depois de `ate` pega
  * bloqueio/consulta que começa depois do fim da janela mas cruza o último horário.

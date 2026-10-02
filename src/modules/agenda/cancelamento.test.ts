@@ -1,5 +1,5 @@
 import { inspect } from 'node:util';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
@@ -8,14 +8,14 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import * as schema from '@/db/schema';
-import { appointments, notifications, patients, user } from '@/db/schema';
+import { appointments, auditLog, notifications, patients, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { agendarComoPaciente } from './agendamento-paciente';
 import { cancelarConsulta, confirmarPresenca, ConsultaMudouError, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
-import { ConsultaError, ConsultaNaoEncontradaError } from './consultas';
+import { ConsultaError, ConsultaNaoEncontradaError, motivoDoCancelamentoDaNutri } from './consultas';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só lê pg_stat_activity (a gravação ficou presa na trava)
@@ -188,6 +188,31 @@ describe('remarcar e cancelar (US-033)', () => {
       expect(await consulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
       expect(await consultasDo(T, ana.id)).toHaveLength(1); // a remarcação recusada não deixou consulta nova
     }
+  });
+
+  it('revisão final: o motivo do cancelamento da nutricionista ("Só você vê.") volta só para ela, sem leitura auditada (D10); o do paciente e o de outro consultório, não', async () => {
+    const [T, U] = [await novoTenant(app.db), await novoTenant(app.db)];
+    const ana = await novoPaciente(app.db, T.ctx);
+    const d = deps(em('2026-10-10', '09:00'));
+    const [comMotivo, semMotivo, ativa, peloPaciente] = [
+      await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '09:00')),
+      await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '11:00')),
+      await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '13:00')),
+      await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '15:00')),
+    ];
+    await cancelarConsulta(T.ctx, tenantAgenda(T), comMotivo, { por: 'nutri', motivo: '  Viagem pessoal  ' }, d);
+    await cancelarConsulta(T.ctx, tenantAgenda(T), semMotivo, { por: 'nutri' }, d);
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: new Date(), motivoCancelamento: 'Remarcada pelo paciente' }).where(eq(appointments.id, peloPaciente)), app.db);
+    expect(await motivoDoCancelamentoDaNutri(T.ctx, comMotivo, app.db)).toBe('Viagem pessoal');
+    expect(await motivoDoCancelamentoDaNutri(T.ctx, semMotivo, app.db)).toBeNull();
+    expect(await motivoDoCancelamentoDaNutri(T.ctx, ativa, app.db)).toBeNull();
+    expect(await motivoDoCancelamentoDaNutri(T.ctx, peloPaciente, app.db)).toBeNull();
+    expect(await motivoDoCancelamentoDaNutri(T.ctx, 'nao-e-uuid', app.db)).toBeNull();
+    expect(await motivoDoCancelamentoDaNutri(U.ctx, comMotivo, app.db)).toBeNull(); // outro consultório (RLS)
+    await expect(motivoDoCancelamentoDaNutri(ctxPaciente(T.tenantId, ana.id), comMotivo, app.db)).rejects.toThrow();
+    // D10: leitura da agenda sem auditRead — nenhuma linha "ler" da consulta
+    const leituras = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, comMotivo), eq(auditLog.acao, 'ler'))), app.db);
+    expect(leituras).toEqual([]);
   });
 
   it('paciente não cancela consulta de outro paciente (RLS) e o motivo tem até 300 caracteres', async () => {

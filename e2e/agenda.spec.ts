@@ -4,7 +4,9 @@ import { esperarEmail, primeiroLink } from './mailpit';
 import { conexaoDoConsultorio, idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
-test.describe.configure({ mode: 'serial' });
+// Serial: cada teste usa o que o anterior criou. Sem nova tentativa (o CI tem retries: 1): o seed roda uma vez só, e a
+// segunda tentativa do arquivo colidiria com os dados da primeira (horários repetidos, bloqueio já gravado).
+test.describe.configure({ mode: 'serial', retries: 0 });
 let nutri: Page;
 
 /** 'AAAA-MM-DD' da segunda-feira a partir de hoje + `dias` (o teste só compara texto). */
@@ -48,6 +50,11 @@ test('horários de atendimento e bloqueio (US-030)', async () => {
   await nutri.getByLabel('Motivo (opcional)').fill('Congresso');
   await nutri.getByRole('button', { name: 'Adicionar bloqueio' }).click();
   await expect(nutri.getByText(`seg., ${br(SEMANA_BLOQUEADA)} às 00:00 até sáb., ${br(somar(SEMANA_BLOQUEADA, 5))} às 00:00 — Congresso`)).toBeVisible();
+  // teto de datas da agenda (revisão final): data absurda na URL volta para hoje, nunca 500
+  for (const url of ['/painel/agenda?data=9999-12-31', '/painel/agenda?visao=semana&data=9999-12-31', '/painel/agenda/nova?data=9999-12-31']) {
+    expect((await nutri.goto(url))?.status()).toBe(200);
+  }
+  await expect(nutri.getByRole('heading', { name: 'Nova consulta' })).toBeVisible();
 });
 
 const sufixo = Date.now().toString(36);
@@ -161,7 +168,10 @@ test('link da consulta: confirmar, remarcar (US-033, US-035) e cancelamento pela
   await nutri.getByLabel('Motivo do cancelamento (opcional)').fill('Imprevisto');
   await nutri.getByRole('button', { name: 'Cancelar consulta' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Consulta cancelada.' })).toBeVisible();
-  await esperarEmail(`carla-${sufixo}@ex.com`, { assunto: `Consulta cancelada: ter., ${br(somar(SEGUNDA_LIVRE, 1))} às 14:00 (horário de Brasília)` });
+  // revisão final: o motivo ("Só você vê.") aparece para ela na página da consulta, e não no aviso à paciente
+  await expect(nutri.getByText('Motivo do cancelamento (só você vê): Imprevisto')).toBeVisible();
+  const aviso = await esperarEmail(`carla-${sufixo}@ex.com`, { assunto: `Consulta cancelada: ter., ${br(somar(SEGUNDA_LIVRE, 1))} às 14:00 (horário de Brasília)` });
+  expect(aviso.texto + aviso.html).not.toContain('Imprevisto');
   await paciente.context().close();
 });
 

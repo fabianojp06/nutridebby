@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
-import { buscarConsulta, STATUS_ATIVOS } from '@/modules/agenda/consultas';
+import { buscarConsulta, motivoDoCancelamentoDaNutri, STATUS_ATIVOS } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
@@ -33,6 +33,8 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
   // rodada 1: já começou, não cancelada e sem atendimento ligado (também "realizada"/"faltou")
   const podeAtender = (await consultaParaIniciarAtendimento(ctx, c.patientId, c.id, agora)) !== null;
+  // revisão final: o motivo que ela escreveu ao cancelar ("Só você vê.") — só nesta página do painel
+  const motivo = c.status === 'cancelada' && c.canceladoPor === 'nutri' ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
   return (
     <>
       <Cabecalho tenant={tenant} />
@@ -45,6 +47,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           <ul className="flex flex-wrap gap-1 text-sm" aria-label="Situação">
             {selosDaConsulta(c, emBloqueio).map((s) => <li key={s} className="rounded bg-zinc-100 px-1.5">{s}</li>)}
           </ul>
+          {motivo && <p className="text-sm"><span className="font-medium">Motivo do cancelamento (só você vê):</span> {motivo}</p>}
           <p className="text-sm"><Link href={`/painel/pacientes/${c.patientId}`} className="underline">Abrir prontuário</Link></p>
         </header>
         {ok && <p role="status" className="rounded bg-emerald-50 p-3">{ok}</p>}
