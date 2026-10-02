@@ -12,13 +12,24 @@ type Props = {
   /** O paciente já ativou o acesso: o e-mail é o login dele. */
   emailBloqueado?: boolean;
   somenteLeitura?: boolean;
+  /** US-010: a opção "Enviar convite por WhatsApp" (só no cadastro). */
+  conviteWhatsapp?: boolean;
 };
 
-export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeitura }: Props) {
+export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeitura, conviteWhatsapp }: Props) {
   const [state, action, pendente] = useActionState<PacienteState, FormData>(acao, {});
   const v = state.valores ?? inicial;
   const e = state.erros ?? {};
   const [telefone, setTelefone] = useState(v.telefone);
+  // US-010 "WhatsApp sem autorização": o convite por WhatsApp só fica habilitado com a autorização marcada. A caixa da
+  // autorização continua não controlada — depois de cada envio o React volta o formulário para `v` (o que foi enviado,
+  // ou o que ficou salvo) —, e este estado acompanha o que ela mostra: muda com o clique e volta junto quando `v` muda
+  const [autorizado, setAutorizado] = useState(v.whatsappAutorizado);
+  const [valoresVistos, setValoresVistos] = useState(v);
+  if (valoresVistos !== v) {
+    setValoresVistos(v);
+    setAutorizado(v.whatsappAutorizado);
+  }
   return (
     <form action={action} className="space-y-4">
       <fieldset disabled={somenteLeitura} className="space-y-4">
@@ -55,6 +66,7 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
             type="checkbox"
             className="mt-1"
             defaultChecked={v.whatsappAutorizado}
+            onChange={(ev) => setAutorizado(ev.target.checked)}
             disabled={!telefone.trim()}
             aria-invalid={e.whatsappAutorizado ? true : undefined}
             aria-describedby={e.whatsappAutorizado ? 'whatsappAutorizado-erro' : undefined}
@@ -62,6 +74,22 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
           <label htmlFor="whatsappAutorizado">Paciente autorizou receber mensagens por WhatsApp</label>
         </div>
         {e.whatsappAutorizado && <p id="whatsappAutorizado-erro" role="alert" className="text-sm text-red-700">{e.whatsappAutorizado}</p>}
+        {conviteWhatsapp && (
+          <div className="flex items-start gap-2">
+            <input
+              id="enviarConviteWhatsapp"
+              name="enviarConviteWhatsapp"
+              type="checkbox"
+              className="mt-1"
+              defaultChecked={v.enviarConviteWhatsapp}
+              disabled={!autorizado || !telefone.trim()}
+              aria-invalid={e.enviarConviteWhatsapp ? true : undefined}
+              aria-describedby={e.enviarConviteWhatsapp ? 'enviarConviteWhatsapp-erro' : undefined}
+            />
+            <label htmlFor="enviarConviteWhatsapp">Enviar convite por WhatsApp</label>
+          </div>
+        )}
+        {e.enviarConviteWhatsapp && <p id="enviarConviteWhatsapp-erro" role="alert" className="text-sm text-red-700">{e.enviarConviteWhatsapp}</p>}
       </fieldset>
       {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
       {state.ok && <p role="status">Cadastro salvo.</p>}

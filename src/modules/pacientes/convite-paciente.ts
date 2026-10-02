@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { account, consents, invites, patients, user, type PatientRow } from '@/db/schema';
+import { account, consents, invites, notifications, patients, user, type NotificationRow, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
@@ -10,8 +10,10 @@ import { randomToken, sha256 } from '@/lib/crypto';
 import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
 import { normalizeEmail } from '@/lib/text';
+import { renovarConviteWhatsapp } from '@/modules/notificacoes/agendar';
+import { textoConviteWhatsapp } from '@/modules/notificacoes/mensagens';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
-import { carregarPacienteParaEscrita } from './base';
+import { carregarPacienteParaEscrita, idValido } from './base';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
 import { urlDoApp } from '@/lib/url-do-app';
 
@@ -46,30 +48,25 @@ export function linkDoConvitePaciente(appUrl: string, token: string): string {
  * Convite novo de 7 dias + e-mail na mesma transação. O pendente anterior do paciente some antes
  * (um por paciente: `invites_paciente_pendente_idx`). Quem já tem conta de paciente (outro tenant)
  * recebe o texto de "entre com sua conta existente". Chamar dentro de withTenant, com o paciente lido
- * (e travado, quando não é recém-criado).
+ * (e travado, quando não é recém-criado). Devolve o link (credencial: nunca para log, mensagem de erro ou
+ * resposta ao navegador) para o convite por WhatsApp levar o mesmo convite (US-010); o convite por
+ * WhatsApp ainda na fila passa a levar o link novo (o anterior deixou de valer).
  */
 export async function enviarConvitePaciente(
   tx: Tx,
   p: Pick<PatientRow, 'id' | 'tenantId' | 'nome' | 'email'>,
   deps: { appUrl: string; nutri: string; now: Date },
-): Promise<{ expiraEm: Date }> {
+): Promise<{ expiraEm: Date; link: string; contaExistente: boolean }> {
   const token = randomToken();
   const expiraEm = new Date(deps.now.getTime() + CONVITE_PACIENTE_VALIDADE_MS);
   await apagarConvitesPendentes(tx, p.tenantId, p.id); // CLAUDE.md regra 1: filtra tipo e tenant
   await tx.insert(invites).values({ tipo: 'paciente', tenantId: p.tenantId, patientId: p.id, tokenHash: sha256(token), expiraEm, createdAt: deps.now });
   const [conta] = await tx.select({ papel: user.appRole }).from(user).where(eq(user.email, p.email));
-  await enqueueEmail(
-    {
-      tipo: 'convite_paciente',
-      para: p.email,
-      nome: p.nome,
-      nutri: deps.nutri,
-      link: linkDoConvitePaciente(deps.appUrl, token),
-      contaExistente: conta?.papel === 'paciente',
-    },
-    { tenantId: p.tenantId, tx },
-  );
-  return { expiraEm };
+  const link = linkDoConvitePaciente(deps.appUrl, token);
+  const contaExistente = conta?.papel === 'paciente';
+  await enqueueEmail({ tipo: 'convite_paciente', para: p.email, nome: p.nome, nutri: deps.nutri, link, contaExistente }, { tenantId: p.tenantId, tx });
+  await renovarConviteWhatsapp(tx, p.id, textoConviteWhatsapp({ nome: p.nome, nutri: deps.nutri, link, contaExistente }), deps.now);
+  return { expiraEm, link, contaExistente };
 }
 
 /** RN-08 / US-018: arquivar ou bloquear o paciente invalida o convite ainda não usado. */
@@ -110,7 +107,9 @@ export async function reenviarConvitePaciente(
       const p = await carregarPacienteParaEscrita(tx, patientId);
       if (p.userId) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.jaAtivo);
       if (p.status !== 'ativo') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.inativo);
-      return enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now: deps.now ?? new Date() });
+      // só a validade sai daqui: o link é credencial e fica na transação (e-mail e WhatsApp cifrados)
+      const { expiraEm } = await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now: deps.now ?? new Date() });
+      return { expiraEm };
     },
     deps.db ?? getDb(),
   );
@@ -272,4 +271,26 @@ export async function vincularContaExistente(
     },
     db,
   );
+}
+
+export type SituacaoConviteWhatsapp = Pick<NotificationRow, 'status' | 'motivoIgnorada' | 'agendadaPara' | 'enviadaEm'>;
+
+/**
+ * Situação do último convite por WhatsApp, para a tela do paciente (US-010). Sem dado de saúde nem conteúdo: só
+ * situação e horários (registro técnico de entrega, sem `auditRead`, como os lembretes da consulta — D10).
+ */
+export async function situacaoDoConviteWhatsapp(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<SituacaoConviteWhatsapp | null> {
+  if (!idValido(patientId)) return null;
+  const [n] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ status: notifications.status, motivoIgnorada: notifications.motivoIgnorada, agendadaPara: notifications.agendadaPara, enviadaEm: notifications.enviadaEm })
+        .from(notifications)
+        .where(and(eq(notifications.patientId, patientId), eq(notifications.tipo, 'convite_paciente'), eq(notifications.canal, 'whatsapp')))
+        .orderBy(desc(notifications.createdAt))
+        .limit(1),
+    db,
+  );
+  return n ?? null;
 }

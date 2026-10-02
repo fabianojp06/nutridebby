@@ -1,5 +1,6 @@
 import type { PatientRow } from '@/db/schema';
-import type { SituacaoAcesso } from '@/modules/pacientes/convite-paciente';
+import { situacaoDaNotificacao } from '@/modules/notificacoes/tipos';
+import type { SituacaoAcesso, SituacaoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 
@@ -11,6 +12,8 @@ export type ValoresPaciente = {
   email: string;
   telefone: string;
   whatsappAutorizado: boolean;
+  /** US-010: só no cadastro. */
+  enviarConviteWhatsapp: boolean;
 };
 
 const campo = (f: FormData, k: string) => String(f.get(k) ?? '');
@@ -23,6 +26,7 @@ export function valoresDoFormulario(f: FormData): ValoresPaciente {
     email: campo(f, 'email'),
     telefone: campo(f, 'telefone'),
     whatsappAutorizado: f.get('whatsappAutorizado') === 'on',
+    enviarConviteWhatsapp: f.get('enviarConviteWhatsapp') === 'on',
   };
 }
 
@@ -34,6 +38,7 @@ export function valoresDoPaciente(p: PatientRow): ValoresPaciente {
     email: p.email,
     telefone: p.telefoneE164 ? formatarTelefone(p.telefoneE164) : '',
     whatsappAutorizado: !!p.whatsappOptinEm && !p.whatsappOptoutEm,
+    enviarConviteWhatsapp: false,
   };
 }
 
@@ -56,4 +61,9 @@ export function textoDoAcesso(s: SituacaoAcesso, fuso: string): string {
     case 'sem_convite':
       return 'Nenhum convite pendente.';
   }
+}
+
+/** US-010: situação do convite por WhatsApp na tela do paciente ("Convite por WhatsApp: {situação}"); sem convite, nada. */
+export function textoDoConviteWhatsapp(n: SituacaoConviteWhatsapp | null, fuso: string): string | null {
+  return n ? `Convite por WhatsApp: ${situacaoDaNotificacao(n, fuso).replace(/^./, (c) => c.toLowerCase())}` : null;
 }

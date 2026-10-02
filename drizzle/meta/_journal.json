@@ -435,6 +435,13 @@
       "when": 1790950952069,
       "tag": "0061_rls_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790956705315,
+      "tag": "0062_conteudo_selado_ate_o_envio",
+      "breakpoints": true
     }
   ]
 }

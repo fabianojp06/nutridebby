@@ -38,6 +38,17 @@ export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; cha
 export const FINALIDADE_CONTEUDO = 'notificacao-conteudo';
 
 /**
+ * US-010: o convite por WhatsApp leva o mesmo link (de uso único) do e-mail — o mesmo convite, nunca um segundo token.
+ * Quem já tem conta de paciente (outra nutricionista) recebe o texto de "entre com sua conta existente", como no e-mail.
+ */
+export function textoConviteWhatsapp(o: { nome: string; nutri: string; link: string; contaExistente: boolean }): string {
+  const nome = primeiroNome(o.nome);
+  return o.contaExistente
+    ? `Olá, ${nome}! Entre com sua conta existente para ver os dados da nutricionista ${o.nutri}: ${o.link}`
+    : `Olá, ${nome}! ${o.nutri} convidou você para acompanhar seu tratamento pelo NutriDebby. Crie sua senha pelo link (vale por 7 dias): ${o.link}`;
+}
+
+/**
  * D3: texto simples (sem botões, sem template). Só transacional: lembrete, resposta e convite. O link assinado
  * da consulta vai em todo lembrete; a resposta "1"/"2" é interpretada no webhook (Tarefa 12).
  */

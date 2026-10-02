@@ -288,3 +288,29 @@ test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada 
   // e recebe a resposta automática (uma só)
   await expect.poll(async () => (await esperarEmail(`${numero}@whatsapp.sandbox`, { depoisDe: respondidoEm })).texto, { timeout: 30_000 }).toContain('Presença confirmada. Até lá!');
 });
+
+test('convite por WhatsApp no cadastro chega ao número do paciente (sandbox), com o mesmo link do e-mail (US-010)', async () => {
+  const antes = new Date();
+  await nutri.goto('/painel/pacientes/novo');
+  await nutri.getByLabel('Nome').fill(`Gabi Whats ${sufixo}`);
+  await nutri.getByLabel('Data de nascimento').fill('1990-05-10');
+  await nutri.getByLabel('Feminino').check();
+  await nutri.getByLabel('E-mail').fill(`gabi-${sufixo}@ex.com`);
+  await nutri.getByLabel('Telefone (opcional)').fill('(11) 98765-4321');
+  // US-010 "WhatsApp sem autorização": a opção fica desabilitada
+  await expect(nutri.getByLabel('Enviar convite por WhatsApp')).toBeDisabled();
+  await nutri.getByLabel('Paciente autorizou receber mensagens por WhatsApp').check();
+  await nutri.getByLabel('Enviar convite por WhatsApp').check();
+  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
+  // o consultório do E2E está conectado desde o teste do webhook: a mensagem sai pelo sandbox (Mailpit)
+  const msg = await esperarEmail('5511987654321@whatsapp.sandbox', { depoisDe: antes });
+  expect(msg.texto).toMatch(/^Olá, Gabi! Consultório E2E convidou você para acompanhar seu tratamento pelo NutriDebby\. Crie sua senha pelo link \(vale por 7 dias\): http\S+\/convite\/paciente\//);
+  const convite = await esperarEmail(`gabi-${sufixo}@ex.com`);
+  expect(primeiroLink(msg.texto, '/convite/paciente/')).toBe(primeiroLink(convite.texto, '/convite/paciente/')); // o mesmo convite
+  // o worker grava "enviada" logo depois de o sandbox aceitar a mensagem
+  await expect(async () => {
+    await nutri.reload();
+    await expect(nutri.getByText(/^Convite por WhatsApp: enviado em /)).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+});

@@ -3,7 +3,7 @@ import type { AppointmentRow, NotificationRow, PatientRow, TenantRow } from '@/d
 import { sealSecret } from '@/lib/crypto';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
-import { FINALIDADE_CONTEUDO, pushDaNotificacao, textoWhatsapp } from './mensagens';
+import { FINALIDADE_CONTEUDO, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
 
 const deps = { appUrl: 'https://app.exemplo.com', chaveLinks: chaveDosLinks(Buffer.alloc(32, 9)) };
 const tenant = { id: '0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', nomeExibicao: 'Debby Silva', fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua das Flores, 10', cancelamentoMinH: 24 } as TenantRow;
@@ -30,6 +30,16 @@ describe('textos do WhatsApp (D3)', () => {
     expect(textoWhatsapp(ctx('resposta_remarcar'), deps)).toMatch(/^Tudo bem! Para escolher outro horário, use o link: https:\/\/app\.exemplo\.com\/consulta\/\S+\nSe faltarem menos de 24 h para a consulta, fale direto com Debby Silva\.$/);
     expect(textoWhatsapp(ctx('convite_paciente', { conteudoSelado: sealSecret('Convite pronto', FINALIDADE_CONTEUDO) }), deps)).toBe('Convite pronto');
     expect(textoWhatsapp(ctx('consulta_marcada'), deps)).toBeNull();
+  });
+});
+
+describe('convite por WhatsApp (US-010)', () => {
+  it('primeiro nome, nutricionista e o link do convite; quem já é paciente de outra nutricionista entra com a conta existente', () => {
+    const o = { nome: ' Ana Souza Lima', nutri: 'Debby Silva', link: 'https://app.exemplo.com/convite/paciente/abc' };
+    expect(textoConviteWhatsapp({ ...o, contaExistente: false })).toBe(
+      'Olá, Ana! Debby Silva convidou você para acompanhar seu tratamento pelo NutriDebby. Crie sua senha pelo link (vale por 7 dias): https://app.exemplo.com/convite/paciente/abc',
+    );
+    expect(textoConviteWhatsapp({ ...o, contaExistente: true })).toBe('Olá, Ana! Entre com sua conta existente para ver os dados da nutricionista Debby Silva: https://app.exemplo.com/convite/paciente/abc');
   });
 });
 

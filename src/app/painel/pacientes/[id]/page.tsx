@@ -1,9 +1,9 @@
 import { etiquetasDoPaciente, listarEtiquetas } from '@/modules/pacientes/etiquetas';
-import { situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
+import { situacaoDoAcesso, situacaoDoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { atualizarPacienteAction, reenviarConviteAction, salvarEtiquetasAction } from '../actions';
 import { PacienteForm } from '../paciente-form';
 import { EtiquetasForm } from './etiquetas-form';
-import { textoDoAcesso, valoresDoPaciente } from '../valores';
+import { textoDoAcesso, textoDoConviteWhatsapp, valoresDoPaciente } from '../valores';
 import { carregarProntuario } from './prontuario';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 export default async function ResumoPage({ params }: PageProps<'/painel/pacientes/[id]'>) {
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
-  const acesso = await situacaoDoAcesso(ctx, paciente);
+  const [acesso, conviteWa] = await Promise.all([situacaoDoAcesso(ctx, paciente), situacaoDoConviteWhatsapp(ctx, paciente.id)]);
+  const conviteWhatsapp = textoDoConviteWhatsapp(conviteWa, tenant.fuso); // US-010
   const [todas, doPaciente] = await Promise.all([listarEtiquetas(ctx), etiquetasDoPaciente(ctx, paciente.id)]);
   const bloqueado = paciente.status === 'bloqueado';
   return (
@@ -30,6 +31,7 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
       <section aria-labelledby="acesso-titulo" className="space-y-2">
         <h2 id="acesso-titulo" className="text-lg font-semibold">Acesso ao portal</h2>
         <p>{textoDoAcesso(acesso, tenant.fuso)}</p>
+        {conviteWhatsapp && <p className="text-sm">{conviteWhatsapp}</p>}
         {acesso.estado !== 'ativo' && paciente.status === 'ativo' && (
           <form action={reenviarConviteAction.bind(null, paciente.id)}>
             <button className="rounded border px-4 py-2">Reenviar convite</button>

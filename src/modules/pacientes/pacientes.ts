@@ -7,6 +7,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
+import { agendarConviteWhatsapp } from '@/modules/notificacoes/agendar';
+import { textoConviteWhatsapp } from '@/modules/notificacoes/mensagens';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido, PacienteNaoEncontradoError } from './base';
 import { enviarConvitePaciente } from './convite-paciente';
@@ -22,12 +24,13 @@ export const MSG_PACIENTE = {
   emailDuplicado: 'Paciente já cadastrado com este e-mail',
   telefone: 'Telefone inválido',
   whatsappSemTelefone: 'Informe o telefone para registrar a autorização de WhatsApp',
+  conviteSemAutorizacao: 'Marque que o paciente autorizou o WhatsApp',
   emailBloqueado: 'O paciente já ativou o acesso; o e-mail não pode ser alterado.',
 } as const;
 
 export type TenantDoPaciente = Pick<TenantRow, 'fuso' | 'nomeExibicao'>;
 export type StatusPaciente = 'ativo' | 'arquivado' | 'bloqueado';
-export type ErrosPaciente = Partial<Record<'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'geral', string>>;
+export type ErrosPaciente = Partial<Record<'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'enviarConviteWhatsapp' | 'geral', string>>;
 
 export class PacienteError extends Error {
   override name = 'PacienteError';
@@ -65,10 +68,15 @@ export function pacienteSchema(hoje: string) {
           return e164;
         }),
       whatsappAutorizado: z.boolean(),
+      /** US-010: só no cadastro (a edição ignora). */
+      enviarConviteWhatsapp: z.boolean().default(false),
     })
     .superRefine((v, ctx) => {
       if (v.whatsappAutorizado && !v.telefone) {
         ctx.addIssue({ code: 'custom', path: ['whatsappAutorizado'], message: MSG_PACIENTE.whatsappSemTelefone });
+      }
+      if (v.enviarConviteWhatsapp && !v.whatsappAutorizado) {
+        ctx.addIssue({ code: 'custom', path: ['enviarConviteWhatsapp'], message: MSG_PACIENTE.conviteSemAutorizacao });
       }
     });
 }
@@ -102,7 +110,8 @@ function autorizacaoWhatsapp(
 
 /**
  * US-010: paciente `ativo`, `user_id` nulo. Em corrida, quem decide o e-mail repetido é a UNIQUE
- * (tenant_id, email) em citext — sem pré-checagem.
+ * (tenant_id, email) em citext — sem pré-checagem. "Enviar convite por WhatsApp": o mesmo convite (link) do
+ * e-mail, numa linha do motor de envio na mesma transação; o e-mail sai qualquer que seja o resultado do WhatsApp.
  */
 export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente, input: Record<string, unknown>, deps: Deps = {}): Promise<PatientRow> {
   const db = deps.db ?? getDb();
@@ -128,7 +137,12 @@ export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente
           })
           .returning();
         // US-010: convite de 7 dias por e-mail na mesma transação (paciente criado ⇔ convite na fila)
-        await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+        const convite = await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+        // US-010 "Convite também por WhatsApp": o mesmo link, só com a autorização registrada (INT-01: opt-in antes de qualquer mensagem)
+        if (v.enviarConviteWhatsapp && p.whatsappOptinEm && !p.whatsappOptoutEm) {
+          const texto = textoConviteWhatsapp({ nome: p.nome, nutri: tenant.nomeExibicao, link: convite.link, contaExistente: convite.contaExistente });
+          await agendarConviteWhatsapp(tx, { tenantId: ctx.tenantId, patientId: p.id, texto }, now);
+        }
         return p;
       },
       db,

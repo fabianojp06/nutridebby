@@ -5,7 +5,7 @@ import { PacienteForm } from '../paciente-form';
 
 export const dynamic = 'force-dynamic';
 
-const VAZIO = { nome: '', dataNascimento: '', sexo: '', email: '', telefone: '', whatsappAutorizado: false };
+const VAZIO = { nome: '', dataNascimento: '', sexo: '', email: '', telefone: '', whatsappAutorizado: false, enviarConviteWhatsapp: false };
 
 export default async function NovoPacientePage() {
   const { tenant } = await requireNutri('/painel/pacientes/novo');
@@ -14,7 +14,7 @@ export default async function NovoPacientePage() {
       <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-xl space-y-4 p-6">
         <h1 className="text-2xl font-semibold">Novo paciente</h1>
-        <PacienteForm acao={criarPacienteAction} inicial={VAZIO} botao="Cadastrar paciente" />
+        <PacienteForm acao={criarPacienteAction} inicial={VAZIO} botao="Cadastrar paciente" conviteWhatsapp />
       </main>
     </>
   );

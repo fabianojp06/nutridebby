@@ -4,8 +4,10 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, notifications, tipoUmPorHorario, TIPOS_UM_POR_HORARIO, type NotificationRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { sealSecret } from '@/lib/crypto';
 import { paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { buscarTenant, getTenantStatus } from '@/modules/plataforma/tenant-status';
+import { FINALIDADE_CONTEUDO } from './mensagens';
 import { CANAIS, ehLembrete, type TipoLembrete } from './tipos';
 
 export const ANTECEDENCIA_MS: Record<TipoLembrete, number> = { lembrete_24h: 24 * 3_600_000, lembrete_2h: 2 * 3_600_000 };
@@ -169,6 +171,38 @@ export async function fallbackPorEmail(tx: Tx, n: NotificationRow, agora: Date):
     .where(inArray(notifications.id, emails.map((e) => e.id)));
 }
 
+/**
+ * US-010 "Convite também por WhatsApp": o texto (com o link de uso único do convite) fica cifrado na linha até o envio
+ * e sai já (D7: o convite responde a uma ação de agora, fora do horário silencioso). Conta na cota (D15). Sem consulta:
+ * fora da chave única por horário. As condições (opt-in, telefone, conexão, cota) são conferidas no envio (D6).
+ */
+export async function agendarConviteWhatsapp(tx: Tx, o: { tenantId: string; patientId: string; texto: string }, agora: Date): Promise<void> {
+  await tx.insert(notifications).values({
+    tenantId: o.tenantId,
+    patientId: o.patientId,
+    appointmentId: null,
+    canal: 'whatsapp',
+    tipo: 'convite_paciente',
+    agendadaPara: agora,
+    conteudoSelado: sealSecret(o.texto, FINALIDADE_CONTEUDO),
+    createdAt: agora,
+    updatedAt: agora,
+  });
+  await dispararEnvio(tx, o.tenantId);
+}
+
+/**
+ * Convite renovado (reenviar, e-mail corrigido): o link anterior deixou de valer, então o convite por WhatsApp que ainda
+ * não saiu (`pendente`, inclusive esperando nova tentativa) passa a levar o texto com o link novo — WhatsApp e e-mail
+ * continuam sendo o mesmo convite. O que está saindo (`enviando`) é do worker (D6) e o que já saiu não muda.
+ */
+export async function renovarConviteWhatsapp(tx: Tx, patientId: string, texto: string, agora: Date): Promise<void> {
+  await tx
+    .update(notifications)
+    .set({ conteudoSelado: sealSecret(texto, FINALIDADE_CONTEUDO), updatedAt: agora })
+    .where(and(eq(notifications.patientId, patientId), eq(notifications.tipo, 'convite_paciente'), eq(notifications.canal, 'whatsapp'), eq(notifications.status, 'pendente')));
+}
+
 /** Envio já (sem esperar a varredura do minuto): enfileira a varredura só deste tenant, na mesma transação. */
 export async function dispararEnvio(tx: Tx, tenantId: string): Promise<void> {
   const id = await (await getBoss()).send('notificacoes', { tenantId }, { db: fromDrizzle(tx, sql) });
@@ -179,14 +213,15 @@ export async function dispararEnvio(tx: Tx, tenantId: string): Promise<void> {
  * US-004 / RN-15: tenant suspenso — nada pendente sai. Roda no worker (o admin nunca toca tabela 🔒). Rodada 1: o
  * status é relido sob trava (`FOR SHARE` em `tenants`, na mesma transação). Um job "suspenso" atrasado, que roda
  * depois da reativação, não ignora nada; uma reativação concorrente espera esta transação e o job "reativado" dela
- * reagenda o que foi ignorado aqui.
+ * reagenda o que foi ignorado aqui. O texto cifrado (convite por WhatsApp, com o link de uso único) é apagado como em
+ * toda saída final (revisão da T11): o convite não tem consulta e não volta na reativação — o e-mail do convite vale.
  */
 export async function ignorarPendentesDoTenant(db: Db, tenantId: string, agora: Date): Promise<void> {
   await withTenant(
     { tenantId, role: 'worker' },
     async (tx) => {
       if ((await getTenantStatus(tx, tenantId, { aguardarSuspensao: true })) !== 'suspensa') return;
-      await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'tenant_suspenso', updatedAt: agora }).where(eq(notifications.status, 'pendente'));
+      await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'tenant_suspenso', conteudoSelado: null, updatedAt: agora }).where(eq(notifications.status, 'pendente'));
     },
     db,
   );
