@@ -42,18 +42,20 @@ Estas tarefas não dependem de código, e algumas levam dias por dependerem de t
 | E-09 | Advogado: texto do termo do paciente, DPA e prazo de guarda do prontuário (P-01, P-02) | Você + advogado | Plano 08 |
 | E-10 | VPS: criar 2 GB de swap; instalar `postgresql-client-16` e `rclone` no host (**cada item com sua confirmação**, pela regra do servidor) | Claude, após seu OK | Plano 02 |
 
-## Revisão obrigatória a cada entrega (decidido em 2026-09-27)
+## Revisão obrigatória a cada entrega (decidido em 2026-09-27, revisto em 2026-10-02)
 
-O desenvolvimento é autônomo, então cada entrega passa por três rodadas de revisão com funções diferentes, mais uma revisão de segurança:
+O desenvolvimento é autônomo, então cada entrega passa por revisões com funções diferentes, mais uma revisão de segurança:
 
-| Rodada | Quando | O que é |
+| Etapa | Quando | O que é |
 |---|---|---|
-| 1 | A cada tarefa, durante a execução | Revisor independente confere aderência à spec e qualidade do código antes da próxima tarefa |
-| 2 | Fim de cada plano, sobre o PR inteiro | `/code-review` em nível `high`; os problemas encontrados são corrigidos |
-| 3 | Depois das correções da rodada 2 | `/code-review` `high` de novo; precisa sair **sem nenhum problema confirmado** |
-| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03 e 05, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp. Revisão geral final em P08-05 |
+| 1 | A cada tarefa, durante a execução | Revisor independente (workflow com lentes e verificação adversarial, quando possível) confere aderência à spec e qualidade do código antes da próxima tarefa |
+| 2 | Fim de cada plano, sobre o branch inteiro | Revisão final por workflow; uma onda de correções e re-revisão do diff das correções |
+| 3 | Sobre o PR | `/code-review` em nível `high` **uma vez**, como segunda opinião; o que for Critical/Important é corrigido, Minor vai para o backlog |
+| 4 | Depois das correções da etapa 3 | Re-revisão **só do diff das correções** (não do PR inteiro) |
+| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03 e 05, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp, páginas públicas e links assinados. Revisão geral final em P08-05 |
 
-- **Critério de parada:** merge só com CI verde e a rodada 3 e a revisão de segurança limpas. Se ainda houver problema confirmado depois da rodada 3, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.
+- **Por que mudou (2026-10-02):** a 2ª rodada completa de `/code-review high`, exigindo "sair limpo", não convergia em diffs grandes (os Planos 03 e 04 precisaram de aprovação do dono para encerrar): revisar ~10 mil linhas de novo sempre amostra trechos novos e acha novos Minors. A re-revisão do diff das correções é o que confirma que a correção está certa.
+- **Critério de parada:** merge só com CI verde, a re-revisão da etapa 4 e a revisão de segurança sem Critical/Important confirmado. Se ainda houver, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.
 - **Merge = deploy em produção = reinício de serviço:** exige confirmação explícita do dono do produto (regra 3 do CLAUDE.md do servidor). A autonomia vai até o PR revisado e pronto.
 - **Sem custo extra:** todas as revisões rodam na assinatura do dono (`/code-review` e `/security-review` locais). O `/code-review ultra` (cobrado à parte) **não é usado** neste projeto.
 - O resultado de cada rodada fica registrado no PR (resumo dos problemas encontrados e corrigidos).

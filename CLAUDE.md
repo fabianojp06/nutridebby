@@ -31,4 +31,4 @@ Node 24 · pnpm · Next.js 16 (App Router, `src/proxy.ts`) · PostgreSQL 16 · D
 
 ## Revisão a cada entrega
 
-Revisor por tarefa → `/code-review high` no PR → correções → `/code-review high` de novo (precisa sair limpo) → `/security-review`. Se sobrar problema confirmado após a 3ª rodada, parar e avisar o dono. Detalhes no índice dos planos.
+Revisor por tarefa → revisão final do branch (workflow) com uma onda de correções → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor vai para o backlog) → re-revisão **só do diff das correções** → `/security-review`. Se sobrar problema Critical/Important confirmado depois da re-revisão, parar e avisar o dono. Fluxo revisto pelo dono em 02/10/2026 (a 2ª rodada completa de `/code-review high` "precisa sair limpo" saiu). Detalhes no índice dos planos.
