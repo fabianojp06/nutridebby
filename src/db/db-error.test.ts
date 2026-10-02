@@ -58,6 +58,28 @@ describe('withTenant: erros de banco sem dados (RNF-11, CLAUDE.md regra 3)', () 
     expect(exclusionViolation(new Error('x'))).toBeNull();
   });
 
+  it('uniqueViolation, fkViolation e exclusionViolation: mesmo percurso pelo cause (até 5 níveis, sem laço infinito), "" sem nome de constraint, cada uma só com o próprio SQLSTATE', () => {
+    const aninhado = (code: string, niveis: number) => {
+      let e: object = { code, constraint: 'c' };
+      for (let i = 0; i < niveis; i++) e = { cause: e };
+      return e;
+    };
+    const ciclo: { cause?: unknown } = {};
+    ciclo.cause = ciclo;
+    for (const [f, code] of [[uniqueViolation, '23505'], [fkViolation, '23503'], [exclusionViolation, '23P01']] as const) {
+      expect(f(aninhado(code, 4)), code).toBe('c'); // o 5º objeto da cadeia ainda é olhado
+      expect(f(aninhado(code, 5)), code).toBeNull(); // o 6º já não
+      expect(f({ code }), code).toBe('');
+      expect(f({ code, constraint: 42 }), code).toBe('');
+      expect(f(ciclo), code).toBeNull();
+      expect(f(undefined), code).toBeNull();
+      expect(f(code), code).toBeNull();
+    }
+    expect(uniqueViolation({ code: '23503', constraint: 'x' })).toBeNull();
+    expect(fkViolation({ code: '23P01', constraint: 'x' })).toBeNull();
+    expect(exclusionViolation({ code: '23505', constraint: 'x' })).toBeNull();
+  });
+
   it('erros que não são de banco passam sem alteração', async () => {
     const T = await novoTenant(app.db);
     const proprio = new RangeError('meu erro');

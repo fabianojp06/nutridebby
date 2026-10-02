@@ -1,35 +1,25 @@
-/** Nome da constraint UNIQUE violada (Postgres 23505), olhando também o `cause` do erro do Drizzle. */
-export function uniqueViolation(err: unknown): string | null {
+/**
+ * Nome da constraint violada com este SQLSTATE, olhando o erro e a cadeia de `cause` (o Drizzle e o `DbError`
+ * embrulham o erro do pg) até 5 níveis; `''` se o erro não traz o nome, `null` se não é essa violação.
+ */
+function violacao(err: unknown, code: string): string | null {
   let e: unknown = err;
   for (let i = 0; e && typeof e === 'object' && i < 5; i++) {
     const pg = e as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (pg.code === '23505') return typeof pg.constraint === 'string' ? pg.constraint : '';
+    if (pg.code === code) return typeof pg.constraint === 'string' ? pg.constraint : '';
     e = pg.cause;
   }
   return null;
 }
 
-/** Nome da constraint de FK violada (Postgres 23503), olhando também o `cause` do erro do Drizzle. */
-export function fkViolation(err: unknown): string | null {
-  let e: unknown = err;
-  for (let i = 0; e && typeof e === 'object' && i < 5; i++) {
-    const pg = e as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (pg.code === '23503') return typeof pg.constraint === 'string' ? pg.constraint : '';
-    e = pg.cause;
-  }
-  return null;
-}
+/** Nome da constraint UNIQUE violada (Postgres 23505). */
+export function uniqueViolation(err: unknown): string | null { return violacao(err, '23505'); }
 
-/** Nome da restrição EXCLUDE violada (Postgres 23P01), olhando também o `cause` do erro do Drizzle. */
-export function exclusionViolation(err: unknown): string | null {
-  let e: unknown = err;
-  for (let i = 0; e && typeof e === 'object' && i < 5; i++) {
-    const pg = e as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (pg.code === '23P01') return typeof pg.constraint === 'string' ? pg.constraint : '';
-    e = pg.cause;
-  }
-  return null;
-}
+/** Nome da constraint de FK violada (Postgres 23503). */
+export function fkViolation(err: unknown): string | null { return violacao(err, '23503'); }
+
+/** Nome da restrição EXCLUDE violada (Postgres 23P01). */
+export function exclusionViolation(err: unknown): string | null { return violacao(err, '23P01'); }
 
 type PgLike = { name?: unknown; code?: unknown; constraint?: unknown; table?: unknown; column?: unknown; message?: unknown; severity?: unknown; cause?: unknown };
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length <= 128 ? v : undefined);
