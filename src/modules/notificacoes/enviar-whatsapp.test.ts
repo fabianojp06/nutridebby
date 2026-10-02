@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
@@ -13,9 +13,16 @@ import { stopBoss } from '@/jobs/boss';
 import { sealSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { agendarPelaNutri } from '@/modules/agenda/consultas';
+import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { processarNotificacoes, WHATSAPP_POR_MINUTO, type DepsEnvio } from './enviar';
 import { FINALIDADE_CONTEUDO } from './mensagens';
 import type { ResultadoEnvio } from './whatsapp/provedor';
+
+// a volta do cron só com os tenants do teste: os outros arquivos rodam ao mesmo tempo no mesmo banco (implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -187,7 +194,6 @@ describe('WhatsApp nos lembretes (INT-01 adaptado, D6)', () => {
   });
 
   it('rodada 1 (D6): 100 WhatsApps atrasados de um tenant não seguram o e-mail e o push dele nem os de outro tenant na mesma volta do cron', async () => {
-    // setembro: nenhum outro teste deixa linha vencida antes disso (a volta do cron passa por todos os tenants do banco)
     const agora = em('2026-09-14', '10:00');
     const T = await novoTenant(app.db);
     const U = await novoTenant(app.db);
@@ -200,19 +206,28 @@ describe('WhatsApp nos lembretes (INT-01 adaptado, D6)', () => {
         select ${T.tenantId}, ${p.id}, 'whatsapp', 'convite_paciente', ${selado}, ${em('2026-09-14', '09:00')}::timestamptz from generate_series(1, 100)`),
       app.db,
     );
-    const consultas: Record<string, string> = {};
-    for (const X of [T, U]) {
-      const q = await novoPaciente(app.db, X.ctx, comWhats);
-      consultas[X.tenantId] = (await agendarPelaNutri(X.ctx, tenantAgenda(X), { patientId: q.id, data: '2026-10-20', hora: '10:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: agora })).id;
+    try {
+      const consultas: Record<string, string> = {};
+      for (const X of [T, U]) {
+        const q = await novoPaciente(app.db, X.ctx, comWhats);
+        consultas[X.tenantId] = (await agendarPelaNutri(X.ctx, tenantAgenda(X), { patientId: q.id, data: '2026-10-20', hora: '10:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: agora })).id;
+      }
+      const w = whatsappFalso();
+      const t = transporteFalso();
+      // a volta do cron (sem tenantId: parte de cada um e segunda passada), só com T e U
+      vi.mocked(listarTenantsParaVarredura).mockClear().mockResolvedValueOnce([{ id: T.tenantId, fuso: SP }, { id: U.tenantId, fuso: SP }]);
+      await processarNotificacoes(deps(agora, w, t));
+      expect(listarTenantsParaVarredura).toHaveBeenCalledTimes(1);
+      for (const X of [T, U]) {
+        expect(await linha(X, consultas[X.tenantId], 'consulta_marcada', 'email'), X.tenantId).toMatchObject({ status: 'enviada' });
+        expect((await linha(X, consultas[X.tenantId], 'consulta_marcada', 'push')).status, X.tenantId).not.toBe('pendente');
+      }
+      expect(w.enviados).toHaveLength(WHATSAPP_POR_MINUTO); // o WhatsApp andou no ritmo, sem passar dele
+    } finally {
+      // os convites atrasados não ficam num tenant conectado para a próxima varredura sem lista simulada
+      await withTenant(T.ctx, (tx) => tx.delete(notifications).where(eq(notifications.tipo, 'convite_paciente')), app.db);
     }
-    const w = whatsappFalso();
-    const t = transporteFalso();
-    await processarNotificacoes(deps(agora, w, t)); // a volta do cron: todos os tenants
-    for (const X of [T, U]) {
-      expect(await linha(X, consultas[X.tenantId], 'consulta_marcada', 'email'), X.tenantId).toMatchObject({ status: 'enviada' });
-      expect((await linha(X, consultas[X.tenantId], 'consulta_marcada', 'push')).status, X.tenantId).not.toBe('pendente');
-    }
-    expect(w.enviados).toHaveLength(WHATSAPP_POR_MINUTO); // o WhatsApp andou no ritmo, sem passar dele
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'convite_paciente')), app.db)).toEqual([]);
   });
 
   it('paciente que revogou o WhatsApp depois de marcar não recebe (US-011 "Revogar")', async () => {
