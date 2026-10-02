@@ -1901,7 +1901,8 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
           .update(appointments)
           .set({ inicio: v.inicio, fim: v.fim, modalidade: v.modalidade, linkOnline: v.linkOnline, status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null, updatedAt: now })
           .where(eq(appointments.id, id));
-        // Tarefa 5: as linhas de lembrete existentes são atualizadas para o horário novo (§7, D17)
+        // Tarefa 5: lembretes do horário novo são criados como linhas novas; os pendentes do horário antigo viram
+        // ignorados (`consulta_remarcada`) e os já enviados ficam como estão (D17: linha enviada é imutável)
         return { avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
       db,
@@ -3699,7 +3700,9 @@ async function processarComSeguranca(tenantId: string, deps: DepsEnvio, limite: 
  * a cada minuto; o que sobrar vai, numa segunda passada, para quem encheu a parte.
  */
 export async function processarNotificacoes(deps: DepsEnvio, opts: { tenantId?: string } = {}): Promise<{ processadas: number }> {
-  const alvos = opts.tenantId ? [opts.tenantId] : ordemDaRodada((await listarTenantsParaVarredura(deps.db)).map((t) => t.id), deps.agora());
+  // ordem estável (por id) antes do rodízio: a ordem física de `tenants` muda com qualquer UPDATE (status, cota)
+  const ids = (await listarTenantsParaVarredura(deps.db)).map((t) => t.id).sort();
+  const alvos = opts.tenantId ? [opts.tenantId] : ordemDaRodada(ids, deps.agora());
   const parte = Math.max(LOTE_MIN_POR_TENANT, Math.ceil(LOTE_POR_EXECUCAO / Math.max(1, alvos.length)));
   let processadas = 0;
   const cheios: string[] = [];
@@ -8225,6 +8228,17 @@ describe('processarEventoWhatsapp (US-035)', () => {
     expect((await consulta(T, c2)).status).toBe('confirmada');
   });
 
+  it('depois de "Alterar data e hora", "1" ou "2" ao lembrete do horário antigo não muda a consulta nem responde (D17)', async () => {
+    const T = await novoTenant(app.db);
+    const { c } = await lembreteEnviado(T, em('2026-10-16', '14:00'), 'WA-VELHO');
+    // a nutricionista moveu a consulta depois do envio: a linha enviada continua com inicio_consulta = 16/10 14:00
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ inicio: em('2026-10-18', '10:00'), fim: em('2026-10-18', '10:50') }).where(eq(appointments.id, c)), app.db);
+    await processar(upsert(`nd-${T.tenantId}`, '1'));
+    await processar(upsert(`nd-${T.tenantId}`, '2', { contextInfo: { stanzaId: 'WA-VELHO' } }));
+    expect(await consulta(T, c)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
+    expect((await respostas(T, c)).filter((n) => n.tipo !== 'lembrete_24h')).toHaveLength(0);
+  });
+
   it('nada muda: outro número, lembrete de mais de 26 h, consulta já começada, tenant sem a consulta', async () => {
     const T = await novoTenant(app.db);
     const { c } = await lembreteEnviado(T);
@@ -8488,6 +8502,9 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
             gte(notifications.enviadaEm, new Date(agora.getTime() - JANELA_RESPOSTA_MS)),
             inArray(appointments.status, ['agendada', 'confirmada']),
             gt(appointments.inicio, agora),
+            // D17: o lembrete enviado é imutável — depois de "Alterar data e hora", responder ao lembrete do horário
+            // antigo não pode confirmar/remarcar o horário novo (o paciente não recebeu o horário novo pelo WhatsApp)
+            eq(notifications.inicioConsulta, appointments.inicio),
           ),
         )
         .orderBy(desc(notifications.enviadaEm)),
