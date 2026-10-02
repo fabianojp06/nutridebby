@@ -4,9 +4,11 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
+import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { JANELA_PACIENTE_DIAS, MSG_AGENDA } from './constantes';
 import { ConsultaError, ehSobreposicao, horariosLivres, type TenantAgenda } from './consultas';
+import { segundaDaSemana, somarDias } from './fuso';
 import type { Horario, Modalidade } from './horarios';
 
 export type HorarioEscolhido = Horario & { modalidade: Modalidade };
@@ -14,6 +16,18 @@ export type HorarioEscolhido = Horario & { modalidade: Modalidade };
 /** RN-03: o paciente marca a partir de agora + `antecedencia_min_h` e até 60 dias. */
 export function janelaDoPaciente(tenant: Pick<TenantAgenda, 'antecedenciaMinH'>, agora: Date): { de: Date; ate: Date } {
   return { de: new Date(agora.getTime() + tenant.antecedenciaMinH * 3_600_000), ate: new Date(agora.getTime() + JANELA_PACIENTE_DIAS * 86_400_000) };
+}
+
+/**
+ * Semana pedida (`?semana=AAAA-MM-DD`, começando na segunda), presa às semanas da janela do paciente (RN-03: até 60
+ * dias). Data inválida ou fora da janela — inclusive 9999-12-31 — vira a primeira ou a última semana: nenhuma data do
+ * visitante chega ao cálculo de horários sem teto. `hoje` é a data no fuso do tenant.
+ */
+export function semanaDaJanela(pedida: unknown, hoje: string): { semana: string; primeira: string; ultima: string } {
+  const primeira = segundaDaSemana(hoje);
+  const ultima = segundaDaSemana(somarDias(hoje, JANELA_PACIENTE_DIAS));
+  const s = typeof pedida === 'string' && dataValida(pedida) ? segundaDaSemana(pedida) : primeira;
+  return { semana: s < primeira ? primeira : s > ultima ? ultima : s, primeira, ultima };
 }
 
 /** Horários livres para o paciente, opcionalmente recortados (uma semana da página pública). */

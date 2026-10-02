@@ -190,3 +190,39 @@ test('link da consulta fora do prazo (RN-04): só "Avisar que preciso remarcar";
   await expect(paciente.getByRole('status').filter({ hasText: 'Esta consulta foi cancelada.' })).toBeVisible();
   await paciente.context().close();
 });
+
+test('página pública: horário, Turnstile, código por e-mail e "Novo paciente via agendamento online" (US-032, RN-16)', async ({ browser }) => {
+  // R6: o bloco 10.9.8.x é do agenda.spec (o limite da página pública é por IP; o e2e:seed zera o do 10.9.8.50)
+  const visitante = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.8.50' } })).newPage();
+  const email = `pub-${sufixo}@ex.com`;
+  const quarta = somar(SEGUNDA_LIVRE, 2);
+  await visitante.goto(`/n/e2e-consultorio?semana=${quarta}`);
+  await expect(visitante.getByRole('heading', { name: 'Agendar consulta com Consultório E2E' })).toBeVisible();
+  await expect(visitante.getByRole('group', { name: 'Escolha a modalidade' }).getByLabel('Presencial')).toBeChecked();
+  await visitante.getByRole('group', { name: `qua., ${br(quarta).slice(0, 5)}` }).getByRole('radio', { name: '16:00' }).check();
+  await visitante.getByLabel('Nome').fill(`Eva Publica ${sufixo}`);
+  await visitante.getByLabel('E-mail').fill(email);
+  // Turnstile com a site key de teste da Cloudflare (sempre passa): espera o token chegar
+  await expect(visitante.getByRole('button', { name: 'Enviar código' })).toBeEnabled({ timeout: 20_000 });
+  await visitante.getByRole('button', { name: 'Enviar código' }).click();
+  await expect(visitante.getByText('Confirme que você tem 18 anos ou mais')).toBeVisible();
+  await expect(visitante.getByLabel('Nome')).toHaveValue(`Eva Publica ${sufixo}`); // o 422 não apaga o que foi digitado
+  await visitante.getByLabel('Tenho 18 anos ou mais').check();
+  await visitante.getByLabel(/^Li e aceito o Termo de Uso e Privacidade/).check();
+  // depois do 422 o botão fica na borda de baixo da tela, logo abaixo do iframe (de outra origem) do Turnstile: rolar antes,
+  // senão o clique sai nas coordenadas de antes da rolagem e cai no iframe (nenhum evento chega à página)
+  await visitante.getByRole('button', { name: 'Enviar código' }).scrollIntoViewIfNeeded();
+  await visitante.getByRole('button', { name: 'Enviar código' }).click();
+  await expect(visitante.getByText(`Enviamos um código de 6 dígitos para ${email}. Ele vale por 10 minutos.`)).toBeVisible();
+  const m = await esperarEmail(email);
+  const codigo = /\b(\d{6})\b/.exec(m.assunto)![1];
+  expect(m.assunto).toBe(`Seu código para agendar com Consultório E2E: ${codigo}`);
+  await visitante.getByLabel('Código').fill(codigo);
+  await visitante.getByRole('button', { name: 'Confirmar agendamento' }).click();
+  await expect(visitante.getByText(`Consulta marcada para qua., ${br(quarta)} às 16:00 (horário de Brasília). Enviamos a confirmação para o seu e-mail.`)).toBeVisible();
+  await esperarEmail(email, { assunto: `Consulta marcada: qua., ${br(quarta)} às 16:00 (horário de Brasília)` });
+  await nutri.goto(`/painel/agenda?visao=dia&data=${quarta}`);
+  await expect(nutri.getByText('Novo paciente via agendamento online')).toBeVisible();
+  await expect(nutri.getByText('Completar cadastro')).toBeVisible();
+  await visitante.context().close();
+});

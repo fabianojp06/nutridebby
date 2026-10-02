@@ -9,6 +9,8 @@ import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { encryptionKey } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
+import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -73,6 +75,14 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
     if (job.data.evento === 'suspenso') await ignorarPendentesDoTenant(getDb(), job.data.tenantId, new Date());
     else await reagendarTenantReativado(getDb(), job.data.tenantId, new Date());
+  });
+
+  // RN-16 / LGPD (minimização): pedidos da página pública (contato e código) somem em 24 h; contadores de limite, em 1 dia
+  await boss.schedule('agenda-limpeza', '30 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('agenda-limpeza', async () => {
+    const pedidos = await limparPedidosPublicos(getDb(), new Date());
+    const limites = await limparLimites(getDb(), new Date());
+    logger.info({ pedidos, limites }, 'limpeza da agenda pública');
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');

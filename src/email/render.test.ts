@@ -96,3 +96,13 @@ describe('aviso_agenda (US-032, D18)', () => {
     expect(renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido_remarcacao', paciente: 'Ana', quando: 'q', link: 'https://x' }).subject).toBe('Paciente pediu para remarcar');
   });
 });
+
+describe('codigo_agendamento (RN-16, D12)', () => {
+  it('código do agendamento público: código no assunto e no corpo, validade de 10 min', () => {
+    const r = renderEmail({ tipo: 'codigo_agendamento', para: 'ana@ex.com', nutri: 'Debby Silva', codigo: '042917' });
+    expect(r.subject).toBe('Seu código para agendar com Debby Silva: 042917');
+    expect(r.text).toContain('Use o código 042917 para confirmar o agendamento com Debby Silva.');
+    expect(r.text).toContain('10 minutos');
+    expect(r.html).toContain('042917');
+  });
+});

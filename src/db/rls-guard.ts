@@ -9,7 +9,7 @@ export type RlsViolation = { table: string; problem: string };
 export const RLS_EXCEPTIONS: Record<string, string> = {
   user: 'identidade global do Better Auth: login ocorre antes do contexto de tenant; acesso só via services do M1 (spec §4.1)',
   consents:
-    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts e src/modules/pacientes/convite-paciente.ts',
+    'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts, src/modules/pacientes/convite-paciente.ts e src/modules/agenda/agendamento-publico.ts (aceite da página pública, D13)',
   invites:
     'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin)',
 };
@@ -103,6 +103,7 @@ export const STAFF_ONLY: Record<string, string> = {
   consultation_notes: 'US-016: o paciente nunca vê as notas privadas, nem no JSON da API',
   availability_rules: 'US-030 / D11: o paciente só recebe horários livres já calculados, nunca as regras',
   availability_blocks: 'US-030 / D11: o motivo do bloqueio pode ser pessoal ("Médico")',
+  public_booking_requests: 'RN-16: pedido da página pública (código, contato) — só o contexto publico e a equipe',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -130,6 +131,7 @@ export const PUBLICO_LIBERADO: Record<string, { comandos: readonly ComandoPublic
   patients: { comandos: ['select', 'insert'], motivo: 'situação do dono do link; paciente da página pública (procura pelo e-mail e cria)' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria roda com o papel de quem grava (patients, appointments da página pública)' },
   notifications: { comandos: ['select', 'insert'], motivo: 'lembretes da consulta marcada pela página pública (INSERT … ON CONFLICT lê a linha nova)' },
+  public_booking_requests: { comandos: ['select', 'insert', 'update'], motivo: 'pedido da página pública: cria, confere o código (FOR UPDATE) e conclui' },
 };
 
 /** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega o `publico`, ou bate exatamente com PUBLICO_LIBERADO. */

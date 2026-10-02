@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { abrirLinkConsulta, horariosDoLink, MENSAGEM_DO_LINK } from '@/modules/agenda/acoes-link';
-import { JANELA_PACIENTE_DIAS, MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
-import { inicioDoDia, segundaDaSemana, somarDias } from '@/modules/agenda/fuso';
-import { dataValida, formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { semanaDaJanela } from '@/modules/agenda/agendamento-paciente';
+import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import { inicioDoDia, somarDias } from '@/modules/agenda/fuso';
+import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { AcoesConsulta } from './acoes';
 
 export const dynamic = 'force-dynamic';
@@ -19,14 +20,6 @@ function Aviso({ texto }: { texto: string }) {
       <p role="alert">{texto}</p>
     </main>
   );
-}
-
-/** Semana pedida (`?semana=AAAA-MM-DD`, começando na segunda), presa às semanas da janela do paciente (RN-03: até 60 dias). */
-function semanaDaJanela(pedida: unknown, hoje: string): { semana: string; primeira: string; ultima: string } {
-  const primeira = segundaDaSemana(hoje);
-  const ultima = segundaDaSemana(somarDias(hoje, JANELA_PACIENTE_DIAS));
-  const s = typeof pedida === 'string' && dataValida(pedida) ? segundaDaSemana(pedida) : primeira;
-  return { semana: s < primeira ? primeira : s > ultima ? ultima : s, primeira, ultima };
 }
 
 /** D20 / US-033 / US-035: página do link assinado. O GET só lê (a pré-visualização do WhatsApp abre a URL). */

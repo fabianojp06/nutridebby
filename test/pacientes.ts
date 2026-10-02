@@ -41,10 +41,14 @@ export async function novoPaciente(db: Db, ctx: TenantContext, extra: Partial<ty
   return p;
 }
 
-/** E-mails na fila (decifrados) de um tipo para um destinatário. Quem usa precisa de stopBoss() + closeDb() no afterAll. */
+/**
+ * E-mails na fila (decifrados) de um tipo para um destinatário, na ordem em que foram enfileirados (o `findJobs` do
+ * pg-boss não ordena). Quem usa precisa de stopBoss() + closeDb() no afterAll.
+ */
 export async function emailsNaFila<T extends EmailMessage['tipo']>(tipo: T, para: string): Promise<Extract<EmailMessage, { tipo: T }>[]> {
   const jobs = await (await getBoss()).findJobs<EmailJobData>('email');
   return jobs
+    .sort((a, b) => a.createdOn.getTime() - b.createdOn.getTime())
     .map((j) => JSON.parse(openSecret(j.data.selado, EMAIL_FINALIDADE)) as EmailMessage)
     .filter((m): m is Extract<EmailMessage, { tipo: T }> => m.tipo === tipo && m.para === para);
 }

@@ -1,3 +1,4 @@
+import { MSG_TERMO_NAO_ACEITO } from '@/modules/pacientes/termo-paciente';
 import type { Modalidade, ModalidadeRegra } from './horarios';
 
 export const DURACAO_MIN = 15;
@@ -60,4 +61,26 @@ export const MSG_AGENDA = {
   consultaJaCancelada: 'Esta consulta foi cancelada.',
   avisoDeRemarcacao: 'Avisamos sua nutricionista. Ela vai entrar em contato.',
   semHorariosNaSemana: 'Nenhum horário livre nesta semana.',
+} as const;
+
+/**
+ * RN-16 / D12: textos da página pública /n/<slug>. Ficam aqui (e não em agendamento-publico.ts, que fala com o banco)
+ * porque o formulário do navegador também os usa.
+ */
+export const MSG_PUBLICO = {
+  indisponivel: 'Agendamento online indisponível. Entre em contato.',
+  nome: 'Informe o nome',
+  email: 'Informe um e-mail válido',
+  telefone: 'Telefone inválido',
+  telefoneWhatsapp: 'Informe o telefone para receber lembretes por WhatsApp',
+  maioridade: 'Confirme que você tem 18 anos ou mais',
+  termo: MSG_TERMO_NAO_ACEITO,
+  muitasTentativas: 'Muitas tentativas. Tente novamente mais tarde.',
+  aguarde: 'Aguarde 1 minuto para pedir outro código.',
+  codigoIncorreto: 'Código incorreto.',
+  codigoExpirado: 'Código expirado. Peça um novo código.',
+  codigoBloqueado: 'Muitas tentativas com código errado. Peça um novo código.',
+  enviado: (email: string) => `Enviamos um código de 6 dígitos para ${email}. Ele vale por 10 minutos.`,
+  agendada: (quando: string) => `Consulta marcada para ${quando}. Enviamos a confirmação para o seu e-mail.`,
+  titulo: (nome: string) => `Agendar consulta com ${nome}`,
 } as const;

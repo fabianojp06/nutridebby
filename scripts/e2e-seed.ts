@@ -4,6 +4,7 @@ import { closeDb, getDb } from '@/db/client';
 import { account, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { hashPassword } from '@/lib/password.server';
+import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
 export const E2E_ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2026segura' };
@@ -13,21 +14,24 @@ export const E2E_ADMIN_PLATAFORMA = { email: 'admin-plataforma-e2e@nutridebby.te
 
 const db = getDb();
 
-// Consultório das nutricionistas do E2E, já com o DPA aceito (US-002)
+// Consultório das nutricionistas do E2E, já com o DPA aceito (US-002) e a página pública /n/e2e-consultorio ligada (Plano 05)
+const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', enderecoConsultorio: 'Rua E2E, 100', agendamentoPublicoAtivo: true };
 const [consultorio] = await db
   .insert(tenants)
-  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', crn: 'CRN-3 12345', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', crn: 'CRN-3 12345', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA })
   .onConflictDoUpdate({
     target: tenants.slug,
-    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0 },
+    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA },
   })
   .returning({ id: tenants.id });
 
 // Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
-const AGENDA_E2E = ['notifications', 'appointments', 'availability_blocks', 'availability_rules'];
+const AGENDA_E2E = ['public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
 await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
 }, db);
+// RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
+await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));
 
 await db.delete(user).where(eq(user.email, E2E_ADMIN.email));
 const adminId = randomUUID();

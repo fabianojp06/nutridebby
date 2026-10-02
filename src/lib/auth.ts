@@ -15,6 +15,7 @@ import { commonPasswords, hashPassword, verifyPassword } from './password.server
 import { deliverPasswordLink } from './password-links';
 import { logger } from './logger';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, verifyTurnstile, type ResultadoTurnstile } from './turnstile';
+import { registrarFalhaTurnstile } from './turnstile-log';
 import {
   capSessionExpiry,
   isRefreshDue,
@@ -45,11 +46,7 @@ export function createAuth(
         secret: getEnv().TURNSTILE_SECRET_KEY,
         ip,
         hostname: new URL(baseURL).hostname,
-        // só motivo/status/códigos: nunca token, segredo, IP ou e-mail (CLAUDE.md regra 3)
-        onFalha: ({ motivo, status, codigos }) => {
-          if (motivo === 'config') logger.error({ motivo, status, codigos }, 'Turnstile indisponível');
-          else logger.warn({ motivo, status, codigos }, 'Turnstile indisponível');
-        },
+        onFalha: registrarFalhaTurnstile,
       }));
   return betterAuth({
     appName: 'NutriDebby',

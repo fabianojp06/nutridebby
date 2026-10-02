@@ -386,6 +386,20 @@
       "when": 1790911803310,
       "tag": "0054_notificacoes_chave_parcial",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790917212997,
+      "tag": "0055_agendamento_publico",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790917219001,
+      "tag": "0056_rls_agendamento_publico",
+      "breakpoints": true
     }
   ]
 }

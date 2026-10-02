@@ -7,6 +7,8 @@ export type EmailMessage =
   | { tipo: 'convite_paciente'; para: string; nome: string; nutri: string; link: string; contaExistente: boolean }
   | { tipo: 'exclusao_atendida'; para: string; nome: string; nutri: string; anonimizarApos: string }
   | { tipo: 'exportacao_pronta'; para: string; link: string }
+  /** RN-16: código de 6 dígitos da página pública (o job da fila `email` vai cifrado, como todos). */
+  | { tipo: 'codigo_agendamento'; para: string; nutri: string; codigo: string }
   | {
       tipo: 'consulta';
       evento: 'lembrete_24h' | 'lembrete_2h' | 'consulta_marcada' | 'consulta_cancelada';

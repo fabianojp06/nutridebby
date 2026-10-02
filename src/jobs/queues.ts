@@ -29,6 +29,8 @@ export const QUEUES = {
   notificacoes: { retryLimit: 0, expireInSeconds: 300, deleteAfterSeconds: 3_600 },
   // US-004: lembretes do tenant suspenso viram "ignorada"; na reativação, os das consultas futuras voltam
   'agenda-tenant': { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
+  // RN-16 / LGPD: pedidos da página pública com mais de 24 h e contadores velhos (todo dia às 04:30)
+  'agenda-limpeza': { retryLimit: 2, retryDelay: 600, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

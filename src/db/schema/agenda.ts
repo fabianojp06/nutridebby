@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
-import { check, foreignKey, index, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid, type PgColumn } from 'drizzle-orm/pg-core';
-import { patients } from './pacientes';
+import { boolean, check, foreignKey, index, integer, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid, type PgColumn } from 'drizzle-orm/pg-core';
+import { citext, patients } from './pacientes';
 import { tenants } from './platform';
 
 /** US-030: horários de atendimento por dia da semana (0 = domingo), em 'HH:MM' no fuso do tenant. O paciente não vê (staff_only, D11). */
@@ -152,3 +152,45 @@ export const notifications = pgTable(
 );
 
 export type NotificationRow = typeof notifications.$inferSelect;
+
+/**
+ * RN-16 / D12: pedido da página pública até o código de 6 dígitos ser confirmado. Só o hash do token do pedido e o
+ * HMAC do código são guardados; a linha some em 24 h (agenda-limpeza). A sessão de paciente não vê (staff_only); o
+ * contexto `publico` lê, cria e atualiza (D11).
+ */
+export const publicBookingRequests = pgTable(
+  'public_booking_requests',
+  {
+    id: uuid('id').primaryKey(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    tokenHash: text('token_hash').notNull().unique(),
+    codigoHash: text('codigo_hash').notNull(),
+    email: citext('email').notNull(),
+    nome: text('nome').notNull(),
+    telefoneE164: text('telefone_e164'),
+    whatsappOptin: boolean('whatsapp_optin').notNull().default(false),
+    inicio: timestamp('inicio', { withTimezone: true }).notNull(),
+    modalidade: text('modalidade').notNull(),
+    termoVersao: text('termo_versao').notNull(),
+    ip: text('ip'),
+    tentativas: smallint('tentativas').notNull().default(0),
+    expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
+    verificadoEm: timestamp('verificado_em', { withTimezone: true }),
+    concluidoEm: timestamp('concluido_em', { withTimezone: true }),
+    appointmentId: uuid('appointment_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('public_booking_requests_modalidade', sql`${t.modalidade} in ('presencial', 'online')`),
+    check('public_booking_requests_nome', sql`char_length(${t.nome}) between 2 and 120`),
+    index('public_booking_requests_email_idx').on(t.tenantId, t.email, t.createdAt),
+    index('public_booking_requests_criado_idx').on(t.tenantId, t.createdAt),
+  ],
+);
+
+/** RN-16: contadores da página pública. A chave é o HMAC do IP ou do e-mail, nunca o valor. Sem tenant_id: só limite-ip.ts. */
+export const publicRateLimits = pgTable('public_rate_limits', {
+  chave: text('chave').primaryKey(),
+  janelaInicio: timestamp('janela_inicio', { withTimezone: true }).notNull(),
+  contagem: integer('contagem').notNull(),
+});

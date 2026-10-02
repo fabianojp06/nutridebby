@@ -21,6 +21,9 @@ export function fkViolation(err: unknown): string | null { return violacao(err, 
 /** Nome da restrição EXCLUDE violada (Postgres 23P01). */
 export function exclusionViolation(err: unknown): string | null { return violacao(err, '23P01'); }
 
+/** O Postgres desfez esta transação para desatar um deadlock (40P01). */
+export function deadlockDetectado(err: unknown): boolean { return violacao(err, '40P01') !== null; }
+
 type PgLike = { name?: unknown; code?: unknown; constraint?: unknown; table?: unknown; column?: unknown; message?: unknown; severity?: unknown; cause?: unknown };
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length <= 128 ? v : undefined);
 // Classes SQLSTATE cujas mensagens só citam nomes de objetos ou texto fixo das nossas funções (23 integridade, 40 transação, 42501 privilégio, P0001/55000 RAISE das nossas funções)
