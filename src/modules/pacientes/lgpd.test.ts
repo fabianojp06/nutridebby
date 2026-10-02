@@ -2,21 +2,29 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { auditLog, exams, invites, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { PacienteBloqueadoError } from './base';
 import { criarExame } from './exames';
 import { anonimizarVencidos, arquivarPaciente, atenderPedidoExclusao, desarquivarPaciente, LgpdError, MSG_LGPD, PRAZO_GUARDA_ANOS } from './lgpd';
 import { criarPaciente } from './pacientes';
+
+// Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
+// arquivos de teste rodam em paralelo no mesmo banco, cada um com o seu dataDir (implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-lgpd-'));
@@ -29,6 +37,11 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 
+/** Anonimização (job retencao-lgpd) só destes tenants. */
+const anonimizarSo = (...ts: TenantDeTeste[]) => {
+  vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce(ts.map((t) => ({ id: t.tenantId, fuso: t.tenant.fuso })));
+  return anonimizarVencidos(app.db, now, { dataDir });
+};
 const ler = async (ctx: Parameters<typeof withTenant>[0], id: string) => (await withTenant(ctx, (tx) => tx.select().from(patients).where(eq(patients.id, id)), app.db))[0];
 const cadastro = (email: string) => ({ nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', email, telefone: '(11) 91234-5678', whatsappAutorizado: true });
 
@@ -118,8 +131,11 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
     const futuro = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2046-09-30' });
     const noDia = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-10-01' }); // hoje em São Paulo
+    // rodada 2 da T13: um tenant que não é desta varredura (outro arquivo de teste, rodando ao mesmo tempo, com outro dataDir)
+    const alheio = await novoTenant(app.db);
+    const deOutroArquivo = await novoPaciente(app.db, alheio.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-30' });
 
-    const r = await anonimizarVencidos(app.db, now, { dataDir });
+    const r = await anonimizarSo(T);
     expect(r.anonimizados).toBeGreaterThanOrEqual(1);
     const a = await ler(T.ctx, p.id);
     expect(a).toMatchObject({ nome: 'Paciente anonimizado', email: `anonimo-${p.id}@anonimizado.invalid`, telefoneE164: null, dataNascimento: null, userId: null, status: 'bloqueado' });
@@ -132,8 +148,9 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect(log[0].actorUserId).toBeNull();
     expect((await ler(T.ctx, futuro.id)).anonimizadoEm).toBeNull(); // prazo ainda não venceu
     expect((await ler(T.ctx, noDia.id)).anonimizadoEm).toBeNull(); // "guardado até 01/10": no próprio dia, ainda não
+    expect((await ler(alheio.ctx, deOutroArquivo.id)).anonimizadoEm, 'a varredura do teste só passa pelos próprios tenants').toBeNull();
 
-    await anonimizarVencidos(app.db, now, { dataDir });
+    await anonimizarSo(T);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'anonimizar'))), app.db)).toHaveLength(1);
   });
 
@@ -144,7 +161,7 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     for (const p of [vencido, vencido, outro]) {
       await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: `https://push.example.test/${randomUUID()}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
     }
-    await anonimizarVencidos(app.db, now, { dataDir });
+    await anonimizarSo(T);
     expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
     const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
     expect(restam.map((s) => s.patientId)).toEqual([outro.id]);

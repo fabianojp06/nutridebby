@@ -1,4 +1,6 @@
 import { createECDH, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import https from 'node:https';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import webpush from 'web-push';
@@ -47,6 +49,23 @@ async function marcadaComInscricoes(T: TenantDeTeste, n: number, hora = '14:00')
   return { p, id, endpoints };
 }
 /** Inscrição com chaves de verdade (p256dh na curva P-256, auth de 16 bytes) num serviço de push conhecido — só para teste. */
+/**
+ * Rodada 2: o host que o WHATWG lê termina com o domínio de um serviço de push, mas o `url.parse` (que o web-push usa para
+ * discar) corta o host em `;`, `'`, `"`, `` ` ``, `{`, `}` — e discaria 127.0.0.1, um serviço interno, o IP de metadados…
+ */
+const DESVIOS_DO_URL_PARSE = [
+  'https://127.0.0.1;.push.apple.com/x',
+  'https://nutridebby_app;.push.apple.com/x',
+  'https://localhost;.push.apple.com/x',
+  'https://169.254.169.254;.notify.windows.com/x',
+  'https://easypanel-traefik;.push.apple.com/x',
+  "https://evil.tld'.push.apple.com/x",
+  'https://a{.push.apple.com/x',
+  'https://a}.push.apple.com/x',
+  'https://a".push.apple.com/x',
+  'https://a`.push.apple.com/x',
+  'https://10.0.1.7;x.fcm.googleapis.com/x',
+];
 const inscricaoReal = (endpoint = `https://fcm.googleapis.com/fcm/send/${randomUUID()}`): InscricaoPush => {
   const ecdh = createECDH('prime256v1');
   return { endpoint, p256dh: ecdh.generateKeys().toString('base64url'), auth: randomBytes(16).toString('base64url') };
@@ -299,6 +318,7 @@ describe('push (INT-03, D19)', () => {
       'https://fcm.googleapis.com\\evil/x', // barra invertida: forma não canônica (cada leitor de URL a entende de um jeito)
       'https://fcm.googleapis.com./x',
       'não é url',
+      ...DESVIOS_DO_URL_PARSE,
     ]) {
       expect(endpointDePush(nao), nao).toBe(false);
     }
@@ -316,6 +336,33 @@ describe('push (INT-03, D19)', () => {
     expect(real.posts).toEqual([fcm.endpoint]);
     expect((await inscricoes(T)).map((s) => s.endpoint)).toEqual([fcm.endpoint]);
     expect(await linha(T, id, 'consulta_marcada')).toMatchObject({ status: 'enviada' });
+  });
+
+  it('rodada 2: o web-push de verdade, com o https.request trocado (sem rede) — endereço que o url.parse lê com outro host não é discado', async () => {
+    const discados: { hostname?: string | null; port?: unknown; path?: string | null }[] = [];
+    const espiao = vi.spyOn(https, 'request').mockImplementation(((opcoes: { hostname?: string | null; port?: unknown; path?: string | null }) => {
+      discados.push({ hostname: opcoes.hostname, port: opcoes.port, path: opcoes.path });
+      const pedido: EventEmitter & { write: () => boolean; end: () => void; destroy: () => void } = Object.assign(new EventEmitter(), {
+        write: () => true,
+        end: () => queueMicrotask(() => pedido.emit('error', Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }))),
+        destroy: () => undefined,
+      });
+      return pedido;
+    }) as never);
+    try {
+      const par = webpush.generateVAPIDKeys(); // só para o teste
+      const real = webPushProvedor({ publicKey: par.publicKey, privateKey: par.privateKey, subject: 'mailto:x@y.dev' }); // sem `enviar`: o sendNotification real
+      // controle: o espião pega o pedido de verdade — para um endpoint do FCM, o web-push disca o host do FCM
+      expect(await real.enviar(inscricaoReal(), '{}', 60)).toEqual({ ok: false, remover: false, definitivo: false, codigo: 'rede' });
+      expect(discados).toEqual([{ hostname: 'fcm.googleapis.com', port: null, path: expect.stringMatching(/^\/fcm\/send\//) }]);
+      discados.length = 0;
+      const resultados: ResultadoPush[] = [];
+      for (const desvio of DESVIOS_DO_URL_PARSE) resultados.push(await real.enviar(inscricaoReal(desvio), '{}', 60));
+      expect(discados, 'nenhum pedido discado para os desvios').toEqual([]);
+      expect(resultados).toEqual(DESVIOS_DO_URL_PARSE.map(() => ({ ok: false, remover: true, definitivo: true, codigo: 'endpoint_recusado' })));
+    } finally {
+      espiao.mockRestore();
+    }
   });
 
   it('rodada 1: inscrição cujas chaves não montam o pedido (p256dh fora da curva, auth curta) é apagada sem sair nada; VAPID inválida derruba na criação', async () => {

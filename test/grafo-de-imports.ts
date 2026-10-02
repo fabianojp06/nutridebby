@@ -3,10 +3,11 @@ import path from 'node:path';
 import ts from 'typescript';
 
 const RAIZ = path.resolve('.');
-const EXTENSOES = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
+const EXTENSOES = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
 /** Fontes que o grafo percorre (o resto — CSS, JSON, imagens — é folha). */
 const CODIGO = /\.(tsx?|mts|cts|jsx?|mjs|cjs)$/;
-const tipoDoScript = (arquivo: string) => (/\.tsx$/.test(arquivo) ? ts.ScriptKind.TSX : /\.(jsx?|mjs|cjs)$/.test(arquivo) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+const tipoDoScript = (arquivo: string) =>
+  /\.tsx$/.test(arquivo) ? ts.ScriptKind.TSX : /\.jsx$/.test(arquivo) ? ts.ScriptKind.JSX : /\.(js|mjs|cjs)$/.test(arquivo) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
 
 /**
  * Especificadores importados em tempo de execução (pela árvore sintática do TypeScript): `import`, `export … from`,
@@ -86,10 +87,13 @@ export function caminhoAte(g: Grafo, arquivo: string): string[] {
   return c;
 }
 
-/** Arquivos .ts/.tsx de uma pasta, recursivo (sem os testes). */
+/**
+ * Fontes de uma pasta, recursivo, sem os testes. Rodada 2: também .js/.jsx/.mjs/.cjs — com `allowJs` e as
+ * `pageExtensions` padrão do Next, um `route.js` ou `page.jsx` em src/app é rota e não pode escapar das guardas.
+ */
 export const fontesDe = (pasta: string): string[] =>
   readdirSync(path.resolve(pasta), { recursive: true, withFileTypes: true })
-    .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
+    .filter((d) => d.isFile() && /\.(tsx?|jsx?|mjs|cjs)$/.test(d.name) && !/\.(test|spec)\.(tsx?|jsx?|mjs|cjs)$/.test(d.name))
     .map((d) => path.join(d.parentPath, d.name));
 
 /** Arquivos especiais que o Next compila além das rotas (`proxy`/`middleware`, `instrumentation`, `next.config`). */
