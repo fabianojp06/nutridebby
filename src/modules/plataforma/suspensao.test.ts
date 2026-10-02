@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { session, tenants, user } from '@/db/schema';
+import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
 import { criarEEntrar, entrar } from '../../../test/sessao';
 import { reativarConta, suspenderConta } from './suspensao';
@@ -10,7 +11,10 @@ import { ContaNaoEncontradaError } from './tenant-status';
 
 const db = getDb();
 const auth = getAuth();
-afterAll(() => closeDb());
+afterAll(async () => {
+  await stopBoss(); // suspender e reativar enfileiram o job da agenda (P05-06)
+  await closeDb();
+});
 
 async function contaComNutri() {
   const [t] = await db.insert(tenants).values({ slug: `sus-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Sus' }).returning();

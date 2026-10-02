@@ -6,6 +6,8 @@ import { buscarConsulta, STATUS_ATIVOS } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
+import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
+import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
 import { Cabecalho } from '../../../cabecalho';
 import { moverAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
@@ -20,6 +22,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const c = await buscarConsulta(ctx, id);
   if (!c) notFound();
   const emBloqueio = (await listarBloqueios(ctx, c.inicio, c.fim)).some((b) => sobrepoe(b, c));
+  const lembretes = await listarNotificacoesDaConsulta(ctx, c.id);
   const p = partesNoFuso(c.inicio, tenant.fuso);
   const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : null;
   const ativa = STATUS_ATIVOS.includes(c.status);
@@ -48,7 +51,28 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           </section>
         )}
         {/* Tarefa 7: Cancelar consulta */}
-        {/* Tarefa 5: Lembretes */}
+        <section aria-labelledby="lembretes" className="space-y-2">
+          <h2 id="lembretes" className="text-lg font-semibold">Lembretes</h2>
+          {lembretes.length === 0 ? (
+            <p>Nenhum lembrete para esta consulta.</p>
+          ) : (
+            <table className="w-full max-w-3xl text-left text-sm">
+              <caption className="sr-only">Lembretes da consulta</caption>
+              <thead>
+                <tr><th scope="col">Mensagem</th><th scope="col">Canal</th><th scope="col">Situação</th></tr>
+              </thead>
+              <tbody>
+                {lembretes.map((n) => (
+                  <tr key={n.id} className="border-t">
+                    <td>{ROTULO_TIPO[n.tipo as TipoNotificacao]}</td>
+                    <td>{ROTULO_CANAL[n.canal as Canal]}</td>
+                    <td>{situacaoDaNotificacao(n, tenant.fuso)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
       </main>
     </>
   );

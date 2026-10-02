@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { esperarEmail } from './mailpit';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -111,4 +112,17 @@ test('nova consulta: depois de um erro, o formulário mantém paciente, hora, du
   await expect(nutri.getByLabel('Duração')).toHaveValue('45');
   await expect(nutri.getByLabel('Online')).toBeChecked();
   await expect(nutri.getByLabel('Link da chamada')).toHaveValue('http://sem-https.example');
+});
+
+test('e-mail "Consulta marcada" e lembretes agendados (US-031, US-034)', async () => {
+  // a consulta da Carla foi alterada para as 11:00 no teste "agenda da nutricionista": a confirmação nova diz 11:00
+  const email = await esperarEmail(`carla-${sufixo}@ex.com`, { assunto: `Consulta marcada: seg., ${br(SEGUNDA_LIVRE)} às 11:00 (horário de Brasília)` });
+  expect(email.texto).toMatch(/\/consulta\/[A-Za-z0-9_-]{71}/);
+  await nutri.goto(`/painel/agenda?visao=dia&data=${SEGUNDA_LIVRE}`);
+  await nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` }).click();
+  const tabela = nutri.getByRole('table', { name: 'Lembretes da consulta' });
+  await expect(tabela.getByRole('row', { name: /Lembrete de 24 h E-mail Agendado para dom\., .* às 11:00/ })).toBeVisible();
+  await expect(tabela.getByRole('row', { name: /Lembrete de 2 h WhatsApp Agendado para seg\., .* às 09:00/ })).toBeVisible();
+  // o horário antigo (09:00) continua na tela, como histórico (D6/D17)
+  await expect(tabela.getByRole('row', { name: /Lembrete de 24 h E-mail Não enviado: consulta remarcada/ })).toBeVisible();
 });

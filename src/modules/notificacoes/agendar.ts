@@ -1,0 +1,170 @@
+import { and, asc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import { fromDrizzle } from 'pg-boss';
+import { getDb, type Db, type Tx } from '@/db/client';
+import { appointments, notifications, type NotificationRow } from '@/db/schema';
+import { withTenant, type TenantContext } from '@/db/tenant';
+import { getBoss } from '@/jobs/boss';
+import { paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
+import { buscarTenant, getTenantStatus } from '@/modules/plataforma/tenant-status';
+import { CANAIS, type TipoLembrete } from './tipos';
+
+export const ANTECEDENCIA_MS: Record<TipoLembrete, number> = { lembrete_24h: 24 * 3_600_000, lembrete_2h: 2 * 3_600_000 };
+
+/** RN-05 / D7: [21:00, 08:00) no fuso do tenant; 08:00 em ponto vale. */
+export function emHorarioSilencioso(instante: Date, fuso: string): boolean {
+  const { minutos } = partesNoFuso(instante, fuso);
+  return minutos >= 21 * 60 || minutos < 8 * 60;
+}
+
+/** As próximas 08:00 no fuso do tenant (o fim do horário silencioso em que `agora` está). 08:00 sempre existe (DST não mexe nessa hora). */
+export function fimDoSilencio(agora: Date, fuso: string): Date {
+  const { data, minutos } = partesNoFuso(agora, fuso);
+  return paraInstante(minutos >= 21 * 60 ? somarDias(data, 1) : data, '08:00', fuso)!;
+}
+
+/**
+ * D7 na reserva (rodada 1 do /code-review): lembrete que venceu e sairia no horário silencioso (worker parado,
+ * reativação à noite) vai para as 08:00 se ainda fizer sentido — o de 24 h só até o lembrete de 2 h (que cobre a reta
+ * final), ou até 30 min antes do início quando o de 2 h caiu no silêncio; o de 2 h, até 30 min antes. Senão, null (ignorar).
+ */
+export function adiarLembrete(tipo: TipoLembrete, inicio: Date, fuso: string, agora: Date): Date | null {
+  const as8 = fimDoSilencio(agora, fuso);
+  const de2h = new Date(inicio.getTime() - ANTECEDENCIA_MS.lembrete_2h);
+  if (tipo === 'lembrete_24h' && !emHorarioSilencioso(de2h, fuso)) return as8.getTime() < de2h.getTime() ? as8 : null;
+  return as8.getTime() <= inicio.getTime() - 30 * 60_000 ? as8 : null;
+}
+
+export type PlanoLembrete = { tipo: TipoLembrete; agendadaPara: Date } & ({ status: 'pendente' } | { status: 'ignorada'; motivo: 'prazo_passado' | 'horario_silencioso' });
+
+/** RN-05: 24 h e 2 h antes; horário já passado ou silencioso → "ignorada" com o motivo (não é adiado). */
+export function planejarLembretes(inicio: Date, fuso: string, agora: Date): PlanoLembrete[] {
+  return (Object.keys(ANTECEDENCIA_MS) as TipoLembrete[]).map((tipo) => {
+    const agendadaPara = new Date(inicio.getTime() - ANTECEDENCIA_MS[tipo]);
+    if (agendadaPara.getTime() <= agora.getTime()) return { tipo, agendadaPara, status: 'ignorada', motivo: 'prazo_passado' };
+    if (emHorarioSilencioso(agendadaPara, fuso)) return { tipo, agendadaPara, status: 'ignorada', motivo: 'horario_silencioso' };
+    return { tipo, agendadaPara, status: 'pendente' };
+  });
+}
+
+export type ConsultaParaLembrete = { tenantId: string; patientId: string; appointmentId: string; inicio: Date };
+type Linha = Pick<typeof notifications.$inferInsert, 'tenantId' | 'patientId' | 'appointmentId' | 'inicioConsulta' | 'canal' | 'tipo' | 'status' | 'motivoIgnorada' | 'agendadaPara'>;
+
+/**
+ * D6 (rodada 1 do /code-review): (consulta, canal, tipo, início da consulta) é UNIQUE. Marcar de novo no mesmo horário
+ * ou reativar reescreve só a linha que NÃO saiu (`pendente`, `ignorada`, `falhou`); a enviada (e a que está saindo)
+ * é imutável — não volta a "pendente" nem perde `enviada_em`/`provider_msg_id` (cota, métricas, histórico).
+ */
+async function gravar(tx: Tx, linhas: Linha[], agora: Date): Promise<void> {
+  if (!linhas.length) return;
+  await tx
+    .insert(notifications)
+    .values(linhas.map((l) => ({ ...l, tentativas: 0, createdAt: agora, updatedAt: agora })))
+    .onConflictDoUpdate({
+      target: [notifications.appointmentId, notifications.canal, notifications.tipo, notifications.inicioConsulta],
+      set: { status: sql`excluded.status`, motivoIgnorada: sql`excluded.motivo_ignorada`, agendadaPara: sql`excluded.agendada_para`, tentativas: 0, erro: null, updatedAt: agora },
+      setWhere: inArray(notifications.status, ['pendente', 'ignorada', 'falhou']),
+    });
+}
+
+/** D17 (rodada 1): o horário da consulta mudou — o que ainda não saiu para o horário antigo vira "consulta_remarcada". */
+async function descartarHorarioAntigo(tx: Tx, c: ConsultaParaLembrete, agora: Date): Promise<void> {
+  await tx
+    .update(notifications)
+    .set({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada', updatedAt: agora })
+    .where(and(eq(notifications.appointmentId, c.appointmentId), eq(notifications.status, 'pendente'), ne(notifications.inicioConsulta, c.inicio)));
+}
+
+/** RN-05 / D6: 24 h e 2 h antes, nos três canais; as condições de cada canal são conferidas no envio. */
+export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: string, agora: Date): Promise<void> {
+  await descartarHorarioAntigo(tx, c, agora);
+  await gravar(
+    tx,
+    planejarLembretes(c.inicio, fuso, agora).flatMap((p) =>
+      CANAIS.map((canal) => ({
+        tenantId: c.tenantId,
+        patientId: c.patientId,
+        appointmentId: c.appointmentId,
+        inicioConsulta: c.inicio,
+        canal,
+        tipo: p.tipo,
+        status: p.status,
+        motivoIgnorada: p.status === 'ignorada' ? p.motivo : null,
+        agendadaPara: p.agendadaPara,
+      })),
+    ),
+    agora,
+  );
+}
+
+/** US-031 / US-033: "Consulta marcada" (também ao mudar o horário) e "Consulta cancelada", por e-mail e push, já. */
+export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada', agora: Date): Promise<void> {
+  if (tipo === 'consulta_marcada' && c.inicio.getTime() <= agora.getTime()) return; // encaixe registrado depois (D22)
+  await gravar(
+    tx,
+    (['email', 'push'] as const).map((canal) => ({ tenantId: c.tenantId, patientId: c.patientId, appointmentId: c.appointmentId, inicioConsulta: c.inicio, canal, tipo, status: 'pendente', motivoIgnorada: null, agendadaPara: agora })),
+    agora,
+  );
+}
+
+/** US-033: o que ainda não saiu da consulta cancelada vira "ignorada". */
+export async function cancelarLembretes(tx: Tx, appointmentId: string, agora: Date): Promise<void> {
+  await tx
+    .update(notifications)
+    .set({ status: 'ignorada', motivoIgnorada: 'consulta_cancelada', updatedAt: agora })
+    .where(and(eq(notifications.appointmentId, appointmentId), eq(notifications.status, 'pendente'), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h', 'consulta_marcada'])));
+}
+
+/** Envio já (sem esperar a varredura do minuto): enfileira a varredura só deste tenant, na mesma transação. */
+export async function dispararEnvio(tx: Tx, tenantId: string): Promise<void> {
+  const id = await (await getBoss()).send('notificacoes', { tenantId }, { db: fromDrizzle(tx, sql) });
+  if (!id) throw new Error('A fila de notificações recusou o envio');
+}
+
+/**
+ * US-004 / RN-15: tenant suspenso — nada pendente sai. Roda no worker (o admin nunca toca tabela 🔒). Rodada 1: o
+ * status é relido sob trava (`FOR SHARE` em `tenants`, na mesma transação). Um job "suspenso" atrasado, que roda
+ * depois da reativação, não ignora nada; uma reativação concorrente espera esta transação e o job "reativado" dela
+ * reagenda o que foi ignorado aqui.
+ */
+export async function ignorarPendentesDoTenant(db: Db, tenantId: string, agora: Date): Promise<void> {
+  await withTenant(
+    { tenantId, role: 'worker' },
+    async (tx) => {
+      if ((await getTenantStatus(tx, tenantId, { aguardarSuspensao: true })) !== 'suspensa') return;
+      await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'tenant_suspenso', updatedAt: agora }).where(eq(notifications.status, 'pendente'));
+    },
+    db,
+  );
+}
+
+/** US-004 "Reativar": os lembretes ignorados pela suspensão, de consultas futuras ativas, voltam a valer (RN-05). */
+export async function reagendarTenantReativado(db: Db, tenantId: string, agora: Date): Promise<void> {
+  const tenant = await buscarTenant(db, tenantId); // o fuso; lido antes da transação (uma conexão por vez)
+  if (!tenant) return;
+  await withTenant(
+    { tenantId, role: 'worker' },
+    async (tx) => {
+      // rodada 1: relido sob trava — um "reativado" atrasado, que roda depois de uma nova suspensão, não reabre nada
+      if ((await getTenantStatus(tx, tenantId, { aguardarSuspensao: true })) !== 'ativa') return;
+      const alvo = await tx
+        .selectDistinct({ id: appointments.id, inicio: appointments.inicio })
+        .from(notifications)
+        .innerJoin(appointments, eq(appointments.id, notifications.appointmentId))
+        .where(and(eq(notifications.motivoIgnorada, 'tenant_suspenso'), inArray(appointments.status, ['agendada', 'confirmada']), gt(appointments.inicio, agora)));
+      for (const c of alvo) {
+        for (const p of planejarLembretes(c.inicio, tenant.fuso, agora)) {
+          await tx
+            .update(notifications)
+            .set({ status: p.status, motivoIgnorada: p.status === 'ignorada' ? p.motivo : null, agendadaPara: p.agendadaPara, tentativas: 0, erro: null, updatedAt: agora })
+            .where(and(eq(notifications.appointmentId, c.id), eq(notifications.inicioConsulta, c.inicio), eq(notifications.tipo, p.tipo), eq(notifications.motivoIgnorada, 'tenant_suspenso')));
+        }
+      }
+    },
+    db,
+  );
+}
+
+/** Lembretes da consulta para a tela da nutricionista (US-034). */
+export async function listarNotificacoesDaConsulta(ctx: TenantContext, appointmentId: string, db: Db = getDb()): Promise<NotificationRow[]> {
+  return withTenant(ctx, (tx) => tx.select().from(notifications).where(eq(notifications.appointmentId, appointmentId)).orderBy(asc(notifications.agendadaPara), asc(notifications.tipo), asc(notifications.canal)), db);
+}

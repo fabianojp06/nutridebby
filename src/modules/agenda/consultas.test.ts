@@ -4,8 +4,10 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { closeDb } from '@/db/client';
 import { appointments, auditLog } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { MSG_AGENDA } from './constantes';
 import { agendarPelaNutri, buscarConsulta, ConsultaError, ehSobreposicao, horariosLivres, linkValido, listarAgenda, moverConsulta } from './consultas';
@@ -15,6 +17,8 @@ import { partesNoFuso } from './fuso';
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 afterAll(async () => {
+  await stopBoss(); // marcar e alterar enfileiram o envio (Tarefa 5)
+  await closeDb();
   await app.pool.end();
   await owner.pool.end();
 });

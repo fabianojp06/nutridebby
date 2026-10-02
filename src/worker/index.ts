@@ -7,7 +7,11 @@ import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
+import { encryptionKey } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { chaveDosLinks } from '@/modules/agenda/link-consulta';
+import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
+import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import {
   expirarExportacao,
   expirarExportacoesVencidas,
@@ -51,6 +55,24 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
     });
+  });
+
+  // RN-05 / D6: motor de lembretes. Cron de 1 min para todos os tenants; `{ tenantId }` = envio imediato de um tenant
+  const depsEnvio: DepsEnvio = {
+    db: getDb(),
+    agora: () => new Date(),
+    appUrl: env.APP_URL,
+    chaveLinks: chaveDosLinks(encryptionKey()),
+    email: { transport, from: env.EMAIL_FROM },
+  };
+  await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work<{ tenantId?: string }>('notificacoes', async ([job]) => {
+    await processarNotificacoes(depsEnvio, { tenantId: job.data?.tenantId });
+  });
+  // US-004: o admin suspende/reativa e só enfileira; aqui o worker troca os lembretes dentro do withTenant
+  await boss.work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
+    if (job.data.evento === 'suspenso') await ignorarPendentesDoTenant(getDb(), job.data.tenantId, new Date());
+    else await reagendarTenantReativado(getDb(), job.data.tenantId, new Date());
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');

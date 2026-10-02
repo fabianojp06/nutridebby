@@ -68,3 +68,21 @@ describe('exportacao_pronta (US-018)', () => {
     expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
   });
 });
+
+describe('consulta (US-031, US-033, US-034)', () => {
+  it('consulta: lembretes de 24 h e 2 h, marcada e cancelada (com o fuso no texto)', () => {
+    const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };
+    const l24 = renderEmail({ ...base, evento: 'lembrete_24h' });
+    expect(l24.subject).toBe('Lembrete: sua consulta é amanhã às 14:00');
+    expect(l24.text).toContain('Este é um lembrete da sua consulta com Debby Silva: sex., 16/10/2026 às 14:00 (horário de Brasília).');
+    expect(l24.text).toContain('Endereço: Rua das Flores, 10');
+    expect(l24.text).toContain('Confirmar presença ou remarcar: https://x.dev/consulta/tok');
+    expect(l24.html).toContain('href="https://x.dev/consulta/tok"');
+    expect(renderEmail({ ...base, evento: 'lembrete_2h', modalidade: 'online', local: 'https://meet.google.com/x' }).text).toContain('Link da chamada: https://meet.google.com/x');
+    expect(renderEmail({ ...base, evento: 'consulta_marcada' }).subject).toBe('Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    const c = renderEmail({ ...base, evento: 'consulta_cancelada', link: null });
+    expect(c.subject).toBe('Consulta cancelada: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    expect(c.text).not.toContain('/consulta/');
+    expect(c.html).not.toContain('/consulta/');
+  });
+});

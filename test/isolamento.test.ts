@@ -68,6 +68,12 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     const h = horaIso();
     return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri')`;
   },
+  notifications: (t, p) => {
+    const h = horaIso();
+    return sql`with c as (insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem)
+        values (${t}, ${p}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri') returning id, inicio)
+      insert into notifications (tenant_id, patient_id, appointment_id, inicio_consulta, canal, tipo, agendada_para) select ${t}, ${p}, c.id, c.inicio, 'email', 'lembrete_24h', now() from c`;
+  },
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);

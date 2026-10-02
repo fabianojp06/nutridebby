@@ -24,6 +24,11 @@ export const QUEUES = {
   'expirar-plano-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 120 },
   // Plano 03 (c): .tmp órfãos de salvarArquivo (queda no meio da gravação), todo dia às 04h
   'limpar-tmp': { retryLimit: 1, retryDelay: 600, expireInSeconds: 300 },
+  // RN-05 / D6: varredura das notificações a cada minuto, e `{ tenantId }` para envio imediato. O estado fica no
+  // banco (notifications), então não há retry do job: o que falhou volta como "pendente" com a próxima tentativa.
+  notificacoes: { retryLimit: 0, expireInSeconds: 300, deleteAfterSeconds: 3_600 },
+  // US-004: lembretes do tenant suspenso viram "ignorada"; na reativação, os das consultas futuras voltam
+  'agenda-tenant': { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

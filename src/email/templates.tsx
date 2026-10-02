@@ -63,6 +63,22 @@ function LinkReserva({ href }: { href: string }) {
 
 const html = (el: ReactNode) => `<!doctype html>${renderToStaticMarkup(el)}`;
 
+/** Plano 05: parágrafos + botão opcional + parágrafos depois, com a versão em texto igual. */
+function simples(subject: string, linhas: string[], botao?: { href: string; rotulo: string }, depois: string[] = []): RenderedEmail {
+  return {
+    subject,
+    html: html(
+      <Layout titulo={subject}>
+        {linhas.map((l) => <P key={l}>{l}</P>)}
+        {botao && <Botao href={botao.href}>{botao.rotulo}</Botao>}
+        {depois.map((l) => <P key={l}>{l}</P>)}
+        {botao && <LinkReserva href={botao.href} />}
+      </Layout>,
+    ),
+    text: [...linhas, ...(botao ? [`${botao.rotulo}: ${botao.href}`] : []), ...depois].join('\n\n'),
+  };
+}
+
 export function renderEmail(msg: EmailMessage): RenderedEmail {
   switch (msg.tipo) {
     case 'convite_nutri': {
@@ -206,6 +222,28 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ),
         text: [...linhas, msg.link].join('\n\n'),
       };
+    }
+    case 'consulta': {
+      const subject = {
+        lembrete_24h: `Lembrete: sua consulta é amanhã às ${msg.hora}`,
+        lembrete_2h: `Lembrete: sua consulta é hoje às ${msg.hora}`,
+        consulta_marcada: `Consulta marcada: ${msg.quando}`,
+        consulta_cancelada: `Consulta cancelada: ${msg.quando}`,
+      }[msg.evento];
+      const abertura = {
+        lembrete_24h: `Este é um lembrete da sua consulta com ${msg.nutri}: ${msg.quando}.`,
+        lembrete_2h: `Sua consulta com ${msg.nutri} é hoje: ${msg.quando}.`,
+        consulta_marcada: `Sua consulta com ${msg.nutri} está marcada para ${msg.quando}.`,
+        consulta_cancelada: `Sua consulta com ${msg.nutri} de ${msg.quando} foi cancelada.`,
+      }[msg.evento];
+      if (msg.evento === 'consulta_cancelada') return simples(subject, [`Olá, ${msg.nome}!`, abertura, 'Para marcar outro horário, fale com sua nutricionista.']);
+      const local = !msg.local ? [] : [msg.modalidade === 'online' ? `Link da chamada: ${msg.local}` : `Endereço: ${msg.local}`];
+      return simples(
+        subject,
+        [`Olá, ${msg.nome}!`, abertura, ...local],
+        msg.link ? { href: msg.link, rotulo: 'Confirmar presença ou remarcar' } : undefined,
+        ['Se não puder ir, use o mesmo link para remarcar ou cancelar.'],
+      );
     }
     default: {
       const nunca: never = msg;

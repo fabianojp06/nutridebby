@@ -94,3 +94,49 @@ export const appointments = pgTable(
 );
 
 export type AppointmentRow = typeof appointments.$inferSelect;
+
+/**
+ * RN-05 / D6: uma linha por (consulta, canal, tipo, início da consulta). Marcar de novo no mesmo horário ou reativar
+ * reescreve só a linha que não saiu; mudar o horário cria linhas novas — a enviada é imutável (cota, métricas, histórico).
+ * As condições de cada canal (opt-in, cota, inscrição…) são conferidas no envio. Registro técnico: sem auditoria (D10).
+ * `provider_jid`: destino real no WhatsApp (casa a resposta "1"/"2"); `conteudo_selado`: convite com link cifrado até o envio;
+ * `inicio_consulta`: o horário da consulta para o qual a linha foi planejada (nulo só sem consulta: convite).
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    patientId: uuid('patient_id').notNull(),
+    appointmentId: uuid('appointment_id'),
+    canal: text('canal').notNull(),
+    tipo: text('tipo').notNull(),
+    status: text('status').notNull().default('pendente'),
+    motivoIgnorada: text('motivo_ignorada'),
+    erro: text('erro'),
+    providerMsgId: text('provider_msg_id').unique(),
+    providerJid: text('provider_jid'),
+    conteudoSelado: text('conteudo_selado'),
+    tentativas: smallint('tentativas').notNull().default(0),
+    inicioConsulta: timestamp('inicio_consulta', { withTimezone: true }),
+    agendadaPara: timestamp('agendada_para', { withTimezone: true }).notNull(),
+    enviadaEm: timestamp('enviada_em', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('notifications_canal_valido', sql`${t.canal} in ('email', 'whatsapp', 'push')`),
+    check('notifications_tipo_valido', sql`${t.tipo} in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar')`),
+    check('notifications_status_valido', sql`${t.status} in ('pendente', 'enviando', 'enviada', 'entregue', 'lida', 'falhou', 'ignorada')`),
+    check('notifications_motivo_so_ignorada', sql`(${t.status} = 'ignorada') = (${t.motivoIgnorada} is not null)`),
+    check('notifications_erro_tamanho', sql`char_length(${t.erro}) <= 60`),
+    check('notifications_versao_da_consulta', sql`(${t.appointmentId} is null) = (${t.inicioConsulta} is null)`),
+    unique('notifications_consulta_versao_unique').on(t.appointmentId, t.canal, t.tipo, t.inicioConsulta),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'notifications_paciente_fk' }),
+    foreignKey({ columns: [t.tenantId, t.patientId, t.appointmentId], foreignColumns: [appointments.tenantId, appointments.patientId, appointments.id], name: 'notifications_consulta_fk' }),
+    index('notifications_devidas_idx').on(t.tenantId, t.status, t.agendadaPara),
+    index('notifications_envios_idx').on(t.tenantId, t.canal, t.enviadaEm),
+  ],
+);
+
+export type NotificationRow = typeof notifications.$inferSelect;

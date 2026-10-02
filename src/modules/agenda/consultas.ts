@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { exclusionViolation } from '@/db/errors';
 import { appointments, patients, type AppointmentRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida } from '@/modules/pacientes/datas';
 import { DURACAO_MAX, DURACAO_MIN, MSG_AGENDA } from './constantes';
@@ -122,7 +123,11 @@ export async function agendarPelaNutri(ctx: TenantContext, tenant: TenantAgenda,
           .insert(appointments)
           .values({ tenantId: ctx.tenantId, patientId: p.id, inicio: v.inicio, fim: v.fim, modalidade: v.modalidade, linkOnline: v.linkOnline, status: 'agendada', origem: 'nutri', createdAt: now, updatedAt: now })
           .returning();
-        // Tarefa 5: lembretes (RN-05), "Consulta marcada" ao paciente e dispararEnvio entram aqui, na mesma transação
+        // RN-05 / US-031: lembretes, "Consulta marcada" ao paciente e o pedido de envio já, na mesma transação
+        const alvo = { tenantId: ctx.tenantId, patientId: p.id, appointmentId: c.id, inicio: c.inicio };
+        await agendarLembretes(tx, alvo, tenant.fuso, now);
+        await avisarPaciente(tx, alvo, 'consulta_marcada', now);
+        await dispararEnvio(tx, ctx.tenantId);
         return { id: c.id, avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
       db,
@@ -171,10 +176,14 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
           .set({ inicio: v.inicio, fim: v.fim, modalidade: v.modalidade, linkOnline: v.linkOnline, ...horarioNovo, updatedAt: now })
           .where(eq(appointments.id, id));
         if (inicioMudou) {
-          // Tarefa 5 (R3): lembretes do horário novo como linhas novas (os pendentes do horário antigo viram ignorados
-          // `consulta_remarcada`; os já enviados ficam como estão, D17: linha enviada é imutável), "Consulta marcada"
-          // ao paciente e dispararEnvio entram aqui. Mudar só a duração, a modalidade ou o link não replaneja nem
-          // avisa: os pendentes saem com os dados novos, lidos no envio.
+          // R3 / D17: lembretes do horário novo como linhas novas (os pendentes do horário antigo viram ignorados
+          // `consulta_remarcada`; os já enviados ficam como estão: linha enviada é imutável, D6), "Consulta marcada"
+          // ao paciente e o pedido de envio já. Mudar só a duração, a modalidade ou o link não passa por aqui: os
+          // pendentes saem com os dados novos, lidos no envio.
+          const alvo = { tenantId: ctx.tenantId, patientId: c.patientId, appointmentId: id, inicio: v.inicio };
+          await agendarLembretes(tx, alvo, tenant.fuso, now);
+          await avisarPaciente(tx, alvo, 'consulta_marcada', now);
+          await dispararEnvio(tx, ctx.tenantId);
         }
         return { avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
