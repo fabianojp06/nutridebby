@@ -6,7 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { buscarTenant, getTenantStatus } from '@/modules/plataforma/tenant-status';
-import { CANAIS, type TipoLembrete } from './tipos';
+import { CANAIS, ehLembrete, type TipoLembrete } from './tipos';
 
 export const ANTECEDENCIA_MS: Record<TipoLembrete, number> = { lembrete_24h: 24 * 3_600_000, lembrete_2h: 2 * 3_600_000 };
 
@@ -144,6 +144,29 @@ export async function cancelarLembretes(tx: Tx, appointmentId: string, agora: Da
     .update(notifications)
     .set({ status: 'ignorada', motivoIgnorada: 'consulta_cancelada', updatedAt: agora })
     .where(and(eq(notifications.appointmentId, appointmentId), eq(notifications.status, 'pendente'), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h', 'consulta_marcada'])));
+}
+
+/**
+ * INT-01: WhatsApp de lembrete que falhou de vez (no envio, preso em "enviando" ou ERROR no webhook) → o e-mail do mesmo
+ * lembrete sai de novo, se tinha falhado. R1: mora aqui (e não em enviar.ts) para a rota do webhook não importar o
+ * motor de envio (push/web-push só no worker).
+ * Travas (revisão da T5): quem chama já segura a linha do WhatsApp, e `gravar` trava o e-mail antes do WhatsApp — esperar
+ * o e-mail aqui inverteria a ordem (deadlock). Por isso SKIP LOCKED: se o e-mail está travado, quem o trava é `gravar`
+ * (a consulta voltou a este horário), que reescreve a linha que não saiu — o mesmo resultado de rodar depois dele.
+ */
+export async function fallbackPorEmail(tx: Tx, n: NotificationRow, agora: Date): Promise<void> {
+  if (n.canal !== 'whatsapp' || !ehLembrete(n.tipo) || !n.appointmentId || !n.inicioConsulta) return;
+  const emails = await tx
+    .select({ id: notifications.id })
+    .from(notifications)
+    // o e-mail do MESMO horário da consulta (CHECK: com consulta, `inicio_consulta` existe)
+    .where(and(eq(notifications.appointmentId, n.appointmentId), eq(notifications.inicioConsulta, n.inicioConsulta), eq(notifications.canal, 'email'), eq(notifications.tipo, n.tipo), eq(notifications.status, 'falhou')))
+    .for('update', { skipLocked: true });
+  if (!emails.length) return;
+  await tx
+    .update(notifications)
+    .set({ status: 'pendente', agendadaPara: agora, tentativas: 0, erro: null, updatedAt: agora })
+    .where(inArray(notifications.id, emails.map((e) => e.id)));
 }
 
 /** Envio já (sem esperar a varredura do minuto): enfileira a varredura só deste tenant, na mesma transação. */

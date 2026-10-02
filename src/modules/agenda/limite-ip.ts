@@ -5,15 +5,15 @@ import { publicRateLimits } from '@/db/schema';
 import { encryptionKey } from '@/lib/crypto';
 
 /**
- * RN-16: contadores da página pública (e, na Tarefa 12, a marca anti-repetição do webhook). `public_rate_limits` não
+ * RN-16: contadores da página pública e marcas anti-repetição do webhook do WhatsApp (D4 b). `public_rate_limits` não
  * tem tenant_id nem RLS: só este arquivo a acessa (CLAUDE.md regra 1).
  */
 
 let chave: Buffer | undefined;
 const chaveDosLimites = () => (chave ??= Buffer.from(hkdfSync('sha256', encryptionKey(), Buffer.alloc(0), 'nutridebby:limite-publico:v1', 32)));
 
-/** RN-16 / LGPD: a linha guarda o HMAC do IP ou do e-mail, nunca o valor. */
-export function chaveDoLimite(tipo: 'ip' | 'email-hora', valor: string): string {
+/** RN-16 / LGPD: a linha guarda o HMAC do IP, do e-mail ou do pedido do webhook (JWT + corpo), nunca o valor. */
+export function chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook', valor: string): string {
   return `${tipo}:${createHmac('sha256', chaveDosLimites()).update(valor).digest('base64url')}`;
 }
 
@@ -30,8 +30,8 @@ export async function consumirLimite(db: Db, chaveLimite: string, limite: number
 }
 
 /**
- * Zera um contador: o seed do E2E (o visitante da página pública começa cada execução do zero) e, na Tarefa 12, a
- * marca anti-repetição do webhook quando enfileirar falha (D4 (b)) — é o `liberarLimite` do plano.
+ * Zera um contador: o seed do E2E (o visitante da página pública começa cada execução do zero) e a marca
+ * anti-repetição do webhook quando enfileirar falha (D4 b) — a repetição da Evolution precisa passar.
  */
 export async function liberarLimite(db: Db, chaveLimite: string): Promise<void> {
   await db.delete(publicRateLimits).where(eq(publicRateLimits.chave, chaveLimite));

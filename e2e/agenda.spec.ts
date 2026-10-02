@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
+import { idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -53,12 +54,17 @@ const sufixo = Date.now().toString(36);
 /** Segunda-feira da semana seguinte à bloqueada: horários livres de 08:00 a 18:00 (Step 7 da Tarefa 2). */
 const SEGUNDA_LIVRE = somar(SEMANA_BLOQUEADA, 7);
 
-async function novoPaciente(nome: string, email: string): Promise<void> {
+/** `whatsapp`: telefone ('(11) 9xxxx-xxxx') e a autorização de WhatsApp marcada. */
+async function novoPaciente(nome: string, email: string, whatsapp?: string): Promise<void> {
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByLabel('Nome').fill(nome);
   await nutri.getByLabel('Data de nascimento').fill('1990-05-10');
   await nutri.getByLabel('Feminino').check();
   await nutri.getByLabel('E-mail').fill(email);
+  if (whatsapp) {
+    await nutri.getByLabel('Telefone (opcional)').fill(whatsapp);
+    await nutri.getByLabel('Paciente autorizou receber mensagens por WhatsApp').check();
+  }
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
   await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
 }
@@ -236,4 +242,49 @@ test('WhatsApp: tela de conexão mostra o QR (D2)', async () => {
   await nutri.getByRole('button', { name: 'Conectar WhatsApp' }).click();
   await expect(nutri.getByRole('img', { name: 'QR code para conectar o WhatsApp' })).toBeVisible();
   await expect(nutri.getByRole('button', { name: 'Gerar novo QR code' })).toBeVisible();
+});
+
+test('webhook do WhatsApp: sem JWT → 401; conexão "open" pela Evolution → "Conectado ao número" (D4)', async ({ request }) => {
+  expect((await request.post('/api/webhooks/whatsapp', { data: { event: 'connection.update' } })).status()).toBe(401);
+  const instancia = `nd-${await idDoTenant('e2e-consultorio')}`;
+  const r = await webhookAssinado(request, { event: 'connection.update', instance: instancia, data: { instance: instancia, state: 'open', wuid: '5511900001111@s.whatsapp.net' } });
+  expect(r.status()).toBe(200);
+  await expect(async () => {
+    await nutri.goto('/painel/whatsapp');
+    await expect(nutri.getByText('Conectado ao número (11) 90000-1111.')).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+});
+
+test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada via WhatsApp" na agenda (R7, US-035)', async ({ request }) => {
+  test.setTimeout(90_000);
+  // celular com 9 + 8 dígitos desta execução (finais 0000/9999 são os casos de erro do sandbox)
+  const oito = String(Date.now() % 1e8).padStart(8, '0').replace(/(0000|9999)$/, '1234');
+  const numero = `55119${oito}`;
+  const quinta = somar(SEGUNDA_LIVRE, 3);
+  await novoPaciente(`Fabi Zap ${sufixo}`, `fabi-${sufixo}@ex.com`, `(11) 9${oito.slice(0, 4)}-${oito.slice(4)}`);
+  await marcar(`Fabi Zap ${sufixo} (fabi-${sufixo}@ex.com)`, quinta, '10:00');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  const consultaId = /\/painel\/agenda\/consultas\/([0-9a-f-]{36})/.exec(nutri.url())![1];
+  const tenantId = await idDoTenant('e2e-consultorio');
+
+  // o lembrete sai pelo sandbox (Mailpit, <número>@whatsapp.sandbox), com o pedido de resposta
+  await lembreteDeWhatsappAgora(tenantId, consultaId);
+  const lembrete = await esperarEmail(`${numero}@whatsapp.sandbox`, { timeoutMs: 45_000 });
+  expect(lembrete.texto).toContain(`Olá, Fabi! Lembrete da sua consulta com Consultório E2E: qui., ${br(quinta)} às 10:00 (horário de Brasília), presencial.`);
+  expect(lembrete.texto).toContain('Responda 1 para confirmar ou 2 se precisar remarcar.');
+
+  // a paciente responde "1": a Evolution chama o webhook (JWT da instância do consultório)
+  const respondidoEm = new Date();
+  const r = await webhookAssinado(request, {
+    event: 'messages.upsert',
+    instance: `nd-${tenantId}`,
+    data: { key: { remoteJid: `${numero}@s.whatsapp.net`, fromMe: false, id: `E2E-${sufixo}` }, pushName: 'Fabi', message: { conversation: '1' }, messageType: 'conversation' },
+  });
+  expect(r.status()).toBe(200);
+  await expect(async () => {
+    await nutri.goto(`/painel/agenda?visao=dia&data=${quinta}`);
+    await expect(nutri.getByText('Confirmada via WhatsApp')).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 30_000 });
+  // e recebe a resposta automática (uma só)
+  await expect.poll(async () => (await esperarEmail(`${numero}@whatsapp.sandbox`, { depoisDe: respondidoEm })).texto, { timeout: 30_000 }).toContain('Presença confirmada. Até lá!');
 });

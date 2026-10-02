@@ -7,7 +7,7 @@ import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
-import { encryptionKey } from '@/lib/crypto';
+import { encryptionKey, openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
@@ -15,6 +15,7 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { provedorDoAmbiente } from '@/modules/notificacoes/whatsapp/ambiente';
+import { FINALIDADE_EVENTO, processarEventoWhatsapp, type EventoWhatsapp } from '@/modules/notificacoes/whatsapp/webhook';
 import {
   expirarExportacao,
   expirarExportacoesVencidas,
@@ -79,6 +80,12 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
     if (job.data.evento === 'suspenso') await ignorarPendentesDoTenant(getDb(), job.data.tenantId, new Date());
     else await reagendarTenantReativado(getDb(), job.data.tenantId, new Date());
+  });
+
+  // INT-01/D5: eventos do webhook do WhatsApp (conexão, status de entrega, resposta "1"/"2"), já reduzidos e cifrados pela rota
+  await boss.work<{ selado: string }>('whatsapp-evento', async ([job]) => {
+    const ev = JSON.parse(openSecret(job.data.selado, FINALIDADE_EVENTO)) as EventoWhatsapp;
+    await processarEventoWhatsapp(ev, { db: getDb(), appUrl: env.APP_URL });
   });
 
   // RN-16 / LGPD (minimização): pedidos da página pública (contato e código) somem em 24 h; contadores de limite, em 1 dia

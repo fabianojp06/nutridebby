@@ -188,7 +188,10 @@ export const publicBookingRequests = pgTable(
   ],
 );
 
-/** RN-16: contadores da página pública. A chave é o HMAC do IP ou do e-mail, nunca o valor. Sem tenant_id: só limite-ip.ts. */
+/**
+ * RN-16: contadores da página pública e marcas anti-repetição do webhook do WhatsApp (D4 b). A chave é o HMAC do IP, do
+ * e-mail ou do pedido do webhook, nunca o valor. Sem tenant_id: só limite-ip.ts.
+ */
 export const publicRateLimits = pgTable('public_rate_limits', {
   chave: text('chave').primaryKey(),
   janelaInicio: timestamp('janela_inicio', { withTimezone: true }).notNull(),

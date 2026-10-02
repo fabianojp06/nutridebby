@@ -13,11 +13,14 @@ import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaP
 import { noInicioDoLink } from './link-consulta';
 
 /**
- * `inicioDoLink` (D20, revisão da T5): o início que o link assinado carrega. A ação pelo link só vale se a consulta
- * ainda está nesse início — conferido sob a trava da consulta (a página confere antes, mas a nutricionista pode mudar
- * o horário entre abrir o link e clicar).
+ * `inicioDoLink` (D20, revisão da T5): o início que o link assinado carrega — ou o do lembrete do WhatsApp respondido
+ * com "1"/"2" (T12). A ação só vale se a consulta ainda está nesse início — conferido sob a trava da consulta (a página
+ * confere antes, mas a nutricionista pode mudar o horário entre abrir o link e clicar).
+ * `naMesmaTransacao` (T12, WhatsApp): roda na transação da ação, com as mesmas travas (paciente → consulta), quando a
+ * ação vale para o paciente — presença confirmada (agora ou antes) ou pedido de remarcação registrado (agora ou antes):
+ * é onde o webhook grava a resposta ao paciente, que só existe se a ação valeu.
  */
-type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date };
+type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date; naMesmaTransacao?: (tx: Tx, c: AppointmentRow) => Promise<void> };
 
 /** D20: a consulta mudou de horário depois de o link sair — o link antigo expirou para ela ("Este link expirou."). */
 export class ConsultaMudouError extends Error {
@@ -143,8 +146,12 @@ export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'wh
       const c = await lerConsultaParaEscrita(tx, id);
       conferirInicioDoLink(c, deps);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return 'nao_confirmavel';
-      if (c.status === 'confirmada') return 'ja_confirmada';
+      if (c.status === 'confirmada') {
+        await deps.naMesmaTransacao?.(tx, c);
+        return 'ja_confirmada';
+      }
       await tx.update(appointments).set({ status: 'confirmada', confirmadaVia: via, pedidoRemarcacaoEm: null, updatedAt: agora }).where(eq(appointments.id, id));
+      await deps.naMesmaTransacao?.(tx, c);
       return 'confirmada';
     },
     deps.db ?? getDb(),
@@ -161,9 +168,14 @@ export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, 
       if (!paciente) return false;
       const c = await lerConsultaParaEscrita(tx, id);
       conferirInicioDoLink(c, deps);
-      if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime() || c.pedidoRemarcacaoEm) return false;
+      if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return false;
+      if (c.pedidoRemarcacaoEm) {
+        await deps.naMesmaTransacao?.(tx, c); // já pedido (pelo link ou antes): a nutricionista não é avisada de novo
+        return false;
+      }
       await tx.update(appointments).set({ pedidoRemarcacaoEm: agora, updatedAt: agora }).where(eq(appointments.id, id));
       await avisarNutriDaConsulta(tx, tenant, { id, inicio: c.inicio, paciente: paciente.nome }, 'pedido_remarcacao', deps.appUrl ?? getEnv().APP_URL);
+      await deps.naMesmaTransacao?.(tx, c);
       return true;
     },
     deps.db ?? getDb(),

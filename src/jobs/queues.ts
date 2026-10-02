@@ -31,6 +31,8 @@ export const QUEUES = {
   'agenda-tenant': { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   // RN-16 / LGPD: pedidos da página pública com mais de 24 h e contadores velhos (todo dia às 04:30)
   'agenda-limpeza': { retryLimit: 2, retryDelay: 600, expireInSeconds: 300 },
+  // INT-01/D5: eventos do webhook do WhatsApp (cifrados), processados em ordem de chegada; idempotentes (repetir não duplica)
+  'whatsapp-evento': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;

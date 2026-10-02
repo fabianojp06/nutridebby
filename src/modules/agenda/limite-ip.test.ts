@@ -25,6 +25,16 @@ describe('limite da página pública (RN-16)', () => {
     expect(await consumirLimite(app.db, b, 1, 3600, t0)).toBe(false);
   });
 
+  it('D4 (b), rodada 1: marca de uma vez só (webhook) — a 2ª é recusada; liberar apaga a marca', async () => {
+    const chave = chaveDoLimite('webhook', `jwt.${Date.now()}.${Math.random()}`);
+    expect(chave).toMatch(/^webhook:[A-Za-z0-9_-]{43}$/);
+    const t0 = new Date('2026-10-16T12:00:00Z');
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(false);
+    await liberarLimite(app.db, chave);
+    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
+  });
+
   it('pedidos simultâneos não passam do limite (o contador é atômico)', async () => {
     const chave = chaveDoLimite('ip', `198.51.100.77-${Date.now()}-${Math.random()}`);
     const agora = new Date('2026-10-16T12:00:00Z');

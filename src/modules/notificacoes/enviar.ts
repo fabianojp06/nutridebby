@@ -6,7 +6,7 @@ import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
+import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
 import { emailDaNotificacao, textoWhatsapp } from './mensagens';
 import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 import { lerConexao } from './whatsapp/conexao';
@@ -43,7 +43,8 @@ const ignorar = (motivo: MotivoIgnorada): Resultado => ({ status: 'ignorada', mo
 /** Condições comuns a todos os canais, conferidas na hora do envio (D6). */
 export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
-  if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada')) return null;
+  // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
+  if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');
   if (c.consulta.status === 'realizada' || c.consulta.status === 'faltou') return ignorar('consulta_encerrada');
   // D6/D17: linha planejada para outro horário (reservada antes de a nutricionista mudar a hora) não sai
@@ -233,16 +234,6 @@ async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: Notifi
   );
 }
 
-/** INT-01: WhatsApp de lembrete que falhou de vez → o e-mail do mesmo lembrete sai de novo, se tinha falhado. */
-async function aoFalhar(tx: Tx, n: NotificationRow, agora: Date): Promise<void> {
-  if (n.canal !== 'whatsapp' || !ehLembrete(n.tipo) || !n.appointmentId) return;
-  await tx
-    .update(notifications)
-    .set({ status: 'pendente', agendadaPara: agora, tentativas: 0, erro: null, updatedAt: agora })
-    // o e-mail do MESMO horário da consulta (CHECK: com consulta, `inicio_consulta` existe)
-    .where(and(eq(notifications.appointmentId, n.appointmentId), eq(notifications.inicioConsulta, n.inicioConsulta!), eq(notifications.canal, 'email'), eq(notifications.tipo, n.tipo), eq(notifications.status, 'falhou')));
-}
-
 /**
  * Depois de um envio aceito: o aviso de 80% da cota (US-036). Revisão da T7: nada aqui trava `appointments` nem
  * `patients` (avisarPaciente espera as linhas "enviando" que esta transação trava) — só a conexão do tenant. Num
@@ -283,7 +274,7 @@ async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: Noti
         return;
       }
       const [f] = await tx.update(notifications).set({ status: 'falhou', erro: r.erro, conteudoSelado: null, updatedAt: agora }).where(onde).returning();
-      if (f) await aoFalhar(tx, f, agora);
+      if (f) await fallbackPorEmail(tx, f, agora);
     },
     deps.db,
   );
@@ -315,7 +306,7 @@ async function destravar(ctx: TenantContext, deps: DepsEnvio, agora: Date): Prom
         .set({ status: 'falhou', erro: 'interrompido', conteudoSelado: null, updatedAt: agora })
         .where(and(eq(notifications.status, 'enviando'), ne(notifications.canal, 'email'), lt(notifications.updatedAt, limite)))
         .returning();
-      for (const f of falhas) await aoFalhar(tx, f, agora);
+      for (const f of falhas) await fallbackPorEmail(tx, f, agora);
     },
     deps.db,
   );
