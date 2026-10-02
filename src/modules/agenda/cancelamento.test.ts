@@ -17,10 +17,12 @@ import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError } from './consultas';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const owner = makeDb(inject('ownerDatabaseUrl')); // só lê pg_stat_activity (a gravação ficou presa na trava)
 afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await owner.pool.end();
 });
 const deps = (now: Date) => ({ db: app.db, now, appUrl: 'http://localhost:3000' });
 const erro = async (p: Promise<unknown>) => {
@@ -83,6 +85,50 @@ describe('remarcar e cancelar (US-033)', () => {
     const aviso = (await lembretes(T, id)).filter((n) => n.tipo === 'consulta_cancelada');
     expect(aviso.map((n) => `${n.canal}/${n.status}`).sort()).toEqual(['email/pendente', 'push/pendente']);
     expect(await erro(cancelarConsulta(T.ctx, tenantAgenda(T), id, { por: 'nutri' }, vinteHorasAntes))).toEqual({ geral: MSG_AGENDA.naoCancelavel });
+  });
+
+  it('rodada 1 da T7: a nutricionista trava o paciente antes da consulta (a ordem de remarcarComoPaciente e moverConsulta) — sem deadlock com a remarcação do paciente', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
+    const outra = await app.pool.connect();
+    let confirmada = false;
+    try {
+      // como remarcarComoPaciente / moverConsulta: o paciente travado (FOR UPDATE) antes da consulta
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await outra.query('select 1 from patients where id = $1 for update', [ana.id]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const cancelamento = cancelarConsulta(T.ctx, tenantAgenda(T), id, { por: 'nutri' }, deps(em('2026-10-10', '09:00'))).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (i > 200) throw new Error('o cancelamento não ficou preso na trava do paciente');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // o cancelamento espera o paciente SEM ter pegado a consulta: quem segura o paciente ainda a trava sem esperar
+      await outra.query('select 1 from appointments where id = $1 for update nowait', [id]);
+      await outra.query('commit');
+      confirmada = true;
+      expect(await cancelamento).toBeNull();
+    } finally {
+      if (!confirmada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+    expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'nutri' });
+  });
+
+  it('rodada 1 da T7: a nutricionista cancela consulta de paciente bloqueado ou anonimizado (a trava do paciente não recusa)', async () => {
+    for (const mudanca of [{ status: 'bloqueado' }, { anonimizadoEm: em('2026-10-01', '09:00') }]) {
+      const T = await novoTenant(app.db);
+      const ana = await novoPaciente(app.db, T.ctx);
+      const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
+      await withTenant(T.ctx, (tx) => tx.update(patients).set(mudanca).where(eq(patients.id, ana.id)), app.db);
+      await cancelarConsulta(T.ctx, tenantAgenda(T), id, { por: 'nutri' }, deps(em('2026-10-10', '09:00')));
+      expect(await consulta(T, id), JSON.stringify(mudanca)).toMatchObject({ status: 'cancelada', canceladoPor: 'nutri' });
+    }
   });
 
   it('D22: cancelar uma consulta que já começou (acerto da agenda pela nutricionista) não manda "Consulta cancelada" ao paciente', async () => {

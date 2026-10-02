@@ -5,11 +5,11 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
-import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-paciente';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
-import { ConsultaError, ehSobreposicao, lerConsultaParaEscrita, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
+import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
 import { noInicioDoLink } from './link-consulta';
 
 /**
@@ -47,6 +47,20 @@ async function pacienteAtivo(tx: Tx, ctx: TenantContext): Promise<{ nome: string
 }
 
 /**
+ * Rodada 1 da T7: o caminho da nutricionista também trava o paciente ANTES da consulta — a ordem de remarcarComoPaciente
+ * e moverConsulta. Sem isso, a consulta ficava travada e o INSERT em `notifications` (FK → `FOR KEY SHARE` no paciente)
+ * esperava o paciente que a remarcação já segurava: deadlock (40P01). `FOR KEY SHARE` (a trava da própria FK), sem
+ * `carregarPacienteParaEscrita`: a nutricionista cancela também consulta de paciente bloqueado ou anonimizado.
+ */
+async function travarPacienteDaConsulta(tx: Tx, id: string): Promise<string> {
+  if (!idValido(id)) throw new ConsultaNaoEncontradaError();
+  const [c] = await tx.select({ patientId: appointments.patientId }).from(appointments).where(eq(appointments.id, id));
+  if (!c) throw new ConsultaNaoEncontradaError();
+  await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, c.patientId)).for('key share');
+  return c.patientId;
+}
+
+/**
  * US-033 / RN-04: a nutricionista cancela a qualquer momento; o paciente, dentro do prazo e se ativo (RN-08). O paciente
  * recebe o aviso (só de consulta que ainda não começou); quando é ele quem cancela, a nutricionista também (D18).
  */
@@ -58,9 +72,12 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
   await withTenant(
     ctx,
     async (tx) => {
+      // travas: paciente → consulta, nos dois caminhos
       const paciente = o.por === 'paciente' ? await pacienteAtivo(tx, ctx) : null;
       if (o.por === 'paciente' && !paciente) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo }); // RN-08
+      const travado = o.por === 'paciente' ? ctx.patientId : await travarPacienteDaConsulta(tx, id);
       const c = await lerConsultaParaEscrita(tx, id); // RLS: o paciente só alcança a própria
+      if (c.patientId !== travado) throw new ConsultaNaoEncontradaError(); // não acontece (patient_id não muda); se mudar, não segue sem a trava certa
       conferirInicioDoLink(c, deps);
       if (!ativa(c.status)) throw new ConsultaError({ geral: MSG_AGENDA.naoCancelavel });
       if (o.por === 'paciente' && !podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora)) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo });
