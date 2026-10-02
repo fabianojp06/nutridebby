@@ -85,7 +85,7 @@ async function enviarWhatsapp(c: ContextoEnvio, deps: DepsEnvio): Promise<Result
   if (!conexao || conexao.estado !== 'conectada') return ignorar('whatsapp_desconectado');
   if (!c.paciente.whatsappOptinEm || c.paciente.whatsappOptoutEm) return ignorar('sem_optin'); // INT-01: opt-in antes de qualquer mensagem
   if (!c.paciente.telefoneE164) return ignorar('sem_telefone');
-  const texto = textoWhatsapp(c, deps);
+  const texto = textoWhatsapp(c);
   if (!texto) return { status: 'falhou', erro: 'sem_modelo' };
   let r: ResultadoEnvio;
   try {

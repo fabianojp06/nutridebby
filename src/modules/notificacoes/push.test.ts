@@ -116,7 +116,7 @@ const semApagarInscricoes = (db: Db, segredo: string): Db =>
 const linha = async (T: TenantDeTeste, id: string, tipo: string) =>
   (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, tipo), eq(notifications.canal, 'push'))), app.db))[0];
 const inscricoes = (T: TenantDeTeste) => withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
-const doTipo = (p: { enviados: Enviado[] }, titulo: string) => p.enviados.filter((e) => JSON.parse(e.payload).titulo === titulo);
+const doTipo = (p: { enviados: Enviado[] }, titulo: string, corpo?: string) => p.enviados.filter((e) => JSON.parse(e.payload).titulo === titulo && (corpo === undefined || JSON.parse(e.payload).corpo === corpo));
 
 describe('push (INT-03, D19)', () => {
   it('envia para todos os dispositivos; payload sem dado de saúde, com o link da consulta; TTL até o início (no máximo 24 h)', async () => {
@@ -126,26 +126,27 @@ describe('push (INT-03, D19)', () => {
     const marcacao = pushFalso();
     await processarNotificacoes(deps(marcadaEm, marcacao), { tenantId: T.tenantId });
     const [m] = doTipo(marcacao, 'Consulta marcada');
-    expect(JSON.parse(m.payload)).toMatchObject({ corpo: 'sex., 16/10/2026 às 14:00 (horário de Brasília), com Debby Silva.' });
+    expect(JSON.parse(m.payload)).toMatchObject({ corpo: 'Sua consulta foi marcada para sex., 16/10/2026 às 14:00 (horário de Brasília).' });
     expect(m.ttl).toBe(86_400);
     // o lembrete de 24 h
     const p = pushFalso();
     await processarNotificacoes(deps(em('2026-10-15', '14:00'), p), { tenantId: T.tenantId });
-    const doLembrete = doTipo(p, 'Consulta amanhã às 14:00');
+    const doLembrete = doTipo(p, 'Lembrete de consulta', 'Você tem uma consulta amanhã às 14:00.');
     expect(doLembrete).toHaveLength(2);
     expect(new Set(doLembrete.map((e) => e.i.endpoint)).size).toBe(2);
     const corpo = JSON.parse(doLembrete[0].payload);
     expect(Object.keys(corpo).sort()).toEqual(['corpo', 'titulo', 'url']);
-    expect(corpo.corpo).toBe('Com Debby Silva. Toque para confirmar ou remarcar.');
+    expect(corpo.titulo).toBe('Lembrete de consulta');
     expect(corpo.url).toMatch(/^http:\/\/localhost:3000\/consulta\/[A-Za-z0-9_-]{71}$/);
     // sem dado do paciente nem da consulta além do horário: nome, telefone, endereço, modalidade
-    for (const dado of ['Ana', 'Souza', '912345678', 'Rua das Flores', 'presencial']) expect(doLembrete[0].payload, dado).not.toContain(dado);
+    // fechamento: nem o nome da nutricionista (tela de bloqueio)
+    for (const dado of ['Ana', 'Souza', '912345678', 'Rua das Flores', 'presencial', 'Debby', 'Silva']) expect(doLembrete[0].payload, dado).not.toContain(dado);
     expect(doLembrete[0].ttl).toBe(86_400);
     expect(await linha(T, id, 'lembrete_24h')).toMatchObject({ status: 'enviada', tentativas: 1 });
     // o de 2 h: TTL até o início (2 h)
     const p2 = pushFalso();
     await processarNotificacoes(deps(em('2026-10-16', '12:00'), p2), { tenantId: T.tenantId });
-    expect(doTipo(p2, 'Consulta hoje às 14:00').map((e) => e.ttl)).toEqual([7200, 7200]);
+    expect(doTipo(p2, 'Lembrete de consulta', 'Sua consulta é hoje às 14:00.').map((e) => e.ttl)).toEqual([7200, 7200]);
   });
 
   it('404/410 apaga a inscrição; se nenhuma sobrar, "sem_inscricao"; 5xx tenta de novo (só se ninguém recebeu); sem VAPID, "push_desligado"', async () => {

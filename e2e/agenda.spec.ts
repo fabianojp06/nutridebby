@@ -278,11 +278,13 @@ test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada 
   const consultaId = /\/painel\/agenda\/consultas\/([0-9a-f-]{36})/.exec(nutri.url())![1];
   const tenantId = await idDoTenant('e2e-consultorio');
 
-  // o lembrete sai pelo sandbox (Mailpit, <número>@whatsapp.sandbox), com o pedido de resposta
+  // o lembrete sai pelo sandbox (Mailpit, <número>@whatsapp.sandbox), com o pedido de resposta e SEM link (decisão do
+  // dono no fechamento: o número nunca foi verificado — o link assinado da consulta vai só no e-mail)
   await lembreteDeWhatsappAgora(tenantId, consultaId);
   const lembrete = await esperarEmail(`${numero}@whatsapp.sandbox`, { timeoutMs: 45_000 });
   expect(lembrete.texto).toContain(`Olá, Fabi! Lembrete da sua consulta com Consultório E2E: qui., ${br(quinta)} às 10:00 (horário de Brasília), presencial.`);
   expect(lembrete.texto).toContain('Responda 1 para confirmar ou 2 se precisar remarcar.');
+  expect(lembrete.texto).not.toMatch(/https?:|\/consulta\//);
 
   // a paciente responde "1": a Evolution chama o webhook (JWT da instância do consultório)
   const respondidoEm = new Date();

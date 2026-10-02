@@ -11,8 +11,8 @@ export const primeiroNome = (nome: string) => nome.trim().split(/\s+/)[0] || nom
 export const ehHoje = (c: { consulta: AppointmentRow; tenant: TenantRow; agora: Date }) =>
   partesNoFuso(c.agora, c.tenant.fuso).data === partesNoFuso(c.consulta.inicio, c.tenant.fuso).data;
 
-/** Dados comuns às mensagens de uma consulta; o link assinado (D20) vai em todas, menos no cancelamento. */
-export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow; paciente: PatientRow }, deps: { appUrl: string; chaveLinks: Buffer }) {
+/** Dados comuns às mensagens de uma consulta (sem link: só o e-mail e o push levam o link assinado, `linkDaConsulta`). */
+export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow }) {
   const modalidade = c.consulta.modalidade as 'presencial' | 'online';
   return {
     nutri: c.tenant.nomeExibicao,
@@ -20,19 +20,23 @@ export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow
     hora: partesNoFuso(c.consulta.inicio, c.tenant.fuso).hora,
     modalidade,
     local: modalidade === 'online' ? c.consulta.linkOnline : c.tenant.enderecoConsultorio,
-    // o e-mail atual do paciente entra na assinatura: corrigido o e-mail, o link antigo cai
-    link: urlDaConsulta(deps.appUrl, assinarLinkConsulta({ tenantId: c.tenant.id, appointmentId: c.consulta.id, inicio: c.consulta.inicio, email: c.paciente.email }, deps.chaveLinks)),
   };
 }
 
-/** E-mail de uma linha de `notifications` (só os tipos ligados a consulta têm e-mail). */
+/** D20: link assinado da consulta, com o e-mail ATUAL do paciente na assinatura (corrigido o e-mail, o link antigo cai). */
+export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow; paciente: PatientRow }, deps: { appUrl: string; chaveLinks: Buffer }): string {
+  return urlDaConsulta(deps.appUrl, assinarLinkConsulta({ tenantId: c.tenant.id, appointmentId: c.consulta.id, inicio: c.consulta.inicio, email: c.paciente.email }, deps.chaveLinks));
+}
+
+/** E-mail de uma linha de `notifications` (só os tipos ligados a consulta têm e-mail). O link da consulta e o da chamada ficam aqui. */
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
   if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada')) return null;
-  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   // D7: o de 24 h que sai no dia da consulta usa o texto "de hoje" (o do lembrete de 2 h), nunca "amanhã"
   const doDia = evento === 'lembrete_24h' && ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'lembrete_2h' : evento;
-  return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link: evento === 'consulta_cancelada' ? null : d.link };
+  const link = evento === 'consulta_cancelada' ? null : linkDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
+  return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link };
 }
 
 /**
@@ -61,46 +65,54 @@ export function textoConviteWhatsapp(o: { nome: string; nutri: string; email: st
 }
 
 /**
- * D3: texto simples (sem botões, sem template). Só transacional: lembrete, resposta e convite. O link assinado
- * da consulta vai em todo lembrete; a resposta "1"/"2" é interpretada no webhook (Tarefa 12).
+ * D3: texto simples (sem botões, sem template). Só transacional: lembrete, resposta e convite. A resposta "1"/"2" é
+ * interpretada no webhook (Tarefa 12). Decisão do dono (fechamento), pelo mesmo motivo do convite: o número nunca foi
+ * verificado e a conversa fica no aparelho do consultório (D2) — nada de endereço de acesso no WhatsApp. Nem o link
+ * assinado da consulta (confirmar, cancelar, remarcar) nem o link da chamada online: os dois vão só no e-mail, e o texto
+ * diz para qual e-mail (mascarado, como no convite). O endereço do consultório fica (não dá acesso a nada).
  */
-export function textoWhatsapp(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): string | null {
+export function textoWhatsapp(c: ContextoEnvio): string | null {
   if (c.n.conteudoSelado) return openSecret(c.n.conteudoSelado, FINALIDADE_CONTEUDO);
   if (c.n.tipo === 'resposta_confirmacao') return 'Presença confirmada. Até lá!';
   if (c.n.tipo === 'convite_paciente') return textoConviteWhatsapp({ nome: c.paciente.nome, nutri: c.tenant.nomeExibicao, email: c.paciente.email });
   if (!c.consulta) return null;
-  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   const nome = primeiroNome(c.paciente.nome);
-  const local = d.local ? (d.modalidade === 'online' ? `Link da chamada: ${d.local}` : `Endereço: ${d.local}`) : null;
+  const email = emailMascarado(c.paciente.email);
+  const local = d.modalidade === 'online' ? `O link da chamada foi enviado para o seu e-mail ${email}.` : d.local ? `Endereço: ${d.local}` : null;
+  const responda = 'Responda 1 para confirmar ou 2 se precisar remarcar.';
   switch (c.n.tipo) {
     case 'lembrete_24h':
       // a data completa (não "amanhã"): também vale para o de 24 h adiado para as 08:00 do dia da consulta (D7)
-      return [`Olá, ${nome}! Lembrete da sua consulta com ${d.nutri}: ${d.quando}, ${d.modalidade}.`, local, '', 'Responda 1 para confirmar ou 2 se precisar remarcar.', `Ou use o link: ${d.link}`].filter((l) => l !== null).join('\n');
+      return [`Olá, ${nome}! Lembrete da sua consulta com ${d.nutri}: ${d.quando}, ${d.modalidade}.`, local, '', responda].filter((l) => l !== null).join('\n');
     case 'lembrete_2h':
-      return [`Olá, ${nome}! Sua consulta com ${d.nutri} é hoje às ${d.hora} (${rotuloDoFuso(c.tenant.fuso)}).`, local, '', `Se não puder ir, avise pelo link: ${d.link}`].filter((l) => l !== null).join('\n');
+      return [`Olá, ${nome}! Sua consulta com ${d.nutri} é hoje às ${d.hora} (${rotuloDoFuso(c.tenant.fuso)}), ${d.modalidade}.`, local, '', responda].filter((l) => l !== null).join('\n');
     case 'resposta_remarcar':
-      return `Tudo bem! Para escolher outro horário, use o link: ${d.link}\nSe faltarem menos de ${c.tenant.cancelamentoMinH} h para a consulta, fale direto com ${d.nutri}.`;
+      return `Tudo bem! O link para escolher outro horário foi enviado para o seu e-mail ${email}, no lembrete da consulta.\nSe faltarem menos de ${c.tenant.cancelamentoMinH} h para a consulta, fale direto com ${d.nutri}.`;
     default:
       return null;
   }
 }
 
 /**
- * D19: texto do push sem dado de saúde — só o horário e a nutricionista (nada do paciente, da modalidade nem do local);
- * o toque abre o link da consulta. Vai cifrado até o dispositivo, mas aparece na tela de bloqueio.
+ * D19: texto do push sem dado de saúde — só o horário (fechamento: neutro, sem o nome da nutricionista, que diria na tela
+ * de bloqueio com quem a pessoa se consulta; nada do paciente, da modalidade nem do local). O toque abre o link da
+ * consulta (o push vai só aos dispositivos inscritos pelo próprio paciente). Vai cifrado até o dispositivo.
  */
 export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): { titulo: string; corpo: string; url: string | null } | null {
   if (!c.consulta) return null;
-  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
+  const link = () => linkDaConsulta({ consulta: c.consulta!, tenant: c.tenant, paciente: c.paciente }, deps);
+  const hoje = `Sua consulta é hoje às ${d.hora}.`;
   switch (c.n.tipo) {
     case 'lembrete_24h': // D7: adiado para as 08:00 do dia da consulta → "hoje"
-      return { titulo: `Consulta ${ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'hoje' : 'amanhã'} às ${d.hora}`, corpo: `Com ${d.nutri}. Toque para confirmar ou remarcar.`, url: d.link };
+      return { titulo: 'Lembrete de consulta', corpo: ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? hoje : `Você tem uma consulta amanhã às ${d.hora}.`, url: link() };
     case 'lembrete_2h':
-      return { titulo: `Consulta hoje às ${d.hora}`, corpo: `Com ${d.nutri}.`, url: d.link };
+      return { titulo: 'Lembrete de consulta', corpo: hoje, url: link() };
     case 'consulta_marcada':
-      return { titulo: 'Consulta marcada', corpo: `${d.quando}, com ${d.nutri}.`, url: d.link };
+      return { titulo: 'Consulta marcada', corpo: `Sua consulta foi marcada para ${d.quando}.`, url: link() };
     case 'consulta_cancelada':
-      return { titulo: 'Consulta cancelada', corpo: `${d.quando}, com ${d.nutri}.`, url: null };
+      return { titulo: 'Consulta cancelada', corpo: `Sua consulta de ${d.quando} foi cancelada.`, url: null };
     default:
       return null;
   }
