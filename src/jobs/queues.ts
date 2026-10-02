@@ -32,7 +32,8 @@ export const QUEUES = {
   // RN-16 / LGPD: pedidos da página pública com mais de 24 h e contadores velhos (todo dia às 04:30)
   'agenda-limpeza': { retryLimit: 2, retryDelay: 600, expireInSeconds: 300 },
   // INT-01/D5: eventos do webhook do WhatsApp (cifrados), processados em ordem de chegada; idempotentes (repetir não duplica).
-  // As novas tentativas (30 s, 1 min, 2 min) também cobrem o ERROR que chega antes de o envio gravar o id da mensagem
+  // As novas tentativas (backoff do pg-boss 12 com sorteio: 30–60 s, 60–120 s, 120–240 s; de 3,5 a 7 min ao todo) também
+  // cobrem o ERROR que chega antes de o envio gravar o id da mensagem
   'whatsapp-evento': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
 } satisfies Record<string, QueueConfig>;
 

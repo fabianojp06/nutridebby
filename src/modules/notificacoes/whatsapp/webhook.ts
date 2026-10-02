@@ -133,6 +133,7 @@ export async function receberWebhook(req: Request, o: { segredo: string | undefi
   // `public_rate_limits` e a fila não têm tenant_id: transação simples, sem withTenant.
   const db = o.db ?? getDb();
   const marca = marcaDoPedido(m[1], bruto);
+  await getBoss(); // revisão 2: o produtor sobe (se ainda não subiu) ANTES de a transação segurar uma conexão do app
   await db.transaction(async (tx) => {
     if (!(await consumirLimite(tx, marca, 1, v.aceitoPorS, agora))) return; // R2: repetido → 200, sem enfileirar
     await o.enfileirar(ev, tx);
@@ -253,7 +254,8 @@ export async function processarEventoWhatsapp(ev: EventoWhatsapp, deps: { db?: D
   if (ev.tipo === 'conexao') await atualizarEstadoConexao(tenantId, { estado: ev.estado, numero: ev.numero }, { db, agora, appUrl: deps.appUrl });
   else if (ev.tipo === 'status') {
     // revisão 1 (item 7): o ERROR pode chegar antes de o envio gravar o id (registrarResultado) — a fila repete com espera
-    // (whatsapp-evento: 3 vezes, ~3,5 min) e, na última, desiste em silêncio; entregue/lida de id desconhecido: descartados
+    // (whatsapp-evento: 3 vezes, de 3,5 a 7 min ao todo) e, na última, desiste em silêncio; entregue/lida de id
+    // desconhecido: descartados
     if (!(await atualizarStatus(tenantId, ev, db, agora)) && ev.status === 'falhou' && !deps.ultimaTentativa) throw new MensagemSemRegistroError();
   }
   else await tratarResposta(tenantId, ev, db, agora, deps.appUrl ?? getEnv().APP_URL);

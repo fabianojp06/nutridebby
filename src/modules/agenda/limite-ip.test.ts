@@ -15,7 +15,7 @@ describe('limite da página pública (RN-16)', () => {
     expect(await consumirLimite(app.db, chave, 10, 3600, new Date(t0.getTime() + 61 * 60_000))).toBe(true);
   });
 
-  it('liberarLimite zera o contador daquela chave (as outras continuam)', async () => {
+  it('liberarLimite (seed do E2E: o visitante da página pública começa cada execução do zero) zera o contador daquela chave (as outras continuam)', async () => {
     const a = chaveDoLimite('ip', `198.51.100.1-${Date.now()}`);
     const b = chaveDoLimite('ip', `198.51.100.2-${Date.now()}`);
     const t0 = new Date('2026-10-16T12:00:00Z');
@@ -25,14 +25,14 @@ describe('limite da página pública (RN-16)', () => {
     expect(await consumirLimite(app.db, b, 1, 3600, t0)).toBe(false);
   });
 
-  it('D4 (b), rodada 1: marca de uma vez só (webhook) — a 2ª é recusada; liberar apaga a marca', async () => {
+  it('D4 (b): marca anti-repetição do webhook (tipo "webhook", HMAC, limite 1) vale a janela inteira da validade do JWT (aceitoPorS) e só nela', async () => {
     const chave = chaveDoLimite('webhook', `jwt.${Date.now()}.${Math.random()}`);
     expect(chave).toMatch(/^webhook:[A-Za-z0-9_-]{43}$/);
     const t0 = new Date('2026-10-16T12:00:00Z');
-    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
-    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(false);
-    await liberarLimite(app.db, chave);
-    expect(await consumirLimite(app.db, chave, 1, 660, t0)).toBe(true);
+    const aceitoPorS = 721; // JWT padrão da Evolution: exp − iat (600) + 2 × 60 s de folga + 1 s
+    expect(await consumirLimite(app.db, chave, 1, aceitoPorS, t0)).toBe(true);
+    expect(await consumirLimite(app.db, chave, 1, aceitoPorS, new Date(t0.getTime() + aceitoPorS * 1000 - 1))).toBe(false);
+    expect(await consumirLimite(app.db, chave, 1, aceitoPorS, new Date(t0.getTime() + aceitoPorS * 1000))).toBe(true);
   });
 
   it('pedidos simultâneos não passam do limite (o contador é atômico)', async () => {
