@@ -55,7 +55,9 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     expect(e.subject).toBe('Lembrete: sua consulta é amanhã às 14:00');
     expect(e.idempotencyKey).toBe(`notificacao:${(await linha(T, id, 'lembrete_24h', 'email')).id}:${em('2026-10-16', '14:00').toISOString()}`);
     const token = /\/consulta\/([A-Za-z0-9_-]{71})/.exec(e.text)![1];
-    expect(lerLinkConsulta(token, chaveLinks, em('2026-10-15', '14:00'))).toMatchObject({ tenantId: T.tenantId, appointmentId: id, expirado: false });
+    // o link confere com o e-mail atual da paciente (decisão do dono no fechamento: o e-mail entra na assinatura)
+    expect((await lerLinkConsulta(token, chaveLinks, em('2026-10-15', '14:00'), async () => ({ email: ana.email })))?.link).toMatchObject({ tenantId: T.tenantId, appointmentId: id, expirado: false });
+    expect(await lerLinkConsulta(token, chaveLinks, em('2026-10-15', '14:00'), async () => ({ email: `outro-${ana.email}` }))).toBeNull();
   });
 
   it('sem WhatsApp na plataforma (whatsapp: null) e sem VAPID (push: null): "ignorada" com o motivo', async () => {

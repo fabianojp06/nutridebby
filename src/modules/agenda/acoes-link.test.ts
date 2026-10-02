@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
@@ -7,7 +8,7 @@ import { closeDb } from '@/db/client';
 import { appointments, auditLog, patients, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, remarcarPeloLink, retornoDaConfirmacao } from './acoes-link';
+import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, MENSAGEM_DO_LINK, remarcarPeloLink, retornoDaConfirmacao } from './acoes-link';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, moverConsulta } from './consultas';
 import { assinarLinkConsulta, chaveDosLinks } from './link-consulta';
@@ -25,6 +26,7 @@ const deps = (agora: Date) => ({ db: app.db, agora, chave, ip: '203.0.113.9', ap
 const indisponivel = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.contaIndisponivel;
 // controlador (complemento): link de um início que a consulta não tem mais = link expirado, não "conta indisponível"
 const expirado = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.linkExpirado;
+const invalido = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.linkInvalido;
 
 async function cenario() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -32,7 +34,7 @@ async function cenario() {
   const ana = await novoPaciente(app.db, T.ctx);
   const inicio = em('2026-10-16', '14:00');
   const id = await consultaDireta(app.db, T.ctx, ana.id, inicio);
-  return { T, ana, id, token: assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio }, chave) };
+  return { T, ana, id, token: assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio, email: ana.email }, chave) };
 }
 const lerConsulta = async (T: Awaited<ReturnType<typeof cenario>>['T'], id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0];
 
@@ -124,7 +126,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       for (const acao of acoes) await expect(acao()).rejects.toSatisfy(expirado);
     }
     expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', inicio: em('2026-10-16', '18:00'), confirmadaVia: null, pedidoRemarcacaoEm: null });
-    const novo = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio: em('2026-10-16', '18:00') }, chave);
+    const novo = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio: em('2026-10-16', '18:00'), email: ana.email }, chave);
     expect(await abrirLinkConsulta(novo, d)).toMatchObject({ estado: 'ok', quando: 'sex., 16/10/2026 às 18:00 (horário de Brasília)' });
     // "indisponível" fica para conta suspensa e paciente inativo — e vale antes do "expirado" do link antigo
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, ana.id)), app.db);
@@ -158,5 +160,56 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       outra.release();
     }
     expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, inicio: em('2026-10-16', '12:00') });
+  });
+  it('decisão do dono (fechamento): corrigido o e-mail do paciente, o link emitido antes não vale ("Link inválido.") e nada muda; o mesmo e-mail com outra grafia continua valendo; o link com o e-mail novo vale', async () => {
+    const { T, ana, id, token } = await cenario();
+    const d = deps(em('2026-10-14', '09:00'));
+    const trocarEmail = (email: string) => withTenant(T.ctx, (tx) => tx.update(patients).set({ email }).where(eq(patients.id, ana.id)), app.db);
+    await trocarEmail(ana.email.toUpperCase()); // citext: o mesmo endereço
+    expect(await abrirLinkConsulta(token, d)).toMatchObject({ estado: 'ok' });
+    const novoEmail = `nova-${randomUUID().slice(0, 8)}@ex.com`;
+    await trocarEmail(novoEmail);
+    expect(await abrirLinkConsulta(token, d)).toEqual({ estado: 'invalido' });
+    expect(MENSAGEM_DO_LINK.invalido).toBe('Link inválido.');
+    expect(await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), d)).toEqual([]);
+    const acoes = [
+      () => confirmarPeloLink(token, d),
+      () => cancelarPeloLink(token, d),
+      () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, d),
+      () => avisarRemarcacaoPeloLink(token, d),
+    ];
+    for (const acao of acoes) await expect(acao()).rejects.toSatisfy(invalido);
+    expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', inicio: em('2026-10-16', '14:00'), confirmadaVia: null, pedidoRemarcacaoEm: null });
+    const novo = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio: em('2026-10-16', '14:00'), email: novoEmail }, chave);
+    expect(await abrirLinkConsulta(novo, d)).toMatchObject({ estado: 'ok' });
+  });
+
+  it('decisão do dono (fechamento): a nutricionista corrige o e-mail entre abrir o link e clicar — a ação, presa na trava do paciente, confere o e-mail de novo e recusa como link inválido', async () => {
+    const { T, ana, id, token } = await cenario();
+    const outra = await app.pool.connect();
+    let confirmada = false;
+    try {
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await outra.query('select 1 from patients where id = $1 for update', [ana.id]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const resultado = confirmarPeloLink(token, deps(em('2026-10-14', '09:00'))).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (i > 200) throw new Error('a ação não ficou presa na trava do paciente');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await outra.query(`update patients set email = $2 where id = $1`, [ana.id, `outra-${randomUUID().slice(0, 8)}@ex.com`]);
+      await outra.query('commit');
+      confirmada = true;
+      expect(invalido(await resultado)).toBe(true);
+    } finally {
+      if (!confirmada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+    expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null });
   });
 });

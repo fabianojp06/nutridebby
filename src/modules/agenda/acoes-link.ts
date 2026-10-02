@@ -6,12 +6,12 @@ import { encryptionKey } from '@/lib/crypto';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { horariosParaPaciente } from './agendamento-paciente';
-import { cancelarConsulta, confirmarPresenca, ConsultaMudouError, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
+import { cancelarConsulta, confirmarPresenca, ConsultaMudouError, LinkRevogadoError, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaNaoEncontradaError, STATUS_ATIVOS, type StatusConsulta } from './consultas';
 import { quandoComFuso } from './fuso';
 import { horariosVisiveis, type HorarioVisivel, type Modalidade } from './horarios';
-import { chaveDosLinks, lerLinkConsulta, noInicioDoLink } from './link-consulta';
+import { chaveDosLinks, lerLinkConsulta, noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
 
 /** Link que não serve (inválido, expirado ou indisponível): a mensagem é o texto da tela. */
 export class LinkError extends Error {
@@ -36,45 +36,50 @@ export type EstadoLink =
       fuso: string;
     };
 
-type Resolvido = { tenant: TenantRow; appointmentId: string; patientId: string; inicioDoLink: Date; agora: Date; db: Db };
+type Resolvido = { tenant: TenantRow; appointmentId: string; patientId: string; inicioDoLink: Date; emailDoLink: string; agora: Date; db: Db };
 type Falha = { estado: 'invalido' | 'expirado' | 'indisponivel' };
 
 /**
- * Token → tenant ativo + dono da consulta (lido no contexto `publico`: só o `patient_id`, o início e a situação do
- * paciente). Indisponível: tenant suspenso (RN-15) e paciente arquivado, bloqueado ou anonimizado (RN-08, US-018,
- * rodada 1). Expirado: a consulta já começou ou não está mais no início do token — a nutricionista mudou o horário
- * depois do link (revisão da T5; o paciente recebeu outro link na "Consulta marcada" do horário novo).
+ * Token → tenant ativo + dono da consulta (lido no contexto `publico`: só o `patient_id`, o e-mail, o início e a situação
+ * do paciente). A assinatura é conferida com o e-mail ATUAL do paciente (decisão do dono, fechamento): e-mail corrigido
+ * depois do link → "invalido". Até a assinatura conferir, toda falha é "invalido" (tenant ou consulta inexistente
+ * inclusive) — nada do tenant nem do paciente é revelado por um token que não foi emitido. Depois: expirado (a consulta
+ * já começou, ou não está mais no início do token — a nutricionista mudou o horário depois do link, revisão da T5; o
+ * paciente recebeu outro link na "Consulta marcada" do horário novo); indisponível: tenant suspenso (RN-15) e paciente
+ * arquivado, bloqueado ou anonimizado (RN-08, US-018, rodada 1). Uma conexão por vez: o tenant é lido antes da transação.
  */
 async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falha> {
   const agora = deps.agora ?? new Date();
   const db = deps.db ?? getDb();
-  // o token chega como argumento de Server Action (o cliente manda o que quiser): só texto passa adiante
-  const l = typeof token === 'string' ? lerLinkConsulta(token, deps.chave ?? chaveDosLinks(encryptionKey()), agora) : null;
-  if (!l) return { estado: 'invalido' };
+  // o token chega como argumento de Server Action (o cliente manda o que quiser): lerLinkConsulta só aceita texto
+  const lido = await lerLinkConsulta(token, deps.chave ?? chaveDosLinks(encryptionKey()), agora, async (ids) => {
+    const tenant = await buscarTenant(db, ids.tenantId);
+    if (!tenant) return null;
+    const [c] = await withTenant(
+      { tenantId: tenant.id, role: 'publico' },
+      (tx) =>
+        tx
+          .select({ patientId: appointments.patientId, inicio: appointments.inicio, email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
+          .from(appointments)
+          .innerJoin(patients, eq(patients.id, appointments.patientId))
+          .where(eq(appointments.id, ids.appointmentId)),
+      db,
+    );
+    return c ? { ...c, tenant } : null;
+  });
+  if (!lido) return { estado: 'invalido' };
+  const { link: l, dados: c } = lido;
   if (l.expirado) return { estado: 'expirado' };
-  const tenant = await buscarTenant(db, l.tenantId);
-  if (!tenant) return { estado: 'invalido' };
-  if (tenant.status !== 'ativa') return { estado: 'indisponivel' }; // RN-15
-  const [c] = await withTenant(
-    { tenantId: tenant.id, role: 'publico' },
-    (tx) =>
-      tx
-        .select({ patientId: appointments.patientId, inicio: appointments.inicio, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
-        .from(appointments)
-        .innerJoin(patients, eq(patients.id, appointments.patientId))
-        .where(eq(appointments.id, l.appointmentId)),
-    db,
-  );
-  if (!c) return { estado: 'invalido' };
+  if (c.tenant.status !== 'ativa') return { estado: 'indisponivel' }; // RN-15
   if (c.status !== 'ativo' || c.anonimizadoEm) return { estado: 'indisponivel' };
   if (!noInicioDoLink(c.inicio, l.expiraEm)) return { estado: 'expirado' };
-  return { tenant, appointmentId: l.appointmentId, patientId: c.patientId, inicioDoLink: l.expiraEm, agora, db };
+  return { tenant: c.tenant, appointmentId: l.appointmentId, patientId: c.patientId, inicioDoLink: l.expiraEm, emailDoLink: normalizarEmailDoLink(c.email), agora, db };
 }
 
 /** D20: as ações rodam como o próprio paciente (RLS por paciente), sem ator, com o IP de quem clicou. */
 const comoPaciente = (r: Resolvido, ip?: string | null): TenantContext => ({ tenantId: r.tenant.id, role: 'paciente', patientId: r.patientId, ip: ip ?? null });
-/** O início do token vai junto: a ação confere de novo sob a trava da consulta (a nutricionista pode mudar no meio). */
-const depsDaAcao = (r: Resolvido, deps: DepsLink) => ({ db: r.db, now: r.agora, appUrl: deps.appUrl, inicioDoLink: r.inicioDoLink });
+/** O início do token e o e-mail com que ele conferiu vão junto: a ação confere de novo sob as travas (a nutricionista pode mudar no meio). */
+const depsDaAcao = (r: Resolvido, deps: DepsLink) => ({ db: r.db, now: r.agora, appUrl: deps.appUrl, inicioDoLink: r.inicioDoLink, emailDoLink: r.emailDoLink });
 
 /** O texto de cada link que não serve — o mesmo na página e nas ações. */
 export const MENSAGEM_DO_LINK: Record<Falha['estado'], string> = { invalido: MSG_AGENDA.linkInvalido, expirado: MSG_AGENDA.linkExpirado, indisponivel: MSG_AGENDA.contaIndisponivel };
@@ -87,7 +92,8 @@ async function exigir(token: string, deps: DepsLink): Promise<Resolvido> {
 
 /**
  * O que muda entre abrir o link e agir vira o mesmo estado do resolver, nunca 500: paciente bloqueado/anonimizado
- * (rodada 1) → indisponível; consulta movida (revisão da T5) → expirado; consulta ou paciente que sumiu → link inválido.
+ * (rodada 1) → indisponível; consulta movida (revisão da T5) → expirado; e-mail corrigido (fechamento), consulta ou paciente
+ * que sumiu → link inválido.
  */
 async function comoLink<T>(f: () => Promise<T>): Promise<T> {
   try {
@@ -95,6 +101,7 @@ async function comoLink<T>(f: () => Promise<T>): Promise<T> {
   } catch (e) {
     if (e instanceof PacienteBloqueadoError) throw new LinkError(MSG_AGENDA.contaIndisponivel);
     if (e instanceof ConsultaMudouError) throw new LinkError(MSG_AGENDA.linkExpirado);
+    if (e instanceof LinkRevogadoError) throw new LinkError(MSG_AGENDA.linkInvalido);
     if (e instanceof ConsultaNaoEncontradaError || e instanceof PacienteNaoEncontradoError) throw new LinkError(MSG_AGENDA.linkInvalido);
     throw e;
   }

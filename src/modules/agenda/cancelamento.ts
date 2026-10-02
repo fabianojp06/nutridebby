@@ -10,7 +10,7 @@ import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-pacient
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
-import { noInicioDoLink } from './link-consulta';
+import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
 
 /**
  * `inicioDoLink` (D20, revisão da T5): o início que o link assinado carrega — ou o do lembrete do WhatsApp respondido
@@ -19,15 +19,26 @@ import { noInicioDoLink } from './link-consulta';
  * `naMesmaTransacao` (T12, WhatsApp): roda na transação da ação, com as mesmas travas (paciente → consulta), quando a
  * ação vale para o paciente — presença confirmada (agora ou antes) ou pedido de remarcação registrado (agora ou antes):
  * é onde o webhook grava a resposta ao paciente, que só existe se a ação valeu.
+ * `emailDoLink` (decisão do dono, fechamento): o e-mail (normalizado) com que o link assinado conferiu. Sob a trava do
+ * paciente, a ação confere de novo — a nutricionista pode corrigir o e-mail entre abrir o link e clicar.
  */
-type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date; naMesmaTransacao?: (tx: Tx, c: AppointmentRow) => Promise<void> };
+type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date; emailDoLink?: string; naMesmaTransacao?: (tx: Tx, c: AppointmentRow) => Promise<void> };
 
 /** D20: a consulta mudou de horário depois de o link sair — o link antigo expirou para ela ("Este link expirou."). */
 export class ConsultaMudouError extends Error {
   override name = 'ConsultaMudouError';
 }
 
+/** D20 + decisão do dono: o e-mail do paciente mudou depois de o link sair — o link foi revogado ("Link inválido."). */
+export class LinkRevogadoError extends Error {
+  override name = 'LinkRevogadoError';
+}
+
 const ativa = (status: string) => STATUS_ATIVOS.includes(status as StatusConsulta);
+
+function conferirEmailDoLink(email: string, deps: Deps): void {
+  if (deps.emailDoLink !== undefined && normalizarEmailDoLink(email) !== deps.emailDoLink) throw new LinkRevogadoError();
+}
 
 function conferirInicioDoLink(c: AppointmentRow, deps: Deps): void {
   if (deps.inicioDoLink && !noInicioDoLink(c.inicio, deps.inicioDoLink)) throw new ConsultaMudouError();
@@ -43,9 +54,10 @@ export function podeAlterarPeloPaciente(inicio: Date, cancelamentoMinH: number, 
  * WhatsApp, PWA). Trava o paciente (`FOR SHARE`) antes da consulta — a mesma ordem de moverConsulta (paciente → consulta).
  * Devolve o nome (aviso à nutricionista) ou null.
  */
-async function pacienteAtivo(tx: Tx, ctx: TenantContext): Promise<{ nome: string } | null> {
+async function pacienteAtivo(tx: Tx, ctx: TenantContext, deps: Deps): Promise<{ nome: string } | null> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('ação do paciente exige sessão de paciente');
-  const [p] = await tx.select({ nome: patients.nome, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ctx.patientId)).for('share');
+  const [p] = await tx.select({ nome: patients.nome, email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ctx.patientId)).for('share');
+  if (p) conferirEmailDoLink(p.email, deps);
   return p && p.status === 'ativo' && !p.anonimizadoEm ? { nome: p.nome } : null;
 }
 
@@ -76,7 +88,7 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
     ctx,
     async (tx) => {
       // travas: paciente → consulta, nos dois caminhos
-      const paciente = o.por === 'paciente' ? await pacienteAtivo(tx, ctx) : null;
+      const paciente = o.por === 'paciente' ? await pacienteAtivo(tx, ctx, deps) : null;
       if (o.por === 'paciente' && !paciente) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo }); // RN-08
       const travado = o.por === 'paciente' ? ctx.patientId : await travarPacienteDaConsulta(tx, id);
       const c = await lerConsultaParaEscrita(tx, id); // RLS: o paciente só alcança a própria
@@ -117,6 +129,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
         ctx,
         async (tx) => {
           const p = await carregarPacienteParaEscrita(tx, ctx.patientId!); // bloqueado/anonimizado → PacienteBloqueadoError
+          conferirEmailDoLink(p.email, deps);
           if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
           const c = await lerConsultaParaEscrita(tx, id);
           conferirInicioDoLink(c, deps);
@@ -145,7 +158,7 @@ export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'wh
   return withTenant(
     ctx,
     async (tx) => {
-      if (!(await pacienteAtivo(tx, ctx))) return 'nao_confirmavel';
+      if (!(await pacienteAtivo(tx, ctx, deps))) return 'nao_confirmavel';
       const c = await lerConsultaParaEscrita(tx, id);
       conferirInicioDoLink(c, deps);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return 'nao_confirmavel';
@@ -167,7 +180,7 @@ export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, 
   return withTenant(
     ctx,
     async (tx) => {
-      const paciente = await pacienteAtivo(tx, ctx);
+      const paciente = await pacienteAtivo(tx, ctx, deps);
       if (!paciente) return false;
       const c = await lerConsultaParaEscrita(tx, id);
       conferirInicioDoLink(c, deps);
