@@ -9,7 +9,7 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-paciente';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
-import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
+import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
 import { noInicioDoLink } from './link-consulta';
 
 /**
@@ -109,27 +109,30 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
   if (tenant.status !== 'ativa') throw new ConsultaError({ geral: MSG_AGENDA.contaIndisponivel });
   const db = deps.db ?? getDb();
   const agora = deps.now ?? new Date();
-  const h = await escolherHorario(tenant, novo.inicio, novo.modalidade, agora, { db, ignorarConsultaId: id });
   try {
-    return await withTenant(
-      ctx,
-      async (tx) => {
-        const p = await carregarPacienteParaEscrita(tx, ctx.patientId!); // bloqueado/anonimizado → PacienteBloqueadoError
-        if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
-        const c = await lerConsultaParaEscrita(tx, id);
-        conferirInicioDoLink(c, deps);
-        if (!ativa(c.status)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
-        if (!podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora)) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo });
-        await tx
-          .update(appointments)
-          .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
-          .where(eq(appointments.id, id));
-        await cancelarLembretes(tx, id, agora);
-        const novoId = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
-        return { id: novoId, inicio: h.inicio };
-      },
-      db,
-    );
+    // 40P01 na corrida do EXCLUDE: a escolha do horário e a transação de novo, uma vez (repetirSeDeadlock)
+    return await repetirSeDeadlock(async () => {
+      const h = await escolherHorario(tenant, novo.inicio, novo.modalidade, agora, { db, ignorarConsultaId: id });
+      return withTenant(
+        ctx,
+        async (tx) => {
+          const p = await carregarPacienteParaEscrita(tx, ctx.patientId!); // bloqueado/anonimizado → PacienteBloqueadoError
+          if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
+          const c = await lerConsultaParaEscrita(tx, id);
+          conferirInicioDoLink(c, deps);
+          if (!ativa(c.status)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
+          if (!podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora)) throw new ConsultaError({ geral: MSG_AGENDA.foraDoPrazo });
+          await tx
+            .update(appointments)
+            .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
+            .where(eq(appointments.id, id));
+          await cancelarLembretes(tx, id, agora);
+          const novoId = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
+          return { id: novoId, inicio: h.inicio };
+        },
+        db,
+      );
+    });
   } catch (e) {
     if (ehSobreposicao(e)) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado });
     throw e;

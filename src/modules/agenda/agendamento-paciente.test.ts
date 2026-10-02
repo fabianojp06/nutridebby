@@ -1,8 +1,9 @@
+import { inspect } from 'node:util';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -130,6 +131,19 @@ describe('agendar pelo paciente (US-032)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.patientId, ana.id)), app.db)).toEqual([]);
     const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
     expect(await emailsNaFila('aviso_agenda', nutri.email)).toEqual([]); // o aviso à nutricionista é da mesma transação: voltou junto
+  });
+
+  it('revisão final: corrida no EXCLUDE que vira 40P01 (duas faixas gravadas ao mesmo tempo) → repete uma vez: "Esse horário acabou de ser ocupado. Escolha outro.", não 500', async () => {
+    const T = await novoTenant(app.db);
+    await semanaToda(app.db, T.ctx);
+    const [bia, ana] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' })];
+    const inicio = em('2026-10-16', '15:00');
+    const err = await perdeDeadlockNoBanco({ app: app.pool, owner: owner.pool }, T, bia.id, [{ inicio, minutos: 30 }, { inicio: em('2026-10-16', '15:30'), minutos: 30 }], () =>
+      agendarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), { inicio: inicio.toISOString(), modalidade: 'presencial' }, deps),
+    );
+    expect(err, inspect(err)).toBeInstanceOf(ConsultaError);
+    expect((err as ConsultaError).erros).toEqual({ inicio: MSG_AGENDA.ocupado });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.patientId, ana.id)), app.db)).toEqual([]);
   });
 
   it('com um pool de UMA conexão a marcação conclui: o horário é escolhido antes da transação, nunca numa segunda conexão dentro dela', async () => {

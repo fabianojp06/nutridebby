@@ -1,8 +1,9 @@
+import { inspect } from 'node:util';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -118,6 +119,20 @@ describe('remarcar e cancelar (US-033)', () => {
       outra.release();
     }
     expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'nutri' });
+  });
+
+  it('revisão final: remarcar numa corrida no EXCLUDE que vira 40P01 → repete uma vez: "Esse horário acabou de ser ocupado. Escolha outro."; a antiga continua marcada', async () => {
+    const T = await novoTenant(app.db);
+    await semanaToda(app.db, T.ctx);
+    const [ana, bia] = [await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' }), await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' })];
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '09:00'), 60, { origem: 'paciente' });
+    const novo = em('2026-10-16', '15:00');
+    const err = await perdeDeadlockNoBanco({ app: app.pool, owner: owner.pool }, T, bia.id, [{ inicio: novo, minutos: 30 }, { inicio: em('2026-10-16', '15:30'), minutos: 30 }], () =>
+      remarcarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), id, { inicio: novo.toISOString(), modalidade: 'presencial' }, deps(em('2026-10-14', '10:00'))),
+    );
+    expect(err, inspect(err)).toBeInstanceOf(ConsultaError);
+    expect((err as ConsultaError).erros).toEqual({ inicio: MSG_AGENDA.ocupado });
+    expect((await consultasDo(T, ana.id)).map((c) => [c.id, c.status])).toEqual([[id, 'agendada']]);
   });
 
   it('rodada 1 da T7: a nutricionista cancela consulta de paciente bloqueado ou anonimizado (a trava do paciente não recusa)', async () => {

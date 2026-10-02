@@ -7,7 +7,7 @@ import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
 import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { JANELA_PACIENTE_DIAS, MSG_AGENDA } from './constantes';
-import { ConsultaError, ehSobreposicao, horariosLivres, type TenantAgenda } from './consultas';
+import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, type TenantAgenda } from './consultas';
 import { segundaDaSemana, somarDias } from './fuso';
 import type { Horario, Modalidade } from './horarios';
 
@@ -104,17 +104,20 @@ export async function agendarComoPaciente(
   if (tenant.status !== 'ativa') throw new ConsultaError({ geral: MSG_AGENDA.contaIndisponivel }); // RN-15
   const db = deps.db ?? getDb();
   const agora = deps.now ?? new Date();
-  const h = await escolherHorario(tenant, input.inicio, input.modalidade, agora, { db });
   try {
-    return await withTenant(
-      ctx,
-      async (tx) => {
-        const p = await carregarPacienteParaEscrita(tx, ctx.patientId!);
-        if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
-        return { id: await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' }) };
-      },
-      db,
-    );
+    // 40P01 na corrida do EXCLUDE: a escolha do horário e a gravação de novo, uma vez (repetirSeDeadlock)
+    return await repetirSeDeadlock(async () => {
+      const h = await escolherHorario(tenant, input.inicio, input.modalidade, agora, { db });
+      return withTenant(
+        ctx,
+        async (tx) => {
+          const p = await carregarPacienteParaEscrita(tx, ctx.patientId!);
+          if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
+          return { id: await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' }) };
+        },
+        db,
+      );
+    });
   } catch (e) {
     if (ehSobreposicao(e)) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado }); // RN-03
     throw e;

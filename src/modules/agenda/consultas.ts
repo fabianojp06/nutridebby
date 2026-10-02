@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, lt, ne, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { exclusionViolation } from '@/db/errors';
+import { deadlockDetectado, exclusionViolation } from '@/db/errors';
 import { appointments, patients, type AppointmentRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
@@ -51,6 +51,22 @@ export const STATUS_ATIVOS: readonly StatusConsulta[] = ['agendada', 'confirmada
 /** O banco exige `^https://` e até 500 caracteres (appointments_link_online). */
 export const linkValido = (v: string) => /^https:\/\/\S+$/.test(v) && v.length <= 500 && URL.canParse(v);
 export const ehSobreposicao = (e: unknown) => exclusionViolation(e) === 'appointments_sem_sobreposicao';
+
+/**
+ * Revisão final: o Postgres põe a tupla no índice GiST e só depois procura conflitos (execIndexing.c), então duas
+ * gravações de faixas que se sobrepõem ao mesmo tempo podem esperar uma pela outra — 40P01 em vez de 23P01. A transação
+ * desfeita perdeu a corrida: `operacao` (a checagem e a transação inteiras) roda de novo uma vez; na nova tentativa a
+ * checagem ou o EXCLUDE esperam a sobrevivente e devolvem o conflito certo. Um segundo 40P01 sobe como erro: nunca vira
+ * mensagem de conflito sem a conferência.
+ */
+export async function repetirSeDeadlock<T>(operacao: () => Promise<T>): Promise<T> {
+  try {
+    return await operacao();
+  } catch (e) {
+    if (!deadlockDetectado(e)) throw e;
+  }
+  return operacao();
+}
 
 type HorarioValidado = Intervalo & { modalidade: Modalidade; linkOnline: string | null };
 
@@ -112,7 +128,7 @@ export async function agendarPelaNutri(ctx: TenantContext, tenant: TenantAgenda,
   const now = deps.now ?? new Date();
   const db = deps.db ?? getDb();
   try {
-    return await withTenant(
+    return await repetirSeDeadlock(() => withTenant(
       ctx,
       async (tx) => {
         const p = await carregarPacienteParaEscrita(tx, patientId);
@@ -131,7 +147,7 @@ export async function agendarPelaNutri(ctx: TenantContext, tenant: TenantAgenda,
         return { id: c.id, avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
       db,
-    );
+    ));
   } catch (e) {
     if (ehSobreposicao(e)) return comoConflito(ctx, v, tenant.fuso, db);
     throw e;
@@ -158,7 +174,7 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
   const now = deps.now ?? new Date();
   const db = deps.db ?? getDb();
   try {
-    return await withTenant(
+    return await repetirSeDeadlock(() => withTenant(
       ctx,
       async (tx) => {
         if (!idValido(id)) throw new ConsultaNaoEncontradaError();
@@ -188,7 +204,7 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
         return { avisos: await avisosDoHorario(tx, v, tenant.fuso) };
       },
       db,
-    );
+    ));
   } catch (e) {
     if (ehSobreposicao(e)) return comoConflito(ctx, v, tenant.fuso, db, id);
     throw e;

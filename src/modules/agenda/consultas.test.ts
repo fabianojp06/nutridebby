@@ -1,7 +1,7 @@
 import { inspect } from 'node:util';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -62,7 +62,7 @@ describe('agendar pela nutricionista (US-031)', () => {
     const r = await Promise.allSettled([a, b].map((p) => agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-15', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, deps)));
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     const falha = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
-    expect(falha.reason).toBeInstanceOf(ConsultaError);
+    expect(falha.reason, inspect(falha.reason)).toBeInstanceOf(ConsultaError);
     expect((falha.reason as ConsultaError).erros.geral).toMatch(/^Conflito com a consulta de (Ana Souza|Bia Lima) às 14:00$/);
   });
 
@@ -76,6 +76,18 @@ describe('agendar pela nutricionista (US-031)', () => {
     expect(err).toBeInstanceOf(ConsultaError);
     expect((err as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.conflito('Ana Souza', '14:00') });
     expect((await listarAgenda(T.ctx, em('2026-10-15', '00:00'), em('2026-10-16', '00:00'), app.db)).map((c) => c.paciente)).toEqual(['Ana Souza']);
+  });
+
+  it('revisão final: corrida no EXCLUDE que vira 40P01 (duas faixas gravadas ao mesmo tempo) → repete uma vez e devolve o conflito com o nome, não 500', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const err = await perdeDeadlockNoBanco(pools, T, bia.id, [{ inicio: em('2026-10-15', '14:00'), minutos: 30 }, { inicio: em('2026-10-15', '14:30'), minutos: 30 }], () =>
+      agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-15', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, deps),
+    );
+    expect(err, inspect(err)).toBeInstanceOf(ConsultaError);
+    expect((err as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.conflito('Bia Lima', '14:00') });
+    expect((await listarAgenda(T.ctx, em('2026-10-15', '00:00'), em('2026-10-16', '00:00'), app.db)).map((c) => c.paciente)).toEqual(['Bia Lima', 'Bia Lima']);
   });
 
   it('fora do horário de atendimento e dentro de bloqueio: marca, com os avisos', async () => {
@@ -191,7 +203,7 @@ describe('alterar data e hora (US-031, D17)', () => {
     const r = await Promise.allSettled(ids.map((id) => moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-15', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, deps)));
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     const falha = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
-    expect((falha.reason as ConsultaError).erros.geral).toMatch(/^Conflito com a consulta de (Ana Souza|Bia Lima) às 14:00$/);
+    expect((falha.reason as ConsultaError).erros?.geral, inspect(falha.reason)).toMatch(/^Conflito com a consulta de (Ana Souza|Bia Lima) às 14:00$/);
     const agenda = await listarAgenda(T.ctx, em('2026-10-15', '00:00'), em('2026-10-16', '00:00'), app.db);
     expect(agenda.filter((c) => c.inicio.getTime() === em('2026-10-15', '14:00').getTime())).toHaveLength(1);
   });
@@ -206,6 +218,19 @@ describe('alterar data e hora (US-031, D17)', () => {
     );
     expect((err as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.conflito('Ana Souza', '14:30') });
     expect(await buscarConsulta(T.ctx, id, app.db)).toMatchObject({ inicio: em('2026-10-15', '13:30') });
+  });
+
+  it('revisão final: corrida no EXCLUDE ao alterar que vira 40P01 → repete uma vez e devolve o conflito com o nome; a consulta fica onde estava', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-15', '09:00'));
+    const err = await perdeDeadlockNoBanco(pools, T, bia.id, [{ inicio: em('2026-10-15', '14:00'), minutos: 30 }, { inicio: em('2026-10-15', '14:30'), minutos: 30 }], () =>
+      moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-15', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, deps),
+    );
+    expect(err, inspect(err)).toBeInstanceOf(ConsultaError);
+    expect((err as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.conflito('Bia Lima', '14:00') });
+    expect(await buscarConsulta(T.ctx, id, app.db)).toMatchObject({ inicio: em('2026-10-15', '09:00'), status: 'agendada' });
   });
 
   it('consulta cancelada, realizada ou de outro tenant não se altera', async () => {
