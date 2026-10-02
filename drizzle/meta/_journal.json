@@ -414,6 +414,13 @@
       "when": 1790936281818,
       "tag": "0058_rls_whatsapp_conexoes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790940794828,
+      "tag": "0059_metricas_agenda",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, ignorarPendentesDo
 import { emailDaNotificacao, textoWhatsapp } from './mensagens';
 import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 import { lerConexao } from './whatsapp/conexao';
+import { avisarSeChegou80, CONTA_COTA, contaCota, FORA_DA_COTA, usoDoMes } from './whatsapp/cota';
 import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './whatsapp/provedor';
 
 export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date };
@@ -118,11 +119,31 @@ async function vagasDoMinuto(tx: Tx, tenant: TenantRow, agora: Date): Promise<nu
   return Math.max(0, WHATSAPP_POR_MINUTO - n);
 }
 
-/** WhatsApps desta rodada (Tarefa 11 acrescenta a cota). Sem vaga no minuto, nem busca: o resto fica para a próxima volta. */
-async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
+/**
+ * D15 + D16: cota do mês (RN-09) e ritmo de 8/min. Cota esgotada → os que contam viram "cota_esgotada" já, sem gastar
+ * vaga; sem vaga no minuto → nem busca (fica para a próxima volta). E-mail e push já foram reservados antes (D6). Sem
+ * provedor (`ligado` falso), nada sai: nem trava do ritmo nem cota — as linhas viram "whatsapp_desligado" no envio.
+ */
+async function escolherWhatsapp(tx: Tx, tenant: TenantRow, agora: Date, max: number, devidas: Devidas, ligado: boolean): Promise<{ reservar: NotificationRow[]; semCota: string[] }> {
   if (max <= 0) return { reservar: [], semCota: [] };
+  if (!ligado) return { reservar: await devidas(['whatsapp'], max), semCota: [] };
   const livres = Math.min(max, await vagasDoMinuto(tx, tenant, agora));
-  return { reservar: livres > 0 ? await devidas(['whatsapp'], livres) : [], semCota: [] };
+  // a cota vem do tenant lido nesta volta e o uso é contado agora, sob a trava do ritmo: o admin ampliar vale na hora
+  let saldo = tenant.waCotaMensal - (await usoDoMes(tx, tenant.fuso, agora, { comEnviando: true }));
+  if (saldo <= 0) {
+    const semCota = (await devidas(['whatsapp'], max, CONTA_COTA)).map((n) => n.id);
+    return { reservar: livres > 0 ? await devidas(['whatsapp'], livres, FORA_DA_COTA) : [], semCota };
+  }
+  const reservar: NotificationRow[] = [];
+  const semCota: string[] = [];
+  for (const n of livres > 0 ? await devidas(['whatsapp'], livres) : []) {
+    if (!contaCota(n.tipo)) reservar.push(n);
+    else if (saldo > 0) {
+      saldo--;
+      reservar.push(n);
+    } else semCota.push(n.id);
+  }
+  return { reservar, semCota };
 }
 
 /**
@@ -188,7 +209,7 @@ async function reservar(ctx: TenantContext, tenant: TenantRow, deps: DepsEnvio, 
               .limit(max)
               .for('update', { skipLocked: true });
       const outras = await devidas(['email', 'push'], limite);
-      const w = await escolherWhatsapp(tx, tenant, agora, limite - outras.length, devidas);
+      const w = await escolherWhatsapp(tx, tenant, agora, limite - outras.length, devidas, deps.whatsapp !== null);
       if (w.semCota.length) await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'cota_esgotada', updatedAt: agora }).where(inArray(notifications.id, w.semCota));
       const ids = [...outras, ...w.reservar].map((n) => n.id);
       if (!ids.length) return [];
@@ -220,8 +241,20 @@ async function aoFalhar(tx: Tx, n: NotificationRow, agora: Date): Promise<void> 
     .where(and(eq(notifications.appointmentId, n.appointmentId), eq(notifications.inicioConsulta, n.inicioConsulta!), eq(notifications.canal, 'email'), eq(notifications.tipo, n.tipo), eq(notifications.status, 'falhou')));
 }
 
-/** Tarefa 11: depois de um envio aceito (aviso de 80% da cota). Por enquanto, nada. */
-const aposEnvio: (tx: Tx, tenant: TenantRow, n: NotificationRow, agora: Date) => Promise<void> = async () => {};
+/**
+ * Depois de um envio aceito: o aviso de 80% da cota (US-036). Revisão da T7: nada aqui trava `appointments` nem
+ * `patients` (avisarPaciente espera as linhas "enviando" que esta transação trava) — só a conexão do tenant. Num
+ * savepoint: a falha do aviso não desfaz o registro do envio (a mensagem já saiu, D6) nem para o lote; o próximo
+ * envio que conta tenta avisar de novo (a marca do mês também volta).
+ */
+async function aposEnvio(tx: Tx, tenant: TenantRow, n: NotificationRow, agora: Date, appUrl: string): Promise<void> {
+  if (n.canal !== 'whatsapp' || !contaCota(n.tipo)) return;
+  try {
+    await tx.transaction((sp) => avisarSeChegou80(sp, tenant, agora, appUrl));
+  } catch (err) {
+    logger.warn({ tenantId: tenant.id, notificacaoId: n.id, err: nomeDoErro(err) }, 'falha no aviso de 80% da cota de WhatsApp');
+  }
+}
 
 async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: NotificationRow, r: Resultado, deps: DepsEnvio): Promise<void> {
   const agora = deps.agora();
@@ -235,7 +268,7 @@ async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: Noti
           .set({ status: 'enviada', motivoIgnorada: null, enviadaEm: agora, providerMsgId: r.providerMsgId ?? null, providerJid: r.providerJid ?? null, erro: null, conteudoSelado: null, updatedAt: agora })
           .where(onde)
           .returning();
-        if (ok) await aposEnvio(tx, tenant, ok, agora);
+        if (ok) await aposEnvio(tx, tenant, ok, agora, deps.appUrl);
         return;
       }
       if (r.status === 'ignorada') {

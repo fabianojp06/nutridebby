@@ -2,6 +2,7 @@ import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { formatarQuando } from '@/modules/agenda/fuso';
 import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
+import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { Cabecalho } from '../cabecalho';
 import { desconectarAction } from './actions';
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic';
 export default async function WhatsappPage() {
   const { ctx, tenant } = await requireNutri('/painel/whatsapp');
   const s = await situacaoDoWhatsapp(ctx, provedorDoApp() !== null);
+  // RN-09 / US-036: só com o WhatsApp ligado na plataforma (sem ele, nada sai e nada conta)
+  const cota = s.ligado ? await situacaoDaCota(ctx, tenant) : null;
   return (
     <>
       <Cabecalho tenant={tenant} />
@@ -35,7 +38,14 @@ export default async function WhatsappPage() {
             <ConectarWhatsapp />
           </section>
         )}
-        {/* Tarefa 11: WhatsApps do mês */}
+        {cota && (
+          <section aria-labelledby="uso" className="space-y-2">
+            <h2 id="uso" className="text-lg font-semibold">Uso do mês</h2>
+            <p>{MSG_COTA.uso(cota.usadas, cota.cota)}</p>
+            {cota.nivel === 'aviso' && <p role="status" className="rounded bg-amber-50 p-3 text-amber-900">{MSG_COTA.aviso}</p>}
+            {cota.nivel === 'esgotada' && <p role="alert" className="rounded bg-red-50 p-3 text-red-800">{MSG_COTA.esgotada}</p>}
+          </section>
+        )}
       </main>
     </>
   );

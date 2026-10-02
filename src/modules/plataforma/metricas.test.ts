@@ -5,6 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
 import { ajustarCotaWhatsapp, CotaWhatsappError, metricasPorTenant } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
@@ -21,12 +22,39 @@ async function tenantComArquivos(n: number, bytes: number) {
 }
 
 describe('metricasPorTenant (§3: só contagens)', () => {
-  it('conta arquivos e armazenamento de cada tenant; pacientes ativos contados; consultas/mensagens ainda nulos', async () => {
+  it('conta arquivos e armazenamento de cada tenant; pacientes ativos, consultas e WhatsApps do mês contados', async () => {
     const a = await tenantComArquivos(3, 30);
     const b = await tenantComArquivos(1, 10);
     const m = await metricasPorTenant(app.db);
-    expect(m.get(a)).toEqual({ tenantId: a, arquivos: 3, armazenamentoBytes: 30, pacientesAtivos: 0, consultasMes: null, mensagensWhatsappMes: null });
+    expect(m.get(a)).toEqual({ tenantId: a, arquivos: 3, armazenamentoBytes: 30, pacientesAtivos: 0, consultasMes: 0, mensagensWhatsappMes: 0 });
     expect(m.get(b)?.arquivos).toBe(1);
+  });
+
+  it('conta consultas não canceladas e WhatsApps aceitos do mês do tenant (Plano 05)', async () => {
+    const t = await tenantComArquivos(0, 0);
+    const p = randomUUID();
+    // mês civil corrente no fuso do tenant (o padrão, America/Sao_Paulo), a qualquer hora que o teste rode
+    const inicioMes = sql`(date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`;
+    const mesSeguinte = sql`((date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') + interval '1 month') AT TIME ZONE 'America/Sao_Paulo')`;
+    await withTenant({ tenantId: t, role: 'nutri' }, async (tx) => {
+      await tx.execute(sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'M', '1990-01-01', 'F', ${`m-${p}@t.dev`})`);
+      const dia = sql`(${inicioMes} + interval '1 day')`; // sempre dentro do mês
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${dia}, ${dia} + interval '1 hour', 'presencial', 'nutri')`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, cancelado_por, cancelada_em) values (${t}, ${p}, ${dia} + interval '2 hours', ${dia} + interval '3 hours', 'presencial', 'nutri', 'cancelada', 'nutri', now())`);
+      // 00:00 do dia 1º do mês seguinte já é do outro mês
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${mesSeguinte}, ${mesSeguinte} + interval '1 hour', 'presencial', 'nutri')`);
+      await tx.execute(sql`insert into notifications (tenant_id, patient_id, canal, tipo, status, agendada_para, enviada_em) values
+        (${t}, ${p}, 'whatsapp', 'convite_paciente', 'enviada', now(), now()),
+        (${t}, ${p}, 'whatsapp', 'resposta_confirmacao', 'enviada', now(), now()),
+        (${t}, ${p}, 'email', 'convite_paciente', 'enviada', now(), now()),
+        (${t}, ${p}, 'whatsapp', 'convite_paciente', 'enviada', ${inicioMes} - interval '1 minute', ${inicioMes} - interval '1 minute')`);
+    }, app.db);
+    expect((await metricasPorTenant(app.db)).get(t)).toMatchObject({ consultasMes: 1, mensagensWhatsappMes: 1 });
+  });
+
+  it('mensagens_whatsapp_mes conta os mesmos tipos da cota do envio (CONTA_COTA, D15)', async () => {
+    const { rows } = await app.pool.query<{ def: string }>(`select pg_get_functiondef('admin_tenant_metrics()'::regprocedure) as def`);
+    expect(rows[0].def).toContain(`n.tipo IN (${CONTA_COTA.map((t) => `'${t}'`).join(', ')})`);
   });
 
   it('dentro de withTenant é recusada (apagaria o contexto app.* da transação do tenant) (M13)', async () => {

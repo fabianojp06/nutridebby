@@ -114,3 +114,12 @@ describe('whatsapp_desconectado (D18)', () => {
     expect(r.text).toContain('Conectar o WhatsApp de novo: https://x.dev/painel/whatsapp');
   });
 });
+
+describe('cota_whatsapp (RN-09, US-036)', () => {
+  it('cota de WhatsApp: o texto exato da US-036 no assunto e o uso no corpo', () => {
+    const r = renderEmail({ tipo: 'cota_whatsapp', para: 'd@x.dev', usadas: 400, cota: 500, link: 'https://x.dev/painel/whatsapp' });
+    expect(r.subject).toBe('Você usou 80% dos WhatsApps do mês');
+    expect(r.text).toContain('Já foram 400 de 500 mensagens de WhatsApp neste mês.');
+    expect(r.text).toContain('Ver o uso do WhatsApp: https://x.dev/painel/whatsapp');
+  });
+});

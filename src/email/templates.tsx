@@ -270,6 +270,15 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ['O WhatsApp do consultório foi desconectado (o celular saiu de "Aparelhos conectados" ou ficou muito tempo sem internet).', 'Os lembretes estão saindo só por e-mail e notificação no app.'],
         { href: msg.link, rotulo: 'Conectar o WhatsApp de novo' },
       );
+    case 'cota_whatsapp':
+      return simples(
+        'Você usou 80% dos WhatsApps do mês',
+        [
+          `Já foram ${msg.usadas} de ${msg.cota} mensagens de WhatsApp neste mês.`,
+          'Quando chegar a 100%, os lembretes seguem só por e-mail e notificação no app até o mês que vem (ou até o suporte ampliar a cota).',
+        ],
+        { href: msg.link, rotulo: 'Ver o uso do WhatsApp' },
+      );
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
