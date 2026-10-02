@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { esperarEmail } from './mailpit';
+import { esperarEmail, primeiroLink } from './mailpit';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -125,4 +125,60 @@ test('e-mail "Consulta marcada" e lembretes agendados (US-031, US-034)', async (
   await expect(tabela.getByRole('row', { name: /Lembrete de 2 h WhatsApp Agendado para seg\., .* às 09:00/ })).toBeVisible();
   // o horário antigo (09:00) continua na tela, como histórico (D6/D17)
   await expect(tabela.getByRole('row', { name: /Lembrete de 24 h E-mail Não enviado: consulta remarcada/ })).toBeVisible();
+});
+
+test('link da consulta: confirmar, remarcar (US-033, US-035) e cancelamento pela nutricionista', async ({ browser }) => {
+  const email = await esperarEmail(`carla-${sufixo}@ex.com`, { assunto: `Consulta marcada: seg., ${br(SEGUNDA_LIVRE)} às 11:00 (horário de Brasília)` });
+  const link = primeiroLink(email.texto, '/consulta/');
+  const paciente = await (await browser.newContext()).newPage();
+  const resposta = await paciente.goto(link);
+  // D20: o token está na URL — Referrer-Policy também por cabeçalho, além da <meta>
+  expect(resposta?.headers()['referrer-policy']).toBe('no-referrer');
+  await expect(paciente.getByText(`Com Consultório E2E · seg., ${br(SEGUNDA_LIVRE)} às 11:00 (horário de Brasília) · Presencial`)).toBeVisible();
+  await paciente.getByRole('button', { name: 'Confirmar presença' }).click();
+  await expect(paciente.getByRole('status').filter({ hasText: 'Presença confirmada. Até lá!' })).toBeVisible();
+  await nutri.goto(`/painel/agenda?visao=dia&data=${SEGUNDA_LIVRE}`);
+  await expect(nutri.getByText('Confirmada pelo link')).toBeVisible();
+
+  await paciente.goto(`${link}?semana=${SEGUNDA_LIVRE}`);
+  await paciente.getByRole('group', { name: `ter., ${br(somar(SEGUNDA_LIVRE, 1)).slice(0, 5)}` }).getByRole('radio', { name: '14:00' }).check();
+  await paciente.getByRole('button', { name: 'Remarcar para este horário' }).click();
+  await expect(paciente.getByText(`Consulta remarcada para ter., ${br(somar(SEGUNDA_LIVRE, 1))} às 14:00 (horário de Brasília).`)).toBeVisible();
+  // a página se refaz: o link é da consulta antiga, agora cancelada (remarcar = cancelar + marcar outra, D17)
+  await expect(paciente.getByRole('status').filter({ hasText: 'Esta consulta foi cancelada.' })).toBeVisible();
+  await nutri.goto(`/painel/agenda?visao=semana&data=${SEGUNDA_LIVRE}`);
+  await expect(nutri.getByText('Cancelada pelo paciente')).toBeVisible();
+
+  // a nutricionista cancela a nova; a paciente recebe o aviso
+  await nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` }).last().click();
+  nutri.once('dialog', (d) => d.accept());
+  await nutri.getByLabel('Motivo do cancelamento (opcional)').fill('Imprevisto');
+  await nutri.getByRole('button', { name: 'Cancelar consulta' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta cancelada.' })).toBeVisible();
+  await esperarEmail(`carla-${sufixo}@ex.com`, { assunto: `Consulta cancelada: ter., ${br(somar(SEGUNDA_LIVRE, 1))} às 14:00 (horário de Brasília)` });
+  await paciente.context().close();
+});
+
+test('link da consulta fora do prazo (RN-04): só "Avisar que preciso remarcar"; a nutricionista vê o pedido (US-035)', async ({ browser }) => {
+  // daqui a ~3 h no fuso do consultório: dentro das 24 h em que o paciente não cancela nem remarca
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(Date.now() + 3 * 3_600_000))
+      .map((x) => [x.type, x.value]),
+  );
+  await novoPaciente(`Eva Agenda ${sufixo}`, `eva-${sufixo}@ex.com`);
+  await marcar(`Eva Agenda ${sufixo} (eva-${sufixo}@ex.com)`, `${p.year}-${p.month}-${p.day}`, `${p.hour}:00`);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  const consultaNoPainel = nutri.url();
+  const paciente = await (await browser.newContext()).newPage();
+  await paciente.goto(primeiroLink((await esperarEmail(`eva-${sufixo}@ex.com`)).texto, '/consulta/'));
+  await expect(paciente.getByRole('status').filter({ hasText: 'Para alterar, fale com sua nutricionista.' })).toBeVisible();
+  await expect(paciente.getByRole('button', { name: 'Remarcar para este horário' })).toHaveCount(0);
+  await expect(paciente.getByRole('button', { name: 'Cancelar consulta' })).toHaveCount(0);
+  await paciente.getByRole('button', { name: 'Avisar que preciso remarcar' }).click();
+  await expect(paciente.getByRole('status').filter({ hasText: 'Avisamos sua nutricionista. Ela vai entrar em contato.' })).toBeVisible();
+  await expect(paciente.getByRole('button', { name: 'Avisar que preciso remarcar' })).toHaveCount(0); // uma vez só
+  await nutri.goto(consultaNoPainel);
+  await expect(nutri.getByText('Paciente pediu para remarcar')).toBeVisible();
+  await paciente.context().close();
 });

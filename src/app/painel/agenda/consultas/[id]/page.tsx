@@ -9,9 +9,10 @@ import { sobrepoe } from '@/modules/agenda/horarios';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
 import { Cabecalho } from '../../../cabecalho';
-import { moverAction } from '../../actions';
+import { cancelarAction, moverAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
+import { CancelarForm } from './cancelar-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const emBloqueio = (await listarBloqueios(ctx, c.inicio, c.fim)).some((b) => sobrepoe(b, c));
   const lembretes = await listarNotificacoesDaConsulta(ctx, c.id);
   const p = partesNoFuso(c.inicio, tenant.fuso);
-  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : null;
+  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : null;
   const ativa = STATUS_ATIVOS.includes(c.status);
   return (
     <>
@@ -50,7 +51,12 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
               inicial={{ data: p.data, hora: p.hora, duracaoMin: String(Math.round((c.fim.getTime() - c.inicio.getTime()) / 60_000)), modalidade: c.modalidade, linkOnline: c.linkOnline ?? '' }} />
           </section>
         )}
-        {/* Tarefa 7: Cancelar consulta */}
+        {ativa && (
+          <section aria-labelledby="cancelar" className="space-y-2">
+            <h2 id="cancelar" className="text-lg font-semibold">Cancelar consulta</h2>
+            <CancelarForm acao={cancelarAction.bind(null, c.id)} />
+          </section>
+        )}
         <section aria-labelledby="lembretes" className="space-y-2">
           <h2 id="lembretes" className="text-lg font-semibold">Lembretes</h2>
           {lembretes.length === 0 ? (

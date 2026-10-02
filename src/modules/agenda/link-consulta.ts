@@ -39,4 +39,10 @@ export function lerLinkConsulta(token: string, chave: Buffer, agora: Date): (Lin
   return { tenantId: bytesParaUuid(corpo.subarray(1, 17)), appointmentId: bytesParaUuid(corpo.subarray(17, 33)), expiraEm, expirado: expiraEm.getTime() <= agora.getTime() };
 }
 
+/**
+ * O token guarda o início da consulta (em segundos) de quando foi assinado. Revisão da T5: a consulta que a nutricionista
+ * moveu depois tem outro início — o link antigo não vale mais para ela (nem até o início antigo, nem depois).
+ */
+export const noInicioDoLink = (inicio: Date, inicioDoLink: Date) => Math.floor(inicio.getTime() / 1000) === Math.floor(inicioDoLink.getTime() / 1000);
+
 export const urlDaConsulta = (appUrl: string, token: string) => urlDoApp(appUrl, `/consulta/${token}`);

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
+import { cancelarConsulta } from '@/modules/agenda/cancelamento';
 import { agendarPelaNutri, ConsultaError, ConsultaNaoEncontradaError, moverConsulta } from '@/modules/agenda/consultas';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
@@ -43,4 +44,17 @@ export async function moverAction(id: string, _prev: ConsultaState, fd: FormData
   }
   revalidatePath('/painel/agenda');
   redirect(`/painel/agenda/consultas/${id}?ok=alterada${r.avisos.length ? `&avisos=${r.avisos.join(',')}` : ''}`);
+}
+
+/** US-033: a nutricionista cancela a qualquer momento (motivo opcional, só ela vê); o paciente recebe o aviso. */
+export async function cancelarAction(id: string, _prev: ConsultaState, fd: FormData): Promise<ConsultaState> {
+  const { ctx, tenant } = await requireNutri(`/painel/agenda/consultas/${id}`);
+  const v = { motivo: String(fd.get('motivo') ?? '') };
+  try {
+    await cancelarConsulta(ctx, tenant, id, { por: 'nutri', motivo: v.motivo });
+  } catch (e) {
+    return tratar(e, v);
+  }
+  revalidatePath('/painel/agenda');
+  redirect(`/painel/agenda/consultas/${id}?ok=cancelada`);
 }

@@ -103,23 +103,26 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
  * US-031 / US-033: "Consulta marcada" (também a cada mudança do início) e "Consulta cancelada", por e-mail e push, já.
  * Aviso de evento, fora da chave única: cada evento ganha linhas próprias — voltar a um início que já teve aviso enviado
  * avisa de novo (14:00 → 15:00 → 14:00 = 3 avisos). O aviso do mesmo tipo ainda pendente para outro início vira
- * "consulta_remarcada"; o que já saiu fica como está. Idempotente: o mesmo evento (mesmo tipo e início, aviso ainda
- * pendente) não gera um segundo. Quem chama segura a trava da consulta (`lerConsultaParaEscrita`, ou a linha recém-criada
- * na mesma transação): duas chamadas para a mesma consulta não correm juntas.
+ * "consulta_remarcada"; o que já saiu (ou está saindo) fica como está. Idempotente: o mesmo evento (mesmo tipo e início,
+ * aviso ainda pendente ou saindo — `enviando`, revisão da T5) não gera um segundo: 14:00 (saindo) → 15:00 → 14:00 não manda
+ * dois "14:00". Quem chama segura a trava da consulta (`lerConsultaParaEscrita`, ou a linha recém-criada na mesma
+ * transação): duas chamadas para a mesma consulta não correm juntas.
  */
 export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada', agora: Date): Promise<void> {
-  if (tipo === 'consulta_marcada' && c.inicio.getTime() <= agora.getTime()) return; // encaixe registrado depois (D22)
-  const pendentes = await tx
-    .select({ id: notifications.id, canal: notifications.canal, inicioConsulta: notifications.inicioConsulta })
+  // D22: consulta que já começou — encaixe registrado depois, ou cancelamento que só acerta a agenda — não gera aviso
+  if (c.inicio.getTime() <= agora.getTime()) return;
+  const naFila = await tx
+    .select({ id: notifications.id, canal: notifications.canal, status: notifications.status, inicioConsulta: notifications.inicioConsulta })
     .from(notifications)
-    .where(and(eq(notifications.appointmentId, c.appointmentId), eq(notifications.tipo, tipo), eq(notifications.status, 'pendente')))
+    .where(and(eq(notifications.appointmentId, c.appointmentId), eq(notifications.tipo, tipo), inArray(notifications.status, ['pendente', 'enviando'])))
     .for('update');
-  const doMesmoInicio = (p: (typeof pendentes)[number]) => p.inicioConsulta?.getTime() === c.inicio.getTime();
-  const deOutroInicio = pendentes.filter((p) => !doMesmoInicio(p)).map((p) => p.id);
+  const doMesmoInicio = (p: (typeof naFila)[number]) => p.inicioConsulta?.getTime() === c.inicio.getTime();
+  // só o pendente é descartado; o que está saindo é do worker (D6) — se for de outro início, o envio o ignora
+  const deOutroInicio = naFila.filter((p) => p.status === 'pendente' && !doMesmoInicio(p)).map((p) => p.id);
   if (deOutroInicio.length) {
     await tx.update(notifications).set({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada', updatedAt: agora }).where(inArray(notifications.id, deOutroInicio));
   }
-  const jaAvisados = new Set(pendentes.filter(doMesmoInicio).map((p) => p.canal));
+  const jaAvisados = new Set(naFila.filter(doMesmoInicio).map((p) => p.canal));
   const canais = (['email', 'push'] as const).filter((canal) => !jaAvisados.has(canal));
   if (!canais.length) return;
   await tx.insert(notifications).values(

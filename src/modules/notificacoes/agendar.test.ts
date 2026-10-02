@@ -135,6 +135,26 @@ describe('lembretes da consulta no banco', () => {
     ]);
   });
 
+  it('revisão da T5: o aviso do mesmo início que já está "enviando" conta como avisado — 14:00 (saindo) → 15:00 → 14:00 não manda um segundo "14:00"', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    // o worker reservou o e-mail da marcação (pendente → enviando) e ainda não registrou o resultado
+    const doAviso = and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'));
+    await withTenant(T.ctx, (tx) => tx.update(notifications).set({ status: 'enviando', tentativas: 1 }).where(and(doAviso, eq(notifications.canal, 'email'))), app.db);
+    const mover = (hora: string) => moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    await mover('15:00');
+    await mover('14:00');
+    const ls = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(doAviso), app.db);
+    expect(ls.map((l) => `${partesNoFuso(l.inicioConsulta!, SP).hora}/${l.canal}/${l.status}/${l.motivoIgnorada}`).sort()).toEqual([
+      '14:00/email/enviando/null', // o que está saindo não é tocado e já leva "14:00": nenhum e-mail novo de 14:00
+      '14:00/push/ignorada/consulta_remarcada',
+      '14:00/push/pendente/null', // o push de 14:00 não saiu (foi descartado na ida para 15:00): volta como linha nova
+      '15:00/email/ignorada/consulta_remarcada',
+      '15:00/push/ignorada/consulta_remarcada',
+    ]);
+  });
+
   it('a chave única parcial do banco vale só para os tipos de TIPOS_UM_POR_HORARIO (lista num lugar só)', async () => {
     const { rows } = await app.pool.query<{ def: string }>(`select indexdef as def from pg_indexes where tablename = 'notifications' and indexname = 'notifications_versao_unique'`);
     expect(rows).toHaveLength(1);

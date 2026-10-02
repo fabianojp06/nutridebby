@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paraInstante, partesNoFuso } from './fuso';
-import { dentroDoHorario, gerarHorarios, HORA_HHMM, minutosDe, type Regra, sobrepoe, textoAparado } from './horarios';
+import { dentroDoHorario, gerarHorarios, HORA_HHMM, horariosVisiveis, minutosDe, type Regra, sobrepoe, textoAparado } from './horarios';
 
 const SP = 'America/Sao_Paulo';
 const em = (data: string, hora: string) => paraInstante(data, hora, SP)!;
@@ -73,5 +73,12 @@ describe('ajudantes dos horários', () => {
     expect(['24:00', '8:00', '08:60', '08:0', '08:00:00', ' 08:00', '', 'ab:cd'].some((h) => HORA_HHMM.test(h))).toBe(false);
     expect(textoAparado('  Congresso  ')).toBe('Congresso');
     expect([textoAparado(undefined), textoAparado(null), textoAparado(42), textoAparado(new File([], 'x'))]).toEqual(['', '', '', '']);
+  });
+  it('horariosVisiveis: ISO, dia curto e hora no fuso, na ordem', () => {
+    const hs = gerarHorarios({ regras: [TERCA], bloqueios: [], ocupados: [], ...semana, online: false });
+    expect(horariosVisiveis(hs.slice(0, 2), SP)).toEqual([
+      { inicio: '2026-10-20T11:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '08:00', modalidades: ['presencial'] },
+      { inicio: '2026-10-20T12:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '09:00', modalidades: ['presencial'] },
+    ]);
   });
 });

@@ -3,6 +3,10 @@ import type { Tx } from '@/db/client';
 import { user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import type { EmailMessage } from '@/email/types';
+import { urlDoApp } from '@/lib/url-do-app';
+import { quandoComFuso } from './fuso';
+
+export type EventoAgenda = Extract<EmailMessage, { tipo: 'aviso_agenda' }>['evento'];
 
 /**
  * D18 / CLAUDE.md regra 1: a tabela `user` do Better Auth é lida aqui, fora do withTenant, só para o e-mail
@@ -16,4 +20,17 @@ export async function emailsDaNutri(tx: Tx, tenantId: string): Promise<string[]>
 /** Um e-mail por nutricionista do tenant, na mesma transação do evento (o e-mail só existe se o evento existir). */
 export async function avisarNutri(tx: Tx, tenantId: string, montar: (para: string) => EmailMessage): Promise<void> {
   for (const para of await emailsDaNutri(tx, tenantId)) await enqueueEmail(montar(para), { tenantId, tx });
+}
+
+/** D18: aviso de um evento da agenda feito pelo paciente (nome, quando no fuso do tenant e o link da consulta no painel). */
+export async function avisarNutriDaConsulta(
+  tx: Tx,
+  tenant: { id: string; fuso: string },
+  c: { id: string; inicio: Date; paciente: string },
+  evento: EventoAgenda,
+  appUrl: string,
+): Promise<void> {
+  const quando = quandoComFuso(c.inicio, tenant.fuso);
+  const link = urlDoApp(appUrl, `/painel/agenda/consultas/${c.id}`);
+  await avisarNutri(tx, tenant.id, (para) => ({ tipo: 'aviso_agenda', para, evento, paciente: c.paciente, quando, link }));
 }

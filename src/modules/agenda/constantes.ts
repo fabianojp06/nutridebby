@@ -44,6 +44,8 @@ export const MSG_AGENDA = {
   foraDoPrazo: 'Para alterar, fale com sua nutricionista.',
   naoCancelavel: 'Esta consulta não pode mais ser cancelada.',
   cancelada: 'Consulta cancelada.',
+  /** R13: motivo do cancelamento (appointments_motivo_tamanho). */
+  motivoCancelamentoLongo: 'Use no máximo 300 caracteres',
   limitePublico: 'Você já tem 3 consultas marcadas. Fale com sua nutricionista.',
   semHorarios: 'Nenhum horário livre nos próximos 60 dias. Fale com sua nutricionista.',
   naoAgendavel: 'Não foi possível agendar por aqui. Fale com sua nutricionista.',
@@ -54,4 +56,6 @@ export const MSG_AGENDA = {
   linkExpirado: 'Este link expirou.',
   linkInvalido: 'Link inválido.',
   consultaJaCancelada: 'Esta consulta foi cancelada.',
+  avisoDeRemarcacao: 'Avisamos sua nutricionista. Ela vai entrar em contato.',
+  semHorariosNaSemana: 'Nenhum horário livre nesta semana.',
 } as const;

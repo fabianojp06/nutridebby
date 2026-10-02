@@ -2,13 +2,11 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
-import { urlDoApp } from '@/lib/url-do-app';
 import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
-import { avisarNutri } from './aviso-nutri';
+import { avisarNutriDaConsulta } from './aviso-nutri';
 import { JANELA_PACIENTE_DIAS, MSG_AGENDA } from './constantes';
 import { ConsultaError, ehSobreposicao, horariosLivres, type TenantAgenda } from './consultas';
-import { quandoComFuso } from './fuso';
 import type { Horario, Modalidade } from './horarios';
 
 export type HorarioEscolhido = Horario & { modalidade: Modalidade };
@@ -73,9 +71,7 @@ export async function gravarConsultaDoPaciente(
   const alvo = { tenantId: tenant.id, patientId: p.id, appointmentId: c.id, inicio: h.inicio };
   await agendarLembretes(tx, alvo, tenant.fuso, o.agora);
   await avisarPaciente(tx, alvo, 'consulta_marcada', o.agora);
-  const quando = quandoComFuso(h.inicio, tenant.fuso);
-  const link = urlDoApp(o.appUrl, `/painel/agenda/consultas/${c.id}`);
-  await avisarNutri(tx, tenant.id, (para) => ({ tipo: 'aviso_agenda', para, evento: o.evento, paciente: p.nome, quando, link }));
+  await avisarNutriDaConsulta(tx, tenant, { id: c.id, inicio: h.inicio, paciente: p.nome }, o.evento, o.appUrl);
   await dispararEnvio(tx, tenant.id);
   return c.id;
 }

@@ -1,4 +1,4 @@
-import { diaDaSemana, paraInstante, partesNoFuso, somarDias } from './fuso';
+import { diaCurto, diaDaSemana, paraInstante, partesNoFuso, somarDias } from './fuso';
 
 export type Modalidade = 'presencial' | 'online';
 export type ModalidadeRegra = Modalidade | 'ambas';
@@ -59,4 +59,15 @@ export function dentroDoHorario(i: Intervalo, regras: Regra[], fuso: string): bo
   const b = partesNoFuso(i.fim, fuso);
   const fimMin = b.data === a.data ? b.minutos : b.data === somarDias(a.data, 1) && b.minutos === 0 ? 24 * 60 : -1;
   return regras.some((r) => r.diaSemana === a.diaSemana && minutosDe(r.inicio) <= a.minutos && fimMin > a.minutos && fimMin <= minutosDe(r.fim));
+}
+
+/** O que a tela mostra de um horário livre (nada além de intervalo e modalidade, D11). */
+export type HorarioVisivel = { inicio: string; dia: string; data: string; hora: string; modalidades: Modalidade[] };
+
+/** Horários livres para a tela do paciente: o instante em ISO (valor do formulário), o dia curto e a hora no fuso. */
+export function horariosVisiveis(hs: Horario[], fuso: string): HorarioVisivel[] {
+  return hs.map((h) => {
+    const p = partesNoFuso(h.inicio, fuso);
+    return { inicio: h.inicio.toISOString(), dia: diaCurto(p.data), data: p.data, hora: p.hora, modalidades: h.modalidades };
+  });
 }
