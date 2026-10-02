@@ -1,5 +1,6 @@
 import type { PatientRow } from '@/db/schema';
-import { situacaoDaNotificacao } from '@/modules/notificacoes/tipos';
+import { rotuloDoMotivo, situacaoDaNotificacao } from '@/modules/notificacoes/tipos';
+import type { SituacaoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import type { SituacaoAcesso, SituacaoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
@@ -63,7 +64,18 @@ export function textoDoAcesso(s: SituacaoAcesso, fuso: string): string {
   }
 }
 
-/** US-010: situação do convite por WhatsApp na tela do paciente ("Convite por WhatsApp: {situação}"); sem convite, nada. */
+/**
+ * US-010: situação do convite por WhatsApp na tela do paciente — "Convite por WhatsApp: {situação}"; quando não saiu,
+ * "Convite por WhatsApp não enviado: {motivo}" (sem "::"). Sem convite por WhatsApp, nada.
+ */
 export function textoDoConviteWhatsapp(n: SituacaoConviteWhatsapp | null, fuso: string): string | null {
-  return n ? `Convite por WhatsApp: ${situacaoDaNotificacao(n, fuso).replace(/^./, (c) => c.toLowerCase())}` : null;
+  if (!n) return null;
+  if (n.status === 'ignorada') return `Convite por WhatsApp não enviado: ${rotuloDoMotivo(n.motivoIgnorada)}`;
+  return `Convite por WhatsApp: ${situacaoDaNotificacao(n, fuso).replace(/^./, (c) => c.toLowerCase())}`;
+}
+
+/** US-010 (rodada 1): ao lado de "Enviar convite por WhatsApp", quando a mensagem não teria como sair agora. */
+export function avisoDoConviteWhatsapp(s: Pick<SituacaoWhatsapp, 'ligado' | 'estado'>): string | null {
+  if (!s.ligado) return 'O WhatsApp ainda não está disponível na plataforma; o convite vai só por e-mail.';
+  return s.estado === 'conectada' ? null : 'O WhatsApp do consultório não está conectado; o convite vai só por e-mail.';
 }

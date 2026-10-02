@@ -8,7 +8,6 @@ import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { agendarConviteWhatsapp } from '@/modules/notificacoes/agendar';
-import { textoConviteWhatsapp } from '@/modules/notificacoes/mensagens';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido, PacienteNaoEncontradoError } from './base';
 import { enviarConvitePaciente } from './convite-paciente';
@@ -110,8 +109,8 @@ function autorizacaoWhatsapp(
 
 /**
  * US-010: paciente `ativo`, `user_id` nulo. Em corrida, quem decide o e-mail repetido é a UNIQUE
- * (tenant_id, email) em citext — sem pré-checagem. "Enviar convite por WhatsApp": o mesmo convite (link) do
- * e-mail, numa linha do motor de envio na mesma transação; o e-mail sai qualquer que seja o resultado do WhatsApp.
+ * (tenant_id, email) em citext — sem pré-checagem. "Enviar convite por WhatsApp": um aviso sem link (o link vai só
+ * no e-mail), numa linha do motor de envio na mesma transação; o e-mail sai qualquer que seja o resultado do WhatsApp.
  */
 export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente, input: Record<string, unknown>, deps: Deps = {}): Promise<PatientRow> {
   const db = deps.db ?? getDb();
@@ -137,12 +136,9 @@ export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente
           })
           .returning();
         // US-010: convite de 7 dias por e-mail na mesma transação (paciente criado ⇔ convite na fila)
-        const convite = await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
-        // US-010 "Convite também por WhatsApp": o mesmo link, só com a autorização registrada (INT-01: opt-in antes de qualquer mensagem)
-        if (v.enviarConviteWhatsapp && p.whatsappOptinEm && !p.whatsappOptoutEm) {
-          const texto = textoConviteWhatsapp({ nome: p.nome, nutri: tenant.nomeExibicao, link: convite.link, contaExistente: convite.contaExistente });
-          await agendarConviteWhatsapp(tx, { tenantId: ctx.tenantId, patientId: p.id, texto }, now);
-        }
+        await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
+        // US-010 "Convite também por WhatsApp": aviso sem link, só com a autorização registrada (INT-01: opt-in antes de qualquer mensagem)
+        if (v.enviarConviteWhatsapp && p.whatsappOptinEm && !p.whatsappOptoutEm) await agendarConviteWhatsapp(tx, { tenantId: ctx.tenantId, patientId: p.id }, now);
         return p;
       },
       db,

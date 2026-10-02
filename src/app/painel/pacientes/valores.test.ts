@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PatientRow } from '@/db/schema';
-import { seloDoPaciente, textoDoAcesso, textoDoConviteWhatsapp, valoresDoFormulario, valoresDoPaciente } from './valores';
+import { avisoDoConviteWhatsapp, seloDoPaciente, textoDoAcesso, textoDoConviteWhatsapp, valoresDoFormulario, valoresDoPaciente } from './valores';
 
 const base = {
   id: 'p', tenantId: 't', userId: null, nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', telefoneE164: '+5511912345678',
@@ -49,7 +49,16 @@ describe('textoDoConviteWhatsapp (US-010)', () => {
     expect(textoDoConviteWhatsapp(n, SP)).toBe('Convite por WhatsApp: agendado para qua., 14/10/2026 às 10:00');
     expect(textoDoConviteWhatsapp({ ...n, status: 'enviada', enviadaEm: new Date('2026-10-14T13:00:20Z') }, SP)).toBe('Convite por WhatsApp: enviado em qua., 14/10/2026 às 10:00');
     expect(textoDoConviteWhatsapp({ ...n, status: 'lida' }, SP)).toBe('Convite por WhatsApp: lido');
-    expect(textoDoConviteWhatsapp({ ...n, status: 'ignorada', motivoIgnorada: 'cota_esgotada' }, SP)).toBe('Convite por WhatsApp: não enviado: cota de WhatsApp do mês esgotada');
-    expect(textoDoConviteWhatsapp({ ...n, status: 'ignorada', motivoIgnorada: 'whatsapp_desconectado' }, SP)).toBe('Convite por WhatsApp: não enviado: WhatsApp desconectado');
+    // rodada 1: sem "::" — "não enviado" vira parte da frase
+    expect(textoDoConviteWhatsapp({ ...n, status: 'ignorada', motivoIgnorada: 'cota_esgotada' }, SP)).toBe('Convite por WhatsApp não enviado: cota de WhatsApp do mês esgotada');
+    expect(textoDoConviteWhatsapp({ ...n, status: 'ignorada', motivoIgnorada: 'whatsapp_desconectado' }, SP)).toBe('Convite por WhatsApp não enviado: WhatsApp desconectado');
+    expect(textoDoConviteWhatsapp({ ...n, status: 'ignorada', motivoIgnorada: 'convite_aceito' }, SP)).toBe('Convite por WhatsApp não enviado: convite já aceito');
+    for (const st of ['pendente', 'enviada', 'lida', 'ignorada']) expect(textoDoConviteWhatsapp({ ...n, status: st, motivoIgnorada: st === 'ignorada' ? 'sem_optin' : null }, SP)).not.toContain('::');
+  });
+  it('aviso ao lado da opção: WhatsApp fora da plataforma ou consultório desconectado → o convite vai só por e-mail', () => {
+    expect(avisoDoConviteWhatsapp({ ligado: false, estado: 'desconectada' })).toBe('O WhatsApp ainda não está disponível na plataforma; o convite vai só por e-mail.');
+    expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'desconectada' })).toBe('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.');
+    expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'conectando' })).toBe('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.');
+    expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'conectada' })).toBeNull();
   });
 });

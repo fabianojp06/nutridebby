@@ -46,6 +46,8 @@ const ignorar = (motivo: MotivoIgnorada): Resultado => ({ status: 'ignorada', mo
 /** Condições comuns a todos os canais, conferidas na hora do envio (D6). */
 export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
+  // US-010 (rodada 1 da T14): o convite por WhatsApp que ainda estava na fila quando o paciente aceitou pelo e-mail não sai
+  if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');

@@ -10,8 +10,6 @@ import { randomToken, sha256 } from '@/lib/crypto';
 import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
 import { normalizeEmail } from '@/lib/text';
-import { renovarConviteWhatsapp } from '@/modules/notificacoes/agendar';
-import { textoConviteWhatsapp } from '@/modules/notificacoes/mensagens';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { carregarPacienteParaEscrita, idValido } from './base';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
@@ -48,25 +46,31 @@ export function linkDoConvitePaciente(appUrl: string, token: string): string {
  * Convite novo de 7 dias + e-mail na mesma transação. O pendente anterior do paciente some antes
  * (um por paciente: `invites_paciente_pendente_idx`). Quem já tem conta de paciente (outro tenant)
  * recebe o texto de "entre com sua conta existente". Chamar dentro de withTenant, com o paciente lido
- * (e travado, quando não é recém-criado). Devolve o link (credencial: nunca para log, mensagem de erro ou
- * resposta ao navegador) para o convite por WhatsApp levar o mesmo convite (US-010); o convite por
- * WhatsApp ainda na fila passa a levar o link novo (o anterior deixou de valer).
+ * (e travado, quando não é recém-criado). O link (credencial) vai só no e-mail: o convite por WhatsApp
+ * é um aviso sem link (US-010, decisão do dono na rodada 1 da T14).
  */
 export async function enviarConvitePaciente(
   tx: Tx,
   p: Pick<PatientRow, 'id' | 'tenantId' | 'nome' | 'email'>,
   deps: { appUrl: string; nutri: string; now: Date },
-): Promise<{ expiraEm: Date; link: string; contaExistente: boolean }> {
+): Promise<{ expiraEm: Date }> {
   const token = randomToken();
   const expiraEm = new Date(deps.now.getTime() + CONVITE_PACIENTE_VALIDADE_MS);
   await apagarConvitesPendentes(tx, p.tenantId, p.id); // CLAUDE.md regra 1: filtra tipo e tenant
   await tx.insert(invites).values({ tipo: 'paciente', tenantId: p.tenantId, patientId: p.id, tokenHash: sha256(token), expiraEm, createdAt: deps.now });
   const [conta] = await tx.select({ papel: user.appRole }).from(user).where(eq(user.email, p.email));
-  const link = linkDoConvitePaciente(deps.appUrl, token);
-  const contaExistente = conta?.papel === 'paciente';
-  await enqueueEmail({ tipo: 'convite_paciente', para: p.email, nome: p.nome, nutri: deps.nutri, link, contaExistente }, { tenantId: p.tenantId, tx });
-  await renovarConviteWhatsapp(tx, p.id, textoConviteWhatsapp({ nome: p.nome, nutri: deps.nutri, link, contaExistente }), deps.now);
-  return { expiraEm, link, contaExistente };
+  await enqueueEmail(
+    {
+      tipo: 'convite_paciente',
+      para: p.email,
+      nome: p.nome,
+      nutri: deps.nutri,
+      link: linkDoConvitePaciente(deps.appUrl, token),
+      contaExistente: conta?.papel === 'paciente',
+    },
+    { tenantId: p.tenantId, tx },
+  );
+  return { expiraEm };
 }
 
 /** RN-08 / US-018: arquivar ou bloquear o paciente invalida o convite ainda não usado. */
@@ -107,9 +111,7 @@ export async function reenviarConvitePaciente(
       const p = await carregarPacienteParaEscrita(tx, patientId);
       if (p.userId) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.jaAtivo);
       if (p.status !== 'ativo') throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.inativo);
-      // só a validade sai daqui: o link é credencial e fica na transação (e-mail e WhatsApp cifrados)
-      const { expiraEm } = await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now: deps.now ?? new Date() });
-      return { expiraEm };
+      return enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now: deps.now ?? new Date() });
     },
     deps.db ?? getDb(),
   );

@@ -12,5 +12,6 @@ describe('situação do lembrete em texto', () => {
     expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'horario_silencioso' }, SP)).toBe('Não enviado: horário silencioso (21h–8h)');
     expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'cota_esgotada' }, SP)).toBe('Não enviado: cota de WhatsApp do mês esgotada');
     expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'consulta_remarcada' }, SP)).toBe('Não enviado: consulta remarcada');
+    expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'convite_aceito' }, SP)).toBe('Não enviado: convite já aceito');
   });
 });

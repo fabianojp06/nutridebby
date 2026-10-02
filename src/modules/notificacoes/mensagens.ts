@@ -34,18 +34,29 @@ export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; cha
   return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link: evento === 'consulta_cancelada' ? null : d.link };
 }
 
-/** Texto pronto, cifrado na linha até o envio (convite com link de uso único, Tarefa 14). */
+/**
+ * Texto pronto, cifrado na linha até o envio: uma linha com `conteudo_selado` sai com esse texto, qualquer que seja o tipo.
+ * Hoje nenhum fluxo grava (o convite por WhatsApp é montado no envio, sem link — rodada 1 da T14); toda saída final o
+ * apaga e o banco recusa o texto fora de `pendente`/`enviando` (CHECK `notifications_conteudo_so_antes_do_envio`).
+ */
 export const FINALIDADE_CONTEUDO = 'notificacao-conteudo';
 
+/** "a***@ex.com": primeira letra + "***" + "@" + domínio; sem as duas partes, só "***". */
+export function emailMascarado(email: string): string {
+  const arroba = email.lastIndexOf('@');
+  if (arroba < 1 || arroba === email.length - 1) return '***';
+  return `${[...email][0]}***@${email.slice(arroba + 1)}`;
+}
+
 /**
- * US-010: o convite por WhatsApp leva o mesmo link (de uso único) do e-mail — o mesmo convite, nunca um segundo token.
- * Quem já tem conta de paciente (outra nutricionista) recebe o texto de "entre com sua conta existente", como no e-mail.
+ * US-010, decisão do dono (rodada 1 da T14): o convite por WhatsApp é só um aviso — o link (credencial de criação da
+ * conta) vai só no e-mail. O número do WhatsApp não foi verificado e a conversa fica no aparelho do consultório (D2):
+ * com o link, um número errado ou reciclado criaria a conta do paciente. Um texto só para conta nova ou existente — dizer
+ * que o e-mail já é paciente de outra nutricionista vazaria dado do outro consultório. Montado na hora do envio, com o
+ * e-mail atual do paciente.
  */
-export function textoConviteWhatsapp(o: { nome: string; nutri: string; link: string; contaExistente: boolean }): string {
-  const nome = primeiroNome(o.nome);
-  return o.contaExistente
-    ? `Olá, ${nome}! Entre com sua conta existente para ver os dados da nutricionista ${o.nutri}: ${o.link}`
-    : `Olá, ${nome}! ${o.nutri} convidou você para acompanhar seu tratamento pelo NutriDebby. Crie sua senha pelo link (vale por 7 dias): ${o.link}`;
+export function textoConviteWhatsapp(o: { nome: string; nutri: string; email: string }): string {
+  return `Olá, ${primeiroNome(o.nome)}! ${o.nutri} convidou você para o NutriDebby. Enviamos o convite para o seu e-mail ${emailMascarado(o.email)} (vale por 7 dias).`;
 }
 
 /**
@@ -55,6 +66,7 @@ export function textoConviteWhatsapp(o: { nome: string; nutri: string; link: str
 export function textoWhatsapp(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): string | null {
   if (c.n.conteudoSelado) return openSecret(c.n.conteudoSelado, FINALIDADE_CONTEUDO);
   if (c.n.tipo === 'resposta_confirmacao') return 'Presença confirmada. Até lá!';
+  if (c.n.tipo === 'convite_paciente') return textoConviteWhatsapp({ nome: c.paciente.nome, nutri: c.tenant.nomeExibicao, email: c.paciente.email });
   if (!c.consulta) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant }, deps);
   const nome = primeiroNome(c.paciente.nome);

@@ -8,7 +8,8 @@ export type TipoNotificacao = TipoLembrete | 'consulta_marcada' | 'consulta_canc
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
   | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
-  | 'sem_optin' | 'sem_telefone' | 'whatsapp_desligado' | 'whatsapp_desconectado' | 'cota_esgotada' | 'sem_inscricao' | 'push_desligado';
+  | 'sem_optin' | 'sem_telefone' | 'whatsapp_desligado' | 'whatsapp_desconectado' | 'cota_esgotada' | 'sem_inscricao' | 'push_desligado'
+  | 'convite_aceito';
 
 export const ehLembrete = (t: string): t is TipoLembrete => t === 'lembrete_24h' || t === 'lembrete_2h';
 
@@ -37,7 +38,11 @@ export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
   cota_esgotada: 'cota de WhatsApp do mês esgotada',
   sem_inscricao: 'paciente sem notificações no app',
   push_desligado: 'notificações no app não configuradas',
+  convite_aceito: 'convite já aceito',
 };
+
+/** O motivo de não envio em texto ("consulta cancelada"…); motivo que o código não conhece não quebra a tela. */
+export const rotuloDoMotivo = (motivo: string | null): string => ROTULO_MOTIVO[motivo as MotivoIgnorada] ?? 'motivo desconhecido';
 
 /** Situação em texto (US-034; acessibilidade: nunca só cor). */
 export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motivoIgnorada' | 'agendadaPara' | 'enviadaEm'>, fuso: string): string {
@@ -55,7 +60,7 @@ export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motiv
     case 'falhou':
       return 'Falhou';
     case 'ignorada':
-      return `Não enviado: ${ROTULO_MOTIVO[n.motivoIgnorada as MotivoIgnorada] ?? 'motivo desconhecido'}`;
+      return `Não enviado: ${rotuloDoMotivo(n.motivoIgnorada)}`;
     default:
       return n.status;
   }

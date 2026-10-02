@@ -6,6 +6,7 @@ import { PgBoss } from 'pg-boss';
 import type { Db } from '@/db/client';
 import * as schema from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { instanciaDoTenant } from '@/modules/notificacoes/whatsapp/conexao';
 import { assinarJwtWebhook, chaveDoWebhook } from '@/modules/notificacoes/whatsapp/jwt';
 import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 
@@ -61,4 +62,22 @@ export async function lembreteDeWhatsappAgora(tenantId: string, appointmentId: s
   } finally {
     await boss.stop({ graceful: false });
   }
+}
+
+/**
+ * Estado da conexão do WhatsApp do consultório gravado direto (como o `conexaoDeTeste` do Vitest): o teste não depende do
+ * webhook de outro teste nem dispara o e-mail de desconexão.
+ */
+export async function conexaoDoConsultorio(tenantId: string, estado: 'conectada' | 'desconectada'): Promise<void> {
+  await comBanco((db) =>
+    withTenant(
+      { tenantId, role: 'nutri' },
+      (tx) =>
+        tx
+          .insert(schema.whatsappConexoes)
+          .values({ tenantId, instancia: instanciaDoTenant(tenantId), estado, numeroE164: '+5511900001111', conectadaEm: new Date() })
+          .onConflictDoUpdate({ target: schema.whatsappConexoes.tenantId, set: { estado, updatedAt: new Date() } }),
+      db,
+    ),
+  );
 }

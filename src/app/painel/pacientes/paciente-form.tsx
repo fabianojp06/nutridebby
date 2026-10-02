@@ -12,8 +12,8 @@ type Props = {
   /** O paciente já ativou o acesso: o e-mail é o login dele. */
   emailBloqueado?: boolean;
   somenteLeitura?: boolean;
-  /** US-010: a opção "Enviar convite por WhatsApp" (só no cadastro). */
-  conviteWhatsapp?: boolean;
+  /** US-010: a opção "Enviar convite por WhatsApp" (só no cadastro), com o aviso de quando ela não teria como sair agora. */
+  conviteWhatsapp?: { aviso: string | null };
 };
 
 export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeitura, conviteWhatsapp }: Props) {
@@ -30,6 +30,7 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
     setValoresVistos(v);
     setAutorizado(v.whatsappAutorizado);
   }
+  const conviteDesabilitado = !autorizado || !telefone.trim();
   return (
     <form action={action} className="space-y-4">
       <fieldset disabled={somenteLeitura} className="space-y-4">
@@ -75,18 +76,28 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
         </div>
         {e.whatsappAutorizado && <p id="whatsappAutorizado-erro" role="alert" className="text-sm text-red-700">{e.whatsappAutorizado}</p>}
         {conviteWhatsapp && (
-          <div className="flex items-start gap-2">
-            <input
-              id="enviarConviteWhatsapp"
-              name="enviarConviteWhatsapp"
-              type="checkbox"
-              className="mt-1"
-              defaultChecked={v.enviarConviteWhatsapp}
-              disabled={!autorizado || !telefone.trim()}
-              aria-invalid={e.enviarConviteWhatsapp ? true : undefined}
-              aria-describedby={e.enviarConviteWhatsapp ? 'enviarConviteWhatsapp-erro' : undefined}
-            />
-            <label htmlFor="enviarConviteWhatsapp">Enviar convite por WhatsApp</label>
+          <div className="space-y-1">
+            <div className="flex items-start gap-2">
+              <input
+                id="enviarConviteWhatsapp"
+                name="enviarConviteWhatsapp"
+                type="checkbox"
+                className="mt-1"
+                defaultChecked={v.enviarConviteWhatsapp}
+                disabled={conviteDesabilitado}
+                aria-invalid={e.enviarConviteWhatsapp ? true : undefined}
+                aria-describedby={
+                  [conviteDesabilitado ? 'enviarConviteWhatsapp-dica' : null, conviteWhatsapp.aviso ? 'enviarConviteWhatsapp-aviso' : null, e.enviarConviteWhatsapp ? 'enviarConviteWhatsapp-erro' : null]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+              />
+              <label htmlFor="enviarConviteWhatsapp">Enviar convite por WhatsApp</label>
+            </div>
+            {conviteDesabilitado && (
+              <p id="enviarConviteWhatsapp-dica" className="text-sm text-zinc-600">Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.</p>
+            )}
+            {conviteWhatsapp.aviso && <p id="enviarConviteWhatsapp-aviso" className="text-sm text-zinc-600">{conviteWhatsapp.aviso}</p>}
           </div>
         )}
         {e.enviarConviteWhatsapp && <p id="enviarConviteWhatsapp-erro" role="alert" className="text-sm text-red-700">{e.enviarConviteWhatsapp}</p>}

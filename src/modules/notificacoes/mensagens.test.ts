@@ -3,7 +3,7 @@ import type { AppointmentRow, NotificationRow, PatientRow, TenantRow } from '@/d
 import { sealSecret } from '@/lib/crypto';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
-import { FINALIDADE_CONTEUDO, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
+import { emailMascarado, FINALIDADE_CONTEUDO, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
 
 const deps = { appUrl: 'https://app.exemplo.com', chaveLinks: chaveDosLinks(Buffer.alloc(32, 9)) };
 const tenant = { id: '0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', nomeExibicao: 'Debby Silva', fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua das Flores, 10', cancelamentoMinH: 24 } as TenantRow;
@@ -33,13 +33,22 @@ describe('textos do WhatsApp (D3)', () => {
   });
 });
 
-describe('convite por WhatsApp (US-010)', () => {
-  it('primeiro nome, nutricionista e o link do convite; quem já é paciente de outra nutricionista entra com a conta existente', () => {
-    const o = { nome: ' Ana Souza Lima', nutri: 'Debby Silva', link: 'https://app.exemplo.com/convite/paciente/abc' };
-    expect(textoConviteWhatsapp({ ...o, contaExistente: false })).toBe(
-      'Olá, Ana! Debby Silva convidou você para acompanhar seu tratamento pelo NutriDebby. Crie sua senha pelo link (vale por 7 dias): https://app.exemplo.com/convite/paciente/abc',
-    );
-    expect(textoConviteWhatsapp({ ...o, contaExistente: true })).toBe('Olá, Ana! Entre com sua conta existente para ver os dados da nutricionista Debby Silva: https://app.exemplo.com/convite/paciente/abc');
+describe('convite por WhatsApp (US-010; decisão do dono na rodada 1: só aviso, sem link)', () => {
+  it('e-mail mascarado: primeira letra + "***" + "@" + domínio', () => {
+    expect(emailMascarado('ana.souza@ex.com')).toBe('a***@ex.com');
+    expect(emailMascarado('b@novo.com.br')).toBe('b***@novo.com.br');
+    expect(emailMascarado('sem-arroba')).toBe('***');
+    expect(emailMascarado('@ex.com')).toBe('***');
+  });
+  it('um texto só (conta nova ou existente), sem link nem token, com o e-mail mascarado', () => {
+    const t = textoConviteWhatsapp({ nome: ' Ana Souza Lima', nutri: 'Debby Silva', email: 'ana@ex.com' });
+    expect(t).toBe('Olá, Ana! Debby Silva convidou você para o NutriDebby. Enviamos o convite para o seu e-mail a***@ex.com (vale por 7 dias).');
+    expect(t).not.toMatch(/https?:|\/convite\//);
+  });
+  it('no envio, o texto sai do paciente e do consultório atuais (sem consulta, sem texto guardado)', () => {
+    const esperado = 'Olá, Ana! Debby Silva convidou você para o NutriDebby. Enviamos o convite para o seu e-mail a***@ex.com (vale por 7 dias).';
+    expect(textoWhatsapp({ ...ctx('convite_paciente'), consulta: null }, deps)).toBe(esperado);
+    expect(textoWhatsapp({ ...ctx('convite_paciente'), consulta: null, paciente: { ...paciente, email: 'bia@novo.com' } as PatientRow }, deps)).toBe(esperado.replace('a***@ex.com', 'b***@novo.com'));
   });
 });
 

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
+import { conexaoDoConsultorio, idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -177,7 +177,8 @@ test('link da consulta fora do prazo (RN-04): só "Avisar que preciso remarcar";
   await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
   const consultaNoPainel = nutri.url();
   const paciente = await (await browser.newContext()).newPage();
-  await paciente.goto(primeiroLink((await esperarEmail(`eva-${sufixo}@ex.com`)).texto, '/consulta/'));
+  // o convite (cadastro) e a "Consulta marcada" vão para o mesmo endereço, em ordem que varia: espera a da consulta pelo assunto
+  await paciente.goto(primeiroLink((await esperarEmail(`eva-${sufixo}@ex.com`, { assuntoComeca: 'Consulta marcada: ' })).texto, '/consulta/'));
   await expect(paciente.getByRole('status').filter({ hasText: 'Para alterar, fale com sua nutricionista.' })).toBeVisible();
   await expect(paciente.getByRole('button', { name: 'Remarcar para este horário' })).toHaveCount(0);
   await expect(paciente.getByRole('button', { name: 'Cancelar consulta' })).toHaveCount(0);
@@ -289,25 +290,37 @@ test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada 
   await expect.poll(async () => (await esperarEmail(`${numero}@whatsapp.sandbox`, { depoisDe: respondidoEm })).texto, { timeout: 30_000 }).toContain('Presença confirmada. Até lá!');
 });
 
-test('convite por WhatsApp no cadastro chega ao número do paciente (sandbox), com o mesmo link do e-mail (US-010)', async () => {
-  const antes = new Date();
+test('convite por WhatsApp no cadastro: aviso sem link, com o e-mail mascarado; o link vai só no e-mail (US-010)', async () => {
+  // independente dos outros testes: o estado da conexão é gravado aqui e o celular é desta execução
+  const tenantId = await idDoTenant('e2e-consultorio');
+  const oito = String(Math.floor(Math.random() * 1e8)).padStart(8, '0').replace(/(0000|9999)$/, '4321'); // 0000/9999 = erros do sandbox
+  const email = `gabi-${sufixo}@ex.com`;
+  const opcao = () => nutri.getByLabel('Enviar convite por WhatsApp');
+  // consultório desconectado: a opção continua (spec), com o aviso de que o convite iria só por e-mail
+  await conexaoDoConsultorio(tenantId, 'desconectada');
   await nutri.goto('/painel/pacientes/novo');
+  await expect(opcao()).toHaveAccessibleDescription(/O WhatsApp do consultório não está conectado; o convite vai só por e-mail\./);
+  await conexaoDoConsultorio(tenantId, 'conectada');
+  await nutri.reload();
+  await expect(nutri.getByText('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.')).toHaveCount(0);
   await nutri.getByLabel('Nome').fill(`Gabi Whats ${sufixo}`);
   await nutri.getByLabel('Data de nascimento').fill('1990-05-10');
   await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`gabi-${sufixo}@ex.com`);
-  await nutri.getByLabel('Telefone (opcional)').fill('(11) 98765-4321');
-  // US-010 "WhatsApp sem autorização": a opção fica desabilitada
-  await expect(nutri.getByLabel('Enviar convite por WhatsApp')).toBeDisabled();
+  await nutri.getByLabel('E-mail').fill(email);
+  await nutri.getByLabel('Telefone (opcional)').fill(`(11) 9${oito.slice(0, 4)}-${oito.slice(4)}`);
+  // US-010 "WhatsApp sem autorização": a opção fica desabilitada, e diz por quê
+  await expect(opcao()).toBeDisabled();
+  await expect(opcao()).toHaveAccessibleDescription('Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.');
   await nutri.getByLabel('Paciente autorizou receber mensagens por WhatsApp').check();
-  await nutri.getByLabel('Enviar convite por WhatsApp').check();
+  await opcao().check();
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
   await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
-  // o consultório do E2E está conectado desde o teste do webhook: a mensagem sai pelo sandbox (Mailpit)
-  const msg = await esperarEmail('5511987654321@whatsapp.sandbox', { depoisDe: antes });
-  expect(msg.texto).toMatch(/^Olá, Gabi! Consultório E2E convidou você para acompanhar seu tratamento pelo NutriDebby\. Crie sua senha pelo link \(vale por 7 dias\): http\S+\/convite\/paciente\//);
-  const convite = await esperarEmail(`gabi-${sufixo}@ex.com`);
-  expect(primeiroLink(msg.texto, '/convite/paciente/')).toBe(primeiroLink(convite.texto, '/convite/paciente/')); // o mesmo convite
+  // o WhatsApp (sandbox → Mailpit) só avisa, com o e-mail mascarado e sem link; o link vai no e-mail
+  const msg = await esperarEmail(`55119${oito}@whatsapp.sandbox`);
+  expect(msg.texto.trim()).toBe('Olá, Gabi! Consultório E2E convidou você para o NutriDebby. Enviamos o convite para o seu e-mail g***@ex.com (vale por 7 dias).');
+  expect(msg.texto).not.toMatch(/https?:|\/convite\//);
+  const convite = await esperarEmail(email);
+  expect(primeiroLink(convite.texto, '/convite/paciente/')).toMatch(/\/convite\/paciente\/[A-Za-z0-9_-]{43}$/);
   // o worker grava "enviada" logo depois de o sandbox aceitar a mensagem
   await expect(async () => {
     await nutri.reload();
