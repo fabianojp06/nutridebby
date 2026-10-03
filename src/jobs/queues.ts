@@ -22,6 +22,9 @@ export const QUEUES = {
   'plano-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // US-042 / RN-07: foto do diário convertida (JPEG ≤ 1600 px, sem EXIF/GPS) e original apagado. Payload { tenantId, entryId }.
   'diario-foto': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // US-042: foto parada há mais de 30 min sem job vivo (worker caiu na última tentativa, banco fora) → "falhou" e o original
+  // (EXIF/GPS) sai do disco e da cota; "pronta" que ainda aponta para o original → só o apaga. De 15 em 15 min.
+  'expirar-diario-foto': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
   // US-026: pendente esquecido (worker caiu na última tentativa, job expirado) vira "falhou" para o painel oferecer nova tentativa
   'expirar-plano-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 120 },
   // Plano 03 (c): .tmp órfãos de salvarArquivo (queda no meio da gravação), todo dia às 04h

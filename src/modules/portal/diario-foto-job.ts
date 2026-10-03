@@ -1,11 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import sharp, { type Sharp } from 'sharp';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import type { PgBoss } from 'pg-boss';
 import type { Db } from '@/db/client';
 import { diaryEntries } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 
 // Só o worker importa este arquivo (sharp + heic-decode/WASM): nenhuma rota do Next (guarda no grafo de imports).
 
@@ -86,11 +88,13 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
  * (senão uma queda entre as duas deixa o original no disco, contando na cota, sem nada que aponte para ele).
  * Imagem que não decodifica ou grande demais → "falhou" na hora (definitivo) e o original sai. Erro de infraestrutura →
  * o pg-boss tenta de novo; na última tentativa, "falhou".
+ * `descartar` (só a varredura `expirarFotosPendentes`): registro "processando" esquecido vira "falhou" e o original sai,
+ * sem nova conversão.
  * ORDEM DE TRAVAS: registro do diário → tenant (cota), nos dois caminhos (`antesDaReserva` e `naMesmaTransacao`).
  */
 export async function converterFotoDoDiario(
   data: DadosFotoDiario,
-  deps: { db: Db; dataDir: string; ultimaTentativa: boolean; abrirHeic?: AbrirHeic },
+  deps: { db: Db; dataDir: string; ultimaTentativa: boolean; abrirHeic?: AbrirHeic; descartar?: boolean },
 ): Promise<'pronta' | 'ignorada' | 'falhou'> {
   const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
   const [e] = await withTenant(
@@ -126,6 +130,7 @@ export async function converterFotoDoDiario(
     await apagarOriginal({ fotoStatus: 'falhou' }, 'processando');
     return 'falhou';
   };
+  if (deps.descartar) return falhar();
   let convertida = false;
   try {
     const buf = await readFile(resolverCaminho(deps.dataDir, original));
@@ -169,4 +174,58 @@ export async function converterFotoDoDiario(
     if (!definitivo) throw err;
     return falhar();
   }
+}
+
+/** As 3 tentativas do job somam poucos minutos (30 s, 60 s, 120 s de espera + até 120 s cada): 30 min sem mudança é abandono. */
+export const FOTO_PENDENTE_MAX_MS = 30 * 60_000;
+const JOB_VIVO = new Set(['created', 'retry', 'active']);
+
+/**
+ * Rede de segurança da US-042 / RN-07 (fila `expirar-diario-foto`, de 15 em 15 min), como a `expirar-plano-pdf`: registro
+ * com o original (que pode ter EXIF/GPS) parado há mais de 30 min, porque o job acabou sem terminar o trabalho (o worker
+ * caiu na última tentativa e o pg-boss expirou o job, ou o banco caiu e nem o "falhou" foi gravado).
+ * - "processando" sem job vivo (`created`/`retry`/`active`) para ele → "falhou" e o original sai do disco e da cota.
+ *   Não converte de novo: se a queda foi falta de memória com esta foto, cada varredura derrubaria o worker outra vez.
+ *   Com job ainda na fila (worker parado, voltando agora) espera por ele.
+ * - "pronta" ainda apontando para o original → só apaga o original (o mesmo ramo do job).
+ * Idempotente; um registro com erro não impede os outros (vale na próxima rodada). Log só com contagens e ids (RNF-11).
+ */
+export async function expirarFotosPendentes(
+  deps: { db: Db; dataDir: string; boss: Pick<PgBoss, 'findJobs'> },
+  now: Date,
+  idadeMinMs = FOTO_PENDENTE_MAX_MS,
+): Promise<{ descartadas: number; originais: number }> {
+  const limite = new Date(now.getTime() - idadeMinMs);
+  const r = { descartadas: 0, originais: 0 };
+  for (const t of await listarTenantsParaVarredura(deps.db)) {
+    try {
+      const parados = await withTenant(
+        { tenantId: t.id, role: 'worker' },
+        (tx) =>
+          tx
+            .select({ id: diaryEntries.id, fotoStatus: diaryEntries.fotoStatus })
+            .from(diaryEntries)
+            .where(and(isNotNull(diaryEntries.fotoOriginalPath), inArray(diaryEntries.fotoStatus, ['processando', 'pronta']), lt(diaryEntries.updatedAt, limite))),
+        deps.db,
+      );
+      for (const e of parados) {
+        try {
+          const data = { tenantId: t.id, entryId: e.id };
+          if (e.fotoStatus === 'processando') {
+            const jobs = await deps.boss.findJobs<DadosFotoDiario>('diario-foto', { data: { entryId: e.id } });
+            if (jobs.some((j) => JOB_VIVO.has(j.state))) continue;
+          }
+          const fim = await converterFotoDoDiario(data, { db: deps.db, dataDir: deps.dataDir, ultimaTentativa: true, descartar: true });
+          if (fim === 'falhou') r.descartadas++;
+          else if (e.fotoStatus === 'pronta') r.originais++;
+        } catch (err) {
+          logger.error({ err: err instanceof Error ? err.name : 'erro', tenantId: t.id, entryId: e.id }, 'falha ao expirar a foto parada do diário');
+        }
+      }
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.name : 'erro', tenantId: t.id }, 'falha ao varrer as fotos paradas do diário');
+    }
+  }
+  if (r.descartadas || r.originais) logger.warn(r, 'fotos do diário paradas há mais de 30 min: "falhou" ou original apagado');
+  return r;
 }

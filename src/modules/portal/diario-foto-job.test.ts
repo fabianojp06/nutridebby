@@ -9,17 +9,19 @@ import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { diaryEntries, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { stopBoss } from '@/jobs/boss';
+import { getBoss, stopBoss } from '@/jobs/boss';
 import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
-import { converterFotoDoDiario, MAX_PIXELS } from './diario-foto-job';
+import { converterFotoDoDiario, expirarFotosPendentes, MAX_PIXELS } from './diario-foto-job';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const owner = makeDb(inject('ownerDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-diario-foto-'));
 afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await owner.pool.end();
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -130,6 +132,56 @@ describe('conversão da foto do diário (RN-07)', () => {
     const sobra = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
     expect(sobra).toEqual([]);
     expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBeLessThan(usadoAntes);
+  });
+
+  describe('varredura expirar-diario-foto (registro parado com o original)', () => {
+    // datas de 2000 só aqui: a varredura cruza todos os tenants do banco de teste e não pode mexer nos registros de outros testes
+    const parado = (id: string, quando = '2000-01-01T00:00:00Z') => owner.pool.query(`update diary_entries set updated_at = $2 where id = $1`, [id, quando]);
+    const usado = async (tenantId: string) => (await app.db.select().from(tenants).where(eq(tenants.id, tenantId)))[0].armazenamentoBytes;
+    const varrer = async (quando: string) => expirarFotosPendentes({ db: app.db, dataDir, boss: await getBoss() }, new Date(quando));
+
+    it('"processando" sem job vivo há mais de 30 min → "falhou", original fora do disco, de stored_files e da cota; com job na fila espera; recente fica', async () => {
+      const r = await registro(await fotoComExif());
+      const recente = await registro(await fotoComExif());
+      const { fotoOriginalPath } = await r.ler();
+      await parado(r.id);
+      await parado(recente.id, '2000-01-01T00:45:00Z');
+      const usadoAntes = await usado(r.T.tenantId);
+
+      // O job do envio ainda está na fila (worker parado, voltando agora): a varredura não mexe
+      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 0 });
+      expect(await r.ler()).toMatchObject({ fotoStatus: 'processando', fotoOriginalPath });
+
+      // O job acabou sem terminar (expirou na última tentativa): sem job vivo, o registro é descartado
+      const boss = await getBoss();
+      const [job] = await boss.findJobs('diario-foto', { data: { entryId: r.id } });
+      await boss.cancel('diario-foto', job.id);
+      const [jobRecente] = await boss.findJobs('diario-foto', { data: { entryId: recente.id } });
+      await boss.cancel('diario-foto', jobRecente.id);
+      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 1, originais: 0 });
+      expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null, fotoPath: null });
+      expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
+      const sobra = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
+      expect(sobra).toEqual([]);
+      expect(await usado(r.T.tenantId)).toBeLessThan(usadoAntes);
+      expect(await recente.ler()).toMatchObject({ fotoStatus: 'processando' }); // 15 min: ainda dentro do prazo
+      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 0 }); // idempotente
+    });
+
+    it('"pronta" que ainda aponta para o original há mais de 30 min → só apaga o original e solta o ponteiro', async () => {
+      const r = await registro(await fotoComExif());
+      const { fotoOriginalPath } = await r.ler();
+      const pequeno = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#fff' } }).jpeg().toBuffer();
+      const jpeg = await salvarArquivo(r.T.ctx, { tipo: 'diario_foto', conteudo: pequeno, permitidos: ['jpg'], patientId: r.p.id }, { db: app.db, dataDir });
+      await withTenant(r.T.ctx, (tx) => tx.update(diaryEntries).set({ fotoStatus: 'pronta', fotoPath: jpeg.caminho }).where(eq(diaryEntries.id, r.id)), app.db);
+      await parado(r.id);
+      const usadoAntes = await usado(r.T.tenantId);
+      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 1 });
+      expect(await r.ler()).toMatchObject({ fotoStatus: 'pronta', fotoOriginalPath: null, fotoPath: jpeg.caminho });
+      expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
+      expect(existsSync(resolverCaminho(dataDir, jpeg.caminho))).toBe(true);
+      expect(await usado(r.T.tenantId)).toBeLessThan(usadoAntes);
+    });
   });
 
   it('o heic-decode de verdade carrega no Node (WASM), expõe decode.all e recusa o que não é HEIC', async () => {

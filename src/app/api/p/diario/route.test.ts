@@ -43,6 +43,38 @@ function enviar(campos: Record<string, string | Blob>, o: { cookie?: string; ori
 const registros = (T: Awaited<ReturnType<typeof novoTenant>>, patientId: string) =>
   withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, patientId)), db);
 
+/** Envio cujo corpo chega em duas partes: a segunda só quando o teste mandar (envio ainda em andamento, vaga ocupada). */
+async function envioEmAndamento(cookie: string) {
+  const f = new FormData();
+  f.set('refeicao', 'Almoço');
+  f.set('texto', 'arroz');
+  const pronto = new Request('http://localhost:3000/api/p/diario', { method: 'POST', body: f });
+  const bytes = new Uint8Array(await pronto.arrayBuffer());
+  let terminar!: () => void;
+  let lendo!: () => void;
+  const comecouALer = new Promise<void>((r) => (lendo = r));
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(bytes.slice(0, 10));
+      terminar = () => {
+        c.enqueue(bytes.slice(10));
+        c.close();
+      };
+    },
+    pull: () => lendo(),
+  });
+  const resposta = POST(
+    new Request('http://localhost:3000/api/p/diario', {
+      method: 'POST',
+      body,
+      duplex: 'half',
+      headers: { cookie, origin: 'http://localhost:3000', 'content-type': pronto.headers.get('content-type')! },
+    } as RequestInit),
+  );
+  await comecouALer;
+  return { resposta, terminar: () => terminar() };
+}
+
 describe('POST /api/p/diario (US-042)', () => {
   it('sem sessão → 401; outra origem → 403; nada gravado', async () => {
     const A = await pacienteLogado();
@@ -85,5 +117,20 @@ describe('POST /api/p/diario (US-042)', () => {
     expect(so.status).toBe(507);
     expect(await so.json()).toEqual({ erros: { foto: MSG_COTA_ESGOTADA } });
     expect((await registros(A.T, A.paciente.id)).map((e) => [e.texto, e.fotoStatus])).toEqual([['sopa', 'sem_foto']]);
+  });
+
+  it('uma vaga por conta: o 2º envio do mesmo paciente enquanto o 1º chega → 429, sem afetar outro paciente', async () => {
+    const A = await pacienteLogado();
+    const B = await pacienteLogado();
+    const primeiro = await envioEmAndamento(A.cookie);
+    const segundo = await enviar({ refeicao: 'Jantar', texto: 'sopa' }, { cookie: A.cookie });
+    expect(segundo.status).toBe(429);
+    expect(await segundo.json()).toEqual({ erros: { geral: MSG_DIARIO.ocupado } });
+    expect((await enviar({ refeicao: 'Jantar', texto: 'salada' }, { cookie: B.cookie })).status).toBe(200);
+    primeiro.terminar();
+    expect((await primeiro.resposta).status).toBe(200);
+    expect((await registros(A.T, A.paciente.id)).map((e) => e.texto)).toEqual(['arroz']);
+    // a vaga volta quando o envio termina
+    expect((await enviar({ refeicao: 'Jantar', texto: 'sopa' }, { cookie: A.cookie })).status).toBe(200);
   });
 });

@@ -1,5 +1,5 @@
 import { getEnv } from '@/env';
-import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
+import { CorpoGrandeError, CorpoLentoError, lerCorpoLimitado } from '@/lib/corpo';
 import { requireApiPaciente, type ApiPaciente } from '@/lib/paciente-session';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { DiarioError, registrarNoDiario } from '@/modules/portal/diario';
@@ -12,6 +12,13 @@ const resposta = (status: number, corpo: unknown) => Response.json(corpo, { stat
 // Cada envio segura até ~3 cópias de 10 MB; a VPS é dividida com o CRM de produção (mesmo cuidado do upload de exame)
 const MAX_ENVIOS = 2;
 let emAndamento = 0;
+/**
+ * O endpoint é aberto a todo paciente (o do exame só à nutricionista): uma vaga por conta, para uma só pessoa não ocupar
+ * as duas da instância, e um prazo para o corpo chegar, para um envio lento (ou de propósito devagar) não segurar a vaga
+ * pelos 300 s do `requestTimeout` do Node. 60 s dão os 10 MB a ~1,4 Mbit/s.
+ */
+const enviosPorConta = new Set<string>();
+const PRAZO_CORPO_MS = 60_000;
 
 /** US-042: multipart (refeicao, texto, foto opcional). Fora do proxy.ts, que não bufferiza /api. */
 export async function POST(req: Request): Promise<Response> {
@@ -20,22 +27,26 @@ export async function POST(req: Request): Promise<Response> {
   const acesso = await requireApiPaciente(req);
   if (!acesso.ok) return acesso.response;
   if (Number(req.headers.get('content-length') ?? 0) > LIMITE_CORPO) return resposta(413, { erros: { foto: MSG_DIARIO.foto } });
-  if (emAndamento >= MAX_ENVIOS) return resposta(429, { erros: { geral: MSG_DIARIO.ocupado } });
+  const conta = acesso.data.user.id;
+  if (emAndamento >= MAX_ENVIOS || enviosPorConta.has(conta)) return resposta(429, { erros: { geral: MSG_DIARIO.ocupado } });
   emAndamento++;
+  enviosPorConta.add(conta);
   try {
     return await receber(req, acesso);
   } finally {
     emAndamento--;
+    enviosPorConta.delete(conta);
   }
 }
 
 async function receber(req: Request, acesso: Extract<ApiPaciente, { ok: true }>): Promise<Response> {
   let form: FormData;
   try {
-    const corpo = await lerCorpoLimitado(req, LIMITE_CORPO);
+    const corpo = await lerCorpoLimitado(req, LIMITE_CORPO, { prazoMs: PRAZO_CORPO_MS });
     form = await new Response(new Uint8Array(corpo.buffer as ArrayBuffer, corpo.byteOffset, corpo.length), { headers: { 'content-type': req.headers.get('content-type') ?? '' } }).formData();
   } catch (e) {
     if (e instanceof CorpoGrandeError) return resposta(413, { erros: { foto: MSG_DIARIO.foto } });
+    if (e instanceof CorpoLentoError) return resposta(408, { erros: { geral: MSG_DIARIO.ocupado } });
     return resposta(400, { erros: { geral: 'Formulário inválido.' } });
   }
   const arquivo = form.get('foto');
