@@ -136,6 +136,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) | US-032, US-033 | P05-05 | Dev | M | ⬜ |
 | P06-10 | Auditoria axe das telas do PWA | RNF-10 | P06-01 a P06-09 | Dev | M | ⬜ |
 | P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) | RNF-06 | P06-01 | Dev | M | ⬜ |
+| P06-12 | Débitos do Plano 06 (PR #8, `/code-review high` do plano, Minor): o layout `(portal)` e cada página do portal chamam `requirePaciente` sem o `cache()` do React — a cadeia (sessão, `vinculosDaConta`, tenant, termo) roda 2× por requisição; envolver a parte de leitura em `cache()` (sem cachear o `redirect`) | PR #8 | P06-01 | Dev | S | ⬜ |
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
 
@@ -180,7 +181,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 
 ## Resumo
 
-**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 05 concluídos e em produção (https://nutri.wsscloud.tech; Plano 05 pelo PR #7, deploy em 03/10 ~08h50 BRT); Plano 06 escrito ([`2026-10-03-nutridebby-06-portal-paciente.md`](2026-10-03-nutridebby-06-portal-paciente.md), branch `plano-06-portal`, 13 tarefas cobrindo P06-00 a P06-11), execução depois da revisão do plano pelo dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 34 ⬜ (P04-10, P06-00, Planos 06–08 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
+**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 05 concluídos e em produção (https://nutri.wsscloud.tech; Plano 05 pelo PR #7, deploy em 03/10 ~08h50 BRT); Plano 06 escrito ([`2026-10-03-nutridebby-06-portal-paciente.md`](2026-10-03-nutridebby-06-portal-paciente.md), branch `plano-06-portal`, 13 tarefas cobrindo P06-00 a P06-11), execução depois da revisão do plano pelo dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 35 ⬜ (P04-10, P06-00, Planos 06–08 com o P06-12 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
@@ -190,7 +191,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 | Plano 03 — Pacientes & prontuário | 11 | 9 | 2 |
 | Plano 04 — Plano alimentar | 10 | 7 | 3 |
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
-| Plano 06 — Portal PWA | 12 | 9 | 3 |
+| Plano 06 — Portal PWA | 13 | 9 | 4 |
 | Plano 07 — Conteúdo | 8 | 5 | 3 |
 | Plano 08 — Go-live | 9 | 8 | 1 |
-| **Total** | **98** | **86** | **12** |
+| **Total** | **99** | **86** | **13** |

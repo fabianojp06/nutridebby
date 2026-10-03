@@ -20,7 +20,7 @@
 - **Uma conexão por transação** (Plano 05): dentro do callback de `withTenant`/`withConta` só o `tx` recebido; leituras que abrem outra transação (`vinculosDaConta`, `horariosParaPaciente`, `escolherHorario`, `buscarTenant`) acontecem antes e são revalidadas dentro.
 - **Auditoria (RNF-08, D22):** leitura de dado de saúde pelo próprio paciente também chama `auditRead` (precedente: `orientacoesDoPaciente`, Plano 03), com o ator = a conta do paciente — o "Histórico de acessos" da nutricionista mostra "<nome> · Visualizou · Plano alimentar". `diary_entries` tem gatilho de auditoria (entidade `diario`); `access_events` e `push_subscriptions` ficam em `AUDIT_EXCEPTIONS` (não são dado de saúde).
 - **Arquivos (CLAUDE.md regra 9):** só `salvarArquivo`/`apagarArquivo`; servir só por `signFileUrl` (5 min). A foto do diário entra com `patientId` (Tarefa 2: `stored_files.patient_id`); o original fica fora do alcance de `signFileUrl` até a conversão (o portal só assina `diary_entries.foto_path`, nunca `foto_original_path`). `heic-decode` e `sharp` da conversão só no worker: nenhuma rota importa `diario-foto-job.ts` (teste no grafo de imports).
-- **PWA (D6):** Cache Storage guarda **só** o HTML de `/p/plano` (cache `nd-plano-v1`, 1 entrada, só resposta 200 não redirecionada da própria URL); nenhuma resposta de `/api/…`, de foto ou de PDF vai para o cache; `/sair` responde com `Clear-Site-Data: "cache", "storage"` e o botão "Sair" do portal apaga o cache e cancela a inscrição de push do aparelho antes de enviar o formulário.
+- **PWA (D6):** Cache Storage guarda **só** o HTML de `/p/plano` (cache `nd-plano-v1`, 1 entrada, só resposta 200 não redirecionada da própria URL, gravada pelo service worker a pedido da página com o dono — conta + vínculo — e a versão); nenhuma resposta de `/api/…`, de foto ou de PDF vai para o cache; a cópia sai no login, na troca de dono e após 30 dias; `/sair` responde com `Clear-Site-Data: "cache", "storage"`, apaga o cookie `nd_vinculo`, e o botão "Sair" do portal apaga o cache e cancela a inscrição de push do aparelho antes de enviar o formulário.
 - RNF-11 / CLAUDE.md regra 3: nada de texto do diário, comentário, nome, e-mail, endpoint ou chaves de push, conteúdo de foto ou caminho de arquivo em log/Sentry; logs só com ids, tipo, motivo e código de erro.
 - Textos de interface em pt-BR, com o texto exato da spec quando existir: "Instalar app", "Compartilhar → Adicionar à Tela de Início", "Ativar notificações", "Notificações ativadas ✅", "Offline — exibindo última versão", "Plano", "Sua nutricionista ainda está preparando seu plano", "Baixar PDF", "Almoço", "Limite de 10 registros por dia atingido", "Envie uma foto JPEG, PNG ou HEIC de até 10 MB", "Espaço de armazenamento esgotado. Fale com o suporte.", "Diários", "Sua nutricionista comentou seu diário", "Evolução", "Mostrar % de gordura ao paciente", "Baixar meus dados", "Perfil > Privacidade", "Pedir exclusão dos meus dados", "Pedido de exclusão de <nome>", "Seu pedido foi registrado", "Esse horário acabou de ser ocupado. Escolha outro.", "Para alterar, fale com sua nutricionista.", "Conta temporariamente indisponível". Textos novos estão na tabela de desvios (última linha).
 - Acessibilidade (RNF-10, padrão dos Planos 02–05): `<label for>`, `fieldset`/`legend`, `aria-invalid` + `aria-describedby`, erros com `role="alert"`, sucesso/estado com `role="status"`, alvo de toque ≥ 44 px no PWA, navegação do portal em `<nav aria-label="Portal">` com `aria-current="page"`; a Tarefa 13 roda o axe em todas as telas do PWA (WCAG 2.1 AA) e zero violação é critério de pronto.
@@ -38,7 +38,7 @@
 | D3 ★ | Mais de um vínculo | O vínculo escolhido fica no cookie `nd_vinculo` (só o `tenantId`, `httpOnly`, `SameSite=Lax`, 30 dias) e é **reconferido** contra `vinculosDaConta` a cada requisição; sem cookie válido e com 2+ vínculos → `/p/escolher` ("Com qual nutricionista você quer entrar?"); com 1 → entra direto; com 0 → `/p/sem-acesso`. Trocar em "Perfil" ("Trocar de nutricionista") | Se o dono preferir: sempre perguntar ao entrar (sem cookie) |
 | D4 | P-16 (d): `stored_files` por paciente | Coluna `patient_id` (nula = arquivo do consultório: logo, capa) com FK composta para `patients`; política `paciente_arquivos` (RESTRICTIVE): a sessão de paciente vê e grava só linhas com o próprio `patient_id`, e lê as de `tipo in ('logo', 'capa')`. `salvarArquivo` ganha `patientId`; a migration preenche o `patient_id` dos laudos, PDFs de plano e exportações existentes (por tenant, `set_config`) | `stored_files` entra em `PATIENT_POLICY_EXCEPTIONS` (a política é a própria, não a `patient_isolation`, por causa dos arquivos do consultório) |
 | D5 ★ | P-16 (c): auditoria das edições do rascunho visível ao paciente | O portal **não mostra** o "Histórico de acessos" no MVP (nenhuma história pede) e a exportação do titular não leva `audit_log` (como hoje): o item (c) não se aplica | Se o dono quiser o histórico no portal, ele vira item novo do backlog, e aí as linhas de `plano_alimentar` de planos em rascunho precisam ser filtradas |
-| D6 ★ | Offline (US-040) | Só **"Meu plano"** fica offline: o service worker guarda o HTML de `/p/plano` (NetworkFirst, 4 s de espera pela rede, 1 entrada, só 200 não redirecionado) e, sem rede, qualquer navegação em `/p/…` recebe esse HTML; o selo "Offline — exibindo última versão" aparece quando `navigator.onLine` é falso ou o `ping` (`/api/p/ping`) falha. O "Sair" apaga o cache (`Clear-Site-Data` + `caches.delete`) | O plano (dado de saúde) fica no aparelho até o "Sair". Se o dono não quiser dado de saúde em cache, o offline sai do escopo (desvio da US-040) |
+| D6 ★ | Offline (US-040) | Só **"Meu plano"** fica offline: o service worker guarda o HTML de `/p/plano` (NetworkFirst, 4 s de espera pela rede, 1 entrada, só 200 não redirecionado) e, sem rede, qualquer navegação em `/p/…` recebe esse HTML; o selo "Offline — exibindo última versão" aparece quando `navigator.onLine` é falso ou o `ping` (`/api/p/ping`) falha. A cópia é gravada **a pedido da página "Meu plano"** (o menu é `next/link`, que não gera navegação `navigate`) e leva o **dono** (conta + vínculo) e a versão do plano: sai no "Sair" (`Clear-Site-Data` + `caches.delete`), na tela de login (sessão vencida, outra pessoa entrando), quando o portal abre com outro dono (troca de conta ou de nutricionista) e depois de 30 dias | O plano (dado de saúde) fica no aparelho enquanto a conta que o guardou é a última a usar o portal nele (sem rede, o aparelho não sabe quem está com ele). Se o dono não quiser dado de saúde em cache, o offline sai do escopo (desvio da US-040) |
 | D7 | Push de teste e de comentário | Pelo motor de notificações do Plano 05: tipos novos `push_teste` e `comentario_diario` (canal `push`, sem consulta), varridos como os outros (no máximo uma vez, inscrições 404/410 apagadas, `sem_inscricao`/`push_desligado`). O app passa a ler `VAPID_PUBLIC_KEY` (opcional) para entregar a chave ao navegador | Reaproveita o envio já revisado; sem as variáveis do VAPID, "Ativar notificações" some ("Notificações no app ainda não estão disponíveis.") |
 | D8 ★ | Texto do push do comentário | "Sua nutricionista comentou seu diário" (texto da US-043), sem o nome da nutricionista nem do paciente, como a decisão do dono de 02/10/2026 para os lembretes; o toque abre `/p/diario` | — |
 | D9 | `access_events` (CS-02) e P06-11 | `POST /api/p/acesso`, chamado uma vez quando o portal abre (componente no layout), grava 1 linha por paciente por **dia no fuso do tenant** (`ON CONFLICT DO NOTHING`) e **reescreve o cookie de sessão** com `Max-Age` de 30 dias (o mesmo valor, nome e atributos do login) — o banco já desliza em `requireUser`; o cookie passa a deslizar junto | Fecha o P06-11 sem tocar no Better Auth |
@@ -48,7 +48,7 @@
 | D13 | Comentário da nutricionista (US-043) | Um comentário por registro (`comentario_nutri`, até 1000 caracteres), que ela pode corrigir; o push sai **só no primeiro comentário** (corrigir não manda outro); abrir o registro preenche `visto_pela_nutri_em` (uma vez) | Evita push repetido a cada correção |
 | D14 | Evolução do paciente (US-044) | Só antropometria: peso, IMC e circunferências (gráficos com ≥ 2 pontos) + "% de gordura" **só** com `tenants.mostrar_perc_gordura_paciente` (opção nova em "Perfil e marca": "Mostrar % de gordura ao paciente"); dobras e densidade nunca; exames nunca; as orientações de cada atendimento (`orientacoesDoPaciente`) | — |
 | D15 | Lista de compras (RN-13) | Calculada no servidor a partir do plano publicado (itens principais × dias, 1–14, padrão 7), agrupada pelo grupo do alimento; a marcação "comprado" fica no `localStorage` com a chave `nd-compras:<id do plano>` (plano novo = lista nova) | — |
-| D16 ★ | Exportação pelo titular (US-046) | Mesmo job da US-018, com `data_exports.escopo = 'titular'`: sem notas privadas e etiquetas (já hoje), **sem planos em rascunho** (P-16 b) e com o diário (texto + fotos, no mesmo teto de 100 MB dos laudos); **1 pedido a cada 24 h** por paciente ("Você já pediu seus dados nas últimas 24 horas. O link chega por e-mail."); o link do e-mail abre `/p/meus-dados/exportacoes/<id>` (pede login de paciente) | Protege o worker e o disco (o ZIP não é barrado pela cota). Sem o limite, o paciente pode pedir à vontade (o anterior é apagado quando o novo fica pronto) |
+| D16 ★ | Exportação pelo titular (US-046) | Mesmo job da US-018, com `data_exports.escopo = 'titular'`: sem notas privadas e etiquetas (já hoje), **sem planos em rascunho** (P-16 b) e com o diário (texto + fotos, no mesmo teto de 100 MB dos laudos); **1 pedido a cada 24 h** por paciente ("Você já pediu seus dados nas últimas 24 horas. O link chega por e-mail."); o link do e-mail abre `/p/meus-dados/exportacoes/<id>` (pede login de paciente). Os pedidos dos dois escopos **não se misturam**: o pendente reaproveitado (ou dado como perdido) e o "um ZIP válido" que apaga o anterior são por paciente **e escopo** (cada pedido tem o seu destinatário, link e conteúdo) | Protege o worker e o disco (o ZIP não é barrado pela cota). Sem o limite, o paciente pode pedir à vontade (o anterior é apagado quando o novo fica pronto) |
 | D17 | Pedido de exclusão pelo paciente | `privacy_requests` `exclusao`/`aberto`, prazo = hoje + 15 dias no fuso do tenant, um aberto por vez (índice único parcial; pedir de novo mostra "Seu pedido de exclusão já foi registrado em dd/mm/aaaa."); e-mail "Seu pedido foi registrado" ao paciente; quadro "Pedidos do titular" no painel com "Pedido de exclusão de <nome>" (link para a aba Privacidade, onde o "Atender pedido de exclusão" do Plano 03 já conclui o pedido aberto) | Sem e-mail à nutricionista (a US-046 pede o quadro no painel) |
 | D18 ★ | P06-08: conta `user` do titular anonimizado | Na anonimização (fim do prazo de guarda), se a conta não tiver **outro** vínculo não anonimizado (em qualquer tenant, `vinculosDaConta` com todos os status), nome → "Paciente anonimizado", e-mail → `anonimo-<id>@anonimizado.invalid`, sessões e senha (`account`) apagadas. Com outro vínculo, a conta fica (é de outro consultório também) | Desvio consciente do Plano 03 decidido pelo dono em 30/09/2026 |
 | D19 | Agenda no PWA (P06-09) | Tela sobre as funções do Plano 05 (`horariosParaPaciente`, `agendarComoPaciente`, `remarcarComoPaciente`, `cancelarConsulta(por: 'paciente')`, `confirmarPresenca(via: 'link')`, `pedirRemarcacao`); "Minhas consultas": próximas + as 10 últimas; RN-06: a sigla do fuso aparece quando o fuso do aparelho é outro | `confirmada_via = 'link'` também para a confirmação pelo portal (o selo "Confirmada pelo link" vale para os dois) |
@@ -58,6 +58,7 @@
 | D23 | Escopo de rotas do PWA | `/p/inicio` (início), `/p/plano`, `/p/diario`, `/p/evolucao`, `/p/compras`, `/p/agenda`, `/p/perfil`, `/p/meus-dados/exportacoes/[id]`, `/p/escolher`, `/p/sem-acesso`; a navegação é uma lista (`ITENS_DO_PORTAL` em `src/app/p/navegacao.ts`) para os planos seguintes acrescentarem "Conteúdos" (Plano 07) e, depois do MVP, "Exames"/"IA Nutri" sem mexer no layout | — |
 | D24 | Aviso de plano novo (US-025, adiado do Plano 04) | Na publicação, na mesma transação: push "Seu novo plano alimentar está disponível" (tipo `plano_novo`, pelo motor) e e-mail com o mesmo assunto e o link de `/p/plano` — **só** para paciente `ativo` com conta no portal (`user_id`); sem conta, nada (o convite já leva ao portal) | Sem dado de saúde no texto |
 | D25 | Novo aceite do termo (US-011 "Nova versão do termo", adiado do Plano 03) | `requirePaciente` confere em `consents` se a conta aceitou a versão atual (`TERMO_PACIENTE`) **naquele consultório**; senão `/p/termo` (botão "Continuar" desabilitado até marcar). Hoje a versão é a mesma do convite (`0.1-provisorio`): ninguém é parado até o P08-06 publicar o texto do advogado | `consents` continua fora da RLS; `src/modules/portal/termo.ts` entra na lista de quem a acessa |
+| D26 | Inscrição de push em aparelho compartilhado (Review Focus 4) | Um endpoint de push pertence a **uma conta**: ativar, e toda abertura do portal com inscrição no navegador, chamam `app_soltar_endpoint_push` (SECURITY DEFINER, só na sessão de paciente), que apaga o endpoint de toda outra conta em qualquer tenant; na abertura (`sincronizar`), se o endpoint não era desta conta, nada é gravado e o navegador descarta a inscrição — a outra pessoa só recebe push depois de tocar em "Ativar notificações"; se era, os vínculos novos ganham a linha | Uma função que percorre os tenants (como a `admin_tenant_metrics`), mas só ao ativar e uma vez por abertura do portal com inscrição — não a cada requisição (D2). Se o número de tenants crescer muito, trocar por uma tabela global endpoint → conta (backlog) |
 
 ### Desvios conscientes da spec (registrados aqui; atualizar a spec no fim do plano)
 
@@ -105,8 +106,8 @@
 
 1. **Sessão de paciente entrando onde não deve.** Paciente arquivado, bloqueado ou anonimizado; conta com dois vínculos e cookie `nd_vinculo` de um tenant em que não é paciente (cookie forjado); tenant suspenso; nutricionista abrindo `/p/plano`; paciente chamando `/api/painel/…` e Server Actions do painel. Esperado: vínculo inativo some (outro vínculo continua), cookie forjado é ignorado (volta a `/p/escolher` ou ao único vínculo), suspenso → "Conta temporariamente indisponível", papel errado → home do papel (403 na API), nunca 500 nem dado de outro paciente. Testes nas Tarefas 3 e 13.
 2. **Escrita da sessão de paciente fora do permitido (D1).** Um bug que faça a sessão de paciente gravar em `anthropometry`, `exams`, `meal_plans` publicados, `foods`, `food_measures`, `anamnesis_templates`, `consultations` ou apagar o próprio diário. Esperado: o banco recusa (42501 no INSERT, 0 linhas no UPDATE/DELETE) e os fluxos do Plano 05 que rodam como paciente (link da consulta, webhook, aceite do convite) continuam passando. Testes nas Tarefas 1 e 2 e a suíte do Plano 05 inteira verde.
-3. **Foto do diário maliciosa ou grande.** HEIC de 6 MB do iPhone, PNG com EXIF/GPS, JPEG de 15 MB, PDF renomeado para `.jpg`, SVG, imagem 20000 × 20000 px ("bomba de descompressão"), arquivo HEIC corrompido, cota esgotada no meio, dois envios ao mesmo tempo com 9 registros no dia, worker caindo entre gravar o JPEG e apagar o original. Esperado: tipo pelo conteúdo; > 10 MB → 413 "Envie uma foto JPEG, PNG ou HEIC de até 10 MB"; pixels acima de 40 MP recusados pela conversão ("Não foi possível processar a foto."); JPEG final ≤ 1600 px sem EXIF/GPS; cota esgotada → texto salvo sem foto; 11º registro → "Limite de 10 registros por dia atingido" mesmo na corrida; nenhum arquivo órfão nem cota contada em dobro. Testes na Tarefa 7.
-4. **Dado de saúde no aparelho e em aparelho compartilhado.** Paciente A sai e B entra no mesmo celular; sessão expira com o plano no cache; push de A chegando para B. Esperado: "Sair" apaga o cache `nd-plano-v1` e a inscrição de push do aparelho (no servidor e no navegador) e a resposta de `/sair` leva `Clear-Site-Data`; o cache só guarda `/p/plano` 200 da própria URL (nunca o HTML do `/entrar` depois de um redirecionamento) e nunca `/api/…`, fotos ou PDFs. Testes nas Tarefas 5 e 6.
+3. **Foto do diário maliciosa ou grande.** HEIC de 6 MB do iPhone, PNG com EXIF/GPS, JPEG de 15 MB, PDF renomeado para `.jpg`, SVG, imagem 20000 × 20000 px ("bomba de descompressão"), arquivo HEIC corrompido, cota esgotada no meio, dois envios ao mesmo tempo com 9 registros no dia, worker caindo entre gravar o JPEG e apagar o original (o ponteiro do original só é solto no `naMesmaTransacao` do `apagarArquivo`, regra 9). Esperado: tipo pelo conteúdo; > 10 MB → 413 "Envie uma foto JPEG, PNG ou HEIC de até 10 MB"; pixels acima de 40 MP recusados pela conversão pelo cabeçalho, **antes** de decodificar (HEIC inclusive: o `heic-decode` só aloca no `decode()`) ("Não foi possível processar a foto."); JPEG final ≤ 1600 px sem EXIF/GPS; cota esgotada → texto salvo sem foto; 11º registro → "Limite de 10 registros por dia atingido" mesmo na corrida; nenhum arquivo órfão nem cota contada em dobro. Testes na Tarefa 7.
+4. **Dado de saúde no aparelho e em aparelho compartilhado.** Paciente A sai e B entra no mesmo celular; sessão de A expira (sem "Sair") com o plano no cache e B entra; A troca de nutricionista; push de A chegando para B; "Plano" aberto pelo menu (navegação do roteador, não `navigate`). Esperado: "Sair" apaga o cache `nd-plano-v1`, o cookie `nd_vinculo` e a inscrição de push do aparelho (no servidor e no navegador) e a resposta de `/sair` leva `Clear-Site-Data`; a tela de login e a abertura do portal com outro dono apagam a cópia; abrir o portal com a inscrição de outra conta tira o endpoint dela (em qualquer tenant) e B só recebe push depois de tocar em "Ativar notificações"; o cache é preenchido também pela navegação do menu e só guarda `/p/plano` 200 da própria URL (nunca o HTML do `/entrar` depois de um redirecionamento) e nunca `/api/…`, fotos ou PDFs. Testes nas Tarefas 5 e 6.
 5. **Bordas de fuso no portal.** Registro do diário às 23:30 de Brasília (02:30 UTC do dia seguinte) — conta no limite de qual dia; acesso diário (CS-02) à meia-noite; "próxima refeição" às 21:00 com a última refeição às 20:00 (nenhuma próxima → a primeira do dia seguinte); aparelho em Lisboa vendo consulta de São Paulo; prazo do pedido de exclusão. Esperado: dia, hora e prazo sempre no fuso do tenant; no aparelho em outro fuso, a sigla "(horário de Brasília)". Testes nas Tarefas 4 (próxima refeição), 6 (acesso do dia), 7 (diário), 11 (prazo do pedido) e 12 (agenda).
 
 ---
@@ -147,12 +148,13 @@ src/email/types.ts · templates.tsx (+ render.test)          # T6, T11
 src/jobs/queues.ts · src/worker/index.ts   # T7
 src/app/sw.ts · sw-regras.ts (+test) · manifest.ts (+test)  # T5 (cache), T6 (push, toque)
 public/icones/* · scripts/gerar-icones.ts  # T5
-src/app/sair/route.ts (+test)              # T5 — Clear-Site-Data
+src/app/sair/route.ts (+test)              # T5 — Clear-Site-Data e nd_vinculo apagado
+src/app/entrar/page.tsx                    # T5 — o login apaga o plano guardado
 src/app/p/
   layout.tsx · navegacao.ts (+test) · nav-portal.tsx                             # T3, T5 (metadados, Sair)
   (portal)/layout.tsx                                                            # T3, T5 (selo), T6 (acesso)
   escolher/{page,actions}.tsx · sem-acesso/page.tsx · termo/{page,termo-form,actions}.tsx   # T3
-  instalacao.ts (+test) · instalar.tsx · selo-offline.tsx · sair-portal.tsx       # T5 (T6 estende o Sair)
+  instalacao.ts (+test) · instalar.tsx · selo-offline.tsx · sair-portal.tsx · plano-guardado.tsx   # T5 (T6 estende o Sair)
   notificacoes.tsx · acesso.tsx                                                  # T6
   quando-local.tsx (+test)                                                       # T12
   (portal)/inicio/page.tsx                                                       # T3, T5, T6, T12
@@ -1961,16 +1963,18 @@ git commit -m "feat(portal): Meu plano — refeições em ordem, próxima refei�
 ### Task 5: PWA — ícones e manifest, "Meu plano" offline, instalar (Android e iPhone), selo offline e "Sair" que limpa o aparelho (P06-01, US-040)
 
 **Files:**
-- Create: `public/icones/icone.svg`, `scripts/gerar-icones.ts`, `public/icones/icone-192.png`, `public/icones/icone-512.png`, `public/icones/icone-maskable-512.png`, `public/icones/apple-touch-icon.png` (gerados pelo script), `src/app/sw-regras.ts`, `src/app/sw-regras.test.ts`, `src/app/p/instalacao.ts`, `src/app/p/instalacao.test.ts`, `src/app/p/instalar.tsx`, `src/app/p/selo-offline.tsx`, `src/app/p/sair-portal.tsx`, `src/app/api/p/ping/route.ts`
-- Modify: `src/app/sw.ts`, `src/app/manifest.ts`, `src/app/manifest.test.ts`, `src/app/p/layout.tsx`, `src/app/p/(portal)/layout.tsx`, `src/app/p/(portal)/inicio/page.tsx`, `src/app/sair/route.ts`, `src/app/sair/route.test.ts`, `package.json` (script `icones`), `e2e/portal.spec.ts`
+- Create: `public/icones/icone.svg`, `scripts/gerar-icones.ts`, `public/icones/icone-192.png`, `public/icones/icone-512.png`, `public/icones/icone-maskable-512.png`, `public/icones/apple-touch-icon.png` (gerados pelo script), `src/app/sw-regras.ts`, `src/app/sw-regras.test.ts`, `src/app/p/instalacao.ts`, `src/app/p/instalacao.test.ts`, `src/app/p/instalar.tsx`, `src/app/p/selo-offline.tsx`, `src/app/p/sair-portal.tsx`, `src/app/p/plano-guardado.tsx`, `src/app/api/p/ping/route.ts`
+- Modify: `src/app/sw.ts`, `src/app/manifest.ts`, `src/app/manifest.test.ts`, `src/app/p/layout.tsx`, `src/app/p/(portal)/layout.tsx`, `src/app/p/(portal)/inicio/page.tsx`, `src/app/p/(portal)/plano/page.tsx`, `src/app/entrar/page.tsx`, `src/lib/paciente-session.ts` (+test), `src/app/sair/route.ts`, `src/app/sair/route.test.ts`, `package.json` (script `icones`), `e2e/portal.spec.ts`
 
 **Interfaces:**
-- Consumes: Serwist (`serwist` 9.5.12: `Serwist`, `NetworkFirst`, `NetworkOnly`, `ExpirationPlugin`; `@serwist/turbopack`: `createSerwistRoute`, `SerwistProvider` — spike P01-15); `sharp` (só no script); a página `/p/plano` (Tarefa 4).
+- Consumes: Serwist (`serwist` 9.5.12: `Serwist`, `NetworkFirst`, `NetworkOnly`; `@serwist/turbopack`: `createSerwistRoute`, `SerwistProvider` — spike P01-15); `sharp` (só no script); a página `/p/plano` (Tarefa 4).
 - Produces:
-  - `src/app/sw-regras.ts` (sem DOM, importável pelo service worker e pelo cliente): `CACHE_PLANO = 'nd-plano-v1'`, `URL_PLANO = '/p/plano'`, `ehPaginaDoPlano(url: URL, modo: RequestMode, origem: string): boolean`, `ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string): boolean`, `podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean`.
+  - `src/app/sw-regras.ts` (sem DOM, importável pelo service worker e pelo cliente): `CACHE_PLANO = 'nd-plano-v1'`, `URL_PLANO = '/p/plano'`, `ehPaginaDoPlano(url: URL, modo: RequestMode, origem: string): boolean`, `ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string): boolean`, `podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean`, `ehSemSessao(r: { redirected: boolean; url: string }, origem: string): boolean`, `type MensagemAoSw = { tipo: 'dono'; dono: string } | { tipo: 'plano'; dono: string; versao: string }`, `lerMensagem(data: unknown): MensagemAoSw | null`, `precisaBuscarPlano(guardado: { dono: string | null; versao: string | null } | null, pedido: { dono: string; versao: string }): boolean`, `planoValido(guardadoEm: string | null, agoraMs: number): boolean`, `VALIDADE_PLANO_MS` (30 dias), `CABECALHO_DONO`/`CABECALHO_VERSAO`/`CABECALHO_GUARDADO_EM`, `esquecerPlanoGuardado(): Promise<boolean>`.
+  - `src/app/p/plano-guardado.tsx` (cliente): `DonoDoAparelho({ dono })` (layout do portal: plano guardado de outra conta ou de outro vínculo sai) e `GuardarPlano({ dono, versao })` (página "Meu plano": pede ao service worker para guardar o HTML desta conta).
+  - `@/lib/paciente-session`: `cookieDoVinculoApagado(secure: boolean): string`.
   - `src/app/p/instalacao.ts`: `type EstadoInstalacao = 'instalado' | 'android' | 'ios' | 'nada'`, `estadoDeInstalacao(o: { ua: string; standalone: boolean; temPrompt: boolean; toques: number; plataforma: string }): EstadoInstalacao`, `ehIos(ua: string, plataforma: string, toques: number): boolean`.
   - `src/app/p/sair-portal.tsx`: `SairPortal()` e `limparAparelho(): Promise<void>` (a Tarefa 6 acrescenta o cancelamento do push).
-  - `/sair` responde com `Clear-Site-Data: "cache", "storage"` (com e sem sessão).
+  - `/sair` responde com `Clear-Site-Data: "cache", "storage"` (com e sem sessão) e apaga o cookie `nd_vinculo`.
   - `GET /api/p/ping` → 204 `no-store` (conectividade do selo offline).
 
 - [ ] **Step 1: Ícones** — `public/icones/icone.svg` (fundo cheio, desenho no centro: serve também de *maskable*, que corta até 20% das bordas):
@@ -2065,7 +2069,7 @@ Run: `pnpm test src/app/manifest.test.ts` → PASS.
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { ehNavegacaoDoPortal, ehPaginaDoPlano, podeGuardarPlano } from './sw-regras';
+import { ehNavegacaoDoPortal, ehPaginaDoPlano, ehSemSessao, lerMensagem, planoValido, podeGuardarPlano, precisaBuscarPlano, VALIDADE_PLANO_MS } from './sw-regras';
 
 const O = 'https://nutri.exemplo.com';
 const resposta = (o: Partial<{ status: number; type: ResponseType; redirected: boolean; url: string; tipo: string }> = {}) => ({
@@ -2097,6 +2101,32 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(podeGuardarPlano(resposta({ url: `${O}/p/escolher` }), O)).toBe(false);
     expect(podeGuardarPlano(resposta({ tipo: 'application/json' }), O)).toBe(false);
   });
+  it('Review Focus 4: o plano guardado é de uma conta + vínculo (dono) e de uma versão; outro dono → buscar de novo (e o velho sai)', () => {
+    const DONO = '0b6f8f1e-3c1a-4f7e-9d2a-1a2b3c4d5e6f';
+    expect(precisaBuscarPlano(null, { dono: DONO, versao: 'p1' })).toBe(true);
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1' }, { dono: DONO, versao: 'p1' })).toBe(false); // nada mudou: sem segunda busca
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1' }, { dono: DONO, versao: 'p2' })).toBe(true); // plano novo publicado
+    expect(precisaBuscarPlano({ dono: 'outro', versao: 'p1' }, { dono: DONO, versao: 'p1' })).toBe(true); // outra conta ou outro vínculo
+    expect(precisaBuscarPlano({ dono: null, versao: null }, { dono: DONO, versao: 'p1' })).toBe(true);
+  });
+  it('mensagens ao service worker: só os dois formatos, com textos curtos (nada de objeto arbitrário vindo da página)', () => {
+    expect(lerMensagem({ tipo: 'plano', dono: 'd', versao: 'v' })).toEqual({ tipo: 'plano', dono: 'd', versao: 'v' });
+    expect(lerMensagem({ tipo: 'dono', dono: 'd' })).toEqual({ tipo: 'dono', dono: 'd' });
+    expect(lerMensagem({ tipo: 'plano', dono: 'd' })).toBeNull();
+    expect(lerMensagem({ tipo: 'dono', dono: 'x'.repeat(101) })).toBeNull();
+    expect(lerMensagem({ tipo: 'apagar-tudo' })).toBeNull();
+    expect(lerMensagem('dono')).toBeNull();
+  });
+  it('sem sessão (a busca terminou no /entrar) → o plano guardado sai; guardado há mais de 30 dias (sessão máxima) não é servido', () => {
+    expect(ehSemSessao({ redirected: true, url: `${O}/entrar?volta=%2Fp%2Fplano` }, O)).toBe(true);
+    expect(ehSemSessao({ redirected: true, url: `${O}/p/escolher` }, O)).toBe(false);
+    expect(ehSemSessao({ redirected: false, url: `${O}/p/plano` }, O)).toBe(false);
+    const agora = Date.parse('2026-10-05T12:00:00Z');
+    expect(planoValido(new Date(agora - VALIDADE_PLANO_MS + 60_000).toISOString(), agora)).toBe(true);
+    expect(planoValido(new Date(agora - VALIDADE_PLANO_MS - 60_000).toISOString(), agora)).toBe(false);
+    expect(planoValido(null, agora)).toBe(false);
+    expect(planoValido('lixo', agora)).toBe(false);
+  });
 });
 ```
 
@@ -2123,6 +2153,51 @@ export function podeGuardarPlano(r: { status: number; type: ResponseType; redire
   const u = new URL(r.url);
   return u.origin === origem && u.pathname === URL_PLANO && (r.headers.get('content-type') ?? '').startsWith('text/html');
 }
+
+/** A busca do plano terminou no login: não há sessão (vencida, ou outra pessoa no aparelho) — o guardado sai. */
+export function ehSemSessao(r: { redirected: boolean; url: string }, origem: string): boolean {
+  if (!r.redirected || !URL.canParse(r.url)) return false;
+  const u = new URL(r.url);
+  return u.origin === origem && u.pathname === '/entrar';
+}
+
+/**
+ * Review Focus 4 (aparelho compartilhado): o HTML guardado leva de quem é (`dono` = o paciente da sessão, isto é, conta +
+ * vínculo) e de qual versão do plano, nestes cabeçalhos da cópia em Cache Storage (nunca vão para a rede).
+ */
+export const CABECALHO_DONO = 'x-nd-dono';
+export const CABECALHO_VERSAO = 'x-nd-versao';
+export const CABECALHO_GUARDADO_EM = 'x-nd-guardado-em';
+/** O mesmo prazo da sessão (que desliza, P06-11): uma cópia mais velha que isto não tem sessão viva por trás. */
+export const VALIDADE_PLANO_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type MensagemAoSw = { tipo: 'dono'; dono: string } | { tipo: 'plano'; dono: string; versao: string };
+
+const textoCurto = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
+
+/** O que a página pode pedir ao service worker: só estes dois formatos. */
+export function lerMensagem(data: unknown): MensagemAoSw | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as { tipo?: unknown; dono?: unknown; versao?: unknown };
+  if (d.tipo === 'dono' && textoCurto(d.dono)) return { tipo: 'dono', dono: d.dono };
+  if (d.tipo === 'plano' && textoCurto(d.dono) && textoCurto(d.versao)) return { tipo: 'plano', dono: d.dono, versao: d.versao };
+  return null;
+}
+
+/** Buscar de novo só se não há cópia, se ela é de outro dono ou de outra versão do plano (evita uma segunda renderização por visita). */
+export function precisaBuscarPlano(guardado: { dono: string | null; versao: string | null } | null, pedido: { dono: string; versao: string }): boolean {
+  return !guardado || guardado.dono !== pedido.dono || guardado.versao !== pedido.versao;
+}
+
+export function planoValido(guardadoEm: string | null, agoraMs: number): boolean {
+  const t = guardadoEm ? Date.parse(guardadoEm) : Number.NaN;
+  return Number.isFinite(t) && agoraMs - t <= VALIDADE_PLANO_MS;
+}
+
+/** Página de login e "Sair": o plano guardado sai do aparelho (window e service worker têm `caches`). */
+export function esquecerPlanoGuardado(): Promise<boolean> {
+  return 'caches' in globalThis ? caches.delete(CACHE_PLANO).catch(() => false) : Promise.resolve(false);
+}
 ```
 
 Run: `pnpm test src/app/sw-regras.test.ts` → PASS.
@@ -2131,8 +2206,22 @@ Run: `pnpm test src/app/sw-regras.test.ts` → PASS.
 
 ```ts
 /// <reference lib="webworker" />
-import { ExpirationPlugin, NetworkFirst, NetworkOnly, Serwist, type PrecacheEntry, type SerwistGlobalConfig } from 'serwist';
-import { CACHE_PLANO, URL_PLANO, ehNavegacaoDoPortal, ehPaginaDoPlano, podeGuardarPlano } from './sw-regras';
+import { NetworkFirst, NetworkOnly, Serwist, type PrecacheEntry, type SerwistGlobalConfig } from 'serwist';
+import {
+  CABECALHO_DONO,
+  CABECALHO_GUARDADO_EM,
+  CABECALHO_VERSAO,
+  CACHE_PLANO,
+  URL_PLANO,
+  ehNavegacaoDoPortal,
+  ehPaginaDoPlano,
+  ehSemSessao,
+  esquecerPlanoGuardado,
+  lerMensagem,
+  planoValido,
+  podeGuardarPlano,
+  precisaBuscarPlano,
+} from './sw-regras';
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -2142,9 +2231,57 @@ declare global {
 declare const self: ServiceWorkerGlobalScope;
 
 const origem = self.location.origin;
-const planoGuardado = async (): Promise<Response | undefined> => (await caches.open(CACHE_PLANO)).match(URL_PLANO, { ignoreVary: true });
+const copia = async (): Promise<Response | undefined> => (await caches.open(CACHE_PLANO)).match(URL_PLANO, { ignoreVary: true });
+/** A cópia guardada, se ainda vale (mais velha que a sessão máxima sai). */
+const planoGuardado = async (): Promise<Response | undefined> => {
+  const r = await copia();
+  if (r && !planoValido(r.headers.get(CABECALHO_GUARDADO_EM), Date.now())) {
+    await esquecerPlanoGuardado();
+    return undefined;
+  }
+  return r;
+};
 
-// D6: os estáticos do build (precache) + só o HTML de "Meu plano" (1 entrada). Nada de /api, foto, PDF ou outra página.
+/**
+ * D6 + Review Focus 4: o plano só entra no cache a pedido da própria página "Meu plano" (mensagem `plano`), que diz de
+ * quem é (conta + vínculo) e qual versão — a navegação pelo menu do portal é `fetch` do roteador (RSC), não 'navigate',
+ * então guardar só na navegação deixaria o cache vazio no uso normal. O service worker busca o HTML com a sessão do
+ * aparelho; se ele terminar no /entrar, a cópia sai; cópia de outro dono sai antes de buscar (mesmo se a busca falhar).
+ */
+async function guardarPlano(dono: string, versao: string): Promise<void> {
+  const atual = await copia();
+  const guardado = atual ? { dono: atual.headers.get(CABECALHO_DONO), versao: atual.headers.get(CABECALHO_VERSAO) } : null;
+  if (!precisaBuscarPlano(guardado, { dono, versao })) return;
+  if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
+  const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store' });
+  if (ehSemSessao(r, origem)) {
+    await esquecerPlanoGuardado();
+    return;
+  }
+  if (!podeGuardarPlano(r, origem)) return;
+  const h = new Headers(r.headers);
+  h.set(CABECALHO_DONO, dono);
+  h.set(CABECALHO_VERSAO, versao);
+  h.set(CABECALHO_GUARDADO_EM, new Date().toISOString());
+  // put na mesma chave substitui: o cache continua com 1 entrada
+  await (await caches.open(CACHE_PLANO)).put(URL_PLANO, new Response(await r.blob(), { status: 200, headers: h }));
+}
+
+/** Layout do portal (toda abertura): cópia de outra conta ou de outro vínculo sai na hora (login de outra pessoa, troca de nutricionista). */
+async function conferirDono(dono: string): Promise<void> {
+  const atual = await copia();
+  if (atual && atual.headers.get(CABECALHO_DONO) !== dono) await esquecerPlanoGuardado();
+}
+
+self.addEventListener('message', (e) => {
+  if (e.origin !== origem) return;
+  const m = lerMensagem(e.data);
+  if (!m) return;
+  e.waitUntil((m.tipo === 'plano' ? guardarPlano(m.dono, m.versao) : conferirDono(m.dono)).catch(() => undefined));
+});
+
+// D6: os estáticos do build (precache) + só o HTML de "Meu plano" (1 entrada, gravada por guardarPlano). Nada de /api,
+// foto, PDF ou outra página.
 new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -2152,13 +2289,16 @@ new Serwist({
   navigationPreload: false,
   runtimeCaching: [
     {
+      // "Meu plano" aberto direto (atalho, recarga): rede primeiro (4 s), senão a cópia. Esta rota NÃO grava — quem grava
+      // é guardarPlano, que sabe o dono (a resposta de uma navegação não diz de quem é)
       matcher: ({ request, url }) => ehPaginaDoPlano(url, request.mode, origem),
       handler: new NetworkFirst({
         cacheName: CACHE_PLANO,
         networkTimeoutSeconds: 4,
+        matchOptions: { ignoreVary: true },
         plugins: [
-          { cacheWillUpdate: async ({ response }) => (podeGuardarPlano(response, origem) ? response : null) },
-          new ExpirationPlugin({ maxEntries: 1 }),
+          { cacheWillUpdate: async () => null },
+          { cachedResponseWillBeUsed: async ({ cachedResponse }) => (cachedResponse && planoValido(cachedResponse.headers.get(CABECALHO_GUARDADO_EM), Date.now()) ? cachedResponse : null) },
         ],
       }),
     },
@@ -2172,6 +2312,36 @@ new Serwist({
 ```
 
 (A Tarefa 6 acrescenta os eventos `push` e `notificationclick` a este arquivo.)
+
+`src/app/p/plano-guardado.tsx`:
+
+```tsx
+'use client';
+import { useEffect } from 'react';
+import type { MensagemAoSw } from '../sw-regras';
+
+const avisar = (m: MensagemAoSw) => {
+  if (!('serviceWorker' in navigator)) return;
+  // `ready.active`, não `controller`: na primeira visita a página ainda não é controlada e o pedido não pode se perder
+  void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(m)).catch(() => undefined);
+};
+
+/** Layout do portal: a cópia guardada é de outra conta ou de outro vínculo? Sai (Review Focus 4). */
+export function DonoDoAparelho({ dono }: { dono: string }) {
+  useEffect(() => avisar({ tipo: 'dono', dono }), [dono]);
+  return null;
+}
+
+/** "Meu plano" exibida (pelo menu, por atalho ou recarga): o service worker guarda esta versão para esta conta (D6). */
+export function GuardarPlano({ dono, versao }: { dono: string; versao: string }) {
+  useEffect(() => avisar({ tipo: 'plano', dono, versao }), [dono, versao]);
+  return null;
+}
+```
+
+Em `src/app/p/(portal)/plano/page.tsx` (Tarefa 4), logo depois do `<h1>`: `<GuardarPlano dono={ctx.patientId!} versao={plano?.id ?? 'sem-plano'} />` (o plano publicado não muda: plano novo = id novo; a busca do service worker é uma segunda renderização auditada da página — "Visualizou · Plano alimentar" — só quando a versão ou o dono mudam). Em `src/app/p/(portal)/layout.tsx`, `const { tenant, ctx } = await requirePaciente('/p/inicio');` e `<DonoDoAparelho dono={ctx.patientId!} />` dentro do `<div>` raiz.
+
+`src/app/entrar/page.tsx`, no `Form`: `useEffect(() => { void esquecerPlanoGuardado(); }, []);` (`useEffect` de `react`, `esquecerPlanoGuardado` de `@/app/sw-regras`) — a tela de login é aonde a sessão vencida (navegação ou `fetch` do roteador) e o "Sair" levam, e por onde outra pessoa entra no mesmo aparelho: o plano guardado sai antes de qualquer login.
 
 - [ ] **Step 5: Selo offline e ping** — `src/app/api/p/ping/route.ts`:
 
@@ -2341,6 +2511,14 @@ Em `src/app/p/(portal)/inicio/page.tsx`, abaixo do título: `<Instalar />` (US-0
     expect(r.headers.get('clear-site-data')).toBe('"cache", "storage"'); // D6: cache do plano, service worker e inscrição de push do aparelho
 ```
 
+e, no mesmo teste, o cookie do vínculo (D3) sai junto com a sessão — senão a próxima conta no aparelho herda a escolha:
+
+```ts
+    expect(r.headers.getSetCookie()).toContainEqual(expect.stringMatching(/^nd_vinculo=; Path=\/; Max-Age=0; HttpOnly; SameSite=Lax/));
+```
+
+`src/lib/paciente-session.ts`: `export function cookieDoVinculoApagado(secure: boolean): string { return `${COOKIE_VINCULO}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`; }` (+ caso no teste de `cookieDoVinculo`).
+
 `src/app/sair/route.ts`, em `redirecionar` (só no caminho de sucesso — o de erro mantém a sessão e o aparelho):
 
 ```ts
@@ -2353,21 +2531,21 @@ const redirecionar = (para: string, cookies: string[] = [], limparAparelho = fal
 };
 ```
 
-e `return redirecionar(SAIR_DESTINO, await cookiesDeSessaoApagados(auth), true);`.
+e `return redirecionar(SAIR_DESTINO, [...(await cookiesDeSessaoApagados(auth)), cookieDoVinculoApagado(getEnv().APP_URL.startsWith('https://'))], true);` (`cookieDoVinculoApagado` de `@/lib/paciente-session`).
 
 `src/app/p/sair-portal.tsx`:
 
 ```tsx
 'use client';
 import type { FormEvent } from 'react';
-import { CACHE_PLANO } from '../sw-regras';
+import { esquecerPlanoGuardado } from '../sw-regras';
 
 /**
  * D6 / Review Focus 4: antes de sair, apaga o plano guardado (o Clear-Site-Data da resposta faz o mesmo, mas o
  * Safari não o aplica a tudo). Falhar aqui não impede de sair.
  */
 export async function limparAparelho(): Promise<void> {
-  if ('caches' in window) await caches.delete(CACHE_PLANO).catch(() => false);
+  await esquecerPlanoGuardado();
 }
 
 /** "Sair" do portal: o mesmo POST /sair do BotaoSair, depois de limpar o aparelho. */
@@ -2398,14 +2576,18 @@ Run: `pnpm test src/app/sair src/app/p` → PASS.
 - [ ] **Step 8: E2E offline e "Sair"** — `e2e/portal.spec.ts`:
 
 ```ts
-test('offline: o plano já aberto aparece sem rede, com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
+const entradasDoPlano = (page: Page) => page.evaluate(async () => ((await caches.keys()).includes('nd-plano-v1') ? (await (await caches.open('nd-plano-v1')).keys()).length : 0));
+
+test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.8.4');
   await publicarPlanoSimples(nutri, p.prontuario);
-  await p.page.goto('/p/plano');
+  await p.page.goto('/p/inicio');
   await p.page.evaluate(async () => { await navigator.serviceWorker.ready; });
-  await p.page.reload(); // agora controlada pelo service worker: a resposta vai para o cache
+  // Uso normal: o menu é next/link (fetch RSC do roteador, não navegação 'navigate') — a página pede ao service worker
+  await p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Plano' }).click();
+  await expect(p.page).toHaveURL(/\/p\/plano$/);
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
-  await expect.poll(() => p.page.evaluate(async () => (await caches.open('nd-plano-v1')).keys().then((k) => k.length))).toBe(1);
+  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
   await p.page.context().setOffline(true);
   await p.page.goto('/p/plano');
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
@@ -2417,9 +2599,24 @@ test('offline: o plano já aberto aparece sem rede, com o selo; outra página do
   await p.page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(p.page).toHaveURL(/\/entrar$/);
   expect(await p.page.evaluate(() => caches.keys())).not.toContain('nd-plano-v1');
+  expect((await p.page.context().cookies()).map((c) => c.name)).not.toContain('nd_vinculo');
   await p.page.context().close();
 });
+
+test('plano guardado é da conta: sessão vencida (sem "Sair") leva ao /entrar, que apaga a cópia antes de outra pessoa entrar (Review Focus 4)', async ({ browser }) => {
+  const a = await pacienteNoPortal(browser, nutri, '10.9.8.7');
+  await publicarPlanoSimples(nutri, a.prontuario);
+  await a.page.goto('/p/plano');
+  await expect.poll(() => entradasDoPlano(a.page)).toBe(1);
+  await a.page.context().clearCookies(); // a sessão de A "vence" no aparelho
+  await a.page.goto('/p/inicio');
+  await expect(a.page).toHaveURL(/\/entrar/);
+  await expect.poll(() => entradasDoPlano(a.page)).toBe(0);
+  await a.page.context().close();
+});
 ```
+
+(A troca de dono sem passar pelo login — outro vínculo da mesma conta — é coberta pelas regras de `sw-regras.test.ts` e pelo `conferirDono`; um E2E com duas nutricionistas fica na Tarefa 13 se o axe já montar esse cenário.)
 
 (Se o `setOffline` do Playwright não valer para as requisições do service worker nesta versão do Chromium, simular a queda com `p.page.context().route('**/p/**', (r) => r.abort('internetdisconnected'))` — o Playwright 1.63 roteia também as requisições do service worker quando `serviceWorkers` é `'allow'`, o padrão.)
 
@@ -2428,7 +2625,7 @@ Run: `pnpm build && pnpm test:e2e e2e/portal.spec.ts` → PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add public/icones scripts/gerar-icones.ts package.json src/app/sw.ts src/app/sw-regras.ts src/app/sw-regras.test.ts src/app/manifest.ts src/app/manifest.test.ts src/app/p src/app/api/p/ping src/app/sair e2e/portal.spec.ts
+git add public/icones scripts/gerar-icones.ts package.json src/app/sw.ts src/app/sw-regras.ts src/app/sw-regras.test.ts src/app/manifest.ts src/app/manifest.test.ts src/app/p src/app/api/p/ping src/app/sair src/app/entrar/page.tsx src/lib/paciente-session.ts src/lib/paciente-session.test.ts e2e/portal.spec.ts
 git commit -m "feat(pwa): ícones e manifest, Meu plano offline, instalar (Android/iPhone), selo offline e Sair que limpa o aparelho (US-040)"
 ```
 
@@ -2444,7 +2641,9 @@ git commit -m "feat(pwa): ícones e manifest, Meu plano offline, instalar (Andro
 - Produces:
   - Schema `@/db/schema/portal`: `accessEvents` 🔒 (`tenant_id`, `patient_id`, `dia date`, `created_at`; `UNIQUE (tenant_id, patient_id, dia)`), `type AccessEventRow`. Tipos novos em `notifications.tipo`: `push_teste`, `comentario_diario`, `plano_novo`.
   - `@/modules/notificacoes/push-endpoint`: `SERVICOS_DE_PUSH`, `endpointDePush(endpoint: string): boolean` (movidos de `push.ts`, que os reexporta; este arquivo não importa `web-push`).
-  - `@/modules/portal/push-inscricao`: `MSG_PUSH`, `class InscricaoInvalidaError`, `inscreverAparelho(acesso: Pick<PacienteAccess, 'ctx' | 'vinculos' | 'data'>, entrada: unknown, userAgent: string | null, deps?: { db?: Db; agora?: Date }): Promise<void>` (uma linha por vínculo ativo + `push_teste` no vínculo atual), `cancelarAparelho(acesso, endpoint: unknown, deps?): Promise<void>` (apaga o endpoint em todos os vínculos).
+  - `@/modules/portal/push-inscricao`: `MSG_PUSH`, `class InscricaoInvalidaError`, `inscreverAparelho(acesso: Pick<PacienteAccess, 'ctx' | 'vinculos' | 'data'>, entrada: unknown, userAgent: string | null, deps?: { db?: Db; agora?: Date; sincronizar?: boolean }): Promise<'inscrito' | 'de_outra_conta'>` (o endpoint sai de toda outra conta; uma linha por vínculo ativo + `push_teste` no vínculo atual; com `sincronizar`, sem push de teste e só se o endpoint já era desta conta), `cancelarAparelho(acesso, endpoint: unknown, deps?): Promise<void>` (apaga o endpoint em todos os vínculos).
+  - Função `app_soltar_endpoint_push(p_endpoint text) RETURNS boolean` (SECURITY DEFINER, só na sessão de paciente): apaga o endpoint de **toda outra conta**, em qualquer tenant, e diz se ele já tinha linha desta conta; índice `push_subscriptions_endpoint_idx (endpoint)`.
+  - `src/app/p/notificacoes.tsx`: `sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscricao'>` (reatribui ou descarta a inscrição que o navegador já tem; uma vez por carga do portal e dono).
   - `@/modules/portal/acesso`: `registrarAcesso(ctx: TenantContext, fuso: string, o?: { db?: Db; agora?: Date }): Promise<boolean>` (true = primeira do dia).
   - `@/modules/portal/avisos`: `avisarPlanoNovo(tx: Tx, p: Pick<PatientRow, 'id' | 'tenantId' | 'email' | 'userId' | 'status'>, agora: Date, appUrl: string): Promise<void>`, `avisarComentario(tx: Tx, o: { tenantId: string; patientId: string }, agora: Date): Promise<void>` (a Tarefa 8 usa).
   - `@/lib/sessao-cookies`: `cookieDeSessaoRenovado(auth: Auth, cabecalhoCookie: string | null): Promise<string | null>` (`Set-Cookie` com o mesmo valor, nome e atributos do login e `Max-Age` de 30 dias).
@@ -2479,7 +2678,12 @@ export const accessEvents = pgTable(
 export type AccessEventRow = typeof accessEvents.$inferSelect;
 ```
 
-(`sql` fica para a Tarefa 7, que acrescenta `diary_entries` neste arquivo.) `src/db/schema/index.ts`: `export * from './portal';`. `src/db/schema/agenda.ts`, CHECK `notifications_tipo_valido`: acrescentar `'push_teste', 'comentario_diario', 'plano_novo'` à lista.
+(`sql` fica para a Tarefa 7, que acrescenta `diary_entries` neste arquivo.) `src/db/schema/index.ts`: `export * from './portal';`. `src/db/schema/agenda.ts`, CHECK `notifications_tipo_valido`: acrescentar `'push_teste', 'comentario_diario', 'plano_novo'` à lista; em `pushSubscriptions`, o índice que a reatribuição do aparelho usa (Step 6):
+
+```ts
+    // Review Focus 4: um endpoint pertence a uma conta só — app_soltar_endpoint_push procura o endpoint em cada tenant
+    index('push_subscriptions_endpoint_idx').on(t.endpoint),
+```
 
 Run: `pnpm db:generate --name portal_acesso` e `pnpm drizzle-kit generate --custom --name rls_access_events`; `drizzle/0075_rls_access_events.sql`:
 
@@ -2493,6 +2697,52 @@ SELECT app_allow_paciente_escrita('access_events', 'insert');
 --> statement-breakpoint
 -- D7 / contrato da Tarefa 13 do Plano 05: a inscrição é gravada (e cancelada) pela sessão do paciente
 SELECT app_allow_paciente_escrita('push_subscriptions', 'insert', 'delete');
+--> statement-breakpoint
+-- Review Focus 4 (aparelho compartilhado): um endpoint de push pertence a UMA conta. O paciente A ativa no celular e a
+-- sessão dele expira (ou ele não toca em "Sair"); B entra no mesmo navegador, que continua com a inscrição de A: sem
+-- isto, os avisos de A seguem chegando no aparelho (com B logado) e B nunca ganha linha. Quem apresenta o endpoint (um
+-- segredo que só o navegador do aparelho conhece) logado como paciente tira o endpoint de TODA outra conta, em qualquer
+-- tenant, e fica sabendo se ele já tinha linha da própria conta (senão o cliente descarta a inscrição e mostra "Ativar
+-- notificações" — B não passa a receber push sem ter pedido). A RLS é FORCE: a função entra em cada tenant
+-- (set_config local à transação, como a admin_tenant_metrics da 0012) e devolve o contexto do chamador no fim.
+-- Roda só ao ativar e uma vez por abertura do portal com inscrição no navegador (não a cada requisição — D2).
+-- search_path fixo e nomes qualificados (mesmo endurecimento da 0012).
+CREATE OR REPLACE FUNCTION app_soltar_endpoint_push(p_endpoint text) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user uuid := app_current_user();
+  v_tenant text := current_setting('app.tenant_id', true);
+  v_role text := current_setting('app.role', true);
+  v_patient text := current_setting('app.patient_id', true);
+  v_da_conta boolean := false;
+  t record;
+BEGIN
+  IF v_user IS NULL OR app_current_role() IS DISTINCT FROM 'paciente' THEN
+    RAISE EXCEPTION 'app_soltar_endpoint_push() só roda na sessão de um paciente' USING ERRCODE = '42501';
+  END IF;
+  IF p_endpoint IS NULL OR p_endpoint !~ '^https://' OR char_length(p_endpoint) > 1000 THEN
+    RAISE EXCEPTION 'app_soltar_endpoint_push(): endpoint inválido' USING ERRCODE = '22023';
+  END IF;
+  FOR t IN SELECT tn.id FROM public.tenants tn LOOP
+    PERFORM set_config('app.tenant_id', t.id::text, true);
+    PERFORM set_config('app.role', 'worker', true);
+    PERFORM set_config('app.patient_id', '', true);
+    DELETE FROM public.push_subscriptions s
+      WHERE s.tenant_id = t.id AND s.endpoint = p_endpoint
+        AND NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = s.tenant_id AND p.id = s.patient_id AND p.user_id = v_user);
+    v_da_conta := v_da_conta OR EXISTS (SELECT 1 FROM public.push_subscriptions s WHERE s.tenant_id = t.id AND s.endpoint = p_endpoint);
+  END LOOP;
+  PERFORM set_config('app.tenant_id', coalesce(v_tenant, ''), true);
+  PERFORM set_config('app.role', coalesce(v_role, ''), true);
+  PERFORM set_config('app.patient_id', coalesce(v_patient, ''), true);
+  RETURN v_da_conta;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_soltar_endpoint_push(text) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_soltar_endpoint_push(text) TO nutri_app_role;
 ```
 
 `src/db/rls-guard.ts`, `PACIENTE_ESCREVE`: `access_events: { comandos: ['insert'], motivo: 'CS-02: o paciente registra o acesso do dia (D9)' }` e `push_subscriptions: { comandos: ['insert', 'delete'], motivo: 'INT-03 / P06-02: ativar e cancelar notificações no aparelho' }`. `src/db/audit-guard.ts`, `AUDIT_EXCEPTIONS.access_events = 'CS-02: só o dia em que o paciente abriu o portal; não é dado de saúde'`. `test/isolamento.test.ts`, `FABRICAS`:
@@ -2669,16 +2919,16 @@ export async function POST(req: Request): Promise<Response> {
 'use client';
 import { useEffect } from 'react';
 
-/** D9: registra o acesso do dia e renova o cookie uma vez por carga do portal (o layout persiste entre as abas). */
-export function RegistrarAcesso() {
+/** D9: registra o acesso do dia e renova o cookie uma vez por carga do portal e dono (o layout persiste entre as abas). */
+export function RegistrarAcesso({ dono }: { dono: string }) {
   useEffect(() => {
     void fetch('/api/p/acesso', { method: 'POST', cache: 'no-store' }).catch(() => undefined);
-  }, []);
+  }, [dono]);
   return null;
 }
 ```
 
-Em `src/app/p/(portal)/layout.tsx`, `<RegistrarAcesso />` dentro do `<div>` raiz.
+Em `src/app/p/(portal)/layout.tsx`, `<RegistrarAcesso dono={ctx.patientId!} />` dentro do `<div>` raiz (o Step 11 acrescenta a sincronização do push no mesmo efeito).
 
 - [ ] **Step 5: Endpoint de push sem `web-push`** — mover `SERVICOS_DE_PUSH`, `HOST_LDH` e `endpointDePush` (com os comentários) de `src/modules/notificacoes/push.ts` para `src/modules/notificacoes/push-endpoint.ts` (que importa só `node:url`), e em `push.ts`: `export { endpointDePush, SERVICOS_DE_PUSH } from './push-endpoint';` + `import { endpointDePush } from './push-endpoint';` onde é usado. Run: `pnpm test src/modules/notificacoes/push.test.ts` → PASS (nada muda no comportamento).
 
@@ -2687,7 +2937,7 @@ Em `src/app/p/(portal)/layout.tsx`, `<RegistrarAcesso />` dentro do `<div>` raiz
 ```ts
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
@@ -2734,6 +2984,56 @@ describe('inscrição de push (US-040, contrato D14 do Plano 05)', () => {
     expect(await withTenant(A.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, pa.id)), app.db)).toEqual([]);
   });
 
+  it('aparelho compartilhado (Review Focus 4): o endpoint de A sai de A quando B abre o portal; B só ganha linha ao ativar', async () => {
+    const { A, pa, acesso: deA } = await comDoisVinculos();
+    const C = await novoTenant(app.db);
+    const { userId: uB, paciente: pB } = await pacienteComConta(app.db, C);
+    const deB = { data: { user: { id: uB } }, vinculos: await vinculosDaConta(uB, { db: app.db }), ctx: { tenantId: C.tenantId, role: 'paciente' as const, patientId: pB.id, actorUserId: uB } };
+    const s = sub();
+    expect(await inscreverAparelho(deA as never, s, null, { db: app.db })).toBe('inscrito');
+    // B abre o portal no mesmo navegador, que ainda tem a inscrição de A
+    expect(await inscreverAparelho(deB as never, s, null, { db: app.db, sincronizar: true })).toBe('de_outra_conta');
+    const deAgora = async (T: typeof A, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, id)), app.db)).map((x) => x.endpoint);
+    expect(await deAgora(A, pa.id)).toEqual([]); // e no outro vínculo da conta de A também
+    expect(await deAgora(C, pB.id)).toEqual([]); // B não recebe push sem ter pedido
+    // B toca em "Ativar notificações" (o cliente descartou a inscrição velha; aqui o mesmo endpoint basta para o teste)
+    expect(await inscreverAparelho(deB as never, s, null, { db: app.db })).toBe('inscrito');
+    expect(await deAgora(C, pB.id)).toEqual([s.endpoint]);
+    // A volta a entrar e ativa: o endpoint sai de B
+    await inscreverAparelho(deA as never, s, null, { db: app.db });
+    expect(await deAgora(C, pB.id)).toEqual([]);
+  });
+
+  it('sincronizar: vínculo novo depois da ativação ganha a linha, sem push de teste; endpoint desconhecido → de_outra_conta', async () => {
+    const A = await novoTenant(app.db);
+    const { userId, paciente: pa } = await pacienteComConta(app.db, A);
+    const acesso1 = { data: { user: { id: userId } }, vinculos: await vinculosDaConta(userId, { db: app.db }), ctx: { tenantId: A.tenantId, role: 'paciente' as const, patientId: pa.id, actorUserId: userId } };
+    const s = sub();
+    await inscreverAparelho(acesso1 as never, s, null, { db: app.db });
+    const B = await novoTenant(app.db);
+    const { paciente: pb } = await pacienteComConta(app.db, B, { userId }); // a conta vira paciente de outra nutricionista
+    const acesso2 = { ...acesso1, vinculos: await vinculosDaConta(userId, { db: app.db }) };
+    expect(await inscreverAparelho(acesso2 as never, s, null, { db: app.db, sincronizar: true })).toBe('inscrito');
+    const emB = await withTenant(B.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, pb.id)), app.db);
+    expect(emB.map((x) => x.endpoint)).toEqual([s.endpoint]);
+    const testes = await withTenant(A.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.patientId, pa.id), eq(notifications.tipo, 'push_teste'))), app.db);
+    expect(testes).toHaveLength(1); // só o da ativação
+    expect(await inscreverAparelho(acesso2 as never, sub(), null, { db: app.db, sincronizar: true })).toBe('de_outra_conta');
+  });
+
+  it('app_soltar_endpoint_push só roda na sessão de paciente (nutricionista e worker → 42501)', async () => {
+    const A = await novoTenant(app.db);
+    // o erro do pg vem embrulhado (DrizzleQueryError → cause); o mesmo laço do violaRls de agendamento-publico.test.ts
+    const codigo = (e: unknown) => {
+      let c = e as { code?: string; cause?: unknown } | undefined;
+      for (let i = 0; c && i < 5; i++, c = c.cause as typeof c) if (c.code) return c.code;
+      return undefined;
+    };
+    const soltar = (ctx: Parameters<typeof withTenant>[0]) => withTenant(ctx, (tx) => tx.execute(sql`select app_soltar_endpoint_push(${sub().endpoint})`), app.db);
+    await expect(soltar(A.ctx).catch(codigo)).resolves.toBe('42501');
+    await expect(soltar({ tenantId: A.tenantId, role: 'worker' }).catch(codigo)).resolves.toBe('42501');
+  });
+
   it('cancelar apaga o endpoint em todos os vínculos (Sair, Review Focus 4); outro aparelho fica', async () => {
     const { A, B, pa, pb, acesso } = await comDoisVinculos();
     const este = sub();
@@ -2751,7 +3051,7 @@ describe('inscrição de push (US-040, contrato D14 do Plano 05)', () => {
 `src/modules/portal/push-inscricao.ts`:
 
 ```ts
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { notifications, pushSubscriptions } from '@/db/schema';
@@ -2783,13 +3083,31 @@ type Acesso = Pick<PacienteAccess, 'ctx' | 'vinculos' | 'data'>;
  * US-040 "Permissão de push" / contrato D14 do Plano 05: o aparelho recebe os avisos de todos os vínculos ativos da conta
  * (uma linha por vínculo, cada uma no próprio tenant, transações separadas — uma conexão por transação) e o vínculo
  * atual ganha o push de teste "Notificações ativadas ✅" (pelo motor de notificações, D7).
+ * Review Focus 4: antes de tudo o endpoint sai de TODA outra conta (app_soltar_endpoint_push) — num aparelho
+ * compartilhado, os avisos do paciente anterior param de chegar. `sincronizar` (abertura do portal com inscrição no
+ * navegador): sem push de teste, e só grava se o endpoint já era desta conta (vínculo novo ganha a linha); se era de
+ * outra conta (ou de ninguém), nada é gravado e o cliente descarta a inscrição — B só recebe push depois de ativar.
  */
-export async function inscreverAparelho(acesso: Acesso, entrada: unknown, userAgent: string | null, deps: { db?: Db; agora?: Date } = {}): Promise<void> {
+export async function inscreverAparelho(
+  acesso: Acesso,
+  entrada: unknown,
+  userAgent: string | null,
+  deps: { db?: Db; agora?: Date; sincronizar?: boolean } = {},
+): Promise<'inscrito' | 'de_outra_conta'> {
   const p = inscricao.safeParse(entrada);
   if (!p.success) throw new InscricaoInvalidaError('inscrição de push inválida');
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
   const ua = userAgent ? userAgent.slice(0, 300) : null;
+  const daConta = await withTenant(
+    acesso.ctx,
+    async (tx) => {
+      const r = await tx.execute<{ da_conta: boolean }>(sql`select app_soltar_endpoint_push(${p.data.endpoint}) as da_conta`);
+      return r.rows[0]?.da_conta === true;
+    },
+    db,
+  );
+  if (deps.sincronizar && !daConta) return 'de_outra_conta';
   for (const v of acesso.vinculos) {
     const ctx = { tenantId: v.tenantId, role: 'paciente' as const, patientId: v.patientId, actorUserId: acesso.data.user.id };
     await withTenant(
@@ -2799,13 +3117,14 @@ export async function inscreverAparelho(acesso: Acesso, entrada: unknown, userAg
           .insert(pushSubscriptions)
           .values({ tenantId: v.tenantId, patientId: v.patientId, endpoint: p.data.endpoint, p256dh: p.data.keys.p256dh, auth: p.data.keys.auth, userAgent: ua })
           .onConflictDoNothing();
-        if (v.tenantId !== acesso.ctx.tenantId) return;
+        if (deps.sincronizar || v.tenantId !== acesso.ctx.tenantId) return;
         await tx.insert(notifications).values({ tenantId: v.tenantId, patientId: v.patientId, canal: 'push', tipo: 'push_teste', agendadaPara: agora });
         await dispararEnvio(tx, v.tenantId);
       },
       db,
     );
   }
+  return 'inscrito';
 }
 
 /** "Sair" / desativar: o endpoint deste aparelho sai de todos os vínculos da conta. */
@@ -2989,14 +3308,19 @@ async function entrada(req: Request) {
   }
 }
 
-/** US-040 "Ativar notificações": grava a inscrição do aparelho (todos os vínculos) e pede o push de teste. */
+/**
+ * US-040 "Ativar notificações": grava a inscrição do aparelho (todos os vínculos) e pede o push de teste.
+ * `?sincronizar=1` (abertura do portal com inscrição no navegador, Review Focus 4): reatribui sem push de teste;
+ * 409 = a inscrição era de outra conta (ou de ninguém) — o cliente a descarta e mostra "Ativar notificações".
+ */
 export async function POST(req: Request): Promise<Response> {
   if (!getEnv().VAPID_PUBLIC_KEY) return resposta(503, { erro: MSG_PUSH.indisponivel });
   const e = await entrada(req);
   if ('erro' in e) return e.erro!;
+  const sincronizar = new URL(req.url).searchParams.get('sincronizar') === '1';
   try {
-    await inscreverAparelho(e.acesso, e.corpo, req.headers.get('user-agent'));
-    return resposta(204);
+    const r = await inscreverAparelho(e.acesso, e.corpo, req.headers.get('user-agent'), { sincronizar });
+    return resposta(r === 'inscrito' ? 204 : 409);
   } catch (err) {
     if (err instanceof InscricaoInvalidaError) return resposta(400, { erro: MSG_PUSH.falhou });
     throw err;
@@ -3012,7 +3336,7 @@ export async function DELETE(req: Request): Promise<Response> {
 }
 ```
 
-`src/app/api/p/push/route.test.ts`: mesmo molde do teste do `/api/p/acesso` (sessão e módulo simulados): sem `VAPID_PUBLIC_KEY` → 503 com `MSG_PUSH.indisponivel`; outra origem → 403; corpo de 5 KB → 413; inscrição inválida → 400; válida → 204; `DELETE` → 204 e chama `cancelarAparelho` com o endpoint.
+`src/app/api/p/push/route.test.ts`: mesmo molde do teste do `/api/p/acesso` (sessão e módulo simulados): sem `VAPID_PUBLIC_KEY` → 503 com `MSG_PUSH.indisponivel`; outra origem → 403; corpo de 5 KB → 413; inscrição inválida → 400; válida → 204 (e `inscreverAparelho` chamado com `sincronizar: false`); `?sincronizar=1` → `sincronizar: true`, 204 quando o módulo devolve `'inscrito'` e 409 quando devolve `'de_outra_conta'`; `DELETE` → 204 e chama `cancelarAparelho` com o endpoint.
 
 - [ ] **Step 11: Service worker, botão e "Sair"** — `src/app/sw-regras.test.ts`:
 
@@ -3083,8 +3407,36 @@ function bytesDaChave(b64: string): Uint8Array {
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
 }
 
+const sincronias = new Map<string, Promise<'ativo' | 'sem_inscricao'>>();
+
+/**
+ * Review Focus 4 (aparelho compartilhado): a inscrição que o navegador já tem pode ser de OUTRA conta (A ativou, a sessão
+ * expirou, B entrou). Ela nunca vale como "ativo" só por existir: vai ao servidor, que tira o endpoint das outras contas
+ * e diz se ele já era desta (204 → vínculos novos ganham a linha) ou não (409 → descartada aqui; B ativa se quiser).
+ * Uma vez por carga do portal e dono (`dono` = paciente da sessão: trocar de conta ou de vínculo sincroniza de novo).
+ */
+export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscricao'> {
+  let p = sincronias.get(dono);
+  if (!p) {
+    p = (async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'sem_inscricao' as const;
+      const reg = await navigator.serviceWorker.getRegistration('/p/');
+      const sub = await reg?.pushManager.getSubscription();
+      if (!sub) return 'sem_inscricao' as const;
+      const r = await fetch('/api/p/push?sincronizar=1', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sub.toJSON()) });
+      if (r.status === 409) {
+        await sub.unsubscribe().catch(() => false); // o endpoint morre no serviço de push: nada mais chega por ele
+        return 'sem_inscricao' as const;
+      }
+      return r.ok ? ('ativo' as const) : ('sem_inscricao' as const);
+    })().catch(() => 'sem_inscricao' as const);
+    sincronias.set(dono, p);
+  }
+  return p;
+}
+
 /** US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). */
-export function AtivarNotificacoes({ chavePublica }: { chavePublica: string | null }) {
+export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
   const [estado, setEstado] = useState<Estado>('carregando');
   useEffect(() => {
     void (async () => {
@@ -3092,10 +3444,10 @@ export function AtivarNotificacoes({ chavePublica }: { chavePublica: string | nu
       if (ehIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) && !standalone) return setEstado('instale');
       if (!chavePublica || !('serviceWorker' in navigator) || !('PushManager' in window)) return setEstado('indisponivel');
       if (Notification.permission === 'denied') return setEstado('negado');
-      const reg = await navigator.serviceWorker.ready;
-      setEstado((await reg.pushManager.getSubscription()) ? 'ativo' : 'pode');
+      // "ativo" só com o servidor confirmando que a inscrição é desta conta (nunca só porque o navegador tem uma)
+      setEstado((await sincronizarAparelho(dono)) === 'ativo' ? 'ativo' : 'pode');
     })();
-  }, [chavePublica]);
+  }, [chavePublica, dono]);
   const ativar = async () => {
     try {
       if ((await Notification.requestPermission()) !== 'granted') return setEstado('negado');
@@ -3119,7 +3471,9 @@ export function AtivarNotificacoes({ chavePublica }: { chavePublica: string | nu
 }
 ```
 
-Em `src/app/p/(portal)/inicio/page.tsx`: `<AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} />` abaixo do `<Instalar />` (a Tarefa 11 repete em "Perfil > Notificações").
+Em `src/app/p/(portal)/inicio/page.tsx`: `<AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} dono={ctx.patientId!} />` abaixo do `<Instalar />` (com `const { data, ctx } = await requirePaciente('/p/inicio')` na página; a Tarefa 11 repete em "Perfil > Notificações", com o mesmo `dono`). Depois de "Ativar" com sucesso, `ativar` também grava `sincronias.set(dono, Promise.resolve('ativo'))` (a próxima tela não pergunta de novo).
+
+`src/app/p/acesso.tsx`: no mesmo `useEffect` de `RegistrarAcesso` (dependência `[dono]`), chamar também `void sincronizarAparelho(dono)` (de `./notificacoes`) — assim o endpoint troca de dono assim que B abre o portal, em qualquer página (não só no Início); o layout `(portal)` (que já lê `ctx` desde a Tarefa 5) renderiza `<RegistrarAcesso dono={ctx.patientId!} />`. (O `patientId` no HTML é o do próprio paciente da sessão — sem dado de saúde.)
 
 `src/app/p/sair-portal.tsx`, `limparAparelho` passa a:
 
@@ -3188,10 +3542,12 @@ git commit -m "feat(portal): notificações no app (inscrição, push de teste, 
   - `@/modules/portal/diario-constantes` (sem banco, importável no cliente): `REFEICOES_DO_DIARIO` (`'Café da manhã' | 'Lanche da manhã' | 'Almoço' | 'Lanche da tarde' | 'Jantar' | 'Ceia' | 'Outro'`), `type RefeicaoDiario`, `FOTO_DIARIO_MAX_BYTES = 10 * 1024 * 1024`, `LIMITE_DIARIO_POR_DIA = 10`, `TEXTO_DIARIO_MAX = 2000`, `COMENTARIO_MAX = 1000`, `MSG_DIARIO`.
   - Schema `diaryEntries` 🔒 (`portal.ts`): `id`, `tenant_id`, `patient_id`, `data_hora`, `refeicao`, `texto`, `foto_path`, `foto_original_path`, `foto_status` (`sem_foto`/`processando`/`pronta`/`falhou`/`removida`), `comentario_nutri`, `comentado_em`, `visto_pela_nutri_em`, `created_at`, `updated_at`; `type DiaryEntryRow`.
   - `@/modules/portal/diario`: `class DiarioError { erros: Partial<Record<'refeicao' | 'texto' | 'foto' | 'geral', string>> }`, `registrarNoDiario(ctx: TenantContext, tenant: { fuso: string }, input: { refeicao: unknown; texto: unknown; foto: Buffer | null }, deps?: { db?: Db; agora?: Date; dataDir?: string; boss?: PgBoss }): Promise<{ id: string; semFoto: boolean }>` (`semFoto` = a foto não entrou por falta de cota), `type RegistroDoDiario = { id: string; dataHora: Date; refeicao: string; texto: string | null; foto: { estado: 'sem_foto' | 'processando' | 'falhou' } | { estado: 'pronta'; caminho: string }; comentario: string | null; comentadoEm: Date | null }`, `diarioDoPaciente(ctx: TenantContext, o?: { db?: Db; limite?: number }): Promise<RegistroDoDiario[]>`.
-  - `@/modules/portal/diario-foto-job` (só worker): `MAX_PIXELS = 40_000_000`, `type DadosFotoDiario = { tenantId: string; entryId: string }`, `converterFotoDoDiario(data, deps: { db: Db; dataDir: string; ultimaTentativa: boolean; decodificarHeic?: (buf: Buffer) => Promise<{ width: number; height: number; data: Uint8ClampedArray }> }): Promise<'pronta' | 'ignorada' | 'falhou'>`.
+  - `@/modules/portal/diario-foto-job` (só worker): `MAX_PIXELS = 40_000_000`, `type DadosFotoDiario = { tenantId: string; entryId: string }`, `type ImagemHeic = { width: number; height: number; decode: () => Promise<{ data: Uint8ClampedArray }> }` (dimensões lidas do cabeçalho, pixels só no `decode()`), `converterFotoDoDiario(data, deps: { db: Db; dataDir: string; ultimaTentativa: boolean; abrirHeic?: (buf: Buffer) => Promise<ImagemHeic> }): Promise<'pronta' | 'ignorada' | 'falhou'>`.
   - Fila `diario-foto` (payload `{ tenantId, entryId }`).
 
 - [ ] **Step 1: Dependência** — Run: `pnpm add heic-decode@2.1.0`. Expected: `"heic-decode": "2.1.0"` em `dependencies` (puxa `libheif-js` 1.23.2, WASM). Só o worker importa (Step 9).
+
+**Conferir a API antes de seguir** (Review Focus 3, "bomba de descompressão"): o `decode({ buffer })` do `heic-decode` decodifica a imagem inteira em RGBA **antes** de devolver `width`/`height` — um HEIC de 2 MB que declara 20000 × 20000 alocaria ~1,6 GB no worker (VPS de 8 GB) antes de qualquer conferência. O job usa `decode.all({ buffer })`, que só lê o contêiner (o `HeifDecoder.decode` do `libheif-js` abre os *handles* das imagens, sem decodificar pixels) e devolve, por imagem, `{ width, height, decode() }` — os pixels só são alocados no `decode()`. Abrir `node_modules/heic-decode/README.md` e `index.js`/`lib.js` e confirmar: (a) `decode.all` existe e devolve `width`/`height` antes do `decode()`; (b) a primeira imagem da lista é a mesma que `decode()` usa. Se a versão instalada não tiver `decode.all` com esse formato, **parar e avisar** — a alternativa segura é ler a caixa `ispe` (largura/altura da imagem primária, `meta` → `iprp` → `ipco`) do buffer antes de chamar o `heic-decode`, com o mesmo teste do Step 5; nunca conferir os pixels depois do `decode()`.
 
 - [ ] **Step 2: Constantes e tabela** — `src/modules/portal/diario-constantes.ts`:
 
@@ -3568,7 +3924,7 @@ import { closeDb } from '@/db/client';
 import { diaryEntries, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { resolverCaminho } from '@/modules/plataforma/armazenamento';
+import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
 import { converterFotoDoDiario, MAX_PIXELS } from './diario-foto-job';
 
@@ -3596,6 +3952,8 @@ async function registro(foto: Buffer) {
   return { T, p, id, ler };
 }
 const deps = { db: app.db, dataDir, ultimaTentativa: false };
+/** Passa pelo detectarTipo como HEIC (caixa ftyp) — o conteúdo de verdade vem do `abrirHeic` simulado. */
+const HEIC_FALSO = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0]), Buffer.from('mif1heic'), Buffer.alloc(64)]);
 
 describe('conversão da foto do diário (RN-07)', () => {
   it('JPEG grande com EXIF → JPEG de no máximo 1600 px, sem EXIF; original apagado do disco e da cota', async () => {
@@ -3616,12 +3974,33 @@ describe('conversão da foto do diário (RN-07)', () => {
   });
 
   it('HEIC: decodificado pelo heic-decode (aqui simulado) e convertido do mesmo jeito', async () => {
-    const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0]), Buffer.from('mif1heic'), Buffer.alloc(64)]);
-    const r = await registro(heic);
-    const decodificarHeic = async () => ({ width: 2400, height: 1800, data: new Uint8ClampedArray(2400 * 1800 * 4).fill(200) });
-    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, decodificarHeic })).toBe('pronta');
+    const r = await registro(HEIC_FALSO);
+    const abrirHeic = async () => ({ width: 2400, height: 1800, decode: async () => ({ data: new Uint8ClampedArray(2400 * 1800 * 4).fill(200) }) });
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, abrirHeic })).toBe('pronta');
     const m = await sharp(resolverCaminho(dataDir, (await r.ler()).fotoPath!)).metadata();
     expect([m.format, m.width, m.height]).toEqual(['jpeg', 1600, 1200]);
+  });
+
+  it('HEIC que declara 20000 × 20000 ("bomba de descompressão"): recusado pelo cabeçalho, os pixels nunca são decodificados', async () => {
+    const r = await registro(HEIC_FALSO);
+    let decodificou = false;
+    const abrirHeic = async () => ({
+      width: 20_000,
+      height: 20_000,
+      decode: async () => {
+        decodificou = true; // o heic-decode de verdade alocaria ~1,6 GB aqui
+        return { data: new Uint8ClampedArray(0) };
+      },
+    });
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, abrirHeic })).toBe('falhou');
+    expect(decodificou).toBe(false);
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null, fotoPath: null });
+  });
+
+  it('HEIC cujo decode devolve menos pixels que o cabeçalho declarou → "falhou" (nada de ler além do buffer)', async () => {
+    const r = await registro(HEIC_FALSO);
+    const abrirHeic = async () => ({ width: 2400, height: 1800, decode: async () => ({ data: new Uint8ClampedArray(16) }) });
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, abrirHeic })).toBe('falhou');
   });
 
   it('imagem acima de 40 MP ("bomba de descompressão") ou que não decodifica → "falhou", original apagado (definitivo)', async () => {
@@ -3641,9 +4020,26 @@ describe('conversão da foto do diário (RN-07)', () => {
     expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).toBe('ignorada');
   });
 
-  it('o heic-decode de verdade carrega no Node (WASM) e recusa o que não é HEIC', async () => {
+  it('regra 9: o worker caiu entre gravar o JPEG e apagar o original → a nova tentativa só apaga o original (disco, stored_files e cota) e solta o ponteiro', async () => {
+    const r = await registro(await fotoComExif());
+    const { fotoOriginalPath } = await r.ler();
+    // O estado que a queda deixa: JPEG gravado e apontado, registro "pronta" ainda apontando para o original
+    const pequeno = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#fff' } }).jpeg().toBuffer();
+    const jpeg = await salvarArquivo(r.T.ctx, { tipo: 'diario_foto', conteudo: pequeno, permitidos: ['jpg'], patientId: r.p.id }, { db: app.db, dataDir });
+    await withTenant(r.T.ctx, (tx) => tx.update(diaryEntries).set({ fotoStatus: 'pronta', fotoPath: jpeg.caminho }).where(eq(diaryEntries.id, r.id)), app.db);
+    const usadoAntes = (await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes;
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).toBe('ignorada');
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'pronta', fotoOriginalPath: null, fotoPath: jpeg.caminho });
+    expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
+    const sobra = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
+    expect(sobra).toEqual([]);
+    expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBeLessThan(usadoAntes);
+  });
+
+  it('o heic-decode de verdade carrega no Node (WASM), expõe decode.all e recusa o que não é HEIC', async () => {
     const { default: decode } = await import('heic-decode');
-    await expect(decode({ buffer: Buffer.from('não é heic') })).rejects.toThrow();
+    expect(typeof decode.all).toBe('function');
+    await expect(decode.all({ buffer: Buffer.from('não é heic') })).rejects.toThrow();
   });
 });
 ```
@@ -3655,7 +4051,7 @@ describe('conversão da foto do diário (RN-07)', () => {
 ```ts
 import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { diaryEntries } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -3669,29 +4065,42 @@ export const MAX_PIXELS = 40_000_000;
 const LADO_MAX = 1600;
 
 export type DadosFotoDiario = { tenantId: string; entryId: string };
-type Decodificar = (buf: Buffer) => Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
+/** Dimensões lidas do cabeçalho do HEIC; os pixels (RGBA) só são alocados no `decode()`. */
+export type ImagemHeic = { width: number; height: number; decode: () => Promise<{ data: Uint8ClampedArray }> };
+type AbrirHeic = (buf: Buffer) => Promise<ImagemHeic>;
 
 class FotoInvalidaError extends Error {}
 
-const heicDeVerdade: Decodificar = async (buf) => {
+/** `decode.all` só abre o contêiner (Step 1): nada de pixels até o `decode()` — a conferência dos 40 MP vem antes. */
+const heicDeVerdade: AbrirHeic = async (buf) => {
   const { default: decode } = await import('heic-decode');
-  return decode({ buffer: buf });
+  const [primeira] = await decode.all({ buffer: buf });
+  if (!primeira) throw new Error('HEIC sem imagem');
+  return primeira;
 };
 
+const grandeDemais = (width: number | undefined, height: number | undefined) =>
+  !width || !height || width <= 0 || height <= 0 || width * height > MAX_PIXELS;
+
 /** Pixels → JPEG ≤ 1600 px no maior lado, qualidade 80, sem metadados (o sharp só copia EXIF/GPS com withMetadata). */
-async function paraJpeg(original: Buffer, ext: string, decodificarHeic: Decodificar): Promise<Buffer> {
+async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Promise<Buffer> {
   let img: sharp.Sharp;
   if (ext === 'heic') {
-    const { width, height, data } = await decodificarHeic(original).catch(() => {
+    const heic = await abrirHeic(original).catch(() => {
       throw new FotoInvalidaError('heic');
     });
-    if (width * height > MAX_PIXELS) throw new FotoInvalidaError('pixels');
-    img = sharp(Buffer.from(data.buffer, data.byteOffset, data.byteLength), { raw: { width, height, channels: 4 } });
+    // Bomba de descompressão: recusar pelo cabeçalho, ANTES de decodificar (o decode aloca largura × altura × 4 bytes)
+    if (grandeDemais(heic.width, heic.height)) throw new FotoInvalidaError('pixels');
+    const { data } = await heic.decode().catch(() => {
+      throw new FotoInvalidaError('heic');
+    });
+    if (data.byteLength !== heic.width * heic.height * 4) throw new FotoInvalidaError('heic');
+    img = sharp(Buffer.from(data.buffer, data.byteOffset, data.byteLength), { raw: { width: heic.width, height: heic.height, channels: 4 }, limitInputPixels: MAX_PIXELS });
   } else {
     const meta = await sharp(original).metadata().catch(() => {
       throw new FotoInvalidaError('metadata');
-    });
-    if (!meta.width || !meta.height || meta.width * meta.height > MAX_PIXELS) throw new FotoInvalidaError('pixels');
+    }); // só o cabeçalho: o sharp não decodifica pixels no metadata()
+    if (grandeDemais(meta.width, meta.height)) throw new FotoInvalidaError('pixels');
     img = sharp(original, { limitInputPixels: MAX_PIXELS }).rotate(); // aplica a orientação do EXIF antes de descartá-lo
   }
   return img
@@ -3705,36 +4114,57 @@ async function paraJpeg(original: Buffer, ext: string, decodificarHeic: Decodifi
 }
 
 /**
- * Job `diario-foto` (US-042 / RN-07). Idempotente: só age sobre registro "processando" com original. O JPEG entra por
- * salvarArquivo e o registro aponta para ele no `registrar` (mesma transação); o original sai depois, por apagarArquivo.
+ * Job `diario-foto` (US-042 / RN-07). Idempotente: age sobre registro "processando" com original (converte) ou
+ * "pronta" que ainda aponta para o original (o worker caiu entre gravar o JPEG e apagar o original: só apaga).
+ * CLAUDE.md regra 9: o JPEG entra por salvarArquivo e o registro aponta para ele no `registrar`; o original sai por
+ * apagarArquivo e o ponteiro `foto_original_path` é limpo no `naMesmaTransacao` dele — nunca numa transação separada
+ * (senão uma queda entre as duas deixa o original no disco, contando na cota, sem nada que aponte para ele).
  * Imagem que não decodifica ou grande demais → "falhou" na hora (definitivo) e o original sai. Erro de infraestrutura →
  * o pg-boss tenta de novo; na última tentativa, "falhou".
+ * ORDEM DE TRAVAS: registro do diário → tenant (cota), nos dois caminhos (`antesDaReserva` e `naMesmaTransacao`).
  */
 export async function converterFotoDoDiario(
   data: DadosFotoDiario,
-  deps: { db: Db; dataDir: string; ultimaTentativa: boolean; decodificarHeic?: Decodificar },
+  deps: { db: Db; dataDir: string; ultimaTentativa: boolean; abrirHeic?: AbrirHeic },
 ): Promise<'pronta' | 'ignorada' | 'falhou'> {
   const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
   const [e] = await withTenant(
     ctx,
-    (tx) => tx.select().from(diaryEntries).where(and(eq(diaryEntries.id, data.entryId), eq(diaryEntries.fotoStatus, 'processando'))),
+    (tx) =>
+      tx
+        .select()
+        .from(diaryEntries)
+        .where(and(eq(diaryEntries.id, data.entryId), isNotNull(diaryEntries.fotoOriginalPath), inArray(diaryEntries.fotoStatus, ['processando', 'pronta']))),
     deps.db,
   );
   if (!e?.fotoOriginalPath) return 'ignorada';
   const original = e.fotoOriginalPath;
+  const arquivos = { db: deps.db, dataDir: deps.dataDir };
+  /** Apaga o original e, na MESMA transação, o ponteiro (e o que mais `set` disser) — só se o registro ainda aponta para ele. */
+  const apagarOriginal = (set: Partial<typeof diaryEntries.$inferInsert>, status: 'processando' | 'pronta') =>
+    apagarArquivo(ctx, { caminho: original }, {
+      ...arquivos,
+      naMesmaTransacao: async (tx) => {
+        const r = await tx
+          .update(diaryEntries)
+          .set({ ...set, fotoOriginalPath: null, updatedAt: new Date() })
+          .where(and(eq(diaryEntries.id, e.id), eq(diaryEntries.fotoStatus, status), eq(diaryEntries.fotoOriginalPath, original)))
+          .returning({ id: diaryEntries.id });
+        return r.length > 0;
+      },
+    });
+  if (e.fotoStatus === 'pronta') {
+    await apagarOriginal({}, 'pronta'); // sobra de uma tentativa que caiu depois de gravar o JPEG
+    return 'ignorada';
+  }
   const falhar = async (): Promise<'falhou'> => {
-    await withTenant(
-      ctx,
-      (tx) => tx.update(diaryEntries).set({ fotoStatus: 'falhou', fotoOriginalPath: null, updatedAt: new Date() }).where(and(eq(diaryEntries.id, e.id), eq(diaryEntries.fotoStatus, 'processando'))),
-      deps.db,
-    );
-    await apagarArquivo(ctx, { caminho: original }, { db: deps.db, dataDir: deps.dataDir });
+    await apagarOriginal({ fotoStatus: 'falhou' }, 'processando');
     return 'falhou';
   };
+  let convertida = false;
   try {
     const buf = await readFile(resolverCaminho(deps.dataDir, original));
-    const jpeg = await paraJpeg(buf, original.slice(original.lastIndexOf('.') + 1), deps.decodificarHeic ?? heicDeVerdade);
-    let gravou = false;
+    const jpeg = await paraJpeg(buf, original.slice(original.lastIndexOf('.') + 1), deps.abrirHeic ?? heicDeVerdade);
     await salvarArquivo(
       ctx,
       {
@@ -3742,21 +4172,32 @@ export async function converterFotoDoDiario(
         conteudo: jpeg,
         permitidos: ['jpg'],
         patientId: e.patientId,
+        // Trava o registro antes da cota (mesma ordem do apagarArquivo abaixo)
+        antesDaReserva: async (tx) => {
+          const [ainda] = await tx
+            .select({ id: diaryEntries.id })
+            .from(diaryEntries)
+            .where(and(eq(diaryEntries.id, e.id), eq(diaryEntries.fotoStatus, 'processando'), eq(diaryEntries.fotoOriginalPath, original)))
+            .for('update');
+          if (!ainda) throw new Error('registro do diário mudou durante a conversão');
+        },
+        // O original continua apontado aqui: quem o solta é o naMesmaTransacao do apagarArquivo
         registrar: async (tx, arquivo) => {
-          const r = await tx
-            .update(diaryEntries)
-            .set({ fotoPath: arquivo.caminho, fotoStatus: 'pronta', fotoOriginalPath: null, updatedAt: new Date() })
-            .where(and(eq(diaryEntries.id, e.id), eq(diaryEntries.fotoStatus, 'processando')))
-            .returning({ id: diaryEntries.id });
-          if (!r.length) throw new Error('registro do diário mudou durante a conversão');
-          gravou = true;
+          await tx.update(diaryEntries).set({ fotoPath: arquivo.caminho, fotoStatus: 'pronta', updatedAt: new Date() }).where(eq(diaryEntries.id, e.id));
         },
       },
-      { db: deps.db, dataDir: deps.dataDir },
+      arquivos,
     );
-    if (gravou) await apagarArquivo(ctx, { caminho: original }, { db: deps.db, dataDir: deps.dataDir });
+    convertida = true;
+    await apagarOriginal({}, 'pronta');
     return 'pronta';
   } catch (err) {
+    if (convertida) {
+      // O JPEG já está gravado e apontado; o registro ainda aponta para o original (não é órfão): outra tentativa o apaga
+      logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'original' }, 'original da foto do diário não apagado');
+      if (!deps.ultimaTentativa) throw err;
+      return 'pronta';
+    }
     const definitivo = err instanceof FotoInvalidaError || deps.ultimaTentativa;
     // RNF-11: só ids e o motivo; nunca o caminho nem o conteúdo
     logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: err instanceof FotoInvalidaError ? err.message : 'erro', definitivo }, 'falha ao converter a foto do diário');
@@ -3766,7 +4207,22 @@ export async function converterFotoDoDiario(
 }
 ```
 
-(Se o `heic-decode` não tiver tipos, declarar em `src/types/heic-decode.d.ts`: `declare module 'heic-decode' { export default function decode(o: { buffer: Buffer | ArrayBuffer }): Promise<{ width: number; height: number; data: Uint8ClampedArray }>; }`.)
+(Uma falha no `apagarOriginal` depois do `salvarArquivo` — banco fora no meio — não estraga a foto convertida: o pg-boss tenta de novo e a nova tentativa encontra o registro "pronta" ainda apontando para o original e só o apaga. Se até a última tentativa falhar aí, o registro continua apontando para o original — `anexosDoPaciente` e `apagarFotosDoDiario` (Tarefa 11) o enxergam e o apagam na exclusão/anonimização; nada fica órfão no disco.)
+
+Tipos do `heic-decode` (se o pacote não trouxer): `src/types/heic-decode.d.ts`:
+
+```ts
+declare module 'heic-decode' {
+  type Pixels = { width: number; height: number; data: Uint8ClampedArray };
+  /** Decodifica a imagem inteira — NÃO usar no job (aloca antes de conferir o tamanho). */
+  function decode(o: { buffer: Buffer | ArrayBuffer }): Promise<Pixels>;
+  namespace decode {
+    /** Só abre o contêiner: `width`/`height` do cabeçalho; os pixels só no `decode()` de cada imagem. */
+    function all(o: { buffer: Buffer | ArrayBuffer }): Promise<{ width: number; height: number; decode: () => Promise<Pixels> }[]>;
+  }
+  export default decode;
+}
+```
 
 `src/worker/index.ts`, perto do `plano-pdf`:
 
@@ -4014,19 +4470,20 @@ git commit -m "feat(portal): diário alimentar com foto (conversão no worker, H
 **Interfaces:**
 - Consumes: `diaryEntries`, `paraRegistro`, `RegistroDoDiario`, `COMENTARIO_MAX` (Tarefa 7); `avisarComentario` (Tarefa 6); `auditRead`; `requireNutri`; `idValido`.
 - Produces:
-  - `@/modules/portal/diario-nutri`: `MSG_COMENTARIO = { vazio: 'Escreva o comentário.', tamanho: 'Use no máximo 1000 caracteres.', salvo: 'Comentário salvo.', naoEncontrado: 'Registro não encontrado.', nenhum: 'Nenhum registro de diário ainda.' }`, `class ComentarioError { erros: { comentario: string } }`, `type ItemDoFeed = RegistroDoDiario & { patientId: string; paciente: string; visto: boolean }`, `feedDeDiarios(ctx: TenantContext, o?: { db?: Db; limite?: number }): Promise<ItemDoFeed[]>`, `abrirRegistro(ctx: TenantContext, id: string, o?: { db?: Db; agora?: Date }): Promise<ItemDoFeed | null>` (preenche `visto_pela_nutri_em` na primeira abertura), `comentarRegistro(ctx: TenantContext, id: string, texto: unknown, o?: { db?: Db; agora?: Date }): Promise<{ primeiro: boolean }>`.
+  - `@/modules/portal/diario-nutri`: `MSG_COMENTARIO = { vazio: 'Escreva o comentário.', tamanho: 'Use no máximo 1000 caracteres.', salvo: 'Comentário salvo.', naoEncontrado: 'Registro não encontrado.', nenhum: 'Nenhum registro de diário ainda.' }`, `class ComentarioError { erros: { comentario: string } }`, `type ItemDoFeed = RegistroDoDiario & { patientId: string; paciente: string; visto: boolean; somenteLeitura: boolean }` (`somenteLeitura` = paciente bloqueado ou anonimizado), `feedDeDiarios(ctx: TenantContext, o?: { db?: Db; limite?: number }): Promise<ItemDoFeed[]>`, `abrirRegistro(ctx: TenantContext, id: string, o?: { db?: Db; agora?: Date }): Promise<ItemDoFeed | null>` (preenche `visto_pela_nutri_em` na primeira abertura), `comentarRegistro(ctx: TenantContext, id: string, texto: unknown, o?: { db?: Db; agora?: Date }): Promise<{ primeiro: boolean }>`.
 
 - [ ] **Step 1: Testes (falham)** — `src/modules/portal/diario-nutri.test.ts`
 
 ```ts
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, notifications } from '@/db/schema';
+import { auditLog, diaryEntries, notifications, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { registrarNoDiario } from './diario';
 import { abrirRegistro, ComentarioError, comentarRegistro, feedDeDiarios, MSG_COMENTARIO } from './diario-nutri';
 
@@ -4082,6 +4539,19 @@ describe('Diários da nutricionista (US-043)', () => {
     await expect(comentarRegistro(ctxPaciente(T.tenantId, ana.id), a1.id, 'eu mesmo', { db: app.db })).rejects.toThrow(/sessão da nutricionista/);
   });
 
+  it('paciente bloqueado (pedido de exclusão) ou anonimizado: o prontuário é só leitura — comentar recusa e não manda push', async () => {
+    const { T, ana, bia, a1, b1 } = await cenario();
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, ana.id)), app.db);
+    expect((await abrirRegistro(T.ctx, a1.id, { db: app.db }))?.somenteLeitura).toBe(true); // a tela esconde o "Comentar"
+    await expect(comentarRegistro(T.ctx, a1.id, 'Ótimo!', { db: app.db })).rejects.toThrow(PacienteBloqueadoError);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ anonimizadoEm: new Date() }).where(eq(patients.id, bia.id)), app.db);
+    await expect(comentarRegistro(T.ctx, b1.id, 'Ótimo!', { db: app.db })).rejects.toThrow(PacienteBloqueadoError);
+    const linhas = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(inArray(diaryEntries.id, [a1.id, b1.id])), app.db);
+    expect(linhas.map((l) => l.comentarioNutri)).toEqual([null, null]);
+    const pushes = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'comentario_diario')), app.db);
+    expect(pushes).toEqual([]);
+  });
+
   it('leitura do feed auditada por paciente; o texto do diário não vai para o audit_log', async () => {
     const { T, ana } = await cenario();
     await feedDeDiarios(T.ctx, { db: app.db });
@@ -4098,7 +4568,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { idValido } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { avisarComentario } from './avisos';
 import { paraRegistro, type RegistroDoDiario } from './diario';
@@ -4119,18 +4589,20 @@ export class ComentarioError extends Error {
   }
 }
 
-export type ItemDoFeed = RegistroDoDiario & { patientId: string; paciente: string; visto: boolean };
+export type ItemDoFeed = RegistroDoDiario & { patientId: string; paciente: string; visto: boolean; somenteLeitura: boolean };
 
 const soNutri = (ctx: TenantContext) => {
   if (ctx.role !== 'nutri') throw new Error('os diários dos pacientes são lidos e comentados só na sessão da nutricionista');
 };
 
-const colunas = { e: diaryEntries, paciente: patients.nome };
-const paraItem = (r: { e: typeof diaryEntries.$inferSelect; paciente: string }): ItemDoFeed => ({
+// Bloqueado ou anonimizado: só leitura (a mesma regra de carregarPacienteParaEscrita) — a tela esconde o "Comentar"
+const colunas = { e: diaryEntries, paciente: patients.nome, somenteLeitura: sql<boolean>`(${patients.status} = 'bloqueado' or ${patients.anonimizadoEm} is not null)` };
+const paraItem = (r: { e: typeof diaryEntries.$inferSelect; paciente: string; somenteLeitura: boolean }): ItemDoFeed => ({
   ...paraRegistro(r.e),
   patientId: r.e.patientId,
   paciente: r.paciente,
   visto: r.e.vistoPelaNutriEm !== null,
+  somenteLeitura: r.somenteLeitura,
 });
 
 /** US-043 "Feed de diários": registros recentes de todos os pacientes, não vistos primeiro. Leitura auditada por paciente. */
@@ -4171,7 +4643,11 @@ export async function abrirRegistro(ctx: TenantContext, id: string, o: { db?: Db
   );
 }
 
-/** US-043 "Comentar" / D13: um comentário por registro (corrigível); o push sai só no primeiro. */
+/**
+ * US-043 "Comentar" / D13: um comentário por registro (corrigível); o push sai só no primeiro. Escrita no prontuário
+ * como as outras da nutricionista: o paciente é travado antes (carregarPacienteParaEscrita — mesma ordem de travas:
+ * paciente → registro) e bloqueado/anonimizado recusa com PacienteBloqueadoError (US-018 "só para consulta").
+ */
 export async function comentarRegistro(ctx: TenantContext, id: string, texto: unknown, o: { db?: Db; agora?: Date } = {}): Promise<{ primeiro: boolean }> {
   soNutri(ctx);
   const comentario = typeof texto === 'string' ? texto.normalize('NFC').trim() : '';
@@ -4182,6 +4658,9 @@ export async function comentarRegistro(ctx: TenantContext, id: string, texto: un
   return withTenant(
     ctx,
     async (tx) => {
+      const [alvo] = await tx.select({ patientId: diaryEntries.patientId }).from(diaryEntries).where(eq(diaryEntries.id, id));
+      if (!alvo) throw new ComentarioError({ comentario: MSG_COMENTARIO.naoEncontrado });
+      await carregarPacienteParaEscrita(tx, alvo.patientId);
       const [atual] = await tx.select({ patientId: diaryEntries.patientId, comentario: diaryEntries.comentarioNutri }).from(diaryEntries).where(eq(diaryEntries.id, id)).for('update');
       if (!atual) throw new ComentarioError({ comentario: MSG_COMENTARIO.naoEncontrado });
       await tx.update(diaryEntries).set({ comentarioNutri: comentario, comentadoEm: agora, vistoPelaNutriEm: sql`coalesce(${diaryEntries.vistoPelaNutriEm}, ${agora})`, updatedAt: agora }).where(eq(diaryEntries.id, id));
@@ -4204,6 +4683,7 @@ Run: `pnpm test src/modules/portal/diario-nutri.test.ts` → PASS.
 'use server';
 import { revalidatePath } from 'next/cache';
 import { requireNutri } from '@/lib/tenant-session';
+import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { ComentarioError, comentarRegistro, MSG_COMENTARIO } from '@/modules/portal/diario-nutri';
 
 export type ComentarioState = { erro?: string; ok?: string; valor?: string };
@@ -4215,6 +4695,7 @@ export async function comentarAction(id: string, _: ComentarioState, formData: F
     await comentarRegistro(ctx, id, valor);
   } catch (e) {
     if (e instanceof ComentarioError) return { erro: e.erros.comentario, valor };
+    if (e instanceof PacienteBloqueadoError) return { erro: e.message, valor }; // corrida com o bloqueio: a página já esconde o formulário
     throw e;
   }
   revalidatePath(`/painel/diarios/${id}`);
@@ -4290,6 +4771,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { signFileUrl } from '@/lib/signed-url';
 import { quandoComFuso } from '@/modules/agenda/fuso';
 import { MSG_DIARIO } from '@/modules/portal/diario-constantes';
+import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { abrirRegistro } from '@/modules/portal/diario-nutri';
 import { Cabecalho } from '../../cabecalho';
 import { ComentarioForm } from '../comentario-form';
@@ -4316,7 +4798,14 @@ export default async function RegistroDoDiarioPage({ params }: PageProps<'/paine
         )}
         {r.foto.estado === 'processando' && <p role="status">{MSG_DIARIO.processando}</p>}
         {r.foto.estado === 'falhou' && <p>{MSG_DIARIO.fotoFalhou}</p>}
-        <ComentarioForm id={r.id} atual={r.comentario} />
+        {r.somenteLeitura ? (
+          <>
+            {r.comentario && <p className="whitespace-pre-line">{`Comentário da nutricionista: ${r.comentario}`}</p>}
+            <p role="status">{MSG_BLOQUEADO}</p>
+          </>
+        ) : (
+          <ComentarioForm id={r.id} atual={r.comentario} />
+        )}
       </main>
     </>
   );
@@ -4407,7 +4896,9 @@ async function comAvaliacoes() {
         (${T.tenantId}, ${p.id}, '2026-08-01', 80, 170, 30.5, '{"triceps": 20}', '{"cintura": 90}'),
         (${T.tenantId}, ${p.id}, '2026-09-01', 77, 170, 28.1, '{"triceps": 18}', '{"cintura": 86}')`);
       await tx.execute(sql`insert into exams (tenant_id, patient_id, data, titulo, valores) values (${T.tenantId}, ${p.id}, '2026-09-01', 'Glicemia', '[{"nome":"Glicose","valor":90,"unidade":"mg/dL","referencia":null}]')`);
-      await tx.execute(sql`insert into consultations (tenant_id, patient_id, data, orientacoes_paciente, notas_privadas) values (${T.tenantId}, ${p.id}, '2026-09-01', 'Caminhar 30 min', 'segredo da nutri')`);
+      // A nota privada fica em consultation_notes (staff_only, US-016), não em consultations
+      const [c] = (await tx.execute<{ id: string }>(sql`insert into consultations (tenant_id, patient_id, data, orientacoes_paciente) values (${T.tenantId}, ${p.id}, '2026-09-01', 'Caminhar 30 min') returning id`)).rows;
+      await tx.execute(sql`insert into consultation_notes (tenant_id, patient_id, consultation_id, texto) values (${T.tenantId}, ${p.id}, ${c.id}, 'segredo da nutri')`);
     },
     app.db,
   );
@@ -4949,7 +5440,58 @@ export function linkDaExportacao(appUrl: string, patientId: string, exportId: st
 }
 ```
 
-(`import type` não puxa o arquivo do worker para o grafo do Next — a guarda de `exportacao.test.ts` continua verde; se ela reclamar, mover `EscopoExportacao` para `exportacao.ts` e importar de lá no job.) Em `solicitarExportacao`, `deps` ganha `escopo?: EscopoExportacao` e o `insert(dataExports).values({ … })` ganha `escopo: deps.escopo ?? 'equipe',`.
+(`import type` não puxa o arquivo do worker para o grafo do Next — a guarda de `exportacao.test.ts` continua verde; se ela reclamar, mover `EscopoExportacao` para `exportacao.ts` e importar de lá no job.) Em `solicitarExportacao`, `deps` ganha `escopo?: EscopoExportacao`, e o escopo vale em **toda** a lógica do pedido, não só no `insert` — senão os pedidos do titular e da equipe se misturam: o pendente de um seria devolvido ao outro (o e-mail vai para `solicitadoPor`, então o paciente não recebe nada e a nutricionista recebe o ZIP do titular), ou marcado "falhou" pelo pedido do outro. Com `const escopo = deps.escopo ?? 'equipe';` no começo:
+
+```ts
+      // O pendente reaproveitado (ou dado como perdido) é só o do MESMO escopo: o da equipe e o do titular
+      // têm destinatário (solicitadoPor), link e conteúdo diferentes (D16)
+      const [pendente] = await tx
+        .select({ id: dataExports.id, createdAt: dataExports.createdAt })
+        .from(dataExports)
+        .where(and(eq(dataExports.patientId, p.id), eq(dataExports.escopo, escopo), eq(dataExports.status, 'pendente')));
+```
+
+(o `update(…).set({ status: 'falhou' })` continua pelo `id` desse pendente) e o `insert(dataExports).values({ … })` ganha `escopo,`. Atualizar o comentário de `solicitarExportacao`: "Um pedido do mesmo escopo ainda sendo gerado é reaproveitado…".
+
+Em `exportacao-job.ts`, `expirarAnteriores` passa a receber o escopo do pedido e só apaga os ZIPs prontos **do mesmo escopo** (o ZIP do titular pronto não pode apagar o que a nutricionista acabou de pedir, nem o contrário): assinatura `expirarAnteriores(ctx, patientId, atual, escopo: EscopoExportacao, deps)`, o `where` ganha `eq(dataExports.escopo, escopo)`, a chamada em `gerarExportacao` vira `expirarAnteriores(ctx, pedido.patientId, pedido.id, pedido.escopo as EscopoExportacao, { db, dataDir: deps.dataDir })` e o comentário vira "Um ZIP válido por paciente **e escopo**". A varredura diária (`expirarExportacoesVencidas`) não muda: vencido é vencido em qualquer escopo.
+
+Testes em `exportacao.test.ts` (no `describe` existente):
+
+```ts
+it('D16: pedidos do titular e da equipe não se misturam — o pendente de um não é reaproveitado nem marcado "falhou" pelo outro', async () => {
+  const T = await novoTenant(app.db);
+  const { paciente: p, userId } = await pacienteComConta(app.db, T);
+  const ctxTitular = ctxPaciente(T.tenantId, p.id, userId);
+  const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+  const doTitular = await solicitarExportacao(ctxTitular, p.id, { ...deps, escopo: 'titular' });
+  expect(doTitular).not.toBe(daEquipe);
+  expect(await solicitarExportacao(T.ctx, p.id, deps)).toBe(daEquipe); // duplo clique da equipe: o mesmo
+  expect(await solicitarExportacao(ctxTitular, p.id, { ...deps, escopo: 'titular' })).toBe(doTitular);
+  // 31 min depois a equipe pede de novo: só o pendente DELA vira "falhou"; o do titular segue pendente
+  const depois = { ...deps, now: new Date(now.getTime() + 31 * 60_000) };
+  expect(await solicitarExportacao(T.ctx, p.id, depois)).not.toBe(daEquipe);
+  expect(await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, depois.now)).toEqual({ estado: 'falhou' });
+  expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, depois.now)).toEqual({ estado: 'pendente' });
+  const [linha] = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.id, doTitular)), app.db);
+  expect(linha).toMatchObject({ escopo: 'titular', solicitadoPor: userId });
+});
+
+it('D16: o ZIP do titular pronto não apaga o da equipe (um ZIP válido por paciente e escopo); cada e-mail vai para quem pediu', async () => {
+  const T = await novoTenant(app.db);
+  const { paciente: p, userId, email } = await pacienteComConta(app.db, T);
+  const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+  await gerarExportacao({ tenantId: T.tenantId, exportId: daEquipe }, { ...deps, ultimaTentativa: false });
+  const doTitular = await solicitarExportacao(ctxPaciente(T.tenantId, p.id, userId), p.id, { ...deps, escopo: 'titular' });
+  expect(await gerarExportacao({ tenantId: T.tenantId, exportId: doTitular }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+  expect((await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, now)).estado).toBe('pronta');
+  const [daNutri] = await emailsNaFila('exportacao_pronta', `nutri-${T.nutriId.slice(0, 8)}@teste.dev`);
+  expect(daNutri.link).toBe(`http://localhost:3000/painel/pacientes/${p.id}/exportacoes/${daEquipe}`);
+  const [doPaciente] = await emailsNaFila('exportacao_pronta', email);
+  expect(doPaciente).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${doTitular}`, titular: true });
+});
+```
+
+(`ctxPaciente` de `../../../test/pacientes` e `pacienteComConta` de `../../../test/portal`, os mesmos do primeiro teste deste passo; o e-mail da nutricionista é o que `novoTenant` grava.)
 
 `src/modules/pacientes/exportacao-job.ts`:
 - em `DadosExportacao`, depois de `dispositivosPush`:
@@ -5053,6 +5595,17 @@ describe('Meus dados (US-046, D16, D17)', () => {
     expect(await pedirMeusDados(ctx, { db: app.db, agora: new Date('2026-10-06T15:01:00Z') })).toBe('pedido');
   });
 
+  it('pendente do titular há mais de 30 min (job perdido) não prende por 24 h; o pendente da equipe não conta para o titular', async () => {
+    const { T, paciente, ctx } = await titular();
+    const agora = new Date('2026-10-05T15:00:00Z');
+    await withTenant(T.ctx, (tx) => tx.insert(dataExports).values({ tenantId: T.tenantId, patientId: paciente.id, escopo: 'equipe', createdAt: agora, updatedAt: agora }), app.db);
+    expect(await pedirMeusDados(ctx, { db: app.db, agora })).toBe('pedido'); // o da equipe, pendente, não é "já pedido"
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: new Date('2026-10-05T15:20:00Z') })).toBe('ja_pedido');
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: new Date('2026-10-05T15:31:00Z') })).toBe('pedido');
+    const pedidos = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.patientId, paciente.id)), app.db);
+    expect(pedidos.map((e) => `${e.escopo}:${e.status}`).sort()).toEqual(['equipe:pendente', 'titular:falhou', 'titular:pendente']);
+  });
+
   it('o titular vê só os próprios pedidos do escopo titular (o da equipe, com rascunho, não abre pelo portal)', async () => {
     const { T, paciente, ctx } = await titular();
     const [daEquipe] = await withTenant(T.ctx, (tx) => tx.insert(dataExports).values({ tenantId: T.tenantId, patientId: paciente.id, escopo: 'equipe' }).returning(), app.db);
@@ -5075,7 +5628,7 @@ describe('Meus dados (US-046, D16, D17)', () => {
 `src/modules/portal/meus-dados.ts`:
 
 ```ts
-import { and, eq, gt, ne } from 'drizzle-orm';
+import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { getDb, type Db } from '@/db/client';
 import { dataExports, patients, privacyRequests } from '@/db/schema';
@@ -5083,7 +5636,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { formatarData, hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
-import { solicitarExportacao, type EstadoExportacao } from '@/modules/pacientes/exportacao';
+import { PENDENTE_MAX_MS, solicitarExportacao, type EstadoExportacao } from '@/modules/pacientes/exportacao';
 import { PRAZO_RESPOSTA_DIAS } from '@/modules/pacientes/lgpd';
 import { auditRead } from '@/modules/plataforma/audit';
 
@@ -5115,7 +5668,16 @@ export async function pedirMeusDados(ctx: TenantContext, deps: { db?: Db; agora?
       tx
         .select({ id: dataExports.id })
         .from(dataExports)
-        .where(and(eq(dataExports.patientId, patientId), eq(dataExports.escopo, 'titular'), ne(dataExports.status, 'falhou'), gt(dataExports.createdAt, new Date(agora.getTime() - UM_DIA_MS)))),
+        .where(
+          and(
+            eq(dataExports.patientId, patientId),
+            eq(dataExports.escopo, 'titular'),
+            gt(dataExports.createdAt, new Date(agora.getTime() - UM_DIA_MS)),
+            // "falhou" não conta; pendente há mais de 30 min é job perdido (solicitarExportacao o marca "falhou"
+            // e cria outro) — sem isto o titular ficaria 24 h preso a um pedido que nunca chega
+            or(inArray(dataExports.status, ['pronta', 'expirada']), and(eq(dataExports.status, 'pendente'), gt(dataExports.createdAt, new Date(agora.getTime() - PENDENTE_MAX_MS)))),
+          ),
+        ),
     db,
   );
   if (recente) return 'ja_pedido';
@@ -5495,7 +6057,7 @@ export default async function Perfil() {
       <p>{`Conectado como ${data.user.email}.`}</p>
       <section aria-labelledby="notificacoes" className="space-y-3">
         <h2 id="notificacoes" className="text-lg font-semibold">Notificações</h2>
-        <AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} />
+        <AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} dono={ctx.patientId!} />
         <WhatsappForm ativo={whatsapp.ativo} />
       </section>
       <section aria-labelledby="privacidade" className="space-y-3">
@@ -6273,7 +6835,7 @@ git commit -m "test(a11y): auditoria axe (WCAG 2.1 AA) de todas as telas do PWA 
 
 **3. Consistência de tipos e nomes:** `PACIENTE_ESCREVE`/`findPacienteEscritaViolations`/`app_allow_paciente_escrita` (T1) crescem em T2 (`stored_files`), T6 (`access_events`, `push_subscriptions`), T7 (`diary_entries`), T11 (`privacy_requests`, `data_exports`), sempre migration + lista na mesma tarefa; `salvarArquivo(…, { patientId })` + `TIPOS_DO_PACIENTE` (T2) em T7 e no job da foto; `withConta` (T3) só em `vinculosDaConta`, que T6 (`inscreverAparelho` usa `acesso.vinculos`) e T11 (`anonimizarVencidos`, `todos: true`) reaproveitam; `requirePaciente`/`requireApiPaciente`/`PacienteAccess` (T3) em todas as telas e rotas de T4–T12; `CACHE_PLANO`/`URL_PLANO` (T5) no `sw.ts` e no `SairPortal`; `limparAparelho` (T5 → T6, versão completa na T6); `urlDaNotificacao` (T6) no `sw.ts`; `avisarComentario` (T6) em `comentarRegistro` (T8); `avisarPlanoNovo` (T6) em `publicarPlano`; `paraRegistro`/`RegistroDoDiario` (T7) em T8; `MSG_DIARIO`/`COMENTARIO_MAX` (T7) em T8; `montarDados(…, escopo)` e `EscopoExportacao` (T2) em T11; `ITENS_DO_PORTAL` cresce em T4, T7, T9, T10, T11, T12; `pacienteNoPortal`/`publicarPlanoSimples`/`avaliar`/`mostrarPercGordura`/`marcarParaPaciente` (`e2e/portal.ts`) usados até T13; `foto_status` com `'removida'` (T7) usado em T11.
 
-**4. Review Focus:** 1 (sessão onde não deve) → T3 (`requirePaciente`, `escolherVinculo` com cookie forjado, arquivado, suspenso, nutricionista no portal, E2E de arquivar) e T13; 2 (escrita fora do permitido) → T1 (`paciente-escrita.test.ts`, matriz de isolamento, suíte do Plano 05) e T2 (`paciente_arquivos`); 3 (foto) → T7 (tipo pelo conteúdo, 10 MB, 40 MP, corrompida, HEIC, EXIF, corrida do 11º, cota, idempotência); 4 (aparelho compartilhado) → T5 (`podeGuardarPlano`, `Clear-Site-Data`, E2E "Sair" apaga o cache) e T6 (`cancelarAparelho` em todos os vínculos, `urlDaNotificacao`); 5 (fuso) → T4 (21:00 → café do dia seguinte), T6 (23:30/00:10), T7 (limite no dia de Brasília), T11 (prazo do pedido feito às 23:00), T12 (`precisaDaSigla`).
+**4. Review Focus:** 1 (sessão onde não deve) → T3 (`requirePaciente`, `escolherVinculo` com cookie forjado, arquivado, suspenso, nutricionista no portal, E2E de arquivar) e T13; 2 (escrita fora do permitido) → T1 (`paciente-escrita.test.ts`, matriz de isolamento, suíte do Plano 05) e T2 (`paciente_arquivos`); 3 (foto) → T7 (tipo pelo conteúdo, 10 MB, 40 MP, corrompida, HEIC, EXIF, corrida do 11º, cota, idempotência); 4 (aparelho compartilhado) → T5 (`podeGuardarPlano`, `precisaBuscarPlano`/`conferirDono`, `Clear-Site-Data` + `nd_vinculo` apagado, E2E "Plano" pelo menu, "Sair" e sessão vencida apagam o cache) e T6 (`cancelarAparelho` em todos os vínculos, `app_soltar_endpoint_push`/`sincronizar`, `urlDaNotificacao`); 5 (fuso) → T4 (21:00 → café do dia seguinte), T6 (23:30/00:10), T7 (limite no dia de Brasília), T11 (prazo do pedido feito às 23:00), T12 (`precisaDaSigla`).
 
 ## Decisões para o dono
 
