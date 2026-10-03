@@ -34,7 +34,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { requireApiPaciente, requirePaciente, cookieDoVinculo, lerCookie } = await import('./paciente-session');
+const { requireApiPaciente, requirePaciente, cookieDoVinculo, cookieDoVinculoApagado, lerCookie } = await import('./paciente-session');
 const db = getDb();
 afterAll(() => closeDb());
 beforeEach(() => {
@@ -130,10 +130,12 @@ describe('requireApiPaciente', () => {
     expect(s.ok ? null : [s.response.status, await s.response.json()]).toEqual([403, { erro: 'Conta temporariamente indisponível' }]);
   });
 
-  it('cookieDoVinculo: httpOnly, SameSite=Lax, 30 dias, Secure só em produção; lerCookie acha o valor', () => {
+  it('cookieDoVinculo: httpOnly, SameSite=Lax, 30 dias, Secure só em produção; cookieDoVinculoApagado (Sair) com os mesmos atributos; lerCookie acha o valor', () => {
     const id = randomUUID();
     expect(cookieDoVinculo(id, false)).toBe(`nd_vinculo=${id}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`);
     expect(cookieDoVinculo(id, true)).toContain('; Secure');
+    expect(cookieDoVinculoApagado(false)).toBe('nd_vinculo=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax');
+    expect(cookieDoVinculoApagado(true)).toBe('nd_vinculo=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
     expect(lerCookie(`nd.session_token=abc=; nd_vinculo=${id}`, 'nd_vinculo')).toBe(id);
     expect(lerCookie('nd.session_token=abc', 'nd_vinculo')).toBeUndefined();
     expect(lerCookie(null, 'nd_vinculo')).toBeUndefined();

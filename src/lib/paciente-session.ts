@@ -30,6 +30,11 @@ export function cookieDoVinculo(tenantId: string, secure: boolean): string {
   return `${COOKIE_VINCULO}=${tenantId}; Path=/; Max-Age=${TRINTA_DIAS_S}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
+/** "Sair" (D3): o vínculo escolhido sai com a sessão — senão a próxima conta no aparelho herda a escolha. */
+export function cookieDoVinculoApagado(secure: boolean): string {
+  return `${COOKIE_VINCULO}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
+
 export function lerCookie(header: string | null, nome: string): string | undefined {
   for (const parte of (header ?? '').split(';')) {
     const [n, ...v] = parte.trim().split('=');

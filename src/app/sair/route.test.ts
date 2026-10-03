@@ -34,6 +34,9 @@ describe('POST /sair (botão "Sair")', () => {
     expect(r.headers.get('location')).toBe('/entrar');
     expect(await sessoesDe(u.id)).toHaveLength(0);
     expect(cookiesApagados(r)).toHaveLength(1);
+    expect(r.headers.get('clear-site-data')).toBe('"cache", "storage"'); // D6: cache do plano, service worker e inscrição de push do aparelho
+    // D3: o cookie do vínculo sai junto com a sessão — senão a próxima conta no aparelho herda a escolha
+    expect(r.headers.getSetCookie()).toContainEqual(expect.stringMatching(/^nd_vinculo=; Path=\/; Max-Age=0; HttpOnly; SameSite=Lax/));
     // o cookie antigo não vale mais em lugar nenhum (nem em outra aba que ainda o tenha)
     expect(await auth.api.getSession({ headers: new Headers({ cookie: u.cookie }) })).toBeNull();
   });
@@ -54,6 +57,8 @@ describe('POST /sair (botão "Sair")', () => {
     const r = await POST(pedido());
     expect(r.status).toBe(303);
     expect(r.headers.get('location')).toBe('/entrar');
+    expect(r.headers.get('clear-site-data')).toBe('"cache", "storage"'); // D6: cache do plano, service worker e inscrição de push do aparelho
+    expect(r.headers.getSetCookie()).toContainEqual(expect.stringMatching(/^nd_vinculo=; Path=\/; Max-Age=0; HttpOnly; SameSite=Lax/));
   });
 
   it('outra aba já saiu (cookie de sessão que já não existe): 303 para /entrar, sem erro, e limpa o cookie velho', async () => {
@@ -132,6 +137,7 @@ describe('POST /sair (botão "Sair")', () => {
       expect(r.status).toBe(303);
       expect(r.headers.get('location')).toBe('/sair/erro');
       expect(r.headers.getSetCookie()).toHaveLength(0);
+      expect(r.headers.get('clear-site-data')).toBeNull(); // a sessão ficou: o aparelho também
       expect(await sessoesDe(u.id)).toHaveLength(1);
       expect(chamadas).toHaveLength(1);
       const [objeto, mensagem] = chamadas[0] as unknown as [Record<string, unknown>, string];

@@ -1,15 +1,18 @@
 import { requirePaciente } from '@/lib/paciente-session';
 import { MSG_PLANO_PACIENTE, planoDoPaciente } from '@/modules/portal/plano';
+import { GuardarPlano } from '../../plano-guardado';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) {
-  const { ctx, tenant } = await requirePaciente('/p/plano');
+  const { ctx, tenant, vinculo } = await requirePaciente('/p/plano');
   const plano = await planoDoPaciente(ctx, tenant.fuso);
   const { pdf } = await searchParams;
   return (
     <main className="space-y-6 p-6">
       <h1 className="text-2xl font-semibold">Plano</h1>
+      {/* D6: plano novo = id novo; o service worker só busca de novo se a versão ou o dono mudarem, ou 1 vez por dia */}
+      <GuardarPlano dono={vinculo.patientId} versao={plano?.id ?? 'sem-plano'} />
       {!plano ? (
         <p role="status">{MSG_PLANO_PACIENTE.semPlano}</p>
       ) : (

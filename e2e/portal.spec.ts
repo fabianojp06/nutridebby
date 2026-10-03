@@ -50,3 +50,42 @@ test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu pla
   await expect(p.page.getByRole('link', { name: 'Baixar PDF' })).toBeVisible();
   await p.page.context().close();
 });
+
+const entradasDoPlano = (page: Page) => page.evaluate(async () => ((await caches.keys()).includes('nd-plano-v1') ? (await (await caches.open('nd-plano-v1')).keys()).length : 0));
+
+test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.4');
+  await publicarPlanoSimples(nutri, p.prontuario);
+  await p.page.goto('/p/inicio');
+  await p.page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  // Uso normal: o menu é next/link (fetch RSC do roteador, não navegação 'navigate') — a página pede ao service worker
+  await p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Plano' }).click();
+  await expect(p.page).toHaveURL(/\/p\/plano$/);
+  await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
+  await p.page.context().setOffline(true);
+  await p.page.goto('/p/plano');
+  await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Offline — exibindo última versão' })).toBeVisible();
+  await p.page.goto('/p/inicio');
+  await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  await p.page.context().setOffline(false);
+  await p.page.goto('/p/inicio');
+  await p.page.getByRole('button', { name: 'Sair', exact: true }).click();
+  await expect(p.page).toHaveURL(/\/entrar$/);
+  expect(await p.page.evaluate(() => caches.keys())).not.toContain('nd-plano-v1');
+  expect((await p.page.context().cookies()).map((c) => c.name)).not.toContain('nd_vinculo');
+  await p.page.context().close();
+});
+
+test('plano guardado é da conta: sessão vencida (sem "Sair") leva ao /entrar, que apaga a cópia antes de outra pessoa entrar (Review Focus 4)', async ({ browser }) => {
+  const a = await pacienteNoPortal(browser, nutri, '10.9.10.5');
+  await publicarPlanoSimples(nutri, a.prontuario);
+  await a.page.goto('/p/plano');
+  await expect.poll(() => entradasDoPlano(a.page)).toBe(1);
+  await a.page.context().clearCookies(); // a sessão de A "vence" no aparelho
+  await a.page.goto('/p/inicio');
+  await expect(a.page).toHaveURL(/\/entrar/);
+  await expect.poll(() => entradasDoPlano(a.page)).toBe(0);
+  await a.page.context().close();
+});

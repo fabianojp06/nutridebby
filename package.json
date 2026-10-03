@@ -22,7 +22,8 @@
     "admin:criar": "tsx --env-file-if-exists=.env.local scripts/admin-criar.ts",
     "e2e:seed": "tsx --env-file-if-exists=.env.local scripts/e2e-seed.ts",
     "seed:taco": "tsx scripts/seeds/gerar-taco.ts",
-    "seed:medidas": "tsx scripts/seeds/gerar-medidas.ts"
+    "seed:medidas": "tsx scripts/seeds/gerar-medidas.ts",
+    "icones": "tsx scripts/gerar-icones.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.1",
