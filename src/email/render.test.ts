@@ -57,6 +57,9 @@ describe('exclusao_atendida (US-018)', () => {
     const r = renderEmail({ tipo: 'exclusao_atendida', para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
     expect(r.subject).toBe('Seu pedido de exclusão de dados foi atendido');
     for (const t of ['Debby Silva atendeu o seu pedido de exclusão de dados', 'Foram apagados agora', 'LGPD, art. 16, I', 'até 15/09/2046']) expect(r.text).toContain(t);
+    // Plano 06: o que o atendimento apaga e encerra também está no aviso ao titular
+    for (const t of ['as fotos do diário alimentar', 'as notificações no aparelho', 'Suas consultas futuras foram canceladas', 'não tem mais acesso ao portal deste acompanhamento'])
+      expect(r.text).toContain(t);
   });
 });
 

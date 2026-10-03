@@ -18,7 +18,7 @@ export default async function MeuAcompanhamento() {
       {proxima && (
         <p>
           Próxima consulta:{' '}
-          <Link href={`/p/agenda/${proxima.id}`} className="underline">
+          <Link href={`/p/agenda/${proxima.id}`} className="inline-flex min-h-11 items-center underline">
             <QuandoLocal semFuso={formatarQuando(proxima.inicio, tenant.fuso)} comFuso={quandoComFuso(proxima.inicio, tenant.fuso)} fuso={tenant.fuso} />
           </Link>
         </p>

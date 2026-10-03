@@ -18,6 +18,7 @@ describe('lista de compras (RN-13)', () => {
   });
   it('g abaixo de 1000, kg com 1 casa a partir de 1000; grupos na ordem da TACO, itens em ordem alfabética', () => {
     expect([quantidadeTexto(999), quantidadeTexto(1000), quantidadeTexto(12.5), quantidadeTexto(1060)]).toEqual(['999 g', '1,0 kg', '12,5 g', '1,1 kg']);
+    expect([quantidadeTexto(999.99), quantidadeTexto(999.94), quantidadeTexto(12.46)]).toEqual(['1,0 kg', '999,9 g', '12,5 g']); // RN-13: kg a partir de 1000 depois de arredondar
     const l = listaDeCompras([{ nome: 'Ovo', grupo: 'Ovos e derivados', quantidadeG: 50 }, { nome: 'Banana', grupo: 'Frutas e derivados', quantidadeG: 50 }, { nome: 'Abacate', grupo: 'Frutas e derivados', quantidadeG: 50 }], 1);
     expect(l.map((g) => g.grupo)).toEqual(['Frutas e derivados', 'Ovos e derivados']);
     expect(l[0].itens.map((i) => i.nome)).toEqual(['Abacate', 'Banana']);

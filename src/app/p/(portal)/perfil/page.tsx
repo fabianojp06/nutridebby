@@ -31,7 +31,7 @@ export default async function Perfil() {
       </section>
       {vinculos.length > 1 && (
         <p>
-          <Link href="/p/escolher?volta=%2Fp%2Finicio" className="underline">
+          <Link href="/p/escolher?volta=%2Fp%2Finicio" className="inline-flex min-h-11 items-center underline">
             Trocar de nutricionista
           </Link>
         </p>

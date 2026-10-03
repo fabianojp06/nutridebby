@@ -33,15 +33,19 @@ export default async function ConsultaDoPortal({ params, searchParams }: PagePro
         <QuandoLocal semFuso={formatarQuando(c.inicio, tenant.fuso)} comFuso={quandoComFuso(c.inicio, tenant.fuso)} fuso={tenant.fuso} />
         {` · ${ROTULO_MODALIDADE[c.modalidade]}`}
       </p>
-      {c.modalidade === 'online' && c.linkOnline && <p><a href={c.linkOnline} className="underline" rel="noreferrer">Link da chamada</a></p>}
+      {ativa && c.modalidade === 'online' && c.linkOnline && (
+        <p>
+          <a href={c.linkOnline} className="inline-flex min-h-11 items-center underline" rel="noreferrer">Link da chamada</a>
+        </p>
+      )}
       {ativa ? <AcoesConsulta id={c.id} confirmada={c.status === 'confirmada'} podeAlterar={c.podeAlterar} pedidoRemarcacao={c.pedidoRemarcacao} /> : <p>{c.status === 'cancelada' ? 'Esta consulta foi cancelada.' : 'Consulta encerrada'}</p>}
       {s && (
         <section aria-labelledby="remarcar" className="space-y-3">
           <h2 id="remarcar" className="text-lg font-semibold">Remarcar</h2>
-          <nav aria-label="Semana" className="flex gap-3 text-sm">
-            {s.semana > s.primeira && <Link href={`/p/agenda/${c.id}?semana=${somarDias(s.semana, -7)}`} className="underline">Semana anterior</Link>}
+          <nav aria-label="Semana" className="flex items-center gap-3 text-sm">
+            {s.semana > s.primeira && <Link href={`/p/agenda/${c.id}?semana=${somarDias(s.semana, -7)}`} className="inline-flex min-h-11 items-center underline">Semana anterior</Link>}
             <span>{`${formatarData(s.semana)} a ${formatarData(somarDias(s.semana, 6))}`}</span>
-            {s.semana < s.ultima && <Link href={`/p/agenda/${c.id}?semana=${somarDias(s.semana, 7)}`} className="underline">Próxima semana</Link>}
+            {s.semana < s.ultima && <Link href={`/p/agenda/${c.id}?semana=${somarDias(s.semana, 7)}`} className="inline-flex min-h-11 items-center underline">Próxima semana</Link>}
           </nav>
           <AgendarForm acao={remarcarAction.bind(null, c.id)} horarios={s.horarios} temOnline={Boolean(tenant.linkOnlinePadrao)} rotulo="Remarcar para este horário" />
         </section>

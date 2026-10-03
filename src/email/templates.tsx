@@ -190,7 +190,7 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const linhas = [
         `Olá, ${msg.nome}!`,
         `${msg.nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.`,
-        'Foram apagados agora: as autorizações de mensagens por WhatsApp e os convites de acesso. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
+        'Foram apagados agora: as fotos do diário alimentar, as autorizações de mensagens por WhatsApp, as notificações no aparelho e os convites de acesso. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
         `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
         'Se tiver dúvidas, fale com a sua nutricionista.',
       ];

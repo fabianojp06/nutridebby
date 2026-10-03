@@ -24,6 +24,15 @@ describe('Perfil > Notificações: WhatsApp (US-011)', () => {
     expect(await situacaoDoWhatsapp(ctx, app.db)).toEqual({ ativo: true, temTelefone: true });
   });
 
+  it('"Salvar" com o WhatsApp já autorizado não muda nada: a data e a origem do opt-in ("nutri") ficam como estavam', async () => {
+    const T = await novoTenant(app.db);
+    const quando = new Date('2026-09-01T12:00:00Z');
+    const p = await novoPaciente(app.db, T.ctx, { telefoneE164: '+5511912345678', whatsappOptinEm: quando, whatsappOptinOrigem: 'nutri' });
+    await preferenciaWhatsapp(ctxPaciente(T.tenantId, p.id), true, { db: app.db, agora: new Date('2026-10-03T12:00:00Z') });
+    const [q] = await withTenant(T.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, p.id)), app.db);
+    expect(q).toMatchObject({ whatsappOptinEm: quando, whatsappOptinOrigem: 'nutri', whatsappOptoutEm: null });
+  });
+
   it('sem telefone, marcar é recusado com a orientação; desmarcar não muda nada', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx, { telefoneE164: null });

@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { avisarAction, remarcarAction } = await import('./actions');
+const { avisarAction, cancelarAction, remarcarAction } = await import('./actions');
 const db = getDb();
 afterAll(async () => {
   await stopBoss();
@@ -106,5 +106,17 @@ describe('avisarAction (US-035 no PWA)', () => {
     }
     const [nutri] = await db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
     expect(await emailsNaFila('aviso_agenda', nutri.email)).toEqual([]);
+  });
+});
+
+describe('cancelarAction (US-033 no PWA)', () => {
+  it('cancela e refaz a lista e a própria página da consulta (onde a pessoa está)', async () => {
+    const { T, ana, tenant } = await cenario();
+    const agora = Date.now();
+    const h = (await horariosParaPaciente(tenant, new Date(agora), { db })).find((x) => x.inicio.getTime() > agora + 72 * H)!;
+    const id = await consultaDireta(db, T.ctx, ana.id, h.inicio);
+    expect(await cancelarAction(id)).toEqual({ ok: MSG_AGENDA.cancelada });
+    expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'paciente' });
+    expect(sessao.revalidados).toEqual(['/p/agenda', `/p/agenda/${id}`]);
   });
 });

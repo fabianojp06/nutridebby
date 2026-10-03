@@ -15,7 +15,8 @@ export default async function MinhaEvolucao() {
       <h1 className="text-2xl font-semibold">Minha evolução</h1>
       <section aria-labelledby="medidas" className="space-y-4">
         <h2 id="medidas" className="text-lg font-semibold">Medidas</h2>
-        {e.avaliacoes < 2 ? (
+        {/* menos de 2 avaliações, ou 2+ sem nenhuma medida repetida (ex.: peso numa, cintura noutra): nada a comparar */}
+        {e.diferencas.length === 0 ? (
           <p>{MSG_POUCOS_DADOS}</p>
         ) : (
           <>

@@ -49,6 +49,7 @@ export async function cancelarAction(id: string): Promise<AgendaState> {
     return tratar(e);
   }
   revalidatePath('/p/agenda');
+  revalidatePath(`/p/agenda/${id}`); // a pessoa está na página da consulta: sem isto, "Confirmar"/"Cancelar" continuam na tela
   return { ok: MSG_AGENDA.cancelada };
 }
 

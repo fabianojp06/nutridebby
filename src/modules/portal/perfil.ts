@@ -40,6 +40,8 @@ export async function preferenciaWhatsapp(ctx: TenantContext, quer: boolean, o: 
       if (!p) throw new Error('paciente da sessão não encontrado');
       // escolhaWhatsapp sem telefone devolve {} (nada muda): a orientação vem antes
       if (quer && !p.telefoneE164) throw new PerfilPacienteError(MSG_PERFIL.semTelefone);
+      // "Salvar" com o WhatsApp já autorizado não regrava a prova do consentimento (data e origem 'nutri' ficam)
+      if (quer && p.whatsappOptinEm && !p.whatsappOptoutEm) return;
       const mudanca = escolhaWhatsapp(quer, p, agora);
       if (Object.keys(mudanca).length) await tx.update(patients).set({ ...mudanca, updatedAt: agora }).where(eq(patients.id, id));
     },

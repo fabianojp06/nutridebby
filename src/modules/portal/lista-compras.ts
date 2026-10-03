@@ -25,8 +25,9 @@ export function lerDias(v: unknown): number | null {
  * no máximo 1 casa, e aquele helper mostra até 2 (as casas da medida caseira).
  */
 export function quantidadeTexto(gramas: number): string {
-  if (gramas >= 1000) return `${formatarDecimal(gramas / 1000, 1)} kg`;
-  return `${formatarDecimal(gramas, Math.min(1, casasDecimais(gramas)))} g`;
+  const g = Math.round(gramas * 10) / 10; // arredonda antes de comparar: 999,99 g é "1,0 kg", não "1000,0 g"
+  if (g >= 1000) return `${formatarDecimal(g / 1000, 1)} kg`;
+  return `${formatarDecimal(g, Math.min(1, casasDecimais(g)))} g`;
 }
 
 const ordemDoGrupo = (g: string) => {

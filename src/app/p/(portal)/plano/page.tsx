@@ -37,8 +37,10 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
                       <li key={i.id}>
                         {i.substituicoes.length ? (
                           <details>
-                            <summary className="min-h-11 cursor-pointer" aria-label={`Ver substituições de ${i.nome}`}>
+                            {/* WCAG 2.5.3: o nome acessível começa pelo texto visível; o "ver substituições" vai só para o leitor de tela */}
+                            <summary className="min-h-11 cursor-pointer">
                               {`${i.nome} — ${i.quantidade}${i.kcal ? ` · ${i.kcal}` : ''}`}
+                              <span className="sr-only"> (ver substituições)</span>
                             </summary>
                             <p className="mt-1 text-sm font-medium">Substituições</p>
                             <ul className="ml-4 list-disc text-sm">
