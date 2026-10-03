@@ -1,8 +1,7 @@
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer';
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
 import { paraWinAnsi } from '@/modules/pacientes/prontuario-pdf';
-import { casasDecimais, formatarDecimal } from '@/lib/numero';
-import { diferencaKcalDoItem, gTexto, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from './calculo';
+import { diferencaKcalDoItem, gTexto, kcalTexto, nutrientesDoItem, quantidadeDoItem, totalDoDia, totalDosItens } from './calculo';
 import type { PlanoCompleto, RefeicaoPlano } from './tipos';
 
 /** Só o worker importa este arquivo (US-026; fora do grafo do Next — guarda em exportacao.test.ts). */
@@ -30,8 +29,6 @@ const s = StyleSheet.create({
 
 /** Helvetica padrão (WinAnsi): todo texto do PDF passa por aqui, inclusive o calculado (o "−" de "−11 kcal" vira "-"). */
 const w = paraWinAnsi;
-const gramas = (g: number) => `${formatarDecimal(g, casasDecimais(g))} g`;
-const quantidade = (i: RefeicaoPlano['itens'][number]) => (i.medidaCaseiraTxt ? `${i.medidaCaseiraTxt} (${gramas(i.quantidadeG)})` : gramas(i.quantidadeG));
 const porHorario = (rs: RefeicaoPlano[]) => [...rs].sort((a, b) => a.horario.localeCompare(b.horario));
 const calculo = (r: RefeicaoPlano) => r.itens.map((i) => ({ id: i.id, quantidadeG: i.quantidadeG, porCem: i.porCem, substituiItemId: i.substituiItemId }));
 
@@ -71,10 +68,10 @@ function Plano({ d }: { d: DadosPdfPlano }) {
               const principal = r.itens.find((x) => x.id === i.substituiItemId);
               const semKcal = n.semValor.includes('kcal');
               const kcal = plano.mostrarCalorias ? w(semKcal ? ' · —' : ` · ${kcalTexto(n.kcal)} kcal`) : '';
-              if (!principal) return <Text key={i.id} style={s.item} wrap={false}>• {i.nome} — {quantidade(i)}{kcal}</Text>;
+              if (!principal) return <Text key={i.id} style={s.item} wrap={false}>• {i.nome} — {quantidadeDoItem(i)}{kcal}</Text>;
               const difKcal = diferencaKcalDoItem(n, nutrientesDoItem(principal.porCem, principal.quantidadeG));
               const dif = plano.mostrarCalorias && difKcal ? w(` (${difKcal})`) : '';
-              return <Text key={i.id} style={s.sub} wrap={false}>ou {i.nome} — {quantidade(i)}{kcal}{dif}</Text>;
+              return <Text key={i.id} style={s.sub} wrap={false}>ou {i.nome} — {quantidadeDoItem(i)}{kcal}{dif}</Text>;
             })}
             {r.observacao && <Text style={s.obs}>{r.observacao}</Text>}
           </View>

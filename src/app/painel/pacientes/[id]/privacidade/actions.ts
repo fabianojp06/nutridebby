@@ -2,15 +2,18 @@
 
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
+import { logger } from '@/lib/logger';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import {
+  apagarFotosDoDiario,
   arquivarPaciente,
   atenderPedidoExclusao,
   desarquivarPaciente,
   LgpdError,
 } from '@/modules/pacientes/lgpd';
 import { ExportacaoIndisponivelError, solicitarExportacao } from '@/modules/pacientes/exportacao';
+import { motivoDoErro } from '@/modules/plataforma/armazenamento';
 
 const caminho = (id: string) => `/painel/pacientes/${id}/privacidade`;
 
@@ -50,6 +53,13 @@ export async function atenderExclusaoAction(
     if (e instanceof LgpdError || e instanceof PacienteBloqueadoError) return { erro: e.message };
     if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
+  }
+  // US-018 "fotos do diário … apagadas na hora": arquivo fora da transação do atendimento; uma falha aqui só vai
+  // para o log (sem caminho — RNF-11) e o job diário de retenção repete para quem está bloqueado
+  try {
+    await apagarFotosDoDiario(ctx, patientId);
+  } catch (err) {
+    logger.error({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar fotos do diário no atendimento da exclusão');
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
   return {};

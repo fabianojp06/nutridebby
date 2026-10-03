@@ -491,6 +491,83 @@
       "when": 1790991016246,
       "tag": "0069_indice_respostas_por_consulta",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1791040446399,
+      "tag": "0070_paciente_sem_escrita",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1791041111538,
+      "tag": "0071_stored_files_paciente",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791041117168,
+      "tag": "0072_rls_stored_files_paciente",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791041760821,
+      "tag": "0073_conta_vinculos",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791044396376,
+      "tag": "0074_portal_acesso",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791044397521,
+      "tag": "0075_rls_access_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1791045651646,
+      "tag": "0076_diario",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791045656375,
+      "tag": "0077_rls_diario",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1791046873882,
+      "tag": "0078_pedido_aberto_unico",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1791046875271,
+      "tag": "0079_paciente_titular",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1791058690757,
+      "tag": "0080_paciente_restricoes",
+      "breakpoints": true
     }
   ]
 }

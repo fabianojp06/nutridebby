@@ -14,7 +14,10 @@ export const COTA_AVISO = 0.8;
 export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o suporte.';
 
 export type TipoDeArquivo =
-  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'orientacao_pdf' | 'exportacao';
+  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao';
+
+/** D4: arquivos com dono (paciente). O resto é do consultório. */
+export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = ['exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao'];
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 
 export class CotaEsgotadaError extends Error {
@@ -70,11 +73,22 @@ export async function salvarArquivo(
     antesDaReserva?: (tx: Tx) => Promise<void>;
     /** Só a exportação LGPD (obrigação legal, art. 18): o arquivo conta na cota, mas não é barrado por ela. */
     naoBarrarPelaCota?: boolean;
+    /** D4: dono do arquivo — obrigatório nos TIPOS_DO_PACIENTE, proibido no resto. */
+    patientId?: string;
+    /**
+     * Caminho do arquivo que este substitui (a foto original do diário trocada pelo JPEG), apagado logo depois por
+     * `apagarArquivo`: a cota é conferida pela diferença — trocar por um arquivo menor nunca é barrado por ela. A reserva
+     * continua sendo do arquivo inteiro; quem devolve o espaço do substituído é o `apagarArquivo` dele.
+     */
+    substitui?: string;
   },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
+  if (TIPOS_DO_PACIENTE.includes(input.tipo) !== Boolean(input.patientId)) {
+    throw new Error(`salvarArquivo: patientId ${input.patientId ? 'proibido' : 'obrigatório'} para o tipo ${input.tipo}`);
+  }
   const real = detectarTipo(input.conteudo);
   if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext))
     throw new TipoNaoPermitidoError();
@@ -93,6 +107,11 @@ export async function salvarArquivo(
       ctx,
       async (tx) => {
         if (input.antesDaReserva) await input.antesDaReserva(tx);
+        // O tamanho do substituído vem do registro (no tenant, pela RLS), nunca de quem chama
+        const [substituido] = input.substitui
+          ? await tx.select({ bytes: storedFiles.bytes }).from(storedFiles).where(eq(storedFiles.caminho, input.substitui))
+          : [];
+        const liberados = substituido?.bytes ?? 0;
         const reserva = await tx
           .update(tenants)
           .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${bytes}` })
@@ -101,7 +120,7 @@ export async function salvarArquivo(
               eq(tenants.id, ctx.tenantId),
               input.naoBarrarPelaCota
                 ? undefined
-                : sql`${tenants.armazenamentoBytes} + ${bytes} <= ${COTA_BYTES}`,
+                : sql`${tenants.armazenamentoBytes} + ${bytes} - ${liberados} <= ${COTA_BYTES}`,
             ),
           )
           .returning({ id: tenants.id });
@@ -116,6 +135,7 @@ export async function salvarArquivo(
             bytes,
             mime: real.mime,
             criadoPor: ctx.actorUserId ?? null,
+            patientId: input.patientId ?? null,
           });
         const arquivo = { id, caminho, bytes, mime: real.mime };
         if (input.registrar) await input.registrar(tx, arquivo);
@@ -171,16 +191,15 @@ export async function apagarArquivo(
   if (!apagado) return false;
   if (!deps.removerAntesDoCommit) {
     await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
-      logger.warn(
-        { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
-        'arquivo órfão no disco',
-      ),
+      // RNF-11: a mensagem do erro de disco leva o caminho; no log, só o código
+      logger.warn({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
     );
   }
   return true;
 }
 
-const motivoDoErro = (err: unknown): string =>
+/** Para o log: o código do erro (ENOENT, EACCES…), nunca a mensagem — a de disco leva o caminho (RNF-11). */
+export const motivoDoErro = (err: unknown): string =>
   err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : 'erro';
 
 /**

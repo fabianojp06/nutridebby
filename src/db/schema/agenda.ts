@@ -144,7 +144,7 @@ export const notifications = pgTable(
   },
   (t) => [
     check('notifications_canal_valido', sql`${t.canal} in ('email', 'whatsapp', 'push')`),
-    check('notifications_tipo_valido', sql`${t.tipo} in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar')`),
+    check('notifications_tipo_valido', sql`${t.tipo} in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo')`),
     check('notifications_status_valido', sql`${t.status} in ('pendente', 'enviando', 'enviada', 'entregue', 'lida', 'falhou', 'ignorada')`),
     check('notifications_motivo_so_ignorada', sql`(${t.status} = 'ignorada') = (${t.motivoIgnorada} is not null)`),
     check('notifications_erro_tamanho', sql`char_length(${t.erro}) <= 60`),
@@ -262,6 +262,8 @@ export const pushSubscriptions = pgTable(
     check('push_subscriptions_user_agent', sql`char_length(${t.userAgent}) <= 300`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'push_subscriptions_paciente_fk' }),
     // sem índice próprio por (tenant_id, patient_id): é o prefixo do índice do UNIQUE acima
+    // Review Focus 4: um endpoint pertence a uma conta só — app_soltar_endpoint_push procura o endpoint em cada tenant
+    index('push_subscriptions_endpoint_idx').on(t.endpoint),
   ],
 );
 

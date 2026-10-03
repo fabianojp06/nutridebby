@@ -6,7 +6,12 @@ export type EmailMessage =
   | { tipo: 'alerta_backup'; para: string; detalhe: string; painelUrl: string }
   | { tipo: 'convite_paciente'; para: string; nome: string; nutri: string; link: string; contaExistente: boolean }
   | { tipo: 'exclusao_atendida'; para: string; nome: string; nutri: string; anonimizarApos: string }
-  | { tipo: 'exportacao_pronta'; para: string; link: string }
+  /** `titular`: pedida pelo paciente no portal (US-046) — o link abre o portal, não o painel. */
+  | { tipo: 'exportacao_pronta'; para: string; link: string; titular?: boolean }
+  /** US-046 / D17: o titular pediu a exclusão pelo portal; `prazo` = dd/mm/aaaa (15 dias no fuso do tenant). */
+  | { tipo: 'pedido_exclusao_registrado'; para: string; nutri: string; prazo: string }
+  /** US-025: a nutricionista publicou um plano novo; `link` = /p/plano. Sem dado de saúde. */
+  | { tipo: 'plano_novo'; para: string; link: string }
   /** RN-16: código de 6 dígitos da página pública (o job da fila `email` vai cifrado, como todos). */
   | { tipo: 'codigo_agendamento'; para: string; nutri: string; codigo: string }
   | {

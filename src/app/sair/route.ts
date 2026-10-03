@@ -5,6 +5,7 @@ import { session } from '@/db/schema';
 import { getEnv } from '@/env';
 import { getAuth } from '@/lib/auth';
 import { logger, nomeDoErro } from '@/lib/logger';
+import { cookieDoVinculoApagado, cookieVinculoSeguro } from '@/lib/paciente-session';
 import { cookiesDeSessaoApagados } from '@/lib/sessao-cookies';
 
 // Aonde o formulário do botão "Sair" leva: o login, ou a página de falha (sessão não apagada, cookie mantido).
@@ -12,9 +13,11 @@ import { cookiesDeSessaoApagados } from '@/lib/sessao-cookies';
 const SAIR_DESTINO = '/entrar';
 const SAIR_ERRO_PATH = '/sair/erro';
 
-const redirecionar = (para: string, cookies: string[] = []): Response => {
+const redirecionar = (para: string, cookies: string[] = [], limparAparelho = false): Response => {
   const h = new Headers({ location: para, 'cache-control': 'no-store' });
   for (const c of cookies) h.append('set-cookie', c);
+  // D6 (Plano 06): o plano guardado offline, o service worker e a inscrição de push do aparelho saem junto com a sessão
+  if (limparAparelho) h.set('clear-site-data', '"cache", "storage"');
   return new Response(null, { status: 303, headers: h });
 };
 
@@ -45,7 +48,7 @@ export async function POST(req: Request): Promise<Response> {
     const atual = await auth.api.getSession({ headers: req.headers, query: { disableRefresh: true } });
     if (atual) await getDb().delete(session).where(eq(session.token, atual.session.token));
     // sem `auth.api.signOut`: ele engole falha de banco e o `nextCookies` dele reescreve o `Set-Cookie` sem o `Max-Age=0`
-    return redirecionar(SAIR_DESTINO, await cookiesDeSessaoApagados(auth));
+    return redirecionar(SAIR_DESTINO, [...(await cookiesDeSessaoApagados(auth)), cookieDoVinculoApagado(cookieVinculoSeguro())], true);
   } catch (err) {
     // RNF-11: o DrizzleQueryError leva o SQL e os parâmetros (o token da sessão); só o motivo sanitizado vai para o log
     const limpo = sanitizarErroDeBanco(err);

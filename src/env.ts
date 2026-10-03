@@ -98,6 +98,10 @@ const ehHostInterno = (url: string) => {
   return /^[a-z0-9_-]+$/i.test(h) || (isIP(h) === 4 && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h));
 };
 
+/** INT-03 (D19): chaves do VAPID em base64url sem `=` — pública P-256 não comprimida (65 bytes) e privada (32 bytes). */
+const VAPID_PUBLICA = /^[A-Za-z0-9_-]{87}$/;
+const VAPID_PRIVADA = /^[A-Za-z0-9_-]{43}$/;
+
 /** App Next.js e admin:criar (Better Auth). */
 const appSchema = serverSchema
   .extend({
@@ -133,6 +137,8 @@ const appSchema = serverSchema
     EVOLUTION_WEBHOOK_URL: opcional(z.url({ message: 'EVOLUTION_WEBHOOK_URL deve ser uma URL' }).optional()),
     EVOLUTION_WEBHOOK_URL_PUBLICA: opcional(z.enum(['0', '1'], { message: 'EVOLUTION_WEBHOOK_URL_PUBLICA deve ser 0 ou 1' }).optional()),
     WHATSAPP_SANDBOX: whatsappSandbox,
+    // D7 (Plano 06): a chave PÚBLICA do VAPID vai para o navegador (inscrição de push). A privada fica só no worker.
+    VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
@@ -188,9 +194,6 @@ const appSchema = serverSchema
 
 const EMAIL_FROM = /^([^<>]*<[^@<>\s]+@[^@<>\s]+>|[^@<>\s]+@[^@<>\s]+)$/;
 
-/** INT-03 (D19): chaves do VAPID em base64url sem `=` — pública P-256 não comprimida (65 bytes) e privada (32 bytes). */
-const VAPID_PUBLICA = /^[A-Za-z0-9_-]{87}$/;
-const VAPID_PRIVADA = /^[A-Za-z0-9_-]{43}$/;
 /**
  * A privada gera a pública? Uma das duas trocada (colada errado, rotação pela metade) faria todo push voltar 403 do
  * serviço de push, em silêncio: o worker não sobe. Nunca lança nem devolve as chaves.

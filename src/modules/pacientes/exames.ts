@@ -91,6 +91,7 @@ export async function criarExame(
         tipo: 'exame',
         conteudo: input.arquivo,
         permitidos: ['pdf', 'jpg', 'png'],
+        patientId,
         // paciente travado ANTES da cota: mesma ordem de excluirExame (senão, deadlock)
         antesDaReserva: async (tx) => void (await carregarPacienteParaEscrita(tx, patientId)),
         registrar: async (tx, a) => void (id = await inserir(tx, a.caminho)) },

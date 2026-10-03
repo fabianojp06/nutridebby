@@ -72,6 +72,7 @@ export async function gerarPdfDoPlano(data: DadosJobPdf, deps: DepsJobPdf): Prom
         tipo: 'plano_pdf',
         conteudo: pdf,
         permitidos: ['pdf'],
+        patientId: lido.patientId,
         // Trava o paciente antes do plano (mesma ordem da publicação) e desiste se o bloqueio ou a anonimização chegou
         // antes; a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {

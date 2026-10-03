@@ -1,14 +1,15 @@
-import { and, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, consultations, dataExports, exams, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
+import { appointments, consultations, dataExports, diaryEntries, exams, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { logger } from '@/lib/logger';
-import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
 import { carregarPacienteParaEscrita } from './base';
+import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
 import { apagarConvitesPendentes } from './convite-paciente';
 import { formatarData, hojeNoFuso, somarAnos, somarDias } from './datas';
 
@@ -73,7 +74,8 @@ const nomeParaConferir = (s: string) =>
  * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push) e
  * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
  * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o
- * e-mail ao paciente na fila. Plano 06: apagar aqui também as fotos do diário.
+ * e-mail ao paciente na fila. As fotos do diário saem logo depois, por apagarFotosDoDiario (arquivo fora da
+ * transação; quem chama — a Server Action da aba Privacidade — e, como rede de segurança, o job diário).
  */
 export async function atenderPedidoExclusao(
   ctx: TenantContext,
@@ -168,7 +170,71 @@ export async function atenderPedidoExclusao(
   );
 }
 
-/** Arquivos em /data ligados ao paciente: laudos, exportações e PDFs de plano. */
+/** Plano 06: os registros do diário com foto (convertida ou original) do paciente. */
+async function fotosDoDiario(tx: Tx, patientId: string): Promise<{ id: string; caminho: string }[]> {
+  const r = await tx
+    .select({ id: diaryEntries.id, foto: diaryEntries.fotoPath, original: diaryEntries.fotoOriginalPath })
+    .from(diaryEntries)
+    .where(and(eq(diaryEntries.patientId, patientId), or(isNotNull(diaryEntries.fotoPath), isNotNull(diaryEntries.fotoOriginalPath))));
+  return r.flatMap((e) => [e.foto, e.original].filter((c): c is string => c !== null).map((caminho) => ({ id: e.id, caminho })));
+}
+
+/**
+ * US-018 "fotos do diário … apagadas na hora" (Plano 06): o registro fica (prontuário guardado), sem a foto
+ * (`foto_status = 'removida'`). Chamado depois de atenderPedidoExclusao (arquivo fora da transação) e, como rede de
+ * segurança, pelo job diário de retenção para quem está bloqueado. Idempotente. O arquivo sai do disco antes do
+ * commit (como na anonimização): se o `rm` falhar, o registro continua apontando e a próxima varredura tenta de novo.
+ */
+export async function apagarFotosDoDiario(
+  ctx: TenantContext,
+  patientId: string,
+  deps: { db?: Db; dataDir?: string } = {},
+): Promise<number> {
+  const db = deps.db ?? getDb();
+  let n = 0;
+  for (const f of await withTenant(ctx, (tx) => fotosDoDiario(tx, patientId), db)) {
+    const ok = await apagarArquivo(ctx, { caminho: f.caminho }, {
+      db,
+      dataDir: deps.dataDir,
+      removerAntesDoCommit: true,
+      naMesmaTransacao: async (tx) => {
+        await tx
+          .update(diaryEntries)
+          .set({
+            fotoPath: sql`case when ${diaryEntries.fotoPath} = ${f.caminho} then null else ${diaryEntries.fotoPath} end`,
+            fotoOriginalPath: sql`case when ${diaryEntries.fotoOriginalPath} = ${f.caminho} then null else ${diaryEntries.fotoOriginalPath} end`,
+            fotoStatus: 'removida',
+            updatedAt: new Date(),
+          })
+          .where(eq(diaryEntries.id, f.id));
+        return true;
+      },
+    });
+    if (ok) n++;
+  }
+  return n;
+}
+
+/** Quadro "Pedidos do titular" do painel (US-046): os abertos, com o nome e o prazo, prazo mais curto primeiro. */
+export async function pedidosDoTitularAbertos(
+  ctx: TenantContext,
+  db: Db = getDb(),
+): Promise<{ patientId: string; nome: string; tipo: 'exclusao' | 'exportacao'; prazo: string }[]> {
+  const r = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ patientId: privacyRequests.patientId, nome: patients.nome, tipo: privacyRequests.tipo, prazo: privacyRequests.prazo })
+        .from(privacyRequests)
+        .innerJoin(patients, eq(patients.id, privacyRequests.patientId))
+        .where(eq(privacyRequests.status, 'aberto'))
+        .orderBy(asc(privacyRequests.prazo), asc(patients.nome)),
+    db,
+  );
+  return r.map((x) => ({ ...x, tipo: x.tipo as 'exclusao' | 'exportacao' }));
+}
+
+/** Arquivos em /data ligados ao paciente: laudos, exportações, PDFs de plano e fotos do diário (e originais). */
 export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<string[]> {
   const deExames = await tx
     .select({ c: exams.arquivoPath })
@@ -182,7 +248,10 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
     .select({ c: mealPlans.pdfPath })
     .from(mealPlans)
     .where(and(eq(mealPlans.patientId, patientId), isNotNull(mealPlans.pdfPath)));
-  return [...deExames, ...deExportacoes, ...dePlanos].map((e) => e.c!);
+  return [
+    ...[...deExames, ...deExportacoes, ...dePlanos].map((e) => e.c!),
+    ...(await fotosDoDiario(tx, patientId)).map((f) => f.caminho),
+  ];
 }
 
 /**
@@ -210,8 +279,10 @@ async function anonimizarAgenda(tx: Tx, patientId: string, now: Date): Promise<v
  * US-018 "Fim do prazo de guarda": job diário (fila retencao-lgpd). Para cada tenant (§4.1: a varredura
  * parte de `tenants`), anonimiza quem está bloqueado com `anonimizar_apos` já passado no fuso do tenant
  * ("guardado até 15/09/2046; depois dessa data…": no próprio dia 15 ainda não).
- * Primeiro os anexos, com o `rm` confirmado antes do commit (se o arquivo não sair do disco, o registro
- * fica e o dia seguinte tenta de novo), depois a identificação. Um tenant com erro não para os outros.
+ * Primeiro os anexos (fotos do diário inclusive), com o `rm` confirmado antes do commit (se o arquivo não sair do
+ * disco, o registro fica e o dia seguinte tenta de novo), depois a identificação — e a conta de login do titular, se
+ * ela não tiver outro vínculo (P06-08, D18). Antes, a rede de segurança das fotos do diário de quem está bloqueado
+ * (US-018 "apagadas na hora": a Server Action do atendimento pode ter falhado no meio). Um tenant com erro não para os outros.
  */
 export async function anonimizarVencidos(
   db: Db,
@@ -222,6 +293,7 @@ export async function anonimizarVencidos(
   for (const t of await listarTenantsParaVarredura(db)) {
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
     const hoje = hojeNoFuso(t.fuso, now);
+    await apagarFotosDosBloqueados(ctx, db, deps);
     let vencidos: { id: string }[];
     try {
       vencidos = await withTenant(
@@ -241,7 +313,7 @@ export async function anonimizarVencidos(
       );
     } catch (err) {
       logger.error(
-        { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+        { motivo: motivoDoErro(err), tenantId: t.id },
         'falha ao listar pacientes a anonimizar',
       );
       continue;
@@ -259,7 +331,7 @@ export async function anonimizarVencidos(
           ctx,
           async (tx) => {
             // outra execução já anonimizou: nada a fazer (idempotente, sem erro)
-            const [pendente] = await tx.select({ id: patients.id }).from(patients).where(and(eq(patients.id, id), isNull(patients.anonimizadoEm))).for('update');
+            const [pendente] = await tx.select({ id: patients.id, userId: patients.userId }).from(patients).where(and(eq(patients.id, id), isNull(patients.anonimizadoEm))).for('update');
             if (!pendente) return false;
             // D13 (Tarefa 15): aceites do termo sem IP e sem a conta — antes do UPDATE, que solta a conta (0065)
             await tx.execute(sql`select app_anonimizar_aceites(${id})`);
@@ -283,6 +355,10 @@ export async function anonimizarVencidos(
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             if (r.length) await anonimizarAgenda(tx, id, now);
+            // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
+            // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)
+            if (r.length && pendente.userId && (await contaSemOutroVinculo(tx, pendente.userId)))
+              await anonimizarContaSemVinculo(tx, pendente.userId, now);
             if (r.length)
               await recordAudit(tx, {
                 acao: 'anonimizar',
@@ -298,11 +374,40 @@ export async function anonimizarVencidos(
       } catch (err) {
         // Sem nome nem dado do paciente no log (RNF-11); o próximo dia tenta de novo
         logger.error(
-          { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+          { motivo: motivoDoErro(err), tenantId: t.id },
           'falha ao anonimizar paciente',
         );
       }
     }
   }
   return { anonimizados };
+}
+
+/** Rede de segurança (US-018): bloqueado com foto no diário perde as fotos; erro só no log, como o resto da varredura. */
+async function apagarFotosDosBloqueados(ctx: TenantContext, db: Db, deps: { dataDir?: string }): Promise<void> {
+  // Erro de disco leva o caminho na mensagem (RNF-11): no log, só o código
+  const falhou = (err: unknown) =>
+    logger.error({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar fotos do diário de paciente bloqueado');
+  let comFoto: { id: string }[];
+  try {
+    comFoto = await withTenant(
+      ctx,
+      (tx) =>
+        tx
+          .selectDistinct({ id: patients.id })
+          .from(patients)
+          .innerJoin(diaryEntries, and(eq(diaryEntries.tenantId, patients.tenantId), eq(diaryEntries.patientId, patients.id)))
+          .where(and(eq(patients.status, 'bloqueado'), or(isNotNull(diaryEntries.fotoPath), isNotNull(diaryEntries.fotoOriginalPath)))),
+      db,
+    );
+  } catch (err) {
+    return falhou(err);
+  }
+  for (const { id } of comFoto) {
+    try {
+      await apagarFotosDoDiario(ctx, id, { db, dataDir: deps.dataDir });
+    } catch (err) {
+      falhou(err);
+    }
+  }
 }

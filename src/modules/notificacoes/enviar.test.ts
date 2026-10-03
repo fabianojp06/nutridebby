@@ -6,7 +6,7 @@ import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, tenants } from '@/db/schema';
+import { appointments, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
@@ -15,6 +15,7 @@ import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import type { ProvedorPush } from './push';
 
 // R14 e a corrida da suspensão: conta as listagens de tenants e devolve uma leitura antiga (implementação real por baixo)
 vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
@@ -292,5 +293,42 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     const pendentes = async (T: TenantDeTeste) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.tipo, 'consulta_marcada'), eq(notifications.status, 'pendente'))), app.db)).length;
     expect(await pendentes(pequeno)).toBe(0);
     expect(await pendentes(grande)).toBe(46 - 38);
+  });
+});
+
+describe('push sem consulta (Plano 06: push de teste, comentário, plano novo)', () => {
+  const pushFalso = (): ProvedorPush & { payloads: string[] } => {
+    const payloads: string[] = [];
+    return {
+      payloads,
+      async enviar(_i, payload) {
+        payloads.push(payload);
+        return { ok: true };
+      },
+    };
+  };
+  const agora = new Date('2026-10-05T15:00:00Z');
+  const pushTeste = async (T: TenantDeTeste, patientId: string) => {
+    const [n] = await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId, canal: 'push', tipo: 'push_teste', agendadaPara: agora }).returning(), app.db);
+    return n.id;
+  };
+  const situacao = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+
+  it('com inscrição → "enviada" (texto neutro, toque no início do portal); arquivado → paciente_inativo; sem inscrição → sem_inscricao', async () => {
+    const T = await novoTenant(app.db);
+    const comAparelho = await novoPaciente(app.db, T.ctx);
+    const arquivado = await novoPaciente(app.db, T.ctx);
+    const semAparelho = await novoPaciente(app.db, T.ctx);
+    for (const p of [comAparelho, arquivado]) {
+      await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: `https://push.example.test/${p.id}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
+    }
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arquivado.id)), app.db);
+    const ids = { ok: await pushTeste(T, comAparelho.id), arq: await pushTeste(T, arquivado.id), sem: await pushTeste(T, semAparelho.id) };
+    const push = pushFalso();
+    await processarNotificacoes(depsDeEnvio(agora, { db: app.db, push }), { tenantId: T.tenantId });
+    expect(await situacao(T, ids.ok)).toMatchObject({ status: 'enviada', tentativas: 1 });
+    expect(push.payloads.map((p) => JSON.parse(p))).toEqual([{ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: `http://localhost:3000/p/inicio?v=${T.tenantId}` }]);
+    expect(await situacao(T, ids.arq)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
+    expect(await situacao(T, ids.sem)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_inscricao' });
   });
 });

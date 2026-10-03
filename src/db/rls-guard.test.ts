@@ -2,11 +2,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
 import {
+  findPacienteEscritaViolations,
   findPublicoViolations,
   findRlsViolations,
   findStaffOnlyViolations,
   findStaleExceptions,
   listTenantTables,
+  PACIENTE_ESCREVE,
   PATIENT_POLICY_EXCEPTIONS,
   PUBLICO_LIBERADO,
   RLS_EXCEPTIONS,
@@ -102,6 +104,61 @@ describe('contexto publico (D11)', () => {
       await client.query('drop policy publico_sem_delete on appointments');
       await client.query(`create policy publico_sem_delete on appointments as restrictive for select using (app_current_role() is distinct from 'publico')`);
       expect((await findPublicoViolations(client)).map((x) => x.table)).toContain('appointments');
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('escrita da sessão de paciente (D1, P-16 a)', () => {
+  it('toda tabela com tenant_id nega a escrita do paciente ou bate com PACIENTE_ESCREVE; a lista não cita tabela inexistente', async () => {
+    expect(await findPacienteEscritaViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { PACIENTE_ESCREVE })).toEqual([]);
+  });
+  it('tabela nova nasce fechada; liberar sem declarar, ou perder a política, quebra (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('create table tmp_paciente (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_paciente')`);
+      await client.query('create table tmp_paciente_liberada (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_paciente_liberada')`);
+      await client.query(`select app_allow_paciente_escrita('tmp_paciente_liberada', 'insert')`);
+      let v = await findPacienteEscritaViolations(client);
+      expect(v.map((x) => x.table)).not.toContain('tmp_paciente');
+      expect(v).toContainEqual({ table: 'tmp_paciente_liberada', problem: 'a sessão de paciente pode insert sem entrada em PACIENTE_ESCREVE' });
+      await client.query('drop policy paciente_sem_delete on tmp_paciente');
+      await client.query('drop policy paciente_sem_insert on anthropometry');
+      v = await findPacienteEscritaViolations(client);
+      expect(v).toContainEqual({ table: 'tmp_paciente', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
+      expect(v).toContainEqual({ table: 'anthropometry', problem: 'a sessão de paciente pode insert sem entrada em PACIENTE_ESCREVE' });
+      expect(v.map((x) => x.table)).not.toContain('patients'); // update liberado em PACIENTE_ESCREVE e sem a política: certo
+      await expect(client.query(`select app_allow_paciente_escrita('tmp_paciente', 'select')`)).rejects.toThrow(/comando inválido/);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('PACIENTE_ESCREVE libera um comando que o banco nega → quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`select app_deny_paciente_escrita('appointments')`); // volta a negar insert/update
+      const v = await findPacienteEscritaViolations(client);
+      expect(v).toContainEqual({ table: 'appointments', problem: 'PACIENTE_ESCREVE libera insert, mas o banco nega (paciente_sem_insert)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('a política com o nome certo mas o comando errado também quebra (paciente_sem_delete criada FOR SELECT)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_sem_delete on exams');
+      await client.query(`create policy paciente_sem_delete on exams as restrictive for select using (app_current_role() is distinct from 'paciente')`);
+      expect(await findPacienteEscritaViolations(client)).toContainEqual({ table: 'exams', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
     } finally {
       await client.query('rollback');
       client.release();

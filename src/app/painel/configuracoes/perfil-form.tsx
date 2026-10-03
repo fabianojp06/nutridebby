@@ -33,6 +33,10 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
         <input id="agendamentoPublicoAtivo" name="agendamentoPublicoAtivo" type="checkbox" defaultChecked={v ? v.agendamentoPublicoAtivo === 'on' : tenant.agendamentoPublicoAtivo} />
         <label htmlFor="agendamentoPublicoAtivo">Permitir agendamento pela página pública</label>
       </div>
+      <div className="flex items-center gap-2">
+        <input id="mostrarPercGorduraPaciente" name="mostrarPercGorduraPaciente" type="checkbox" defaultChecked={v ? v.mostrarPercGorduraPaciente === 'on' : tenant.mostrarPercGorduraPaciente} />
+        <label htmlFor="mostrarPercGorduraPaciente">Mostrar % de gordura ao paciente</label>
+      </div>
       {state.ok && <p role="status">Perfil salvo.</p>}
       <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar perfil</button>
     </form>

@@ -11,6 +11,7 @@ import {
   consents,
   consultations,
   dataExports,
+  diaryEntries,
   energyCalcs,
   exams,
   mealPlans,
@@ -29,6 +30,7 @@ import { logger } from '@/lib/logger';
 import {
   apagarArquivo,
   CotaEsgotadaError,
+  motivoDoErro,
   resolverCaminho,
   salvarArquivo,
 } from '@/modules/plataforma/armazenamento';
@@ -46,6 +48,9 @@ import { formatarTelefone } from './telefone';
 import { renderizarProntuario } from './prontuario-pdf';
 
 // Só o worker importa este arquivo (e o PDF): @react-pdf/renderer fica fora do grafo do Next.
+
+/** US-046 (Plano 06): `equipe` = pedida pela nutricionista; `titular` = pelo paciente no portal (sem rascunho). */
+export type EscopoExportacao = 'equipe' | 'titular';
 
 export type DadosExportacao = {
   versao: 1;
@@ -96,7 +101,7 @@ export type DadosExportacao = {
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
-  /** Planos alimentares (todas as versões e o rascunho); publicado/arquivado com os valores congelados (D10). */
+  /** Planos alimentares: todas as versões; o rascunho só no escopo da equipe. Publicado/arquivado com os valores congelados (D10). */
   planos: {
     versao: number;
     status: string;
@@ -118,14 +123,19 @@ export type DadosExportacao = {
   aceitesDoTermo: { termoVersao: string; aceitoEm: string; ip: string | null }[];
   /** D14 / T13: aparelhos inscritos para notificação no app — só a data e o navegador (nunca o endereço ou as chaves). */
   dispositivosPush: { criadaEm: string; navegador: string | null }[];
-  /** Os laudos passaram do teto de memória da exportação e não foram no ZIP. */
+  /** Plano 06: diário alimentar (US-042/043) — texto, refeição, comentário da nutricionista e a foto (em `diario/`). */
+  diario: { dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null }[];
+  /** Os laudos ou fotos do diário passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
 
-/** Laudo a copiar para o ZIP: `indice` em `exames`, `nome` sem texto do usuário (data + posição). */
-type LaudoParaZip = { indice: number; caminho: string; nome: string };
+/**
+ * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`) ou foto do diário (`indice` em `diario`); `nome` sem
+ * texto do usuário (data + posição).
+ */
+type AnexoParaZip = { tipo: 'laudo' | 'foto'; indice: number; caminho: string; nome: string };
 
-/** O ZIP é montado em memória no worker: acima disto, os laudos ficam de fora (com aviso), não a exportação. */
+/** O ZIP é montado em memória no worker: acima disto, laudos e fotos ficam de fora (com aviso), não a exportação. */
 export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
 
 /** "Sim"/"Não" só na pergunta sim/não: em texto livre, "nao" é o que foi digitado. */
@@ -143,7 +153,8 @@ export async function montarDados(
   patientId: string,
   now: Date,
   fuso: string,
-): Promise<{ dados: DadosExportacao; laudos: LaudoParaZip[] }> {
+  escopo: EscopoExportacao = 'equipe',
+): Promise<{ dados: DadosExportacao; laudos: AnexoParaZip[] }> {
   const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
   const as = await tx
     .select()
@@ -192,7 +203,13 @@ export async function montarDados(
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.patientId, patientId))
     .orderBy(asc(pushSubscriptions.createdAt));
-  const ids = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, patientId)).orderBy(asc(mealPlans.versao));
+  const di = await tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, patientId)).orderBy(asc(diaryEntries.dataHora));
+  // P-16 (b): o titular não recebe o rascunho (a sessão de paciente também não o vê — paciente_sem_rascunho)
+  const ids = await tx
+    .select({ id: mealPlans.id })
+    .from(mealPlans)
+    .where(and(eq(mealPlans.patientId, patientId), escopo === 'titular' ? ne(mealPlans.status, 'rascunho') : undefined))
+    .orderBy(asc(mealPlans.versao));
   const planos: DadosExportacao['planos'] = [];
   for (const { id } of ids) {
     const pl = await lerPlanoNaTransacao(tx, id, { auditar: false, comMedidas: false }); // a exportação já registra "exportar"
@@ -217,15 +234,22 @@ export async function montarDados(
       })),
     });
   }
-  const laudos: LaudoParaZip[] = ex.flatMap((e, i) =>
+  const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
           {
+            tipo: 'laudo' as const,
             indice: i,
             caminho: e.arquivoPath,
             nome: `laudos/${e.data}-${String(i + 1).padStart(2, '0')}${path.extname(e.arquivoPath)}`,
           },
         ]
+      : [],
+  );
+  // Fotos do diário (JPEG convertido): no ZIP, no mesmo teto dos laudos; o original nunca vai
+  const fotos: AnexoParaZip[] = di.flatMap((e, i) =>
+    e.fotoStatus === 'pronta' && e.fotoPath
+      ? [{ tipo: 'foto' as const, indice: i, caminho: e.fotoPath, nome: `diario/${hojeNoFuso(fuso, e.dataHora)}-${i + 1}.jpg` }]
       : [],
   );
   const dados: DadosExportacao = {
@@ -305,23 +329,24 @@ export async function montarDados(
     })),
     aceitesDoTermo: ac.map((a) => ({ termoVersao: a.termoVersao, aceitoEm: a.aceitoEm.toISOString(), ip: a.ip })),
     dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
+    diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri })),
     laudosForaDoZip: false,
   };
-  return { dados, laudos };
+  return { dados, laudos: [...laudos, ...fotos] };
 }
 
 /**
- * Lê os laudos de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto, nenhum vai
- * (e `laudosForaDoZip` avisa); laudo que sumiu do disco fica de fora sem derrubar a exportação.
+ * Lê os laudos e as fotos do diário de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
+ * o que não cabe não vai (e `laudosForaDoZip` avisa); arquivo que sumiu do disco fica de fora sem derrubar a exportação.
  */
 async function lerLaudos(
   dados: DadosExportacao,
-  laudos: LaudoParaZip[],
+  laudos: AnexoParaZip[],
   dataDir: string,
   limite: number,
   tenantId: string,
 ): Promise<Record<string, Uint8Array>> {
-  const presentes: (LaudoParaZip & { bytes: number })[] = [];
+  const presentes: (AnexoParaZip & { bytes: number })[] = [];
   let ausentes = 0;
   for (const l of laudos) {
     try {
@@ -349,7 +374,8 @@ async function lerLaudos(
       continue;
     }
     arquivos[l.nome] = conteudo;
-    dados.exames[l.indice].laudo = l.nome;
+    if (l.tipo === 'laudo') dados.exames[l.indice].laudo = l.nome;
+    else dados.diario[l.indice].foto = l.nome;
     total += conteudo.length;
   }
   if (ausentes)
@@ -419,7 +445,7 @@ export async function gerarExportacao(
     const tenant = await buscarTenant(db, data.tenantId);
     const { dados, laudos } = await withTenant(
       ctx,
-      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo'),
+      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao),
       db,
     );
     const arquivosDosLaudos = await lerLaudos(
@@ -450,6 +476,7 @@ export async function gerarExportacao(
         conteudo: Buffer.from(zip.buffer, zip.byteOffset, zip.length),
         permitidos: ['zip'],
         naoBarrarPelaCota: true,
+        patientId: pedido.patientId,
         // Trava o paciente (mesma ordem de travas dos laudos) e desiste se a anonimização chegou antes;
         // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {
@@ -478,7 +505,8 @@ export async function gerarExportacao(
               {
                 tipo: 'exportacao_pronta',
                 para: quem.email,
-                link: linkDaExportacao(deps.appUrl, pedido.patientId, pedido.id),
+                link: linkDaExportacao(deps.appUrl, { tenantId: data.tenantId, patientId: pedido.patientId, id: pedido.id, escopo: pedido.escopo as EscopoExportacao }),
+                titular: pedido.escopo === 'titular',
               },
               { tenantId: data.tenantId, tx, boss },
             );
@@ -490,7 +518,7 @@ export async function gerarExportacao(
       },
       { db, dataDir: deps.dataDir },
     );
-    await expirarAnteriores(ctx, pedido.patientId, pedido.id, { db, dataDir: deps.dataDir });
+    await expirarAnteriores(ctx, pedido.patientId, pedido.id, pedido.escopo as EscopoExportacao, { db, dataDir: deps.dataDir });
     return 'pronta';
   } catch (err) {
     if (err instanceof JaConcluidaError) return 'ignorada';
@@ -500,7 +528,7 @@ export async function gerarExportacao(
       err instanceof PacienteAnonimizadoError;
     logger.error(
       {
-        err: err instanceof Error ? err.message : String(err),
+        motivo: motivoDoErro(err),
         tenantId: data.tenantId,
         exportId: data.exportId,
         definitivo,
@@ -559,7 +587,7 @@ export async function expirarExportacoesVencidas(
       );
     } catch (err) {
       logger.error(
-        { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+        { motivo: motivoDoErro(err), tenantId: t.id },
         'falha ao expirar exportações vencidas',
       );
     }
@@ -568,13 +596,15 @@ export async function expirarExportacoesVencidas(
 }
 
 /**
- * Um ZIP válido por paciente: o novo pronto apaga os anteriores (cota e disco). Falha aqui não desfaz a
+ * Um ZIP válido por paciente e escopo: o novo pronto apaga os anteriores do mesmo escopo (cota e disco) — o do
+ * titular não apaga o que a nutricionista acabou de pedir, nem o contrário (D16). Falha aqui não desfaz a
  * exportação nova — o job de expiração e a varredura diária apagam o resto.
  */
 async function expirarAnteriores(
   ctx: TenantContext,
   patientId: string,
   atual: string,
+  escopo: EscopoExportacao,
   deps: { db: Db; dataDir: string },
 ) {
   try {
@@ -587,6 +617,7 @@ async function expirarAnteriores(
           .where(
             and(
               eq(dataExports.patientId, patientId),
+              eq(dataExports.escopo, escopo),
               eq(dataExports.status, 'pronta'),
               ne(dataExports.id, atual),
             ),
@@ -597,7 +628,7 @@ async function expirarAnteriores(
       await expirarExportacao({ tenantId: ctx.tenantId, exportId: id }, deps);
   } catch (err) {
     logger.warn(
-      { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
+      { motivo: motivoDoErro(err), tenantId: ctx.tenantId },
       'falha ao apagar exportação anterior',
     );
   }

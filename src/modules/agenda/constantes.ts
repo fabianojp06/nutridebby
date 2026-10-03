@@ -7,7 +7,7 @@ export const DURACOES = [15, 20, 30, 40, 45, 50, 60, 75, 90, 120, 150, 180, 240]
 export const MAX_REGRAS = 30;
 /** RN-03: o paciente marca até 60 dias à frente. */
 export const JANELA_PACIENTE_DIAS = 60;
-/** RN-16: no máximo 3 consultas futuras por e-mail no tenant (página pública). */
+/** RN-16: no máximo 3 consultas futuras por e-mail no tenant (página pública e, desde a revisão da T12 do Plano 06, agendamento pelo PWA). */
 export const MAX_CONSULTAS_FUTURAS_PUBLICO = 3;
 export const DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'] as const;
 export const ROTULO_MODALIDADE: Record<Modalidade, string> = { presencial: 'Presencial', online: 'Online' };

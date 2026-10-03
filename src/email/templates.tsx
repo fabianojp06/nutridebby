@@ -190,7 +190,7 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const linhas = [
         `Olá, ${msg.nome}!`,
         `${msg.nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.`,
-        'Foram apagados agora: as autorizações de mensagens por WhatsApp e os convites de acesso. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
+        'Foram apagados agora: as fotos do diário alimentar, as autorizações de mensagens por WhatsApp, as notificações no aparelho e os convites de acesso. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
         `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
         'Se tiver dúvidas, fale com a sua nutricionista.',
       ];
@@ -208,7 +208,10 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
     }
     case 'exportacao_pronta': {
       const subject = 'Exportação de dados pronta';
-      const linhas = ['A exportação de dados que você pediu no NutriDebby está pronta.', 'O link vale por 24 horas e pede que você entre no painel.'];
+      const linhas = [
+        'A exportação de dados que você pediu no NutriDebby está pronta.',
+        msg.titular ? 'O link vale por 24 horas e pede que você entre no portal.' : 'O link vale por 24 horas e pede que você entre no painel.',
+      ];
       return {
         subject,
         html: html(
@@ -217,6 +220,41 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
               <P key={l}>{l}</P>
             ))}
             <Botao href={msg.link}>Baixar exportação</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
+    case 'pedido_exclusao_registrado': {
+      const subject = 'Seu pedido foi registrado';
+      const linhas = [
+        `Recebemos seu pedido de exclusão de dados. ${msg.nutri} tem até ${msg.prazo} para responder.`,
+        'Por obrigação legal, o prontuário clínico é guardado de forma bloqueada pelo prazo exigido; o resto é apagado quando o pedido for atendido. Você recebe outro e-mail nesse momento.',
+      ];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+          </Layout>,
+        ),
+        text: linhas.join('\n\n'),
+      };
+    }
+    case 'plano_novo': {
+      const subject = 'Seu novo plano alimentar está disponível';
+      const linhas = ['Sua nutricionista publicou um novo plano alimentar para você no NutriDebby.', 'Entre no portal para ver as refeições e baixar o PDF.'];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>Ver meu plano</Botao>
             <LinkReserva href={msg.link} />
           </Layout>,
         ),

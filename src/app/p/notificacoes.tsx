@@ -1,0 +1,110 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { ehIos } from './instalacao';
+import { standalone } from './instalar';
+import { recusaDoPortal, type RecusaDoPortal } from './recusa-api';
+
+type Estado = 'carregando' | 'indisponivel' | 'instale' | 'pode' | 'ativo' | 'negado' | 'falhou';
+// Os textos de MSG_PUSH (src/modules/portal/push-inscricao.ts), que é do servidor
+const TEXTO: Partial<Record<Estado, string>> = {
+  indisponivel: 'Notificações no app ainda não estão disponíveis.',
+  ativo: 'Notificações ativadas neste aparelho.',
+  negado: 'Você bloqueou as notificações. Para ativar, mude a permissão do site nas configurações do navegador.',
+  falhou: 'Não foi possível ativar as notificações. Tente de novo.',
+};
+
+/** base64url → bytes (applicationServerKey). */
+function bytesDaChave(b64: string): Uint8Array<ArrayBuffer> {
+  const s = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (b64.length % 4)) % 4));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+
+const temPush = () => 'serviceWorker' in navigator && 'PushManager' in window;
+const enviarInscricao = (sub: PushSubscription, query = '') =>
+  fetch(`/api/p/push${query}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sub.toJSON()) });
+
+const sincronias = new Map<string, Promise<'ativo' | 'sem_inscricao'>>();
+
+/**
+ * Review Focus 4 (aparelho compartilhado): a inscrição que o navegador já tem pode ser de OUTRA conta (A ativou, a sessão
+ * expirou, B entrou). Ela nunca vale como "ativo" só por existir: vai ao servidor, que tira o endpoint das outras contas
+ * e diz se ele já era desta (204 → vínculos novos ganham a linha) ou não (409 → descartada aqui; B ativa se quiser).
+ * Uma vez por carga do portal e dono (`dono` = paciente da sessão: trocar de conta ou de vínculo sincroniza de novo).
+ */
+export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscricao'> {
+  let p = sincronias.get(dono);
+  if (!p) {
+    p = (async () => {
+      if (!temPush()) return 'sem_inscricao' as const;
+      const reg = await navigator.serviceWorker.getRegistration('/p/');
+      const sub = await reg?.pushManager.getSubscription();
+      if (!sub) return 'sem_inscricao' as const;
+      const r = await enviarInscricao(sub, '?sincronizar=1');
+      if (r.status === 409) {
+        await sub.unsubscribe().catch(() => false); // o endpoint morre no serviço de push: nada mais chega por ele
+        return 'sem_inscricao' as const;
+      }
+      return r.ok ? ('ativo' as const) : ('sem_inscricao' as const);
+    })().catch(() => 'sem_inscricao' as const);
+    sincronias.set(dono, p);
+  }
+  return p;
+}
+
+/** US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). */
+export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
+  const [estado, setEstado] = useState<Estado>('carregando');
+  /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor no lugar do "Tente de novo" genérico. */
+  const [recusa, setRecusa] = useState<RecusaDoPortal | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      let e: Estado;
+      if (ehIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) && !standalone()) e = 'instale';
+      else if (!chavePublica || !temPush()) e = 'indisponivel';
+      else if (Notification.permission === 'denied') e = 'negado';
+      // "ativo" só com o servidor confirmando que a inscrição é desta conta (nunca só porque o navegador tem uma)
+      else e = (await sincronizarAparelho(dono)) === 'ativo' ? 'ativo' : 'pode';
+      if (vivo) setEstado(e);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [chavePublica, dono]);
+  const ativar = async () => {
+    try {
+      if ((await Notification.requestPermission()) !== 'granted') return setEstado('negado');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesDaChave(chavePublica!) });
+      const r = await enviarInscricao(sub);
+      if (r.ok) sincronias.set(dono, Promise.resolve('ativo')); // a próxima tela não pergunta de novo
+      setRecusa(r.ok ? null : recusaDoPortal(r.status, await r.json().catch(() => null), location.pathname));
+      setEstado(r.ok ? 'ativo' : 'falhou');
+    } catch {
+      setEstado('falhou');
+    }
+  };
+  if (estado === 'carregando' || estado === 'instale') return null;
+  return (
+    <div className="space-y-2">
+      {(estado === 'pode' || estado === 'falhou') && (
+        <button type="button" onClick={ativar} className="min-h-11 rounded bg-emerald-700 px-4 text-white">
+          Ativar notificações
+        </button>
+      )}
+      {estado === 'falhou' && recusa ? (
+        <p role="alert">
+          {recusa.mensagem}
+          {recusa.entrar && (
+            <>
+              {' '}
+              <a href={recusa.entrar} className="inline-flex min-h-11 items-center underline">Entrar</a>
+            </>
+          )}
+        </p>
+      ) : (
+        TEXTO[estado] && <p role={estado === 'falhou' ? 'alert' : 'status'}>{TEXTO[estado]}</p>
+      )}
+    </div>
+  );
+}

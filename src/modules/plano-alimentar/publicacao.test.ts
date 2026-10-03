@@ -3,10 +3,11 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { mealItems, mealPlans, patients } from '@/db/schema';
+import { mealItems, mealPlans, notifications, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { criarAlimento, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
@@ -157,6 +158,19 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     expect((await carregarPlano(T.ctx, v2, app.db))?.status).toBe('rascunho');
     expect((await carregarPlano(T.ctx, v1, app.db))?.status).toBe('publicado');
     expect(await jobsDoPlano(v2)).toBe(0);
+  });
+
+  it('US-025: publicar avisa o paciente com acesso ao portal (push plano_novo + e-mail com o link de "Meu plano"); sem conta, nada', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: comConta, email } = await pacienteComConta(app.db, T);
+    const { id } = await criarRascunho(T.ctx, comConta.id, deps);
+    await salvarRascunho(T.ctx, id, corpo(0), deps);
+    await publicarPlano(T.ctx, comConta.id, id, { ...deps, appUrl: 'https://nutri.exemplo.com' });
+    const { p: semConta } = await publicado(T);
+    const avisos = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'plano_novo')), app.db);
+    expect(avisos.map((n) => [n.patientId, n.canal])).toEqual([[comConta.id, 'push']]);
+    expect(await emailsNaFila('plano_novo', email)).toEqual([{ tipo: 'plano_novo', para: email, link: `https://nutri.exemplo.com/p/plano?v=${T.tenantId}` }]);
+    expect(await emailsNaFila('plano_novo', semConta.email)).toEqual([]);
   });
 
   it('"Editar" só vale para a versão publicada; de uma versão arquivada, de rascunho ou de modelo não nasce rascunho', async () => {

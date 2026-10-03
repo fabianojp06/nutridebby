@@ -3,15 +3,18 @@ import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db } from '@/db/client';
 import { mealPlans } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { getEnv } from '@/env';
 import { getBoss } from '@/jobs/boss';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
+import { avisarPlanoNovo } from '@/modules/portal/avisos';
 import { lerPlanoNaTransacao } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { PdfEmPreparoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { copiarConteudo, proximaVersao } from './rascunho';
 import type { PlanoCompleto } from './tipos';
 
-type Deps = { db?: Db; now?: Date; boss?: PgBoss };
+/** `appUrl`: o link do e-mail "Seu novo plano alimentar está disponível" (padrão: APP_URL). */
+type Deps = { db?: Db; now?: Date; boss?: PgBoss; appUrl?: string };
 
 function exigirPublicavel(p: PlanoCompleto) {
   if (!p.refeicoes.length || !p.refeicoes.some((r) => r.itens.length)) throw new PlanoError({ geral: MSG_PLANO.publicarVazio });
@@ -29,7 +32,7 @@ const doPaciente = (patientId: string, planId: string) => and(eq(mealPlans.id, p
 /**
  * US-025 / RN-01, numa transação: arquiva o publicado anterior, congela os nutrientes dos itens (D10),
  * publica e enfileira o PDF (US-026). Travas na mesma ordem do salvamento: paciente → plano.
- * Plano 06: o aviso ao paciente (push + e-mail, adiado — ver desvios) entra aqui, enfileirado nesta transação.
+ * Plano 06 (US-025): o aviso ao paciente com acesso ao portal (push + e-mail) é gravado nesta transação.
  */
 export async function publicarPlano(ctx: TenantContext, patientId: string, planId: string, deps: Deps = {}): Promise<{ versao: number }> {
   if (!idValido(planId) || !idValido(patientId)) throw new PlanoNaoEncontradoError();
@@ -40,7 +43,7 @@ export async function publicarPlano(ctx: TenantContext, patientId: string, planI
     async (tx) => {
       const [antes] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(doPaciente(patientId, planId));
       if (!antes) throw new PlanoNaoEncontradoError(); // modelo também: não se publica
-      await carregarPacienteParaEscrita(tx, patientId);
+      const paciente = await carregarPacienteParaEscrita(tx, patientId);
       const [p] = await tx.select().from(mealPlans).where(doPaciente(patientId, planId)).for('update');
       if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
       if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
@@ -68,6 +71,7 @@ export async function publicarPlano(ctx: TenantContext, patientId: string, planI
         .where(eq(mealPlans.id, planId));
       const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano');
+      await avisarPlanoNovo(tx, paciente, now, deps.appUrl ?? getEnv().APP_URL);
       return { versao: p.versao };
     },
     deps.db ?? getDb(),

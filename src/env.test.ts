@@ -235,6 +235,17 @@ describe('WhatsApp pela Evolution (D1, D4)', () => {
   });
 });
 
+describe('push (Plano 06, D7): chave pública do VAPID no app', () => {
+  it('opcional; vazia conta como ausente; fora do formato → erro com o nome', () => {
+    const publica = webpush.generateVAPIDKeys().publicKey; // só para o teste
+    expect(parseEnv(base).VAPID_PUBLIC_KEY).toBeUndefined();
+    expect(parseEnv({ ...base, VAPID_PUBLIC_KEY: '' }).VAPID_PUBLIC_KEY).toBeUndefined();
+    expect(parseEnv({ ...base, VAPID_PUBLIC_KEY: publica }).VAPID_PUBLIC_KEY).toBe(publica);
+    expect(() => parseEnv({ ...base, VAPID_PUBLIC_KEY: `${publica}=` })).toThrow(/VAPID_PUBLIC_KEY deve ser/);
+    expect(() => parseEnv({ ...base, VAPID_PUBLIC_KEY: 'curta' })).toThrow(/VAPID_PUBLIC_KEY/);
+  });
+});
+
 describe('push (INT-03): VAPID no worker', () => {
   const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
   // par gerado na hora, só para este teste (nunca gravado em arquivo)

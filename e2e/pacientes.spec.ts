@@ -171,6 +171,8 @@ test('exportar dados: o worker gera o ZIP, o link chega por e-mail e baixa o arq
 
 test('arquivar tira da lista de ativos e mostra o selo; desarquivar devolve (US-018 "Arquivar")', async () => {
   await nutri.goto(`${prontuario}/privacidade`);
+  // antes de atender a exclusão, a nutricionista lê o que sai na hora (Plano 06: fotos do diário, notificações, portal)
+  await expect(nutri.getByText(/Na hora são apagadas as fotos do diário, as autorizações de WhatsApp, as notificações no app e os convites/)).toBeVisible();
   nutri.once('dialog', (d) => d.accept());
   await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
   await expect(nutri.locator('header', { hasText: ANA.nome }).getByText('Arquivado', { exact: true })).toBeVisible(); // selo do prontuário

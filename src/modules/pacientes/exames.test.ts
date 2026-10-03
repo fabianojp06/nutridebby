@@ -150,8 +150,13 @@ describe('exames (US-015)', () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);
     const p = await novoPaciente(app.db, A.ctx);
+    const pB = await novoPaciente(app.db, B.ctx);
     const alheio = `${B.tenantId}/exame/${randomUUID()}.pdf`;
-    await withTenant(B.ctx, (tx) => tx.insert(storedFiles).values({ tenantId: B.tenantId, tipo: 'exame', caminho: alheio, bytes: 1, mime: 'application/pdf' }), app.db);
+    await withTenant(
+      B.ctx,
+      (tx) => tx.insert(storedFiles).values({ tenantId: B.tenantId, patientId: pB.id, tipo: 'exame', caminho: alheio, bytes: 1, mime: 'application/pdf' }),
+      app.db,
+    );
     await expect(
       withTenant(A.ctx, (tx) => tx.insert(exams).values({ tenantId: A.tenantId, patientId: p.id, data: '2026-09-01', titulo: 'X', arquivoPath: alheio }), app.db),
     ).rejects.toThrow();

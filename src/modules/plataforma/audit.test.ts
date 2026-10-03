@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { novoPaciente } from '../../../test/pacientes';
 import { auditLog, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead, HISTORICO_POR_PAGINA, listAccessHistory, recordAudit } from './audit';
@@ -68,18 +69,21 @@ describe('auditoria automática (RNF-08, US-007)', () => {
 
   it('paciente grava o próprio registro e só enxerga a própria auditoria', async () => {
     // Linha de outro paciente no mesmo tenant: sem a política patient_isolation em audit_log,
-    // a sessão de P1 abaixo também veria essa linha (T4-R1).
+    // a sessão do paciente abaixo também veria essa linha (T4-R1).
     const P2 = randomUUID();
     await withTenant(ctxA(), (tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: P2, patientId: P2 }), app.db);
 
-    const ctxP = { tenantId: A, role: 'paciente' as const, patientId: P1, actorUserId: randomUUID() };
-    await withTenant(ctxP, (tx) => tx.execute(sql`insert into audit_fixture_registros (tenant_id, patient_id, texto) values (${A}, ${P1}, 'diário')`), app.db);
+    // D1 (Plano 06): a sessão de paciente só grava o que PACIENTE_ESCREVE libera — aqui o próprio cadastro (patients,
+    // update, auditado), não a tabela de exemplo (paciente_sem_insert). O gatilho roda com o papel do paciente.
+    const pac = await novoPaciente(app.db, ctxA());
+    const ctxP = { tenantId: A, role: 'paciente' as const, patientId: pac.id, actorUserId: randomUUID() };
+    await withTenant(ctxP, (tx) => tx.execute(sql`update patients set nome = nome where id = ${pac.id}`), app.db);
     const visto = await withTenant(ctxP, (tx) => tx.select().from(auditLog), app.db);
-    expect(visto.length).toBeGreaterThan(0);
-    expect(visto.every((l) => l.patientId === P1)).toBe(true);
+    expect(visto.some((l) => l.acao === 'alterar' && l.entidadeId === pac.id && l.actorUserId === ctxP.actorUserId)).toBe(true);
+    expect(visto.every((l) => l.patientId === pac.id)).toBe(true);
     expect(visto.some((l) => l.entidadeId === P2)).toBe(false);
 
-    // WITH CHECK: a sessão de P1 não consegue gravar uma linha de auditoria em nome de P2.
+    // WITH CHECK: a sessão do paciente não consegue gravar uma linha de auditoria em nome de P2.
     await expect(
       withTenant(ctxP, (tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: P2, patientId: P2 }), app.db),
     ).rejects.toThrow();

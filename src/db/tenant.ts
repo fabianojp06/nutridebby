@@ -68,3 +68,26 @@ export async function withTenant<T>(
     throw sanitizarErroDeBanco(err) ?? err;
   }
 }
+
+/**
+ * D2 (Plano 06): contexto `conta` — a conta de paciente (sem tenant) procurando os próprios vínculos. No banco, só a
+ * política `paciente_por_conta` (patients, SELECT, user_id = app.user_id) libera linhas; toda outra tabela dá 0 linhas
+ * (menos a TACO, `foods` com tenant_id nulo, legível por qualquer sessão) e nada é gravado. Só
+ * src/modules/portal/vinculos.ts usa.
+ */
+export async function withConta<T>(userId: string, fn: (tx: Tx) => Promise<T>, db: Db = getDb()): Promise<T> {
+  if (!UUID.test(userId)) throw new TenantContextError('userId inválido');
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`select
+        set_config('app.tenant_id', '', true),
+        set_config('app.role', 'conta', true),
+        set_config('app.patient_id', '', true),
+        set_config('app.user_id', ${userId}, true),
+        set_config('app.ip', '', true)`);
+      return fn(tx);
+    });
+  } catch (err) {
+    throw sanitizarErroDeBanco(err) ?? err;
+  }
+}

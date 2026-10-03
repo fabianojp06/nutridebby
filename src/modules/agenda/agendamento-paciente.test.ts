@@ -117,6 +117,37 @@ describe('agendar pelo paciente (US-032)', () => {
     expect(vazias).toEqual([]);
   });
 
+  it('revisão da T12 do Plano 06 (RN-16 no PWA): com 3 consultas futuras ativas, a 4ª → "Você já tem 3 consultas marcadas. Fale com sua nutricionista."; cancelada e passada não contam', async () => {
+    const T = await novoTenant(app.db);
+    await semanaToda(app.db, T.ctx);
+    const [ana, bia] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-10', '09:00')); // passada
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '09:00'), 60, { status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora });
+    await consultaDireta(app.db, T.ctx, bia.id, em('2026-10-21', '09:00')); // de outro paciente
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-22', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-23', '09:00'), 60, { status: 'confirmada' });
+    const entrada = (dia: string) => ({ inicio: em(dia, '14:00').toISOString(), modalidade: 'presencial' });
+    await expect(agendarComoPaciente(ctx, tenantAgenda(T), entrada('2026-10-26'), deps)).resolves.toMatchObject({ id: expect.any(String) }); // 3ª futura
+    expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), entrada('2026-10-27'), deps))).toEqual({ geral: MSG_AGENDA.limitePublico });
+    const futuras = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(and(eq(appointments.patientId, ana.id), eq(appointments.status, 'agendada'))), app.db);
+    expect(futuras.filter((c) => c.inicio > agora)).toHaveLength(2); // a recusada não ficou gravada
+    // a de outro paciente não conta: bia (1 futura) ainda marca
+    await expect(agendarComoPaciente(ctxPaciente(T.tenantId, bia.id), tenantAgenda(T), entrada('2026-10-27'), deps)).resolves.toMatchObject({ id: expect.any(String) });
+  });
+
+  it('revisão da T12 do Plano 06: dois pedidos ao mesmo tempo com 2 futuras → só 1 passa (trava do paciente)', async () => {
+    const T = await novoTenant(app.db);
+    await semanaToda(app.db, T.ctx);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-22', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-23', '09:00'));
+    const r = await Promise.allSettled(['2026-10-26', '2026-10-27'].map((dia) => agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em(dia, '14:00').toISOString(), modalidade: 'presencial' }, deps)));
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason as ConsultaError).erros).toEqual({ geral: MSG_AGENDA.limitePublico });
+  });
+
   it('corrida perdida no banco (23P01 depois da checagem) → "Esse horário acabou de ser ocupado. Escolha outro."; nada fica gravado nem enfileirado', async () => {
     const T = await novoTenant(app.db);
     await semanaToda(app.db, T.ctx);

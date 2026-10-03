@@ -57,6 +57,9 @@ describe('exclusao_atendida (US-018)', () => {
     const r = renderEmail({ tipo: 'exclusao_atendida', para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
     expect(r.subject).toBe('Seu pedido de exclusão de dados foi atendido');
     for (const t of ['Debby Silva atendeu o seu pedido de exclusão de dados', 'Foram apagados agora', 'LGPD, art. 16, I', 'até 15/09/2046']) expect(r.text).toContain(t);
+    // Plano 06: o que o atendimento apaga e encerra também está no aviso ao titular
+    for (const t of ['as fotos do diário alimentar', 'as notificações no aparelho', 'Suas consultas futuras foram canceladas', 'não tem mais acesso ao portal deste acompanhamento'])
+      expect(r.text).toContain(t);
   });
 });
 
@@ -66,6 +69,35 @@ describe('exportacao_pronta (US-018)', () => {
     expect(r.subject).toBe('Exportação de dados pronta');
     expect(r.text).toContain('24 horas');
     expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
+    expect(r.text).toContain('pede que você entre no painel');
+  });
+
+  it('US-046: pedida pelo titular, o link pede que ele entre no portal', () => {
+    const r = renderEmail({ tipo: 'exportacao_pronta', para: 'ana@ex.com', link: 'http://localhost:3000/p/meus-dados/exportacoes/e', titular: true });
+    expect(r.subject).toBe('Exportação de dados pronta');
+    expect(r.text).toContain('O link vale por 24 horas e pede que você entre no portal.');
+    expect(r.text).not.toContain('painel');
+    expect(r.html).toContain('href="http://localhost:3000/p/meus-dados/exportacoes/e"');
+  });
+});
+
+describe('pedido_exclusao_registrado (US-046)', () => {
+  it('assunto da spec, nome da nutricionista, prazo de resposta e o que fica guardado', () => {
+    const r = renderEmail({ tipo: 'pedido_exclusao_registrado', para: 'ana@ex.com', nutri: 'Debby Silva', prazo: '20/10/2026' });
+    expect(r.subject).toBe('Seu pedido foi registrado');
+    expect(r.text).toContain('Recebemos seu pedido de exclusão de dados. Debby Silva tem até 20/10/2026 para responder.');
+    expect(r.text).toContain('o prontuário clínico é guardado de forma bloqueada pelo prazo exigido');
+    expect(r.html).toContain('Debby Silva tem até 20/10/2026 para responder.');
+  });
+});
+
+describe('plano_novo (US-025)', () => {
+  it('assunto da spec, link para "Meu plano", nenhum dado do plano', () => {
+    const r = renderEmail({ tipo: 'plano_novo', para: 'ana@ex.com', link: 'http://localhost:3000/p/plano' });
+    expect(r.subject).toBe('Seu novo plano alimentar está disponível');
+    expect(r.html).toContain('href="http://localhost:3000/p/plano"');
+    expect(r.html).toContain('Ver meu plano');
+    expect(r.text).toContain('http://localhost:3000/p/plano');
   });
 });
 

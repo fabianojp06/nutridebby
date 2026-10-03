@@ -1,6 +1,8 @@
 'use client';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { esquecerComprasDoAparelho } from '@/app/p/(portal)/compras/marcacao';
+import { esquecerPlanoGuardado } from '@/app/sw-regras';
 import { authClient } from '@/lib/auth-client';
 import { safeReturnPath } from '@/lib/safe-return';
 
@@ -11,6 +13,12 @@ function Form() {
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState(params.get('expirada') ? 'Sua sessão expirou. Entre de novo.' : '');
   const [enviando, setEnviando] = useState(false);
+  // D6 / Review Focus 4: aqui chegam a sessão vencida e o "Sair", e por aqui outra pessoa entra no mesmo aparelho —
+  // o plano guardado offline e as marcações da lista de compras saem antes de qualquer login
+  useEffect(() => {
+    void esquecerPlanoGuardado();
+    esquecerComprasDoAparelho();
+  }, []);
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();

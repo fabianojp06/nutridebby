@@ -49,6 +49,7 @@ export const perfilSchema = z.object({
   antecedenciaMinH: horas,
   cancelamentoMinH: horas,
   agendamentoPublicoAtivo: z.boolean(),
+  mostrarPercGorduraPaciente: z.boolean(),
   // revisão final: só os fusos do Brasil oferecidos na tela — a agenda (T1: sem horário de verão) e a cota (T11) partem disso
   fuso: z.string().refine((f) => (FUSOS_BRASIL as readonly string[]).includes(f), MSG_MARCA.fuso),
 });

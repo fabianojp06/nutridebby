@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { novoPaciente } from '../../../test/pacientes';
 import { storedFiles, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
@@ -34,6 +35,8 @@ async function novoTenant(): Promise<TenantContext> {
   const [t] = await app.db.insert(tenants).values({ slug: `arq-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Arq' }).returning();
   return { tenantId: t.id, role: 'nutri', actorUserId: randomUUID(), ip: '203.0.113.1' };
 }
+/** D4: laudo e demais arquivos de paciente levam o dono (patientId). */
+const pacienteDe = async (ctx: TenantContext) => (await novoPaciente(app.db, ctx)).id;
 const usado = async (id: string) => (await app.db.select().from(tenants).where(eq(tenants.id, id)))[0].armazenamentoBytes;
 const definirUso = (id: string, bytes: number) => app.db.update(tenants).set({ armazenamentoBytes: bytes }).where(eq(tenants.id, id));
 
@@ -73,10 +76,11 @@ describe('salvarArquivo (RN-18, RNF-06)', () => {
 
   it('dois uploads simultâneos perto do limite: só um passa (Review Focus 4)', async () => {
     const ctx = await novoTenant();
+    const patientId = await pacienteDe(ctx);
     await definirUso(ctx.tenantId, COTA_BYTES - 1500);
     const r = await Promise.allSettled([
-      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(992), permitidos: ['png'] }, deps),
-      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(992), permitidos: ['png'] }, deps),
+      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(992), permitidos: ['png'], patientId }, deps),
+      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(992), permitidos: ['png'], patientId }, deps),
     ]);
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     expect((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason).toBeInstanceOf(CotaEsgotadaError);
@@ -123,9 +127,10 @@ describe('nivelDeUso e resolverCaminho', () => {
 describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
   it('registrar que falha desfaz tudo: nem stored_files, nem arquivo, nem cota', async () => {
     const ctx = await novoTenant();
+    const patientId = await pacienteDe(ctx);
     let caminho = '';
     await expect(
-      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (_tx, a) => { caminho = a.caminho; throw new Error('exame recusado'); } }, deps),
+      salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], patientId, registrar: async (_tx, a) => { caminho = a.caminho; throw new Error('exame recusado'); } }, deps),
     ).rejects.toThrow('exame recusado');
     expect(existsSync(path.join(dataDir, caminho))).toBe(false);
     expect(await withTenant(ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
@@ -133,7 +138,8 @@ describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
   });
   it('registrar grava na mesma transação que reserva a cota', async () => {
     const ctx = await novoTenant();
-    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], registrar: async (tx, arq) => {
+    const patientId = await pacienteDe(ctx);
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], patientId, registrar: async (tx, arq) => {
       const [n] = (await tx.execute(sql`select count(*)::int as n from stored_files where caminho = ${arq.caminho}`)).rows as { n: number }[];
       expect(n.n).toBe(1); // já visível dentro da transação
     } }, deps);
@@ -141,14 +147,31 @@ describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
   });
   it('naMesmaTransacao = false desiste: o arquivo e a cota ficam', async () => {
     const ctx = await novoTenant();
-    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], patientId: await pacienteDe(ctx) }, deps);
     expect(await apagarArquivo(ctx, { id: a.id }, { ...deps, naMesmaTransacao: async () => false })).toBe(false);
     expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
     expect(await usado(ctx.tenantId)).toBe(108);
   });
+  it('RNF-11: o rm que falha depois do commit avisa "arquivo órfão" só com o código do erro, nunca o caminho', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'logo', conteudo: PNG(10), permitidos: ['png'] }, deps);
+    // no lugar do arquivo, uma pasta com conteúdo: o rm (sem recursive) falha
+    rmSync(path.join(dataDir, a.caminho));
+    mkdirSync(path.join(dataDir, a.caminho, 'x'), { recursive: true });
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await apagarArquivo(ctx, { id: a.id }, deps)).toBe(true);
+      const chamada = aviso.mock.calls.find((c) => c[1] === 'arquivo órfão no disco');
+      expect(chamada?.[0]).toEqual({ motivo: expect.stringMatching(/^[A-Z_]+$/), tenantId: ctx.tenantId });
+      expect(JSON.stringify(chamada)).not.toContain(a.id);
+    } finally {
+      aviso.mockRestore();
+    }
+  });
+
   it('removerAntesDoCommit: se o rm falha, o registro continua (a anonimização tenta de novo)', async () => {
     const ctx = await novoTenant();
-    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'] }, deps);
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], patientId: await pacienteDe(ctx) }, deps);
     const alvo = path.join(dataDir, a.caminho);
     rmSync(alvo);
     mkdirSync(path.join(alvo, 'x'), { recursive: true }); // um diretório não vazio no lugar: rm sem recursive falha

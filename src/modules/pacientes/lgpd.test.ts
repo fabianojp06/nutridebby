@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -8,18 +8,21 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { appointments, auditLog, consents, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
+import { logger } from '@/lib/logger';
+import { account, appointments, auditLog, consents, diaryEntries, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
 import { stopBoss } from '@/jobs/boss';
+import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { PacienteBloqueadoError } from './base';
 import { criarExame } from './exames';
-import { anonimizarVencidos, arquivarPaciente, atenderPedidoExclusao, desarquivarPaciente, LgpdError, MSG_LGPD, PRAZO_GUARDA_ANOS } from './lgpd';
+import { anexosDoPaciente, anonimizarVencidos, apagarFotosDoDiario, arquivarPaciente, atenderPedidoExclusao, desarquivarPaciente, LgpdError, MSG_LGPD, pedidosDoTitularAbertos, PRAZO_GUARDA_ANOS } from './lgpd';
 import { criarPaciente } from './pacientes';
 
 // Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
@@ -298,5 +301,114 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     await expect(atenderPedidoExclusao(A.ctx, A.tenant, pB.id, 'Ana Souza', deps)).rejects.toThrow();
     expect((await ler(B.ctx, pB.id)).status).toBe('ativo');
     await expect(atenderPedidoExclusao(B.ctx, B.tenant, pB.id, '', deps)).rejects.toBeInstanceOf(LgpdError);
+  });
+});
+
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 1)]);
+/** Registro do diário com a foto convertida (e, se `original`, também o original ainda não convertido). */
+async function registroComFoto(T: TenantDeTeste, patientId: string, o: { original?: boolean } = {}) {
+  const foto = await salvarArquivo(T.ctx, { tipo: 'diario_foto', conteudo: JPEG, permitidos: ['jpg'], patientId }, { db: app.db, dataDir });
+  const original = o.original ? await salvarArquivo(T.ctx, { tipo: 'diario_foto_original', conteudo: JPEG, permitidos: ['jpg'], patientId }, { db: app.db, dataDir }) : null;
+  const [e] = await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId, refeicao: 'Almoço', fotoPath: foto.caminho, fotoOriginalPath: original?.caminho ?? null, fotoStatus: 'pronta' }).returning(), app.db);
+  return { entrada: e, caminhos: [foto.caminho, ...(original ? [original.caminho] : [])] };
+}
+
+describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
+  it('apagarFotosDoDiario depois do atendimento: as fotos (e o original) saem do disco e da cota; o registro fica, com a foto "removida"; idempotente', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { entrada, caminhos } = await registroComFoto(T, p.id, { original: true });
+    expect((await withTenant(T.ctx, (tx) => anexosDoPaciente(tx, p.id), app.db)).sort()).toEqual([...caminhos].sort()); // a anonimização também as apaga
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, { db: app.db });
+    expect(await apagarFotosDoDiario(T.ctx, p.id, { db: app.db, dataDir })).toBe(2);
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, entrada.id)), app.db);
+    expect(e).toMatchObject({ fotoPath: null, fotoOriginalPath: null, fotoStatus: 'removida', refeicao: 'Almoço' });
+    for (const c of caminhos) expect(existsSync(resolverCaminho(dataDir, c))).toBe(false);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
+    expect(await apagarFotosDoDiario(T.ctx, p.id, { db: app.db, dataDir })).toBe(0);
+  });
+
+  it('rede de segurança da varredura diária: bloqueado (guarda ainda não vencida) perde as fotos e NÃO é anonimizado; o ativo fica com as dele', async () => {
+    const T = await novoTenant(app.db);
+    const bloqueado = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2046-09-30' });
+    const ativo = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const doBloqueado = await registroComFoto(T, bloqueado.id);
+    const doAtivo = await registroComFoto(T, ativo.id);
+    await anonimizarSo(T);
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, doBloqueado.entrada.id)), app.db);
+    expect(e).toMatchObject({ fotoPath: null, fotoStatus: 'removida' });
+    expect(existsSync(resolverCaminho(dataDir, doBloqueado.caminhos[0]))).toBe(false);
+    expect(await ler(T.ctx, bloqueado.id)).toMatchObject({ nome: 'Ana Souza', anonimizadoEm: null });
+    const [f] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, doAtivo.entrada.id)), app.db);
+    expect(f).toMatchObject({ fotoPath: doAtivo.caminhos[0], fotoStatus: 'pronta' });
+    expect(existsSync(resolverCaminho(dataDir, doAtivo.caminhos[0]))).toBe(true);
+  });
+
+  it('RNF-11: erro de disco na anonimização vai para o log só com o código (a mensagem de um ENOTDIR/EACCES leva o caminho da foto)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    await registroComFoto(T, p.id);
+    const naoPasta = path.join(dataDir, `arquivo-${randomUUID()}`);
+    writeFileSync(naoPasta, 'x'); // o "dataDir" é um arquivo: o rm da foto falha com ENOTDIR
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: T.tenantId, fuso: T.tenant.fuso }]);
+      expect(await anonimizarVencidos(app.db, now, { dataDir: naoPasta })).toEqual({ anonimizados: 0 });
+      expect(erro).toHaveBeenCalledWith({ motivo: 'ENOTDIR', tenantId: T.tenantId }, 'falha ao anonimizar paciente');
+      expect(JSON.stringify(erro.mock.calls)).not.toContain(naoPasta);
+    } finally {
+      erro.mockRestore();
+    }
+    expect((await ler(T.ctx, p.id)).anonimizadoEm).toBeNull(); // o dia seguinte tenta de novo
+  });
+
+  it('anonimização de quem tem foto no diário: a foto sai antes, o registro fica com a foto "removida"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const { entrada, caminhos } = await registroComFoto(T, p.id);
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, entrada.id)), app.db);
+    expect(e).toMatchObject({ fotoPath: null, fotoStatus: 'removida' });
+    expect(existsSync(resolverCaminho(dataDir, caminhos[0]))).toBe(false);
+  });
+
+  it('pedidos do titular abertos para o quadro do painel, com nome e prazo (só os abertos, prazo mais curto primeiro)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { nome: 'Carla Dias' });
+    const q = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await withTenant(T.ctx, (tx) => tx.insert(privacyRequests).values([
+      { tenantId: T.tenantId, patientId: p.id, tipo: 'exclusao', status: 'aberto', prazo: '2026-10-20' },
+      { tenantId: T.tenantId, patientId: q.id, tipo: 'exclusao', status: 'aberto', prazo: '2026-10-18' },
+      { tenantId: T.tenantId, patientId: q.id, tipo: 'exclusao', status: 'concluido', prazo: '2026-09-18' },
+    ]), app.db);
+    expect(await pedidosDoTitularAbertos(T.ctx, app.db)).toEqual([
+      { patientId: q.id, nome: 'Bia Lima', tipo: 'exclusao', prazo: '2026-10-18' },
+      { patientId: p.id, nome: 'Carla Dias', tipo: 'exclusao', prazo: '2026-10-20' },
+    ]);
+    expect(await pedidosDoTitularAbertos((await novoTenant(app.db)).ctx, app.db)).toEqual([]); // de outro consultório: nada
+    // US-046 / D17: um aberto por paciente e tipo (índice único parcial)
+    await expect(withTenant(T.ctx, (tx) => tx.insert(privacyRequests).values({ tenantId: T.tenantId, patientId: p.id, tipo: 'exclusao', status: 'aberto', prazo: '2026-10-21' }), app.db)).rejects.toThrow();
+  });
+
+  it('P06-08 (D18): anonimizar sem outro vínculo anonimiza a conta (nome, e-mail, sessões, senha); com outro vínculo, a conta fica', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const sozinha = await pacienteComConta(app.db, A);
+    const dupla = await pacienteComConta(app.db, A);
+    await pacienteComConta(app.db, B, { userId: dupla.userId, status: 'arquivado' }); // arquivado ainda é vínculo (não anonimizado)
+    await app.db.insert(session).values({ id: randomUUID(), token: randomUUID(), userId: sozinha.userId, expiresAt: new Date('2027-01-01T00:00:00Z'), updatedAt: now });
+    for (const x of [sozinha, dupla]) {
+      await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2000-01-01' }).where(eq(patients.id, x.paciente.id)), app.db);
+    }
+    await anonimizarSo(A);
+    const [u1] = await app.db.select().from(user).where(eq(user.id, sozinha.userId));
+    expect(u1).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${sozinha.userId}@anonimizado.invalid` });
+    expect(await app.db.select().from(account).where(eq(account.userId, sozinha.userId))).toEqual([]);
+    expect(await app.db.select().from(session).where(eq(session.userId, sozinha.userId))).toEqual([]);
+    const [u2] = await app.db.select().from(user).where(eq(user.id, dupla.userId));
+    expect(u2.email).toBe(dupla.email);
+    expect(await app.db.select().from(account).where(eq(account.userId, dupla.userId))).toHaveLength(1);
+    expect((await ler(A.ctx, dupla.paciente.id)).anonimizadoEm).not.toBeNull(); // o prontuário de A foi anonimizado do mesmo jeito
   });
 });

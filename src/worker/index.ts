@@ -32,6 +32,7 @@ import {
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
+import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
 import { urlDoApp } from '@/lib/url-do-app';
 
@@ -171,6 +172,14 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       });
     },
   );
+  // US-042 / RN-07: foto do diário convertida no worker (sharp + heic-decode)
+  await boss.work('diario-foto', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosFotoDiario>[]) => {
+    await converterFotoDoDiario(job.data, { db: getDb(), dataDir: env.DATA_DIR, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  await boss.schedule('expirar-diario-foto', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('expirar-diario-foto', async () => {
+    await expirarFotosPendentes({ db: getDb(), dataDir: env.DATA_DIR, boss }, new Date());
+  });
   await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await boss.work('expirar-plano-pdf', async () => {
     await expirarPdfsPendentes(getDb(), new Date());

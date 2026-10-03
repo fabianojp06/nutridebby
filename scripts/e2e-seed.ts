@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, tenants, user } from '@/db/schema';
+import { account, consents, patients, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
+import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
 export const E2E_ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_NUTRI = { email: 'nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_RECUPERA = { email: 'recupera-e2e@nutridebby.test', password: 'Nutri2026segura' };
+export const E2E_MULTI = { email: 'multi-e2e@nutridebby.test', password: 'Multi2026segura' };
 export const E2E_ADMIN_PLATAFORMA = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
 
 const db = getDb();
@@ -31,6 +33,9 @@ await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
   // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
   await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
+  // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
+  // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)
+  await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));
@@ -54,6 +59,39 @@ await db.delete(user).where(eq(user.email, E2E_ADMIN_PLATAFORMA.email));
 const admin2Id = randomUUID();
 await db.insert(user).values({ id: admin2Id, name: 'Admin Plataforma E2E', email: E2E_ADMIN_PLATAFORMA.email, emailVerified: true, appRole: 'admin' });
 await db.insert(account).values({ id: randomUUID(), userId: admin2Id, accountId: admin2Id, providerId: 'credential', password: await hashPassword(E2E_ADMIN_PLATAFORMA.password) });
+
+// Plano 06 (T13, R12): conta de paciente com três vínculos — o consultório do E2E e o "2" (termo aceito) e o "3" (sem o
+// aceite do termo, que o E2E nunca aceita) —, para o acessibilidade.spec cobrir /p/escolher, /p/termo e a troca de
+// nutricionista. `consents` é append-only (0009): a conta não é apagada (o aceite impede), só ganha a senha de novo.
+const outros = [];
+for (const [slug, nomeExibicao] of [['e2e-consultorio-2', 'Consultório E2E 2'], ['e2e-consultorio-3', 'Consultório E2E 3']]) {
+  const [t] = await db
+    .insert(tenants)
+    .values({ slug, nomeExibicao, crn: 'CRN-3 54321', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+    .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', nomeExibicao } })
+    .returning({ id: tenants.id });
+  outros.push(t.id);
+}
+const senhaMulti = await hashPassword(E2E_MULTI.password);
+const [existente] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_MULTI.email));
+const multiId = existente?.id ?? randomUUID();
+if (existente) {
+  await db.update(account).set({ password: senhaMulti }).where(eq(account.userId, multiId));
+} else {
+  await db.insert(user).values({ id: multiId, name: 'Multi E2E', email: E2E_MULTI.email, emailVerified: true, appRole: 'paciente' });
+  await db.insert(account).values({ id: randomUUID(), userId: multiId, accountId: multiId, providerId: 'credential', password: senhaMulti });
+}
+for (const tenantId of [consultorio.id, ...outros]) {
+  await withTenant({ tenantId, role: 'nutri' }, async (tx) => {
+    await tx
+      .insert(patients)
+      .values({ tenantId, userId: multiId, nome: 'Multi E2E', dataNascimento: '1990-01-01', sexo: 'F', email: E2E_MULTI.email })
+      .onConflictDoUpdate({ target: [patients.tenantId, patients.email], set: { userId: multiId, status: 'ativo', updatedAt: new Date() } });
+  }, db);
+}
+for (const tenantId of [consultorio.id, outros[0]]) {
+  await db.insert(consents).values({ userId: multiId, tenantId, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+}
 
 await closeDb();
 console.log('Seed E2E pronto.');

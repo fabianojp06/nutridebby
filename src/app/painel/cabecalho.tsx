@@ -19,6 +19,7 @@ export function Cabecalho({ tenant }: { tenant: TenantRow }) {
         <Link href="/painel">Início</Link>
         <Link href="/painel/pacientes">Pacientes</Link>
         <Link href="/painel/agenda">Agenda</Link>
+        <Link href="/painel/diarios">Diários</Link>
         <Link href="/painel/whatsapp">WhatsApp</Link>
         <Link href="/painel/alimentos">Alimentos</Link>
         <Link href="/painel/planos/modelos">Modelos de plano</Link>
