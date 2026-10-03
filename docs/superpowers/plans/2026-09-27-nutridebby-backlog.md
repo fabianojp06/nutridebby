@@ -97,7 +97,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 05 — Agenda & lembretes (M4)
 
-**Situação em 2026-10-03:** as 15 tarefas do plano estão feitas na branch `plano-05-agenda` (PR #7; commits `af21796` a `affaf3e`, revisão final e correções até `9acfa46`, fechamento com as decisões do dono até o último lote), com a spec atualizada para a **v1.8**. **Merge e deploy pendentes do OK explícito do dono** (merge = deploy; snapshot no hPanel antes; janela de deploy com o worker parado — 20 migrations novas, 0048 a 0067; a 0067 desliga a página pública de todos os tenants). Depois do merge: E-04 revisado (Evolution no Easypanel, runbook do Plano 05). O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais.
+**Situação em 2026-10-03:** as 15 tarefas do plano feitas na branch `plano-05-agenda` (PR #7), com a spec atualizada para a **v1.8**; **PR #7 mergeado e em produção desde 03/10/2026 ~08h50 BRT** (migrations 0048 a 0069; WhatsApp e push desligados até o E-04 revisado e as variáveis do VAPID; a página pública da Debby desligada até ela ligar em Configurações). Pendente do dono: E-04 revisado (Evolution no Easypanel, runbook do Plano 05). O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais.
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
@@ -180,7 +180,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 
 ## Resumo
 
-**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 04 concluídos e em produção (https://nutri.wsscloud.tech); Plano 05 feito na branch `plano-05-agenda` (PR #7), com merge e deploy pendentes do OK do dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 34 ⬜ (P04-10, P06-00, Planos 06–08 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
+**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 05 concluídos e em produção (https://nutri.wsscloud.tech; Plano 05 pelo PR #7, deploy em 03/10 ~08h50 BRT); Plano 06 escrito ([`2026-10-03-nutridebby-06-portal-paciente.md`](2026-10-03-nutridebby-06-portal-paciente.md), branch `plano-06-portal`, 13 tarefas cobrindo P06-00 a P06-11), execução depois da revisão do plano pelo dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 34 ⬜ (P04-10, P06-00, Planos 06–08 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
