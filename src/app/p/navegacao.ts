@@ -8,6 +8,7 @@ export const ITENS_DO_PORTAL: ItemPortal[] = [
   { href: '/p/inicio', rotulo: 'Início' },
   { href: '/p/plano', rotulo: 'Plano' },
   { href: '/p/diario', rotulo: 'Diário' },
+  { href: '/p/perfil', rotulo: 'Perfil' },
 ];
 
 /** O item da aba atual (também nas subpáginas: /p/agenda/… marca "Agenda"). */

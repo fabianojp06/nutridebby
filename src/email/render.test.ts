@@ -66,6 +66,25 @@ describe('exportacao_pronta (US-018)', () => {
     expect(r.subject).toBe('Exportação de dados pronta');
     expect(r.text).toContain('24 horas');
     expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
+    expect(r.text).toContain('pede que você entre no painel');
+  });
+
+  it('US-046: pedida pelo titular, o link pede que ele entre no portal', () => {
+    const r = renderEmail({ tipo: 'exportacao_pronta', para: 'ana@ex.com', link: 'http://localhost:3000/p/meus-dados/exportacoes/e', titular: true });
+    expect(r.subject).toBe('Exportação de dados pronta');
+    expect(r.text).toContain('O link vale por 24 horas e pede que você entre no portal.');
+    expect(r.text).not.toContain('painel');
+    expect(r.html).toContain('href="http://localhost:3000/p/meus-dados/exportacoes/e"');
+  });
+});
+
+describe('pedido_exclusao_registrado (US-046)', () => {
+  it('assunto da spec, nome da nutricionista, prazo de resposta e o que fica guardado', () => {
+    const r = renderEmail({ tipo: 'pedido_exclusao_registrado', para: 'ana@ex.com', nutri: 'Debby Silva', prazo: '20/10/2026' });
+    expect(r.subject).toBe('Seu pedido foi registrado');
+    expect(r.text).toContain('Recebemos seu pedido de exclusão de dados. Debby Silva tem até 20/10/2026 para responder.');
+    expect(r.text).toContain('o prontuário clínico é guardado de forma bloqueada pelo prazo exigido');
+    expect(r.html).toContain('Debby Silva tem até 20/10/2026 para responder.');
   });
 });
 

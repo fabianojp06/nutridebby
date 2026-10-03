@@ -189,7 +189,8 @@ export async function apagarArquivo(
   return true;
 }
 
-const motivoDoErro = (err: unknown): string =>
+/** Para o log: o código do erro (ENOENT, EACCES…), nunca a mensagem — a de disco leva o caminho (RNF-11). */
+export const motivoDoErro = (err: unknown): string =>
   err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : 'erro';
 
 /**

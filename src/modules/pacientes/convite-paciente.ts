@@ -193,8 +193,8 @@ async function travarPacienteDoConvite(tx: Tx, patientId: string): Promise<Patie
   return p;
 }
 
-/** US-011: marcar = opt-in do próprio paciente; desmarcar o que estava autorizado = opt-out (INT-01). */
-function escolhaWhatsapp(quer: boolean, p: PatientRow, now: Date) {
+/** US-011: marcar = opt-in do próprio paciente; desmarcar o que estava autorizado = opt-out (INT-01). Também em "Perfil" (portal). */
+export function escolhaWhatsapp(quer: boolean, p: PatientRow, now: Date) {
   if (!p.telefoneE164) return {};
   if (quer) return { whatsappOptinEm: now, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null };
   return p.whatsappOptinEm && !p.whatsappOptoutEm ? { whatsappOptoutEm: now } : {};

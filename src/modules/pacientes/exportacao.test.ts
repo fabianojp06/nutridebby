@@ -9,13 +9,14 @@ import { and, eq } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
-import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { pacienteComConta } from '../../../test/portal';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
-import { auditLog, consents, dataExports, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
-import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
+import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { buscarModelo, preencherAnamnese, salvarModelo } from './anamnese';
@@ -50,6 +51,15 @@ afterAll(async () => {
 });
 
 const NOTA = 'suspeita de compulsão';
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 1)]);
+
+/** O ZIP pronto do pedido, aberto: os arquivos e o dados.json. */
+async function zipDoPedido(T: TenantDeTeste, exportId: string) {
+  const [e] = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.id, exportId)), app.db);
+  if (!e?.arquivoPath) throw new Error(`pedido sem ZIP: ${e?.status}`);
+  return unzipSync(readFileSync(path.join(dataDir, e.arquivoPath)));
+}
+const dadosDoZip = async (T: TenantDeTeste, exportId: string) => JSON.parse(strFromU8((await zipDoPedido(T, exportId))['dados.json']));
 /** Tarefa 15: o que nunca sai no dados.json — o motivo que só a nutricionista vê e os dados técnicos de envio. */
 const MOTIVO_DA_NUTRI = 'paciente difícil, cobrar antes';
 const JID = '5511912345678@s.whatsapp.net';
@@ -609,6 +619,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         lembretes: [],
         aceitesDoTermo: [],
         dispositivosPush: [],
+        diario: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -670,6 +681,80 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(rascunho).toBeTruthy();
   });
 
+  it('US-046: pedida pelo titular, o e-mail vai para a conta dele com o link do portal; diário (texto e foto) no ZIP', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, email, userId } = await pacienteComConta(app.db, T);
+    await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, dataHora: new Date('2026-09-30T15:00:00Z'), refeicao: 'Almoço', texto: 'arroz', comentarioNutri: 'Ótimo!' }), app.db);
+    const foto = await salvarArquivo(T.ctx, { tipo: 'diario_foto', conteudo: JPEG, permitidos: ['jpg'], patientId: p.id }, { db: app.db, dataDir });
+    await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, dataHora: new Date('2026-10-01T11:00:00Z'), refeicao: 'Café da manhã', fotoPath: foto.caminho, fotoStatus: 'pronta' }), app.db);
+    const id = await solicitarExportacao({ ...ctxPaciente(T.tenantId, p.id), actorUserId: userId }, p.id, { db: app.db, escopo: 'titular' });
+    await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { db: app.db, dataDir, appUrl: 'http://localhost:3000', ultimaTentativa: false });
+    const [msg] = await emailsNaFila('exportacao_pronta', email);
+    expect(msg).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${id}`, titular: true });
+    const dados = await dadosDoZip(T, id);
+    expect(dados.diario).toEqual([
+      expect.objectContaining({ refeicao: 'Almoço', texto: 'arroz', comentarioNutri: 'Ótimo!', foto: null }),
+      expect.objectContaining({ refeicao: 'Café da manhã', texto: null, foto: 'diario/2026-10-01-2.jpg' }),
+    ]);
+    const zip = await zipDoPedido(T, id);
+    expect(Buffer.from(zip['diario/2026-10-01-2.jpg']).equals(JPEG)).toBe(true); // o JPEG convertido; o original nunca vai
+    expect(dados.laudosForaDoZip).toBe(false);
+  });
+
+  it('fotos do diário acima do teto de memória ficam de fora com o aviso, como os laudos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const foto = await salvarArquivo(T.ctx, { tipo: 'diario_foto', conteudo: JPEG, permitidos: ['jpg'], patientId: p.id }, { db: app.db, dataDir });
+    await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, refeicao: 'Jantar', fotoPath: foto.caminho, fotoStatus: 'pronta' }), app.db);
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false, limiteLaudosBytes: 100 })).toBe('pronta');
+    const dados = await dadosDoZip(T, id);
+    expect(dados.diario).toEqual([expect.objectContaining({ refeicao: 'Jantar', foto: null })]);
+    expect(dados.laudosForaDoZip).toBe(true);
+    expect(Object.keys(await zipDoPedido(T, id)).sort()).toEqual(['dados.json', 'prontuario.pdf']);
+  });
+
+  it('D16: pedidos do titular e da equipe não se misturam — o pendente de um não é reaproveitado nem marcado "falhou" pelo outro', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T);
+    const ctxTitular = ctxPaciente(T.tenantId, p.id, userId);
+    const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+    const doTitular = await solicitarExportacao(ctxTitular, p.id, { ...deps, escopo: 'titular' });
+    expect(doTitular).not.toBe(daEquipe);
+    expect(await solicitarExportacao(T.ctx, p.id, deps)).toBe(daEquipe); // duplo clique da equipe: o mesmo
+    expect(await solicitarExportacao(ctxTitular, p.id, { ...deps, escopo: 'titular' })).toBe(doTitular);
+    // 31 min depois a equipe pede de novo: só o pendente DELA vira "falhou"; o do titular segue pendente
+    const depois = { ...deps, now: new Date(now.getTime() + 31 * 60_000) };
+    expect(await solicitarExportacao(T.ctx, p.id, depois)).not.toBe(daEquipe);
+    expect(await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, depois.now)).toEqual({ estado: 'falhou' });
+    expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, depois.now)).toEqual({ estado: 'pendente' });
+    const [linha] = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.id, doTitular)), app.db);
+    expect(linha).toMatchObject({ escopo: 'titular', solicitadoPor: userId });
+    // R14 (c): com o filtro de escopo, o pedido da equipe não existe para quem pede só os do titular
+    expect(await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, depois.now, { escopo: 'titular' })).toEqual({ estado: 'inexistente' });
+    expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, depois.now, { escopo: 'titular' })).toEqual({ estado: 'pendente' });
+  });
+
+  it('D16: o ZIP do titular pronto não apaga o da equipe (um ZIP válido por paciente e escopo); cada e-mail vai para quem pediu', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId, email } = await pacienteComConta(app.db, T);
+    const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+    await gerarExportacao({ tenantId: T.tenantId, exportId: daEquipe }, { ...deps, ultimaTentativa: false });
+    const doTitular = await solicitarExportacao(ctxPaciente(T.tenantId, p.id, userId), p.id, { ...deps, escopo: 'titular' });
+    expect(await gerarExportacao({ tenantId: T.tenantId, exportId: doTitular }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+    expect((await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, now)).estado).toBe('pronta');
+    const [daNutri] = await emailsNaFila('exportacao_pronta', `nutri-${T.nutriId.slice(0, 8)}@teste.dev`);
+    expect(daNutri.link).toBe(`http://localhost:3000/painel/pacientes/${p.id}/exportacoes/${daEquipe}`);
+    expect(daNutri.titular).toBe(false);
+    const [doPaciente] = await emailsNaFila('exportacao_pronta', email);
+    expect(doPaciente).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${doTitular}`, titular: true });
+    // um segundo pedido do titular, pronto, apaga o primeiro do titular — e o da equipe continua
+    const outro = await solicitarExportacao(ctxPaciente(T.tenantId, p.id, userId), p.id, { ...deps, escopo: 'titular' });
+    expect(await gerarExportacao({ tenantId: T.tenantId, exportId: outro }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+    expect((await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, now)).estado).toBe('expirada');
+    expect((await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, now)).estado).toBe('pronta');
+  });
+
   it('PDF: circunferências, dobras com o protocolo e pedidos do titular aparecem; números no formato da tela, sem notação exponencial', async () => {
     const pdf = await renderizarProntuario(
       {
@@ -722,6 +807,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         lembretes: [],
         aceitesDoTermo: [],
         dispositivosPush: [],
+        diario: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',

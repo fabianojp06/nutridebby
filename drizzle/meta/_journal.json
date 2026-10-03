@@ -547,6 +547,20 @@
       "when": 1791045656375,
       "tag": "0077_rls_diario",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1791046873882,
+      "tag": "0078_pedido_aberto_unico",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1791046875271,
+      "tag": "0079_paciente_titular",
+      "breakpoints": true
     }
   ]
 }

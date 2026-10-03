@@ -5,6 +5,8 @@ import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando } from '@/modules/agenda/fuso';
 import { contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, textoTaxa } from '@/modules/agenda/presenca';
 import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
+import { formatarData } from '@/modules/pacientes/datas';
+import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
 import { Cabecalho } from './cabecalho';
@@ -17,7 +19,12 @@ export default async function PainelHome() {
   const cota = whatsapp.ligado ? await situacaoDaCota(ctx, tenant) : null; // RN-09: só com o WhatsApp ligado
   // US-037 / CS-03 / D18: quadro "Agenda" (cada leitura é uma transação; nenhuma dentro de outra)
   const agora = new Date();
-  const [ind, pendentes, nov] = await Promise.all([indicadoresDaAgenda(ctx, tenant.fuso, agora), contarPendenciasDePresenca(ctx, agora), novidadesDaAgenda(ctx, agora)]);
+  const [ind, pendentes, nov, pedidos] = await Promise.all([
+    indicadoresDaAgenda(ctx, tenant.fuso, agora),
+    contarPendenciasDePresenca(ctx, agora),
+    novidadesDaAgenda(ctx, agora),
+    pedidosDoTitularAbertos(ctx), // US-046 / D17: quadro "Pedidos do titular"
+  ]);
   const novidades: [string, Consulta[]][] = [
     ['Pedidos de remarcação', nov.pedidosRemarcacao],
     ['Marcadas pelo paciente (últimos 7 dias)', nov.marcadasPeloPaciente],
@@ -64,6 +71,21 @@ export default async function PainelHome() {
             ) : null,
           )}
         </section>
+        {pedidos.length > 0 && (
+          <section aria-labelledby="pedidos-titular" className="my-4 space-y-2">
+            <h2 id="pedidos-titular" className="text-lg font-semibold">Pedidos do titular</h2>
+            <ul className="list-disc pl-5 text-sm">
+              {pedidos.map((p) => (
+                <li key={`${p.patientId}-${p.tipo}`}>
+                  <Link href={`/painel/pacientes/${p.patientId}/privacidade`} className="underline">
+                    {p.tipo === 'exclusao' ? `Pedido de exclusão de ${p.nome}` : `Pedido de dados de ${p.nome}`}
+                  </Link>
+                  {` · prazo ${formatarData(p.prazo)}`}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <p>Conectado como {data.user.email}.</p>
       </main>
     </>

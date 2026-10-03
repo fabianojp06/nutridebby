@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "privacy_requests_aberto_unique" ON "privacy_requests" USING btree ("tenant_id","patient_id","tipo") WHERE "privacy_requests"."status" = 'aberto';

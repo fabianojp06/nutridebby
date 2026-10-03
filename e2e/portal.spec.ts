@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { esperarEmail, primeiroLink } from './mailpit';
 import { pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -131,5 +132,37 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
   await p.page.getByLabel('Foto (opcional)').setInputFiles({ name: 'grande.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(11 * 1024 * 1024, 0xff) });
   await p.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(p.page.locator('#foto-erro')).toHaveText('Envie uma foto JPEG, PNG ou HEIC de até 10 MB');
+  await p.page.context().close();
+});
+
+test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal; pedir exclusão aparece no painel (US-046)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.16');
+  await p.page.goto('/p/perfil');
+  await expect(p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' })).toHaveAttribute('aria-current', 'page');
+  await p.page.getByRole('button', { name: 'Baixar meus dados' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Pedimos seus dados. O link chega por e-mail e vale por 24 horas.' })).toBeVisible();
+  const email = await esperarEmail(p.email, { assunto: 'Exportação de dados pronta' });
+  expect(email.texto).toContain('pede que você entre no portal');
+  await p.page.goto(primeiroLink(email.texto, '/p/meus-dados/exportacoes/'));
+  await expect(p.page.getByRole('heading', { name: 'Seus dados' })).toBeVisible();
+  await expect(p.page.getByRole('link', { name: 'Baixar arquivo' })).toBeVisible();
+  await p.page.goto('/p/perfil');
+  await p.page.getByRole('button', { name: 'Baixar meus dados' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Você já pediu seus dados nas últimas 24 horas.' })).toBeVisible();
+  p.page.once('dialog', (d) => d.accept());
+  await p.page.getByRole('button', { name: 'Pedir exclusão dos meus dados' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Pedido de exclusão registrado.' })).toBeVisible();
+  await esperarEmail(p.email, { assunto: 'Seu pedido foi registrado' });
+  await nutri.goto('/painel');
+  await expect(nutri.getByRole('link', { name: `Pedido de exclusão de ${p.nome}` })).toBeVisible();
+  await p.page.context().close();
+});
+
+test('Perfil > Notificações: sem telefone, ligar o WhatsApp explica o que fazer (US-011)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.17');
+  await p.page.goto('/p/perfil');
+  await p.page.getByLabel('Receber lembretes por WhatsApp').check();
+  await p.page.getByRole('button', { name: 'Salvar' }).click();
+  await expect(p.page.getByRole('alert').filter({ hasText: 'Para receber por WhatsApp' })).toHaveText('Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.');
   await p.page.context().close();
 });

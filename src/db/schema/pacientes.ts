@@ -298,6 +298,8 @@ export const privacyRequests = pgTable(
     check('privacy_requests_status_valido', sql`${t.status} in ('aberto', 'concluido')`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'privacy_requests_paciente_fk' }),
     index('privacy_requests_paciente_idx').on(t.tenantId, t.patientId, t.status),
+    // US-046 / D17: um pedido aberto por paciente e tipo (pedir de novo mostra a data do que já está aberto)
+    uniqueIndex('privacy_requests_aberto_unique').on(t.tenantId, t.patientId, t.tipo).where(sql`${t.status} = 'aberto'`),
   ],
 );
 
