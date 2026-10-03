@@ -31,6 +31,9 @@ await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
   // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
   await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
+  // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
+  // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)
+  await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));
