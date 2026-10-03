@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { avaliar, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -51,8 +51,6 @@ test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu pla
   await expect(p.page.getByRole('link', { name: 'Baixar PDF' })).toBeVisible();
   await p.page.context().close();
 });
-
-const entradasDoPlano = (page: Page) => page.evaluate(async () => ((await caches.keys()).includes('nd-plano-v1') ? (await (await caches.open('nd-plano-v1')).keys()).length : 0));
 
 test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.4');

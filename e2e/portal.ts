@@ -91,3 +91,7 @@ export async function marcarParaPaciente(nutri: Page, nome: string, email: strin
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
 }
+
+/** Quantas páginas há no cache do "Meu plano" no aparelho (0 se o cache nem existe). */
+export const entradasDoPlano = (page: Page) =>
+  page.evaluate(async () => ((await caches.keys()).includes('nd-plano-v1') ? (await (await caches.open('nd-plano-v1')).keys()).length : 0));

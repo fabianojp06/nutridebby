@@ -1,10 +1,11 @@
-import { expect, type Browser, type Page } from '@playwright/test';
+import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { TOTP } from 'otpauth';
 
 const segredos = new Map<string, string>();
 
-export async function entrarComo(browser: Browser, email: string, senha: string, ip: string): Promise<Page> {
-  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': ip } });
+/** `opcoes`: o contexto herda o dispositivo do projeto (celular); o painel da nutricionista pede o desktop. */
+export async function entrarComo(browser: Browser, email: string, senha: string, ip: string, opcoes: BrowserContextOptions = {}): Promise<Page> {
+  const ctx = await browser.newContext({ ...opcoes, extraHTTPHeaders: { 'x-forwarded-for': ip } });
   const page = await ctx.newPage();
   await page.goto('/entrar');
   await page.getByLabel('E-mail').fill(email);
