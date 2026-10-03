@@ -8,7 +8,40 @@ export const EVENTO_COMPRAS = 'nd-compras';
 /** Só guarda a chave quando o localStorage recusou a gravação; com ele funcionando, fica vazia. */
 const memoria = new Map<string, string>();
 
-export const chaveCompras = (planoId: string) => `nd-compras:${planoId}`;
+const PREFIXO = 'nd-compras:';
+/** De quem são as marcações deste aparelho (o paciente do vínculo, como o dono do plano guardado). */
+const CHAVE_DONO = 'nd-compras-dono';
+
+export const chaveCompras = (planoId: string) => `${PREFIXO}${planoId}`;
+
+/**
+ * Review Focus 4 (aparelho compartilhado): as marcações levam nomes de alimentos do plano. Saem com o plano guardado — no
+ * "Sair", no /entrar e na troca de dono — também no Safari < 17, que não aplica o "storage" do Clear-Site-Data.
+ */
+export function esquecerComprasDoAparelho(): void {
+  memoria.clear();
+  try {
+    const chaves: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k !== null && (k.startsWith(PREFIXO) || k === CHAVE_DONO)) chaves.push(k);
+    }
+    for (const k of chaves) localStorage.removeItem(k);
+  } catch {
+    // sem armazenamento: só havia a cópia em memória
+  }
+}
+
+/** Layout do portal: marcações de outra conta ou de outro vínculo saem (o par do conferirDono do service worker). */
+export function conferirDonoDasCompras(dono: string): void {
+  try {
+    if (localStorage.getItem(CHAVE_DONO) === dono) return;
+    esquecerComprasDoAparelho();
+    localStorage.setItem(CHAVE_DONO, dono);
+  } catch {
+    // sem armazenamento: as marcações só vivem na memória desta tela
+  }
+}
 
 export function assinarCompras(cb: () => void): () => void {
   window.addEventListener(EVENTO_COMPRAS, cb);

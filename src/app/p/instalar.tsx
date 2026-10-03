@@ -1,42 +1,30 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { estadoDeInstalacao, type EstadoInstalacao } from './instalacao';
-
-type PromptDeInstalacao = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
+import { assinarInstalacao, estadoDoPrompt, promptUsado } from './instalacao-prompt';
 
 /** Aberto como app instalado (o iOS antigo só diz pelo `navigator.standalone`). */
 export const standalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
+const SEM_PROMPT: ReturnType<typeof estadoDoPrompt> = { prompt: null, instalado: false };
+const nenhumaMudanca = () => () => undefined;
+
 export function Instalar() {
-  const [prompt, setPrompt] = useState<PromptDeInstalacao | null>(null);
-  const [estado, setEstado] = useState<EstadoInstalacao>('nada');
-  useEffect(() => {
-    const calcular = (temPrompt: boolean) =>
-      setEstado(estadoDeInstalacao({ ua: navigator.userAgent, standalone: standalone(), temPrompt, toques: navigator.maxTouchPoints, plataforma: navigator.platform }));
-    calcular(false);
-    const aoPedir = (e: Event) => {
-      e.preventDefault(); // guarda o evento: o prompt só abre no clique do botão
-      setPrompt(e as PromptDeInstalacao);
-      calcular(true);
-    };
-    const aoInstalar = () => {
-      setPrompt(null);
-      setEstado('instalado');
-    };
-    window.addEventListener('beforeinstallprompt', aoPedir);
-    window.addEventListener('appinstalled', aoInstalar);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', aoPedir);
-      window.removeEventListener('appinstalled', aoInstalar);
-    };
-  }, []);
+  // o evento é guardado por instalacao-prompt.ts (carregado pelo layout do portal), mesmo se chegou antes desta tela
+  const { prompt, instalado } = useSyncExternalStore(assinarInstalacao, estadoDoPrompt, () => SEM_PROMPT);
+  // no servidor (e na hidratação) não há navegador para olhar: nada; no cliente, o estado sai do navegador
+  const noCliente = useSyncExternalStore(nenhumaMudanca, () => true, () => false);
+  const estado: EstadoInstalacao = !noCliente
+    ? 'nada'
+    : instalado
+      ? 'instalado'
+      : estadoDeInstalacao({ ua: navigator.userAgent, standalone: standalone(), temPrompt: prompt !== null, toques: navigator.maxTouchPoints, plataforma: navigator.platform });
   if (estado === 'android' && prompt) {
     return (
       <button
         onClick={async () => {
           await prompt.prompt();
-          setPrompt(null);
-          setEstado('nada');
+          promptUsado();
         }}
         className="min-h-11 rounded bg-emerald-700 px-4 text-white"
       >

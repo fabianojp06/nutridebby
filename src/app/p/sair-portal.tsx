@@ -1,6 +1,7 @@
 'use client';
 import type { FormEvent } from 'react';
 import { esquecerPlanoGuardado } from '../sw-regras';
+import { esquecerComprasDoAparelho } from './(portal)/compras/marcacao';
 
 /** O "Sair" não espera mais que isto pela limpeza (rede lenta): sai do mesmo jeito. */
 const PRAZO_LIMPEZA_MS = 2000;
@@ -15,16 +16,21 @@ async function cancelarPushDoAparelho(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration('/p/');
   const sub = await reg?.pushManager?.getSubscription();
   if (!sub) return;
-  await fetch('/api/p/push', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }), keepalive: true }).catch(() => undefined);
-  await sub.unsubscribe().catch(() => false);
+  // em paralelo: com rede lenta, o prazo de 2 s do "Sair" estoura antes do DELETE e o unsubscribe nem começaria
+  // (keepalive: o DELETE continua depois de a página sair)
+  await Promise.all([
+    fetch('/api/p/push', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }), keepalive: true }).catch(() => undefined),
+    sub.unsubscribe().catch(() => false),
+  ]);
 }
 
 /**
- * D6 / Review Focus 4: antes de sair, apaga o plano guardado (R14 (d): esquecerPlanoGuardado; o Clear-Site-Data da
+ * D6 / Review Focus 4: antes de sair, apaga o plano guardado e as marcações da lista de compras (R14 (d): esquecerPlanoGuardado; o Clear-Site-Data da
  * resposta faz o mesmo, mas o Safari não o aplica a tudo) e cancela a inscrição de push. No máximo 2 s; falhar aqui
  * não impede de sair.
  */
 export async function limparAparelho(): Promise<void> {
+  esquecerComprasDoAparelho(); // síncrono: as marcações "comprado" (nomes de alimentos do plano)
   const tarefas = [esquecerPlanoGuardado(), cancelarPushDoAparelho().catch(() => undefined)];
   await Promise.race([Promise.all(tarefas), new Promise((r) => setTimeout(r, PRAZO_LIMPEZA_MS))]);
 }

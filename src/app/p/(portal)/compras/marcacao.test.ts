@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { alternarComprado, assinarCompras, chaveCompras, lerBruto, lerComprados } from './marcacao';
+import { alternarComprado, assinarCompras, chaveCompras, conferirDonoDasCompras, esquecerComprasDoAparelho, lerBruto, lerComprados } from './marcacao';
 
 /** O teste roda em Node: window vira um EventTarget e o localStorage é trocado por caso. */
 function armazenamento(): Storage {
@@ -80,5 +80,32 @@ describe('marcação "comprado" (RN-13, D15)', () => {
 
   it('valor estranho no aparelho vira lista vazia', () => {
     expect([lerComprados('x'), lerComprados('{"a":1}'), lerComprados('["a",2]')]).toEqual([[], [], ['a']]);
+  });
+
+  it('aparelho compartilhado: Sair e /entrar apagam todas as marcações (e só elas); a troca de dono também, uma vez', () => {
+    const ls = armazenamento();
+    vi.stubGlobal('localStorage', ls);
+    ls.setItem('outra-coisa', 'fica');
+    conferirDonoDasCompras('paciente-a');
+    alternarComprado(chaveCompras('plano-a'), 'Arroz');
+    alternarComprado(chaveCompras('plano-b'), 'Feijão');
+    conferirDonoDasCompras('paciente-a'); // o mesmo dono: nada sai
+    expect(lerComprados(lerBruto(chaveCompras('plano-a')))).toEqual(['Arroz']);
+    conferirDonoDasCompras('paciente-b'); // outra conta ou outro vínculo: as marcações do anterior saem
+    expect([ls.getItem(chaveCompras('plano-a')), ls.getItem(chaveCompras('plano-b')), ls.getItem('nd-compras-dono')]).toEqual([null, null, 'paciente-b']);
+    alternarComprado(chaveCompras('plano-c'), 'Ovo');
+    esquecerComprasDoAparelho();
+    expect(ls.getItem(chaveCompras('plano-c'))).toBeNull();
+    expect(ls.getItem('nd-compras-dono')).toBeNull();
+    expect(ls.getItem('outra-coisa')).toBe('fica');
+  });
+
+  it('sem armazenamento: esquecer apaga a cópia em memória e não lança', () => {
+    vi.stubGlobal('localStorage', bloqueado());
+    alternarComprado(chaveCompras('plano-x'), 'Arroz');
+    expect(lerComprados(lerBruto(chaveCompras('plano-x')))).toEqual(['Arroz']);
+    expect(() => esquecerComprasDoAparelho()).not.toThrow();
+    expect(() => conferirDonoDasCompras('p')).not.toThrow();
+    expect(lerBruto(chaveCompras('plano-x'))).toBe('[]');
   });
 });

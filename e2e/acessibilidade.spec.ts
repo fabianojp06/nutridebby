@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { devices, expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30.
@@ -18,6 +18,9 @@ test.beforeAll(async ({ browser }) => {
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
   await publicarPlanoSimples(nutri, paciente.prontuario);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, 1); // R11: semana 1 (o portal.spec usa a 0)
+  // duas avaliações: o axe de /p/evolucao audita também o gráfico (GraficoLinha) e a lista de diferenças
+  await avaliar(nutri, paciente.prontuario, '2026-08-01', '80');
+  await avaliar(nutri, paciente.prontuario, '2026-09-01', '78');
   // um registro no diário, para a lista não sair vazia
   await paciente.page.goto('/p/diario');
   await paciente.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
@@ -43,19 +46,37 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-for (const url of ['/p/inicio', '/p/plano', '/p/diario', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil']) {
+const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil'];
+for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
   });
 }
 
-test('celular (RNF-09): a barra de abas cabe na tela, sem rolagem horizontal, e o viewport é o de um Android', async () => {
-  await paciente.page.goto('/p/inicio');
-  expect(await paciente.page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(430);
-  expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  for (const aba of ['Início', 'Plano', 'Diário', 'Evolução', 'Compras', 'Agenda', 'Perfil']) {
-    await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
+test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe', async () => {
+  await paciente.page.setViewportSize({ width: 360, height: 780 });
+  try {
+    for (const url of ROTAS) {
+      await paciente.page.goto(url);
+      await paciente.page.waitForLoadState('networkidle');
+      expect(await paciente.page.evaluate(() => window.innerWidth), url).toBe(360);
+      expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
+    }
+    await paciente.page.goto('/p/inicio');
+    for (const aba of ['Início', 'Plano', 'Diário', 'Evolução', 'Compras', 'Agenda', 'Perfil']) {
+      await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
+    }
+  } finally {
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
   }
+});
+
+test('alvo de toque ≥ 44 px (RNF-10): "Próxima consulta" no Início e as semanas do agendamento', async () => {
+  const altura = async (l: ReturnType<Page['getByRole']>) => (await l.boundingBox())?.height ?? 0;
+  await paciente.page.goto('/p/inicio');
+  expect(await altura(paciente.page.locator('p', { hasText: 'Próxima consulta:' }).getByRole('link'))).toBeGreaterThanOrEqual(44);
+  await paciente.page.goto('/p/agenda/nova');
+  expect(await altura(paciente.page.getByRole('navigation', { name: 'Semana' }).getByRole('link', { name: 'Próxima semana' }))).toBeGreaterThanOrEqual(44);
 });
 
 test('axe sem violações na página da consulta', async () => {
@@ -108,6 +129,7 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
 
   // troca pelo Perfil, sem sair: o consultório 3 pede o termo (axe)...
   await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' }).click();
+  expect((await page.getByRole('link', { name: 'Trocar de nutricionista' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44); // RNF-10
   await page.getByRole('link', { name: 'Trocar de nutricionista' }).click();
   await page.getByRole('button', { name: 'Consultório E2E 3', exact: true }).click();
   await expect(page).toHaveURL(/\/p\/termo$/);

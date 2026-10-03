@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { NetworkFirst, NetworkOnly, Serwist, type PrecacheEntry, type SerwistGlobalConfig } from 'serwist';
 import {
+  CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
   CABECALHO_VERSAO,
@@ -11,6 +12,7 @@ import {
   ehPaginaDoPlano,
   ehSemSessao,
   esquecerPlanoGuardado,
+  idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
   planoValido,
@@ -27,6 +29,8 @@ declare global {
 declare const self: ServiceWorkerGlobalScope;
 
 const origem = self.location.origin;
+/** O build deste service worker (cabeçalho da cópia): o HTML guardado só abre offline com os estáticos do mesmo build. */
+const BUILD = idDoBuild(self.__SW_MANIFEST);
 const copia = async (): Promise<Response | undefined> => (await caches.open(CACHE_PLANO)).match(URL_PLANO, { ignoreVary: true });
 /** A cópia guardada, se ainda vale (mais velha que a sessão máxima sai). */
 const planoGuardado = async (): Promise<Response | undefined> => {
@@ -44,20 +48,25 @@ const planoGuardado = async (): Promise<Response | undefined> => {
  * então guardar só na navegação deixaria o cache vazio no uso normal. O service worker busca o HTML com a sessão do
  * aparelho; se ele terminar no /entrar, a cópia sai; cópia de outro dono sai antes de buscar (mesmo se a busca falhar).
  */
-async function guardarPlano(dono: string, versao: string): Promise<void> {
+async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number } = {}): Promise<void> {
   const atual = await copia();
   const guardado = atual
-    ? { dono: atual.headers.get(CABECALHO_DONO), versao: atual.headers.get(CABECALHO_VERSAO), guardadoEm: atual.headers.get(CABECALHO_GUARDADO_EM) }
+    ? {
+        dono: atual.headers.get(CABECALHO_DONO),
+        versao: atual.headers.get(CABECALHO_VERSAO),
+        guardadoEm: atual.headers.get(CABECALHO_GUARDADO_EM),
+        build: atual.headers.get(CABECALHO_BUILD),
+      }
     : null;
-  if (!precisaBuscarPlano(guardado, { dono, versao }, Date.now())) return;
+  if (!precisaBuscarPlano(guardado, { dono, versao, build: BUILD }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
-  const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store' });
+  const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
   if (ehSemSessao(r, origem)) {
     await esquecerPlanoGuardado();
     return;
   }
   if (!podeGuardarPlano(r, origem)) return;
-  const h = cabecalhosDaCopia(r.headers, { dono, versao, guardadoEm: new Date().toISOString() });
+  const h = cabecalhosDaCopia(r.headers, { dono, versao, guardadoEm: new Date().toISOString(), build: BUILD });
   // put na mesma chave substitui: o cache continua com 1 entrada
   await (await caches.open(CACHE_PLANO)).put(URL_PLANO, new Response(await r.blob(), { status: 200, headers: h }));
 }
@@ -67,6 +76,28 @@ async function conferirDono(dono: string): Promise<void> {
   const atual = await copia();
   if (atual && atual.headers.get(CABECALHO_DONO) !== dono) await esquecerPlanoGuardado();
 }
+
+/**
+ * Deploy novo (este service worker ativando): o Serwist apaga do precache os JS/CSS do build anterior, e a cópia guardada
+ * aponta para eles — offline, abriria sem estilo, sem hidratar e sem o selo "Offline". A ativação acontece com rede (o
+ * navegador acabou de baixar o sw.js): busca a cópia de novo com as regras de guardarPlano (terminou no /entrar → sai).
+ * Cópia sem dono ou versão sai. Prazo de 10 s: o waitUntil do activate segura as requisições das páginas.
+ */
+async function renovarCopia(): Promise<void> {
+  const atual = await copia();
+  if (!atual || atual.headers.get(CABECALHO_BUILD) === BUILD) return;
+  const dono = atual.headers.get(CABECALHO_DONO);
+  const versao = atual.headers.get(CABECALHO_VERSAO);
+  if (!dono || !versao) {
+    await esquecerPlanoGuardado();
+    return;
+  }
+  await guardarPlano(dono, versao, { prazoMs: 10_000 });
+}
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(renovarCopia().catch(() => undefined));
+});
 
 self.addEventListener('message', (e) => {
   if (!mensagemDaPropriaOrigem(e.origin, e.source instanceof Client ? e.source.url : null, origem)) return;
@@ -117,7 +148,15 @@ new Serwist({
         matchOptions: { ignoreVary: true },
         plugins: [
           { cacheWillUpdate: async () => null },
-          { cachedResponseWillBeUsed: async ({ cachedResponse }) => (cachedResponse && planoValido(cachedResponse.headers.get(CABECALHO_GUARDADO_EM), Date.now()) ? cachedResponse : null) },
+          {
+            // cópia vencida (mais velha que a sessão máxima) não é servida e sai do aparelho (LGPD: minimização)
+            cachedResponseWillBeUsed: async ({ cachedResponse }) => {
+              if (!cachedResponse) return null;
+              if (planoValido(cachedResponse.headers.get(CABECALHO_GUARDADO_EM), Date.now())) return cachedResponse;
+              await esquecerPlanoGuardado();
+              return null;
+            },
+          },
         ],
       }),
     },

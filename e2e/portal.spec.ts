@@ -43,7 +43,7 @@ test('nutricionista em /p/inicio volta ao painel', async () => {
 test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu plano"; publicado → refeições e PDF (US-041)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.3');
   await p.page.goto('/p/plano');
-  await expect(p.page.getByRole('status')).toHaveText('Sua nutricionista ainda está preparando seu plano');
+  await expect(p.page.getByRole('status').filter({ hasText: 'Sua nutricionista' })).toHaveText('Sua nutricionista ainda está preparando seu plano');
   await publicarPlanoSimples(nutri, p.prontuario); // e2e/portal.ts
   await p.page.reload();
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
@@ -74,6 +74,18 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await expect(p.page).toHaveURL(/\/entrar$/);
   expect(await p.page.evaluate(() => caches.keys())).not.toContain('nd-plano-v1');
   expect((await p.page.context().cookies()).map((c) => c.name)).not.toContain('nd_vinculo');
+  await p.page.context().close();
+});
+
+test('selo offline com "lie-fi" (rede que não responde): o ping estoura em 5 s e o selo aparece na região viva que já estava na página (US-040, RNF-10)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.19');
+  await p.page.goto('/p/inicio');
+  const selo = p.page.getByRole('status').filter({ hasText: 'Offline — exibindo última versão' });
+  await expect(selo).toHaveCount(0);
+  expect(await p.page.locator('[role="status"]:empty').count()).toBeGreaterThan(0); // montada, sem texto
+  await p.page.context().route('**/api/p/ping', () => undefined); // nunca responde
+  await p.page.evaluate(() => window.dispatchEvent(new Event('online'))); // o selo confere de novo
+  await expect(selo).toBeVisible({ timeout: 10_000 });
   await p.page.context().close();
 });
 

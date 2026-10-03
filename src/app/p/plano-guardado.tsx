@@ -1,6 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import type { MensagemAoSw } from '../sw-regras';
+import { conferirDonoDasCompras } from './(portal)/compras/marcacao';
 
 const avisar = (m: MensagemAoSw) => {
   if (!('serviceWorker' in navigator)) return;
@@ -8,9 +9,12 @@ const avisar = (m: MensagemAoSw) => {
   void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage(m)).catch(() => undefined);
 };
 
-/** Layout do portal: a cópia guardada é de outra conta ou de outro vínculo? Sai (Review Focus 4). */
+/** Layout do portal: a cópia guardada (e as marcações "comprado") é de outra conta ou de outro vínculo? Sai (Review Focus 4). */
 export function DonoDoAparelho({ dono }: { dono: string }) {
-  useEffect(() => avisar({ tipo: 'dono', dono }), [dono]);
+  useEffect(() => {
+    conferirDonoDasCompras(dono);
+    avisar({ tipo: 'dono', dono });
+  }, [dono]);
   return null;
 }
 

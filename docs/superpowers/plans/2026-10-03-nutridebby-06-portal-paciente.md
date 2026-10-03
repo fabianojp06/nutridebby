@@ -6796,12 +6796,25 @@ git commit -m "test(a11y): auditoria axe (WCAG 2.1 AA) de todas as telas do PWA 
 ## Runbook do deploy do Plano 06 (o dono faz, com confirmação a cada passo)
 
 1. **Snapshot no hPanel** antes do merge (regra do servidor). Lembrete: o **backup no host (P02-11, etapas 6 e 8) segue pendente** — o portal é a primeira tela em que o paciente grava dado de saúde (diário com foto); sem backup, nada de pacientes reais.
-2. **Variável nova no app** (Easypanel → `nutri` → `app` → Ambiente): `VAPID_PUBLIC_KEY` = **a mesma** chave pública já configurada no worker (Plano 05). Sem ela, "Ativar notificações" mostra "Notificações no app ainda não estão disponíveis." e o resto do portal funciona. Nunca colar o valor em chat.
-3. Merge (= deploy) só com o OK explícito do dono; as migrations 0070–0079 rodam no deploy (`DATABASE_URL_MIGRATOR`). A 0072 preenche o dono dos arquivos já gravados (laudos, PDFs, exportações) e **falha** se achar arquivo de paciente sem dono — nesse caso, parar e avisar (nada é apagado automaticamente).
-4. **Teste manual no celular** (o CI não alcança um serviço de push real nem o Safari do iOS):
-   - Android (Chrome): entrar como paciente de teste, "Instalar app", abrir pelo ícone, "Ativar notificações" → chega "Notificações ativadas ✅"; abrir "Plano", ligar o modo avião, abrir o app → plano com o selo "Offline — exibindo última versão"; "Sair" → entrar com outra conta no mesmo aparelho e conferir que o plano anterior não aparece offline.
+2. **Variável nova no app** (Easypanel → `nutri` → `app` → Ambiente): `VAPID_PUBLIC_KEY` = **a mesma** chave pública já configurada no worker (Plano 05). Sem ela, "Ativar notificações" mostra "Notificações no app ainda não estão disponíveis." e o resto do portal funciona. Nunca colar o valor em chat. **Atenção (revisão final):** o app só confere o formato da chave; com a do app diferente da do worker, todo push volta 403 do serviço de push (tratado como definitivo, a inscrição não é apagada), a tela diz "Notificações ativadas" e nada chega, sem alerta. Conferir que é a mesma nos dois serviços (comparar no painel, sem copiar o valor para fora).
+3. **Antes do merge, com o OK do dono** (leitura no banco de produção, como superusuário dentro do container do banco, porque a RLS é FORCE): as duas consultas abaixo (revisão final do branch).
+   ```sql
+   select sf.tipo, count(*) from stored_files sf
+    where sf.tipo in ('exame','plano_pdf','exportacao','diario_foto')
+      and not exists (select 1 from exams e where e.tenant_id = sf.tenant_id and e.arquivo_path = sf.caminho)
+      and not exists (select 1 from meal_plans m where m.tenant_id = sf.tenant_id and m.pdf_path = sf.caminho and m.patient_id is not null)
+      and not exists (select 1 from data_exports d where d.tenant_id = sf.tenant_id and d.arquivo_path = sf.caminho)
+    group by 1;  -- esperado: nenhuma linha
+   select count(*) from (select 1 from privacy_requests where status = 'aberto'
+     group by tenant_id, patient_id, tipo having count(*) > 1) x;  -- esperado: 0 (0078)
+   ```
+   A 0072 termina com `VALIDATE CONSTRAINT stored_files_dono` e a 0078 cria um índice único parcial: um órfão ou um duplicado desfaz o lote 0070–0079 inteiro, e com o `set -eu` do `docker-entrypoint.sh` o app não sobe (e o worker novo roda sobre o schema antigo).
+4. Merge (= deploy) só com o OK explícito do dono, **num horário calmo**: enquanto a troca de imagens não termina, o app/worker antigo sobre o schema novo tem o `salvarArquivo` de laudo, PDF e ZIP recusado pelo CHECK `stored_files_dono` (os jobs se recuperam nas novas tentativas; o upload de laudo dá erro nesses segundos). As migrations 0070–0079 rodam no deploy (`DATABASE_URL_MIGRATOR`). A 0072 preenche o dono dos arquivos já gravados (laudos, PDFs, exportações) e **falha** se achar arquivo de paciente sem dono — nesse caso, parar e avisar (nada é apagado automaticamente).
+5. **Teste manual no celular** (o CI não alcança um serviço de push real nem o Safari do iOS):
+   - Android (Chrome): entrar como paciente de teste pelo /entrar e conferir que o botão "Instalar app" aparece no Início logo depois do login (o `beforeinstallprompt` é guardado desde o layout do portal), "Instalar app", abrir pelo ícone, "Ativar notificações" → chega "Notificações ativadas ✅"; abrir "Plano", ligar o modo avião, abrir o app → plano com o selo "Offline — exibindo última versão"; "Sair" → entrar com outra conta no mesmo aparelho e conferir que o plano anterior não aparece offline.
+   - Plano offline depois de um deploy: com o plano já guardado, fazer um deploy (ou esperar o próximo), abrir o app com rede (o service worker novo ativa e renova a cópia), ligar o modo avião e abrir de novo → plano com estilo e com o selo "Offline — exibindo última versão".
    - iPhone (Safari 16.4+): o tutorial "Compartilhar → Adicionar à Tela de Início" aparece no navegador; depois de instalado, "Ativar notificações" aparece e o push de teste chega; foto do diário tirada pela câmera (HEIC) vira JPEG em até ~1 min.
-5. Conferir no painel: "Diários" com o registro de teste, comentário e push "Sua nutricionista comentou seu diário"; "Pedidos do titular" depois de um "Pedir exclusão" de teste — e **apagar os dados de teste só com confirmação do dono**.
+6. Conferir no painel: "Diários" com o registro de teste, comentário e push "Sua nutricionista comentou seu diário"; "Pedidos do titular" depois de um "Pedir exclusão" de teste — e **apagar os dados de teste só com confirmação do dono**.
 
 ## Fechamento do plano (após a Tarefa 13)
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
   CABECALHO_VERSAO,
@@ -7,6 +8,7 @@ import {
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   ehSemSessao,
+  idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
   planoValido,
@@ -65,6 +67,22 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: 'lixo' }, pedido, agora)).toBe(true);
     expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: null }, pedido, agora)).toBe(true);
   });
+  it('deploy: cópia gravada por outro build dos estáticos é buscada de novo (os JS/CSS dela saíram do precache); cópia sem build também', () => {
+    const agora = Date.parse('2026-10-05T12:00:00Z');
+    const recente = new Date(agora - 60_000).toISOString();
+    const b1 = idDoBuild([{ url: '/_next/static/chunks/a.js', revision: null }, '/icones/icone-192.png']);
+    const b2 = idDoBuild([{ url: '/_next/static/chunks/b.js', revision: null }, '/icones/icone-192.png']);
+    expect(b1).toMatch(/^[0-9a-f]{8}$/);
+    expect(b1).toBe(idDoBuild([{ url: '/_next/static/chunks/a.js', revision: null }, '/icones/icone-192.png'])); // determinístico
+    expect(b2).not.toBe(b1);
+    expect(idDoBuild([{ url: '/manifest.webmanifest', revision: '1' }])).not.toBe(idDoBuild([{ url: '/manifest.webmanifest', revision: '2' }]));
+    expect(idDoBuild(undefined)).toBe(idDoBuild([]));
+    expect(precisaBuscarPlano({ dono: 'd', versao: 'v', guardadoEm: recente, build: b1 }, { dono: 'd', versao: 'v', build: b1 }, agora)).toBe(false);
+    expect(precisaBuscarPlano({ dono: 'd', versao: 'v', guardadoEm: recente, build: b1 }, { dono: 'd', versao: 'v', build: b2 }, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: 'd', versao: 'v', guardadoEm: recente, build: null }, { dono: 'd', versao: 'v', build: b2 }, agora)).toBe(true); // gravada antes deste cabeçalho
+    expect(cabecalhosDaCopia(new Headers(), { dono: 'd', versao: 'v', guardadoEm: recente, build: b1 }).get(CABECALHO_BUILD)).toBe(b1);
+  });
+
   it('mensagens ao service worker: só os dois formatos, com textos curtos (nada de objeto arbitrário vindo da página)', () => {
     expect(lerMensagem({ tipo: 'plano', dono: 'd', versao: 'v' })).toEqual({ tipo: 'plano', dono: 'd', versao: 'v' });
     expect(lerMensagem({ tipo: 'dono', dono: 'd' })).toEqual({ tipo: 'dono', dono: 'd' });
