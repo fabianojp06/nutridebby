@@ -206,3 +206,19 @@ test('Minha evolução: peso sem % de gordura; com a opção ligada, o % aparece
   await expect(p.page.getByText('Nenhuma orientação registrada ainda.')).toBeVisible();
   await p.page.context().close();
 });
+
+test('lista de compras: 7 dias do chuchu de 100 g = 700 g em "Verduras…"; "comprado" continua marcado ao reabrir (US-045)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.15');
+  await p.page.goto('/p/compras');
+  await expect(p.page.getByRole('status').filter({ hasText: 'Sem plano publicado, não há lista de compras.' })).toBeVisible();
+  await publicarPlanoSimples(nutri, p.prontuario);
+  await p.page.goto('/p/compras?dias=7');
+  const grupo = p.page.getByRole('group', { name: 'Verduras, hortaliças e derivados' });
+  await grupo.getByLabel('Chuchu, cozido — 700 g').check();
+  await p.page.reload();
+  await expect(p.page.getByRole('group', { name: 'Verduras, hortaliças e derivados' }).getByLabel('Chuchu, cozido — 700 g')).toBeChecked();
+  await p.page.goto('/p/compras?dias=15');
+  // R10: o anunciador de rota do Next também tem role="alert"
+  await expect(p.page.getByRole('alert').filter({ hasText: 'Escolha de 1 a 14 dias.' })).toBeVisible();
+  await p.page.context().close();
+});
