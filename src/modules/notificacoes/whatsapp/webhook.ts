@@ -217,12 +217,17 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
   const comoPaciente: TenantContext = { tenantId, role: 'paciente', patientId: alvo.patientId };
   const tipo = ev.intencao === 'confirmar' ? 'resposta_confirmacao' : 'resposta_remarcar';
   const responder = async (tx: Tx, c: AppointmentRow) => {
+    const linha = (canal: 'whatsapp' | 'email') => ({ tenantId, patientId: c.patientId, appointmentId: c.id, inicioConsulta: c.inicio, canal, tipo, agendadaPara: agora, createdAt: agora, updatedAt: agora });
     const novas = await tx
       .insert(notifications)
-      .values({ tenantId, patientId: c.patientId, appointmentId: c.id, inicioConsulta: c.inicio, canal: 'whatsapp', tipo, agendadaPara: agora, createdAt: agora, updatedAt: agora })
+      .values(linha('whatsapp'))
       .onConflictDoNothing() // uma resposta por consulta e horário (índice único parcial, D6)
       .returning({ id: notifications.id });
-    if (novas.length) await dispararEnvio(tx, tenantId);
+    if (!novas.length) return; // repetido: não responde de novo (nem por e-mail)
+    // fechamento: o "2" também grava um e-mail novo com o link para remarcar (o WhatsApp não leva link, D3), montado no
+    // envio com o e-mail ATUAL do paciente — o do lembrete pode não ter saído ou ter caído com a correção do e-mail (D20)
+    if (tipo === 'resposta_remarcar') await tx.insert(notifications).values(linha('email')).onConflictDoNothing();
+    await dispararEnvio(tx, tenantId);
   };
   const d = { db, now: agora, appUrl, inicioDoLink: alvo.inicio, naMesmaTransacao: responder };
   try {

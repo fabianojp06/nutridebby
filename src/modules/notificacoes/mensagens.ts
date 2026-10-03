@@ -28,11 +28,20 @@ export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow;
   return urlDaConsulta(deps.appUrl, assinarLinkConsulta({ tenantId: c.tenant.id, appointmentId: c.consulta.id, inicio: c.consulta.inicio, email: c.paciente.email }, deps.chaveLinks));
 }
 
-/** E-mail de uma linha de `notifications` (só os tipos ligados a consulta têm e-mail). O link da consulta e o da chamada ficam aqui. */
+/**
+ * E-mail de uma linha de `notifications` (só os tipos ligados a consulta têm e-mail). O link da consulta e o da chamada
+ * ficam aqui. `resposta_remarcar` (fechamento): o "2" no WhatsApp gera também um e-mail novo, montado no envio — com o
+ * e-mail ATUAL do paciente e o link assinado com ele (o do lembrete pode nunca ter saído ou ter caído com a correção do
+ * e-mail).
+ */
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
-  if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada')) return null;
+  if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada' && evento !== 'resposta_remarcar')) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
+  if (evento === 'resposta_remarcar') {
+    const link = linkDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
+    return { tipo: 'consulta', evento, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link, prazoH: c.tenant.cancelamentoMinH };
+  }
   // D7: o de 24 h que sai no dia da consulta usa o texto "de hoje" (o do lembrete de 2 h), nunca "amanhã"
   const doDia = evento === 'lembrete_24h' && ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'lembrete_2h' : evento;
   const link = evento === 'consulta_cancelada' ? null : linkDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
@@ -88,7 +97,8 @@ export function textoWhatsapp(c: ContextoEnvio): string | null {
     case 'lembrete_2h':
       return [`Olá, ${nome}! Sua consulta com ${d.nutri} é hoje às ${d.hora} (${rotuloDoFuso(c.tenant.fuso)}), ${d.modalidade}.`, local, '', responda].filter((l) => l !== null).join('\n');
     case 'resposta_remarcar':
-      return `Tudo bem! O link para escolher outro horário foi enviado para o seu e-mail ${email}, no lembrete da consulta.\nSe faltarem menos de ${c.tenant.cancelamentoMinH} h para a consulta, fale direto com ${d.nutri}.`;
+      // fechamento: a mesma resposta grava um e-mail novo com o link (`tratarResposta`, whatsapp/webhook.ts)
+      return `Tudo bem! Enviamos o link para remarcar para o seu e-mail ${email}.\nSe faltarem menos de ${c.tenant.cancelamentoMinH} h para a consulta, fale direto com ${d.nutri}.`;
     default:
       return null;
   }

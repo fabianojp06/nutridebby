@@ -229,14 +229,24 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         lembrete_2h: `Lembrete: sua consulta é hoje às ${msg.hora}`,
         consulta_marcada: `Consulta marcada: ${msg.quando}`,
         consulta_cancelada: `Consulta cancelada: ${msg.quando}`,
+        resposta_remarcar: `Remarcar sua consulta: ${msg.quando}`,
       }[msg.evento];
       const abertura = {
         lembrete_24h: `Este é um lembrete da sua consulta com ${msg.nutri}: ${msg.quando}.`,
         lembrete_2h: `Sua consulta com ${msg.nutri} é hoje: ${msg.quando}.`,
         consulta_marcada: `Sua consulta com ${msg.nutri} está marcada para ${msg.quando}.`,
         consulta_cancelada: `Sua consulta com ${msg.nutri} de ${msg.quando} foi cancelada.`,
+        resposta_remarcar: `Você pediu pelo WhatsApp para remarcar sua consulta com ${msg.nutri} de ${msg.quando}.`,
       }[msg.evento];
       if (msg.evento === 'consulta_cancelada') return simples(subject, [`Olá, ${msg.nome}!`, abertura, 'Para marcar outro horário, fale com sua nutricionista.']);
+      // US-035 (fechamento): a resposta "2" no WhatsApp não leva link (D3) — o link para remarcar vem neste e-mail novo
+      if (msg.evento === 'resposta_remarcar')
+        return simples(
+          subject,
+          [`Olá, ${msg.nome}!`, abertura],
+          msg.link ? { href: msg.link, rotulo: 'Escolher outro horário' } : undefined,
+          msg.prazoH ? [`Se faltarem menos de ${msg.prazoH} h para a consulta, fale direto com ${msg.nutri}.`] : [],
+        );
       const local = !msg.local ? [] : [msg.modalidade === 'online' ? `Link da chamada: ${msg.local}` : `Endereço: ${msg.local}`];
       return simples(
         subject,

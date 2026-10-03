@@ -85,6 +85,20 @@ describe('consulta (US-031, US-033, US-034)', () => {
     expect(c.text).not.toContain('/consulta/');
     expect(c.html).not.toContain('/consulta/');
   });
+  it('"2" no WhatsApp (US-035): e-mail com o link para remarcar e o prazo', () => {
+    const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };
+    const r = renderEmail({ ...base, evento: 'resposta_remarcar', prazoH: 24 });
+    expect(r.subject).toBe('Remarcar sua consulta: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    expect(r.text).toBe(
+      [
+        'Olá, Ana!',
+        'Você pediu pelo WhatsApp para remarcar sua consulta com Debby Silva de sex., 16/10/2026 às 14:00 (horário de Brasília).',
+        'Escolher outro horário: https://x.dev/consulta/tok',
+        'Se faltarem menos de 24 h para a consulta, fale direto com Debby Silva.',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/consulta/tok"');
+  });
 });
 
 describe('aviso_agenda (US-032, D18)', () => {

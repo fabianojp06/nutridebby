@@ -5,6 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
+import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-paciente';
 import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
@@ -131,8 +132,7 @@ export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string;
     .set({ status: 'cancelada', canceladoPor: 'sistema', canceladaEm: agora, motivoCancelamento: null, pedidoRemarcacaoEm: null, updatedAt: agora })
     .where(inArray(appointments.id, ids));
   await cancelarLembretes(tx, ids, agora);
-  const primeiroNome = o.nome.trim().split(/\s+/)[0] || o.nome;
-  await avisarNutri(tx, o.tenantId, (para) => ({ tipo: 'exclusao_consultas_canceladas', para, paciente: primeiroNome, quantidade: ids.length }));
+  await avisarNutri(tx, o.tenantId, (para) => ({ tipo: 'exclusao_consultas_canceladas', para, paciente: primeiroNome(o.nome), quantidade: ids.length }));
   return ids.length;
 }
 

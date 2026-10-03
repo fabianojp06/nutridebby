@@ -190,8 +190,10 @@ const pedidoExpirado = () => new PublicoError(410, { geral: MSG_PUBLICO.codigoEx
  * e-mail), a consulta com lembretes e avisos (`gravarConsultaDoPaciente`), o aceite do termo (D13) e o pedido concluído.
  * O limite de 3 consultas futuras é conferido aqui, depois do código (D12). Travas: e-mail (advisory) → pedido →
  * consulta nova (EXCLUDE) → paciente (FOR KEY SHARE da FK, no fim do INSERT). O `publico` não trava linha de `patients`
- * (FOR UPDATE/SHARE exigem a política de UPDATE, que ele não tem): a trava do e-mail serializa os pedidos públicos, e a
- * corrida com a nutricionista no mesmo paciente vira 40P01 (tratado em `concluir`).
+ * com SELECT (FOR UPDATE/SHARE/KEY SHARE exigem a política de UPDATE, que ele não tem: a linha some do resultado): a
+ * trava do e-mail serializa os pedidos públicos, e a corrida com a nutricionista no mesmo paciente vira 40P01 (tratado
+ * em `concluir`). Fechamento (corrida com o pedido de exclusão): a trava do paciente é a da FK da consulta nova (o
+ * gatilho da FK não passa pela RLS), e o status é relido logo depois, sob ela — ver `reconferirPaciente`.
  */
 async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, h: HorarioEscolhido, deps: DepsPublico, agora: Date): Promise<ResultadoConfirmacao> {
   await travarEmail(tx, tenant.id, r.email);
@@ -214,9 +216,22 @@ async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, h: HorarioE
     .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_ATIVOS), gt(appointments.inicio, agora)));
   if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new PublicoError(409, { geral: MSG_AGENDA.limitePublico });
   const id = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: novo ? 'novo_paciente_publico' : 'marcada' });
+  if (!novo) await reconferirPaciente(tx, p.id);
   await tx.insert(consents).values({ patientId: p.id, tenantId: tenant.id, termoVersao: r.termoVersao, aceitoEm: agora, ip: r.ip }).onConflictDoNothing();
   await tx.update(publicBookingRequests).set({ concluidoEm: agora, appointmentId: id }).where(eq(publicBookingRequests.id, r.id));
   return { estado: 'agendada', quando: quandoComFuso(h.inicio, tenant.fuso) };
+}
+
+/**
+ * Fechamento (corrida com o pedido de exclusão atendido, US-018): o paciente lido no começo pode ter sido bloqueado,
+ * anonimizado ou arquivado por uma transação ainda sem COMMIT. O INSERT da consulta já segura o paciente (`FOR KEY SHARE`
+ * da FK, que conflita com o `FOR UPDATE` de `carregarPacienteParaEscrita`): se a outra transação veio antes, a FK
+ * esperou o COMMIT dela e esta leitura (READ COMMITTED: foto nova) vê o status novo → 409 e tudo é desfeito; se veio
+ * depois, ela espera esta terminar e cancela a consulta nova junto com as outras futuras.
+ */
+async function reconferirPaciente(tx: Tx, patientId: string): Promise<void> {
+  const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, patientId));
+  if (!p || p.status !== 'ativo' || p.anonimizadoEm) throw new PublicoError(409, { geral: MSG_AGENDA.naoAgendavel });
 }
 
 /** Confere o horário (antes da transação: uma conexão por vez) e grava; ocupado → outros horários da mesma semana. */

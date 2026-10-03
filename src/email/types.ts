@@ -11,7 +11,8 @@ export type EmailMessage =
   | { tipo: 'codigo_agendamento'; para: string; nutri: string; codigo: string }
   | {
       tipo: 'consulta';
-      evento: 'lembrete_24h' | 'lembrete_2h' | 'consulta_marcada' | 'consulta_cancelada';
+      /** `resposta_remarcar`: o paciente respondeu "2" no WhatsApp (US-035) — e-mail novo com o link para remarcar. */
+      evento: 'lembrete_24h' | 'lembrete_2h' | 'consulta_marcada' | 'consulta_cancelada' | 'resposta_remarcar';
       para: string;
       nome: string;
       nutri: string;
@@ -23,6 +24,8 @@ export type EmailMessage =
       local: string | null;
       /** Link assinado da consulta (D20); nulo no cancelamento. Não passa pela fila: é renderizado no envio. */
       link: string | null;
+      /** Só em `resposta_remarcar`: antecedência mínima do consultório para cancelar/remarcar pelo link (RN-04). */
+      prazoH?: number;
     }
   | {
       tipo: 'aviso_agenda';

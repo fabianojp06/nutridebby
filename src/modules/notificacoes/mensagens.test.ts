@@ -1,9 +1,11 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AppointmentRow, NotificationRow, PatientRow, TenantRow } from '@/db/schema';
 import { sealSecret } from '@/lib/crypto';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
-import { emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
+import { emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, primeiroNome, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
 
 const deps = { appUrl: 'https://app.exemplo.com', chaveLinks: chaveDosLinks(Buffer.alloc(32, 9)) };
 const tenant = { id: '0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', nomeExibicao: 'Debby Silva', fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua das Flores, 10', cancelamentoMinH: 24 } as TenantRow;
@@ -33,9 +35,9 @@ describe('textos do WhatsApp (D3; decisão do dono no fechamento: sem link — o
     expect(textoWhatsapp(ctx('lembrete_2h'))).toBe('Olá, Ana! Sua consulta com Debby Silva é hoje às 14:00 (horário de Brasília), presencial.\nEndereço: Rua das Flores, 10\n\nResponda 1 para confirmar ou 2 se precisar remarcar.');
     expect(textoWhatsapp({ ...ctx('lembrete_2h'), tenant: { ...tenant, enderecoConsultorio: null } as TenantRow })).toBe('Olá, Ana! Sua consulta com Debby Silva é hoje às 14:00 (horário de Brasília), presencial.\n\nResponda 1 para confirmar ou 2 se precisar remarcar.');
   });
-  it('respostas a "1" e "2" ("2": o link para remarcar está no e-mail, mascarado); texto pronto e cifrado (convite) é aberto; tipo sem texto → null', () => {
+  it('respostas a "1" e "2" ("2": um e-mail novo leva o link para remarcar, mascarado no texto); texto pronto e cifrado (convite) é aberto; tipo sem texto → null', () => {
     expect(textoWhatsapp(ctx('resposta_confirmacao'))).toBe('Presença confirmada. Até lá!');
-    expect(textoWhatsapp(ctx('resposta_remarcar'))).toBe('Tudo bem! O link para escolher outro horário foi enviado para o seu e-mail a***@ex.com, no lembrete da consulta.\nSe faltarem menos de 24 h para a consulta, fale direto com Debby Silva.');
+    expect(textoWhatsapp(ctx('resposta_remarcar'))).toBe('Tudo bem! Enviamos o link para remarcar para o seu e-mail a***@ex.com.\nSe faltarem menos de 24 h para a consulta, fale direto com Debby Silva.');
     expect(textoWhatsapp(ctx('convite_paciente', { conteudoSelado: sealSecret('Convite pronto', FINALIDADE_CONTEUDO) }))).toBe('Convite pronto');
     expect(textoWhatsapp(ctx('consulta_marcada'))).toBeNull();
   });
@@ -56,6 +58,15 @@ describe('e-mail da consulta (o link fica aqui)', () => {
       expect(await lerLinkConsulta(token, deps.chaveLinks, new Date('2026-10-15T00:00:00Z'), async () => ({ email: 'outra@ex.com' }))).toBeNull();
     }
     expect(emailDaNotificacao(ctx('consulta_cancelada'), deps)).toMatchObject({ link: null });
+  });
+  it('"2" no WhatsApp (US-035): e-mail novo ao e-mail ATUAL do paciente, com o link assinado atual e o prazo do consultório', async () => {
+    const corrigido = { ...ctx('resposta_remarcar'), paciente: { ...paciente, email: 'ana.nova@ex.com' } as PatientRow };
+    const m = emailDaNotificacao(corrigido, deps)!;
+    expect(m).toMatchObject({ tipo: 'consulta', evento: 'resposta_remarcar', para: 'ana.nova@ex.com', nome: 'Ana', nutri: 'Debby Silva', prazoH: 24 });
+    const token = /^https:\/\/app\.exemplo\.com\/consulta\/([A-Za-z0-9_-]{71})$/.exec(m.tipo === 'consulta' ? (m.link ?? '') : '')![1];
+    expect(await lerLinkConsulta(token, deps.chaveLinks, new Date('2026-10-15T00:00:00Z'), async () => ({ email: 'ana.nova@ex.com' }))).not.toBeNull();
+    expect(await lerLinkConsulta(token, deps.chaveLinks, new Date('2026-10-15T00:00:00Z'), async () => ({ email: 'ana@ex.com' }))).toBeNull();
+    expect(emailDaNotificacao(ctx('resposta_confirmacao'), deps)).toBeNull(); // "1": só a resposta no WhatsApp
   });
 });
 
@@ -99,5 +110,19 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
       const texto = JSON.stringify({ titulo: p.titulo, corpo: p.corpo });
       for (const dado of ['Ana', 'Souza', 'Debby', 'Silva', 'Rua das Flores', 'presencial', 'online', 'meet.google.com']) expect(texto, dado).not.toContain(dado);
     }
+  });
+});
+
+describe('primeiroNome (R11: um lugar só)', () => {
+  it('primeira palavra, sem espaços em volta; nome vazio fica como veio', () => {
+    expect(primeiroNome('  Ana   Souza Lima ')).toBe('Ana');
+    expect(primeiroNome('   ')).toBe('   ');
+  });
+  it('nenhum outro arquivo de src/ recorta o primeiro nome por conta própria', () => {
+    const fontes = readdirSync(path.resolve('src'), { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
+      .map((d) => path.join(d.parentPath, d.name));
+    const comCopia = fontes.filter((f) => /\.split\(\/\\s\+\/\)\[0\]/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(path.resolve('src'), f));
+    expect(comCopia).toEqual([path.join('modules', 'notificacoes', 'mensagens.ts')]);
   });
 });

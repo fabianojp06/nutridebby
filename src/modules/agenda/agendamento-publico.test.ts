@@ -360,6 +360,43 @@ describe('página pública (US-032, RN-16)', () => {
     }
   });
 
+  it('corrida com o pedido de exclusão atendido (paciente travado e bloqueado, ainda sem COMMIT): a pública espera a trava do paciente e reconfere — 409 "Não foi possível agendar…", sem consulta ativa', async () => {
+    const T = await consultorio();
+    const ana = await novoPaciente(app.db, T.ctx);
+    const inicio = em('2026-10-16', '11:00');
+    const t = await solicitarCodigo(T.slug, pedido(inicio, { email: ana.email }), deps());
+    const codigo = await codigoDe(ana.email);
+    const outra = await app.pool.connect();
+    let encerrada = false;
+    try {
+      // como atenderPedidoExclusao: trava o paciente (carregarPacienteParaEscrita), bloqueia e cancela as futuras (nenhuma ainda)
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await outra.query('select id from patients where id = $1 for update', [ana.id]);
+      await outra.query(`update patients set status = 'bloqueado', bloqueado_em = now() where id = $1`, [ana.id]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      // a pública leu o paciente ainda "ativo" (o UPDATE não tem COMMIT) e fica presa na trava dele
+      const resultado = confirmarCodigo(T.slug, { pedido: t.pedido, codigo }, deps()).then(
+        (v) => v,
+        (err: unknown) => err,
+      );
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (i > 200) throw new Error('a página pública não ficou presa na trava do paciente');
+        await new Promise((res) => setTimeout(res, 10));
+      }
+      await outra.query('commit');
+      encerrada = true;
+      const r = await resultado;
+      expect(r instanceof PublicoError ? { status: r.status, erros: r.erros } : r).toEqual({ status: 409, erros: { geral: MSG_AGENDA.naoAgendavel } });
+      expect(await consultasDe(T, ana.id)).toEqual([]);
+      expect(await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.patientId, ana.id)), app.db)).toEqual([]);
+    } finally {
+      if (!encerrada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+  });
+
   it('validação, Turnstile e limites: nada é gravado antes do Turnstile; 11ª tentativa do IP → 429; código de novo em menos de 1 min → 429; 6º código do e-mail na hora → 429', async () => {
     const T = await consultorio();
     expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { nome: 'A', email: 'x', telefone: '12', maiorDeIdade: false, aceitouTermo: false }), deps()))).toEqual({

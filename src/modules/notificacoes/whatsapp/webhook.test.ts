@@ -13,6 +13,7 @@ import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { confirmarPresenca } from '@/modules/agenda/cancelamento';
 import { moverConsulta } from '@/modules/agenda/consultas';
+import { lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { processarNotificacoes } from '../enviar';
 import { situacaoDaCota } from './cota';
 import { assinarJwtWebhook, chaveDoWebhook } from './jwt';
@@ -137,6 +138,31 @@ describe('processarEventoWhatsapp (US-035)', () => {
     expect((await respostas(T, c)).filter((n) => n.tipo === 'resposta_remarcar')).toHaveLength(1);
     const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
     expect((await emailsNaFila('aviso_agenda', nutri.email)).filter((m) => m.evento === 'pedido_remarcacao')).toHaveLength(1);
+  });
+
+  it('"2" (fechamento): um e-mail NOVO, ao e-mail ATUAL do paciente, com o link assinado atual — uma vez por resposta; o WhatsApp diz para qual e-mail', async () => {
+    const T = await tenant();
+    const { p, c } = await lembreteEnviado(T);
+    // o e-mail foi corrigido depois do lembrete (o link do lembrete, amarrado ao e-mail antigo, não vale mais)
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ email: 'bia.nova@ex.com' }).where(eq(patients.id, p.id)), app.db);
+    const corpo = upsert(`nd-${T.tenantId}`, '2');
+    await processar(corpo);
+    await processar(corpo); // a Evolution reenviou
+    await processar(upsert(`nd-${T.tenantId}`, 'remarcar')); // e o paciente respondeu de novo
+    const doEmail = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, c), eq(notifications.canal, 'email'), eq(notifications.tipo, 'resposta_remarcar'))), app.db);
+    expect(doEmail).toMatchObject([{ status: 'pendente', inicioConsulta: em('2026-10-16', '14:00'), agendadaPara: agora }]);
+    const w = whatsappFalso();
+    const d = depsDeEnvio(agora, { db: app.db, whatsapp: w });
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(w.enviados.map((e) => e.texto)).toEqual([`Tudo bem! Enviamos o link para remarcar para o seu e-mail b***@ex.com.\nSe faltarem menos de 24 h para a consulta, fale direto com ${T.tenant.nomeExibicao}.`]);
+    expect(d.transport.enviados.map((e) => e.to)).toEqual(['bia.nova@ex.com']);
+    const [e] = d.transport.enviados;
+    expect(e.subject).toMatch(/^Remarcar sua consulta: /);
+    const token = /\/consulta\/([A-Za-z0-9_-]{71})/.exec(e.text)![1];
+    expect(await lerLinkConsulta(token, d.chaveLinks, agora, async () => ({ email: 'bia.nova@ex.com' }))).not.toBeNull();
+    // nada sai de novo numa segunda volta
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(d.transport.enviados).toHaveLength(1);
   });
 
   it('já confirmada pelo link ou com o pedido já feito pelo link: "1"/"2" respondem ao paciente, sem mudar a via nem avisar a nutricionista de novo', async () => {
