@@ -1,13 +1,13 @@
-import { requireUser } from '@/lib/session';
+import { requirePaciente } from '@/lib/paciente-session';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MeuAcompanhamento() {
-  const { user } = await requireUser(['paciente'], '/p/inicio');
+  const { data } = await requirePaciente('/p/inicio');
   return (
     <main className="p-6">
       <h1 className="text-2xl font-semibold">Meu acompanhamento</h1>
-      <p>Conectado como {user.email}.</p>
+      <p>Conectado como {data.user.email}.</p>
     </main>
   );
 }

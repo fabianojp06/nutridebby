@@ -1,0 +1,141 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { closeDb, getDb } from '@/db/client';
+import { patients, tenants } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
+import { novoTenant } from '../../test/pacientes';
+import { pacienteComConta } from '../../test/portal';
+import { criarEEntrar, entrar } from '../../test/sessao';
+import { getAuth } from './auth';
+
+const req = vi.hoisted(() => ({ headers: new Headers() }));
+class Redirect extends Error {
+  constructor(readonly url: string) {
+    super(`redirect ${url}`);
+  }
+}
+vi.mock('server-only', () => ({}));
+vi.mock('next/headers', () => ({
+  headers: async () => req.headers,
+  cookies: async () => {
+    const pares = (req.headers.get('cookie') ?? '').split(';').map((c) => c.trim().split('='));
+    return {
+      get: (nome: string) => {
+        const p = pares.find(([n]) => n === nome);
+        return p ? { name: nome, value: p.slice(1).join('=') } : undefined;
+      },
+    };
+  },
+}));
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Redirect(url);
+  },
+}));
+
+const { requireApiPaciente, requirePaciente, cookieDoVinculo, lerCookie } = await import('./paciente-session');
+const db = getDb();
+afterAll(() => closeDb());
+beforeEach(() => {
+  req.headers = new Headers();
+});
+
+async function logado(vinculos = 1) {
+  const A = await novoTenant(db, 'Debby');
+  const { userId, paciente, email } = await pacienteComConta(db, A);
+  const outros = [];
+  for (let i = 1; i < vinculos; i++) {
+    const T = await novoTenant(db, `Nutri ${i}`);
+    outros.push({ T, ...(await pacienteComConta(db, T, { userId })) });
+  }
+  const cookie = await entrar(getAuth(), email);
+  req.headers = new Headers({ cookie, 'x-forwarded-for': '203.0.113.30' });
+  return { A, userId, paciente, outros, cookie };
+}
+
+describe('requirePaciente (D2, D3, RN-08, RN-15)', () => {
+  it('um vínculo: entra com o contexto do paciente (tenant, paciente, ator, IP)', async () => {
+    const { A, userId, paciente } = await logado();
+    const r = await requirePaciente('/p/inicio');
+    expect(r.ctx).toEqual({ tenantId: A.tenantId, role: 'paciente', patientId: paciente.id, actorUserId: userId, ip: '203.0.113.30' });
+    expect(r.tenant.id).toBe(A.tenantId);
+  });
+
+  it('dois vínculos sem cookie → /p/escolher; com o cookie de um deles → entra nele; cookie forjado → /p/escolher', async () => {
+    const { outros, cookie } = await logado(2);
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/escolher?volta=%2Fp%2Fplano' });
+    req.headers = new Headers({ cookie: `${cookie}; nd_vinculo=${outros[0].T.tenantId}` });
+    expect((await requirePaciente('/p/plano')).ctx.patientId).toBe(outros[0].paciente.id);
+    req.headers = new Headers({ cookie: `${cookie}; nd_vinculo=${randomUUID()}` });
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/escolher?volta=%2Fp%2Fplano' });
+  });
+
+  it('arquivado → /p/sem-acesso (RN-08); tenant suspenso → /indisponivel (RN-15)', async () => {
+    const { A, paciente } = await logado();
+    await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, paciente.id)), db);
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/p/sem-acesso' });
+    await withTenant(A.ctx, (tx) => tx.update(patients).set({ status: 'ativo' }).where(eq(patients.id, paciente.id)), db);
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/indisponivel' });
+  });
+
+  it('termo da versão atual não aceito neste consultório → /p/termo (US-011 "Nova versão do termo"); a própria página do termo entra', async () => {
+    const A = await novoTenant(db);
+    const { email } = await pacienteComConta(db, A, { semTermo: true });
+    req.headers = new Headers({ cookie: await entrar(getAuth(), email) });
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/termo' });
+    expect((await requirePaciente('/p/termo', { permitirTermoPendente: true })).tenant.id).toBe(A.tenantId);
+  });
+
+  it('nutricionista no portal vai para a home dela; sem sessão vai para o login', async () => {
+    const [t] = await db.insert(tenants).values({ slug: `ps-${randomUUID().slice(0, 8)}`, nomeExibicao: 'X' }).returning();
+    const n = await criarEEntrar(db, getAuth(), { appRole: 'nutri', tenantId: t.id });
+    req.headers = new Headers({ cookie: n.cookie });
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/painel' });
+    req.headers = new Headers();
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/entrar?volta=%2Fp%2Finicio' });
+  });
+});
+
+describe('requireApiPaciente', () => {
+  it('401 sem sessão, 403 para outro papel e para sem vínculo/escolha, ok com o contexto', async () => {
+    const sem = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST' }));
+    expect(sem.ok ? 200 : sem.response.status).toBe(401);
+    const [t] = await db.insert(tenants).values({ slug: `ps-${randomUUID().slice(0, 8)}`, nomeExibicao: 'X' }).returning();
+    const n = await criarEEntrar(db, getAuth(), { appRole: 'nutri', tenantId: t.id });
+    const nutri = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: n.cookie } }));
+    expect(nutri.ok ? 200 : nutri.response.status).toBe(403);
+    const { A, paciente, cookie } = await logado();
+    const r = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie } }));
+    expect(r.ok && r.ctx).toMatchObject({ tenantId: A.tenantId, patientId: paciente.id, role: 'paciente' });
+    const dois = await logado(2);
+    const semEscolha = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: dois.cookie } }));
+    expect(semEscolha.ok ? 200 : semEscolha.response.status).toBe(403);
+    const comEscolha = await requireApiPaciente(
+      new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: `${dois.cookie}; nd_vinculo=${dois.outros[0].T.tenantId}` } }),
+    );
+    expect(comEscolha.ok && comEscolha.ctx.patientId).toBe(dois.outros[0].paciente.id);
+  });
+
+  it('termo pendente → 403 com a mensagem do termo; consultório suspenso → 403', async () => {
+    const A = await novoTenant(db);
+    const { email } = await pacienteComConta(db, A, { semTermo: true });
+    const cookie = await entrar(getAuth(), email);
+    const r = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie } }));
+    expect(r.ok ? null : [r.response.status, await r.response.json()]).toEqual([403, { erro: 'Para continuar, aceite o Termo de Uso e Privacidade.' }]);
+    const B = await logado();
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, B.A.tenantId));
+    const s = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: B.cookie } }));
+    expect(s.ok ? null : [s.response.status, await s.response.json()]).toEqual([403, { erro: 'Conta temporariamente indisponível' }]);
+  });
+
+  it('cookieDoVinculo: httpOnly, SameSite=Lax, 30 dias, Secure só em produção; lerCookie acha o valor', () => {
+    const id = randomUUID();
+    expect(cookieDoVinculo(id, false)).toBe(`nd_vinculo=${id}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`);
+    expect(cookieDoVinculo(id, true)).toContain('; Secure');
+    expect(lerCookie(`nd.session_token=abc=; nd_vinculo=${id}`, 'nd_vinculo')).toBe(id);
+    expect(lerCookie('nd.session_token=abc', 'nd_vinculo')).toBeUndefined();
+    expect(lerCookie(null, 'nd_vinculo')).toBeUndefined();
+  });
+});

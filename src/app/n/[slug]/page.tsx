@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getEnv } from '@/env';
 import { carregarPaginaPublica } from '@/modules/agenda/agendamento-publico';
@@ -39,6 +40,11 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">{MSG_PUBLICO.titulo(p.nome)}</h1>
+      <p>
+        <Link href="/entrar?volta=%2Fp%2Finicio" className="underline">
+          Entrar (já sou paciente)
+        </Link>
+      </p>
       <AgendarForm
         slug={slug}
         siteKey={getEnv().TURNSTILE_SITE_KEY}

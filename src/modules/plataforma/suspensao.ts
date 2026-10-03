@@ -14,7 +14,7 @@ async function avisarAgenda(tx: Tx, tenantId: string, evento: 'suspenso' | 'reat
 
 /**
  * US-004 / RN-15: suspende sem apagar nada e revoga na mesma transação as sessões das
- * usuárias do tenant. Pacientes (Plano 03+) são barrados por vínculo em requireUser (Plano 06).
+ * usuárias do tenant. Pacientes (Plano 03+) são barrados por vínculo em requirePaciente (Plano 06, RN-15).
  */
 export async function suspenderConta(tenantId: string, adminId: string, db: Db = getDb()): Promise<{ sessoesRevogadas: number }> {
   return db.transaction(async (tx) => {

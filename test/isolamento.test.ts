@@ -5,7 +5,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
 import { listTenantTables, PACIENTE_ESCREVE, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
-import { withTenant } from '@/db/tenant';
+import { withConta, withTenant } from '@/db/tenant';
 
 let seqConsulta = 0;
 /** Cada chamada ganha um horário próprio de 1 h (EXCLUDE appointments_sem_sobreposicao). */
@@ -236,6 +236,17 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
     expect((await comoPublico(sql`select 1 from consultation_notes`)).rows).toEqual([]);
     expect((await comoPublico(sql`select 1 from anamneses`)).rows).toEqual([]);
+  });
+
+  it('conta (D2): sem tenant, não vê nem grava nada em nenhuma tabela 🔒 (patients só pela política da própria conta)', async () => {
+    const outra = randomUUID(); // conta sem vínculo nenhum: a política compara com app.user_id, sem FK para `user`
+    for (const t of tabelas) {
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      // R4: a TACO (foods com tenant_id nulo, taco_leitura) é dado público de referência, legível por qualquer sessão
+      const vistas = await withConta(outra, (tx) => tx.execute(sql`select 1 from ${sql.identifier(t)} where tenant_id is not null`), app.db);
+      expect(vistas.rows.length, t).toBe(0);
+      await expect(withConta(outra, (tx) => tx.execute(FABRICAS[t](A, P1)), app.db), t).rejects.toSatisfy(violaRls);
+    }
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {

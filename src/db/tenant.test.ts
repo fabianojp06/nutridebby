@@ -3,8 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
-import { auditLog, tenants } from './schema';
-import { TenantContextError, withTenant } from './tenant';
+import { novoPaciente, novoTenant } from '../../test/pacientes';
+import { auditLog, tenants, user } from './schema';
+import { TenantContextError, withConta, withTenant } from './tenant';
 
 const app = makeDb(inject('appDatabaseUrl'));
 let A: string;
@@ -127,5 +128,23 @@ describe('withTenant', () => {
     await expect(withTenant({ tenantId: A, role: 'admin' as never }, async () => 1, app.db)).rejects.toThrow(/papel/);
     await expect(withTenant({ tenantId: A, role: 'nutri', actorUserId: 'x' }, async () => 1, app.db)).rejects.toThrow(/actorUserId/);
     await expect(withTenant({ tenantId: A, role: 'nutri', ip: '999.1.1.1' }, async () => 1, app.db)).rejects.toThrow(/ip/);
+  });
+});
+
+describe('withConta (D2)', () => {
+  it('só enxerga em patients as linhas da própria conta, em qualquer tenant; nada mais; não grava', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const userId = randomUUID();
+    await app.db.insert(user).values({ id: userId, name: 'Ana', email: `ana-${userId.slice(0, 8)}@teste.dev`, appRole: 'paciente' });
+    const pa = await novoPaciente(app.db, A.ctx, { userId });
+    const pb = await novoPaciente(app.db, B.ctx, { userId });
+    await novoPaciente(app.db, A.ctx); // outro paciente do mesmo tenant
+    const vistos = await withConta(userId, (tx) => tx.execute(sql`select id from patients order by id`), app.db);
+    expect(vistos.rows.map((r) => r.id).sort()).toEqual([pa.id, pb.id].sort());
+    expect((await withConta(userId, (tx) => tx.execute(sql`select 1 from appointments`), app.db)).rows).toEqual([]);
+    expect((await withConta(userId, (tx) => tx.execute(sql`select 1 from anthropometry`), app.db)).rows).toEqual([]);
+    expect((await withConta(userId, (tx) => tx.execute(sql`update patients set nome = 'x'`), app.db)).rowCount).toBe(0);
+    await expect(withConta('nao-e-uuid', async () => 1, app.db)).rejects.toThrow(TenantContextError);
   });
 });
