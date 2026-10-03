@@ -15,7 +15,10 @@ export const RLS_EXCEPTIONS: Record<string, string> = {
 };
 
 /** Tabelas com patient_id que não precisam da política de paciente, com a justificativa. */
-export const PATIENT_POLICY_EXCEPTIONS: Record<string, string> = {};
+export const PATIENT_POLICY_EXCEPTIONS: Record<string, string> = {
+  stored_files:
+    'D4: política própria paciente_arquivos — o paciente vê os próprios arquivos e os do consultório (logo, capa, patient_id nulo)',
+};
 
 interface TenantTableRow {
   table: string;
@@ -177,6 +180,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   appointments: { comandos: ['insert', 'update'], motivo: 'agendar, confirmar, cancelar e remarcar pelo link, pelo WhatsApp e pelo portal (US-032, US-033, US-035)' },
   notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
+  stored_files: { comandos: ['insert'], motivo: 'foto do diário (US-042): salvarArquivo com a sessão do paciente' },
 };
 
 /** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a escrita do paciente, ou bate exatamente com PACIENTE_ESCREVE. */

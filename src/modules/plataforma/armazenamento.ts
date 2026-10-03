@@ -14,7 +14,10 @@ export const COTA_AVISO = 0.8;
 export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o suporte.';
 
 export type TipoDeArquivo =
-  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'orientacao_pdf' | 'exportacao';
+  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao';
+
+/** D4: arquivos com dono (paciente). O resto é do consultório. */
+export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = ['exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao'];
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 
 export class CotaEsgotadaError extends Error {
@@ -70,11 +73,16 @@ export async function salvarArquivo(
     antesDaReserva?: (tx: Tx) => Promise<void>;
     /** Só a exportação LGPD (obrigação legal, art. 18): o arquivo conta na cota, mas não é barrado por ela. */
     naoBarrarPelaCota?: boolean;
+    /** D4: dono do arquivo — obrigatório nos TIPOS_DO_PACIENTE, proibido no resto. */
+    patientId?: string;
   },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
+  if (TIPOS_DO_PACIENTE.includes(input.tipo) !== Boolean(input.patientId)) {
+    throw new Error(`salvarArquivo: patientId ${input.patientId ? 'proibido' : 'obrigatório'} para o tipo ${input.tipo}`);
+  }
   const real = detectarTipo(input.conteudo);
   if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext))
     throw new TipoNaoPermitidoError();
@@ -116,6 +124,7 @@ export async function salvarArquivo(
             bytes,
             mime: real.mime,
             criadoPor: ctx.actorUserId ?? null,
+            patientId: input.patientId ?? null,
           });
         const arquivo = { id, caminho, bytes, mime: real.mime };
         if (input.registrar) await input.registrar(tx, arquivo);

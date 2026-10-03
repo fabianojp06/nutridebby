@@ -47,6 +47,9 @@ import { renderizarProntuario } from './prontuario-pdf';
 
 // Só o worker importa este arquivo (e o PDF): @react-pdf/renderer fica fora do grafo do Next.
 
+/** US-046 (Plano 06): `equipe` = pedida pela nutricionista; `titular` = pelo paciente no portal (sem rascunho). */
+export type EscopoExportacao = 'equipe' | 'titular';
+
 export type DadosExportacao = {
   versao: 1;
   geradoEm: string;
@@ -96,7 +99,7 @@ export type DadosExportacao = {
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
-  /** Planos alimentares (todas as versões e o rascunho); publicado/arquivado com os valores congelados (D10). */
+  /** Planos alimentares: todas as versões; o rascunho só no escopo da equipe. Publicado/arquivado com os valores congelados (D10). */
   planos: {
     versao: number;
     status: string;
@@ -143,6 +146,7 @@ export async function montarDados(
   patientId: string,
   now: Date,
   fuso: string,
+  escopo: EscopoExportacao = 'equipe',
 ): Promise<{ dados: DadosExportacao; laudos: LaudoParaZip[] }> {
   const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
   const as = await tx
@@ -192,7 +196,12 @@ export async function montarDados(
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.patientId, patientId))
     .orderBy(asc(pushSubscriptions.createdAt));
-  const ids = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, patientId)).orderBy(asc(mealPlans.versao));
+  // P-16 (b): o titular não recebe o rascunho (a sessão de paciente também não o vê — paciente_sem_rascunho)
+  const ids = await tx
+    .select({ id: mealPlans.id })
+    .from(mealPlans)
+    .where(and(eq(mealPlans.patientId, patientId), escopo === 'titular' ? ne(mealPlans.status, 'rascunho') : undefined))
+    .orderBy(asc(mealPlans.versao));
   const planos: DadosExportacao['planos'] = [];
   for (const { id } of ids) {
     const pl = await lerPlanoNaTransacao(tx, id, { auditar: false, comMedidas: false }); // a exportação já registra "exportar"
@@ -419,7 +428,7 @@ export async function gerarExportacao(
     const tenant = await buscarTenant(db, data.tenantId);
     const { dados, laudos } = await withTenant(
       ctx,
-      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo'),
+      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao),
       db,
     );
     const arquivosDosLaudos = await lerLaudos(
@@ -450,6 +459,7 @@ export async function gerarExportacao(
         conteudo: Buffer.from(zip.buffer, zip.byteOffset, zip.length),
         permitidos: ['zip'],
         naoBarrarPelaCota: true,
+        patientId: pedido.patientId,
         // Trava o paciente (mesma ordem de travas dos laudos) e desiste se a anonimização chegou antes;
         // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {

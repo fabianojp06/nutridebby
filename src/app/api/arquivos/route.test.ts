@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { novoPaciente } from '../../../../test/pacientes';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { FILE_URL_TTL_S, signFileUrl } from '@/lib/signed-url';
@@ -43,7 +44,9 @@ describe('GET /api/arquivos', () => {
   });
   it('PDF é servido como anexo (o visualizador do navegador não abre documento em sandbox)', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota3-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 3' }).returning();
-    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri' }, { tipo: 'exame', conteudo: Buffer.from('%PDF-1.7\nconteudo'), permitidos: ['pdf'] });
+    const ctx = { tenantId: t.id, role: 'nutri' } as const;
+    const p = await novoPaciente(getDb(), ctx);
+    const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: Buffer.from('%PDF-1.7\nconteudo'), permitidos: ['pdf'], patientId: p.id });
     const res = await get(signFileUrl(a.caminho));
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/pdf');
@@ -53,7 +56,11 @@ describe('GET /api/arquivos', () => {
 
   it('ZIP da exportação é servido como anexo (US-018)', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota4-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 4' }).returning();
-    const a = await salvarArquivo({ tenantId: t.id, role: 'worker' }, { tipo: 'exportacao', conteudo: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]), permitidos: ['zip'] });
+    const p = await novoPaciente(getDb(), { tenantId: t.id, role: 'nutri' });
+    const a = await salvarArquivo(
+      { tenantId: t.id, role: 'worker' },
+      { tipo: 'exportacao', conteudo: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]), permitidos: ['zip'], patientId: p.id },
+    );
     expect(a.caminho).toMatch(new RegExp(`^${t.id}/exportacao/[0-9a-f-]{36}\\.zip$`));
     const res = await get(signFileUrl(a.caminho));
     expect(res.status).toBe(200);

@@ -83,15 +83,24 @@ export const storedFiles = pgTable(
     bytes: bigint('bytes', { mode: 'number' }).notNull(),
     mime: text('mime').notNull(),
     criadoPor: uuid('criado_por'),
+    /** P-16 (d) / D4: dono do arquivo (laudo, PDF do plano, foto do diário, exportação); nulo = arquivo do consultório (logo, capa). */
+    patientId: uuid('patient_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check(
       'stored_files_tipo_valido',
-      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','orientacao_pdf','exportacao')`,
+      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao')`,
     ),
     check('stored_files_bytes_positivo', sql`${t.bytes} > 0`),
+    // logo/capa nunca têm dono; o resto sempre (orientacao_pdf é do Plano 07: do consultório).
+    // A FK composta (tenant_id, patient_id) → patients fica na migration 0072 (este arquivo não importa patients: ciclo)
+    check(
+      'stored_files_dono',
+      sql`(${t.tipo} in ('logo','capa','orientacao_pdf')) = (${t.patientId} is null)`,
+    ),
     index('stored_files_tenant_idx').on(t.tenantId, t.tipo),
+    index('stored_files_paciente_idx').on(t.tenantId, t.patientId),
   ],
 );
 

@@ -40,6 +40,8 @@ export const patients = pgTable(
     unique('patients_tenant_email_unique').on(t.tenantId, t.email),
     unique('patients_tenant_id_unique').on(t.tenantId, t.id),
     uniqueIndex('patients_tenant_user_idx').on(t.tenantId, t.userId).where(sql`${t.userId} is not null`),
+    // Plano 06: os vínculos de uma conta de paciente em todos os tenants (escolha do consultório no portal)
+    index('patients_user_idx').on(t.userId).where(sql`${t.userId} is not null`),
     index('patients_tenant_status_idx').on(t.tenantId, t.status),
     check('patients_sexo_valido', sql`${t.sexo} is null or ${t.sexo} in ('F', 'M')`),
     check('patients_origem_valida', sql`${t.origem} in ('nutri', 'agendamento_publico')`),
@@ -311,10 +313,13 @@ export const dataExports = pgTable(
     expiraEm: timestamp('expira_em', { withTimezone: true }),
     /** Sem FK, como `audit_log.actor_user_id`: o SET NULL de uma FK dispararia o gatilho de auditoria fora do tenant. */
     solicitadoPor: uuid('solicitado_por'),
+    /** US-046 (Plano 06): `titular` = pedida pelo paciente no portal (sem planos em rascunho, link do portal). */
+    escopo: text('escopo').notNull().default('equipe'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check('data_exports_escopo_valido', sql`${t.escopo} in ('equipe', 'titular')`),
     check('data_exports_status_valido', sql`${t.status} in ('pendente', 'pronta', 'falhou', 'expirada')`),
     check('data_exports_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/exportacao/%'`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'data_exports_paciente_fk' }),

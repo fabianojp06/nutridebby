@@ -659,6 +659,17 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     ]);
   });
 
+  it('P-16 (b): no escopo do titular, o rascunho do plano fica fora; no da equipe, entra', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: rascunho } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo'), app.db);
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(equipe.dados.planos.map((x) => x.status)).toContain('rascunho');
+    expect(titular.dados.planos.map((x) => x.status)).not.toContain('rascunho');
+    expect(rascunho).toBeTruthy();
+  });
+
   it('PDF: circunferências, dobras com o protocolo e pedidos do titular aparecem; números no formato da tela, sem notação exponencial', async () => {
     const pdf = await renderizarProntuario(
       {

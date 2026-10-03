@@ -26,8 +26,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id) values (${t}, ${p})`,
   exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
   privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
-  stored_files: (t) =>
-    sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values (${t}, 'logo', ${`${t}/logo/${randomUUID()}.png`}, 1, 'image/png')`,
+  stored_files: (t, p) =>
+    sql`insert into stored_files (tenant_id, patient_id, tipo, caminho, bytes, mime) values (${t}, ${p}, 'exame', ${`${t}/exame/${randomUUID()}.png`}, 1, 'image/png')`,
   rls_fixture_patient_items: (t, p) => sql`insert into rls_fixture_patient_items (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,
   audit_fixture_registros: (t, p) => sql`insert into audit_fixture_registros (tenant_id, patient_id, texto) values (${t}, ${p}, 'x')`,
   patients: (t, p) =>
