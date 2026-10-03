@@ -313,7 +313,7 @@ export async function anonimizarVencidos(
       );
     } catch (err) {
       logger.error(
-        { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+        { motivo: motivoDoErro(err), tenantId: t.id },
         'falha ao listar pacientes a anonimizar',
       );
       continue;
@@ -374,7 +374,7 @@ export async function anonimizarVencidos(
       } catch (err) {
         // Sem nome nem dado do paciente no log (RNF-11); o próximo dia tenta de novo
         logger.error(
-          { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+          { motivo: motivoDoErro(err), tenantId: t.id },
           'falha ao anonimizar paciente',
         );
       }

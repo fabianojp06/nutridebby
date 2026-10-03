@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { diaryEntries, storedFiles, tenants } from '@/db/schema';
+import { diaryEntries, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -132,6 +132,43 @@ describe('conversão da foto do diário (RN-07)', () => {
     const sobra = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
     expect(sobra).toEqual([]);
     expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBeLessThan(usadoAntes);
+  });
+
+  it('ordem de travas paciente → registro → tenant (a de salvarArquivo): com o paciente travado por outro, o job espera sem segurar o tenant (sem deadlock com o envio do diário)', async () => {
+    const r = await registro(await fotoComExif());
+    const outra = await owner.pool.connect();
+    let solto = false;
+    try {
+      await outra.query('begin');
+      await outra.query('select 1 from patients where id = $1 for update', [r.p.id]); // como o conferirLimite do envio seguinte
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const job = converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps);
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (i > 500) throw new Error('o job não ficou preso na trava do paciente');
+        await new Promise((ok) => setTimeout(ok, 10));
+      }
+      // o envio seguinte (que segura o paciente) conseguiria a cota: o job não pegou o tenant antes do paciente
+      await expect(owner.pool.query('select 1 from tenants where id = $1 for update nowait', [r.T.tenantId])).resolves.toMatchObject({ rowCount: 1 });
+      await outra.query('commit');
+      solto = true;
+      expect(await job).toBe('pronta');
+    } finally {
+      if (!solto) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+  });
+
+  it('paciente bloqueado (exclusão atendida) entre o envio e a conversão → "removida", sem JPEG e sem o original (disco, stored_files e cota)', async () => {
+    const r = await registro(await fotoComExif());
+    const { fotoOriginalPath } = await r.ler();
+    await withTenant(r.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, r.p.id)), app.db);
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).toBe('falhou');
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'removida', fotoPath: null, fotoOriginalPath: null });
+    expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
+    const arquivos = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.patientId, r.p.id)), app.db);
+    expect(arquivos).toEqual([]);
+    expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBe(0);
   });
 
   describe('varredura expirar-diario-foto (registro parado com o original)', () => {

@@ -23,7 +23,10 @@ export function DiarioForm() {
     const form = e.currentTarget;
     const dados = new FormData(form);
     const foto = dados.get('foto');
-    if (foto instanceof File && foto.size > FOTO_DIARIO_MAX_BYTES) return setErros({ foto: MSG_DIARIO.foto });
+    if (foto instanceof File && foto.size > FOTO_DIARIO_MAX_BYTES) {
+      setOk(null); // o "Registro salvo." do envio anterior não fica na tela junto com o erro
+      return setErros({ foto: MSG_DIARIO.foto });
+    }
     setEnviando(true);
     setErros({});
     setOk(null);

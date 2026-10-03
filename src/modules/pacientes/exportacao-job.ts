@@ -30,6 +30,7 @@ import { logger } from '@/lib/logger';
 import {
   apagarArquivo,
   CotaEsgotadaError,
+  motivoDoErro,
   resolverCaminho,
   salvarArquivo,
 } from '@/modules/plataforma/armazenamento';
@@ -248,7 +249,7 @@ export async function montarDados(
   // Fotos do diário (JPEG convertido): no ZIP, no mesmo teto dos laudos; o original nunca vai
   const fotos: AnexoParaZip[] = di.flatMap((e, i) =>
     e.fotoStatus === 'pronta' && e.fotoPath
-      ? [{ tipo: 'foto' as const, indice: i, caminho: e.fotoPath, nome: `diario/${e.dataHora.toISOString().slice(0, 10)}-${i + 1}.jpg` }]
+      ? [{ tipo: 'foto' as const, indice: i, caminho: e.fotoPath, nome: `diario/${hojeNoFuso(fuso, e.dataHora)}-${i + 1}.jpg` }]
       : [],
   );
   const dados: DadosExportacao = {
@@ -527,7 +528,7 @@ export async function gerarExportacao(
       err instanceof PacienteAnonimizadoError;
     logger.error(
       {
-        err: err instanceof Error ? err.message : String(err),
+        motivo: motivoDoErro(err),
         tenantId: data.tenantId,
         exportId: data.exportId,
         definitivo,
@@ -586,7 +587,7 @@ export async function expirarExportacoesVencidas(
       );
     } catch (err) {
       logger.error(
-        { err: err instanceof Error ? err.message : String(err), tenantId: t.id },
+        { motivo: motivoDoErro(err), tenantId: t.id },
         'falha ao expirar exportações vencidas',
       );
     }
@@ -627,7 +628,7 @@ async function expirarAnteriores(
       await expirarExportacao({ tenantId: ctx.tenantId, exportId: id }, deps);
   } catch (err) {
     logger.warn(
-      { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
+      { motivo: motivoDoErro(err), tenantId: ctx.tenantId },
       'falha ao apagar exportação anterior',
     );
   }

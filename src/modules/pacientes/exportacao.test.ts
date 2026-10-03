@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
@@ -13,6 +13,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
+import { logger } from '@/lib/logger';
 import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
@@ -699,6 +700,34 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const zip = await zipDoPedido(T, id);
     expect(Buffer.from(zip['diario/2026-10-01-2.jpg']).equals(JPEG)).toBe(true); // o JPEG convertido; o original nunca vai
     expect(dados.laudosForaDoZip).toBe(false);
+  });
+
+  it('foto do diário no ZIP com a data no fuso do tenant: o registro das 23:30 de Brasília sai com o próprio dia', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const foto = await salvarArquivo(T.ctx, { tipo: 'diario_foto', conteudo: JPEG, permitidos: ['jpg'], patientId: p.id }, { db: app.db, dataDir });
+    // 02:30 UTC do dia 2 = 23:30 do dia 1 em São Paulo
+    await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, dataHora: new Date('2026-10-02T02:30:00Z'), refeicao: 'Ceia', fotoPath: foto.caminho, fotoStatus: 'pronta' }), app.db);
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false });
+    expect((await dadosDoZip(T, id)).diario).toEqual([expect.objectContaining({ refeicao: 'Ceia', foto: 'diario/2026-10-01-1.jpg' })]);
+    expect(Object.keys(await zipDoPedido(T, id))).toContain('diario/2026-10-01-1.jpg');
+  });
+
+  it('RNF-11: a falha da exportação vai para o log só com o código do erro, nunca a mensagem (que num EACCES leva o caminho do arquivo)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const disco = Object.assign(new Error(`EACCES: permission denied, open '/data/${T.tenantId}/diario/foto.jpg'`), { code: 'EACCES' });
+      const r = await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: true, renderizar: async () => Promise.reject(disco) });
+      expect(r).toBe('falhou');
+      expect(erro).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'EACCES', exportId: id }), 'falha ao gerar exportação');
+      expect(JSON.stringify(erro.mock.calls)).not.toContain('/data/');
+    } finally {
+      erro.mockRestore();
+    }
   });
 
   it('fotos do diário acima do teto de memória ficam de fora com o aviso, como os laudos', async () => {

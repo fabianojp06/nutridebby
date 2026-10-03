@@ -30,7 +30,8 @@ export default async function Diario() {
                 // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min (CLAUDE.md regra 9)
                 <img src={signFileUrl(r.foto.caminho)} alt={`Foto do registro de ${r.refeicao}`} className="max-h-80 rounded" />
               )}
-              {r.foto.estado === 'processando' && <p role="status" className="text-sm">{MSG_DIARIO.processando}</p>}
+              {/* sem role="status": uma região viva por registro seria anunciada inteira a cada router.refresh() (RNF-10) */}
+              {r.foto.estado === 'processando' && <p className="text-sm">{MSG_DIARIO.processando}</p>}
               {r.foto.estado === 'falhou' && <p className="text-sm text-red-700">{MSG_DIARIO.fotoFalhou}</p>}
               {r.comentario && (
                 <div className="rounded bg-emerald-50 p-2">

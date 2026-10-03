@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
+import { logger } from '@/lib/logger';
 import { account, appointments, auditLog, consents, diaryEntries, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
@@ -341,6 +342,24 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
     const [f] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, doAtivo.entrada.id)), app.db);
     expect(f).toMatchObject({ fotoPath: doAtivo.caminhos[0], fotoStatus: 'pronta' });
     expect(existsSync(resolverCaminho(dataDir, doAtivo.caminhos[0]))).toBe(true);
+  });
+
+  it('RNF-11: erro de disco na anonimização vai para o log só com o código (a mensagem de um ENOTDIR/EACCES leva o caminho da foto)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    await registroComFoto(T, p.id);
+    const naoPasta = path.join(dataDir, `arquivo-${randomUUID()}`);
+    writeFileSync(naoPasta, 'x'); // o "dataDir" é um arquivo: o rm da foto falha com ENOTDIR
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: T.tenantId, fuso: T.tenant.fuso }]);
+      expect(await anonimizarVencidos(app.db, now, { dataDir: naoPasta })).toEqual({ anonimizados: 0 });
+      expect(erro).toHaveBeenCalledWith({ motivo: 'ENOTDIR', tenantId: T.tenantId }, 'falha ao anonimizar paciente');
+      expect(JSON.stringify(erro.mock.calls)).not.toContain(naoPasta);
+    } finally {
+      erro.mockRestore();
+    }
+    expect((await ler(T.ctx, p.id)).anonimizadoEm).toBeNull(); // o dia seguinte tenta de novo
   });
 
   it('anonimização de quem tem foto no diário: a foto sai antes, o registro fica com a foto "removida"', async () => {

@@ -3,7 +3,7 @@ import sharp, { type Sharp } from 'sharp';
 import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import type { Db } from '@/db/client';
-import { diaryEntries } from '@/db/schema';
+import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -24,6 +24,8 @@ export type ImagemHeic = { width: number; height: number; decode: () => Promise<
 type AbrirHeic = (buf: Buffer) => Promise<ImagemHeic>;
 
 class FotoInvalidaError extends Error {}
+/** Paciente bloqueado (pedido de exclusão atendido) ou anonimizado: a foto não é convertida e o original sai (US-018). */
+class TitularComExclusaoError extends Error {}
 
 /** `decode.all` só abre o contêiner (Step 1): nada de pixels até o `decode()` — a conferência dos 40 MP vem antes. */
 const heicDeVerdade: AbrirHeic = async (buf) => {
@@ -90,7 +92,11 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
  * o pg-boss tenta de novo; na última tentativa, "falhou".
  * `descartar` (só a varredura `expirarFotosPendentes`): registro "processando" esquecido vira "falhou" e o original sai,
  * sem nova conversão.
- * ORDEM DE TRAVAS: registro do diário → tenant (cota), nos dois caminhos (`antesDaReserva` e `naMesmaTransacao`).
+ * Paciente bloqueado ou anonimizado (exclusão atendida no meio da conversão) → "removida", sem JPEG, e o original sai.
+ * ORDEM DE TRAVAS (a de `salvarArquivo`): paciente → registro do diário → tenant (cota). O paciente vem primeiro porque o
+ * INSERT em stored_files pede KEY SHARE nele (FK `stored_files_paciente_fk`); travar só o registro levaria a registro →
+ * tenant → paciente, o contrário do envio do diário, do exame, do PDF do plano e da exportação (deadlock). O
+ * `naMesmaTransacao` de `apagarOriginal` trava registro → tenant, sem tocar o paciente.
  */
 export async function converterFotoDoDiario(
   data: DadosFotoDiario,
@@ -126,8 +132,8 @@ export async function converterFotoDoDiario(
     await apagarOriginal({}, 'pronta'); // sobra de uma tentativa que caiu depois de gravar o JPEG
     return 'ignorada';
   }
-  const falhar = async (): Promise<'falhou'> => {
-    await apagarOriginal({ fotoStatus: 'falhou' }, 'processando');
+  const falhar = async (fotoStatus: 'falhou' | 'removida' = 'falhou'): Promise<'falhou'> => {
+    await apagarOriginal({ fotoStatus }, 'processando');
     return 'falhou';
   };
   if (deps.descartar) return falhar();
@@ -142,8 +148,14 @@ export async function converterFotoDoDiario(
         conteudo: jpeg,
         permitidos: ['jpg'],
         patientId: e.patientId,
-        // Trava o registro antes da cota (mesma ordem do apagarArquivo abaixo)
+        // Trava o paciente e depois o registro, antes da cota (ordem de travas acima); desiste se a exclusão chegou antes
         antesDaReserva: async (tx) => {
+          const [pac] = await tx
+            .select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm })
+            .from(patients)
+            .where(eq(patients.id, e.patientId))
+            .for('update');
+          if (!pac || pac.status === 'bloqueado' || pac.anonimizadoEm) throw new TitularComExclusaoError();
           const [ainda] = await tx
             .select({ id: diaryEntries.id })
             .from(diaryEntries)
@@ -167,6 +179,10 @@ export async function converterFotoDoDiario(
       logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'original' }, 'original da foto do diário não apagado');
       if (!deps.ultimaTentativa) throw err;
       return 'pronta';
+    }
+    if (err instanceof TitularComExclusaoError) {
+      logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'exclusao' }, 'foto do diário não convertida: titular bloqueado ou anonimizado');
+      return falhar('removida');
     }
     const definitivo = err instanceof FotoInvalidaError || deps.ultimaTentativa;
     // RNF-11: só ids e o motivo; nunca o caminho nem o conteúdo

@@ -117,6 +117,7 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
   await p.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(p.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
   await expect(p.page.getByText('arroz, feijão, frango')).toBeVisible();
+  await expect(p.page.getByRole('listitem').getByRole('status')).toHaveCount(0); // "Foto sendo preparada…" não é região viva
   await expect
     .poll(
       async () => {
@@ -127,9 +128,14 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
     )
     .toBe(1);
   await p.page.getByLabel('Refeição', { exact: true }).selectOption('Jantar');
+  await p.page.getByLabel('O que você comeu?').fill('sopa de legumes');
+  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  await p.page.getByLabel('Refeição', { exact: true }).selectOption('Jantar');
   await p.page.getByLabel('Foto (opcional)').setInputFiles({ name: 'grande.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(11 * 1024 * 1024, 0xff) });
   await p.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(p.page.locator('#foto-erro')).toHaveText('Envie uma foto JPEG, PNG ou HEIC de até 10 MB');
+  await expect(p.page.getByText('Registro salvo.')).toHaveCount(0); // a recusa local tira a mensagem do envio anterior
   await p.page.context().close();
 });
 
