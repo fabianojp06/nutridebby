@@ -104,11 +104,11 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
     expect(pushDaNotificacao(ctx('convite_paciente'), deps)).toBeNull();
     expect(pushDaNotificacao({ ...ctx('lembrete_24h'), consulta: null }, deps)).toBeNull();
   });
-  it('push sem consulta: teste, comentário e plano novo — textos neutros, toque abre a tela do portal (D7, D8, US-025)', () => {
+  it('push sem consulta: teste, comentário e plano novo — textos neutros, toque abre a tela do portal NO consultório do aviso (?v=, D7, D8, US-025)', () => {
     const semConsulta = (tipo: string): ContextoEnvio => ({ ...ctx(tipo), consulta: null });
-    expect(pushDaNotificacao(semConsulta('push_teste'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: 'https://app.exemplo.com/p/inicio' });
-    expect(pushDaNotificacao(semConsulta('comentario_diario'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Sua nutricionista comentou seu diário', url: 'https://app.exemplo.com/p/diario' });
-    expect(pushDaNotificacao(semConsulta('plano_novo'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Seu novo plano alimentar está disponível', url: 'https://app.exemplo.com/p/plano' });
+    expect(pushDaNotificacao(semConsulta('push_teste'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: `https://app.exemplo.com/p/inicio?v=${tenant.id}` });
+    expect(pushDaNotificacao(semConsulta('comentario_diario'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Sua nutricionista comentou seu diário', url: `https://app.exemplo.com/p/diario?v=${tenant.id}` });
+    expect(pushDaNotificacao(semConsulta('plano_novo'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Seu novo plano alimentar está disponível', url: `https://app.exemplo.com/p/plano?v=${tenant.id}` });
     expect(pushDaNotificacao(semConsulta('toString'), deps)).toBeNull();
     for (const tipo of ['push_teste', 'comentario_diario', 'plano_novo']) {
       const corpo = pushDaNotificacao(semConsulta(tipo), deps)!.corpo; // o título é o nome do app ("NutriDebby")

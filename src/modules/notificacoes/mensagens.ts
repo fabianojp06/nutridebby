@@ -4,6 +4,7 @@ import { openSecret } from '@/lib/crypto';
 import { urlDoApp } from '@/lib/url-do-app';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
+import { telaDoPortal } from '@/modules/portal/link-portal';
 import type { ContextoEnvio } from './enviar';
 
 export const primeiroNome = (nome: string) => nome.trim().split(/\s+/)[0] || nome;
@@ -121,7 +122,8 @@ export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chav
   // Plano 06 (D7, D8): avisos do portal, sem consulta — texto neutro (sem nome da nutricionista nem dado do paciente)
   if (!c.consulta) {
     const aviso = Object.hasOwn(AVISOS_DO_PORTAL, c.n.tipo) ? AVISOS_DO_PORTAL[c.n.tipo] : null;
-    return aviso ? { titulo: 'NutriDebby', corpo: aviso.corpo, url: urlDoApp(deps.appUrl, aviso.tela) } : null;
+    // a tela leva o consultório (`?v=`): com 2+ vínculos, o toque abre o diário/plano deste, não o do cookie
+    return aviso ? { titulo: 'NutriDebby', corpo: aviso.corpo, url: urlDoApp(deps.appUrl, telaDoPortal(aviso.tela, c.tenant.id)) } : null;
   }
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   const link = () => linkDaConsulta({ consulta: c.consulta!, tenant: c.tenant, paciente: c.paciente }, deps);

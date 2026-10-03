@@ -7,6 +7,7 @@ import { getBoss } from '@/jobs/boss';
 import { auditRead, recordAudit } from '@/modules/plataforma/audit';
 import { idValido, PacienteNaoEncontradoError } from './base';
 import { urlDoApp } from '@/lib/url-do-app';
+import { telaDoPortal } from '@/modules/portal/link-portal';
 // Só o tipo: o arquivo do worker (PDF/ZIP) fica fora do grafo do Next (guarda em exportacao.test.ts)
 import type { EscopoExportacao } from './exportacao-job';
 
@@ -32,16 +33,15 @@ export type EstadoExportacao =
 
 export function linkDaExportacao(
   appUrl: string,
-  patientId: string,
-  exportId: string,
-  escopo: EscopoExportacao = 'equipe',
+  pedido: { tenantId: string; patientId: string; id: string; escopo?: EscopoExportacao },
 ): string {
-  // US-046: o titular abre pelo portal (pede login de paciente); a equipe, pelo prontuário
+  // US-046: o titular abre pelo portal (pede login de paciente), no consultório do pedido (`?v=`: com 2+ vínculos o
+  // cookie pode estar em outro); a equipe, pelo prontuário
   return urlDoApp(
     appUrl,
-    escopo === 'titular'
-      ? `/p/meus-dados/exportacoes/${exportId}`
-      : `/painel/pacientes/${patientId}/exportacoes/${exportId}`,
+    pedido.escopo === 'titular'
+      ? telaDoPortal(`/p/meus-dados/exportacoes/${pedido.id}`, pedido.tenantId)
+      : `/painel/pacientes/${pedido.patientId}/exportacoes/${pedido.id}`,
   );
 }
 

@@ -3,16 +3,17 @@ import { notifications, type PatientRow } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import { urlDoApp } from '@/lib/url-do-app';
 import { dispararEnvio } from '@/modules/notificacoes/agendar';
+import { telaDoPortal } from './link-portal';
 
 /**
  * US-025 (adiado do Plano 04): ao publicar, o paciente com acesso ao portal recebe o push e o e-mail "Seu novo plano
  * alimentar está disponível" — na mesma transação da publicação. Sem conta (convite não aceito) ou fora de "ativo": nada.
- * Nenhum dado de saúde no texto (RNF-11).
+ * Nenhum dado de saúde no texto (RNF-11). O link leva o consultório (`?v=`): com 2+ vínculos, abre o plano DESTE.
  */
 export async function avisarPlanoNovo(tx: Tx, p: Pick<PatientRow, 'id' | 'tenantId' | 'email' | 'userId' | 'status'>, agora: Date, appUrl: string): Promise<void> {
   if (!p.userId || p.status !== 'ativo') return;
   await tx.insert(notifications).values({ tenantId: p.tenantId, patientId: p.id, canal: 'push', tipo: 'plano_novo', agendadaPara: agora });
-  await enqueueEmail({ tipo: 'plano_novo', para: p.email, link: urlDoApp(appUrl, '/p/plano') }, { tenantId: p.tenantId, tx });
+  await enqueueEmail({ tipo: 'plano_novo', para: p.email, link: urlDoApp(appUrl, telaDoPortal('/p/plano', p.tenantId)) }, { tenantId: p.tenantId, tx });
   await dispararEnvio(tx, p.tenantId);
 }
 

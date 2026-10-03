@@ -29,7 +29,7 @@ describe('avisos do portal (US-025, US-043)', () => {
     }, app.db);
     const push = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'plano_novo')), app.db);
     expect(push.map((n) => [n.patientId, n.canal, n.status, n.appointmentId])).toEqual([[comConta.id, 'push', 'pendente', null]]);
-    expect(await emailsNaFila('plano_novo', email)).toEqual([{ tipo: 'plano_novo', para: email, link: 'https://nutri.exemplo.com/p/plano' }]);
+    expect(await emailsNaFila('plano_novo', email)).toEqual([{ tipo: 'plano_novo', para: email, link: `https://nutri.exemplo.com/p/plano?v=${T.tenantId}` }]); // ?v=: o plano DESTE consultório com 2+ vínculos
     expect(await emailsNaFila('plano_novo', semConta.email)).toEqual([]);
   });
 

@@ -505,7 +505,7 @@ export async function gerarExportacao(
               {
                 tipo: 'exportacao_pronta',
                 para: quem.email,
-                link: linkDaExportacao(deps.appUrl, pedido.patientId, pedido.id, pedido.escopo as EscopoExportacao),
+                link: linkDaExportacao(deps.appUrl, { tenantId: data.tenantId, patientId: pedido.patientId, id: pedido.id, escopo: pedido.escopo as EscopoExportacao }),
                 titular: pedido.escopo === 'titular',
               },
               { tenantId: data.tenantId, tx, boss },

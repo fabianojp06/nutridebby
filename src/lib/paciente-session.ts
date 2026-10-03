@@ -7,6 +7,7 @@ import type { TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { MSG_TERMO_NAO_ACEITO } from '@/modules/pacientes/termo-paciente';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
+import { PARAM_VINCULO } from '@/modules/portal/link-portal';
 import { termoAceito } from '@/modules/portal/termo';
 import { escolherVinculo, vinculosDaConta, type Vinculo } from '@/modules/portal/vinculos';
 import { recusaApi, requireApiUser } from './api-auth';
@@ -22,6 +23,8 @@ export const ESCOLHER_PATH = '/p/escolher';
 export const SEM_ACESSO_PATH = '/p/sem-acesso';
 /** US-011 "Nova versão do termo": antes de usar o portal, aceitar a versão atual. */
 export const TERMO_PATH = '/p/termo';
+/** Grava o `nd_vinculo` pedido por um link (`?v=`) e volta para a página (Server Component não grava cookie). */
+export const TROCAR_VINCULO_PATH = '/api/p/vinculo';
 const TRINTA_DIAS_S = 30 * 24 * 60 * 60;
 
 export type PacienteAccess = { data: SessionData; tenant: TenantRow; vinculo: Vinculo; vinculos: Vinculo[]; ctx: TenantContext };
@@ -51,22 +54,46 @@ export function lerCookie(header: string | null, nome: string): string | undefin
   return undefined;
 }
 
+/**
+ * Destino de volta dentro do portal (escolha do consultório, troca pelo link): só uma página do portal que não seja a
+ * própria escolha, sem o `?v=` (senão o link venceria a escolha feita depois); senão, o Início.
+ */
+export function voltaDoPortal(volta: string | null | undefined): string {
+  const destino = safeReturnPath(volta);
+  if (!destino?.startsWith('/p/') || destino.startsWith(ESCOLHER_PATH)) return '/p/inicio';
+  const u = new URL(destino, 'http://interno.invalid');
+  u.searchParams.delete(PARAM_VINCULO);
+  return `${u.pathname}${u.search}`;
+}
+
+/** O consultório pedido pelo link (`?v=` da página atual, que o proxy repassa); só uma preferência, reconferida. */
+function vinculoDoLink(caminho: string | null): string | undefined {
+  const atual = safeReturnPath(caminho);
+  return atual ? (new URL(atual, 'http://interno.invalid').searchParams.get(PARAM_VINCULO) ?? undefined) : undefined;
+}
+
 type Acesso =
   | { ok: true; tenant: TenantRow; vinculo: Vinculo; vinculos: Vinculo[] }
-  | { ok: false; motivo: 'sem_acesso' | 'escolher' | 'suspensa' | 'termo' };
+  | { ok: false; motivo: 'sem_acesso' | 'escolher' | 'suspensa' | 'termo' }
+  | { ok: false; motivo: 'trocar'; tenantId: string };
 
 /**
  * A regra única do portal, comum à página e à API: vínculo ativo escolhido (D3, RN-08), consultório não suspenso
- * (RN-15) e termo da versão atual aceito neste consultório (US-011), nessa ordem.
+ * (RN-15) e termo da versão atual aceito neste consultório (US-011), nessa ordem. `pedido` (o `?v=` do link) vale antes
+ * do cookie só se for vínculo ativo da conta (escolherVinculo). `regravar` (páginas): pedido válido diferente do cookie →
+ * `trocar`, para gravar o cookie ANTES de seguir — as próximas telas (menu, sem `?v=`) e o termo ficam no mesmo consultório.
  */
-async function acessoDaConta(userId: string, cookie: string | undefined, exigirTermo: boolean): Promise<Acesso> {
+async function acessoDaConta(userId: string, o: { cookie: string | undefined; pedido?: string; exigirTermo: boolean; regravar: boolean }): Promise<Acesso> {
   const vinculos = await vinculosDaConta(userId);
-  const r = escolherVinculo(vinculos, cookie);
+  const r = escolherVinculo(vinculos, o.cookie, o.pedido);
   if (r.tipo !== 'ok') return { ok: false, motivo: r.tipo };
+  if (o.regravar && vinculos.length > 1 && r.vinculo.tenantId === o.pedido && o.pedido !== o.cookie) {
+    return { ok: false, motivo: 'trocar', tenantId: r.vinculo.tenantId };
+  }
   const tenant = await buscarTenant(getDb(), r.vinculo.tenantId);
   if (!tenant) return { ok: false, motivo: 'sem_acesso' };
   if (tenant.status === 'suspensa') return { ok: false, motivo: 'suspensa' };
-  if (exigirTermo && !(await termoAceito(userId, tenant.id))) return { ok: false, motivo: 'termo' };
+  if (o.exigirTermo && !(await termoAceito(userId, tenant.id))) return { ok: false, motivo: 'termo' };
   return { ok: true, tenant, vinculo: r.vinculo, vinculos };
 }
 
@@ -77,22 +104,29 @@ async function acessoDaConta(userId: string, cookie: string | undefined, exigirT
  */
 export async function requirePaciente(path: string, o: { permitirTermoPendente?: boolean } = {}): Promise<PacienteAccess> {
   const { data } = await requireUserComTenant(['paciente'], path);
-  const a = await acessoDaConta(data.user.id, (await cookies()).get(COOKIE_VINCULO)?.value, !o.permitirTermoPendente);
+  const atual = (await headers()).get(CURRENT_PATH_HEADER);
+  const a = await acessoDaConta(data.user.id, {
+    cookie: (await cookies()).get(COOKIE_VINCULO)?.value,
+    pedido: vinculoDoLink(atual),
+    exigirTermo: !o.permitirTermoPendente,
+    regravar: true,
+  });
   if (!a.ok) {
     switch (a.motivo) {
       case 'sem_acesso':
         redirect(SEM_ACESSO_PATH);
-      case 'escolher': {
-        const volta = safeReturnPath((await headers()).get(CURRENT_PATH_HEADER)) ?? path;
-        redirect(`${ESCOLHER_PATH}?volta=${encodeURIComponent(volta)}`);
-      }
+      case 'escolher':
+        redirect(`${ESCOLHER_PATH}?volta=${encodeURIComponent(voltaDoPortal(safeReturnPath(atual) ?? path))}`);
+      case 'trocar':
+        // link de outro consultório (e-mail, push): a rota confere de novo, grava o nd_vinculo e volta sem o `?v=`
+        redirect(`${TROCAR_VINCULO_PATH}?${PARAM_VINCULO}=${encodeURIComponent(a.tenantId)}&volta=${encodeURIComponent(voltaDoPortal(safeReturnPath(atual) ?? path))}`);
       case 'suspensa':
         redirect(SUSPENDED_PATH);
       case 'termo':
         redirect(TERMO_PATH);
       default: {
-        const nunca: never = a.motivo;
-        throw new Error(`Motivo de acesso desconhecido: ${String(nunca)}`);
+        const nunca: never = a;
+        throw new Error(`Motivo de acesso desconhecido: ${String((nunca as { motivo?: unknown }).motivo)}`);
       }
     }
   }
@@ -114,12 +148,21 @@ const RECUSA_API = {
   termo: MSG_TERMO_NAO_ACEITO,
 } as const;
 
-/** requirePaciente para Route Handlers: 401/403 (requireApiUser); 403 sem vínculo escolhido, com consultório suspenso ou termo pendente. */
+/**
+ * requirePaciente para Route Handlers: 401/403 (requireApiUser); 403 sem vínculo escolhido, com consultório suspenso ou
+ * termo pendente. O `?v=` da própria URL vale como na página (só vínculo ativo da conta); quem regrava o cookie é a
+ * resposta (POST /api/p/acesso grava o do consultório usado).
+ */
 export async function requireApiPaciente(req: Request): Promise<ApiPaciente> {
   const auth = await requireApiUser(req, ['paciente']);
   if (!auth.ok) return auth;
-  const a = await acessoDaConta(auth.data.user.id, lerCookie(req.headers.get('cookie'), COOKIE_VINCULO), true);
-  if (!a.ok) return recusaApi(403, RECUSA_API[a.motivo]);
+  const a = await acessoDaConta(auth.data.user.id, {
+    cookie: lerCookie(req.headers.get('cookie'), COOKIE_VINCULO),
+    pedido: new URL(req.url).searchParams.get(PARAM_VINCULO) ?? undefined,
+    exigirTermo: true,
+    regravar: false,
+  });
+  if (!a.ok) return recusaApi(403, a.motivo === 'trocar' ? 'Acesso negado' : RECUSA_API[a.motivo]);
   return {
     ok: true,
     data: auth.data,

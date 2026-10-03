@@ -327,7 +327,7 @@ describe('push sem consulta (Plano 06: push de teste, comentário, plano novo)',
     const push = pushFalso();
     await processarNotificacoes(depsDeEnvio(agora, { db: app.db, push }), { tenantId: T.tenantId });
     expect(await situacao(T, ids.ok)).toMatchObject({ status: 'enviada', tentativas: 1 });
-    expect(push.payloads.map((p) => JSON.parse(p))).toEqual([{ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: 'http://localhost:3000/p/inicio' }]);
+    expect(push.payloads.map((p) => JSON.parse(p))).toEqual([{ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: `http://localhost:3000/p/inicio?v=${T.tenantId}` }]);
     expect(await situacao(T, ids.arq)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
     expect(await situacao(T, ids.sem)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_inscricao' });
   });

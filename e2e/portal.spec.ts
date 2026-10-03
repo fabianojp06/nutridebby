@@ -4,6 +4,7 @@ import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios
 test.describe.configure({ mode: 'serial' });
 let nutri: Page;
 
@@ -178,6 +179,32 @@ test('diário com a sessão vencida: a tela diz "Sessão expirada. Entre de novo
   await expect(alerta.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar?volta=%2Fp%2Fdiario');
   await expect(p.page.getByLabel('O que você comeu?')).toHaveValue('iogurte com granola');
   await p.page.context().close();
+});
+
+test('link com o consultório (?v=, e-mail e push): com 2+ vínculos abre o consultório do link e o menu continua nele; ?v= forjado é ignorado', async ({ browser }) => {
+  const page = await entrarComo(browser, MULTI.email, MULTI.senha, '10.9.10.11');
+  await expect(page).toHaveURL(/\/p\/escolher/);
+  const vinculo = async () => (await page.context().cookies()).find((c) => c.name === 'nd_vinculo')?.value;
+  await page.getByRole('button', { name: 'Consultório E2E', exact: true }).click();
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  const consultorio1 = await vinculo();
+  expect(consultorio1).toMatch(/^[0-9a-f-]{36}$/);
+  await page.goto('/p/escolher');
+  await page.getByRole('button', { name: 'Consultório E2E 2', exact: true }).click();
+  await expect(page.getByText('Acompanhamento com Consultório E2E 2', { exact: true })).toBeVisible();
+  // o link do e-mail/push do consultório 1, com o cookie no 2
+  await page.goto(`/p/perfil?v=${consultorio1}`);
+  await expect(page).toHaveURL(/\/p\/perfil$/); // o nd_vinculo foi regravado e o ?v= saiu
+  await expect(page.getByText('Acompanhamento com Consultório E2E', { exact: true })).toBeVisible();
+  expect(await vinculo()).toBe(consultorio1);
+  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Início' }).click();
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await expect(page.getByText('Acompanhamento com Consultório E2E', { exact: true })).toBeVisible();
+  // forjado (não é vínculo da conta): ignorado, fica o consultório do cookie
+  await page.goto('/p/inicio?v=00000000-0000-4000-8000-000000000000');
+  await expect(page.getByText('Acompanhamento com Consultório E2E', { exact: true })).toBeVisible();
+  expect(await vinculo()).toBe(consultorio1);
+  await page.context().close();
 });
 
 test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal; pedir exclusão aparece no painel (US-046)', async ({ browser }) => {

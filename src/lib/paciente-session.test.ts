@@ -34,7 +34,8 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { requireApiPaciente, requirePaciente, cookieDoVinculo, cookieDoVinculoApagado, lerCookie } = await import('./paciente-session');
+const { requireApiPaciente, requirePaciente, cookieDoVinculo, cookieDoVinculoApagado, lerCookie, voltaDoPortal } = await import('./paciente-session');
+const { GET: trocarVinculo } = await import('@/app/api/p/vinculo/route');
 const db = getDb();
 afterAll(() => closeDb());
 beforeEach(() => {
@@ -167,3 +168,87 @@ describe('requireApiPaciente', () => {
     expect(lerCookie(null, 'nd_vinculo')).toBeUndefined();
   });
 });
+
+describe('link com o consultório (?v=): e-mail e push abrem o vínculo certo com 2+ vínculos', () => {
+  const naPagina = (cookie: string, caminho: string) => {
+    req.headers = new Headers({ cookie, 'x-nd-caminho': caminho, 'x-forwarded-for': '203.0.113.30' });
+  };
+
+  it('página: vínculo ativo da conta diferente do cookie → regrava o nd_vinculo (rota) e volta sem o ?v=; igual ao cookie → entra nele', async () => {
+    const { A, paciente, outros, cookie } = await logado(2);
+    const B = outros[0].T.tenantId;
+    naPagina(`${cookie}; nd_vinculo=${B}`, `/p/meus-dados/exportacoes/abc?v=${A.tenantId}`);
+    await expect(requirePaciente('/p/meus-dados/exportacoes/abc')).rejects.toMatchObject({
+      url: `/api/p/vinculo?v=${A.tenantId}&volta=%2Fp%2Fmeus-dados%2Fexportacoes%2Fabc`,
+    });
+    // sem cookie nenhum (aparelho novo, depois do login): também
+    naPagina(cookie, `/p/plano?v=${A.tenantId}`);
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: `/api/p/vinculo?v=${A.tenantId}&volta=%2Fp%2Fplano` });
+    // depois da rota (cookie já em A): entra em A, mesmo com o ?v= ainda na URL
+    naPagina(`${cookie}; nd_vinculo=${A.tenantId}`, `/p/plano?v=${A.tenantId}`);
+    expect((await requirePaciente('/p/plano')).ctx).toMatchObject({ tenantId: A.tenantId, patientId: paciente.id });
+  });
+
+  it('página: ?v= que não é vínculo ativo da conta (forjado, de outra conta, suspenso) é ignorado e segue o fluxo normal', async () => {
+    const { A, outros, cookie } = await logado(2);
+    const B = outros[0].T.tenantId;
+    const estranho = await novoTenant(db, 'Outra');
+    naPagina(`${cookie}; nd_vinculo=${B}`, `/p/plano?v=${estranho.tenantId}`);
+    expect((await requirePaciente('/p/plano')).ctx.patientId).toBe(outros[0].paciente.id);
+    naPagina(cookie, `/p/plano?v=${randomUUID()}`);
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/escolher?volta=%2Fp%2Fplano' }); // sem o ?v= na volta
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    naPagina(`${cookie}; nd_vinculo=${B}`, `/p/plano?v=${A.tenantId}`);
+    expect((await requirePaciente('/p/plano')).ctx.patientId).toBe(outros[0].paciente.id);
+  });
+
+  it('página: com um vínculo só, o ?v= de outro consultório não muda nada (entra no único)', async () => {
+    const { A, cookie } = await logado();
+    const outro = await novoTenant(db, 'Outra');
+    naPagina(cookie, `/p/plano?v=${outro.tenantId}`);
+    expect((await requirePaciente('/p/plano')).tenant.id).toBe(A.tenantId);
+  });
+
+  it('API: o ?v= da URL vale como na página (vínculo ativo da conta); forjado fica com o cookie', async () => {
+    const { A, paciente, outros, cookie } = await logado(2);
+    const B = outros[0].T.tenantId;
+    const pedir = async (q: string) => {
+      const r = await requireApiPaciente(new Request(`http://x/api/p/acesso${q}`, { method: 'POST', headers: { cookie: `${cookie}; nd_vinculo=${B}` } }));
+      return r.ok ? r.ctx.patientId : r.response.status;
+    };
+    expect(await pedir(`?v=${A.tenantId}`)).toBe(paciente.id);
+    expect(await pedir(`?v=${randomUUID()}`)).toBe(outros[0].paciente.id);
+    expect(await pedir('')).toBe(outros[0].paciente.id);
+  });
+
+  it('GET /api/p/vinculo confere de novo: só grava o nd_vinculo de vínculo ativo da conta; volta sempre para o portal, sem o ?v=', async () => {
+    const { A, outros, cookie } = await logado(2);
+    const estranho = await novoTenant(db, 'Outra');
+    const trocar = (q: string, c: string | null = cookie) => trocarVinculo(new Request(`http://x/api/p/vinculo${q}`, { headers: c ? { cookie: c } : {} }));
+    const ok = await trocar(`?v=${A.tenantId}&volta=${encodeURIComponent('/p/plano?pdf=preparando&v=x')}`);
+    expect(ok.status).toBe(303);
+    expect(ok.headers.get('location')).toBe('/p/plano?pdf=preparando');
+    expect(ok.headers.get('set-cookie')).toBe(cookieDoVinculo(A.tenantId, false));
+    expect(ok.headers.get('cache-control')).toBe('no-store');
+    // vínculo de outra conta, forjado ou suspenso: nada de cookie
+    for (const v of [estranho.tenantId, randomUUID(), 'lixo']) expect((await trocar(`?v=${v}&volta=%2Fp%2Fplano`)).headers.get('set-cookie'), v).toBeNull();
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, outros[0].T.tenantId));
+    expect((await trocar(`?v=${outros[0].T.tenantId}&volta=%2Fp%2Fplano`)).headers.get('set-cookie')).toBeNull();
+    // sem sessão: só volta (a página manda ao login)
+    const sem = await trocar(`?v=${A.tenantId}&volta=%2Fp%2Fplano`, null);
+    expect([sem.status, sem.headers.get('location'), sem.headers.get('set-cookie')]).toEqual([303, '/p/plano', null]);
+    // volta insegura ou fora do portal → Início
+    for (const volta of ['//evil.example/p/x', 'https://evil.example', '/painel', '/p/escolher?volta=%2Fp%2Fplano'])
+      expect((await trocar(`?v=${A.tenantId}&volta=${encodeURIComponent(volta)}`)).headers.get('location'), volta).toBe('/p/inicio');
+  });
+
+  it('voltaDoPortal: só /p/ (fora a escolha), sem o ?v=, mantendo o resto da query', () => {
+    expect(voltaDoPortal('/p/agenda?semana=2&v=abc')).toBe('/p/agenda?semana=2');
+    expect(voltaDoPortal('/p/plano?v=a&v=b')).toBe('/p/plano');
+    expect(voltaDoPortal('/p/escolher')).toBe('/p/inicio');
+    expect(voltaDoPortal('/entrar')).toBe('/p/inicio');
+    expect(voltaDoPortal(null)).toBe('/p/inicio');
+    expect(voltaDoPortal('/p/%2e%2e//evil.example')).toBe('/p/inicio');
+  });
+});
+

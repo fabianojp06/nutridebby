@@ -169,7 +169,7 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     const { p: semConta } = await publicado(T);
     const avisos = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'plano_novo')), app.db);
     expect(avisos.map((n) => [n.patientId, n.canal])).toEqual([[comConta.id, 'push']]);
-    expect(await emailsNaFila('plano_novo', email)).toEqual([{ tipo: 'plano_novo', para: email, link: 'https://nutri.exemplo.com/p/plano' }]);
+    expect(await emailsNaFila('plano_novo', email)).toEqual([{ tipo: 'plano_novo', para: email, link: `https://nutri.exemplo.com/p/plano?v=${T.tenantId}` }]);
     expect(await emailsNaFila('plano_novo', semConta.email)).toEqual([]);
   });
 

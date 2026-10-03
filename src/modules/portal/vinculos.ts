@@ -50,15 +50,18 @@ export async function vinculosDaConta(userId: string, o: { db?: Db; todos?: bool
  * D3 + RN-15: com 1 vínculo entra direto; com 2+ vale o do cookie, só se ainda for vínculo (cookie velho ou forjado →
  * escolher). Consultório suspenso barra só aquele vínculo: sem nenhum ativo → `suspensa`; cookie no suspenso com outro
  * ativo → escolher (o suspenso aparece desabilitado na escolha).
+ * `pedido`: o consultório do link (`?v=`, link-portal.ts) vale antes do cookie, com a mesma conferência (vínculo da conta,
+ * consultório não suspenso); se não vale, é ignorado e fica a regra do cookie.
  */
 export function escolherVinculo(
   vinculos: Vinculo[],
   cookie: string | undefined,
+  pedido?: string,
 ): { tipo: 'ok'; vinculo: Vinculo } | { tipo: 'escolher' } | { tipo: 'sem_acesso' } | { tipo: 'suspensa' } {
   if (!vinculos.length) return { tipo: 'sem_acesso' };
   const ativos = vinculos.filter((v) => v.tenantStatus === 'ativa');
   if (!ativos.length) return { tipo: 'suspensa' };
   if (vinculos.length === 1) return { tipo: 'ok', vinculo: vinculos[0] };
-  const doCookie = ativos.find((v) => v.tenantId === cookie);
-  return doCookie ? { tipo: 'ok', vinculo: doCookie } : { tipo: 'escolher' };
+  const escolhido = (pedido && ativos.find((v) => v.tenantId === pedido)) || ativos.find((v) => v.tenantId === cookie);
+  return escolhido ? { tipo: 'ok', vinculo: escolhido } : { tipo: 'escolher' };
 }

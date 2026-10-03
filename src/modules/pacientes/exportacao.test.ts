@@ -691,7 +691,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const id = await solicitarExportacao({ ...ctxPaciente(T.tenantId, p.id), actorUserId: userId }, p.id, { db: app.db, escopo: 'titular' });
     await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { db: app.db, dataDir, appUrl: 'http://localhost:3000', ultimaTentativa: false });
     const [msg] = await emailsNaFila('exportacao_pronta', email);
-    expect(msg).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${id}`, titular: true });
+    expect(msg).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${id}?v=${T.tenantId}`, titular: true }); // ?v=: o consultório do pedido
     const dados = await dadosDoZip(T, id);
     expect(dados.diario).toEqual([
       expect.objectContaining({ refeicao: 'Almoço', texto: 'arroz', comentarioNutri: 'Ótimo!', foto: null }),
@@ -776,7 +776,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(daNutri.link).toBe(`http://localhost:3000/painel/pacientes/${p.id}/exportacoes/${daEquipe}`);
     expect(daNutri.titular).toBe(false);
     const [doPaciente] = await emailsNaFila('exportacao_pronta', email);
-    expect(doPaciente).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${doTitular}`, titular: true });
+    expect(doPaciente).toMatchObject({ link: `http://localhost:3000/p/meus-dados/exportacoes/${doTitular}?v=${T.tenantId}`, titular: true });
     // um segundo pedido do titular, pronto, apaga o primeiro do titular — e o da equipe continua
     const outro = await solicitarExportacao(ctxPaciente(T.tenantId, p.id, userId), p.id, { ...deps, escopo: 'titular' });
     expect(await gerarExportacao({ tenantId: T.tenantId, exportId: outro }, { ...deps, ultimaTentativa: false })).toBe('pronta');

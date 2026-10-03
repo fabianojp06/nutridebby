@@ -155,6 +155,8 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
 
   it('urlDaNotificacao: só abre endereço da própria origem (o push poderia trazer outro); senão o início do portal', () => {
     expect(urlDaNotificacao('https://nutri.exemplo.com/p/diario', O)).toBe('https://nutri.exemplo.com/p/diario');
+    // o consultório do aviso (?v=, link-portal.ts) chega intacto ao portal
+    expect(urlDaNotificacao('https://nutri.exemplo.com/p/plano?v=0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', O)).toBe('https://nutri.exemplo.com/p/plano?v=0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f');
     expect(urlDaNotificacao('https://evil.example/x', O)).toBe('/p/inicio');
     expect(urlDaNotificacao('https://nutri.exemplo.com.evil.example/p/diario', O)).toBe('/p/inicio');
     expect(urlDaNotificacao(null, O)).toBe('/p/inicio');

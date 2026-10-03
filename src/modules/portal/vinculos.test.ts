@@ -65,4 +65,16 @@ describe('vínculos da conta (D2, §3, RN-08)', () => {
     expect(escolherVinculo([aSusp, b], undefined)).toEqual({ tipo: 'escolher' });
     expect(escolherVinculo([aSusp, b], b.tenantId)).toEqual({ tipo: 'ok', vinculo: b });
   });
+
+  it('escolherVinculo com o consultório do link (`?v=`): vínculo ativo da conta vale antes do cookie; o resto é ignorado', () => {
+    const a: Vinculo = { tenantId: '00000000-0000-4000-8000-00000000000a', patientId: '00000000-0000-4000-8000-0000000000a1', nomeNutri: 'A', tenantStatus: 'ativa' };
+    const b: Vinculo = { ...a, tenantId: '00000000-0000-4000-8000-00000000000b', patientId: '00000000-0000-4000-8000-0000000000b1', nomeNutri: 'B' };
+    const c = '00000000-0000-4000-8000-00000000000c';
+    expect(escolherVinculo([a, b], b.tenantId, a.tenantId)).toEqual({ tipo: 'ok', vinculo: a }); // link de A com o cookie em B
+    expect(escolherVinculo([a, b], undefined, a.tenantId)).toEqual({ tipo: 'ok', vinculo: a }); // sem cookie
+    expect(escolherVinculo([a, b], b.tenantId, c)).toEqual({ tipo: 'ok', vinculo: b }); // forjado: fica o cookie
+    expect(escolherVinculo([a, b], undefined, c)).toEqual({ tipo: 'escolher' });
+    expect(escolherVinculo([{ ...a, tenantStatus: 'suspensa' }, b], b.tenantId, a.tenantId)).toEqual({ tipo: 'ok', vinculo: b }); // suspenso: ignorado
+    expect(escolherVinculo([a], undefined, c)).toEqual({ tipo: 'ok', vinculo: a }); // 1 vínculo: o único
+  });
 });
