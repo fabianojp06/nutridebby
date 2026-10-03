@@ -80,6 +80,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   access_events: (t, p) => sql`insert into access_events (tenant_id, patient_id, dia) values (${t}, ${p}, ${`2030-01-${String((++seqConsulta % 28) + 1).padStart(2, '0')}`})`,
   push_subscriptions: (t, p) =>
     sql`insert into push_subscriptions (tenant_id, patient_id, endpoint, p256dh, auth) values (${t}, ${p}, ${`https://push.example.test/${randomUUID()}`}, ${'a'.repeat(87)}, ${'b'.repeat(22)})`,
+  diary_entries: (t, p) => sql`insert into diary_entries (tenant_id, patient_id, refeicao, texto) values (${t}, ${p}, 'Almoço', 'arroz e feijão')`,
   // uma linha por tenant (tenant_id UNIQUE): a fábrica roda duas vezes por tenant
   whatsapp_conexoes: (t) =>
     sql`insert into whatsapp_conexoes (tenant_id, instancia) select ${t}, ${`nd-${t}`} where not exists (select 1 from whatsapp_conexoes where tenant_id = ${t})`,

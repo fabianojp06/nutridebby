@@ -107,3 +107,29 @@ test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e a te
   await expect(p.page.getByRole('button', { name: 'Ativar notificações' })).toHaveCount(0);
   await p.page.context().close();
 });
+
+test('diário: registro com texto e foto aparece na hora; o worker converte a foto; arquivo grande é recusado (US-042)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.9');
+  await p.page.goto('/p/diario');
+  await p.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
+  await p.page.getByLabel('O que você comeu?').fill('arroz, feijão, frango');
+  await p.page.getByLabel('Foto (opcional)').setInputFiles('e2e/fixtures/prato.jpg');
+  await expect(p.page.getByAltText('Miniatura da foto escolhida')).toBeVisible();
+  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  await expect(p.page.getByText('arroz, feijão, frango')).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        await p.page.reload();
+        return p.page.getByAltText('Foto do registro de Almoço').count();
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(1);
+  await p.page.getByLabel('Refeição', { exact: true }).selectOption('Jantar');
+  await p.page.getByLabel('Foto (opcional)').setInputFiles({ name: 'grande.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(11 * 1024 * 1024, 0xff) });
+  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await expect(p.page.locator('#foto-erro')).toHaveText('Envie uma foto JPEG, PNG ou HEIC de até 10 MB');
+  await p.page.context().close();
+});
