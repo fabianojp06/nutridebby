@@ -36,7 +36,7 @@ describe('vínculos da conta (D2, §3, RN-08)', () => {
     expect(todos.find((x) => x.tenantId === E.tenantId)).toMatchObject({ pacienteStatus: 'ativo', anonimizado: true });
   });
 
-  it('tenant suspenso continua na lista (a sessão mostra "Conta temporariamente indisponível")', async () => {
+  it('tenant suspenso continua na lista, com o status (a escolha o mostra desabilitado; a sessão decide pelo escolherVinculo)', async () => {
     const A = await novoTenant(app.db);
     const { userId } = await pacienteComConta(app.db, A);
     await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
@@ -52,5 +52,17 @@ describe('vínculos da conta (D2, §3, RN-08)', () => {
     expect(escolherVinculo([a, b], b.tenantId)).toEqual({ tipo: 'ok', vinculo: b });
     expect(escolherVinculo([a, b], undefined)).toEqual({ tipo: 'escolher' });
     expect(escolherVinculo([a, b], '00000000-0000-4000-8000-00000000000c')).toEqual({ tipo: 'escolher' }); // forjado
+  });
+
+  it('escolherVinculo com consultório suspenso (RN-15 barra só aquele vínculo)', () => {
+    const a: Vinculo = { tenantId: '00000000-0000-4000-8000-00000000000a', patientId: '00000000-0000-4000-8000-0000000000a1', nomeNutri: 'A', tenantStatus: 'ativa' };
+    const b: Vinculo = { ...a, tenantId: '00000000-0000-4000-8000-00000000000b', patientId: '00000000-0000-4000-8000-0000000000b1', nomeNutri: 'B' };
+    const aSusp: Vinculo = { ...a, tenantStatus: 'suspensa' };
+    const bSusp: Vinculo = { ...b, tenantStatus: 'suspensa' };
+    expect(escolherVinculo([aSusp], aSusp.tenantId)).toEqual({ tipo: 'suspensa' }); // o único vínculo suspenso
+    expect(escolherVinculo([aSusp, bSusp], aSusp.tenantId)).toEqual({ tipo: 'suspensa' }); // todos suspensos
+    expect(escolherVinculo([aSusp, b], aSusp.tenantId)).toEqual({ tipo: 'escolher' }); // cookie no suspenso, outro ativo
+    expect(escolherVinculo([aSusp, b], undefined)).toEqual({ tipo: 'escolher' });
+    expect(escolherVinculo([aSusp, b], b.tenantId)).toEqual({ tipo: 'ok', vinculo: b });
   });
 });

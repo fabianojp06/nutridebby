@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const acesso = vi.hoisted(() => ({ atual: null as unknown, registrado: 0, cookie: 'nd.session_token=x; Max-Age=2592000' as string | null }));
-vi.mock('@/lib/paciente-session', () => ({ requireApiPaciente: async () => acesso.atual }));
+vi.mock('@/lib/paciente-session', () => ({
+  requireApiPaciente: async () => acesso.atual,
+  cookieVinculoSeguro: () => false,
+  cookieDoVinculo: (id: string, secure: boolean) => `nd_vinculo=${id}; Max-Age=2592000${secure ? '; Secure' : ''}`,
+}));
 vi.mock('@/modules/portal/acesso', () => ({
   registrarAcesso: async () => {
     acesso.registrado++;
@@ -18,7 +22,7 @@ const pedido = (origin: string | null = 'http://localhost:3000') =>
 
 describe('POST /api/p/acesso', () => {
   it('outra origem → 403 sem registrar; sem sessão → a recusa', async () => {
-    acesso.atual = { ok: true, ctx: {}, tenant: { fuso: 'America/Sao_Paulo' } };
+    acesso.atual = { ok: true, ctx: {}, tenant: { id: 't-a', fuso: 'America/Sao_Paulo' }, vinculos: [{}] };
     expect((await POST(pedido('https://evil.example'))).status).toBe(403);
     expect(acesso.registrado).toBe(0);
     acesso.atual = { ok: false, response: new Response(null, { status: 401 }) };
@@ -27,7 +31,7 @@ describe('POST /api/p/acesso', () => {
   });
 
   it('registra o dia e renova o cookie (204, sem cache)', async () => {
-    acesso.atual = { ok: true, ctx: {}, tenant: { fuso: 'America/Sao_Paulo' } };
+    acesso.atual = { ok: true, ctx: {}, tenant: { id: 't-a', fuso: 'America/Sao_Paulo' }, vinculos: [{}] };
     const r = await POST(pedido());
     expect(r.status).toBe(204);
     expect(r.headers.get('set-cookie')).toContain('Max-Age=2592000');
@@ -36,10 +40,18 @@ describe('POST /api/p/acesso', () => {
   });
 
   it('sem Origin (mesmo site) também registra; sem o cookie para renovar, 204 sem Set-Cookie', async () => {
-    acesso.atual = { ok: true, ctx: {}, tenant: { fuso: 'America/Sao_Paulo' } };
+    acesso.atual = { ok: true, ctx: {}, tenant: { id: 't-a', fuso: 'America/Sao_Paulo' }, vinculos: [{}] };
     acesso.cookie = null;
     const r = await POST(pedido(null));
     expect(r.status).toBe(204);
     expect(r.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('com 2+ vínculos regrava o nd_vinculo do vínculo atual (desliza os 30 dias, D3); com 1, não', async () => {
+    acesso.cookie = null;
+    acesso.atual = { ok: true, ctx: {}, tenant: { id: 't-a', fuso: 'America/Sao_Paulo' }, vinculos: [{}, {}] };
+    expect((await POST(pedido())).headers.get('set-cookie')).toBe('nd_vinculo=t-a; Max-Age=2592000');
+    acesso.atual = { ok: true, ctx: {}, tenant: { id: 't-a', fuso: 'America/Sao_Paulo' }, vinculos: [{}] };
+    expect((await POST(pedido())).headers.get('set-cookie')).toBeNull();
   });
 });

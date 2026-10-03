@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { patients } from '@/db/schema';
+import { patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getAuth } from '@/lib/auth';
 import { novoTenant } from '../../../../test/pacientes';
@@ -62,6 +62,13 @@ describe('escolherAction (D3)', () => {
     await expect(escolherAction(randomUUID(), '/p/inicio')).rejects.toMatchObject({ url: '/p/escolher' });
     await withTenant(B.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, b.paciente.id)), db);
     await expect(escolherAction(B.tenantId, '/p/inicio')).rejects.toMatchObject({ url: '/p/escolher' });
+    expect(req.gravados).toEqual([]);
+  });
+
+  it('consultório suspenso (RN-15) → de volta à escolha, sem cookie', async () => {
+    const { A } = await contaComDoisVinculos();
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    await expect(escolherAction(A.tenantId, '/p/inicio')).rejects.toMatchObject({ url: '/p/escolher' });
     expect(req.gravados).toEqual([]);
   });
 });

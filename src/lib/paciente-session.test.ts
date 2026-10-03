@@ -80,6 +80,19 @@ describe('requirePaciente (D2, D3, RN-08, RN-15)', () => {
     await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/indisponivel' });
   });
 
+  it('dois vínculos e o cookie no consultório suspenso → /p/escolher (RN-15 barra só aquele); todos suspensos → /indisponivel', async () => {
+    const { A, outros, cookie } = await logado(2);
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    req.headers = new Headers({ cookie: `${cookie}; nd_vinculo=${A.tenantId}` });
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/escolher?volta=%2Fp%2Fplano' });
+    req.headers = new Headers({ cookie: `${cookie}; nd_vinculo=${outros[0].T.tenantId}` });
+    expect((await requirePaciente('/p/plano')).ctx.patientId).toBe(outros[0].paciente.id);
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, outros[0].T.tenantId));
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/indisponivel' });
+    req.headers = new Headers({ cookie });
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/indisponivel' });
+  });
+
   it('termo da versão atual não aceito neste consultório → /p/termo (US-011 "Nova versão do termo"); a própria página do termo entra', async () => {
     const A = await novoTenant(db);
     const { email } = await pacienteComConta(db, A, { semTermo: true });
@@ -128,6 +141,19 @@ describe('requireApiPaciente', () => {
     await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, B.A.tenantId));
     const s = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: B.cookie } }));
     expect(s.ok ? null : [s.response.status, await s.response.json()]).toEqual([403, { erro: 'Conta temporariamente indisponível' }]);
+  });
+
+  it('API com dois vínculos: cookie no suspenso → 403 "Acesso negado" (escolher); todos suspensos → 403 "Conta temporariamente indisponível"', async () => {
+    const { A, outros, cookie } = await logado(2);
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    const pedir = async (c: string) => {
+      const r = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: c } }));
+      return r.ok ? r.ctx.patientId : [r.response.status, await r.response.json()];
+    };
+    expect(await pedir(`${cookie}; nd_vinculo=${A.tenantId}`)).toEqual([403, { erro: 'Acesso negado' }]);
+    expect(await pedir(`${cookie}; nd_vinculo=${outros[0].T.tenantId}`)).toBe(outros[0].paciente.id);
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, outros[0].T.tenantId));
+    expect(await pedir(`${cookie}; nd_vinculo=${outros[0].T.tenantId}`)).toEqual([403, { erro: 'Conta temporariamente indisponível' }]);
   });
 
   it('cookieDoVinculo: httpOnly, SameSite=Lax, 30 dias, Secure só em produção; cookieDoVinculoApagado (Sair) com os mesmos atributos; lerCookie acha o valor', () => {

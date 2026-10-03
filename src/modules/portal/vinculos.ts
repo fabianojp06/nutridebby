@@ -46,13 +46,19 @@ export async function vinculosDaConta(userId: string, o: { db?: Db; todos?: bool
     .map(({ tenantId, patientId, nomeNutri, tenantStatus }) => ({ tenantId, patientId, nomeNutri, tenantStatus }));
 }
 
-/** D3: com 1 vínculo entra direto; com 2+ vale o do cookie, só se ainda for vínculo (cookie velho ou forjado → escolher). */
+/**
+ * D3 + RN-15: com 1 vínculo entra direto; com 2+ vale o do cookie, só se ainda for vínculo (cookie velho ou forjado →
+ * escolher). Consultório suspenso barra só aquele vínculo: sem nenhum ativo → `suspensa`; cookie no suspenso com outro
+ * ativo → escolher (o suspenso aparece desabilitado na escolha).
+ */
 export function escolherVinculo(
   vinculos: Vinculo[],
   cookie: string | undefined,
-): { tipo: 'ok'; vinculo: Vinculo } | { tipo: 'escolher' } | { tipo: 'sem_acesso' } {
+): { tipo: 'ok'; vinculo: Vinculo } | { tipo: 'escolher' } | { tipo: 'sem_acesso' } | { tipo: 'suspensa' } {
   if (!vinculos.length) return { tipo: 'sem_acesso' };
+  const ativos = vinculos.filter((v) => v.tenantStatus === 'ativa');
+  if (!ativos.length) return { tipo: 'suspensa' };
   if (vinculos.length === 1) return { tipo: 'ok', vinculo: vinculos[0] };
-  const doCookie = vinculos.find((v) => v.tenantId === cookie);
+  const doCookie = ativos.find((v) => v.tenantId === cookie);
   return doCookie ? { tipo: 'ok', vinculo: doCookie } : { tipo: 'escolher' };
 }

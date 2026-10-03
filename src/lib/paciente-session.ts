@@ -26,8 +26,16 @@ const TRINTA_DIAS_S = 30 * 24 * 60 * 60;
 
 export type PacienteAccess = { data: SessionData; tenant: TenantRow; vinculo: Vinculo; vinculos: Vinculo[]; ctx: TenantContext };
 
+/** Atributos do `nd_vinculo` num lugar só (escolha, renovação e "Sair"); `Secure` só quando o app é servido em https. */
+export const OPCOES_COOKIE_VINCULO = { path: '/', maxAge: TRINTA_DIAS_S, httpOnly: true, sameSite: 'lax' } as const;
+
+export function cookieVinculoSeguro(): boolean {
+  return getEnv().APP_URL.startsWith('https://');
+}
+
+/** O cookie do vínculo escolhido; regravado a cada abertura do portal (POST /api/p/acesso) para deslizar os 30 dias. */
 export function cookieDoVinculo(tenantId: string, secure: boolean): string {
-  return `${COOKIE_VINCULO}=${tenantId}; Path=/; Max-Age=${TRINTA_DIAS_S}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return `${COOKIE_VINCULO}=${tenantId}; Path=/; Max-Age=${OPCOES_COOKIE_VINCULO.maxAge}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
 /** "Sair" (D3): o vínculo escolhido sai com a sessão — senão a próxima conta no aparelho herda a escolha. */
