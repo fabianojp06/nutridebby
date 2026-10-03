@@ -31,7 +31,7 @@ async function comDoisVinculos() {
 }
 
 describe('inscrição de push (US-040, contrato D14 do Plano 05)', () => {
-  it('uma linha por vínculo ativo do aparelho; push de teste só no vínculo atual; repetir não duplica', async () => {
+  it('uma linha por vínculo ativo do aparelho; push de teste só no vínculo atual; repetir não duplica (nem o teste)', async () => {
     const { A, B, pa, pb, acesso } = await comDoisVinculos();
     const s = sub();
     expect(await inscreverAparelho(acesso as never, s, 'Chrome Android', { db: app.db })).toBe('inscrito');
@@ -41,10 +41,27 @@ describe('inscrição de push (US-040, contrato D14 do Plano 05)', () => {
     expect([emA.length, emB.length]).toEqual([1, 1]);
     expect(emA[0]).toMatchObject({ endpoint: s.endpoint, userAgent: 'Chrome Android' });
     const testes = await withTenant(A.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.patientId, pa.id), eq(notifications.tipo, 'push_teste'))), app.db);
-    expect(testes).toHaveLength(2); // cada clique em "Ativar" pede um teste (o motor envia no máximo uma vez cada)
+    expect(testes).toHaveLength(1); // repetir não duplica o teste: o primeiro ainda está pendente (revisão da T6)
     expect(testes[0]).toMatchObject({ canal: 'push', status: 'pendente', appointmentId: null });
     const testesEmB = await withTenant(B.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.patientId, pb.id)), app.db);
     expect(testesEmB).toEqual([]);
+  });
+
+  it('repetir "Ativar" não enche a fila: um teste pendente/enviando ou de menos de 1 minuto basta; depois disso, novo teste', async () => {
+    const { A, pa, acesso } = await comDoisVinculos();
+    const s = sub();
+    const t0 = new Date();
+    const testes = () => withTenant(A.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.patientId, pa.id), eq(notifications.tipo, 'push_teste'))), app.db);
+    // rajada concorrente (um script repetindo POST /api/p/push): uma linha só
+    await Promise.all(Array.from({ length: 5 }, () => inscreverAparelho(acesso as never, s, null, { db: app.db, agora: t0 })));
+    expect(await testes()).toHaveLength(1);
+    // o motor envia o teste; repetir logo em seguida (menos de 1 minuto) ainda não pede outro
+    await withTenant({ tenantId: A.tenantId, role: 'worker' }, (tx) => tx.update(notifications).set({ status: 'enviada', enviadaEm: t0 }).where(eq(notifications.patientId, pa.id)), app.db);
+    await inscreverAparelho(acesso as never, s, null, { db: app.db, agora: new Date(t0.getTime() + 50_000) });
+    expect(await testes()).toHaveLength(1);
+    // passado 1 minuto, um novo clique em "Ativar" pede um teste novo
+    await inscreverAparelho(acesso as never, s, null, { db: app.db, agora: new Date(t0.getTime() + 61_000) });
+    expect((await testes()).map((x) => x.status).sort()).toEqual(['enviada', 'pendente']);
   });
 
   it('endpoint fora dos serviços de push, http, chaves inválidas → InscricaoInvalidaError, nada gravado', async () => {

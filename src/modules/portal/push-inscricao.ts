@@ -1,6 +1,6 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { notifications, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { PacienteAccess } from '@/lib/paciente-session';
@@ -35,6 +35,30 @@ const ctxDoVinculo = (acesso: Acesso, v: Vinculo): TenantContext => ({
   actorUserId: acesso.data.user.id,
   ip: acesso.ctx.ip,
 });
+
+/** Um clique em "Ativar" a cada minuto basta: o teste já pedido serve para os cliques seguintes. */
+const JANELA_TESTE_MS = 60_000;
+
+/**
+ * Revisão da T6: repetir POST /api/p/push não enche `notifications` nem a fila do motor (os lembretes do consultório
+ * ficariam atrás dos testes, RN-05). Há teste deste paciente ainda na fila (pendente/enviando) ou pedido há menos de
+ * 1 minuto → não pede outro. A trava (advisory, por paciente) serializa cliques simultâneos até o commit.
+ */
+async function testeRecente(tx: Tx, patientId: string, agora: Date): Promise<boolean> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('push-teste'), hashtext(${patientId}))`);
+  const [r] = await tx
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.patientId, patientId),
+        eq(notifications.tipo, 'push_teste'),
+        or(inArray(notifications.status, ['pendente', 'enviando']), gt(notifications.agendadaPara, new Date(agora.getTime() - JANELA_TESTE_MS))),
+      ),
+    )
+    .limit(1);
+  return r !== undefined;
+}
 
 /**
  * US-040 "Permissão de push" / contrato D14 do Plano 05: o aparelho recebe os avisos de todos os vínculos ativos da conta
@@ -74,6 +98,7 @@ export async function inscreverAparelho(
           .values({ tenantId: v.tenantId, patientId: v.patientId, endpoint: p.data.endpoint, p256dh: p.data.keys.p256dh, auth: p.data.keys.auth, userAgent: ua })
           .onConflictDoNothing();
         if (deps.sincronizar || v.tenantId !== acesso.ctx.tenantId) return;
+        if (await testeRecente(tx, v.patientId, agora)) return;
         await tx.insert(notifications).values({ tenantId: v.tenantId, patientId: v.patientId, canal: 'push', tipo: 'push_teste', agendadaPara: agora });
         await dispararEnvio(tx, v.tenantId);
       },
