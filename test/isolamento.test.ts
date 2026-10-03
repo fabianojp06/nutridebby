@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
-import { listTenantTables, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
+import { listTenantTables, PACIENTE_ESCREVE, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
 import { withTenant } from '@/db/tenant';
 
 let seqConsulta = 0;
@@ -187,9 +187,21 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
         expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
-        await expect(comoP2(sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`), t).rejects.toSatisfy(violaRls);
+        const mover = sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`;
+        // D1 (R1): sem `update` em PACIENTE_ESCREVE, paciente_sem_update (USING) esconde a linha do UPDATE: 0 linhas, sem erro
+        if ((PACIENTE_ESCREVE[t]?.comandos ?? []).includes('update')) await expect(comoP2(mover), t).rejects.toSatisfy(violaRls);
+        else expect((await comoP2(mover)).rowCount, t).toBe(0);
       }
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1);
+    }
+  });
+
+  it('D1: fora de PACIENTE_ESCREVE, a paciente P2 não cria nem a própria linha (tabelas com titular)', async () => {
+    for (const t of tabelas) {
+      const col = await colunaTitular(t);
+      if (!col || soEquipe.has(t) || (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('insert')) continue;
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
     }
   });
 
@@ -271,16 +283,18 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           expect(vistas.rows.length, t).toBeGreaterThanOrEqual(1);
           for (const row of vistas.rows) expect(row.titular, t).toBe(P2);
           if (SO_INSERE.has(t)) return;
+          const pode = PACIENTE_ESCREVE[t]?.comandos ?? [];
           const alteradas = await tx.execute(sql`update ${id} set ${c} = ${c}`);
-          expect(alteradas.rowCount, t).toBe(vistas.rows.length);
+          // D1: sem `update` em PACIENTE_ESCREVE, o UPDATE da própria linha também dá 0 (paciente_sem_update)
+          expect(alteradas.rowCount, t).toBe(pode.includes('update') ? vistas.rows.length : 0);
           if (!apaga) return;
           const apagadas = await tx.execute(sql`delete from ${id}`);
-          expect(apagadas.rowCount, t).toBe(vistas.rows.length);
+          expect(apagadas.rowCount, t).toBe(pode.includes('delete') ? vistas.rows.length : 0);
         },
         app.db,
       );
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
-      if (apaga) expect(await contarPaciente(t, col, A, P2), t).toBe(0); // e o DELETE de P2 de fato aconteceu
+      if (apaga && (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('delete')) expect(await contarPaciente(t, col, A, P2), t).toBe(0);
     }
   });
 });

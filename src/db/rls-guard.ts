@@ -163,3 +163,40 @@ export async function findPublicoViolations(db: Pool | PoolClient): Promise<RlsV
   }
   return out;
 }
+
+export type ComandoEscrita = 'insert' | 'update' | 'delete';
+const ESCRITAS: readonly ComandoEscrita[] = ['insert', 'update', 'delete'];
+
+/**
+ * D1 (Plano 06, P-16 a): o que a sessão de paciente pode gravar, só com estes comandos. Toda outra tabela com tenant_id
+ * tem `paciente_sem_insert/update/delete` (app_enable_tenant_rls). Liberar = `SELECT app_allow_paciente_escrita(...)` +
+ * entrada aqui. Sem `update`, SELECT … FOR UPDATE/SHARE de paciente não enxerga a linha.
+ */
+export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrita[]; motivo: string }> = {
+  patients: { comandos: ['update'], motivo: 'aceite do convite (US-011), opt-in/opt-out do WhatsApp e a trava FOR UPDATE das ações do paciente' },
+  appointments: { comandos: ['insert', 'update'], motivo: 'agendar, confirmar, cancelar e remarcar pelo link, pelo WhatsApp e pelo portal (US-032, US-033, US-035)' },
+  notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
+  audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
+};
+
+/** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a escrita do paciente, ou bate exatamente com PACIENTE_ESCREVE. */
+export async function findPacienteEscritaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string }>(
+    `select tablename as t, policyname as pol, cmd, permissive from pg_policies
+      where schemaname = 'public' and policyname like 'paciente\\_sem\\_%'`,
+  );
+  const out: RlsViolation[] = [];
+  for (const table of await listTenantTables(db)) {
+    if (RLS_EXCEPTIONS[table]) continue;
+    const pode = PACIENTE_ESCREVE[table]?.comandos ?? [];
+    for (const c of ESCRITAS) {
+      // nome, comando e RESTRICTIVE: um `paciente_sem_delete` criado FOR SELECT (ou PERMISSIVE) não nega o DELETE
+      const negada = rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}` && r.cmd === c.toUpperCase() && r.permissive === 'RESTRICTIVE');
+      if (!pode.includes(c) && !negada) out.push({ table, problem: `a sessão de paciente pode ${c} sem entrada em PACIENTE_ESCREVE` });
+      if (pode.includes(c) && rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}`)) {
+        out.push({ table, problem: `PACIENTE_ESCREVE libera ${c}, mas o banco nega (paciente_sem_${c})` });
+      }
+    }
+  }
+  return out;
+}
