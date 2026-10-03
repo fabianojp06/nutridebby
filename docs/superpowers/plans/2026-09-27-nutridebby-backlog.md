@@ -1,6 +1,6 @@
 # NutriDebby MVP — Backlog
 
-Fonte: spec v1.6 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
+Fonte: spec v1.8 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
 
 **Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
 
@@ -13,7 +13,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | E-01 | Criar repositório privado no GitHub e corrigir o token do MCP do GitHub | P-09 | — | Você | M | 🔄 |
 | E-02 | Definir nome do produto e domínio; registro A de `app.<dominio>` → IP da VPS | P-03 | — | Você | M | ✅ |
 | E-03 | Criar projeto `nutri` no Easypanel (`nutri_app`, `nutri_worker`, `nutri_db`) | §9.4 | E-02 | Você | M | ✅ |
-| E-04 | Verificação da Meta Business + app WhatsApp Cloud API + número + 3 templates | INT-01, P-04 | — | Você | M | ⬜ |
+| E-04 | ~~Verificação da Meta Business + app WhatsApp Cloud API + número + 3 templates~~ → **E-04 revisado (spec v1.8):** Evolution API no Easypanel (`nutri_evolution`, banco `evolution` no `nutri_db`), variáveis no app e no worker e conectar o número da Debby por QR — runbook no fim do Plano 05; confirmação a cada passo e snapshot no hPanel antes; depois do merge do Plano 05 e antes de pacientes reais. Conferir ali a P-17 | INT-01, P-04, P-17 | Merge do Plano 05 | Você | M | ⬜ |
 | E-05 | Conta no Resend + domínio verificado (SPF, DKIM, DMARC) | INT-02 | E-02 | Você | M | ✅ |
 | E-06 | Bucket privado no Cloudflare R2 + chave com escopo; chaves do Turnstile | RNF-05, INT-06 | — | Você | M | 🔄 |
 | E-07 | Conta no Sentry | RNF-11 | — | Você | M | ⬜ |
@@ -80,7 +80,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 04 — Plano alimentar (M3)
 
-**Situação em 2026-10-01:** os 9 itens estão feitos na branch `plano-04-plano-alimentar` (commits `0cae87d` a `5d053a5`, em cima de `e154466`). **Merge e deploy pendentes:** faltam as revisões do PR (`/code-review high` duas rodadas e `/security-review`) e o OK explícito do dono (merge = deploy; snapshot no hPanel antes). Spec atualizada para a v1.6. O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais. **Para o Plano 06** (spec v1.6, P-16, antes de qualquer sessão de paciente): escrita só da equipe em `foods`, `food_measures` e `anamnesis_templates` (políticas `RESTRICTIVE`), filtro de rascunho na exportação do titular (US-046), decisão sobre a auditoria de rascunho visível ao paciente, `stored_files` restrita por paciente no download do PDF, e o aviso "Seu novo plano alimentar está disponível" (push + e-mail, adiado do P04-08).
+**Situação em 2026-10-03:** os 9 itens (P04-01 a P04-09) estão **em produção** (PR #5 com merge e deploy feitos, commits `0cae87d` a `5d053a5`); P04-10 segue a fazer. Spec atualizada para a v1.6. O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais. **Para o Plano 06** (spec v1.6, P-16, antes de qualquer sessão de paciente): escrita só da equipe em `foods`, `food_measures` e `anamnesis_templates` (políticas `RESTRICTIVE`), filtro de rascunho na exportação do titular (US-046), decisão sobre a auditoria de rascunho visível ao paciente, `stored_files` restrita por paciente no download do PDF, e o aviso "Seu novo plano alimentar está disponível" (push + e-mail, adiado do P04-08).
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
@@ -97,20 +97,28 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 05 — Agenda & lembretes (M4)
 
+**Situação em 2026-10-03:** as 15 tarefas do plano estão feitas na branch `plano-05-agenda` (PR #7; commits `af21796` a `affaf3e`, revisão final e correções até `9acfa46`, fechamento com as decisões do dono até o último lote), com a spec atualizada para a **v1.8**. **Merge e deploy pendentes do OK explícito do dono** (merge = deploy; snapshot no hPanel antes; janela de deploy com o worker parado — 20 migrations novas, 0048 a 0067; a 0067 desliga a página pública de todos os tenants). Depois do merge: E-04 revisado (Evolution no Easypanel, runbook do Plano 05). O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais.
+
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P05-01 | Horários de atendimento + bloqueios + gerador de horários livres | US-030, RN-03 | Plano 03 | Dev | M | ⬜ |
-| P05-02 | Agenda da nutricionista (dia/semana/lista) + criar consulta + conflito (`EXCLUDE`) | US-031 | P05-01 | Dev | M | ⬜ |
-| P05-03 | Agendamento pelo paciente (antecedência mínima, 60 dias, corrida pelo mesmo horário) | US-032 | P05-02 | Dev | M | ⬜ |
-| P05-04 | Página pública `/n/<slug>` com Turnstile, código por e-mail e limites | US-032, RN-16 | P05-03, P02-09 | Dev | M | ⬜ |
-| P05-05 | Cancelar e remarcar | US-033, RN-04 | P05-03 | Dev | M | ⬜ |
-| P05-06 | Motor de lembretes (24 h / 2 h, horário silencioso, ignoradas, reagendamento) | US-034, RN-05, RN-06 | P05-02 | Dev | M | ⬜ |
-| P05-07 | WhatsApp Cloud API: envio de templates, novas tentativas, fallback por e-mail | INT-01 | P05-06, E-04 | Dev | M | ⬜ |
-| P05-08 | Webhook do WhatsApp: assinatura, status, botões Confirmo/Remarcar, idempotência | US-035 | P05-07 | Dev | M | ⬜ |
-| P05-09 | Cota de WhatsApp (80% / 100% / virada do mês) | US-036, RN-09 | P05-07 | Dev | M | ⬜ |
-| P05-10 | Envio de push (web-push, VAPID, limpeza de inscrições 404/410) | INT-03 | P05-06 | Dev | M | ⬜ |
-| P05-11 | Convite de paciente por WhatsApp (completa a US-010) | US-010 | P05-07 | Dev | M | ⬜ |
-| P05-12 | Registro de presença/falta + indicadores de faltas | US-037, CS-03 | P05-02 | Dev | M | ⬜ |
+| P05-01 | Horários de atendimento + bloqueios + gerador de horários livres | US-030, RN-03 | Plano 03 | Dev | M | ✅ |
+| P05-01a | ↳ Fuso e horários livres: funções puras da agenda (`Intl`, horário de verão) — Tarefa 1 (`47bf854`) | RN-03, RN-06 | — | Dev | M | ✅ |
+| P05-01b | ↳ Tabelas, regras e tela de horários e bloqueios — Tarefa 2 (`47bf854..078c569`) | US-030 | P05-01a | Dev | M | ✅ |
+| P05-02 | Agenda da nutricionista (dia/semana/lista) + criar consulta + conflito (`EXCLUDE`) | US-031 | P05-01 | Dev | M | ✅ |
+| P05-02a | ↳ Consultas com `EXCLUDE`, contexto `publico` negado no banco, agendar e alterar pela nutricionista — Tarefa 3 (`078c569..20d74e9`) | US-031, D9, D11 | P05-01b | Dev | M | ✅ |
+| P05-02b | ↳ Telas da agenda (dia, semana, lista), nova consulta e "Alterar data e hora" — Tarefa 4 (`20d74e9..c4ac366`) | US-031 | P05-02a | Dev | M | ✅ |
+| P05-03 | Agendamento pelo paciente (antecedência mínima, 60 dias, corrida pelo mesmo horário) — domínio; a tela é o P06-09 — Tarefa 6 (`85026b2..2f86144`) | US-032 | P05-02 | Dev | M | ✅ |
+| P05-04 | Página pública `/n/<slug>` com Turnstile, código por e-mail e limites — Tarefa 8 (`a0431a6..16f6448`); desligada por padrão (migration 0067) | US-032, RN-16 | P05-03, P02-09 | Dev | M | ✅ |
+| P05-05 | Cancelar e remarcar + página do link assinado da consulta — Tarefa 7 (`2f86144..a0431a6`) | US-033, RN-04 | P05-03 | Dev | M | ✅ |
+| P05-06 | Motor de lembretes (24 h / 2 h, horário silencioso, ignoradas, reagendamento, suspensão/reativação) — Tarefa 5 (`c4ac366..85026b2`) | US-034, RN-05, RN-06, US-004 | P05-02 | Dev | M | ✅ |
+| P05-07 | WhatsApp pela **Evolution API** (spec v1.8; era Cloud API): envio de texto simples, novas tentativas, fallback por e-mail | INT-01 | P05-06 | Dev | M | ✅ |
+| P05-07a | ↳ Provedor (evolution/sandbox/fake), variáveis e conexão por QR code no painel — Tarefa 9 (`16f6448..613bd2e`) | INT-01, D1, D2 | P05-06 | Dev | M | ✅ |
+| P05-07b | ↳ WhatsApp nos lembretes: textos (sem link), pré-condições, novas tentativas, fallback e ritmo de 8/min — Tarefa 10 (`613bd2e..cc055ec`) | INT-01, D16 | P05-07a | Dev | M | ✅ |
+| P05-08 | Webhook do WhatsApp: JWT por instância, status, resposta "1"/"2", idempotência — Tarefa 12 (`bb53c48..1656bd3`); o "2" manda e-mail novo com o link (fechamento) | US-035 | P05-07 | Dev | M | ✅ |
+| P05-09 | Cota de WhatsApp (80% / 100% / virada do mês) como limite de uso — Tarefa 11 (`cc055ec..bb53c48`) | US-036, RN-09 | P05-07 | Dev | M | ✅ |
+| P05-10 | Envio de push (web-push, VAPID, limpeza de inscrições 404/410, texto neutro) — Tarefa 13 (`1656bd3..9a0b6db`) | INT-03 | P05-06 | Dev | M | ✅ |
+| P05-11 | Convite de paciente por WhatsApp, aviso sem link (completa a US-010) — Tarefa 14 (`9a0b6db..17ab651`) | US-010 | P05-07 | Dev | M | ✅ |
+| P05-12 | Registro de presença/falta + indicadores de faltas + "Iniciar atendimento" + LGPD da agenda — Tarefa 15 (`17ab651..affaf3e`) | US-037, CS-03, US-018 | P05-02 | Dev | M | ✅ |
 
 ## Plano 06 — Portal do paciente / PWA (M5)
 
@@ -156,9 +164,23 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P08-08 | Validação com a Debby (fórmulas e fluxo real) + treinamento | P-08 | E-08, Planos 03–07 | Debby + Você | M | ⬜ |
 | P08-09 | Go-live: conta da Debby em produção + checklist assinado | CS-01 | P08-01 a P08-08 | Você | M | ⬜ |
 
+## Pós-MVP — Fase 3 (Engajamento) e Fase 4 (Expansão)
+
+Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming depois do Plano 05** (espelham o painel; não entram na contagem do MVP). Todos com IA ou dado de saúde enviado a terceiros exigem, ao especificar: suboperador declarado no DPA e no aviso de privacidade (LGPD), provedor sem retenção, cota/custo por tenant, nada de conteúdo em log e auditoria.
+
+| ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
+|---|---|---|---|---|---|---|
+| F3-01 | Leitura automática de laudos de exame com IA: a nutricionista anexa o PDF/foto e a IA extrai os marcadores (nome, valor, unidade, data, faixa de referência) para ela conferir e confirmar antes de salvar (decisão do dono de 02/10/2026: caminho com IA, não OCR gratuito) | US-015, §10 Fase 3 | P03 (US-015), go-live | Dev | pós-MVP | ⬜ |
+| F3-02 | "IA Nutri" para o paciente: conversar com um assistente sobre o próprio plano, orientações e dúvidas do dia a dia (limites: não diagnostica, não altera plano, encaminha à nutricionista; ligado/desligado por paciente; conferir regras do CFN) | Pedido do dono 02/10/2026 | P06 (portal), F3-03 | Dev | pós-MVP | ⬜ |
+| F3-03 | "IA Nutri" para a nutricionista: assistente para montar planos, resumir o histórico do paciente e sugerir condutas para ela revisar (nada salvo sem a confirmação dela) | §10 Fase 3 | go-live, F3-01 | Dev | pós-MVP | ⬜ |
+| F3-04 | Paciente envia exames pelo portal; a nutricionista recebe aviso e revisa (com a leitura por IA da F3-01); o exame só entra no prontuário depois de ela aceitar | US-015 | P06 (portal), P03 (exames), F3-01 | Dev | pós-MVP | ⬜ |
+| F3-05 | Parecer nutricional sobre os exames, validado e assinado pela nutricionista, entregue ao paciente em PDF (definir assinatura e validade jurídica; conferir com o CFN/CRN) | Pedido do dono 02/10/2026 | F3-04, F3-01 | Dev | pós-MVP | ⬜ |
+| F3-06 | Receita: prescrição de suplementos e fitoterápicos pela nutricionista, em PDF assinado, visível ao paciente (só o que o CFN permite; nunca medicamentos) | §10 Fase 3 | go-live | Dev | pós-MVP | ⬜ |
+| F4-01 | Loja de produtos do ramo (suplementos, livros, e-books, consultas avulsas…) dentro do NutriDebby (modelo, pagamento pelo Asaas da Fase 2, nota fiscal e ética do CFN/CRN a definir) | §10 Fase 4 | Fase 2 (Asaas), F3-06 | Dev | pós-MVP | ⬜ |
+
 ## Resumo
 
-**Situação em 2026-10-01** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01, 02 e 03 concluídos e em produção (https://nutri.wsscloud.tech); Plano 04 feito na branch `plano-04-plano-alimentar` (PR #5), com merge e deploy pendentes das revisões do PR e do OK do dono; 54 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 46 ⬜ (P04-10, P06-00, Planos 05–08 e itens externos E-04, E-07, E-08, E-09).
+**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 04 concluídos e em produção (https://nutri.wsscloud.tech); Plano 05 feito na branch `plano-05-agenda` (PR #7), com merge e deploy pendentes do OK do dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 34 ⬜ (P04-10, P06-00, Planos 06–08 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
