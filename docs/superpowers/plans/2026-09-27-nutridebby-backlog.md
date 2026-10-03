@@ -136,7 +136,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) | US-032, US-033 | P05-05 | Dev | M | ⬜ |
 | P06-10 | Auditoria axe das telas do PWA | RNF-10 | P06-01 a P06-09 | Dev | M | ⬜ |
 | P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) | RNF-06 | P06-01 | Dev | M | ⬜ |
-| P06-12 | Débitos do Plano 06 (PR #8, `/code-review high` do plano, Minor): o layout `(portal)` e cada página do portal chamam `requirePaciente` sem o `cache()` do React — a cadeia (sessão, `vinculosDaConta`, tenant, termo) roda 2× por requisição; envolver a parte de leitura em `cache()` (sem cachear o `redirect`) | PR #8 | P06-01 | Dev | S | ⬜ |
+| P06-12 | Débitos do Plano 06 (PR #8, `/code-review high` do plano, Minor): o layout `(portal)` e cada página do portal chamam `requirePaciente` sem o `cache()` do React — a cadeia (sessão, `vinculosDaConta`, tenant, termo) roda 2× por requisição; envolver a parte de leitura em `cache()` (sem cachear o `redirect`); service worker do "Meu plano" (re-revisão das correções): a renovação diária grava a cópia com o `dono` da mensagem, sem conferir no servidor — opcional: `/p/plano` devolver o dono num cabeçalho e o SW só gravar se bater; `guardado-em` no futuro (relógio do aparelho) impede a renovação | PR #8 | P06-01 | Dev | S | ⬜ |
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
 

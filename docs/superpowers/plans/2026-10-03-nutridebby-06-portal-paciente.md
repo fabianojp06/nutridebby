@@ -1969,7 +1969,7 @@ git commit -m "feat(portal): Meu plano — refeições em ordem, próxima refei�
 **Interfaces:**
 - Consumes: Serwist (`serwist` 9.5.12: `Serwist`, `NetworkFirst`, `NetworkOnly`; `@serwist/turbopack`: `createSerwistRoute`, `SerwistProvider` — spike P01-15); `sharp` (só no script); a página `/p/plano` (Tarefa 4).
 - Produces:
-  - `src/app/sw-regras.ts` (sem DOM, importável pelo service worker e pelo cliente): `CACHE_PLANO = 'nd-plano-v1'`, `URL_PLANO = '/p/plano'`, `ehPaginaDoPlano(url: URL, modo: RequestMode, origem: string): boolean`, `ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string): boolean`, `podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean`, `ehSemSessao(r: { redirected: boolean; url: string }, origem: string): boolean`, `type MensagemAoSw = { tipo: 'dono'; dono: string } | { tipo: 'plano'; dono: string; versao: string }`, `lerMensagem(data: unknown): MensagemAoSw | null`, `precisaBuscarPlano(guardado: { dono: string | null; versao: string | null } | null, pedido: { dono: string; versao: string }): boolean`, `planoValido(guardadoEm: string | null, agoraMs: number): boolean`, `VALIDADE_PLANO_MS` (30 dias), `CABECALHO_DONO`/`CABECALHO_VERSAO`/`CABECALHO_GUARDADO_EM`, `esquecerPlanoGuardado(): Promise<boolean>`.
+  - `src/app/sw-regras.ts` (sem DOM, importável pelo service worker e pelo cliente): `CACHE_PLANO = 'nd-plano-v1'`, `URL_PLANO = '/p/plano'`, `ehPaginaDoPlano(url: URL, modo: RequestMode, origem: string): boolean`, `ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string): boolean`, `podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean`, `ehSemSessao(r: { redirected: boolean; url: string }, origem: string): boolean`, `type MensagemAoSw = { tipo: 'dono'; dono: string } | { tipo: 'plano'; dono: string; versao: string }`, `lerMensagem(data: unknown): MensagemAoSw | null`, `precisaBuscarPlano(guardado: { dono: string | null; versao: string | null; guardadoEm: string | null } | null, pedido: { dono: string; versao: string }, agoraMs: number): boolean`, `planoValido(guardadoEm: string | null, agoraMs: number): boolean`, `VALIDADE_PLANO_MS` (30 dias), `RENOVAR_PLANO_MS` (1 dia), `CABECALHO_DONO`/`CABECALHO_VERSAO`/`CABECALHO_GUARDADO_EM`, `esquecerPlanoGuardado(): Promise<boolean>`.
   - `src/app/p/plano-guardado.tsx` (cliente): `DonoDoAparelho({ dono })` (layout do portal: plano guardado de outra conta ou de outro vínculo sai) e `GuardarPlano({ dono, versao })` (página "Meu plano": pede ao service worker para guardar o HTML desta conta).
   - `@/lib/paciente-session`: `cookieDoVinculoApagado(secure: boolean): string`.
   - `src/app/p/instalacao.ts`: `type EstadoInstalacao = 'instalado' | 'android' | 'ios' | 'nada'`, `estadoDeInstalacao(o: { ua: string; standalone: boolean; temPrompt: boolean; toques: number; plataforma: string }): EstadoInstalacao`, `ehIos(ua: string, plataforma: string, toques: number): boolean`.
@@ -2069,7 +2069,7 @@ Run: `pnpm test src/app/manifest.test.ts` → PASS.
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { ehNavegacaoDoPortal, ehPaginaDoPlano, ehSemSessao, lerMensagem, planoValido, podeGuardarPlano, precisaBuscarPlano, VALIDADE_PLANO_MS } from './sw-regras';
+import { ehNavegacaoDoPortal, ehPaginaDoPlano, ehSemSessao, lerMensagem, planoValido, podeGuardarPlano, precisaBuscarPlano, RENOVAR_PLANO_MS, VALIDADE_PLANO_MS } from './sw-regras';
 
 const O = 'https://nutri.exemplo.com';
 const resposta = (o: Partial<{ status: number; type: ResponseType; redirected: boolean; url: string; tipo: string }> = {}) => ({
@@ -2103,11 +2103,20 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
   });
   it('Review Focus 4: o plano guardado é de uma conta + vínculo (dono) e de uma versão; outro dono → buscar de novo (e o velho sai)', () => {
     const DONO = '0b6f8f1e-3c1a-4f7e-9d2a-1a2b3c4d5e6f';
-    expect(precisaBuscarPlano(null, { dono: DONO, versao: 'p1' })).toBe(true);
-    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1' }, { dono: DONO, versao: 'p1' })).toBe(false); // nada mudou: sem segunda busca
-    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1' }, { dono: DONO, versao: 'p2' })).toBe(true); // plano novo publicado
-    expect(precisaBuscarPlano({ dono: 'outro', versao: 'p1' }, { dono: DONO, versao: 'p1' })).toBe(true); // outra conta ou outro vínculo
-    expect(precisaBuscarPlano({ dono: null, versao: null }, { dono: DONO, versao: 'p1' })).toBe(true);
+    const agora = Date.parse('2026-10-05T12:00:00Z');
+    const ha = (ms: number) => new Date(agora - ms).toISOString();
+    const pedido = { dono: DONO, versao: 'p1' };
+    expect(precisaBuscarPlano(null, pedido, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: ha(60_000) }, pedido, agora)).toBe(false); // nada mudou: sem segunda busca
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: ha(60_000) }, { dono: DONO, versao: 'p2' }, agora)).toBe(true); // plano novo publicado
+    expect(precisaBuscarPlano({ dono: 'outro', versao: 'p1', guardadoEm: ha(60_000) }, pedido, agora)).toBe(true); // outra conta ou outro vínculo
+    expect(precisaBuscarPlano({ dono: null, versao: null, guardadoEm: null }, pedido, agora)).toBe(true);
+    // mesmo dono e mesma versão, mas cópia com mais de 1 dia: busca de novo para a validade de 30 dias andar junto com a sessão
+    // (paciente que abre o portal todo dia com o mesmo plano por mais de 30 dias continua com o plano offline)
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: ha(RENOVAR_PLANO_MS + 60_000) }, pedido, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: ha(29 * 24 * 60 * 60 * 1000) }, pedido, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: 'lixo' }, pedido, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: DONO, versao: 'p1', guardadoEm: null }, pedido, agora)).toBe(true);
   });
   it('mensagens ao service worker: só os dois formatos, com textos curtos (nada de objeto arbitrário vindo da página)', () => {
     expect(lerMensagem({ tipo: 'plano', dono: 'd', versao: 'v' })).toEqual({ tipo: 'plano', dono: 'd', versao: 'v' });
@@ -2170,6 +2179,8 @@ export const CABECALHO_VERSAO = 'x-nd-versao';
 export const CABECALHO_GUARDADO_EM = 'x-nd-guardado-em';
 /** O mesmo prazo da sessão (que desliza, P06-11): uma cópia mais velha que isto não tem sessão viva por trás. */
 export const VALIDADE_PLANO_MS = 30 * 24 * 60 * 60 * 1000;
+/** Cópia com mais de 1 dia é buscada de novo na visita a "Meu plano" (mesmo dono e versão): a validade anda junto com a sessão. */
+export const RENOVAR_PLANO_MS = 24 * 60 * 60 * 1000;
 
 export type MensagemAoSw = { tipo: 'dono'; dono: string } | { tipo: 'plano'; dono: string; versao: string };
 
@@ -2184,9 +2195,18 @@ export function lerMensagem(data: unknown): MensagemAoSw | null {
   return null;
 }
 
-/** Buscar de novo só se não há cópia, se ela é de outro dono ou de outra versão do plano (evita uma segunda renderização por visita). */
-export function precisaBuscarPlano(guardado: { dono: string | null; versao: string | null } | null, pedido: { dono: string; versao: string }): boolean {
-  return !guardado || guardado.dono !== pedido.dono || guardado.versao !== pedido.versao;
+/**
+ * Buscar de novo se não há cópia, se ela é de outro dono ou de outra versão do plano, ou se tem mais de 1 dia (no máximo uma
+ * renderização extra por dia; sem isso o `guardado-em` nunca andaria e a cópia venceria em 30 dias para quem usa todo dia).
+ */
+export function precisaBuscarPlano(
+  guardado: { dono: string | null; versao: string | null; guardadoEm: string | null } | null,
+  pedido: { dono: string; versao: string },
+  agoraMs: number,
+): boolean {
+  if (!guardado || guardado.dono !== pedido.dono || guardado.versao !== pedido.versao) return true;
+  const t = guardado.guardadoEm ? Date.parse(guardado.guardadoEm) : Number.NaN;
+  return !Number.isFinite(t) || agoraMs - t > RENOVAR_PLANO_MS;
 }
 
 export function planoValido(guardadoEm: string | null, agoraMs: number): boolean {
@@ -2250,8 +2270,10 @@ const planoGuardado = async (): Promise<Response | undefined> => {
  */
 async function guardarPlano(dono: string, versao: string): Promise<void> {
   const atual = await copia();
-  const guardado = atual ? { dono: atual.headers.get(CABECALHO_DONO), versao: atual.headers.get(CABECALHO_VERSAO) } : null;
-  if (!precisaBuscarPlano(guardado, { dono, versao })) return;
+  const guardado = atual
+    ? { dono: atual.headers.get(CABECALHO_DONO), versao: atual.headers.get(CABECALHO_VERSAO), guardadoEm: atual.headers.get(CABECALHO_GUARDADO_EM) }
+    : null;
+  if (!precisaBuscarPlano(guardado, { dono, versao }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
   const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store' });
   if (ehSemSessao(r, origem)) {
@@ -2339,7 +2361,7 @@ export function GuardarPlano({ dono, versao }: { dono: string; versao: string })
 }
 ```
 
-Em `src/app/p/(portal)/plano/page.tsx` (Tarefa 4), logo depois do `<h1>`: `<GuardarPlano dono={ctx.patientId!} versao={plano?.id ?? 'sem-plano'} />` (o plano publicado não muda: plano novo = id novo; a busca do service worker é uma segunda renderização auditada da página — "Visualizou · Plano alimentar" — só quando a versão ou o dono mudam). Em `src/app/p/(portal)/layout.tsx`, `const { tenant, ctx } = await requirePaciente('/p/inicio');` e `<DonoDoAparelho dono={ctx.patientId!} />` dentro do `<div>` raiz.
+Em `src/app/p/(portal)/plano/page.tsx` (Tarefa 4), logo depois do `<h1>`: `<GuardarPlano dono={ctx.patientId!} versao={plano?.id ?? 'sem-plano'} />` (o plano publicado não muda: plano novo = id novo; a busca do service worker é uma segunda renderização auditada da página — "Visualizou · Plano alimentar" — só quando a versão ou o dono mudam, ou uma vez por dia para renovar a cópia — `RENOVAR_PLANO_MS`). Em `src/app/p/(portal)/layout.tsx`, `const { tenant, ctx } = await requirePaciente('/p/inicio');` e `<DonoDoAparelho dono={ctx.patientId!} />` dentro do `<div>` raiz.
 
 `src/app/entrar/page.tsx`, no `Form`: `useEffect(() => { void esquecerPlanoGuardado(); }, []);` (`useEffect` de `react`, `esquecerPlanoGuardado` de `@/app/sw-regras`) — a tela de login é aonde a sessão vencida (navegação ou `fetch` do roteador) e o "Sair" levam, e por onde outra pessoa entra no mesmo aparelho: o plano guardado sai antes de qualquer login.
 
