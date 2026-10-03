@@ -23,7 +23,8 @@ const horaIso = () => sql`'2030-01-01T00:00:00Z'::timestamptz + ${++seqConsulta}
  */
 const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_log: (t, p) => sql`insert into audit_log (tenant_id, acao, entidade, patient_id) values (${t}, 'ler', 'isolamento', ${p})`,
-  data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id) values (${t}, ${p})`,
+  // 0080: o paciente só vê as do titular — a fábrica grava escopo titular para P2 ver as próprias linhas
+  data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id, escopo) values (${t}, ${p}, 'titular')`,
   exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
   privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
   stored_files: (t, p) =>
