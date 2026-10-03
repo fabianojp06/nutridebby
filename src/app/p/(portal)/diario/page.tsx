@@ -32,6 +32,12 @@ export default async function Diario() {
               )}
               {r.foto.estado === 'processando' && <p role="status" className="text-sm">{MSG_DIARIO.processando}</p>}
               {r.foto.estado === 'falhou' && <p className="text-sm text-red-700">{MSG_DIARIO.fotoFalhou}</p>}
+              {r.comentario && (
+                <div className="rounded bg-emerald-50 p-2">
+                  <p className="text-sm font-medium">Comentário da nutricionista</p>
+                  <p className="whitespace-pre-line">{r.comentario}</p>
+                </div>
+              )}
             </li>
           ))}
         </ol>

@@ -166,3 +166,24 @@ test('Perfil > Notificações: sem telefone, ligar o WhatsApp explica o que faze
   await expect(p.page.getByRole('alert').filter({ hasText: 'Para receber por WhatsApp' })).toHaveText('Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.');
   await p.page.context().close();
 });
+
+test('Diários: a nutricionista vê o registro novo, abre, comenta; o paciente vê o comentário (US-043)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.12');
+  await p.page.goto('/p/diario');
+  await p.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
+  await p.page.getByLabel('O que você comeu?').fill(`frango grelhado ${p.nome}`);
+  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  await nutri.goto('/painel/diarios');
+  const item = nutri.getByRole('listitem').filter({ hasText: p.nome });
+  await expect(item.getByText('Novo')).toBeVisible();
+  await item.getByRole('link').click();
+  await nutri.getByLabel('Comentar').fill('Ótima escolha de proteína!');
+  await nutri.getByRole('button', { name: 'Salvar comentário' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Comentário salvo.' })).toBeVisible();
+  await nutri.goto('/painel/diarios');
+  await expect(nutri.getByRole('listitem').filter({ hasText: p.nome }).getByText('Visto')).toBeVisible();
+  await p.page.reload();
+  await expect(p.page.getByText('Ótima escolha de proteína!')).toBeVisible();
+  await p.page.context().close();
+});
