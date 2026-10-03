@@ -39,7 +39,8 @@ const deps = (extra: Partial<DepsPublico> = {}): DepsPublico => ({ db: app.db, a
 
 async function consultorio(extra: Partial<typeof tenants.$inferInsert> = {}): Promise<TenantDeTeste & { slug: string }> {
   const T = await novoTenant(app.db, 'Debby Silva');
-  const [t] = await app.db.update(tenants).set({ enderecoConsultorio: 'Rua das Flores, 10', ...extra }).where(eq(tenants.id, T.tenantId)).returning();
+  // migration 0067: a página pública nasce desligada — o consultório destes testes a ligou
+  const [t] = await app.db.update(tenants).set({ enderecoConsultorio: 'Rua das Flores, 10', agendamentoPublicoAtivo: true, ...extra }).where(eq(tenants.id, T.tenantId)).returning();
   await semanaToda(app.db, T.ctx);
   return { ...T, slug: t.slug };
 }

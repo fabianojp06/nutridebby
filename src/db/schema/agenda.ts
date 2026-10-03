@@ -83,7 +83,8 @@ export const appointments = pgTable(
     check('appointments_status_valido', sql`${t.status} in ('agendada', 'confirmada', 'cancelada', 'realizada', 'faltou')`),
     check('appointments_origem_valida', sql`${t.origem} in ('nutri', 'paciente')`),
     check('appointments_confirmada_via_valida', sql`${t.confirmadaVia} is null or ${t.confirmadaVia} in ('whatsapp', 'link')`),
-    check('appointments_cancelado_por_valido', sql`${t.canceladoPor} is null or ${t.canceladoPor} in ('nutri', 'paciente')`),
+    // migration 0067 (fechamento): 'sistema' = cancelada sozinha ao atender o pedido de exclusão (US-018), sem aviso ao paciente
+    check('appointments_cancelado_por_valido', sql`${t.canceladoPor} is null or ${t.canceladoPor} in ('nutri', 'paciente', 'sistema')`),
     check('appointments_cancelamento_completo', sql`(${t.status} = 'cancelada') = (${t.canceladoPor} is not null and ${t.canceladaEm} is not null)`),
     check('appointments_motivo_tamanho', sql`char_length(${t.motivoCancelamento}) <= 300`),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'appointments_paciente_fk' }),

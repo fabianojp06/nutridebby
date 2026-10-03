@@ -26,7 +26,8 @@ const bloco = `203.0.${Math.floor(Math.random() * 250)}`;
 
 async function slugDeTeste(): Promise<string> {
   const T = await novoTenant(db);
-  const [{ slug }] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, T.tenantId));
+  // migration 0067: a página pública nasce desligada — o consultório destes testes a ligou
+  const [{ slug }] = await db.update(tenants).set({ agendamentoPublicoAtivo: true }).where(eq(tenants.id, T.tenantId)).returning({ slug: tenants.slug });
   return slug;
 }
 

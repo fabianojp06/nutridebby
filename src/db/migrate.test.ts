@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
@@ -37,6 +39,29 @@ describe('migrations de base', () => {
         where table_schema = 'public' and data_type = 'timestamp without time zone' order by 1`,
     );
     expect(rows.map((r) => r.col)).toEqual([]);
+  });
+
+  it('fechamento do Plano 05 (0067): página pública desligada por padrão e em todos os tenants existentes (UPDATE sem WHERE); cancelado_por aceita "sistema"', async () => {
+    const { rows } = await owner.pool.query(
+      `select column_default from information_schema.columns where table_schema = 'public' and table_name = 'tenants' and column_name = 'agendamento_publico_ativo'`,
+    );
+    expect(rows[0].column_default).toBe('false');
+    const migration = readFileSync(new URL('../../drizzle/0067_exclusao_e_pagina_publica_desligada.sql', import.meta.url), 'utf8');
+    const update = /^UPDATE "tenants" SET "agendamento_publico_ativo" = false;$/m.exec(migration)?.[0];
+    expect(update).toBeDefined();
+    // o mesmo SET num tenant ligado (só nele: o banco dos testes é compartilhado entre arquivos que rodam em paralelo)
+    const c = await owner.pool.connect();
+    try {
+      await c.query('begin');
+      const { rows: [t] } = await c.query(`insert into tenants (slug, nome_exibicao, agendamento_publico_ativo) values ($1, 'Mig', true) returning id`, [`mig-${randomUUID().slice(0, 8)}`]);
+      await c.query(update!.replace(/;$/, ' WHERE id = $1'), [t.id]);
+      expect((await c.query('select agendamento_publico_ativo as a from tenants where id = $1', [t.id])).rows[0].a).toBe(false);
+    } finally {
+      await c.query('rollback');
+      c.release();
+    }
+    const { rows: check } = await owner.pool.query(`select pg_get_constraintdef(oid) as d from pg_constraint where conname = 'appointments_cancelado_por_valido'`);
+    expect(check[0].d).toContain(`'sistema'`);
   });
 
   it('rodar as migrations de novo é seguro (idempotente)', async () => {

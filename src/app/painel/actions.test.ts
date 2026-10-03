@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
@@ -11,6 +12,7 @@ import { criarEEntrar } from '../../../test/sessao';
 const req = vi.hoisted(() => ({ headers: new Headers() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ headers: async () => req.headers }));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Error(`redirect ${url}`);
@@ -79,5 +81,17 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
     const state = await salvarPerfilAction({}, fd);
     expect(state.erros?.crn).toBeDefined();
     expect(state.valores?.agendamentoPublicoAtivo).toBe('on');
+  });
+
+  it('fechamento do Plano 05 (migration 0067): tenant novo nasce com a página pública desligada; a nutricionista liga em Configurações', async () => {
+    const [t] = await db.insert(tenants).values({ slug: `nova-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Nova' }).returning();
+    expect(t.agendamentoPublicoAtivo).toBe(false);
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
+    await registrarAceiteDpa(db, { userId: n.id, tenantId: t.id, ip: null });
+    req.headers = new Headers({ cookie: n.cookie });
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'CRN-3 12345', enderecoConsultorio: '', linkOnlinePadrao: '' });
+    fd.set('agendamentoPublicoAtivo', 'on');
+    expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
+    expect((await db.select({ ativo: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, t.id)))[0].ativo).toBe(true);
   });
 });
