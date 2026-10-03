@@ -70,13 +70,46 @@ export function precisaBuscarPlano(
   agoraMs: number,
 ): boolean {
   if (!guardado || guardado.dono !== pedido.dono || guardado.versao !== pedido.versao) return true;
-  const t = guardado.guardadoEm ? Date.parse(guardado.guardadoEm) : Number.NaN;
-  return !Number.isFinite(t) || agoraMs - t > RENOVAR_PLANO_MS;
+  const idade = idadeDaCopia(guardado.guardadoEm, agoraMs);
+  return idade === null || idade > RENOVAR_PLANO_MS;
 }
 
 export function planoValido(guardadoEm: string | null, agoraMs: number): boolean {
+  const idade = idadeDaCopia(guardadoEm, agoraMs);
+  return idade !== null && idade <= VALIDADE_PLANO_MS;
+}
+
+/**
+ * Idade da cópia em ms, ou null se a data não vale. Relógio do aparelho adiantado quando a cópia foi gravada (idade
+ * negativa) também é null: senão a cópia nunca venceria nem seria renovada.
+ */
+function idadeDaCopia(guardadoEm: string | null, agoraMs: number): number | null {
   const t = guardadoEm ? Date.parse(guardadoEm) : Number.NaN;
-  return Number.isFinite(t) && agoraMs - t <= VALIDADE_PLANO_MS;
+  return Number.isFinite(t) && agoraMs >= t ? agoraMs - t : null;
+}
+
+/**
+ * Quem pode mandar mensagem ao service worker: a própria origem. O Safari do iOS 16.4–16.7 pode entregar o
+ * `ExtendableMessageEvent.origin` vazio; aí vale só se o remetente é uma página (`Client`) da própria origem.
+ */
+export function mensagemDaPropriaOrigem(origemDoEvento: string, urlDoCliente: string | null, origem: string): boolean {
+  if (origemDoEvento === origem) return true;
+  if (origemDoEvento !== '' || !urlDoCliente) return false;
+  return urlOuNull(urlDoCliente)?.origin === origem;
+}
+
+/**
+ * Cabeçalhos da cópia guardada: os da resposta (o Content-Security-Policy continua com o nonce do HTML) mais dono,
+ * versão e data. Sem `content-length` nem `content-encoding`: o corpo guardado já vem descomprimido.
+ */
+export function cabecalhosDaCopia(resposta: Headers, o: { dono: string; versao: string; guardadoEm: string }): Headers {
+  const h = new Headers(resposta);
+  h.delete('content-length');
+  h.delete('content-encoding');
+  h.set(CABECALHO_DONO, o.dono);
+  h.set(CABECALHO_VERSAO, o.versao);
+  h.set(CABECALHO_GUARDADO_EM, o.guardadoEm);
+  return h;
 }
 
 /**

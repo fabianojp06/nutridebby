@@ -17,4 +17,8 @@ describe('manifest do PWA do paciente', () => {
     expect(m.icons!.map((i) => `${i.sizes} ${i.purpose}`)).toEqual(['192x192 any', '512x512 any', '512x512 maskable']);
     for (const i of m.icons!) expect(existsSync(path.join('public', i.src)), i.src).toBe(true);
   });
+
+  it('WCAG 2.1 AA 1.3.4 (Orientação): o app instalado não trava em retrato nem em paisagem', () => {
+    expect(manifest().orientation).toBeUndefined();
+  });
 });

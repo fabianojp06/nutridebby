@@ -6,11 +6,13 @@ import {
   CABECALHO_VERSAO,
   CACHE_PLANO,
   URL_PLANO,
+  cabecalhosDaCopia,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   ehSemSessao,
   esquecerPlanoGuardado,
   lerMensagem,
+  mensagemDaPropriaOrigem,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
@@ -54,10 +56,7 @@ async function guardarPlano(dono: string, versao: string): Promise<void> {
     return;
   }
   if (!podeGuardarPlano(r, origem)) return;
-  const h = new Headers(r.headers);
-  h.set(CABECALHO_DONO, dono);
-  h.set(CABECALHO_VERSAO, versao);
-  h.set(CABECALHO_GUARDADO_EM, new Date().toISOString());
+  const h = cabecalhosDaCopia(r.headers, { dono, versao, guardadoEm: new Date().toISOString() });
   // put na mesma chave substitui: o cache continua com 1 entrada
   await (await caches.open(CACHE_PLANO)).put(URL_PLANO, new Response(await r.blob(), { status: 200, headers: h }));
 }
@@ -69,7 +68,7 @@ async function conferirDono(dono: string): Promise<void> {
 }
 
 self.addEventListener('message', (e) => {
-  if (e.origin !== origem) return;
+  if (!mensagemDaPropriaOrigem(e.origin, e.source instanceof Client ? e.source.url : null, origem)) return;
   const m = lerMensagem(e.data);
   if (!m) return;
   e.waitUntil((m.tipo === 'plano' ? guardarPlano(m.dono, m.versao) : conferirDono(m.dono)).catch(() => undefined));

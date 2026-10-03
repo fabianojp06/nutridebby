@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/p/inicio',
     scope: '/p/',
     display: 'standalone',
-    orientation: 'portrait',
+    // sem `orientation`: WCAG 2.1 AA 1.3.4 (Orientação) — o app instalado gira com o aparelho
     background_color: '#ffffff',
     theme_color: '#1d6b5a',
     // D21: arte genérica (o dono pode trocar o SVG e rodar `pnpm icones`)

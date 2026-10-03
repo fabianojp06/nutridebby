@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { ehNavegacaoDoPortal, ehPaginaDoPlano, ehSemSessao, lerMensagem, planoValido, podeGuardarPlano, precisaBuscarPlano, RENOVAR_PLANO_MS, VALIDADE_PLANO_MS } from './sw-regras';
+import {
+  CABECALHO_DONO,
+  CABECALHO_GUARDADO_EM,
+  CABECALHO_VERSAO,
+  cabecalhosDaCopia,
+  ehNavegacaoDoPortal,
+  ehPaginaDoPlano,
+  ehSemSessao,
+  lerMensagem,
+  mensagemDaPropriaOrigem,
+  planoValido,
+  podeGuardarPlano,
+  precisaBuscarPlano,
+  RENOVAR_PLANO_MS,
+  VALIDADE_PLANO_MS,
+} from './sw-regras';
 
 const O = 'https://nutri.exemplo.com';
 const resposta = (o: Partial<{ status: number; type: ResponseType; redirected: boolean; url: string; tipo: string }> = {}) => ({
@@ -70,5 +85,42 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
   it('R7 (Safari iOS 16.4, sem URL.canParse): URL inválida não lança, só não conta como login', () => {
     expect(ehSemSessao({ redirected: true, url: 'não é uma url' }, O)).toBe(false);
     expect(ehSemSessao({ redirected: true, url: '' }, O)).toBe(false);
+  });
+  it('relógio adiantado: cópia com guardado-em no futuro (idade negativa) está vencida e é buscada de novo', () => {
+    const agora = Date.parse('2026-10-05T12:00:00Z');
+    const futuro = new Date(agora + 60_000).toISOString();
+    expect(planoValido(futuro, agora)).toBe(false);
+    expect(precisaBuscarPlano({ dono: 'd', versao: 'v', guardadoEm: futuro }, { dono: 'd', versao: 'v' }, agora)).toBe(true);
+    // gravada agora mesmo (idade 0): vale e não busca de novo
+    const agoraIso = new Date(agora).toISOString();
+    expect(planoValido(agoraIso, agora)).toBe(true);
+    expect(precisaBuscarPlano({ dono: 'd', versao: 'v', guardadoEm: agoraIso }, { dono: 'd', versao: 'v' }, agora)).toBe(false);
+  });
+  it('origem da mensagem: a própria origem; vazia (iOS 16.4–16.7) só se o remetente é uma página da própria origem', () => {
+    expect(mensagemDaPropriaOrigem(O, null, O)).toBe(true);
+    expect(mensagemDaPropriaOrigem(O, `${O}/p/plano`, O)).toBe(true);
+    expect(mensagemDaPropriaOrigem('https://outro.com', `${O}/p/plano`, O)).toBe(false);
+    expect(mensagemDaPropriaOrigem('', `${O}/p/plano`, O)).toBe(true);
+    expect(mensagemDaPropriaOrigem('', 'https://outro.com/p/plano', O)).toBe(false);
+    expect(mensagemDaPropriaOrigem('', null, O)).toBe(false); // remetente que não é página (outro worker, porta)
+    expect(mensagemDaPropriaOrigem('', 'não é url', O)).toBe(false);
+    expect(mensagemDaPropriaOrigem('', '', O)).toBe(false);
+  });
+  it('cabeçalhos da cópia: os da resposta + dono, versão e data; sem content-length nem content-encoding (o corpo guardado já vem descomprimido)', () => {
+    const resposta = new Headers({
+      'content-type': 'text/html; charset=utf-8',
+      'content-length': '1234',
+      'content-encoding': 'br',
+      'content-security-policy': "script-src 'nonce-abc'",
+    });
+    const h = cabecalhosDaCopia(resposta, { dono: 'd', versao: 'v', guardadoEm: '2026-10-05T12:00:00.000Z' });
+    expect(h.get('content-type')).toBe('text/html; charset=utf-8');
+    expect(h.get('content-security-policy')).toBe("script-src 'nonce-abc'"); // o nonce continua batendo com o HTML
+    expect(h.has('content-length')).toBe(false);
+    expect(h.has('content-encoding')).toBe(false);
+    expect(h.get(CABECALHO_DONO)).toBe('d');
+    expect(h.get(CABECALHO_VERSAO)).toBe('v');
+    expect(h.get(CABECALHO_GUARDADO_EM)).toBe('2026-10-05T12:00:00.000Z');
+    expect(resposta.get('content-length')).toBe('1234'); // não mexe nos cabeçalhos da resposta
   });
 });
