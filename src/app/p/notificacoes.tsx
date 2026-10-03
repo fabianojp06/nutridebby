@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { ehIos } from './instalacao';
 import { standalone } from './instalar';
+import { recusaDoPortal, type RecusaDoPortal } from './recusa-api';
 
 type Estado = 'carregando' | 'indisponivel' | 'instale' | 'pode' | 'ativo' | 'negado' | 'falhou';
 // Os textos de MSG_PUSH (src/modules/portal/push-inscricao.ts), que é do servidor
@@ -53,6 +54,8 @@ export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscri
 /** US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). */
 export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
   const [estado, setEstado] = useState<Estado>('carregando');
+  /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor no lugar do "Tente de novo" genérico. */
+  const [recusa, setRecusa] = useState<RecusaDoPortal | null>(null);
   useEffect(() => {
     let vivo = true;
     void (async () => {
@@ -75,6 +78,7 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesDaChave(chavePublica!) });
       const r = await enviarInscricao(sub);
       if (r.ok) sincronias.set(dono, Promise.resolve('ativo')); // a próxima tela não pergunta de novo
+      setRecusa(r.ok ? null : recusaDoPortal(r.status, await r.json().catch(() => null), location.pathname));
       setEstado(r.ok ? 'ativo' : 'falhou');
     } catch {
       setEstado('falhou');
@@ -88,7 +92,19 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
           Ativar notificações
         </button>
       )}
-      {TEXTO[estado] && <p role={estado === 'falhou' ? 'alert' : 'status'}>{TEXTO[estado]}</p>}
+      {estado === 'falhou' && recusa ? (
+        <p role="alert">
+          {recusa.mensagem}
+          {recusa.entrar && (
+            <>
+              {' '}
+              <a href={recusa.entrar} className="inline-flex min-h-11 items-center underline">Entrar</a>
+            </>
+          )}
+        </p>
+      ) : (
+        TEXTO[estado] && <p role={estado === 'falhou' ? 'alert' : 'status'}>{TEXTO[estado]}</p>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FOTO_DIARIO_MAX_BYTES, MSG_DIARIO, REFEICOES_DO_DIARIO, TEXTO_DIARIO_MAX } from '@/modules/portal/diario-constantes';
+import { recusaDoPortal } from '../../recusa-api';
 
 type Erros = Partial<Record<'refeicao' | 'texto' | 'foto' | 'geral', string>>;
 
@@ -12,6 +13,8 @@ export function DiarioForm() {
   const [ok, setOk] = useState<string | null>(null);
   const [previa, setPrevia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  /** Sessão expirada (401): o link do login fica junto da mensagem e o formulário NÃO é apagado (o texto não se perde). */
+  const [entrar, setEntrar] = useState<string | null>(null);
   useEffect(
     () => () => {
       if (previa) URL.revokeObjectURL(previa);
@@ -30,10 +33,19 @@ export function DiarioForm() {
     setEnviando(true);
     setErros({});
     setOk(null);
+    setEntrar(null);
     try {
       const r = await fetch('/api/p/diario', { method: 'POST', body: dados });
       const corpo = (await r.json().catch(() => ({}))) as { erros?: Erros; mensagem?: string };
-      if (!r.ok) return setErros(corpo.erros ?? { geral: MSG_DIARIO.ocupado });
+      if (!r.ok) {
+        // recusa da sessão ({ erro }: 401 expirada, 403 termo/indisponível) — não é erro de campo
+        const recusa = recusaDoPortal(r.status, corpo, '/p/diario');
+        if (recusa) {
+          setEntrar(recusa.entrar);
+          return setErros({ geral: recusa.mensagem });
+        }
+        return setErros(corpo.erros ?? { geral: MSG_DIARIO.ocupado });
+      }
       // R9: com a cota esgotada, a mensagem traz também "Espaço de armazenamento esgotado. Fale com o suporte."
       setOk(corpo.mensagem ?? MSG_DIARIO.salvo);
       form.reset();
@@ -81,7 +93,17 @@ export function DiarioForm() {
         {/* eslint-disable-next-line @next/next/no-img-element -- miniatura local (blob:), antes de enviar */}
         {previa && <img src={previa} alt="Miniatura da foto escolhida" className="h-24 w-24 rounded object-cover" />}
       </div>
-      {erros.geral && <p role="alert" className="text-red-700">{erros.geral}</p>}
+      {erros.geral && (
+        <p role="alert" className="text-red-700">
+          {erros.geral}
+          {entrar && (
+            <>
+              {' '}
+              <a href={entrar} className="inline-flex min-h-11 items-center underline">Entrar</a>
+            </>
+          )}
+        </p>
+      )}
       {ok && <p role="status" className="rounded bg-emerald-50 p-3">{ok}</p>}
       <button disabled={enviando} className="min-h-11 rounded bg-emerald-700 px-4 text-white">Registrar</button>
     </form>

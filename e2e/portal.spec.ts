@@ -151,6 +151,20 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
   await p.page.context().close();
 });
 
+test('diário com a sessão vencida: a tela diz "Sessão expirada. Entre de novo.", oferece o login e não apaga o que foi escrito', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.8');
+  await p.page.goto('/p/diario');
+  await p.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
+  await p.page.getByLabel('O que você comeu?').fill('iogurte com granola');
+  await p.page.context().clearCookies(); // a sessão "vence" com a página aberta
+  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  const alerta = p.page.getByRole('alert').filter({ hasText: 'Sessão expirada. Entre de novo.' });
+  await expect(alerta).toBeVisible();
+  await expect(alerta.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar?volta=%2Fp%2Fdiario');
+  await expect(p.page.getByLabel('O que você comeu?')).toHaveValue('iogurte com granola');
+  await p.page.context().close();
+});
+
 test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal; pedir exclusão aparece no painel (US-046)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.16');
   await p.page.goto('/p/perfil');
