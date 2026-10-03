@@ -33,6 +33,8 @@ describe('selos da consulta (US-030, US-032, US-035)', () => {
     expect(selosDaConsulta({ ...base, status: 'confirmada', confirmadaVia: 'whatsapp' }, false)).toEqual(['Confirmada via WhatsApp']);
     expect(selosDaConsulta({ ...base, status: 'confirmada', confirmadaVia: 'link' }, false)).toEqual(['Confirmada pelo link']);
     expect(selosDaConsulta({ ...base, status: 'cancelada', canceladoPor: 'paciente' }, true)).toEqual(['Cancelada pelo paciente']);
+    // fechamento do Plano 05: cancelada sozinha ao atender o pedido de exclusão (US-018)
+    expect(selosDaConsulta({ ...base, status: 'cancelada', canceladoPor: 'sistema' }, false)).toEqual(['Cancelada pelo pedido de exclusão']);
   });
   it('cancelada pela nutricionista, realizada e faltou: só a situação; cancelada não carrega alertas', () => {
     expect(selosDaConsulta({ ...base, status: 'cancelada', canceladoPor: 'nutri', pedidoRemarcacaoEm: new Date(), pacienteNovoPublico: true }, true)).toEqual(['Cancelada']);

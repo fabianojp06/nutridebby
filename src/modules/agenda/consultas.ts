@@ -27,7 +27,8 @@ export type Consulta = {
   status: StatusConsulta;
   origem: 'nutri' | 'paciente';
   confirmadaVia: 'whatsapp' | 'link' | null;
-  canceladoPor: 'nutri' | 'paciente' | null;
+  /** 'sistema': cancelada sozinha ao atender o pedido de exclusão (US-018, fechamento do Plano 05). */
+  canceladoPor: 'nutri' | 'paciente' | 'sistema' | null;
   pedidoRemarcacaoEm: Date | null;
   remarcadaDe: string | null;
 };

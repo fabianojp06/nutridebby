@@ -33,6 +33,11 @@ export type EmailMessage =
       quando: string;
       link: string;
     }
+  /**
+   * Fechamento do Plano 05 (US-018): o pedido de exclusão atendido cancelou as consultas futuras do paciente (sem aviso a
+   * ele). `paciente` = primeiro nome; sem dado de saúde.
+   */
+  | { tipo: 'exclusao_consultas_canceladas'; para: string; paciente: string; quantidade: number }
   /** D18: o celular saiu de "Aparelhos conectados" (não foi pelo painel); `link` = /painel/whatsapp. */
   | { tipo: 'whatsapp_desconectado'; para: string; link: string }
   /** US-036: 80% (ou mais) da cota de WhatsApp do mês, uma vez por mês; `link` = /painel/whatsapp. */

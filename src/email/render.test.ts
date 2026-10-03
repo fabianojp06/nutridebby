@@ -97,6 +97,15 @@ describe('aviso_agenda (US-032, D18)', () => {
   });
 });
 
+describe('exclusao_consultas_canceladas (US-018, fechamento do Plano 05)', () => {
+  it('aviso à nutricionista: assunto sem nome; primeiro nome e quantas no corpo (singular e plural)', () => {
+    const um = renderEmail({ tipo: 'exclusao_consultas_canceladas', para: 'debby@ex.com', paciente: 'Ana', quantidade: 1 });
+    expect(um.subject).toBe('Pedido de exclusão atendido');
+    expect(um.text).toBe('Pedido de exclusão atendido: 1 consulta futura de Ana foi cancelada.');
+    expect(renderEmail({ tipo: 'exclusao_consultas_canceladas', para: 'debby@ex.com', paciente: 'Ana', quantidade: 3 }).text).toBe('Pedido de exclusão atendido: 3 consultas futuras de Ana foram canceladas.');
+  });
+});
+
 describe('codigo_agendamento (RN-16, D12)', () => {
   it('código do agendamento público: código no assunto e no corpo, validade de 10 min', () => {
     const r = renderEmail({ tipo: 'codigo_agendamento', para: 'ana@ex.com', nutri: 'Debby Silva', codigo: '042917' });

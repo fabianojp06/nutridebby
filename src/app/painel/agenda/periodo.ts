@@ -25,6 +25,7 @@ export function selosDaConsulta(c: Consulta, dentroDeBloqueio: boolean): string[
   if (c.status === 'confirmada' && c.confirmadaVia === 'whatsapp') s.push('Confirmada via WhatsApp');
   else if (c.status === 'confirmada' && c.confirmadaVia === 'link') s.push('Confirmada pelo link');
   else if (c.status === 'cancelada' && c.canceladoPor === 'paciente') s.push('Cancelada pelo paciente');
+  else if (c.status === 'cancelada' && c.canceladoPor === 'sistema') s.push('Cancelada pelo pedido de exclusão');
   else s.push(ROTULO_STATUS[c.status]);
   if (c.status === 'cancelada') return s;
   if (c.pedidoRemarcacaoEm) s.push('Paciente pediu para remarcar');

@@ -11,6 +11,8 @@ import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../.
 import { closeDb } from '@/db/client';
 import { appointments, auditLog, consents, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { sealSecret } from '@/lib/crypto';
+import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
 import { stopBoss } from '@/jobs/boss';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
@@ -112,6 +114,66 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect(pedidos[0]).toMatchObject({ status: 'concluido', prazo: '2026-10-10' });
     await expect(atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps)).rejects.toBeInstanceOf(PacienteBloqueadoError);
   });
+  it('decisão do dono (fechamento): as consultas FUTURAS do paciente são canceladas na mesma transação, pelo "sistema", sem aviso ao paciente; as pendências delas viram "ignorada" (sem texto cifrado); a nutricionista recebe UM aviso', async () => {
+    const T = await novoTenant(app.db);
+    const nutriEmail = (await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId)))[0].email;
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza Lima' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const h = (dia: string, hora: string) => new Date(`${dia}T${hora}:00-03:00`);
+    const futura = await consultaDireta(app.db, T.ctx, ana.id, h('2026-10-20', '14:00'));
+    const confirmada = await consultaDireta(app.db, T.ctx, ana.id, h('2026-11-03', '09:00'), 60, { status: 'confirmada', confirmadaVia: 'link' });
+    const passada = await consultaDireta(app.db, T.ctx, ana.id, h('2026-09-20', '14:00'));
+    const jaCancelada = await consultaDireta(app.db, T.ctx, ana.id, h('2026-10-22', '14:00'), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: h('2026-09-25', '10:00') });
+    const daBia = await consultaDireta(app.db, T.ctx, bia.id, h('2026-10-21', '14:00'));
+    const notif = (appointmentId: string, patientId: string, inicio: Date, extra: Partial<typeof notifications.$inferInsert>) => ({
+      tenantId: T.tenantId, patientId, appointmentId, inicioConsulta: inicio, canal: 'email', tipo: 'lembrete_24h', agendadaPara: new Date(inicio.getTime() - 86_400_000), ...extra,
+    });
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values([
+      notif(futura, ana.id, h('2026-10-20', '14:00'), {}),
+      notif(futura, ana.id, h('2026-10-20', '14:00'), { canal: 'whatsapp', conteudoSelado: sealSecret('texto pronto', FINALIDADE_CONTEUDO) }),
+      notif(futura, ana.id, h('2026-10-20', '14:00'), { tipo: 'consulta_marcada', status: 'enviada', enviadaEm: h('2026-09-30', '10:00'), agendadaPara: h('2026-09-30', '10:00') }),
+      notif(confirmada, ana.id, h('2026-11-03', '09:00'), { tipo: 'lembrete_2h', canal: 'push' }),
+      notif(daBia, bia.id, h('2026-10-21', '14:00'), {}),
+    ]), app.db);
+
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Ana Souza Lima', deps);
+
+    const consultas = await withTenant(T.ctx, (tx) => tx.select().from(appointments), app.db);
+    const de = (id: string) => consultas.find((c) => c.id === id)!;
+    for (const id of [futura, confirmada]) expect(de(id)).toMatchObject({ status: 'cancelada', canceladoPor: 'sistema', canceladaEm: now, motivoCancelamento: null, pedidoRemarcacaoEm: null });
+    expect(de(passada)).toMatchObject({ status: 'agendada', canceladoPor: null });
+    expect(de(jaCancelada)).toMatchObject({ canceladoPor: 'nutri', canceladaEm: h('2026-09-25', '10:00') });
+    expect(de(daBia)).toMatchObject({ status: 'agendada' });
+
+    const ns = await withTenant(T.ctx, (tx) => tx.select().from(notifications), app.db);
+    const daAna = ns.filter((n) => n.patientId === ana.id);
+    // nada pendente da Ana; nenhum "Consulta cancelada" para ela; o que já saiu fica como está
+    expect(daAna.filter((n) => n.status === 'pendente')).toEqual([]);
+    expect(daAna.filter((n) => n.tipo === 'consulta_cancelada')).toEqual([]);
+    expect(daAna.filter((n) => n.status === 'ignorada').map((n) => [n.tipo, n.canal, n.motivoIgnorada, n.conteudoSelado]).sort()).toEqual(
+      [['lembrete_24h', 'email', 'consulta_cancelada', null], ['lembrete_24h', 'whatsapp', 'consulta_cancelada', null], ['lembrete_2h', 'push', 'consulta_cancelada', null]].sort(),
+    );
+    expect(daAna.find((n) => n.tipo === 'consulta_marcada')).toMatchObject({ status: 'enviada' });
+    expect(ns.filter((n) => n.patientId === bia.id).map((n) => n.status)).toEqual(['pendente']);
+
+    // para a paciente, só o e-mail de sempre do pedido atendido; para a nutricionista, UM aviso, sem dado de saúde
+    expect((await emailsNaFila('exclusao_atendida', ana.email))).toHaveLength(1);
+    expect(await emailsNaFila('exclusao_consultas_canceladas', nutriEmail)).toEqual([{ tipo: 'exclusao_consultas_canceladas', para: nutriEmail, paciente: 'Ana', quantidade: 2 }]);
+
+    // o gatilho de auditoria registra o cancelamento como a nutricionista que atendeu o pedido (entidade "agenda")
+    const logs = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'agenda'), eq(auditLog.acao, 'alterar'))), app.db);
+    expect(logs.map((l) => l.entidadeId).sort()).toEqual([futura, confirmada].sort());
+    for (const l of logs) expect(l).toMatchObject({ patientId: ana.id, actorUserId: T.nutriId });
+
+    // Bia: 1 consulta futura → um aviso só dela; Cris (só consulta passada) → nenhum aviso
+    await atenderPedidoExclusao(T.ctx, T.tenant, bia.id, 'Bia Lima', deps);
+    expect((await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, daBia)), app.db))[0]).toMatchObject({ status: 'cancelada', canceladoPor: 'sistema' });
+    const cris = await novoPaciente(app.db, T.ctx, { nome: 'Cris Dias' });
+    await consultaDireta(app.db, T.ctx, cris.id, h('2026-09-10', '10:00'));
+    await atenderPedidoExclusao(T.ctx, T.tenant, cris.id, 'Cris Dias', deps);
+    expect((await emailsNaFila('exclusao_consultas_canceladas', nutriEmail)).map((m) => [m.paciente, m.quantidade])).toEqual([['Ana', 2], ['Bia', 1]]);
+  });
+
   it('paciente arquivado também pode ter o pedido atendido e passa a bloqueado', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });

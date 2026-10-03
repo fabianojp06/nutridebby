@@ -264,6 +264,13 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         `Use o código ${msg.codigo} para confirmar o agendamento com ${msg.nutri}.`,
         'Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail.',
       ]);
+    case 'exclusao_consultas_canceladas':
+      // o nome do paciente só no corpo, não no assunto (D18)
+      return simples('Pedido de exclusão atendido', [
+        msg.quantidade === 1
+          ? `Pedido de exclusão atendido: 1 consulta futura de ${msg.paciente} foi cancelada.`
+          : `Pedido de exclusão atendido: ${msg.quantidade} consultas futuras de ${msg.paciente} foram canceladas.`,
+      ]);
     case 'whatsapp_desconectado':
       return simples(
         'Seu WhatsApp foi desconectado do NutriDebby',

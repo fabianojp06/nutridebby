@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, patients, type AppointmentRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -7,7 +7,7 @@ import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-paciente';
-import { avisarNutriDaConsulta } from './aviso-nutri';
+import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
 import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
@@ -107,6 +107,33 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
     },
     deps.db ?? getDb(),
   );
+}
+
+/**
+ * US-018 + decisão do dono (fechamento do Plano 05): ao atender o pedido de exclusão, as consultas FUTURAS ativas do
+ * paciente são canceladas na transação do pedido — pelo "sistema", sem motivo e SEM aviso ao paciente (nada de
+ * avisarPaciente: nenhum "Consulta cancelada"); o que ainda não saiu delas vira "ignorada" sem texto cifrado
+ * (cancelarLembretes, R11) e a nutricionista recebe UM aviso (D18; só o primeiro nome e quantas, sem dado de saúde).
+ * Quem chama já segura o paciente (`carregarPacienteParaEscrita`): travas paciente → consultas (por id) → notificações.
+ * As escritas em `appointments` são auditadas pelo gatilho (entidade "agenda"), com o ator do pedido. Devolve quantas.
+ */
+export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string; patientId: string; nome: string }, agora: Date): Promise<number> {
+  const futuras = await tx
+    .select({ id: appointments.id })
+    .from(appointments)
+    .where(and(eq(appointments.patientId, o.patientId), inArray(appointments.status, [...STATUS_ATIVOS]), gt(appointments.inicio, agora)))
+    .orderBy(asc(appointments.id))
+    .for('update');
+  if (!futuras.length) return 0;
+  const ids = futuras.map((f) => f.id);
+  await tx
+    .update(appointments)
+    .set({ status: 'cancelada', canceladoPor: 'sistema', canceladaEm: agora, motivoCancelamento: null, pedidoRemarcacaoEm: null, updatedAt: agora })
+    .where(inArray(appointments.id, ids));
+  await cancelarLembretes(tx, ids, agora);
+  const primeiroNome = o.nome.trim().split(/\s+/)[0] || o.nome;
+  await avisarNutri(tx, o.tenantId, (para) => ({ tipo: 'exclusao_consultas_canceladas', para, paciente: primeiroNome, quantidade: ids.length }));
+  return ids.length;
 }
 
 /**

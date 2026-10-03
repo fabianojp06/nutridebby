@@ -7,6 +7,7 @@ import { logger } from '@/lib/logger';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
+import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
 import { carregarPacienteParaEscrita } from './base';
 import { apagarConvitesPendentes } from './convite-paciente';
 import { formatarData, hojeNoFuso, somarAnos, somarDias } from './datas';
@@ -69,7 +70,8 @@ const nomeParaConferir = (s: string) =>
 
 /**
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
- * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push).
+ * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push) e
+ * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
  * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o
  * e-mail ao paciente na fila. Plano 06: apagar aqui também as fotos do diário.
  */
@@ -134,6 +136,14 @@ export async function atenderPedidoExclusao(
         })
         .where(eq(patients.id, p.id));
       await apagarConvitesPendentes(tx, ctx.tenantId, p.id);
+      // decisão do dono (fechamento do Plano 05): consultas futuras canceladas pelo "sistema", sem aviso ao paciente; a
+      // nutricionista recebe um aviso. Depois, nada mais pendente sai para o paciente bloqueado (o envio já ignoraria —
+      // RN-08 —, mas fica explícito e sem texto cifrado na fila): lembretes, respostas "1"/"2", convite por WhatsApp
+      await cancelarFuturasPelaExclusao(tx, { tenantId: ctx.tenantId, patientId: p.id, nome: p.nome }, now);
+      await tx
+        .update(notifications)
+        .set({ status: 'ignorada', motivoIgnorada: 'paciente_inativo', conteudoSelado: null, updatedAt: now })
+        .where(and(eq(notifications.patientId, p.id), eq(notifications.status, 'pendente')));
       // US-018: "inscrições de push … apagadas na hora" (só as deste vínculo — D14)
       await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
       await recordAudit(tx, {

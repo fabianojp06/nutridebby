@@ -138,12 +138,17 @@ export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'con
   );
 }
 
-/** US-033: o que ainda não saiu da consulta cancelada vira "ignorada". */
-export async function cancelarLembretes(tx: Tx, appointmentId: string, agora: Date): Promise<void> {
+/**
+ * US-033: o que ainda não saiu da(s) consulta(s) cancelada(s) vira "ignorada". O texto cifrado (`conteudo_selado`) é
+ * apagado como em toda saída final (o banco exige; fechamento do Plano 05).
+ */
+export async function cancelarLembretes(tx: Tx, appointmentId: string | readonly string[], agora: Date): Promise<void> {
+  const ids = typeof appointmentId === 'string' ? [appointmentId] : [...appointmentId];
+  if (!ids.length) return;
   await tx
     .update(notifications)
-    .set({ status: 'ignorada', motivoIgnorada: 'consulta_cancelada', updatedAt: agora })
-    .where(and(eq(notifications.appointmentId, appointmentId), eq(notifications.status, 'pendente'), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h', 'consulta_marcada'])));
+    .set({ status: 'ignorada', motivoIgnorada: 'consulta_cancelada', conteudoSelado: null, updatedAt: agora })
+    .where(and(inArray(notifications.appointmentId, ids), eq(notifications.status, 'pendente'), inArray(notifications.tipo, ['lembrete_24h', 'lembrete_2h', 'consulta_marcada'])));
 }
 
 /**
