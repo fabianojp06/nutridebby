@@ -1,5 +1,6 @@
 import { requirePaciente } from '@/lib/paciente-session';
 import { getTenantBrand } from '@/modules/plataforma/marca';
+import { RegistrarAcesso } from '../acesso';
 import { NavPortal } from '../nav-portal';
 import { DonoDoAparelho } from '../plano-guardado';
 import { SeloOffline } from '../selo-offline';
@@ -17,6 +18,7 @@ export default async function PortalLayout({ children }: LayoutProps<'/p'>) {
   return (
     <div className="flex min-h-dvh flex-col">
       <DonoDoAparelho dono={vinculo.patientId} />
+      <RegistrarAcesso dono={vinculo.patientId} />
       <div className="flex items-center gap-3 px-6 py-2" style={{ borderBottom: `3px solid ${marca.cor}` }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, sem otimização do Next */}
         {marca.logoUrl && <img src={marca.logoUrl} alt={`Logo de ${marca.nome}`} className="h-8 w-auto" />}

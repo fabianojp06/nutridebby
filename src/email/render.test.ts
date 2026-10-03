@@ -69,6 +69,16 @@ describe('exportacao_pronta (US-018)', () => {
   });
 });
 
+describe('plano_novo (US-025)', () => {
+  it('assunto da spec, link para "Meu plano", nenhum dado do plano', () => {
+    const r = renderEmail({ tipo: 'plano_novo', para: 'ana@ex.com', link: 'http://localhost:3000/p/plano' });
+    expect(r.subject).toBe('Seu novo plano alimentar está disponível');
+    expect(r.html).toContain('href="http://localhost:3000/p/plano"');
+    expect(r.html).toContain('Ver meu plano');
+    expect(r.text).toContain('http://localhost:3000/p/plano');
+  });
+});
+
 describe('consulta (US-031, US-033, US-034)', () => {
   it('consulta: lembretes de 24 h e 2 h, marcada e cancelada (com o fuso no texto)', () => {
     const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };

@@ -4,7 +4,8 @@ import { estadoDeInstalacao, type EstadoInstalacao } from './instalacao';
 
 type PromptDeInstalacao = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 
-const standalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+/** Aberto como app instalado (o iOS antigo só diz pelo `navigator.standalone`). */
+export const standalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
 export function Instalar() {
   const [prompt, setPrompt] = useState<PromptDeInstalacao | null>(null);

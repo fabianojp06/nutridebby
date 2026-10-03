@@ -88,6 +88,12 @@ function idadeDaCopia(guardadoEm: string | null, agoraMs: number): number | null
   return Number.isFinite(t) && agoraMs >= t ? agoraMs - t : null;
 }
 
+/** INT-03: o toque na notificação só abre endereço da própria origem (o payload poderia trazer outro). R7: sem `URL.canParse`. */
+export function urlDaNotificacao(url: unknown, origem: string): string {
+  const u = typeof url === 'string' ? urlOuNull(url) : null;
+  return u && u.origin === origem ? u.href : '/p/inicio';
+}
+
 /**
  * Quem pode mandar mensagem ao service worker: a própria origem. O Safari do iOS 16.4–16.7 pode entregar o
  * `ExtendableMessageEvent.origin` vazio; aí vale só se o remetente é uma página (`Client`) da própria origem.

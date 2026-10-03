@@ -89,3 +89,21 @@ test('plano guardado é da conta: sessão vencida (sem "Sair") leva ao /entrar, 
   await expect.poll(() => entradasDoPlano(a.page)).toBe(0);
   await a.page.context().close();
 });
+
+test('acesso do dia: abrir o portal registra o dia e renova o cookie de sessão (CS-02, P06-11)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.6');
+  const renovou = p.page.waitForResponse((r) => r.url().endsWith('/api/p/acesso') && r.status() === 204);
+  await p.page.goto('/p/inicio');
+  const r = await renovou;
+  // R8: o headers() do Playwright não traz o Set-Cookie; headerValue traz
+  expect(await r.headerValue('set-cookie')).toMatch(/session_token=.*Max-Age=2592000/);
+  await p.page.context().close();
+});
+
+test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e a tela explica', async ({ browser }) => {
+  test.skip(!!process.env.VAPID_PUBLIC_KEY, 'o E2E com push de verdade precisa de um serviço de push real');
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.7');
+  await expect(p.page.getByRole('status').filter({ hasText: 'Notificações no app ainda não estão disponíveis.' })).toBeVisible();
+  await expect(p.page.getByRole('button', { name: 'Ativar notificações' })).toHaveCount(0);
+  await p.page.context().close();
+});

@@ -13,6 +13,7 @@ import {
   podeGuardarPlano,
   precisaBuscarPlano,
   RENOVAR_PLANO_MS,
+  urlDaNotificacao,
   VALIDADE_PLANO_MS,
 } from './sw-regras';
 
@@ -122,5 +123,15 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(h.get(CABECALHO_VERSAO)).toBe('v');
     expect(h.get(CABECALHO_GUARDADO_EM)).toBe('2026-10-05T12:00:00.000Z');
     expect(resposta.get('content-length')).toBe('1234'); // não mexe nos cabeçalhos da resposta
+  });
+
+  it('urlDaNotificacao: só abre endereço da própria origem (o push poderia trazer outro); senão o início do portal', () => {
+    expect(urlDaNotificacao('https://nutri.exemplo.com/p/diario', O)).toBe('https://nutri.exemplo.com/p/diario');
+    expect(urlDaNotificacao('https://evil.example/x', O)).toBe('/p/inicio');
+    expect(urlDaNotificacao('https://nutri.exemplo.com.evil.example/p/diario', O)).toBe('/p/inicio');
+    expect(urlDaNotificacao(null, O)).toBe('/p/inicio');
+    expect(urlDaNotificacao(42, O)).toBe('/p/inicio');
+    expect(urlDaNotificacao('javascript:alert(1)', O)).toBe('/p/inicio');
+    expect(urlDaNotificacao('/p/plano', O)).toBe('/p/inicio'); // R7: URL relativa não lança (sem URL.canParse), só não vale
   });
 });

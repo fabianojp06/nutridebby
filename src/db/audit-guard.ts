@@ -7,6 +7,7 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
   consents: 'prova de aceite do termo (versão, data, IP), append-only; não é dado de saúde',
   notifications: 'D10: registro técnico de entrega (canal, tipo, situação); nenhum dado clínico — o horário da consulta fica em appointments, que é auditada',
   push_subscriptions: 'INT-03: endereço do dispositivo para push; não é dado de saúde',
+  access_events: 'CS-02: só o dia em que o paciente abriu o portal; não é dado de saúde',
   stored_files:
     'metadados do arquivo (caminho, tamanho, tipo, dono); o registro que aponta para ele — exame, plano, diário, exportação — é o auditado',
 };

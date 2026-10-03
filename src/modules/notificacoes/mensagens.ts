@@ -1,6 +1,7 @@
 import type { AppointmentRow, PatientRow, TenantRow } from '@/db/schema';
 import type { EmailMessage } from '@/email/types';
 import { openSecret } from '@/lib/crypto';
+import { urlDoApp } from '@/lib/url-do-app';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
@@ -104,13 +105,24 @@ export function textoWhatsapp(c: ContextoEnvio): string | null {
   }
 }
 
+/** Plano 06: push sem consulta — o texto e a tela do portal que o toque abre (US-040, US-043, US-025). */
+const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
+  push_teste: { corpo: 'Notificações ativadas ✅', tela: '/p/inicio' },
+  comentario_diario: { corpo: 'Sua nutricionista comentou seu diário', tela: '/p/diario' },
+  plano_novo: { corpo: 'Seu novo plano alimentar está disponível', tela: '/p/plano' },
+};
+
 /**
  * D19: texto do push sem dado de saúde — só o horário (fechamento: neutro, sem o nome da nutricionista, que diria na tela
  * de bloqueio com quem a pessoa se consulta; nada do paciente, da modalidade nem do local). O toque abre o link da
  * consulta (o push vai só aos dispositivos inscritos pelo próprio paciente). Vai cifrado até o dispositivo.
  */
 export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): { titulo: string; corpo: string; url: string | null } | null {
-  if (!c.consulta) return null;
+  // Plano 06 (D7, D8): avisos do portal, sem consulta — texto neutro (sem nome da nutricionista nem dado do paciente)
+  if (!c.consulta) {
+    const aviso = Object.hasOwn(AVISOS_DO_PORTAL, c.n.tipo) ? AVISOS_DO_PORTAL[c.n.tipo] : null;
+    return aviso ? { titulo: 'NutriDebby', corpo: aviso.corpo, url: urlDoApp(deps.appUrl, aviso.tela) } : null;
+  }
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   const link = () => linkDaConsulta({ consulta: c.consulta!, tenant: c.tenant, paciente: c.paciente }, deps);
   const hoje = `Sua consulta é hoje às ${d.hora}.`;

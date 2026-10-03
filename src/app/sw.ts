@@ -16,6 +16,7 @@ import {
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
+  urlDaNotificacao,
 } from './sw-regras';
 
 declare global {
@@ -72,6 +73,30 @@ self.addEventListener('message', (e) => {
   const m = lerMensagem(e.data);
   if (!m) return;
   e.waitUntil((m.tipo === 'plano' ? guardarPlano(m.dono, m.versao) : conferirDono(m.dono)).catch(() => undefined));
+});
+
+// INT-03: o payload do worker é { titulo, corpo, url } (Plano 05, D19), cifrado até o aparelho
+self.addEventListener('push', (e) => {
+  let d: { titulo?: unknown; corpo?: unknown; url?: unknown } | null = null;
+  try {
+    d = e.data?.json() ?? null;
+  } catch {
+    d = null;
+  }
+  if (!d || typeof d.titulo !== 'string') return;
+  e.waitUntil(
+    self.registration.showNotification(d.titulo, {
+      body: typeof d.corpo === 'string' ? d.corpo : '',
+      icon: '/icones/icone-192.png',
+      data: { url: d.url ?? null },
+    }),
+  );
+});
+
+// O toque abre a tela do aviso — só da própria origem (urlDaNotificacao)
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.openWindow(urlDaNotificacao((e.notification.data as { url?: unknown } | null)?.url, origem)));
 });
 
 // D6: os estáticos do build (precache) + só o HTML de "Meu plano" (1 entrada, gravada por guardarPlano). Nada de /api,

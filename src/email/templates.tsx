@@ -223,6 +223,23 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.link].join('\n\n'),
       };
     }
+    case 'plano_novo': {
+      const subject = 'Seu novo plano alimentar está disponível';
+      const linhas = ['Sua nutricionista publicou um novo plano alimentar para você no NutriDebby.', 'Entre no portal para ver as refeições e baixar o PDF.'];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>Ver meu plano</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
     case 'consulta': {
       const subject = {
         lembrete_24h: `Lembrete: sua consulta é amanhã às ${msg.hora}`,

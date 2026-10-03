@@ -77,6 +77,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   public_booking_requests: (t) =>
     sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em)
         values (gen_random_uuid(), ${t}, ${randomUUID()}, 'x', ${`iso-${randomUUID().slice(0, 8)}@teste.dev`}, 'Iso', '2030-01-01T12:00:00Z', 'presencial', 't', now() + interval '10 minutes')`,
+  access_events: (t, p) => sql`insert into access_events (tenant_id, patient_id, dia) values (${t}, ${p}, ${`2030-01-${String((++seqConsulta % 28) + 1).padStart(2, '0')}`})`,
   push_subscriptions: (t, p) =>
     sql`insert into push_subscriptions (tenant_id, patient_id, endpoint, p256dh, auth) values (${t}, ${p}, ${`https://push.example.test/${randomUUID()}`}, ${'a'.repeat(87)}, ${'b'.repeat(22)})`,
   // uma linha por tenant (tenant_id UNIQUE): a fábrica roda duas vezes por tenant

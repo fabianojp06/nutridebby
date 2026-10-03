@@ -181,6 +181,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
   stored_files: { comandos: ['insert'], motivo: 'foto do diário (US-042): salvarArquivo com a sessão do paciente' },
+  access_events: { comandos: ['insert'], motivo: 'CS-02: o paciente registra o acesso do dia (D9)' },
+  push_subscriptions: { comandos: ['insert', 'delete'], motivo: 'INT-03 / P06-02: ativar e cancelar notificações no aparelho' },
 };
 
 /** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a escrita do paciente, ou bate exatamente com PACIENTE_ESCREVE. */
