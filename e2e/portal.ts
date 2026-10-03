@@ -51,3 +51,24 @@ export async function publicarPlanoSimples(nutri: Page, prontuario: string) {
   await nutri.getByRole('button', { name: 'Publicar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
 }
+/** Avaliação pela aba Antropometria (mesmos passos de e2e/pacientes.spec.ts), com JP3 para gerar o % de gordura. */
+export async function avaliar(nutri: Page, prontuario: string, data: string, peso: string) {
+  await nutri.goto(`${prontuario}/antropometria`);
+  await nutri.getByLabel('Data da avaliação').fill(data);
+  await nutri.getByLabel('Peso (kg)').fill(peso);
+  await nutri.getByLabel('Altura (cm)').fill('170');
+  await nutri.getByLabel('Protocolo de dobras').selectOption('jp3');
+  await nutri.getByLabel('Tríceps').fill('20');
+  await nutri.getByLabel('Supra-ilíaca').fill('20');
+  await nutri.getByLabel('Coxa', { exact: true }).last().fill('20');
+  await nutri.getByRole('button', { name: 'Salvar avaliação' }).click();
+  await expect(nutri.getByRole('status')).toHaveText('Avaliação salva.');
+}
+
+/** Liga ou desliga "Mostrar % de gordura ao paciente" em Perfil e marca (o tenant do E2E é compartilhado: sempre voltar a desligar). */
+export async function mostrarPercGordura(nutri: Page, ligar: boolean) {
+  await nutri.goto('/painel/configuracoes');
+  await nutri.getByLabel('Mostrar % de gordura ao paciente').setChecked(ligar);
+  await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Perfil salvo.' })).toBeVisible();
+}

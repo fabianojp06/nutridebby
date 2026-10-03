@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -185,5 +185,24 @@ test('Diários: a nutricionista vê o registro novo, abre, comenta; o paciente v
   await expect(nutri.getByRole('listitem').filter({ hasText: p.nome }).getByText('Visto')).toBeVisible();
   await p.page.reload();
   await expect(p.page.getByText('Ótima escolha de proteína!')).toBeVisible();
+  await p.page.context().close();
+});
+
+test('Minha evolução: peso sem % de gordura; com a opção ligada, o % aparece; orientações sem exames (US-044)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.14');
+  await avaliar(nutri, p.prontuario, '2026-08-01', '80');
+  await avaliar(nutri, p.prontuario, '2026-09-01', '77');
+  await p.page.goto('/p/evolucao');
+  await expect(p.page.getByRole('heading', { name: 'Minha evolução' })).toBeVisible();
+  await expect(p.page.getByText(/^Peso: 80,0/)).toBeVisible();
+  await expect(p.page.getByText('% de gordura')).toHaveCount(0);
+  try {
+    await mostrarPercGordura(nutri, true);
+    await p.page.reload();
+    await expect(p.page.getByText(/^% de gordura:/)).toBeVisible();
+  } finally {
+    await mostrarPercGordura(nutri, false);
+  }
+  await expect(p.page.getByText('Nenhuma orientação registrada ainda.')).toBeVisible();
   await p.page.context().close();
 });

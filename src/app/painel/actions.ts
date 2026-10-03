@@ -35,11 +35,13 @@ export async function salvarPerfilAction(_prev: PerfilState, formData: FormData)
     cancelamentoMinH: campoPerfil(formData, 'cancelamentoMinH'),
     fuso: campoPerfil(formData, 'fuso'),
     agendamentoPublicoAtivo: formData.get('agendamentoPublicoAtivo') === 'on' ? 'on' : '',
+    mostrarPercGorduraPaciente: formData.get('mostrarPercGorduraPaciente') === 'on' ? 'on' : '',
   };
   try {
     await atualizarPerfil(tenant.id, {
       ...valores,
       agendamentoPublicoAtivo: valores.agendamentoPublicoAtivo === 'on',
+      mostrarPercGorduraPaciente: valores.mostrarPercGorduraPaciente === 'on',
     });
   } catch (e) {
     if (e instanceof PerfilError) return { erros: e.erros, valores };
