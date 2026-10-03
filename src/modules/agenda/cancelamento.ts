@@ -19,11 +19,13 @@ import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
  * confere antes, mas a nutricionista pode mudar o horário entre abrir o link e clicar).
  * `naMesmaTransacao` (T12, WhatsApp): roda na transação da ação, com as mesmas travas (paciente → consulta), quando a
  * ação vale para o paciente — presença confirmada (agora ou antes) ou pedido de remarcação registrado (agora ou antes):
- * é onde o webhook grava a resposta ao paciente, que só existe se a ação valeu.
+ * é onde o webhook grava a resposta ao paciente, que só existe se a ação valeu. `mudou` (code-review do PR #7): a ação
+ * mudou a consulta agora (confirmou, desfez o pedido em aberto, registrou um pedido novo) — o webhook responde a cada
+ * mudança; a que não mudou nada (repetida, ou já feita pelo link) responde só se ainda não respondeu.
  * `emailDoLink` (decisão do dono, fechamento): o e-mail (normalizado) com que o link assinado conferiu. Sob a trava do
  * paciente, a ação confere de novo — a nutricionista pode corrigir o e-mail entre abrir o link e clicar.
  */
-type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date; emailDoLink?: string; naMesmaTransacao?: (tx: Tx, c: AppointmentRow) => Promise<void> };
+type Deps = { db?: Db; now?: Date; appUrl?: string; inicioDoLink?: Date; emailDoLink?: string; naMesmaTransacao?: (tx: Tx, c: AppointmentRow, mudou: boolean) => Promise<void> };
 
 /** D20: a consulta mudou de horário depois de o link sair — o link antigo expirou para ela ("Este link expirou."). */
 export class ConsultaMudouError extends Error {
@@ -179,7 +181,11 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
   }
 }
 
-/** US-035: "1" no WhatsApp ou "Confirmar presença" no link. Idempotente; só antes do início e só de paciente ativo (RN-08). */
+/**
+ * US-035: "1" no WhatsApp ou "Confirmar presença" no link. Idempotente; só antes do início e só de paciente ativo (RN-08).
+ * Confirmar desfaz o pedido de remarcação em aberto — também quando a consulta já estava "confirmada" ("1" → "2" → "1",
+ * code-review do PR #7): a via da confirmação não muda e o resultado continua "ja_confirmada".
+ */
 export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'whatsapp' | 'link', deps: Deps = {}): Promise<'confirmada' | 'ja_confirmada' | 'nao_confirmavel'> {
   const agora = deps.now ?? new Date();
   return withTenant(
@@ -190,18 +196,23 @@ export async function confirmarPresenca(ctx: TenantContext, id: string, via: 'wh
       conferirInicioDoLink(c, deps);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return 'nao_confirmavel';
       if (c.status === 'confirmada') {
-        await deps.naMesmaTransacao?.(tx, c);
+        const desfezPedido = !!c.pedidoRemarcacaoEm;
+        if (desfezPedido) await tx.update(appointments).set({ pedidoRemarcacaoEm: null, updatedAt: agora }).where(eq(appointments.id, id));
+        await deps.naMesmaTransacao?.(tx, c, desfezPedido);
         return 'ja_confirmada';
       }
       await tx.update(appointments).set({ status: 'confirmada', confirmadaVia: via, pedidoRemarcacaoEm: null, updatedAt: agora }).where(eq(appointments.id, id));
-      await deps.naMesmaTransacao?.(tx, c);
+      await deps.naMesmaTransacao?.(tx, c, true);
       return 'confirmada';
     },
     deps.db ?? getDb(),
   );
 }
 
-/** US-035 "Preciso remarcar": marca o pedido e avisa a nutricionista — uma vez só (repetir não avisa de novo); só paciente ativo. */
+/**
+ * US-035 "Preciso remarcar": marca o pedido e avisa a nutricionista — uma vez por pedido (repetir não avisa de novo; um
+ * pedido novo depois de o "1" desfazer o anterior avisa); só paciente ativo.
+ */
 export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, id: string, deps: Deps = {}): Promise<boolean> {
   const agora = deps.now ?? new Date();
   return withTenant(
@@ -213,12 +224,12 @@ export async function pedirRemarcacao(ctx: TenantContext, tenant: TenantAgenda, 
       conferirInicioDoLink(c, deps);
       if (!ativa(c.status) || c.inicio.getTime() <= agora.getTime()) return false;
       if (c.pedidoRemarcacaoEm) {
-        await deps.naMesmaTransacao?.(tx, c); // já pedido (pelo link ou antes): a nutricionista não é avisada de novo
+        await deps.naMesmaTransacao?.(tx, c, false); // já pedido (pelo link ou antes): a nutricionista não é avisada de novo
         return false;
       }
       await tx.update(appointments).set({ pedidoRemarcacaoEm: agora, updatedAt: agora }).where(eq(appointments.id, id));
       await avisarNutriDaConsulta(tx, tenant, { id, inicio: c.inicio, paciente: paciente.nome }, 'pedido_remarcacao', deps.appUrl ?? getEnv().APP_URL);
-      await deps.naMesmaTransacao?.(tx, c);
+      await deps.naMesmaTransacao?.(tx, c, true);
       return true;
     },
     deps.db ?? getDb(),

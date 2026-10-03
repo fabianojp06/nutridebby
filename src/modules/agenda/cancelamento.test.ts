@@ -16,6 +16,7 @@ import { agendarComoPaciente } from './agendamento-paciente';
 import { cancelarConsulta, confirmarPresenca, ConsultaMudouError, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, motivoDoCancelamentoDaNutri } from './consultas';
+import { novidadesDaAgenda } from './presenca';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só lê pg_stat_activity (a gravação ficou presa na trava)
@@ -256,6 +257,24 @@ describe('confirmar presença e pedir remarcação (US-035)', () => {
     expect((await consulta(T, id)).confirmadaVia).toBe('link');
     const outra = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-17', '14:00'));
     expect(await confirmarPresenca(ctx, outra, 'link', deps(em('2026-10-17', '14:30')))).toBe('nao_confirmavel');
+  });
+
+  it('code-review do PR #7: confirmar de novo a consulta já "confirmada" com pedido de remarcação em aberto ("1" → "2" → "1") desfaz o pedido, sem trocar a via; sem pedido, nada muda', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    expect(await confirmarPresenca(ctx, id, 'whatsapp', deps(em('2026-10-15', '09:00')))).toBe('confirmada');
+    expect(await pedirRemarcacao(ctx, tenantAgenda(T), id, deps(em('2026-10-15', '09:05')))).toBe(true);
+    // `naMesmaTransacao` fica sabendo se a ação mudou algo (o webhook responde a cada mudança)
+    const mudou: boolean[] = [];
+    const registrar = (now: Date) => ({ ...deps(now), naMesmaTransacao: async (_tx: unknown, _c: unknown, m: boolean) => void mudou.push(m) });
+    expect(await confirmarPresenca(ctx, id, 'link', registrar(em('2026-10-15', '09:10')))).toBe('ja_confirmada');
+    expect(await consulta(T, id)).toMatchObject({ status: 'confirmada', confirmadaVia: 'whatsapp', pedidoRemarcacaoEm: null });
+    // "Pedidos de remarcação" do painel não lista mais a consulta
+    expect((await novidadesDaAgenda(T.ctx, em('2026-10-15', '09:15'), app.db)).pedidosRemarcacao).toEqual([]);
+    expect(await confirmarPresenca(ctx, id, 'whatsapp', registrar(em('2026-10-15', '09:20')))).toBe('ja_confirmada');
+    expect(mudou).toEqual([true, false]);
   });
 
   it('pedir remarcação: grava uma vez e avisa a nutricionista uma vez', async () => {

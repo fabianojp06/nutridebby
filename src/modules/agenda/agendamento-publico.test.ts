@@ -425,9 +425,20 @@ describe('página pública (US-032, RN-16)', () => {
     expect((await falha(confirmarCodigo(T.slug, { pedido: 'x', codigo: '123456' }, deps({ ip })))).status).toBe(429);
     await solicitarCodigo(T.slug, e, deps());
     expect(await falha(solicitarCodigo(T.slug, { ...e, inicio: em('2026-10-16', '10:00').toISOString() }, deps({ agora: new Date(agora.getTime() + 30_000) })))).toEqual({ status: 429, erros: { geral: MSG_PUBLICO.aguarde } });
-    // 5 códigos por e-mail na hora (o 1º acima já contou; o recusado pelo "aguarde" também)
-    for (let i = 1; i <= 3; i++) await solicitarCodigo(T.slug, { ...e, inicio: em('2026-10-16', `1${i}:00`).toISOString() }, deps({ agora: new Date(agora.getTime() + i * 61_000) }));
-    expect(await falha(solicitarCodigo(T.slug, { ...e, inicio: em('2026-10-16', '15:00').toISOString() }, deps({ agora: new Date(agora.getTime() + 5 * 61_000) })))).toEqual({ status: 429, erros: { geral: MSG_PUBLICO.muitasTentativas } });
+    // 5 códigos por e-mail na hora (o 1º acima já contou; o recusado pelo "aguarde" não — code-review do PR #7)
+    for (let i = 1; i <= 4; i++) await solicitarCodigo(T.slug, { ...e, inicio: em('2026-10-16', `1${i}:00`).toISOString() }, deps({ agora: new Date(agora.getTime() + i * 61_000) }));
+    expect(await falha(solicitarCodigo(T.slug, { ...e, inicio: em('2026-10-16', '15:00').toISOString() }, deps({ agora: new Date(agora.getTime() + 6 * 61_000) })))).toEqual({ status: 429, erros: { geral: MSG_PUBLICO.muitasTentativas } });
+  });
+
+  it('code-review do PR #7: cliques repetidos recusados pelo "aguarde" (1 código por minuto) não gastam a cota de 5 códigos do e-mail na hora', async () => {
+    const T = await consultorio();
+    const e = pedido();
+    const em_ = (s: number) => deps({ agora: new Date(agora.getTime() + s * 1000) });
+    await solicitarCodigo(T.slug, e, em_(0));
+    for (let i = 1; i <= 4; i++) expect(await falha(solicitarCodigo(T.slug, e, em_(i * 10)))).toEqual({ status: 429, erros: { geral: MSG_PUBLICO.aguarde } });
+    // passado o minuto: código novo (não "Muitas tentativas…")
+    await solicitarCodigo(T.slug, e, em_(61));
+    expect(await emailsNaFila('codigo_agendamento', e.email)).toHaveLength(2);
   });
 
   it('página desativada ou conta suspensa → 404 sem gravar nada; horário fora das regras ou da janela → 409', async () => {

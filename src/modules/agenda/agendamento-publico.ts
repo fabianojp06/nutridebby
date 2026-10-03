@@ -143,9 +143,6 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
     if (e instanceof ConsultaError) throw new PublicoError(409, { inicio: MSG_AGENDA.indisponivel });
     throw e;
   }
-  if (!(await consumirLimite(db, chaveDoLimite('email-hora', `${tenant.id}:${v.email}`), LIMITE_EMAIL_HORA, 3600, agora))) {
-    throw new PublicoError(429, { geral: MSG_PUBLICO.muitasTentativas });
-  }
   const pedido = randomToken();
   const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
   const id = randomUUID();
@@ -155,6 +152,12 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
       await travarEmail(tx, tenant.id, v.email);
       const [u] = await tx.select({ em: max(publicBookingRequests.createdAt) }).from(publicBookingRequests).where(eq(publicBookingRequests.email, v.email));
       if (u?.em && agora.getTime() - u.em.getTime() < INTERVALO_CODIGO_MS) throw new PublicoError(429, { geral: MSG_PUBLICO.aguarde });
+      // code-review do PR #7: a cota de 5 códigos por hora conta só o código que sai — depois do "1 por minuto" e na mesma
+      // transação (sob a trava do e-mail): o clique recusado pelo "aguarde", ou qualquer recusa que desfaça a transação,
+      // não gasta a cota. Nada aqui olha `patients`: a resposta é a mesma para e-mail cadastrado ou não (D12)
+      if (!(await consumirLimite(tx, chaveDoLimite('email-hora', `${tenant.id}:${v.email}`), LIMITE_EMAIL_HORA, 3600, agora))) {
+        throw new PublicoError(429, { geral: MSG_PUBLICO.muitasTentativas });
+      }
       await tx.insert(publicBookingRequests).values({
         id,
         tenantId: tenant.id,

@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { appointments, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -114,12 +114,24 @@ export async function novidadesDaAgenda(ctx: TenantContext, agora: Date, db: Db 
 }
 
 /**
- * Rodada 1: "Iniciar atendimento" — consulta deste paciente, já começada, não cancelada e ainda sem atendimento ligado
- * (inclusive "realizada"/"faltou": registrar o atendimento corrige a falta). A página da consulta (link) e a de
- * atendimentos (`?consulta=`: aviso e campo oculto) usam a mesma regra. Id inválido ou de outro paciente → null.
+ * A regra de "Iniciar atendimento" (R11: uma regra num lugar só — a tela, via `consultaParaIniciarAtendimento`, e o
+ * registro, via `registrarAtendimento`, sob a trava da consulta): não cancelada e já começada (no início em ponto, já
+ * pode). "realizada"/"faltou" podem: registrar o atendimento corrige a falta. null = pode.
+ */
+export function motivoParaNaoIniciarAtendimento(c: { status: string; inicio: Date }, agora: Date): 'cancelada' | 'nao_comecou' | null {
+  if (c.status === 'cancelada') return 'cancelada';
+  if (c.inicio.getTime() > agora.getTime()) return 'nao_comecou';
+  return null;
+}
+
+/**
+ * Rodada 1: "Iniciar atendimento" — consulta deste paciente, que pode receber atendimento (`motivoParaNaoIniciarAtendimento`)
+ * e ainda sem atendimento ligado. A página da consulta (link) e a de atendimentos (`?consulta=`: aviso e campo oculto)
+ * usam esta função. Id inválido ou de outro paciente → null.
  */
 export async function consultaParaIniciarAtendimento(ctx: TenantContext, patientId: string, id: string, agora: Date, db: Db = getDb()): Promise<Consulta | null> {
   if (!idValido(id) || !idValido(patientId)) return null;
-  const onde = and(eq(appointments.id, id), eq(appointments.patientId, patientId), ne(appointments.status, 'cancelada'), lte(appointments.inicio, agora), sql`not ${temAtendimento}`);
-  return (await listarConsultas(ctx, onde, { ordem: 'asc', limite: 1 }, db))[0] ?? null;
+  const onde = and(eq(appointments.id, id), eq(appointments.patientId, patientId), sql`not ${temAtendimento}`);
+  const [c] = await listarConsultas(ctx, onde, { ordem: 'asc', limite: 1 }, db);
+  return c && motivoParaNaoIniciarAtendimento(c, agora) === null ? c : null;
 }

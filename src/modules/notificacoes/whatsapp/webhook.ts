@@ -179,7 +179,10 @@ async function atualizarStatus(tenantId: string, ev: Extract<EventoWhatsapp, { t
  * nas últimas 26 h, de consulta futura e ativa, no horário do lembrete (D17) — o citado, se a resposta cita um deles
  * (citou outra mensagem: nada); sem citação, o mais recente. A ação roda como o próprio paciente (RLS por paciente) e confere de novo, sob a trava, que a consulta ainda
  * está no horário do lembrete (`inicioDoLink`). A resposta ao paciente é gravada na mesma transação, só se a ação valeu
- * (`naMesmaTransacao`), e é uma linha única por consulta e horário: repetir não responde de novo.
+ * (`naMesmaTransacao`). Code-review do PR #7: uma resposta por AÇÃO que mudou a consulta — "2" → "1" → "2" é um pedido
+ * novo e ganha resposta e e-mail com o link novos; a ação que não mudou nada (repetida, ou já feita pelo link) responde
+ * só se ainda não houve resposta (ao mesmo pedido, no "2"; ao mesmo horário, no "1"). Sem chave única no banco para as
+ * respostas: quem grava segura a trava da consulta, então a conferência e a gravação não correm com outra resposta.
  * Travas: paciente → consulta → notificações (a ordem de moverConsulta/cancelarConsulta/avisarPaciente).
  */
 async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { tipo: 'resposta' }>, db: Db, agora: Date, appUrl: string): Promise<void> {
@@ -216,17 +219,23 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
   if (!alvo?.appointmentId || !alvo.inicio) return;
   const comoPaciente: TenantContext = { tenantId, role: 'paciente', patientId: alvo.patientId };
   const tipo = ev.intencao === 'confirmar' ? 'resposta_confirmacao' : 'resposta_remarcar';
-  const responder = async (tx: Tx, c: AppointmentRow) => {
+  const responder = async (tx: Tx, c: AppointmentRow, mudou: boolean) => {
+    if (!mudou) {
+      // nada mudou: responde só se ainda não respondeu — no "2", a este pedido (a resposta do pedido nasce no instante dele);
+      // no "1", a este horário. A trava da consulta (lerConsultaParaEscrita) está com esta transação
+      const desde = tipo === 'resposta_remarcar' && c.pedidoRemarcacaoEm ? gte(notifications.createdAt, c.pedidoRemarcacaoEm) : undefined;
+      const [ja] = await tx
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(and(eq(notifications.appointmentId, c.id), eq(notifications.inicioConsulta, c.inicio), eq(notifications.canal, 'whatsapp'), eq(notifications.tipo, tipo), desde))
+        .limit(1);
+      if (ja) return; // repetido: não responde de novo (nem por e-mail)
+    }
     const linha = (canal: 'whatsapp' | 'email') => ({ tenantId, patientId: c.patientId, appointmentId: c.id, inicioConsulta: c.inicio, canal, tipo, agendadaPara: agora, createdAt: agora, updatedAt: agora });
-    const novas = await tx
-      .insert(notifications)
-      .values(linha('whatsapp'))
-      .onConflictDoNothing() // uma resposta por consulta e horário (índice único parcial, D6)
-      .returning({ id: notifications.id });
-    if (!novas.length) return; // repetido: não responde de novo (nem por e-mail)
+    await tx.insert(notifications).values(linha('whatsapp'));
     // fechamento: o "2" também grava um e-mail novo com o link para remarcar (o WhatsApp não leva link, D3), montado no
     // envio com o e-mail ATUAL do paciente — o do lembrete pode não ter saído ou ter caído com a correção do e-mail (D20)
-    if (tipo === 'resposta_remarcar') await tx.insert(notifications).values(linha('email')).onConflictDoNothing();
+    if (tipo === 'resposta_remarcar') await tx.insert(notifications).values(linha('email'));
     await dispararEnvio(tx, tenantId);
   };
   const d = { db, now: agora, appUrl, inicioDoLink: alvo.inicio, naMesmaTransacao: responder };

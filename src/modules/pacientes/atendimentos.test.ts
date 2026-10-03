@@ -129,6 +129,20 @@ describe('atendimentos (US-016)', () => {
     expect((await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.id, solto)), app.db))[0].appointmentId).toBeNull();
   });
 
+  it('code-review do PR #7: consulta que ainda não começou (movida para o futuro, ou POST montado) não recebe atendimento nem vira "realizada" — a regra da tela, no servidor', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const entrada = (appointmentId: string) => ({ data: '2026-10-01', notasPrivadas: '', orientacoes: '', appointmentId });
+    const futura = await consultaDireta(app.db, T.ctx, p.id, new Date(now.getTime() + 2 * 3_600_000)); // começa daqui a 2 h
+    await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(futura), deps)).rejects.toMatchObject({ erros: { geral: 'Esta consulta ainda não começou.' } });
+    expect((await buscarConsulta(T.ctx, futura, app.db))?.status).toBe('agendada');
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.patientId, p.id)), app.db)).toEqual([]);
+    // no início em ponto já pode (consultaParaIniciarAtendimento: inicio <= agora)
+    const agoraMesmo = await consultaDireta(app.db, T.ctx, p.id, now);
+    await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(agoraMesmo), deps);
+    expect((await buscarConsulta(T.ctx, agoraMesmo, app.db))?.status).toBe('realizada');
+  });
+
   it('consulta marcada como "faltou" por engano: o atendimento corrige para "realizada"', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);

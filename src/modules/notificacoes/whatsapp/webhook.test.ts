@@ -182,6 +182,49 @@ describe('processarEventoWhatsapp (US-035)', () => {
     expect((await emailsNaFila('aviso_agenda', nutri.email)).filter((m) => m.evento === 'pedido_remarcacao')).toEqual([]);
   });
 
+  it('code-review do PR #7: "2" → "1" → "2" — cada pedido novo ganha a resposta no WhatsApp e o e-mail com o link, uma vez por pedido; a nutricionista é avisada a cada pedido', async () => {
+    const T = await tenant();
+    const { c } = await lembreteEnviado(T);
+    const w = whatsappFalso();
+    const emails: string[] = [];
+    // cada resposta numa hora, e o worker envia entre uma e outra (como na vida real)
+    const responder = async (texto: string, min: number) => {
+      const quando = new Date(agora.getTime() + min * 60_000);
+      await processar(upsert(`nd-${T.tenantId}`, texto), { ...deps, agora: quando });
+      const d = depsDeEnvio(quando, { db: app.db, whatsapp: w });
+      await processarNotificacoes(d, { tenantId: T.tenantId });
+      emails.push(...d.transport.enviados.map((e) => e.subject));
+    };
+    await responder('2', 0);
+    await responder('1', 2);
+    await responder('2', 4);
+    await responder('2', 6); // repetido: o mesmo pedido, nada novo
+    expect(await consulta(T, c)).toMatchObject({ status: 'confirmada', pedidoRemarcacaoEm: new Date(agora.getTime() + 4 * 60_000) });
+    const remarcar = 'Tudo bem! Enviamos o link para remarcar para o seu e-mail';
+    expect(w.enviados.map((e) => (e.texto.startsWith(remarcar) ? 'remarcar' : e.texto))).toEqual(['remarcar', 'Presença confirmada. Até lá!', 'remarcar']);
+    expect(emails.filter((s) => s.startsWith('Remarcar sua consulta: '))).toHaveLength(2);
+    const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
+    expect((await emailsNaFila('aviso_agenda', nutri.email)).filter((m) => m.evento === 'pedido_remarcacao')).toHaveLength(2);
+  });
+
+  it('code-review do PR #7: "1" → "2" → "1" — o segundo "1" desfaz o pedido de remarcação e o paciente recebe "Presença confirmada" de novo; repetido, não', async () => {
+    const T = await tenant();
+    const { c } = await lembreteEnviado(T);
+    const w = whatsappFalso();
+    const responder = async (texto: string, min: number) => {
+      const quando = new Date(agora.getTime() + min * 60_000);
+      await processar(upsert(`nd-${T.tenantId}`, texto), { ...deps, agora: quando });
+      await processarNotificacoes(depsDeEnvio(quando, { db: app.db, whatsapp: w }), { tenantId: T.tenantId });
+    };
+    await responder('1', 0);
+    await responder('2', 2);
+    await responder('1', 4);
+    await responder('1', 6); // repetido: nada mudou, não responde de novo
+    expect(await consulta(T, c)).toMatchObject({ status: 'confirmada', confirmadaVia: 'whatsapp', pedidoRemarcacaoEm: null });
+    const remarcar = 'Tudo bem! Enviamos o link para remarcar para o seu e-mail';
+    expect(w.enviados.map((e) => (e.texto.startsWith(remarcar) ? 'remarcar' : e.texto))).toEqual(['Presença confirmada. Até lá!', 'remarcar', 'Presença confirmada. Até lá!']);
+  });
+
   it('resposta citando a mensagem escolhe aquela consulta; sem citação, a do lembrete mais recente', async () => {
     const T = await tenant();
     const a = await lembreteEnviado(T, { inicio: em('2026-10-16', '09:00') });

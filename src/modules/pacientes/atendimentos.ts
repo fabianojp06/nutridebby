@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { motivoParaNaoIniciarAtendimento } from '@/modules/agenda/presenca';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
 import { dataValida, hojeNoFuso } from './datas';
@@ -15,6 +16,8 @@ export const MSG_ATENDIMENTO = {
   naoEncontrado: 'Atendimento não encontrado.',
   consultaJaAtendida: 'Esta consulta já tem um atendimento registrado.',
   consultaInvalida: 'Consulta não encontrada para este paciente.',
+  /** Code-review do PR #7: a consulta foi movida para o futuro depois de a tela abrir (ou o POST foi montado). */
+  consultaNaoComecou: 'Esta consulta ainda não começou.',
 } as const;
 
 export class AtendimentoError extends Error {
@@ -56,8 +59,8 @@ async function gravarNota(tx: Tx, a: { tenantId: string; patientId: string; cons
 
 /**
  * US-016: atendimento do dia. Notas vazias não criam linha em consultation_notes.
- * Plano 05 ("Iniciar atendimento" na agenda): com `appointmentId`, a consulta precisa ser deste paciente e não
- * cancelada; o atendimento fica ligado a ela (no máximo um por consulta) e ela vira "realizada" — inclusive a marcada
+ * Plano 05 ("Iniciar atendimento" na agenda): com `appointmentId`, a consulta precisa ser deste paciente, não
+ * cancelada e já começada (a regra da tela, `motivoParaNaoIniciarAtendimento`); o atendimento fica ligado a ela (no máximo um por consulta) e ela vira "realizada" — inclusive a marcada
  * como "faltou" por engano: houve atendimento. Ordem das travas: paciente → consulta (a mesma da agenda).
  */
 export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: string }, patientId: string, input: Entrada, deps: { db?: Db; now?: Date } = {}): Promise<string> {
@@ -73,7 +76,10 @@ export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: s
           const [c] = idValido(appointmentId)
             ? await tx.select().from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, p.id))).for('update')
             : [];
-          if (!c || c.status === 'cancelada') throw new AtendimentoError({ geral: MSG_ATENDIMENTO.consultaInvalida });
+          if (!c) throw new AtendimentoError({ geral: MSG_ATENDIMENTO.consultaInvalida });
+          // a regra da tela, conferida de novo sob a trava da consulta (R11: motivoParaNaoIniciarAtendimento)
+          const motivo = motivoParaNaoIniciarAtendimento(c, now);
+          if (motivo) throw new AtendimentoError({ geral: motivo === 'cancelada' ? MSG_ATENDIMENTO.consultaInvalida : MSG_ATENDIMENTO.consultaNaoComecou });
           if (c.status !== 'realizada') await tx.update(appointments).set({ status: 'realizada', presencaEm: now, updatedAt: now }).where(eq(appointments.id, c.id));
         }
         const [c] = await tx
