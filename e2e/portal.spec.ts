@@ -225,13 +225,16 @@ test('lista de compras: 7 dias do chuchu de 100 g = 700 g em "Verduras…"; "com
 
 test('agenda no PWA: a consulta marcada pela nutricionista aparece; confirmar presença; a página de agendar abre (P06-09)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.18');
-  await marcarParaPaciente(nutri, p.nome, p.email, 50);
+  await marcarParaPaciente(nutri, p.nome, p.email, 0);
   await p.page.goto('/p/agenda');
   const proxima = p.page.getByRole('region', { name: 'Próximas' }).getByRole('link').first();
   await expect(proxima).toContainText('Agendada');
   await proxima.click();
   await p.page.getByRole('button', { name: 'Confirmar presença' }).click();
   await expect(p.page.getByRole('status').filter({ hasText: 'Presença confirmada. Até lá!' })).toBeVisible();
+  // rodada 1 da revisão: a remarcação leva à consulta nova com ?ok=remarcada (actions.test.ts) e a página mostra a confirmação
+  await p.page.goto(`${new URL(p.page.url()).pathname}?ok=remarcada`);
+  await expect(p.page.getByRole('status').filter({ hasText: /^Consulta remarcada para .+\.$/ })).toBeVisible();
   await p.page.goto('/p/agenda/nova');
   await expect(p.page.getByRole('heading', { name: 'Agendar consulta' })).toBeVisible();
   await p.page.goto('/p/agenda/00000000-0000-4000-8000-000000000000');

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePaciente } from '@/lib/paciente-session';
-import { ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
 import { formatarQuando, quandoComFuso, somarDias } from '@/modules/agenda/fuso';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarData } from '@/modules/pacientes/datas';
@@ -20,11 +20,15 @@ export default async function ConsultaDoPortal({ params, searchParams }: PagePro
   const agora = new Date();
   const c = await consultaDoPaciente(ctx, tenant, id, agora);
   if (!c) notFound();
+  const sp = await searchParams;
   const ativa = c.status === 'agendada' || c.status === 'confirmada';
-  const s = ativa && c.podeAlterar ? await horariosDaSemana(tenant, agora, (await searchParams).semana, c.id) : null;
+  const s = ativa && c.podeAlterar ? await horariosDaSemana(tenant, agora, sp.semana, c.id) : null;
+  // US-033: a remarcação traz para a consulta nova (`remarcarAction`); a confirmação vem pela URL, como no painel
+  const remarcada = sp.ok === 'remarcada' && ativa ? MSG_AGENDA.remarcada(quandoComFuso(c.inicio, tenant.fuso)) : null;
   return (
     <main className="space-y-4 p-6">
       <h1 className="text-2xl font-semibold">Sua consulta</h1>
+      {remarcada && <p role="status" className="rounded bg-emerald-50 p-3">{remarcada}</p>}
       <p>
         <QuandoLocal semFuso={formatarQuando(c.inicio, tenant.fuso)} comFuso={quandoComFuso(c.inicio, tenant.fuso)} fuso={tenant.fuso} />
         {` · ${ROTULO_MODALIDADE[c.modalidade]}`}

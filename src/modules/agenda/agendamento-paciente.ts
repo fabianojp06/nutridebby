@@ -1,3 +1,4 @@
+import { and, count, eq, gt, inArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -6,8 +7,8 @@ import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notif
 import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
 import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
-import { JANELA_PACIENTE_DIAS, MSG_AGENDA } from './constantes';
-import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, type TenantAgenda } from './consultas';
+import { JANELA_PACIENTE_DIAS, MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
+import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, STATUS_ATIVOS, type TenantAgenda } from './consultas';
 import { segundaDaSemana, somarDias } from './fuso';
 import type { Horario, Modalidade } from './horarios';
 
@@ -93,6 +94,10 @@ export async function gravarConsultaDoPaciente(
 /**
  * US-032 (P05-03): o paciente da sessão marca um horário livre. A RLS por paciente garante que só grava
  * para si; o EXCLUDE decide a corrida com outro paciente (D9). A tela é do Plano 06 (P06-09).
+ * Revisão da T12 do Plano 06: o mesmo teto da página pública (RN-16, 3 consultas futuras ativas) vale aqui — sem ele, o
+ * "Entrar (já sou paciente)" levava do caminho com teto para um sem teto (e-mails à nutricionista, lembretes na cota do
+ * WhatsApp, agenda tomada). Contado sob a trava do paciente (`carregarPacienteParaEscrita`, FOR UPDATE): dois pedidos ao
+ * mesmo tempo não passam juntos do teto. Remarcar não passa por aqui (troca uma consulta por outra).
  */
 export async function agendarComoPaciente(
   ctx: TenantContext,
@@ -113,6 +118,11 @@ export async function agendarComoPaciente(
         async (tx) => {
           const p = await carregarPacienteParaEscrita(tx, ctx.patientId!);
           if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
+          const [{ n }] = await tx
+            .select({ n: count() })
+            .from(appointments)
+            .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_ATIVOS), gt(appointments.inicio, agora)));
+          if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new ConsultaError({ geral: MSG_AGENDA.limitePublico }); // RN-16
           return { id: await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' }) };
         },
         db,

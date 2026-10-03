@@ -75,13 +75,15 @@ export async function mostrarPercGordura(nutri: Page, ligar: boolean) {
 
 let seqHora = 0;
 /**
- * A nutricionista marca uma consulta para o paciente daqui a ~`diasAFrente` dias (quarta-feira), num horário que não repete
- * na mesma execução (R11: cada spec usa um `diasAFrente` só seu — portal.spec 50, acessibilidade.spec 54 — e a hora sai
- * de um contador do módulo, para as consultas não colidirem na agenda compartilhada).
+ * A nutricionista marca uma consulta para o paciente numa quarta-feira a ~7 semanas daqui, num horário que não repete na
+ * mesma execução. R11 (rodada 1 da revisão da T12): cada spec usa uma `semana` só sua — portal.spec 0, acessibilidade.spec
+ * 1 — e a quarta é a primeira depois de hoje + 49 dias, mais 7 dias por `semana`: dois specs nunca caem no mesmo dia,
+ * qualquer que seja o dia da execução (com "dias à frente" 50 e 54, o arredondamento para a quarta juntava os dois em
+ * 3 de cada 7 dias). Dentro de um spec, a hora sai de um contador do módulo.
  */
-export async function marcarParaPaciente(nutri: Page, nome: string, email: string, diasAFrente: number): Promise<void> {
-  const d = new Date(Date.now() + diasAFrente * 86_400_000);
-  d.setUTCDate(d.getUTCDate() + ((10 - d.getUTCDay()) % 7)); // quarta-feira
+export async function marcarParaPaciente(nutri: Page, nome: string, email: string, semana: number): Promise<void> {
+  const d = new Date(Date.now() + 49 * 86_400_000);
+  d.setUTCDate(d.getUTCDate() + ((10 - d.getUTCDay()) % 7 || 7) + 7 * semana); // a quarta-feira seguinte, + `semana` semanas
   const hora = `${String(8 + (++seqHora % 9)).padStart(2, '0')}:00`;
   await nutri.goto(`/painel/agenda/nova?data=${d.toISOString().slice(0, 10)}`);
   await nutri.getByLabel('Paciente').selectOption({ label: `${nome} (${email})` });
