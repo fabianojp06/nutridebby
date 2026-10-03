@@ -222,7 +222,7 @@ Cenário: Marca aplicada
 
 Nota de entrega (Plano 02): a marca é aplicada no painel; o PWA (Plano 06) e o PDF do plano (P04-09) passam a consumi-la por `getTenantBrand()`. **Risco residual aceito (2026-09-29):** a recusa de SVG com filtro é por varredura do texto e pode ser burlada por artifício de parser; o dano fica contido pelo processo filho morto em 5 s, um logo por vez e resfriamento de 10 min por tenant.
 
-Nota de entrega (Plano 06, v1.9): no portal, o topo mostra o logo ("Logo de {consultório}") e a linha "Acompanhamento com {consultório}", com a borda na cor da nutricionista (`getTenantBrand()`). Os ícones do app instalado são genéricos do NutriDebby (folha verde em fundo `#1d6b5a`; D21), trocáveis depois só pelo SVG.
+Nota de entrega (Plano 06, v1.9): no portal, o topo mostra o logo ("Logo de {consultório}") e a linha "Acompanhamento com {consultório}", com a borda na cor da nutricionista (`getTenantBrand()`). Os ícones do app instalado são genéricos do NutriDebby (folha branca em fundo verde `#1d6b5a`; D21), trocáveis depois pelo SVG (`public/icones/icone.svg` + `pnpm icones`).
 
 ## US-006 — Isolamento entre tenants (história técnica) · **M**
 
@@ -1277,7 +1277,7 @@ Nota de entrega (Plano 06, v1.9):
 
 ## Textos de interface e mensagens do E5 (Plano 06, v1.9)
 
-Texto exato do código (conferido na entrega). `{…}` = valor variável; `{quando}` = como no E4 (com a sigla do fuso quando o aparelho está em outro fuso, RN-06).
+Texto exato do código (conferido na entrega). `{…}` = valor variável; `{quando}` = "sex., 16/10/2026 às 14:00 (horário de Brasília)", como no E4; exceções: a sigla do fuso só aparece, com o aparelho em outro fuso (RN-06), em "Minhas consultas", "Próxima consulta: {quando}" e no cabeçalho de "Sua consulta"; "O link vale até {quando}" sai sem a sigla.
 
 | Onde | Textos |
 |---|---|

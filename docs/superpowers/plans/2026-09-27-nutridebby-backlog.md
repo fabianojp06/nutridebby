@@ -163,7 +163,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 - `findPacienteEscritaViolations` não confere a expressão da política (igual à guarda do `publico`).
 - UPDATE liberado ao paciente em `patients` vale para qualquer coluna (gatilho que só deixe opt-in/opt-out, `user_id` nulo → conta e `updated_at`); o de `data_exports` vale para a linha inteira (a 0080 só fixa o escopo).
 - `audit_log` legível pela sessão de paciente (as próprias linhas, com IP e ator da equipe); o portal não mostra (D5).
-- Tabelas sem `tenant_id` (`tenants`, `user`, `session`, `account`, `consents`, `invites`) fora da negação da D1 — limite conhecido.
+- Ficam fora da negação da D1 as tabelas fora da RLS: as sem `tenant_id` (`tenants`, `session`, `account`, `verification`, `two_factor`, `backup_runs`, `public_rate_limits`) e as com `tenant_id` listadas em `RLS_EXCEPTIONS` (`user`, `consents`, `invites`; `consents` é gravada pelo aceite do termo no portal, `src/modules/portal/termo.ts`) — limite conhecido.
 - `app_soltar_endpoint_push` e `app_conta_sem_outro_vinculo` só testadas com dono superusuário: chamar as duas em `migrate-owner.test.ts`.
 - Janela residual da D18: convite aceito logo depois do commit da anonimização liga o prontuário a uma conta anonimizada (travar `user` no aceite).
 - `anonimizarContaSemVinculo` não apaga `verification`, não limpa `user.image` nem confere `app_role = 'paciente'`.
@@ -187,7 +187,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 - Texto com NUL → 500 (não 400); limite de 2000 em UTF-16 × code points; o 408 de corpo lento usa a mensagem genérica; literal "Conta temporariamente indisponível" fora de `MSG_DIARIO`.
 - Duas contas podem ocupar as 2 vagas globais de envio de foto (limite por tenant ou rate limit); `findJobs` com `data @>` sem índice; `heic-decode` não chama `dispose` em "HEIF image not found".
 - Feed "Diários" com limite de 50, sem paginação nem visão por paciente (com 50+ não vistos, o comentado some).
-- `abrirRegistro` grava "visto" em paciente bloqueado ou anonimizado e gera "Alterou · Diário" quando a nutricionista só leu; "visto" não muda `updated_at`.
+- `abrirRegistro` grava "visto" em paciente bloqueado ou anonimizado e gera "Alterou · Diário alimentar" quando a nutricionista só leu; "visto" não muda `updated_at`.
 - Registro "processando" cujo original foi apagado por fora (anonimização) fica "processando" para sempre.
 - O e-mail da exclusão diz "Foram apagados agora: as fotos do diário", mas `apagarFotosDoDiario` roda depois da transação (se falhar, só a varredura do dia seguinte as apaga).
 - Renomear `lerLaudos` → `lerAnexos` e o log "laudo ausente" (agora lê fotos).
