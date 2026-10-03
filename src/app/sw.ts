@@ -10,7 +10,6 @@ import {
   cabecalhosDaCopia,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
-  ehSemSessao,
   esquecerPlanoGuardado,
   idDoBuild,
   lerMensagem,
@@ -18,6 +17,7 @@ import {
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
+  saiuDoPlano,
   urlDaNotificacao,
 } from './sw-regras';
 
@@ -46,7 +46,8 @@ const planoGuardado = async (): Promise<Response | undefined> => {
  * D6 + Review Focus 4: o plano só entra no cache a pedido da própria página "Meu plano" (mensagem `plano`), que diz de
  * quem é (conta + vínculo) e qual versão — a navegação pelo menu do portal é `fetch` do roteador (RSC), não 'navigate',
  * então guardar só na navegação deixaria o cache vazio no uso normal. O service worker busca o HTML com a sessão do
- * aparelho; se ele terminar no /entrar, a cópia sai; cópia de outro dono sai antes de buscar (mesmo se a busca falhar).
+ * aparelho; se ela não terminar em "Meu plano" (login, sem acesso, indisponível…), a cópia sai; cópia de outro dono sai
+ * antes de buscar (mesmo se a busca falhar).
  */
 async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number } = {}): Promise<void> {
   const atual = await copia();
@@ -61,7 +62,7 @@ async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number 
   if (!precisaBuscarPlano(guardado, { dono, versao, build: BUILD }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
   const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
-  if (ehSemSessao(r, origem)) {
+  if (saiuDoPlano(r, origem)) {
     await esquecerPlanoGuardado();
     return;
   }
@@ -80,7 +81,7 @@ async function conferirDono(dono: string): Promise<void> {
 /**
  * Deploy novo (este service worker ativando): o Serwist apaga do precache os JS/CSS do build anterior, e a cópia guardada
  * aponta para eles — offline, abriria sem estilo, sem hidratar e sem o selo "Offline". A ativação acontece com rede (o
- * navegador acabou de baixar o sw.js): busca a cópia de novo com as regras de guardarPlano (terminou no /entrar → sai).
+ * navegador acabou de baixar o sw.js): busca a cópia de novo com as regras de guardarPlano (não terminou no plano → sai).
  * Cópia sem dono ou versão sai. Prazo de 10 s: o waitUntil do activate segura as requisições das páginas.
  */
 async function renovarCopia(): Promise<void> {

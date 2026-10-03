@@ -28,11 +28,22 @@ export function podeGuardarPlano(r: { status: number; type: ResponseType; redire
   return !!u && u.origin === origem && u.pathname === URL_PLANO && (r.headers.get('content-type') ?? '').startsWith('text/html');
 }
 
-/** A busca do plano terminou no login: não há sessão (vencida, ou outra pessoa no aparelho) — o guardado sai. */
-export function ehSemSessao(r: { redirected: boolean; url: string }, origem: string): boolean {
-  if (!r.redirected) return false;
+/**
+ * Telas que dizem que não há mais plano a mostrar: sem sessão (/entrar), sem vínculo ativo (/p/sem-acesso — exclusão
+ * atendida, arquivado, anonimizado) e consultório suspenso (/indisponivel, o SUSPENDED_PATH).
+ */
+export const PAGINAS_SEM_PLANO: readonly string[] = ['/entrar', '/p/sem-acesso', '/indisponivel'];
+
+/**
+ * A busca de "Meu plano" não terminou nele: o servidor mandou para outra tela (login, sem acesso, indisponível, termo,
+ * escolha do consultório…) — a cópia guardada sai. Nada de manter o plano de quem perdeu o acesso por até 30 dias
+ * (LGPD: minimização). Endereço que não se lê depois de um redirect também conta como fora do plano.
+ */
+export function saiuDoPlano(r: { redirected: boolean; url: string }, origem: string): boolean {
   const u = urlOuNull(r.url);
-  return !!u && u.origin === origem && u.pathname === '/entrar';
+  if (u && u.origin === origem && PAGINAS_SEM_PLANO.includes(u.pathname)) return true;
+  if (!r.redirected) return false;
+  return !u || u.origin !== origem || u.pathname !== URL_PLANO;
 }
 
 /**

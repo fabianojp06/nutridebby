@@ -7,7 +7,6 @@ import {
   cabecalhosDaCopia,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
-  ehSemSessao,
   idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
@@ -15,6 +14,7 @@ import {
   podeGuardarPlano,
   precisaBuscarPlano,
   RENOVAR_PLANO_MS,
+  saiuDoPlano,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
 } from './sw-regras';
@@ -91,19 +91,29 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(lerMensagem({ tipo: 'apagar-tudo' })).toBeNull();
     expect(lerMensagem('dono')).toBeNull();
   });
-  it('sem sessão (a busca terminou no /entrar) → o plano guardado sai; guardado há mais de 30 dias (sessão máxima) não é servido', () => {
-    expect(ehSemSessao({ redirected: true, url: `${O}/entrar?volta=%2Fp%2Fplano` }, O)).toBe(true);
-    expect(ehSemSessao({ redirected: true, url: `${O}/p/escolher` }, O)).toBe(false);
-    expect(ehSemSessao({ redirected: false, url: `${O}/p/plano` }, O)).toBe(false);
+  it('a busca do plano terminou fora dele (login, sem acesso, indisponível, termo, escolha) → o plano guardado sai; guardado há mais de 30 dias não é servido', () => {
+    expect(saiuDoPlano({ redirected: true, url: `${O}/entrar?volta=%2Fp%2Fplano` }, O)).toBe(true);
+    // exclusão atendida / arquivado / anonimizado (RN-08) e consultório suspenso (RN-15): a sessão segue válida
+    expect(saiuDoPlano({ redirected: true, url: `${O}/p/sem-acesso` }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: true, url: `${O}/indisponivel` }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: true, url: `${O}/p/termo` }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: true, url: `${O}/p/escolher?volta=%2Fp%2Fplano` }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: true, url: 'https://outro.exemplo.com/p/plano' }, O)).toBe(true);
+    // as telas sem plano contam mesmo sem a marca de redirect
+    expect(saiuDoPlano({ redirected: false, url: `${O}/p/sem-acesso` }, O)).toBe(true);
+    // o próprio plano (direto, ou depois de um redirect que voltou a ele) fica
+    expect(saiuDoPlano({ redirected: false, url: `${O}/p/plano` }, O)).toBe(false);
+    expect(saiuDoPlano({ redirected: true, url: `${O}/p/plano` }, O)).toBe(false);
     const agora = Date.parse('2026-10-05T12:00:00Z');
     expect(planoValido(new Date(agora - VALIDADE_PLANO_MS + 60_000).toISOString(), agora)).toBe(true);
     expect(planoValido(new Date(agora - VALIDADE_PLANO_MS - 60_000).toISOString(), agora)).toBe(false);
     expect(planoValido(null, agora)).toBe(false);
     expect(planoValido('lixo', agora)).toBe(false);
   });
-  it('R7 (Safari iOS 16.4, sem URL.canParse): URL inválida não lança, só não conta como login', () => {
-    expect(ehSemSessao({ redirected: true, url: 'não é uma url' }, O)).toBe(false);
-    expect(ehSemSessao({ redirected: true, url: '' }, O)).toBe(false);
+  it('R7 (Safari iOS 16.4, sem URL.canParse): URL inválida não lança; depois de um redirect conta como fora do plano', () => {
+    expect(saiuDoPlano({ redirected: true, url: 'não é uma url' }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: true, url: '' }, O)).toBe(true);
+    expect(saiuDoPlano({ redirected: false, url: '' }, O)).toBe(false);
   });
   it('relógio adiantado: cópia com guardado-em no futuro (idade negativa) está vencida e é buscada de novo', () => {
     const agora = Date.parse('2026-10-05T12:00:00Z');

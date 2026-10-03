@@ -101,6 +101,21 @@ test('plano guardado é da conta: sessão vencida (sem "Sair") leva ao /entrar, 
   await a.page.context().close();
 });
 
+test('acesso acaba com a sessão ainda válida (arquivado → /p/sem-acesso): o plano guardado sai do aparelho (RN-08, LGPD)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.10');
+  await publicarPlanoSimples(nutri, p.prontuario);
+  await p.page.goto('/p/plano');
+  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
+  await nutri.goto(`${p.prontuario}/privacidade`);
+  nutri.once('dialog', (d) => d.accept());
+  await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
+  await expect(nutri.getByRole('button', { name: 'Desarquivar paciente' })).toBeVisible();
+  await p.page.goto('/p/plano');
+  await expect(p.page).toHaveURL(/\/p\/sem-acesso$/);
+  await expect.poll(() => entradasDoPlano(p.page)).toBe(0);
+  await p.page.context().close();
+});
+
 test('acesso do dia: abrir o portal registra o dia e renova o cookie de sessão (CS-02, P06-11)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.6');
   const renovou = p.page.waitForResponse((r) => r.url().endsWith('/api/p/acesso') && r.status() === 204);
