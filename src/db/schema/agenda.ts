@@ -101,8 +101,9 @@ export type AppointmentRow = typeof appointments.$inferSelect;
 /**
  * D6: tipos com no máximo uma linha por (consulta, canal, tipo, início da consulta) — os lembretes. Os avisos de evento
  * ("Consulta marcada", "Consulta cancelada") ficam fora: cada mudança do início gera um aviso novo (complemento da
- * Tarefa 5). As respostas "1"/"2" (Tarefa 12) também saíram (code-review do PR #7, migration 0068): uma por ação que
- * muda a consulta — "2" → "1" → "2" responde de novo —, conferida sob a trava da consulta no webhook. Lista única: o
+ * Tarefa 5). As respostas "1"/"2" (Tarefa 12) também saíram (code-review do PR #7, migration 0068): o teto delas
+ * (1 WhatsApp de cada tipo por horário; e-mail com o link de novo só num pedido novo, a cada 60 min) é conferido sob a
+ * trava da consulta no webhook (`respostasDevidas`, src/modules/notificacoes/whatsapp/webhook.ts). Lista única: o
  * índice parcial (schema → migration gerada) e o `ON CONFLICT` de `gravar` (src/modules/notificacoes/agendar.ts) usam
  * `tipoUmPorHorario`.
  */

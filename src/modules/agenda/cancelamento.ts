@@ -20,8 +20,8 @@ import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
  * `naMesmaTransacao` (T12, WhatsApp): roda na transação da ação, com as mesmas travas (paciente → consulta), quando a
  * ação vale para o paciente — presença confirmada (agora ou antes) ou pedido de remarcação registrado (agora ou antes):
  * é onde o webhook grava a resposta ao paciente, que só existe se a ação valeu. `mudou` (code-review do PR #7): a ação
- * mudou a consulta agora (confirmou, desfez o pedido em aberto, registrou um pedido novo) — o webhook responde a cada
- * mudança; a que não mudou nada (repetida, ou já feita pelo link) responde só se ainda não respondeu.
+ * mudou a consulta agora (confirmou, desfez o pedido em aberto, registrou um pedido novo) — o webhook decide o que
+ * responder com ele (`respostasDevidas`, com teto por horário da consulta: D16 ★).
  * `emailDoLink` (decisão do dono, fechamento): o e-mail (normalizado) com que o link assinado conferiu. Sob a trava do
  * paciente, a ação confere de novo — a nutricionista pode corrigir o e-mail entre abrir o link e clicar.
  */
