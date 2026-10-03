@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
-import { atualizarPerfil, contrasteComBranco, COR_PADRAO, getTenantBrand, PerfilError } from './marca';
+import { atualizarPerfil, contrasteComBranco, COR_PADRAO, FUSOS_BRASIL, getTenantBrand, PerfilError } from './marca';
 
 vi.mock('server-only', () => ({})); // M16: marca.ts é só do servidor
 const app = makeDb(inject('appDatabaseUrl'));
@@ -58,6 +58,9 @@ describe('atualizarPerfil (US-005)', () => {
     expect(await erros(t.id, { linkOnlinePadrao: longo })).toBeUndefined();
     expect(await erros(t.id, { linkOnlinePadrao: `${longo}a` })).toEqual({ linkOnlinePadrao: 'Use no máximo 500 caracteres' });
     expect(await erros(t.id, { fuso: 'Marte/Base' })).toEqual({ fuso: 'Fuso horário inválido' });
+    // revisão final: só os fusos do Brasil da tela (sem horário de verão; rótulos e cota partem disso) — IANA válido de fora, não
+    for (const f of ['America/New_York', 'Europe/Lisbon', 'UTC']) expect(await erros(t.id, { fuso: f })).toEqual({ fuso: 'Fuso horário inválido' });
+    for (const f of FUSOS_BRASIL) expect(await erros(t.id, { fuso: f })).toBeUndefined();
     expect(await erros(t.id, { crn: 'X' })).toEqual({ crn: 'CRN inválido. Ex.: CRN-3 12345' });
   });
 });

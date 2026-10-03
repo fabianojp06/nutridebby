@@ -38,19 +38,26 @@ export const invites = pgTable(
   ],
 );
 
-/** Aceites versionados (DPA da nutricionista; termo do paciente). Sem cascade: é prova de aceite. */
+/**
+ * Aceites versionados (DPA da nutricionista; termo do paciente). Sem cascade: é prova de aceite.
+ * D13 (Plano 05): o aceite da página pública é do prontuário (`patient_id` + `tenant_id`), porque o visitante ainda não tem conta.
+ */
 export const consents = pgTable(
   'consents',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id),
+    userId: uuid('user_id').references(() => user.id),
     /** Termo do paciente: o tenant do vínculo aceito. DPA da nutricionista: nulo. */
     tenantId: uuid('tenant_id').references(() => tenants.id),
+    /** D13: termo aceito na página pública, antes de existir conta (com `tenant_id`). */
+    patientId: uuid('patient_id'),
     termoVersao: text('termo_versao').notNull(),
     aceitoEm: timestamp('aceito_em', { withTimezone: true }).notNull().defaultNow(),
     ip: text('ip'),
   },
-  (t) => [unique('consents_user_termo_tenant_unique').on(t.userId, t.termoVersao, t.tenantId).nullsNotDistinct()],
+  (t) => [
+    unique('consents_titular_termo_unique').on(t.userId, t.termoVersao, t.tenantId, t.patientId).nullsNotDistinct(),
+    check('consents_titular', sql`${t.userId} is not null or (${t.patientId} is not null and ${t.tenantId} is not null)`),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consents_paciente_fk' }),
+  ],
 );

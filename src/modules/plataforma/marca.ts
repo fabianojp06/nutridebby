@@ -49,7 +49,8 @@ export const perfilSchema = z.object({
   antecedenciaMinH: horas,
   cancelamentoMinH: horas,
   agendamentoPublicoAtivo: z.boolean(),
-  fuso: z.string().refine((f) => Intl.supportedValuesOf('timeZone').includes(f), MSG_MARCA.fuso),
+  // revisão final: só os fusos do Brasil oferecidos na tela — a agenda (T1: sem horário de verão) e a cota (T11) partem disso
+  fuso: z.string().refine((f) => (FUSOS_BRASIL as readonly string[]).includes(f), MSG_MARCA.fuso),
 });
 
 export type ErrosPerfil = Partial<Record<keyof z.input<typeof perfilSchema> | 'geral', string>>;

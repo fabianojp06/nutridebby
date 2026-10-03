@@ -4,3 +4,4 @@ export * from './access';
 export * from './pacientes';
 export * from './alimentos';
 export * from './plano-alimentar';
+export * from './agenda';

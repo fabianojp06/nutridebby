@@ -20,7 +20,7 @@ Os planos 04 e 05 são independentes entre si e podem ser feitos em qualquer ord
 | **02** | [Plataforma (M1)](2026-09-28-nutridebby-02-plataforma.md) | US-001, US-004, US-005, US-007; INT-02, INT-06; RN-15, RN-18; RNF-05 (backup), RNF-13 | Admin cria e suspende nutricionistas; convite + DPA; marca; auditoria; uploads com URL assinada e cota; e-mail (Mailpit/Resend); **backup diário no R2 funcionando antes de entrar qualquer dado real** |
 | **03** | [Pacientes & prontuário (M2)](2026-09-29-nutridebby-03-prontuario.md) | US-010 (sem WhatsApp), US-011, US-012 a US-019; RN-14, RN-17; Apêndice A | Nutricionista cadastra e convida paciente; anamnese; antropometria e gasto energético com os casos de teste do Apêndice A; exames; evolução; LGPD (exportar/bloquear/anonimizar) |
 | **04** | [Plano alimentar (M3)](2026-10-01-nutridebby-04-plano-alimentar.md) | US-020 a US-026; INT-04; RN-01, RN-02; P-10 | Seed TACO + medidas IBGE; montar, calcular, versionar e publicar plano; PDF gerado pelo worker |
-| 05 | Agenda & lembretes (M4) | US-030 a US-037, US-010 (convite WhatsApp); INT-01, INT-03 (envio); RN-03 a RN-06, RN-09, RN-16 | Agenda; agendamento pelo paciente e pela página pública; lembretes por e-mail, WhatsApp e push; confirmação por botão; cota |
+| **05** | [Agenda & lembretes (M4)](2026-10-01-nutridebby-05-agenda-lembretes.md) | US-030 a US-037, US-010 (convite WhatsApp); INT-01 (pela Evolution API, decisão do dono em 2026-10-01), INT-03 (envio); RN-03 a RN-06, RN-09, RN-16 | Agenda; agendamento pelo paciente e pela página pública; lembretes por e-mail, WhatsApp e push; confirmação por resposta "1"/"2" e pelo link da consulta; cota |
 | 06 | Portal do paciente (M5) | US-040 a US-046; INT-03 (inscrição); RNF-09, RNF-10 | PWA instalável, offline para o plano, push, diário com foto, evolução, lista de compras, dados do titular |
 | 07 | Biblioteca de conteúdo (M6) | US-050 a US-056; INT-05; RN-10 a RN-12 | Vídeos, receitas com cálculo, orientações, audiência, aba Conteúdos, métricas |
 | 08 | Go-live | RNF-01, RNF-02 (k6), RNF-05 (teste de restauração), RNF-10 (auditoria axe), RNF-11 (Sentry); CS-01 a CS-03; job de retenção LGPD | Checklist de go-live assinado; Debby em produção |
@@ -42,18 +42,20 @@ Estas tarefas não dependem de código, e algumas levam dias por dependerem de t
 | E-09 | Advogado: texto do termo do paciente, DPA e prazo de guarda do prontuário (P-01, P-02) | Você + advogado | Plano 08 |
 | E-10 | VPS: criar 2 GB de swap; instalar `postgresql-client-16` e `rclone` no host (**cada item com sua confirmação**, pela regra do servidor) | Claude, após seu OK | Plano 02 |
 
-## Revisão obrigatória a cada entrega (decidido em 2026-09-27)
+## Revisão obrigatória a cada entrega (decidido em 2026-09-27, revisto em 2026-10-02)
 
-O desenvolvimento é autônomo, então cada entrega passa por três rodadas de revisão com funções diferentes, mais uma revisão de segurança:
+O desenvolvimento é autônomo, então cada entrega passa por revisões com funções diferentes, mais uma revisão de segurança:
 
-| Rodada | Quando | O que é |
+| Etapa | Quando | O que é |
 |---|---|---|
-| 1 | A cada tarefa, durante a execução | Revisor independente confere aderência à spec e qualidade do código antes da próxima tarefa |
-| 2 | Fim de cada plano, sobre o PR inteiro | `/code-review` em nível `high`; os problemas encontrados são corrigidos |
-| 3 | Depois das correções da rodada 2 | `/code-review` `high` de novo; precisa sair **sem nenhum problema confirmado** |
-| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03 e 05, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp. Revisão geral final em P08-05 |
+| 1 | A cada tarefa, durante a execução | Revisor independente (workflow com lentes e verificação adversarial, quando possível) confere aderência à spec e qualidade do código antes da próxima tarefa |
+| 2 | Fim de cada plano, sobre o branch inteiro | Revisão final por workflow; uma onda de correções e re-revisão do diff das correções |
+| 3 | Sobre o PR | `/code-review` em nível `high` **uma vez**, como segunda opinião; o que for Critical/Important é corrigido, Minor vai para o backlog |
+| 4 | Depois das correções da etapa 3 | Re-revisão **só do diff das correções** (não do PR inteiro) |
+| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03 e 05, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp, páginas públicas e links assinados. Revisão geral final em P08-05 |
 
-- **Critério de parada:** merge só com CI verde e a rodada 3 e a revisão de segurança limpas. Se ainda houver problema confirmado depois da rodada 3, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.
+- **Por que mudou (2026-10-02):** a 2ª rodada completa de `/code-review high`, exigindo "sair limpo", não convergia em diffs grandes (os Planos 03 e 04 precisaram de aprovação do dono para encerrar): revisar ~10 mil linhas de novo sempre amostra trechos novos e acha novos Minors. A re-revisão do diff das correções é o que confirma que a correção está certa.
+- **Critério de parada:** merge só com CI verde, a re-revisão da etapa 4 e a revisão de segurança sem Critical/Important confirmado. Se ainda houver, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.
 - **Merge = deploy em produção = reinício de serviço:** exige confirmação explícita do dono do produto (regra 3 do CLAUDE.md do servidor). A autonomia vai até o PR revisado e pronto.
 - **Sem custo extra:** todas as revisões rodam na assinatura do dono (`/code-review` e `/security-review` locais). O `/code-review ultra` (cobrado à parte) **não é usado** neste projeto.
 - O resultado de cada rodada fica registrado no PR (resumo dos problemas encontrados e corrigidos).

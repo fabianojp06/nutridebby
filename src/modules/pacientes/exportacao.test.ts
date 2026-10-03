@@ -6,11 +6,13 @@ import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
+import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
-import { auditLog, dataExports, exams, patients, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, consents, dataExports, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
@@ -48,6 +50,11 @@ afterAll(async () => {
 });
 
 const NOTA = 'suspeita de compulsão';
+/** Tarefa 15: o que nunca sai no dados.json — o motivo que só a nutricionista vê e os dados técnicos de envio. */
+const MOTIVO_DA_NUTRI = 'paciente difícil, cobrar antes';
+const JID = '5511912345678@s.whatsapp.net';
+const SELADO = 'conteudo-selado-de-teste';
+const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/token-secreto-do-aparelho';
 
 async function prontuarioCompleto() {
   const T = await novoTenant(app.db, 'Debby Silva');
@@ -122,6 +129,26 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
     }, { db: app.db });
+    // Tarefa 15: agenda, lembretes, aceites do termo e dispositivos de push do titular
+    const MSG_ID = `ID-DA-EVOLUTION-${randomUUID()}`; // rodada 1: provider_msg_id é UNIQUE no banco compartilhado pelos testes
+    const inicio = new Date('2026-09-15T12:00:00Z');
+    const consulta = await consultaDireta(app.db, T.ctx, p.id, inicio, 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now, motivoCancelamento: MOTIVO_DA_NUTRI });
+    await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-20T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'paciente', canceladaEm: now, motivoCancelamento: 'Remarcada pelo paciente', origem: 'paciente' });
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({
+      tenantId: T.tenantId, patientId: p.id, appointmentId: consulta, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada',
+      agendadaPara: new Date('2026-09-14T12:00:00Z'), enviadaEm: new Date('2026-09-14T12:00:01Z'), providerJid: JID, providerMsgId: MSG_ID,
+    }), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, canal: 'whatsapp', tipo: 'convite_paciente', status: 'pendente', agendadaPara: now, conteudoSelado: SELADO }), app.db);
+    const uid = randomUUID();
+    const outroConsultorio = await novoTenant(app.db);
+    await app.db.insert(user).values({ id: uid, name: 'Ana', email: `conta-${uid.slice(0, 8)}@ex.com`, appRole: 'paciente' });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ userId: uid }).where(eq(patients.id, p.id)), app.db);
+    await app.db.insert(consents).values([
+      { tenantId: T.tenantId, patientId: p.id, termoVersao: 'termo-v1', aceitoEm: new Date('2026-09-01T12:00:00Z'), ip: '198.51.100.7' }, // página pública
+      { userId: uid, tenantId: T.tenantId, termoVersao: 'termo-v0', aceitoEm: new Date('2026-08-01T12:00:00Z'), ip: null }, // pela conta, neste consultório
+      { userId: uid, tenantId: outroConsultorio.tenantId, termoVersao: 'termo-v0', aceitoEm: new Date('2026-08-02T12:00:00Z'), ip: '198.51.100.99' }, // outro consultório: não sai
+    ]);
+    await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: ENDPOINT, p256dh: 'P'.repeat(87), auth: 'A'.repeat(22), userAgent: 'Firefox 131', createdAt: new Date('2026-09-02T12:00:00Z') }), app.db);
     const id = await solicitarExportacao(T.ctx, p.id, deps);
     expect(
       await gerarExportacao(
@@ -164,6 +191,20 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       { versao: 1, status: 'rascunho', titulo: 'Plano alimentar', publicadoEm: null, metaKcal: null, orientacoes: '',
         refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
     ]);
+    expect(dados.consultas).toEqual([
+      { inicio: '2026-09-15T12:00:00.000Z', fim: '2026-09-15T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'nutri', canceladoPor: 'nutri', motivoCancelamento: null },
+      { inicio: '2026-09-20T12:00:00.000Z', fim: '2026-09-20T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'paciente', canceladoPor: 'paciente', motivoCancelamento: 'Remarcada pelo paciente' },
+    ]);
+    expect(dados.lembretes).toEqual([
+      { tipo: 'lembrete_24h', canal: 'whatsapp', status: 'enviada', agendadaPara: '2026-09-14T12:00:00.000Z', enviadaEm: '2026-09-14T12:00:01.000Z', motivoNaoEnviado: null },
+      { tipo: 'convite_paciente', canal: 'whatsapp', status: 'pendente', agendadaPara: now.toISOString(), enviadaEm: null, motivoNaoEnviado: null },
+    ]);
+    expect(dados.aceitesDoTermo).toEqual([
+      { termoVersao: 'termo-v0', aceitoEm: '2026-08-01T12:00:00.000Z', ip: null },
+      { termoVersao: 'termo-v1', aceitoEm: '2026-09-01T12:00:00.000Z', ip: '198.51.100.7' },
+    ]);
+    expect(dados.dispositivosPush).toEqual([{ criadaEm: '2026-09-02T12:00:00.000Z', navegador: 'Firefox 131' }]);
+    for (const segredo of ['198.51.100.99', MOTIVO_DA_NUTRI, JID, MSG_ID, SELADO, ENDPOINT, 'P'.repeat(87), 'A'.repeat(22)]) expect(json).not.toContain(segredo);
     expect(json).not.toContain(NOTA); // US-016
     expect(json).not.toContain('etiqueta-secreta'); // US-019
     const [nutri] = await app.db.select().from(user).where(eq(user.id, T.nutriId));
@@ -564,6 +605,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         atendimentos: [],
         planos: [],
         pedidosLgpd: [],
+        consultas: [],
+        lembretes: [],
+        aceitesDoTermo: [],
+        dispositivosPush: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -662,6 +707,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
             concluidoEm: '2026-10-01T15:00:00.000Z',
           },
         ],
+        consultas: [],
+        lembretes: [],
+        aceitesDoTermo: [],
+        dispositivosPush: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -685,14 +734,13 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
-  it('o PDF e o ZIP ficam fora do grafo do Next: nenhuma rota importa exportacao-job, plano-pdf ou @react-pdf', () => {
-    const arquivos = readdirSync(path.resolve('src/app'), {
-      recursive: true,
-      withFileTypes: true,
-    }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name));
-    for (const d of arquivos)
-      expect(readFileSync(path.join(d.parentPath, d.name), 'utf8'), d.name).not.toMatch(
-        /exportacao-job|@react-pdf|prontuario-pdf|plano-pdf/,
-      );
+  it('o PDF e o ZIP ficam fora do grafo do Next: nada de src/app (nem proxy, instrumentation, next.config) alcança exportacao-job, prontuario-pdf, plano-pdf ou @react-pdf, direta ou indiretamente', () => {
+    // R11 (T13): o mesmo grafo transitivo da guarda do push (test/grafo-de-imports.ts), em vez da busca por texto nos imports diretos
+    const g = grafoDeImports(raizesDoNext());
+    expect(g.arquivos.has('src/modules/pacientes/exportacao.ts'), 'o grafo anda de verdade (a tela de privacidade pede a exportação)').toBe(true);
+    for (const proibido of ['src/modules/pacientes/exportacao-job.ts', 'src/modules/pacientes/prontuario-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf-job.ts']) {
+      expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
+    }
+    for (const pacote of ['@react-pdf/renderer', 'fflate']) expect(g.pacotes.get(pacote), `${pacote} importado (no grafo do Next) por`).toBeUndefined();
   });
 });

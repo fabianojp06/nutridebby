@@ -1,19 +1,23 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { and, asc, eq, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, ne, or, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
 import {
   anamneses,
   anthropometry,
+  appointments,
+  consents,
   consultations,
   dataExports,
   energyCalcs,
   exams,
   mealPlans,
+  notifications,
   patients,
   privacyRequests,
+  pushSubscriptions,
   storedFiles,
   user,
 } from '@/db/schema';
@@ -103,6 +107,17 @@ export type DadosExportacao = {
     refeicoes: { nome: string; horario: string; observacao: string; itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null }[] }[];
   }[];
   pedidosLgpd: { tipo: string; status: string; prazo: string; concluidoEm: string | null }[];
+  /**
+   * Plano 05: consultas da agenda. O motivo do cancelamento só quando o paciente cancelou: o da nutricionista é
+   * anotação dela ("Só você vê.", como as notas privadas — US-016).
+   */
+  consultas: { inicio: string; fim: string; modalidade: string; status: string; origem: string; canceladoPor: string | null; motivoCancelamento: string | null }[];
+  /** Plano 05: mensagens ao titular (tipo, canal, situação e datas) — sem texto, número de destino nem ids do provedor. */
+  lembretes: { tipo: string; canal: string; status: string; agendadaPara: string; enviadaEm: string | null; motivoNaoEnviado: string | null }[];
+  /** D13: aceites do termo do paciente neste consultório (pela conta ou pela página pública), com o IP do aceite. */
+  aceitesDoTermo: { termoVersao: string; aceitoEm: string; ip: string | null }[];
+  /** D14 / T13: aparelhos inscritos para notificação no app — só a data e o navegador (nunca o endereço ou as chaves). */
+  dispositivosPush: { criadaEm: string; navegador: string | null }[];
   /** Os laudos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
@@ -160,6 +175,23 @@ export async function montarDados(
     .from(privacyRequests)
     .where(eq(privacyRequests.patientId, patientId))
     .orderBy(asc(privacyRequests.createdAt));
+  const cs = await tx.select().from(appointments).where(eq(appointments.patientId, patientId)).orderBy(asc(appointments.inicio));
+  const ns = await tx
+    .select({ tipo: notifications.tipo, canal: notifications.canal, status: notifications.status, agendadaPara: notifications.agendadaPara, enviadaEm: notifications.enviadaEm, motivo: notifications.motivoIgnorada })
+    .from(notifications)
+    .where(eq(notifications.patientId, patientId))
+    .orderBy(asc(notifications.agendadaPara), asc(notifications.createdAt));
+  // consents fica fora da RLS (RLS_EXCEPTIONS): filtra pelo tenant do contexto e pelo titular (prontuário ou conta)
+  const ac = await tx
+    .select({ termoVersao: consents.termoVersao, aceitoEm: consents.aceitoEm, ip: consents.ip })
+    .from(consents)
+    .where(and(eq(consents.tenantId, p.tenantId), or(eq(consents.patientId, p.id), p.userId ? eq(consents.userId, p.userId) : undefined)))
+    .orderBy(asc(consents.aceitoEm));
+  const ps = await tx
+    .select({ criadaEm: pushSubscriptions.createdAt, navegador: pushSubscriptions.userAgent })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.patientId, patientId))
+    .orderBy(asc(pushSubscriptions.createdAt));
   const ids = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, patientId)).orderBy(asc(mealPlans.versao));
   const planos: DadosExportacao['planos'] = [];
   for (const { id } of ids) {
@@ -254,6 +286,25 @@ export async function montarDados(
       prazo: r.prazo,
       concluidoEm: r.concluidoEm?.toISOString() ?? null,
     })),
+    consultas: cs.map((c) => ({
+      inicio: c.inicio.toISOString(),
+      fim: c.fim.toISOString(),
+      modalidade: c.modalidade,
+      status: c.status,
+      origem: c.origem,
+      canceladoPor: c.canceladoPor,
+      motivoCancelamento: c.canceladoPor === 'paciente' ? c.motivoCancelamento : null,
+    })),
+    lembretes: ns.map((n) => ({
+      tipo: n.tipo,
+      canal: n.canal,
+      status: n.status,
+      agendadaPara: n.agendadaPara.toISOString(),
+      enviadaEm: n.enviadaEm?.toISOString() ?? null,
+      motivoNaoEnviado: n.motivo,
+    })),
+    aceitesDoTermo: ac.map((a) => ({ termoVersao: a.termoVersao, aceitoEm: a.aceitoEm.toISOString(), ip: a.ip })),
+    dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
     laudosForaDoZip: false,
   };
   return { dados, laudos };

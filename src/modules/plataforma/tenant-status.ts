@@ -35,6 +35,16 @@ export async function buscarTenant(db: Db, tenantId: string): Promise<TenantRow 
   return row ?? null;
 }
 
+/**
+ * Plano 05 (página pública /n/<slug>, E2E): o tenant pelo endereço. `tenants` não tem tenant_id nem RLS — só serviços de
+ * src/modules/plataforma a leem (CLAUDE.md regra 1). Formato inválido (tenants_slug_formato) → null sem consultar.
+ */
+export async function buscarTenantPorSlug(db: Db, slug: string): Promise<TenantRow | null> {
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{3,40}$/.test(slug)) return null;
+  const [row] = await db.select().from(tenants).where(eq(tenants.slug, slug));
+  return row ?? null;
+}
+
 /** RN-15: jobs de um tenant suspenso não enviam nada. Tenant inexistente conta como inativo. */
 export async function tenantIsActive(db: Db, tenantId: string): Promise<boolean> {
   return (await getTenantStatus(db, tenantId)) === 'ativa';

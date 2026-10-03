@@ -6,7 +6,11 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['pg-boss'],
   // M7: o token do convite está na URL; além da <meta name="referrer"> da página, o cabeçalho
   // vale desde a primeira resposta (inclusive para recursos pedidos antes do <head> ser lido).
-  headers: async () => [{ source: '/convite/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] }],
+  headers: async () => [
+    { source: '/convite/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    // D20: o token do link da consulta também está na URL
+    { source: '/consulta/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+  ],
 };
 
 export default withSerwist(nextConfig);

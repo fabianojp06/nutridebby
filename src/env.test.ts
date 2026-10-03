@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
+import webpush from 'web-push';
+import { EVOLUTION_WEBHOOK_SECRET_EXEMPLO, parseEnv, parseMigratorEnv, parseServerEnv, parseWorkerEnv } from './env';
 
 const DATABASE_URL = 'postgres://nutri_app:app@localhost:54329/nutri';
 const DATABASE_URL_MIGRATOR = 'postgres://nutri_owner:owner@localhost:54329/nutri';
@@ -186,5 +188,78 @@ describe('parseWorkerEnv (worker)', () => {
     expect(parseEnv({ ...base, APP_URL: 'https://app.exemplo.com//?x=1#y' }).APP_URL).toBe('https://app.exemplo.com');
     expect(parseEnv({ ...base, APP_URL: 'https://exemplo.com/nutri/' }).APP_URL).toBe('https://exemplo.com/nutri');
     expect(parseWorkerEnv({ ...w, APP_URL: 'http://localhost:3100/', MAILPIT_URL: 'http://localhost:8025' }).APP_URL).toBe('http://localhost:3100');
+  });
+});
+
+describe('WhatsApp pela Evolution (D1, D4)', () => {
+  const evo = { EVOLUTION_API_URL: 'http://nutri_evolution:8080', EVOLUTION_API_KEY: 'k'.repeat(32), EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) };
+  const prod = { ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', APP_URL: 'https://app.exemplo.com', TURNSTILE_SITE_KEY: '0x4AAAAAAAreal', TURNSTILE_SECRET_KEY: '0x4AAAAAAArealsecret' };
+  const interna = 'http://nutridebby_app:3000/api/webhooks/whatsapp';
+  it('app: as três juntas ou nenhuma; segredo com 32+ caracteres', () => {
+    expect(parseEnv({ ...base, ...evo }).EVOLUTION_API_URL).toBe('http://nutri_evolution:8080');
+    expect(parseEnv(base).EVOLUTION_API_URL).toBeUndefined();
+    expect(() => parseEnv({ ...base, EVOLUTION_API_URL: evo.EVOLUTION_API_URL })).toThrow(/juntas/);
+    expect(() => parseEnv({ ...base, ...evo, EVOLUTION_WEBHOOK_SECRET: 'curto' })).toThrow(/32 caracteres/);
+  });
+  it('produção (rodada 1): só uma das três → erro; o webhook só por endereço interno, a URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1 (D4)', () => {
+    for (const so of ['EVOLUTION_API_URL', 'EVOLUTION_API_KEY', 'EVOLUTION_WEBHOOK_SECRET'] as const) expect(() => parseEnv({ ...prod, [so]: evo[so] }), so).toThrow(/juntas/);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: interna }).EVOLUTION_WEBHOOK_URL).toBe(interna);
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: 'http://10.0.1.7:3000/api/webhooks/whatsapp' }).EVOLUTION_API_URL).toBe(evo.EVOLUTION_API_URL);
+    expect(() => parseEnv({ ...prod, ...evo })).toThrow(/EVOLUTION_WEBHOOK_URL é obrigatória em produção/);
+    const publica = 'https://app.exemplo.com/api/webhooks/whatsapp';
+    expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica })).toThrow(/endereço interno/);
+    for (const falsa of ['http://10.exemplo.com/api/webhooks/whatsapp', 'http://[2001:db8::1]:3000/api/webhooks/whatsapp', 'http://8.8.8.8/api/webhooks/whatsapp']) {
+      expect(() => parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: falsa }), falsa).toThrow(/endereço interno/);
+    }
+    expect(parseEnv({ ...prod, ...evo, EVOLUTION_WEBHOOK_URL: publica, EVOLUTION_WEBHOOK_URL_PUBLICA: '1' }).EVOLUTION_WEBHOOK_URL_PUBLICA).toBe('1');
+  });
+  it('produção: o segredo de exemplo do .env.example é recusado (como as chaves de teste do Turnstile); em localhost e em dev vale', () => {
+    const exemplo = { EVOLUTION_WEBHOOK_SECRET: EVOLUTION_WEBHOOK_SECRET_EXEMPLO };
+    expect(() => parseEnv({ ...prod, ...evo, ...exemplo, EVOLUTION_WEBHOOK_URL: interna })).toThrow(/EVOLUTION_WEBHOOK_SECRET de exemplo não pode ser usada em produção/);
+    expect(parseEnv({ ...prod, APP_URL: 'http://localhost:3000', WHATSAPP_SANDBOX: '1', ...exemplo }).WHATSAPP_SANDBOX).toBe('1'); // E2E com `next start`
+    expect(parseEnv({ ...base, WHATSAPP_SANDBOX: '1', ...exemplo }).WHATSAPP_SANDBOX).toBe('1');
+    // a constante é o valor que o .env.example traz (sem imprimir o valor se divergir)
+    const linha = /^EVOLUTION_WEBHOOK_SECRET=(.*)$/m.exec(readFileSync(new URL('../.env.example', import.meta.url), 'utf8'))?.[1];
+    expect(linha === EVOLUTION_WEBHOOK_SECRET_EXEMPLO, '.env.example e EVOLUTION_WEBHOOK_SECRET_EXEMPLO divergem').toBe(true);
+  });
+  it('sandbox: recusado em produção fora de localhost; exige o segredo do webhook (o E2E assina os eventos); só o segredo, sem URL e chave, não é configuração pela metade', () => {
+    expect(() => parseEnv({ ...prod, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) })).toThrow(/WHATSAPP_SANDBOX só fora de produção/);
+    expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1' })).toThrow(/EVOLUTION_WEBHOOK_SECRET/);
+    expect(parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32) }).WHATSAPP_SANDBOX).toBe('1');
+    expect(() => parseEnv({ ...base, WHATSAPP_SANDBOX: '1', EVOLUTION_WEBHOOK_SECRET: 'w'.repeat(32), EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
+  });
+  it('worker: URL e chave juntas ou nenhuma; não exige o segredo do webhook', () => {
+    const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+    expect(parseWorkerEnv({ ...w, EVOLUTION_API_URL: evo.EVOLUTION_API_URL, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY }).EVOLUTION_API_KEY).toBe(evo.EVOLUTION_API_KEY);
+    expect(() => parseWorkerEnv({ ...w, EVOLUTION_API_KEY: evo.EVOLUTION_API_KEY })).toThrow(/juntas/);
+  });
+});
+
+describe('push (INT-03): VAPID no worker', () => {
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  // par gerado na hora, só para este teste (nunca gravado em arquivo)
+  const par = webpush.generateVAPIDKeys();
+  const vapid = { VAPID_PUBLIC_KEY: par.publicKey, VAPID_PRIVATE_KEY: par.privateKey, VAPID_SUBJECT: 'mailto:suporte@exemplo.com' };
+  it('as três juntas ou nenhuma; formato das chaves e do subject', () => {
+    expect(parseWorkerEnv({ ...w, ...vapid }).VAPID_SUBJECT).toBe('mailto:suporte@exemplo.com');
+    expect(parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'https://nutridebby.com.br' }).VAPID_PUBLIC_KEY).toBe(par.publicKey);
+    expect(parseWorkerEnv(w).VAPID_PUBLIC_KEY).toBeUndefined();
+    expect(parseWorkerEnv({ ...w, VAPID_PUBLIC_KEY: '', VAPID_PRIVATE_KEY: '', VAPID_SUBJECT: '' }).VAPID_SUBJECT).toBeUndefined(); // linhas em branco do .env.example
+    expect(() => parseWorkerEnv({ ...w, VAPID_PUBLIC_KEY: vapid.VAPID_PUBLIC_KEY })).toThrow(/juntas/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'suporte@exemplo.com' })).toThrow(/mailto:/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_SUBJECT: 'http://exemplo.com' })).toThrow(/mailto:/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_PRIVATE_KEY: 'curta' })).toThrow(/VAPID_PRIVATE_KEY/);
+    expect(() => parseWorkerEnv({ ...w, ...vapid, VAPID_PUBLIC_KEY: `${par.publicKey}=` })).toThrow(/VAPID_PUBLIC_KEY deve ser/);
+  });
+  it('chave pública e privada do mesmo par (senão todo push volta 403); a mensagem não repete as chaves', () => {
+    const outro = webpush.generateVAPIDKeys();
+    let msg = '';
+    try {
+      parseWorkerEnv({ ...w, ...vapid, VAPID_PRIVATE_KEY: outro.privateKey });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toMatch(/não são do mesmo par/);
+    expect(msg.includes(outro.privateKey) || msg.includes(par.publicKey), 'a mensagem não pode trazer as chaves').toBe(false);
   });
 });

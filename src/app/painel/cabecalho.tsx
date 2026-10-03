@@ -18,6 +18,8 @@ export function Cabecalho({ tenant }: { tenant: TenantRow }) {
       <nav aria-label="Menu do painel" className="flex items-center gap-4 text-sm">
         <Link href="/painel">Início</Link>
         <Link href="/painel/pacientes">Pacientes</Link>
+        <Link href="/painel/agenda">Agenda</Link>
+        <Link href="/painel/whatsapp">WhatsApp</Link>
         <Link href="/painel/alimentos">Alimentos</Link>
         <Link href="/painel/planos/modelos">Modelos de plano</Link>
         <Link href="/painel/anamnese/modelos">Modelos de anamnese</Link>

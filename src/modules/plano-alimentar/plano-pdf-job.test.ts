@@ -16,6 +16,7 @@ import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
+import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { gTexto, totalDoDia } from './calculo';
 import { carregarPlano } from './carregar';
 import { PdfEmPreparoError, PlanoNaoEncontradoError } from './erros';
@@ -24,6 +25,13 @@ import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { editarPublicado, pedirNovoPdf, publicarPlano } from './publicacao';
 import { criarRascunho, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento, PlanoCompleto } from './tipos';
+
+// Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
+// arquivos de teste rodam em paralelo no mesmo banco, cada um com o seu dataDir (implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -35,6 +43,11 @@ afterAll(async () => {
 });
 const dataDir = process.env.DATA_DIR!;
 const now = new Date('2026-10-01T15:00:00Z');
+/** Anonimização (job retencao-lgpd) só destes tenants. */
+const anonimizarSo = (...ts: TenantDeTeste[]) => {
+  vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce(ts.map((t) => ({ id: t.tenantId, fuso: t.tenant.fuso })));
+  return anonimizarVencidos(app.db, now, { dataDir });
+};
 const deps = { db: app.db, now };
 const job = (T: TenantDeTeste, planId: string, extra: Partial<Parameters<typeof gerarPdfDoPlano>[1]> = {}) =>
   gerarPdfDoPlano({ tenantId: T.tenantId, planId }, { db: app.db, dataDir, now, ultimaTentativa: false, ...extra });
@@ -208,7 +221,13 @@ describe('PDF do plano (US-026)', () => {
     const bloquear = (t: TenantDeTeste, patientId: string) =>
       withTenant(t.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, patientId)), app.db);
     await bloquear(T, p.id);
-    await anonimizarVencidos(app.db, now, { dataDir });
+    // rodada 2 da T13: um tenant que não é desta varredura (outro arquivo de teste, rodando ao mesmo tempo, com outro dataDir)
+    const alheio = await novoTenant(app.db);
+    const deOutroArquivo = await novoPaciente(app.db, alheio.ctx);
+    await bloquear(alheio, deOutroArquivo.id);
+    await anonimizarSo(T);
+    const [visto] = await withTenant(alheio.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, deOutroArquivo.id)), app.db);
+    expect(visto.anonimizadoEm, 'a varredura do teste só passa pelos próprios tenants').toBeNull();
     expect(existsSync(resolverCaminho(dataDir, caminho))).toBe(false);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, caminho)), app.db)).toEqual([]);
     expect((await carregarPlano(T.ctx, id, app.db))?.pdfPath).toBeNull();
@@ -217,7 +236,7 @@ describe('PDF do plano (US-026)', () => {
     const T2 = await novoTenant(app.db);
     const b = await planoPublicado(T2);
     await bloquear(T2, b.p.id);
-    await anonimizarVencidos(app.db, now, { dataDir });
+    await anonimizarSo(T2);
     expect(await job(T2, b.id)).toBe('ignorado');
     expect((await owner.pool.query(`select pdf_status, pdf_path from meal_plans where id = $1`, [b.id])).rows[0]).toEqual({ pdf_status: 'falhou', pdf_path: null });
     expect(await withTenant(T2.ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);

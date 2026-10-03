@@ -7,7 +7,16 @@ import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
+import { encryptionKey, openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
+import { limparLimites } from '@/modules/agenda/limite-ip';
+import { chaveDosLinks } from '@/modules/agenda/link-consulta';
+import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
+import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
+import { pushDoAmbiente } from '@/modules/notificacoes/push';
+import { provedorDoAmbiente } from '@/modules/notificacoes/whatsapp/ambiente';
+import { FINALIDADE_EVENTO, processarEventoWhatsapp, type EventoWhatsapp } from '@/modules/notificacoes/whatsapp/webhook';
 import {
   expirarExportacao,
   expirarExportacoesVencidas,
@@ -51,6 +60,44 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
     });
+  });
+
+  // RN-05 / D6: motor de lembretes. Cron de 1 min para todos os tenants; `{ tenantId }` = envio imediato de um tenant
+  const depsEnvio: DepsEnvio = {
+    db: getDb(),
+    agora: () => new Date(),
+    appUrl: env.APP_URL,
+    chaveLinks: chaveDosLinks(encryptionKey()),
+    email: { transport, from: env.EMAIL_FROM },
+    whatsapp: provedorDoAmbiente(env),
+    push: pushDoAmbiente(env), // INT-03 / D19: web-push só aqui no worker (R1)
+  };
+  logger.info({ whatsapp: depsEnvio.whatsapp?.nome ?? 'desligado' }, 'canal de WhatsApp'); // só o modo: nunca URL nem chave
+  logger.info({ push: depsEnvio.push ? 'ligado' : 'desligado' }, 'canal de push'); // nunca as chaves do VAPID
+  // D16 (fila serial): um job de `notificacoes` por vez neste worker (padrão do boss.work: localConcurrency 1)
+  await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work<{ tenantId?: string }>('notificacoes', async ([job]) => {
+    await processarNotificacoes(depsEnvio, { tenantId: job.data?.tenantId });
+  });
+  // US-004: o admin suspende/reativa e só enfileira; aqui o worker troca os lembretes dentro do withTenant
+  await boss.work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
+    if (job.data.evento === 'suspenso') await ignorarPendentesDoTenant(getDb(), job.data.tenantId, new Date());
+    else await reagendarTenantReativado(getDb(), job.data.tenantId, new Date());
+  });
+
+  // INT-01/D5: eventos do webhook do WhatsApp (conexão, status de entrega, resposta "1"/"2"), já reduzidos e cifrados pela rota
+  // (revisão 1 da T12: ERROR antes de o envio gravar o id volta para a fila; na última tentativa, desiste em silêncio)
+  await boss.work('whatsapp-evento', { includeMetadata: true }, async ([job]: JobWithMetadata<{ selado: string }>[]) => {
+    const ev = JSON.parse(openSecret(job.data.selado, FINALIDADE_EVENTO)) as EventoWhatsapp;
+    await processarEventoWhatsapp(ev, { db: getDb(), appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+
+  // RN-16 / LGPD (minimização): pedidos da página pública (contato e código) somem em 24 h; contadores de limite, em 1 dia
+  await boss.schedule('agenda-limpeza', '30 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await boss.work('agenda-limpeza', async () => {
+    const pedidos = await limparPedidosPublicos(getDb(), new Date());
+    const limites = await limparLimites(getDb(), new Date());
+    logger.info({ pedidos, limites }, 'limpeza da agenda pública');
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');

@@ -68,3 +68,81 @@ describe('exportacao_pronta (US-018)', () => {
     expect(r.html).toContain('href="http://localhost:3000/painel/pacientes/p/exportacoes/e"');
   });
 });
+
+describe('consulta (US-031, US-033, US-034)', () => {
+  it('consulta: lembretes de 24 h e 2 h, marcada e cancelada (com o fuso no texto)', () => {
+    const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };
+    const l24 = renderEmail({ ...base, evento: 'lembrete_24h' });
+    expect(l24.subject).toBe('Lembrete: sua consulta é amanhã às 14:00');
+    expect(l24.text).toContain('Este é um lembrete da sua consulta com Debby Silva: sex., 16/10/2026 às 14:00 (horário de Brasília).');
+    expect(l24.text).toContain('Endereço: Rua das Flores, 10');
+    expect(l24.text).toContain('Confirmar presença ou remarcar: https://x.dev/consulta/tok');
+    expect(l24.html).toContain('href="https://x.dev/consulta/tok"');
+    expect(renderEmail({ ...base, evento: 'lembrete_2h', modalidade: 'online', local: 'https://meet.google.com/x' }).text).toContain('Link da chamada: https://meet.google.com/x');
+    expect(renderEmail({ ...base, evento: 'consulta_marcada' }).subject).toBe('Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    const c = renderEmail({ ...base, evento: 'consulta_cancelada', link: null });
+    expect(c.subject).toBe('Consulta cancelada: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    expect(c.text).not.toContain('/consulta/');
+    expect(c.html).not.toContain('/consulta/');
+  });
+  it('"2" no WhatsApp (US-035): e-mail com o link para remarcar e o prazo', () => {
+    const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };
+    const r = renderEmail({ ...base, evento: 'resposta_remarcar', prazoH: 24 });
+    expect(r.subject).toBe('Remarcar sua consulta: sex., 16/10/2026 às 14:00 (horário de Brasília)');
+    expect(r.text).toBe(
+      [
+        'Olá, Ana!',
+        'Você pediu pelo WhatsApp para remarcar sua consulta com Debby Silva de sex., 16/10/2026 às 14:00 (horário de Brasília).',
+        'Escolher outro horário: https://x.dev/consulta/tok',
+        'Se faltarem menos de 24 h para a consulta, fale direto com Debby Silva.',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/consulta/tok"');
+  });
+});
+
+describe('aviso_agenda (US-032, D18)', () => {
+  it('aviso à nutricionista: assunto sem nome do paciente; nome e horário no corpo', () => {
+    const r = renderEmail({ tipo: 'aviso_agenda', para: 'debby@ex.com', evento: 'novo_paciente_publico', paciente: 'Ana Souza', quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)', link: 'https://x.dev/painel/agenda/consultas/1' });
+    expect(r.subject).toBe('Novo paciente via agendamento online');
+    expect(r.text).toContain('Ana Souza marcou uma consulta pela sua página de agendamento para sex., 16/10/2026 às 09:00 (horário de Brasília).');
+    expect(r.text).toContain('Ver na agenda: https://x.dev/painel/agenda/consultas/1');
+    expect(renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido_remarcacao', paciente: 'Ana', quando: 'q', link: 'https://x' }).subject).toBe('Paciente pediu para remarcar');
+  });
+});
+
+describe('exclusao_consultas_canceladas (US-018, fechamento do Plano 05)', () => {
+  it('aviso à nutricionista: assunto sem nome; primeiro nome e quantas no corpo (singular e plural)', () => {
+    const um = renderEmail({ tipo: 'exclusao_consultas_canceladas', para: 'debby@ex.com', paciente: 'Ana', quantidade: 1 });
+    expect(um.subject).toBe('Pedido de exclusão atendido');
+    expect(um.text).toBe('Pedido de exclusão atendido: 1 consulta futura de Ana foi cancelada.');
+    expect(renderEmail({ tipo: 'exclusao_consultas_canceladas', para: 'debby@ex.com', paciente: 'Ana', quantidade: 3 }).text).toBe('Pedido de exclusão atendido: 3 consultas futuras de Ana foram canceladas.');
+  });
+});
+
+describe('codigo_agendamento (RN-16, D12)', () => {
+  it('código do agendamento público: código no assunto e no corpo, validade de 10 min', () => {
+    const r = renderEmail({ tipo: 'codigo_agendamento', para: 'ana@ex.com', nutri: 'Debby Silva', codigo: '042917' });
+    expect(r.subject).toBe('Seu código para agendar com Debby Silva: 042917');
+    expect(r.text).toContain('Use o código 042917 para confirmar o agendamento com Debby Silva.');
+    expect(r.text).toContain('10 minutos');
+    expect(r.html).toContain('042917');
+  });
+});
+
+describe('whatsapp_desconectado (D18)', () => {
+  it('WhatsApp desconectado: o que aconteceu e o link para conectar de novo', () => {
+    const r = renderEmail({ tipo: 'whatsapp_desconectado', para: 'd@x.dev', link: 'https://x.dev/painel/whatsapp' });
+    expect(r.subject).toBe('Seu WhatsApp foi desconectado do NutriDebby');
+    expect(r.text).toContain('Conectar o WhatsApp de novo: https://x.dev/painel/whatsapp');
+  });
+});
+
+describe('cota_whatsapp (RN-09, US-036)', () => {
+  it('cota de WhatsApp: o texto exato da US-036 no assunto e o uso no corpo', () => {
+    const r = renderEmail({ tipo: 'cota_whatsapp', para: 'd@x.dev', usadas: 400, cota: 500, link: 'https://x.dev/painel/whatsapp' });
+    expect(r.subject).toBe('Você usou 80% dos WhatsApps do mês');
+    expect(r.text).toContain('Já foram 400 de 500 mensagens de WhatsApp neste mês.');
+    expect(r.text).toContain('Ver o uso do WhatsApp: https://x.dev/painel/whatsapp');
+  });
+});

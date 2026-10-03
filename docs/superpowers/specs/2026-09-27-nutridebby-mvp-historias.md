@@ -1,6 +1,6 @@
 # NutriDebby — Histórias de Usuário do MVP
 
-Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento.
+Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento. A versão é a do documento de design (Apêndice C); esta revisão acompanha a **v1.8** (fechamento do Plano 05 — Agenda & lembretes: notas "Plano 05, v1.8" nas histórias do E1, E2 e E4 e a tabela "Textos de interface e mensagens do E4", no fim do E4).
 
 **Prioridade (MoSCoW):** **M** = Must (bloqueia o go-live) · **S** = Should (entra no MVP; pode ir para depois do go-live se o prazo apertar).
 **Estimativas:** feitas no planejamento (writing-plans), não aqui.
@@ -186,6 +186,8 @@ Cenário: Reativar
   Então o acesso volta ao normal
   E os lembretes de consultas futuras são reagendados conforme RN-05
 
+Nota de entrega (Plano 05, v1.8): a suspensão e a reativação do admin só enfileiram o job `agenda-tenant`; o worker faz a troca dentro do `withTenant` do tenant (o admin nunca toca tabela 🔒), relendo o status do tenant sob trava (`FOR SHARE`) — um job "suspenso" atrasado, que roda depois da reativação, não ignora nada. Na reativação, os lembretes seguem a RN-05 ao pé da letra (decisão do dono, 02/10/2026): o lembrete cujo horário de envio já passou fica "ignorada" com motivo "prazo_passado" (não é reenviado nem adiado); os demais voltam a "pendente". O convite por WhatsApp (sem consulta) não volta: o convite por e-mail continua valendo.
+
 Cenário: Admin não vê prontuário
   Dado que estou logado como admin
   Quando chamo qualquer rota /api/painel/* ou /api/p/*
@@ -302,8 +304,11 @@ Cenário: Convite também por WhatsApp
   E marquei "Paciente autorizou receber mensagens por WhatsApp" e "Enviar convite por WhatsApp"
   Quando salvo
   Então whatsapp_optin_em é preenchido com whatsapp_optin_origem = "nutri"
-  E o template convite_paciente é enviado para "+5511912345678"
+  E um aviso por WhatsApp (texto simples, SEM link) é enviado para "+5511912345678": "Olá, Ana! <nutricionista> convidou você para o NutriDebby. Enviamos o convite para o seu e-mail a***@ex.com (vale por 7 dias)."
+  E o link do convite vai só no e-mail
   E conta 1 mensagem na cota do tenant
+
+Nota de entrega (Plano 05, v1.8 — decisão do dono, 02/10/2026): o convite por WhatsApp é só um aviso. O número não foi verificado e a conversa fica no aparelho do consultório (INT-01): com o link (credencial de criação da conta), um número errado ou reciclado criaria a conta do paciente. Um texto só para conta nova ou existente (dizer que o e-mail já é paciente de outra nutricionista vazaria dado do outro consultório); o texto é montado na hora do envio, com o e-mail atual do paciente, mascarado (primeira letra + "***" + "@" + domínio). Se o paciente aceitar o convite pelo e-mail antes de o WhatsApp sair, o aviso não sai ("Não enviado: convite já aceito"). Não há reenvio do convite só por WhatsApp: reenviar é pelo e-mail. Sem WhatsApp disponível, a tela avisa: "O WhatsApp ainda não está disponível na plataforma; o convite vai só por e-mail." ou "O WhatsApp do consultório não está conectado; o convite vai só por e-mail."; a dica da opção é "Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.". A tela do paciente mostra "Convite por WhatsApp: {situação}" (ex.: "Convite por WhatsApp: enviado em qua., 14/10/2026 às 10:00") ou "Convite por WhatsApp não enviado: {motivo}".
 
 Cenário: WhatsApp sem autorização
   Dado que não marquei "Paciente autorizou receber mensagens por WhatsApp"
@@ -455,6 +460,8 @@ Cenário: Atendimento a partir da agenda
   Então abre um registro de atendimento vinculado ao appointment_id
   E os atalhos para anamnese, antropometria, cálculo e plano ficam na mesma tela
 
+Nota de entrega (Plano 05, v1.8): `consultations.appointment_id` (nulo, FK composta para a consulta do mesmo paciente; uma consulta tem no máximo um atendimento). "Iniciar atendimento" aparece só para consulta que já começou (início ≤ agora), também em "realizada"/"faltou" sem atendimento ligado, e o atendimento salvo marca a consulta como "Realizada". Textos: "Atendimento da consulta de {quando}.", "Esta consulta já tem um atendimento registrado.", "Consulta não encontrada para este paciente.", "Esta consulta ainda não começou." (o servidor confere a mesma regra ao salvar — consulta movida para o futuro depois de a tela abrir; code-review do PR #7).
+
 Cenário: Privacidade das notas
   Dado que escrevi em notas_privadas "suspeita de compulsão"
   E em orientacoes_paciente "beber 2 L de água/dia"
@@ -507,7 +514,23 @@ Cenário: Fim do prazo de guarda
   Dado um paciente bloqueado com anonimizar_apos no passado
   Quando o job diário de retenção roda
   Então nome, e-mail, telefone e data de nascimento são substituídos por valores anônimos, os anexos são apagados de /data e anonimizado_em é preenchido
+
+Cenário: Pedido de exclusão com consultas futuras (Plano 05, v1.8 — decisão do dono, 02/10/2026)
+  Dado que P tem consultas futuras "agendada" ou "confirmada"
+  Quando atendo o pedido de exclusão de P
+  Então, na mesma transação, essas consultas ficam "cancelada" com cancelado_por = "sistema", sem motivo e sem pedido de remarcação
+  E P não recebe "Consulta cancelada" (nenhum aviso ao paciente; o e-mail de sempre do pedido atendido continua saindo)
+  E o que ainda estava pendente para P (lembretes, respostas "1"/"2", convite por WhatsApp) fica "ignorada" sem texto cifrado
+  E eu recebo o e-mail "Pedido de exclusão atendido" com "Pedido de exclusão atendido: 2 consultas futuras de Ana foram canceladas." (singular: "1 consulta futura de Ana foi cancelada.")
+  E a agenda mostra o selo "Cancelada pelo pedido de exclusão"
 ```
+
+Nota de entrega (Plano 05, v1.8):
+- **Exportação (`dados.json`):** ganha `consultas` (início, fim, modalidade, situação, origem, quem cancelou e o motivo **só quando o paciente cancelou** — o motivo do cancelamento escrito pela nutricionista fica fora, decisão do dono de 02/10/2026: é anotação dela, "Só você vê."), `lembretes` (tipo, canal, situação, agendado para, enviado em, motivo de não envio — sem texto cifrado nem ids do provedor), `aceitesDoTermo` (versão, data e IP do aceite) e `dispositivosPush` (só `{criadaEm, navegador}`; nunca endpoint nem chaves).
+- **Anonimização:** a migration 0065 (`app_anonimizar_aceites`, única porta de escrita em `consents` depois do INSERT) mantém a versão e a data do aceite ligadas ao prontuário anonimizado e tira o IP e o vínculo com a conta de login; na agenda saem o motivo do cancelamento, o link online (vira `https://anonimizado.invalid`, o CHECK exige https) e o número do WhatsApp (`provider_jid`); o que estava na fila não sai mais; as inscrições de push são apagadas. Horários, situação, canal e tipo ficam (histórico e métricas, sem identificação).
+- **`audit_log`:** os IPs de quem acessou ou alterou o prontuário (inclusive os do próprio paciente, pelo link da consulta ou pela página pública) ficam na anonimização, como registro de responsabilização (decisão do dono, 02/10/2026).
+- **"Histórico de acessos":** ações na agenda feitas pelo próprio paciente (link da consulta, resposta no WhatsApp, página pública) não têm usuário de sessão e aparecem com o ator "Sistema" (decisão do dono, 02/10/2026).
+- Atender o pedido também apaga as inscrições de push do vínculo (US-018 "inscrições de push … apagadas na hora").
 
 ## US-019 — Etiquetas de paciente · **S**
 
@@ -840,6 +863,8 @@ Cenário: Agendar
   E a Ana recebe e-mail e push de confirmação
   E os lembretes de 24 h e 2 h são agendados (RN-05)
 
+Nota de entrega (Plano 05, v1.8): o push só sai se o paciente tiver inscrição (a inscrição é do P06-02, Plano 06; até lá, as linhas de push ficam "Não enviado: paciente sem notificações no app"). A nutricionista marca em qualquer data (inclusive passada, para registrar um encaixe; consulta no passado não gera confirmação nem lembrete) até hoje + 5 anos ("Informe uma data válida" fora disso), com duração de 15 a 240 min; paciente arquivado: "Paciente arquivado: desarquive para agendar.". "Alterar data e hora" volta a consulta para "Agendada"; mudar só a duração, a modalidade ou o link mantém o horário e os lembretes pendentes (que saem com os dados novos) e **não manda aviso próprio** ao paciente (R3, aceito pelo dono em 02/10/2026). Cancelar: "Cancelar esta consulta? O paciente recebe um aviso por e-mail."; o motivo (até 300 caracteres) só a nutricionista vê ("Motivo do cancelamento (só você vê): …" na página da consulta).
+
 Cenário: Sobreposição
   Dado que já há consulta das 09:00 às 10:00
   Quando tento marcar outra às 09:30
@@ -897,6 +922,13 @@ Cenário: Página pública desativada
   Então vê o nome da nutricionista e "Agendamento online indisponível. Entre em contato." e nenhum horário
 ```
 
+Nota de entrega (Plano 05, v1.8):
+- **"Agendar pelo PWA":** o domínio (antecedência de 12 h, 60 dias, corrida pelo `EXCLUDE`, aviso à nutricionista por e-mail e no quadro "Agenda" do painel) está pronto; a tela no PWA é do P06-09 (Plano 06). A "notificação no painel" é o quadro "Agenda" do painel inicial (sem tabela de notificações internas).
+- **Página pública:** nasce **desligada** (`agendamento_publico_ativo` padrão `false`; o deploy da migration 0067 desliga a de todos os tenants existentes — decisão do dono, 02/10/2026); a nutricionista liga em Configurações, em "Permitir agendamento pela página pública". O botão "Entrar (já sou paciente)" fica para o Plano 06: até lá, o código por e-mail serve também para quem já é paciente — a consulta vai para o paciente ativo daquele e-mail (ele provou o e-mail); arquivado, bloqueado ou anonimizado vê "Não foi possível agendar por aqui. Fale com sua nutricionista." (também se o pedido de exclusão for atendido no meio da marcação: a página pública reconfere a situação do paciente sob a trava da consulta nova e desfaz a marcação).
+- Dois passos: pedido (nome, e-mail, telefone opcional, "Tenho 18 anos ou mais", termo, "Quero receber lembretes por WhatsApp", Turnstile) → código de 6 dígitos (10 min, 5 erros invalidam o pedido) → consulta. Limites: 10 tentativas por IP por hora (HTTP 429, IP real via `TRUSTED_PROXIES`), 1 código por e-mail a cada 60 s e 5 por hora, 3 consultas futuras por e-mail conferidas **depois** do código; a resposta é a mesma para e-mail cadastrado ou não até o código ser confirmado. Horário ocupado entre o pedido e o código: outros horários da mesma semana, e o pedido verificado escolhe outro sem novo código por 30 min. Pedidos somem em 24 h.
+- **Opt-in de WhatsApp de paciente que já existe:** marcar "Quero receber lembretes por WhatsApp" na página pública **não** altera o cadastro existente (o contexto sem login não altera pacientes); a autorização continua a registrada pela nutricionista ou pelo paciente no portal (aceito pelo dono em 02/10/2026). Paciente novo ganha o opt-in com origem "paciente" se informar o telefone.
+- O aceite do termo na página pública fica em `consents` com `patient_id` (o visitante ainda não tem conta).
+
 ## US-033 — Cancelar ou remarcar · **M**
 
 **Como** paciente, **quero** cancelar ou remarcar dentro do prazo, **para** não faltar sem avisar.
@@ -914,6 +946,8 @@ Cenário: Fora do prazo
   Então não vejo os botões "Cancelar" e "Remarcar"
   E vejo "Para alterar, fale com sua nutricionista."
 ```
+
+Nota de entrega (Plano 05, v1.8): até o PWA (P06-09), o paciente age pela página do **link assinado da consulta** (`/consulta/<token>`), que vai em todo e-mail de lembrete e de marcação: "Confirmar presença", "Cancelar consulta" e "Remarcar" dentro do prazo; fora dele, só "Avisar que preciso remarcar" ("Avisamos sua nutricionista. Ela vai entrar em contato.", uma vez). O link expira no início da consulta, deixa de valer quando a consulta muda de horário ("Este link expirou.") e é **amarrado ao e-mail do paciente**: corrigir o e-mail revoga os links já enviados ("Link inválido."). Nunca muda estado num `GET`; a página tem `Referrer-Policy: no-referrer` e `noindex`. Paciente arquivado ou bloqueado vê "Conta temporariamente indisponível"; anonimizado, "Link inválido.". Remarcar pelo paciente = cancelar a antiga (`cancelado_por = 'paciente'`, motivo "Remarcada pelo paciente") e criar a nova (`remarcada_de`) numa transação.
 
 ## US-034 — Lembretes automáticos · **M**
 
@@ -936,43 +970,56 @@ Cenário: Criada em cima da hora
   E o lembrete_2h é agendado para as 13:00
 
 Cenário: Falha no WhatsApp com fallback
-  Dado que a Meta responde erro nas 3 novas tentativas
+  Dado que a Evolution responde erro nas 3 novas tentativas
   Então a notificação WhatsApp fica "falhou"
   E um e-mail de lembrete é enviado, se o de e-mail ainda não tiver saído
 
 Cenário: Sem duplicidade
   Dado que o worker reinicia no meio do envio
-  Então o paciente recebe no máximo 1 lembrete por tipo e canal (UNIQUE appointment_id + canal + tipo)
+  Então o paciente recebe no máximo 1 lembrete por tipo, canal e horário da consulta (UNIQUE appointment_id + canal + tipo + inicio_consulta)
 ```
+
+Nota de entrega (Plano 05, v1.8):
+- **Estado no banco, não job atrasado:** o worker varre `notifications` a cada minuto (o pg-boss apaga job "created" depois de 14 dias, e uma consulta pode ser marcada com 60 dias de antecedência). As linhas dos três canais nascem na marcação; as condições (opt-in, telefone, conexão, cota, inscrição, paciente e consulta ativos, tenant ativo, horário da consulta igual ao da linha) são conferidas na hora do envio e viram "ignorada" + motivo.
+- **Lembrete enviado é imutável:** mudar o horário cria linhas novas para o horário novo; a pendente do horário antigo vira "Não enviado: consulta remarcada" e a enviada fica como registro (conta na cota e nas métricas). A página da consulta mostra os lembretes dos dois horários.
+- **No máximo uma vez (WhatsApp e push):** a linha é reservada ("Enviando…") antes de chamar o provedor; se o worker cair entre reservar e registrar, depois de 15 min ela vira "Falhou" e **não é retomada** (aceito pelo dono em 02/10/2026: não se sabe se saiu); o e-mail do mesmo lembrete segue o caminho dele (repete com segurança, pela chave de idempotência do Resend).
+- **Horário silencioso também na reserva (RN-05, D7):** o lembrete que venceu e sairia entre 21:00 e 08:00 (worker parado, conta reativada à noite) é adiado para as 08:00 quando ainda faz sentido — senão, "ignorada"/"horario_silencioso" —, em todos os canais; o de 24 h que sai no dia da consulta diz "hoje".
+- Textos do lembrete por e-mail, WhatsApp (sem link) e push (neutro): tabela "Textos de interface e mensagens do E4".
 
 ## US-035 — Confirmação pelo WhatsApp · **M**
 
-**Como** paciente, **quero** confirmar a consulta com um toque no WhatsApp, **para** avisar a nutricionista sem digitar.
+**Como** paciente, **quero** confirmar a consulta respondendo ao WhatsApp, **para** avisar a nutricionista sem abrir outro aplicativo.
+
+Plano 05, v1.8 (desvio do INT-01 original): sem botões *quick reply* (não confiáveis pela Evolution/Baileys). O lembrete pede uma resposta por texto; a rota do webhook reduz o texto a `confirmar` ("1", "sim", "confirmo") ou `remarcar` ("2", "remarcar", "preciso remarcar", "não posso"), sem acento, maiúsculas e pontuação, e descarta o resto sem gravar. **Nenhuma mensagem de WhatsApp leva link** (decisão do dono, 02/10/2026: o número não foi verificado e a conversa fica no aparelho do consultório) — nem o link assinado da consulta nem o link da chamada online: os links vão só por e-mail.
 
 ```gherkin
 Cenário: Confirmar
-  Dado que recebi o lembrete_24h com os botões "Confirmo" e "Preciso remarcar"
-  Quando toco em "Confirmo"
+  Dado que recebi o lembrete_24h por WhatsApp, que termina com "Responda 1 para confirmar ou 2 se precisar remarcar."
+  Quando respondo "1"
   Então o webhook muda a consulta para "confirmada"
+  E recebo "Presença confirmada. Até lá!"
   E a agenda da nutricionista mostra o selo "Confirmada via WhatsApp"
 
 Cenário: Remarcar
-  Quando toco em "Preciso remarcar"
-  Então recebo uma resposta com o link do PWA para remarcar
-  E appointments.pedido_remarcacao_em é preenchido e a nutricionista vê o alerta "Paciente pediu para remarcar"
+  Quando respondo "2"
+  Então appointments.pedido_remarcacao_em é preenchido e a nutricionista vê o alerta "Paciente pediu para remarcar" (e recebe o e-mail "Paciente pediu para remarcar")
+  E recebo pelo WhatsApp: "Tudo bem! Enviamos o link para remarcar para o seu e-mail a***@ex.com." e "Se faltarem menos de 24 h para a consulta, fale direto com <nutricionista>."
+  E recebo um e-mail NOVO "Remarcar sua consulta: <quando>", no meu e-mail atual, com o link assinado atual da consulta ("Escolher outro horário")
 
-Cenário: Webhook sem assinatura válida
-  Quando chega um POST com X-Hub-Signature-256 inválido
+Cenário: Webhook sem autenticação válida
+  Quando chega um POST sem o Bearer JWT da instância, com JWT de outra instância, vencido ou de outro algoritmo
   Então a resposta é HTTP 401 e nada é alterado
 
 Cenário: Evento repetido
-  Quando a Meta reenvia o mesmo evento
-  Então o estado não muda de novo e a resposta é HTTP 200
+  Quando a Evolution reenvia o mesmo pedido (mesmo JWT e mesmo corpo)
+  Então o estado não muda de novo, nada é enfileirado e a resposta é HTTP 200
 ```
+
+Regras da resposta (Plano 05, v1.8): "1"/"2" vale para o lembrete de WhatsApp enviado **àquele número** (o destino real que a Evolution devolveu no envio) nas últimas 26 h, de consulta futura e ativa, ainda no horário daquele lembrete; se a resposta cita uma mensagem, só vale se for um desses lembretes (citar outra mensagem não faz nada); sem citação, vale o lembrete mais recente. A ação roda como o próprio paciente (RLS por paciente). A resposta automática do WhatsApp é no máximo UMA de cada tipo ("1" ou "2") por consulta e horário de início — responder de novo, ou alternar "2", "1", "2", não gera outra mensagem (a ação, porém, vale a cada resposta) — e não conta na cota. O e-mail "Remarcar sua consulta" sai no primeiro pedido e só sai de novo quando um "2" abre um pedido NOVO (depois de um "1" ter desfeito o anterior) e o último e-mail desse horário foi gravado há 60 minutos ou mais; "2" repetido sem o "1" no meio não manda outro e-mail. Já confirmada ou já com pedido de remarcação (pelo link): "1"/"2" só respondem, sem mudar a via nem avisar a nutricionista de novo. O e-mail do "2" é montado na hora do envio com o e-mail atual do paciente (o link do e-mail do lembrete pode não ter saído ou ter caído com a correção do e-mail). Pelo link da consulta, a confirmação gera o selo "Confirmada pelo link".
 
 ## US-036 — Cota de WhatsApp · **M**
 
-**Como** dona da plataforma, **quero** limitar os envios de WhatsApp por tenant, **para** controlar o custo enquanto não há cobrança.
+**Como** dona da plataforma, **quero** limitar os envios de WhatsApp por tenant, **para** proteger o número contra bloqueio e a VPS (v1.8: com a Evolution não há custo por mensagem; a cota é limite de uso).
 
 ```gherkin
 Cenário: Aviso em 80% (RN-09)
@@ -995,6 +1042,8 @@ Cenário: Admin amplia cota
   Então os envios voltam imediatamente
 ```
 
+Nota de entrega (Plano 05, v1.8): contam os lembretes e convites aceitos pela Evolution (`enviada_em` no mês civil do fuso do tenant); as respostas automáticas a "1"/"2" não contam. O aviso de 80% (painel e e-mail) sai uma vez por mês. Na beira da cota, o que passa do saldo de uma volta do envio fica "pendente" e é recontado na volta seguinte pelo uso real; só vira "cota_esgotada" quando o uso do mês já está em 100% no início da volta (o e-mail e o push seguem). Tela "WhatsApp": "WhatsApps do mês: {usadas} de {cota}" e, esgotada, "Cota de WhatsApp do mês esgotada: os lembretes seguem por e-mail e notificação no app até o mês que vem.".
+
 ## US-037 — Registrar realizada ou falta · **M**
 
 **Como** nutricionista, **quero** marcar se a consulta aconteceu ou se houve falta, **para** medir a taxa de faltas (CS-03).
@@ -1012,6 +1061,29 @@ Cenário: Pendências
 Cenário: Indicador
   Então o painel inicial mostra: consultas do mês, taxa de faltas do mês e a do mês anterior
 ```
+
+Nota de entrega (Plano 05, v1.8): taxa do mês civil no fuso do tenant = faltas ÷ consultas do mês já iniciadas e não canceladas (consulta futura não entra), com uma casa decimal: "Taxa de faltas do mês: 12,5% (2 de 16)", "Mês anterior: 40,0%", "Sem dados". "Sem registro de presença" = consulta não cancelada que terminou há mais de 24 h ainda "agendada"/"confirmada" ("1 consulta sem registro de presença" / "{n} consultas sem registro de presença", lista em "Pendências"). A presença só se registra depois do início ("A presença só pode ser registrada depois do início da consulta."); "Faltou" é recusado em consulta com atendimento ligado ("Esta consulta tem um atendimento registrado."). Quadro "Agenda" no painel inicial: "Consultas do mês", taxa, "Pedidos de remarcação", "Marcadas pelo paciente (últimos 7 dias)", "Canceladas pelo paciente (últimos 7 dias)".
+
+## Textos de interface e mensagens do E4 (Plano 05, v1.8)
+
+Texto exato do código (conferido na entrega). `{…}` = valor variável; `{quando}` = "sex., 16/10/2026 às 14:00 (horário de Brasília)"; `{e-mail mascarado}` = primeira letra + "***@" + domínio (ex.: "a***@ex.com").
+
+| Onde | Textos |
+|---|---|
+| Horários e bloqueios (US-030) | "Horários de atendimento", "Horários da semana", "Adicionar horário", "Dia da semana", "Início", "Fim", "Duração", "Modalidade", "Presencial", "Online", "Presencial ou online", "Escolha…", "Escolha o dia da semana", "Escolha a modalidade", "A duração deve ser de 15 a 240 minutos", "O horário precisa caber pelo menos uma consulta", "Este horário se sobrepõe a outro do mesmo dia.", "Informe um horário válido (HH:MM)", "Limite de 30 horários de atendimento.", "Nenhum horário cadastrado: a página de agendamento não oferece horários.", "Excluir", "Excluir este horário de atendimento?", "Bloqueios", "Adicionar bloqueio", "Data inicial", "Data final", "Hora inicial (opcional)", "Hora final (opcional)", "Vazio = só a data inicial.", "Vazio = o dia inteiro.", "Motivo (opcional)", "A data final deve ser igual ou posterior à inicial", "O bloqueio pode ter no máximo 366 dias", "Use no máximo 120 caracteres", "Nenhum bloqueio futuro.", "Excluir este bloqueio?", "Bloqueado", "Bloqueado: {motivo}" |
+| Agenda da nutricionista (US-031) | "Agenda", "Dia", "Semana", "Lista", "Hoje", "Anterior", "Próximo", "Nenhuma consulta neste período.", "Nova consulta", "Paciente", "Selecione o paciente", "Data", "Hora", "Link da chamada", "Vazio = o link padrão do seu perfil.", "Marcar consulta", "Informe uma data válida", "Este horário não existe neste dia (mudança de horário de verão).", "Paciente arquivado: desarquive para agendar.", "Consulta marcada.", "Consulta não encontrada.", "Consulta de {nome}", "Abrir prontuário", "Alterar data e hora", "Salvar alteração", "Consulta alterada.", "Só dá para alterar consulta agendada ou confirmada.", "Cancelar consulta", "Motivo do cancelamento (opcional)", "Só você vê.", "Use no máximo 300 caracteres", "Cancelar esta consulta? O paciente recebe um aviso por e-mail.", "Consulta cancelada.", "Esta consulta não pode mais ser cancelada.", "Motivo do cancelamento (só você vê): {motivo}" |
+| Situação e selos da consulta | "Agendada", "Confirmada", "Cancelada", "Realizada", "Faltou", "Confirmada via WhatsApp", "Confirmada pelo link", "Cancelada pelo paciente", "Cancelada pelo pedido de exclusão", "Paciente pediu para remarcar", "Novo paciente via agendamento online", "Completar cadastro", "Consulta dentro de um bloqueio"; motivo gravado na remarcação pelo paciente: "Remarcada pelo paciente" |
+| Lembretes na página da consulta (US-034) | "Lembretes", "Lembretes da consulta", "Mensagem", "Canal", "Situação", "Nenhum lembrete para esta consulta."; tipos "Lembrete de 24 h", "Lembrete de 2 h", "Confirmação da marcação", "Aviso de cancelamento", "Convite", "Resposta ao paciente"; canais "E-mail", "WhatsApp", "Notificação no app"; situações "Agendado para {quando}", "Enviando…", "Enviado em {quando}", "Entregue", "Lido", "Falhou", "Não enviado: {motivo}"; motivos "horário silencioso (21h–8h)", "já tinha passado do horário", "consulta cancelada", "consulta remarcada", "consulta encerrada", "paciente arquivado ou bloqueado", "conta suspensa", "sem autorização de WhatsApp", "sem telefone", "WhatsApp não configurado na plataforma", "WhatsApp desconectado", "cota de WhatsApp do mês esgotada", "paciente sem notificações no app", "notificações no app não configuradas", "convite já aceito", "motivo desconhecido" |
+| Presença e painel (US-037, US-016) | "Registrar presença", "Realizada", "Faltou", "Presença registrada.", "A presença só pode ser registrada depois do início da consulta.", "Esta consulta tem um atendimento registrado.", "Iniciar atendimento", "Pendências", "Consultas sem registro de presença", "1 consulta sem registro de presença", "{n} consultas sem registro de presença", "Agenda" (quadro do painel), "Consultas do mês: {n}", "Taxa de faltas do mês: {x}% ({faltas} de {total})", "Mês anterior: {y}%", "Sem dados", "Pedidos de remarcação", "Marcadas pelo paciente (últimos 7 dias)", "Canceladas pelo paciente (últimos 7 dias)", "Atendimento da consulta de {quando}.", "Esta consulta já tem um atendimento registrado.", "Consulta não encontrada para este paciente.", "Esta consulta ainda não começou." |
+| Link da consulta (US-033, US-035) | "Sua consulta", "Com {nutri} · {quando} · {modalidade}", "Endereço: {endereço}", "Link da chamada: {link}", "Agendada", "Presença confirmada", "Consulta realizada", "Consulta encerrada", "Confirmar presença", "Presença confirmada. Até lá!", "Esta consulta não pode mais ser confirmada.", "Remarcar", "Modalidade", "Escolha um novo horário", "Semana anterior", "Próxima semana", "Remarcar para este horário", "Consulta remarcada para {quando}.", "Esse horário não está mais disponível. Escolha outro.", "Esse horário acabou de ser ocupado. Escolha outro.", "Nenhum horário livre nesta semana.", "Nenhum horário livre nos próximos 60 dias. Fale com sua nutricionista.", "Cancelar consulta", "Cancelar esta consulta?", "Avisar que preciso remarcar", "Avisamos sua nutricionista. Ela vai entrar em contato.", "Para alterar, fale com sua nutricionista.", "Este link expirou.", "Link inválido.", "Esta consulta foi cancelada.", "Conta temporariamente indisponível" |
+| Página pública (US-032, RN-16) | "Agendar consulta com {nome}", "Agendamento online indisponível. Entre em contato.", "Escolha a modalidade", "Escolha o horário", "Escolha um horário", "Semana anterior", "Próxima semana", "Seus dados", "Nome", "E-mail", "Telefone (opcional)", "Tenho 18 anos ou mais", "Quero receber lembretes por WhatsApp", "Enviar código", "Código", "Confirmar agendamento", "Informe o nome", "Informe um e-mail válido", "Telefone inválido", "Informe o telefone para receber lembretes por WhatsApp", "Confirme que você tem 18 anos ou mais", "Enviamos um código de 6 dígitos para {e-mail}. Ele vale por 10 minutos.", "Código incorreto.", "Código expirado. Peça um novo código.", "Muitas tentativas com código errado. Peça um novo código.", "Aguarde 1 minuto para pedir outro código.", "Muitas tentativas. Tente novamente mais tarde.", "Você já tem 3 consultas marcadas. Fale com sua nutricionista.", "Não foi possível agendar por aqui. Fale com sua nutricionista.", "Consulta marcada para {quando}. Enviamos a confirmação para o seu e-mail.", "Pedido grande demais.", "Pedido inválido."; em Configurações: "Permitir agendamento pela página pública" |
+| WhatsApp no painel (INT-01, US-036) | "WhatsApp", "Conectar WhatsApp", "Gerar novo QR code", "No celular, abra o WhatsApp > Aparelhos conectados > Conectar um aparelho e aponte para este código.", "QR code para conectar o WhatsApp", "Conectado ao número {telefone}.", "(número ainda não informado)", "Desconectar WhatsApp", "Desconectar o WhatsApp? Os lembretes passam a sair só por e-mail e notificação no app.", "WhatsApp desconectado. Os lembretes estão saindo só por e-mail e notificação no app. (Desde {quando}.)", "O WhatsApp ainda não está disponível na plataforma. Os lembretes saem por e-mail.", "Use, de preferência, um número só do consultório. Os lembretes saem do número conectado.", "Não foi possível falar com o serviço de WhatsApp. Tente de novo em alguns minutos.", "Uso do mês", "WhatsApps do mês: {usadas} de {cota}", "Você usou 80% dos WhatsApps do mês", "Cota de WhatsApp do mês esgotada: os lembretes seguem por e-mail e notificação no app até o mês que vem.", "Conectar de novo" (aviso no painel inicial) |
+| Convite por WhatsApp (US-010) | "Enviar convite por WhatsApp", "Marque que o paciente autorizou o WhatsApp", "Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.", "O WhatsApp ainda não está disponível na plataforma; o convite vai só por e-mail.", "O WhatsApp do consultório não está conectado; o convite vai só por e-mail.", "Convite por WhatsApp: {situação}", "Convite por WhatsApp não enviado: {motivo}"; mensagem: "Olá, {primeiro nome}! {nutri} convidou você para o NutriDebby. Enviamos o convite para o seu e-mail {e-mail mascarado} (vale por 7 dias)." |
+| Mensagens de WhatsApp ao paciente (sem link) | Lembrete de 24 h: "Olá, {primeiro nome}! Lembrete da sua consulta com {nutri}: {quando}, {modalidade}." + (presencial, se houver endereço) "Endereço: {endereço}" ou (online) "O link da chamada foi enviado para o seu e-mail {e-mail mascarado}." + linha vazia + "Responda 1 para confirmar ou 2 se precisar remarcar."; lembrete de 2 h: "Olá, {primeiro nome}! Sua consulta com {nutri} é hoje às {HH:MM} ({fuso}), {modalidade}." + as mesmas linhas; resposta a "1": "Presença confirmada. Até lá!"; resposta a "2": "Tudo bem! Enviamos o link para remarcar para o seu e-mail {e-mail mascarado}." + "Se faltarem menos de {h} h para a consulta, fale direto com {nutri}." |
+| Push ao paciente (neutro: sem nome da nutricionista nem dado do paciente) | Lembrete de 24 h: "Lembrete de consulta" / "Você tem uma consulta amanhã às {HH:MM}." (no dia da consulta: "Sua consulta é hoje às {HH:MM}."); lembrete de 2 h: "Lembrete de consulta" / "Sua consulta é hoje às {HH:MM}."; marcação: "Consulta marcada" / "Sua consulta foi marcada para {quando}."; cancelamento: "Consulta cancelada" / "Sua consulta de {quando} foi cancelada." |
+| E-mails ao paciente | Assuntos: "Lembrete: sua consulta é amanhã às {HH:MM}", "Lembrete: sua consulta é hoje às {HH:MM}", "Consulta marcada: {quando}", "Consulta cancelada: {quando}", "Remarcar sua consulta: {quando}", "Seu código para agendar com {nutri}: {código}". Corpo: "Olá, {primeiro nome}!", "Este é um lembrete da sua consulta com {nutri}: {quando}.", "Sua consulta com {nutri} é hoje: {quando}.", "Sua consulta com {nutri} está marcada para {quando}.", "Sua consulta com {nutri} de {quando} foi cancelada.", "Para marcar outro horário, fale com sua nutricionista.", "Endereço: {endereço}", "Link da chamada: {link}", botão "Confirmar presença ou remarcar", "Se não puder ir, use o mesmo link para remarcar ou cancelar."; resposta a "2": "Você pediu pelo WhatsApp para remarcar sua consulta com {nutri} de {quando}.", botão "Escolher outro horário", "Se faltarem menos de {h} h para a consulta, fale direto com {nutri}."; código: "Use o código {código} para confirmar o agendamento com {nutri}.", "Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail." |
+| E-mails à nutricionista (D18; nome do paciente só no corpo) | Assuntos: "Consulta marcada pelo paciente", "Consulta remarcada pelo paciente", "Consulta cancelada pelo paciente", "Paciente pediu para remarcar", "Novo paciente via agendamento online", "Seu WhatsApp foi desconectado do NutriDebby", "Você usou 80% dos WhatsApps do mês", "Pedido de exclusão atendido". Corpo: "{paciente} marcou uma consulta para {quando}.", "{paciente} remarcou a consulta para {quando}.", "{paciente} cancelou a consulta de {quando}.", "{paciente} pediu para remarcar a consulta de {quando}.", "{paciente} marcou uma consulta pela sua página de agendamento para {quando}. Complete o cadastro (data de nascimento e sexo) antes do atendimento.", botão "Ver na agenda"; "O WhatsApp do consultório foi desconectado (o celular saiu de "Aparelhos conectados" ou ficou muito tempo sem internet).", "Os lembretes estão saindo só por e-mail e notificação no app.", botão "Conectar o WhatsApp de novo"; "Já foram {usadas} de {cota} mensagens de WhatsApp neste mês.", "Quando chegar a 100%, os lembretes seguem só por e-mail e notificação no app até o mês que vem (ou até o suporte ampliar a cota).", botão "Ver o uso do WhatsApp"; "Pedido de exclusão atendido: 1 consulta futura de {primeiro nome} foi cancelada." / "Pedido de exclusão atendido: {n} consultas futuras de {primeiro nome} foram canceladas." |
+| Histórico de acessos (US-007) | Entidade "Agenda"; ator "Sistema" nas ações do próprio paciente pela agenda (link, WhatsApp, página pública) |
 
 ---
 
@@ -1314,7 +1386,7 @@ Cenário: Métricas
 | US-013 | M2 | Apêndice A | anthropometry |
 | US-014 | M2 | RN-14, Apêndice A | energy_calcs, meal_plans |
 | US-015 | M2 | RNF-06 | exams |
-| US-016 | M2 | — | consultations |
+| US-016 | M2 | — | consultations, appointments |
 | US-017 | M2 | — | anthropometry, exams |
 | US-018 | M2 | RNF-08, RN-08, P-01 | patients, privacy_requests, audit_log |
 | US-019 | M2 | RN-12 | patient_tags, patient_tag_links |
@@ -1327,11 +1399,11 @@ Cenário: Métricas
 | US-026 | M3 | INT-04, RNF-01 | meal_plans (pdf_path) |
 | US-030 | M4 | RN-03 | availability_rules, availability_blocks |
 | US-031 | M4 | RN-03, RN-05 | appointments, notifications, tenants (link_online_padrao) |
-| US-032 | M4 | RN-03, RN-16, RN-17, INT-06, RNF-08 | appointments, patients, consents |
+| US-032 | M4 | RN-03, RN-16, RN-17, INT-06, RNF-08 | appointments, patients, consents, public_booking_requests, public_rate_limits |
 | US-033 | M4 | RN-04, RN-05 | appointments, notifications |
-| US-034 | M4 | RN-05, RN-06, INT-01/02/03 | notifications |
-| US-035 | M4 | INT-01 | appointments, notifications |
-| US-036 | M4 | RN-09 | tenants, notifications |
+| US-034 | M4 | RN-05, RN-06, INT-01/02/03 | notifications, push_subscriptions, whatsapp_conexoes |
+| US-035 | M4 | INT-01 | appointments, notifications, whatsapp_conexoes, public_rate_limits (marca anti-repetição do webhook) |
+| US-036 | M4 | RN-09 | tenants, notifications, whatsapp_conexoes |
 | US-037 | M4 | CS-03 | appointments |
 | US-040 | M5 | INT-03, RNF-09, CS-02 | push_subscriptions, access_events |
 | US-041 | M5 | RN-01 | meal_plans, meals |

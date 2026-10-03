@@ -17,7 +17,8 @@ export const tenants = pgTable(
     cancelamentoMinH: integer('cancelamento_min_h').notNull().default(24),
     enderecoConsultorio: text('endereco_consultorio'),
     linkOnlinePadrao: text('link_online_padrao'),
-    agendamentoPublicoAtivo: boolean('agendamento_publico_ativo').notNull().default(true),
+    // migration 0067 (decisão do dono, fechamento do Plano 05): a página pública nasce desligada; a nutricionista liga em Configurações
+    agendamentoPublicoAtivo: boolean('agendamento_publico_ativo').notNull().default(false),
     mostrarPercGorduraPaciente: boolean('mostrar_perc_gordura_paciente').notNull().default(false),
     armazenamentoBytes: bigint('armazenamento_bytes', { mode: 'number' }).notNull().default(0),
     dpaAceitoEm: timestamp('dpa_aceito_em', { withTimezone: true }),

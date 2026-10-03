@@ -5,7 +5,7 @@ type Resumo = { ID: string; Subject: string; Created: string };
 /** Espera (polling) o e-mail mais recente para `para` no Mailpit. */
 export async function esperarEmail(
   para: string,
-  opts: { assunto?: string; depoisDe?: Date; timeoutMs?: number } = {},
+  opts: { assunto?: string; assuntoComeca?: string; depoisDe?: Date; timeoutMs?: number } = {},
 ): Promise<{ assunto: string; texto: string; html: string }> {
   const limite = opts.timeoutMs ?? 30_000;
   const fim = Date.now() + limite;
@@ -17,6 +17,7 @@ export async function esperarEmail(
     const m = messages.find(
       (x) =>
         (!opts.assunto || x.Subject === opts.assunto) &&
+        (!opts.assuntoComeca || x.Subject.startsWith(opts.assuntoComeca)) &&
         (!opts.depoisDe || new Date(x.Created).getTime() >= opts.depoisDe.getTime() - 1000),
     );
     if (m) {

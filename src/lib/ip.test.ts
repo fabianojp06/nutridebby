@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clientIp } from './ip';
+import { clientIp, clientIpDoLimite } from './ip';
 
 const h = (xff?: string) => new Headers(xff ? { 'x-forwarded-for': xff } : {});
 
@@ -19,5 +19,14 @@ describe('clientIp (mesma regra do limite de tentativas do Better Auth)', () => 
   });
   it('em teste/dev, sem cabeçalho, cai no localhost (comportamento do Better Auth)', () => {
     expect(clientIp(h(), [])).toBe('127.0.0.1');
+  });
+});
+
+describe('clientIpDoLimite (RN-16: balde do limite da página pública)', () => {
+  it('IPv6 pelo /64 (mesmo balde para o fim do endereço trocado); IPv4 inteiro; mesma escolha de salto que clientIp', () => {
+    expect(clientIpDoLimite(h('2001:db8:1:2:a:b:c:d'), [])).toBe(clientIpDoLimite(h('2001:db8:1:2:ffff::1'), []));
+    expect(clientIpDoLimite(h('2001:db8:1:2:a:b:c:d'), [])).not.toBe(clientIpDoLimite(h('2001:db8:1:3:a:b:c:d'), []));
+    expect(clientIpDoLimite(h('203.0.113.9'), [])).toBe('203.0.113.9');
+    expect(clientIpDoLimite(h('1.2.3.4, 198.51.100.7, 10.0.1.2'), ['10.0.0.0/8'])).toBe('198.51.100.7');
   });
 });

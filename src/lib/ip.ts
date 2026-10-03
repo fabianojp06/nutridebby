@@ -12,3 +12,12 @@ import { getIP } from 'better-auth/api';
 export function clientIp(h: Headers, trustedProxies: string[]): string | null {
   return getIP(h, { advanced: { ipAddress: { trustedProxies, ipv6Subnet: 128 } } });
 }
+
+/**
+ * RN-16: o IP como balde do limite de tentativas da página pública — a regra do limite de login do Better Auth:
+ * IPv6 pelo /64 (o provedor entrega o /64 inteiro a cada cliente; trocar o fim do endereço não abre um balde novo),
+ * IPv4 inteiro. Só para contar tentativas: auditoria, aceite e Turnstile usam `clientIp`.
+ */
+export function clientIpDoLimite(h: Headers, trustedProxies: string[]): string | null {
+  return getIP(h, { advanced: { ipAddress: { trustedProxies, ipv6Subnet: 64 } } });
+}

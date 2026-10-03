@@ -1,3 +1,4 @@
+import { createECDH } from 'node:crypto';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
@@ -71,6 +72,32 @@ const appUrl = z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exem
   return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
 });
 
+/** D1: WhatsApp pela Evolution API — opcional; sem as variáveis, o WhatsApp fica desligado (lembretes por e-mail e push). */
+const evolutionUrl = opcional(z.url({ message: 'EVOLUTION_API_URL deve ser uma URL (ex.: http://nutri_evolution:8080)' }).optional());
+const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY precisa de pelo menos 16 caracteres' }).optional());
+const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
+const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
+/**
+ * Produção de verdade: NODE_ENV=production fora de localhost (o E2E com `next start` roda como produção em localhost).
+ * M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru.
+ */
+const emProducao = (e: { NODE_ENV: string; APP_URL: string }) => e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL);
+/**
+ * O valor que o `.env.example` traz para o dev com WHATSAPP_SANDBOX=1: é público, então é recusado em produção (como as
+ * chaves de teste do Turnstile) — senão o `jwt_key` de toda instância sairia de um texto conhecido (D4 a).
+ */
+export const EVOLUTION_WEBHOOK_SECRET_EXEMPLO = 'dev-webhook-secret-com-pelo-menos-32-caracteres';
+/**
+ * D4 (c): endereço da rede interna do Docker/Easypanel — nome de serviço (sem ponto) ou IPv4 privado. O IPv4 é
+ * conferido como IP (um nome como `10.exemplo.com` não passa) e o nome só com letras, dígitos, `_` e `-` (um IPv6
+ * literal, que também não tem ponto, não passa).
+ */
+const ehHostInterno = (url: string) => {
+  if (!URL.canParse(url)) return false;
+  const h = new URL(url).hostname;
+  return /^[a-z0-9_-]+$/i.test(h) || (isIP(h) === 4 && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h));
+};
+
 /** App Next.js e admin:criar (Better Auth). */
 const appSchema = serverSchema
   .extend({
@@ -100,16 +127,25 @@ const appSchema = serverSchema
           message: 'TRUSTED_PROXIES deve ser uma lista de IPs/CIDRs separados por vírgula',
         }),
     ),
+    EVOLUTION_API_URL: evolutionUrl,
+    EVOLUTION_API_KEY: evolutionKey,
+    EVOLUTION_WEBHOOK_SECRET: opcional(z.string().min(32, { message: 'EVOLUTION_WEBHOOK_SECRET precisa de pelo menos 32 caracteres' }).optional()),
+    EVOLUTION_WEBHOOK_URL: opcional(z.url({ message: 'EVOLUTION_WEBHOOK_URL deve ser uma URL' }).optional()),
+    EVOLUTION_WEBHOOK_URL_PUBLICA: opcional(z.enum(['0', '1'], { message: 'EVOLUTION_WEBHOOK_URL_PUBLICA deve ser 0 ou 1' }).optional()),
+    WHATSAPP_SANDBOX: whatsappSandbox,
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
-    // M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru
-    if (e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !['localhost', '127.0.0.1'].includes(new URL(e.APP_URL).hostname)) {
+    if (emProducao(e)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SITE_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
       }
       if (/^[123]x0000000000/.test(e.TURNSTILE_SECRET_KEY)) {
         ctx.addIssue({ code: 'custom', path: ['TURNSTILE_SECRET_KEY'], message: 'TURNSTILE_* de teste não pode ser usada em produção' });
+      }
+      // D4 (a): o segredo do .env.example é público (a mensagem não repete o valor)
+      if (e.EVOLUTION_WEBHOOK_SECRET === EVOLUTION_WEBHOOK_SECRET_EXEMPLO) {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_SECRET'], message: 'EVOLUTION_WEBHOOK_SECRET de exemplo não pode ser usada em produção (gere com: openssl rand -base64 48)' });
       }
     }
     if (e.NODE_ENV === 'production' && e.TRUSTED_PROXIES.length === 0) {
@@ -120,9 +156,54 @@ const appSchema = serverSchema
           'TRUSTED_PROXIES é obrigatória em produção (CIDR da rede do Traefik/Swarm); sem ela o limite de tentativas vira um balde global',
       });
     }
+    const evo = [e.EVOLUTION_API_URL, e.EVOLUTION_API_KEY, e.EVOLUTION_WEBHOOK_SECRET];
+    // rodada 1: o sandbox (dev/CI/E2E) usa só o segredo (o E2E assina os webhooks) — sem URL e chave não é configuração pela metade
+    const soSandbox = e.WHATSAPP_SANDBOX === '1' && !e.EVOLUTION_API_URL && !e.EVOLUTION_API_KEY;
+    if (evo.some(Boolean) && !evo.every(Boolean) && !soSandbox) {
+      ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_SECRET juntas (ou nenhuma)' });
+    }
+    // D4 (c): em produção, a Evolution chama o app pela rede interna; a URL pública só como opção explícita
+    if (emProducao(e) && e.EVOLUTION_API_URL) {
+      if (!e.EVOLUTION_WEBHOOK_URL) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['EVOLUTION_WEBHOOK_URL'],
+          message: 'EVOLUTION_WEBHOOK_URL é obrigatória em produção (endereço interno do app, ex.: http://nutridebby_app:3000/api/webhooks/whatsapp)',
+        });
+      } else if (!ehHostInterno(e.EVOLUTION_WEBHOOK_URL) && e.EVOLUTION_WEBHOOK_URL_PUBLICA !== '1') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['EVOLUTION_WEBHOOK_URL'],
+          message: 'EVOLUTION_WEBHOOK_URL precisa ser um endereço interno (nome do serviço ou IP privado); URL pública só com EVOLUTION_WEBHOOK_URL_PUBLICA=1',
+        });
+      }
+    }
+    if (e.WHATSAPP_SANDBOX === '1') {
+      if (emProducao(e)) ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
+      if (!e.EVOLUTION_WEBHOOK_SECRET) {
+        ctx.addIssue({ code: 'custom', path: ['EVOLUTION_WEBHOOK_SECRET'], message: 'EVOLUTION_WEBHOOK_SECRET é obrigatória com WHATSAPP_SANDBOX=1 (o E2E assina os webhooks)' });
+      }
+    }
   });
 
 const EMAIL_FROM = /^([^<>]*<[^@<>\s]+@[^@<>\s]+>|[^@<>\s]+@[^@<>\s]+)$/;
+
+/** INT-03 (D19): chaves do VAPID em base64url sem `=` — pública P-256 não comprimida (65 bytes) e privada (32 bytes). */
+const VAPID_PUBLICA = /^[A-Za-z0-9_-]{87}$/;
+const VAPID_PRIVADA = /^[A-Za-z0-9_-]{43}$/;
+/**
+ * A privada gera a pública? Uma das duas trocada (colada errado, rotação pela metade) faria todo push voltar 403 do
+ * serviço de push, em silêncio: o worker não sobe. Nunca lança nem devolve as chaves.
+ */
+function vapidDoMesmoPar(publica: string, privada: string): boolean {
+  try {
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(Buffer.from(privada, 'base64url'));
+    return ecdh.getPublicKey().equals(Buffer.from(publica, 'base64url'));
+  } catch {
+    return false;
+  }
+}
 
 /** Worker: banco com o role da aplicação + o que os jobs usam (e-mail, links, segredos da fila). */
 const workerSchema = serverSchema
@@ -136,6 +217,18 @@ const workerSchema = serverSchema
     EMAIL_TRANSPORT: opcional(z.enum(['resend', 'mailpit']).optional()),
     RESEND_API_KEY: opcional(z.string().min(1).optional()),
     MAILPIT_URL: opcional(z.url({ message: 'MAILPIT_URL deve ser uma URL (ex.: http://localhost:8025)' }).optional()),
+    EVOLUTION_API_URL: evolutionUrl,
+    EVOLUTION_API_KEY: evolutionKey,
+    WHATSAPP_SANDBOX: whatsappSandbox,
+    // INT-03: chaves do push (gere com: npx web-push generate-vapid-keys). Sem elas, o push fica desligado
+    VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
+    VAPID_PRIVATE_KEY: opcional(z.string().regex(VAPID_PRIVADA, { message: 'VAPID_PRIVATE_KEY deve ser a chave privada em base64url (43 caracteres)' }).optional()),
+    VAPID_SUBJECT: opcional(
+      z
+        .string()
+        .refine((v) => /^(mailto:|https:\/\/)/.test(v) && URL.canParse(v), { message: 'VAPID_SUBJECT deve começar com mailto: ou https://' })
+        .optional(),
+    ),
   })
   .transform((e) => ({
     ...e,
@@ -148,6 +241,20 @@ const workerSchema = serverSchema
     }
     if (e.EMAIL_TRANSPORT === 'mailpit' && !e.MAILPIT_URL) {
       ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória para enviar pelo Mailpit' });
+    }
+    if (Boolean(e.EVOLUTION_API_URL) !== Boolean(e.EVOLUTION_API_KEY)) {
+      ctx.addIssue({ code: 'custom', path: ['EVOLUTION_API_URL'], message: 'Configure EVOLUTION_API_URL e EVOLUTION_API_KEY juntas (ou nenhuma)' });
+    }
+    if (e.WHATSAPP_SANDBOX === '1' && emProducao(e)) {
+      ctx.addIssue({ code: 'custom', path: ['WHATSAPP_SANDBOX'], message: 'WHATSAPP_SANDBOX só fora de produção' });
+    }
+    if (e.WHATSAPP_SANDBOX === '1' && !e.MAILPIT_URL) ctx.addIssue({ code: 'custom', path: ['MAILPIT_URL'], message: 'MAILPIT_URL é obrigatória com WHATSAPP_SANDBOX=1' });
+    const vapid = [e.VAPID_PUBLIC_KEY, e.VAPID_PRIVATE_KEY, e.VAPID_SUBJECT];
+    if (vapid.some(Boolean) && !vapid.every(Boolean)) {
+      ctx.addIssue({ code: 'custom', path: ['VAPID_PUBLIC_KEY'], message: 'Configure VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT juntas (ou nenhuma)' });
+    }
+    if (e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY && VAPID_PUBLICA.test(e.VAPID_PUBLIC_KEY) && VAPID_PRIVADA.test(e.VAPID_PRIVATE_KEY) && !vapidDoMesmoPar(e.VAPID_PUBLIC_KEY, e.VAPID_PRIVATE_KEY)) {
+      ctx.addIssue({ code: 'custom', path: ['VAPID_PRIVATE_KEY'], message: 'VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY não são do mesmo par (gere as duas juntas com: npx web-push generate-vapid-keys)' });
     }
   });
 

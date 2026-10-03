@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { account, consents, invites, patients, user, type PatientRow } from '@/db/schema';
+import { account, consents, invites, notifications, patients, user, type NotificationRow, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
@@ -11,7 +11,7 @@ import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
 import { normalizeEmail } from '@/lib/text';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
-import { carregarPacienteParaEscrita } from './base';
+import { carregarPacienteParaEscrita, idValido } from './base';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
 import { urlDoApp } from '@/lib/url-do-app';
 
@@ -46,7 +46,8 @@ export function linkDoConvitePaciente(appUrl: string, token: string): string {
  * Convite novo de 7 dias + e-mail na mesma transação. O pendente anterior do paciente some antes
  * (um por paciente: `invites_paciente_pendente_idx`). Quem já tem conta de paciente (outro tenant)
  * recebe o texto de "entre com sua conta existente". Chamar dentro de withTenant, com o paciente lido
- * (e travado, quando não é recém-criado).
+ * (e travado, quando não é recém-criado). O link (credencial) vai só no e-mail: o convite por WhatsApp
+ * é um aviso sem link (US-010, decisão do dono na rodada 1 da T14).
  */
 export async function enviarConvitePaciente(
   tx: Tx,
@@ -272,4 +273,26 @@ export async function vincularContaExistente(
     },
     db,
   );
+}
+
+export type SituacaoConviteWhatsapp = Pick<NotificationRow, 'status' | 'motivoIgnorada' | 'agendadaPara' | 'enviadaEm'>;
+
+/**
+ * Situação do último convite por WhatsApp, para a tela do paciente (US-010). Sem dado de saúde nem conteúdo: só
+ * situação e horários (registro técnico de entrega, sem `auditRead`, como os lembretes da consulta — D10).
+ */
+export async function situacaoDoConviteWhatsapp(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<SituacaoConviteWhatsapp | null> {
+  if (!idValido(patientId)) return null;
+  const [n] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ status: notifications.status, motivoIgnorada: notifications.motivoIgnorada, agendadaPara: notifications.agendadaPara, enviadaEm: notifications.enviadaEm })
+        .from(notifications)
+        .where(and(eq(notifications.patientId, patientId), eq(notifications.tipo, 'convite_paciente'), eq(notifications.canal, 'whatsapp')))
+        .orderBy(desc(notifications.createdAt))
+        .limit(1),
+    db,
+  );
+  return n ?? null;
 }

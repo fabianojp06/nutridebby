@@ -63,6 +63,22 @@ function LinkReserva({ href }: { href: string }) {
 
 const html = (el: ReactNode) => `<!doctype html>${renderToStaticMarkup(el)}`;
 
+/** Plano 05: parágrafos + botão opcional + parágrafos depois, com a versão em texto igual. */
+function simples(subject: string, linhas: string[], botao?: { href: string; rotulo: string }, depois: string[] = []): RenderedEmail {
+  return {
+    subject,
+    html: html(
+      <Layout titulo={subject}>
+        {linhas.map((l) => <P key={l}>{l}</P>)}
+        {botao && <Botao href={botao.href}>{botao.rotulo}</Botao>}
+        {depois.map((l) => <P key={l}>{l}</P>)}
+        {botao && <LinkReserva href={botao.href} />}
+      </Layout>,
+    ),
+    text: [...linhas, ...(botao ? [`${botao.rotulo}: ${botao.href}`] : []), ...depois].join('\n\n'),
+  };
+}
+
 export function renderEmail(msg: EmailMessage): RenderedEmail {
   switch (msg.tipo) {
     case 'convite_nutri': {
@@ -207,6 +223,79 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.link].join('\n\n'),
       };
     }
+    case 'consulta': {
+      const subject = {
+        lembrete_24h: `Lembrete: sua consulta é amanhã às ${msg.hora}`,
+        lembrete_2h: `Lembrete: sua consulta é hoje às ${msg.hora}`,
+        consulta_marcada: `Consulta marcada: ${msg.quando}`,
+        consulta_cancelada: `Consulta cancelada: ${msg.quando}`,
+        resposta_remarcar: `Remarcar sua consulta: ${msg.quando}`,
+      }[msg.evento];
+      const abertura = {
+        lembrete_24h: `Este é um lembrete da sua consulta com ${msg.nutri}: ${msg.quando}.`,
+        lembrete_2h: `Sua consulta com ${msg.nutri} é hoje: ${msg.quando}.`,
+        consulta_marcada: `Sua consulta com ${msg.nutri} está marcada para ${msg.quando}.`,
+        consulta_cancelada: `Sua consulta com ${msg.nutri} de ${msg.quando} foi cancelada.`,
+        resposta_remarcar: `Você pediu pelo WhatsApp para remarcar sua consulta com ${msg.nutri} de ${msg.quando}.`,
+      }[msg.evento];
+      if (msg.evento === 'consulta_cancelada') return simples(subject, [`Olá, ${msg.nome}!`, abertura, 'Para marcar outro horário, fale com sua nutricionista.']);
+      // US-035 (fechamento): a resposta "2" no WhatsApp não leva link (D3) — o link para remarcar vem neste e-mail novo
+      if (msg.evento === 'resposta_remarcar')
+        return simples(
+          subject,
+          [`Olá, ${msg.nome}!`, abertura],
+          msg.link ? { href: msg.link, rotulo: 'Escolher outro horário' } : undefined,
+          msg.prazoH ? [`Se faltarem menos de ${msg.prazoH} h para a consulta, fale direto com ${msg.nutri}.`] : [],
+        );
+      const local = !msg.local ? [] : [msg.modalidade === 'online' ? `Link da chamada: ${msg.local}` : `Endereço: ${msg.local}`];
+      return simples(
+        subject,
+        [`Olá, ${msg.nome}!`, abertura, ...local],
+        msg.link ? { href: msg.link, rotulo: 'Confirmar presença ou remarcar' } : undefined,
+        ['Se não puder ir, use o mesmo link para remarcar ou cancelar.'],
+      );
+    }
+    case 'aviso_agenda': {
+      // D18: o nome do paciente fica só no corpo, não no assunto (o assunto aparece em notificações e listas).
+      const { subject, linha } = {
+        marcada: { subject: 'Consulta marcada pelo paciente', linha: `${msg.paciente} marcou uma consulta para ${msg.quando}.` },
+        remarcada: { subject: 'Consulta remarcada pelo paciente', linha: `${msg.paciente} remarcou a consulta para ${msg.quando}.` },
+        cancelada: { subject: 'Consulta cancelada pelo paciente', linha: `${msg.paciente} cancelou a consulta de ${msg.quando}.` },
+        pedido_remarcacao: { subject: 'Paciente pediu para remarcar', linha: `${msg.paciente} pediu para remarcar a consulta de ${msg.quando}.` },
+        novo_paciente_publico: {
+          subject: 'Novo paciente via agendamento online',
+          linha: `${msg.paciente} marcou uma consulta pela sua página de agendamento para ${msg.quando}. Complete o cadastro (data de nascimento e sexo) antes do atendimento.`,
+        },
+      }[msg.evento];
+      return simples(subject, [linha], { href: msg.link, rotulo: 'Ver na agenda' });
+    }
+    case 'codigo_agendamento':
+      return simples(`Seu código para agendar com ${msg.nutri}: ${msg.codigo}`, [
+        `Use o código ${msg.codigo} para confirmar o agendamento com ${msg.nutri}.`,
+        'Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail.',
+      ]);
+    case 'exclusao_consultas_canceladas':
+      // o nome do paciente só no corpo, não no assunto (D18)
+      return simples('Pedido de exclusão atendido', [
+        msg.quantidade === 1
+          ? `Pedido de exclusão atendido: 1 consulta futura de ${msg.paciente} foi cancelada.`
+          : `Pedido de exclusão atendido: ${msg.quantidade} consultas futuras de ${msg.paciente} foram canceladas.`,
+      ]);
+    case 'whatsapp_desconectado':
+      return simples(
+        'Seu WhatsApp foi desconectado do NutriDebby',
+        ['O WhatsApp do consultório foi desconectado (o celular saiu de "Aparelhos conectados" ou ficou muito tempo sem internet).', 'Os lembretes estão saindo só por e-mail e notificação no app.'],
+        { href: msg.link, rotulo: 'Conectar o WhatsApp de novo' },
+      );
+    case 'cota_whatsapp':
+      return simples(
+        'Você usou 80% dos WhatsApps do mês',
+        [
+          `Já foram ${msg.usadas} de ${msg.cota} mensagens de WhatsApp neste mês.`,
+          'Quando chegar a 100%, os lembretes seguem só por e-mail e notificação no app até o mês que vem (ou até o suporte ampliar a cota).',
+        ],
+        { href: msg.link, rotulo: 'Ver o uso do WhatsApp' },
+      );
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
