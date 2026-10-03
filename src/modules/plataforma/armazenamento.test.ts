@@ -152,6 +152,23 @@ describe('arquivo e registro na mesma transação (P03, Tarefa 11)', () => {
     expect(existsSync(path.join(dataDir, a.caminho))).toBe(true);
     expect(await usado(ctx.tenantId)).toBe(108);
   });
+  it('RNF-11: o rm que falha depois do commit avisa "arquivo órfão" só com o código do erro, nunca o caminho', async () => {
+    const ctx = await novoTenant();
+    const a = await salvarArquivo(ctx, { tipo: 'logo', conteudo: PNG(10), permitidos: ['png'] }, deps);
+    // no lugar do arquivo, uma pasta com conteúdo: o rm (sem recursive) falha
+    rmSync(path.join(dataDir, a.caminho));
+    mkdirSync(path.join(dataDir, a.caminho, 'x'), { recursive: true });
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await apagarArquivo(ctx, { id: a.id }, deps)).toBe(true);
+      const chamada = aviso.mock.calls.find((c) => c[1] === 'arquivo órfão no disco');
+      expect(chamada?.[0]).toEqual({ motivo: expect.stringMatching(/^[A-Z_]+$/), tenantId: ctx.tenantId });
+      expect(JSON.stringify(chamada)).not.toContain(a.id);
+    } finally {
+      aviso.mockRestore();
+    }
+  });
+
   it('removerAntesDoCommit: se o rm falha, o registro continua (a anonimização tenta de novo)', async () => {
     const ctx = await novoTenant();
     const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: PNG(100), permitidos: ['png'], patientId: await pacienteDe(ctx) }, deps);

@@ -75,6 +75,12 @@ export async function salvarArquivo(
     naoBarrarPelaCota?: boolean;
     /** D4: dono do arquivo — obrigatório nos TIPOS_DO_PACIENTE, proibido no resto. */
     patientId?: string;
+    /**
+     * Caminho do arquivo que este substitui (a foto original do diário trocada pelo JPEG), apagado logo depois por
+     * `apagarArquivo`: a cota é conferida pela diferença — trocar por um arquivo menor nunca é barrado por ela. A reserva
+     * continua sendo do arquivo inteiro; quem devolve o espaço do substituído é o `apagarArquivo` dele.
+     */
+    substitui?: string;
   },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
@@ -101,6 +107,11 @@ export async function salvarArquivo(
       ctx,
       async (tx) => {
         if (input.antesDaReserva) await input.antesDaReserva(tx);
+        // O tamanho do substituído vem do registro (no tenant, pela RLS), nunca de quem chama
+        const [substituido] = input.substitui
+          ? await tx.select({ bytes: storedFiles.bytes }).from(storedFiles).where(eq(storedFiles.caminho, input.substitui))
+          : [];
+        const liberados = substituido?.bytes ?? 0;
         const reserva = await tx
           .update(tenants)
           .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${bytes}` })
@@ -109,7 +120,7 @@ export async function salvarArquivo(
               eq(tenants.id, ctx.tenantId),
               input.naoBarrarPelaCota
                 ? undefined
-                : sql`${tenants.armazenamentoBytes} + ${bytes} <= ${COTA_BYTES}`,
+                : sql`${tenants.armazenamentoBytes} + ${bytes} - ${liberados} <= ${COTA_BYTES}`,
             ),
           )
           .returning({ id: tenants.id });
@@ -180,10 +191,8 @@ export async function apagarArquivo(
   if (!apagado) return false;
   if (!deps.removerAntesDoCommit) {
     await rm(resolverCaminho(dataDir, apagado.caminho), { force: true }).catch((err: unknown) =>
-      logger.warn(
-        { err: err instanceof Error ? err.message : String(err), tenantId: ctx.tenantId },
-        'arquivo órfão no disco',
-      ),
+      // RNF-11: a mensagem do erro de disco leva o caminho; no log, só o código
+      logger.warn({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'arquivo órfão no disco'),
     );
   }
   return true;

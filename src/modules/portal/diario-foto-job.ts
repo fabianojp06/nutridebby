@@ -148,6 +148,9 @@ export async function converterFotoDoDiario(
         conteudo: jpeg,
         permitidos: ['jpg'],
         patientId: e.patientId,
+        // O JPEG troca o original (apagado logo abaixo): perto do limite, a cota é conferida pela diferença — a troca
+        // reduz o uso e não pode perder a foto por CotaEsgotadaError
+        substitui: original,
         // Trava o paciente e depois o registro, antes da cota (ordem de travas acima); desiste se a exclusão chegou antes
         antesDaReserva: async (tx) => {
           const [pac] = await tx

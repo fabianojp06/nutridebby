@@ -10,7 +10,7 @@ import { closeDb } from '@/db/client';
 import { diaryEntries, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
-import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { COTA_BYTES, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
 import { converterFotoDoDiario, expirarFotosPendentes, MAX_PIXELS } from './diario-foto-job';
 
@@ -59,6 +59,29 @@ describe('conversão da foto do diário (RN-07)', () => {
     expect(sobra).toEqual([]);
     const usadoDepois = (await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes;
     expect(usadoDepois).toBeLessThan(usadoAntes);
+  });
+
+  it('cota no limite com o original grande ainda contado: a troca pelo JPEG (menor) conclui pela diferença, sem perder a foto', async () => {
+    const r = await registro(await fotoComExif());
+    const { fotoOriginalPath } = await r.ler();
+    const [orig] = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
+    // sobra 1 byte: o JPEG (de qualquer tamanho) não caberia somado ao original, que só sai depois
+    await app.db.update(tenants).set({ armazenamentoBytes: COTA_BYTES - 1 }).where(eq(tenants.id, r.T.tenantId));
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, ultimaTentativa: true })).toBe('pronta');
+    const depois = await r.ler();
+    expect(depois).toMatchObject({ fotoStatus: 'pronta', fotoOriginalPath: null });
+    const [jpeg] = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, depois.fotoPath!)), app.db);
+    expect(jpeg.bytes).toBeLessThan(orig.bytes);
+    expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBe(COTA_BYTES - 1 - orig.bytes + jpeg.bytes);
+  });
+
+  it('a diferença só vale para o arquivo substituído: um JPEG MAIOR que o original, sem espaço, continua barrado pela cota', async () => {
+    // PNG 16 × 16 de cor única (~100 bytes) → JPEG maior que ele (só as tabelas do JPEG já passam disso)
+    const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#88aa44' } }).png({ compressionLevel: 9, palette: true }).toBuffer();
+    const r = await registro(png);
+    await app.db.update(tenants).set({ armazenamentoBytes: COTA_BYTES - 1 }).where(eq(tenants.id, r.T.tenantId));
+    await expect(converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).rejects.toThrow('Espaço de armazenamento esgotado');
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'processando', fotoPath: null });
   });
 
   it('HEIC: decodificado pelo heic-decode (aqui simulado) e convertido do mesmo jeito; a memória do decodificador é liberada', async () => {
