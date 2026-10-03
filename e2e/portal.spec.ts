@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { avaliar, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -220,5 +220,21 @@ test('lista de compras: 7 dias do chuchu de 100 g = 700 g em "Verduras…"; "com
   await p.page.goto('/p/compras?dias=15');
   // R10: o anunciador de rota do Next também tem role="alert"
   await expect(p.page.getByRole('alert').filter({ hasText: 'Escolha de 1 a 14 dias.' })).toBeVisible();
+  await p.page.context().close();
+});
+
+test('agenda no PWA: a consulta marcada pela nutricionista aparece; confirmar presença; a página de agendar abre (P06-09)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.18');
+  await marcarParaPaciente(nutri, p.nome, p.email, 50);
+  await p.page.goto('/p/agenda');
+  const proxima = p.page.getByRole('region', { name: 'Próximas' }).getByRole('link').first();
+  await expect(proxima).toContainText('Agendada');
+  await proxima.click();
+  await p.page.getByRole('button', { name: 'Confirmar presença' }).click();
+  await expect(p.page.getByRole('status').filter({ hasText: 'Presença confirmada. Até lá!' })).toBeVisible();
+  await p.page.goto('/p/agenda/nova');
+  await expect(p.page.getByRole('heading', { name: 'Agendar consulta' })).toBeVisible();
+  await p.page.goto('/p/agenda/00000000-0000-4000-8000-000000000000');
+  await expect(p.page.getByText('404')).toBeVisible();
   await p.page.context().close();
 });

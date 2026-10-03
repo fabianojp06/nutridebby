@@ -72,3 +72,20 @@ export async function mostrarPercGordura(nutri: Page, ligar: boolean) {
   await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Perfil salvo.' })).toBeVisible();
 }
+
+let seqHora = 0;
+/**
+ * A nutricionista marca uma consulta para o paciente daqui a ~`diasAFrente` dias (quarta-feira), num horário que não repete
+ * na mesma execução (R11: cada spec usa um `diasAFrente` só seu — portal.spec 50, acessibilidade.spec 54 — e a hora sai
+ * de um contador do módulo, para as consultas não colidirem na agenda compartilhada).
+ */
+export async function marcarParaPaciente(nutri: Page, nome: string, email: string, diasAFrente: number): Promise<void> {
+  const d = new Date(Date.now() + diasAFrente * 86_400_000);
+  d.setUTCDate(d.getUTCDate() + ((10 - d.getUTCDay()) % 7)); // quarta-feira
+  const hora = `${String(8 + (++seqHora % 9)).padStart(2, '0')}:00`;
+  await nutri.goto(`/painel/agenda/nova?data=${d.toISOString().slice(0, 10)}`);
+  await nutri.getByLabel('Paciente').selectOption({ label: `${nome} (${email})` });
+  await nutri.getByLabel('Hora').fill(hora);
+  await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+}

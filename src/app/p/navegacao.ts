@@ -10,6 +10,7 @@ export const ITENS_DO_PORTAL: ItemPortal[] = [
   { href: '/p/diario', rotulo: 'Diário' },
   { href: '/p/evolucao', rotulo: 'Evolução' },
   { href: '/p/compras', rotulo: 'Compras' },
+  { href: '/p/agenda', rotulo: 'Agenda' },
   { href: '/p/perfil', rotulo: 'Perfil' },
 ];
 

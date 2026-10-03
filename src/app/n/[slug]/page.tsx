@@ -41,7 +41,7 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">{MSG_PUBLICO.titulo(p.nome)}</h1>
       <p>
-        <Link href="/entrar?volta=%2Fp%2Finicio" className="underline">
+        <Link href="/entrar?volta=%2Fp%2Fagenda" className="underline">
           Entrar (já sou paciente)
         </Link>
       </p>
