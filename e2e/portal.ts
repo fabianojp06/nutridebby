@@ -34,3 +34,20 @@ export async function pacienteNoPortal(
   await expect(page).toHaveURL(/\/p\/inicio$/);
   return { page, nome, email, senha, prontuario };
 }
+
+/** Rascunho com "Almoço 12:00 · Chuchu, cozido 100 g" publicado pela nutricionista (US-022, US-025). */
+export async function publicarPlanoSimples(nutri: Page, prontuario: string) {
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  await nutri.getByRole('button', { name: 'Criar plano' }).click();
+  await expect(nutri.getByRole('heading', { name: /Plano alimentar — versão \d+/ })).toBeVisible();
+  await nutri.getByRole('button', { name: 'Adicionar refeição' }).click();
+  await nutri.getByLabel('Refeição', { exact: true }).fill('Almoço');
+  await nutri.getByLabel('Horário de Almoço').fill('12:00');
+  await nutri.getByLabel('Adicionar alimento em Almoço').fill('chuchu cozido');
+  await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
+  await nutri.getByLabel('Gramas de Chuchu, cozido').fill('100');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10_000 });
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Publicar' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
+}

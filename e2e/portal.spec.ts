@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { pacienteNoPortal } from './portal';
+import { pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -37,4 +37,16 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
 test('nutricionista em /p/inicio volta ao painel', async () => {
   await nutri.goto('/p/inicio');
   await expect(nutri).toHaveURL(/\/painel$/);
+});
+
+test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu plano"; publicado → refeições e PDF (US-041)', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.10.3');
+  await p.page.goto('/p/plano');
+  await expect(p.page.getByRole('status')).toHaveText('Sua nutricionista ainda está preparando seu plano');
+  await publicarPlanoSimples(nutri, p.prontuario); // e2e/portal.ts
+  await p.page.reload();
+  await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  await expect(p.page.getByText('Chuchu, cozido — 100 g')).toBeVisible();
+  await expect(p.page.getByRole('link', { name: 'Baixar PDF' })).toBeVisible();
+  await p.page.context().close();
 });

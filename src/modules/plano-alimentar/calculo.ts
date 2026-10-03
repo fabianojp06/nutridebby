@@ -1,5 +1,6 @@
 import { arredondar, casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
+import { gramasDaMedidaTexto } from '@/modules/alimentos/medidas-constantes';
 import { QUANTIDADE_MAX, QUANTIDADE_MIN } from './constantes';
 
 /** RN-02. Sem banco e sem React: o editor (cliente), o servidor e o PDF usam a mesma conta. */
@@ -95,3 +96,7 @@ type NutrientesDoItem = ReturnType<typeof nutrientesDoItem>;
  */
 export const diferencaKcalDoItem = (sub: NutrientesDoItem, principal: NutrientesDoItem): string | null =>
   sub.semValor.includes('kcal') || principal.semValor.includes('kcal') ? null : diferencaKcal(sub.kcal, principal.kcal);
+
+/** Quantidade do item como o paciente lê (PDF e portal): medida caseira com os gramas, ou só os gramas ("12,5 g"). */
+export const quantidadeDoItem = (i: { quantidadeG: number; medidaCaseiraTxt: string | null }): string =>
+  i.medidaCaseiraTxt ? `${i.medidaCaseiraTxt} (${gramasDaMedidaTexto(i.quantidadeG)})` : gramasDaMedidaTexto(i.quantidadeG);
