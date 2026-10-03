@@ -6818,7 +6818,7 @@ git commit -m "test(a11y): auditoria axe (WCAG 2.1 AA) de todas as telas do PWA 
 
 ## Fechamento do plano (após a Tarefa 13)
 
-- [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (feito ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` com o **checklist reforçado** deste plano:
+- [x] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (feito ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` com o **checklist reforçado** deste plano:
   - **Escrita do paciente (D1):** toda tabela com `tenant_id` tem `paciente_sem_insert/update/delete` ou bate com `PACIENTE_ESCREVE` (guarda verde); nenhuma escrita nova do portal fora da lista; `foods`, `food_measures`, `anamnesis_templates` e o prontuário recusam a sessão de paciente; os fluxos do Plano 05 que rodam como paciente continuam verdes.
   - **Sessão e vínculos (D2, D3):** `withConta` só em `vinculos.ts`, só `SELECT` em `patients` da própria conta (matriz de isolamento); cookie `nd_vinculo` reconferido a cada requisição; vínculo arquivado/bloqueado/anonimizado sem acesso; consultório suspenso → "Conta temporariamente indisponível"; termo da versão atual exigido; nenhuma página do portal monta `TenantContext` à mão.
   - **Arquivos (D4, D10):** `stored_files.patient_id` em todo arquivo de paciente (`salvarArquivo` recusa sem); `paciente_arquivos` esconde os de outro paciente; a foto original nunca é assinada; conversão só no worker (guarda do grafo); limite de 40 MP; JPEG sem EXIF/GPS; cota reservada na transação; o original sai depois da conversão; fotos apagadas no pedido de exclusão (e pelo job diário) e na anonimização.
@@ -6827,14 +6827,14 @@ git commit -m "test(a11y): auditoria axe (WCAG 2.1 AA) de todas as telas do PWA 
   - **Titular (D16, D17, D18):** exportação do titular sem rascunho, sem notas privadas e sem etiquetas; 1 a cada 24 h; o link do portal só abre pedidos do escopo titular do próprio paciente; pedido de exclusão único e com prazo no fuso; a conta só é anonimizada sem outro vínculo vivo; sessões e senha apagadas.
   - **Logs:** nada de texto do diário, comentário, endpoint, chaves, caminho de arquivo ou e-mail (só ids, tipo e motivo).
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema Critical/Important confirmado, parar e avisar o dono.
-- [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P06-00 a P06-11 ✅ (com o PR), P-16 resolvida.
-- [ ] Atualizar a spec para a versão seguinte à da `main` (v1.9): §4.1 (contexto `conta`; escrita do paciente negada por padrão + `PACIENTE_ESCREVE`; `stored_files` por paciente), §4.2 (rotas do portal), §6 INT-03 (inscrição por vínculo, `VAPID_PUBLIC_KEY` no app, push de teste/comentário/plano novo, toque só na própria origem), §7 (`stored_files.patient_id`, `diary_entries` com as colunas a mais, `access_events` com `tenant_id`, `data_exports.escopo`, tipos novos de `notifications`, índice de `privacy_requests`), §8 RN-07 (HEIC por `heic-decode`, 40 MP), §11 P-16 resolvida, US-040 a US-046 com as notas de entrega (os "Desvios conscientes" desta página) e os textos novos de interface.
-- [ ] Anotar para os próximos planos:
+- [x] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P06-00 a P06-11 ✅ (com o PR), P-16 resolvida. (O `.md`, com o P06-12 e as notas abaixo, no PR de fechamento; o painel é atualizado à parte.)
+- [x] Atualizar a spec para a versão seguinte à da `main` (v1.9): §4.1 (contexto `conta`; escrita do paciente negada por padrão + `PACIENTE_ESCREVE`; `stored_files` por paciente), §4.2 (rotas do portal), §6 INT-03 (inscrição por vínculo, `VAPID_PUBLIC_KEY` no app, push de teste/comentário/plano novo, toque só na própria origem), §7 (`stored_files.patient_id`, `diary_entries` com as colunas a mais, `access_events` com `tenant_id`, `data_exports.escopo`, tipos novos de `notifications`, índice de `privacy_requests`), §8 RN-07 (HEIC por `heic-decode`, 40 MP), §11 P-16 resolvida, US-040 a US-046 com as notas de entrega (os "Desvios conscientes" desta página) e os textos novos de interface.
+- [x] Anotar para os próximos planos (no backlog, sob os Planos 07, 08 e Pós-MVP):
   - **Plano 07 (conteúdo):** a aba "Conteúdos" entra em `ITENS_DO_PORTAL`; `contents`, `content_views`, `content_favorites` precisam de `app_allow_paciente_escrita` para as visualizações e os favoritos (e da entrada em `PACIENTE_ESCREVE`); "Sugestão de receita" no "Meu plano" (US-041, P07-05) lê `meals.recipe_content_id`.
   - **Plano 08 (go-live):** P08-07 lê `access_events` (CS-02: ≥ 60% dos pacientes ativos abrem o PWA 1×/semana); k6 inclui `/p/plano` e `/api/p/acesso`; o teste manual do PWA no iPhone e no Android (runbook acima) entra no checklist assinado; o P08-06 publica o termo do advogado com versão nova — a D25 passa a pedir o novo aceite no login.
   - **Pós-MVP (F3-02, F3-04):** "Exames" e "IA Nutri" entram em `ITENS_DO_PORTAL`; qualquer escrita nova do paciente passa pela guarda `PACIENTE_ESCREVE`; o envio de exame pelo paciente reaproveita o molde da foto do diário (original guardado, conversão/checagem no worker, `stored_files.patient_id`).
-- [ ] Lembrar o dono: o backup no host (P02-11, etapas 6 e 8) segue pendente; a variável `VAPID_PUBLIC_KEY` do app é dele no Easypanel; o merge (= deploy) só com OK explícito e snapshot no hPanel antes.
-- [ ] Pedir ao dono o merge do PR (= deploy).
+- [x] Lembrar o dono: o backup no host (P02-11, etapas 6 e 8) segue pendente; a variável `VAPID_PUBLIC_KEY` do app é dele no Easypanel; o merge (= deploy) só com OK explícito e snapshot no hPanel antes.
+- [x] Pedir ao dono o merge do PR (= deploy). Mesclado em `7dad611` com o OK do dono (03/10/2026).
 
 ---
 
@@ -6897,3 +6897,25 @@ Pontos que precisam de atenção (não são decisões):
 ## Execução
 
 Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa, revisão final do branch no fim) — as 13 tarefas dependem umas das outras por interfaces bem definidas (a sessão da T3 entra em todas as telas; a guarda da T1 cresce em cinco tarefas), e um erro de RLS, de cache no aparelho ou de foto com GPS é caro de desfazer em produção.
+
+## Resultado da entrega
+
+**PR #8** (`plano-06-portal` → `main`), mesclado em `7dad611`. Execução por workflow (tarefas paralelas em worktrees e revisão em lentes; ver o índice dos planos).
+
+| Etapa | Resultado |
+|---|---|
+| Revisão por tarefa | T1–T4 e T8, T11, T13: 0 Critical/Important. Uma rodada de correção em T5 (1 Important: `orientation` do manifest fere a WCAG 1.3.4 — retirada), T6 (push de teste sem repetição), T7 (varredura da foto presa em "processando"; uma vaga de envio por conta e prazo para o corpo), T9 (leitura auditada da antropometria num só lugar), T10 ("comprado" em memória sem armazenamento no navegador) e T12 (remarcar leva à consulta nova; "Avisar" sem falso sucesso; teto de 3 consultas futuras). Achados confirmados corrigidos mesmo quando o texto do plano mandava o contrário, com spec, Global ou CLAUDE.md a favor (rulings em `progress.md`); minors no backlog (P06-12) |
+| Revisão final do branch (workflow, 6 lentes + 3 verificadores) | **4 Important** distintos (5 achados confirmados, 1 refutado): conta presa em `/indisponivel` com um consultório suspenso e outro ativo; cópia offline apontando para JS/CSS apagados depois de um deploy; ordem de travas do job `diario-foto` (risco de deadlock); e-mail e aba da exclusão sem citar as fotos do diário. Uma onda de correções (`ee3f2ab..34c0752`, com 45 minors "corrigir antes") e re-revisão do diff: 0 abertos |
+| `/code-review high` no PR (uma vez, @`34c0752`) | 10 achados: **4 Important** — links de e-mail e push sem o consultório (`?v=` + `GET /api/p/vinculo`), cópia offline que não saía quando o acesso acabava, diário e "Ativar notificações" ignorando a recusa `{ erro }` da sessão, conversão da foto exigindo cota para original + JPEG — mais o log do arquivo órfão com o caminho (corrigido junto) e a **migration 0080** (RESTRICTIVE do paciente em `diary_entries`, `data_exports` e `stored_files`, decisão do dono); 5 Minors no backlog. Correções `34c0752..24f6231` (5 commits); re-revisão só do diff (workflow, 2 lentes): 6/6 endereçados, 0 abertos |
+| Auditoria de segurança (workflow, 6 lentes + 3 verificadores, @`34c0752`) | **0** confirmados (1 achado refutado 3/3: o `audit_log` mantém ator e IP do prontuário anonimizado — decisão do dono na RNF-08, v1.8) |
+| `/security-review` (`f3d1a38..24f6231`) | **0** achados (o `GET /api/p/vinculo` que grava cookie num GET foi julgado baixo: só troca entre vínculos ativos da própria conta) |
+| Testes e CI | `pnpm test` 1283 testes, typecheck, lint e build verdes; E2E completo 94/94 (axe com zero violação no perfil de celular); **CI verde** @`24f6231` |
+| Deploy | Consulta só leitura em produção antes do merge (OK do dono): 0 arquivos órfãos, 0 pedidos duplicados. Merge às 21:16 UTC; o Easypanel reimplantou app e worker em **03/10/2026 21:26 UTC** (18h26 BRT): "Migrations aplicadas e role da aplicação conferido", **81 migrations** (até a 0080), `stored_files_dono` validada, 73 políticas `paciente_sem_*`; `/entrar` 200, `/serwist/sw.js` 200, `/api/p/ping` 204, `/p/plano` sem sessão → `/entrar` |
+
+**Fica para o teste manual no celular (runbook, passo 5)** — o CI não alcança um serviço de push real nem o Safari do iOS; antes, o dono configura a `VAPID_PUBLIC_KEY` no app (a mesma do worker):
+- Android (Chrome): "Instalar app" no Início logo depois do login, abrir pelo ícone, "Ativar notificações" → chega "Notificações ativadas ✅"; "Plano" com o modo avião → selo "Offline — exibindo última versão"; "Sair" e outra conta no mesmo aparelho não vê o plano anterior offline.
+- Plano offline depois de um deploy: abrir com rede (o service worker novo renova a cópia), modo avião, abrir de novo → plano com estilo e com o selo.
+- iPhone (Safari 16.4+): tutorial "Compartilhar → Adicionar à Tela de Início"; depois de instalado, "Ativar notificações" e o push de teste; foto HEIC da câmera vira JPEG em até ~1 min.
+- Depois (passo 6): no painel, "Diários" com o registro, o comentário e o push "Sua nutricionista comentou seu diário"; "Pedidos do titular" depois de um "Pedir exclusão" de teste; apagar os dados de teste só com a confirmação do dono.
+
+Segue pendente do dono: o backup no host (P02-11, etapas 6 e 8) — sem ele, nada de pacientes reais.

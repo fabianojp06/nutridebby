@@ -1,6 +1,6 @@
 # NutriDebby — Histórias de Usuário do MVP
 
-Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento. A versão é a do documento de design (Apêndice C); esta revisão acompanha a **v1.8** (fechamento do Plano 05 — Agenda & lembretes: notas "Plano 05, v1.8" nas histórias do E1, E2 e E4 e a tabela "Textos de interface e mensagens do E4", no fim do E4).
+Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento. A versão é a do documento de design (Apêndice C); esta revisão acompanha a **v1.9** (fechamento do Plano 06 — Portal do paciente: notas "Plano 06, v1.9" nas histórias do E1 ao E5 e a tabela "Textos de interface e mensagens do E5", no fim do E5; a v1.8, do Plano 05, deixou as notas "Plano 05, v1.8" e a tabela do E4).
 
 **Prioridade (MoSCoW):** **M** = Must (bloqueia o go-live) · **S** = Should (entra no MVP; pode ir para depois do go-live se o prazo apertar).
 **Estimativas:** feitas no planejamento (writing-plans), não aqui.
@@ -222,6 +222,8 @@ Cenário: Marca aplicada
 
 Nota de entrega (Plano 02): a marca é aplicada no painel; o PWA (Plano 06) e o PDF do plano (P04-09) passam a consumi-la por `getTenantBrand()`. **Risco residual aceito (2026-09-29):** a recusa de SVG com filtro é por varredura do texto e pode ser burlada por artifício de parser; o dano fica contido pelo processo filho morto em 5 s, um logo por vez e resfriamento de 10 min por tenant.
 
+Nota de entrega (Plano 06, v1.9): no portal, o topo mostra o logo ("Logo de {consultório}") e a linha "Acompanhamento com {consultório}", com a borda na cor da nutricionista (`getTenantBrand()`). Os ícones do app instalado são genéricos do NutriDebby (folha branca em fundo verde `#1d6b5a`; D21), trocáveis depois pelo SVG (`public/icones/icone.svg` + `pnpm icones`).
+
 ## US-006 — Isolamento entre tenants (história técnica) · **M**
 
 **Como** dona do produto, **quero** garantia automatizada de que uma nutricionista nunca acessa dados de outra, **para** cumprir a LGPD e manter a confiança das clientes.
@@ -355,6 +357,10 @@ Cenário: Nova versão do termo
   Quando faço login
   Então preciso aceitar a versão "1.1" antes de usar o portal
 ```
+
+Nota de entrega (Plano 06, v1.9):
+- **Nova versão do termo (D25):** a sessão de paciente confere em `consents` se a conta aceitou a versão atual (`TERMO_PACIENTE`) **naquele consultório**; senão vai para `/p/termo`: "Termo de Uso e Privacidade", a linha "Acompanhamento com {consultório}" (texto novo, mantido por decisão do dono em 03/10/2026), o texto do termo, a caixa "Li e aceito o Termo de Uso e Privacidade (versão {versão})" e "Continuar", desabilitado até marcar. Hoje a versão é a mesma do convite (`0.1-provisorio`): ninguém é parado até o P08-06 publicar o texto do advogado.
+- **Revogar o WhatsApp:** em "Perfil > Notificações", a caixa "Receber lembretes por WhatsApp" e "Salvar" ("Preferência salva."): desmarcar grava `whatsapp_optout_em`; marcar exige telefone no cadastro ("Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.") e grava o opt-in com origem `paciente`; salvar com o WhatsApp já autorizado não regrava a data nem a origem (a autorização registrada pela nutricionista fica).
 
 ## US-012 — Anamnese com modelo editável · **M**
 
@@ -531,6 +537,12 @@ Nota de entrega (Plano 05, v1.8):
 - **`audit_log`:** os IPs de quem acessou ou alterou o prontuário (inclusive os do próprio paciente, pelo link da consulta ou pela página pública) ficam na anonimização, como registro de responsabilização (decisão do dono, 02/10/2026).
 - **"Histórico de acessos":** ações na agenda feitas pelo próprio paciente (link da consulta, resposta no WhatsApp, página pública) não têm usuário de sessão e aparecem com o ator "Sistema" (decisão do dono, 02/10/2026).
 - Atender o pedido também apaga as inscrições de push do vínculo (US-018 "inscrições de push … apagadas na hora").
+
+Nota de entrega (Plano 06, v1.9):
+- **Fotos do diário:** atender o pedido apaga as fotos do diário (originais e convertidas) logo depois da transação do atendimento (`apagarFotosDoDiario`); a varredura diária do job de retenção apaga as que sobrarem de paciente bloqueado, e a anonimização também as apaga. Uma conversão em andamento quando o paciente é bloqueado termina com a foto "removida", sem JPEG.
+- **Textos:** o e-mail "Seu pedido de exclusão de dados foi atendido" e o texto da aba Privacidade passam a citar as fotos do diário (texto exato no fim do E5).
+- **Exportação:** o `dados.json` ganha `diario` (data e hora, refeição, texto, comentário da nutricionista e a foto, copiada para `diario/<data no fuso>-<n>.jpg`). A exportação pedida pelo titular no portal (US-046) usa o mesmo job com `escopo = 'titular'`, sem planos em rascunho.
+- **Conta de login (P06-08, D18):** na anonimização, a conta do titular sem outro vínculo não anonimizado é anonimizada ("Paciente anonimizado", `anonimo-<id>@anonimizado.invalid`, sessões e senha apagadas); com outro vínculo, fica.
 
 ## US-019 — Etiquetas de paciente · **S**
 
@@ -760,7 +772,7 @@ Nota de privacidade (Plano 04, ver RNF-08): ao salvar um plano de paciente como 
 Cenário: Primeira publicação
   Quando publico o rascunho do paciente P
   Então o status vira "publicado" com versao 1
-  E P recebe push "Seu novo plano alimentar está disponível" (adiado para o Plano 06, ver a nota de entrega abaixo)
+  E P recebe push "Seu novo plano alimentar está disponível" (e o e-mail com o mesmo assunto — Plano 06, ver as notas de entrega abaixo)
 
 Cenário: Nova versão arquiva a anterior (RN-01)
   Dado que P tem o plano v1 publicado
@@ -789,6 +801,8 @@ Cenário: Versão publicada não se altera (Plano 04)
 ```
 
 Nota de entrega (Plano 04): o push e o e-mail de aviso na publicação ficam para o Plano 06 (P06: push + e-mail), porque o portal do paciente e o push só existem lá e um aviso agora levaria o paciente a uma tela vazia; o ponto de entrada está comentado em `publicarPlano` (`publicacao.ts`), para entrar na mesma transação. Publicar congela em cada item a cópia dos valores dos alimentos (`nutrientes`, RN-01). Na lista de versões, a data de publicação é exibida no fuso do tenant (RN-06).
+
+Nota de entrega (Plano 06, v1.9): na publicação, na mesma transação, saem o push "Seu novo plano alimentar está disponível" (tipo `plano_novo`, texto neutro, abre "Plano" no consultório certo) e o e-mail com o mesmo assunto e o botão "Ver meu plano" — **só** para paciente `ativo` com conta no portal; sem conta, nada (o convite já leva ao portal). Republicar várias vezes manda um aviso por publicação (sem agrupar; P06-12).
 
 ## US-026 — PDF do plano · **M**
 
@@ -929,6 +943,8 @@ Nota de entrega (Plano 05, v1.8):
 - **Opt-in de WhatsApp de paciente que já existe:** marcar "Quero receber lembretes por WhatsApp" na página pública **não** altera o cadastro existente (o contexto sem login não altera pacientes); a autorização continua a registrada pela nutricionista ou pelo paciente no portal (aceito pelo dono em 02/10/2026). Paciente novo ganha o opt-in com origem "paciente" se informar o telefone.
 - O aceite do termo na página pública fica em `consents` com `patient_id` (o visitante ainda não tem conta).
 
+Nota de entrega (Plano 06, v1.9): "Agendar pelo PWA" em `/p/agenda/nova` (semana a semana; a escolha da modalidade só aparece se o consultório tem link online padrão), com o **teto de 3 consultas futuras** da página pública (decisão do dono, 03/10/2026): "Você já tem 3 consultas marcadas. Fale com sua nutricionista."; sucesso: "Consulta marcada para {quando}.". "Minhas consultas" (`/p/agenda`) lista as próximas e as 10 últimas, com a sigla do fuso quando o aparelho está em outro fuso (RN-06); o Início mostra "Próxima consulta: {quando}". Na página pública, "Entrar (já sou paciente)" leva a `/p/agenda` (sem sessão, ao login).
+
 ## US-033 — Cancelar ou remarcar · **M**
 
 **Como** paciente, **quero** cancelar ou remarcar dentro do prazo, **para** não faltar sem avisar.
@@ -948,6 +964,8 @@ Cenário: Fora do prazo
 ```
 
 Nota de entrega (Plano 05, v1.8): até o PWA (P06-09), o paciente age pela página do **link assinado da consulta** (`/consulta/<token>`), que vai em todo e-mail de lembrete e de marcação: "Confirmar presença", "Cancelar consulta" e "Remarcar" dentro do prazo; fora dele, só "Avisar que preciso remarcar" ("Avisamos sua nutricionista. Ela vai entrar em contato.", uma vez). O link expira no início da consulta, deixa de valer quando a consulta muda de horário ("Este link expirou.") e é **amarrado ao e-mail do paciente**: corrigir o e-mail revoga os links já enviados ("Link inválido."). Nunca muda estado num `GET`; a página tem `Referrer-Policy: no-referrer` e `noindex`. Paciente arquivado ou bloqueado vê "Conta temporariamente indisponível"; anonimizado, "Link inválido.". Remarcar pelo paciente = cancelar a antiga (`cancelado_por = 'paciente'`, motivo "Remarcada pelo paciente") e criar a nova (`remarcada_de`) numa transação.
+
+Nota de entrega (Plano 06, v1.9): no portal, a página da consulta (`/p/agenda/<id>`, "Sua consulta") tem as mesmas ações do link: "Confirmar presença" (grava `confirmada_via = 'link'`: o selo "Confirmada pelo link" vale para os dois; D19), "Cancelar consulta" (com a confirmação "Cancelar esta consulta?") e "Remarcar" (semana a semana, "Remarcar para este horário") dentro do prazo; fora dele, "Para alterar, fale com sua nutricionista." e "Avisar que preciso remarcar" (com o pedido já feito, o botão some; sem nada gravado, a tela não diz que avisou). Remarcar leva à página da consulta nova com "Consulta remarcada para {quando}.". "Link da chamada" só em consulta ativa online; consulta cancelada: "Esta consulta foi cancelada."; encerrada: "Consulta encerrada".
 
 ## US-034 — Lembretes automáticos · **M**
 
@@ -1120,6 +1138,13 @@ Cenário: Registro de acesso (métrica CS-02)
   Então access_events registra no máximo 1 linha por paciente por dia
 ```
 
+Nota de entrega (Plano 06, v1.9):
+- **Android:** o botão "Instalar app" aparece no Início; o `beforeinstallprompt` é guardado desde o layout do portal (vale também quando o evento chega antes da tela, logo depois do login). **iPhone:** "Instalar app" com "Para instalar no iPhone: toque em Compartilhar → Adicionar à Tela de Início." e "Depois de instalar, abra o app pela tela de início para ativar as notificações."; fora do app instalado, "Ativar notificações" não aparece. Manifest com `scope: /p/`, `start_url: /p/inicio`, `display: standalone`, **sem orientação fixa** (WCAG 1.3.4), ícones 192, 512 e 512 *maskable* e `apple-touch-icon` de 180.
+- **Push de teste (desvio):** sai pelo motor de notificações do Plano 05 (tipo `push_teste`), até ~1 min depois do clique, **sem repetição**: um teste pendente por vez por paciente e no mínimo 1 min entre pedidos (cliques repetidos não geram outro push). A inscrição só vale como ativa quando o servidor confirma que o endpoint é desta conta (aparelho compartilhado, D26); uma linha por vínculo ativo da conta. Sem `VAPID_PUBLIC_KEY` no app: "Notificações no app ainda não estão disponíveis.".
+- **Offline (D6):** só "Meu plano"; sem rede, qualquer página do portal mostra o plano guardado com o selo "Offline — exibindo última versão" (também quando o ping não responde em 5 s). A cópia acompanha o build, sai quando o acesso acaba, no "Sair", no login, na troca de dono e após 30 dias (spec, RNF-08).
+- **Registro de acesso:** `POST /api/p/acesso`, uma vez por abertura do portal, grava no máximo 1 linha por paciente por dia **no fuso do tenant** e renova o cookie de sessão (30 dias, P06-11) e, com 2+ vínculos, o `nd_vinculo`.
+- **"Sair"** do portal apaga a cópia do plano, as marcações da lista de compras e a inscrição de push do aparelho (no servidor e no navegador) antes do `POST /sair`, que responde com `Clear-Site-Data`.
+
 ## US-041 — Ver meu plano alimentar · **M**
 
 **Como** paciente, **quero** ver meu plano atual de forma clara no celular, **para** segui-lo no dia a dia.
@@ -1141,6 +1166,12 @@ Cenário: Baixar PDF
 ```
 
 Nota (Plano 04): o banco já esconde o `rascunho` do paciente (política `paciente_sem_rascunho`, §4.1) e `stored_files` do PDF ainda é restrita só por tenant; o que falta antes de existir sessão de paciente está na pendência P-16.
+
+Nota de entrega (Plano 06, v1.9):
+- Refeições em ordem de horário ("{refeição} · {HH:MM}"); a **próxima refeição** (no fuso do tenant; depois da última do dia, a primeira do dia seguinte) tem o selo "Próxima refeição". Cada item mostra a medida caseira e os gramas; as kcal do item e o "Total do dia" só com "Mostrar calorias ao paciente". Item com substituições abre no toque ("Substituições"). Observação da refeição e "Orientações" do plano no fim.
+- "Baixar PDF" pelo `GET /api/p/plano/pdf` (o PDF do plano publicado, por URL assinada); PDF ainda não pronto: "Seu PDF está sendo preparado. Volte em alguns minutos.".
+- **Desvio:** "Sugestão de receita" fica para o Plano 07 (P07-05; `meals.recipe_content_id` ainda não existe).
+- A leitura pelo paciente é auditada ("Visualizou · Plano alimentar" com o nome do paciente, D22). A P-16 foi resolvida: `stored_files` por paciente (§4.1).
 
 ## US-042 — Diário alimentar · **M**
 
@@ -1167,6 +1198,12 @@ Cenário: Cota de armazenamento do tenant (RN-18)
   Então vejo "Espaço de armazenamento esgotado. Fale com o suporte." e o registro em texto é salvo sem a foto
 ```
 
+Nota de entrega (Plano 06, v1.9):
+- **Miniatura local (desvio):** a miniatura aparece **no formulário**, ao escolher a foto, antes de enviar; depois do envio, o registro entra na lista com "Foto sendo preparada…" até o worker converter (em geral em até ~1 min) e então mostra o JPEG convertido (só ele é assinado; o original nunca); conversão impossível: "Não foi possível processar a foto.".
+- Formulário "Registrar refeição": "Refeição" (lista fixa: Café da manhã, Lanche da manhã, Almoço, Lanche da tarde, Jantar, Ceia, Outro), "O que você comeu?" (até 2000 caracteres), "Foto (opcional)" e "Registrar"; texto ou foto obrigatório ("Escreva o que você comeu ou envie uma foto."). O paciente só cria registros: não edita nem apaga (D11).
+- **Cota esgotada (desvio):** com texto, o registro é salvo sem a foto e a tela diz "Registro salvo sem a foto. Espaço de armazenamento esgotado. Fale com o suporte."; só com a foto, "Espaço de armazenamento esgotado. Fale com o suporte.". O original fica guardado (conta na cota) até a conversão.
+- Limite diário contado no dia do fuso do tenant, também na corrida de dois envios; acima de 10 MB, HTTP 413 com "Envie uma foto JPEG, PNG ou HEIC de até 10 MB". Sessão vencida ao registrar: "Sessão expirada. Entre de novo." com o link "Entrar", sem apagar o que foi digitado.
+
 ## US-043 — Nutricionista comenta o diário · **S**
 
 **Como** nutricionista, **quero** ver e comentar o diário dos pacientes, **para** dar feedback entre consultas.
@@ -1183,6 +1220,8 @@ Cenário: Comentar
   E vê o comentário abaixo do registro
 ```
 
+Nota de entrega (Plano 06, v1.9): "Diários" no menu do painel (`/painel/diarios`): os registros recentes de todos os pacientes (até 50), não vistos primeiro, com os selos "Novo"/"Visto" e "Comentado"; abrir um registro preenche `visto_pela_nutri_em` (uma vez) e tem "Abrir prontuário". Um comentário por registro (`comentario_nutri`, até 1000 caracteres), que ela pode corrigir ("Comentar", "Salvar comentário", "Comentário salvo."); **o push sai só no primeiro comentário** (desvio, D13: corrigir não manda outro), texto neutro, e o toque abre o Diário do consultório certo. Paciente bloqueado ou anonimizado: o registro fica só para consulta. No portal, o comentário aparece abaixo do registro em "Comentário da nutricionista".
+
 ## US-044 — Minha evolução · **S**
 
 **Como** paciente, **quero** ver minha evolução, **para** me manter motivado.
@@ -1194,6 +1233,8 @@ Cenário: Evolução do paciente
   E não vejo notas privadas nem exames
   E o %G só aparece se a nutricionista ativar "Mostrar % de gordura ao paciente" (tenants.mostrar_perc_gordura_paciente, padrão: desligado)
 ```
+
+Nota de entrega (Plano 06, v1.9): "Minha evolução" mostra, em "Medidas", a diferença entre a primeira e a última avaliação ("{medida}: {primeiro} ({data}) → {último} ({data}) · {diferença}") e os gráficos com 2 ou mais pontos de peso, IMC e circunferências; "% de gordura" só com a opção "Mostrar % de gordura ao paciente" (Configurações); dobras, densidade e exames nunca (D14). Sem nada a comparar: "Registre mais uma avaliação para ver a evolução". "Orientações recebidas": as orientações ao paciente de cada atendimento ("Nenhuma orientação registrada ainda."). Leitura auditada (D22).
 
 ## US-045 — Lista de compras · **S**
 
@@ -1211,6 +1252,8 @@ Cenário: Marcar comprado
   Então ele fica riscado e a marcação continua ao reabrir no mesmo dispositivo
 ```
 
+Nota de entrega (Plano 06, v1.9): "Lista de compras" com "Para quantos dias?" (1 a 14, padrão 7; fora disso "Escolha de 1 a 14 dias.") e "Gerar lista"; calculada no servidor a partir do plano publicado; sem plano: "Sem plano publicado, não há lista de compras.". Cada item é uma caixa ("{alimento} — {quantidade}", riscado quando marcado) e a tela avisa "Marque o que já comprou: a marcação fica neste aparelho."; a marcação vale por plano e sai no "Sair", no login e na troca de dono do aparelho (RN-13).
+
 ## US-046 — Meus dados (LGPD do titular) · **M**
 
 **Como** paciente, **quero** baixar meus dados e pedir exclusão, **para** exercer meus direitos na LGPD.
@@ -1226,6 +1269,30 @@ Cenário: Pedir exclusão
   E a nutricionista vê a tarefa "Pedido de exclusão de <nome>" no painel
   E eu recebo o e-mail "Seu pedido foi registrado"
 ```
+
+Nota de entrega (Plano 06, v1.9):
+- **"Baixar meus dados" (desvio, D16):** no máximo 1 pedido a cada 24 h ("Pedimos seus dados. O link chega por e-mail e vale por 24 horas." / "Você já pediu seus dados nas últimas 24 horas. O link chega por e-mail."). O ZIP é o da US-018 com `escopo = 'titular'`: sem notas privadas, sem etiquetas e sem planos em rascunho (P-16 b), com o diário e as fotos. O link do e-mail leva o consultório (`?v=`) e abre `/p/meus-dados/exportacoes/<id>` (pede login de paciente; só pedidos do titular do próprio paciente): "Seus dados", "O arquivo está pronto. O link vale até {quando}." e "Baixar arquivo" (URL assinada de 5 min), ou "Ainda estamos preparando seus dados. Volte em alguns minutos.", "Este link expirou. Peça os dados de novo em Perfil.", "Não foi possível gerar seus dados. Peça de novo em Perfil.".
+- **"Pedir exclusão dos meus dados":** pede a confirmação "Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico é guardado pelo prazo legal."; o prazo é hoje + 15 dias no fuso do tenant; um pedido aberto por vez ("Seu pedido de exclusão já foi registrado em {data}."); sucesso: "Pedido de exclusão registrado. Enviamos a confirmação para o seu e-mail.". A "tarefa no painel" é o quadro "Pedidos do titular" do painel inicial ("Pedido de exclusão de {nome} · prazo {data}", com link para a aba Privacidade, onde "Atender pedido de exclusão" conclui o pedido); sem e-mail à nutricionista (D17).
+
+
+## Textos de interface e mensagens do E5 (Plano 06, v1.9)
+
+Texto exato do código (conferido na entrega). `{…}` = valor variável; `{quando}` = "sex., 16/10/2026 às 14:00 (horário de Brasília)", como no E4; exceções: a sigla do fuso só aparece, com o aparelho em outro fuso (RN-06), em "Minhas consultas", "Próxima consulta: {quando}" e no cabeçalho de "Sua consulta"; "O link vale até {quando}" sai sem a sigla.
+
+| Onde | Textos |
+|---|---|
+| Portal: estrutura e acesso | "Meu acompanhamento"; topo "Acompanhamento com {consultório}" e o logo ("Logo de {consultório}"); abas (`<nav aria-label="Portal">`) "Início", "Plano", "Diário", "Evolução", "Compras", "Agenda", "Perfil"; "Sair"; Início: "Próxima consulta: {quando}", "Conectado como {e-mail}."; `/p/escolher`: "Com qual nutricionista você quer entrar?" (um botão por consultório; o suspenso sem botão, com "Conta temporariamente indisponível"); `/p/sem-acesso`: "Seu acesso ao portal não está ativo. Fale com sua nutricionista."; `/p/termo`: "Termo de Uso e Privacidade", "Acompanhamento com {consultório}", "Li e aceito o Termo de Uso e Privacidade (versão {versão})", "Continuar"; recusa da sessão nos formulários: "Sessão expirada. Entre de novo." + link "Entrar"; na API do portal: "Acesso negado", "Conta temporariamente indisponível" |
+| Instalar e notificações (US-040) | "Instalar app"; iPhone: "Para instalar no iPhone: toque em Compartilhar → Adicionar à Tela de Início.", "Depois de instalar, abra o app pela tela de início para ativar as notificações."; "Ativar notificações", "Notificações ativadas neste aparelho.", "Você bloqueou as notificações. Para ativar, mude a permissão do site nas configurações do navegador.", "Notificações no app ainda não estão disponíveis.", "Não foi possível ativar as notificações. Tente de novo."; selo "Offline — exibindo última versão" |
+| Meu plano (US-041) | "Plano", "Sua nutricionista ainda está preparando seu plano", "Baixar PDF", "Seu PDF está sendo preparado. Volte em alguns minutos.", "Total do dia: {kcal} kcal" (só com "Mostrar calorias ao paciente"), "{refeição} · {HH:MM}", selo "Próxima refeição", "{alimento} — {quantidade}" (+ " · {kcal} kcal" com a opção), "Substituições" (o leitor de tela ouve também "(ver substituições)"), "Orientações" |
+| Diário (US-042) | "Diário", "Registrar refeição", "Refeição", "Escolha a refeição" (opção vazia), "Café da manhã", "Lanche da manhã", "Almoço", "Lanche da tarde", "Jantar", "Ceia", "Outro", "O que você comeu?", "Foto (opcional)", "Miniatura da foto escolhida" (texto alternativo), "Registrar", "Registro salvo.", "Registro salvo sem a foto. Espaço de armazenamento esgotado. Fale com o suporte.", "Espaço de armazenamento esgotado. Fale com o suporte.", "Escreva o que você comeu ou envie uma foto.", "Use no máximo 2000 caracteres.", "Escolha a refeição.", "Envie uma foto JPEG, PNG ou HEIC de até 10 MB", "Limite de 10 registros por dia atingido", "Tente novamente em alguns instantes.", "Conta temporariamente indisponível"; lista: "{refeição} · {quando}", "Foto sendo preparada…", "Não foi possível processar a foto.", "Foto do registro de {refeição}" (texto alternativo), "Comentário da nutricionista", "Nenhum registro ainda." |
+| Diários da nutricionista (US-043) | Menu "Diários"; "Diários", "Nenhum registro de diário ainda.", "Novo", "Visto", "Comentado", "{paciente} — {refeição} · {quando}"; registro: "{paciente} — {refeição}", "Abrir prontuário", "Comentar", "Salvar comentário", "Comentário salvo.", "Escreva o comentário.", "Use no máximo 1000 caracteres.", "Registro não encontrado."; paciente bloqueado: "Comentário da nutricionista: {comentário}" e "Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta." |
+| Minha evolução (US-044) | "Minha evolução", "Medidas", "{medida}: {primeiro} ({data}) → {último} ({data}) · {diferença}", "Registre mais uma avaliação para ver a evolução", "Orientações recebidas", "Nenhuma orientação registrada ainda."; em Configurações do painel: "Mostrar % de gordura ao paciente" |
+| Lista de compras (US-045) | "Lista de compras", "Para quantos dias?", "Gerar lista", "Escolha de 1 a 14 dias.", "Sem plano publicado, não há lista de compras.", "{alimento} — {quantidade}", "Marque o que já comprou: a marcação fica neste aparelho." |
+| Agenda no portal (US-032, US-033) | "Minhas consultas", "Agendar consulta", "Próximas", "Anteriores", "Nenhuma consulta marcada.", "{quando} · {modalidade} · {situação}" ("Agendada", "Confirmada", "Cancelada", "Realizada", "Faltou"); nova consulta: "Agendar consulta", "Semana anterior", "Próxima semana", "{dd/mm/aaaa} a {dd/mm/aaaa}", "Escolha a modalidade", "Presencial", "Online", "Consulta marcada para {quando}.", "Você já tem 3 consultas marcadas. Fale com sua nutricionista."; consulta: "Sua consulta", "{quando} · {modalidade}", "Link da chamada", "Confirmar presença", "Presença confirmada. Até lá!", "Esta consulta não pode mais ser confirmada.", "Cancelar consulta", "Cancelar esta consulta?", "Consulta cancelada.", "Para alterar, fale com sua nutricionista.", "Avisar que preciso remarcar", "Avisamos sua nutricionista. Ela vai entrar em contato.", "Remarcar", "Remarcar para este horário", "Consulta remarcada para {quando}.", "Esta consulta foi cancelada.", "Consulta encerrada"; erros: "Esse horário acabou de ser ocupado. Escolha outro.", "Esse horário não está mais disponível. Escolha outro.", "Não foi possível agendar por aqui. Fale com sua nutricionista.", "Consulta não encontrada.", "Conta temporariamente indisponível"; página pública: "Entrar (já sou paciente)" |
+| Perfil e privacidade (US-046, US-011) | "Perfil", "Conectado como {e-mail}.", "Notificações", "Receber lembretes por WhatsApp", "Salvar", "Preferência salva.", "Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.", "Privacidade", "Baixar meus dados", "Pedimos seus dados. O link chega por e-mail e vale por 24 horas.", "Você já pediu seus dados nas últimas 24 horas. O link chega por e-mail.", "Pedir exclusão dos meus dados", "Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico é guardado pelo prazo legal.", "Pedido de exclusão registrado. Enviamos a confirmação para o seu e-mail.", "Seu pedido de exclusão já foi registrado em {data}.", "Trocar de nutricionista"; página do link: "Seus dados", "O arquivo está pronto. O link vale até {quando}.", "Baixar arquivo", "Ainda estamos preparando seus dados. Volte em alguns minutos.", "Este link expirou. Peça os dados de novo em Perfil.", "Não foi possível gerar seus dados. Peça de novo em Perfil." |
+| Painel: titular e LGPD (US-046, US-018) | Quadro do painel inicial "Pedidos do titular": "Pedido de exclusão de {nome}" / "Pedido de dados de {nome}" + " · prazo {dd/mm/aaaa}"; aba Privacidade do paciente: "Durante o prazo de guarda do prontuário ({n} anos após a última consulta), os dados clínicos ficam guardados, identificados e só para sua consulta. Na hora são apagadas as fotos do diário, as autorizações de WhatsApp, as notificações no app e os convites; as consultas futuras são canceladas, o paciente perde o acesso ao portal deste acompanhamento e recebe um e-mail explicando. No fim do prazo, os dados de identificação são anonimizados." |
+| Push ao paciente (neutro: título "NutriDebby", sem nome da nutricionista nem dado de saúde) | "Notificações ativadas ✅" (abre o Início), "Sua nutricionista comentou seu diário" (abre o Diário), "Seu novo plano alimentar está disponível" (abre o Plano) |
+| E-mails ao paciente | "Seu novo plano alimentar está disponível" (assunto): "Sua nutricionista publicou um novo plano alimentar para você no NutriDebby.", "Entre no portal para ver as refeições e baixar o PDF.", botão "Ver meu plano"; "Seu pedido foi registrado" (assunto): "Recebemos seu pedido de exclusão de dados. {nutri} tem até {prazo} para responder.", "Por obrigação legal, o prontuário clínico é guardado de forma bloqueada pelo prazo exigido; o resto é apagado quando o pedido for atendido. Você recebe outro e-mail nesse momento."; "Exportação de dados pronta" (assunto): "A exportação de dados que você pediu no NutriDebby está pronta.", "O link vale por 24 horas e pede que você entre no portal." (a da equipe: "…no painel."), botão "Baixar exportação"; "Seu pedido de exclusão de dados foi atendido" (assunto): "Olá, {nome}!", "{nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.", "Foram apagados agora: as fotos do diário alimentar, as autorizações de mensagens por WhatsApp, as notificações no aparelho e os convites de acesso. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.", "Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até {data}. Depois dessa data, seus dados de identificação são anonimizados.", "Se tiver dúvidas, fale com a sua nutricionista." |
 
 ---
 
@@ -1405,13 +1472,13 @@ Cenário: Métricas
 | US-035 | M4 | INT-01 | appointments, notifications, whatsapp_conexoes, public_rate_limits (marca anti-repetição do webhook) |
 | US-036 | M4 | RN-09 | tenants, notifications, whatsapp_conexoes |
 | US-037 | M4 | CS-03 | appointments |
-| US-040 | M5 | INT-03, RNF-09, CS-02 | push_subscriptions, access_events |
-| US-041 | M5 | RN-01 | meal_plans, meals |
-| US-042 | M5 | RN-07, RN-18 | diary_entries, tenants (armazenamento_bytes) |
-| US-043 | M5 | INT-03 | diary_entries |
-| US-044 | M5 | — | anthropometry, consultations |
+| US-040 | M5 | INT-03, RNF-09, RNF-10, CS-02 | push_subscriptions, access_events, notifications |
+| US-041 | M5 | RN-01 | meal_plans, meals, meal_items, stored_files |
+| US-042 | M5 | RN-07, RN-18 | diary_entries, stored_files, tenants (armazenamento_bytes) |
+| US-043 | M5 | INT-03 | diary_entries, notifications |
+| US-044 | M5 | — | anthropometry, consultations, tenants (mostrar_perc_gordura_paciente) |
 | US-045 | M5 | RN-13 | meal_items, foods |
-| US-046 | M5 | RNF-08 | patients, privacy_requests, audit_log |
+| US-046 | M5 | RNF-08 | patients, privacy_requests, data_exports, audit_log |
 | US-050 | M6 | RN-10, INT-05 | contents |
 | US-051 | M6 | RN-11 | contents, recipes, recipe_ingredients |
 | US-052 | M6 | RNF-06 | contents |
