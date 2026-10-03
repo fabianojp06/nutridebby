@@ -21,9 +21,11 @@ Os planos 04 e 05 são independentes entre si e podem ser feitos em qualquer ord
 | **03** | [Pacientes & prontuário (M2)](2026-09-29-nutridebby-03-prontuario.md) | US-010 (sem WhatsApp), US-011, US-012 a US-019; RN-14, RN-17; Apêndice A | Nutricionista cadastra e convida paciente; anamnese; antropometria e gasto energético com os casos de teste do Apêndice A; exames; evolução; LGPD (exportar/bloquear/anonimizar) |
 | **04** | [Plano alimentar (M3)](2026-10-01-nutridebby-04-plano-alimentar.md) | US-020 a US-026; INT-04; RN-01, RN-02; P-10 | Seed TACO + medidas IBGE; montar, calcular, versionar e publicar plano; PDF gerado pelo worker |
 | **05** | [Agenda & lembretes (M4)](2026-10-01-nutridebby-05-agenda-lembretes.md) | US-030 a US-037, US-010 (convite WhatsApp); INT-01 (pela Evolution API, decisão do dono em 2026-10-01), INT-03 (envio); RN-03 a RN-06, RN-09, RN-16 | Agenda; agendamento pelo paciente e pela página pública; lembretes por e-mail, WhatsApp e push; confirmação por resposta "1"/"2" e pelo link da consulta; cota |
-| **06** | [Portal do paciente (M5)](2026-10-03-nutridebby-06-portal-paciente.md) | US-040 a US-046; INT-03 (inscrição); RNF-09, RNF-10 | PWA instalável, offline para o plano, push, diário com foto, evolução, lista de compras, dados do titular |
+| **06** | [Portal do paciente (M5)](2026-10-03-nutridebby-06-portal-paciente.md) | US-040 a US-046; INT-03 (inscrição); RNF-09, RNF-10 | PWA instalável, offline para o plano, push, diário com foto, evolução, lista de compras, dados do titular — **em produção** (PR #8, deploy em 03/10/2026; spec v1.9) |
 | 07 | Biblioteca de conteúdo (M6) | US-050 a US-056; INT-05; RN-10 a RN-12 | Vídeos, receitas com cálculo, orientações, audiência, aba Conteúdos, métricas |
 | 08 | Go-live | RNF-01, RNF-02 (k6), RNF-05 (teste de restauração), RNF-10 (auditoria axe), RNF-11 (Sentry); CS-01 a CS-03; job de retenção LGPD | Checklist de go-live assinado; Debby em produção |
+
+**Registro do processo — Plano 06:** a execução usou **workflow** com tarefas paralelas: depois das Tarefas 1–5 em sequência, as Tarefas 6–13 rodaram com revisão sobreposta, e as Tarefas 8, 9, 10 e 12 em worktrees paralelos, integradas por cherry-pick no branch do plano. A revisão por tarefa foi em **lentes** (spec/qualidade e segurança/LGPD) com três verificadores adversariais, até duas rodadas de correção; a revisão final do branch, em seis lentes com verificação adversarial; depois, o `/code-review high` uma vez, a re-revisão só do diff das correções (também em lentes), uma auditoria de segurança em seis lentes e o `/security-review`. Resultados no fim do plano ("Resultado da entrega").
 
 ## Trilha paralela — tarefas fora do código (começar já)
 
@@ -52,7 +54,7 @@ O desenvolvimento é autônomo, então cada entrega passa por revisões com fun�
 | 2 | Fim de cada plano, sobre o branch inteiro | Revisão final por workflow; uma onda de correções e re-revisão do diff das correções |
 | 3 | Sobre o PR | `/code-review` em nível `high` **uma vez**, como segunda opinião; o que for Critical/Important é corrigido, Minor vai para o backlog |
 | 4 | Depois das correções da etapa 3 | Re-revisão **só do diff das correções** (não do PR inteiro) |
-| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03 e 05, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp, páginas públicas e links assinados. Revisão geral final em P08-05 |
+| Segurança | Todo plano, sobre o PR | `/security-review`. Nos Planos 01, 02, 03, 05 e 06, com checklist reforçado: RLS e isolamento por paciente, LGPD, uploads, autenticação, webhook do WhatsApp, páginas públicas e links assinados. Revisão geral final em P08-05 |
 
 - **Por que mudou (2026-10-02):** a 2ª rodada completa de `/code-review high`, exigindo "sair limpo", não convergia em diffs grandes (os Planos 03 e 04 precisaram de aprovação do dono para encerrar): revisar ~10 mil linhas de novo sempre amostra trechos novos e acha novos Minors. A re-revisão do diff das correções é o que confirma que a correção está certa.
 - **Critério de parada:** merge só com CI verde, a re-revisão da etapa 4 e a revisão de segurança sem Critical/Important confirmado. Se ainda houver, o desenvolvimento **para e escala para o dono do produto**; nada de rodadas extras sem aviso.

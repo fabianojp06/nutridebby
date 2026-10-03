@@ -1,6 +1,6 @@
 # NutriDebby MVP — Backlog
 
-Fonte: spec v1.8 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
+Fonte: spec v1.9 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
 
 **Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
 
@@ -80,7 +80,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 04 — Plano alimentar (M3)
 
-**Situação em 2026-10-03:** os 9 itens (P04-01 a P04-09) estão **em produção** (PR #5 com merge e deploy feitos, commits `0cae87d` a `5d053a5`); P04-10 segue a fazer. Spec atualizada para a v1.6. O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais. **Para o Plano 06** (spec v1.6, P-16, antes de qualquer sessão de paciente): escrita só da equipe em `foods`, `food_measures` e `anamnesis_templates` (políticas `RESTRICTIVE`), filtro de rascunho na exportação do titular (US-046), decisão sobre a auditoria de rascunho visível ao paciente, `stored_files` restrita por paciente no download do PDF, e o aviso "Seu novo plano alimentar está disponível" (push + e-mail, adiado do P04-08).
+**Situação em 2026-10-03:** os 9 itens (P04-01 a P04-09) estão **em produção** (PR #5 com merge e deploy feitos, commits `0cae87d` a `5d053a5`); P04-10 segue a fazer. Spec atualizada para a v1.6. O backup no host (P02-11) segue pendente: sem ele, nada de pacientes reais. **Para o Plano 06** (spec v1.6, P-16, antes de qualquer sessão de paciente): escrita só da equipe em `foods`, `food_measures` e `anamnesis_templates` (políticas `RESTRICTIVE`), filtro de rascunho na exportação do titular (US-046), decisão sobre a auditoria de rascunho visível ao paciente, `stored_files` restrita por paciente no download do PDF, e o aviso "Seu novo plano alimentar está disponível" (push + e-mail, adiado do P04-08) — **tudo feito no Plano 06** (PR #8, P-16 resolvida na spec v1.9).
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
@@ -122,23 +122,99 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 06 — Portal do paciente / PWA (M5)
 
+**Situação em 2026-10-03:** as 13 tarefas do plano ([`2026-10-03-nutridebby-06-portal-paciente.md`](2026-10-03-nutridebby-06-portal-paciente.md)) feitas na branch `plano-06-portal` e **em produção**: PR #8 mesclado (`7dad611`) e reimplantado pelo Easypanel em 03/10/2026 às 21:26 UTC (18h26 BRT), com as migrations 0070 a 0080 (81 no total); spec atualizada para a **v1.9**. Pendentes do dono: `VAPID_PUBLIC_KEY` no app (Easypanel; a mesma do worker), o teste manual no celular (runbook do Plano 06, passo 5) e, antes de pacientes reais, o backup no host (P02-11). Débitos do plano: P06-12 (lista abaixo da tabela).
+
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P06-00 | Pré-requisitos de segurança/LGPD antes de existir sessão de paciente (revisão final do Plano 04, spec v1.6): escrita só da equipe (políticas `RESTRICTIVE`) em `foods`, `food_measures` e `anamnesis_templates`, com testes; rascunho fora da exportação do titular (US-046); decidir se a auditoria de edições do rascunho fica visível ao paciente; `stored_files` restrito por paciente (download do PDF no portal) | D12, US-046 | Plano 04 | Dev | M | ⬜ |
-| P06-01 | PWA: manifest, service worker, instalação (Android + tutorial iOS), plano disponível offline | US-040 | P01-15, Plano 04 | Dev | M | ⬜ |
-| P06-02 | Inscrição de push + push de teste; registro de acesso diário (`access_events`) | US-040, CS-02 | P06-01, P05-10 | Dev | M | ⬜ |
-| P06-03 | Tela "Meu plano" + download do PDF | US-041 | P06-01, P04-09 | Dev | M | ⬜ |
-| P06-04 | Diário alimentar com foto (conversão HEIC no worker, limite de 10/dia) | US-042, RN-07 | P06-01, P02-02 | Dev | M | ⬜ |
-| P06-05 | Feed de diários + comentários da nutricionista | US-043 | P06-04 | Dev | S | ⬜ |
-| P06-06 | "Minha evolução" (respeitando o % de gordura oculto) | US-044 | P06-01 | Dev | S | ⬜ |
-| P06-07 | Lista de compras | US-045, RN-13 | P06-03 | Dev | S | ⬜ |
-| P06-08 | "Meus dados": exportar + pedir exclusão; e anonimizar nome e e-mail da conta `user` do titular anonimizado que não tiver outro vínculo ativo (desvio consciente do Plano 03, decidido pelo dono em 2026-09-30: até aqui a anonimização só solta `patients.user_id`) | US-046, US-018 | P03-11 | Dev | M | ⬜ |
-| P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) | US-032, US-033 | P05-05 | Dev | M | ⬜ |
-| P06-10 | Auditoria axe das telas do PWA | RNF-10 | P06-01 a P06-09 | Dev | M | ⬜ |
-| P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) | RNF-06 | P06-01 | Dev | M | ⬜ |
-| P06-12 | Débitos do Plano 06 (PR #8, `/code-review high` do plano, Minor): o layout `(portal)` e cada página do portal chamam `requirePaciente` sem o `cache()` do React — a cadeia (sessão, `vinculosDaConta`, tenant, termo) roda 2× por requisição; envolver a parte de leitura em `cache()` (sem cachear o `redirect`); service worker do "Meu plano" (re-revisão das correções): a renovação diária grava a cópia com o `dono` da mensagem, sem conferir no servidor — opcional: `/p/plano` devolver o dono num cabeçalho e o SW só gravar se bater; `guardado-em` no futuro (relógio do aparelho) impede a renovação | PR #8 | P06-01 | Dev | S | ⬜ |
+| P06-00 | Pré-requisitos de segurança/LGPD antes de existir sessão de paciente (revisão final do Plano 04, spec v1.6): escrita só da equipe (políticas `RESTRICTIVE`) em `foods`, `food_measures` e `anamnesis_templates`, com testes; rascunho fora da exportação do titular (US-046); decidir se a auditoria de edições do rascunho fica visível ao paciente; `stored_files` restrito por paciente (download do PDF no portal) — **entregue:** escrita do paciente negada por padrão em toda tabela com `tenant_id` (`paciente_sem_*` + `PACIENTE_ESCREVE`, migration 0070) e reforço da 0080; `stored_files.patient_id` + `paciente_arquivos` (0071/0072); exportação do titular sem rascunho (`data_exports.escopo`); auditoria do rascunho não se aplica (D5) — P-16 resolvida — Tarefas 1, 2 e 11 | D12, US-046 | Plano 04 | Dev | M | ✅ |
+| P06-01 | PWA: manifest, service worker, instalação (Android + tutorial iOS), plano disponível offline — **entregue:** contexto `conta`, `requirePaciente`, escolha da nutricionista e navegação do portal (Tarefa 3); ícones, manifest sem orientação fixa, "Meu plano" offline (cópia que acompanha o build e sai quando o acesso acaba), "Instalar app" e tutorial do iPhone, selo offline e "Sair" que limpa o aparelho (Tarefa 5) | US-040 | P01-15, Plano 04 | Dev | M | ✅ |
+| P06-02 | Inscrição de push + push de teste; registro de acesso diário (`access_events`) — **entregue:** inscrição por vínculo ativo, push de teste sem repetição, aviso de plano novo (US-025), `access_events` no fuso do tenant — Tarefa 6 | US-040, CS-02 | P06-01, P05-10 | Dev | M | ✅ |
+| P06-03 | Tela "Meu plano" + download do PDF — Tarefa 4 | US-041 | P06-01, P04-09 | Dev | M | ✅ |
+| P06-04 | Diário alimentar com foto (conversão HEIC no worker, limite de 10/dia) — **entregue:** `heic-decode` + `sharp` só no worker, 40 MP, cota pela diferença na conversão, varredura da foto presa em "processando" — Tarefa 7 | US-042, RN-07 | P06-01, P02-02 | Dev | M | ✅ |
+| P06-05 | Feed de diários + comentários da nutricionista — Tarefa 8 | US-043 | P06-04 | Dev | S | ✅ |
+| P06-06 | "Minha evolução" (respeitando o % de gordura oculto) — Tarefa 9 | US-044 | P06-01 | Dev | S | ✅ |
+| P06-07 | Lista de compras — Tarefa 10 | US-045, RN-13 | P06-03 | Dev | S | ✅ |
+| P06-08 | "Meus dados": exportar + pedir exclusão; e anonimizar nome e e-mail da conta `user` do titular anonimizado que não tiver outro vínculo ativo (desvio consciente do Plano 03, decidido pelo dono em 2026-09-30: até aqui a anonimização só solta `patients.user_id`) — **entregue:** 1 pedido de dados a cada 24 h, pedido de exclusão único com quadro "Pedidos do titular", fotos do diário apagadas, conta anonimizada sem outro vínculo (`app_conta_sem_outro_vinculo`, 0079) — Tarefa 11 | US-046, US-018 | P03-11 | Dev | M | ✅ |
+| P06-09 | Agendar, cancelar e remarcar pelo PWA (interface sobre o Plano 05) — **entregue** com o teto de 3 consultas futuras da página pública (decisão do dono, 03/10/2026) — Tarefa 12 | US-032, US-033 | P05-05 | Dev | M | ✅ |
+| P06-10 | Auditoria axe das telas do PWA — **entregue:** zero violação em todas as telas do portal e 360 px sem rolagem horizontal — Tarefa 13 | RNF-10 | P06-01 a P06-09 | Dev | M | ✅ |
+| P06-11 | Renovar o cookie de sessão do paciente com o uso (hoje `maxAge` fixo de 30 dias desde o login; o banco já desliza em `requireUser`) — rota que reescreva o cookie (Route Handler/Server Action) quando o app do paciente existir. Adiado do Plano 01 (rodada 3, achado 2) — **entregue:** `POST /api/p/acesso` reemite o cookie (e o `nd_vinculo` com 2+ vínculos) — Tarefa 6 | RNF-06 | P06-01 | Dev | M | ✅ |
+| P06-12 | Débitos do Plano 06 (PR #8: Minors do `/code-review high`, da revisão final por workflow e das re-revisões), agrupados por tema na lista abaixo | PR #8 | P06-01 | Dev | S | ⬜ |
+
+### P06-12 — débitos do Plano 06 (por tema)
+
+**Do `/code-review high` (PR #8):**
+- `requirePaciente` sem o `cache()` do React: layout e página repetem sessão, `vinculosDaConta`, tenant e termo (~2× por requisição); `acessoDaConta` relê `tenants` já trazido no join (envolver a leitura em `cache()`, sem cachear o `redirect`).
+- `app_soltar_endpoint_push` percorre todos os tenants (O(tenants)) a cada ativação e a cada abertura do portal com inscrição; localizar antes os tenants que têm o endpoint (índice `push_subscriptions_endpoint_idx`). `POST /api/p/push` sem limite por conta.
+- Leitor do cabeçalho `Cookie` e prazo de 30 dias duplicados (`sessao-cookies.ts`, `paciente-session.ts`, `PATIENT_SESSION_MS`).
+- `MSG_PUSH` copiado à mão no cliente (`notificacoes.tsx`): mover para um módulo de constantes sem servidor.
+- Conferência de mesma origem copiada em 6 rotas (`/api/p/acesso`, `/api/p/diario`, `/api/p/push` e 3 anteriores): extrair um helper.
+
+**Sessão e vínculos:**
+- `/p/termo`: o aceite volta sempre a `/p/inicio` e perde o destino original (ex.: link da exportação).
+- `/indisponivel` usa `BotaoSair`, não `SairPortal`, para paciente (não cancela o push nem apaga o plano no Safari < 17).
+- "Sair" em `/p/termo`, `/p/escolher` e `/p/sem-acesso`: o `DELETE /api/p/push` volta 403 e o endpoint fica no servidor.
+- `?v=` igual ao cookie fica na URL: com o cookie trocado em outra aba, recarregar ou uma Server Action volta ao consultório do link (a ação se perde); o `router.push` do login para um link com `?v=` não tem teste.
+- Recusa 403 "Acesso negado" (vínculo a escolher) no diário e em "Ativar notificações" sem link para `/p/escolher`.
+- Cópia offline do consultório suspenso fica até a escolha em `/p/escolher` (sem `EsquecerPlanoGuardado` lá).
+- `ctxDoVinculo` monta o `TenantContext` à mão (mover para `sessao.ts`).
+- `min-h-dvh` aninhado (rolagem vertical extra).
+
+**Banco e RLS:**
+- `findPacienteEscritaViolations` não confere a expressão da política (igual à guarda do `publico`).
+- UPDATE liberado ao paciente em `patients` vale para qualquer coluna (gatilho que só deixe opt-in/opt-out, `user_id` nulo → conta e `updated_at`); o de `data_exports` vale para a linha inteira (a 0080 só fixa o escopo).
+- `audit_log` legível pela sessão de paciente (as próprias linhas, com IP e ator da equipe); o portal não mostra (D5).
+- Tabelas sem `tenant_id` (`tenants`, `user`, `session`, `account`, `consents`, `invites`) fora da negação da D1 — limite conhecido.
+- `app_soltar_endpoint_push` e `app_conta_sem_outro_vinculo` só testadas com dono superusuário: chamar as duas em `migrate-owner.test.ts`.
+- Janela residual da D18: convite aceito logo depois do commit da anonimização liga o prontuário a uma conta anonimizada (travar `user` no aceite).
+- `anonimizarContaSemVinculo` não apaga `verification`, não limpa `user.image` nem confere `app_role = 'paciente'`.
+- `cancelarAparelho` só nos vínculos ativos (vínculo arquivado e reativado volta a receber push); `onConflictDoNothing` não renova `p256dh`/`auth`; a equipe do tenant lê endpoint e chaves de `push_subscriptions`.
+
+**PWA e push:**
+- Renovação da cópia no `activate` que falha (sem rede ou > 10 s) deixa a cópia do build antigo sem estilos até a próxima visita com rede (opção: apagar na falha).
+- A cópia é gravada com o dono que a página informa, sem conferência no servidor: `renovarCopia` busca com o cookie atual e pode guardar o plano de outro vínculo da mesma conta com o dono antigo (o `conferirDono` corrige na abertura seguinte); opcional: `/p/plano` devolver o dono num cabeçalho e o service worker só gravar se bater.
+- Cada renovação da cópia grava 1 "Visualizou · Plano alimentar" (D22): cosmético no histórico.
+- Selo offline não aparece quando o NetworkFirst serve a cópia por demora (> 4 s) e o ping responde depois.
+- Erros do service worker engolidos sem registro; `notificationclick` abre janela nova em vez de focar a aberta; falta o teste do relógio do aparelho que volta no tempo.
+- `serviceWorker.ready` sem prazo no "Ativar"; troca da chave VAPID deixa a inscrição antiga como ativa (comparar `applicationServerKey`); sem `VAPID_PUBLIC_KEY` no app, o 503 vem antes de soltar o endpoint alheio.
+- `TipoNotificacao`/`ROTULO_TIPO` sem `push_teste`, `comentario_diario` e `plano_novo` (sem efeito hoje).
+- `avisarPlanoNovo`/`dispararEnvio` usam o `getBoss()` global (ignoram `deps.boss`); republicar várias vezes manda um aviso por publicação, sem agrupar.
+- `standalone` exportado de arquivo de componente (`instalar.tsx`).
+
+**Diário e arquivos:**
+- `CotaEsgotadaError` na conversão (JPEG maior que o original, perto dos 5 GB) não é definitiva: 2 tentativas à toa.
+- `MAX_PIXELS` de 40 MP recusa o HEIF de 48 MP dos iPhone 14 Pro e posteriores (decisão do dono: memória × compatibilidade); corrigir o comentário "mais que qualquer câmera".
+- Erro relançado pelo job vai para o `output` do pg-boss com o caminho (ENOENT): relançar só com o código.
+- Texto com NUL → 500 (não 400); limite de 2000 em UTF-16 × code points; o 408 de corpo lento usa a mensagem genérica; literal "Conta temporariamente indisponível" fora de `MSG_DIARIO`.
+- Duas contas podem ocupar as 2 vagas globais de envio de foto (limite por tenant ou rate limit); `findJobs` com `data @>` sem índice; `heic-decode` não chama `dispose` em "HEIF image not found".
+- Feed "Diários" com limite de 50, sem paginação nem visão por paciente (com 50+ não vistos, o comentado some).
+- `abrirRegistro` grava "visto" em paciente bloqueado ou anonimizado e gera "Alterou · Diário" quando a nutricionista só leu; "visto" não muda `updated_at`.
+- Registro "processando" cujo original foi apagado por fora (anonimização) fica "processando" para sempre.
+- O e-mail da exclusão diz "Foram apagados agora: as fotos do diário", mas `apagarFotosDoDiario` roda depois da transação (se falhar, só a varredura do dia seguinte as apaga).
+- Renomear `lerLaudos` → `lerAnexos` e o log "laudo ausente" (agora lê fotos).
+
+**LGPD e titular:**
+- `pedirExclusao` não confere `status = 'ativo'` sob a trava (corrida com o atendimento cria pedido aberto de bloqueado).
+- Titular bloqueado depois de pedir os dados recebe e-mail com link que cai em `/p/sem-acesso`.
+- Página do link com pendente perdido (> 30 min) diz "Volte em alguns minutos" para sempre; sem limite para "falhou" em sequência.
+- "Exportações recentes" da aba Privacidade mistura titular e equipe sem rótulo; o texto de "Exportar dados" não cita as fotos do diário.
+- O ZIP do titular leva % de gordura, dobras, exames e anamneses mesmo com a opção desligada no portal (LGPD art. 18, II; avaliar uma nota no texto da opção).
+
+**Telas e textos:**
+- Agenda do portal: literais que repetem `MSG_AGENDA`; "Consulta encerrada" diverge do link; mensagem de sucesso montada do formulário; ações velhas na tela depois de um erro; `?ok=remarcada` reaparece ao recarregar; `/p/inicio` faz duas consultas; "Agendar consulta" aparece com 3 futuras; `pedirRemarcacao` sem a RN-04 no servidor.
+- `/n/[slug]` com 2+ vínculos: "Entrar (já sou paciente)" cai no vínculo do cookie (pode marcar com a nutricionista errada).
+- Perfil: caixa do WhatsApp continua marcada depois do erro "sem telefone"; `role="status"` vazios.
+- Evolução: chave React repetida nas orientações; `select()` inteiro de `anthropometry` (minimização).
+- Lista de compras: `?dias` repetido cai em 7 sem erro; o campo volta a 7 junto com o alerta.
+- Plano: kcal omitido no portal × "—" no PDF; estado do PDF duplicado (`planoDoPaciente`/`caminhoDoPdf`); `MSG_BLOQUEADO` também para paciente só anonimizado.
+
+**Testes:**
+- `test/backup.test.ts` instável na suíte completa; `e2e/auth.spec.ts:15` falha no banco de dev reaproveitado (precisa de seed limpo).
+- Asserções fracas: foto de outro paciente sem conferir 42501 e sem o caso do paciente gravando logo; PDF "pronto"/isolamento (T4); corrida do 11º registro sem a mensagem; `audit_log` com ator paciente (D22) e 2º paciente na Evolução; lista de compras sem `audit_log`; RN-06 sem render com outro fuso; `getByText('404')`; E2E de remarcar só renderiza; contexto `conta` sem UPDATE/DELETE com 0 linhas; Server Actions do admin fora de `acoes-de-paciente.test.ts`; lista de `/api/painel` à mão; preenchimento da 0072 sem teste automatizado.
+- axe não cobre `<details>` aberto, selo offline, estados de erro e o tutorial do iOS; target-size (WCAG 2.2) fora do axe; seed do E2E sem ator no `audit_log`.
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
+
+**Notas do Plano 06:** a aba "Conteúdos" entra em `ITENS_DO_PORTAL` (`src/app/p/navegacao.ts`); `contents`, `content_views` e `content_favorites` precisam de `app_allow_paciente_escrita` para as visualizações e os favoritos (e da entrada em `PACIENTE_ESCREVE`, guarda no CI); "Sugestão de receita" no "Meu plano" (US-041, P07-05) lê `meals.recipe_content_id`; o PDF de orientação (`orientacao_pdf`, `patient_id` nulo) é invisível ao paciente pela `paciente_arquivos` e precisa entrar na política quando o portal o servir.
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
@@ -152,6 +228,8 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P07-08 | Métricas de conteúdo | US-056 | P07-06 | Dev | S | ⬜ |
 
 ## Plano 08 — Go-live
+
+**Notas do Plano 06:** o P08-07 lê `access_events` (CS-02: ≥ 60% dos pacientes ativos abrem o PWA 1×/semana); o k6 (P08-03) inclui `/p/plano` e `/api/p/acesso`; o teste manual do PWA no iPhone e no Android (runbook do Plano 06, passo 5) entra no checklist assinado (P08-09); o P08-06 publica o termo do advogado com versão nova, e o portal passa a pedir o novo aceite no login (D25).
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
@@ -169,6 +247,8 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming depois do Plano 05** (espelham o painel; não entram na contagem do MVP). Todos com IA ou dado de saúde enviado a terceiros exigem, ao especificar: suboperador declarado no DPA e no aviso de privacidade (LGPD), provedor sem retenção, cota/custo por tenant, nada de conteúdo em log e auditoria.
 
+**Notas do Plano 06 (F3-02, F3-04):** "Exames" e "IA Nutri" entram em `ITENS_DO_PORTAL`; qualquer escrita nova do paciente passa pela guarda `PACIENTE_ESCREVE`; o envio de exame pelo paciente reaproveita o molde da foto do diário (original guardado, conversão/checagem no worker, `stored_files.patient_id`).
+
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
 | F3-01 | Leitura automática de laudos de exame com IA: a nutricionista anexa o PDF/foto e a IA extrai os marcadores (nome, valor, unidade, data, faixa de referência) para ela conferir e confirmar antes de salvar (decisão do dono de 02/10/2026: caminho com IA, não OCR gratuito) | US-015, §10 Fase 3 | P03 (US-015), go-live | Dev | pós-MVP | ⬜ |
@@ -181,7 +261,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 
 ## Resumo
 
-**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 05 concluídos e em produção (https://nutri.wsscloud.tech; Plano 05 pelo PR #7, deploy em 03/10 ~08h50 BRT); Plano 06 escrito ([`2026-10-03-nutridebby-06-portal-paciente.md`](2026-10-03-nutridebby-06-portal-paciente.md), branch `plano-06-portal`, 13 tarefas cobrindo P06-00 a P06-11), execução depois da revisão do plano pelo dono; 61 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 35 ⬜ (P04-10, P06-00, Planos 06–08 com o P06-12 e itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
+**Situação em 2026-10-03** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 06 concluídos e em produção (https://nutri.wsscloud.tech; Plano 06 pelo PR #8, deploy em 03/10 às 21:26 UTC, 18h26 BRT, com 81 migrations; spec v1.9); próximo: Plano 07 (Biblioteca de conteúdo); 73 itens ✅, 3 🔄 (E-01, E-06, P02-11 — backup no host pendente), 23 ⬜ (P04-10, P06-12, Planos 07–08 e os itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
