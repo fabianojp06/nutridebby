@@ -156,6 +156,8 @@ export const notifications = pgTable(
     foreignKey({ columns: [t.tenantId, t.patientId, t.appointmentId], foreignColumns: [appointments.tenantId, appointments.patientId, appointments.id], name: 'notifications_consulta_fk' }),
     index('notifications_devidas_idx').on(t.tenantId, t.status, t.agendadaPara),
     index('notifications_envios_idx').on(t.tenantId, t.canal, t.enviadaEm),
+    // respostas "1"/"2" (`responder` em whatsapp/webhook.ts): as respostas já gravadas de uma consulta naquele horário
+    index('notifications_consulta_inicio_idx').on(t.appointmentId, t.inicioConsulta),
   ],
 );
 

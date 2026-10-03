@@ -161,7 +161,7 @@ describe('lembretes da consulta no banco', () => {
     expect(rows[0].def).toMatch(/^CREATE UNIQUE INDEX .* \(appointment_id, canal, tipo, inicio_consulta\) WHERE /);
     const noBanco = [...rows[0].def.split(' WHERE ')[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]).sort();
     expect(noBanco).toEqual([...TIPOS_UM_POR_HORARIO].sort());
-    // code-review do PR #7: as respostas "1"/"2" são uma por ação (webhook, sob a trava da consulta), fora da chave
+    // code-review do PR #7: as respostas "1"/"2" têm teto por tipo e horário da consulta (`respostasDevidas`, no webhook, sob a trava da consulta), fora da chave
     expect([...TIPOS_UM_POR_HORARIO].sort()).toEqual(['lembrete_24h', 'lembrete_2h']);
     expect((await app.pool.query(`select 1 from pg_constraint where conname = 'notifications_consulta_versao_unique'`)).rows).toEqual([]);
   });

@@ -484,6 +484,13 @@
       "when": 1790989084483,
       "tag": "0068_respostas_uma_por_acao",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790991016246,
+      "tag": "0069_indice_respostas_por_consulta",
+      "breakpoints": true
     }
   ]
 }

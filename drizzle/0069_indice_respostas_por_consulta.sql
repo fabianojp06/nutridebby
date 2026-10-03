@@ -1,0 +1,1 @@
+CREATE INDEX "notifications_consulta_inicio_idx" ON "notifications" USING btree ("appointment_id","inicio_consulta");
