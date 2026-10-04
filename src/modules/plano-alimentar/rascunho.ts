@@ -198,23 +198,29 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const refeicoesSair = [...refeicoesAtuais.keys()].filter((id) => !novasRefeicoes.has(id));
         if (refeicoesSair.length) await tx.delete(meals).where(and(eq(meals.planId, planId), inArray(meals.id, refeicoesSair)));
 
-        // 2. Refeições novas e alteradas
+        // 2. Refeições novas (um INSERT só — D04-2) e alteradas
+        const refeicoesNovas: (typeof meals.$inferInsert)[] = [];
         for (const r of v.refeicoes) {
           const atual = refeicoesAtuais.get(r.id);
           const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem };
-          if (!atual) await tx.insert(meals).values({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
+          if (!atual) refeicoesNovas.push({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
           else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem }, dados))
             await tx.update(meals).set({ ...dados, updatedAt: now }).where(eq(meals.id, r.id));
         }
+        if (refeicoesNovas.length) await tx.insert(meals).values(refeicoesNovas);
 
-        // 3. Itens: principais antes das substituições (FK meal_items_principal_fk)
-        const ordenados = [...v.itens.filter((i) => i.substituiItemId === null), ...v.itens.filter((i) => i.substituiItemId !== null)];
-        for (const i of ordenados) {
-          const atual = itensAtuais.get(i.id);
-          const dados = { foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId, ordem: i.ordem };
-          if (!atual) await tx.insert(mealItems).values({ id: i.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, mealId: i.mealId, ...dados });
-          else if (!iguais({ foodId: atual.foodId, quantidadeG: atual.quantidadeG, medida: atual.medida ?? null, medidaCaseiraTxt: atual.medidaCaseiraTxt, substituiItemId: atual.substituiItemId, ordem: atual.ordem }, dados))
-            await tx.update(mealItems).set({ ...dados, updatedAt: now }).where(eq(mealItems.id, i.id));
+        // 3. Itens: principais antes das substituições (FK meal_items_principal_fk) — um INSERT por grupo (D04-2); os
+        //    alterados, um UPDATE cada (o gatilho de auditoria registra só o que mudou)
+        for (const grupo of [v.itens.filter((i) => i.substituiItemId === null), v.itens.filter((i) => i.substituiItemId !== null)]) {
+          const novos: (typeof mealItems.$inferInsert)[] = [];
+          for (const i of grupo) {
+            const atual = itensAtuais.get(i.id);
+            const dados = { foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId, ordem: i.ordem };
+            if (!atual) novos.push({ id: i.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, mealId: i.mealId, ...dados });
+            else if (!iguais({ foodId: atual.foodId, quantidadeG: atual.quantidadeG, medida: atual.medida ?? null, medidaCaseiraTxt: atual.medidaCaseiraTxt, substituiItemId: atual.substituiItemId, ordem: atual.ordem }, dados))
+              await tx.update(mealItems).set({ ...dados, updatedAt: now }).where(eq(mealItems.id, i.id));
+          }
+          if (novos.length) await tx.insert(mealItems).values(novos);
         }
 
         const [r] = await tx
