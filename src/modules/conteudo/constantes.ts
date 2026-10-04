@@ -38,6 +38,8 @@ export const MSG_CONTEUDO = {
   visibilidade: 'Escolha quem vê este conteúdo.',
   audienciaVazia: 'Escolha pelo menos uma etiqueta ou um paciente.',
   naoEncontrado: 'Conteúdo não encontrado.',
+  /** dados.json (US-018): visto/favoritado que não está mais publicado — sem o título atual (pode ser de rascunho). */
+  indisponivel: 'Conteúdo indisponível',
   /** R6: texto com NUL (`\0`), que o Postgres recusa — o mesmo texto do diário (F-4). */
   formulario: 'Formulário inválido.',
   /** US-050 (texto exato). */

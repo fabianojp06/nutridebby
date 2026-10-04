@@ -1,6 +1,7 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Tx } from '@/db/client';
 import { contentAudience, contentFavorites, contents, contentViews } from '@/db/schema';
+import { MSG_CONTEUDO } from './constantes';
 
 /**
  * D15 / US-018 ("sai das audiências de conteúdo") / RNF-08 ("sem uso em conteúdo"): na transação do bloqueio e da
@@ -15,17 +16,22 @@ export async function apagarUsoDeConteudo(tx: Tx, patientId: string): Promise<vo
 
 export type ConteudosDoTitular = { vistos: { titulo: string; vistoEm: string }[]; favoritos: { titulo: string; favoritadoEm: string }[] };
 
-/** US-018 / US-046 (D15): o que o titular abriu e favoritou, para o dados.json (só o título e a data). */
+/**
+ * US-018 / US-046 (D15): o que o titular abriu e favoritou, para o dados.json (só o título e a data). O título só vai
+ * do conteúdo PUBLICADO: o despublicado pode ter sido renomeado com um título interno de rascunho, que o paciente
+ * nunca viu — vai como "Conteúdo indisponível", com a data.
+ */
 export async function conteudosDoTitular(tx: Tx, patientId: string): Promise<ConteudosDoTitular> {
   const doConteudo = (t: typeof contentViews | typeof contentFavorites) => and(eq(contents.tenantId, t.tenantId), eq(contents.id, t.contentId));
+  const titulo = sql<string>`case when ${contents.status} = 'publicado' then ${contents.titulo} else ${MSG_CONTEUDO.indisponivel} end`;
   const vistos = await tx
-    .select({ titulo: contents.titulo, em: contentViews.vistoEm })
+    .select({ titulo, em: contentViews.vistoEm })
     .from(contentViews)
     .innerJoin(contents, doConteudo(contentViews))
     .where(eq(contentViews.patientId, patientId))
     .orderBy(asc(contentViews.vistoEm));
   const favoritos = await tx
-    .select({ titulo: contents.titulo, em: contentFavorites.createdAt })
+    .select({ titulo, em: contentFavorites.createdAt })
     .from(contentFavorites)
     .innerJoin(contents, doConteudo(contentFavorites))
     .where(eq(contentFavorites.patientId, patientId))
