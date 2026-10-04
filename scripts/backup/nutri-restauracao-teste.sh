@@ -74,11 +74,18 @@ roles=$(q "select case when exists (select 1 from pg_roles where rolname = 'nutr
                   join pg_roles r on r.oid = c.relowner where c.relkind in ('r','p') and not r.rolcanlogin)
   then 'ok' else 'faltando' end")
 
-echo "restauracao ok: duracao=${duracao}s tabelas_sem_rls=${sem_rls:-?} migrations=${migrations:-?} tenants=${tenants:-?} pacientes=${pacientes:-?} funcoes_definer_superusuario=${definer:-?} roles=${roles:-?}"
+# As contagens saem antes das guardas (o dono vê o que veio); "restauracao ok" só depois de todas passarem
+echo "restauracao: duracao=${duracao}s tabelas_sem_rls=${sem_rls:-?} migrations=${migrations:-?} tenants=${tenants:-?} pacientes=${pacientes:-?} funcoes_definer_superusuario=${definer:-?} roles=${roles:-?}"
+num() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
+# Dump sem as tabelas do app (outro banco, dump vazio): as consultas falham, as contagens saem vazias e o resto passaria
+# sem testar nada
+{ num "$migrations" && [ "$migrations" -gt 0 ]; } || { log "ERRO: nenhuma migration no banco restaurado (dump sem as tabelas do app?)"; exit 1; }
+{ num "$tenants" && num "$pacientes"; } || { log "ERRO: contagem de tenants/pacientes ilegível no banco restaurado"; exit 1; }
 [ "${sem_rls:-1}" = 0 ] || { log "ERRO: tabela com tenant_id sem RLS forçada depois da restauração"; exit 1; }
 [ "${roles:-}" = ok ] || { log "ERRO: roles faltando ou sem login depois da restauração (docs/operacao/restauracao.md)"; exit 1; }
 if [ "${definer:-1}" != 0 ] && [ "${NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER:-}" != 1 ]; then
   log "ERRO: função SECURITY DEFINER com dono superusuário depois da restauração (o migrator de produção não é superusuário)"
   exit 1
 fi
+echo "restauracao ok"
 exit 0

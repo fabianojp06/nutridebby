@@ -40,5 +40,6 @@ npm-debug.log*
 playwright-report/
 test-results/
 test/carga/.sessoes.json
+test/carga/resumo.json
 yarn-debug.log*
 yarn-error.log*

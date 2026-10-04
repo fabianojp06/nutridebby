@@ -58,7 +58,8 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
     // Testcontainers migra como superusuário: as funções SECURITY DEFINER têm dono superusuário só aqui (em produção, 0)
     const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 });
     const saida = `${r.stdout}${r.stderr}`;
-    expect(saida).toMatch(/restauracao ok: duracao=\d+s tabelas_sem_rls=0 migrations=\d+ tenants=\d+ pacientes=\d+ funcoes_definer_superusuario=\d+ roles=ok/);
+    expect(saida).toMatch(/restauracao: duracao=\d+s tabelas_sem_rls=0 migrations=[1-9]\d* tenants=\d+ pacientes=\d+ funcoes_definer_superusuario=\d+ roles=ok/);
+    expect(r.stdout.trim().split('\n').at(-1)).toBe('restauracao ok'); // só depois de todas as guardas
     expect(saida).not.toMatch(/PASSWORD|senha|@/i);
     const sobra = execFileSync('docker', ['ps', '-a', '--filter', 'name=nutri_restauracao_teste', '--format', '{{.Names}}'], { env }).toString().trim();
     expect(sobra).toBe(''); // o container (com dado restaurado) não fica
@@ -89,6 +90,18 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
     } finally {
       await regravar(bom);
     }
+  }, 180_000);
+
+  it('dump sem as tabelas do app (outro banco): sai com erro, sem "restauracao ok"', async () => {
+    // o banco "postgres" do Testcontainers existe e está vazio: as consultas falham e as contagens viriam vazias
+    await execFile('bash', ['-c', 'set -o pipefail; docker exec "$1" pg_dump -U "$2" -d postgres -Fc | rclone rcat "$3"', 'bash', container, usuario, 'cripto:db/diario/nutri-2026-10-03.dump'], { env });
+    const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-03', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 }).then(
+      (x) => ({ code: 0, stdout: x.stdout }),
+      (e: { code?: number; stdout?: string }) => ({ code: e.code ?? 1, stdout: e.stdout ?? '' }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('ERRO: nenhuma migration no banco restaurado');
+    expect(r.stdout).not.toContain('restauracao ok');
   }, 180_000);
 
   it('dia sem dump: sai com erro e mensagem fixa', async () => {

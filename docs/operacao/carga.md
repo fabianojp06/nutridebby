@@ -19,14 +19,19 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
    --env-file=.env.carga test/carga/seed.ts`. A semente lê o `.env.carga` (nenhum valor na tela nem na linha de
    comando), troca o host `db:5432` dele por `127.0.0.1:54339` e recusa qualquer outro arquivo de ambiente. Leva alguns
    minutos (15 mil pacientes, 50 consultórios) e grava `test/carga/.sessoes.json` (cookies; só o dono lê, fora do git).
-4. Em outro terminal, `docker stats` gravando em arquivo a cada 10 s — inclui o `cursoia_crm` (não pode piorar) e os
-   containers da carga: `while :; do date -u +%FT%TZ; docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}
-   {{.MemUsage}}'; sleep 10; done > /tmp/carga-stats.txt`.
-5. Fumaça: `docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" grafana/k6 run --vus 3
+4. Em outro terminal, `docker stats` e a CPU livre do host gravando em arquivo a cada 10 s — inclui o `cursoia_crm`
+   (em produção no mesmo host: não pode piorar) e os containers da carga: `while :; do date -u +%FT%TZ; docker stats
+   --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'; vmstat 1 2 | tail -1; sleep 10; done >
+   /tmp/carga-stats.txt` (no `vmstat`, a coluna `id` é o % ocioso das 8 vCPU: 25% = 2 vCPU livres, o mínimo da D4).
+   **Critério de parada** (passos 5 e 6): interromper o k6 (Ctrl+C) se a CPU livre ficar abaixo de 2 vCPU (`id` < 25)
+   por mais de 1 min, se o `cursoia_crm` piorar (CPU no teto, resposta lenta ou erro relatado) ou se a memória livre do
+   host (`free -m`) cair abaixo de 2 GB; anotar no relatório o momento e o motivo.
+5. Fumaça: `docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" grafana/k6:2.3.0 run --vus 3
    --duration 30s /carga/cenario.js` (a linha de comando troca os cenários pelo `default`, que roda os três perfis).
-   Esperado: `checks` 100% e nenhuma falha. O `-u` é para o k6 ler o `.sessoes.json` (modo 600).
+   Esperado: `checks` 100% e nenhuma falha. O `-u` é para o k6 ler o `.sessoes.json` (modo 600). A versão do k6 é fixa (2.3.0, a validada na Tarefa 10): as consultas
+   `jq` do relatório dependem do formato do `--summary-export`; trocar a versão pede conferir o relatório de novo.
 6. Rodada: `docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" -e
-   BASE_URL=http://127.0.0.1:3200 grafana/k6 run --summary-export /carga/resumo.json /carga/cenario.js` (13 min: 2 de
+   BASE_URL=http://127.0.0.1:3200 grafana/k6:2.3.0 run --summary-export /carga/resumo.json /carga/cenario.js` (13 min: 2 de
    subida, 10 no alvo, 1 de descida). O resumo (tela e `resumo.json`) traz uma linha por rota (`http_req_duration{nome:…}`),
    o p95 só das páginas `/p/*` (`{tipo:pagina,area:p}`) e as respostas do push por status
    (`http_reqs{nome:/api/p/push,status:204|409|429}`); os números do relatório saem dele (consultas abaixo). Rota nova no
@@ -77,6 +82,9 @@ Os números do k6 saem do `test/carga/resumo.json` (passo 6), antes do passo 10:
 - B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (`http_req_duration{nome:/api/p/push}`): · respostas 204/409/429 (`http_reqs{nome:/api/p/push,status:…}`):
 - S-7: p95 das páginas `/p/*` (`http_req_duration{tipo:pagina,area:p}`; acima de 800 ms → tarefa do `cache()` no `requirePaciente`):
 - Gargalo e ajuste proposto ao dono (limites no Easypanel, `shared_buffers`, pool):
+- Não coberto nesta rodada → backlog: `/painel/conteudos` com 200 conteúdos publicados e o decode de PNG grande na
+  capa (Notas do Plano 07 para o P08-03; a semente cria 100 conteúdos e não sobe imagem) · outros:
+- Interrupções pelo critério de parada (momento e motivo):
 - Resultado contra a D4: aprovado / reprovado (o quê)
 
 ## Rodadas

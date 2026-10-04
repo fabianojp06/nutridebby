@@ -18,9 +18,12 @@ O teste de restauração usa a imagem `postgres:16-alpine` (a mesma do `nutri_db
 2. `sudo -i`, `set -a; . /etc/nutri-backup/backup.env; set +a` (sem exibir). O `NUTRI_DB_USER` dali (padrão `postgres`)
    é também o superusuário do banco descartável: o `db/globais.sql` grava as filiações dos roles com `GRANTED BY` esse
    role, e no PG 16 só o superusuário de instalação as recria.
-3. `NUTRI_RESTAURAR_DIA=<ontem> bash /usr/local/lib/nutri-backup/nutri-restauracao-teste.sh` → linha `restauracao ok: …` com `tabelas_sem_rls=0`, `funcoes_definer_superusuario=0` e `roles=ok` (o script sai 1 se qualquer um falhar; **nunca** usar `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` no host — é só do teste do CI).
-4. Arquivos: `rclone cryptcheck "$NUTRI_DATA_DIR" cripto:data/atual` (só hashes) e restaurar 1 arquivo para `/tmp/restauracao-<data>/`,
-   conferir o tamanho com `stored_files.bytes` (leitura do banco de produção → confirmação) e apagar a pasta.
+3. `NUTRI_RESTAURAR_DIA=<ontem> bash /usr/local/lib/nutri-backup/nutri-restauracao-teste.sh` → linha `restauracao: …` com `tabelas_sem_rls=0`, `migrations` maior que 0, `funcoes_definer_superusuario=0` e `roles=ok`, e por último a linha `restauracao ok` (só sai depois de todas as guardas; o script sai 1 se qualquer uma falhar; **nunca** usar `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` no host — é só do teste do CI).
+4. Arquivos: `rclone cryptcheck "$NUTRI_DATA_DIR" cripto:data/atual --exclude '/*/exportacao/**'` (só hashes; o mesmo
+   `--exclude` do backup — sem ele, um ZIP de exportação das últimas 24 h vira diferença falsa). Restaurar **um** arquivo
+   de `logo/` (minimização: nada de dado de saúde fora do servidor) numa pasta privada: `d=$(mktemp -d)` (modo 0700) e
+   `rclone copy cripto:data/atual/<tenant>/logo/<arquivo> "$d"`; conferir o tamanho com `stored_files.bytes` (leitura do
+   banco de produção → confirmação) e `rm -rf "$d"`.
 5. Registrar o resultado. Duração acima de 1 h → avisar o dono (o RTO é 4 h para o serviço inteiro).
 
 ## Restauração de verdade (desastre)

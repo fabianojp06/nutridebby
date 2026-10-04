@@ -1,5 +1,5 @@
 // P08-03 (RNF-01, RNF-02, D4): 100 VUs — 70 pacientes, 25 nutricionistas, 5 visitantes da página pública.
-// docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" -e BASE_URL=http://127.0.0.1:3200 grafana/k6 run /carga/cenario.js
+// docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" -e BASE_URL=http://127.0.0.1:3200 grafana/k6:2.3.0 run /carga/cenario.js
 // Roteiro: docs/operacao/carga.md. As sessões vêm de test/carga/.sessoes.json (seed.ts; fora do git).
 import http from 'k6/http';
 import { check, sleep } from 'k6';
