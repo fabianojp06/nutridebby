@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { logger } from '@/lib/logger';
 import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
-import { ajustarCotaWhatsapp, CotaWhatsappError, metricasDeSucessoPorTenant, metricasPorTenant } from './metricas';
+import { ajustarCotaWhatsapp, CotaWhatsappError, metricasDeSucessoPorTenant, metricasPorTenant, MSG_METRICAS, salvarMetricasBase } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -118,5 +119,34 @@ describe('ajustarCotaWhatsapp', () => {
 
   it('tenant inexistente → ContaNaoEncontradaError (M9)', async () => {
     await expect(ajustarCotaWhatsapp(randomUUID(), '10', randomUUID(), app.db)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
+  });
+});
+
+describe('salvarMetricasBase (D15: o admin grava a base do CS-03 e o início do uso)', () => {
+  const ADMIN = randomUUID();
+  it('salvarMetricasBase: valida a taxa (0 a 100, vírgula) e a data', async () => {
+    const T = { tenantId: await tenantComArquivos(0, 0) };
+    const info = vi.spyOn(logger, 'info');
+    await salvarMetricasBase(T.tenantId, { taxaBase: '18,5', goLiveEm: '2026-10-01' }, ADMIN, app.db);
+    expect(info).toHaveBeenCalledWith({ tenantId: T.tenantId, adminId: ADMIN }, 'métricas de sucesso ajustadas'); // quem mudou, sem o valor
+    info.mockRestore();
+    const [t] = await app.db.select({ base: tenants.taxaFaltasBase, desde: tenants.goLiveEm }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t).toEqual({ base: 18.5, desde: '2026-10-01' });
+    await expect(salvarMetricasBase(T.tenantId, { taxaBase: '120', goLiveEm: '' }, ADMIN, app.db)).rejects.toThrow(MSG_METRICAS.taxa);
+    await expect(salvarMetricasBase(T.tenantId, { taxaBase: '', goLiveEm: '31/02/2026' }, ADMIN, app.db)).rejects.toThrow(MSG_METRICAS.data);
+    await expect(salvarMetricasBase(T.tenantId, { taxaBase: '', goLiveEm: '2026-02-31' }, ADMIN, app.db)).rejects.toThrow(MSG_METRICAS.data);
+    await expect(salvarMetricasBase(T.tenantId, { taxaBase: '-1', goLiveEm: '' }, ADMIN, app.db)).rejects.toThrow(MSG_METRICAS.taxa);
+    for (const taxaBase of ['abc', '1e2', '0x10', '18,555', '100,01']) {
+      await expect(salvarMetricasBase(T.tenantId, { taxaBase, goLiveEm: '' }, ADMIN, app.db), taxaBase).rejects.toThrow(MSG_METRICAS.taxa);
+    }
+    await expect(salvarMetricasBase(T.tenantId, { taxaBase: '', goLiveEm: '2026-13-01' }, ADMIN, app.db)).rejects.toThrow(MSG_METRICAS.data);
+    // recusas não gravam nada; vazio apaga os dois
+    expect((await app.db.select({ base: tenants.taxaFaltasBase }).from(tenants).where(eq(tenants.id, T.tenantId)))[0].base).toBe(18.5);
+    await salvarMetricasBase(T.tenantId, { taxaBase: ' ', goLiveEm: '' }, ADMIN, app.db);
+    const [vazio] = await app.db.select({ base: tenants.taxaFaltasBase, desde: tenants.goLiveEm }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(vazio).toEqual({ base: null, desde: null });
+  });
+  it('salvarMetricasBase: tenant inexistente → ContaNaoEncontradaError (M9)', async () => {
+    await expect(salvarMetricasBase(randomUUID(), { taxaBase: '10', goLiveEm: '' }, ADMIN, app.db)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
   });
 });

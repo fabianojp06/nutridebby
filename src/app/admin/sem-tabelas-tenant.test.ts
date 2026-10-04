@@ -34,3 +34,23 @@ describe('§4.1: o admin nunca consulta tabelas 🔒', () => {
     expect(readFileSync(arquivo, 'utf8')).not.toMatch(PROIBIDO);
   });
 });
+
+/**
+ * Todo módulo de src/modules que o admin importa ou é conferido acima (ARQUIVOS_DO_ADMIN) ou tem o motivo aqui (só
+ * constante ou função pura usada pelo admin). Sem isto, um módulo novo com withTenant entrava pelo admin sem a guarda
+ * (salvarMetricasBase, T9, estava em metricas-sucesso.ts).
+ */
+const SO_CONSTANTES: Record<string, string> = {
+  'src/modules/plataforma/tenant-status.ts': 'ContaNaoEncontradaError e mensagens (o status do tenant não tem tenant_id)',
+  'src/modules/plataforma/armazenamento.ts': 'só COTA_BYTES (constante)',
+  'src/modules/agenda/presenca.ts': 'só textoTaxa (formatação)',
+};
+describe('§4.1: o que o admin importa de src/modules passa pela guarda', () => {
+  const ADMIN = ARQUIVOS_DO_ADMIN.filter((f) => f.startsWith(path.resolve('src/app/admin')));
+  it.each(ADMIN)('%s', (arquivo) => {
+    const modulos = [...readFileSync(arquivo, 'utf8').matchAll(/from '@\/(modules\/[^']+)'/g)].map((m) => `src/${m[1]}.ts`);
+    const conferidos = new Set(ARQUIVOS_DO_ADMIN.map((f) => path.relative(process.cwd(), f).split(path.sep).join('/')));
+    expect(modulos.filter((m) => !conferidos.has(m) && !(m in SO_CONSTANTES))).toEqual([]);
+  });
+});
+

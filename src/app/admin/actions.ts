@@ -5,8 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
-import { ajustarCotaWhatsapp, CotaWhatsappError } from '@/modules/plataforma/metricas';
-import { MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas-sucesso';
+import { ajustarCotaWhatsapp, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 
@@ -96,10 +95,10 @@ export type MetricasState = { ok?: boolean; erro?: string; campo?: 'taxaBase' | 
 
 /** D15: base do CS-03 (P-15) e início do uso (CS-01) do tenant. */
 export async function salvarMetricasAction(tenantId: string, _prev: MetricasState, formData: FormData): Promise<MetricasState> {
-  await requireUser(['admin'], '/admin');
+  const { user } = await requireUser(['admin'], '/admin');
   if (!uuid.safeParse(tenantId).success) return { erro: MSG_CONTA_NAO_ENCONTRADA };
   try {
-    await salvarMetricasBase(tenantId, { taxaBase: campo(formData, 'taxaBase'), goLiveEm: campo(formData, 'goLiveEm') });
+    await salvarMetricasBase(tenantId, { taxaBase: campo(formData, 'taxaBase'), goLiveEm: campo(formData, 'goLiveEm') }, user.id);
   } catch (e) {
     if (e instanceof Error && e.message === MSG_METRICAS.taxa) return { erro: e.message, campo: 'taxaBase' };
     if (e instanceof Error && e.message === MSG_METRICAS.data) return { erro: e.message, campo: 'goLiveEm' };

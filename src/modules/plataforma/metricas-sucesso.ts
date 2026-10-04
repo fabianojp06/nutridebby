@@ -1,18 +1,12 @@
 import { and, count, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
-import { accessEvents, appointments, consultations, patients, tenants, type TenantRow } from '@/db/schema';
+import { accessEvents, appointments, consultations, patients, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { inicioDoDia } from '@/modules/agenda/fuso';
-import { dataValida, hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
-import { ContaNaoEncontradaError } from './tenant-status';
+import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
 
 export const META_CS02 = 0.6;
 export const DIAS_CS01 = 30;
-export const MSG_METRICAS = {
-  taxa: 'Informe um percentual de 0 a 100',
-  data: 'Informe a data no formato dd/mm/aaaa',
-} as const;
 
 export type MetricasSucesso = {
   cs01: { desde: string | null; dias: number; realizadas: number; comAtendimento: number };
@@ -75,31 +69,4 @@ export async function metricasDeSucesso(
     },
     db,
   );
-}
-
-// até duas casas, como a coluna numeric(5,2); vírgula ou ponto (RNF-12)
-const taxaSchema = z
-  .string()
-  .trim()
-  .refine((v) => v === '' || /^\d{1,3}([.,]\d{1,2})?$/.test(v), MSG_METRICAS.taxa)
-  .transform((v) => (v === '' ? null : Number(v.replace(',', '.'))))
-  .refine((v) => v === null || v <= 100, MSG_METRICAS.taxa);
-const dataSchema = z
-  .string()
-  .trim()
-  .refine((v) => v === '' || dataValida(v), MSG_METRICAS.data)
-  .transform((v) => (v === '' ? null : v));
-
-/** D15: o admin grava a base do CS-03 (E-08) e o início do uso (CS-01). `tenants` não tem RLS; o id vem da tela do admin. */
-export async function salvarMetricasBase(tenantId: string, entrada: { taxaBase: string; goLiveEm: string }, db: Db = getDb()): Promise<void> {
-  const taxa = taxaSchema.safeParse(entrada.taxaBase);
-  if (!taxa.success) throw new Error(MSG_METRICAS.taxa);
-  const data = dataSchema.safeParse(entrada.goLiveEm);
-  if (!data.success) throw new Error(MSG_METRICAS.data);
-  const up = await db
-    .update(tenants)
-    .set({ taxaFaltasBase: taxa.data, goLiveEm: data.data, updatedAt: new Date() })
-    .where(eq(tenants.id, tenantId))
-    .returning({ id: tenants.id });
-  if (!up.length) throw new ContaNaoEncontradaError(); // M9, como ajustarCotaWhatsapp
 }
