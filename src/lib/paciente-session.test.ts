@@ -34,7 +34,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { requireApiPaciente, requirePaciente, cookieDoVinculo, cookieDoVinculoApagado, lerCookie, voltaDoPortal } = await import('./paciente-session');
+const { requireApiPaciente, requirePaciente, cookieDoVinculo, cookieDoVinculoApagado, lerCookie, voltaDoPortal, voltaDoTermo } = await import('./paciente-session');
 const { GET: trocarVinculo } = await import('@/app/api/p/vinculo/route');
 const db = getDb();
 afterAll(() => closeDb());
@@ -98,7 +98,11 @@ describe('requirePaciente (D2, D3, RN-08, RN-15)', () => {
     const A = await novoTenant(db);
     const { email } = await pacienteComConta(db, A, { semTermo: true });
     req.headers = new Headers({ cookie: await entrar(getAuth(), email) });
-    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/termo' });
+    // S-1: o destino (link da exportação, push) vai junto em ?volta=, sem o ?v=; o Início não precisa de ?volta=
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/termo?volta=%2Fp%2Fplano' });
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/p/termo' });
+    req.headers.set('x-nd-caminho', `/p/meus-dados/exportacoes/abc?v=${A.tenantId}`);
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/p/termo?volta=%2Fp%2Fmeus-dados%2Fexportacoes%2Fabc' });
     expect((await requirePaciente('/p/termo', { permitirTermoPendente: true })).tenant.id).toBe(A.tenantId);
   });
 
@@ -151,7 +155,9 @@ describe('requireApiPaciente', () => {
       const r = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie: c } }));
       return r.ok ? r.ctx.patientId : [r.response.status, await r.response.json()];
     };
-    expect(await pedir(`${cookie}; nd_vinculo=${A.tenantId}`)).toEqual([403, { erro: 'Acesso negado' }]);
+    // S-4: o motivo vai junto, para a tela oferecer o link da escolha
+    expect(await pedir(`${cookie}; nd_vinculo=${A.tenantId}`)).toEqual([403, { erro: 'Acesso negado', motivo: 'escolher' }]);
+    expect(await pedir(cookie)).toEqual([403, { erro: 'Acesso negado', motivo: 'escolher' }]);
     expect(await pedir(`${cookie}; nd_vinculo=${outros[0].T.tenantId}`)).toBe(outros[0].paciente.id);
     await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, outros[0].T.tenantId));
     expect(await pedir(`${cookie}; nd_vinculo=${outros[0].T.tenantId}`)).toEqual([403, { erro: 'Conta temporariamente indisponível' }]);
@@ -249,6 +255,15 @@ describe('link com o consultório (?v=): e-mail e push abrem o vínculo certo co
     expect(voltaDoPortal('/entrar')).toBe('/p/inicio');
     expect(voltaDoPortal(null)).toBe('/p/inicio');
     expect(voltaDoPortal('/p/%2e%2e//evil.example')).toBe('/p/inicio');
+  });
+
+  it('voltaDoTermo (S-1): a regra do voltaDoPortal, e nunca a própria tela do termo', () => {
+    expect(voltaDoTermo('/p/meus-dados/exportacoes/abc?v=x')).toBe('/p/meus-dados/exportacoes/abc');
+    expect(voltaDoTermo('/p/termo')).toBe('/p/inicio');
+    expect(voltaDoTermo('/p/termo?volta=%2Fp%2Fplano')).toBe('/p/inicio');
+    expect(voltaDoTermo('/p/escolher')).toBe('/p/inicio');
+    expect(voltaDoTermo('https://evil.example')).toBe('/p/inicio');
+    expect(voltaDoTermo(undefined)).toBe('/p/inicio');
   });
 });
 

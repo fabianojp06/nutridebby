@@ -66,6 +66,12 @@ export function voltaDoPortal(volta: string | null | undefined): string {
   return `${u.pathname}${u.search}`;
 }
 
+/** S-1: depois do aceite do termo, o destino que levou ao termo (voltaDoPortal), nunca a própria tela do termo. */
+export function voltaDoTermo(volta: string | null | undefined): string {
+  const destino = voltaDoPortal(volta);
+  return destino.split('?')[0] === TERMO_PATH ? '/p/inicio' : destino;
+}
+
 /** O consultório pedido pelo link (`?v=` da página atual, que o proxy repassa); só uma preferência, reconferida. */
 function vinculoDoLink(caminho: string | null): string | undefined {
   const atual = safeReturnPath(caminho);
@@ -122,8 +128,11 @@ export async function requirePaciente(path: string, o: { permitirTermoPendente?:
         redirect(`${TROCAR_VINCULO_PATH}?${PARAM_VINCULO}=${encodeURIComponent(a.tenantId)}&volta=${encodeURIComponent(voltaDoPortal(safeReturnPath(atual) ?? path))}`);
       case 'suspensa':
         redirect(SUSPENDED_PATH);
-      case 'termo':
-        redirect(TERMO_PATH);
+      case 'termo': {
+        // S-1: o destino (link da exportação, push) segue em ?volta= e o aceite volta para ele; o Início é o padrão
+        const volta = voltaDoTermo(safeReturnPath(atual) ?? path);
+        redirect(volta === '/p/inicio' ? TERMO_PATH : `${TERMO_PATH}?volta=${encodeURIComponent(volta)}`);
+      }
       default: {
         const nunca: never = a;
         throw new Error(`Motivo de acesso desconhecido: ${String((nunca as { motivo?: unknown }).motivo)}`);
@@ -149,9 +158,9 @@ const RECUSA_API = {
 } as const;
 
 /**
- * requirePaciente para Route Handlers: 401/403 (requireApiUser); 403 sem vínculo escolhido, com consultório suspenso ou
- * termo pendente. O `?v=` da própria URL vale como na página (só vínculo ativo da conta); quem regrava o cookie é a
- * resposta (POST /api/p/acesso grava o do consultório usado).
+ * requirePaciente para Route Handlers: 401/403 (requireApiUser); 403 sem vínculo escolhido (com `motivo: 'escolher'`), com
+ * consultório suspenso ou termo pendente. O `?v=` da própria URL vale como na página (só vínculo ativo da conta); quem
+ * regrava o cookie é a resposta (POST /api/p/acesso grava o do consultório usado).
  */
 export async function requireApiPaciente(req: Request): Promise<ApiPaciente> {
   const auth = await requireApiUser(req, ['paciente']);
@@ -162,7 +171,11 @@ export async function requireApiPaciente(req: Request): Promise<ApiPaciente> {
     exigirTermo: true,
     regravar: false,
   });
-  if (!a.ok) return recusaApi(403, a.motivo === 'trocar' ? 'Acesso negado' : RECUSA_API[a.motivo]);
+  if (!a.ok) {
+    // S-4: vínculo a escolher leva o motivo, para a tela oferecer o link da escolha (o texto continua "Acesso negado")
+    if (a.motivo === 'escolher') return recusaApi(403, RECUSA_API.escolher, { motivo: 'escolher' });
+    return recusaApi(403, a.motivo === 'trocar' ? 'Acesso negado' : RECUSA_API[a.motivo]);
+  }
   return {
     ok: true,
     data: auth.data,

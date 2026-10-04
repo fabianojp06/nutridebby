@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { ehIos } from './instalacao';
 import { standalone } from './instalar';
-import { recusaDoPortal, type RecusaDoPortal } from './recusa-api';
+import { linkDaRecusa, recusaDoPortal, type RecusaDoPortal } from './recusa-api';
 
 type Estado = 'carregando' | 'indisponivel' | 'instale' | 'pode' | 'ativo' | 'negado' | 'falhou';
 // Os textos de MSG_PUSH (src/modules/portal/push-inscricao.ts), que é do servidor
@@ -54,7 +54,7 @@ export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscri
 /** US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). */
 export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
   const [estado, setEstado] = useState<Estado>('carregando');
-  /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor no lugar do "Tente de novo" genérico. */
+  /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor (e o link do login ou da escolha) no lugar do "Tente de novo" genérico. */
   const [recusa, setRecusa] = useState<RecusaDoPortal | null>(null);
   useEffect(() => {
     let vivo = true;
@@ -85,6 +85,7 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
     }
   };
   if (estado === 'carregando' || estado === 'instale') return null;
+  const link = linkDaRecusa(recusa);
   return (
     <div className="space-y-2">
       {(estado === 'pode' || estado === 'falhou') && (
@@ -95,10 +96,10 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
       {estado === 'falhou' && recusa ? (
         <p role="alert">
           {recusa.mensagem}
-          {recusa.entrar && (
+          {link && (
             <>
               {' '}
-              <a href={recusa.entrar} className="inline-flex min-h-11 items-center underline">Entrar</a>
+              <a href={link.href} className="inline-flex min-h-11 items-center underline">{link.texto}</a>
             </>
           )}
         </p>

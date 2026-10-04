@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { requirePaciente, TERMO_PATH } from '@/lib/paciente-session';
+import { requirePaciente, TERMO_PATH, voltaDoTermo } from '@/lib/paciente-session';
 import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
 import { termoAceito } from '@/modules/portal/termo';
 import { TermoForm } from './termo-form';
@@ -9,9 +9,12 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: TERMO_PACIENTE_TITULO };
 
 /** US-011 "Nova versão do termo": o termo mudou (ou é o primeiro acesso a este consultório) → novo aceite. */
-export default async function NovoTermo() {
+export default async function NovoTermo({ searchParams }: PageProps<'/p/termo'>) {
   const { data, tenant } = await requirePaciente(TERMO_PATH, { permitirTermoPendente: true });
-  if (await termoAceito(data.user.id, tenant.id)) redirect('/p/inicio');
+  const { volta: pedida } = await searchParams;
+  // S-1: o destino que levou ao termo (link da exportação, push) — só página do portal, sem o `?v=`
+  const volta = voltaDoTermo(typeof pedida === 'string' ? pedida : null);
+  if (await termoAceito(data.user.id, tenant.id)) redirect(volta);
   return (
     <main className="mx-auto max-w-md space-y-4 p-6">
       <h1 className="text-2xl font-semibold">{TERMO_PACIENTE_TITULO}</h1>
@@ -19,7 +22,7 @@ export default async function NovoTermo() {
       {TERMO_PACIENTE_PARAGRAFOS.map((t) => (
         <p key={t}>{t}</p>
       ))}
-      <TermoForm />
+      <TermoForm volta={volta} />
     </main>
   );
 }

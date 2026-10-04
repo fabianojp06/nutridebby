@@ -18,6 +18,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('./actions', () => ({ escolherAction: async () => undefined }));
+vi.mock('../esquecer-plano', () => ({ EsquecerPlanoGuardado: () => '[EsquecerPlanoGuardado]' }));
 
 const { default: EscolherNutri } = await import('./page');
 const db = getDb();
@@ -52,5 +53,16 @@ describe('/p/escolher com consultório suspenso (RN-15)', () => {
     await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, B.tenantId));
     req.headers = new Headers({ cookie: await entrar(getAuth(), a.email) });
     await expect(pagina()).rejects.toMatchObject({ url: '/indisponivel' });
+  });
+
+  it('S-6: com um consultório suspenso, a cópia offline sai do aparelho já na escolha; sem suspenso, fica', async () => {
+    const A = await novoTenant(db);
+    const B = await novoTenant(db);
+    const a = await pacienteComConta(db, A);
+    await pacienteComConta(db, B, { userId: a.userId });
+    req.headers = new Headers({ cookie: await entrar(getAuth(), a.email) });
+    expect(await pagina()).not.toContain('[EsquecerPlanoGuardado]');
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    expect(await pagina()).toContain('[EsquecerPlanoGuardado]');
   });
 });

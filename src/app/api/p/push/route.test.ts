@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const estado = vi.hoisted(() => ({
   acesso: null as unknown,
+  usuario: null as unknown,
   chave: 'B'.repeat(87) as string | undefined,
   resultado: 'inscrito' as 'inscrito' | 'de_outra_conta' | 'invalida',
   inscricoes: [] as { corpo: unknown; ua: string | null; deps: unknown }[],
   cancelados: [] as unknown[],
+  contas: [] as unknown[],
 }));
 vi.mock('@/lib/paciente-session', () => ({ requireApiPaciente: async () => estado.acesso }));
+vi.mock('@/lib/api-auth', () => ({ requireApiUser: async (_req: Request, papeis: string[]) => (papeis.join() === 'paciente' ? estado.usuario : null) }));
+vi.mock('@/lib/ip', () => ({ clientIp: () => '203.0.113.9' }));
 vi.mock('@/env', () => ({ getEnv: () => ({ APP_URL: 'http://localhost:3000', VAPID_PUBLIC_KEY: estado.chave }) }));
 vi.mock('@/modules/portal/push-inscricao', async () => {
   class InscricaoInvalidaError extends Error {}
@@ -19,8 +23,9 @@ vi.mock('@/modules/portal/push-inscricao', async () => {
       if (estado.resultado === 'invalida') throw new InscricaoInvalidaError('x');
       return estado.resultado;
     },
-    cancelarAparelho: async (_a: unknown, endpoint: unknown) => {
+    cancelarAparelho: async (conta: unknown, endpoint: unknown) => {
       estado.cancelados.push(endpoint);
+      estado.contas.push(conta);
     },
   };
 });
@@ -36,10 +41,12 @@ const pedido = (o: { metodo?: string; corpo?: string; origin?: string; query?: s
 
 beforeEach(() => {
   estado.acesso = { ok: true, ctx: {}, vinculos: [], data: { user: { id: 'u' } } };
+  estado.usuario = { ok: true, data: { user: { id: 'u' } }, tenant: null };
   estado.chave = 'B'.repeat(87);
   estado.resultado = 'inscrito';
   estado.inscricoes = [];
   estado.cancelados = [];
+  estado.contas = [];
 });
 
 describe('POST /api/p/push (US-040)', () => {
@@ -88,6 +95,24 @@ describe('DELETE /api/p/push (Sair)', () => {
     expect(estado.cancelados).toEqual([inscricao.endpoint]);
     expect((await DELETE(pedido({ metodo: 'DELETE', origin: 'https://evil.example', corpo: '{}' }))).status).toBe(403);
     expect(estado.cancelados).toHaveLength(1);
+  });
+
+  it('"Sair" em /p/termo, /p/escolher, /p/sem-acesso e /indisponivel: basta a sessão de paciente (sem vínculo escolhido nem termo)', async () => {
+    estado.acesso = { ok: false, response: Response.json({ erro: 'Para continuar, aceite o Termo de Uso e Privacidade.' }, { status: 403 }) };
+    const r = await DELETE(pedido({ metodo: 'DELETE', corpo: JSON.stringify({ endpoint: inscricao.endpoint }) }));
+    expect(r.status).toBe(204);
+    expect(estado.cancelados).toEqual([inscricao.endpoint]);
+    expect(estado.contas).toEqual([{ userId: 'u', ip: '203.0.113.9' }]);
+  });
+
+  it('sem sessão de paciente → a recusa de requireApiUser (401/403); corpo inválido → 400; nada cancelado', async () => {
+    estado.usuario = { ok: false, response: new Response(null, { status: 401 }) };
+    expect((await DELETE(pedido({ metodo: 'DELETE', corpo: JSON.stringify({ endpoint: inscricao.endpoint }) }))).status).toBe(401);
+    estado.usuario = { ok: false, response: new Response(null, { status: 403 }) };
+    expect((await DELETE(pedido({ metodo: 'DELETE', corpo: JSON.stringify({ endpoint: inscricao.endpoint }) }))).status).toBe(403);
+    estado.usuario = { ok: true, data: { user: { id: 'u' } }, tenant: null };
+    expect((await DELETE(pedido({ metodo: 'DELETE', corpo: '{' }))).status).toBe(400);
+    expect(estado.cancelados).toEqual([]);
   });
 
   it('funciona mesmo sem as chaves do VAPID (desligar o push não prende inscrição antiga)', async () => {
