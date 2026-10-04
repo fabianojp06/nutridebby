@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
+import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
@@ -53,6 +54,29 @@ const jobsDaExclusao = async (patientId: string) =>
   (await (await getBoss()).findJobs<{ tenantId: string; patientId: string }>('exclusao-atendida')).map((j) => j.data).filter((d) => d.patientId === patientId);
 const ler = async (ctx: Parameters<typeof withTenant>[0], id: string) => (await withTenant(ctx, (tx) => tx.select().from(patients).where(eq(patients.id, id)), app.db))[0];
 const cadastro = (email: string) => ({ nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', email, telefone: '(11) 91234-5678', whatsappAutorizado: true });
+/** D15: o titular como alvo de um conteúdo, com uma visualização e um favorito dele (gravados como a nutricionista). */
+const usoDeConteudo = async (T: TenantDeTeste, patientId: string) => {
+  const c = await novoConteudo(app.db, T, { visibilidade: 'pacientes', pacientes: [patientId] });
+  await withTenant(
+    T.ctx,
+    async (tx) => {
+      await tx.execute(sql`insert into content_views (tenant_id, content_id, patient_id, visto_em) values (${T.tenantId}, ${c.id}, ${patientId}, '2026-10-20T12:00:00Z')`);
+      await tx.execute(sql`insert into content_favorites (tenant_id, content_id, patient_id, created_at) values (${T.tenantId}, ${c.id}, ${patientId}, '2026-10-20T12:05:00Z')`);
+    },
+    app.db,
+  );
+};
+/** D15: visualizações, favoritos e alvos de conteúdo do titular. */
+const contagemDeConteudo = async (T: TenantDeTeste, patientId: string) =>
+  (
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.execute(sql`select (select count(*) from content_views where patient_id = ${patientId})::int as v, (select count(*) from content_favorites where patient_id = ${patientId})::int as f,
+          (select count(*) from content_audience where patient_id = ${patientId})::int as a`),
+      app.db,
+    )
+  ).rows[0];
 
 describe('arquivar (US-018 "Arquivar", RN-08)', () => {
   it('arquiva (o prontuário fica), apaga o convite pendente e desarquiva; bloqueado não desarquiva', async () => {
@@ -77,9 +101,14 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     }
     await expect(atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Outro nome', deps)).rejects.toThrow(MSG_LGPD.confirmarNome);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db)).toHaveLength(3); // recusado: nada apagado
+    await usoDeConteudo(T, ana.id);
+    await usoDeConteudo(T, bia.id);
     await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, ana.nome, deps);
     const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
     expect(restam.map((s) => s.patientId)).toEqual([bia.id]);
+    // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08) — só ela
+    expect(await contagemDeConteudo(T, ana.id)).toEqual({ v: 0, f: 0, a: 0 });
+    expect(await contagemDeConteudo(T, bia.id)).toEqual({ v: 1, f: 1, a: 1 });
   });
 
   it('confirmar com outro nome não muda nada; com o nome (sem diferenciar maiúsculas/espaços) bloqueia, apaga opt-ins, conclui o pedido, audita e avisa o paciente', async () => {
@@ -235,10 +264,15 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     for (const p of [vencido, vencido, outro]) {
       await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint: `https://push.example.test/${randomUUID()}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
     }
+    // R9 (D15): alvo, visualização e favorito de conteúdo gravados depois do bloqueio também saem
+    await usoDeConteudo(T, vencido.id);
+    await usoDeConteudo(T, outro.id);
     await anonimizarSo(T);
     expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
     const restam = await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions), app.db);
     expect(restam.map((s) => s.patientId)).toEqual([outro.id]);
+    expect(await contagemDeConteudo(T, vencido.id)).toEqual({ v: 0, f: 0, a: 0 });
+    expect(await contagemDeConteudo(T, outro.id)).toEqual({ v: 1, f: 1, a: 1 });
   });
 
   it('Tarefa 15 (D10, D13): apaga o motivo do cancelamento, o link online e o destino do WhatsApp; os aceites do termo ficam sem IP e sem a conta', async () => {

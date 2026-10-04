@@ -1,0 +1,3 @@
+ALTER TABLE "notifications" DROP CONSTRAINT "notifications_tipo_valido";--> statement-breakpoint
+CREATE INDEX "notifications_conteudo_idx" ON "notifications" USING btree ("tenant_id","patient_id","created_at") WHERE "notifications"."tipo" = 'conteudo_novo';--> statement-breakpoint
+ALTER TABLE "notifications" ADD CONSTRAINT "notifications_tipo_valido" CHECK ("notifications"."tipo" in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo'));

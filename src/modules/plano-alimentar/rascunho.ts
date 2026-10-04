@@ -1,8 +1,8 @@
 import { and, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { uniqueViolation } from '@/db/errors';
-import { energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
+import { deadlockDetectado, fkViolation, uniqueViolation } from '@/db/errors';
+import { contents, energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
@@ -42,7 +42,7 @@ export async function criarRascunho(ctx: TenantContext, patientId: string, deps:
 }
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };
-type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number };
+type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number; recipeContentId: string | null };
 type Validado = { revisao: number; envio: string; enviosIncertos: string[]; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
 
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -85,7 +85,9 @@ function validar(entrada: unknown): Validado {
     if (horario && !HORARIO.test(horario)) erros[`${chave}:horario`] = MSG_PLANO.horario;
     const observacao = typeof r.observacao === 'string' ? r.observacao.trim() : '';
     if (observacao.length > MAX_TEXTO) erros[`${chave}:observacao`] = MSG_PLANO.texto;
-    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem });
+    const receita = r.recipeContentId ?? null;
+    if (receita !== null && !idValido(receita)) erros[`${chave}:receita`] = MSG_PLANO.receita;
+    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem, recipeContentId: idValido(receita) ? receita : null });
     const lista = (Array.isArray(r.itens) ? r.itens : []) as Record<string, unknown>[];
     const principais = new Set(lista.filter((i) => i?.substituiItemId === null || i?.substituiItemId === undefined).map((i) => i?.id));
     lista.forEach((i, ordemItem) => {
@@ -154,6 +156,7 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
   const v = validar(entrada);
   const now = deps.now ?? new Date();
+  let comSugestaoNova: string[] = [];
   try {
     return await withTenant(
       ctx,
@@ -184,6 +187,27 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         if (Object.keys(invisiveis).length) throw new PlanoError(invisiveis);
 
         const refeicoesAtuais = new Map((await tx.select().from(meals).where(eq(meals.planId, planId))).map((r) => [r.id, r]));
+        // US-054 (D13): sugestão NOVA (ou trocada) só de receita publicada do tenant; a que já estava fica mesmo se a
+        // receita foi despublicada depois ("Receita indisponível"), senão o salvamento automático travaria
+        const sugestaoNova = (r: RefeicaoValida) => r.recipeContentId !== null && r.recipeContentId !== (refeicoesAtuais.get(r.id)?.recipeContentId ?? null);
+        const anexadas = [...new Set(v.refeicoes.flatMap((r) => (sugestaoNova(r) ? [r.recipeContentId!] : [])))];
+        if (anexadas.length) {
+          comSugestaoNova = v.refeicoes.filter(sugestaoNova).map((r) => r.id);
+          // FOR SHARE: uma exclusão ou despublicação em curso termina antes (a leitura espera e reconfere a linha nova);
+          // as que chegarem depois esperam este COMMIT — sem 23503 na FK do INSERT nem sugestão de receita fora do ar
+          const ok = new Set(
+            (
+              await tx
+                .select({ id: contents.id })
+                .from(contents)
+                .where(and(inArray(contents.id, anexadas), eq(contents.tipo, 'receita'), eq(contents.status, 'publicado')))
+                .for('share')
+            ).map((c) => c.id),
+          );
+          // só a refeição que anexou (ou trocou): a que manteve a mesma sugestão não é marcada
+          const ruins = Object.fromEntries(v.refeicoes.filter((r) => sugestaoNova(r) && !ok.has(r.recipeContentId!)).map((r) => [`refeicao:${r.id}:receita`, MSG_PLANO.receita]));
+          if (Object.keys(ruins).length) throw new PlanoError(ruins);
+        }
         const itensAtuais = new Map((await tx.select().from(mealItems).where(eq(mealItems.planId, planId))).map((i) => [i.id, i]));
         const novasRefeicoes = new Set(v.refeicoes.map((r) => r.id));
         const novosItens = new Map(v.itens.map((i) => [i.id, i]));
@@ -198,23 +222,29 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const refeicoesSair = [...refeicoesAtuais.keys()].filter((id) => !novasRefeicoes.has(id));
         if (refeicoesSair.length) await tx.delete(meals).where(and(eq(meals.planId, planId), inArray(meals.id, refeicoesSair)));
 
-        // 2. Refeições novas e alteradas
+        // 2. Refeições novas (um INSERT só — D04-2) e alteradas
+        const refeicoesNovas: (typeof meals.$inferInsert)[] = [];
         for (const r of v.refeicoes) {
           const atual = refeicoesAtuais.get(r.id);
-          const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem };
-          if (!atual) await tx.insert(meals).values({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
-          else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem }, dados))
+          const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem, recipeContentId: r.recipeContentId };
+          if (!atual) refeicoesNovas.push({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
+          else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem, recipeContentId: atual.recipeContentId }, dados))
             await tx.update(meals).set({ ...dados, updatedAt: now }).where(eq(meals.id, r.id));
         }
+        if (refeicoesNovas.length) await tx.insert(meals).values(refeicoesNovas);
 
-        // 3. Itens: principais antes das substituições (FK meal_items_principal_fk)
-        const ordenados = [...v.itens.filter((i) => i.substituiItemId === null), ...v.itens.filter((i) => i.substituiItemId !== null)];
-        for (const i of ordenados) {
-          const atual = itensAtuais.get(i.id);
-          const dados = { foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId, ordem: i.ordem };
-          if (!atual) await tx.insert(mealItems).values({ id: i.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, mealId: i.mealId, ...dados });
-          else if (!iguais({ foodId: atual.foodId, quantidadeG: atual.quantidadeG, medida: atual.medida ?? null, medidaCaseiraTxt: atual.medidaCaseiraTxt, substituiItemId: atual.substituiItemId, ordem: atual.ordem }, dados))
-            await tx.update(mealItems).set({ ...dados, updatedAt: now }).where(eq(mealItems.id, i.id));
+        // 3. Itens: principais antes das substituições (FK meal_items_principal_fk) — um INSERT por grupo (D04-2); os
+        //    alterados, um UPDATE cada (o gatilho de auditoria registra só o que mudou)
+        for (const grupo of [v.itens.filter((i) => i.substituiItemId === null), v.itens.filter((i) => i.substituiItemId !== null)]) {
+          const novos: (typeof mealItems.$inferInsert)[] = [];
+          for (const i of grupo) {
+            const atual = itensAtuais.get(i.id);
+            const dados = { foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId, ordem: i.ordem };
+            if (!atual) novos.push({ id: i.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, mealId: i.mealId, ...dados });
+            else if (!iguais({ foodId: atual.foodId, quantidadeG: atual.quantidadeG, medida: atual.medida ?? null, medidaCaseiraTxt: atual.medidaCaseiraTxt, substituiItemId: atual.substituiItemId, ordem: atual.ordem }, dados))
+              await tx.update(mealItems).set({ ...dados, updatedAt: now }).where(eq(mealItems.id, i.id));
+          }
+          if (novos.length) await tx.insert(mealItems).values(novos);
         }
 
         const [r] = await tx
@@ -238,6 +268,11 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   } catch (e) {
     // id de refeição/item que já é de outro plano: só acontece com duas abas ou corpo adulterado
     if (uniqueViolation(e) === 'meals_pkey' || uniqueViolation(e) === 'meal_items_pkey') throw new ConflitoRevisaoError();
+    // defesa: a receita saiu entre a conferência e o INSERT (a trava acima evita) → o erro da refeição, não um 500
+    if (fkViolation(e) === 'meals_receita_fk' && comSugestaoNova.length)
+      throw new PlanoError(Object.fromEntries(comSugestaoNova.map((id) => [`refeicao:${id}:receita`, MSG_PLANO.receita])));
+    // a transação foi desfeita (nada gravado, revisão intacta): o editor pede para recarregar, sem 500
+    if (deadlockDetectado(e)) throw new PlanoError({ geral: MSG_PLANO.invalido });
     throw e;
   }
 }
@@ -258,7 +293,7 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   const novoIdItem = new Map(its.map((i) => [i.id, crypto.randomUUID()]));
   if (rs.length)
     await tx.insert(meals).values(
-      rs.map((r) => ({ id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem, observacao: r.observacao })),
+      rs.map((r) => ({ id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem, observacao: r.observacao, recipeContentId: r.recipeContentId })),
     );
   const linha = (i: (typeof its)[number]) => ({
     id: novoIdItem.get(i.id)!,

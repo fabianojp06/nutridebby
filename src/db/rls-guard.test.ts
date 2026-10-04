@@ -2,6 +2,9 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
 import {
+  CONTEUDO_POR_AUDIENCIA,
+  ESCRITA_POR_AUDIENCIA,
+  findConteudoAudienciaViolations,
   findPacienteEscritaViolations,
   findPublicoViolations,
   findRlsViolations,
@@ -159,6 +162,100 @@ describe('escrita da sessão de paciente (D1, P-16 a)', () => {
       await client.query('drop policy paciente_sem_delete on exams');
       await client.query(`create policy paciente_sem_delete on exams as restrictive for select using (app_current_role() is distinct from 'paciente')`);
       expect(await findPacienteEscritaViolations(client)).toContainEqual({ table: 'exams', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('B-5: a política com o nome e o comando certos, mas que não nega nada (USING true), também quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_sem_delete on exams');
+      await client.query('create policy paciente_sem_delete on exams as restrictive for delete using (true)');
+      await client.query('drop policy paciente_sem_insert on contents');
+      await client.query('create policy paciente_sem_insert on contents as restrictive for insert with check (true)');
+      const v = await findPacienteEscritaViolations(client);
+      expect(v).toContainEqual({ table: 'exams', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
+      expect(v).toContainEqual({ table: 'contents', problem: 'a sessão de paciente pode insert sem entrada em PACIENTE_ESCREVE' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('leitura por audiência (RN-12, Plano 07)', () => {
+  it('toda tabela de CONTEUDO_POR_AUDIENCIA tem a política RESTRICTIVE de SELECT; a lista não cita tabela inexistente', async () => {
+    expect(await findConteudoAudienciaViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { CONTEUDO_POR_AUDIENCIA, ESCRITA_POR_AUDIENCIA })).toEqual([]);
+  });
+  it('perder a política quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_conteudo_visivel on recipe_ingredients');
+      expect(await findConteudoAudienciaViolations(client)).toEqual([{ table: 'recipe_ingredients', problem: 'sem política paciente_conteudo_visivel (RN-12)' }]);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('R11: a política com o nome, o comando e RESTRICTIVE certos, mas sem a audiência (USING true, ou sem o ramo da etiqueta), também quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_conteudo_visivel on recipes');
+      await client.query('create policy paciente_conteudo_visivel on recipes as restrictive for select using (true)');
+      await client.query('drop policy paciente_conteudo_visivel on contents');
+      await client.query(
+        `create policy paciente_conteudo_visivel on contents as restrictive for select
+           using (app_current_role() is distinct from 'paciente' or (status = 'publicado' and visibilidade in ('todos', 'etiquetas')))`,
+      );
+      // a filha que herda sem ligar a linha (EXISTS de qualquer conteúdo visível) mostraria todas as receitas do tenant
+      await client.query('drop policy paciente_conteudo_visivel on recipe_ingredients');
+      await client.query(
+        `create policy paciente_conteudo_visivel on recipe_ingredients as restrictive for select
+           using (app_current_role() is distinct from 'paciente' or exists (select 1 from contents c))`,
+      );
+      expect(await findConteudoAudienciaViolations(client)).toEqual([
+        { table: 'contents', problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' },
+        { table: 'recipes', problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' },
+        { table: 'recipe_ingredients', problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' },
+      ]);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('US-055/D14: a escrita do paciente (visualização, favorito) exige as políticas RESTRICTIVE de INSERT com a audiência e sem a liberação do plano', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_conteudo_visto on content_views');
+      await client.query('drop policy paciente_conteudo_favorito on content_favorites');
+      // sem a trava da liberação do plano (D14): quem abre só pelo cartão passaria a favoritar
+      await client.query(
+        `create policy paciente_conteudo_favorito on content_favorites as restrictive for insert
+           with check (app_current_role() is distinct from 'paciente' or exists (
+             select 1 from contents c where c.tenant_id = content_favorites.tenant_id and c.id = content_favorites.content_id))`,
+      );
+      expect(await findConteudoAudienciaViolations(client)).toEqual([
+        { table: 'content_views', problem: 'sem política paciente_conteudo_visto (US-055, D14)' },
+        { table: 'content_favorites', problem: 'paciente_conteudo_favorito sem a audiência (US-055, D14)' },
+      ]);
+      // nome certo, mas PERMISSIVE (não restringe nada) ou FOR SELECT: também quebra
+      await client.query('drop policy paciente_conteudo_favorito on content_favorites');
+      await client.query(`create policy paciente_conteudo_visto on content_views as restrictive for select using (true)`);
+      await client.query(
+        `create policy paciente_conteudo_favorito on content_favorites as permissive for insert
+           with check (app_current_role() is distinct from 'paciente' or (current_setting('app.receitas_do_plano', true) is distinct from 'on' and exists (
+             select 1 from contents c where c.tenant_id = content_favorites.tenant_id and c.id = content_favorites.content_id)))`,
+      );
+      expect(await findConteudoAudienciaViolations(client)).toEqual([
+        { table: 'content_views', problem: 'sem política paciente_conteudo_visto (US-055, D14)' },
+        { table: 'content_favorites', problem: 'sem política paciente_conteudo_favorito (US-055, D14)' },
+      ]);
     } finally {
       await client.query('rollback');
       client.release();

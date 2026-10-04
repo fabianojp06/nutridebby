@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { foods, mealItems, mealPlans, meals } from '@/db/schema';
+import { contents, foods, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
-import type { PlanoCompleto, PlanoDoCliente, StatusPlano } from './tipos';
+import type { PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
 
@@ -25,6 +25,20 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     .innerJoin(foods, eq(foods.id, mealItems.foodId))
     .where(and(eq(mealItems.planId, p.id)))
     .orderBy(asc(mealItems.ordem));
+  // US-054: título e situação da receita sugerida. Na sessão de paciente a RLS só devolve a publicada (e, fora da
+  // audiência, só porque planoDoPaciente ligou a liberação das receitas do plano nesta transação) — a despublicada fica fora do
+  // mapa e a refeição sai sem `disponivel` (o portal esconde o cartão)
+  const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
+  const receitas = new Map(
+    idsReceita.length
+      ? (await tx.select({ id: contents.id, titulo: contents.titulo, status: contents.status }).from(contents).where(inArray(contents.id, idsReceita))).map((c) => [c.id, c])
+      : [],
+  );
+  const receitaDa = (id: string | null): { receita?: ReceitaDaRefeicao } => {
+    if (!id) return {};
+    const c = receitas.get(id);
+    return { receita: c ? { id, titulo: c.titulo, disponivel: c.status === 'publicado' } : { id, titulo: '', disponivel: false } };
+  };
   const editavel = p.status === 'rascunho';
   const medidas = editavel && opts.comMedidas !== false ? await medidasDeVarios(tx, its.map((x) => x.i.foodId)) : new Map();
   if (opts.auditar !== false && p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId });
@@ -48,6 +62,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
       nome: r.nome,
       horario: hhmm(r.horario),
       observacao: r.observacao,
+      ...receitaDa(r.recipeContentId),
       itens: its
         .filter((x) => x.i.mealId === r.id)
         .map(({ i, f }) => {

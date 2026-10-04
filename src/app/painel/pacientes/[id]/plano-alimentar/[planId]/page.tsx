@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { EditorPlano } from '@/app/painel/planos/editor/editor-plano';
 import { salvarComoModeloAction } from '@/app/painel/planos/modelos/actions';
 import { SalvarComoModelo } from '@/app/painel/planos/salvar-como-modelo';
+import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
@@ -33,6 +34,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
       <EditorPlano
         plano={paraCliente(plano)}
         contexto={contexto}
+        receitas={await listarReceitasPublicadas(ctx)}
         somenteLeitura={!editavel}
         acoes={
           <div className="flex flex-wrap items-start gap-4">

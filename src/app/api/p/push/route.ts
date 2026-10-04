@@ -2,6 +2,7 @@ import { getEnv } from '@/env';
 import { requireApiUser, type ApiAuth } from '@/lib/api-auth';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { clientIp } from '@/lib/ip';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiPaciente, type PacienteAccess } from '@/lib/paciente-session';
 import { cancelarAparelho, InscricaoInvalidaError, inscreverAparelho, MSG_PUSH } from '@/modules/portal/push-inscricao';
 
@@ -23,8 +24,7 @@ async function entrada<T>(
   req: Request,
   autorizar: (req: Request) => Promise<({ ok: true } & T) | { ok: false; response: Response }>,
 ): Promise<{ ok: false; erro: Response } | { ok: true; acesso: T; corpo: unknown }> {
-  const origem = req.headers.get('origin');
-  if (origem !== null && origem !== new URL(getEnv().APP_URL).origin) return { ok: false, erro: resposta(403) };
+  if (!mesmaOrigem(req)) return { ok: false, erro: resposta(403) };
   const acesso = await autorizar(req);
   if (!acesso.ok) return { ok: false, erro: acesso.response };
   try {

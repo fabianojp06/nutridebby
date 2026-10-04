@@ -20,7 +20,10 @@ export type ItemPlano = {
   substituiItemId: string | null;
 };
 
-export type RefeicaoPlano = { id: string; nome: string; horario: string; observacao: string; itens: ItemPlano[] };
+/** US-054 (D13): receita sugerida na refeição — `disponivel` = publicada (a despublicada fica gravada como "Receita indisponível"). */
+export type ReceitaDaRefeicao = { id: string; titulo: string; disponivel: boolean };
+
+export type RefeicaoPlano = { id: string; nome: string; horario: string; observacao: string; itens: ItemPlano[]; receita?: ReceitaDaRefeicao };
 
 export type PlanoCompleto = {
   id: string;
@@ -58,6 +61,8 @@ export type RascunhoEnviado = {
     nome: string;
     horario: string;
     observacao: string;
+    /** US-054: receita sugerida (id de conteúdo); ausente = sem sugestão. */
+    recipeContentId?: string | null;
     itens: { id: string; foodId: string; quantidadeG: string; medida: MedidaDoItem | null; substituiItemId: string | null }[];
   }[];
 };

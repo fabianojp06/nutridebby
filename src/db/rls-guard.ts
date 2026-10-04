@@ -186,12 +186,18 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   diary_entries: { comandos: ['insert'], motivo: 'US-042: o paciente registra a refeição (não edita nem apaga, D11); sem foto convertida, comentário nem "visto" (0080)' },
   privacy_requests: { comandos: ['insert'], motivo: 'US-046: o titular pede a exclusão' },
   data_exports: { comandos: ['insert', 'update'], motivo: 'US-046: o titular pede os próprios dados (solicitarExportacao marca o pendente esquecido como falhou); só escopo titular (0080)' },
+  content_views: { comandos: ['insert'], motivo: 'US-055 (D18): o paciente registra que abriu o conteúdo, uma vez; só de conteúdo que ele vê (0083)' },
+  content_favorites: { comandos: ['insert', 'delete'], motivo: 'US-055: favoritar e desfavoritar; só conteúdo que ele vê (0083)' },
 };
+
+/** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */
+const normalizarExpressao = (e: string | null) => (e ?? '').replace(/[\s()]/g, '').toLowerCase();
+const NEGA_PACIENTE = normalizarExpressao("app_current_role() IS DISTINCT FROM 'paciente'::text");
 
 /** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a escrita do paciente, ou bate exatamente com PACIENTE_ESCREVE. */
 export async function findPacienteEscritaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
-  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string }>(
-    `select tablename as t, policyname as pol, cmd, permissive from pg_policies
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
       where schemaname = 'public' and policyname like 'paciente\\_sem\\_%'`,
   );
   const out: RlsViolation[] = [];
@@ -199,8 +205,12 @@ export async function findPacienteEscritaViolations(db: Pool | PoolClient): Prom
     if (RLS_EXCEPTIONS[table]) continue;
     const pode = PACIENTE_ESCREVE[table]?.comandos ?? [];
     for (const c of ESCRITAS) {
-      // nome, comando e RESTRICTIVE: um `paciente_sem_delete` criado FOR SELECT (ou PERMISSIVE) não nega o DELETE
-      const negada = rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}` && r.cmd === c.toUpperCase() && r.permissive === 'RESTRICTIVE');
+      // nome, comando, RESTRICTIVE e a expressão (B-5): um `paciente_sem_delete USING (true)` não nega o DELETE
+      const negada = rows.some(
+        (r) =>
+          r.t === table && r.pol === `paciente_sem_${c}` && r.cmd === c.toUpperCase() && r.permissive === 'RESTRICTIVE' &&
+          normalizarExpressao(c === 'insert' ? r.with_check : r.qual) === NEGA_PACIENTE,
+      );
       if (!pode.includes(c) && !negada) out.push({ table, problem: `a sessão de paciente pode ${c} sem entrada em PACIENTE_ESCREVE` });
       if (pode.includes(c) && rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}`)) {
         out.push({ table, problem: `PACIENTE_ESCREVE libera ${c}, mas o banco nega (paciente_sem_${c})` });
@@ -208,4 +218,60 @@ export async function findPacienteEscritaViolations(db: Pool | PoolClient): Prom
     }
   }
   return out;
+}
+
+/**
+ * RN-12 / D2 (Plano 07): tabelas sem patient_id que a sessão de paciente lê pela audiência do conteúdo — política
+ * RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, migration 0083). Tabela nova de conteúdo entra aqui.
+ */
+export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
+  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou, só com liberarReceitasDoPlano, receita do plano publicado dele',
+  recipes: 'herda de contents',
+  recipe_ingredients: 'herda de contents',
+};
+
+/**
+ * R11 (como a B-5): nome, comando e RESTRICTIVE não bastam — uma `paciente_conteudo_visivel USING (true)` mostraria ao
+ * paciente todo conteúdo do tenant. Trechos (normalizados) que a expressão precisa ter: `contents` decide a audiência;
+ * as outras herdam de `contents` por EXISTS.
+ */
+const AUDIENCIA_EXIGE: Record<string, string[]> = {
+  contents: [NEGA_PACIENTE, "status='publicado'::text", 'app_current_patient', 'app_conteudo_por_etiqueta', 'app.receitas_do_plano'],
+};
+/** As filhas herdam de `contents` ligando a linha: sem `c.id = <tabela>.content_id`, o EXISTS vê qualquer conteúdo visível. */
+const ligaAoConteudo = (t: string) => [`c.id=${t}.content_id`, `c.tenant_id=${t}.tenant_id`];
+const HERDA_DE_CONTENTS = (t: string) => [NEGA_PACIENTE, 'exists', 'fromcontents', ...ligaAoConteudo(t)];
+
+/**
+ * US-055 / D14 (0083): a escrita do paciente nestas tabelas (PACIENTE_ESCREVE) só vale para conteúdo que ele vê PELA
+ * AUDIÊNCIA — política RESTRICTIVE de INSERT, nunca com a liberação das receitas do plano ligada. Tabela → política.
+ */
+export const ESCRITA_POR_AUDIENCIA: Record<string, string> = {
+  content_views: 'paciente_conteudo_visto',
+  content_favorites: 'paciente_conteudo_favorito',
+};
+const ESCRITA_EXIGE = (t: string) => [NEGA_PACIENTE, 'app.receitas_do_plano', "isdistinctfrom'on'", 'exists', 'fromcontents', ...ligaAoConteudo(t)];
+
+export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
+      where schemaname = 'public' and policyname in ('paciente_conteudo_visivel', 'paciente_conteudo_visto', 'paciente_conteudo_favorito')`,
+  );
+  const leitura = Object.keys(CONTEUDO_POR_AUDIENCIA).flatMap((table): RlsViolation[] => {
+    const r = rows.find((x) => x.t === table && x.pol === 'paciente_conteudo_visivel' && x.permissive === 'RESTRICTIVE' && x.cmd === 'SELECT');
+    if (!r) return [{ table, problem: 'sem política paciente_conteudo_visivel (RN-12)' }];
+    const e = normalizarExpressao(r.qual);
+    if (!(AUDIENCIA_EXIGE[table] ?? HERDA_DE_CONTENTS(table)).every((trecho) => e.includes(trecho))) {
+      return [{ table, problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' }];
+    }
+    return [];
+  });
+  const escrita = Object.entries(ESCRITA_POR_AUDIENCIA).flatMap(([table, pol]): RlsViolation[] => {
+    const r = rows.find((x) => x.t === table && x.pol === pol && x.permissive === 'RESTRICTIVE' && x.cmd === 'INSERT');
+    if (!r) return [{ table, problem: `sem política ${pol} (US-055, D14)` }];
+    const e = normalizarExpressao(r.with_check);
+    if (!ESCRITA_EXIGE(table).every((trecho) => e.includes(trecho))) return [{ table, problem: `${pol} sem a audiência (US-055, D14)` }];
+    return [];
+  });
+  return [...leitura, ...escrita];
 }

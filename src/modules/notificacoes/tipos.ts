@@ -4,7 +4,9 @@ import { formatarQuando } from '@/modules/agenda/fuso';
 export const CANAIS = ['email', 'whatsapp', 'push'] as const;
 export type Canal = (typeof CANAIS)[number];
 export type TipoLembrete = 'lembrete_24h' | 'lembrete_2h';
-export type TipoNotificacao = TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar';
+export type TipoNotificacao =
+  | TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar'
+  | 'push_teste' | 'comentario_diario' | 'plano_novo' | 'conteudo_novo';
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
   | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
@@ -21,6 +23,10 @@ export const ROTULO_TIPO: Record<TipoNotificacao, string> = {
   convite_paciente: 'Convite',
   resposta_confirmacao: 'Resposta ao paciente',
   resposta_remarcar: 'Resposta ao paciente',
+  push_teste: 'Notificação de teste',
+  comentario_diario: 'Comentário no diário',
+  plano_novo: 'Plano novo',
+  conteudo_novo: 'Conteúdo novo',
 };
 export const ROTULO_CANAL: Record<Canal, string> = { email: 'E-mail', whatsapp: 'WhatsApp', push: 'Notificação no app' };
 export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {

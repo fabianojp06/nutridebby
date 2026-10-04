@@ -82,14 +82,35 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   push_subscriptions: (t, p) =>
     sql`insert into push_subscriptions (tenant_id, patient_id, endpoint, p256dh, auth) values (${t}, ${p}, ${`https://push.example.test/${randomUUID()}`}, ${'a'.repeat(87)}, ${'b'.repeat(22)})`,
   diary_entries: (t, p) => sql`insert into diary_entries (tenant_id, patient_id, refeicao, texto) values (${t}, ${p}, 'Almoço', 'arroz e feijão')`,
+  // Plano 07: cada fábrica cria o próprio conteúdo (UNIQUE (content_id, patient_id) em views/favoritos) no mesmo comando
+  contents: (t) => sql`insert into contents (tenant_id, tipo, titulo, status, publicado_em) values (${t}, 'orientacao', 'Iso', 'publicado', now())`,
+  recipes: (t) => sql`with c as (insert into contents (tenant_id, tipo, titulo) values (${t}, 'receita', 'Iso') returning id)
+    insert into recipes (tenant_id, content_id, rendimento_total_g, porcao_g) select ${t}, c.id, 1000, 250 from c`,
+  recipe_ingredients: (t) =>
+    sql`with c as (insert into contents (tenant_id, tipo, titulo) values (${t}, 'receita', 'Iso') returning id),
+             r as (insert into recipes (tenant_id, content_id, rendimento_total_g, porcao_g) select ${t}, c.id, 1000, 250 from c returning content_id)
+        insert into recipe_ingredients (tenant_id, content_id, food_id, quantidade_g, ordem)
+        select ${t}, r.content_id, '00000000-0000-4000-8000-000000000003', 100, 0 from r`,
+  content_audience: (t, p) =>
+    sql`with c as (insert into contents (tenant_id, tipo, titulo, visibilidade, status, publicado_em) values (${t}, 'orientacao', 'Iso', 'pacientes', 'publicado', now()) returning id)
+        insert into content_audience (tenant_id, content_id, patient_id) select ${t}, c.id, ${p} from c`,
+  content_views: (t, p) =>
+    sql`with c as (insert into contents (tenant_id, tipo, titulo, status, publicado_em) values (${t}, 'orientacao', 'Iso', 'publicado', now()) returning id)
+        insert into content_views (tenant_id, content_id, patient_id) select ${t}, c.id, ${p} from c`,
+  content_favorites: (t, p) =>
+    sql`with c as (insert into contents (tenant_id, tipo, titulo, status, publicado_em) values (${t}, 'orientacao', 'Iso', 'publicado', now()) returning id)
+        insert into content_favorites (tenant_id, content_id, patient_id) select ${t}, c.id, ${p} from c`,
   // uma linha por tenant (tenant_id UNIQUE): a fábrica roda duas vezes por tenant
   whatsapp_conexoes: (t) =>
     sql`insert into whatsapp_conexoes (tenant_id, instancia) select ${t}, ${`nd-${t}`} where not exists (select 1 from whatsapp_conexoes where tenant_id = ${t})`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log']);
-/** Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`). */
-const ULTIMAS = ['meals', 'meal_plans', 'anamnesis_templates', 'foods', 'appointments', 'patients'];
+/**
+ * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
+ * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta).
+ */
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));

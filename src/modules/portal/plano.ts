@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { mealPlans } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { partesNoFuso } from '@/modules/agenda/fuso';
+import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';
 import { kcalTexto, nutrientesDoItem, quantidadeDoItem, totalDoDia } from '@/modules/plano-alimentar/calculo';
 import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
 import type { ItemPlano } from '@/modules/plano-alimentar/tipos';
@@ -17,7 +19,7 @@ export const MSG_PLANO_PACIENTE = {
 
 export type SubstituicaoDoPaciente = { id: string; nome: string; quantidade: string; kcal: string | null };
 export type ItemDoPaciente = SubstituicaoDoPaciente & { substituicoes: SubstituicaoDoPaciente[] };
-export type RefeicaoDoPaciente = { id: string; nome: string; horario: string; observacao: string; itens: ItemDoPaciente[] };
+export type RefeicaoDoPaciente = { id: string; nome: string; horario: string; observacao: string; itens: ItemDoPaciente[]; receita?: { id: string; titulo: string } };
 export type PlanoDoPaciente = {
   id: string;
   titulo: string;
@@ -50,7 +52,10 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
     ctx,
     async (tx) => {
       const [p] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
-      return p ? lerPlanoNaTransacao(tx, p.id, { comMedidas: false }) : null;
+      if (!p) return null;
+      // US-054: a receita sugerida aparece no cartão mesmo fora da audiência (RN-12) — só neste caminho (D2)
+      await liberarReceitasDoPlano(tx);
+      return lerPlanoNaTransacao(tx, p.id, { comMedidas: false });
     },
     o.db ?? getDb(),
   );
@@ -63,6 +68,7 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      ...(r.receita?.disponivel ? { receita: { id: r.receita.id, titulo: r.receita.titulo } } : {}),
       itens: r.itens
         .filter((i) => i.substituiItemId === null)
         .map((i) => ({
@@ -85,6 +91,18 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
     proximaRefeicaoId: proximaRefeicao(refeicoes, partesNoFuso(o.agora ?? new Date(), fuso).hora),
     pdf: plano.pdfStatus === 'pronto' && plano.pdfPath ? 'pronto' : plano.pdfStatus === 'pendente' || plano.pdfStatus === null ? 'pendente' : 'indisponivel',
   };
+}
+
+/**
+ * D6 (Plano 06) + US-054: versão da cópia offline de "Meu plano" = id do plano + resumo das sugestões de receita, com
+ * id E título (o cartão some da cópia quando a receita é despublicada e muda quando ela é renomeada). Resumo de 16
+ * caracteres (sha256 em base64url): 36 + 1 + 16 = 53, dentro do limite de 100 do service worker (`textoCurto`,
+ * `src/app/sw-regras.ts`) com qualquer número de refeições e qualquer título.
+ */
+export function versaoDaCopiaOffline(plano: { id: string; refeicoes: { receita?: { id: string; titulo: string } }[] } | null): string {
+  if (!plano) return 'sem-plano';
+  const sugestoes = JSON.stringify(plano.refeicoes.map((r) => (r.receita ? [r.receita.id, r.receita.titulo] : null)));
+  return `${plano.id}:${createHash('sha256').update(sugestoes).digest('base64url').slice(0, 16)}`;
 }
 
 /** "Baixar PDF" (US-041 = o PDF da US-026): só o estado e o caminho interno, para a rota assinar. Sem dado de saúde: sem auditoria. */

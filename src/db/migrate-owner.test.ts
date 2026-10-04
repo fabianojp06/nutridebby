@@ -189,10 +189,10 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
-  // B-3: as duas SECURITY DEFINER do Plano 06 trocam o contexto (set_config) para passar pela RLS FORCE. Com o dono
-  // superusuário da suíte principal a RLS nem vale para elas; só aqui (dono sem superusuário, como em produção) uma
-  // troca de contexto errada aparece.
-  describe('SECURITY DEFINER do Plano 06 sob FORCE RLS (dono sem superusuário)', () => {
+  // B-3: as duas SECURITY DEFINER do Plano 06 (e a da audiência por etiqueta do Plano 07, 0083) trocam o contexto
+  // (set_config) para passar pela RLS FORCE. Com o dono superusuário da suíte principal a RLS nem vale para elas; só
+  // aqui (dono sem superusuário, como em produção) uma troca de contexto errada aparece.
+  describe('SECURITY DEFINER dos Planos 06 e 07 sob FORCE RLS (dono sem superusuário)', () => {
     const P256 = 'B'.repeat(87);
     const AUTH = 'a'.repeat(22);
     const contexto = async (c: PoolClient) =>
@@ -292,6 +292,50 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
         await c.query(`update patients set anonimizado_em = now() where id = $1`, [pB]);
         await c.query('commit');
         expect(await sozinha()).toBe(true);
+      } finally {
+        await c.query('rollback').catch(() => undefined);
+        c.release();
+      }
+    });
+
+    it('audiência por etiqueta (0083): a função SECURITY DEFINER do migrator sem superusuário enxerga patient_tag_links sob FORCE RLS e devolve o contexto do paciente', async () => {
+      const c = await app.connect();
+      const comoPaciente = async (t: string, p: string) => {
+        await c.query('begin');
+        await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'paciente', true), set_config('app.patient_id', $2, true)`, [t, p]);
+      };
+      try {
+        const t = await novoTenant(c, 'aud-etiqueta');
+        await emWorker(c, t);
+        const [ana, bia] = (
+          await c.query(
+            `insert into patients (tenant_id, nome, data_nascimento, sexo, email, status)
+             values ($1, 'Ana', '1990-01-01', 'F', 'ana@aud.dev', 'ativo'), ($1, 'Bia', '1990-01-01', 'F', 'bia@aud.dev', 'ativo') returning id`,
+            [t],
+          )
+        ).rows.map((r) => r.id as string);
+        const tag = (await c.query(`insert into patient_tags (tenant_id, nome) values ($1, 'gestante') returning id`, [t])).rows[0].id as string;
+        await c.query(`insert into patient_tag_links (tenant_id, patient_id, tag_id) values ($1, $2, $3)`, [t, ana, tag]);
+        const conteudo = (
+          await c.query(
+            `insert into contents (tenant_id, tipo, titulo, visibilidade, status, publicado_em) values ($1, 'orientacao', 'Para gestantes', 'etiquetas', 'publicado', now()) returning id`,
+            [t],
+          )
+        ).rows[0].id as string;
+        await c.query(`insert into content_audience (tenant_id, content_id, tag_id) values ($1, $2, $3)`, [t, conteudo, tag]);
+        await c.query('commit');
+
+        await comoPaciente(t, ana);
+        expect((await c.query('select count(*)::int as n from contents')).rows[0].n).toBe(1);
+        const ctxDepois = await c.query(`select current_setting('app.role') as papel, current_setting('app.patient_id') as paciente`);
+        expect(ctxDepois.rows[0]).toEqual({ papel: 'paciente', paciente: ana });
+        // a sessão de paciente continua sem ver a etiqueta (staff_only)
+        expect((await c.query('select count(*)::int as n from patient_tag_links')).rows[0].n).toBe(0);
+        await c.query('rollback');
+
+        await comoPaciente(t, bia);
+        expect((await c.query('select count(*)::int as n from contents')).rows[0].n).toBe(0);
+        await c.query('rollback');
       } finally {
         await c.query('rollback').catch(() => undefined);
         c.release();

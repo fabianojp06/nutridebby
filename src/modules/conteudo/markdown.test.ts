@@ -1,0 +1,64 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import { hrefSeguro, lerMarkdown, Markdown } from './markdown';
+
+const html = (texto: string) => renderToStaticMarkup(createElement(Markdown, { texto }));
+
+describe('markdown das orientações (US-052: "sem HTML ou script executável", D7)', () => {
+  it('negrito, itálico, títulos, listas, parágrafos e quebra de linha', () => {
+    expect(html('## Como ler rótulos\n\nOlhe **sempre** a *porção*.\nDepois os ingredientes.\n\n- açúcar\n- sódio\n\n1. primeiro\n2. segundo')).toBe(
+      '<h2>Como ler rótulos</h2><p>Olhe <strong>sempre</strong> a <em>porção</em>.<br/>Depois os ingredientes.</p>' +
+        '<ul><li>açúcar</li><li>sódio</li></ul><ol><li>primeiro</li><li>segundo</li></ol>',
+    );
+    expect(html('# Título 1\n### Título 3\n#### Título 4')).toBe('<h2>Título 1</h2><h3>Título 3</h3><h3>Título 4</h3>');
+  });
+
+  it('HTML digitado vira texto (React escapa), nunca elemento', () => {
+    const r = html('<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n<a href="javascript:x">y</a>');
+    expect(r).not.toMatch(/<script|<img|<a /);
+    expect(r).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('link só http/https, com rel e nova aba; javascript:, data:, // e relativo viram o texto do link', () => {
+    expect(html('[Guia](https://www.gov.br/anvisa)')).toBe(
+      '<p><a href="https://www.gov.br/anvisa" target="_blank" rel="noopener noreferrer nofollow">Guia</a></p>',
+    );
+    for (const mau of ['javascript:alert(1)', 'data:text/html,x', '//evil.com', '/p/inicio', 'https://u:p@evil.com']) {
+      expect(html(`[clique](${mau})`), mau).toBe('<p>clique</p>');
+    }
+    expect(hrefSeguro('http://exemplo.com/a?b=1')).toBe('http://exemplo.com/a?b=1');
+    // Parênteses balanceados no destino (um nível) fazem parte do link; `[` solto antes do link fica como texto.
+    expect(html('[Sódio](https://pt.wikipedia.org/wiki/Sodio_(elemento)) e [[x](https://a.com)')).toBe(
+      '<p><a href="https://pt.wikipedia.org/wiki/Sodio_(elemento)" target="_blank" rel="noopener noreferrer nofollow">Sódio</a>' +
+        ' e [<a href="https://a.com/" target="_blank" rel="noopener noreferrer nofollow">x</a></p>',
+    );
+  });
+
+  it('marcação sem fechar fica como texto; nada de retrocesso catastrófico (20000 asteriscos em menos de 200 ms)', () => {
+    expect(html('**sem fechar')).toBe('<p>**sem fechar</p>');
+    const textos = [
+      '*'.repeat(20000),
+      `[${'['.repeat(10000)}`,
+      '**a'.repeat(6000),
+      // U+2028/U+2029 no meio da linha: `\s` casa, `.` não — com `\s+(.+)$` isso retrocedia em tempo quadrático.
+      '-' + ' '.repeat(19990) + 'x\u2028y',
+      '#' + ' '.repeat(19990) + 'x\u2029y',
+    ];
+    // só a leitura (onde ficam as regex) é cronometrada: o render do React em modo dev variaria com a máquina do CI
+    const t0 = performance.now();
+    for (const t of textos) lerMarkdown(t);
+    expect(performance.now() - t0).toBeLessThan(200);
+    for (const t of textos) html(t); // e renderizar o resultado não quebra
+  });
+
+  it('U+2028/U+2029 são quebra de linha; título e item pedem espaço ou tab depois do marcador', () => {
+    expect(html('a\u2028b\u2029\u2029## T\u2028- i')).toBe('<p>a<br/>b</p><h2>T</h2><ul><li>i</li></ul>');
+    expect(html('#\tTab\n\n -\tum')).toBe('<h2>Tab</h2><ul><li>um</li></ul>');
+  });
+
+  it('texto vazio não gera nada; espaços e linhas em branco a mais não viram parágrafos vazios', () => {
+    expect(lerMarkdown('')).toEqual([]);
+    expect(html('\n\n  \nA\n\n\n\nB\n')).toBe('<p>A</p><p>B</p>');
+  });
+});

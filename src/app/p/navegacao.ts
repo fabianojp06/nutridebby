@@ -1,20 +1,23 @@
-export type ItemPortal = { href: string; rotulo: string };
+export type ItemPortal = { href: string; rotulo: string; /** Outras telas que marcam esta aba. */ tambem?: string[] };
 
 /**
- * D23: as abas do portal, em ordem. Cada tarefa do Plano 06 acrescenta a sua; os planos seguintes também
- * ("Conteúdos", Plano 07; depois do MVP, "Exames" e "IA Nutri") — o layout não muda (grade de 7 colunas, R16).
+ * D23 (Plano 06): as abas do portal, em ordem — grade de 7 colunas (R16, 360 px). D3 (Plano 07): "Conteúdos" entrou no
+ * lugar de "Compras"; a lista de compras é um link em "Plano" e marca essa aba. Depois do MVP ("Exames", "IA Nutri"),
+ * decidir de novo o que sai da barra (ou um "Mais").
  */
 export const ITENS_DO_PORTAL: ItemPortal[] = [
   { href: '/p/inicio', rotulo: 'Início' },
-  { href: '/p/plano', rotulo: 'Plano' },
+  { href: '/p/plano', rotulo: 'Plano', tambem: ['/p/compras'] },
   { href: '/p/diario', rotulo: 'Diário' },
+  { href: '/p/conteudos', rotulo: 'Conteúdos' },
   { href: '/p/evolucao', rotulo: 'Evolução' },
-  { href: '/p/compras', rotulo: 'Compras' },
   { href: '/p/agenda', rotulo: 'Agenda' },
   { href: '/p/perfil', rotulo: 'Perfil' },
 ];
 
-/** O item da aba atual (também nas subpáginas: /p/agenda/… marca "Agenda"). */
+const dentro = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
+/** O item da aba atual (também nas subpáginas: /p/agenda/… marca "Agenda"; /p/compras marca "Plano"). */
 export function itemAtual(pathname: string): string | null {
-  return ITENS_DO_PORTAL.find((i) => pathname === i.href || pathname.startsWith(`${i.href}/`))?.href ?? null;
+  return ITENS_DO_PORTAL.find((i) => dentro(pathname, i.href) || (i.tambem ?? []).some((t) => dentro(pathname, t)))?.href ?? null;
 }

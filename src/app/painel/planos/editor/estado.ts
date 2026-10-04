@@ -3,7 +3,7 @@ import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import type { ItemPlano, PlanoDoCliente, RascunhoEnviado } from '@/modules/plano-alimentar/tipos';
+import type { ItemPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
 export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCaseiraTxt'> & {
@@ -11,7 +11,7 @@ export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCasei
   medida: { nome: string; plural: string; gramas: number } | null;
   qtdTexto: string;
 };
-export type RefeicaoEstado = { id: string; nome: string; horario: string; observacao: string; itens: ItemEstado[] };
+export type RefeicaoEstado = { id: string; nome: string; horario: string; observacao: string; itens: ItemEstado[]; receita?: ReceitaDaRefeicao | null };
 export type EstadoEditor = { titulo: string; metaTexto: string; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoEstado[] };
 
 export type Acao =
@@ -23,6 +23,7 @@ export type Acao =
   | { tipo: 'novaRefeicao'; id: string }
   | { tipo: 'refeicao'; id: string; campo: 'nome' | 'horario' | 'observacao'; valor: string }
   | { tipo: 'removerRefeicao'; id: string }
+  | { tipo: 'receita'; id: string; receita: { id: string; titulo: string } | null }
   | { tipo: 'adicionarItem'; refeicaoId: string; id: string; alimento: AlimentoEncontrado; substituiItemId?: string | null }
   | { tipo: 'quantidade'; itemId: string; valor: string }
   | { tipo: 'medida'; itemId: string; medida: { nome: string; plural: string; gramas: number } | null }
@@ -49,6 +50,7 @@ export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      ...(r.receita ? { receita: r.receita } : {}),
       itens: r.itens.map((i) => ({
         id: i.id,
         foodId: i.foodId,
@@ -128,6 +130,8 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, [a.campo]: a.valor } : r)) };
     case 'removerRefeicao':
       return { ...e, refeicoes: e.refeicoes.filter((r) => r.id !== a.id) };
+    case 'receita':
+      return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, receita: a.receita ? { ...a.receita, disponivel: true } : null } : r)) };
     case 'adicionarItem': {
       if (!podeAdicionarItem(e)) return e;
       const m = a.alimento.medidas[0];
@@ -210,7 +214,7 @@ function moverNaRefeicao(its: ItemEstado[], itemId: string, direcao: -1 | 1): It
 export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>): string[] {
   const campos = new Set(['titulo', 'metaKcal', 'orientacoes']);
   for (const r of e.refeicoes) {
-    for (const c of ['nome', 'horario', 'observacao']) campos.add(`refeicao:${r.id}:${c}`);
+    for (const c of ['nome', 'horario', 'observacao', 'receita']) campos.add(`refeicao:${r.id}:${c}`);
     for (const i of r.itens) for (const c of ['quantidadeG', 'medida', 'foodId']) campos.add(`item:${i.id}:${c}`);
   }
   return [...new Set(Object.entries(erros).filter(([chave]) => !campos.has(chave)).map(([, msg]) => msg))];
@@ -233,6 +237,7 @@ export function paraEnvio(e: EstadoEditor, revisao: number): RascunhoEnviado {
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      ...(r.receita ? { recipeContentId: r.receita.id } : {}),
       itens: r.itens.map((i) => {
         const g = gramasDoItem(i);
         const q = lerDecimal(i.qtdTexto);

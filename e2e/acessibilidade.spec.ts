@@ -46,7 +46,7 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil'];
+const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -55,7 +55,7 @@ for (const url of ROTAS) {
 
 // Modo escuro do aparelho (prefers-color-scheme: dark): enquanto o tema escuro não chega (Plano 08), o sistema fica
 // sempre claro — nada pode escurecer só o fundo ou o texto base e deixar as cores fixas do modo claro ilegíveis.
-const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/configuracoes'];
+const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/conteudos', '/painel/configuracoes'];
 test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
   await paciente.page.emulateMedia({ colorScheme: 'dark' });
   await nutri.emulateMedia({ colorScheme: 'dark' });
@@ -69,7 +69,41 @@ test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do po
   }
 });
 
-test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe', async () => {
+test('axe sem violações no detalhe de uma orientação (markdown e "Baixar material (PDF)")', async () => {
+  const titulo = `Como ler rótulos ${Date.now().toString(36)}`;
+  await nutri.goto('/painel/conteudos/novo?tipo=orientacao');
+  await nutri.getByLabel('Título').fill(titulo);
+  await nutri.getByLabel('Texto').fill('## Rótulos\n\nOlhe **sempre** a *porção*.\n\n- açúcar\n- sódio\n\n[Guia da Anvisa](https://www.gov.br/anvisa)');
+  await nutri.getByRole('button', { name: 'Criar' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/conteudos\/[0-9a-f-]{36}$/);
+  // um PDF mínimo: o botão "Baixar material (PDF)" só aparece com ele
+  const pdf = { name: 'material.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n') };
+  const campoPdf = nutri.getByLabel('Material em PDF (até 10 MB)');
+  await campoPdf.setInputFiles(pdf);
+  await expect(nutri.getByRole('status').filter({ hasText: 'PDF salvo.' })).toBeVisible();
+  expect(await campoPdf.inputValue()).toBe(''); // o campo volta vazio: o mesmo arquivo pode ser escolhido de novo
+  // "Remover PDF" tira também o "PDF salvo." da tela
+  await nutri.getByRole('button', { name: 'Remover PDF' }).click();
+  await expect(nutri.getByRole('link', { name: 'Ver PDF' })).toHaveCount(0);
+  await expect(nutri.getByText('PDF salvo.')).toHaveCount(0);
+  await campoPdf.setInputFiles(pdf);
+  await expect(nutri.getByRole('status').filter({ hasText: 'PDF salvo.' })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: 'Ver PDF' })).toBeVisible();
+  await nutri.getByRole('button', { name: 'Publicar' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Conteúdo publicado.' })).toBeVisible();
+  await paciente.page.goto('/p/conteudos');
+  await paciente.page.getByRole('link', { name: new RegExp(titulo) }).click();
+  await expect(paciente.page.getByRole('heading', { level: 2, name: 'Rótulos', exact: true })).toBeVisible();
+  const baixar = paciente.page.getByRole('link', { name: 'Baixar material (PDF)' });
+  await expect(baixar).toBeVisible();
+  expect(await violacoes(paciente.page)).toEqual([]);
+  // o download pela sessão da paciente: a rota assina na hora (303) e o arquivo vem como PDF
+  const r = await paciente.page.request.get((await baixar.getAttribute('href'))!);
+  expect(r.status()).toBe(200);
+  expect(r.headers()['content-type']).toMatch(/^application\/pdf/);
+});
+
+test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe em 7 colunas iguais (também a 320 px, com axe)', async () => {
   await paciente.page.setViewportSize({ width: 360, height: 780 });
   try {
     for (const url of ROTAS) {
@@ -79,9 +113,33 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
     await paciente.page.goto('/p/inicio');
-    for (const aba of ['Início', 'Plano', 'Diário', 'Evolução', 'Compras', 'Agenda', 'Perfil']) {
+    for (const aba of ['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']) {
       await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
     }
+    // D3 (ratificado 04/10): 7 colunas iguais, palavra longa quebra com hífen — nada rola nem invade a vizinha, a 360 e a 320 px
+    for (const largura of [360, 320]) {
+      await paciente.page.setViewportSize({ width: largura, height: 780 });
+      const barra = await paciente.page.getByRole('navigation', { name: 'Portal' }).evaluate((nav) => {
+        const ul = nav.querySelector('ul')!;
+        const lis = [...ul.querySelectorAll('li')].map((li) => li.getBoundingClientRect());
+        const links = [...ul.querySelectorAll('a')];
+        return {
+          rola: ul.scrollWidth > ul.clientWidth || document.documentElement.scrollWidth > window.innerWidth,
+          larguras: lis.map((r) => Math.round(r.width)),
+          vazaDaColuna: links.filter((a) => a.scrollWidth > a.clientWidth).map((a) => a.textContent),
+          alturaMin: Math.min(...links.map((a) => a.getBoundingClientRect().height)),
+        };
+      });
+      expect(barra.rola, `${largura} px`).toBe(false);
+      expect(Math.max(...barra.larguras) - Math.min(...barra.larguras), `${largura} px: ${barra.larguras}`).toBeLessThanOrEqual(1);
+      expect(barra.vazaDaColuna, `${largura} px`).toEqual([]);
+      expect(barra.alturaMin, `${largura} px`).toBeGreaterThanOrEqual(44);
+      expect(await violacoes(paciente.page), `axe a ${largura} px`).toEqual([]);
+    }
+    // T-4: sem o min-h-dvh aninhado, tela curta do portal não rola na vertical
+    await paciente.page.goto('/p/conteudos?favoritos=1');
+    await paciente.page.waitForLoadState('networkidle');
+    expect(await paciente.page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   } finally {
     await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
   }

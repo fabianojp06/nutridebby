@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { and, asc, eq, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
@@ -10,11 +10,15 @@ import {
   appointments,
   consents,
   consultations,
+  contents,
   dataExports,
   diaryEntries,
   energyCalcs,
   exams,
+  foods,
+  mealItems,
   mealPlans,
+  meals,
   notifications,
   patients,
   privacyRequests,
@@ -39,7 +43,7 @@ import {
   listarTenantsParaVarredura,
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
-import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
+import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
 import { respostaParaCampo } from './anamnese-tipos';
 import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
@@ -109,7 +113,14 @@ export type DadosExportacao = {
     publicadoEm: string | null;
     metaKcal: number | null;
     orientacoes: string;
-    refeicoes: { nome: string; horario: string; observacao: string; itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null }[] }[];
+    refeicoes: {
+      nome: string;
+      horario: string;
+      observacao: string;
+      /** US-054 (Plano 07): o título da receita sugerida na refeição (null sem sugestão ou se o conteúdo não existe mais). */
+      sugestaoDeReceita: string | null;
+      itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null }[];
+    }[];
   }[];
   pedidosLgpd: { tipo: string; status: string; prazo: string; concluidoEm: string | null }[];
   /**
@@ -125,6 +136,8 @@ export type DadosExportacao = {
   dispositivosPush: { criadaEm: string; navegador: string | null }[];
   /** Plano 06: diário alimentar (US-042/043) — texto, refeição, comentário da nutricionista e a foto (em `diario/`). */
   diario: { dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null }[];
+  /** Plano 07 (D15): conteúdos que o titular abriu e favoritou (título e data). */
+  conteudos: ConteudosDoTitular;
   /** Os laudos ou fotos do diário passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
@@ -142,6 +155,60 @@ export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
 const texto = (tipo: string, v: string | string[]) =>
   Array.isArray(v) ? v.join(', ') : tipo === 'sim_nao' ? ({ sim: 'Sim', nao: 'Não' }[v] ?? v) : v;
 const NOME_FORMULA = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]));
+
+/**
+ * D04-1: todas as versões do plano em 4 consultas fixas — planos, refeições, itens e os títulos das receitas (antes, uma
+ * leitura completa por versão). Publicado/arquivado com os nomes congelados na publicação (D10 do Plano 04); o rascunho
+ * com os atuais. Mesma forma de antes, mais a sugestão de receita da refeição (o título, se ainda existir — D13; para o
+ * titular, só se estiver publicada).
+ */
+async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExportacao): Promise<DadosExportacao['planos']> {
+  if (!ids.length) return [];
+  const ps = await tx.select().from(mealPlans).where(inArray(mealPlans.id, ids)).orderBy(asc(mealPlans.versao));
+  const rs = await tx.select().from(meals).where(inArray(meals.planId, ids)).orderBy(asc(meals.ordem));
+  const its = await tx
+    .select({ i: mealItems, nome: foods.nome })
+    .from(mealItems)
+    .innerJoin(foods, eq(foods.id, mealItems.foodId))
+    .where(inArray(mealItems.planId, ids))
+    .orderBy(asc(mealItems.ordem));
+  const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
+  // P-16 b / D13: o titular vê a sugestão só da receita publicada, como no portal (o cartão some) — o título de uma
+  // receita despublicada (e talvez renomeada como rascunho interno) não vai para o dados.json dele; a equipe vê todas
+  const titulos = new Map(
+    idsReceita.length
+      ? (await tx.select({ id: contents.id, titulo: contents.titulo, status: contents.status }).from(contents).where(inArray(contents.id, idsReceita)))
+          .filter((c) => escopo !== 'titular' || c.status === 'publicado')
+          .map((c) => [c.id, c.titulo])
+      : [],
+  );
+  return ps.map((p) => {
+    const nomeDo = (x: (typeof its)[number]) => (p.status !== 'rascunho' && x.i.nutrientes ? x.i.nutrientes.nome : x.nome);
+    return {
+      versao: p.versao,
+      status: p.status,
+      titulo: p.titulo,
+      publicadoEm: p.publicadoEm?.toISOString() ?? null,
+      metaKcal: p.metaKcal,
+      orientacoes: p.orientacoes,
+      refeicoes: rs
+        .filter((r) => r.planId === p.id)
+        .map((r) => {
+          const itens = its.filter((x) => x.i.mealId === r.id);
+          return {
+            nome: r.nome,
+            horario: r.horario ? r.horario.slice(0, 5) : '',
+            observacao: r.observacao,
+            sugestaoDeReceita: r.recipeContentId ? (titulos.get(r.recipeContentId) ?? null) : null,
+            itens: itens.map((x) => {
+              const principal = x.i.substituiItemId ? itens.find((y) => y.i.id === x.i.substituiItemId) : undefined;
+              return { alimento: nomeDo(x), quantidadeG: x.i.quantidadeG, medida: x.i.medidaCaseiraTxt, substituiDe: principal ? nomeDo(principal) : null };
+            }),
+          };
+        }),
+    };
+  });
+}
 
 /**
  * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas). Consultas em sequência:
@@ -210,30 +277,8 @@ export async function montarDados(
     .from(mealPlans)
     .where(and(eq(mealPlans.patientId, patientId), escopo === 'titular' ? ne(mealPlans.status, 'rascunho') : undefined))
     .orderBy(asc(mealPlans.versao));
-  const planos: DadosExportacao['planos'] = [];
-  for (const { id } of ids) {
-    const pl = await lerPlanoNaTransacao(tx, id, { auditar: false, comMedidas: false }); // a exportação já registra "exportar"
-    if (!pl) continue;
-    planos.push({
-      versao: pl.versao,
-      status: pl.status,
-      titulo: pl.titulo,
-      publicadoEm: pl.publicadoEm,
-      metaKcal: pl.metaKcal,
-      orientacoes: pl.orientacoes,
-      refeicoes: pl.refeicoes.map((r) => ({
-        nome: r.nome,
-        horario: r.horario,
-        observacao: r.observacao,
-        itens: r.itens.map((i) => ({
-          alimento: i.nome,
-          quantidadeG: i.quantidadeG,
-          medida: i.medidaCaseiraTxt,
-          substituiDe: i.substituiItemId ? (r.itens.find((x) => x.id === i.substituiItemId)?.nome ?? null) : null,
-        })),
-      })),
-    });
-  }
+  const planos = await planosParaExportacao(tx, ids.map((x) => x.id), escopo); // a exportação já registra "exportar"
+  const conteudos = await conteudosDoTitular(tx, patientId);
   const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
@@ -330,16 +375,17 @@ export async function montarDados(
     aceitesDoTermo: ac.map((a) => ({ termoVersao: a.termoVersao, aceitoEm: a.aceitoEm.toISOString(), ip: a.ip })),
     dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
     diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri })),
+    conteudos,
     laudosForaDoZip: false,
   };
   return { dados, laudos: [...laudos, ...fotos] };
 }
 
 /**
- * Lê os laudos e as fotos do diário de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
+ * Lê os anexos (laudos e fotos do diário) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
  * o que não cabe não vai (e `laudosForaDoZip` avisa); arquivo que sumiu do disco fica de fora sem derrubar a exportação.
  */
-async function lerLaudos(
+async function lerAnexos(
   dados: DadosExportacao,
   laudos: AnexoParaZip[],
   dataDir: string,
@@ -379,7 +425,7 @@ async function lerLaudos(
     total += conteudo.length;
   }
   if (ausentes)
-    logger.warn({ tenantId, ausentes }, 'laudo ausente no disco ficou fora da exportação');
+    logger.warn({ tenantId, ausentes }, 'anexo ausente no disco ficou fora da exportação');
   return arquivos;
 }
 
@@ -461,7 +507,7 @@ export async function gerarExportacao(
       },
       db,
     );
-    const arquivosDosLaudos = await lerLaudos(
+    const arquivosDosLaudos = await lerAnexos(
       dados,
       laudos,
       deps.dataDir,

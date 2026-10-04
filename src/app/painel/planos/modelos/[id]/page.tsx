@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
+import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { Cabecalho } from '../../../cabecalho';
 import { EditorPlano } from '../../editor/editor-plano';
@@ -23,6 +24,7 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
         <EditorPlano
           plano={paraCliente(modelo)}
           contexto={null}
+          receitas={await listarReceitasPublicadas(ctx)}
           acoes={
             <form action={excluirModeloAction.bind(null, modelo.id)}>
               <ConfirmarBotao mensagem="Excluir este modelo? Os planos criados a partir dele não mudam.">Excluir modelo</ConfirmarBotao>

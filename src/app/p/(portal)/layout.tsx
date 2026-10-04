@@ -16,7 +16,7 @@ export default async function PortalLayout({ children }: LayoutProps<'/p'>) {
   const { tenant, vinculo } = await requirePaciente('/p/inicio');
   const marca = getTenantBrand(tenant);
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex flex-1 flex-col">
       <DonoDoAparelho dono={vinculo.patientId} />
       <RegistrarAcesso dono={vinculo.patientId} />
       <div className="flex items-center gap-3 px-6 py-2" style={{ borderBottom: `3px solid ${marca.cor}` }}>

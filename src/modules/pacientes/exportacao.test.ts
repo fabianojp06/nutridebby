@@ -5,8 +5,10 @@ import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultaDireta } from '../../../test/agenda';
+import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
@@ -14,8 +16,10 @@ import { pacienteComConta } from '../../../test/portal';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
+import * as schema from '@/db/schema';
 import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
+import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
@@ -201,7 +205,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
     expect(dados.planos).toEqual([
       { versao: 1, status: 'rascunho', titulo: 'Plano alimentar', publicadoEm: null, metaKcal: null, orientacoes: '',
-        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
+        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', sugestaoDeReceita: null, itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
     ]);
     expect(dados.consultas).toEqual([
       { inicio: '2026-09-15T12:00:00.000Z', fim: '2026-09-15T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'nutri', canceladoPor: 'nutri', motivoCancelamento: null },
@@ -622,6 +626,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         aceitesDoTermo: [],
         dispositivosPush: [],
         diario: [],
+        conteudos: { vistos: [], favoritos: [] },
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -681,6 +686,59 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(equipe.dados.planos.map((x) => x.status)).toContain('rascunho');
     expect(titular.dados.planos.map((x) => x.status)).not.toContain('rascunho');
     expect(rascunho).toBeTruthy();
+  });
+
+  it('D15 / US-054: o dados.json leva os conteúdos que o titular abriu e favoritou e a sugestão de receita da refeição (o título)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const rotulos = await novoConteudo(app.db, T); // "Como ler rótulos", para todos
+    const panqueca = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca de aveia', receita: { rendimento: 1000, porcao: 250, ingredientes: [{ foodId: idTaco(3), g: 200 }] } });
+    await withTenant(T.ctx, (tx) => tx.execute(sql`insert into content_views (tenant_id, content_id, patient_id, visto_em) values (${T.tenantId}, ${rotulos.id}, ${p.id}, '2026-09-30T12:00:00Z')`), app.db);
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Café da manhã', horario: '07:00', observacao: '', recipeContentId: panqueca.id, itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, { db: app.db });
+    await publicarPlano(T.ctx, p.id, planId, deps);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.conteudos).toEqual({ vistos: [{ titulo: 'Como ler rótulos', vistoEm: '2026-09-30T12:00:00.000Z' }], favoritos: [] });
+    expect(dados.planos[0].refeicoes[0].sugestaoDeReceita).toBe('Panqueca de aveia');
+    // despublicada e renomeada como rascunho interno: o titular não recebe o título (o portal também esconde); a equipe, sim
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update contents set status = 'rascunho', publicado_em = null, titulo = 'Panqueca – rever' where id = ${panqueca.id}`), app.db);
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(titular.dados.planos[0].refeicoes[0].sugestaoDeReceita).toBeNull();
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    expect(equipe.dados.planos[0].refeicoes[0].sugestaoDeReceita).toBe('Panqueca – rever');
+  });
+
+  it('D04-1: as versões do plano saem em uma leitura de meal_items (sem N+1), na ordem, com os nomes e as substituições', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const principal = randomUUID();
+    const { id: v1 } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, v1, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [
+        { id: principal, foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null },
+        { id: randomUUID(), foodId: idTaco(3), quantidadeG: '80', medida: null, substituiItemId: principal },
+      ] }],
+    }, { db: app.db });
+    await publicarPlano(T.ctx, p.id, v1, deps);
+    let atual = v1;
+    for (let i = 0; i < 3; i++) {
+      atual = (await editarPublicado(T.ctx, p.id, atual, deps)).id;
+      if (i < 2) await publicarPlano(T.ctx, p.id, atual, deps); // a 4ª versão fica em rascunho
+    }
+    const consultas: string[] = [];
+    const db = drizzle({ client: app.pool, schema, logger: { logQuery: (q) => void consultas.push(q) } });
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo'), db);
+    expect(consultas.filter((q) => /from "meal_items"/.test(q))).toHaveLength(1);
+    expect(dados.planos.map((x) => [x.versao, x.status])).toEqual([[1, 'arquivado'], [2, 'arquivado'], [3, 'publicado'], [4, 'rascunho']]);
+    for (const pl of dados.planos)
+      expect(pl.refeicoes).toEqual([{ nome: 'Almoço', horario: '12:00', observacao: '', sugestaoDeReceita: null, itens: [
+        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null },
+        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 80, medida: null, substituiDe: 'Arroz, tipo 1, cozido' },
+      ] }]);
   });
 
   it('US-046: pedida pelo titular, o e-mail vai para a conta dele com o link do portal; diário (texto e foto) no ZIP', async () => {
@@ -887,6 +945,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         aceitesDoTermo: [],
         dispositivosPush: [],
         diario: [],
+        conteudos: { vistos: [], favoritos: [] },
         laudosForaDoZip: false,
       },
       'Debby Silva',

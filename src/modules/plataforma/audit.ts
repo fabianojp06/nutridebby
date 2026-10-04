@@ -60,6 +60,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   plano_alimentar: 'Plano alimentar',
   agenda: 'Agenda',
   diario: 'Diário alimentar',
+  conteudos: 'Público de conteúdo',
 };
 
 export type AccessHistoryItem = {

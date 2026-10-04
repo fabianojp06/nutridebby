@@ -1,5 +1,5 @@
-import { getEnv } from '@/env';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiNutri, type ApiNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { criarExame, EXAME_MAX_BYTES, ExameError, MSG_EXAME } from '@/modules/pacientes/exames';
@@ -18,8 +18,7 @@ let enviosEmAndamento = 0;
 
 /** US-015: multipart (titulo, data, valores em JSON, arquivo opcional). Fora do proxy.ts, que não bufferiza /api. */
 export async function POST(req: Request, { params }: RouteContext<'/api/painel/pacientes/[id]/exames'>) {
-  const origem = req.headers.get('origin');
-  if (origem && origem !== new URL(getEnv().APP_URL).origin) return resposta(403, { erros: { geral: 'Acesso negado' } });
+  if (!mesmaOrigem(req)) return resposta(403, { erros: { geral: 'Acesso negado' } });
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return acesso.response;
   const { id } = await params;

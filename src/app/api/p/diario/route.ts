@@ -1,5 +1,5 @@
-import { getEnv } from '@/env';
 import { CorpoGrandeError, CorpoLentoError, lerCorpoLimitado } from '@/lib/corpo';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiPaciente, type ApiPaciente } from '@/lib/paciente-session';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { DiarioError, registrarNoDiario } from '@/modules/portal/diario';
@@ -22,8 +22,7 @@ const PRAZO_CORPO_MS = 60_000;
 
 /** US-042: multipart (refeicao, texto, foto opcional). Fora do proxy.ts, que não bufferiza /api. */
 export async function POST(req: Request): Promise<Response> {
-  const origem = req.headers.get('origin');
-  if (origem !== null && origem !== new URL(getEnv().APP_URL).origin) return resposta(403, { erros: { geral: 'Acesso negado' } });
+  if (!mesmaOrigem(req)) return resposta(403, { erros: { geral: 'Acesso negado' } });
   const acesso = await requireApiPaciente(req);
   if (!acesso.ok) return acesso.response;
   if (Number(req.headers.get('content-length') ?? 0) > LIMITE_CORPO) return resposta(413, { erros: { foto: MSG_DIARIO.foto } });

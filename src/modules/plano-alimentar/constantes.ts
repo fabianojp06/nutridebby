@@ -16,6 +16,7 @@ export const MSG_PLANO = {
   refeicaoNome: 'Informe o nome da refeição (até 60 caracteres)',
   horario: 'Horário inválido (use HH:MM)',
   alimento: 'Alimento não encontrado.',
+  receita: 'Receita não encontrada.',
   substituicao: 'A substituição precisa estar ligada a um alimento principal da mesma refeição.',
   limite: 'O plano pode ter até 15 refeições e 200 itens.',
   texto: 'Texto muito longo (até 2000 caracteres).',
