@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { devices, expect, test, type Page } from '@playwright/test';
+import { contraste } from '@/lib/tema/contraste';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -67,6 +68,52 @@ test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do po
   } finally {
     await paciente.page.emulateMedia({ colorScheme: 'light' });
     await nutri.emulateMedia({ colorScheme: 'light' });
+  }
+});
+
+// WCAG 2.4.7/1.4.11 (Plano 08, T12): o axe não avalia o foco. Sobre a cor do consultório ([data-sobre-marca]: o cabeçalho
+// do painel; na T15 também o cartão de destaque) o foco na cor da marca sumia (1:1). Todo item focável ali tem contorno
+// visível e ≥ 3:1 contra o fundo onde ele é desenhado, no claro e com o aparelho escuro.
+test('foco visível sobre a cor do consultório: contorno ≥ 3:1 contra o fundo, no claro e com o aparelho escuro', async () => {
+  const hex = (cor: string) => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cor);
+    expect(m, cor).not.toBeNull();
+    return `#${m!.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  };
+  for (const modo of ['light', 'dark'] as const) {
+    await nutri.emulateMedia({ colorScheme: modo });
+    try {
+      await nutri.goto('/painel');
+      const alvos = nutri.locator('[data-sobre-marca] :is(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"]))');
+      const n = await alvos.count();
+      expect(n, modo).toBeGreaterThan(0);
+      await nutri.keyboard.press('Tab'); // modalidade de teclado: o focus() programático acende o :focus-visible
+      for (let k = 0; k < n; k++) {
+        const alvo = alvos.nth(k);
+        await alvo.focus();
+        const r = await alvo.evaluate((el) => {
+          // o contorno fica do lado de fora (outline-offset): o fundo que conta é o do primeiro ancestral pintado
+          let e = el.parentElement;
+          while (e && /rgba\(\d+, \d+, \d+, 0\)|transparent/.test(getComputedStyle(e).backgroundColor)) e = e.parentElement;
+          const s = getComputedStyle(el);
+          return {
+            nome: el.textContent?.trim() ?? '',
+            focoVisivel: el.matches(':focus-visible'),
+            estilo: s.outlineStyle,
+            largura: parseFloat(s.outlineWidth),
+            cor: s.outlineColor,
+            fundo: e ? getComputedStyle(e).backgroundColor : 'rgb(255, 255, 255)',
+          };
+        });
+        const rotulo = `${modo}: ${r.nome}`;
+        expect(r.focoVisivel, rotulo).toBe(true);
+        expect(r.estilo, rotulo).toBe('solid');
+        expect(r.largura, rotulo).toBeGreaterThanOrEqual(2);
+        expect(contraste(hex(r.cor), hex(r.fundo)), `${rotulo}: ${r.cor} sobre ${r.fundo}`).toBeGreaterThanOrEqual(3);
+      }
+    } finally {
+      await nutri.emulateMedia({ colorScheme: 'light' });
+    }
   }
 });
 

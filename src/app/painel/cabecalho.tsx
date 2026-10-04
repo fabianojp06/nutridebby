@@ -3,11 +3,14 @@ import type { TenantRow } from '@/db/schema';
 import { BotaoSair } from '@/components/botao-sair';
 import { getTenantBrand } from '@/modules/plataforma/marca';
 
-/** Cabeçalho do painel com a marca da nutricionista (US-005 "Marca aplicada"). */
+/**
+ * Cabeçalho do painel com a marca da nutricionista (US-005 "Marca aplicada"). `data-sobre-marca`: o fundo é a cor do
+ * consultório, então o foco fica branco (globals.css).
+ */
 export function Cabecalho({ tenant }: { tenant: TenantRow }) {
   const marca = getTenantBrand(tenant);
   return (
-    <header className="flex items-center justify-between px-6 py-3 text-white" style={{ backgroundColor: marca.cor }}>
+    <header data-sobre-marca className="flex items-center justify-between px-6 py-3 text-white" style={{ backgroundColor: marca.cor }}>
       <div className="flex items-center gap-3">
         {marca.logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, fora do otimizador de imagens

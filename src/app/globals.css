@@ -82,6 +82,13 @@
     --nd-foco: var(--nd-marca);
   }
 }
+/* Sobre a cor do consultório (cabeçalho do painel, cartão de destaque da D19, que usa bg-destaque = a cor original nos
+   dois modos): o foco na cor da marca some ali (1:1 no claro; corNoEscuro contra a cor original < 3:1 no escuro). O branco
+   tem ≥ 4,5 com toda cor que o perfilSchema aceita. Vai no CONTÊINER (não em .bg-destaque: o contorno de um botão
+   bg-destaque fica do lado de fora, sobre o cartão). Depois dos blocos de tema: vence também no mesmo elemento. */
+[data-sobre-marca] {
+  --nd-foco: #ffffff;
+}
 
 @theme inline {
   --color-fundo: var(--nd-fundo);
@@ -112,10 +119,13 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* WCAG 2.4.7: o design não tinha foco visível. Cor literal de reserva se a variável faltar (nunca outline: none) */
-:focus-visible {
-  outline: 3px solid var(--nd-foco, #1d6b5a);
-  outline-offset: 2px;
+/* WCAG 2.4.7: o design não tinha foco visível. Cor literal de reserva se a variável faltar (nunca outline: none). Na camada
+   base: um focus-visible:outline-* da tela (o BotaoSair usa outline-current) vence; nenhuma tela usa outline-none (teste). */
+@layer base {
+  :focus-visible {
+    outline: 3px solid var(--nd-foco, #1d6b5a);
+    outline-offset: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
