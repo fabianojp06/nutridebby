@@ -19,6 +19,23 @@ describe('cabeçalho do painel (D20)', () => {
     expect(s).toMatch(/requireNutri\([^)]*permitirDpaPendente:\s*true/);
     expect(s).toMatch(/data-tema=/);
   });
+  it('o contêiner do layout não é flex: o <main className="mx-auto max-w-*"> das telas ocupa a largura até o máximo', () => {
+    // num flex em coluna, item com margens laterais auto não estica: 17 telas ficariam com a largura do próprio conteúdo
+    const conteiner = /<div data-tema=\{tema\}[^>]*className="([^"]*)"/.exec(ler('layout.tsx'))?.[1];
+    expect(conteiner).toBeDefined();
+    expect(conteiner).not.toMatch(/(^|\s)(inline-)?(flex|grid)(\s|$)/);
+  });
+  it('o menu da conta fecha ao navegar, com Esc e com clique fora (o layout fica montado; o open do <details> é do DOM)', () => {
+    expect(ler('menu-conta.tsx')).toMatch(/<DetalhesDaConta>[\s\S]*<summary[\s\S]*<\/DetalhesDaConta>/);
+    const d = ler('detalhes-da-conta.tsx');
+    expect(d).toMatch(/^'use client';/);
+    expect(d).toMatch(/<details ref=\{ref\}[^>]*data-guia="conta"/);
+    expect(d).toMatch(/usePathname\(\)/);
+    expect(d).toMatch(/\[caminho\]/);
+    expect(d).toContain("'Escape'");
+    expect(d).toContain("'pointerdown'");
+    expect(d).toContain("closest('a')");
+  });
   it.each(TSX.filter((f) => !['layout.tsx', 'cabecalho.tsx'].includes(f)))('%s não desenha cabeçalho próprio', (f) => {
     const s = ler(f);
     expect(s).not.toMatch(/<Cabecalho(Painel)?[\s/>]/);

@@ -67,7 +67,7 @@ export async function avaliar(nutri: Page, prontuario: string, data: string, pes
 
 /** Liga ou desliga "Mostrar % de gordura ao paciente" em Perfil e marca (o tenant do E2E é compartilhado: sempre voltar a desligar). */
 export async function mostrarPercGordura(nutri: Page, ligar: boolean) {
-  await nutri.goto('/painel/configuracoes');
+  await nutri.goto('/painel/configuracoes/perfil');
   await nutri.getByLabel('Mostrar % de gordura ao paciente').setChecked(ligar);
   await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Perfil salvo.' })).toBeVisible();

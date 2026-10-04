@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { iniciais, ITENS_DO_MENU, itemAtual } from './navegacao';
+import { readFileSync } from 'node:fs';
+import { classeDoItem, iniciais, ITENS_DO_MENU, itemAtual } from './navegacao';
 
 describe('menu do painel (D20)', () => {
   it('iniciais: duas primeiras palavras, maiúsculas', () => {
@@ -21,4 +22,14 @@ describe('menu do painel (D20)', () => {
     ['/painel/ajuda', null],
     ['/painel/pacientesx', null],
   ])('%s → %s', (caminho, item) => expect(itemAtual(caminho)).toBe(item));
+  it('o item ativo se distingue por algo além da cor (WCAG 1.4.1): no escuro a pílula some contra o cartão', () => {
+    const ativo = classeDoItem(true).split(/\s+/);
+    const outro = classeDoItem(false).split(/\s+/);
+    for (const c of ['font-semibold', 'underline', 'decoration-2']) {
+      expect(ativo).toContain(c);
+      expect(outro).not.toContain(c);
+    }
+    expect(ativo).toContain('bg-destaque');
+    expect(readFileSync('src/app/painel/menu-painel.tsx', 'utf8')).toMatch(/className=\{classeDoItem\(atual === i\.href\)\}/);
+  });
 });

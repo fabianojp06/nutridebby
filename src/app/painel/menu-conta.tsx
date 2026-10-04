@@ -1,13 +1,17 @@
 import Link from 'next/link';
 import { BotaoSair } from '@/components/botao-sair';
+import { DetalhesDaConta } from './detalhes-da-conta';
 import { iniciais } from './navegacao';
 
 const ITEM = 'flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-linha';
 
-/** D20: menu da conta (disclosure com <details>, funciona sem JavaScript). O "Sair" mantém o data-sair (editor do plano). */
+/**
+ * D20: menu da conta (disclosure com <details>, funciona sem JavaScript; com JavaScript, fecha ao navegar, com Esc e com
+ * clique fora — DetalhesDaConta). O "Sair" mantém o data-sair (editor do plano).
+ */
 export function MenuConta({ nome, email }: { nome: string; email: string }) {
   return (
-    <details className="relative" data-guia="conta">
+    <DetalhesDaConta>
       <summary aria-label={`Conta de ${nome}`} className="grid size-11 cursor-pointer list-none place-items-center rounded-full bg-[#f3b660] font-semibold text-[#3a2508] [&::-webkit-details-marker]:hidden">
         {iniciais(nome)}
       </summary>
@@ -21,6 +25,6 @@ export function MenuConta({ nome, email }: { nome: string; email: string }) {
           <li><BotaoSair className={ITEM} /></li>
         </ul>
       </div>
-    </details>
+    </DetalhesDaConta>
   );
 }
