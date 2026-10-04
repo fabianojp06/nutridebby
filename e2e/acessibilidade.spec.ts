@@ -53,6 +53,22 @@ for (const url of ROTAS) {
   });
 }
 
+// Modo escuro do aparelho (prefers-color-scheme: dark): enquanto o tema escuro não chega (Plano 08), o sistema fica
+// sempre claro — nada pode escurecer só o fundo ou o texto base e deixar as cores fixas do modo claro ilegíveis.
+const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/configuracoes'];
+test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
+  await paciente.page.emulateMedia({ colorScheme: 'dark' });
+  await nutri.emulateMedia({ colorScheme: 'dark' });
+  try {
+    expect(await paciente.page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
+    for (const url of ROTAS) await semViolacoes(paciente.page, url);
+    for (const url of [...PAINEL, paciente.prontuario]) await semViolacoes(nutri, url);
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+    await nutri.emulateMedia({ colorScheme: 'light' });
+  }
+});
+
 test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe', async () => {
   await paciente.page.setViewportSize({ width: 360, height: 780 });
   try {
