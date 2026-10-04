@@ -19,7 +19,7 @@ export function AlternarTema({ tema }: { tema: Tema }) {
   const aparelhoEscuro = useSyncExternalStore(assinar, () => consulta().matches, () => false);
   const escuro = tema === 'escuro' || (tema === 'sistema' && aparelhoEscuro);
   return (
-    <form action={alternarTemaAction} onSubmit={() => document.querySelector('[data-tema]')?.setAttribute('data-tema', proximoTema(tema, aparelhoEscuro))}>
+    <form data-guia="tema" action={alternarTemaAction} onSubmit={() => document.querySelector('[data-tema]')?.setAttribute('data-tema', proximoTema(tema, aparelhoEscuro))}>
       <input type="hidden" name="aparelhoEscuro" value={aparelhoEscuro ? '1' : '0'} />
       <button
         type="submit"

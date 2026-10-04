@@ -6,7 +6,6 @@ export type IdsDoPainel = {
 
 /**
  * RNF-10 (D25): toda tela do painel. A guarda rotas-axe.test.ts compara as chaves com os page.tsx — tela nova sem axe quebra o CI.
- * `/painel/ajuda` entra no commit da Tarefa 19, com a página.
  */
 export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel': () => '/painel',
@@ -15,6 +14,7 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/agenda/horarios': () => '/painel/agenda/horarios',
   '/painel/agenda/pendencias': () => '/painel/agenda/pendencias',
   '/painel/agenda/consultas/[id]': (i) => `/painel/agenda/consultas/${i.consulta}`,
+  '/painel/ajuda': () => '/painel/ajuda',
   '/painel/alimentos': () => '/painel/alimentos',
   '/painel/alimentos/novo': () => '/painel/alimentos/novo',
   '/painel/alimentos/[id]': (i) => `/painel/alimentos/${i.alimento}`,
