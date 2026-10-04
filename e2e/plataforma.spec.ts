@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComoAdmin } from './helpers';
+import { entrarComoAdmin, pularTourSeAparecer } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 
 const ADMIN = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
@@ -63,6 +63,7 @@ test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link nã
   await page.getByLabel('Li e aceito o contrato de tratamento de dados (DPA)').check();
   await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/);
+  await pularTourSeAparecer(page);
   await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   await expect(page.getByRole('banner')).toContainText(NUTRI.nome);
 

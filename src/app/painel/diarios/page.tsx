@@ -15,7 +15,7 @@ export default async function Diarios() {
         {feed.length === 0 ? (
           <p>{MSG_COMENTARIO.nenhum}</p>
         ) : (
-          <ul className="divide-y divide-linha">
+          <ul data-guia="feed-diarios" className="divide-y divide-linha">
             {feed.map((f) => (
               <li key={f.id} className="flex items-center gap-3 py-2">
                 <span className={f.visto ? 'rounded border border-borda px-2 text-sm' : 'rounded bg-aviso-fundo px-2 text-sm font-semibold text-aviso'}>{f.visto ? 'Visto' : 'Novo'}</span>

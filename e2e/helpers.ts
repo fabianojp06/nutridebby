@@ -35,3 +35,10 @@ export async function entrarComoAdmin(browser: Browser, cred: { email: string; p
   await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
   return page;
 }
+
+/** P08-10: contas criadas pelo fluxo do admin (plataforma.spec) veem o tour de boas-vindas uma vez — fecha se aparecer. */
+export async function pularTourSeAparecer(page: Page): Promise<void> {
+  const tour = page.getByRole('dialog', { name: 'Boas-vindas ao NutriDebby' });
+  if (await tour.isVisible({ timeout: 3000 }).catch(() => false)) await page.keyboard.press('Escape');
+  await expect(tour).toBeHidden();
+}

@@ -21,7 +21,7 @@ export function Abas({ patientId }: { patientId: string }) {
   const atual = usePathname();
   const base = `/painel/pacientes/${patientId}`;
   return (
-    <nav aria-label="Seções do prontuário">
+    <nav aria-label="Seções do prontuário" data-guia="abas-prontuario">
       <ul className="flex gap-1 overflow-x-auto border-b border-borda">
         {ABAS.map((a) => {
           const href = a.seg ? `${base}/${a.seg}` : base;

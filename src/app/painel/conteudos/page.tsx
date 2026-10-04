@@ -18,7 +18,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <h1 className="font-titulo text-2xl font-semibold">Conteúdos</h1>
         {excluido === '1' && <p role="status">{MSG_CONTEUDO.excluido}</p>}
-        <div className="flex flex-wrap gap-3">
+        <div data-guia="novo-conteudo" className="flex flex-wrap gap-3">
           <Link href="/painel/conteudos/novo?tipo=video" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Novo vídeo</Link>
           <Link href="/painel/conteudos/novo?tipo=receita" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Nova receita</Link>
           <Link href="/painel/conteudos/novo?tipo=orientacao" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Nova orientação</Link>

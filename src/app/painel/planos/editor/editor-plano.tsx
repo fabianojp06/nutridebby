@@ -71,7 +71,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   const podeItem = podeAdicionarItem(estado);
 
   return (
-    <div className="space-y-6">
+    <div data-guia="editor-plano" className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p role="status" aria-live="polite" className={`text-sm ${salvamento.status === 'salvo' ? 'text-suave' : 'font-semibold text-aviso'}`}>
           {somenteLeitura ? `Versão ${plano.versao} · ${ROTULO_STATUS[plano.status]}` : salvamento.mensagem}

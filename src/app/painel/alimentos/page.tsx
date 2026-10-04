@@ -14,7 +14,7 @@ export default async function AlimentosPage() {
           <h1 className="font-titulo text-2xl font-semibold">Alimentos</h1>
           <Link href="/painel/alimentos/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Cadastrar meu alimento</Link>
         </div>
-        <BuscaAlimento />
+        <div data-guia="busca-alimentos"><BuscaAlimento /></div>
         <p className="text-sm text-suave">Fonte: {FONTE_TACO_TEXTO}. Valores por 100 g.</p>
       </main>
     </>

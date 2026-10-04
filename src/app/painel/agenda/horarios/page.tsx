@@ -19,7 +19,7 @@ export default async function HorariosPage() {
       <main className="mx-auto w-full max-w-[1360px] space-y-8 p-4 md:p-6">
         <p className="text-sm"><Link href="/painel/agenda" className="text-link underline">Agenda</Link></p>
         <h1 className="font-titulo text-2xl font-semibold">Horários de atendimento</h1>
-        <section aria-labelledby="regras" className="space-y-3">
+        <section data-guia="regras-horario" aria-labelledby="regras" className="space-y-3">
           <h2 id="regras" className="text-lg font-semibold">Horários da semana</h2>
           {regras.length === 0 ? (
             <p>Nenhum horário cadastrado: a página de agendamento não oferece horários.</p>
@@ -38,7 +38,7 @@ export default async function HorariosPage() {
           <h3 className="font-medium">Adicionar horário</h3>
           <RegraForm />
         </section>
-        <section aria-labelledby="bloqueios" className="space-y-3">
+        <section data-guia="bloqueios-horario" aria-labelledby="bloqueios" className="space-y-3">
           <h2 id="bloqueios" className="text-lg font-semibold">Bloqueios</h2>
           {bloqueios.length === 0 ? (
             <p>Nenhum bloqueio futuro.</p>

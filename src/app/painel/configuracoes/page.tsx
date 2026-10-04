@@ -21,7 +21,7 @@ export default async function ConfiguracoesPage() {
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
-      <ul className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+      <ul data-guia="cartoes-configuracoes" className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
         {CARTOES.map((c) => (
           <li key={c.href}>
             <Link href={c.href} className="block h-full rounded-3xl border border-borda bg-cartao p-5 hover:border-campo">
@@ -31,7 +31,7 @@ export default async function ConfiguracoesPage() {
           </li>
         ))}
       </ul>
-      <section aria-labelledby="tema" className="max-w-lg rounded-3xl border border-borda bg-cartao p-5">
+      <section data-guia="tema-form" aria-labelledby="tema" className="max-w-lg rounded-3xl border border-borda bg-cartao p-5">
         <h2 id="tema" className="sr-only">Tema</h2>
         <TemaForm tema={ehTema(data.user.tema) ? data.user.tema : 'sistema'} />
       </section>
