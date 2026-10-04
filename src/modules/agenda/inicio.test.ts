@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
@@ -11,11 +11,12 @@ import { situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { metricasDeSucesso } from '@/modules/plataforma/metricas-sucesso';
 import { contarDiariosNaoVistos } from '@/modules/portal/diario-nutri';
-import { lerInicio, MSG_INICIO, resumoDoDia, textoSemProxima } from './inicio';
+import { lerInicio, MSG_INICIO, resumoDoDia, resumoDoDiaNaTransacao, textoSemProxima } from './inicio';
 import { contarPendenciasDePresenca, indicadoresDaAgenda, novidadesDaAgenda } from './presenca';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl')); // só para levar a leitura de hoje para ontem (o app não altera o audit_log)
+afterAll(() => Promise.all([app.pool.end(), owner.pool.end()]));
 const fuso = 'America/Sao_Paulo';
 const agora = new Date('2026-10-20T15:00:00Z'); // 12:00 em São Paulo
 const as = (h: number) => new Date(Date.UTC(2026, 9, 20, h + 3, 0)); // hora local → UTC
@@ -101,6 +102,47 @@ describe('Início em bento (D22)', () => {
     await consultaDireta(app.db, U.ctx, caio.id, as(9), 60, { status: 'confirmada' }); // já terminou
     await resumoDoDia(U.ctx, fuso, agora, app.db);
     expect(await leiturasDoDiario(U.ctx, caio.id)).toEqual([]);
+  });
+  it('decisão do dono (04/10/2026): a leitura do diário entra no histórico no máximo uma vez por paciente por dia (fuso do tenant)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    await consultaDireta(app.db, T.ctx, ana.id, as(14), 60);
+    for (let i = 0; i < 3; i++) await resumoDoDia(T.ctx, fuso, agora, app.db);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    await lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, app.db); // o Início inteiro passa pelo mesmo caminho
+    const lidas = await leiturasDoDiario(T.ctx, ana.id);
+    expect(lidas).toHaveLength(1);
+    // dia seguinte no fuso do tenant: a leitura de hoje vira de ontem (1 min antes da meia-noite de São Paulo)
+    await owner.db.execute(sql`update audit_log set criado_em = (date_trunc('day', clock_timestamp() at time zone ${fuso}) at time zone ${fuso}) - interval '1 minute' where id = ${lidas[0].id}`);
+    for (let i = 0; i < 3; i++) await resumoDoDia(T.ctx, fuso, agora, app.db);
+    expect(await leiturasDoDiario(T.ctx, ana.id)).toHaveLength(2);
+    // duas aberturas ao mesmo tempo: a 2ª espera a 1ª terminar (trava por paciente) e vê a leitura dela — uma linha só
+    const V = await novoTenant(app.db);
+    const bia = await novoPaciente(app.db, V.ctx, { nome: 'Bia Lima' });
+    await consultaDireta(app.db, V.ctx, bia.id, as(16), 60);
+    let leu!: () => void;
+    let soltar!: () => void;
+    const primeiraLeu = new Promise<void>((r) => (leu = r));
+    const segura = new Promise<void>((r) => (soltar = r));
+    const primeira = withTenant(V.ctx, async (tx) => {
+      await resumoDoDiaNaTransacao(tx, fuso, agora); // gravou a leitura, ainda sem commit
+      leu();
+      await segura;
+    }, app.db);
+    await primeiraLeu;
+    const segunda = resumoDoDia(V.ctx, fuso, agora, app.db);
+    await new Promise((r) => setTimeout(r, 300));
+    soltar();
+    await Promise.all([primeira, segunda]);
+    expect(await leiturasDoDiario(V.ctx, bia.id)).toHaveLength(1);
+    // a leitura do próprio paciente no portal hoje (outro ator) não esconde a da nutricionista
+    const W = await novoTenant(app.db);
+    const caio = await novoPaciente(app.db, W.ctx, { nome: 'Caio' });
+    await consultaDireta(app.db, W.ctx, caio.id, as(16), 60);
+    await owner.db.insert(auditLog).values({ tenantId: W.tenantId, actorUserId: crypto.randomUUID(), acao: 'ler', entidade: 'diario', patientId: caio.id });
+    await resumoDoDia(W.ctx, fuso, agora, app.db);
+    await resumoDoDia(W.ctx, fuso, agora, app.db);
+    expect((await leiturasDoDiario(W.ctx, caio.id)).filter((l) => l.actorUserId === W.nutriId)).toHaveLength(1);
   });
   it('achado 3: o Início inteiro numa transação só (pool de 10), com o mesmo resultado das leituras separadas', async () => {
     const T = await novoTenant(app.db);
