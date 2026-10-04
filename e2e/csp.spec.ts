@@ -30,7 +30,7 @@ test('cabeçalhos de segurança e nonce novo a cada requisição', async ({ requ
 });
 
 test('login, painel, agenda, prontuário, plano, portal e página pública (Turnstile) sem violação de CSP', async ({ browser }) => {
-  test.setTimeout(120_000); // cadastro + convite pelo Mailpit + plano + 12 telas
+  test.setTimeout(150_000); // cadastro + convite pelo Mailpit + plano + 12 telas + vídeo (D12)
   const visitante = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.13.18' } })).newPage();
   const erros = vigiarCsp(visitante);
   await visitante.goto('/entrar');
@@ -58,6 +58,25 @@ test('login, painel, agenda, prontuário, plano, portal e página pública (Turn
     await paciente.page.goto(url);
     await paciente.page.waitForLoadState('networkidle');
   }
+  // D12 (Plano 08) + frame-src: vídeo do Plano 07 só para este paciente; o iframe do youtube-nocookie entra com o clique
+  const video = `Vídeo CSP ${Date.now().toString(36)}`;
+  await nutri.goto('/painel/conteudos');
+  await nutri.getByRole('link', { name: 'Novo vídeo' }).click();
+  await nutri.getByLabel('Título').fill(video);
+  await nutri.getByLabel('Link do vídeo').fill('https://youtu.be/dQw4w9WgXcQ');
+  await nutri.getByLabel('Pacientes específicos').check();
+  await nutri.getByLabel(paciente.nome).check();
+  await nutri.getByRole('button', { name: 'Criar' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/conteudos\/[0-9a-f-]{36}$/);
+  await nutri.getByRole('button', { name: 'Publicar' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Conteúdo publicado.' })).toBeVisible();
+  await paciente.page.goto('/p/conteudos');
+  await paciente.page.getByRole('link', { name: new RegExp(video) }).click();
+  await expect(paciente.page).toHaveURL(/\/p\/conteudos\/[0-9a-f-]{36}$/);
+  await expect(paciente.page.locator('iframe')).toHaveCount(0);
+  await paciente.page.getByRole('button', { name: 'Carregar o vídeo' }).click();
+  await expect(paciente.page.locator(`iframe[title="Vídeo: ${video}"]`)).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+  await paciente.page.waitForLoadState('networkidle');
   expect([...erros, ...errosNutri, ...errosPaciente]).toEqual([]);
   await visitante.context().close();
   await paciente.page.context().close();

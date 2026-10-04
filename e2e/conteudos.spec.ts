@@ -55,6 +55,10 @@ test('vídeo só para a Ana (US-050, US-053): a Ana vê no feed com "Novo" e o p
   await cartao.click();
   await expect(ana.page).toHaveURL(/\/p\/conteudos\/[0-9a-f-]{36}$/); // a navegação é do roteador: espera a URL do detalhe
   urlDoVideo = new URL(ana.page.url()).pathname;
+  // D12 (Plano 08): sem o clique, nenhum iframe (o IP do paciente não vai ao provedor)
+  await expect(ana.page.getByText('O vídeo é exibido pelo YouTube.')).toBeVisible();
+  await expect(ana.page.locator('iframe')).toHaveCount(0);
+  await ana.page.getByRole('button', { name: 'Carregar o vídeo' }).click();
   await expect(ana.page.locator(`iframe[title="Vídeo: ${VIDEO}"]`)).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
   await expect
     .poll(async () => {

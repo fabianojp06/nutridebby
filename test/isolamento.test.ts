@@ -154,7 +154,7 @@ beforeAll(async () => {
   for (const t of tabelas) {
     if (!FABRICAS[t]) continue;
     for (const tenantId of [A, B]) {
-      for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri' }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
+      for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
   }
 });
@@ -205,7 +205,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
   it('WITH CHECK: o tenant B não grava linha com o tenant_id de A nem move a própria linha para A', async () => {
     for (const t of tabelas) {
       const antesA = await contarTenant(t, A);
-      const comoB = (q: SQL) => withTenant({ tenantId: B, role: 'nutri' }, (tx) => tx.execute(q), app.db);
+      const comoB = (q: SQL) => withTenant({ tenantId: B, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       await expect(comoB(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para tentar mover
@@ -220,7 +220,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const col = await colunaTitular(t);
       if (!col || soEquipe.has(t)) continue;
       const antesP1 = await contarPaciente(t, col, A, P1);
-      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       // a RLS (42501) é conferida antes da PK/UNIQUE e da FK: em patients o INSERT com id = P1 cai na política
       await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
@@ -238,7 +238,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     for (const t of tabelas) {
       const col = await colunaTitular(t);
       if (!col || soEquipe.has(t) || (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('insert')) continue;
-      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
     }
   });
@@ -249,7 +249,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       expect(tabelas, t).toContain(t);
       expect(soEquipe.has(t), t).toBe(true);
       expect(await contarTenant(t, A), t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
-      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2 }, (tx) => tx.execute(q), app.db);
+      const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       const vistas = await comoP2(sql`select 1 from ${sql.identifier(t)}`);
       expect(vistas.rows.length, t).toBe(0);
       await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
@@ -292,7 +292,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const id = sql.identifier(t);
       const antesA = await contarTenant(t, A);
       await withTenant(
-        { tenantId: B, role: 'nutri' },
+        { tenantId: B, role: 'nutri', actorUserId: randomUUID() },
         async (tx) => {
           // SELECT sem filtro: RLS precisa devolver só (e todas) as linhas de B — não zero (política que nega
           // tudo) nem inclui A (política que libera tudo).
@@ -327,7 +327,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const apaga = !SO_INSERE.has(t) && !SEM_DELETE_DO_PACIENTE.has(t);
       if (semLeituraDoPaciente.has(t)) expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0); // há linhas de P2 que ela não lê
       await withTenant(
-        { tenantId: A, role: 'paciente', patientId: P2 },
+        { tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() },
         async (tx) => {
           const vistas = await tx.execute(sql`select ${c} as titular from ${id}`);
           if (semLeituraDoPaciente.has(t)) return expect(vistas.rows, t).toEqual([]); // B-6: nem as próprias (o owner contou acima)

@@ -106,7 +106,7 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
       return (await tx.execute<{ t: string | null; r: string | null }>(sql`select app_current_tenant()::text as t, app_current_role() as r`)).rows[0];
     }, app.db);
     expect(ctxDepois).toEqual({ t: A.tenantId, r: 'worker' });
-    for (const ctx of [A.ctx, { tenantId: A.tenantId, role: 'paciente' as const, patientId: a.paciente.id }]) {
+    for (const ctx of [A.ctx, { tenantId: A.tenantId, role: 'paciente' as const, patientId: a.paciente.id, actorUserId: randomUUID() }]) {
       await expect(withTenant(ctx, (tx) => contaSemOutroVinculo(tx, randomUUID()), app.db)).rejects.toSatisfy((e) => recusada(e).code === '42501');
     }
   });

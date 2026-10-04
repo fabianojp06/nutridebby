@@ -29,7 +29,7 @@ const [consultorio] = await db
 
 // Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
 const AGENDA_E2E = ['whatsapp_conexoes', 'public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
-await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
   await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
@@ -82,7 +82,7 @@ if (existente) {
   await db.insert(account).values({ id: randomUUID(), userId: multiId, accountId: multiId, providerId: 'credential', password: senhaMulti });
 }
 for (const tenantId of [consultorio.id, ...outros]) {
-  await withTenant({ tenantId, role: 'nutri' }, async (tx) => {
+  await withTenant({ tenantId, role: 'worker' }, async (tx) => {
     await tx
       .insert(patients)
       .values({ tenantId, userId: multiId, nome: 'Multi E2E', dataNascimento: '1990-01-01', sexo: 'F', email: E2E_MULTI.email })

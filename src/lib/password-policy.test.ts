@@ -16,4 +16,10 @@ describe('validatePasswordPolicy (US-002)', () => {
   it('recusa senha acima de 128 caracteres', () => {
     expect(validatePasswordPolicy('a1'.repeat(65), common)).toBe('A senha pode ter no máximo 128 caracteres.');
   });
+  it('N4: letra e número por classe Unicode — "×" e "÷" não contam como letra; "Ç" conta', () => {
+    expect(validatePasswordPolicy('××××××××11')).toBe('A senha precisa ter pelo menos 1 letra e 1 número.');
+    expect(validatePasswordPolicy('÷÷÷÷÷÷÷÷÷1')).toBe('A senha precisa ter pelo menos 1 letra e 1 número.');
+    expect(validatePasswordPolicy('ÇãoÇãoÇão1')).toBeNull();
+    expect(validatePasswordPolicy('ΑβγδεζηθικΛ1')).toBeNull(); // grego também é letra
+  });
 });

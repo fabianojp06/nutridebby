@@ -1,6 +1,3 @@
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { PlayerVideo } from '@/components/player-video';
 import { describe, expect, it } from 'vitest';
 import { lerLinkDeVideo, urlDoPlayer, urlDoVideo, videoDoConteudo } from './video';
 
@@ -56,16 +53,5 @@ describe('link de vídeo (RN-10, INT-05, US-050)', () => {
     expect(videoDoConteudo({ videoProvider: 'vimeo', videoId: '76979871/abcdef1234' })).toEqual({ provider: 'vimeo', id: '76979871/abcdef1234' });
     expect(videoDoConteudo({ videoProvider: 'youtube', videoId: '76979871' })).toBeNull();
     expect(videoDoConteudo({ videoProvider: null, videoId: null })).toBeNull();
-  });
-});
-
-describe('PlayerVideo (D10)', () => {
-  it('iframe do youtube-nocookie com título, lazy e referrer só da origem; nada de youtube.com/embed', () => {
-    const html = renderToStaticMarkup(createElement(PlayerVideo, { video: { provider: 'youtube', id: 'dQw4w9WgXcQ' }, titulo: 'Como montar o prato' }));
-    expect(html).toContain('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');
-    expect(html).toContain('title="Vídeo: Como montar o prato"');
-    expect(html).toContain('loading="lazy"');
-    expect(html).toMatch(/referrerpolicy="strict-origin-when-cross-origin"/i); // o React pode escrever o atributo em minúsculas
-    expect(html).not.toContain('youtube.com/embed');
   });
 });

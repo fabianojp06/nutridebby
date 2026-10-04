@@ -77,7 +77,7 @@ async function resolver(token: string, deps: DepsLink): Promise<Resolvido | Falh
 }
 
 /** D20: as ações rodam como o próprio paciente (RLS por paciente), sem ator, com o IP de quem clicou. */
-const comoPaciente = (r: Resolvido, ip?: string | null): TenantContext => ({ tenantId: r.tenant.id, role: 'paciente', patientId: r.patientId, ip: ip ?? null });
+const comoPaciente = (r: Resolvido, ip?: string | null): TenantContext => ({ tenantId: r.tenant.id, role: 'paciente', patientId: r.patientId, semConta: true, ip: ip ?? null });
 /** O início do token e o e-mail com que ele conferiu vão junto: a ação confere de novo sob as travas (a nutricionista pode mudar no meio). */
 const depsDaAcao = (r: Resolvido, deps: DepsLink) => ({ db: r.db, now: r.agora, appUrl: deps.appUrl, inicioDoLink: r.inicioDoLink, emailDoLink: r.emailDoLink });
 

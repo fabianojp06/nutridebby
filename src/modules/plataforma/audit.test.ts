@@ -125,6 +125,6 @@ describe('listAccessHistory ("Histórico de acessos", 50 por página, mais recen
   });
 
   it('outro tenant não vê o histórico', async () => {
-    expect((await listAccessHistory({ tenantId: B, role: 'nutri' }, P3, 1, app.db)).total).toBe(0);
+    expect((await listAccessHistory({ tenantId: B, role: 'nutri', actorUserId: randomUUID() }, P3, 1, app.db)).total).toBe(0);
   });
 });

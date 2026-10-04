@@ -251,7 +251,7 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
 describe('trocarLogo', () => {
   it('grava o novo, aponta tenants.logo_path e apaga o anterior (a cota só conta o atual)', async () => {
     const t = await novoTenant('logo');
-    const ctx = { tenantId: t.id, role: 'nutri' as const };
+    const ctx = { tenantId: t.id, role: 'nutri' as const, actorUserId: randomUUID() };
     const primeiro = await trocarLogo(ctx, await imagem(300, 300, 'png'));
     const segundo = await trocarLogo(ctx, await imagem(200, 200, 'png'));
     const [r] = await getDb().select().from(tenants).where(eq(tenants.id, t.id));
@@ -263,7 +263,7 @@ describe('trocarLogo', () => {
   // T10-R3b/R4e: a falha acontece só em `apontarLogo` (o `salvarArquivo` usa o banco real e grava).
   it('o UPDATE do ponteiro falha depois do salvarArquivo: o arquivo novo sai do disco e a cota é devolvida', async () => {
     const t = await novoTenant('logo-falha');
-    const ctx = { tenantId: t.id, role: 'nutri' as const };
+    const ctx = { tenantId: t.id, role: 'nutri' as const, actorUserId: randomUUID() };
     let caminhoGravado = '';
     const apontar = async (_ctx: unknown, caminho: string) => {
       caminhoGravado = caminho;
@@ -290,7 +290,7 @@ describe('trocarLogo', () => {
   // primeira confirmar: é exatamente o `SELECT ... FOR UPDATE` fazendo o trabalho, não timing.
   it('SELECT ... FOR UPDATE bloqueia a segunda troca até a primeira confirmar (trava real, não timing)', async () => {
     const t = await novoTenant('logo-lock');
-    const ctx = { tenantId: t.id, role: 'nutri' as const };
+    const ctx = { tenantId: t.id, role: 'nutri' as const, actorUserId: randomUUID() };
     const salvo1 = await salvarArquivo(ctx, { tipo: 'logo', conteudo: await imagem(150, 150, 'png'), permitidos: ['png'] });
     const salvo2 = await salvarArquivo(ctx, { tipo: 'logo', conteudo: await imagem(250, 250, 'png'), permitidos: ['png'] });
 

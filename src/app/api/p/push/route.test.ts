@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MSG_MUITAS_TENTATIVAS } from '@/lib/limite-memoria';
 
 const estado = vi.hoisted(() => ({
   acesso: null as unknown,
@@ -86,6 +87,18 @@ describe('POST /api/p/push (US-040)', () => {
     expect(estado.inscricoes[0].deps).toEqual({ sincronizar: true });
     estado.resultado = 'de_outra_conta';
     expect((await POST(pedido({ query: '?sincronizar=1' }))).status).toBe(409);
+  });
+
+  it('B-8: a 21ª inscrição da mesma conta em 10 min dá 429 com a mensagem, sem inscrever; outra conta segue', async () => {
+    estado.acesso = { ok: true, ctx: {}, vinculos: [], data: { user: { id: 'ana-b8' } } };
+    for (let i = 0; i < 20; i++) expect((await POST(pedido({ query: '?sincronizar=1' }))).status).toBe(204);
+    const r = await POST(pedido({ query: '?sincronizar=1' }));
+    expect(r.status).toBe(429);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await r.json()).toEqual({ erro: MSG_MUITAS_TENTATIVAS });
+    expect(estado.inscricoes).toHaveLength(20);
+    estado.acesso = { ok: true, ctx: {}, vinculos: [], data: { user: { id: 'bia-b8' } } };
+    expect((await POST(pedido({ query: '?sincronizar=1' }))).status).toBe(204);
   });
 });
 

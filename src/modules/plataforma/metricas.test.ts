@@ -15,7 +15,7 @@ afterAll(() => app.pool.end());
 async function tenantComArquivos(n: number, bytes: number) {
   const [t] = await app.db.insert(tenants).values({ slug: `met-${randomUUID().slice(0, 8)}`, nomeExibicao: 'M', armazenamentoBytes: bytes }).returning();
   for (let i = 0; i < n; i++) {
-    await withTenant({ tenantId: t.id, role: 'nutri' }, (tx) =>
+    await withTenant({ tenantId: t.id, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
       tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime) values (${t.id}, 'logo', ${`${t.id}/logo/${randomUUID()}.png`}, 10, 'image/png')`), app.db);
   }
   return t.id;
@@ -36,7 +36,7 @@ describe('metricasPorTenant (§3: só contagens)', () => {
     // mês civil corrente no fuso do tenant (o padrão, America/Sao_Paulo), a qualquer hora que o teste rode
     const inicioMes = sql`(date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`;
     const mesSeguinte = sql`((date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') + interval '1 month') AT TIME ZONE 'America/Sao_Paulo')`;
-    await withTenant({ tenantId: t, role: 'nutri' }, async (tx) => {
+    await withTenant({ tenantId: t, role: 'nutri', actorUserId: randomUUID() }, async (tx) => {
       await tx.execute(sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'M', '1990-01-01', 'F', ${`m-${p}@t.dev`})`);
       const dia = sql`(${inicioMes} + interval '1 day')`; // sempre dentro do mês
       await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${dia}, ${dia} + interval '1 hour', 'presencial', 'nutri')`);
@@ -60,7 +60,7 @@ describe('metricasPorTenant (§3: só contagens)', () => {
   it('dentro de withTenant é recusada (apagaria o contexto app.* da transação do tenant) (M13)', async () => {
     const t = await tenantComArquivos(0, 0);
     await expect(
-      withTenant({ tenantId: t, role: 'nutri' }, (tx) => tx.execute(sql`select * from admin_tenant_metrics()`), app.db),
+      withTenant({ tenantId: t, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(sql`select * from admin_tenant_metrics()`), app.db),
     ).rejects.toSatisfy((e: unknown) => /withTenant/.test(String((e as { cause?: unknown }).cause ?? e)));
     // e fora dele, na mesma conexão/sessão já usada por um withTenant, segue funcionando
     await expect(metricasPorTenant(app.db)).resolves.toBeInstanceOf(Map);

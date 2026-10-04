@@ -2,6 +2,7 @@ import { getEnv } from '@/env';
 import { requireApiUser, type ApiAuth } from '@/lib/api-auth';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
 import { clientIp } from '@/lib/ip';
+import { criarLimite, MSG_MUITAS_TENTATIVAS } from '@/lib/limite-memoria';
 import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiPaciente, type PacienteAccess } from '@/lib/paciente-session';
 import { cancelarAparelho, InscricaoInvalidaError, inscreverAparelho, MSG_PUSH } from '@/modules/portal/push-inscricao';
@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic';
 
 /** A inscrição do navegador (`PushSubscription.toJSON()`) tem poucas centenas de bytes. */
 const CORPO_MAX = 4096;
+
+/** B-8 (D10): cada abertura do portal sincroniza a inscrição; 20 em 10 min por conta é folga larga para uso real. */
+const limitePorConta = criarLimite({ janelaMs: 10 * 60_000, max: 20 });
 
 const resposta = (status: number, corpo?: unknown) =>
   corpo === undefined ? new Response(null, { status, headers: { 'cache-control': 'no-store' } }) : Response.json(corpo, { status, headers: { 'cache-control': 'no-store' } });
@@ -43,6 +47,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!getEnv().VAPID_PUBLIC_KEY) return resposta(503, { erro: MSG_PUSH.indisponivel });
   const e = await entrada<PacienteAccess>(req, requireApiPaciente);
   if (!e.ok) return e.erro;
+  if (!limitePorConta.permitir(e.acesso.data.user.id)) return resposta(429, { erro: MSG_MUITAS_TENTATIVAS });
   const sincronizar = new URL(req.url).searchParams.get('sincronizar') === '1';
   try {
     const r = await inscreverAparelho(e.acesso, e.corpo, req.headers.get('user-agent'), { sincronizar });
