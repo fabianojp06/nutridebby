@@ -27,4 +27,18 @@ describe('marcarGuiaAction (D27): só os guias que existem, até a versão atual
     await marcarGuiaAction(id as string, versao as number, 'visto');
     expect(marcarGuia).not.toHaveBeenCalled();
   });
+  // achado 5 do /code-review do PR #12: sem isto, o PreferenciaError do módulo virava 500 (e ruído no Sentry) para quem
+  // chamasse a action com um valor qualquer
+  it.each([
+    ['estado fora de ESTADOS_GUIA', 1, 'apagado'],
+    ['estado que não é texto', 1, ['visto']],
+    ['versão zero', 0, 'visto'],
+    ['versão negativa', -1, 'visto'],
+    ['versão fracionária', 0.5, 'visto'],
+    ['versão NaN', Number.NaN, 'visto'],
+  ])('%s → recusa calada (nem erro, nem gravação)', async (_n, versao, estado) => {
+    const g = GUIAS[1];
+    await expect(marcarGuiaAction(g.id, versao as number, estado as 'visto')).resolves.toBeUndefined();
+    expect(marcarGuia).not.toHaveBeenCalled();
+  });
 });

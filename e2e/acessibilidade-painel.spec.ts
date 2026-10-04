@@ -20,7 +20,8 @@ test.beforeAll(async ({ browser }) => {
   await expect(nutri).toHaveURL(/\/painel$/);
   errosCsp = vigiarCsp(nutri);
   const ids = await prepararTelasComId(browser, nutri, '10.9.13.83');
-  rotas = Object.values(ROTAS_DO_PAINEL).map((f) => f(ids));
+  // a Segurança da conta fica fora do /painel, mas segue o tema da conta (D17, achado 9 do /code-review do PR #12)
+  rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
 test.afterAll(async () => {
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
@@ -93,6 +94,8 @@ test('D17: o botão de tema alterna, persiste depois de recarregar e em outro ap
   await expect(nutri.locator('[data-tema="escuro"]')).toBeAttached();
   await nutri.reload();
   await expect(nutri.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', 'true');
+  await nutri.goto('/conta/seguranca'); // fora do /painel, o mesmo tema da conta (D17)
+  await expect(nutri.locator('[data-tema="escuro"]')).toBeAttached();
   const outro = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.85');
   await expect(outro.locator('[data-tema="escuro"]')).toBeAttached();
   await outro.context().close();
