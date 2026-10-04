@@ -216,7 +216,7 @@ test('página pública: horário, Turnstile, código por e-mail e "Novo paciente
   await visitante.goto(`/n/e2e-consultorio?semana=${quarta}`);
   await expect(visitante.getByRole('heading', { name: 'Agendar consulta com Consultório E2E' })).toBeVisible();
   // quem já tem sessão vai direto à agenda do portal (sem pedir a senha nem apagar o plano offline); sem sessão, o proxy leva ao login
-  await expect(visitante.getByRole('link', { name: 'Entrar (já sou paciente)' })).toHaveAttribute('href', '/p/agenda');
+  await expect(visitante.getByRole('link', { name: 'Entrar (já sou paciente)' })).toHaveAttribute('href', /^\/p\/agenda\?v=[0-9a-f-]{36}$/); // ?v= = o consultório da página (S-5)
   await expect(visitante.getByRole('group', { name: 'Escolha a modalidade' }).getByLabel('Presencial')).toBeChecked();
   await visitante.getByRole('group', { name: `qua., ${br(quarta).slice(0, 5)}` }).getByRole('radio', { name: '16:00' }).check();
   await visitante.getByLabel('Nome').fill(`Eva Publica ${sufixo}`);

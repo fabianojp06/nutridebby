@@ -6,6 +6,7 @@ import { carregarPaginaPublica } from '@/modules/agenda/agendamento-publico';
 import { MSG_AGENDA, MSG_PUBLICO } from '@/modules/agenda/constantes';
 import { somarDias } from '@/modules/agenda/fuso';
 import { formatarData } from '@/modules/pacientes/datas';
+import { telaDoPortal } from '@/modules/portal/link-portal';
 import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
 import { AgendarForm } from './agendar-form';
 
@@ -36,12 +37,13 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
       </main>
     );
   }
+  // `?v=` = o consultório desta página (com 2+ vínculos, o cookie pode estar em outro; só vale se for vínculo ativo da conta)
   // o slug da URL é o do tenant encontrado (formato [a-z0-9-]): seguro para montar os links das semanas
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">{MSG_PUBLICO.titulo(p.nome)}</h1>
       <p>
-        <Link href="/p/agenda" className="underline">
+        <Link href={telaDoPortal('/p/agenda', p.tenantId)} className="underline">
           Entrar (já sou paciente)
         </Link>
       </p>

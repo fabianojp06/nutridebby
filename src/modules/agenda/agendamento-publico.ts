@@ -38,7 +38,7 @@ export type PaginaPublica =
   | { estado: 'nao_encontrada' }
   | { estado: 'suspensa'; nome: string }
   | { estado: 'desativada'; nome: string }
-  | { estado: 'ativa'; nome: string; temOnline: boolean; semana: string; primeira: string; ultima: string; horarios: HorarioVisivel[] };
+  | { estado: 'ativa'; tenantId: string; nome: string; temOnline: boolean; semana: string; primeira: string; ultima: string; horarios: HorarioVisivel[] };
 /**
  * `ip`: o de quem pediu (auditoria, aceite do termo, Turnstile). `ipDoLimite`: o balde do limite por IP — a rota passa
  * o `clientIpDoLimite` (IPv6: o /64); sem ele, conta pelo próprio `ip`.
@@ -90,7 +90,7 @@ export async function carregarPaginaPublica(slug: string, opts: { semana?: unkno
   if (t.status !== 'ativa') return { estado: 'suspensa', nome: t.nomeExibicao }; // RN-15
   if (!t.agendamentoPublicoAtivo) return { estado: 'desativada', nome: t.nomeExibicao };
   const { semana, primeira, ultima } = semanaDaJanela(opts.semana, hojeNoFuso(t.fuso, agora));
-  return { estado: 'ativa', nome: t.nomeExibicao, temOnline: !!t.linkOnlinePadrao, semana, primeira, ultima, horarios: await horariosDaSemana(t, semana, agora, db) };
+  return { estado: 'ativa', tenantId: t.id, nome: t.nomeExibicao, temOnline: !!t.linkOnlinePadrao, semana, primeira, ultima, horarios: await horariosDaSemana(t, semana, agora, db) };
 }
 
 type DadosDoPedido = { nome: string; email: string; telefone: string | null; whatsapp: boolean };
