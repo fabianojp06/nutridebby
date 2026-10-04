@@ -6,12 +6,17 @@ import type { Db } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
-import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 
 // Só o worker importa este arquivo (sharp + heic-decode/WASM): nenhuma rota do Next (guarda no grafo de imports).
 
-/** RN-07 / Review Focus 3: acima disto (≈ 40 MP, mais que qualquer câmera de celular) é recusado — "bomba de descompressão". */
+/**
+ * RN-07 / Review Focus 3: acima disto (≈ 40 MP) é recusado pelo cabeçalho — "bomba de descompressão". Não cobre toda
+ * câmera de celular: o modo HEIF Max de 48 MP (iPhone 14 Pro e posteriores; 8064 × 6048) passa do limite e a foto vira
+ * "falhou" ("Não foi possível processar a foto."). Mantido de propósito (débitos pré-go-live, F-3): o decode RGBA de
+ * 48 MP aloca ~195 MB por foto no worker, na VPS dividida com o CRM; o modo Max é opcional no iPhone (o padrão é 12 ou 24 MP).
+ */
 export const MAX_PIXELS = 40_000_000;
 const LADO_MAX = 1600;
 
@@ -26,6 +31,17 @@ type AbrirHeic = (buf: Buffer) => Promise<ImagemHeic>;
 class FotoInvalidaError extends Error {}
 /** Paciente bloqueado (pedido de exclusão atendido) ou anonimizado: a foto não é convertida e o original sai (US-018). */
 class TitularComExclusaoError extends Error {}
+
+/**
+ * RNF-11 / CLAUDE.md regra 3: o erro relançado vai para o `output` do job no pg-boss (serialize-error: mensagem, stack e
+ * propriedades como `path`) e para o log do evento `error`. O de E/S traz o caminho do arquivo, com os ids do tenant e do
+ * paciente: relança só o código (`ENOENT`, SQLSTATE…) ou o nome da classe.
+ */
+function semDetalhe(err: unknown): Error {
+  const code = err instanceof Error && 'code' in err ? err.code : undefined;
+  const codigo = typeof code === 'string' && /^[A-Z0-9_]{1,40}$/.test(code) ? code : err instanceof Error ? err.name : 'erro';
+  return new Error(`falha ao converter a foto do diário (${codigo})`);
+}
 
 /** `decode.all` só abre o contêiner (Step 1): nada de pixels até o `decode()` — a conferência dos 40 MP vem antes. */
 const heicDeVerdade: AbrirHeic = async (buf) => {
@@ -88,8 +104,8 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
  * CLAUDE.md regra 9: o JPEG entra por salvarArquivo e o registro aponta para ele no `registrar`; o original sai por
  * apagarArquivo e o ponteiro `foto_original_path` é limpo no `naMesmaTransacao` dele — nunca numa transação separada
  * (senão uma queda entre as duas deixa o original no disco, contando na cota, sem nada que aponte para ele).
- * Imagem que não decodifica ou grande demais → "falhou" na hora (definitivo) e o original sai. Erro de infraestrutura →
- * o pg-boss tenta de novo; na última tentativa, "falhou".
+ * Imagem que não decodifica ou grande demais, ou JPEG que não cabe na cota → "falhou" na hora (definitivo) e o original
+ * sai. Erro de infraestrutura → o pg-boss tenta de novo (o erro relançado leva só o código); na última, "falhou".
  * `descartar` (só a varredura `expirarFotosPendentes`): registro "processando" esquecido vira "falhou" e o original sai,
  * sem nova conversão.
  * Paciente bloqueado ou anonimizado (exclusão atendida no meio da conversão) → "removida", sem JPEG, e o original sai.
@@ -180,17 +196,19 @@ export async function converterFotoDoDiario(
     if (convertida) {
       // O JPEG já está gravado e apontado; o registro ainda aponta para o original (não é órfão): outra tentativa o apaga
       logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'original' }, 'original da foto do diário não apagado');
-      if (!deps.ultimaTentativa) throw err;
+      if (!deps.ultimaTentativa) throw semDetalhe(err);
       return 'pronta';
     }
     if (err instanceof TitularComExclusaoError) {
       logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'exclusao' }, 'foto do diário não convertida: titular bloqueado ou anonimizado');
       return falhar('removida');
     }
-    const definitivo = err instanceof FotoInvalidaError || deps.ultimaTentativa;
+    // Cota esgotada mesmo pela diferença (o JPEG saiu maior que o original): as outras tentativas esbarrariam nela também
+    const definitivo = err instanceof FotoInvalidaError || err instanceof CotaEsgotadaError || deps.ultimaTentativa;
+    const motivo = err instanceof FotoInvalidaError ? err.message : err instanceof CotaEsgotadaError ? 'cota' : 'erro';
     // RNF-11: só ids e o motivo; nunca o caminho nem o conteúdo
-    logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: err instanceof FotoInvalidaError ? err.message : 'erro', definitivo }, 'falha ao converter a foto do diário');
-    if (!definitivo) throw err;
+    logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo, definitivo }, 'falha ao converter a foto do diário');
+    if (!definitivo) throw semDetalhe(err);
     return falhar();
   }
 }

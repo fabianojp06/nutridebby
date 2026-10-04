@@ -57,9 +57,23 @@ describe('diário (US-042, RN-07)', () => {
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Brunch', texto: 'x', foto: null }, deps()))).toEqual({ refeicao: MSG_DIARIO.refeicao });
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: '   ', foto: null }, deps()))).toEqual({ geral: MSG_DIARIO.vazio });
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'a'.repeat(2001), foto: null }, deps()))).toEqual({ texto: MSG_DIARIO.texto });
+    // F-4: o limite conta caracteres (code points), como o CHECK do banco (char_length), não unidades UTF-16
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: '🍎'.repeat(2001), foto: null }, deps()))).toEqual({ texto: MSG_DIARIO.texto });
+    // F-4: NUL não entra no Postgres (text) — recusado antes, com 400, e não 500
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'arroz\u0000feijão', foto: null }, deps()))).toEqual({ geral: MSG_DIARIO.formulario });
     const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100)]);
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'x', foto: pdf }, deps()))).toEqual({ foto: MSG_DIARIO.foto });
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'x', foto: Buffer.alloc(10 * 1024 * 1024 + 1, 0xff) }, deps()))).toEqual({ foto: MSG_DIARIO.foto });
+  });
+
+  it('F-4: 2000 emojis (4000 unidades UTF-16) cabem nos 2000 caracteres da spec e do CHECK do banco', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    const texto = '🍎'.repeat(2000);
+    const { id } = await registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto, foto: null }, deps());
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, id)), app.db);
+    expect(e.texto).toBe(texto);
   });
 
   it('limite de 10 por dia no fuso do tenant: o 11º é recusado; 23:30 de Brasília ainda conta no mesmo dia; à 00:10 libera', async () => {

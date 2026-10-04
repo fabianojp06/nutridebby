@@ -47,7 +47,7 @@ async function receber(req: Request, acesso: Extract<ApiPaciente, { ok: true }>)
   } catch (e) {
     if (e instanceof CorpoGrandeError) return resposta(413, { erros: { foto: MSG_DIARIO.foto } });
     if (e instanceof CorpoLentoError) return resposta(408, { erros: { geral: MSG_DIARIO.ocupado } });
-    return resposta(400, { erros: { geral: 'Formulário inválido.' } });
+    return resposta(400, { erros: { geral: MSG_DIARIO.formulario } });
   }
   const arquivo = form.get('foto');
   const foto = arquivo instanceof Blob && arquivo.size > 0 ? Buffer.from(await arquivo.arrayBuffer()) : null;
