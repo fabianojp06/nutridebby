@@ -14,11 +14,11 @@ export function PublicarForm({ id, publicado }: { id: string; publicado: boolean
   const erro = s.erros?.geral ?? s.erros?.visibilidade;
   return (
     <div className="space-y-2">
-      {!publicado && erro && <p role="alert" className="text-red-700">{erro}</p>}
+      {!publicado && erro && <p role="alert" className="text-erro">{erro}</p>}
       <p role="status">{publicado ? s.ok : undefined}</p>
       {publicado ? (
         <form action={despublicarConteudoAction.bind(null, id)}>
-          <button className="rounded border px-4 py-2">Despublicar</button>
+          <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Despublicar</button>
         </form>
       ) : (
         <form action={publicar} className="space-y-2">
@@ -26,7 +26,7 @@ export function PublicarForm({ id, publicado }: { id: string; publicado: boolean
             <input type="checkbox" name="avisar" />
             Avisar pacientes
           </label>
-          <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">Publicar</button>
+          <button disabled={enviando} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white disabled:opacity-50">Publicar</button>
         </form>
       )}
     </div>

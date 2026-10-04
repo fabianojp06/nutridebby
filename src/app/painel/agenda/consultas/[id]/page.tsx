@@ -14,6 +14,7 @@ import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
 import { CancelarForm } from './cancelar-form';
 import { PresencaForm } from './presenca';
+import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,20 +37,20 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const motivo = c.status === 'cancelada' && c.canceladoPor === 'nutri' ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
   return (
     <>
-      <main className="space-y-6 p-6">
-        <p className="text-sm"><Link href={`/painel/agenda?data=${p.data}`} className="underline">Agenda</Link></p>
+      <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
+        <p className="text-sm"><Link href={`/painel/agenda?data=${p.data}`} className="text-link underline">Agenda</Link></p>
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold">{`Consulta de ${c.paciente}`}</h1>
+          <h1 className="font-titulo text-2xl font-semibold">{`Consulta de ${c.paciente}`}</h1>
           <p>{`${formatarQuando(c.inicio, tenant.fuso)}–${partesNoFuso(c.fim, tenant.fuso).hora} · ${ROTULO_MODALIDADE[c.modalidade]}`}</p>
-          {c.linkOnline && <p className="text-sm">Link da chamada: <a href={c.linkOnline} className="underline" rel="noreferrer" target="_blank">{c.linkOnline}</a></p>}
+          {c.linkOnline && <p className="text-sm">Link da chamada: <a href={c.linkOnline} className="text-link underline" rel="noreferrer" target="_blank">{c.linkOnline}</a></p>}
           <ul className="flex flex-wrap gap-1 text-sm" aria-label="Situação">
-            {selosDaConsulta(c, emBloqueio).map((s) => <li key={s} className="rounded bg-zinc-100 px-1.5">{s}</li>)}
+            {selosDaConsulta(c, emBloqueio).map((s) => <li key={s} className="rounded bg-linha px-1.5">{s}</li>)}
           </ul>
           {motivo && <p className="text-sm"><span className="font-medium">Motivo do cancelamento (só você vê):</span> {motivo}</p>}
-          <p className="text-sm"><Link href={`/painel/pacientes/${c.patientId}`} className="underline">Abrir prontuário</Link></p>
+          <p className="text-sm"><Link href={`/painel/pacientes/${c.patientId}`} className="text-link underline">Abrir prontuário</Link></p>
         </header>
-        {ok && <p role="status" className="rounded bg-emerald-50 p-3">{ok}</p>}
-        {lerAvisos(sp.avisos).map((a) => <p key={a} role="status" className="rounded bg-amber-50 p-3 text-amber-900">{AVISO_ROTULO[a]}</p>)}
+        {ok && <Aviso tipo="ok">{ok}</Aviso>}
+        {lerAvisos(sp.avisos).map((a) => <Aviso key={a} tipo="aviso">{AVISO_ROTULO[a]}</Aviso>)}
         {comecou && (
           <section aria-labelledby="presenca" className="space-y-2">
             <h2 id="presenca" className="text-lg font-semibold">Registrar presença</h2>
@@ -57,7 +58,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           </section>
         )}
         {podeAtender && (
-          <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-block rounded bg-emerald-700 px-3 py-1.5 text-white">Iniciar atendimento</Link></p>
+          <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-block rounded-full bg-destaque font-semibold px-3 py-1.5 text-white">Iniciar atendimento</Link></p>
         )}
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">
@@ -77,14 +78,14 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           {lembretes.length === 0 ? (
             <p>Nenhum lembrete para esta consulta.</p>
           ) : (
-            <table className="w-full max-w-3xl text-left text-sm">
+            <table className="w-full max-w-3xl text-left">
               <caption className="sr-only">Lembretes da consulta</caption>
-              <thead>
+              <thead className="text-sm text-suave">
                 <tr><th scope="col">Mensagem</th><th scope="col">Canal</th><th scope="col">Situação</th></tr>
               </thead>
               <tbody>
                 {lembretes.map((n) => (
-                  <tr key={n.id} className="border-t">
+                  <tr key={n.id} className="border-t border-linha">
                     <td>{ROTULO_TIPO[n.tipo as TipoNotificacao]}</td>
                     <td>{ROTULO_CANAL[n.canal as Canal]}</td>
                     <td>{situacaoDaNotificacao(n, tenant.fuso)}</td>

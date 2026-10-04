@@ -29,9 +29,9 @@ export default async function AtendimentoPage({ params }: PageProps<'/painel/pac
       <nav aria-labelledby="atalhos" className="space-y-2">
         <h2 id="atalhos" className="text-lg font-semibold">Neste atendimento</h2>
         <ul className="space-y-1">
-          <li><Link href={`${base}/anamnese`} className="underline">Anamnese</Link></li>
-          <li><Link href={`${base}/antropometria?atendimento=${a.id}`} className="underline">Antropometria</Link></li>
-          <li><Link href={`${base}/gasto-energetico`} className="underline">Gasto energético</Link></li>
+          <li><Link href={`${base}/anamnese`} className="text-link underline">Anamnese</Link></li>
+          <li><Link href={`${base}/antropometria?atendimento=${a.id}`} className="text-link underline">Antropometria</Link></li>
+          <li><Link href={`${base}/gasto-energetico`} className="text-link underline">Gasto energético</Link></li>
         </ul>
       </nav>
     </div>

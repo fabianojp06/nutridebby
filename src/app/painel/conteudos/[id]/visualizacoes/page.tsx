@@ -14,9 +14,9 @@ export default async function QuemViu({ params }: PageProps<'/painel/conteudos/[
   if (!r) notFound();
   return (
     <>
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <Link href={`/painel/conteudos/${id}`} className="text-sm underline">Voltar ao conteúdo</Link>
-        <h1 className="text-2xl font-semibold">{`Quem viu: ${r.titulo}`}</h1>
+        <h1 className="font-titulo text-2xl font-semibold">{`Quem viu: ${r.titulo}`}</h1>
         {r.pessoas.length === 0 ? (
           <p>Ninguém abriu este conteúdo ainda.</p>
         ) : (

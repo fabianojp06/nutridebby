@@ -40,7 +40,7 @@ export default async function PrivacidadePage({
         )}
         {paciente.status === 'arquivado' && (
           <form action={desarquivarAction.bind(null, paciente.id)}>
-            <button className="rounded border px-4 py-2">Desarquivar paciente</button>
+            <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Desarquivar paciente</button>
           </form>
         )}
         {paciente.status === 'bloqueado' && (
@@ -62,7 +62,7 @@ export default async function PrivacidadePage({
               por 24 horas.
             </p>
             <form action={exportarAction.bind(null, paciente.id)}>
-              <button className="rounded border px-4 py-2">Exportar dados</button>
+              <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Exportar dados</button>
             </form>
           </>
         )}
@@ -72,7 +72,7 @@ export default async function PrivacidadePage({
               <li key={r.id}>
                 <Link
                   href={`/painel/pacientes/${paciente.id}/exportacoes/${r.id}`}
-                  className="underline"
+                  className="text-link underline"
                 >{`Pedida em ${formatarDataHora(r.createdAt, tenant.fuso)}`}</Link>
                 {` · ${{ pendente: 'gerando', pronta: 'pronta', falhou: 'falhou', expirada: 'expirada' }[r.status] ?? r.status}`}
               </li>

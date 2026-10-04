@@ -19,9 +19,9 @@ export default async function NovoConteudo({ searchParams }: PageProps<'/painel/
   const vazio = { titulo: '', resumo: '', link: '', corpo: '', etiquetas: '', visibilidade: 'todos', pacientes: [], tags: [] };
   return (
     <>
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <Link href="/painel/conteudos" className="text-sm underline">Voltar aos conteúdos</Link>
-        <h1 className="text-2xl font-semibold">{TITULO_NOVO[tipo]}</h1>
+        <h1 className="font-titulo text-2xl font-semibold">{TITULO_NOVO[tipo]}</h1>
         <ConteudoForm tipo={tipo} inicial={vazio} opcoes={opcoes} acao={criarConteudoAction.bind(null, tipo)} botao="Criar" />
       </main>
     </>

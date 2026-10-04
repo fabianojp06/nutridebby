@@ -20,37 +20,37 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const hoje = hojeNoFuso(tenant.fuso);
   return (
     <>
-      <main className="space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold">Pacientes</h1>
-          <Link href="/painel/pacientes/novo" className="rounded bg-emerald-700 px-4 py-2 text-white">Novo paciente</Link>
+          <h1 className="font-titulo text-2xl font-semibold">Pacientes</h1>
+          <Link href="/painel/pacientes/novo" className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Novo paciente</Link>
         </div>
         <form role="search" className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <label htmlFor="busca" className="block font-medium">Buscar por nome ou e-mail</label>
-            <input id="busca" name="busca" type="search" defaultValue={busca} className="rounded border p-2" />
+            <input id="busca" name="busca" type="search" defaultValue={busca} className="rounded-xl border border-campo bg-cartao p-2 text-texto" />
           </div>
           <div className="space-y-1">
             <label htmlFor="status" className="block font-medium">Situação</label>
-            <select id="status" name="status" defaultValue={status} className="rounded border p-2">
+            <select id="status" name="status" defaultValue={status} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
               {Object.entries(SITUACOES).map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
             </select>
           </div>
           <div className="space-y-1">
             <label htmlFor="etiqueta" className="block font-medium">Etiqueta</label>
-            <select id="etiqueta" name="etiqueta" defaultValue={etiquetaId} className="rounded border p-2">
+            <select id="etiqueta" name="etiqueta" defaultValue={etiquetaId} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
               <option value="">Todas</option>
               {etiquetas.map((e) => <option key={e.id} value={e.id}>{`${e.nome} (${e.pacientes})`}</option>)}
             </select>
           </div>
-          <button className="rounded border px-4 py-2">Filtrar</button>
+          <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Filtrar</button>
         </form>
         {lista.length === 0 ? (
           <p>Nenhum paciente encontrado.</p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left">
             <caption className="sr-only">Pacientes</caption>
-            <thead>
+            <thead className="text-sm text-suave">
               <tr>
                 <th scope="col">Nome</th>
                 <th scope="col">Idade</th>
@@ -60,8 +60,8 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             </thead>
             <tbody>
               {lista.map((p) => (
-                <tr key={p.id} className="border-t">
-                  <td><Link href={`/painel/pacientes/${p.id}`} className="underline">{p.nome}</Link></td>
+                <tr key={p.id} className="border-t border-linha">
+                  <td><Link href={`/painel/pacientes/${p.id}`} className="text-link underline">{p.nome}</Link></td>
                   <td>{p.dataNascimento ? `${idadeEm(p.dataNascimento, hoje)} anos` : 'Completar cadastro'}</td>
                   <td>{p.email}</td>
                   <td>{p.userId ? 'Ativo' : 'Pendente'}</td>

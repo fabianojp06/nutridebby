@@ -18,6 +18,13 @@ describe('GraficoLinha', () => {
     expect(html).toContain('<caption');
     expect((html.match(/<tr>/g) ?? []).length).toBe(3); // cabeçalho + 2 linhas
   });
+  it('cores por token (D24): segue o tema da usuária, sem cor fixa nem dark:', () => {
+    const html = render([{ data: '2026-06-01', valor: 1 }, { data: '2026-07-01', valor: 2 }]);
+    expect(html).toContain('class="space-y-2 text-suave"');
+    expect(html).toContain('class="stroke-marca"');
+    expect(html).toContain('class="fill-marca stroke-cartao"');
+    expect(html).not.toMatch(/emerald|dark:|stroke-white/);
+  });
   it('valores iguais não quebram a escala (sem divisão por zero)', () => {
     const html = render([{ data: '2026-06-01', valor: 100 }, { data: '2026-09-01', valor: 100 }]);
     expect(html).not.toContain('NaN');

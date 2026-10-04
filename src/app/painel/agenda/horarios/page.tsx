@@ -16,9 +16,9 @@ export default async function HorariosPage() {
   const [regras, bloqueios] = await Promise.all([listarRegras(ctx), listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000))]);
   return (
     <>
-      <main className="mx-auto max-w-4xl space-y-8 p-6">
-        <p className="text-sm"><Link href="/painel/agenda" className="underline">Agenda</Link></p>
-        <h1 className="text-2xl font-semibold">Horários de atendimento</h1>
+      <main className="mx-auto w-full max-w-[1360px] space-y-8 p-4 md:p-6">
+        <p className="text-sm"><Link href="/painel/agenda" className="text-link underline">Agenda</Link></p>
+        <h1 className="font-titulo text-2xl font-semibold">Horários de atendimento</h1>
         <section aria-labelledby="regras" className="space-y-3">
           <h2 id="regras" className="text-lg font-semibold">Horários da semana</h2>
           {regras.length === 0 ? (

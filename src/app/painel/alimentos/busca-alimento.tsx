@@ -87,22 +87,22 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
           } else return;
           e.preventDefault();
         }}
-        className="w-full rounded border p-2"
+        className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
       />
-      {erro && <p role="alert" className="text-sm text-red-700">{erro}</p>}
-      {semResultado && <p role="status" className="text-sm text-zinc-600">Nenhum alimento encontrado.</p>}
-      <ul id={`${id}-lista`} role="listbox" aria-label="Resultados" className="divide-y rounded border empty:hidden">
+      {erro && <p role="alert" className="text-sm text-erro">{erro}</p>}
+      {semResultado && <p role="status" className="text-sm text-suave">Nenhum alimento encontrado.</p>}
+      <ul id={`${id}-lista`} role="listbox" aria-label="Resultados" className="divide-y divide-linha rounded-2xl border border-borda bg-cartao empty:hidden">
         {resultados.map((a, i) => (
-          <li key={a.id} id={`${id}-${a.id}`} role="option" aria-selected={i === ativo} className={i === ativo ? 'bg-emerald-50' : ''}>
+          <li key={a.id} id={`${id}-${a.id}`} role="option" aria-selected={i === ativo} className={i === ativo ? 'bg-ok-fundo' : ''}>
             {aoEscolher ? (
               <button type="button" onClick={() => escolher(a)} className="flex w-full items-center justify-between gap-2 p-2 text-left">
                 <span>{a.nome}</span>
-                <span className="text-sm text-zinc-600">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
+                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
               </button>
             ) : (
               <Link href={hrefDe(a)} className="flex items-center justify-between gap-2 p-2">
                 <span>{a.nome}</span>
-                <span className="text-sm text-zinc-600">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
+                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
               </Link>
             )}
           </li>
@@ -114,5 +114,5 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
 
 /** "Origem visível" (US-020): selo com texto, não só cor. */
 export function Selo({ origem }: { origem: 'TACO' | 'Meu alimento' }) {
-  return <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${origem === 'TACO' ? 'bg-zinc-100 text-zinc-800' : 'bg-emerald-100 text-emerald-900'}`}>{origem}</span>;
+  return <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${origem === 'TACO' ? 'bg-linha text-texto' : 'bg-ok-fundo text-ok'}`}>{origem}</span>;
 }

@@ -35,9 +35,9 @@ export function Enable2fa() {
     return (
       <form onSubmit={iniciar} className="space-y-3">
         <label htmlFor="senha" className="block">Confirme sua senha</label>
-        <input id="senha" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border p-2" />
-        {erro && <p role="alert" className="text-red-700">{erro}</p>}
-        <button className="rounded bg-emerald-700 px-4 py-2 text-white">Ativar verificação em duas etapas</button>
+        <input id="senha" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+        {erro && <p role="alert" className="text-erro">{erro}</p>}
+        <button className="rounded bg-destaque px-4 py-2 text-white">Ativar verificação em duas etapas</button>
       </form>
     );
 
@@ -51,9 +51,9 @@ export function Enable2fa() {
         )}
         <p className="text-sm">Ou digite a chave: <code data-testid="totp-secret">{secret}</code></p>
         <label htmlFor="codigo" className="block">Código de 6 dígitos</label>
-        <input id="codigo" inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded border p-2" />
-        {erro && <p role="alert" className="text-red-700">{erro}</p>}
-        <button className="rounded bg-emerald-700 px-4 py-2 text-white">Confirmar</button>
+        <input id="codigo" inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+        {erro && <p role="alert" className="text-erro">{erro}</p>}
+        <button className="rounded bg-destaque px-4 py-2 text-white">Confirmar</button>
       </form>
     );
 
@@ -64,7 +64,7 @@ export function Enable2fa() {
       <ul data-testid="backup-codes" className="grid grid-cols-2 gap-1 font-mono">
         {backup.map((c) => <li key={c}>{c}</li>)}
       </ul>
-      <a href="/inicio" className="inline-block rounded bg-emerald-700 px-4 py-2 text-white">Continuar</a>
+      <a href="/inicio" className="inline-block rounded bg-destaque px-4 py-2 text-white">Continuar</a>
     </div>
   );
 }

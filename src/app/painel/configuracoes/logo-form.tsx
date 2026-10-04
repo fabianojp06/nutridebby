@@ -32,10 +32,10 @@ export function LogoForm() {
     <form onSubmit={enviar} className="space-y-2">
       <label htmlFor="logo" className="block font-medium">Logo</label>
       <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/svg+xml" aria-describedby="logo-dica" />
-      <p id="logo-dica" className="text-sm text-zinc-600">PNG, JPEG ou SVG de até 2 MB. O logo é reduzido para no máximo 512 px.</p>
-      {erro && <p role="alert" className="text-red-700">{erro}</p>}
+      <p id="logo-dica" className="text-sm text-suave">PNG, JPEG ou SVG de até 2 MB. O logo é reduzido para no máximo 512 px.</p>
+      {erro && <p role="alert" className="text-erro">{erro}</p>}
       {ok && <p role="status">Logo atualizado.</p>}
-      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white">Enviar logo</button>
+      <button disabled={enviando} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Enviar logo</button>
     </form>
   );
 }

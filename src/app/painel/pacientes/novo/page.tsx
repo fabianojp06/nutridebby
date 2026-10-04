@@ -15,7 +15,7 @@ export default async function NovoPacientePage() {
   return (
     <>
       <main className="mx-auto max-w-xl space-y-4 p-6">
-        <h1 className="text-2xl font-semibold">Novo paciente</h1>
+        <h1 className="font-titulo text-2xl font-semibold">Novo paciente</h1>
         <PacienteForm acao={criarPacienteAction} inicial={VAZIO} botao="Cadastrar paciente" conviteWhatsapp={{ aviso }} />
       </main>
     </>

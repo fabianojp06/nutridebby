@@ -35,9 +35,9 @@ export default async function ConteudoPage({ params, searchParams }: PageProps<'
   };
   return (
     <>
-      <main className="mx-auto max-w-3xl space-y-6 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
         <Link href="/painel/conteudos" className="text-sm underline">Voltar aos conteúdos</Link>
-        <h1 className="text-2xl font-semibold">{c.titulo}</h1>
+        <h1 className="font-titulo text-2xl font-semibold">{c.titulo}</h1>
         <p>{`${ROTULO_TIPO_CONTEUDO[c.tipo]} · ${c.status === 'publicado' ? 'Publicado' : 'Rascunho'}`}</p>
         {c.tipo === 'video' && <CapaDoConteudo tipo={c.tipo} capaUrl={c.capaUrl} className="max-w-xs" />}
         {c.video && <PlayerVideo video={c.video} titulo={c.titulo} />}
@@ -45,8 +45,8 @@ export default async function ConteudoPage({ params, searchParams }: PageProps<'
         {c.tipo === 'receita' && <ReceitaForm id={c.id} inicial={await carregarReceitaDoPainel(ctx, c.id)} />}
         {c.tipo !== 'video' && <ArquivosDoConteudo id={c.id} tipo={c.tipo} capaUrl={c.capaUrl} pdfUrl={c.pdfUrl} />}
         <PublicarForm id={c.id} publicado={c.status === 'publicado'} />
-        {c.status === 'publicado' && <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="underline">Ver quem viu</Link>}
-        {ocupado === '1' && <p role="alert" className="text-red-700">{MSG_CONTEUDO.ocupado}</p>}
+        {c.status === 'publicado' && <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="text-link underline">Ver quem viu</Link>}
+        {ocupado === '1' && <p role="alert" className="text-erro">{MSG_CONTEUDO.ocupado}</p>}
         <form action={excluirConteudoAction.bind(null, c.id)}>
           <ConfirmarBotao mensagem="Excluir este conteúdo? A sugestão de receita sai dos planos.">Excluir conteúdo</ConfirmarBotao>
         </form>

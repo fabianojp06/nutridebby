@@ -27,7 +27,7 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
     }
   }
   return (
-    <section aria-labelledby="arquivos-titulo" className="space-y-3 rounded border p-4">
+    <section aria-labelledby="arquivos-titulo" className="space-y-3 rounded-2xl border border-borda bg-cartao p-4">
       <h2 id="arquivos-titulo" className="font-semibold">Arquivos</h2>
       <CapaDoConteudo tipo={tipo} capaUrl={capaUrl} className="max-w-xs" />
       <div className="space-y-1">
@@ -36,7 +36,7 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
       </div>
       {capaUrl && (
         <form action={removerCapaAction.bind(null, id)}>
-          <button className="underline">Remover capa</button>
+          <button className="text-link underline">Remover capa</button>
         </form>
       )}
       {tipo === 'orientacao' && (
@@ -47,10 +47,10 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
           </div>
           {pdfUrl && (
             <div className="flex gap-4">
-              <a href={pdfUrl} className="underline">Ver PDF</a>
+              <a href={pdfUrl} className="text-link underline">Ver PDF</a>
               <button
                 type="button"
-                className="underline"
+                className="text-link underline"
                 onClick={async () => {
                   try {
                     const r = await removerPdfAction(id);
@@ -70,7 +70,7 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
       )}
       {estado.enviando && <p role="status">Enviando…</p>}
       {estado.ok && <p role="status">{estado.ok}</p>}
-      {estado.erro && <p role="alert" className="text-red-700">{estado.erro}</p>}
+      {estado.erro && <p role="alert" className="text-erro">{estado.erro}</p>}
     </section>
   );
 }

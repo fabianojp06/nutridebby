@@ -18,9 +18,9 @@ export function HistoricoAcessosTabela({ pagina, fuso, baseHref }: { pagina: Acc
       {pagina.total === 0 ? (
         <p>Nenhum acesso registrado.</p>
       ) : (
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left">
           <caption className="sr-only">Acessos ao prontuário, do mais recente para o mais antigo</caption>
-          <thead>
+          <thead className="text-sm text-suave">
             <tr>
               <th scope="col">Data e hora</th>
               <th scope="col">Quem</th>
@@ -31,7 +31,7 @@ export function HistoricoAcessosTabela({ pagina, fuso, baseHref }: { pagina: Acc
           </thead>
           <tbody>
             {pagina.itens.map((i) => (
-              <tr key={i.id} className="border-t">
+              <tr key={i.id} className="border-t border-linha">
                 <td>{formatarDataHora(i.criadoEm, fuso)}</td>
                 <td>{i.ator ? `${i.ator.nome}${PAPEL[i.ator.papel] ? ` (${PAPEL[i.ator.papel]})` : ''}` : 'Sistema'}</td>
                 <td>{ACAO_ROTULO[i.acao]}</td>

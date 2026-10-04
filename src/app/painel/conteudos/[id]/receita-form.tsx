@@ -38,16 +38,16 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
   const campo = (c: string, nome: string, rotulo: string, valor: string, set: (v: string) => void) => (
     <div className="space-y-1">
       <label htmlFor={nome} className="block font-medium">{rotulo}</label>
-      <input id={nome} name={nome} inputMode="decimal" value={valor} onChange={(e) => set(e.target.value)} aria-invalid={erro(c) ? true : undefined} aria-describedby={erro(c) ? `${nome}-erro` : undefined} className="w-32 rounded border p-2" />
-      {erro(c) && <p id={`${nome}-erro`} role="alert" className="text-sm text-red-700">{erro(c)}</p>}
+      <input id={nome} name={nome} inputMode="decimal" value={valor} onChange={(e) => set(e.target.value)} aria-invalid={erro(c) ? true : undefined} aria-describedby={erro(c) ? `${nome}-erro` : undefined} className="w-32 rounded-xl border border-campo bg-cartao p-2 text-texto" />
+      {erro(c) && <p id={`${nome}-erro`} role="alert" className="text-sm text-erro">{erro(c)}</p>}
     </div>
   );
   return (
-    <section aria-labelledby="receita-titulo" className="space-y-4 rounded border p-4">
+    <section aria-labelledby="receita-titulo" className="space-y-4 rounded-2xl border border-borda bg-cartao p-4">
       <h2 id="receita-titulo" className="font-semibold">Receita</h2>
       <form action={enviar} className="space-y-4">
         <input type="hidden" name="ingredientes" value={json} />
-        {erro('geral') && <p role="alert" className="text-red-700">{erro('geral')}</p>}
+        {erro('geral') && <p role="alert" className="text-erro">{erro('geral')}</p>}
         <div className="flex flex-wrap gap-4">
           {campo('rendimento', 'rendimento', 'Rendimento total (g)', rendimento, setRendimento)}
           {campo('porcao', 'porcao', 'Porção (g)', porcao, setPorcao)}
@@ -62,17 +62,17 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
               const msg = eq ?? erro(`ingrediente:${k}:alimento`) ?? em;
               return (
                 <li key={l.chave} className="flex flex-wrap items-end gap-3">
-                  <p className="min-w-48 flex-1">{l.nome} <Selo origem={l.origem} />{l.porCem.kcal === null && <span className="ml-2 text-sm text-zinc-600">{MSG_PLANO.semValor}</span>}</p>
+                  <p className="min-w-48 flex-1">{l.nome} <Selo origem={l.origem} />{l.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor}</span>}</p>
                   <div className="space-y-1">
                     <label htmlFor={`${l.chave}-g`} className="block text-sm">{`Gramas de ${l.nome}`}</label>
-                    <input id={`${l.chave}-g`} inputMode="decimal" value={l.gramasTexto} onChange={(e) => mudar(l.chave, 'gramasTexto', e.target.value)} aria-invalid={eq ? true : undefined} aria-describedby={eq ? `${l.chave}-erro` : undefined} className="w-24 rounded border p-2" />
+                    <input id={`${l.chave}-g`} inputMode="decimal" value={l.gramasTexto} onChange={(e) => mudar(l.chave, 'gramasTexto', e.target.value)} aria-invalid={eq ? true : undefined} aria-describedby={eq ? `${l.chave}-erro` : undefined} className="w-24 rounded-xl border border-campo bg-cartao p-2 text-texto" />
                   </div>
                   <div className="space-y-1">
                     <label htmlFor={`${l.chave}-m`} className="block text-sm">{`Medida caseira de ${l.nome} (opcional)`}</label>
-                    <input id={`${l.chave}-m`} maxLength={MEDIDA_TXT_MAX} value={l.medidaTexto} onChange={(e) => mudar(l.chave, 'medidaTexto', e.target.value)} aria-invalid={em ? true : undefined} aria-describedby={em && !eq ? `${l.chave}-erro` : undefined} className="w-40 rounded border p-2" />
+                    <input id={`${l.chave}-m`} maxLength={MEDIDA_TXT_MAX} value={l.medidaTexto} onChange={(e) => mudar(l.chave, 'medidaTexto', e.target.value)} aria-invalid={em ? true : undefined} aria-describedby={em && !eq ? `${l.chave}-erro` : undefined} className="w-40 rounded-xl border border-campo bg-cartao p-2 text-texto" />
                   </div>
                   <button type="button" className="text-sm underline" onClick={() => setLinhas((ls) => ls.filter((x) => x.chave !== l.chave))}>{`Remover ${l.nome}`}</button>
-                  {msg && <p id={`${l.chave}-erro`} role="alert" className="w-full text-sm text-red-700">{msg}</p>}
+                  {msg && <p id={`${l.chave}-erro`} role="alert" className="w-full text-sm text-erro">{msg}</p>}
                 </li>
               );
             })}
@@ -86,16 +86,16 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
               }}
             />
           )}
-          {erro('ingredientes') && <p id="ingredientes-erro" role="alert" className="text-sm text-red-700">{erro('ingredientes')}</p>}
+          {erro('ingredientes') && <p id="ingredientes-erro" role="alert" className="text-sm text-erro">{erro('ingredientes')}</p>}
         </fieldset>
         <p aria-live="polite" className="font-medium">{calc ? textoPorPorcao(calc) : ''}</p>
         <div className="space-y-1">
           <label htmlFor="modo" className="block font-medium">Modo de preparo</label>
-          <textarea id="modo" name="modo" rows={6} maxLength={MODO_PREPARO_MAX} value={modo} onChange={(e) => setModo(e.target.value)} aria-invalid={erro('modo') ? true : undefined} aria-describedby={erro('modo') ? 'modo-erro' : undefined} className="w-full rounded border p-2" />
-          {erro('modo') && <p id="modo-erro" role="alert" className="text-sm text-red-700">{erro('modo')}</p>}
+          <textarea id="modo" name="modo" rows={6} maxLength={MODO_PREPARO_MAX} value={modo} onChange={(e) => setModo(e.target.value)} aria-invalid={erro('modo') ? true : undefined} aria-describedby={erro('modo') ? 'modo-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+          {erro('modo') && <p id="modo-erro" role="alert" className="text-sm text-erro">{erro('modo')}</p>}
         </div>
         <p role="status">{s.ok}</p>
-        <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">Salvar receita</button>
+        <button disabled={enviando} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white disabled:opacity-50">Salvar receita</button>
       </form>
     </section>
   );

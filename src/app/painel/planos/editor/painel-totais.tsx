@@ -4,7 +4,7 @@ import { distribuicaoMacros, gTexto, indicadorMeta, kcalTexto, type Nutrientes }
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { formatarDecimal } from '@/lib/numero';
 
-const COR = { verde: 'bg-emerald-100 text-emerald-900', amarelo: 'bg-amber-100 text-amber-900', vermelho: 'bg-red-100 text-red-900' } as const;
+const COR = { verde: 'bg-ok-fundo text-ok', amarelo: 'bg-aviso-fundo text-aviso', vermelho: 'bg-erro-fundo text-erro' } as const;
 
 /** US-022: total do dia × meta (RN-02, com texto, não só cor) e distribuição de macros. */
 export function PainelTotais({ total, meta, pesoKg, mostrarGkg }: { total: Nutrientes; meta: number | null; pesoKg: number | null; mostrarGkg: boolean }) {
@@ -19,7 +19,7 @@ export function PainelTotais({ total, meta, pesoKg, mostrarGkg }: { total: Nutri
     </tr>
   );
   return (
-    <section aria-label="Totais do dia" className="space-y-2 rounded border p-3">
+    <section aria-label="Totais do dia" className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
       <p className="text-lg">
         Total do dia: <strong>{kcalTexto(total.kcal)} kcal</strong>
         {meta !== null && <> · Meta: {kcalTexto(meta)} kcal</>}
@@ -41,7 +41,7 @@ export function PainelTotais({ total, meta, pesoKg, mostrarGkg }: { total: Nutri
           </tr>
         </tbody>
       </table>
-      {mostrarGkg && pesoKg === null && <p className="text-sm text-zinc-600">{MSG_PLANO.semPeso}</p>}
+      {mostrarGkg && pesoKg === null && <p className="text-sm text-suave">{MSG_PLANO.semPeso}</p>}
     </section>
   );
 }

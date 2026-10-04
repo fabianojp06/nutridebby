@@ -10,18 +10,18 @@ import { AtualizarEnquanto } from './atualizar-enquanto';
  */
 export function PdfDoPlano({ plano, patientId, bloqueado }: { plano: PlanoCompleto; patientId: string; bloqueado: boolean }) {
   if (plano.pdfStatus === 'pronto' && plano.pdfPath)
-    return <a href={signFileUrl(plano.pdfPath)} className="rounded border px-4 py-2">Baixar PDF</a>;
-  if (plano.pdfStatus === 'falhou' && bloqueado) return <p className="text-zinc-700">Não foi possível gerar o PDF.</p>;
+    return <a href={signFileUrl(plano.pdfPath)} className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Baixar PDF</a>;
+  if (plano.pdfStatus === 'falhou' && bloqueado) return <p className="text-suave">Não foi possível gerar o PDF.</p>;
   if (plano.pdfStatus === 'falhou')
     return (
       <div className="space-y-1">
-        <p role="alert" className="text-red-700">Não foi possível gerar o PDF. Tente de novo.</p>
+        <p role="alert" className="text-erro">Não foi possível gerar o PDF. Tente de novo.</p>
         <BotaoAcao acao={pedirNovoPdfAction.bind(null, patientId, plano.id)} rotulo="Gerar o PDF de novo" principal={false} />
       </div>
     );
   if (plano.pdfStatus === 'pendente')
     return (
-      <p role="status" className="text-zinc-700">
+      <p role="status" className="text-suave">
         Seu PDF está sendo preparado
         <AtualizarEnquanto planId={plano.id} patientId={patientId} />
       </p>

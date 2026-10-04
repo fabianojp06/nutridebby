@@ -47,7 +47,7 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
               <label htmlFor={`sexo-${valor}`}>{rotulo}</label>
             </div>
           ))}
-          {e.sexo && <p id="sexo-erro" role="alert" className="text-sm text-red-700">{e.sexo}</p>}
+          {e.sexo && <p id="sexo-erro" role="alert" className="text-sm text-erro">{e.sexo}</p>}
         </fieldset>
         <Campo
           id="email"
@@ -74,7 +74,7 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
           />
           <label htmlFor="whatsappAutorizado">Paciente autorizou receber mensagens por WhatsApp</label>
         </div>
-        {e.whatsappAutorizado && <p id="whatsappAutorizado-erro" role="alert" className="text-sm text-red-700">{e.whatsappAutorizado}</p>}
+        {e.whatsappAutorizado && <p id="whatsappAutorizado-erro" role="alert" className="text-sm text-erro">{e.whatsappAutorizado}</p>}
         {conviteWhatsapp && (
           <div className="space-y-1">
             <div className="flex items-start gap-2">
@@ -95,16 +95,16 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
               <label htmlFor="enviarConviteWhatsapp">Enviar convite por WhatsApp</label>
             </div>
             {conviteDesabilitado && (
-              <p id="enviarConviteWhatsapp-dica" className="text-sm text-zinc-600">Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.</p>
+              <p id="enviarConviteWhatsapp-dica" className="text-sm text-suave">Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.</p>
             )}
-            {conviteWhatsapp.aviso && <p id="enviarConviteWhatsapp-aviso" className="text-sm text-zinc-600">{conviteWhatsapp.aviso}</p>}
+            {conviteWhatsapp.aviso && <p id="enviarConviteWhatsapp-aviso" className="text-sm text-suave">{conviteWhatsapp.aviso}</p>}
           </div>
         )}
-        {e.enviarConviteWhatsapp && <p id="enviarConviteWhatsapp-erro" role="alert" className="text-sm text-red-700">{e.enviarConviteWhatsapp}</p>}
+        {e.enviarConviteWhatsapp && <p id="enviarConviteWhatsapp-erro" role="alert" className="text-sm text-erro">{e.enviarConviteWhatsapp}</p>}
       </fieldset>
-      {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
+      {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       {state.ok && <p role="status">Cadastro salvo.</p>}
-      {!somenteLeitura && <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">{botao}</button>}
+      {!somenteLeitura && <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">{botao}</button>}
     </form>
   );
 }

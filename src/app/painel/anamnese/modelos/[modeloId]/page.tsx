@@ -13,9 +13,9 @@ export default async function EditarModeloPage({ params }: PageProps<'/painel/an
   if (!modelo) notFound();
   return (
     <>
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
-        <h1 className="text-2xl font-semibold">Editar modelo de anamnese</h1>
-        <p className="text-sm text-zinc-700">As anamneses já preenchidas continuam com as perguntas de quando foram respondidas.</p>
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
+        <h1 className="font-titulo text-2xl font-semibold">Editar modelo de anamnese</h1>
+        <p className="text-sm text-suave">As anamneses já preenchidas continuam com as perguntas de quando foram respondidas.</p>
         <ModeloEditor acao={salvarModeloAction.bind(null, modelo.id)} inicial={{ nome: modelo.nome, perguntas: modelo.schema.perguntas }} />
       </main>
     </>

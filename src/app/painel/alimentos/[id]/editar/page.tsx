@@ -6,6 +6,7 @@ import { carregarAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
 import { editarAlimentoAction } from '../../actions';
 import { AlimentoForm } from '../../alimento-form';
+import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,10 +20,10 @@ export default async function EditarAlimentoPage({ params, searchParams }: PageP
   if (!a || a.origem === 'TACO') notFound();
   return (
     <>
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <Link href={`/painel/alimentos/${a.id}`} className="text-sm underline">Voltar</Link>
-        <h1 className="text-2xl font-semibold">Editar meu alimento</h1>
-        {incompleto === '1' && <p role="status" className="rounded bg-amber-50 p-3">{MSG_ALIMENTO.incompleto}</p>}
+        <h1 className="font-titulo text-2xl font-semibold">Editar meu alimento</h1>
+        {incompleto === '1' && <Aviso tipo="aviso">{MSG_ALIMENTO.incompleto}</Aviso>}
         <AlimentoForm
           acao={editarAlimentoAction.bind(null, a.id)}
           inicial={{ nome: a.nome, grupo: a.grupo, kcal: txt(a.porCem.kcal), proteinaG: txt(a.porCem.proteinaG), carboidratoG: txt(a.porCem.carboidratoG), lipidioG: txt(a.porCem.lipidioG), fibraG: txt(a.porCem.fibraG) }}

@@ -14,8 +14,8 @@ export default async function PendenciasPage() {
   return (
     <>
       <main className="mx-auto max-w-2xl space-y-4 p-6">
-        <p className="text-sm"><Link href="/painel/agenda" className="underline">Agenda</Link></p>
-        <h1 className="text-2xl font-semibold">{MSG_PRESENCA.pendencias(total)}</h1>
+        <p className="text-sm"><Link href="/painel/agenda" className="text-link underline">Agenda</Link></p>
+        <h1 className="font-titulo text-2xl font-semibold">{MSG_PRESENCA.pendencias(total)}</h1>
         {lista.length > 0 && <ul className="space-y-2" aria-label="Consultas sem registro de presença">{lista.map((c) => <ItemConsulta key={c.id} c={c} fuso={tenant.fuso} dentroDeBloqueio={false} comData />)}</ul>}
       </main>
     </>

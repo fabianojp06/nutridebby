@@ -15,11 +15,11 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
         <form action={`/painel/pacientes/${paciente.id}/anamnese/nova`} className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <label htmlFor="modelo" className="block font-medium">Modelo</label>
-            <select id="modelo" name="modelo" className="rounded border p-2">
+            <select id="modelo" name="modelo" className="rounded-xl border border-campo bg-cartao p-2 text-texto">
               {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
             </select>
           </div>
-          <button className="rounded bg-emerald-700 px-4 py-2 text-white">Preencher anamnese</button>
+          <button className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Preencher anamnese</button>
         </form>
       )}
       <section aria-labelledby="anamneses" className="space-y-2">
@@ -30,7 +30,7 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
           <ul className="divide-y">
             {lista.map((a) => (
               <li key={a.id} className="py-2">
-                <Link href={`/painel/pacientes/${paciente.id}/anamnese/${a.id}`} className="underline">{`${formatarData(a.data)} · ${a.nomeModelo}`}</Link>
+                <Link href={`/painel/pacientes/${paciente.id}/anamnese/${a.id}`} className="text-link underline">{`${formatarData(a.data)} · ${a.nomeModelo}`}</Link>
               </li>
             ))}
           </ul>

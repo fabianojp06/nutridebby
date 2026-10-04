@@ -18,11 +18,11 @@ export function AlimentoForm({ acao, inicial, rotuloBotao }: { acao: (s: Aliment
       <div className="space-y-1">
         <label htmlFor="grupo" className="block font-medium">Grupo</label>
         {/* key: o React não re-sincroniza o defaultValue de um <select>, e o reset automático do formulário voltaria à opção inicial */}
-        <select key={v.grupo} id="grupo" name="grupo" defaultValue={v.grupo} aria-invalid={e.grupo ? true : undefined} aria-describedby={e.grupo ? 'grupo-erro' : undefined} className="w-full rounded border p-2">
+        <select key={v.grupo} id="grupo" name="grupo" defaultValue={v.grupo} aria-invalid={e.grupo ? true : undefined} aria-describedby={e.grupo ? 'grupo-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
           <option value="">Escolha…</option>
           {GRUPOS_TACO.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        {e.grupo && <p id="grupo-erro" role="alert" className="text-sm text-red-700">{e.grupo}</p>}
+        {e.grupo && <p id="grupo-erro" role="alert" className="text-sm text-erro">{e.grupo}</p>}
       </div>
       <fieldset className="grid gap-3 sm:grid-cols-5">
         <legend className="mb-1 font-medium">Valores por 100 g</legend>
@@ -32,8 +32,8 @@ export function AlimentoForm({ acao, inicial, rotuloBotao }: { acao: (s: Aliment
         {numero('lipidioG', 'Lipídio (g)')}
         {numero('fibraG', 'Fibra (g)')}
       </fieldset>
-      {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
-      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">{rotuloBotao}</button>
+      {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
+      <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">{rotuloBotao}</button>
     </form>
   );
 }

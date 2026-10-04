@@ -9,7 +9,7 @@ export function CapaDoConteudo({ tipo, capaUrl, className = '' }: { tipo: TipoCo
     // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, fora do otimizador de imagens
     return <img src={capaUrl} alt="" className={`aspect-video w-full rounded object-cover ${className}`} />;
   return (
-    <div aria-hidden="true" className={`flex aspect-video w-full items-center justify-center rounded bg-emerald-50 text-sm font-semibold text-emerald-900 ${className}`}>
+    <div aria-hidden="true" className={`flex aspect-video w-full items-center justify-center rounded bg-ok-fundo text-sm font-semibold text-ok ${className}`}>
       {ROTULO_TIPO_CONTEUDO[tipo]}
     </div>
   );

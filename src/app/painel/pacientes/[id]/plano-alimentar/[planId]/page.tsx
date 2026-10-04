@@ -11,6 +11,7 @@ import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
 import { BotaoAcao } from '../botao-acao';
 import { PdfDoPlano } from './pdf-do-plano';
+import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
     <section className="space-y-4">
       <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar`} className="text-sm underline">Voltar às versões</Link>
       <h2 className="text-xl font-semibold">Plano alimentar — versão {plano.versao}</h2>
-      {publicado === '1' && plano.status === 'publicado' && <p role="status" className="rounded bg-emerald-50 p-3">Plano publicado.</p>}
+      {publicado === '1' && plano.status === 'publicado' && <Aviso tipo="ok">Plano publicado.</Aviso>}
       {bloqueado && <p role="status">{MSG_BLOQUEADO}</p>}
       <EditorPlano
         plano={paraCliente(plano)}

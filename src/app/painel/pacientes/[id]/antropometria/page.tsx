@@ -35,9 +35,9 @@ export default async function AntropometriaPage({ params, searchParams }: PagePr
         {lista.length === 0 ? (
           <p>Nenhuma avaliação registrada.</p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left">
             <caption className="sr-only">Avaliações antropométricas, da mais recente para a mais antiga</caption>
-            <thead>
+            <thead className="text-sm text-suave">
               <tr>
                 <th scope="col">Data</th>
                 <th scope="col">Peso (kg)</th>
@@ -50,7 +50,7 @@ export default async function AntropometriaPage({ params, searchParams }: PagePr
             </thead>
             <tbody>
               {lista.map((a) => (
-                <tr key={a.id} className="border-t">
+                <tr key={a.id} className="border-t border-linha">
                   <td>{formatarData(a.data)}</td>
                   <td>{formatarDecimal(a.pesoKg, 2)}</td>
                   <td>{formatarDecimal(a.alturaCm, 1)}</td>

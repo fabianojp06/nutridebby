@@ -37,8 +37,8 @@ export default async function AtendimentosPage({ params, searchParams }: PagePro
           <ul className="divide-y">
             {lista.map((a) => (
               <li key={a.id} className="py-2">
-                <Link href={`/painel/pacientes/${paciente.id}/atendimentos/${a.id}`} className="underline">{formatarData(a.data)}</Link>
-                {a.orientacoesPaciente && <p className="line-clamp-2 text-sm text-zinc-700">{a.orientacoesPaciente}</p>}
+                <Link href={`/painel/pacientes/${paciente.id}/atendimentos/${a.id}`} className="text-link underline">{formatarData(a.data)}</Link>
+                {a.orientacoesPaciente && <p className="line-clamp-2 text-sm text-suave">{a.orientacoesPaciente}</p>}
               </li>
             ))}
           </ul>

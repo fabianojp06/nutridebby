@@ -19,7 +19,7 @@ export function BloqueioForm() {
       </div>
       <div className="sm:col-span-2">
         {state.ok && <p role="status">{state.ok}</p>}
-        <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Adicionar bloqueio</button>
+        <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Adicionar bloqueio</button>
       </div>
     </form>
   );

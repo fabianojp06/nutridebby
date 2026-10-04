@@ -26,7 +26,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
       {!bloqueado && (
         <div className="flex flex-wrap gap-3">
           {rascunho ? (
-            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="rounded bg-emerald-700 px-4 py-2 text-white">Continuar o rascunho (versão {rascunho.versao})</Link>
+            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Continuar o rascunho (versão {rascunho.versao})</Link>
           ) : publicado ? (
             <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
           ) : (
@@ -40,13 +40,13 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
       ) : (
         <table className="w-full text-left">
           <caption className="sr-only">Versões do plano</caption>
-          <thead>
+          <thead className="text-sm text-suave">
             <tr><th scope="col">Versão</th><th scope="col">Título</th><th scope="col">Situação</th><th scope="col">Publicado em</th></tr>
           </thead>
           <tbody>
             {planos.map((p) => (
               <tr key={p.id}>
-                <td><Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${p.id}`} className="underline">Versão {p.versao}</Link></td>
+                <td><Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${p.id}`} className="text-link underline">Versão {p.versao}</Link></td>
                 <td>{p.titulo}</td>
                 <td>{STATUS[p.status]}</td>
                 <td>{p.publicadoEm ? formatarDataNoFuso(p.publicadoEm, tenant.fuso) : '—'}</td>
