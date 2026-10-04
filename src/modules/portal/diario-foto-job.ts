@@ -5,6 +5,7 @@ import type { PgBoss } from 'pg-boss';
 import type { Db } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
@@ -77,14 +78,9 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
     if (grandeDemais(meta.width, meta.height)) throw new FotoInvalidaError('pixels');
     img = sharp(original, { limitInputPixels: MAX_PIXELS }).rotate(); // aplica a orientação do EXIF antes de descartá-lo
   }
-  return img
-    .resize({ width: LADO_MAX, height: LADO_MAX, fit: 'inside', withoutEnlargement: true })
-    .flatten({ background: '#ffffff' }) // PNG com transparência → fundo branco
-    .jpeg({ quality: 80, mozjpeg: true })
-    .toBuffer()
-    .catch(() => {
-      throw new FotoInvalidaError('conversao');
-    });
+  return paraJpegSemMetadados(img, LADO_MAX).catch(() => {
+    throw new FotoInvalidaError('conversao');
+  });
 }
 
 /**
