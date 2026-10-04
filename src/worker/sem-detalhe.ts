@@ -1,5 +1,5 @@
 import type { PgBoss } from 'pg-boss';
-import { capturarErro } from '@/lib/sentry';
+import { capturarErroDoJob } from '@/lib/sentry';
 import { motivoDoErro } from '@/modules/plataforma/armazenamento';
 
 const NOME_SEGURO = /^[A-Za-z][A-Za-z0-9]{0,59}$/;
@@ -25,7 +25,7 @@ export function semDetalhe<A extends unknown[], R>(fila: string, fn: (...a: A) =
     try {
       return await fn(...a);
     } catch (err) {
-      capturarErro(err, { fila, motivo: motivoDoErro(err) }); // o original: o filtro tira a mensagem (T1)
+      capturarErroDoJob(err, fila, motivoDoErro(err)); // o original (o filtro tira a mensagem, T1), com teto e dedupe
       throw erroSemDetalhe(fila, err);
     }
   };

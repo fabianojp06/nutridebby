@@ -4,10 +4,10 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { closeDb } from '@/db/client';
 import { getBoss, stopBoss } from '@/jobs/boss';
-import { capturarErro } from '@/lib/sentry';
+import { capturarErroDoJob } from '@/lib/sentry';
 import { erroSemDetalhe, semDetalhe, workSemDetalhe } from './sem-detalhe';
 
-vi.mock('@/lib/sentry', () => ({ capturarErro: vi.fn() }));
+vi.mock('@/lib/sentry', () => ({ capturarErroDoJob: vi.fn() }));
 
 afterAll(async () => {
   await stopBoss();
@@ -40,15 +40,15 @@ describe('erro relançado ao pg-boss sem detalhe (RNF-11, regra 3 — achado 5 d
     await expect(semDetalhe('x', async () => Promise.reject(erroDeDisco()))()).rejects.toThrow(/^falha no job x \(ENOENT\)$/);
   });
 
-  it('P08-01: o erro original vai para capturarErro com a fila e o motivo (o filtro do Sentry tira a mensagem)', async () => {
-    vi.mocked(capturarErro).mockClear();
+  it('P08-01: o erro original vai para capturarErroDoJob com a fila e o motivo (o filtro do Sentry tira a mensagem)', async () => {
+    vi.mocked(capturarErroDoJob).mockClear();
     const original = erroDeDisco();
     await expect(semDetalhe('email', async () => Promise.reject(original))()).rejects.toThrow(/^falha no job email \(ENOENT\)$/);
-    expect(capturarErro).toHaveBeenCalledTimes(1);
-    expect(capturarErro).toHaveBeenCalledWith(expect.any(Error), { fila: 'email', motivo: 'ENOENT' });
-    expect(vi.mocked(capturarErro).mock.calls[0]![0]).toBe(original);
+    expect(capturarErroDoJob).toHaveBeenCalledTimes(1);
+    expect(capturarErroDoJob).toHaveBeenCalledWith(expect.any(Error), 'email', 'ENOENT');
+    expect(vi.mocked(capturarErroDoJob).mock.calls[0]![0]).toBe(original);
     expect(await semDetalhe('email', async () => 1)()).toBe(1);
-    expect(capturarErro).toHaveBeenCalledTimes(1); // sucesso não captura nada
+    expect(capturarErroDoJob).toHaveBeenCalledTimes(1); // sucesso não captura nada
   });
 
   it('pelo pg-boss de verdade: o output do job que falhou não leva o caminho', async () => {

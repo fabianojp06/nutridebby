@@ -37,6 +37,27 @@ function repassarDoNavegador(assinatura: string, agora: number): boolean {
   return true;
 }
 
+/**
+ * Teto dos erros de job do worker (achado 2 do /code-review do PR #12): um job que falha é tentado de novo (retryLimit) e
+ * a mesma queda (Evolution ou Resend fora do ar) falha em todos os jobs da fila — sem teto, centenas de eventos por hora
+ * gastariam a cota do mês do plano gratuito (5 mil). A mesma falha (fila|motivo) vai uma vez por hora, e no máximo 50
+ * por dia (~1.500 por mês, < 30% da cota; somados aos ~900 do navegador, sobra metade para os erros de requisição).
+ * O que fica de fora segue no log de cada job. Estado em memória do worker (1 réplica).
+ */
+const JANELA_JOB_MS = 3_600_000; // 1 h
+const TETO_JOB_DIA = 50;
+const tetoJob = criarLimite({ janelaMs: 86_400_000, max: TETO_JOB_DIA });
+const enviadosDoJob = new Map<string, number>(); // fila|motivo → quando foi ao Sentry
+
+function repassarDoJob(assinatura: string, agora: number): boolean {
+  const visto = enviadosDoJob.get(assinatura);
+  if (visto !== undefined && agora - visto < JANELA_JOB_MS) return false;
+  if (!tetoJob.permitir('global', agora)) return false;
+  for (const [k, t] of enviadosDoJob) if (agora - t >= JANELA_JOB_MS) enviadosDoJob.delete(k);
+  enviadosDoJob.set(assinatura, agora);
+  return true;
+}
+
 /** Nenhuma categoria de dado coletada pelo SDK (v11: o que ficar de fora vale `true`). */
 const SEM_COLETA = {
   userInfo: false,
@@ -101,6 +122,13 @@ export function iniciarSentry(o: { dsn?: string; ambiente: string; papel: Papel;
 export function capturarErro(err: unknown, tags: Record<string, string>): void {
   if (!ligado()) return;
   Sentry.captureException(err, { tags });
+}
+
+/** Erro de um job do worker (semDetalhe): o original (o filtro tira a mensagem), dentro do teto do worker. `agora` só nos testes. */
+export function capturarErroDoJob(err: unknown, fila: string, motivo: string, agora: number = Date.now()): void {
+  if (!ligado()) return;
+  if (!repassarDoJob(`${fila}|${motivo}`, agora)) return;
+  Sentry.captureException(err, { tags: { fila, motivo } });
 }
 
 /** `onRequestError` do Next (instrumentation.ts): uma linha de log com o id e o Sentry com as mesmas tags. */

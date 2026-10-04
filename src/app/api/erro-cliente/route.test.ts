@@ -15,6 +15,11 @@ describe('POST /api/erro-cliente (D1)', () => {
     expect(r.status).toBe(204);
     expect(capturar).toHaveBeenCalledWith({ digest: '1234567', nome: 'TypeError', rota: '/painel/pacientes/:id' });
   });
+  it('corpo em text/plain (o sendBeacon do reportarErro) também vale', async () => {
+    const r = await POST(req(JSON.stringify({ nome: 'TypeError', rota: '/painel' }), { 'content-type': 'text/plain;charset=UTF-8' }));
+    expect(r.status).toBe(204);
+    expect(capturar).toHaveBeenCalledWith({ digest: null, nome: 'TypeError', rota: '/painel' });
+  });
   it.each([
     ['outra origem', JSON.stringify({ nome: 'TypeError', rota: '/p' }), { origin: 'https://evil.test' }, 403],
     ['corpo grande', JSON.stringify({ nome: 'TypeError', rota: `/${'a'.repeat(3000)}` }), {}, 413],

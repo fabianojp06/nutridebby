@@ -175,4 +175,40 @@ setTimeout(() => process.exit(0), 5000); // ainda vivo = defeito
     expect(enviados.length).toBe(32);
     await s.encerrarSentry();
   });
+
+  // Achado 2 do /code-review do PR #12: a mesma queda (Evolution/Resend fora do ar) falha em todo job da fila, a cada
+  // tentativa. Sem teto, a cota do mês do plano gratuito acabaria em horas.
+  it('erros de job: a mesma fila|motivo uma vez por hora, teto global de 50 por dia; fora do teto do navegador', async () => {
+    const enviados: string[] = [];
+    vi.resetModules();
+    const s = await import('./sentry'); // estado novo do teto
+    s.iniciarSentry({ dsn: DSN, ambiente: 'teste', papel: 'worker', transport: transporteFalso(enviados) as never });
+    const t0 = 5_000_000;
+    const HORA = 3_600_000;
+    // a mesma falha em 200 jobs (e tentativas) na mesma hora: um evento só
+    for (let i = 0; i < 200; i++) s.capturarErroDoJob(new Error(`falha ${i}`), 'whatsapp-enviar', 'ECONNREFUSED', t0 + i);
+    // outra fila ou outro motivo é outro evento
+    s.capturarErroDoJob(new Error('a'), 'email', 'ECONNREFUSED', t0 + 300);
+    s.capturarErroDoJob(new Error('b'), 'whatsapp-enviar', 'ETIMEDOUT', t0 + 301);
+    // uma hora depois a mesma falha volta a ir
+    s.capturarErroDoJob(new Error('c'), 'whatsapp-enviar', 'ECONNREFUSED', t0 + HORA);
+    await Sentry.flush(2000);
+    expect(enviados).toHaveLength(4);
+    // 60 falhas diferentes no mesmo dia: só cabem 50 no total (46 depois das 4 acima)
+    // (mensagens diferentes: a integração Dedupe do SDK descarta um evento idêntico ao anterior)
+    for (let i = 0; i < 60; i++) s.capturarErroDoJob(new Error(`falha ${i}`), `fila-${i}`, 'erro', t0 + 2 * HORA + i);
+    await Sentry.flush(2000);
+    expect(enviados).toHaveLength(50);
+    expect(enviados.some((e) => e.includes('fila-45'))).toBe(true);
+    expect(enviados.some((e) => e.includes('fila-46'))).toBe(false);
+    // o teto do worker não gasta o do navegador
+    s.capturarErroDoNavegador({ digest: null, nome: 'TypeError', rota: '/painel' }, t0 + 3 * HORA);
+    await Sentry.flush(2000);
+    expect(enviados.filter((e) => e.includes('erro no navegador'))).toHaveLength(1);
+    // depois de 24 h, o teto volta
+    s.capturarErroDoJob(new Error('d'), 'fila-59', 'erro', t0 + 24 * HORA + 1);
+    await Sentry.flush(2000);
+    expect(enviados.some((e) => e.includes('fila-59'))).toBe(true);
+    await s.encerrarSentry();
+  });
 });
