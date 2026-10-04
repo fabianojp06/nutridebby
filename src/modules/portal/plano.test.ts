@@ -98,8 +98,8 @@ describe('Meu plano (US-041)', () => {
     expect(await caminhoDoPdf(ctxPaciente(T.tenantId, p.id), app.db)).toEqual({ estado: 'indisponivel' });
   });
 
-  it('D6 + US-054: a versão da cópia offline com 15 refeições, todas com receita, passa por lerMensagem e muda quando uma sugestão sai', () => {
-    const refeicoes = Array.from({ length: MAX_REFEICOES }, () => ({ receita: { id: randomUUID() } }));
+  it('D6 + US-054: a versão da cópia offline com 15 refeições, todas com receita, passa por lerMensagem e muda quando uma sugestão sai ou é renomeada', () => {
+    const refeicoes = Array.from({ length: MAX_REFEICOES }, (_, i) => ({ receita: { id: randomUUID(), titulo: `Receita ${i}`.padEnd(120, 'x') } }));
     const plano = { id: randomUUID(), refeicoes };
     const versao = versaoDaCopiaOffline(plano);
     expect(versao.length).toBeLessThanOrEqual(100);
@@ -107,6 +107,10 @@ describe('Meu plano (US-041)', () => {
     const semUma = versaoDaCopiaOffline({ ...plano, refeicoes: [{}, ...refeicoes.slice(1)] });
     expect(semUma).not.toBe(versao);
     expect(semUma.startsWith(`${plano.id}:`)).toBe(true);
+    // a receita renomeada muda o cartão: a cópia offline também é trocada (achado do /code-review do PR #10)
+    const renomeada = versaoDaCopiaOffline({ ...plano, refeicoes: [{ receita: { ...refeicoes[0].receita, titulo: 'Panqueca de banana' } }, ...refeicoes.slice(1)] });
+    expect(renomeada).not.toBe(versao);
+    expect(renomeada.length).toBeLessThanOrEqual(100);
     expect(versaoDaCopiaOffline(null)).toBe('sem-plano');
   });
 

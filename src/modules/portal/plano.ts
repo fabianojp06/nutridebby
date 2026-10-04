@@ -94,13 +94,14 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
 }
 
 /**
- * D6 (Plano 06) + US-054: versão da cópia offline de "Meu plano" = id do plano + resumo das sugestões de receita (o
- * cartão some da cópia quando a receita é despublicada). Resumo de 16 caracteres (sha256 em base64url): 36 + 1 + 16 = 53,
- * dentro do limite de 100 do service worker (`textoCurto`, `src/app/sw-regras.ts`) com qualquer número de refeições.
+ * D6 (Plano 06) + US-054: versão da cópia offline de "Meu plano" = id do plano + resumo das sugestões de receita, com
+ * id E título (o cartão some da cópia quando a receita é despublicada e muda quando ela é renomeada). Resumo de 16
+ * caracteres (sha256 em base64url): 36 + 1 + 16 = 53, dentro do limite de 100 do service worker (`textoCurto`,
+ * `src/app/sw-regras.ts`) com qualquer número de refeições e qualquer título.
  */
-export function versaoDaCopiaOffline(plano: { id: string; refeicoes: { receita?: { id: string } }[] } | null): string {
+export function versaoDaCopiaOffline(plano: { id: string; refeicoes: { receita?: { id: string; titulo: string } }[] } | null): string {
   if (!plano) return 'sem-plano';
-  const sugestoes = plano.refeicoes.map((r) => r.receita?.id ?? '-').join(',');
+  const sugestoes = JSON.stringify(plano.refeicoes.map((r) => (r.receita ? [r.receita.id, r.receita.titulo] : null)));
   return `${plano.id}:${createHash('sha256').update(sugestoes).digest('base64url').slice(0, 16)}`;
 }
 
