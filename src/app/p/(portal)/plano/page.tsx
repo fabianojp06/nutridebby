@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requirePaciente } from '@/lib/paciente-session';
 import { MSG_PLANO_PACIENTE, planoDoPaciente } from '@/modules/portal/plano';
 import { GuardarPlano } from '../../plano-guardado';
@@ -23,6 +24,8 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
           {plano.pdf !== 'indisponivel' && (
             <a href="/api/p/plano/pdf" className="inline-flex min-h-11 items-center rounded border px-4">Baixar PDF</a>
           )}
+          {/* D3 (Plano 07): a lista de compras saiu da barra de abas; é derivada do plano publicado */}
+          <Link href="/p/compras" className="ml-4 inline-flex min-h-11 items-center underline">Lista de compras</Link>
           <ol className="space-y-4">
             {plano.refeicoes.map((r) => {
               const proxima = r.id === plano.proximaRefeicaoId;

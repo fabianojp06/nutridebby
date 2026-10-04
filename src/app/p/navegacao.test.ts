@@ -9,4 +9,10 @@ describe('navegação do portal (D23)', () => {
     expect(itemAtual('/p/iniciozinho')).toBeNull();
     expect(itemAtual('/p/outra')).toBeNull();
   });
+
+  it('D3 (Plano 07): "Conteúdos" no lugar de "Compras"; a lista de compras marca a aba "Plano"; continuam 7 abas (R16)', () => {
+    expect(ITENS_DO_PORTAL.map((i) => i.rotulo)).toEqual(['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']);
+    expect(itemAtual('/p/conteudos/0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f')).toBe('/p/conteudos');
+    expect(itemAtual('/p/compras')).toBe('/p/plano');
+  });
 });

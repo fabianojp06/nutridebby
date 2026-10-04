@@ -4,14 +4,16 @@ import { usePathname } from 'next/navigation';
 import { ITENS_DO_PORTAL, itemAtual } from './navegacao';
 
 /**
- * D23: barra de abas do portal, no rodapé. R16: grade de 7 colunas (Início, Plano, Diário, Evolução, Compras, Agenda,
- * Perfil) com texto pequeno, para caber em 360 px sem rolagem horizontal; cada link mantém o alvo de toque de 44 px.
+ * D23: barra de abas do portal, no rodapé. R16 / D3 (Plano 07): grade de 7 colunas (Início, Plano, Diário, Conteúdos,
+ * Evolução, Agenda, Perfil) com texto pequeno, para caber em 360 px sem rolagem horizontal; cada link mantém o alvo de
+ * toque de 44 px. As colunas seguem o texto (no mínimo 44 px): em 7 colunas iguais (51 px em 360 px) "Conteúdos"
+ * (58 px) invadia "Diário" e "Evolução".
  */
 export function NavPortal() {
   const atual = itemAtual(usePathname());
   return (
     <nav aria-label="Portal" className="sticky bottom-0 border-t bg-white">
-      <ul className="grid grid-cols-7">
+      <ul className="grid grid-cols-[repeat(7,minmax(2.75rem,auto))]">
         {ITENS_DO_PORTAL.map((i) => (
           <li key={i.href} className="min-w-0">
             <Link

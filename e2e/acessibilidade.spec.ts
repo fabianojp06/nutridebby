@@ -79,7 +79,7 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
     await paciente.page.goto('/p/inicio');
-    for (const aba of ['Início', 'Plano', 'Diário', 'Evolução', 'Compras', 'Agenda', 'Perfil']) {
+    for (const aba of ['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']) {
       await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
     }
   } finally {
