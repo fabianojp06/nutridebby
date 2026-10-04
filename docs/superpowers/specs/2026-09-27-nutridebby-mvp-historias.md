@@ -1,6 +1,6 @@
 # NutriDebby — Histórias de Usuário do MVP
 
-Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento. A versão é a do documento de design (Apêndice C); esta revisão acompanha a **v1.9** (fechamento do Plano 06 — Portal do paciente: notas "Plano 06, v1.9" nas histórias do E1 ao E5 e a tabela "Textos de interface e mensagens do E5", no fim do E5; a v1.8, do Plano 05, deixou as notas "Plano 05, v1.8" e a tabela do E4).
+Complementa [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md). IDs de RN, RNF, INT e tabelas se referem àquele documento. A versão é a do documento de design (Apêndice C); esta revisão acompanha a **v1.10** (fechamento do Plano 07 — Biblioteca de conteúdo: notas "Plano 07, v1.10" em US-018, US-019, US-041 e US-050 a US-056 e a tabela "Textos de interface e mensagens do E6", no fim do E6; a v1.9, do Plano 06, deixou as notas "Plano 06, v1.9" e a tabela do E5; a v1.8, do Plano 05, as notas "Plano 05, v1.8" e a tabela do E4).
 
 **Prioridade (MoSCoW):** **M** = Must (bloqueia o go-live) · **S** = Should (entra no MVP; pode ir para depois do go-live se o prazo apertar).
 **Estimativas:** feitas no planejamento (writing-plans), não aqui.
@@ -544,6 +544,10 @@ Nota de entrega (Plano 06, v1.9):
 - **Exportação:** o `dados.json` ganha `diario` (data e hora, refeição, texto, comentário da nutricionista e a foto, copiada para `diario/<data no fuso>-<n>.jpg`). A exportação pedida pelo titular no portal (US-046) usa o mesmo job com `escopo = 'titular'`, sem planos em rascunho.
 - **Conta de login (P06-08, D18):** na anonimização, a conta do titular sem outro vínculo não anonimizado é anonimizada ("Paciente anonimizado", `anonimo-<id>@anonimizado.invalid`, sessões e senha apagadas); com outro vínculo, fica.
 
+Nota de entrega (Plano 07, v1.10, D15):
+- **Conteúdos:** o pedido de exclusão atendido e a anonimização tiram o titular das audiências de conteúdo e apagam as visualizações e os favoritos dele (`content_audience`, `content_views`, `content_favorites`; a saída da audiência fica no "Histórico de acessos" como "Público de conteúdo"); arquivar não apaga (desarquivado, volta às audiências).
+- **Exportação (equipe e titular, US-046):** o `dados.json` ganha `conteudos` — `vistos` (título e data) e `favoritos` (título e data); o título só vai de conteúdo **publicado**, e o que não está mais publicado vai como "Conteúdo indisponível" (o título pode ter virado um título interno de rascunho) — e, em cada refeição dos planos, `sugestaoDeReceita` (o título da receita sugerida; na exportação do titular, só se a receita estiver publicada). As versões do plano são lidas em lote (D04-1, sem N+1). **Desvio:** a exportação da equipe não leva os alvos de `content_audience` (a D15 limitou o conteúdo a vistos e favoritos).
+
 ## US-019 — Etiquetas de paciente · **S**
 
 **Como** nutricionista, **quero** etiquetar pacientes (ex.: `gestante`, `diabetes`), **para** filtrar a lista e direcionar conteúdos.
@@ -558,6 +562,8 @@ Cenário: Paciente não vê etiquetas
   Quando o paciente usa o PWA
   Então nenhuma etiqueta aparece para ele, nem no JSON da API
 ```
+
+Nota de entrega (Plano 07, v1.10, D1): as etiquetas de paciente são a audiência "Pacientes com etiqueta" dos conteúdos (US-053) e continuam invisíveis ao paciente: a política de `contents` pergunta só "este conteúdo é para uma etiqueta deste paciente?" a uma função que responde sim/não (`app_conteudo_por_etiqueta`); `patient_tag_links` segue `staff_only`. Os rótulos do filtro do feed ("sem lactose") são outra coisa: as "Etiquetas do conteúdo", visíveis ao paciente.
 
 ---
 
@@ -1173,6 +1179,8 @@ Nota de entrega (Plano 06, v1.9):
 - **Desvio:** "Sugestão de receita" fica para o Plano 07 (P07-05; `meals.recipe_content_id` ainda não existe).
 - A leitura pelo paciente é auditada ("Visualizou · Plano alimentar" com o nome do paciente, D22). A P-16 foi resolvida: `stored_files` por paciente (§4.1).
 
+Nota de entrega (Plano 07, v1.10): o cartão "Sugestão de receita: {título}" entrou na refeição (US-054), só com a receita publicada; o link abre a receita, também fora da audiência (exceção da RN-12, só por este caminho). A página "Plano" ganhou o link "Lista de compras": a aba "Compras" saiu da barra para dar lugar a "Conteúdos" (D3). A cópia offline mostra o cartão (o link da receita não abre sem rede) e muda quando a receita é renomeada.
+
 ## US-042 — Diário alimentar · **M**
 
 **Como** paciente, **quero** registrar o que comi com texto e foto, **para** que minha nutricionista acompanhe.
@@ -1322,6 +1330,11 @@ Cenário: Player sem rastreamento
   Então o iframe usa youtube-nocookie.com/embed/<id>
 ```
 
+Nota de entrega (Plano 07, v1.10):
+- Painel → "Conteúdos" → "Novo vídeo": "Título", "Resumo", "Link do vídeo" com o aviso "Vídeos não listados podem ser vistos por quem tiver o link." (**desvio:** com ponto, como a RN-10), "Etiquetas do conteúdo", "Quem vê" (US-053) e "Criar". O formulário guarda o endereço canônico do vídeo.
+- Links aceitos (INT-05, RN-10): YouTube (`watch?v=`, `youtu.be`, `shorts`, `embed`, `live`, `m.youtube.com`) e Vimeo (inclusive o não listado com hash e `player.vimeo.com`), com `https`, `http` ou sem esquema; com usuário, senha, porta, outro domínio ou id inválido: "Use um link do YouTube ou do Vimeo". Player: YouTube `youtube-nocookie.com/embed/<id>`, Vimeo `player.vimeo.com/video/<id>?dnt=1`; o `src` sai só do id validado (regex + CHECK do banco) e o iframe tem o título acessível "Vídeo: {título}".
+- **Capa padrão (desvio, D9):** um bloco com o tipo do conteúdo ("Vídeo"), sem imagem. A capa vem só do oEmbed, buscado **depois** de gravar, com prazo total de 5 s; qualquer falha (também cota esgotada ou erro de disco) deixa a capa padrão, sem bloquear nem duplicar o cadastro. Trocar o link troca a capa (a do vídeo anterior nunca fica); salvar de novo com o mesmo link não tenta outra vez.
+
 ## US-051 — Publicar receita com cálculo nutricional · **M**
 
 **Como** nutricionista, **quero** cadastrar receitas com ingredientes da tabela de alimentos, **para** que o valor nutricional por porção seja calculado sozinho.
@@ -1348,6 +1361,13 @@ Cenário: Vídeo opcional
   Então o vídeo aparece acima do modo de preparo
 ```
 
+Nota de entrega (Plano 07, v1.10):
+- "Nova receita" cria o conteúdo (campos comuns e o link opcional do vídeo); a página do conteúdo traz o formulário "Receita": "Rendimento total (g)", "Porção (g)", "Tempo de preparo (min)" (opcional), "Modo de preparo" (o mesmo texto formatado da US-052), "Ingredientes" pela busca da tabela de alimentos ("Adicionar ingrediente"; por linha "Gramas de {nome}", "Medida caseira de {nome} (opcional)" e "Remover {nome}") e "Salvar receita" → "Receita salva.". A tela mostra "Por porção: {kcal} kcal · proteína {g} g · carboidrato {g} g · lipídio {g} g · fibra {g} g".
+- Validação por campo: rendimento e porção > 0 (arredondados a 1 casa antes de conferir; rendimento até 20000 g), porção ≤ rendimento ("A porção não pode ser maior que o rendimento"), 1 a 50 ingredientes de 0,1 a 5000 g, tempo de 1 a 1440 min, modo de preparo até 10000 caracteres, medida caseira até 60; alimento que a RLS não mostra (de outro consultório): "Alimento não encontrado." no ingrediente.
+- **Valores calculados na hora (desvio da RN-11, D11):** sem cópia congelada — corrigir um "Meu alimento" muda a receita publicada; alimento sem valor na TACO conta 0 e a tela avisa "Sem valor na TACO". Alimento usado em receita não pode ser excluído: "Este alimento está em um plano ou receita e não pode ser excluído.".
+- Capa em "Arquivos" ("Capa (JPEG ou PNG, até 5 MB)"), tipo pelo conteúdo, convertida para JPEG ≤ 1280 px sem EXIF, com a transparência sobre branco; sem capa, a capa padrão ("Receita"). Publicar exige a receita preenchida: "Preencha a receita (rendimento, porção e ingredientes) antes de publicar.".
+- Portal: "Rendimento: {g} g · Porção: {g} g", "Tempo de preparo: {n} min", a linha "Por porção: …", "Ingredientes" ("{alimento} — {quantidade}", com "Sem valor na TACO" quando for o caso), o vídeo (se houver) e "Modo de preparo".
+
 ## US-052 — Publicar orientação em texto · **S**
 
 **Como** nutricionista, **quero** publicar orientações em texto com imagem e PDF opcional, **para** entregar materiais educativos.
@@ -1358,6 +1378,11 @@ Cenário: Orientação com PDF
   Então o paciente vê o texto formatado e o botão "Baixar material (PDF)"
   E o conteúdo de corpo_md é sanitizado: sem HTML ou script executável
 ```
+
+Nota de entrega (Plano 07, v1.10):
+- **Texto formatado (desvio, D7):** um subconjunto de markdown próprio, sem biblioteca — parágrafos e quebras de linha, `**negrito**`, `*itálico*`, títulos (`#` a `######`, que viram subtítulos: o título do conteúdo é o único h1), listas `-`/`*` e `1.`, links `[texto](https://…)` (só `http`/`https`, nova aba, `rel="noopener noreferrer nofollow"`) —, renderizado como elementos React: HTML digitado aparece como texto e nada usa `dangerouslySetInnerHTML`; sem retrocesso catastrófico. Ajuda do campo "Texto": "Use **negrito**, *itálico*, listas com - e títulos com ##."; até 20000 caracteres.
+- **"Uma imagem" (desvio, D8):** é a capa do conteúdo (JPEG/PNG ≤ 5 MB, como a da receita); não há imagem dentro do texto.
+- PDF em "Arquivos": "Material em PDF (até 10 MB)" (a história dá o exemplo de 2 MB; D20), tipo pelo conteúdo, com "Ver PDF" e "Remover PDF" no painel. No portal, "Baixar material (PDF)" pede a URL assinada (5 min) na hora do clique. Publicar exige texto ou PDF ("Escreva o texto ou envie o PDF antes de publicar."); publicada, a orientação não fica vazia ("Um conteúdo publicado precisa de texto ou PDF. Despublique antes de tirar os dois.").
 
 ## US-053 — Definir quem vê cada conteúdo · **M**
 
@@ -1383,6 +1408,12 @@ Cenário: Aviso de novo conteúdo
   E no máximo 1 push de conteúdo por paciente a cada 24 h (os demais ficam agrupados no feed)
 ```
 
+Nota de entrega (Plano 07, v1.10):
+- "Quem vê": "Todos os pacientes", "Pacientes com etiqueta" (lista "Etiquetas"; sem nenhuma, "Nenhuma etiqueta cadastrada.") ou "Pacientes específicos" (lista "Pacientes": os 500 primeiros pacientes ativos por nome). Sem alvo válido: "Escolha pelo menos uma etiqueta ou um paciente.". **Etiqueta (D1):** a da audiência é a etiqueta **de paciente** (US-019), que o paciente nunca vê; o filtro do feed usa as "Etiquetas do conteúdo" ("Separe por vírgula. Ex.: sem lactose, café da manhã"; até 10, de até 30 caracteres).
+- A audiência é decidida **no banco**, na leitura (RN-12, §4.1): a etiqueta aplicada vale na hora; fora da audiência, em rascunho ou de outro consultório, o acesso pela URL dá 404 (também o PDF). Salvar o conteúdo só tira da audiência o paciente que o formulário mostrou e a nutricionista desmarcou (D15). Escolher pacientes fica no "Histórico de acessos" ("Público de conteúdo", D6).
+- Ciclo (D17): "Publicar" (com "Avisar pacientes") no rascunho → "Conteúdo publicado."; "Despublicar" volta ao rascunho e tira o conteúdo do feed e do cartão do plano na hora; publicar de novo renova a data (volta ao topo do feed). "Excluir conteúdo" pede "Excluir este conteúdo? A sugestão de receita sai dos planos." e apaga a capa, o PDF e o conteúdo ("Conteúdo excluído.").
+- **Aviso de novo conteúdo (desvio do texto, D4):** o push é neutro — "Sua nutricionista publicou um novo conteúdo" (título "NutriDebby"), e o toque abre "Conteúdos", onde os novos têm o selo "Novo" —, sem o título (um conteúdo dirigido por etiqueta diria uma condição de saúde na tela de bloqueio). Vai para cada paciente da audiência **com push ativo**, ao pé da letra (decisão do dono, 04/10/2026): ativo, com conta no portal e com inscrição de push no consultório. No máximo 1 a cada 24 h por paciente; publicado no horário silencioso (21h–8h), sai às 08:00; sem e-mail. A tela confirma "Conteúdo publicado. Aviso enviado para {n} pacientes." ("…para 1 paciente." no singular; sem ninguém elegível, "0 pacientes").
+
 ## US-054 — Anexar receita a uma refeição do plano · **S**
 
 **Como** nutricionista, **quero** sugerir uma receita da biblioteca em uma refeição do plano, **para** dar ideias práticas ao paciente.
@@ -1398,6 +1429,11 @@ Cenário: Receita despublicada
   Dado que despubliquei a receita anexada
   Então o cartão some do plano da paciente, e no editor vejo "Receita indisponível"
 ```
+
+Nota de entrega (Plano 07, v1.10):
+- No editor do plano, cada refeição tem "Sugestão de receita em {refeição}" (as receitas publicadas, por título; "Nenhuma" tira a sugestão). **Só no rascunho (desvio, D13):** o plano publicado é imutável (RN-01) — para sugerir no plano em uso, "Editar" cria a nova versão. "Salvar como modelo", "Criar a partir de modelo" e "Editar" copiam a sugestão; ela não entra no total do plano nem no PDF. Receita não publicada, de outro consultório, ou excluída/despublicada enquanto o rascunho salva: "Receita não encontrada." na refeição (a conferência trava a receita; nunca 500).
+- Receita despublicada: a sugestão continua gravada e o editor mostra "Receita indisponível" (a nutricionista remove ou deixa; publicada de novo, o cartão volta). Receita excluída: a sugestão sai sozinha (`SET NULL`).
+- Portal: "Sugestão de receita: {título}" na refeição de "Meu plano", só com a receita publicada; o link abre a receita com `?de=plano`. **Fora da audiência, só pelo cartão (desvio, D2):** a receita não aparece no feed, na busca, no filtro de etiquetas nem nos favoritos, não tem "Favoritar", não conta visualização (D14) e mostra "Voltar ao plano"; plano arquivado ou rascunho não libera nada.
 
 ## US-055 — Aba "Conteúdos" no PWA · **M**
 
@@ -1422,6 +1458,13 @@ Cenário: Registro de visualização
   Então content_views registra (conteúdo, paciente) uma única vez
 ```
 
+Nota de entrega (Plano 07, v1.10):
+- A aba "Conteúdos" entrou na barra no lugar de "Compras" (desvio, D3; "Lista de compras" virou link em "Plano"): sete colunas iguais, com hífen nas palavras longas, sem rolagem horizontal.
+- Feed: filtros "Todos", "Vídeos", "Receitas", "Orientações" e "Favoritos" (`<nav aria-label="Filtrar conteúdos">`), "Buscar" e "Etiqueta" ("Todas"; só os rótulos dos conteúdos publicados que o paciente vê). Até 100 itens, do mais recente para o mais antigo; cada item com a capa (ou a capa padrão), o tipo, o selo "Novo" (conteúdo que o paciente ainda não abriu), o título e o resumo. Lista vazia: "Nenhum conteúdo por aqui ainda."; com busca, etiqueta ou tipo: "Nenhum conteúdo encontrado."; em "Favoritos" sem nenhum: "Você ainda não favoritou nenhum conteúdo.".
+- **Busca (D19):** full-text em português, sem acento, sobre o título e o resumo, por palavras inteiras ("ave" não acha "aveia"), a partir de 2 caracteres; combinada com a etiqueta do conteúdo e o tipo.
+- Detalhe: "Voltar aos conteúdos", "Favoritar"/"Remover dos favoritos", o player do vídeo, a receita (US-051) ou o texto e o PDF da orientação (US-052).
+- **Visualização (desvio, D18):** registrada pelo navegador ao abrir o detalhe (a pré-busca dos links não conta), uma por paciente; o banco recusa visualização e favorito de conteúdo que o paciente não vê pela audiência. Leitura de conteúdo não é prontuário: sem auditoria (D6). Nada da aba fica offline.
+
 ## US-056 — Métricas de conteúdo · **S**
 
 **Como** nutricionista, **quero** saber quantos pacientes viram cada conteúdo, **para** entender o que funciona.
@@ -1433,6 +1476,31 @@ Cenário: Métricas
   Então vejo "18 de 40 pacientes (45%)"
   E posso ver a lista de nomes de quem viu
 ```
+
+Nota de entrega (Plano 07, v1.10):
+- `/painel/conteudos` (menu "Conteúdos"): "Novo vídeo", "Nova receita", "Nova orientação", o filtro "Todos"/"Vídeos"/"Receitas"/"Orientações" e a tabela "Título", "Tipo", "Situação" ("Rascunho" ou "Publicado em {data}") e "Visualizações": "{vistos} de {audiência} pacientes ({pct}%)" (porcentagem inteira, meio para cima; "1 de 1 paciente (100%)" no singular), só nos publicados ("—" no rascunho), com o link "Ver quem viu: {título}" (nome acessível). Sem conteúdo: "Nenhum conteúdo ainda.".
+- **Audiência atual (desvio, D14):** denominador = pacientes ativos na audiência agora, com ou sem conta no portal (RN-12); numerador = quantos deles já abriram; arquivado, bloqueado, anonimizado ou que saiu da audiência não conta em nenhum dos dois; quem abriu só pelo cartão do plano também não. Conteúdo "pacientes" cujo único alvo foi bloqueado mostra "0 de 0 pacientes (0%)" e, ao editar, pede outro público. Uma consulta agrupada para a lista inteira.
+- "Quem viu: {título}" (`/painel/conteudos/<id>/visualizacoes`; também "Ver quem viu" na página do conteúdo publicado): "{paciente} — {quando}", mais recentes primeiro, só da audiência atual; ninguém: "Ninguém abriu este conteúdo ainda."; "Voltar ao conteúdo". Sem auditoria (D6).
+
+## Textos de interface e mensagens do E6 (Plano 07, v1.10)
+
+Texto exato do código (conferido na entrega). `{…}` = valor variável; `{data}` = "dd/mm/aaaa" e `{quando}` = como no E4, no fuso do tenant. Três textos da lista do plano não aparecem em nenhuma tela e ficaram fora: "Conteúdo despublicado." (despublicar mostra a situação "Rascunho"), "Enviar capa" e "Enviar PDF" (o envio começa ao escolher o arquivo).
+
+| Onde | Textos |
+|---|---|
+| Painel: lista (US-056) | Menu "Conteúdos"; "Conteúdos", "Novo vídeo", "Nova receita", "Nova orientação"; filtro (`<nav aria-label="Filtrar conteúdos">`) "Todos", "Vídeos", "Receitas", "Orientações"; colunas "Título", "Tipo" ("Vídeo", "Receita", "Orientação"), "Situação" ("Rascunho", "Publicado em {data}"), "Visualizações" ("{vistos} de {audiência} pacientes ({pct}%)", no singular "1 de 1 paciente (100%)"; "—" no rascunho; nome acessível do link "Ver quem viu: {título}"); "Nenhum conteúdo ainda."; "Conteúdo excluído." |
+| Painel: conteúdo (US-050, US-052, US-053) | "Voltar aos conteúdos"; "{tipo} · Rascunho" / "{tipo} · Publicado"; "Título", "Resumo", "Link do vídeo" + "Vídeos não listados podem ser vistos por quem tiver o link.", "Texto" + "Use **negrito**, *itálico*, listas com - e títulos com ##.", "Etiquetas do conteúdo" + "Separe por vírgula. Ex.: sem lactose, café da manhã"; "Quem vê": "Todos os pacientes", "Pacientes com etiqueta", "Pacientes específicos", "Etiquetas", "Pacientes", "Nenhuma etiqueta cadastrada."; "Criar", "Salvar", "Conteúdo salvo."; erros: "Informe o título (até 120 caracteres).", "Use no máximo 300 caracteres no resumo.", "Texto muito longo (até 20000 caracteres).", "Use até 10 etiquetas de até 30 caracteres.", "Use um link do YouTube ou do Vimeo", "Escolha quem vê este conteúdo.", "Escolha pelo menos uma etiqueta ou um paciente.", "Conteúdo não encontrado.", "Formulário inválido." (texto com caractere nulo, como no diário) |
+| Painel: arquivos (US-051, US-052) | "Arquivos", "Capa (JPEG ou PNG, até 5 MB)", "Remover capa", "Material em PDF (até 10 MB)", "Ver PDF", "Remover PDF", "Enviando…", "Capa salva.", "PDF salvo."; erros: "Envie uma imagem JPEG ou PNG de até 5 MB.", "Envie um PDF de até 10 MB.", "Outro envio está em andamento. Tente de novo em instantes.", "Não foi possível enviar. Tente de novo.", "Espaço de armazenamento esgotado. Fale com o suporte." |
+| Painel: publicar e excluir (US-053) | "Avisar pacientes", "Publicar", "Despublicar", "Conteúdo publicado.", "Conteúdo publicado. Aviso enviado para {n} pacientes." / "Conteúdo publicado. Aviso enviado para 1 paciente."; erros: "Preencha a receita (rendimento, porção e ingredientes) antes de publicar.", "Escreva o texto ou envie o PDF antes de publicar.", "Um conteúdo publicado precisa de texto ou PDF. Despublique antes de tirar os dois."; "Ver quem viu"; "Excluir conteúdo", "Excluir este conteúdo? A sugestão de receita sai dos planos." |
+| Painel: receita (US-051) | "Receita", "Rendimento total (g)", "Porção (g)", "Tempo de preparo (min)", "Modo de preparo", "Ingredientes", "Adicionar ingrediente", "Gramas de {nome}", "Medida caseira de {nome} (opcional)", "Remover {nome}", "Por porção: {kcal} kcal · proteína {g} g · carboidrato {g} g · lipídio {g} g · fibra {g} g", "Sem valor na TACO", "Salvar receita", "Receita salva."; erros: "Informe o rendimento total em gramas (maior que 0).", "Informe a porção em gramas (maior que 0).", "A porção não pode ser maior que o rendimento", "Inclua pelo menos um ingrediente.", "A receita pode ter até 50 ingredientes.", "Tempo de preparo entre 1 e 1440 minutos.", "Texto muito longo (até 10000 caracteres).", "Medida caseira até 60 caracteres.", "Alimento não encontrado."; em Alimentos: "Este alimento está em um plano ou receita e não pode ser excluído." |
+| Painel: quem viu (US-056) | "Quem viu: {título}", "{paciente} — {quando}", "Ninguém abriu este conteúdo ainda.", "Voltar ao conteúdo" |
+| Painel: editor do plano (US-054) | "Sugestão de receita em {refeição}", "Nenhuma", "Receita indisponível", "Receita não encontrada." |
+| Painel: envios da consulta | Tipos (W-1): "Notificação de teste", "Comentário no diário", "Plano novo", "Conteúdo novo" |
+| Portal: Conteúdos (US-055) | Aba "Conteúdos"; "Conteúdos"; filtro (`<nav aria-label="Filtrar conteúdos">`) "Todos", "Vídeos", "Receitas", "Orientações", "Favoritos"; "Buscar" (rótulo e botão), "Etiqueta", "Todas"; selo "Novo"; tipo "Vídeo" / "Receita" / "Orientação" (também na capa padrão); "Nenhum conteúdo por aqui ainda.", "Nenhum conteúdo encontrado.", "Você ainda não favoritou nenhum conteúdo." |
+| Portal: um conteúdo (US-050 a US-052, US-054) | "Voltar aos conteúdos"; "Voltar ao plano" (receita aberta pelo cartão, fora da audiência); "Favoritar", "Remover dos favoritos"; "Vídeo: {título}" (título do player); "Rendimento: {g} g · Porção: {g} g", "Tempo de preparo: {n} min", "Por porção: …", "Ingredientes", "{alimento} — {quantidade}", "Sem valor na TACO", "Modo de preparo"; "Baixar material (PDF)" |
+| Portal: Meu plano (US-041, US-054) | "Lista de compras" (link), "Sugestão de receita: {título}" |
+| Push ao paciente (neutro: título "NutriDebby") | "Sua nutricionista publicou um novo conteúdo" (abre "Conteúdos") |
+| Exportação (`dados.json`, US-018, US-046) | "Conteúdo indisponível" (visto ou favoritado que não está mais publicado) |
 
 ---
 
@@ -1455,8 +1523,8 @@ Cenário: Métricas
 | US-015 | M2 | RNF-06 | exams |
 | US-016 | M2 | — | consultations, appointments |
 | US-017 | M2 | — | anthropometry, exams |
-| US-018 | M2 | RNF-08, RN-08, P-01 | patients, privacy_requests, audit_log |
-| US-019 | M2 | RN-12 | patient_tags, patient_tag_links |
+| US-018 | M2 | RNF-08, RN-08, P-01 | patients, privacy_requests, audit_log, content_audience, content_views, content_favorites |
+| US-019 | M2 | RN-12 | patient_tags, patient_tag_links, content_audience |
 | US-020 | M3 | INT-04, RNF-01, P-10 | foods, food_measures |
 | US-021 | M3 | — | foods |
 | US-022 | M3 | RN-02, RNF-01 | meal_plans, meals, meal_items |
@@ -1473,18 +1541,18 @@ Cenário: Métricas
 | US-036 | M4 | RN-09 | tenants, notifications, whatsapp_conexoes |
 | US-037 | M4 | CS-03 | appointments |
 | US-040 | M5 | INT-03, RNF-09, RNF-10, CS-02 | push_subscriptions, access_events, notifications |
-| US-041 | M5 | RN-01 | meal_plans, meals, meal_items, stored_files |
+| US-041 | M5 | RN-01, RN-12 | meal_plans, meals, meal_items, stored_files, contents |
 | US-042 | M5 | RN-07, RN-18 | diary_entries, stored_files, tenants (armazenamento_bytes) |
 | US-043 | M5 | INT-03 | diary_entries, notifications |
 | US-044 | M5 | — | anthropometry, consultations, tenants (mostrar_perc_gordura_paciente) |
 | US-045 | M5 | RN-13 | meal_items, foods |
 | US-046 | M5 | RNF-08 | patients, privacy_requests, data_exports, audit_log |
-| US-050 | M6 | RN-10, INT-05 | contents |
-| US-051 | M6 | RN-11 | contents, recipes, recipe_ingredients |
-| US-052 | M6 | RNF-06 | contents |
-| US-053 | M6 | RN-12, INT-03 | content_audience |
-| US-054 | M6 | RN-11 | meals, contents |
-| US-055 | M6 | RN-12 | contents, content_views, content_favorites |
-| US-056 | M6 | CS-02 | content_views |
+| US-050 | M6 | RN-10, INT-05, RN-18 | contents, stored_files |
+| US-051 | M6 | RN-11, RN-02, RN-18 | contents, recipes, recipe_ingredients, foods, stored_files |
+| US-052 | M6 | RNF-06, RN-18 | contents, stored_files |
+| US-053 | M6 | RN-12, INT-03, RNF-08 | contents, content_audience, notifications, push_subscriptions |
+| US-054 | M6 | RN-11, RN-12, RN-01 | meals, contents, recipes |
+| US-055 | M6 | RN-12, RNF-09, RNF-10 | contents, content_views, content_favorites |
+| US-056 | M6 | CS-02, RN-12 | content_views, content_audience, patients |
 
 **Resumo:** 46 histórias; 36 **M** e 10 **S**.

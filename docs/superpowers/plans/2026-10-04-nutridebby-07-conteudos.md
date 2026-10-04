@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **ENTREGUE:** PR #10 mesclado em `3a1c6a4` e em produção desde 04/10/2026 (migrations 0081–0084; spec v1.10). Ver "Resultado da entrega", no fim.
+
 > **DECISÕES ★ APROVADAS pelo dono em 04/10/2026** (D1, D3, D4, D6, D7, D11, D13, D14, D21 — todas conforme a recomendação do plano). Escrito em 03/10/2026 a partir de `origin/main` @ `359e1bb` (Planos 01–06 em produção, spec v1.9). `/code-review high` do PR #10 feito em 04/10/2026: os 10 achados estão corrigidos no texto (audiência que não apaga alvo escondido, capa PNG com fundo branco, capa de vídeo trocado, gramas arredondadas antes de conferir, exceção da RN-12 só no caminho do plano — ajuste da D2 —, link sem esquema, exclusão sem arquivo órfão, publicado nunca vazio, métricas numa consulta, regra 8 do CLAUDE.md). Próximo passo: a execução; merge só com OK do dono. Nenhuma linha de código deste plano foi escrita ainda; nada foi rodado no banco.
 
 **Goal:** A nutricionista publica vídeos (link do YouTube/Vimeo, capa baixada pelo oEmbed, player sem cookies), receitas com o valor nutricional por porção calculado da tabela de alimentos e orientações em texto formatado (+ PDF), escolhe quem vê cada conteúdo (todos, pacientes com uma etiqueta, pacientes específicos), sugere uma receita numa refeição do plano e vê quantos pacientes abriram cada conteúdo; o paciente navega pela aba "Conteúdos" do PWA (feed, busca, filtros, favoritos, selo "Novo") e recebe no máximo um aviso de conteúdo novo por dia — com o banco garantindo que conteúdo fora da audiência não aparece nem pela URL.
@@ -5770,7 +5772,7 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
 
 ## Fechamento do plano (após a Tarefa 13)
 
-- [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` — com o **checklist reforçado** se o dono aceitar a D21:
+- [x] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` — com o **checklist reforçado** se o dono aceitar a D21:
   - **Audiência (D2):** `contents`, `recipes`, `recipe_ingredients` com `paciente_conteudo_visivel` (guarda verde); `app_conteudo_por_etiqueta` só responde sim/não, só na sessão de paciente, e devolve o contexto do chamador (`app.role`, `app.patient_id`) antes de retornar — conferido também no cluster do runbook, com o dono sem superusuário (`src/db/migrate-owner.test.ts`, caso "audiência por etiqueta (0083)": Ana com a etiqueta vê 1, Bia sem ela vê 0); nenhuma etiqueta de paciente chega ao portal (nem no JSON); rascunho, despublicado e fora da audiência dão 404; a exceção da receita só vale para plano **publicado** do próprio paciente e **só no caminho do plano** (`liberarReceitasDoPlano` só em `planoDoPaciente` e em `conteudoDoPaciente(…, { doPlano: true })` — guarda verde; a receita fora da audiência não aparece no feed, na busca, no filtro de etiquetas nem com "Novo", e não aceita visualização/favorito).
   - **Escrita do paciente:** só `content_views` (`insert`) e `content_favorites` (`insert`, `delete`), e só de conteúdo visível (`paciente_conteudo_visto`/`paciente_conteudo_favorito`); a guarda B-5 confere a expressão.
   - **Arquivos (regra 9, D8, D20):** capa e PDF por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf`; tipo pelo conteúdo; 5 MB/10 MB conferidos no corpo; `sharp` com 40 MP; JPEG sem EXIF e com fundo branco; ponteiro gravado/limpo na transação do arquivo; `excluirConteudo` apaga o conteúdo na transação do último arquivo (upload no meio → nenhum `stored_files` órfão); a capa do oEmbed confere o vídeo com a linha travada; o portal assina só o caminho lido de `contents` pela RLS.
@@ -5780,13 +5782,13 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
   - **LGPD (D15):** exclusão e anonimização apagam o uso de conteúdo do titular; exportação (equipe e titular) com `conteudos`.
   - **Logs:** nada de título, texto, link, nome ou caminho (só ids, provedor e motivo).
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema Critical/Important confirmado, parar e avisar o dono.
-- [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P07-01 a P07-08 ✅ (com o PR); débitos B-5, S-9, T-4, D04-1, D04-2, F-12, W-1 ✅; os Minor da revisão num item "P07-09 — débitos do Plano 07".
-- [ ] Atualizar a spec para a versão seguinte (v2.0): §4.1 (leitura por audiência no banco, `CONTEUDO_POR_AUDIENCIA`, `app_conteudo_por_etiqueta`, a exceção da RN-12 só no caminho do plano — `app.receitas_do_plano`; B-9: o limite conhecido da D1 — tabelas sem `tenant_id` e as de `RLS_EXCEPTIONS` ficam fora da negação da escrita do paciente), §4.2 (rotas do conteúdo; "Conteúdos" no lugar de "Compras" na barra — D3), §6 INT-05 (prazo total de 5 s, hosts fixos, capa padrão, capa convertida) e INT-03 (`conteudo_novo`), §7 (as tabelas como ficaram, `meals.recipe_content_id` com `SET NULL`, `notifications.tipo`), §8 RN-10 a RN-12 (as notas deste plano), US-050 a US-056 com as notas de entrega (os "Desvios conscientes" desta página) e uma tabela **"Textos de interface do E6"** com os textos novos (como a do E4/E5); conferir também os textos do Plano 06 que ficaram fora da spec (T-9).
-- [ ] Anotar para os próximos planos (no backlog):
+- [x] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P07-01 a P07-08 ✅ (com o PR); débitos B-5, S-9, T-4, D04-1, D04-2, F-12, W-1 ✅; os Minor da revisão num item "P07-09 — débitos do Plano 07". (O `.md` — com o P07-09 por tema, os itens do PR #11 marcados no P06-12 e as notas abaixo — no PR de fechamento; o painel é atualizado à parte.)
+- [x] Atualizar a spec para a versão seguinte (**v1.10**, a seguinte à v1.9 da `main`): §4.1 (leitura por audiência no banco, `CONTEUDO_POR_AUDIENCIA`, `app_conteudo_por_etiqueta`, a exceção da RN-12 só no caminho do plano — `app.receitas_do_plano`; B-9: o limite conhecido da D1 — tabelas sem `tenant_id` e as de `RLS_EXCEPTIONS` ficam fora da negação da escrita do paciente), §4.2 (rotas do conteúdo; "Conteúdos" no lugar de "Compras" na barra — D3), §6 INT-05 (prazo total de 5 s, hosts fixos, capa padrão, capa convertida) e INT-03 (`conteudo_novo`), §7 (as tabelas como ficaram, `meals.recipe_content_id` com `SET NULL`, `notifications.tipo`), §8 RN-10 a RN-12 (as notas deste plano), US-050 a US-056 com as notas de entrega (os "Desvios conscientes" desta página) e uma tabela **"Textos de interface do E6"** com os textos novos (como a do E4/E5); conferir também os textos do Plano 06 que ficaram fora da spec (T-9). Feito: corpo da spec, notas "Plano 07, v1.10" em US-018, US-019, US-041 e US-050 a US-056, a tabela "Textos de interface e mensagens do E6" conferida no código (três textos da lista acima não aparecem em tela e ficaram fora: "Conteúdo despublicado.", "Enviar capa", "Enviar PDF"), B-9 (já na §4.1 desde a v1.9) e T-9 (já na tabela do E5) conferidos.
+- [x] Anotar para os próximos planos (no backlog, sob o Plano 08 e o Pós-MVP):
   - **Plano 08 (go-live):** P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa/PDF e a chamada de rede do oEmbed. P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função por linha), a busca full-text e `/painel/conteudos` (a consulta agrupada das métricas com 200 conteúdos publicados e muitos pacientes). P08-06 — o termo do paciente e o DPA precisam citar YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6.
   - **Pós-MVP:** Bunny Stream (P-07, Fase 2); vitrine pública de conteúdo (Fase 4); seletor de medidas caseiras na receita (D12); push com o título do conteúdo se o dono quiser (D4); "Mais" na barra quando entrarem "Exames"/"IA Nutri" (D3).
-- [ ] Lembrar o dono: backup no host (P02-11) pendente; merge (= deploy) só com OK explícito e snapshot no hPanel antes.
-- [ ] Pedir ao dono o merge do PR (= deploy).
+- [x] Lembrar o dono: backup no host (P02-11) pendente; merge (= deploy) só com OK explícito e snapshot no hPanel antes.
+- [x] Pedir ao dono o merge do PR (= deploy). Mesclado em `3a1c6a4` com o OK do dono (04/10/2026).
 
 ---
 
@@ -5842,3 +5844,41 @@ Pontos que precisam de atenção (não são decisões):
 ## Execução
 
 Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa, revisão final do branch no fim) — as 13 tarefas dependem umas das outras por interfaces bem definidas (a audiência da T2 decide tudo o que o portal mostra; o `publicarConteudo` muda de assinatura na T10), e um erro de RLS que mostre conteúdo dirigido por etiqueta ("gestante") a quem não deve é caro de desfazer em produção. As Tarefas 3 e 4 (sem banco) e a 8 (débito do plano) podem correr em paralelo, em worktrees, como no Plano 06.
+
+## Resultado da entrega
+
+**PR #10** (`plano-07-conteudos` → `main`), mesclado em `3a1c6a4` (04/10/2026, 12:33 UTC). Base real da execução: `226c3e3` (PR #11 de débitos já na `main`; nenhuma migration nova nele, então a numeração 0081–0084 ficou); antes do merge, rebase sobre o PR #13 (modo escuro). Execução por workflow (57 agentes) depois de uma varredura prévia do plano contra a `main` (decisões R1–R11 por cima do texto: base, ordem das tarefas, NUL nos textos → "Formulário inválido.", guarda R11 da audiência, testes); as Tarefas 2, 3, 4 e 8 em worktrees paralelos.
+
+| Tarefa | Resultado da revisão por tarefa (2 lentes: spec/qualidade e segurança/LGPD) | Commit na `main` |
+|---|---|---|
+| T1 — tabelas, RLS, escrita do paciente, guardas (B-5) | 1 rodada de correção: CHECK de 1 a 30 caracteres por etiqueta do conteúdo (`app_etiquetas_validas`, 0082); 0 residual | `1bbb37b`, `6188376` |
+| T2 — audiência na leitura (RN-12) | 0 Critical/Important | `f48837c` |
+| T3 — vídeo, oEmbed, capa | 0 (concluída com ressalvas registradas; `constantes.ts` igual ao da T2) | `70139e1` |
+| T4 — markdown seguro | 1 rodada: título e item sem retrocesso quadrático com U+2028/U+2029 | `0c2f871`, `fba5b53` |
+| T5 — conteúdos no painel (S-9) | 0 | `feaa6c2` |
+| T6 — receita e valor por porção | 0 | `a8e94d7` |
+| T7 — aba "Conteúdos" no portal (T-4, D3) | 0 (concluída com ressalvas: o desvio 3, a barra de abas, foi para o dono) | `82de3a1` |
+| T8 — inserts em lote no salvamento automático (D04-2) | 0 | `81098d2` |
+| T9 — receita sugerida na refeição e o cartão no portal | 0 | `ebae68b` |
+| T10 — aviso de conteúdo novo (W-1/X-7) | 0 | `b3ede29` |
+| T11 — métricas e "Quem viu" | 0 | `6e692e1` |
+| T12 — LGPD do titular e exportação (D15, D04-1, F-12) | 0 | `ff67053` |
+| T13 — E2E da audiência (§9.7) e axe | 1 rodada: seletor exato de "Publicar" depois de despublicar | `56c4574`, `3220171` |
+
+| Etapa | Resultado |
+|---|---|
+| Revisão final do branch (workflow, 4 lentes: banco, painel e arquivos, portal, LGPD e testes) | **0 Critical/Important** confirmados. Uma onda de correções com **22 minors** corrigidos (`86c1eae`): fronteiras da RN-12 em teste, guardas da R11, das políticas de INSERT e da liberação do plano, 408 e "Remover PDF", tetos e prazo total do oEmbed em teste, a sugestão despublicada e a lista de refeições "ruins", lista vazia do feed, filtro de publicado no portal, exportação do titular, E2E e axe novos, isolamento das métricas e da receita; re-revisão do diff: 0 abertos; 61 minors para o backlog (P07-09, agrupados por tema) |
+| `/code-review high` (uma vez) | **No plano**, antes da execução: 10 achados, todos corrigidos no texto (`60469b6`). **No código** (@`4c79d27`): 7 achados, todos corrigidos (`59636ba..31b246f`) — capa do vídeo sem 500 nem cadastro duplicado (Important), `dados.json` sem título de conteúdo despublicado — "Conteúdo indisponível" (Important, LGPD), receita anexada conferida com `FOR SHARE` (Important), versão da cópia offline com o título da receita, a janela dos 500 pacientes enviada pelo formulário (`exibidos`) e as duas decisões do dono: o aviso só para paciente com push ativo e a barra em 7 colunas iguais com hífen (desvio 3 ratificado). Re-revisão só do diff: 7/7 endereçados, 0 abertos; 4 minors para o backlog |
+| `/security-review` (checklist reforçado, D21) | **0** achados |
+| Testes e CI | `pnpm test` 1467 testes, typecheck, lint e build verdes; E2E de conteúdos e acessibilidade verdes (completo 102/102 na onda da revisão final); **CI verde** @`31b246f` (quality, test, e2e, image). O GitGuardian acusa "Generic Password" em `src/modules/conteudo/oembed.ts`: falso positivo (a recusa de URL com usuário/senha), já presente antes das correções — o dono marca no painel do GitGuardian |
+| Deploy | Merge às 12:33 UTC com o OK do dono; o CI publicou a imagem e o Easypanel reimplantou app e worker em **04/10/2026 12:40 UTC** (09h40 BRT): "Migrations aplicadas e role da aplicação conferido", **85 migrations** (até a 0084: tabelas de conteúdo, RLS, a função `app_conteudo_por_etiqueta`, as políticas da audiência e o tipo `conteudo_novo`; nenhuma migração de dados) |
+
+**Fica para o teste manual (runbook, passo 5)** — o CI não alcança o YouTube/Vimeo reais nem um serviço de push real:
+- Painel: "Novo vídeo" com um link **não listado** do YouTube da Debby → a capa aparece (baixada) e o aviso "Vídeos não listados podem ser vistos por quem tiver o link." está no formulário; um link do Vimeo → player com `dnt=1`.
+- Celular (Android e iPhone, PWA instalado, notificações ativadas): publicar com "Avisar pacientes" → chega "Sua nutricionista publicou um novo conteúdo"; o toque abre "Conteúdos"; o vídeo toca dentro do app; publicar um segundo conteúdo em seguida **não** manda outro push. Sem notificações ativadas, a tela diz "Aviso enviado para 0 pacientes." (só conta quem tem push ativo).
+- Orientação com PDF → "Baixar material (PDF)" baixa no celular.
+- Plano: "Editar" → "Sugestão de receita em …" → publicar → o cartão aparece em "Meu plano"; abrir o plano offline continua funcionando (o link da receita não abre sem rede).
+- Barra de abas no celular: as 7 abas cabem sem rolar ("Conteúdos" e "Evolução" podem quebrar com hífen); "Lista de compras" abre pelo link em "Plano".
+- Depois (passo 6): apagar os conteúdos de teste só com a confirmação do dono ("Excluir conteúdo" no painel).
+
+Segue pendente do dono: o backup no host (P02-11, etapas 6 e 8) — sem ele, nada de pacientes reais.
