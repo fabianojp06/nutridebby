@@ -1,10 +1,38 @@
 import * as Sentry from '@sentry/node';
 import type { NodeOptions } from '@sentry/node';
+import { criarLimite } from './limite-memoria';
 import { logger, nomeDoErro } from './logger';
 import { filtrarBreadcrumb, filtrarEvento, type Breadcrumb, type EventoSentry } from './sentry-filtro';
 
 type Papel = 'app' | 'worker';
-let ligado = false;
+
+/**
+ * Se o Sentry está ligado, pelo próprio SDK (carrier global `__SENTRY__`). Nunca uma variável deste módulo: o Next
+ * compila o instrumentation (onde o Sentry liga) e cada Route Handler em grafos separados, cada um com a sua cópia
+ * deste arquivo — no build, a cópia da rota /api/erro-cliente via `false` para sempre e o minificador apagava o envio.
+ * `isEnabled` (e não `isInitialized`): depois do `close`, o cliente continua lá, mas desligado.
+ */
+const ligado = (): boolean => Sentry.isEnabled();
+
+/**
+ * D1: teto do repasse dos erros do navegador ao Sentry. A rota é sem login (um curl sem Origin passa) e o limite por
+ * IP não segura quem tem muitos IPs: sem teto global, a cota mensal do plano gratuito acabaria em horas e os erros
+ * reais de app e worker deixariam de chegar. O mesmo erro (nome|rota|digest) vai uma vez por janela e não gasta o teto.
+ * Estado em memória (D10, 1 réplica); só a rota chama, então a cópia do módulo dela é a que conta.
+ */
+const JANELA_NAVEGADOR_MS = 3_600_000;
+const TETO_NAVEGADOR = 30;
+const tetoNavegador = criarLimite({ janelaMs: JANELA_NAVEGADOR_MS, max: TETO_NAVEGADOR });
+const enviadosDoNavegador = new Map<string, number>(); // assinatura → quando foi ao Sentry (no máximo TETO_NAVEGADOR vivas)
+
+function repassarDoNavegador(assinatura: string, agora: number): boolean {
+  const visto = enviadosDoNavegador.get(assinatura);
+  if (visto !== undefined && agora - visto < JANELA_NAVEGADOR_MS) return false;
+  if (!tetoNavegador.permitir('global', agora)) return false;
+  for (const [k, t] of enviadosDoNavegador) if (agora - t >= JANELA_NAVEGADOR_MS) enviadosDoNavegador.delete(k);
+  enviadosDoNavegador.set(assinatura, agora);
+  return true;
+}
 
 /** Nenhuma categoria de dado coletada pelo SDK (v11: o que ficar de fora vale `true`). */
 const SEM_COLETA = {
@@ -32,6 +60,11 @@ const SEM_COLETA = {
  * OpenTelemetry e só deixa de enviar); desligado é não declarar a taxa nem o amostrador (docs.sentry.io, "Disabling
  * Tracing"). E tracePropagationTargets vazio: no servidor o padrão propaga sentry-trace/baggage para toda requisição
  * de saída (Resend, Evolution, FCM/APNs, oEmbed) — nenhum cabeçalho do Sentry sai para terceiros.
+ * Worker sem a integração OnUnhandledRejection: no modo padrão ('warn') ela registra um handler que só avisa no console,
+ * e um handler qualquer basta para o Node não derrubar o processo — o worker seguiria vivo num estado possivelmente
+ * quebrado, sem o reinício do Swarm. Sem ela, vale o padrão do Node 24: a rejeição vira exceção não capturada, a
+ * OnUncaughtException manda o evento `fatal` e sai com 1. (O modo 'strict' também sai, mas ignora o AbortError, que
+ * ficaria engolido sem aviso.) O app fica com o padrão: o Next registra os próprios handlers.
  */
 export function opcoesDoSentry(o: { dsn: string; ambiente: string; papel: Papel; release?: string }): NodeOptions {
   return {
@@ -50,6 +83,7 @@ export function opcoesDoSentry(o: { dsn: string; ambiente: string; papel: Papel;
     beforeSendTransaction: () => null,
     beforeBreadcrumb: (b) => filtrarBreadcrumb(b as Breadcrumb) as typeof b | null,
     initialScope: { tags: { papel: o.papel } },
+    ...(o.papel === 'worker' ? { integrations: (padrao) => padrao.filter((i) => i.name !== 'OnUnhandledRejection') } : {}),
   };
 }
 
@@ -57,13 +91,12 @@ export function opcoesDoSentry(o: { dsn: string; ambiente: string; papel: Papel;
 export function iniciarSentry(o: { dsn?: string; ambiente: string; papel: Papel; release?: string; transport?: NodeOptions['transport'] }): boolean {
   if (!o.dsn) return false;
   Sentry.init({ ...opcoesDoSentry({ dsn: o.dsn, ambiente: o.ambiente, papel: o.papel, release: o.release }), ...(o.transport ? { transport: o.transport } : {}) });
-  ligado = true;
   logger.info({ papel: o.papel }, 'sentry ligado'); // nunca o DSN
   return true;
 }
 
 export function capturarErro(err: unknown, tags: Record<string, string>): void {
-  if (!ligado) return;
+  if (!ligado()) return;
   Sentry.captureException(err, { tags });
 }
 
@@ -77,15 +110,25 @@ export function registrarErroDaRequisicao(err: unknown, r: { requestId: string |
   capturarErro(err, tags);
 }
 
-/** Erro do navegador (rota /api/erro-cliente): só digest, nome e rota — nunca texto. */
-export function capturarErroDoNavegador(e: { digest: string | null; nome: string; rota: string }): void {
+/**
+ * Erro do navegador (rota /api/erro-cliente): só digest, nome e rota — nunca texto. O log sai sempre; o Sentry, dentro
+ * do teto. `agora` só nos testes.
+ */
+export function capturarErroDoNavegador(e: { digest: string | null; nome: string; rota: string }, agora: number = Date.now()): void {
   logger.warn({ digest: e.digest, nome_erro: e.nome, rota: e.rota }, 'erro no navegador');
-  if (!ligado) return;
-  Sentry.captureMessage('erro no navegador', { level: 'error', tags: { nome_erro: e.nome, rota: e.rota, ...(e.digest ? { digest: e.digest } : {}) } });
+  if (!ligado()) return;
+  const chave = [e.nome, e.rota, e.digest ?? '-'];
+  if (!repassarDoNavegador(chave.join('|'), agora)) return;
+  // a mensagem é fixa (o filtro só deixa passar as de MENSAGENS_FIXAS): sem fingerprint próprio, todo erro do navegador
+  // cairia num issue só, e a integração Dedupe do SDK descartaria um erro diferente logo depois de outro
+  Sentry.captureMessage('erro no navegador', {
+    level: 'error',
+    fingerprint: ['erro-no-navegador', ...chave],
+    tags: { nome_erro: e.nome, rota: e.rota, ...(e.digest ? { digest: e.digest } : {}) },
+  });
 }
 
 export async function encerrarSentry(): Promise<void> {
-  if (!ligado) return;
+  if (!ligado()) return;
   await Sentry.close(2000);
-  ligado = false;
 }

@@ -1,5 +1,10 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as Sentry from '@sentry/node';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { capturarErro, encerrarSentry, iniciarSentry, opcoesDoSentry, registrarErroDaRequisicao } from './sentry';
 import { filtrarBreadcrumb, filtrarEvento } from './sentry-filtro';
 
@@ -82,5 +87,86 @@ describe('Sentry (P08-01, D1)', () => {
     expect(tudo).toContain('0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b');
     expect(tudo).toContain('/painel/pacientes/[id]');
     expect(tudo).not.toContain('diabetes');
+  });
+
+  it('worker: sem a integração OnUnhandledRejection (que, no modo padrão, só avisa e deixa o processo vivo); app: padrão', () => {
+    const integracoes = opcoesDoSentry({ dsn: DSN, ambiente: 'producao', papel: 'worker' }).integrations;
+    expect(typeof integracoes).toBe('function');
+    const padrao = [{ name: 'OnUncaughtException' }, { name: 'OnUnhandledRejection' }, { name: 'Http' }] as never;
+    expect((integracoes as (i: never) => { name: string }[])(padrao).map((i) => i.name)).toEqual(['OnUncaughtException', 'Http']);
+    // o app fica com o padrão: o Next registra os próprios handlers de rejeição
+    expect(opcoesDoSentry({ dsn: DSN, ambiente: 'producao', papel: 'app' }).integrations).toBeUndefined();
+  });
+
+  // Sem o Sentry, o Node 24 derruba o processo numa rejeição sem .catch e o Swarm reinicia o worker. Com o Sentry,
+  // continua assim: a rejeição vira exceção não capturada, o SDK manda o evento `fatal` e sai com 1. Inclusive o
+  // AbortError, que a integração do SDK ignora (mesmo no modo 'strict') e que deixaria o worker vivo sem aviso nenhum.
+  it.each(['Error', 'AbortError'])('worker com DSN: rejeição sem tratamento (%s) derruba o processo com o evento fatal', (nome) => {
+    const pasta = mkdtempSync(path.join(tmpdir(), 'nd-sentry-'));
+    try {
+      const script = path.join(pasta, 'rejeicao.mts');
+      writeFileSync(
+        script,
+        `const s = await import(${JSON.stringify(pathToFileURL(path.resolve('src/lib/sentry.ts')).href)});
+const enviados = [];
+const transport = () => ({ send: async (e) => { enviados.push(JSON.stringify(e, (_k, v) => (v instanceof Uint8Array ? new TextDecoder().decode(v) : v))); return {}; }, flush: async () => true });
+s.iniciarSentry({ dsn: ${JSON.stringify(DSN)}, ambiente: 'teste', papel: 'worker', transport });
+process.on('exit', (codigo) => process.stdout.write('RESULTADO ' + JSON.stringify({ codigo, fatal: enviados.some((t) => t.includes('"level":"fatal"')) }) + '\\n'));
+const e = new Error('falha de teste'); e.name = ${JSON.stringify(nome)};
+Promise.reject(e);
+setTimeout(() => process.exit(0), 5000); // ainda vivo = defeito
+`,
+      );
+      const r = spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: process.cwd(), encoding: 'utf8', timeout: 20_000, env: { ...process.env, LOG_LEVEL: 'silent' } });
+      const linha = r.stdout.split('\n').find((l) => l.startsWith('RESULTADO '));
+      expect(linha, r.stderr).toBeDefined();
+      expect(JSON.parse(linha!.slice('RESULTADO '.length))).toEqual({ codigo: 1, fatal: true });
+    } finally {
+      rmSync(pasta, { recursive: true, force: true });
+    }
+  });
+
+  // O Next compila o instrumentation (onde o Sentry liga) e cada Route Handler em grafos separados, cada um com a sua
+  // cópia deste módulo: o estado "ligado" tem de vir do SDK (carrier global), não de uma variável do módulo.
+  it('outra cópia do módulo (outro bundle do Next) vê o Sentry ligado: erro do navegador e erro de servidor saem', async () => {
+    const enviados: string[] = [];
+    iniciarSentry({ dsn: DSN, ambiente: 'teste', papel: 'app', transport: transporteFalso(enviados) as never });
+    vi.resetModules();
+    const outra = await import('./sentry');
+    outra.capturarErroDoNavegador({ digest: '1234567', nome: 'TypeError', rota: '/painel/pacientes/:id' });
+    outra.capturarErro(new Error('x'), { fila: 'email' });
+    await Sentry.flush(2000);
+    const tudo = enviados.join('\n');
+    expect(tudo).toContain('erro no navegador');
+    expect(tudo).toContain('TypeError');
+    expect(tudo).toContain('email');
+    await outra.encerrarSentry(); // e a outra cópia também desliga
+    expect(Sentry.isEnabled()).toBe(false);
+  });
+
+  // D1: a rota é sem login (um curl sem Origin passa) e o limite por IP não segura muitos IPs: sem teto global, a
+  // cota mensal do plano gratuito acabaria em horas e os erros reais de app e worker deixariam de chegar.
+  it('erros do navegador: teto global de 30 por hora para o Sentry e repetidos (nome|rota|digest) uma vez só', async () => {
+    const enviados: string[] = [];
+    vi.resetModules();
+    const s = await import('./sentry'); // estado novo do teto
+    s.iniciarSentry({ dsn: DSN, ambiente: 'teste', papel: 'app', transport: transporteFalso(enviados) as never });
+    const t0 = 1_000_000;
+    // repetido: o mesmo erro em loop no navegador vai uma vez e não gasta o teto
+    for (let i = 0; i < 5; i++) s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + i);
+    // 35 erros diferentes (quem os manda não importa: a chave do teto é fixa) → só 29 cabem com o primeiro
+    for (let i = 0; i < 35; i++) s.capturarErroDoNavegador({ digest: null, nome: 'Error', rota: `/p${i}` }, t0 + 10 + i);
+    // depois da hora, o teto e a deduplicação voltam
+    s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + 3_600_000);
+    await Sentry.flush(2000);
+    const doNavegador = enviados.filter((e) => e.includes('erro no navegador'));
+    expect(doNavegador).toHaveLength(31);
+    expect(doNavegador.filter((e) => e.includes('"/painel"'))).toHaveLength(2);
+    expect(doNavegador.some((e) => e.includes('"/p29"'))).toBe(false);
+    // erros de servidor e do worker não entram no teto do navegador
+    s.capturarErro(new Error('x'), { fila: 'email' });
+    await Sentry.flush(2000);
+    expect(enviados.length).toBe(32);
+    await s.encerrarSentry();
   });
 });
