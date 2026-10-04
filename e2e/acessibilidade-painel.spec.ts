@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL } from './painel-rotas';
@@ -11,11 +12,13 @@ const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
 let nutri: Page;
 let rotas: string[] = [];
+let errosCsp: string[] = []; // D7: a CSP vale direto porque o E2E abre todas as telas sem violação — a prova é este laço
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000); // o preparo cria uma linha de cada tela com id
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.84');
   await expect(nutri).toHaveURL(/\/painel$/);
+  errosCsp = vigiarCsp(nutri);
   const ids = await prepararTelasComId(browser, nutri, '10.9.13.83');
   rotas = Object.values(ROTAS_DO_PAINEL).map((f) => f(ids));
 });
@@ -49,6 +52,7 @@ for (const [modo, tema, aparelho] of [
     }
     await nutri.emulateMedia({ colorScheme: 'light' });
     expect(falhas).toEqual([]);
+    expect(errosCsp, 'violação de CSP em alguma tela do painel (D7)').toEqual([]);
   });
 }
 

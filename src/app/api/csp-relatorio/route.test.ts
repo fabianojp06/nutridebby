@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const warn = vi.fn();
 vi.mock('@/lib/logger', () => ({ logger: { warn: (...a: unknown[]) => warn(...a) } }));
@@ -12,7 +12,13 @@ const req = (corpo: string, ip = `10.6.${Math.floor(Math.random() * 250)}.1`) =>
   });
 const relatorio = (r: Record<string, unknown>) => JSON.stringify({ 'csp-report': r });
 
-beforeEach(() => warn.mockReset());
+beforeEach(() => {
+  warn.mockReset();
+  process.env.CSP_MODO = 'relatorio';
+});
+afterEach(() => {
+  delete process.env.CSP_MODO;
+});
 
 describe('POST /api/csp-relatorio (D7, modo de emergência)', () => {
   it('204 e log só da diretiva e da origem bloqueada (nunca a URL da página nem o caminho bloqueado)', async () => {
@@ -42,6 +48,15 @@ describe('POST /api/csp-relatorio (D7, modo de emergência)', () => {
     ['diretiva com texto livre', relatorio({ 'effective-directive': 'Glicemia 180', 'blocked-uri': 'inline' })],
     ['corpo grande', relatorio({ 'effective-directive': 'img-src', 'blocked-uri': 'inline', x: 'a'.repeat(9000) })],
   ])('%s → 204 e nada no log', async (_n, corpo) => {
+    expect((await POST(req(corpo))).status).toBe(204);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('com a CSP valendo (CSP_MODO vazio), nenhum navegador manda relatório: tudo é forjado e nada vai ao log', async () => {
+    delete process.env.CSP_MODO;
+    const corpo = relatorio({ 'effective-directive': 'img-src', 'blocked-uri': 'https://x.test/a.png' });
+    expect((await POST(req(corpo))).status).toBe(204);
+    process.env.CSP_MODO = 'valendo';
     expect((await POST(req(corpo))).status).toBe(204);
     expect(warn).not.toHaveBeenCalled();
   });

@@ -13,6 +13,7 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] Sentry recebendo erro de produção; o erro sintético com texto falso de saúde chegou **sem** o texto (runbook, passo 5) — **dono + Dev**
 - [ ] Monitor externo ativo e o alerta de teste recebido no e-mail e no celular (D3) — **dono**
 - [ ] `curl -sI https://<domínio>/entrar`: `content-security-policy` (com nonce), `strict-transport-security`, `x-content-type-options`, `x-frame-options`, `referrer-policy`; sem `x-powered-by` — **Dev**
+- [ ] Se o domínio passar pelo proxy da Cloudflare (nuvem laranja): **Rocket Loader**, **Email Obfuscation** e o **Web Analytics automático** desligados. Eles injetam script sem nonce, que o `'strict-dynamic'` bloqueia: o Rocket Loader reescreve todos os `<script>` e derruba o app inteiro; a Email Obfuscation troca os e-mails das telas por `[email protected]` — **dono + Dev**
 - [ ] k6 (roteiro em `docs/operacao/carga.md`; relatório em `docs/operacao/carga-AAAA-MM-DD.md`): relatório aprovado pela D4 (p95 das APIs ≤ 300 ms, páginas ≤ 800 ms, falhas < 1%, `notificacoes` < 20 s, LCP ≤ 2,5 s) — **Dev**
 - [ ] 6ª tentativa de login errada em 15 min dá 429 com o IP real (`TRUSTED_PROXIES`, Plano 01 R17) — **Dev, em produção, com a conta de teste**
 

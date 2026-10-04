@@ -34,7 +34,12 @@ export function montarCsp(o: { nonce: string; dev: boolean; https: boolean; modo
   return { nome: o.modo === 'relatorio' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', valor: d.join('; ') };
 }
 
-/** Todas as rotas (next.config.ts). HSTS em resposta http é ignorado pelo navegador: pode ir sempre. */
+/**
+ * Todas as rotas (next.config.ts). HSTS em resposta http é ignorado pelo navegador: pode ir sempre.
+ * Atenção: uma chave aqui APAGA a mesma chave posta pelo Route Handler (o Next só copia a do handler se ela não existir).
+ * Por isso a CSP de documento fica no proxy, nunca aqui: uma CSP global sumiria com o `default-src 'none'; sandbox` de
+ * /api/arquivos. Quem precisa de outro valor ganha regra própria depois desta no next.config.ts (ex.: /api/arquivos).
+ */
 export const CABECALHOS_SEGURANCA = [
   { key: 'Strict-Transport-Security', value: 'max-age=63072000' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },

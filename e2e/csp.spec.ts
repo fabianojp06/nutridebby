@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { pacienteNoPortal, publicarPlanoSimples } from './portal';
 
@@ -6,14 +7,6 @@ import { pacienteNoPortal, publicarPlanoSimples } from './portal';
 // (o limite de login é por IP; o 10.9.12.x é do sessao-portal.spec).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
-
-function vigiarCsp(page: Page): string[] {
-  const erros: string[] = [];
-  page.on('console', (m) => {
-    if (/Content[- ]Security[- ]Policy/i.test(m.text())) erros.push(`${page.url()}: ${m.text()}`);
-  });
-  return erros;
-}
 
 test('cabeçalhos de segurança e nonce novo a cada requisição', async ({ request }) => {
   const [a, b] = [await request.get('/entrar'), await request.get('/entrar')];
@@ -27,6 +20,8 @@ test('cabeçalhos de segurança e nonce novo a cada requisição', async ({ requ
   expect(h['x-powered-by']).toBeUndefined();
   expect((await request.get('/convite/token-invalido')).headers()['referrer-policy']).toBe('no-referrer');
   expect((await request.get('/api/health')).headers()['x-content-type-options']).toBe('nosniff');
+  // a regra global do next.config venceria o 'no-referrer' do handler: /api/arquivos tem regra própria (URL assinada)
+  expect((await request.get('/api/arquivos?c=invalido')).headers()['referrer-policy']).toBe('no-referrer');
 });
 
 test('login, painel, agenda, prontuário, plano, portal e página pública (Turnstile) sem violação de CSP', async ({ browser }) => {
@@ -47,8 +42,11 @@ test('login, painel, agenda, prontuário, plano, portal e página pública (Turn
   const nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.16');
   await expect(nutri).toHaveURL(/\/painel$/);
   const errosNutri = vigiarCsp(nutri);
-  const paciente = await pacienteNoPortal(browser, nutri, '10.9.13.17');
-  const errosPaciente = vigiarCsp(paciente.page);
+  let errosPaciente: string[] = [];
+  // o vigia entra antes do convite: o aceite em /convite/paciente/[token] também é conferido
+  const paciente = await pacienteNoPortal(browser, nutri, '10.9.13.17', (p) => {
+    errosPaciente = vigiarCsp(p);
+  });
   await publicarPlanoSimples(nutri, paciente.prontuario);
   for (const url of ['/painel', '/painel/agenda', '/painel/pacientes', paciente.prontuario, '/painel/configuracoes']) {
     await nutri.goto(url);

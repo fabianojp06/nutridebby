@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
     { source: '/convite/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
     // D20: o token do link da consulta também está na URL
     { source: '/consulta/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    // O cabeçalho do next.config vence o do Route Handler (send-response.js só põe o do handler se a chave ainda não
+    // existir): sem esta regra, o 'no-referrer' de /api/arquivos (URL assinada na query) virava o global.
+    { source: '/api/arquivos', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
   ],
 };
 
