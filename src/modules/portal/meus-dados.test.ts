@@ -4,7 +4,7 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { dataExports, privacyRequests } from '@/db/schema';
+import { dataExports, patients, privacyRequests } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { estadoDosMeusDados, pedirExclusao, pedirMeusDados } from './meus-dados';
@@ -76,6 +76,58 @@ describe('Meus dados (US-046, D16, D17)', () => {
     const abertos = await withTenant(T.ctx, (tx) => tx.select().from(privacyRequests).where(eq(privacyRequests.patientId, paciente.id)), app.db);
     expect(abertos).toHaveLength(1);
     expect(await emailsNaFila('pedido_exclusao_registrado', email)).toHaveLength(1);
+  });
+
+  it('L-1: paciente que deixou de ser ativo (bloqueado, arquivado ou anonimizado) não registra pedido de exclusão nem recebe e-mail', async () => {
+    for (const fora of [{ status: 'bloqueado' as const }, { status: 'arquivado' as const }, { status: 'bloqueado' as const, anonimizadoEm: new Date() }]) {
+      const { T, paciente, email, ctx } = await titular();
+      await withTenant(T.ctx, (tx) => tx.update(patients).set(fora).where(eq(patients.id, paciente.id)), app.db);
+      expect(await pedirExclusao(ctx, SP, { db: app.db })).toEqual({ semAcesso: true });
+      expect(await withTenant(T.ctx, (tx) => tx.select().from(privacyRequests).where(eq(privacyRequests.patientId, paciente.id)), app.db)).toEqual([]);
+      expect(await emailsNaFila('pedido_exclusao_registrado', email)).toEqual([]);
+    }
+  });
+
+  it('L-1: corrida com o atendimento — o pedido esperando a trava do paciente vê o bloqueio e não deixa pedido aberto de bloqueado', async () => {
+    const { T, paciente, ctx } = await titular();
+    let pedido!: ReturnType<typeof pedirExclusao>;
+    await withTenant(
+      T.ctx,
+      async (tx) => {
+        // como atenderPedidoExclusao: trava o paciente e o bloqueia; o pedido do portal espera a trava
+        await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, paciente.id)).for('update');
+        pedido = pedirExclusao(ctx, SP, { db: app.db });
+        await new Promise((r) => setTimeout(r, 300));
+        await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: new Date() }).where(eq(patients.id, paciente.id));
+      },
+      app.db,
+    );
+    expect(await pedido).toEqual({ semAcesso: true });
+    const abertos = await withTenant(T.ctx, (tx) => tx.select().from(privacyRequests).where(and(eq(privacyRequests.patientId, paciente.id), eq(privacyRequests.status, 'aberto'))), app.db);
+    expect(abertos).toEqual([]);
+  });
+
+  it('L-3: o link de um pendente perdido (> 30 min, job que não volta) diz que falhou, não "volte em alguns minutos"', async () => {
+    const { T, paciente, ctx } = await titular();
+    const criado = new Date('2026-10-05T15:00:00Z');
+    const [e] = await withTenant(T.ctx, (tx) => tx.insert(dataExports).values({ tenantId: T.tenantId, patientId: paciente.id, escopo: 'titular', createdAt: criado, updatedAt: criado }).returning(), app.db);
+    expect(await estadoDosMeusDados(ctx, e.id, { db: app.db, agora: new Date('2026-10-05T15:30:00Z') })).toEqual({ estado: 'pendente' });
+    expect(await estadoDosMeusDados(ctx, e.id, { db: app.db, agora: new Date('2026-10-05T15:31:00Z') })).toEqual({ estado: 'falhou' });
+  });
+
+  it('L-3: "falhou" em sequência tem limite — no máximo 3 pedidos do titular em 24 h, mesmo que todos falhem', async () => {
+    const { T, paciente, ctx } = await titular();
+    const t0 = new Date('2026-10-05T15:00:00Z');
+    const em = (min: number) => new Date(t0.getTime() + min * 60_000);
+    const falharTodos = () => withTenant(T.ctx, (tx) => tx.update(dataExports).set({ status: 'falhou' }).where(eq(dataExports.patientId, paciente.id)), app.db);
+    for (const min of [0, 10, 20]) {
+      expect(await pedirMeusDados(ctx, { db: app.db, agora: em(min) })).toBe('pedido');
+      await falharTodos();
+    }
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(30) })).toBe('ja_pedido');
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.patientId, paciente.id)), app.db)).toHaveLength(3);
+    // 24 h depois do primeiro, abre uma vaga
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(24 * 60 + 1) })).toBe('pedido');
   });
 
   it('fora de sessão de paciente, nada é pedido', async () => {

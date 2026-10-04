@@ -22,7 +22,7 @@ import {
   expirarExportacoesVencidas,
   gerarExportacao,
 } from '@/modules/pacientes/exportacao-job';
-import { anonimizarVencidos } from '@/modules/pacientes/lgpd';
+import { anonimizarVencidos, concluirExclusaoAtendida, type DadosExclusaoAtendida } from '@/modules/pacientes/lgpd';
 import { limparTmpOrfaos } from '@/modules/plataforma/armazenamento';
 import {
   avisarAdmins,
@@ -158,6 +158,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   );
   await boss.work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
     await expirarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR });
+  });
+  // US-018 / F-13: fotos do diário apagadas e, só depois, o e-mail "pedido de exclusão atendido"
+  await boss.work('exclusao-atendida', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosExclusaoAtendida>[]) => {
+    await concluirExclusaoAtendida(job.data, { db: getDb(), dataDir: env.DATA_DIR, boss, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
 
   // US-026: PDF do plano alimentar na publicação (≤ 30 s) e limpeza diária dos .tmp órfãos de /data

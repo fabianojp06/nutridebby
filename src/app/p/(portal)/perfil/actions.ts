@@ -1,5 +1,6 @@
 'use server';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { requirePaciente } from '@/lib/paciente-session';
 import { MSG_MEUS_DADOS, pedirExclusao, pedirMeusDados } from '@/modules/portal/meus-dados';
 import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp } from '@/modules/portal/perfil';
@@ -16,6 +17,9 @@ export async function meusDadosAction(): Promise<PerfilState> {
 export async function exclusaoAction(): Promise<PerfilState> {
   const { ctx, tenant } = await requirePaciente('/p/perfil');
   const r = await pedirExclusao(ctx, tenant);
+  // L-1: o vínculo deixou de ser ativo entre a entrada e a trava — o Perfil recarrega e requirePaciente leva a
+  // /p/sem-acesso (ou à escolha do consultório, com outro vínculo)
+  if ('semAcesso' in r) redirect('/p/perfil');
   return { ok: 'registrado' in r ? MSG_MEUS_DADOS.exclusaoRegistrada : MSG_MEUS_DADOS.exclusaoJaPedida(r.jaPedidoEm) };
 }
 

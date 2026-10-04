@@ -55,7 +55,8 @@ export async function atenderExclusaoAction(
     throw e;
   }
   // US-018 "fotos do diário … apagadas na hora": arquivo fora da transação do atendimento; uma falha aqui só vai
-  // para o log (sem caminho — RNF-11) e o job diário de retenção repete para quem está bloqueado
+  // para o log (sem caminho — RNF-11): o job exclusao-atendida tenta de novo antes do e-mail ao paciente (F-13) e o
+  // job diário de retenção repete para quem está bloqueado
   try {
     await apagarFotosDoDiario(ctx, patientId);
   } catch (err) {

@@ -1,12 +1,14 @@
 import { and, asc, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
+import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, consultations, dataExports, diaryEntries, exams, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
+import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
-import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
+import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
 import { carregarPacienteParaEscrita } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
@@ -73,18 +75,21 @@ const nomeParaConferir = (s: string) =>
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
  * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push) e
  * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
- * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o
- * e-mail ao paciente na fila. As fotos do diário saem logo depois, por apagarFotosDoDiario (arquivo fora da
- * transação; quem chama — a Server Action da aba Privacidade — e, como rede de segurança, o job diário).
+ * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o job
+ * `exclusao-atendida` na fila. As fotos do diário saem logo depois, por apagarFotosDoDiario (arquivo fora da
+ * transação; quem chama — a Server Action da aba Privacidade —, o próprio job e, como rede de segurança, o job diário).
+ * F-13: o e-mail ao paciente ("Foram apagados agora: as fotos do diário…") sai pelo job, só depois das fotos
+ * (concluirExclusaoAtendida); o job nasce nesta transação, então o aviso nunca se perde.
  */
 export async function atenderPedidoExclusao(
   ctx: TenantContext,
   tenant: { fuso: string; nomeExibicao: string },
   patientId: string,
   nomeDigitado: string,
-  deps: { db?: Db; now?: Date } = {},
+  deps: { db?: Db; now?: Date; boss?: PgBoss } = {},
 ): Promise<{ anonimizarApos: string }> {
   const now = deps.now ?? new Date();
+  const boss = deps.boss ?? (await getBoss());
   return withTenant(
     ctx,
     async (tx) => {
@@ -154,16 +159,9 @@ export async function atenderPedidoExclusao(
         entidadeId: p.id,
         patientId: p.id,
       });
-      await enqueueEmail(
-        {
-          tipo: 'exclusao_atendida',
-          para: p.email,
-          nome: p.nome,
-          nutri: tenant.nomeExibicao,
-          anonimizarApos: formatarData(anonimizarApos),
-        },
-        { tenantId: ctx.tenantId, tx },
-      );
+      const dados: DadosExclusaoAtendida = { tenantId: ctx.tenantId, patientId: p.id };
+      const job = await boss.send('exclusao-atendida', dados, { db: fromDrizzle(tx, sql) });
+      if (!job) throw new Error('A fila recusou o aviso da exclusão');
       return { anonimizarApos };
     },
     deps.db ?? getDb(),
@@ -213,6 +211,54 @@ export async function apagarFotosDoDiario(
     if (ok) n++;
   }
   return n;
+}
+
+/** Job `exclusao-atendida` (F-13): só ids — o e-mail, o nome e a data saem do banco na hora do aviso. */
+export type DadosExclusaoAtendida = { tenantId: string; patientId: string };
+
+/**
+ * F-13 (decisão do controlador, débitos pré-go-live): o e-mail "Seu pedido de exclusão de dados foi atendido" diz
+ * "Foram apagados agora: as fotos do diário…" — então ele só sai depois que as fotos saíram do disco. Disco com erro:
+ * o job tenta de novo (o erro devolvido ao pg-boss leva só o código, nunca o caminho — RNF-11, F-1). Na última
+ * tentativa o aviso sai assim mesmo: o titular não fica sem a resposta ao pedido, e a varredura diária
+ * (apagarFotosDosBloqueados) termina as fotos. Só para quem está bloqueado e ainda identificado.
+ */
+export async function concluirExclusaoAtendida(
+  data: DadosExclusaoAtendida,
+  deps: { db?: Db; dataDir?: string; ultimaTentativa: boolean; boss?: PgBoss },
+): Promise<'avisado' | 'ignorado'> {
+  const db = deps.db ?? getDb();
+  const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
+  // antes de apagar qualquer coisa: o job só age sobre quem teve o pedido atendido (bloqueado é definitivo)
+  const [p] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ email: patients.email, nome: patients.nome, status: patients.status, anonimizarApos: patients.anonimizarApos, anonimizadoEm: patients.anonimizadoEm })
+        .from(patients)
+        .where(eq(patients.id, data.patientId)),
+    db,
+  );
+  if (!p || p.status !== 'bloqueado' || p.anonimizadoEm || !p.anonimizarApos) return 'ignorado';
+  try {
+    await apagarFotosDoDiario(ctx, data.patientId, { db, dataDir: deps.dataDir });
+  } catch (err) {
+    const motivo = motivoDoErro(err);
+    logger.error({ motivo, tenantId: data.tenantId, definitivo: deps.ultimaTentativa }, 'falha ao apagar fotos do diário antes do aviso da exclusão');
+    if (!deps.ultimaTentativa) throw new Error(`falha ao apagar as fotos do diário (${motivo})`);
+  }
+  const tenant = await buscarTenant(db, data.tenantId);
+  await enqueueEmail(
+    {
+      tipo: 'exclusao_atendida',
+      para: p.email,
+      nome: p.nome,
+      nutri: tenant?.nomeExibicao ?? 'NutriDebby',
+      anonimizarApos: formatarData(p.anonimizarApos),
+    },
+    { tenantId: data.tenantId, boss: deps.boss },
+  );
+  return 'avisado';
 }
 
 /** Quadro "Pedidos do titular" do painel (US-046): os abertos, com o nome e o prazo, prazo mais curto primeiro. */

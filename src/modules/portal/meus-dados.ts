@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, or } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { getDb, type Db } from '@/db/client';
 import { dataExports, patients, privacyRequests } from '@/db/schema';
@@ -26,6 +26,8 @@ export const MSG_MEUS_DADOS = {
 } as const;
 
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
+/** L-3: pedidos do titular em 24 h, contando os que falharam (o 1 a cada 24 h da D16 vale para os que não falharam). */
+export const TENTATIVAS_TITULAR_24H = 3;
 
 /** US-046 "Exportar meus dados" / D16: o ZIP da US-018 no escopo do titular, no máximo 1 a cada 24 h. */
 export async function pedirMeusDados(
@@ -35,32 +37,31 @@ export async function pedirMeusDados(
   const patientId = pacienteDaSessao(ctx, 'pedirMeusDados');
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  const [recente] = await withTenant(
+  const pedidos = await withTenant(
     ctx,
     (tx) =>
       tx
-        .select({ id: dataExports.id })
+        .select({ status: dataExports.status, createdAt: dataExports.createdAt })
         .from(dataExports)
         .where(
           and(
             eq(dataExports.patientId, patientId),
             eq(dataExports.escopo, 'titular'),
             gt(dataExports.createdAt, new Date(agora.getTime() - UM_DIA_MS)),
-            // "falhou" não conta; pendente há mais de 30 min é job perdido (solicitarExportacao o marca "falhou"
-            // e cria outro) — sem isto o titular ficaria 24 h preso a um pedido que nunca chega
-            or(
-              inArray(dataExports.status, ['pronta', 'expirada']),
-              and(
-                eq(dataExports.status, 'pendente'),
-                gt(dataExports.createdAt, new Date(agora.getTime() - PENDENTE_MAX_MS)),
-              ),
-            ),
           ),
-        )
-        .limit(1),
+        ),
     db,
   );
-  if (recente) return 'ja_pedido';
+  // "falhou" não conta; pendente há mais de 30 min é job perdido (solicitarExportacao o marca "falhou" e cria outro) —
+  // sem isto o titular ficaria 24 h preso a um pedido que nunca chega. L-3: mas "falhou" em sequência tem teto
+  // (TENTATIVAS_TITULAR_24H): cada pedido é um ZIP do prontuário inteiro no worker
+  const valendo = pedidos.some(
+    (e) =>
+      e.status === 'pronta' ||
+      e.status === 'expirada' ||
+      (e.status === 'pendente' && agora.getTime() - e.createdAt.getTime() <= PENDENTE_MAX_MS),
+  );
+  if (valendo || pedidos.length >= TENTATIVAS_TITULAR_24H) return 'ja_pedido';
   await solicitarExportacao(ctx, patientId, { db, now: agora, boss: deps.boss, escopo: 'titular' });
   return 'pedido';
 }
@@ -78,6 +79,8 @@ export async function estadoDosMeusDados(
   return estadoDaExportacao(ctx, patientId, exportId, o.db ?? getDb(), o.agora ?? new Date(), { escopo: 'titular' });
 }
 
+export type ResultadoExclusao = { registrado: true } | { jaPedidoEm: string } | { semAcesso: true };
+
 /**
  * US-046 "Pedir exclusão" / D17: um pedido aberto por vez (índice único parcial; a linha do paciente travada
  * serializa dois cliques), prazo de 15 dias no fuso do tenant, e-mail ao titular; a nutricionista vê no quadro
@@ -87,18 +90,21 @@ export async function pedirExclusao(
   ctx: TenantContext,
   tenant: { fuso: string; nomeExibicao: string },
   deps: { db?: Db; agora?: Date } = {},
-): Promise<{ registrado: true } | { jaPedidoEm: string }> {
+): Promise<ResultadoExclusao> {
   const patientId = pacienteDaSessao(ctx, 'pedirExclusao');
   const agora = deps.agora ?? new Date();
   return withTenant(
     ctx,
-    async (tx): Promise<{ registrado: true } | { jaPedidoEm: string }> => {
+    async (tx): Promise<ResultadoExclusao> => {
       const [p] = await tx
-        .select({ email: patients.email })
+        .select({ email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
         .from(patients)
         .where(eq(patients.id, patientId))
         .for('update');
       if (!p) throw new Error('paciente da sessão não encontrado');
+      // L-1: requirePaciente conferiu o vínculo antes da trava; o atendimento (ou o arquivamento) pode ter passado no
+      // meio — um pedido aberto de quem já não é ativo nunca seria fechado pelo quadro "Pedidos do titular"
+      if (p.status !== 'ativo' || p.anonimizadoEm) return { semAcesso: true };
       const [aberto] = await tx
         .select({ createdAt: privacyRequests.createdAt })
         .from(privacyRequests)
