@@ -219,3 +219,39 @@ export async function findPacienteEscritaViolations(db: Pool | PoolClient): Prom
   }
   return out;
 }
+
+/**
+ * RN-12 / D2 (Plano 07): tabelas sem patient_id que a sessão de paciente lê pela audiência do conteúdo — política
+ * RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, migration 0083). Tabela nova de conteúdo entra aqui.
+ */
+export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
+  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou, só com liberarReceitasDoPlano, receita do plano publicado dele',
+  recipes: 'herda de contents',
+  recipe_ingredients: 'herda de contents',
+};
+
+/**
+ * R11 (como a B-5): nome, comando e RESTRICTIVE não bastam — uma `paciente_conteudo_visivel USING (true)` mostraria ao
+ * paciente todo conteúdo do tenant. Trechos (normalizados) que a expressão precisa ter: `contents` decide a audiência;
+ * as outras herdam de `contents` por EXISTS.
+ */
+const AUDIENCIA_EXIGE: Record<string, string[]> = {
+  contents: [NEGA_PACIENTE, "status='publicado'::text", 'app_current_patient', 'app_conteudo_por_etiqueta', 'app.receitas_do_plano'],
+};
+const HERDA_DE_CONTENTS = [NEGA_PACIENTE, 'exists', 'fromcontents'];
+
+export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; qual: string | null }>(
+    `select tablename as t, qual from pg_policies
+      where schemaname = 'public' and policyname = 'paciente_conteudo_visivel' and permissive = 'RESTRICTIVE' and cmd = 'SELECT'`,
+  );
+  const qual = new Map(rows.map((r) => [r.t, normalizarExpressao(r.qual)]));
+  return Object.keys(CONTEUDO_POR_AUDIENCIA).flatMap((table): RlsViolation[] => {
+    const e = qual.get(table);
+    if (e === undefined) return [{ table, problem: 'sem política paciente_conteudo_visivel (RN-12)' }];
+    if (!(AUDIENCIA_EXIGE[table] ?? HERDA_DE_CONTENTS).every((trecho) => e.includes(trecho))) {
+      return [{ table, problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' }];
+    }
+    return [];
+  });
+}

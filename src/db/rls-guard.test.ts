@@ -2,6 +2,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
 import {
+  CONTEUDO_POR_AUDIENCIA,
+  findConteudoAudienciaViolations,
   findPacienteEscritaViolations,
   findPublicoViolations,
   findRlsViolations,
@@ -175,6 +177,44 @@ describe('escrita da sessão de paciente (D1, P-16 a)', () => {
       const v = await findPacienteEscritaViolations(client);
       expect(v).toContainEqual({ table: 'exams', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
       expect(v).toContainEqual({ table: 'contents', problem: 'a sessão de paciente pode insert sem entrada em PACIENTE_ESCREVE' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('leitura por audiência (RN-12, Plano 07)', () => {
+  it('toda tabela de CONTEUDO_POR_AUDIENCIA tem a política RESTRICTIVE de SELECT; a lista não cita tabela inexistente', async () => {
+    expect(await findConteudoAudienciaViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { CONTEUDO_POR_AUDIENCIA })).toEqual([]);
+  });
+  it('perder a política quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_conteudo_visivel on recipe_ingredients');
+      expect(await findConteudoAudienciaViolations(client)).toEqual([{ table: 'recipe_ingredients', problem: 'sem política paciente_conteudo_visivel (RN-12)' }]);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('R11: a política com o nome, o comando e RESTRICTIVE certos, mas sem a audiência (USING true, ou sem o ramo da etiqueta), também quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_conteudo_visivel on recipes');
+      await client.query('create policy paciente_conteudo_visivel on recipes as restrictive for select using (true)');
+      await client.query('drop policy paciente_conteudo_visivel on contents');
+      await client.query(
+        `create policy paciente_conteudo_visivel on contents as restrictive for select
+           using (app_current_role() is distinct from 'paciente' or (status = 'publicado' and visibilidade in ('todos', 'etiquetas')))`,
+      );
+      expect(await findConteudoAudienciaViolations(client)).toEqual([
+        { table: 'contents', problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' },
+        { table: 'recipes', problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' },
+      ]);
     } finally {
       await client.query('rollback');
       client.release();
