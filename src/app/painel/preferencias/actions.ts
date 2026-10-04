@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireNutri } from '@/lib/tenant-session';
+import { GUIAS } from '@/modules/ajuda/conteudo';
 import { ehTema, gravarTema, marcarGuia, PreferenciaError, proximoTema, type EstadoGuia } from '@/modules/plataforma/preferencias';
 
 export type TemaState = { ok?: boolean; erro?: string };
@@ -34,5 +35,10 @@ export async function escolherTemaAction(_prev: TemaState, formData: FormData): 
  */
 export async function marcarGuiaAction(id: string, versao: number, estado: EstadoGuia): Promise<void> {
   const { data } = await requireNutri('/painel', { permitirDpaPendente: true });
+  // Só os guias que existem, até a versão atual: um id qualquer no formato (ou um array, que vira texto no regex) faria
+  // user.guia crescer sem teto — e o Better Auth lê a linha inteira da user a cada requisição. Recusa calada: nenhuma tela
+  // manda outra coisa, e um erro aqui só viraria ruído no Sentry.
+  const guia = typeof id === 'string' ? GUIAS.find((g) => g.id === id) : undefined;
+  if (!guia || typeof versao !== 'number' || versao > guia.versao) return;
   await marcarGuia(data.user.id, id, versao, estado);
 }

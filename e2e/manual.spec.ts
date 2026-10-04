@@ -24,6 +24,7 @@ test('primeiro acesso: o tour abre sozinho no Início; Esc pula e grava (não vo
   await page.keyboard.press('Escape');
   await expect(tour()).toBeHidden();
   await page.reload();
+  await page.waitForLoadState('networkidle'); // o <dialog> só abre depois da hidratação (useLayoutEffect)
   await expect(tour()).toBeHidden();
 });
 
@@ -40,9 +41,12 @@ test('rever pelo menu da conta: foco preso no diálogo, Próximo até Concluir; 
   await expect(page.getByText('7 de 7')).toBeVisible();
   await page.getByRole('button', { name: 'Concluir' }).click();
   await expect(tour()).toBeHidden();
+  // o link do menu da conta estava no <details> fechado: o foco não cai no <body>, vai para o "Ajuda" (risco 5)
+  await expect(page.locator('[data-guia="ajuda"]')).toBeFocused();
   await expect(page).toHaveURL(/\/painel$/); // o ?tour= sai da URL
   const outro = await entrarComo(browser, MANUAL.email, MANUAL.senha, '10.9.13.97');
   await expect(outro).toHaveURL(/\/painel$/);
+  await outro.waitForLoadState('networkidle'); // o <dialog> só abre depois da hidratação (useLayoutEffect)
   await expect(outro.getByRole('dialog', { name: 'Boas-vindas ao NutriDebby' })).toBeHidden();
   await outro.context().close();
 });
@@ -83,12 +87,48 @@ test('Ajuda na Agenda: a gaveta mostra o texto da tela; o tour da tela marca o a
   await expect(gaveta).toBeVisible();
   await semViolacoes();
   await gaveta.getByRole('button', { name: 'Ver o tour desta tela' }).click();
-  await expect(page.getByRole('dialog', { name: 'Dia ou semana' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Dia, semana ou lista' })).toBeVisible();
   const alvo = (await page.locator('[data-guia="periodo-agenda"]').boundingBox())!;
   const luz = (await page.locator('[data-holofote]').boundingBox())!;
   expect(Math.abs(luz.x - (alvo.x - 6))).toBeLessThanOrEqual(2);
   expect(Math.abs(luz.width - (alvo.width + 12))).toBeLessThanOrEqual(2);
   await page.getByRole('button', { name: 'Pular o tour' }).click();
+});
+
+test('a gaveta aberta não volta sozinha: sair pelo voltar do navegador e voltar à tela pelo menu (D27)', async () => {
+  await page.goto('/painel/pacientes');
+  await page.waitForLoadState('networkidle');
+  await irPeloMenu(page, 'Agenda');
+  await expect(page).toHaveURL(/\/painel\/agenda$/);
+  await page.getByRole('button', { name: 'Ajuda desta tela' }).click();
+  const gaveta = page.getByRole('dialog', { name: 'Ajuda: Agenda' });
+  await expect(gaveta).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/painel\/pacientes$/);
+  await expect(gaveta).toBeHidden();
+  await irPeloMenu(page, 'Agenda');
+  await expect(page).toHaveURL(/\/painel\/agenda$/);
+  await page.waitForLoadState('networkidle');
+  await expect(gaveta).toBeHidden();
+});
+
+test('"Ver como funciona": ao fechar o tour, o foco vai para o "Ajuda" (o botão do aviso saiu da tela)', async () => {
+  await page.goto('/painel/alimentos'); // tela ainda não visitada neste spec: o aviso aparece
+  await page.getByRole('complementary', { name: 'Dica' }).getByRole('button', { name: 'Ver como funciona' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.locator('[data-guia="ajuda"]')).toBeFocused();
+});
+
+test('impressão do manual no modo escuro: texto escuro no papel e sem o cabeçalho do painel (D26)', async () => {
+  await escolherTema(page, 'Escuro');
+  await page.goto('/painel/ajuda');
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.getByRole('heading', { name: 'Manual do NutriDebby', level: 1 })).toHaveCSS('color', 'rgb(20, 33, 29)');
+  await expect(page.getByRole('banner')).toBeHidden();
+  await page.emulateMedia({ media: 'screen' });
+  await escolherTema(page, 'Igual ao aparelho');
 });
 
 test('"Primeira vez aqui?" aparece uma vez por tela, também na navegação pelo menu; dispensar numa tela não esconde o das outras', async () => {

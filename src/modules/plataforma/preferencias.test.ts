@@ -28,6 +28,8 @@ describe('preferências da usuária (D17)', () => {
     const [a, b] = [await conta(), await conta()];
     await gravarTema(a, 'escuro', app.db);
     await expect(gravarTema(a, 'roxo', app.db)).rejects.toBeInstanceOf(PreferenciaError);
+    const [ta] = await app.db.select({ tema: user.tema }).from(user).where(eq(user.id, a));
+    expect(ta.tema).toBe('escuro'); // gravou (e o 'roxo' recusado não mexeu)
     const temas = await app.db.select({ id: user.id, tema: user.tema }).from(user).where(eq(user.id, b));
     expect(temas[0].tema).toBe('sistema');
   });

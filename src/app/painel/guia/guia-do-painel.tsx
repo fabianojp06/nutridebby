@@ -46,9 +46,15 @@ export function GuiaDoPainel({ progresso: inicial }: { progresso: ProgressoGuia 
   const [paramFechado, setParamFechado] = useState(false);
 
   // valores do render anterior (padrão do React para ajustar estado quando uma prop muda, sem efeito)
-  const [anterior, setAnterior] = useState({ inicial, guia, busca });
-  if (anterior.inicial !== inicial || anterior.guia !== guia || anterior.busca !== busca) {
-    setAnterior({ inicial, guia, busca });
+  const [anterior, setAnterior] = useState({ inicial, guia, busca, caminho });
+  if (anterior.inicial !== inicial || anterior.guia !== guia || anterior.busca !== busca || anterior.caminho !== caminho) {
+    setAnterior({ inicial, guia, busca, caminho });
+    // o tour aberto à mão e a gaveta valem para a visita à tela: saiu (menu, voltar do navegador), fecharam — voltar à
+    // mesma tela não os reabre sozinhos (D27)
+    if (anterior.caminho !== caminho) {
+      setTourManual(null);
+      setGavetaEm(null);
+    }
     // um render novo do layout (recarregar, ação que revalida) traz o valor do servidor; o local, mais novo, prevalece
     if (anterior.inicial !== inicial) setProgresso((local) => ({ ...inicial, ...local }));
     // ao sair da tela, o "visto" (já gravado no servidor) entra no estado local: voltar a ela pelo menu não mostra o aviso de novo

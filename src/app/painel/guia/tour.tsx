@@ -59,6 +59,10 @@ export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto:
     aoMarcar(estado); // o GuiaDoPainel atualiza o progresso local e grava na conta
     setI(0);
     dialogo.current?.close(); // antes de desmontar: o navegador devolve o foco a quem o tinha antes de abrir
+    // aberto pelo "Ver como funciona" (o aviso sai do DOM) ou pelo ?tour= do menu da conta (o <details> fechou): não há a
+    // quem devolver, e o foco cairia no <body> (risco 5 do plano) — vai para o botão "Ajuda" do cabeçalho
+    const ativo = document.activeElement;
+    if (!ativo || ativo === document.body) document.querySelector<HTMLElement>('[data-guia="ajuda"]')?.focus();
     aoFechar();
   };
 

@@ -9,6 +9,12 @@ const TSX = ['src/app/painel', 'src/components']
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 
+// Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/pacientes']
+  .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n');
+
 /** Páginas sem guia, com o motivo. */
 const SEM_AJUDA: Record<string, string> = {
   '/painel/dpa': 'aceite do contrato: a nutricionista ainda não usa o painel',
@@ -38,6 +44,12 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it.each(PAGINAS.map((p) => [p]))('%s tem guia ou está em SEM_AJUDA', (pagina) => {
     expect(guiaDaRota(pagina) !== null || pagina in SEM_AJUDA, pagina).toBe(true);
+  });
+  it('todo nome de botão ou opção citado entre aspas existe numa tela (o manual não manda usar o que não existe)', () => {
+    const textos = GUIAS.flatMap((g) => [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)]);
+    const citados = [...new Set(textos.flatMap((t) => [...t.matchAll(/"([^"]+)"/g)].map((m) => m[1])))];
+    expect(citados.length).toBeGreaterThan(0);
+    expect(citados.filter((c) => !TSX.includes(c) && !TSX_FORA.includes(c))).toEqual([]);
   });
   it('guiaDaRota: o plano alimentar tem guia próprio dentro do prontuário; o Início é o de boas-vindas', () => {
     expect(guiaDaRota('/painel')?.id).toBe(ID_BOAS_VINDAS);

@@ -90,6 +90,34 @@
   --nd-foco: #ffffff;
 }
 
+/* D26: o manual "dá para imprimir". No escuro o navegador imprime sem o fundo, e o texto claro (#e6eeea) some no papel:
+   na impressão, todo contêiner com data-tema volta aos tokens claros. Depois dos blocos de tema (mesma especificidade:
+   o último vence). O cabeçalho do painel tem print:hidden. */
+@media print {
+  [data-tema] {
+    color-scheme: light;
+    --nd-fundo: #eaf0ec;
+    --nd-cartao: #ffffff;
+    --nd-texto: #14211d;
+    --nd-suave: #4b5c55;
+    --nd-borda: #d5e0da;
+    --nd-campo: #6f817a;
+    --nd-linha: #edf2ef;
+    --nd-link: #0f4f42;
+    --nd-erro: #8f2f22;
+    --nd-erro-fundo: #fbe9e6;
+    --nd-aviso: #8a5306;
+    --nd-aviso-fundo: #fdf3e1;
+    --nd-ok: #1f6b45;
+    --nd-ok-fundo: #e4f2ea;
+    --nd-botao: #14211d;
+    --nd-botao-texto: #ffffff;
+    --nd-marca: var(--nd-marca-base, #1d6b5a);
+    --nd-foco: var(--nd-marca);
+  }
+  :root:has([data-tema]) { background: #ffffff; }
+}
+
 @theme inline {
   --color-fundo: var(--nd-fundo);
   --color-cartao: var(--nd-cartao);

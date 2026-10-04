@@ -32,6 +32,17 @@ describe('tokens do visual V2 (D24, RNF-10)', () => {
     }
     expect(css).toMatch(/:focus-visible \{\s*outline: 3px solid var\(--nd-foco, #[0-9a-f]{6}\);/);
   });
+  it('na impressão (manual, D26) todo contêiner volta aos tokens claros, depois dos blocos escuros', () => {
+    const css = readFileSync('src/app/globals.css', 'utf8');
+    const i = css.indexOf('@media print {');
+    expect(i).toBeGreaterThan(css.indexOf('@media (prefers-color-scheme: dark) {'));
+    expect(i).toBeGreaterThan(css.indexOf("[data-tema='escuro'] {"));
+    const impressao = css.slice(i, css.indexOf('}', i));
+    expect(impressao).toContain('[data-tema] {');
+    expect(impressao).toContain('color-scheme: light;');
+    for (const [nome, [c]] of Object.entries(TOKENS)) expect(impressao, `${nome} na impressão`).toContain(`--nd-${nome}: ${c};`);
+    expect(readFileSync('src/app/painel/cabecalho.tsx', 'utf8')).toMatch(/<header className="[^"]*\bprint:hidden\b/);
+  });
   it('o foco global fica na camada base: um focus-visible:outline-* local (ex.: o BotaoSair) vence', () => {
     const css = readFileSync('src/app/globals.css', 'utf8');
     expect(css).toMatch(/@layer base \{\s*(\/\*[^*]*\*\/\s*)?:focus-visible \{/);

@@ -16,7 +16,7 @@ import { iniciais } from './navegacao';
  */
 export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso }: { marca: MarcaTenant; nome: string; email: string; tema: Tema; completo: boolean; progresso: ProgressoGuia | null }) {
   return (
-    <header className="border-b border-borda bg-cartao">
+    <header className="border-b border-borda bg-cartao print:hidden">
       <div className="mx-auto flex max-w-[1360px] flex-wrap items-center gap-3 px-4 py-3 md:px-6">
         <Link href="/painel" className="flex min-h-11 items-center gap-3 rounded-xl">
           {marca.logoUrl ? (
