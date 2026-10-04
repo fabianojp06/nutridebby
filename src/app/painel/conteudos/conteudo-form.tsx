@@ -96,7 +96,7 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
         <Erro c="visibilidade" msg={erro('visibilidade')} />
       </fieldset>
       <p role="status">{s.ok}</p>
-      <button disabled={enviando} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white disabled:opacity-50">{botao}</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110 disabled:opacity-50">{botao}</button>
     </form>
   );
 }

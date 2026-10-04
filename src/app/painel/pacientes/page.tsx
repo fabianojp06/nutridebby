@@ -23,7 +23,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-titulo text-2xl font-semibold">Pacientes</h1>
-          <Link href="/painel/pacientes/novo" className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Novo paciente</Link>
+          <Link href="/painel/pacientes/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Novo paciente</Link>
         </div>
         <form role="search" className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
@@ -43,7 +43,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
               {etiquetas.map((e) => <option key={e.id} value={e.id}>{`${e.nome} (${e.pacientes})`}</option>)}
             </select>
           </div>
-          <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Filtrar</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Filtrar</button>
         </form>
         {lista.length === 0 ? (
           <p>Nenhum paciente encontrado.</p>

@@ -52,7 +52,7 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
                 </thead>
                 <tbody>
                   {e.valores.map((v, i) => (
-                    <tr key={`${i}-${v.nome}`} className="border-t">
+                    <tr key={`${i}-${v.nome}`} className="border-t border-linha">
                       <td>{v.nome}</td>
                       <td>{`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
                       <td>{v.referencia ?? '—'}</td>

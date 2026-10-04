@@ -31,7 +31,7 @@ export function AnamneseForm({ acao, perguntas, inicial, botao, somenteLeitura }
         <p role="alert" className="text-erro">{`O modelo mudou enquanto você preenchia. Recarregue a página. (${semCampo.join(' · ')})`}</p>
       )}
       {state.ok && <p role="status">Anamnese salva.</p>}
-      {!somenteLeitura && <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">{botao}</button>}
+      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">{botao}</button>}
     </form>
   );
 }

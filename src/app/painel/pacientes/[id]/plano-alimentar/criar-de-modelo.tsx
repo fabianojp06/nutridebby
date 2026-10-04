@@ -13,7 +13,7 @@ export function CriarDeModelo({ acao, modelos }: { acao: (s: ModeloState, fd: Fo
           {modelos.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
         </select>
       </div>
-      <button disabled={pendente} className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Criar a partir de modelo</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Criar a partir de modelo</button>
       {state.erro && <p role="alert" className="w-full text-sm text-erro">{state.erro}</p>}
     </form>
   );

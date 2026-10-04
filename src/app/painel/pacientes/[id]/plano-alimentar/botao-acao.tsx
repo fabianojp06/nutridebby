@@ -14,7 +14,7 @@ export function BotaoAcao({ acao, rotulo, confirmar, principal = true, exigirSal
   const aguardando = exigirSalvo && salvamento !== 'salvo';
   return (
     <form action={action} onSubmit={(e) => { if (confirmar && !window.confirm(confirmar)) e.preventDefault(); }} className="space-y-1">
-      <button disabled={pendente || aguardando} className={`${principal ? 'rounded-full bg-destaque px-4 py-2 font-semibold text-white' : 'rounded-full border border-campo bg-cartao px-4 py-2 text-texto'} disabled:opacity-50`}>{rotulo}</button>
+      <button disabled={pendente || aguardando} className={`${principal ? 'inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110' : 'inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha'} disabled:opacity-50`}>{rotulo}</button>
       {aguardando && salvamento !== 'salvando' && <p className="text-sm text-suave">Só dá para continuar com as alterações salvas.</p>}
       {state.erro && <p role="alert" className="text-sm text-erro">{state.erro}</p>}
     </form>

@@ -19,7 +19,7 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
               {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
             </select>
           </div>
-          <button className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Preencher anamnese</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Preencher anamnese</button>
         </form>
       )}
       <section aria-labelledby="anamneses" className="space-y-2">
@@ -27,7 +27,7 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
         {lista.length === 0 ? (
           <p>Nenhuma anamnese preenchida.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-linha">
             {lista.map((a) => (
               <li key={a.id} className="py-2">
                 <Link href={`/painel/pacientes/${paciente.id}/anamnese/${a.id}`} className="text-link underline">{`${formatarData(a.data)} · ${a.nomeModelo}`}</Link>

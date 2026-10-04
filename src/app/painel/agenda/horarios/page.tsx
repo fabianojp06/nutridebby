@@ -24,7 +24,7 @@ export default async function HorariosPage() {
           {regras.length === 0 ? (
             <p>Nenhum horário cadastrado: a página de agendamento não oferece horários.</p>
           ) : (
-            <ul className="divide-y">
+            <ul className="divide-y divide-linha">
               {regras.map((r) => (
                 <li key={r.id} className="flex items-center justify-between py-2">
                   <span>{`${DIAS_SEMANA[r.diaSemana]}, ${r.inicio}–${r.fim}, ${r.duracaoMin} min, ${ROTULO_MODALIDADE_REGRA[r.modalidade]}`}</span>
@@ -43,7 +43,7 @@ export default async function HorariosPage() {
           {bloqueios.length === 0 ? (
             <p>Nenhum bloqueio futuro.</p>
           ) : (
-            <ul className="divide-y">
+            <ul className="divide-y divide-linha">
               {bloqueios.map((b) => (
                 <li key={b.id} className="flex items-center justify-between py-2">
                   <span>{`${formatarQuando(b.inicio, tenant.fuso)} até ${formatarQuando(b.fim, tenant.fuso)}${b.motivo ? ` — ${b.motivo}` : ''}`}</span>

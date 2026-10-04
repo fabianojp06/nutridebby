@@ -41,7 +41,7 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
         <p id="mostrarPercGorduraPaciente-dica" className="text-sm text-suave">Mesmo desligada, a cópia dos dados que o paciente pede inclui todas as medidas (LGPD, art. 18, II).</p>
       </div>
       {state.ok && <p role="status">Perfil salvo.</p>}
-      <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Salvar perfil</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar perfil</button>
     </form>
   );
 }

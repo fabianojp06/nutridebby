@@ -129,7 +129,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
 
       {!somenteLeitura && (
         <div className="space-y-1">
-          <button type="button" disabled={!podeRefeicao} aria-describedby={podeRefeicao ? undefined : 'limite-refeicoes'} onClick={() => despachar({ tipo: 'novaRefeicao', id: novoId() })} className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto disabled:opacity-50">Adicionar refeição</button>
+          <button type="button" disabled={!podeRefeicao} aria-describedby={podeRefeicao ? undefined : 'limite-refeicoes'} onClick={() => despachar({ tipo: 'novaRefeicao', id: novoId() })} className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha disabled:opacity-50">Adicionar refeição</button>
           {!podeRefeicao && <p id="limite-refeicoes" className="text-sm text-suave">{MSG_PLANO.limite}</p>}
         </div>
       )}
@@ -240,7 +240,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
   const errQ = erro(`item:${i.id}:quantidadeG`) ?? erro(`item:${i.id}:medida`) ?? (g === null ? MSG_PLANO.quantidade : undefined);
   const q = lerDecimal(i.qtdTexto);
   return (
-    <li className={`flex flex-wrap items-end gap-3 ${principal ? 'ml-6 border-l-2 pl-3' : ''}`}>
+    <li className={`flex flex-wrap items-end gap-3 ${principal ? 'ml-6 border-l-2 border-borda pl-3' : ''}`}>
       <div className="min-w-48 flex-1">
         <p className="font-medium">{principal && <span className="text-sm text-suave">ou </span>}{i.nome} <Selo origem={i.origem} /></p>
         {i.medidas.length === 0 && !somenteLeitura && (

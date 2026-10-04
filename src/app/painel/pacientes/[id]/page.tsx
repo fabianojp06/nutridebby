@@ -34,7 +34,7 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
         {conviteWhatsapp && <p className="text-sm">{conviteWhatsapp}</p>}
         {acesso.estado !== 'ativo' && paciente.status === 'ativo' && (
           <form action={reenviarConviteAction.bind(null, paciente.id)}>
-            <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Reenviar convite</button>
+            <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Reenviar convite</button>
           </form>
         )}
       </section>

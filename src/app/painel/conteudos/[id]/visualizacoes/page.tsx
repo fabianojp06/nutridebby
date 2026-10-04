@@ -20,7 +20,7 @@ export default async function QuemViu({ params }: PageProps<'/painel/conteudos/[
         {r.pessoas.length === 0 ? (
           <p>Ninguém abriu este conteúdo ainda.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-linha">
             {r.pessoas.map((p, k) => <li key={k} className="py-2">{`${p.nome} — ${quandoComFuso(p.vistoEm, tenant.fuso)}`}</li>)}
           </ul>
         )}

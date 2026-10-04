@@ -10,7 +10,7 @@ import { AtualizarEnquanto } from './atualizar-enquanto';
  */
 export function PdfDoPlano({ plano, patientId, bloqueado }: { plano: PlanoCompleto; patientId: string; bloqueado: boolean }) {
   if (plano.pdfStatus === 'pronto' && plano.pdfPath)
-    return <a href={signFileUrl(plano.pdfPath)} className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Baixar PDF</a>;
+    return <a href={signFileUrl(plano.pdfPath)} className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Baixar PDF</a>;
   if (plano.pdfStatus === 'falhou' && bloqueado) return <p className="text-suave">Não foi possível gerar o PDF.</p>;
   if (plano.pdfStatus === 'falhou')
     return (

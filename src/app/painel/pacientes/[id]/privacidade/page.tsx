@@ -40,7 +40,7 @@ export default async function PrivacidadePage({
         )}
         {paciente.status === 'arquivado' && (
           <form action={desarquivarAction.bind(null, paciente.id)}>
-            <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Desarquivar paciente</button>
+            <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Desarquivar paciente</button>
           </form>
         )}
         {paciente.status === 'bloqueado' && (
@@ -62,7 +62,7 @@ export default async function PrivacidadePage({
               por 24 horas.
             </p>
             <form action={exportarAction.bind(null, paciente.id)}>
-              <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Exportar dados</button>
+              <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Exportar dados</button>
             </form>
           </>
         )}

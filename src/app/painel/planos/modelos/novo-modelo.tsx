@@ -11,7 +11,7 @@ export function NovoModelo() {
         <label htmlFor="titulo" className="block font-medium">Novo modelo</label>
         <input id="titulo" name="titulo" placeholder="Emagrecimento 1600 kcal" className="rounded-xl border border-campo bg-cartao p-2 text-texto" />
       </div>
-      <button disabled={pendente} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white">Criar modelo</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Criar modelo</button>
       {state.erro && <p role="alert" className="w-full text-sm text-erro">{state.erro}</p>}
     </form>
   );

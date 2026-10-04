@@ -37,7 +37,7 @@ export function Enable2fa() {
         <label htmlFor="senha" className="block">Confirme sua senha</label>
         <input id="senha" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         {erro && <p role="alert" className="text-erro">{erro}</p>}
-        <button className="rounded bg-destaque px-4 py-2 text-white">Ativar verificação em duas etapas</button>
+        <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Ativar verificação em duas etapas</button>
       </form>
     );
 
@@ -53,7 +53,7 @@ export function Enable2fa() {
         <label htmlFor="codigo" className="block">Código de 6 dígitos</label>
         <input id="codigo" inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         {erro && <p role="alert" className="text-erro">{erro}</p>}
-        <button className="rounded bg-destaque px-4 py-2 text-white">Confirmar</button>
+        <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Confirmar</button>
       </form>
     );
 
@@ -64,7 +64,7 @@ export function Enable2fa() {
       <ul data-testid="backup-codes" className="grid grid-cols-2 gap-1 font-mono">
         {backup.map((c) => <li key={c}>{c}</li>)}
       </ul>
-      <a href="/inicio" className="inline-block rounded bg-destaque px-4 py-2 text-white">Continuar</a>
+      <a href="/inicio" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Continuar</a>
     </div>
   );
 }

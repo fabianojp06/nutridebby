@@ -31,7 +31,7 @@ export function EtiquetasForm({ acao, todas, doPaciente, somenteLeitura }: Props
       </fieldset>
       {state.erro && <p id="etiquetas-erro" role="alert" className="text-erro">{state.erro}</p>}
       {state.ok && <p role="status">Etiquetas salvas.</p>}
-      {!somenteLeitura && <button disabled={pendente} className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Salvar etiquetas</button>}
+      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Salvar etiquetas</button>}
     </form>
   );
 }

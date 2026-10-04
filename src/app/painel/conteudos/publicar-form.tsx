@@ -18,7 +18,7 @@ export function PublicarForm({ id, publicado }: { id: string; publicado: boolean
       <p role="status">{publicado ? s.ok : undefined}</p>
       {publicado ? (
         <form action={despublicarConteudoAction.bind(null, id)}>
-          <button className="rounded-full border border-campo bg-cartao px-4 py-2 text-texto">Despublicar</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Despublicar</button>
         </form>
       ) : (
         <form action={publicar} className="space-y-2">
@@ -26,7 +26,7 @@ export function PublicarForm({ id, publicado }: { id: string; publicado: boolean
             <input type="checkbox" name="avisar" />
             Avisar pacientes
           </label>
-          <button disabled={enviando} className="rounded-full bg-destaque font-semibold px-4 py-2 text-white disabled:opacity-50">Publicar</button>
+          <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110 disabled:opacity-50">Publicar</button>
         </form>
       )}
     </div>
