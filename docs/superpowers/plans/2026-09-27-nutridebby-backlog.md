@@ -214,7 +214,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
 
-**Plano 07 escrito (rascunho, aguardando o dono):** [`2026-10-04-nutridebby-07-conteudos.md`](2026-10-04-nutridebby-07-conteudos.md) — 13 tarefas (P07-01 a P07-08, mais os débitos da mesma área: B-5, S-9, T-4, D04-1, D04-2, F-12, W-1); o dono confirma as decisões ★ (D1, D3, D4, D6, D7, D11, D13, D14, D21) antes da execução.
+**Plano 07 escrito (decisões ★ aprovadas pelo dono em 04/10/2026):** [`2026-10-04-nutridebby-07-conteudos.md`](2026-10-04-nutridebby-07-conteudos.md) — 13 tarefas (P07-01 a P07-08, mais os débitos da mesma área: B-5, S-9, T-4, D04-1, D04-2, F-12, W-1); decisões ★ (D1, D3, D4, D6, D7, D11, D13, D14, D21) aprovadas conforme a recomendação; próximo: `/code-review high` no plano e execução.
 
 **Notas do Plano 06:** a aba "Conteúdos" entra em `ITENS_DO_PORTAL` (`src/app/p/navegacao.ts`); `contents`, `content_views` e `content_favorites` precisam de `app_allow_paciente_escrita` para as visualizações e os favoritos (e da entrada em `PACIENTE_ESCREVE`, guarda no CI); "Sugestão de receita" no "Meu plano" (US-041, P07-05) lê `meals.recipe_content_id`; o PDF de orientação (`orientacao_pdf`, `patient_id` nulo) é invisível ao paciente pela `paciente_arquivos` e precisa entrar na política quando o portal o servir.
 
