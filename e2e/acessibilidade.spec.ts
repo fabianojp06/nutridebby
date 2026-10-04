@@ -103,7 +103,7 @@ test('axe sem violações no detalhe de uma orientação (markdown e "Baixar mat
   expect(r.headers()['content-type']).toMatch(/^application\/pdf/);
 });
 
-test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe', async () => {
+test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe em 7 colunas iguais (também a 320 px, com axe)', async () => {
   await paciente.page.setViewportSize({ width: 360, height: 780 });
   try {
     for (const url of ROTAS) {
@@ -115,6 +115,26 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
     await paciente.page.goto('/p/inicio');
     for (const aba of ['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']) {
       await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
+    }
+    // D3 (ratificado 04/10): 7 colunas iguais, palavra longa quebra com hífen — nada rola nem invade a vizinha, a 360 e a 320 px
+    for (const largura of [360, 320]) {
+      await paciente.page.setViewportSize({ width: largura, height: 780 });
+      const barra = await paciente.page.getByRole('navigation', { name: 'Portal' }).evaluate((nav) => {
+        const ul = nav.querySelector('ul')!;
+        const lis = [...ul.querySelectorAll('li')].map((li) => li.getBoundingClientRect());
+        const links = [...ul.querySelectorAll('a')];
+        return {
+          rola: ul.scrollWidth > ul.clientWidth || document.documentElement.scrollWidth > window.innerWidth,
+          larguras: lis.map((r) => Math.round(r.width)),
+          vazaDaColuna: links.filter((a) => a.scrollWidth > a.clientWidth).map((a) => a.textContent),
+          alturaMin: Math.min(...links.map((a) => a.getBoundingClientRect().height)),
+        };
+      });
+      expect(barra.rola, `${largura} px`).toBe(false);
+      expect(Math.max(...barra.larguras) - Math.min(...barra.larguras), `${largura} px: ${barra.larguras}`).toBeLessThanOrEqual(1);
+      expect(barra.vazaDaColuna, `${largura} px`).toEqual([]);
+      expect(barra.alturaMin, `${largura} px`).toBeGreaterThanOrEqual(44);
+      expect(await violacoes(paciente.page), `axe a ${largura} px`).toEqual([]);
     }
     // T-4: sem o min-h-dvh aninhado, tela curta do portal não rola na vertical
     await paciente.page.goto('/p/conteudos?favoritos=1');
