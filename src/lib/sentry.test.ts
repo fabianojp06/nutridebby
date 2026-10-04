@@ -144,25 +144,31 @@ setTimeout(() => process.exit(0), 5000); // ainda vivo = defeito
     expect(Sentry.isEnabled()).toBe(false);
   });
 
-  // D1: a rota é sem login (um curl sem Origin passa) e o limite por IP não segura muitos IPs: sem teto global, a
-  // cota mensal do plano gratuito acabaria em horas e os erros reais de app e worker deixariam de chegar.
-  it('erros do navegador: teto global de 30 por hora para o Sentry e repetidos (nome|rota|digest) uma vez só', async () => {
+  // D1: a rota é sem login (um curl sem Origin passa) e o limite por IP não segura muitos IPs. O teto é por dia, não por
+  // hora: 30 por hora deixava um único IP (variando a rota) esgotar a cota mensal do plano gratuito em ~7 dias.
+  it('erros do navegador: teto global de 30 por dia para o Sentry e repetidos (nome|rota|digest) uma vez só', async () => {
     const enviados: string[] = [];
     vi.resetModules();
     const s = await import('./sentry'); // estado novo do teto
     s.iniciarSentry({ dsn: DSN, ambiente: 'teste', papel: 'app', transport: transporteFalso(enviados) as never });
     const t0 = 1_000_000;
+    const HORA = 3_600_000;
     // repetido: o mesmo erro em loop no navegador vai uma vez e não gasta o teto
     for (let i = 0; i < 5; i++) s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + i);
     // 35 erros diferentes (quem os manda não importa: a chave do teto é fixa) → só 29 cabem com o primeiro
     for (let i = 0; i < 35; i++) s.capturarErroDoNavegador({ digest: null, nome: 'Error', rota: `/p${i}` }, t0 + 10 + i);
-    // depois da hora, o teto e a deduplicação voltam
-    s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + 3_600_000);
+    // uma hora depois, nem um erro novo nem o repetido passam: o teto e a deduplicação valem pelo dia
+    s.capturarErroDoNavegador({ digest: null, nome: 'Error', rota: '/uma-hora-depois' }, t0 + HORA);
+    s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + HORA);
+    s.capturarErroDoNavegador({ digest: null, nome: 'Error', rota: '/quase-um-dia' }, t0 + 24 * HORA - 1);
+    // depois de 24 h, o teto e a deduplicação voltam
+    s.capturarErroDoNavegador({ digest: 'abc', nome: 'TypeError', rota: '/painel' }, t0 + 24 * HORA);
     await Sentry.flush(2000);
     const doNavegador = enviados.filter((e) => e.includes('erro no navegador'));
     expect(doNavegador).toHaveLength(31);
     expect(doNavegador.filter((e) => e.includes('"/painel"'))).toHaveLength(2);
     expect(doNavegador.some((e) => e.includes('"/p29"'))).toBe(false);
+    expect(doNavegador.some((e) => e.includes('/uma-hora-depois') || e.includes('/quase-um-dia'))).toBe(false);
     // erros de servidor e do worker não entram no teto do navegador
     s.capturarErro(new Error('x'), { fila: 'email' });
     await Sentry.flush(2000);

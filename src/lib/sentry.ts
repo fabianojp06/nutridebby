@@ -16,11 +16,14 @@ const ligado = (): boolean => Sentry.isEnabled();
 
 /**
  * D1: teto do repasse dos erros do navegador ao Sentry. A rota é sem login (um curl sem Origin passa) e o limite por
- * IP não segura quem tem muitos IPs: sem teto global, a cota mensal do plano gratuito acabaria em horas e os erros
- * reais de app e worker deixariam de chegar. O mesmo erro (nome|rota|digest) vai uma vez por janela e não gasta o teto.
- * Estado em memória (D10, 1 réplica); só a rota chama, então a cópia do módulo dela é a que conta.
+ * IP não segura quem tem muitos IPs: sem teto global, a cota mensal do plano gratuito acabaria e os erros reais de app
+ * e worker deixariam de chegar até a virada do mês. O teto é pela cota do **mês**, não por hora: 30 por hora deixava
+ * um único IP (variando a rota) gastar 720 por dia e esgotar os 5 mil erros do plano Developer em ~7 dias; 30 por dia
+ * são no máximo ~900 por mês (< 20% da cota). Esgotado o teto do dia, os erros do navegador seguem só no log. O mesmo
+ * erro (nome|rota|digest) vai uma vez por janela e não gasta o teto. Estado em memória (D10, 1 réplica; um reinício
+ * zera o dia — a rate limit diária da chave, no runbook, cobre isso); só a rota chama, então a cópia dela é a que conta.
  */
-const JANELA_NAVEGADOR_MS = 3_600_000;
+const JANELA_NAVEGADOR_MS = 86_400_000; // 24 h
 const TETO_NAVEGADOR = 30;
 const tetoNavegador = criarLimite({ janelaMs: JANELA_NAVEGADOR_MS, max: TETO_NAVEGADOR });
 const enviadosDoNavegador = new Map<string, number>(); // assinatura → quando foi ao Sentry (no máximo TETO_NAVEGADOR vivas)
