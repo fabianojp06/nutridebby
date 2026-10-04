@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requirePaciente } from '@/lib/paciente-session';
-import { MSG_PLANO_PACIENTE, planoDoPaciente } from '@/modules/portal/plano';
+import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline } from '@/modules/portal/plano';
 import { GuardarPlano } from '../../plano-guardado';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +12,9 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
   return (
     <main className="space-y-6 p-6">
       <h1 className="text-2xl font-semibold">Plano</h1>
-      {/* D6: plano novo = id novo; o service worker só busca de novo se a versão ou o dono mudarem, ou 1 vez por dia */}
-      <GuardarPlano dono={vinculo.patientId} versao={plano?.id ?? 'sem-plano'} />
+      {/* D6: plano novo = id novo (e US-054: sugestões de receita mudaram = versão nova); o service worker só busca de
+          novo se a versão ou o dono mudarem, ou 1 vez por dia */}
+      <GuardarPlano dono={vinculo.patientId} versao={versaoDaCopiaOffline(plano)} />
       {!plano ? (
         <p role="status">{MSG_PLANO_PACIENTE.semPlano}</p>
       ) : (
@@ -57,6 +58,13 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
                     ))}
                   </ul>
                   {r.observacao && <p className="mt-2 text-sm italic">{r.observacao}</p>}
+                  {r.receita && (
+                    <p className="mt-2 rounded bg-emerald-50 p-2 text-sm">
+                      <span className="font-semibold">Sugestão de receita: </span>
+                      {/* ?de=plano: a receita fora da audiência só abre por aqui (RN-12, exceção — D2) */}
+                      <Link href={`/p/conteudos/${r.receita.id}?de=plano`} className="underline">{r.receita.titulo}</Link>
+                    </p>
+                  )}
                 </li>
               );
             })}

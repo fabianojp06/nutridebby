@@ -125,7 +125,6 @@ describe('aba "Conteúdos" (US-055)', () => {
       // quem LIGA a liberação (set_config/SET) ou chama a função; a guarda da RLS (`db/rls-guard.ts`) só lê o nome na política
       if (/set_config\(\s*'app\.receitas_do_plano'|\bset\s+(?:local\s+)?app\.receitas_do_plano|liberarReceitasDoPlano\(/i.test(texto)) usam.push(f);
     }
-    // a Tarefa 9 acrescenta 'modules/portal/plano.ts' ("Meu plano") a esta lista — e só ele
-    expect(usam.sort()).toEqual(['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts']);
+    expect(usam.sort()).toEqual(['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts', 'modules/portal/plano.ts']);
   });
 });

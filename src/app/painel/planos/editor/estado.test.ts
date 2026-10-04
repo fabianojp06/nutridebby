@@ -221,4 +221,20 @@ describe('estado do editor (US-022)', () => {
       'Nome',
     ]);
   });
+
+  it('US-054: escolher, trocar e tirar a receita; o envio leva recipeContentId só com sugestão', () => {
+    const plano: PlanoDoCliente = {
+      id: 'p1', patientId: 'pa', isTemplate: false, titulo: 'Plano', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
+      publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null,
+      refeicoes: [{ id: 'r1', nome: 'Café', horario: '07:00', observacao: '', itens: [], receita: { id: 'c1', titulo: 'Panqueca', disponivel: false } }],
+    };
+    const e0 = estadoInicial(plano);
+    expect(e0.refeicoes[0].receita).toEqual({ id: 'c1', titulo: 'Panqueca', disponivel: false });
+    const e1 = reduzir(e0, { tipo: 'receita', id: 'r1', receita: { id: 'c2', titulo: 'Mingau' } });
+    expect(e1.refeicoes[0].receita).toEqual({ id: 'c2', titulo: 'Mingau', disponivel: true });
+    expect(paraEnvio(e1, 3).refeicoes[0].recipeContentId).toBe('c2');
+    const e2 = reduzir(e1, { tipo: 'receita', id: 'r1', receita: null });
+    expect(paraEnvio(e2, 3).refeicoes[0]).not.toHaveProperty('recipeContentId');
+    expect(errosSemCampo(e2, { 'refeicao:r1:receita': 'Receita não encontrada.' })).toEqual([]);
+  });
 });

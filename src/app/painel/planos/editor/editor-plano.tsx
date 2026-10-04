@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useReducer, useState, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { MSG_RECEITA } from '@/modules/conteudo/constantes';
+import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
@@ -15,7 +17,7 @@ import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
 
-type Props = { plano: PlanoDoCliente; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode };
+type Props = { plano: PlanoDoCliente; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode; /** US-054: receitas publicadas para sugerir. */ receitas?: ReceitaParaPlano[] };
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
 /** Somente leitura: versão publicada ou arquivada, ou rascunho de paciente bloqueado. */
@@ -45,7 +47,7 @@ export function EditorPlano(props: Props) {
   return <Editor key={geracao} {...props} aoDesatualizar={aoDesatualizar} />;
 }
 
-function Editor({ plano, contexto, somenteLeitura = false, acoes, aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
+function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
     (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
@@ -122,7 +124,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, aoDesatualizar
       <PainelTotais total={total} meta={meta} pesoKg={contexto?.pesoKg ?? null} mostrarGkg={comPaciente} />
 
       {estado.refeicoes.map((r, k) => (
-        <Refeicao key={r.id} r={r} k={k} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} />
+        <Refeicao key={r.id} r={r} k={k} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} />
       ))}
 
       {!somenteLeitura && (
@@ -141,7 +143,15 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, aoDesatualizar
   );
 }
 
-function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: { r: RefeicaoEstado; k: number; despachar: (a: Acao) => void; somenteLeitura: boolean; erro: (c: string) => string | undefined; podeAdicionarItem: boolean }) {
+function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem, receitas }: {
+  r: RefeicaoEstado;
+  k: number;
+  despachar: (a: Acao) => void;
+  somenteLeitura: boolean;
+  erro: (c: string) => string | undefined;
+  podeAdicionarItem: boolean;
+  receitas: ReceitaParaPlano[];
+}) {
   const totalRefeicao = totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
   const chave = `refeicao:${r.id}`;
   return (
@@ -159,6 +169,26 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem }: 
           {erro(`${chave}:horario`) && <p role="alert" className="text-sm text-red-700">{erro(`${chave}:horario`)}</p>}
         </div>
         <p className="self-end text-sm">Total: {kcalTexto(totalRefeicao.kcal)} kcal</p>
+        <div className="space-y-1 sm:col-span-4">
+          <label htmlFor={`${r.id}-receita`} className="block font-medium">{`Sugestão de receita em ${r.nome || 'refeição'}`}</label>
+          <select
+            id={`${r.id}-receita`}
+            value={r.receita?.id ?? ''}
+            onChange={(e) => {
+              const x = receitas.find((y) => y.id === e.target.value);
+              despachar({ tipo: 'receita', id: r.id, receita: x ? { id: x.id, titulo: x.titulo } : null });
+            }}
+            aria-invalid={erro(`${chave}:receita`) ? true : undefined}
+            aria-describedby={erro(`${chave}:receita`) ? `${r.id}-receita-erro` : r.receita && !r.receita.disponivel ? `${r.id}-receita-aviso` : undefined}
+            className="w-full rounded border p-2"
+          >
+            <option value="">Nenhuma</option>
+            {r.receita && !r.receita.disponivel && <option value={r.receita.id}>{r.receita.titulo || MSG_RECEITA.indisponivel}</option>}
+            {receitas.map((x) => <option key={x.id} value={x.id}>{x.titulo}</option>)}
+          </select>
+          {r.receita && !r.receita.disponivel && <p id={`${r.id}-receita-aviso`} className="text-sm font-semibold text-amber-800">{MSG_RECEITA.indisponivel}</p>}
+          {erro(`${chave}:receita`) && <p id={`${r.id}-receita-erro`} role="alert" className="text-sm text-red-700">{erro(`${chave}:receita`)}</p>}
+        </div>
       </fieldset>
 
       <ul className="space-y-2">

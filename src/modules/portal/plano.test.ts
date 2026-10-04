@@ -5,12 +5,14 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, mealPlans } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { lerMensagem } from '@/app/sw-regras';
 import { idTaco } from '@/modules/alimentos/taco';
+import { MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { closeDb } from '@/db/client';
 import { stopBoss } from '@/jobs/boss';
-import { caminhoDoPdf, planoDoPaciente, proximaRefeicao, quantidadeDoItem } from './plano';
+import { caminhoDoPdf, planoDoPaciente, proximaRefeicao, quantidadeDoItem, versaoDaCopiaOffline } from './plano';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -63,6 +65,8 @@ describe('Meu plano (US-041)', () => {
     expect(pao.substituicoes).toEqual([expect.objectContaining({ quantidade: '30 g' })]);
     expect(plano!.refeicoes[0].itens).toHaveLength(1); // a substituição não vira item principal
     expect(plano!.orientacoes).toBe('Beba água.');
+    // US-054: sem sugestão de receita, a refeição sai sem a chave (o portal não mostra o cartão)
+    expect(plano!.refeicoes[0]).not.toHaveProperty('receita');
   });
 
   it('próxima refeição no fuso do tenant: 10:00 de Brasília → almoço; 21:00 → o café do dia seguinte', async () => {
@@ -92,6 +96,18 @@ describe('Meu plano (US-041)', () => {
     expect(await caminhoDoPdf(ctxPaciente(T.tenantId, p.id), app.db)).toEqual({ estado: 'pendente' }); // o worker não rodou
     await withTenant(T.ctx, (tx) => tx.update(mealPlans).set({ pdfStatus: 'pronto', pdfPath: null }).where(eq(mealPlans.id, planId)), app.db);
     expect(await caminhoDoPdf(ctxPaciente(T.tenantId, p.id), app.db)).toEqual({ estado: 'indisponivel' });
+  });
+
+  it('D6 + US-054: a versão da cópia offline com 15 refeições, todas com receita, passa por lerMensagem e muda quando uma sugestão sai', () => {
+    const refeicoes = Array.from({ length: MAX_REFEICOES }, () => ({ receita: { id: randomUUID() } }));
+    const plano = { id: randomUUID(), refeicoes };
+    const versao = versaoDaCopiaOffline(plano);
+    expect(versao.length).toBeLessThanOrEqual(100);
+    expect(lerMensagem({ tipo: 'plano', dono: randomUUID(), versao })).not.toBeNull();
+    const semUma = versaoDaCopiaOffline({ ...plano, refeicoes: [{}, ...refeicoes.slice(1)] });
+    expect(semUma).not.toBe(versao);
+    expect(semUma.startsWith(`${plano.id}:`)).toBe(true);
+    expect(versaoDaCopiaOffline(null)).toBe('sem-plano');
   });
 
   it('quantidadeDoItem: medida caseira com os gramas; sem medida, só os gramas com vírgula', () => {

@@ -2,7 +2,7 @@ import { and, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
+import { contents, energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
@@ -42,7 +42,7 @@ export async function criarRascunho(ctx: TenantContext, patientId: string, deps:
 }
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };
-type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number };
+type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number; recipeContentId: string | null };
 type Validado = { revisao: number; envio: string; enviosIncertos: string[]; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
 
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -85,7 +85,9 @@ function validar(entrada: unknown): Validado {
     if (horario && !HORARIO.test(horario)) erros[`${chave}:horario`] = MSG_PLANO.horario;
     const observacao = typeof r.observacao === 'string' ? r.observacao.trim() : '';
     if (observacao.length > MAX_TEXTO) erros[`${chave}:observacao`] = MSG_PLANO.texto;
-    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem });
+    const receita = r.recipeContentId ?? null;
+    if (receita !== null && !idValido(receita)) erros[`${chave}:receita`] = MSG_PLANO.receita;
+    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem, recipeContentId: idValido(receita) ? receita : null });
     const lista = (Array.isArray(r.itens) ? r.itens : []) as Record<string, unknown>[];
     const principais = new Set(lista.filter((i) => i?.substituiItemId === null || i?.substituiItemId === undefined).map((i) => i?.id));
     lista.forEach((i, ordemItem) => {
@@ -184,6 +186,16 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         if (Object.keys(invisiveis).length) throw new PlanoError(invisiveis);
 
         const refeicoesAtuais = new Map((await tx.select().from(meals).where(eq(meals.planId, planId))).map((r) => [r.id, r]));
+        // US-054 (D13): sugestão NOVA (ou trocada) só de receita publicada do tenant; a que já estava fica mesmo se a
+        // receita foi despublicada depois ("Receita indisponível"), senão o salvamento automático travaria
+        const anexadas = [...new Set(v.refeicoes.flatMap((r) => (r.recipeContentId && r.recipeContentId !== (refeicoesAtuais.get(r.id)?.recipeContentId ?? null) ? [r.recipeContentId] : [])))];
+        if (anexadas.length) {
+          const ok = new Set(
+            (await tx.select({ id: contents.id }).from(contents).where(and(inArray(contents.id, anexadas), eq(contents.tipo, 'receita'), eq(contents.status, 'publicado')))).map((c) => c.id),
+          );
+          const ruins = Object.fromEntries(v.refeicoes.filter((r) => r.recipeContentId && anexadas.includes(r.recipeContentId) && !ok.has(r.recipeContentId)).map((r) => [`refeicao:${r.id}:receita`, MSG_PLANO.receita]));
+          if (Object.keys(ruins).length) throw new PlanoError(ruins);
+        }
         const itensAtuais = new Map((await tx.select().from(mealItems).where(eq(mealItems.planId, planId))).map((i) => [i.id, i]));
         const novasRefeicoes = new Set(v.refeicoes.map((r) => r.id));
         const novosItens = new Map(v.itens.map((i) => [i.id, i]));
@@ -202,9 +214,9 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const refeicoesNovas: (typeof meals.$inferInsert)[] = [];
         for (const r of v.refeicoes) {
           const atual = refeicoesAtuais.get(r.id);
-          const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem };
+          const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem, recipeContentId: r.recipeContentId };
           if (!atual) refeicoesNovas.push({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
-          else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem }, dados))
+          else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem, recipeContentId: atual.recipeContentId }, dados))
             await tx.update(meals).set({ ...dados, updatedAt: now }).where(eq(meals.id, r.id));
         }
         if (refeicoesNovas.length) await tx.insert(meals).values(refeicoesNovas);
@@ -264,7 +276,7 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   const novoIdItem = new Map(its.map((i) => [i.id, crypto.randomUUID()]));
   if (rs.length)
     await tx.insert(meals).values(
-      rs.map((r) => ({ id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem, observacao: r.observacao })),
+      rs.map((r) => ({ id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem, observacao: r.observacao, recipeContentId: r.recipeContentId })),
     );
   const linha = (i: (typeof its)[number]) => ({
     id: novoIdItem.get(i.id)!,
