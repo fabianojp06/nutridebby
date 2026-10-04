@@ -77,7 +77,7 @@ const nomeParaConferir = (s: string) =>
  * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
  * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o job
  * `exclusao-atendida` na fila. As fotos do diário saem logo depois, por apagarFotosDoDiario (arquivo fora da
- * transação; quem chama — a Server Action da aba Privacidade —, o próprio job e, como rede de segurança, o job diário).
+ * transação): no próprio job e, como rede de segurança, no job diário.
  * F-13: o e-mail ao paciente ("Foram apagados agora: as fotos do diário…") sai pelo job, só depois das fotos
  * (concluirExclusaoAtendida); o job nasce nesta transação, então o aviso nunca se perde.
  */

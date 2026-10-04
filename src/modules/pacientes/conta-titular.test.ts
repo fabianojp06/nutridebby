@@ -28,15 +28,28 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toHaveLength(2);
     await app.db.insert(twoFactor).values({ secret: 'segredo', backupCodes: 'codigos', userId });
     await app.db.update(user).set({ twoFactorEnabled: true, image: 'https://exemplo.dev/foto-da-ana.jpg' }).where(eq(user.id, userId));
-    // B-1: link de redefinição pendente (o Better Auth grava o id da conta em `value`) e estado do 2FA (id do two_factor)
-    const [tf] = await app.db.select({ id: twoFactor.id }).from(twoFactor).where(eq(twoFactor.userId, userId));
+    // B-1 + achado 9 do /code-review: as linhas como o Better Auth 1.7.6 as grava (plugins/two-factor) — link de
+    // redefinição, desafio de 2FA e aparelho confiável com o id da conta em `value`; contador e código do desafio com o
+    // identifier dele (e o código pedido com sessão, `2fa-otp-<conta>!<sessão>`)
     const daOutra = randomUUID();
     const expira = new Date(Date.now() + 3600_000);
-    await app.db.insert(verification).values([
-      { identifier: `reset-password:${randomUUID()}`, value: userId, expiresAt: expira },
-      { identifier: `2fa-${randomUUID()}`, value: tf.id, expiresAt: expira },
-      { identifier: `reset-password:${randomUUID()}`, value: daOutra, expiresAt: expira },
-    ]);
+    const desafio = `2fa-${randomUUID()}`;
+    const desafioDaOutra = `2fa-${randomUUID()}`;
+    const daConta = [
+      { identifier: `reset-password:${randomUUID()}`, value: userId },
+      { identifier: desafio, value: userId },
+      { identifier: `2fa-attempts-${desafio}`, value: '0' },
+      { identifier: `2fa-otp-${desafio}`, value: 'hash-do-codigo:0' },
+      { identifier: `2fa-otp-${userId}!${randomUUID()}`, value: 'hash-do-codigo:1' },
+      { identifier: `trust-device-${randomUUID()}`, value: userId },
+    ];
+    const daOutraConta = [
+      { identifier: `reset-password:${randomUUID()}`, value: daOutra },
+      { identifier: desafioDaOutra, value: daOutra },
+      { identifier: `2fa-attempts-${desafioDaOutra}`, value: '0' },
+      { identifier: `2fa-otp-${desafioDaOutra}`, value: 'hash-do-codigo:0' },
+    ];
+    await app.db.insert(verification).values([...daConta, ...daOutraConta].map((v) => ({ ...v, expiresAt: expira })));
 
     expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now))).toBe(true);
 
@@ -45,8 +58,9 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     expect(await app.db.select().from(twoFactor).where(eq(twoFactor.userId, userId))).toEqual([]);
     const [u] = await app.db.select().from(user).where(eq(user.id, userId));
     expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false, image: null });
-    const restantes = await app.db.select({ value: verification.value }).from(verification).where(inArray(verification.value, [userId, tf.id, daOutra]));
-    expect(restantes).toEqual([{ value: daOutra }]); // a de outra conta fica
+    const ids = [...daConta, ...daOutraConta].map((v) => v.identifier);
+    const restantes = await app.db.select({ i: verification.identifier }).from(verification).where(inArray(verification.identifier, ids));
+    expect(restantes.map((r) => r.i).sort()).toEqual(daOutraConta.map((v) => v.identifier).sort()); // só as da outra conta ficam
     await expect(entrar(getAuth(), email)).rejects.toThrow('login falhou');
     await expect(entrar(getAuth(), u.email)).rejects.toThrow('login falhou');
   });
