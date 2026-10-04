@@ -110,7 +110,8 @@ test('receita na refeição (US-054): a Bia vê a "Sugestão de receita" no plan
 
   await nutri.goto(urlDaReceita);
   await nutri.getByRole('button', { name: 'Despublicar' }).click();
-  await expect(nutri.getByRole('button', { name: 'Publicar' })).toBeVisible();
+  // exact: sem ele, 'Publicar' casa com 'Despublicar' (substring, sem caixa) e a espera passa antes de a action gravar
+  await expect(nutri.getByRole('button', { name: 'Publicar', exact: true })).toBeVisible();
   await bia.page.goto('/p/plano');
   await expect(bia.page.getByText('Sugestão de receita:')).toHaveCount(0);
 });
