@@ -82,9 +82,15 @@ backup_banco() {
     if [ "$(date -d "$HOJE" +%u)" = 7 ]; then
       rclone copyto "${REMOTO}db/diario/${arquivo}" "${REMOTO}db/semanal/${arquivo}" >/dev/null 2>&1 || ok=false
     fi
+    # D6 (P08-04): roles sem senha — a restauração precisa deles antes do pg_restore (donos das funções SECURITY DEFINER)
+    if ! docker exec "$DB" pg_dumpall -U "$DB_USER" --globals-only --no-role-passwords 2>/dev/null \
+      | rclone rcat "${REMOTO}db/globais.sql" >/dev/null 2>&1; then
+      ok=false
+      detalhe="roles falhou"
+    fi
     podar "${REMOTO}db/diario/" "$MANTER_DIARIOS" || ok=false
     podar "${REMOTO}db/semanal/" "$MANTER_SEMANAIS" || ok=false
-    if [ "$ok" = false ]; then detalhe="retenção falhou"; fi
+    if [ "$ok" = false ] && [ -z "$detalhe" ]; then detalhe="retenção falhou"; fi
     registrar banco "$ok" "$bytes" "$detalhe" "$inicio" || ok=false
     if [ "$ok" = true ]; then
       log "banco ok (${bytes} bytes)"

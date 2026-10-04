@@ -73,6 +73,13 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = ${subcomando} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
     return `${bin}:${process.env.PATH}`;
   };
+  /** docker "falso" no PATH: falha só no `docker exec <container> <programa>`; o resto vai ao real. */
+  const dockerQueFalhaEm = (programa: string) => {
+    const real = execFileSync('bash', ['-c', 'command -v docker']).toString().trim();
+    const bin = mkdtempSync(path.join(base, 'fakebin-'));
+    writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env bash\n[ "$1" = exec ] && [ "$3" = ${programa} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    return `${bin}:${process.env.PATH}`;
+  };
   const lsf = async (p: string) =>
     (await execFile('rclone', ['lsf', `cripto:${p}`], { env })).stdout.split('\n').filter(Boolean).sort();
   const cat = async (p: string) =>
@@ -122,6 +129,10 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: true }]);
     const banco = await owner.pool.query(`select bytes from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
     expect(Number(banco.rows[0].bytes)).toBeGreaterThan(0);
+    // D6 (P08-04): os roles (sem senha) vão junto, para a restauração recriar donos e grants
+    const globais = (await cat('db/globais.sql')).toString();
+    expect(globais).toContain('nutri_app_role');
+    expect(globais).not.toMatch(/PASSWORD\s+'/i);
   });
 
   it('dia seguinte: alterado/apagado vai para o histórico datado; histórico com mais de 30 dias sai; segunda não gera semanal', async () => {
@@ -199,6 +210,18 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
     expect(det.rows[0].detalhe).toBe('pg_dump ou envio falhou');
     expect(saida).toContain('ERRO no backup do banco');
+    expect(saida).not.toContain('segredo-no-stderr');
+  });
+
+  it('falha no dump dos roles (D6): banco ok=false com detalhe fixo, o dump do dia fica, sem o stderr no log', async () => {
+    const antes = await referencia();
+    const { codigo, saida } = await rodarComSaida('2026-10-12', { PATH: dockerQueFalhaEm('pg_dumpall') });
+    expect(codigo).toBe(1);
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('roles falhou');
+    expect(await lsf('db/diario/')).toContain('nutri-2026-10-12.dump');
+    expect(saida).toContain('ERRO no backup do banco (roles falhou)');
     expect(saida).not.toContain('segredo-no-stderr');
   });
 });
