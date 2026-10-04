@@ -33,4 +33,23 @@ describe('proxy', () => {
     const url = new URL(getRedirectUrl(proxy(new NextRequest('http://localhost:3100/painel?_rsc=xyz')))!);
     expect(url.searchParams.get('volta')).toBe('/painel');
   });
+
+  it('D2: página e Server Action ganham x-request-id novo (repassado e devolvido), sobrescrevendo o do cliente', () => {
+    for (const url of ['http://localhost:3100/entrar', 'http://localhost:3100/painel/pacientes?busca=ana']) {
+      const res = proxy(new NextRequest(url, { headers: { 'x-request-id': 'forjado', cookie: 'nd.session_token=abc.def' } }));
+      const repassado = res.headers.get('x-middleware-request-x-request-id');
+      expect(repassado, url).toMatch(/^[0-9a-f-]{36}$/);
+      expect(res.headers.get('x-request-id'), url).toBe(repassado);
+    }
+  });
+
+  it('D2: o matcher continua sem /api (o Next bufferizaria o corpo, com corte em 10 MB) e fora de estáticos e do service worker', async () => {
+    const { config } = await import('./proxy');
+    const re = new RegExp(`^${config.matcher[0]}$`);
+    expect(re.test('/entrar')).toBe(true);
+    expect(re.test('/painel/pacientes/x/exames')).toBe(true); // a página, não a API
+    for (const fora of ['/api/health', '/api/painel/pacientes/x/exames', '/api/p/diario', '/api/erro-cliente', '/_next/static/chunks/a.js', '/serwist/sw.js']) {
+      expect(re.test(fora), fora).toBe(false);
+    }
+  });
 });
