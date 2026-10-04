@@ -11,7 +11,7 @@ const now = new Date('2026-10-01T12:00:00Z');
 
 describe('heartbeat e health (RNF-04)', () => {
   it('ok com banco no ar e heartbeat recente', () => {
-    expect(evaluateHealth({ dbOk: true, lastBeat: new Date(now.getTime() - 60_000), now })).toEqual(
+    expect(evaluateHealth({ dbOk: true, heartbeatLido: true, lastBeat: new Date(now.getTime() - 60_000), now })).toEqual(
       { status: 'ok' },
     );
   });
@@ -19,19 +19,20 @@ describe('heartbeat e health (RNF-04)', () => {
     expect(
       evaluateHealth({
         dbOk: true,
+        heartbeatLido: true,
         lastBeat: new Date(now.getTime() - HEARTBEAT_MAX_AGE_MS - 1),
         now,
       }),
     ).toEqual({ status: 'degradado', reason: 'worker sem heartbeat há mais de 10 min' });
   });
   it('degradado sem nenhum heartbeat', () => {
-    expect(evaluateHealth({ dbOk: true, lastBeat: null, now })).toEqual({
+    expect(evaluateHealth({ dbOk: true, heartbeatLido: true, lastBeat: null, now })).toEqual({
       status: 'degradado',
       reason: 'worker sem heartbeat',
     });
   });
   it('degradado com banco fora do ar', () => {
-    expect(evaluateHealth({ dbOk: false, lastBeat: now, now })).toEqual({
+    expect(evaluateHealth({ dbOk: false, heartbeatLido: false, lastBeat: now, now })).toEqual({
       status: 'degradado',
       reason: 'banco indisponível',
     });
@@ -44,5 +45,29 @@ describe('heartbeat e health (RNF-04)', () => {
       .from(systemHeartbeat)
       .where(eq(systemHeartbeat.name, 'worker'));
     expect(row.beatAt.toISOString()).toBe('2026-10-01T12:01:00.000Z');
+  });
+});
+
+describe('evaluateHealth — motivos (N5, P08-02)', () => {
+  const agora = new Date('2026-10-20T12:00:00Z');
+  it('banco fora: "banco indisponível"', () => {
+    expect(evaluateHealth({ dbOk: false, heartbeatLido: false, lastBeat: null, now: agora })).toEqual({
+      status: 'degradado',
+      reason: 'banco indisponível',
+    });
+  });
+  it('banco ok, leitura do heartbeat falhou: "heartbeat ilegível" (não "banco indisponível")', () => {
+    expect(evaluateHealth({ dbOk: true, heartbeatLido: false, lastBeat: null, now: agora })).toEqual({
+      status: 'degradado',
+      reason: 'heartbeat ilegível',
+    });
+  });
+  it('heartbeat de 9 min: ok; de 11 min: degradado', () => {
+    expect(
+      evaluateHealth({ dbOk: true, heartbeatLido: true, lastBeat: new Date(agora.getTime() - 9 * 60_000), now: agora }).status,
+    ).toBe('ok');
+    expect(
+      evaluateHealth({ dbOk: true, heartbeatLido: true, lastBeat: new Date(agora.getTime() - 11 * 60_000), now: agora }).reason,
+    ).toBe('worker sem heartbeat há mais de 10 min');
   });
 });
