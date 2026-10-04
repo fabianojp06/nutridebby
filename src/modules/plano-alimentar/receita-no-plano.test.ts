@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { meals } from '@/db/schema';
+import { contents, meals } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { idTaco } from '@/modules/alimentos/taco';
@@ -108,4 +108,43 @@ describe('"Sugestão de receita" (US-054)', () => {
     expect(m).toEqual({ receita: null });
     expect((await carregarPlano(T.ctx, id, app.db))!.refeicoes[0].receita).toBeUndefined();
   });
+
+  /**
+   * Revisão do PR #10: a conferência da receita anexada lia sem trava. Uma exclusão em curso (sem COMMIT) fazia o INSERT
+   * da refeição esperar na FK e cair com 23503 (500 no salvamento automático); uma despublicação em curso deixava gravar
+   * a sugestão de receita que acabou de sair do ar. Agora a leitura espera a outra transação e reconfere.
+   */
+  for (const [nome, mudanca] of [
+    ['exclusão', (id: string) => sql`delete from ${contents} where ${contents.id} = ${id}`],
+    ['despublicação', (id: string) => sql`update ${contents} set status = 'rascunho', publicado_em = null where ${contents.id} = ${id}`],
+  ] as const) {
+    it(`${nome} da receita ao mesmo tempo que o salvamento que a anexa → "Receita não encontrada." na refeição (nunca 500 nem sugestão fora do ar)`, async () => {
+      const { T, panqueca, id, cafe, item } = await cenario();
+      let soltar!: () => void;
+      const segura = new Promise<void>((r) => (soltar = r));
+      let feito!: () => void;
+      const mudou = new Promise<void>((r) => (feito = r));
+      const outra = withTenant(T.ctx, async (tx) => {
+        await tx.execute(mudanca(panqueca.id));
+        feito();
+        await segura; // a outra transação fica aberta, sem COMMIT, enquanto o salvamento roda
+      }, app.db);
+      await mudou;
+      let terminou = false;
+      const salvando = erros(salvarRascunho(T.ctx, id, corpo(0, cafe, item, panqueca.id), deps))
+        .catch((e: unknown) => e) // o erro inesperado (sem a correção, o 23503) chega ao expect, sem rejeição solta
+        .finally(() => (terminou = true));
+      // espera o salvamento parar numa trava (com a correção, na leitura da receita; sem ela, na FK do INSERT — ou não para)
+      for (let i = 0; i < 60 && !terminou; i++) {
+        const r = await app.db.execute(sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid()`);
+        if ((r.rows[0] as { n: number }).n > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      soltar();
+      await outra;
+      expect(await salvando).toEqual({ [`refeicao:${cafe}:receita`]: MSG_PLANO.receita });
+      const [m] = await withTenant(T.ctx, (tx) => tx.select({ id: meals.id }).from(meals).where(eq(meals.id, cafe)), app.db);
+      expect(m).toBeUndefined(); // nada gravado
+    });
+  }
 });

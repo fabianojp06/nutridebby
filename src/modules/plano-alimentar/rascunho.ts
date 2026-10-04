@@ -1,7 +1,7 @@
 import { and, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { uniqueViolation } from '@/db/errors';
+import { deadlockDetectado, fkViolation, uniqueViolation } from '@/db/errors';
 import { contents, energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
@@ -156,6 +156,7 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   if (!idValido(planId)) throw new PlanoNaoEncontradoError();
   const v = validar(entrada);
   const now = deps.now ?? new Date();
+  let comSugestaoNova: string[] = [];
   try {
     return await withTenant(
       ctx,
@@ -191,8 +192,17 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const sugestaoNova = (r: RefeicaoValida) => r.recipeContentId !== null && r.recipeContentId !== (refeicoesAtuais.get(r.id)?.recipeContentId ?? null);
         const anexadas = [...new Set(v.refeicoes.flatMap((r) => (sugestaoNova(r) ? [r.recipeContentId!] : [])))];
         if (anexadas.length) {
+          comSugestaoNova = v.refeicoes.filter(sugestaoNova).map((r) => r.id);
+          // FOR SHARE: uma exclusão ou despublicação em curso termina antes (a leitura espera e reconfere a linha nova);
+          // as que chegarem depois esperam este COMMIT — sem 23503 na FK do INSERT nem sugestão de receita fora do ar
           const ok = new Set(
-            (await tx.select({ id: contents.id }).from(contents).where(and(inArray(contents.id, anexadas), eq(contents.tipo, 'receita'), eq(contents.status, 'publicado')))).map((c) => c.id),
+            (
+              await tx
+                .select({ id: contents.id })
+                .from(contents)
+                .where(and(inArray(contents.id, anexadas), eq(contents.tipo, 'receita'), eq(contents.status, 'publicado')))
+                .for('share')
+            ).map((c) => c.id),
           );
           // só a refeição que anexou (ou trocou): a que manteve a mesma sugestão não é marcada
           const ruins = Object.fromEntries(v.refeicoes.filter((r) => sugestaoNova(r) && !ok.has(r.recipeContentId!)).map((r) => [`refeicao:${r.id}:receita`, MSG_PLANO.receita]));
@@ -258,6 +268,11 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   } catch (e) {
     // id de refeição/item que já é de outro plano: só acontece com duas abas ou corpo adulterado
     if (uniqueViolation(e) === 'meals_pkey' || uniqueViolation(e) === 'meal_items_pkey') throw new ConflitoRevisaoError();
+    // defesa: a receita saiu entre a conferência e o INSERT (a trava acima evita) → o erro da refeição, não um 500
+    if (fkViolation(e) === 'meals_receita_fk' && comSugestaoNova.length)
+      throw new PlanoError(Object.fromEntries(comSugestaoNova.map((id) => [`refeicao:${id}:receita`, MSG_PLANO.receita])));
+    // a transação foi desfeita (nada gravado, revisão intacta): o editor pede para recarregar, sem 500
+    if (deadlockDetectado(e)) throw new PlanoError({ geral: MSG_PLANO.invalido });
     throw e;
   }
 }
