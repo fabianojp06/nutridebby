@@ -73,11 +73,12 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = ${subcomando} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
     return `${bin}:${process.env.PATH}`;
   };
-  /** docker "falso" no PATH: falha só no `docker exec <container> <programa>`; o resto vai ao real. */
-  const dockerQueFalhaEm = (programa: string) => {
+  /** docker "falso" no PATH: falha só no `docker exec <container> <programa>` (depois de escrever `parcial` no stdout,
+   *  como um dump que cai no meio); o resto vai ao real. */
+  const dockerQueFalhaEm = (programa: string, parcial = '') => {
     const real = execFileSync('bash', ['-c', 'command -v docker']).toString().trim();
     const bin = mkdtempSync(path.join(base, 'fakebin-'));
-    writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env bash\n[ "$1" = exec ] && [ "$3" = ${programa} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env bash\n[ "$1" = exec ] && [ "$3" = ${programa} ] && { printf '%s' '${parcial}'; echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
     return `${bin}:${process.env.PATH}`;
   };
   const lsf = async (p: string) =>
@@ -213,9 +214,9 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(saida).not.toContain('segredo-no-stderr');
   });
 
-  it('falha no dump dos roles (D6): banco ok=false com detalhe fixo, o dump do dia fica, sem o stderr no log', async () => {
+  it('falha no dump dos roles (D6): banco ok=false com detalhe fixo, o dump do dia fica, o globais.sql anterior fica, sem o stderr no log', async () => {
     const antes = await referencia();
-    const { codigo, saida } = await rodarComSaida('2026-10-12', { PATH: dockerQueFalhaEm('pg_dumpall') });
+    const { codigo, saida } = await rodarComSaida('2026-10-12', { PATH: dockerQueFalhaEm('pg_dumpall', 'CREATE ROLE parcial') });
     expect(codigo).toBe(1);
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
     const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
@@ -223,6 +224,22 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(await lsf('db/diario/')).toContain('nutri-2026-10-12.dump');
     expect(saida).toContain('ERRO no backup do banco (roles falhou)');
     expect(saida).not.toContain('segredo-no-stderr');
+    // O globais.sql é a única cópia dos roles: o dump que caiu (vazio ou pela metade) não fica por cima da última boa
+    const globais = (await cat('db/globais.sql')).toString();
+    expect(globais).toContain('nutri_app_role');
+    expect(globais).not.toContain('parcial');
+    expect(await lsf('db/')).not.toContain('globais.sql.novo'); // nem sobra o temporário
+  });
+
+  it('falha ao promover o globais.sql (D6): banco ok=false, o temporário sai e a última cópia boa fica', async () => {
+    await rcat('db/globais.sql', 'CREATE ROLE nutri_app_role; -- copia boa');
+    const antes = await referencia();
+    const { codigo } = await rodarComSaida('2026-10-13', { PATH: rcloneQueFalhaEm('moveto') });
+    expect(codigo).toBe(1);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('roles falhou');
+    expect((await cat('db/globais.sql')).toString()).toBe('CREATE ROLE nutri_app_role; -- copia boa');
+    expect(await lsf('db/')).not.toContain('globais.sql.novo');
   });
 });
 

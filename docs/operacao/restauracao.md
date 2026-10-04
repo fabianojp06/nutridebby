@@ -27,7 +27,8 @@ O teste de restauração usa a imagem `postgres:16-alpine` (a mesma do `nutri_db
 1. VPS nova ou a mesma: Easypanel com o projeto `nutri` (serviços `nutri_db`, `nutri_app`, `nutri_worker`; `nutri_evolution` à parte).
 2. `nutri_db` vazio; aplicar `db/globais.sql` (roles) **como o superusuário de instalação** (o mesmo nome do backup,
    normalmente `postgres`; ver o passo 2 do teste mensal) e depois `pg_restore -d nutri --exit-on-error` do dump mais recente.
-   Sem `globais.sql` (backup antigo): criar à mão `nutri_app_role` (NOLOGIN), o role dono das migrations (o de `DATABASE_URL_MIGRATOR`,
+   O backup só troca o `globais.sql` quando o `pg_dumpall` dá certo (grava no `.novo` e promove); numa noite com
+   `roles falhou` fica a cópia da última noite boa. Sem `globais.sql`, ou com ele vazio (backup antigo): criar à mão `nutri_app_role` (NOLOGIN), o role dono das migrations (o de `DATABASE_URL_MIGRATOR`,
    sem superusuário) e o role de login do app (o de `DATABASE_URL`, membro de `nutri_app_role`) **antes** do `pg_restore`.
    **Os roles voltam SEM senha** (`--no-role-passwords`). Antes de subir o `nutri_app`, o dono devolve a senha do role
    do migrator (o usuário de `DATABASE_URL_MIGRATOR`): `docker exec -it $(docker ps -q -f name=nutri_db | head -n1) psql -U postgres -d nutri`

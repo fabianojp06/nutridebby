@@ -32,6 +32,9 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
   const noContainer = (...args: string[]) => execFile('docker', ['exec', container, ...args], { env: process.env });
 
   beforeAll(async () => {
+    // Regra 10: com NUTRI_DB_CONTAINER vazio o nutri-backup.sh procura o container pelo nome (nutri_db = PRODUÇÃO neste
+    // host). Falha aqui, antes de qualquer docker exec, e o filtro abaixo não casa com nenhum container.
+    if (!/^[0-9a-f]{12,64}$/.test(container)) throw new Error('container do Testcontainers ausente: o backup não roda (regra 10)');
     await noContainer('createdb', '-U', usuario, copia);
     await noContainer(
       'sh', '-c', 'pg_dump -U "$1" -d "$2" -Fc | pg_restore -U "$1" -d "$3" --exit-on-error', 'sh', usuario, inject('pgDatabase'), copia,
@@ -54,6 +57,7 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
       NUTRI_BACKUP_REMOTE: 'cripto:',
       NUTRI_DATA_DIR: dados,
       NUTRI_DB_CONTAINER: container,
+      NUTRI_DB_CONTAINER_FILTER: `nao-existe-${randomBytes(6).toString('hex')}`, // regra 10: o fallback nunca acha o nutri_db
       NUTRI_DB_USER: usuario,
       NUTRI_DB_NAME: copia,
       NUTRI_BACKUP_TODAY: '2026-10-04',
@@ -78,6 +82,28 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
   it('sem a permissão do CI, função SECURITY DEFINER com dono superusuário reprova a restauração', async () => {
     const r = execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04' }, timeout: 170_000 });
     await expect(r).rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('função SECURITY DEFINER com dono superusuário') });
+  }, 180_000);
+
+  it('globais.sql vazio conta como ausente: AVISO (criar os roles à mão), não "roles aplicados"', async () => {
+    const cripto = (args: string[]) => execFile('rclone', args, { env, encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 });
+    const bom = (await cripto(['cat', 'cripto:db/globais.sql'])).stdout as unknown as Buffer;
+    const regravar = (conteudo: Buffer | string) =>
+      new Promise<void>((ok, falha) => {
+        const c = execFileCb('rclone', ['rcat', 'cripto:db/globais.sql'], { env }, (e) => (e ? falha(e) : ok()));
+        c.stdin?.end(conteudo);
+      });
+    await regravar(''); // backup antigo que gravou o dump de roles vazio
+    try {
+      const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 }).then(
+        () => ({ code: 0, stdout: '' }),
+        (e: { code?: number; stdout?: string }) => ({ code: e.code ?? 1, stdout: e.stdout ?? '' }),
+      );
+      expect(r.code).toBe(1); // sem os roles, o pg_restore não passa
+      expect(r.stdout).toContain('AVISO: sem db/globais.sql');
+      expect(r.stdout).not.toContain('roles aplicados');
+    } finally {
+      await regravar(bom);
+    }
   }, 180_000);
 
   it('dia sem dump: sai com erro e mensagem fixa', async () => {

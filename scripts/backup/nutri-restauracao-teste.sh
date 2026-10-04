@@ -40,11 +40,14 @@ for _ in $(seq 1 60); do
 done
 [ "$pronto" = true ] || { log "ERRO: o banco descartável não ficou pronto em 60 s"; exit 1; }
 PG=(docker exec -i -e PGPASSWORD "$NOME")
-# D6: roles antes do dump (o "role <superusuário> já existe" e afins são esperados: ON_ERROR_STOP=0)
-if rclone cat "${REMOTO}db/globais.sql" 2>/dev/null | "${PG[@]}" psql -h 127.0.0.1 -U "$SU" -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1; then
+# D6: roles antes do dump (o "role <superusuário> já existe" e afins são esperados: ON_ERROR_STOP=0). Vazio ou sem
+# CREATE ROLE conta como ausente: o psql com entrada vazia sai 0 e diria "roles aplicados" sem role nenhum.
+globais="$(rclone cat "${REMOTO}db/globais.sql" 2>/dev/null)" || globais=""
+if [[ "$globais" == *"CREATE ROLE"* ]] \
+  && printf '%s\n' "$globais" | "${PG[@]}" psql -h 127.0.0.1 -U "$SU" -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1; then
   log "roles aplicados"
 else
-  log "AVISO: sem db/globais.sql — criar os roles à mão (docs/operacao/restauracao.md)"
+  log "AVISO: sem db/globais.sql (ou vazio) — criar os roles à mão (docs/operacao/restauracao.md)"
 fi
 # Sem o stderr do pg_restore no log (cita nomes de objetos e, em erro de dado, valores)
 if ! rclone cat "${REMOTO}db/diario/nutri-${DIA}.dump" 2>/dev/null | "${PG[@]}" pg_restore -h 127.0.0.1 -U "$SU" -d nutri --exit-on-error >/dev/null 2>&1; then

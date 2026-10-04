@@ -82,9 +82,13 @@ backup_banco() {
     if [ "$(date -d "$HOJE" +%u)" = 7 ]; then
       rclone copyto "${REMOTO}db/diario/${arquivo}" "${REMOTO}db/semanal/${arquivo}" >/dev/null 2>&1 || ok=false
     fi
-    # D6 (P08-04): roles sem senha — a restauração precisa deles antes do pg_restore (donos das funções SECURITY DEFINER)
-    if ! docker exec "$DB" pg_dumpall -U "$DB_USER" --globals-only --no-role-passwords 2>/dev/null \
-      | rclone rcat "${REMOTO}db/globais.sql" >/dev/null 2>&1; then
+    # D6 (P08-04): roles sem senha — a restauração precisa deles antes do pg_restore (donos das funções SECURITY DEFINER).
+    # O globais.sql é a única cópia dos roles e o rcat sobe o que chegar (vazio ou pela metade, se o pg_dumpall cair):
+    # grava no .novo e só promove se o dump E o envio derem certo; senão a última cópia boa fica.
+    if ! { docker exec "$DB" pg_dumpall -U "$DB_USER" --globals-only --no-role-passwords 2>/dev/null \
+        | rclone rcat "${REMOTO}db/globais.sql.novo" >/dev/null 2>&1 \
+      && rclone moveto "${REMOTO}db/globais.sql.novo" "${REMOTO}db/globais.sql" >/dev/null 2>&1; }; then
+      rclone deletefile "${REMOTO}db/globais.sql.novo" >/dev/null 2>&1
       ok=false
       detalhe="roles falhou"
     fi
