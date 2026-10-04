@@ -151,6 +151,8 @@ test('paciente não alcança o painel nem a API da nutricionista (403 ou volta a
     await paciente.page.goto(rota);
     await expect(paciente.page, rota).toHaveURL(/\/p\/inicio$/);
   }
+  // Pelo proxy, rota a rota (X-3: toda rota nova de /api/painel já é conferida, sem lista, em
+  // src/app/api/painel/acesso-negado.test.ts)
   const chamadas: [string, string][] = [
     ['GET', '/api/painel/alimentos?q=arroz'],
     ['POST', '/api/painel/marca/logo'],

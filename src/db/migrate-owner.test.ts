@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { runMigrations } from './migrate';
 
 // Tarefa 13 (Ruling R49): em produção o migrator é um role dono do banco SEM superusuário.
@@ -187,5 +187,115 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     } finally {
       c.release();
     }
+  });
+
+  // B-3: as duas SECURITY DEFINER do Plano 06 trocam o contexto (set_config) para passar pela RLS FORCE. Com o dono
+  // superusuário da suíte principal a RLS nem vale para elas; só aqui (dono sem superusuário, como em produção) uma
+  // troca de contexto errada aparece.
+  describe('SECURITY DEFINER do Plano 06 sob FORCE RLS (dono sem superusuário)', () => {
+    const P256 = 'B'.repeat(87);
+    const AUTH = 'a'.repeat(22);
+    const contexto = async (c: PoolClient) =>
+      (
+        await c.query(
+          `select current_setting('app.tenant_id', true) as tenant, current_setting('app.role', true) as role,
+                  current_setting('app.patient_id', true) as patient, current_setting('app.user_id', true) as usuario`,
+        )
+      ).rows[0];
+    const emWorker = async (c: PoolClient, t: string) => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [t]);
+    };
+    const novoTenant = async (c: PoolClient, slug: string) =>
+      (await c.query(`insert into tenants (slug, nome_exibicao) values ($1, 'X') returning id`, [slug])).rows[0].id as string;
+    const novaConta = async (c: PoolClient, email: string) =>
+      (await c.query(`insert into "user" (name, email, app_role) values ('Conta', $1, 'paciente') returning id`, [email])).rows[0].id as string;
+    /** Prontuário (contexto worker do tenant) ligado à conta. */
+    const novoPaciente = async (c: PoolClient, t: string, u: string, status = 'ativo') => {
+      await emWorker(c, t);
+      const id = (
+        await c.query(
+          `insert into patients (tenant_id, user_id, nome, data_nascimento, sexo, email, status) values ($1, $2, 'P', '1990-01-01', 'F', 'p@sd.dev', $3) returning id`,
+          [t, u, status],
+        )
+      ).rows[0].id as string;
+      await c.query('commit');
+      return id;
+    };
+
+    it('app_soltar_endpoint_push tira o endpoint da outra conta em outro tenant, mantém o da própria e devolve o contexto', async () => {
+      const c = await app.connect();
+      try {
+        const A = await novoTenant(c, 'push-a');
+        const B = await novoTenant(c, 'push-b');
+        const uA = await novaConta(c, 'push-a@sd.dev');
+        const uB = await novaConta(c, 'push-b@sd.dev');
+        const pA = await novoPaciente(c, A, uA);
+        const pB = await novoPaciente(c, B, uB);
+        const E = 'https://push.example/compartilhado';
+        const F = 'https://push.example/outro-aparelho';
+        const inscrever = async (t: string, p: string, endpoint: string) => {
+          await emWorker(c, t);
+          await c.query(`insert into push_subscriptions (tenant_id, patient_id, endpoint, p256dh, auth) values ($1, $2, $3, $4, $5)`, [t, p, endpoint, P256, AUTH]);
+          await c.query('commit');
+        };
+        await inscrever(A, pA, E);
+        await inscrever(B, pB, E);
+        await inscrever(B, pB, F);
+
+        await c.query('begin');
+        await c.query(
+          `select set_config('app.tenant_id', $1, true), set_config('app.role', 'paciente', true),
+                  set_config('app.patient_id', $2, true), set_config('app.user_id', $3, true)`,
+          [A, pA, uA],
+        );
+        expect((await c.query('select app_soltar_endpoint_push($1) as da_conta', [E])).rows[0].da_conta).toBe(true);
+        expect((await c.query('select app_soltar_endpoint_push($1) as da_conta', ['https://push.example/nenhum'])).rows[0].da_conta).toBe(false);
+        expect(await contexto(c)).toEqual({ tenant: A, role: 'paciente', patient: pA, usuario: uA });
+        await c.query('commit');
+
+        const endpoints = async (t: string) => {
+          await emWorker(c, t);
+          const r = (await c.query(`select endpoint from push_subscriptions where tenant_id = $1 order by endpoint`, [t])).rows.map((x) => x.endpoint);
+          await c.query('commit');
+          return r;
+        };
+        expect(await endpoints(A)).toEqual([E]);
+        expect(await endpoints(B)).toEqual([F]);
+      } finally {
+        await c.query('rollback').catch(() => undefined);
+        c.release();
+      }
+    });
+
+    it('app_conta_sem_outro_vinculo enxerga o vínculo da conta em outro tenant (contexto conta) e devolve o contexto', async () => {
+      const c = await app.connect();
+      try {
+        const A = await novoTenant(c, 'vinc-a');
+        const B = await novoTenant(c, 'vinc-b');
+        const u = await novaConta(c, 'vinc@sd.dev');
+        const ator = await novaConta(c, 'ator-vinc@sd.dev');
+        const pA = await novoPaciente(c, A, u, 'bloqueado');
+        const pB = await novoPaciente(c, B, u);
+        /** Como a anonimização: solta a conta do prontuário de A e confere, na mesma transação (contexto worker de A). */
+        const sozinha = async () => {
+          await emWorker(c, A);
+          await c.query(`select set_config('app.user_id', $1, true)`, [ator]);
+          await c.query(`update patients set user_id = null, anonimizado_em = now() where id = $1`, [pA]);
+          const r = (await c.query('select app_conta_sem_outro_vinculo($1) as sozinha', [u])).rows[0].sozinha as boolean;
+          expect(await contexto(c)).toEqual({ tenant: A, role: 'worker', patient: '', usuario: ator });
+          await c.query('rollback');
+          return r;
+        };
+        expect(await sozinha()).toBe(false); // o prontuário de B, ainda não anonimizado, segura a conta
+        await emWorker(c, B);
+        await c.query(`update patients set anonimizado_em = now() where id = $1`, [pB]);
+        await c.query('commit');
+        expect(await sozinha()).toBe(true);
+      } finally {
+        await c.query('rollback').catch(() => undefined);
+        c.release();
+      }
+    });
   });
 });
