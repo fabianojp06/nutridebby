@@ -75,16 +75,17 @@ export async function salvarReceitaAction(id: string, _: ReceitaState, fd: FormD
 
 export async function publicarConteudoAction(id: string, _: ConteudoState, fd: FormData): Promise<ConteudoState> {
   const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
-  void fd; // a Tarefa 10 lê "Avisar pacientes" daqui
+  const avisar = fd.get('avisar') === 'on';
+  let avisados = 0;
   try {
-    await publicarConteudo(ctx, id);
+    ({ avisados } = await publicarConteudo(ctx, id, { avisar }));
   } catch (e) {
     if (e instanceof ConteudoError) return { erros: e.erros };
     if (e instanceof ConteudoNaoEncontradoError) return { erros: { geral: e.message } };
     throw e;
   }
   revalidatePath(`/painel/conteudos/${id}`);
-  return { ok: MSG_CONTEUDO.publicado };
+  return { ok: avisar ? `${MSG_CONTEUDO.publicado} ${MSG_CONTEUDO.avisados(avisados)}` : MSG_CONTEUDO.publicado };
 }
 
 export async function despublicarConteudoAction(id: string): Promise<void> {

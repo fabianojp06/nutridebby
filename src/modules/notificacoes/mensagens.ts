@@ -111,6 +111,8 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   push_teste: { corpo: 'Notificações ativadas ✅', tela: '/p/inicio' },
   comentario_diario: { corpo: 'Sua nutricionista comentou seu diário', tela: '/p/diario' },
   plano_novo: { corpo: 'Seu novo plano alimentar está disponível', tela: '/p/plano' },
+  // D4 (Plano 07): neutro — o título do conteúdo pode dizer uma condição de saúde na tela de bloqueio
+  conteudo_novo: { corpo: 'Sua nutricionista publicou um novo conteúdo', tela: '/p/conteudos' },
 };
 
 /**

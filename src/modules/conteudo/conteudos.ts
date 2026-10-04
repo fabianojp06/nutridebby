@@ -1,12 +1,13 @@
 import { and, count, desc, eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { contents, recipeIngredients, type ContentRow } from '@/db/schema';
+import { contents, recipeIngredients, tenants, type ContentRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { signFileUrl } from '@/lib/signed-url';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
 import { apagarArquivo, CotaEsgotadaError, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { removerCapa, trocarCapa } from './arquivos';
+import { avisarConteudoNovo } from './aviso';
 import { gravarAudiencia, lerAudiencia } from './audiencia';
 import { CORPO_MAX, ehVisibilidade, ETIQUETA_MAX, ETIQUETAS_MAX, MSG_CONTEUDO, RESUMO_MAX, TITULO_MAX, type TipoConteudo, type Visibilidade } from './constantes';
 import { ConteudoError, ConteudoNaoEncontradoError, VideoTrocadoError } from './erros';
@@ -169,17 +170,23 @@ async function exigirPublicavel(tx: Tx, c: ContentRow): Promise<void> {
   }
 }
 
-/** D17: publica (de novo: `publicado_em` renovado — volta ao topo do feed). */
-export async function publicarConteudo(ctx: TenantContext, id: string, deps: Deps = {}): Promise<void> {
+/**
+ * D17: publica (de novo: `publicado_em` renovado — volta ao topo do feed). US-053 "Avisar pacientes": o aviso entra na
+ * mesma transação (D5). Devolve quantos pacientes serão avisados.
+ */
+export async function publicarConteudo(ctx: TenantContext, id: string, opcoes: { avisar: boolean }, deps: Deps = {}): Promise<{ avisados: number }> {
   if (!idValido(id)) throw new ConteudoNaoEncontradoError();
   const agora = deps.agora ?? new Date();
-  await withTenant(
+  return withTenant(
     ctx,
     async (tx) => {
       const [c] = await tx.select().from(contents).where(eq(contents.id, id)).for('update');
       if (!c) throw new ConteudoNaoEncontradoError();
       await exigirPublicavel(tx, c);
       await tx.update(contents).set({ status: 'publicado', publicadoEm: agora, updatedAt: agora }).where(eq(contents.id, id));
+      if (!opcoes.avisar) return { avisados: 0 };
+      const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, ctx.tenantId));
+      return { avisados: await avisarConteudoNovo(tx, { tenantId: ctx.tenantId, contentId: id, visibilidade: c.visibilidade as Visibilidade, fuso: t.fuso }, agora) };
     },
     deps.db ?? getDb(),
   );

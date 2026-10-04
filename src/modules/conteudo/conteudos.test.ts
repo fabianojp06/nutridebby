@@ -141,10 +141,10 @@ describe('publicar, despublicar, excluir (D17)', () => {
   it('orientação sem texto nem PDF não publica; com texto publica com a data; despublicar volta a rascunho', async () => {
     const T = await novoTenant(app.db);
     const id = await criarConteudo(T.ctx, 'orientacao', { ...base, titulo: 'Como ler rótulos' }, { db: app.db });
-    expect(await erros(publicarConteudo(T.ctx, id, { db: app.db }))).toEqual({ geral: MSG_CONTEUDO.orientacaoVazia });
+    expect(await erros(publicarConteudo(T.ctx, id, { avisar: false }, { db: app.db }))).toEqual({ geral: MSG_CONTEUDO.orientacaoVazia });
     await salvarConteudo(T.ctx, id, { ...base, titulo: 'Como ler rótulos', corpo: '## Rótulos\n\nLeia a **porção**.' }, { db: app.db });
     const agora = new Date('2026-10-20T13:00:00Z');
-    await publicarConteudo(T.ctx, id, { db: app.db, agora });
+    await publicarConteudo(T.ctx, id, { avisar: false }, { db: app.db, agora });
     expect(await carregarConteudoDoPainel(T.ctx, id, app.db)).toMatchObject({ status: 'publicado', publicadoEm: agora, corpoMd: '## Rótulos\n\nLeia a **porção**.' });
     await despublicarConteudo(T.ctx, id, { db: app.db });
     expect(await carregarConteudoDoPainel(T.ctx, id, app.db)).toMatchObject({ status: 'rascunho', publicadoEm: null });
@@ -153,7 +153,7 @@ describe('publicar, despublicar, excluir (D17)', () => {
   it('orientação PUBLICADA não fica vazia: salvar sem texto (e sem PDF) é recusado; no rascunho pode', async () => {
     const T = await novoTenant(app.db);
     const id = await criarConteudo(T.ctx, 'orientacao', { ...base, corpo: 'Leia a porção.' }, { db: app.db });
-    await publicarConteudo(T.ctx, id, { db: app.db });
+    await publicarConteudo(T.ctx, id, { avisar: false }, { db: app.db });
     expect(await erros(salvarConteudo(T.ctx, id, { ...base, corpo: '   ' }, { db: app.db }))).toEqual({ corpo: MSG_CONTEUDO.publicadoVazio });
     expect((await carregarConteudoDoPainel(T.ctx, id, app.db))!.corpoMd).toBe('Leia a porção.');
     await despublicarConteudo(T.ctx, id, { db: app.db });
@@ -163,12 +163,12 @@ describe('publicar, despublicar, excluir (D17)', () => {
   it('receita sem ingredientes não publica', async () => {
     const T = await novoTenant(app.db);
     const id = await criarConteudo(T.ctx, 'receita', { ...base, titulo: 'Panqueca de aveia' }, { db: app.db });
-    expect(await erros(publicarConteudo(T.ctx, id, { db: app.db }))).toEqual({ geral: MSG_CONTEUDO.receitaIncompleta });
+    expect(await erros(publicarConteudo(T.ctx, id, { avisar: false }, { db: app.db }))).toEqual({ geral: MSG_CONTEUDO.receitaIncompleta });
     await withTenant(T.ctx, async (tx) => {
       await tx.execute(sql`insert into recipes (tenant_id, content_id, rendimento_total_g, porcao_g) values (${T.tenantId}, ${id}, 1000, 250)`);
       await tx.execute(sql`insert into recipe_ingredients (tenant_id, content_id, food_id, quantidade_g, ordem) values (${T.tenantId}, ${id}, ${idTaco(3)}, 200, 0)`);
     }, app.db);
-    await publicarConteudo(T.ctx, id, { db: app.db });
+    await publicarConteudo(T.ctx, id, { avisar: false }, { db: app.db });
   });
 
   it('excluir apaga capa e PDF (regra 9) e devolve o espaço', async () => {

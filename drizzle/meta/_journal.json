@@ -589,6 +589,13 @@
       "when": 1791084853350,
       "tag": "0083_audiencia_conteudos",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791090524643,
+      "tag": "0084_conteudo_novo",
+      "breakpoints": true
     }
   ]
 }
