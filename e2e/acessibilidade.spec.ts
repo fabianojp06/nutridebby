@@ -53,8 +53,9 @@ for (const url of ROTAS) {
   });
 }
 
-// Modo escuro do aparelho (prefers-color-scheme: dark): enquanto o tema escuro não chega (Plano 08), o sistema fica
-// sempre claro — nada pode escurecer só o fundo ou o texto base e deixar as cores fixas do modo claro ilegíveis.
+// Modo escuro do aparelho (prefers-color-scheme: dark). Plano 08: o tema escuro chega ao painel na Tarefa 14 (padrão
+// "igual ao aparelho", data-tema=sistema) e ao portal na Tarefa 18; fora de um contêiner com data-tema tudo fica claro
+// (globals.css). Nada pode escurecer só o fundo ou o texto base e deixar cores fixas do modo claro ilegíveis.
 const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/conteudos', '/painel/configuracoes'];
 test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
   await paciente.page.emulateMedia({ colorScheme: 'dark' });

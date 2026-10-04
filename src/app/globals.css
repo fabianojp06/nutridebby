@@ -1,21 +1,127 @@
 @import "tailwindcss";
 
+/* D24: dark: segue a escolha da usuária (data-tema), não só o aparelho. Prefira os tokens; dark: só em exceção. */
+@custom-variant dark (&:where([data-tema=escuro], [data-tema=escuro] *));
+
+/* Sem a função light-dark do CSS: o Safari só a entende a partir da 17.5, e a RNF-09 exige o PWA no iOS 16.4+. Lá, uma
+   variável que a usa fica inválida na hora do cálculo — o outline do :focus-visible virava none (sem foco visível em nenhuma
+   página, WCAG 2.4.7) e as cores do portal (T18) sumiam. Cada modo declara os valores literais no próprio bloco. */
+
+/* Claro: fora do painel e do portal (entrar, admin, páginas públicas) e no data-tema=claro */
 :root {
-  /* sempre claro até o tema escuro de verdade (Plano 08): as telas usam cores fixas do modo claro */
   color-scheme: light;
-  --background: #ffffff;
-  --foreground: #171717;
+  --nd-fundo: #eaf0ec;
+  --nd-cartao: #ffffff;
+  --nd-texto: #14211d;
+  --nd-suave: #4b5c55;
+  --nd-borda: #d5e0da;
+  --nd-campo: #6f817a;
+  --nd-linha: #edf2ef;
+  --nd-link: #0f4f42;
+  --nd-erro: #8f2f22;
+  --nd-erro-fundo: #fbe9e6;
+  --nd-aviso: #8a5306;
+  --nd-aviso-fundo: #fdf3e1;
+  --nd-ok: #1f6b45;
+  --nd-ok-fundo: #e4f2ea;
+  --nd-botao: #14211d;
+  --nd-botao-texto: #ffffff;
+  --nd-marca: #1d6b5a;
+  --nd-foco: var(--nd-marca);
+}
+[data-tema='claro'] { color-scheme: light; }
+[data-tema='sistema'] { color-scheme: light dark; }
+/* A cor do consultório chega no estilo do contêiner (--nd-marca-base/--nd-marca-clara): as variáveis que dependem dela
+   são recalculadas NO contêiner (var() em propriedade customizada resolve onde ela é declarada, não onde é usada). */
+[data-tema] {
+  --nd-marca: var(--nd-marca-base, #1d6b5a);
+  --nd-foco: var(--nd-marca);
+}
+/* Escuro: escolhido na conta… */
+[data-tema='escuro'] {
+  color-scheme: dark;
+  --nd-fundo: #0f1613;
+  --nd-cartao: #17211d;
+  --nd-texto: #e6eeea;
+  --nd-suave: #a3b5ad;
+  --nd-borda: #26332e;
+  --nd-campo: #7a8c84;
+  --nd-linha: #22302b;
+  --nd-link: #7fd4b9;
+  --nd-erro: #ff9c8f;
+  --nd-erro-fundo: #3a1d19;
+  --nd-aviso: #f0b867;
+  --nd-aviso-fundo: #33270f;
+  --nd-ok: #7fd4b9;
+  --nd-ok-fundo: #15302a;
+  --nd-botao: #e6eeea;
+  --nd-botao-texto: #0f1613;
+  --nd-marca: var(--nd-marca-clara, #6fcfb2);
+  --nd-foco: var(--nd-marca);
+}
+/* …ou "igual ao aparelho" com o aparelho escuro (mesmos valores; o teste confere os dois blocos) */
+@media (prefers-color-scheme: dark) {
+  [data-tema='sistema'] {
+    --nd-fundo: #0f1613;
+    --nd-cartao: #17211d;
+    --nd-texto: #e6eeea;
+    --nd-suave: #a3b5ad;
+    --nd-borda: #26332e;
+    --nd-campo: #7a8c84;
+    --nd-linha: #22302b;
+    --nd-link: #7fd4b9;
+    --nd-erro: #ff9c8f;
+    --nd-erro-fundo: #3a1d19;
+    --nd-aviso: #f0b867;
+    --nd-aviso-fundo: #33270f;
+    --nd-ok: #7fd4b9;
+    --nd-ok-fundo: #15302a;
+    --nd-botao: #e6eeea;
+    --nd-botao-texto: #0f1613;
+    --nd-marca: var(--nd-marca-clara, #6fcfb2);
+    --nd-foco: var(--nd-marca);
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-fundo: var(--nd-fundo);
+  --color-cartao: var(--nd-cartao);
+  --color-texto: var(--nd-texto);
+  --color-suave: var(--nd-suave);
+  --color-borda: var(--nd-borda);
+  --color-campo: var(--nd-campo);
+  --color-linha: var(--nd-linha);
+  --color-link: var(--nd-link);
+  --color-erro: var(--nd-erro);
+  --color-erro-fundo: var(--nd-erro-fundo);
+  --color-aviso: var(--nd-aviso);
+  --color-aviso-fundo: var(--nd-aviso-fundo);
+  --color-ok: var(--nd-ok);
+  --color-ok-fundo: var(--nd-ok-fundo);
+  --color-botao: var(--nd-botao);
+  --color-botao-texto: var(--nd-botao-texto);
+  --color-marca: var(--nd-marca);
+  --color-destaque: var(--nd-marca-base, #1d6b5a); /* sempre a cor original: fundo com texto branco nos dois modos */
+  --font-sans: var(--font-figtree), system-ui, sans-serif;
+  --font-titulo: var(--font-bricolage), var(--font-figtree), system-ui, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: #ffffff;
+  color: #171717;
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* WCAG 2.4.7: o design não tinha foco visível. Cor literal de reserva se a variável faltar (nunca outline: none) */
+:focus-visible {
+  outline: 3px solid var(--nd-foco, #1d6b5a);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

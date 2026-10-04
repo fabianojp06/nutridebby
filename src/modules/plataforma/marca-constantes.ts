@@ -4,7 +4,8 @@
  * pg, pg-boss e sharp para o bundle do navegador.
  */
 
-export const COR_PADRAO = '#047857';
+// D23 (Plano 08): a cor do design e do themeColor do PWA (6,36:1 com branco)
+export const COR_PADRAO = '#1d6b5a';
 
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024; // US-005: ≤ 2 MB
 export const LOGO_LADO_MAX = 512;
