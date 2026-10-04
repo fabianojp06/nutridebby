@@ -37,6 +37,18 @@ export async function metricasPorTenant(db: Db = getDb()): Promise<Map<string, M
   );
 }
 
+export type MetricasSucessoTenant = { comConta: number; abriram: number; faltasMes: number; iniciadasMes: number };
+
+/** D15: CS-02 e CS-03 por tenant, só contagens (função SECURITY DEFINER, 0087). */
+export async function metricasDeSucessoPorTenant(db: Db = getDb()): Promise<Map<string, MetricasSucessoTenant>> {
+  const r = await db.execute<{ tenant_id: string; pacientes_com_conta: string; abriram_7_dias: string; faltas_mes: string; iniciadas_mes: string }>(
+    sql`select * from admin_metricas_sucesso()`,
+  );
+  return new Map(
+    r.rows.map((x) => [x.tenant_id, { comConta: Number(x.pacientes_com_conta), abriram: Number(x.abriram_7_dias), faltasMes: Number(x.faltas_mes), iniciadasMes: Number(x.iniciadas_mes) }]),
+  );
+}
+
 export const MSG_COTA_WA = 'Informe um número inteiro de 0 a 100000';
 const cotaSchema = z.string().trim().regex(/^\d{1,6}$/, MSG_COTA_WA).transform(Number).pipe(z.number().max(100_000, MSG_COTA_WA));
 

@@ -3,11 +3,13 @@ import { formatarBytes } from '@/lib/format';
 import { requireUser } from '@/lib/session';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
-import { metricasPorTenant } from '@/modules/plataforma/metricas';
+import { textoTaxa } from '@/modules/agenda/presenca';
+import { metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { CotaForm } from './cota-form';
+import { MetricasForm } from './metricas-form';
 import { PainelInfra } from './painel-infra';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +39,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
   const { aviso } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const [contas, metricas] = await Promise.all([listarContas(), metricasPorTenant()]);
+  const [contas, metricas, sucesso] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant()]);
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -64,15 +66,19 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
             <th scope="col">Convite</th>
             <th scope="col">Pacientes ativos</th>
             <th scope="col">Consultas no mês</th>
+            <th scope="col">App na semana</th>
+            <th scope="col">Faltas no mês</th>
             <th scope="col">WhatsApp no mês</th>
             <th scope="col">Cota de WhatsApp</th>
             <th scope="col">Armazenamento</th>
+            <th scope="col">Métricas de sucesso</th>
             <th scope="col">Ações</th>
           </tr>
         </thead>
         <tbody>
           {contas.map((c) => {
             const m = metricas.get(c.tenantId);
+            const s = sucesso.get(c.tenantId);
             return (
             <tr key={c.tenantId} className="border-t">
               <th scope="row" className="font-normal">{c.nomeExibicao} <span className="text-zinc-500">({c.slug})</span></th>
@@ -82,9 +88,13 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
               <td><Convite c={c} /></td>
               <td>{m?.pacientesAtivos ?? '—'}</td>
               <td>{m?.consultasMes ?? '—'}</td>
+              {/* D15: CS-02 (ativos com conta que abriram o app em 7 dias) e faltas do mês (CS-03), só contagens */}
+              <td>{s && s.comConta ? `${s.abriram} de ${s.comConta} (${Math.round((s.abriram / s.comConta) * 100)}%)` : '—'}</td>
+              <td>{s && s.iniciadasMes ? textoTaxa(s.faltasMes / s.iniciadasMes, s.faltasMes, s.iniciadasMes) : '—'}</td>
               <td>{m?.mensagensWhatsappMes ?? '—'}</td>
               <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} conta={c.nomeExibicao} /></td>
               <td>{m ? `${formatarBytes(m.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)} (${m.arquivos} arquivos)` : '—'}</td>
+              <td><MetricasForm tenantId={c.tenantId} conta={c.nomeExibicao} taxaBase={c.taxaFaltasBase} goLiveEm={c.goLiveEm} /></td>
               <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (
                   <form action={reenviarConviteAction.bind(null, c.tenantId)}>

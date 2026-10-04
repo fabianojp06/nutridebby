@@ -6,7 +6,7 @@ import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
-import { ajustarCotaWhatsapp, CotaWhatsappError, metricasPorTenant } from './metricas';
+import { ajustarCotaWhatsapp, CotaWhatsappError, metricasDeSucessoPorTenant, metricasPorTenant } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -74,6 +74,33 @@ describe('metricasPorTenant (§3: só contagens)', () => {
                 where p.proname = 'admin_tenant_metrics' and a.grantee = 0 and a.privilege_type = 'EXECUTE'
              ) as publico,
              has_function_privilege('nutri_app_role', 'admin_tenant_metrics()', 'EXECUTE') as app`);
+    expect(rows[0]).toEqual({ publico: false, app: true });
+  });
+});
+
+describe('metricasDeSucessoPorTenant (D15: só contagens)', () => {
+  it('faltas e consultas já iniciadas do mês no fuso do tenant: cancelada e futura ficam fora', async () => {
+    const t = await tenantComArquivos(0, 0);
+    const p = randomUUID();
+    // já começou e é deste mês (no 1º minuto do mês, o próprio início do mês)
+    const i = sql`greatest(now() - interval '1 minute', date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`;
+    await withTenant({ tenantId: t, role: 'nutri', actorUserId: randomUUID() }, async (tx) => {
+      await tx.execute(sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'M', '1990-01-01', 'F', ${`s-${p}@t.dev`})`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status) values (${t}, ${p}, ${i}, ${i} + interval '30 minutes', 'presencial', 'nutri', 'faltou')`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, cancelado_por, cancelada_em) values (${t}, ${p}, ${i}, ${i} + interval '30 minutes', 'presencial', 'nutri', 'cancelada', 'nutri', now())`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, now() + interval '1 hour', now() + interval '2 hours', 'presencial', 'nutri')`);
+    }, app.db);
+    expect((await metricasDeSucessoPorTenant(app.db)).get(t)).toEqual({ comConta: 0, abriram: 0, faltasMes: 1, iniciadasMes: 1 });
+  });
+
+  it('EXECUTE revogado de PUBLIC; só o role da aplicação executa', async () => {
+    const { rows } = await app.pool.query<{ publico: boolean; app: boolean }>(`
+      select exists (
+               select 1 from pg_proc p
+                 cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                where p.proname = 'admin_metricas_sucesso' and a.grantee = 0 and a.privilege_type = 'EXECUTE'
+             ) as publico,
+             has_function_privilege('nutri_app_role', 'admin_metricas_sucesso()', 'EXECUTE') as app`);
     expect(rows[0]).toEqual({ publico: false, app: true });
   });
 });

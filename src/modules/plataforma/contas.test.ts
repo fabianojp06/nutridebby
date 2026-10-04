@@ -215,4 +215,13 @@ describe('listarContas', () => {
     await app.db.update(invites).set({ usadoEm: now }).where(and(eq(invites.userId, r.userId)));
     expect((await achar(now)).convite).toBe('aceito');
   });
+
+  it('traz a base do CS-03 e o início do uso (D15) como número e "AAAA-MM-DD"', async () => {
+    const x = s();
+    const r = await criarContaNutri({ nomeExibicao: 'Métricas', email: `met-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `met-${x}` }, deps);
+    const achar = async () => (await listarContas(app.db, now)).find((c) => c.tenantId === r.tenantId)!;
+    expect(await achar()).toMatchObject({ taxaFaltasBase: null, goLiveEm: null });
+    await app.db.update(tenants).set({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' }).where(eq(tenants.id, r.tenantId));
+    expect(await achar()).toMatchObject({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' });
+  });
 });

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, date, index, integer, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable(
   'tenants',
@@ -23,6 +23,10 @@ export const tenants = pgTable(
     armazenamentoBytes: bigint('armazenamento_bytes', { mode: 'number' }).notNull().default(0),
     dpaAceitoEm: timestamp('dpa_aceito_em', { withTimezone: true }),
     dpaVersao: text('dpa_versao'),
+    /** CS-03 / P-15 (D15): taxa de faltas (%) do mês anterior ao sistema, informada pelo admin (E-08). */
+    taxaFaltasBase: numeric('taxa_faltas_base', { precision: 5, scale: 2, mode: 'number' }),
+    /** CS-01 (D15): dia em que a nutricionista passou a atender pelo sistema. */
+    goLiveEm: date('go_live_em', { mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -34,6 +38,7 @@ export const tenants = pgTable(
     check('tenants_cancelamento_faixa', sql`${t.cancelamentoMinH} between 0 and 72`),
     check('tenants_wa_cota_valida', sql`${t.waCotaMensal} >= 0`),
     check('tenants_armazenamento_valido', sql`${t.armazenamentoBytes} >= 0`),
+    check('tenants_taxa_faltas_base_valida', sql`${t.taxaFaltasBase} is null or ${t.taxaFaltasBase} between 0 and 100`),
   ],
 );
 

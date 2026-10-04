@@ -170,3 +170,23 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await expect(banner.getByRole('img', { name: `Logo de ${NUTRI.nome}` })).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
   await ctx.close();
 });
+
+test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; valor fora da faixa é recusado (P08-07, D15)', async () => {
+  await admin.goto('/admin');
+  const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
+  const taxa = linha.getByLabel('Taxa de faltas antes do sistema (%)');
+  await taxa.fill('120');
+  await linha.getByRole('button', { name: `Salvar as métricas de ${NUTRI.nome}` }).click();
+  await expect(linha.getByRole('alert')).toHaveText('Informe um percentual de 0 a 100');
+  await expect(taxa).toHaveAttribute('aria-invalid', 'true');
+  await taxa.fill('18,5');
+  await linha.getByLabel('Início do uso').fill('2026-10-01');
+  await linha.getByRole('button', { name: `Salvar as métricas de ${NUTRI.nome}` }).click();
+  await expect(linha.getByRole('status')).toHaveText('Métricas salvas.');
+  await admin.reload();
+  await expect(taxa).toHaveValue('18,5');
+  await expect(linha.getByLabel('Início do uso')).toHaveValue('2026-10-01');
+  // sem paciente com conta nem consulta iniciada no mês: as contagens ficam em "—"
+  await expect(admin.getByRole('columnheader', { name: 'App na semana' })).toBeVisible();
+  await expect(admin.getByRole('columnheader', { name: 'Faltas no mês' })).toBeVisible();
+});
