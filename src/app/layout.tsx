@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,7 +18,8 @@ export const metadata: Metadata = {
   description: "NutriDebby",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  await connection(); // D7: CSP com nonce exige render por requisição em todas as páginas
   return (
     <html
       lang="pt-BR"

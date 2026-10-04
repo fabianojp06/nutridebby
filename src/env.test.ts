@@ -67,6 +67,11 @@ describe('parseEnv (app)', () => {
     expect(parseEnv({ ...base, SENTRY_DSN: 'https://abc@o1.ingest.de.sentry.io/2' }).SENTRY_DSN).toBe('https://abc@o1.ingest.de.sentry.io/2');
     expect(() => parseEnv({ ...base, SENTRY_DSN: 'http://abc@o1.ingest.sentry.io/2' })).toThrow('SENTRY_DSN deve começar com https://');
   });
+  it('P08-05: CSP_MODO é opcional (valendo | relatorio); outro valor é recusado', () => {
+    expect(parseEnv({ ...base, CSP_MODO: '' }).CSP_MODO).toBeUndefined();
+    expect(parseEnv({ ...base, CSP_MODO: 'relatorio' }).CSP_MODO).toBe('relatorio');
+    expect(() => parseEnv({ ...base, CSP_MODO: 'outro' })).toThrow('CSP_MODO deve ser valendo ou relatorio');
+  });
 });
 
 describe('parseServerEnv (worker)', () => {

@@ -142,6 +142,8 @@ const appSchema = serverSchema
     // P08-01 (D1): sem DSN, o Sentry fica desligado (como o WhatsApp). Só https.
     SENTRY_DSN: opcional(z.url({ message: 'SENTRY_DSN deve ser uma URL' }).refine((v) => v.startsWith('https://'), { message: 'SENTRY_DSN deve começar com https://' }).optional()),
     SENTRY_ENVIRONMENT: opcional(z.string().regex(/^[a-z0-9-]{1,30}$/, { message: 'SENTRY_ENVIRONMENT: letras minúsculas, números e hífen' }).optional()),
+    // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
+    CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
