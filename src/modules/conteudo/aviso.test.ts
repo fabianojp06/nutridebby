@@ -5,7 +5,7 @@ import { novaEtiqueta, novoConteudo } from '../../../test/conteudos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { notifications } from '@/db/schema';
+import { notifications, pushSubscriptions } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { avisarConteudoNovo } from './aviso';
@@ -20,12 +20,20 @@ afterAll(async () => {
 const SP = 'America/Sao_Paulo';
 const meioDia = new Date('2026-10-20T15:00:00Z'); // 12:00 em Brasília
 
+type T = Awaited<ReturnType<typeof novoTenant>>;
+/** US-053 "com push ativo": uma inscrição de push do paciente (um aparelho). */
+const comPush = (T: T, patientId: string) =>
+  withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId, endpoint: `https://push.example.test/${patientId}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
+
 async function cenario() {
   const T = await novoTenant(app.db);
   const { paciente: ana } = await pacienteComConta(app.db, T, { nome: 'Ana' });
+  await comPush(T, ana.id);
+  const { paciente: semPush } = await pacienteComConta(app.db, T, { nome: 'Sem push' });
   const { paciente: arquivada } = await pacienteComConta(app.db, T, { nome: 'Arquivada', status: 'arquivado' });
+  await comPush(T, arquivada.id);
   const semConta = await novoPaciente(app.db, T.ctx, { nome: 'Sem conta' });
-  return { T, ana, arquivada, semConta };
+  return { T, ana, semPush, arquivada, semConta };
 }
 const avisos = (T: { ctx: Parameters<typeof withTenant>[0] }) =>
   withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.tipo, 'conteudo_novo')).orderBy(notifications.createdAt), app.db);
@@ -33,7 +41,7 @@ const despublicar = (T: { ctx: Parameters<typeof withTenant>[0] }, id: string) =
   withTenant(T.ctx, (tx) => tx.execute(sql`update contents set status = 'rascunho', publicado_em = null where id = ${id}`), app.db);
 
 describe('aviso de conteúdo novo (US-053, D4, D5)', () => {
-  it('só paciente ativo, com conta no portal e na audiência; push pendente agora', async () => {
+  it('só paciente ativo, com conta no portal, com push ativo e na audiência; push pendente agora (sem inscrição: nem conta nem avisa)', async () => {
     const { T, ana } = await cenario();
     const c = await novoConteudo(app.db, T, { status: 'rascunho', titulo: 'Como ler rótulos', corpoMd: 'x' });
     const r = await publicarConteudo(T.ctx, c.id, { avisar: true }, { db: app.db, agora: meioDia });
@@ -63,6 +71,7 @@ describe('aviso de conteúdo novo (US-053, D4, D5)', () => {
   it('audiência por etiqueta: só quem está nela (a Ana, sem a etiqueta, não)', async () => {
     const { T } = await cenario();
     const { paciente: bia } = await pacienteComConta(app.db, T, { nome: 'Bia' });
+    await comPush(T, bia.id);
     const gestante = await novaEtiqueta(app.db, T, 'gestante', [bia.id]);
     const c = await novoConteudo(app.db, T, { visibilidade: 'etiquetas', tags: [gestante] });
     expect(await withTenant(T.ctx, (tx) => avisarConteudoNovo(tx, { tenantId: T.tenantId, contentId: c.id, visibilidade: 'etiquetas', fuso: SP }, meioDia), app.db)).toBe(1);

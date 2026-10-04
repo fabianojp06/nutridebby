@@ -46,7 +46,8 @@ test('vídeo só para a Ana (US-050, US-053): a Ana vê no feed com "Novo" e o p
   await expect(nutri).toHaveURL(/\/painel\/conteudos\/[0-9a-f-]{36}$/);
   await nutri.getByLabel('Avisar pacientes').check();
   await nutri.getByRole('button', { name: 'Publicar' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Conteúdo publicado. Aviso enviado para 1 paciente.' })).toBeVisible();
+  // US-053 "com push ativo" (decisão do dono, 04/10): o E2E roda sem VAPID, a Ana não tem inscrição de push → 0
+  await expect(nutri.getByRole('status').filter({ hasText: 'Conteúdo publicado. Aviso enviado para 0 pacientes.' })).toBeVisible();
 
   await ana.page.goto('/p/conteudos');
   const cartao = ana.page.getByRole('link', { name: new RegExp(VIDEO) });
