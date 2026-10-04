@@ -58,11 +58,15 @@ export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto:
   const fechar = (estado: 'concluido' | 'dispensado') => {
     aoMarcar(estado); // o GuiaDoPainel atualiza o progresso local e grava na conta
     setI(0);
-    dialogo.current?.close(); // antes de desmontar: o navegador devolve o foco a quem o tinha antes de abrir
-    // aberto pelo "Ver como funciona" (o aviso sai do DOM) ou pelo ?tour= do menu da conta (o <details> fechou): não há a
-    // quem devolver, e o foco cairia no <body> (risco 5 do plano) — vai para o botão "Ajuda" do cabeçalho
+    const d = dialogo.current;
+    d?.close(); // antes de desmontar: o navegador devolve o foco a quem o tinha antes de abrir
+    // aberto pelo "Ver como funciona" (o aviso sai do DOM) ou pelo ?tour= do menu da conta (o link fica no <details>
+    // fechado): não há a quem devolver. O foco cairia no <body> (risco 5 do plano) ou ficaria preso no botão do diálogo
+    // fechado (o Chrome só corrige o foco de elemento escondido depois) — vai para o botão "Ajuda" do cabeçalho
     const ativo = document.activeElement;
-    if (!ativo || ativo === document.body) document.querySelector<HTMLElement>('[data-guia="ajuda"]')?.focus();
+    const perdido =
+      !ativo || ativo === document.body || !!d?.contains(ativo) || (typeof ativo.checkVisibility === 'function' && !ativo.checkVisibility());
+    if (perdido) document.querySelector<HTMLElement>('[data-guia="ajuda"]')?.focus();
     aoFechar();
   };
 
