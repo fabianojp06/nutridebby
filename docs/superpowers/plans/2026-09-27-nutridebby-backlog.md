@@ -1,8 +1,8 @@
 # NutriDebby MVP — Backlog
 
-Fonte: spec v1.10 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
+Fonte: spec v1.11 + [índice dos planos](2026-09-27-nutridebby-00-indice.md). As tarefas dos Planos 02–08 são refinadas (divididas em passos com código) quando cada plano é escrito; os IDs aqui continuam valendo.
 
-**Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ✅ feito
+**Legenda:** Prior. **M** = obrigatório para o go-live · **S** = desejável · Resp.: **Dev** (desenvolvimento) · **Você** · **Debby** · **Adv.** (advogado) · Status: ⬜ a fazer · 🔄 em andamento · ⛔ bloqueado (depende de terceiro) · ✅ feito
 
 Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano detalhado dividiu um item; os IDs originais não mudam e o resumo conta só os itens principais.
 
@@ -19,7 +19,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | E-07 | Conta no Sentry | RNF-11 | — | Você | M | ⬜ |
 | E-08 | Lista dos ~150 alimentos mais usados, taxa de faltas atual, validação das fórmulas | P-08, P-10, P-15 | — | Debby | M | ⬜ |
 | E-09 | Termo do paciente, DPA e prazo de guarda do prontuário | P-01, P-02 | — | Você + Adv. | M | ⬜ |
-| E-10 | VPS: 2 GB de swap + `postgresql-client-16` e `rclone` no host (com confirmação) | RNF-03 | — | Dev (após OK) | M | ✅ |
+| E-10 | VPS: 2 GB de swap + ~~`postgresql-client-16`~~ e `rclone` no host (com confirmação) — o `postgresql-client-16` **não** foi instalado e não é mais necessário: o teste de restauração usa o `pg_restore` de um container descartável (Plano 08, D6) | RNF-03 | — | Dev (após OK) | M | ✅ |
 
 ## Plano 01 — Fundação
 
@@ -142,11 +142,11 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ### P06-12 — débitos do Plano 06 (por tema)
 
-**Situação em 04/10/2026:** a triagem da preparação do Plano 07 deu um código a cada item (S-, B-, W-, F-, L-, T-, X-). O **PR #11** (débitos pré-go-live, mesclado em `226c3e3` e em produção desde 04/10/2026) resolveu S-1 a S-6, B-1 a B-3, F-1 a F-4, F-13, L-1 a L-3, T-1, T-6, X-1 e X-3; o **Plano 07** (PR #10) resolveu B-5, S-9, T-4, W-1/X-7 e F-12, e conferiu na spec v1.10 o B-9 (já na §4.1 desde a v1.9) e o T-9 (os textos do e-mail e da aba Privacidade da exclusão, na tabela do E5). Os itens resolvidos estão marcados ✅ abaixo; o resto continua a fazer (B-4 e B-6 ficaram fora do Plano 07: não tocam conteúdo — PR de débitos ou P08-05).
+**Situação em 04/10/2026:** a triagem da preparação do Plano 07 deu um código a cada item (S-, B-, W-, F-, L-, T-, X-). O **PR #11** (débitos pré-go-live, mesclado em `226c3e3` e em produção desde 04/10/2026) resolveu S-1 a S-6, B-1 a B-3, F-1 a F-4, F-13, L-1 a L-3, T-1, T-6, X-1 e X-3; o **Plano 07** (PR #10) resolveu B-5, S-9, T-4, W-1/X-7 e F-12, e conferiu na spec v1.10 o B-9 (já na §4.1 desde a v1.9) e o T-9 (os textos do e-mail e da aba Privacidade da exclusão, na tabela do E5). O **Plano 08** (PR #12, em produção desde 04/10/2026) resolveu B-4 e B-6 (migration 0085), o limite por conta do push (B-8), a nota do L-5 e a leitura da sessão com `cache()` (S-7, parte da sessão); W-13 e X-5 foram para o checklist do go-live (`docs/operacao/go-live.md`). Os itens resolvidos estão marcados ✅ abaixo; o resto continua a fazer.
 
 **Do `/code-review high` (PR #8):**
-- `requirePaciente` sem o `cache()` do React: layout e página repetem sessão, `vinculosDaConta`, tenant e termo (~2× por requisição); `acessoDaConta` relê `tenants` já trazido no join (envolver a leitura em `cache()`, sem cachear o `redirect`).
-- `app_soltar_endpoint_push` percorre todos os tenants (O(tenants)) a cada ativação e a cada abertura do portal com inscrição; localizar antes os tenants que têm o endpoint (índice `push_subscriptions_endpoint_idx`). `POST /api/p/push` sem limite por conta.
+- `requirePaciente` sem o `cache()` do React: layout e página repetem sessão, `vinculosDaConta`, tenant e termo (~2× por requisição); `acessoDaConta` relê `tenants` já trazido no join (envolver a leitura em `cache()`, sem cachear o `redirect`) — ✅ em parte: a leitura da sessão ganhou `cache()` (Plano 08, S-7); `vinculosDaConta` e o termo seguem por chamada (o p95 de `/p/*` sai do k6).
+- `app_soltar_endpoint_push` percorre todos os tenants (O(tenants)) a cada ativação e a cada abertura do portal com inscrição; localizar antes os tenants que têm o endpoint (índice `push_subscriptions_endpoint_idx`). `POST /api/p/push` sem limite por conta — ✅ limite por conta (Plano 08, B-8: 20 a cada 10 min, em memória); o O(tenants) fica para a medição no k6.
 - Leitor do cabeçalho `Cookie` e prazo de 30 dias duplicados (`sessao-cookies.ts`, `paciente-session.ts`, `PATIENT_SESSION_MS`).
 - `MSG_PUSH` copiado à mão no cliente (`notificacoes.tsx`): mover para um módulo de constantes sem servidor.
 - ✅ Conferência de mesma origem copiada em 6 rotas (`/api/p/acesso`, `/api/p/diario`, `/api/p/push` e 3 anteriores): extrair um helper — `mesmaOrigem(req)`, `src/lib/mesma-origem.ts` (Plano 07, S-9).
@@ -163,8 +163,8 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 **Banco e RLS:**
 - ✅ `findPacienteEscritaViolations` não confere a expressão da política (igual à guarda do `publico`) (Plano 07, B-5; o reforço — sem `toLowerCase()` e conferindo `roles` — está no P07-09).
-- UPDATE liberado ao paciente em `patients` vale para qualquer coluna (gatilho que só deixe opt-in/opt-out, `user_id` nulo → conta e `updated_at`); o de `data_exports` vale para a linha inteira (a 0080 só fixa o escopo).
-- `audit_log` legível pela sessão de paciente (as próprias linhas, com IP e ator da equipe); o portal não mostra (D5).
+- ✅ UPDATE liberado ao paciente em `patients` vale para qualquer coluna (gatilho que só deixe opt-in/opt-out, `user_id` nulo → conta e `updated_at`); o de `data_exports` vale para a linha inteira (a 0080 só fixa o escopo) (Plano 08, B-4: gatilhos `paciente_colunas`, 0085).
+- ✅ `audit_log` legível pela sessão de paciente (as próprias linhas, com IP e ator da equipe); o portal não mostra (D5) (Plano 08, B-6: `paciente_sem_leitura`, 0085).
 - Ficam fora da negação da D1 as tabelas fora da RLS: as sem `tenant_id` (`tenants`, `session`, `account`, `verification`, `two_factor`, `backup_runs`, `public_rate_limits`) e as com `tenant_id` listadas em `RLS_EXCEPTIONS` (`user`, `consents`, `invites`; `consents` é gravada pelo aceite do termo no portal, `src/modules/portal/termo.ts`) — limite conhecido. ✅ Registrado na spec (§4.1, v1.9; conferido na v1.10, B-9).
 - ✅ `app_soltar_endpoint_push` e `app_conta_sem_outro_vinculo` só testadas com dono superusuário: chamar as duas em `migrate-owner.test.ts` (PR #11, B-3).
 - ✅ Janela residual da D18: convite aceito logo depois do commit da anonimização liga o prontuário a uma conta anonimizada (travar `user` no aceite) (PR #11, B-2).
@@ -199,7 +199,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 - ✅ Titular bloqueado depois de pedir os dados recebe e-mail com link que cai em `/p/sem-acesso` (PR #11, L-2: o pedido vira "falhou", sem ZIP nem e-mail).
 - ✅ Página do link com pendente perdido (> 30 min) diz "Volte em alguns minutos" para sempre; sem limite para "falhou" em sequência (PR #11, L-3).
 - "Exportações recentes" da aba Privacidade mistura titular e equipe sem rótulo; o texto de "Exportar dados" não cita as fotos do diário.
-- O ZIP do titular leva % de gordura, dobras, exames e anamneses mesmo com a opção desligada no portal (LGPD art. 18, II; avaliar uma nota no texto da opção).
+- ✅ O ZIP do titular leva % de gordura, dobras, exames e anamneses mesmo com a opção desligada no portal (LGPD art. 18, II; avaliar uma nota no texto da opção) (Plano 08, L-5: nota no texto da opção).
 
 **Telas e textos:**
 - Agenda do portal: literais que repetem `MSG_AGENDA`; "Consulta encerrada" diverge do link; mensagem de sucesso montada do formulário; ações velhas na tela depois de um erro; `?ok=remarcada` reaparece ao recarregar; `/p/inicio` faz duas consultas; "Agendar consulta" aparece com 3 futuras; `pedirRemarcacao` sem a RN-04 no servidor — ✅ "Agendar consulta" com 3 futuras (PR #11, T-1); o resto fica (T-2, T-3).
@@ -212,7 +212,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 **Testes:**
 - `test/backup.test.ts` instável na suíte completa; `e2e/auth.spec.ts:15` falha no banco de dev reaproveitado (precisa de seed limpo) — ✅ `backup.test.ts` estável (PR #11, X-1); fica o `auth.spec` (X-2).
 - Asserções fracas: foto de outro paciente sem conferir 42501 e sem o caso do paciente gravando logo; PDF "pronto"/isolamento (T4); corrida do 11º registro sem a mensagem; `audit_log` com ator paciente (D22) e 2º paciente na Evolução; lista de compras sem `audit_log`; RN-06 sem render com outro fuso; `getByText('404')`; E2E de remarcar só renderiza; contexto `conta` sem UPDATE/DELETE com 0 linhas; Server Actions do admin fora de `acoes-de-paciente.test.ts`; lista de `/api/painel` à mão; preenchimento da 0072 sem teste automatizado — ✅ as ações do admin e as rotas de `/api/painel` (lidas do disco) na guarda contra paciente (PR #11, X-3); o resto fica (X-4).
-- axe não cobre `<details>` aberto, selo offline, estados de erro e o tutorial do iOS; target-size (WCAG 2.2) fora do axe; seed do E2E sem ator no `audit_log`.
+- axe não cobre `<details>` aberto, selo offline, estados de erro e o tutorial do iOS; target-size (WCAG 2.2) fora do axe; seed do E2E sem ator no `audit_log` — a conferência manual no celular está no checklist do go-live (Plano 08, X-5); o `wcag22aa` (alvo de toque) entrou no axe do painel.
 
 ## Plano 07 — Biblioteca de conteúdo (M6)
 
@@ -239,7 +239,7 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 - `CONTEUDO_POR_AUDIENCIA` é manual: derivar a lista das FKs para `contents` antes de entrar tabela filha nova.
 - Defesa em profundidade na 0083: `AND m.patient_id = app_current_patient()` na exceção da receita do plano (hoje a RLS de `meals` garante) e `status = 'publicado'` em `app_conteudo_por_etiqueta` (não explorável hoje) — mudar a migration exige reaplicar no banco de dev.
 - Nada no banco impede `recipes` de apontar para conteúdo que não é receita (o código restringe); o `_` de `orientacao_pdf` vale como curinga no LIKE do `contents_pdf_do_tenant` (não abre nada entre tenants); sem índice em `contents.capa_path`/`pdf_path` (apagar um `stored_files` varre `contents` para o `SET NULL`).
-- A paciente lê as próprias linhas de `content_audience` de conteúdo em rascunho (só uuids) e as linhas "Público de conteúdo" do `audit_log` (B-6): aceito; registrar no `/security-review` do P08-05.
+- A paciente lê as próprias linhas de `content_audience` de conteúdo em rascunho (só uuids) e as linhas "Público de conteúdo" do `audit_log` (B-6): aceito; registrar no `/security-review` do P08-05 — ✅ a parte do `audit_log` (Plano 08, B-6); fica a de `content_audience`.
 - Corridas de janela mínima: despublicar ou excluir entre o SELECT e o INSERT da visualização/favorito dá 42501/23503 → 500 (o `favoritoAction` não trata); desfavoritar conteúdo que saiu da audiência devolve false e deixa a linha até a LGPD; `gravarAudiencia` lê `patients` sem trava (sugestão: `FOR SHARE`) e uma visualização pode entrar entre o `requirePaciente` e o bloqueio (a anonimização limpa as duas).
 
 **Painel, arquivos e receitas:**
@@ -272,30 +272,118 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 08 — Go-live
 
-**Plano 08 escrito e aprovado:** [`2026-10-04-nutridebby-08-go-live.md`](2026-10-04-nutridebby-08-go-live.md), no PR #12 (só documentação, ainda não mesclado; o arquivo entra na `main` com ele): decisões ★ aprovadas pelo dono em 04/10/2026 e `/code-review high` do plano feito, com a re-revisão das correções 10/10. A execução começa agora que o Plano 07 está em produção, no mesmo branch, refeito por rebase (migrations renumeradas se preciso). **Executado no branch em 04/10/2026 (T8 fora: textos legais, E-09); em revisão** — revisão final do branch com uma onda de correções; a seguir `/code-review high`, re-revisão e `/security-review`.
+**Situação em 2026-10-04:** o plano ([`2026-10-04-nutridebby-08-go-live.md`](2026-10-04-nutridebby-08-go-live.md)) executado na branch `plano-08-go-live` e **em produção**: PR #12 mesclado (`6310990`) em 04/10/2026 às 22:58 UTC (19h58 BRT) e implantado às 23:10 UTC (20h10 BRT), com as migrations 0085 a 0088 (89 no total); spec atualizada para a **v1.11**. As 16 decisões ★ (D1, D3, D4, D6, D8, D11, D12, D15, D16, D17, D18, D19, D20, D21, D22, D26) aprovadas pelo dono em 04/10/2026 conforme a recomendação; também do dono (04/10): o texto novo da regra 10 do `CLAUDE.md` (o teste de restauração no host), a leitura do diário no cartão da próxima consulta registrada no máximo 1× por paciente por dia (por ator) e manter a poda do `@sentry/bundler-plugins` (imagem de 255 MB, limite 260). O visual V2 do painel (claro, escuro e "igual ao aparelho", com a preferência na conta) e o portal no modo do aparelho entraram junto (Tarefas 12–18, sem item próprio). **A Tarefa 8 (textos legais, P08-06) ficou fora: bloqueada no E-09, vira um PR curto.** Débitos de planos anteriores resolvidos aqui: B-4, B-6, B-8 (limite por conta), L-5 e S-7 (parte da sessão) do P06-12; W-13 e X-5 foram para o checklist do go-live. **O MVP está completo no código** (menos os textos legais); o que falta é do dono, na lista "Antes do go-live (dono)", abaixo. Débitos do plano: P08-11.
 
-**Da revisão final do branch (para depois do go-live):** `tenant_id` na linha de log de erro e no Sentry (RNF-11/D2 prometia "quando a sessão já foi lida"; hoje a correlação é só pelo `request_id` — desvio registrado no plano).
+**Notas do Plano 07** (atendidas no Plano 08, menos o P08-06 — E-09 — e as execuções que estão em "Antes do go-live"): P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa e PDF, a chamada de rede do oEmbed, o `sandbox` do iframe, a busca na URL (`?busca=`) e os reforços das guardas (P07-09). P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função roda por linha), a busca full-text e `/painel/conteudos` (a consulta agrupada das métricas com 200 conteúdos publicados e muitos pacientes). P08-06 — o termo do paciente e o DPA citam YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6. P08-09 — o teste manual do runbook do Plano 07 (passo 5: vídeo real do YouTube e do Vimeo, push de conteúdo novo no Android e no iPhone, PDF no celular, cartão "Sugestão de receita" no plano) entra no checklist assinado.
 
-**Notas do Plano 07:** P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa e PDF, a chamada de rede do oEmbed, o `sandbox` do iframe, a busca na URL (`?busca=`) e os reforços das guardas (P07-09). P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função roda por linha), a busca full-text e `/painel/conteudos` (a consulta agrupada das métricas com 200 conteúdos publicados e muitos pacientes). P08-06 — o termo do paciente e o DPA citam YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6. P08-09 — o teste manual do runbook do Plano 07 (passo 5: vídeo real do YouTube e do Vimeo, push de conteúdo novo no Android e no iPhone, PDF no celular, cartão "Sugestão de receita" no plano) entra no checklist assinado.
-
-**Notas do Plano 06:** o P08-07 lê `access_events` (CS-02: ≥ 60% dos pacientes ativos abrem o PWA 1×/semana); o k6 (P08-03) inclui `/p/plano` e `/api/p/acesso`; o teste manual do PWA no iPhone e no Android (runbook do Plano 06, passo 5) entra no checklist assinado (P08-09); o P08-06 publica o termo do advogado com versão nova, e o portal passa a pedir o novo aceite no login (D25).
+**Notas do Plano 06** (atendidas no Plano 08, menos o P08-06): o P08-07 lê `access_events` (CS-02: ≥ 60% dos pacientes ativos abrem o PWA 1×/semana); o k6 (P08-03) inclui `/p/plano` e `/api/p/acesso`; o teste manual do PWA no iPhone e no Android (runbook do Plano 06, passo 5) entra no checklist assinado (P08-09); o P08-06 publica o termo do advogado com versão nova, e o portal passa a pedir o novo aceite no login (D25).
 
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
-| P08-01 | Sentry com filtro de dados de saúde + Sentry MCP | RNF-11 | E-07 | Dev | M | ⬜ |
-| P08-02 | Monitor externo (UptimeRobot ou Uptime Kuma) | RNF-04 | P01-10 | Você + Dev | M | ⬜ |
-| P08-03 | Teste de carga k6 (15 mil pacientes, 100 usuários simultâneos) | RNF-01, RNF-02 | Planos 01–07 | Dev | M | ⬜ |
-| P08-04 | Teste de restauração do backup, documentado | RNF-05 | P02-10 | Dev | M | ⬜ |
-| P08-05 | Revisão de segurança (headers, CSP, uploads, rate limits, RLS) | RNF-06, RNF-07 | Planos 01–07 | Dev | M | ⬜ |
-| P08-06 | Textos legais finais publicados (termo v1.0, DPA) + prazo de guarda configurado | P-01, P-02 | E-09 | Dev | M | ⬜ |
-| P08-07 | Painel com as métricas de sucesso (CS-01 a CS-03) | CS-01–03 | P05-12, P06-02 | Dev | S | ⬜ |
-| P08-08 | Validação com a Debby (fórmulas e fluxo real) + treinamento | P-08 | E-08, Planos 03–07, P08-10 | Debby + Você | M | ⬜ |
-| P08-09 | Go-live: conta da Debby em produção + checklist assinado | CS-01 | P08-01 a P08-08 | Você | M | ⬜ |
-| P08-10 | Manual guiado na tela para a nutricionista: tour de boas-vindas, tours por tela e central de ajuda `/painel/ajuda` (US-057; pedido do dono em 04/10/2026; D26) | US-057 | — | Dev | M | ⬜ |
+| P08-01 | Sentry com filtro de dados de saúde + Sentry MCP — **entregue:** `@sentry/node` só no servidor e no worker, filtro único (`src/lib/sentry-filtro.ts`), erros do navegador por `POST /api/erro-cliente` (só `digest`, nome e rota; até 30 por dia ao Sentry), teto dos erros de job, `request_id` (D1, D2) — Tarefas 1 e 2 (`ecf0f03`, `fcc425a`, `17b3eef`, `9a5111e`); a conta, a DSN no Easypanel e o MCP são do dono (E-07; runbook do Plano 08, passo 5) | RNF-11 | E-07 | Dev | M | ✅ |
+| P08-02 | Monitor externo (UptimeRobot ou Uptime Kuma) — **entregue a parte do código:** `/api/health` com o motivo certo ("heartbeat ilegível" separado de "banco indisponível") e E2E (N5) — Tarefa 3 (`d1e59e3`); o UptimeRobot a cada 5 min (D3) é do dono, em "Antes do go-live" | RNF-04 | P01-10 | Você + Dev | M | ✅ |
+| P08-03 | Teste de carga k6 (15 mil pacientes, 100 usuários simultâneos) — **entregue:** pilha de carga separada (`docker-compose.carga.yml`), semente de 50 consultórios × 300 pacientes, cenário com uma linha por rota, o p95 de `/p/*` e as respostas do push, roteiro com Lighthouse e critério de parada que protege o `cursoia_crm` (`docs/operacao/carga.md`; D4, D5) — Tarefa 10 (`6dbfd1c`, `0410052`); as rodadas 1 e 2 rodam depois do merge, com OK do dono ("Antes do go-live") | RNF-01, RNF-02 | Planos 01–07 | Dev | M | ✅ |
+| P08-04 | Teste de restauração do backup, documentado — **entregue:** roles no backup (`db/globais.sql`, D6), `scripts/backup/nutri-restauracao-teste.sh` num container descartável testado no CI (`test/restauracao.test.ts`), roteiro mensal e de desastre em `docs/operacao/restauracao.md`, regra 10 do `CLAUDE.md` com o teste (OK do dono) — Tarefa 11 (`b6e49e1`, `effb73c`, `fd3b88b`; regra 10 em `5c09b86` e `997ede7`); o primeiro teste depende do backup no host (P02-11), já com o script novo | RNF-05 | P02-10 | Dev | M | ✅ |
+| P08-05 | Revisão de segurança (headers, CSP, uploads, rate limits, RLS) — **entregue:** CSP com nonce em todas as páginas, HSTS sem subdomínios e cabeçalhos globais (D7, D8); migration 0085 — colunas que o paciente altera (B-4), `audit_log` sem leitura do paciente (B-6), capas pela audiência (N38); limite por conta no push (B-8), senha por classe Unicode (N4), ator obrigatório no `withTenant` (N7), player sob demanda (D12), S-12 mantido com justificativa; `/security-review` com o checklist reforçado: 0 achados — Tarefas 4, 5 e 6 (`53e4c2e`, `8559944`, `2864340`, `7ca15f2`) | RNF-06, RNF-07 | Planos 01–07 | Dev | M | ✅ |
+| P08-06 | Textos legais finais publicados (termo v1.0, DPA) + prazo de guarda configurado — **bloqueado no E-09:** a Tarefa 8 do plano ficou fora do PR #12 e vira um PR curto quando o advogado entregar o texto (insumos no runbook do Plano 08, passo 2) | P-01, P-02 | E-09 | Dev | M | ⛔ |
+| P08-07 | Painel com as métricas de sucesso (CS-01 a CS-03) — **entregue:** `metricasDeSucesso` (só contagens, sem `auditRead`) nos cartões "Pacientes no app esta semana" e "Critérios de sucesso" do Início; `admin_metricas_sucesso()` (0087) e a taxa-base e o início do uso gravados pelo admin (0086; D15) — Tarefas 9 e 15 (`9a16107`, `c8ed0e2`) | CS-01–03 | P05-12, P06-02 | Dev | S | ✅ |
+| P08-08 | Validação com a Debby (fórmulas e fluxo real) + treinamento — pendente do dono; inclui aprovar o texto do manual guiado (rascunho em `src/modules/ajuda/conteudo.ts`; com o texto aprovado, a US-057 e a tabela "Textos do manual" entram nas histórias) | P-08 | E-08, Planos 03–07, P08-10 | Debby + Você | M | ⬜ |
+| P08-09 | Go-live: conta da Debby em produção + checklist assinado — pendente do dono: o checklist `docs/operacao/go-live.md` está pronto para assinar (Tarefa 21, `8b002fb`, `6918722`) | CS-01 | P08-01 a P08-08 | Você | M | ⬜ |
+| P08-10 | Manual guiado na tela para a nutricionista: tour de boas-vindas, tours por tela e central de ajuda `/painel/ajuda` (US-057; pedido do dono em 04/10/2026; D26) — **entregue:** tour de boas-vindas com `<dialog>` nativo, tours por tela sob demanda com o aviso "Primeira vez aqui?", gaveta de ajuda por tela e a página `/painel/ajuda` (sem JavaScript, para imprimir), progresso em `user.guia` (D26, D27); texto das 12 telas em rascunho até o P08-08 — Tarefas 13, 19 e 20 (`80e0ce6`, `4e0f919`, `665e237`, `043b221`) | US-057 | — | Dev | M | ✅ |
+| P08-11 | Débitos do Plano 08 (PR #12: Minors da revisão final por workflow e das revisões por tarefa), agrupados por tema na lista abaixo | PR #12 | P08-10 | Dev | S | ⬜ |
+
+### Antes do go-live (dono)
+
+Sem os itens abaixo, nada de paciente real. O checklist completo, para assinar, é o `docs/operacao/go-live.md` (P08-09); cada passo em produção pede confirmação e snapshot no hPanel antes.
+
+- **Backup no host (P02-11, etapas 6 e 8):** instalar `nutri-backup.sh` **e** `nutri-restauracao-teste.sh` em `/usr/local/lib/nutri-backup/` (o script do backup mudou no Plano 08: agora grava os roles), `/etc/nutri-backup/backup.env` com modo 600, timer ligado, primeiro `banco ok`/`arquivos ok` no log e linhas em `backup_runs`; depois, o primeiro **teste de restauração** pelo `docs/operacao/restauracao.md` e o lembrete mensal no calendário. Passphrase, salt e os segredos do app num gerenciador de senhas, fora da VPS.
+- **Sentry (E-07) e UptimeRobot (D3):** conta no Sentry (plano Developer), projeto Node, *Data Scrubber*, *Default Scrubbers* e *Prevent Storing of IP Addresses* ligados, *Rate Limit* diário da chave abaixo da cota mensal ÷ 30, `SENTRY_DSN` e `SENTRY_ENVIRONMENT=producao` no `nutri_app` e no `nutri_worker` pelo Easypanel, o erro sintético e o MCP do Sentry (runbook do Plano 08, passo 5); monitores do UptimeRobot em `/api/health` (palavra `"ok"`) e `/entrar` a cada 5 min, alerta de teste recebido no e-mail e no celular, e conferir se o plano grátis permite uso comercial (senão, HetrixTools).
+- **Textos legais (E-09):** pedir ao advogado o DPA e o termo do paciente **v1.0** com os insumos do runbook do Plano 08 (passo 2: suboperadores, YouTube/Vimeo depois do clique, `access_events` com 400 dias, L-5, P-12, P-18 c) e o prazo de guarda (P-01; consulta ao CRN). Com o texto, a Tarefa 8 vira um PR curto (P08-06) e a Debby aceita o DPA v1.0 no primeiro acesso.
+- **Teste no celular:** Android e iPhone (iOS 16.4+, de preferência com Safari anterior ao 17.5) — instalar, ativar notificações, push real (lembrete, plano novo, conteúdo novo), plano offline, troca de conta, foto HEIC (W-13), "Carregar o vídeo", portal no aparelho escuro, foco visível — e a acessibilidade fora do axe (X-5) (runbooks dos Planos 06 e 07, passo 5).
+- **Rodada de carga (P08-03):** pelo `docs/operacao/carga.md`, de madrugada, na pilha separada, com OK do dono e a imagem do merge (`6310990`); rodada 1 → limites revistos no Easypanel → rodada 2 → os relatórios num PR curto de docs e a RNF-03 da spec atualizada.
+- **Validação com a Debby (P08-08):** em produção com um paciente de teste — fórmulas do Apêndice A com casos reais, receitas (RN-11), textos do E6 e do **manual guiado**, fluxo de ponta a ponta —, treinamento com o tour e `/painel/ajuda`; conta da Debby criada pelo admin com 2FA; no admin, "Taxa de faltas antes do sistema (%)" (E-08/P-15) e "Início do uso" preenchidos.
+- **GitGuardian:** marcar como credencial de teste a senha fictícia das contas do E2E em `scripts/e2e-seed.ts` (commit `665e237`, a mesma das outras contas do seed; não dá acesso a nada real), e o falso positivo de `src/modules/conteudo/oembed.ts` do Plano 07, se ainda estiver aberto.
+- **Também do checklist:** WhatsApp no go-live só com o E-04 revisado e a P-17 conferidos, senão sobe com e-mail e push (D16); `VAPID_PUBLIC_KEY` igual no app e no worker; DMARC em `p=quarantine`; Rocket Loader, Email Obfuscation e Web Analytics da Cloudflare desligados se o domínio passar pelo proxy dela; decisão sobre os dados de teste em produção; o `/home/deploy/servidor/CLAUDE.md` ainda descreve a VPS antiga ("KVM 2 — 2 vCPU, 8 GB RAM"; hoje 8 vCPU / 32 GB) — a edição é do dono.
+
+### P08-11 — débitos do Plano 08 (por tema)
+
+**Observabilidade:**
+- `sentry-filtro.ts`: `exception.values[].mechanism` passa inteiro (guardar só `type`/`handled`/`synthetic`/`source`/`exception_id`/`parent_id`); faltam apagar `spans`/`measurements` e restringir `contexts.trace` a `trace_id`/`span_id`/`parent_span_id` (risco latente: tracing desligado).
+- `tenant_id` na linha de log de erro e no Sentry (RNF-11/D2 prometia "quando a sessão já foi lida"; hoje a correlação é só pelo `request_id` — desvio registrado na spec v1.11).
+- `instrumentation.ts`: `foraDoProxy` cobre só `/api` e `/serwist`, mas o `matcher` também exclui `_next/image`, `favicon.ico` e `manifest.webmanifest` (lá o UUID do cliente é aceito): usar a mesma lista do `matcher`.
+- `proxy.ts`: o 307 para `/entrar` gera o `x-request-id`, mas não o põe na resposta (gerar o id depois do desvio); o docstring de `request-id.ts` não diz que só sobrescreve nas páginas e ações.
+- `lerCorpoLimitado` sem `prazoMs` nas rotas sem login (`/api/erro-cliente`, `/api/n/[slug]`, webhook do WhatsApp, `/api/csp-relatorio`): corrigir todas de uma vez.
+- `/api/erro-cliente` aceita rota de até 500 caracteres, mas `VALOR_DE_TAG` corta em 100: rota longa fica sem a tag `rota` (só fingerprint e log).
+- Aviso no log quando o teto diário dos erros do navegador se esgota; tetos e deduplicação zeram a cada deploy (1 réplica); um reinício em laço do worker manda um `fatal` por reinício.
+- `global-error.tsx` sem `<title>` (axe `document-title`, se a tela for varrida).
+- `/api/health` público e sem limite, com 2 consultas por `GET`: medir no k6.
+- Pré-existente (Plano 01): `boss.on('error')` do worker loga `{ err }` com a mensagem e a pilha do pg-boss; trocar por `nomeDoErro`/`motivoDoErro`.
+- Testes: filtro com `user` sem `id`, `message` como objeto e o corte em 200 caracteres; `POST` com `Next-Action` no `proxy.test` (e o `matcher` testado como regex crua, aproximação do path-to-regexp); prettier nos arquivos do heartbeat.
+
+**Segurança web e CSP:**
+- Zod no bundle do navegador do painel testa `Function('')` no primeiro parse e gera uma violação de `unsafe-eval` no console (sem quebrar nada; no modo relatório, vira log a cada abertura): `z.config({ jitless: true })` num módulo cliente comum.
+- Caminho inexistente em `/api/*` ou `/serwist/*` renderiza a página 404 em HTML sem CSP (fora do `matcher`; página estática, efeito baixo).
+- `csp.test.ts` não confere `style-src`, `font-src`, `manifest-src` nem `media-src`; o nome "nonce: 128 bits" é impreciso (são 122 bits aleatórios do UUID v4).
+- `referrerpolicy` e `allow` do iframe do player sem teste (E2E depois do clique; o `Referrer-Policy` global tem o mesmo valor).
+- `POST /api/p/push`: o 429 vem depois de ler o corpo (até 4 KB); no cliente, o 429 da sincronia vira `sem_inscricao` — conferir o texto de `recusaDoPortal` no 429 do "Ativar".
+- `sem-conta-guarda.test.ts` varre só `src/` (incluir `scripts/`: os `admin:*` rodam no container de produção); rótulo do N7 inconsistente em `src/db/tenant.ts` ("Plano 03" × "Plano 08").
+- `session.ts`: com a sessão vencida, o layout e a página chamam `signOut` na mesma requisição (inofensivo); sem teste de que a sessão é lida uma vez por render (S-7) — medir no k6.
+- Identificar o teste instável da Tarefa 4 (1 falha em 3 execuções do `pnpm test`, sem saída guardada).
+
+**Banco e LGPD:**
+- 0085: o opt-in com origem `paciente` aceita qualquer data (passada ou futura) diferente da anterior; `updated_at` fica livre na sessão de paciente.
+- `appointments` e `notifications` têm `update` em `PACIENTE_ESCREVE` sem conferência de coluna (fora da D9).
+- Sem índice em `contents.capa_path` para o `EXISTS` da `paciente_arquivos` (caminho raro hoje; ver também o P07-09).
+- Testes da 0085: o `WITH CHECK` de `patients`/`data_exports` na sessão de paciente não é mais exercitado sozinho (o gatilho recusa antes, com o mesmo 42501); `UPDATE_DO_PACIENTE` depende de as linhas estarem pendentes; faltam `pendente → falhou` com outra coluna junto, N38 com audiência `todos`/rascunho/`receitas_do_plano` e a conferência dos valores gravados no opt-in/opt-out.
+- `limparAcessosAntigos` não isola erro por tenant (o pg-boss repete; a limpeza é idempotente); o log "limpeza da agenda pública" agora também conta os acessos; o `toBeGreaterThanOrEqual(1)` do teste é fraco.
+- CS-02 sem limite superior em dia (`metricas-sucesso.ts` e 0087); o comentário cita a 0064 em vez da 0063; o alerta de conta não encontrada fica sem campo; o texto "dd/mm/aaaa" aparece com `input date`; o E2E deixa a base e o início do uso gravados no tenant de teste.
+- Sem migration de dados para `access_events` de prontuários bloqueados ou anonimizados antes do deploy (só há dados de teste em produção e a retenção de 400 dias limpa; cabe na decisão sobre os dados de teste).
+- A regra 2 do `CLAUDE.md` não diz que tabela nova com `update` do paciente ganha a conferência de colunas (gatilho `paciente_colunas`, 0085), nem cita o `paciente_sem_leitura` do `audit_log`.
+- `user.tema`/`user.guia`: faltam testes do CHECK `user_tema_valido` e do `input: false` do `update-user`; "dispensado" e "concluido" se sobrescrevem na mesma versão.
+
+**Visual e acessibilidade:**
+- Tokens: `[data-tema='claro']` não redeclara os tokens (contêiner claro dentro de escuro; hoje não há esse aninhamento); a reserva `--nd-marca-clara` `#6fcfb2` difere de `corNoEscuro('#1d6b5a')` (`/p/escolher`, `/p/termo` e `/p/sem-acesso` mostram outro verde no escuro) e `#1d6b5a` aparece literal no CSS sem conferência; `PARES` não cobre a marca no claro sobre fundo/linha (3,89:1 no pior caso; hoje `text-marca` só aparece sobre `bg-cartao`).
+- `prefers-reduced-motion` sem `animation-iteration-count: 1` (não há animação hoje); a guarda de `outline` não pega `outline-transparent` nem valores arbitrários (`[outline:none]`); `tema.test.ts` e `navegacao.test.ts` leem arquivos por caminho relativo ao cwd.
+- `#047857` (a cor padrão antiga) continua nos e-mails (`src/email/templates.tsx`): o dono decide.
+- `AlternarTema`: a troca otimista não é desfeita se a ação falhar; dois cliques rápidos calculam a partir do tema velho; sem JavaScript, com "Igual ao aparelho" e o aparelho escuro, o 1º clique grava "escuro" sem mudar a tela.
+- Cabeçalho: `aria-label` "Conta de {nome}" × as iniciais visíveis (WCAG 2.5.3, discutível para avatar); `iniciais` corta caracteres fora do BMP; dois landmarks `banner` no prontuário (já existia); o `<details>` do menu da conta não fecha no voltar do navegador que só muda a query.
+- Início: duas contagens com o mesmo rótulo "pedidos de remarcação"; `META_CS02` não aparece na tela (o dono decide); links repetidos "Agendar" e "Novo paciente"; o `Selo` não tem teste; `contarDiariosNaoVistos` conta pacientes bloqueados/anonimizados e o feed corta em 50.
+- Telas: links "Voltar…" sem `text-link`; selos de situação com classes soltas em vez de `<Selo>`; `diarios/[id]` sem `mx-auto`; formulários com `max-w-[1360px]` e campos `w-full` em tela larga; botões secundários sem hover, `font-semibold` e `gap`; `py-2` no `BASE` do `Botao` para rótulos que quebram em duas linhas.
+- A guarda de borda (`cores.test.ts`) não lê classes em ternário nem cor arbitrária (`bg-[#…]`, `text-[#…]`); `border-{lado}-{token}` dá falso positivo.
+- `busca-alimento`: a opção ativa do listbox só se distingue por `bg-ok-fundo` (~1,1:1; já era assim) e o selo "Meu alimento" some dentro dela.
+- `<title>` "NutriDebby" em todas as 42 telas do painel e em quase todo o portal (WCAG 2.4.2, nível A, que passa a valer no painel pela D25; o axe não pega): `title.template` no layout raiz e `metadata.title` por página, sem nome de paciente.
+- `/conta/seguranca` sem link de volta ao painel (beco sem saída; já era).
+- `color-scheme` da raiz fica `light` com o painel escuro (a barra de rolagem continua clara): `:root:has([data-tema='escuro']) { color-scheme: dark }`.
+- Portal: falta axe com o aparelho escuro em `/p/escolher`, `/p/termo`, `/p/sem-acesso`, `/p/agenda/[id]` e `/p/meus-dados/exportacoes/[id]`; o título e o comentário de `cores.test.ts` não citam o portal; `statusBarStyle 'default'` no iOS instalado vai para o teste manual da RNF-09.
+- E2E: a tolerância do axe casa pelo seletor `.py-2` (usar um `data-` próprio); `afterAll` sem `if (nutri)`; a semana 2 + minuto % 50 do preparo é instável local; o tema da conta `nutri-e2e` é compartilhado entre specs paralelas (perde cobertura calado, sem falhar); `portal.spec.ts` muda a cor do tenant compartilhado em paralelo com `plataforma.spec.ts` (instável; usar tenant próprio ou gravar a cor no seed).
+
+**Manual guiado:**
+- O aviso "Primeira vez aqui?" (`<aside aria-label="Dica">`) fica dentro do `<header>`: o axe best-practice reclama (`landmark-complementary-is-top-level`), a ordem de foco difere da posição visual e ele pode cobrir um botão focado no canto (WCAG 2.2, 2.4.11) — usar portal para o `body`.
+- `tour.tsx`: `CARTAO_ALTURA = 240` é estimativa fixa; com os botões quebrando em duas linhas, o cartão abaixo do alvo pode passar da borda.
+- `marcarGuiaAction(...).catch(() => {})` não deixa sinal no cliente: se a gravação falhar, o tour de boas-vindas volta na próxima sessão sem explicação.
+- `router.replace(caminho)` depois do `?tour=` refaz o render do Início no servidor (avaliar `window.history.replaceState`).
+- Os guias de Configurações, Pacientes e Agenda valem em subtelas sem os alvos (`configuracoes/perfil`, `pacientes/novo`, `agenda/nova|pendencias|consultas`): os passos aparecem centralizados e falam de elementos ausentes.
+- `data-guia="atalhos-topo"` (`src/app/painel/page.tsx`) não é usado por nenhum passo; `<span data-guia="publicar-plano">` envolve um `<form>` (HTML inválido, inofensivo; trocar por `<div>`).
+- `manual.spec`: serial com `retries: 1` no CI (o retry sempre falha no 1º caso, porque o seed não roda de novo: zerar o progresso no `beforeAll` ou `retries: 0`); o axe da gaveta só roda no claro e o aviso nunca passa pelo axe; a checagem de foco preso aceita `body`.
+- IPs do E2E fora do índice de blocos: `manual.spec` usa `10.9.13.96`/`.97` (o plano dizia `10.9.14.x`; sem colisão) e o `csp.spec`, `10.9.13.16`–`.20`; cada execução do `csp.spec` deixa um vídeo publicado no banco de dev.
+
+**Operação (backup, restauração e carga):**
+- `nutri-restauracao-teste.sh`: sem `--memory` e sem `size=` no `--tmpfs`, a restauração divide a RAM com produção; as exceções (`user`, `consents`, `invites`) copiadas à mão de `RLS_EXCEPTIONS`, sem comentário apontando `src/db/rls-guard.ts`; usa sempre o `globais.sql` mais recente, mesmo com dump antigo; o teste `*"CREATE ROLE"*` aceita arquivo truncado (o `roles=faltando` acusa depois).
+- `test/restauracao.test.ts`: falta caso negativo para `tabelas_sem_rls>0` e `roles=faltando`; o teste repete as flags do `nutri-backup.sh` em vez de usar o script. `test/backup.test.ts`: o caso "falha no dump dos roles" depende do `globais.sql` gravado pelo caso "domingo"; a guarda da regra 10 só acha o texto literal.
+- `docs/operacao/restauracao.md`: `postgres:16-alpine` não é "a mesma do `nutri_db`" (produção usa `postgres:16`); a lista "FORA da VPS" não cita as senhas de `DATABASE_URL_MIGRATOR`/`DATABASE_URL`; o passo 2 do desastre mistura "vazio" com "backup antigo"; falta mandar conferir, no fim, que não sobrou nenhum `nutri_restauracao_teste_*` (com SIGKILL ou queda da sessão, fica dado de saúde no host).
+- Pilha de carga: o `carga_owner` é superusuário e é o migrator, então as funções `SECURITY DEFINER` (`app_soltar_endpoint_push`, `app_conteudo_por_etiqueta`) ficam sem a RLS forçada de produção e o p95 do push e da audiência sai otimista (criar um migrator sem superusuário ou anotar no relatório); `docker-compose.carga.yml` com `restart: on-failure` sem teto (usar `on-failure:10`).
+- `test/carga/gerar-env.sh` imprime os segredos da carga se rodar sem redirecionamento (recusar com `[ -t 1 ]`); `seed.ts`: o modo 0600 só vale na criação do arquivo (usar `chmodSync`), a semente não é idempotente e o roteiro não diz para fazer `down -v` se ela cair no meio.
+- `docs/operacao/carga.md`: o pool está fixo em 10 no código (mudar pede imagem nova); o LHR e o `carga-stats.txt` ficam em `/tmp` (o LHR leva o cookie sintético); a rodada 2 com Sentry pede limite na cota da DSN de teste; o `jq` da pior rota quebra com p95 nulo.
+- `docs/operacao/go-live.md`: "(D25 + S-1)" é ambíguo (o certo é "D25 do Plano 06 + S-1 do PR #11").
+
+**Processo (para o dono):**
+- A migration 0085 mudou depois de aplicada no banco de dev compartilhado e foi reaplicada lá (função e gatilho, com `DATABASE_URL_MIGRATOR`, só em `127.0.0.1:54329`) — confirmar se está tudo bem.
 
 ## Pós-MVP — Fase 3 (Engajamento) e Fase 4 (Expansão)
 
 Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming depois do Plano 05** (espelham o painel; não entram na contagem do MVP). Todos com IA ou dado de saúde enviado a terceiros exigem, ao especificar: suboperador declarado no DPA e no aviso de privacidade (LGPD), provedor sem retenção, cota/custo por tenant, nada de conteúdo em log e auditoria.
+
+**Notas do Plano 08:** O(tenants) do `app_soltar_endpoint_push` (B-8, parte 2) se o k6 apontar; limite de login por e-mail (D11) se aparecer bloqueio de pacientes atrás do mesmo IP de operadora (CGNAT); réplicas do app (os limites em memória — push, erros do navegador, Sentry — passam a valer por réplica); central de avisos no sino (D21); botão de tema no portal (D18; hoje segue o aparelho); tours do manual para o paciente; Fase 2 (staging, Asaas, acesso de suporte autorizado).
 
 **Notas do Plano 07:** Bunny Stream para vídeo próprio (P-07, Fase 2); vitrine pública de conteúdo (Fase 4); seletor de medidas caseiras na receita (D12); push de conteúdo novo com o título, se o dono quiser (D4); a barra do portal já tem 7 colunas — "Exames" e "IA Nutri" pedem um "Mais" ou tirar outra aba (D3).
 
@@ -313,7 +401,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 
 ## Resumo
 
-**Situação em 2026-10-04** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 07 concluídos e em produção (https://nutri.wsscloud.tech; Plano 07 pelo PR #10, mesclado e implantado em 04/10/2026, com 85 migrations; spec v1.10); também em produção desde 04/10 o PR #11 (débitos pré-go-live de P06-12/P04-10) e o PR #13 (sem modo escuro parcial: o sistema fica claro até o tema escuro do Plano 08); Plano 08 escrito e aprovado (PR #12), executado no branch e em revisão (P08-10, o manual guiado, entrou no plano); 81 itens ✅, 5 🔄 (E-01, E-06, P02-11 — backup no host pendente —, P04-10 e P06-12, débitos em parte resolvidos), 15 ⬜ (P07-09, Plano 08 e os itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
+**Situação em 2026-10-04** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 08 em produção (https://nutri.wsscloud.tech; Plano 08 pelo PR #12, mesclado e implantado em 04/10/2026, com 89 migrations; spec v1.11) — **o MVP está completo no código**, menos os textos legais (P08-06, ⛔ bloqueado no E-09); também em produção desde 04/10 o PR #11 (débitos pré-go-live) e o PR #13 (modo escuro parcial retirado até o tema do Plano 08); 88 itens ✅, 5 🔄 (E-01, E-06, P02-11 — backup no host pendente —, P04-10 e P06-12, débitos em parte resolvidos), 1 ⛔ (P08-06) e 8 ⬜ (E-04 revisado, E-07, E-08, E-09, P07-09, P08-08, P08-09 e P08-11). Antes de qualquer paciente real, a lista "Antes do go-live (dono)" do Plano 08. Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
@@ -325,5 +413,5 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
 | Plano 06 — Portal PWA | 13 | 9 | 4 |
 | Plano 07 — Conteúdo | 9 | 5 | 4 |
-| Plano 08 — Go-live | 10 | 9 | 1 |
-| **Total** | **101** | **87** | **14** |
+| Plano 08 — Go-live | 11 | 9 | 2 |
+| **Total** | **102** | **87** | **15** |
