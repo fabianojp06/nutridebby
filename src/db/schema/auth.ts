@@ -10,6 +10,7 @@ import {
   index,
   check,
   customType,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { tenants } from "./platform";
 
@@ -33,9 +34,17 @@ export const user = pgTable(
     twoFactorEnabled: boolean("two_factor_enabled").default(false),
     appRole: text("app_role").notNull(),
     tenantId: uuid("tenant_id").references(() => tenants.id),
+    /** D17 (Plano 08): tema do painel — 'sistema' segue o aparelho. Lido na sessão (additionalFields). */
+    tema: text("tema").default("sistema").notNull(),
+    /** D17/D27: progresso do manual guiado — { "<id do tour>": { v, estado } }; só preferencias.ts grava. */
+    guia: jsonb("guia")
+      .$type<Record<string, { v: number; estado: "concluido" | "dispensado" | "visto" }>>()
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
   },
   (t) => [
     check("user_app_role_valido", sql`${t.appRole} in ('admin','nutri','paciente')`),
+    check("user_tema_valido", sql`${t.tema} in ('sistema','claro','escuro')`),
   ],
 );
 

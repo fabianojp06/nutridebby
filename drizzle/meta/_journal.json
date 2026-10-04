@@ -617,6 +617,13 @@
       "when": 1791125937449,
       "tag": "0087_metricas_sucesso_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1791126630402,
+      "tag": "0088_preferencias_usuaria",
+      "breakpoints": true
     }
   ]
 }

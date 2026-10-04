@@ -143,6 +143,8 @@ export function createAuth(
       additionalFields: {
         appRole: { type: 'string', required: true, input: false },
         tenantId: { type: 'string', required: false, input: false },
+        // D17: tema do painel na sessão; com input: false, o /api/auth/update-user não grava o campo (só preferencias.ts)
+        tema: { type: 'string', required: false, input: false, defaultValue: 'sistema' },
       },
     },
     advanced: {
