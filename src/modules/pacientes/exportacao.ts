@@ -15,7 +15,7 @@ export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link váli
 /** Pendente há mais que isto = o job se perdeu (3 tentativas de até 5 min + espera): um pedido novo é criado. */
 export const PENDENTE_MAX_MS = 30 * 60 * 1000;
 /** L-3: pendente perdido aparece como "falhou" (a página do link não diz "volte em alguns minutos" para sempre). */
-const perdido = (e: { status: string; createdAt: Date }, now: Date) =>
+export const perdido = (e: { status: string; createdAt: Date }, now: Date) =>
   e.status === 'pendente' && now.getTime() - e.createdAt.getTime() > PENDENTE_MAX_MS;
 
 export const MSG_EXPORTACAO = {

@@ -10,7 +10,9 @@ export type PerfilState = { ok?: string; erro?: string };
 /** US-046 "Baixar meus dados" (D16: 1 pedido a cada 24 h). */
 export async function meusDadosAction(): Promise<PerfilState> {
   const { ctx } = await requirePaciente('/p/perfil');
-  return { ok: (await pedirMeusDados(ctx)) === 'pedido' ? MSG_MEUS_DADOS.pedido : MSG_MEUS_DADOS.jaPedido };
+  const r = await pedirMeusDados(ctx);
+  if (r === 'limite_falhas') return { erro: MSG_MEUS_DADOS.limiteFalhas };
+  return { ok: r === 'pedido' ? MSG_MEUS_DADOS.pedido : MSG_MEUS_DADOS.jaPedido };
 }
 
 /** US-046 "Pedir exclusão dos meus dados" (D17: um pedido aberto por vez). */

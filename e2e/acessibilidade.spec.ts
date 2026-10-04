@@ -131,6 +131,10 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' }).click();
   expect((await page.getByRole('link', { name: 'Trocar de nutricionista' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44); // RNF-10
   await page.getByRole('link', { name: 'Trocar de nutricionista' }).click();
+  // achado 4 do /code-review: na escolha, a cópia do consultório 1 (ativo, escolhível) fica no aparelho
+  await expect(page.getByRole('button', { name: 'Consultório E2E 3', exact: true })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  expect(await entradasDoPlano(page)).toBe(1);
   await page.getByRole('button', { name: 'Consultório E2E 3', exact: true }).click();
   await expect(page).toHaveURL(/\/p\/termo$/);
   await page.waitForLoadState('networkidle');

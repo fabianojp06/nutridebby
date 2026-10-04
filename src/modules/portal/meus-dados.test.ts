@@ -124,10 +124,26 @@ describe('Meus dados (US-046, D16, D17)', () => {
       expect(await pedirMeusDados(ctx, { db: app.db, agora: em(min) })).toBe('pedido');
       await falharTodos();
     }
-    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(30) })).toBe('ja_pedido');
+    // achado 1 do /code-review: o teto atingido só por falhas não diz "o link chega por e-mail" (nenhum vai chegar)
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(30) })).toBe('limite_falhas');
     expect(await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.patientId, paciente.id)), app.db)).toHaveLength(3);
     // 24 h depois do primeiro, abre uma vaga
     expect(await pedirMeusDados(ctx, { db: app.db, agora: em(24 * 60 + 1) })).toBe('pedido');
+  });
+
+  it('achado 1 do /code-review: no teto, com um pedido que ainda vale (pronto ou pendente recente), segue "já pedido"; pendente perdido conta como falha', async () => {
+    const { T, paciente, ctx } = await titular();
+    const t0 = new Date('2026-10-05T15:00:00Z');
+    const em = (min: number) => new Date(t0.getTime() + min * 60_000);
+    const linha = (status: 'pendente' | 'pronta' | 'falhou', criado: Date) =>
+      withTenant(T.ctx, (tx) => tx.insert(dataExports).values({ tenantId: T.tenantId, patientId: paciente.id, escopo: 'titular', status, createdAt: criado, updatedAt: criado }), app.db);
+    await linha('falhou', em(0));
+    await linha('falhou', em(10));
+    await linha('pendente', em(20)); // perdido aos 51 min
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(40) })).toBe('ja_pedido'); // ainda pode chegar
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(51) })).toBe('limite_falhas');
+    await withTenant(T.ctx, (tx) => tx.update(dataExports).set({ status: 'pronta' }).where(eq(dataExports.status, 'pendente')), app.db);
+    expect(await pedirMeusDados(ctx, { db: app.db, agora: em(51) })).toBe('ja_pedido');
   });
 
   it('fora de sessão de paciente, nada é pedido', async () => {

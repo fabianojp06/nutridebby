@@ -31,7 +31,8 @@ export function WhatsappForm({ ativo }: { ativo: boolean }) {
           {s.erro}
         </p>
       )}
-      {s.ok && <p role="status">{s.ok}</p>}
+      {/* RNF-10: sempre montada, só o texto muda (região viva criada já com o texto pode não ser anunciada) */}
+      <p role="status">{s.ok}</p>
       <button disabled={enviando} className="min-h-11 rounded border px-4">
         Salvar
       </button>

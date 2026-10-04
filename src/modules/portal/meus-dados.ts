@@ -7,7 +7,7 @@ import { enqueueEmail } from '@/email/queue';
 import { formatarData, formatarDataNoFuso, hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
 import {
   estadoDaExportacao,
-  PENDENTE_MAX_MS,
+  perdido,
   solicitarExportacao,
   type EstadoExportacao,
 } from '@/modules/pacientes/exportacao';
@@ -17,6 +17,8 @@ import { pacienteDaSessao } from './sessao';
 export const MSG_MEUS_DADOS = {
   pedido: 'Pedimos seus dados. O link chega por e-mail e vale por 24 horas.',
   jaPedido: 'Você já pediu seus dados nas últimas 24 horas. O link chega por e-mail.',
+  /** L-3: o teto de pedidos em 24 h foi atingido só com pedidos que falharam — nenhum link vai chegar. */
+  limiteFalhas: 'Não foi possível gerar seus dados nas últimas tentativas. Peça de novo em até 24 horas.',
   exclusaoRegistrada: 'Pedido de exclusão registrado. Enviamos a confirmação para o seu e-mail.',
   exclusaoJaPedida: (data: string) => `Seu pedido de exclusão já foi registrado em ${data}.`,
   pronta: (quando: string) => `O arquivo está pronto. O link vale até ${quando}.`,
@@ -33,7 +35,7 @@ export const TENTATIVAS_TITULAR_24H = 3;
 export async function pedirMeusDados(
   ctx: TenantContext,
   deps: { db?: Db; agora?: Date; boss?: PgBoss } = {},
-): Promise<'pedido' | 'ja_pedido'> {
+): Promise<'pedido' | 'ja_pedido' | 'limite_falhas'> {
   const patientId = pacienteDaSessao(ctx, 'pedirMeusDados');
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
@@ -54,14 +56,10 @@ export async function pedirMeusDados(
   );
   // "falhou" não conta; pendente há mais de 30 min é job perdido (solicitarExportacao o marca "falhou" e cria outro) —
   // sem isto o titular ficaria 24 h preso a um pedido que nunca chega. L-3: mas "falhou" em sequência tem teto
-  // (TENTATIVAS_TITULAR_24H): cada pedido é um ZIP do prontuário inteiro no worker
-  const valendo = pedidos.some(
-    (e) =>
-      e.status === 'pronta' ||
-      e.status === 'expirada' ||
-      (e.status === 'pendente' && agora.getTime() - e.createdAt.getTime() <= PENDENTE_MAX_MS),
-  );
-  if (valendo || pedidos.length >= TENTATIVAS_TITULAR_24H) return 'ja_pedido';
+  // (TENTATIVAS_TITULAR_24H): cada pedido é um ZIP do prontuário inteiro no worker — e aí nenhum link vai chegar
+  const valendo = pedidos.some((e) => e.status !== 'falhou' && !perdido(e, agora));
+  if (valendo) return 'ja_pedido';
+  if (pedidos.length >= TENTATIVAS_TITULAR_24H) return 'limite_falhas';
   await solicitarExportacao(ctx, patientId, { db, now: agora, boss: deps.boss, escopo: 'titular' });
   return 'pedido';
 }

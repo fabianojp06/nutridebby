@@ -31,7 +31,7 @@ type Acesso = Pick<PacienteAccess, 'ctx' | 'vinculos' | 'data'>;
 export type ContaDoAparelho = { userId: string; ip: string | null | undefined };
 
 /** O contexto de paciente de um vínculo da conta (cada um no próprio tenant). */
-const ctxDoVinculo = (conta: ContaDoAparelho, v: Vinculo): TenantContext => ({
+const ctxDoVinculo = (conta: ContaDoAparelho, v: Pick<Vinculo, 'tenantId' | 'patientId'>): TenantContext => ({
   tenantId: v.tenantId,
   role: 'paciente',
   patientId: v.patientId,
@@ -112,13 +112,14 @@ export async function inscreverAparelho(
 }
 
 /**
- * "Sair" / desativar: o endpoint deste aparelho sai de todos os vínculos ativos da conta (vinculosDaConta: inclusive o
- * de consultório suspenso e o de termo pendente — S-2, o "Sair" de /p/termo, /p/escolher e /indisponivel só tem a sessão).
+ * "Sair" / desativar: o endpoint deste aparelho sai de TODOS os vínculos da conta (inclusive o de consultório suspenso, o
+ * de termo pendente — S-2, o "Sair" de /p/termo, /p/escolher e /indisponivel só tem a sessão — e o arquivado ou
+ * bloqueado, o "Sair" de /p/sem-acesso: desarquivado, o aparelho, talvez de outra pessoa, voltaria a receber avisos).
  */
 export async function cancelarAparelho(conta: ContaDoAparelho, endpoint: unknown, deps: { db?: Db } = {}): Promise<void> {
   if (typeof endpoint !== 'string' || endpoint.length > 1000) return;
   const db = deps.db ?? getDb();
-  for (const v of await vinculosDaConta(conta.userId, { db })) {
+  for (const v of await vinculosDaConta(conta.userId, { db, todos: true })) {
     await withTenant(
       ctxDoVinculo(conta, v),
       (tx) => tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.patientId, v.patientId), eq(pushSubscriptions.endpoint, endpoint))),
