@@ -1,0 +1,69 @@
+'use client';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { CapaDoConteudo } from '@/components/capa-conteudo';
+import { MSG_CONTEUDO, type TipoConteudo } from '@/modules/conteudo/constantes';
+import { removerCapaAction, removerPdfAction } from './actions';
+
+const FALHOU = 'Não foi possível enviar. Tente de novo.';
+
+/** D8/D20: capa (receita e orientação) e PDF (orientação), enviados crus para a rota (como o logo). */
+export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; tipo: TipoConteudo; capaUrl: string | null; pdfUrl: string | null }) {
+  const router = useRouter();
+  const [estado, setEstado] = useState<{ ok?: string; erro?: string; enviando?: boolean }>({});
+  async function enviar(rota: 'capa' | 'pdf', arquivo: File | undefined, ok: string) {
+    if (!arquivo) return;
+    setEstado({ enviando: true });
+    try {
+      const r = await fetch(`/api/painel/conteudos/${id}/${rota}`, { method: 'POST', body: arquivo });
+      const j = (await r.json().catch(() => ({}))) as { erro?: string };
+      if (!r.ok) return setEstado({ erro: j.erro ?? FALHOU });
+      setEstado({ ok });
+      router.refresh();
+    } catch {
+      setEstado({ erro: FALHOU });
+    }
+  }
+  return (
+    <section aria-labelledby="arquivos-titulo" className="space-y-3 rounded border p-4">
+      <h2 id="arquivos-titulo" className="font-semibold">Arquivos</h2>
+      <CapaDoConteudo tipo={tipo} capaUrl={capaUrl} className="max-w-xs" />
+      <div className="space-y-1">
+        <label htmlFor="capa" className="block font-medium">Capa (JPEG ou PNG, até 5 MB)</label>
+        <input id="capa" type="file" accept="image/jpeg,image/png" disabled={estado.enviando} onChange={(e) => void enviar('capa', e.target.files?.[0], MSG_CONTEUDO.capaSalva)} />
+      </div>
+      {capaUrl && (
+        <form action={removerCapaAction.bind(null, id)}>
+          <button className="underline">Remover capa</button>
+        </form>
+      )}
+      {tipo === 'orientacao' && (
+        <>
+          <div className="space-y-1">
+            <label htmlFor="pdf" className="block font-medium">Material em PDF (até 10 MB)</label>
+            <input id="pdf" type="file" accept="application/pdf" disabled={estado.enviando} onChange={(e) => void enviar('pdf', e.target.files?.[0], MSG_CONTEUDO.pdfSalvo)} />
+          </div>
+          {pdfUrl && (
+            <div className="flex gap-4">
+              <a href={pdfUrl} className="underline">Ver PDF</a>
+              <button
+                type="button"
+                className="underline"
+                onClick={async () => {
+                  const r = await removerPdfAction(id);
+                  if (r.erro) setEstado({ erro: r.erro });
+                  else router.refresh();
+                }}
+              >
+                Remover PDF
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {estado.enviando && <p role="status">Enviando…</p>}
+      {estado.ok && <p role="status">{estado.ok}</p>}
+      {estado.erro && <p role="alert" className="text-red-700">{estado.erro}</p>}
+    </section>
+  );
+}

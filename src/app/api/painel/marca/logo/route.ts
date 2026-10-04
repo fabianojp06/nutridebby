@@ -1,5 +1,5 @@
-import { getEnv } from '@/env';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiNutri } from '@/lib/tenant-session';
 import { CotaEsgotadaError, MSG_COTA_ESGOTADA, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { LOGO_MAX_BYTES, LogoOcupadoError, MSG_LOGO_GRANDE, SvgFiltroError, SvgPesadoError, trocarLogo } from '@/modules/plataforma/logo';
@@ -10,9 +10,7 @@ const json = (status: number, erro: string) => Response.json({ erro }, { status,
 
 /** Corpo = o arquivo cru (fetch com body: File). Fora do proxy.ts, que não bufferiza /api. */
 export async function POST(req: Request) {
-  const env = getEnv();
-  const origem = req.headers.get('origin');
-  if (origem && origem !== new URL(env.APP_URL).origin) return json(403, 'Acesso negado');
+  if (!mesmaOrigem(req)) return json(403, 'Acesso negado');
   const acesso = await requireApiNutri(req); // sessão, papel, RN-15 e DPA (F7)
   if (!acesso.ok) return acesso.response;
 

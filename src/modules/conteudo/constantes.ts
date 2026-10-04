@@ -38,6 +38,8 @@ export const MSG_CONTEUDO = {
   visibilidade: 'Escolha quem vê este conteúdo.',
   audienciaVazia: 'Escolha pelo menos uma etiqueta ou um paciente.',
   naoEncontrado: 'Conteúdo não encontrado.',
+  /** R6: texto com NUL (`\0`), que o Postgres recusa — o mesmo texto do diário (F-4). */
+  formulario: 'Formulário inválido.',
   /** US-050 (texto exato). */
   videoDominio: 'Use um link do YouTube ou do Vimeo',
   /** RN-10 (com ponto, como a RN-10; a US-050 não tem). */
