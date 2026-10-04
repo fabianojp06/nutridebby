@@ -39,6 +39,7 @@ import {
 } from './exportacao-job';
 import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
+import { semDetalhe } from '@/worker/sem-detalhe';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-export-'));
@@ -708,7 +709,10 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       const { paciente: p, email, userId } = await pacienteComConta(app.db, T);
       const doTitular = await solicitarExportacao({ ...ctxPaciente(T.tenantId, p.id), actorUserId: userId }, p.id, { db: app.db, escopo: 'titular' });
       await withTenant(T.ctx, (tx) => tx.update(patients).set({ status }).where(eq(patients.id, p.id)), app.db);
-      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: doTitular }, { ...deps, ultimaTentativa: false })).toBe('falhou');
+      // achado 8 do /code-review: desiste antes de montar o PDF (e o ZIP), não só na reserva
+      const renderizar = vi.fn(renderizarProntuario);
+      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: doTitular }, { ...deps, ultimaTentativa: false, renderizar })).toBe('falhou');
+      expect(renderizar).not.toHaveBeenCalled();
       expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, now)).toEqual({ estado: 'falhou' });
       expect(await emailsNaFila('exportacao_pronta', email)).toEqual([]); // o link cairia em /p/sem-acesso
       expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')), app.db)).toEqual([]);
@@ -752,6 +756,25 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       expect(r).toBe('falhou');
       expect(erro).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'EACCES', exportId: id }), 'falha ao gerar exportação');
       expect(JSON.stringify(erro.mock.calls)).not.toContain('/data/');
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
+  it('RNF-11 (achado 5 do /code-review): o erro relançado ao pg-boss (antes da última tentativa) sai do worker só com a fila e o código', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const disco = Object.assign(new Error(`EACCES: permission denied, open '/data/${T.tenantId}/diario/foto.jpg'`), { code: 'EACCES', path: `/data/${T.tenantId}/diario/foto.jpg` });
+      const job = semDetalhe('exportacao-paciente', gerarExportacao); // como o worker registra o job
+      const err = await job({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false, renderizar: async () => Promise.reject(disco) }).catch((e: unknown) => e);
+      expect((err as Error).message).toBe('falha no job exportacao-paciente (EACCES)');
+      // o que o pg-boss guarda (serialize-error: message, stack e as propriedades próprias, como `path`)
+      const serializado = JSON.stringify(err, Object.getOwnPropertyNames(err));
+      for (const segredo of ['/data/', T.tenantId, p.id, id]) expect(serializado).not.toContain(segredo);
+      expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'pendente' }); // o pg-boss tenta de novo
     } finally {
       erro.mockRestore();
     }

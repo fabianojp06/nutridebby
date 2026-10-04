@@ -12,6 +12,7 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
+import { semDetalhe } from '@/worker/sem-detalhe';
 import { converterFotoDoDiario, expirarFotosPendentes, MAX_PIXELS } from './diario-foto-job';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -89,11 +90,12 @@ describe('conversão da foto do diário (RN-07)', () => {
     expect(arquivos).toEqual([]);
   });
 
-  it('erro de infraestrutura (original sumiu do disco) antes da última tentativa: relançado só com o código, sem caminho nem ids (vai para o output do pg-boss, RNF-11)', async () => {
+  it('erro de infraestrutura (original sumiu do disco) antes da última tentativa: relançado e, como o worker registra o job (semDetalhe), só com o código, sem caminho nem ids (vai para o output do pg-boss, RNF-11)', async () => {
     const r = await registro(await fotoComExif());
     const { fotoOriginalPath } = await r.ler();
     rmSync(resolverCaminho(dataDir, fotoOriginalPath!));
-    const err = await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps).then(
+    const job = semDetalhe('diario-foto', converterFotoDoDiario);
+    const err = await job({ tenantId: r.T.tenantId, entryId: r.id }, deps).then(
       () => {
         throw new Error('esperava o erro relançado');
       },

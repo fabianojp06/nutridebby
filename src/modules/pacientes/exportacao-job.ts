@@ -450,7 +450,15 @@ export async function gerarExportacao(
     const tenant = await buscarTenant(db, data.tenantId);
     const { dados, laudos } = await withTenant(
       ctx,
-      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao),
+      async (tx) => {
+        // L-2 (achado 8 do /code-review): conferência barata antes de montar o PDF e o ZIP inteiros; a definitiva, com o
+        // paciente travado, continua em antesDaReserva
+        if (pedido.escopo === 'titular') {
+          const [p] = await tx.select({ status: patients.status }).from(patients).where(eq(patients.id, pedido.patientId));
+          if (p?.status !== 'ativo') throw new TitularSemAcessoError();
+        }
+        return montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao);
+      },
       db,
     );
     const arquivosDosLaudos = await lerLaudos(
@@ -547,6 +555,7 @@ export async function gerarExportacao(
       },
       'falha ao gerar exportação',
     );
+    // o worker limpa o erro relançado ao pg-boss (semDetalhe: só a fila e o código — RNF-11, achado 5 do /code-review)
     if (!definitivo) throw err;
     await marcarFalhou();
     return 'falhou';

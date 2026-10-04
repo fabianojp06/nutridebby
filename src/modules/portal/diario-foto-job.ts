@@ -32,17 +32,6 @@ class FotoInvalidaError extends Error {}
 /** Paciente bloqueado (pedido de exclusão atendido) ou anonimizado: a foto não é convertida e o original sai (US-018). */
 class TitularComExclusaoError extends Error {}
 
-/**
- * RNF-11 / CLAUDE.md regra 3: o erro relançado vai para o `output` do job no pg-boss (serialize-error: mensagem, stack e
- * propriedades como `path`) e para o log do evento `error`. O de E/S traz o caminho do arquivo, com os ids do tenant e do
- * paciente: relança só o código (`ENOENT`, SQLSTATE…) ou o nome da classe.
- */
-function semDetalhe(err: unknown): Error {
-  const code = err instanceof Error && 'code' in err ? err.code : undefined;
-  const codigo = typeof code === 'string' && /^[A-Z0-9_]{1,40}$/.test(code) ? code : err instanceof Error ? err.name : 'erro';
-  return new Error(`falha ao converter a foto do diário (${codigo})`);
-}
-
 /** `decode.all` só abre o contêiner (Step 1): nada de pixels até o `decode()` — a conferência dos 40 MP vem antes. */
 const heicDeVerdade: AbrirHeic = async (buf) => {
   const { default: decode } = await import('heic-decode');
@@ -105,7 +94,8 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
  * apagarArquivo e o ponteiro `foto_original_path` é limpo no `naMesmaTransacao` dele — nunca numa transação separada
  * (senão uma queda entre as duas deixa o original no disco, contando na cota, sem nada que aponte para ele).
  * Imagem que não decodifica ou grande demais, ou JPEG que não cabe na cota → "falhou" na hora (definitivo) e o original
- * sai. Erro de infraestrutura → o pg-boss tenta de novo (o erro relançado leva só o código); na última, "falhou".
+ * sai. Erro de infraestrutura → o pg-boss tenta de novo (o worker limpa o erro relançado: só o código — semDetalhe, RNF-11); na
+ * última, "falhou".
  * `descartar` (só a varredura `expirarFotosPendentes`): registro "processando" esquecido vira "falhou" e o original sai,
  * sem nova conversão.
  * Paciente bloqueado ou anonimizado (exclusão atendida no meio da conversão) → "removida", sem JPEG, e o original sai.
@@ -196,7 +186,7 @@ export async function converterFotoDoDiario(
     if (convertida) {
       // O JPEG já está gravado e apontado; o registro ainda aponta para o original (não é órfão): outra tentativa o apaga
       logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'original' }, 'original da foto do diário não apagado');
-      if (!deps.ultimaTentativa) throw semDetalhe(err);
+      if (!deps.ultimaTentativa) throw err;
       return 'pronta';
     }
     if (err instanceof TitularComExclusaoError) {
@@ -208,7 +198,7 @@ export async function converterFotoDoDiario(
     const motivo = err instanceof FotoInvalidaError ? err.message : err instanceof CotaEsgotadaError ? 'cota' : 'erro';
     // RNF-11: só ids e o motivo; nunca o caminho nem o conteúdo
     logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo, definitivo }, 'falha ao converter a foto do diário');
-    if (!definitivo) throw semDetalhe(err);
+    if (!definitivo) throw err;
     return falhar();
   }
 }

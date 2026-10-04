@@ -34,6 +34,7 @@ import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
 import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
+import { workSemDetalhe } from './sem-detalhe';
 import { urlDoApp } from '@/lib/url-do-app';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
@@ -48,14 +49,16 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await ensureQueues(boss);
   // eslint-disable-next-line react-hooks/rules-of-hooks -- não é hook do React: registra a instância do pg-boss
   useBoss(boss); // envios feitos dentro do worker usam esta instância
+  // RNF-11 / regra 3: todo job registra por aqui — o erro relançado ao pg-boss (output do job) leva só a fila e o código
+  const work = workSemDetalhe(boss);
 
   await boss.schedule('heartbeat', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('heartbeat', async () => {
+  await work('heartbeat', async () => {
     await recordHeartbeat(getDb());
   });
 
   const transport = transportFromEnv(env);
-  await boss.work<EmailJobData>('email', async ([job]) => {
+  await work<EmailJobData>('email', async ([job]) => {
     await processEmailJob(job.data, job.id, {
       transport,
       from: env.EMAIL_FROM,
@@ -77,25 +80,25 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   logger.info({ push: depsEnvio.push ? 'ligado' : 'desligado' }, 'canal de push'); // nunca as chaves do VAPID
   // D16 (fila serial): um job de `notificacoes` por vez neste worker (padrão do boss.work: localConcurrency 1)
   await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work<{ tenantId?: string }>('notificacoes', async ([job]) => {
+  await work<{ tenantId?: string }>('notificacoes', async ([job]) => {
     await processarNotificacoes(depsEnvio, { tenantId: job.data?.tenantId });
   });
   // US-004: o admin suspende/reativa e só enfileira; aqui o worker troca os lembretes dentro do withTenant
-  await boss.work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
+  await work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {
     if (job.data.evento === 'suspenso') await ignorarPendentesDoTenant(getDb(), job.data.tenantId, new Date());
     else await reagendarTenantReativado(getDb(), job.data.tenantId, new Date());
   });
 
   // INT-01/D5: eventos do webhook do WhatsApp (conexão, status de entrega, resposta "1"/"2"), já reduzidos e cifrados pela rota
   // (revisão 1 da T12: ERROR antes de o envio gravar o id volta para a fila; na última tentativa, desiste em silêncio)
-  await boss.work('whatsapp-evento', { includeMetadata: true }, async ([job]: JobWithMetadata<{ selado: string }>[]) => {
+  await work('whatsapp-evento', { includeMetadata: true }, async ([job]: JobWithMetadata<{ selado: string }>[]) => {
     const ev = JSON.parse(openSecret(job.data.selado, FINALIDADE_EVENTO)) as EventoWhatsapp;
     await processarEventoWhatsapp(ev, { db: getDb(), appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
 
   // RN-16 / LGPD (minimização): pedidos da página pública (contato e código) somem em 24 h; contadores de limite, em 1 dia
   await boss.schedule('agenda-limpeza', '30 4 * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('agenda-limpeza', async () => {
+  await work('agenda-limpeza', async () => {
     const pedidos = await limparPedidosPublicos(getDb(), new Date());
     const limites = await limparLimites(getDb(), new Date());
     logger.info({ pedidos, limites }, 'limpeza da agenda pública');
@@ -109,7 +112,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   ) => avisarAdmins(getDb(), montar, (msg, tx) => enqueueEmail(msg, { tx, boss }), aposEnfileirar);
   // RNF-05: o backup roda no host às 03h; às 07h o worker confere se ele aconteceu
   await boss.schedule('monitor-backup', '0 7 * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('monitor-backup', async () => {
+  await work('monitor-backup', async () => {
     await verificarBackups({
       db: getDb(),
       now: new Date(),
@@ -119,7 +122,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   });
   // RNF-13: disco da VPS (o volume /data está no disco do host)
   await boss.schedule('monitor-disco', '0 * * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('monitor-disco', async () => {
+  await work('monitor-disco', async () => {
     await verificarDisco({
       db: getDb(),
       now: new Date(),
@@ -131,7 +134,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
 
   // US-018: fim do prazo de guarda — anonimiza os bloqueados vencidos e apaga os anexos
   await boss.schedule('retencao-lgpd', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('retencao-lgpd', async () => {
+  await work('retencao-lgpd', async () => {
     // Uma etapa com erro não impede a outra; o erro volta ao pg-boss (nova tentativa) depois das duas
     try {
       const r = await anonimizarVencidos(getDb(), new Date(), { dataDir: env.DATA_DIR });
@@ -143,7 +146,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   });
 
   // US-018: exportação do paciente (ZIP com JSON + PDF) e expiração do link em 24 h
-  await boss.work(
+  await work(
     'exportacao-paciente',
     { includeMetadata: true },
     async ([job]: JobWithMetadata<{ tenantId: string; exportId: string }>[]) => {
@@ -156,16 +159,16 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
       });
     },
   );
-  await boss.work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
+  await work<{ tenantId: string; exportId: string }>('expirar-exportacao', async ([job]) => {
     await expirarExportacao(job.data, { db: getDb(), dataDir: env.DATA_DIR });
   });
   // US-018 / F-13: fotos do diário apagadas e, só depois, o e-mail "pedido de exclusão atendido"
-  await boss.work('exclusao-atendida', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosExclusaoAtendida>[]) => {
+  await work('exclusao-atendida', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosExclusaoAtendida>[]) => {
     await concluirExclusaoAtendida(job.data, { db: getDb(), dataDir: env.DATA_DIR, boss, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
 
   // US-026: PDF do plano alimentar na publicação (≤ 30 s) e limpeza diária dos .tmp órfãos de /data
-  await boss.work(
+  await work(
     'plano-pdf',
     { includeMetadata: true },
     async ([job]: JobWithMetadata<{ tenantId: string; planId: string }>[]) => {
@@ -177,19 +180,19 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     },
   );
   // US-042 / RN-07: foto do diário convertida no worker (sharp + heic-decode)
-  await boss.work('diario-foto', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosFotoDiario>[]) => {
+  await work('diario-foto', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosFotoDiario>[]) => {
     await converterFotoDoDiario(job.data, { db: getDb(), dataDir: env.DATA_DIR, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
   await boss.schedule('expirar-diario-foto', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('expirar-diario-foto', async () => {
+  await work('expirar-diario-foto', async () => {
     await expirarFotosPendentes({ db: getDb(), dataDir: env.DATA_DIR, boss }, new Date());
   });
   await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('expirar-plano-pdf', async () => {
+  await work('expirar-plano-pdf', async () => {
     await expirarPdfsPendentes(getDb(), new Date());
   });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
-  await boss.work('limpar-tmp', async () => {
+  await work('limpar-tmp', async () => {
     const n = await limparTmpOrfaos(env.DATA_DIR, new Date());
     if (n) logger.info({ apagados: n }, 'arquivos .tmp órfãos removidos');
   });
