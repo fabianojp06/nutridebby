@@ -20,7 +20,7 @@ test('nutricionista sai pelo "Sair" do painel: cai em /entrar, /painel deixa de 
   // "Voltar" do navegador, logo depois de sair, não reabre o painel logado: a página é pedida de novo e o proxy manda para o login
   await page.goBack();
   await expect(page).toHaveURL(/\/entrar\?volta=%2Fpainel$/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toHaveCount(0);
   await page.goto('/painel');
   await expect(page).toHaveURL(/\/entrar\?volta=%2Fpainel$/);
 
@@ -28,7 +28,7 @@ test('nutricionista sai pelo "Sair" do painel: cai em /entrar, /painel deixa de 
   await page.context().addCookies(antes);
   await page.goto('/painel');
   await expect(page).toHaveURL(/\/entrar/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toHaveCount(0);
   await page.context().close();
 });
 
@@ -57,7 +57,7 @@ test('duas abas: depois de sair numa, "Sair" na outra (que ainda mostra o painel
   await expect(primeira).toHaveURL(/\/painel$/);
   const segunda = await primeira.context().newPage();
   await segunda.goto('/painel');
-  await expect(segunda.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(segunda.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
 
   await primeira.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(primeira).toHaveURL(/\/entrar$/);
@@ -79,7 +79,7 @@ test('POST /sair só vale da própria origem: de outro site é 403 e a sessão f
   expect((await pedir({})).status()).toBe(403); // sem Origin nem Sec-Fetch-Site
   expect((await page.request.get('/sair', { maxRedirects: 0 })).status()).toBe(405);
   await page.goto('/painel'); // nada disso encerrou a sessão
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   const certo = await pedir({ origin: new URL(baseURL!).origin });
   expect(certo.status()).toBe(303);
   expect(certo.headers()['location']).toBe('/entrar');

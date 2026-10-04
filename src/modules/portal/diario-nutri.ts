@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -58,6 +58,13 @@ export async function feedDeDiarios(ctx: TenantContext, o: { db?: Db; limite?: n
     o.db ?? getDb(),
   );
   return linhas.map(paraItem);
+}
+
+/** Início (cartão "Diários para ver"): só a contagem — sem auditRead (nenhum registro é devolvido). */
+export async function contarDiariosNaoVistos(ctx: TenantContext, db: Db = getDb()): Promise<number> {
+  soNutri(ctx);
+  const [r] = await withTenant(ctx, (tx) => tx.select({ n: count() }).from(diaryEntries).where(isNull(diaryEntries.vistoPelaNutriEm)), db);
+  return r.n;
 }
 
 /** US-043: abrir o registro preenche `visto_pela_nutri_em` (só na primeira vez). */

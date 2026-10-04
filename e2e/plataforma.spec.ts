@@ -63,7 +63,7 @@ test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link nã
   await page.getByLabel('Li e aceito o contrato de tratamento de dados (DPA)').check();
   await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   await expect(page.getByRole('banner')).toContainText(NUTRI.nome);
 
   await page.goto(link);
