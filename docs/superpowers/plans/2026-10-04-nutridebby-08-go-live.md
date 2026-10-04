@@ -31,7 +31,7 @@
 | # | Tema | Decisão (aplicada no plano) | Custo / consequência · se o dono escolher outra |
 |---|---|---|---|
 | D1 ★ ✅ | Serviço de erros (P08-01, RNF-11) | **Sentry SaaS, plano gratuito (Developer)**, org criada na região UE se o gratuito permitir; SDK **só no servidor e no worker** (`@sentry/node`); erros do navegador vão a uma rota própria (`POST /api/erro-cliente`) que só repassa `digest`, nome do erro e rota; regras de servidor do Sentry ligadas (Data Scrubbing, "Prevent storing of IP addresses"); sem Replay e sem tracing. O DPA passa a listar o Sentry (suboperador, transferência internacional) | Custo zero; o MCP do Sentry (spec §9) funciona. Alternativas: **GlitchTip autohospedado** (dado não sai da VPS; +3 serviços no Easypanel — web, worker, Postgres/Valkey —, ~1 GB de RAM, atualização por conta do dono, sem MCP); **SDK também no navegador com túnel** (`@sentry/nextjs`: DSN no build pelo GitHub Actions, +~70 KB no bundle do PWA, mais superfície para o filtro — o clique e a URL do navegador carregam nome de paciente) |
-| D2 | `request_id` (RNF-11) | Gerado no `proxy.ts` para páginas e Server Actions, sobrescrevendo o que o cliente mandar; volta no cabeçalho `x-request-id`; vai como tag no Sentry e na linha de log de erro (`onRequestError`), com `tenant_id` quando a sessão já foi lida. **O `matcher` continua sem `/api/*`:** pelo `proxyClientMaxBodySize.md` do Next 16, toda requisição que passa pelo proxy tem o corpo copiado para a memória, com corte silencioso em 10 MB — o exame de até 20 MB (US-015) chegaria cortado e o `lerCorpoLimitado` (limite de tamanho e `prazoMs`) das rotas sem login só agiria depois de o Next já ter guardado até 10 MB por requisição. Nas APIs, o id nasce no `onRequestError` (`requestIdDe(cabeçalho) ?? novoRequestId()`) e não volta em cabeçalho | Não vai em **toda** linha de log: com o `AsyncContextFrame` do Node 24, um `enterWith` feito dentro do `requireUser` não chega à página que o chamou (o contexto é restaurado no `await`). Desvio registrado; a correlação "erro do usuário ↔ Sentry ↔ log" funciona pelo id |
+| D2 | `request_id` (RNF-11) | Gerado no `proxy.ts` para páginas e Server Actions, sobrescrevendo o que o cliente mandar; volta no cabeçalho `x-request-id`; vai como tag no Sentry e na linha de log de erro (`onRequestError`), com `tenant_id` quando a sessão já foi lida. **O `matcher` continua sem `/api/*`:** pelo `proxyClientMaxBodySize.md` do Next 16, toda requisição que passa pelo proxy tem o corpo copiado para a memória, com corte silencioso em 10 MB — o exame de até 20 MB (US-015) chegaria cortado e o `lerCorpoLimitado` (limite de tamanho e `prazoMs`) das rotas sem login só agiria depois de o Next já ter guardado até 10 MB por requisição. Nas APIs, o id nasce no `onRequestError` (sempre `novoRequestId()`: sem o proxy, o `x-request-id` viria do cliente) e não volta em cabeçalho | Não vai em **toda** linha de log: com o `AsyncContextFrame` do Node 24, um `enterWith` feito dentro do `requireUser` não chega à página que o chamou (o contexto é restaurado no `await`). Desvio registrado; a correlação "erro do usuário ↔ Sentry ↔ log" funciona pelo id |
 | D3 ★ ✅ | Monitor externo (P08-02, RNF-04) | **UptimeRobot gratuito**, checando `GET /api/health` (espera 200 e `"ok"`) e `/entrar` **a cada 5 min**, alerta por e-mail e pelo app do celular do dono; a spec passa a dizer "checagem a cada 5 min, alerta em até 10 min" (desvio). Conferir na contratação se o plano grátis permite uso comercial; se não, cair para a alternativa (b) | Custo zero, nenhum código para manter; 99% ao mês tolera 7,3 h fora — 5 min não muda a meta. Alternativas: (b) **HetrixTools grátis** (checagem de 1 min, cumpre a RNF-04 sem desvio; conta em mais um terceiro); (c) **Cloudflare Worker com Cron Trigger de 1 min** (a conta Cloudflare já existe; ~60 linhas nossas para manter e um canal de alerta a montar); (d) Uptime Kuma na própria VPS (descartado: cai junto com ela, não é externo) |
 | D4 ★ ✅ | Critério de aceite do teste de carga (P08-03, RNF-01/RNF-02) | Com 50 tenants × 300 pacientes ativos e 100 VUs: **Route Handlers (`/api/*`) p95 ≤ 300 ms** (RNF-01, bloqueia); **páginas (HTML/RSC) p95 ≤ 800 ms** (meta nova, bloqueia); **falhas < 1%** sem contar os 429 esperados; job `notificacoes` com 15 mil pacientes **< 20 s**; **LCP ≤ 2,5 s** ("Slow 4G", Lighthouse) em `/p/inicio` e `/p/plano`, medido **depois** da CSP; `cursoia_crm` sem degradação (a VPS mantém ≥ 2 vCPU livres no `docker stats` durante o teste). Rodada 1 com os limites atuais do Easypanel para achar o gargalo; rodada 2 com a configuração final | Alternativas: **300 ms também nas páginas** (provável reprovação sem cache, com o render dinâmico da CSP; mais dias de otimização antes do go-live); **só relatório, sem bloquear** (sobe sem saber se aguenta 50 tenants — aceitável para 1 tenant, mas a RNF-02 vira promessa sem medida) |
 | D5 | Onde roda o k6 | Pilha de carga separada na VPS (`docker-compose.carga.yml`: banco próprio, a mesma imagem do GHCR, os mesmos limites do Easypanel, portas só em `127.0.0.1`), semeada por `test/carga/seed.ts`, de madrugada, com OK do dono; **nunca** contra produção nem com dado real. k6 por `docker run grafana/k6`, fora do CI | O CI gratuito não tem fôlego nem rede estável para carga |
@@ -230,6 +230,11 @@ describe('filtrarEvento (RNF-11, regra 3)', () => {
     semSaude(e);
   });
 
+  it('tag rota de uma página do portal (grupo de rota com parênteses) fica', () => {
+    const e = filtrarEvento<EventoSentry>({ tags: { rota: '/p/(portal)/plano/page', tipo_rota: 'render' } });
+    expect(e.tags).toEqual({ rota: '/p/(portal)/plano/page', tipo_rota: 'render' });
+  });
+
   it('mensagem (captureMessage) só se for uma das fixas; logentry sai; transaction com caminho seguro', () => {
     expect(filtrarEvento<EventoSentry>({ message: 'erro no navegador' }).message).toBe('erro no navegador');
     expect(filtrarEvento<EventoSentry>({ message: 'Paciente Ana Souza' }).message).toBe('[removido]');
@@ -317,7 +322,8 @@ export const MENSAGENS_FIXAS: ReadonlySet<string> = new Set(['erro no navegador'
 export const TAGS_PERMITIDAS: ReadonlySet<string> = new Set(['request_id', 'tenant_id', 'papel', 'rota', 'tipo_rota', 'fila', 'motivo', 'digest', 'nome_erro']);
 const CONTEXTOS_PERMITIDOS = new Set(['runtime', 'os', 'trace']);
 const NOME_DE_CLASSE = /^[A-Za-z][A-Za-z0-9_]{0,59}$/;
-const VALOR_DE_TAG = /^[\w:./[\]-]{1,100}$/;
+/** Parênteses: o `routePath` do onRequestError traz os grupos de rota (`/p/(portal)/plano/page`). Sem espaço, sem `?`/`=`/`@`. */
+const VALOR_DE_TAG = /^[\w:./[\]()-]{1,100}$/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 const REMOVIDO = '[removido]';
@@ -548,7 +554,7 @@ git commit -m "feat(observabilidade): filtro único dos eventos do Sentry e requ
 - Modify: `package.json` / `pnpm-lock.yaml` (`@sentry/node`), `src/env.ts` (+ `src/env.test.ts`), `.env.example`, `src/worker/index.ts`, `src/worker/sem-detalhe.ts` (do PR #11)
 
 **Interfaces:**
-- Consumes: `filtrarEvento`, `filtrarBreadcrumb`, `caminhoSeguro` (T1); `requestIdDe` (T1); `nomeDoErro`, `logger` (`src/lib/logger.ts`); `motivoDoErro` (`armazenamento.ts`); `semDetalhe`/`workSemDetalhe` (`src/worker/sem-detalhe.ts`, PR #11); `mesmaOrigem` (`src/lib/mesma-origem.ts`, Plano 07 S-9); `clientIp`, `getEnv().TRUSTED_PROXIES`.
+- Consumes: `filtrarEvento`, `filtrarBreadcrumb`, `caminhoSeguro` (T1); `requestIdDe` (T1); `nomeDoErro`, `logger` (`src/lib/logger.ts`); `motivoDoErro` (`armazenamento.ts`); `semDetalhe`/`workSemDetalhe` (`src/worker/sem-detalhe.ts`, PR #11); `mesmaOrigem` (`src/lib/mesma-origem.ts`, Plano 07 S-9); `clientIpDoLimite` (`src/lib/ip.ts`: IPv6 pelo /64, a regra do limite de tentativas — RN-16), `getEnv().TRUSTED_PROXIES`.
 - Produces:
   - `@/lib/sentry`: `opcoesDoSentry(o: { dsn: string; ambiente: string; papel: 'app' | 'worker'; release?: string }): NodeOptions`, `iniciarSentry(o: { dsn?: string; ambiente: string; papel: 'app' | 'worker'; release?: string; transport?: NodeOptions['transport'] }): boolean`, `capturarErro(err: unknown, tags: Record<string, string>): void`, `registrarErroDaRequisicao(err: unknown, r: { requestId: string | null; rota: string; tipoRota: string }): void`, `capturarErroDoNavegador(e: { digest: string | null; nome: string; rota: string }): void`, `encerrarSentry(): Promise<void>`.
   - `@/lib/limite-memoria`: `criarLimite(o: { janelaMs: number; max: number }): { permitir(chave: string, agora?: number): boolean }`, `MSG_MUITAS_TENTATIVAS = 'Muitas tentativas. Tente de novo em alguns minutos.'`.
@@ -558,7 +564,7 @@ git commit -m "feat(observabilidade): filtro único dos eventos do Sentry e requ
 - [ ] **Step 1: Dependência** — conferir a versão estável atual e fixar exata (como o resto do `package.json`):
 
 ```bash
-pnpm view @sentry/node version     # anotar, ex.: 10.x.y
+pnpm view @sentry/node version     # anotar, ex.: 11.x.y (11.4.0 em 04/10/2026)
 pnpm add --save-exact @sentry/node@<versão anotada>
 ```
 
@@ -672,7 +678,10 @@ describe('Sentry (P08-01, D1)', () => {
     expect(o.beforeBreadcrumb?.({ category: 'console', message: 'Ana Souza' } as never, {} as never)).toBeNull();
     expect(filtrarBreadcrumb({ category: 'console' })).toBeNull();
     expect(o.beforeSendTransaction?.({} as never, {} as never)).toBeNull();
-    expect(o).toMatchObject({ dsn: DSN, environment: 'producao', sendDefaultPii: false, includeLocalVariables: false, tracesSampleRate: 0 });
+    expect(o).toMatchObject({ dsn: DSN, environment: 'producao', sendDefaultPii: false, includeLocalVariables: false, tracePropagationTargets: [] });
+    // v8+: tracesSampleRate 0 NÃO desliga o tracing (só não envia); desligado = a chave ausente (docs.sentry.io, "Disabling Tracing")
+    expect('tracesSampleRate' in o).toBe(false);
+    expect('tracesSampler' in o).toBe(false);
     expect(o.initialScope).toMatchObject({ tags: { papel: 'app' } });
   });
 
@@ -725,7 +734,11 @@ let ligado = false;
 
 /**
  * D1 / RNF-11: as únicas opções com que o Sentry sobe (guarda em sentry-guarda.test.ts). Sem PII, sem variáveis locais
- * na pilha, sem tracing (o filtro vale mesmo assim), sem Replay (o SDK de Node nem tem). Todo evento passa pelo filtro.
+ * na pilha, sem Replay (o SDK de Node nem tem). Todo evento passa pelo filtro.
+ * Sem tracing: no @sentry/node v8+ a taxa de amostragem igual a zero NÃO desliga o tracing (liga a instrumentação
+ * OpenTelemetry e só deixa de enviar); desligado é não declarar a taxa nem o amostrador (docs.sentry.io, "Disabling
+ * Tracing"). E tracePropagationTargets vazio: no servidor o padrão propaga sentry-trace/baggage para toda requisição
+ * de saída (Resend, Evolution, FCM/APNs, oEmbed) — nenhum cabeçalho do Sentry sai para terceiros.
  */
 export function opcoesDoSentry(o: { dsn: string; ambiente: string; papel: Papel; release?: string }): NodeOptions {
   return {
@@ -734,7 +747,7 @@ export function opcoesDoSentry(o: { dsn: string; ambiente: string; papel: Papel;
     release: o.release,
     sendDefaultPii: false,
     includeLocalVariables: false,
-    tracesSampleRate: 0,
+    tracePropagationTargets: [],
     maxBreadcrumbs: 30,
     // os tipos do SDK são interfaces sem assinatura de índice: o filtro trabalha no formato mínimo (EventoSentry)
     beforeSend: (e) => filtrarEvento(e as unknown as EventoSentry) as unknown as typeof e,
@@ -804,7 +817,8 @@ describe('guarda do Sentry', () => {
   it('nenhum SDK de navegador, Replay ou tracing', () => {
     for (const f of ARQUIVOS) {
       const s = readFileSync(f, 'utf8');
-      expect(s, f).not.toMatch(/@sentry\/(nextjs|browser|react)|replayIntegration|browserTracingIntegration|tracesSampleRate:\s*[1-9]/);
+      // a chave de amostragem é proibida com qualquer valor: no v8+ até o zero liga a instrumentação de tracing
+      expect(s, f).not.toMatch(/@sentry\/(nextjs|browser|react)|replayIntegration|browserTracingIntegration|\btraces(SampleRate|Sampler)\s*:/);
     }
   });
   it('@sentry/node não é importado por componente de cliente', () => {
@@ -836,8 +850,10 @@ export async function register() {
 export const onRequestError: Instrumentation.onRequestError = async (err, request, context) => {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   const [{ registrarErroDaRequisicao }, { novoRequestId, requestIdDe }] = await Promise.all([import('./lib/sentry'), import('./lib/request-id')]);
-  // páginas e ações: o id que o proxy gravou; /api/* fica fora do matcher (D2), então o id nasce aqui
-  const requestId = requestIdDe(request.headers['x-request-id']) ?? novoRequestId();
+  // D2: páginas e ações passam pelo proxy, que sobrescreve o x-request-id do cliente — esse id vale. /api/* e /serwist/*
+  // ficam fora do matcher: lá o cabeçalho viria do cliente (forjável), então o id nasce aqui, sempre novo.
+  const foraDoProxy = /^\/(api|serwist)\//.test(request.path);
+  const requestId = (foraDoProxy ? null : requestIdDe(request.headers['x-request-id'])) ?? novoRequestId();
   registrarErroDaRequisicao(err, { requestId, rota: context.routePath, tipoRota: context.routeType });
 };
 ```
@@ -900,7 +916,7 @@ describe('POST /api/erro-cliente (D1)', () => {
 });
 ```
 
-(Se `clientIp` ignorar o `x-forwarded-for` sem `TRUSTED_PROXIES` no ambiente de teste, o último caso vira: todas as requisições sem IP caem no balde `sem-ip`; o teste continua válido com o mesmo balde — ajustar só o nome do caso.)
+(Se `clientIpDoLimite` ignorar o `x-forwarded-for` sem `TRUSTED_PROXIES` no ambiente de teste, o último caso vira: todas as requisições sem IP caem no balde `sem-ip`; o teste continua válido com o mesmo balde — ajustar só o nome do caso.)
 
 `src/app/api/erro-cliente/route.ts`
 
@@ -908,7 +924,7 @@ describe('POST /api/erro-cliente (D1)', () => {
 import { z } from 'zod';
 import { getEnv } from '@/env';
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
-import { clientIp } from '@/lib/ip';
+import { clientIpDoLimite } from '@/lib/ip';
 import { criarLimite } from '@/lib/limite-memoria';
 import { mesmaOrigem } from '@/lib/mesma-origem';
 import { capturarErroDoNavegador } from '@/lib/sentry';
@@ -928,7 +944,8 @@ const vazio = (status: number) => new Response(null, { status, headers: { 'cache
 /** D1: o navegador manda só digest, nome do erro e rota (reportarErro); o texto do erro nunca sai do aparelho. */
 export async function POST(req: Request): Promise<Response> {
   if (!mesmaOrigem(req)) return vazio(403);
-  if (!limite.permitir(clientIp(req.headers, getEnv().TRUSTED_PROXIES) ?? 'sem-ip')) return vazio(429);
+  // balde pelo /64 no IPv6 (clientIpDoLimite): com clientIp (/128) quem tem um /64 inteiro trocaria de balde a cada pedido
+  if (!limite.permitir(clientIpDoLimite(req.headers, getEnv().TRUSTED_PROXIES) ?? 'sem-ip')) return vazio(429);
   let dados: unknown;
   try {
     dados = JSON.parse(new TextDecoder().decode(await lerCorpoLimitado(req, CORPO_MAX)));
@@ -1127,7 +1144,7 @@ O cadastro do monitor (D3) é passo do dono no runbook (passo 4).
 - Modify: `src/proxy.ts`, `src/proxy.test.ts`, `next.config.ts`, `src/app/layout.tsx`, `src/env.ts` (+ `src/env.test.ts`), `.env.example`
 
 **Interfaces:**
-- Consumes: `novoRequestId`, `CABECALHO_REQUEST_ID` (T1); `criarLimite` (T2); `clientIp`.
+- Consumes: `novoRequestId`, `CABECALHO_REQUEST_ID` (T1); `criarLimite` (T2); `clientIpDoLimite` (`src/lib/ip.ts`).
 - Produces:
   - `@/lib/csp`: `montarCsp(o: { nonce: string; dev: boolean; https: boolean; modo: ModoCsp }): { nome: 'Content-Security-Policy' | 'Content-Security-Policy-Report-Only'; valor: string }`, `novoNonce(): string`, `CABECALHOS_SEGURANCA: { key: string; value: string }[]`, `FRAMES_PERMITIDOS`, `ROTA_RELATORIO_CSP = '/api/csp-relatorio'`, tipo `ModoCsp = 'valendo' | 'relatorio'`.
   - Env: `CSP_MODO` (opcional, `valendo` | `relatorio`, padrão `valendo`).
@@ -1377,7 +1394,7 @@ export default withSerwist(nextConfig);
 ```ts
 import { getEnv } from '@/env';
 import { lerCorpoLimitado } from '@/lib/corpo';
-import { clientIp } from '@/lib/ip';
+import { clientIpDoLimite } from '@/lib/ip';
 import { criarLimite } from '@/lib/limite-memoria';
 import { logger } from '@/lib/logger';
 
@@ -1389,7 +1406,7 @@ const DIRETIVA = /^[a-z-]{3,40}$/;
 /** D7: com CSP_MODO=relatorio, o navegador manda as violações aqui. Log só da diretiva e da origem bloqueada (nunca a URL da página). */
 export async function POST(req: Request): Promise<Response> {
   const vazio = new Response(null, { status: 204 });
-  if (!limite.permitir(clientIp(req.headers, getEnv().TRUSTED_PROXIES) ?? 'sem-ip')) return vazio;
+  if (!limite.permitir(clientIpDoLimite(req.headers, getEnv().TRUSTED_PROXIES) ?? 'sem-ip')) return vazio; // /64 no IPv6, como o T2
   try {
     const corpo = JSON.parse(new TextDecoder().decode(await lerCorpoLimitado(req, 8192))) as { 'csp-report'?: Record<string, unknown> };
     const r = corpo['csp-report'] ?? {};
@@ -2161,9 +2178,10 @@ describe('CS-02 (D15): ativos com conta que abriram o app nos últimos 7 dias', 
     const a = (await pacienteComConta(app.db, T)).paciente;
     const b = (await pacienteComConta(app.db, T)).paciente;
     await pacienteComConta(app.db, T, { status: 'arquivado' }); // fora
-    await novoPaciente(app.db, T.ctx); // sem conta: fora
+    const semConta = await novoPaciente(app.db, T.ctx); // sem conta: fora (também das barras)
     await withTenant(T.ctx, (tx) => tx.insert(accessEvents).values([
       { tenantId: T.tenantId, patientId: a.id, dia: '2026-10-20' },
+      { tenantId: T.tenantId, patientId: semConta.id, dia: '2026-10-20' }, // fora do denominador → fora da barra
       { tenantId: T.tenantId, patientId: a.id, dia: '2026-10-14' },
       { tenantId: T.tenantId, patientId: b.id, dia: '2026-10-13' }, // 8 dias atrás: fora
     ]), app.db);
@@ -2329,18 +2347,20 @@ export async function metricasDeSucesso(
             .from(appointments)
             .where(and(gte(appointments.inicio, inicioDoDia(desde, tenant.fuso)), lt(appointments.inicio, agora)))
         : [{ realizadas: 0, comAtendimento: 0 }];
+      // a mesma população no número, no total e nas barras: paciente ativo, com conta e não anonimizado
+      const populacaoCs02 = and(eq(patients.status, 'ativo'), isNotNull(patients.userId), isNull(patients.anonimizadoEm));
       const [c2] = await tx
         .select({
           comConta: count(),
           abriram: sql<number>`count(*) filter (where exists (select 1 from ${accessEvents} where ${accessEvents.patientId} = ${patients.id} and ${accessEvents.dia} >= ${inicioJanela}))`.mapWith(Number),
         })
         .from(patients)
-        .where(and(eq(patients.status, 'ativo'), isNotNull(patients.userId), isNull(patients.anonimizadoEm)));
+        .where(populacaoCs02);
       const linhas = await tx
         .select({ dia: accessEvents.dia, n: count() })
         .from(accessEvents)
         .innerJoin(patients, eq(patients.id, accessEvents.patientId))
-        .where(and(gte(accessEvents.dia, inicioJanela), eq(patients.status, 'ativo')))
+        .where(and(gte(accessEvents.dia, inicioJanela), populacaoCs02))
         .groupBy(accessEvents.dia);
       const porDia = Array.from({ length: 7 }, (_, i) => somarDias(inicioJanela, i)).map((dia) => ({ dia, n: linhas.find((l) => l.dia === dia)?.n ?? 0 }));
       return {
@@ -3529,13 +3549,18 @@ describe('preferências da usuária (D17)', () => {
     const temas = await app.db.select({ id: user.id, tema: user.tema }).from(user).where(eq(user.id, b));
     expect(temas[0].tema).toBe('sistema');
   });
-  it('marcarGuia: atômico (duas abas não se apagam), idempotente e "visto" não rebaixa "concluido" da mesma versão', async () => {
+  it('marcarGuia: atômico (duas abas não se apagam), idempotente, "visto" não rebaixa "concluido" da mesma versão e versão menor não sobrescreve', async () => {
     const id = await conta();
     await Promise.all([marcarGuia(id, 'boas-vindas', 1, 'concluido', app.db), marcarGuia(id, 'agenda', 1, 'dispensado', app.db)]);
     await marcarGuia(id, 'boas-vindas', 1, 'visto', app.db);
     expect(await lerGuia(id, app.db)).toEqual({ 'boas-vindas': { v: 1, estado: 'concluido' }, agenda: { v: 1, estado: 'dispensado' } });
     await marcarGuia(id, 'boas-vindas', 2, 'visto', app.db); // versão nova do tour: volta a "visto"
     expect((await lerGuia(id, app.db))['boas-vindas']).toEqual({ v: 2, estado: 'visto' });
+    // aba aberta antes do deploy (GUIAS antigo): versão menor nunca sobrescreve a maior, nem com "concluido"
+    await marcarGuia(id, 'boas-vindas', 1, 'concluido', app.db);
+    await marcarGuia(id, 'agenda', 2, 'concluido', app.db);
+    await marcarGuia(id, 'agenda', 1, 'visto', app.db);
+    expect(await lerGuia(id, app.db)).toEqual({ 'boas-vindas': { v: 2, estado: 'visto' }, agenda: { v: 2, estado: 'concluido' } });
   });
   it('id fora do formato ou versão inválida → PreferenciaError (nada de chave arbitrária no jsonb)', async () => {
     const id = await conta();
@@ -3613,17 +3638,23 @@ export async function lerGuia(userId: string, db: Db = getDb()): Promise<Progres
   return u?.guia ?? {};
 }
 
-/** Atômico (`jsonb_set` numa instrução): duas abas gravando tours diferentes não se apagam. "visto" não rebaixa um tour já concluído/dispensado na mesma versão. */
+/**
+ * Atômico (`jsonb_set` numa instrução): duas abas gravando tours diferentes não se apagam. Uma versão menor que a gravada
+ * nunca sobrescreve (aba aberta antes do deploy, com o GUIAS antigo); "visto" não rebaixa um tour já concluído/dispensado
+ * na mesma versão. Mesma regra do `aplicarMarca` (T19).
+ */
 export async function marcarGuia(userId: string, id: string, versao: number, estado: EstadoGuia, db: Db = getDb()): Promise<void> {
   if (!ID_GUIA.test(id) || !Number.isInteger(versao) || versao < 1 || versao > 1000 || !ESTADOS_GUIA.includes(estado)) {
     throw new PreferenciaError('progresso do manual inválido');
   }
   const valor = JSON.stringify({ v: versao, estado });
   const novo = sql`jsonb_set(${user.guia}, array[${id}]::text[], ${valor}::jsonb, true)`;
-  const guia =
+  const versaoGravada = sql`(${user.guia} -> ${id} ->> 'v')::int`; // null quando o tour ainda não tem marca
+  const manter =
     estado === 'visto'
-      ? sql`case when (${user.guia} -> ${id} ->> 'v')::int = ${versao} and ${user.guia} -> ${id} ->> 'estado' in ('concluido', 'dispensado') then ${user.guia} else ${novo} end`
-      : novo;
+      ? sql`${versaoGravada} > ${versao} or (${versaoGravada} = ${versao} and ${user.guia} -> ${id} ->> 'estado' in ('concluido', 'dispensado'))`
+      : sql`${versaoGravada} > ${versao}`;
+  const guia = sql`case when coalesce(${manter}, false) then ${user.guia} else ${novo} end`;
   await db.update(user).set({ guia }).where(eq(user.id, userId));
 }
 ```
@@ -3696,7 +3727,7 @@ git commit -m "feat(visual): tema e progresso do manual guardados na conta, com 
 - Consumes: `getTenantBrand` (T12, com `corNoEscuro`); `ehTema`, `proximoTema`, `type Tema` (T13); `alternarTemaAction`, `escolherTemaAction` (T13); `BotaoSair`; `DPA_VERSAO`.
 - Produces:
   - `src/app/painel/layout.tsx`: `<div data-tema={tema} style={{ '--nd-marca-base', '--nd-marca-clara' }} className="min-h-dvh bg-fundo font-sans text-texto">` + `<CabecalhoPainel>` + `children`.
-  - `@/app/painel/navegacao`: `ITENS_DO_MENU: readonly { href: string; rotulo: string }[]`, `itemAtual(caminho: string): string | null`.
+  - `@/app/painel/navegacao`: `ITENS_DO_MENU: readonly { href: string; rotulo: string }[]`, `itemAtual(caminho: string): string | null`, `iniciais(nome: string): string` (avatar da conta e círculo da marca sem logo — uma definição só).
   - `CabecalhoPainel({ marca, nome, email, tema, completo }: { marca: MarcaTenant; nome: string; email: string; tema: Tema; completo: boolean })`; `MenuPainel()`; `MenuConta({ nome, email })`; `AlternarTema({ tema })`.
   - Rotas: `/painel/configuracoes` vira o hub; `/painel/configuracoes/perfil` tem "Perfil e marca" (os formulários de hoje, sem mudar de arquivo).
 
@@ -3704,9 +3735,13 @@ git commit -m "feat(visual): tema e progresso do manual guardados na conta, com 
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { ITENS_DO_MENU, itemAtual } from './navegacao';
+import { iniciais, ITENS_DO_MENU, itemAtual } from './navegacao';
 
 describe('menu do painel (D20)', () => {
+  it('iniciais: duas primeiras palavras, maiúsculas', () => {
+    expect(iniciais('débora  lima souza')).toBe('DL');
+    expect(iniciais('Consultório')).toBe('C');
+  });
   it('seis itens, nesta ordem', () => {
     expect(ITENS_DO_MENU.map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Configurações']);
   });
@@ -3746,6 +3781,11 @@ export function itemAtual(caminho: string): string | null {
   if (caminho === '/painel') return '/painel';
   if (DO_HUB.some((b) => dentro(caminho, b))) return '/painel/configuracoes';
   return ITENS_DO_MENU.find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
+}
+
+/** Avatar da conta (MenuConta) e círculo da marca sem logo (CabecalhoPainel): as duas primeiras palavras do nome. */
+export function iniciais(nome: string): string {
+  return nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
 }
 ```
 
@@ -3792,6 +3832,7 @@ Run: `pnpm test src/app/painel/cabecalho.test.ts` → FAIL (não há layout; 20+
 
 ```ts
 import { cache } from 'react';
+import { logger, nomeDoErro } from './logger'; // era só `logger`
 // …
 /** T14 (S-7, nutricionista): uma leitura de sessão + tenant por requisição, dividida entre o layout e a página. */
 const lerSessaoDaRequisicao = cache(async () => {
@@ -3813,8 +3854,9 @@ const deslizarUmaVez = cache(async (sessionId: string) => {
     // Também em navegação RSC, em que o Better Auth não renova sozinho
     await slideSession(getDb(), data.session, data.user.appRole as AppRole, new Date());
   } catch (err) {
-    // A requisição já está autenticada; falhar a renovação não pode derrubar a página
-    logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data.user.id }, 'falha ao renovar a sessão');
+    // A requisição já está autenticada; falhar a renovação não pode derrubar a página.
+    // Só o nome do erro (RNF-11, regra 3): a mensagem do erro de banco traz o SQL e os parâmetros (id e token da sessão).
+    logger.warn({ erro: nomeDoErro(err), userId: data.user.id }, 'falha ao renovar a sessão');
   }
 });
 ```
@@ -3915,8 +3957,8 @@ export function MenuPainel() {
 ```tsx
 import Link from 'next/link';
 import { BotaoSair } from '@/components/botao-sair';
+import { iniciais } from './navegacao';
 
-const iniciais = (nome: string) => nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
 const ITEM = 'flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-linha';
 
 /** D20: menu da conta (disclosure com <details>, funciona sem JavaScript). O "Sair" mantém o data-sair (editor do plano). */
@@ -3951,8 +3993,7 @@ import type { Tema } from '@/modules/plataforma/preferencias-tipos';
 import { AlternarTema } from './alternar-tema';
 import { MenuConta } from './menu-conta';
 import { MenuPainel } from './menu-painel';
-
-const iniciais = (nome: string) => nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
+import { iniciais } from './navegacao';
 
 /**
  * D19/D20: marca do consultório à esquerda (US-005), menu de 6 itens, tema e conta à direita. Com o DPA pendente
@@ -4592,6 +4633,8 @@ const ARQUIVOS = PASTAS.flatMap((p) =>
 const EXCECOES: Record<string, string> = {
   'src/app/painel/whatsapp/conectar.tsx': 'o QR precisa de fundo branco para ser lido, também no modo escuro',
   'src/app/painel/cabecalho.tsx': 'o logo do consultório fica sobre fundo branco (um logo escuro sem fundo sumiria no escuro)',
+  'src/app/painel/page.tsx': 'Início (T15): o botão "Abrir prontuário" é branco sobre o cartão de destaque, que tem a cor original da marca nos dois modos (bg-destaque); nenhum token é branco nos dois modos',
+  'src/components/player-sob-demanda.tsx': 'player sob demanda (T6, D12): moldura preta como a do próprio YouTube/Vimeo nos dois modos, botão branco com texto preto sobre ela (21:1 fixo)',
 };
 
 const PALETA = 'red|amber|emerald|zinc|gray|green|yellow|blue|slate|neutral|stone|orange|lime|teal|sky|indigo|violet|purple|pink|rose';
@@ -4622,7 +4665,7 @@ Run: `pnpm test src/app/painel/cores.test.ts` → FAIL (a lista dos arquivos é 
 - [ ] **Step 2: Trocas mecânicas (1:1)** — em todos os arquivos da guarda, menos as exceções:
 
 ```bash
-FILES=$(grep -rlE '(text|bg|border|fill|stroke)-(red|amber|emerald|green|zinc|gray)-[0-9]{2,3}|dark:' src/app/painel src/components src/modules/*/ui src/app/conta --include=*.tsx | grep -v -e whatsapp/conectar.tsx -e painel/cabecalho.tsx)
+FILES=$(grep -rlE '(text|bg|border|fill|stroke)-(red|amber|emerald|green|zinc|gray)-[0-9]{2,3}|dark:' src/app/painel src/components src/modules/*/ui src/app/conta --include=*.tsx | grep -v -e whatsapp/conectar.tsx -e painel/cabecalho.tsx -e "^src/app/painel/page.tsx$" -e player-sob-demanda.tsx)
 perl -pi -e '
   s/\btext-red-(?:600|700|800)\b/text-erro/g;      s/\bbg-red-50\b/bg-erro-fundo/g;     s/\bborder-red-\d{3}\b/border-erro/g;
   s/\btext-amber-(?:700|800|900)\b/text-aviso/g;   s/\bbg-amber-50\b/bg-aviso-fundo/g;  s/\bborder-amber-\d{3}\b/border-aviso/g;
@@ -4976,7 +5019,7 @@ git commit -m "test(e2e): axe do painel nos modos claro, escuro e do aparelho, 7
 ### Task 18: Portal do paciente com os tokens e o modo do aparelho (D18 — só se o dono aprovar)
 
 **Files:**
-- Modify: `src/app/p/layout.tsx`, os `.tsx` de `src/app/p/**`, `src/app/painel/cores.test.ts` (inclui o portal), `e2e/acessibilidade.spec.ts`
+- Modify: `src/app/p/layout.tsx`, `src/app/p/(portal)/layout.tsx` (`data-tema` + cor do consultório), os `.tsx` de `src/app/p/**`, `src/app/painel/cores.test.ts` (inclui o portal), `e2e/acessibilidade.spec.ts`, `e2e/portal.spec.ts`
 
 **Interfaces:**
 - Consumes: tokens e componentes (T12, T15); a passada do axe com o aparelho escuro (T12, passo 1).
@@ -4998,7 +5041,7 @@ export const viewport: Viewport = {
 /** Todas as páginas do portal do paciente ganham o botão "Sair", que limpa o aparelho. D18: o tema segue o aparelho. */
 export default function PacienteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div data-tema="sistema" className="min-h-dvh bg-fundo font-sans text-texto">
+    <div data-tema="sistema" className="flex min-h-dvh flex-col bg-fundo font-sans text-texto">
       <SwProvider>
         <header className="flex justify-end px-6 pt-4">
           <SairPortal />
@@ -5010,7 +5053,20 @@ export default function PacienteLayout({ children }: { children: React.ReactNode
 }
 ```
 
-(Conferir o débito T-4 do Plano 07 — `min-h-dvh` aninhado no layout do portal: o `(portal)/layout.tsx` não pode repetir `min-h-dvh` dentro deste contêiner; a asserção de "tela curta não rola na vertical" do `acessibilidade.spec.ts` confere.) A cor do consultório no portal continua vindo do `(portal)/layout.tsx` (faixa com a borda da marca): passar a `style={{ '--nd-marca-base': marca.cor, '--nd-marca-clara': marca.corNoEscuro }}` no contêiner dele.
+(Conferir o débito T-4 do Plano 07 — `min-h-dvh` aninhado no layout do portal: o `(portal)/layout.tsx` não pode repetir `min-h-dvh` dentro deste contêiner; a asserção de "tela curta não rola na vertical" do `acessibilidade.spec.ts` confere.) A cor do consultório no portal continua vindo do `(portal)/layout.tsx` (é ele que tem o tenant; o layout externo também serve `/p/escolher`, `/p/sem-acesso` e `/p/termo`, sem tenant). O `--nd-marca` é calculado no elemento que tem `[data-tema]` (var() em propriedade customizada resolve onde é declarada, não onde é usada): só pôr `--nd-marca-base` num filho não muda o `text-marca`/`border-marca`/foco do portal. Por isso o contêiner do `(portal)/layout.tsx` **repete** `data-tema="sistema"` junto com o estilo, e as regras `[data-tema]`/`[data-tema='sistema']` recalculam `--nd-marca` ali:
+
+```tsx
+import type { CSSProperties } from 'react';
+// …
+const cores = { '--nd-marca-base': marca.cor, '--nd-marca-clara': marca.corNoEscuro } as CSSProperties;
+return (
+  <div data-tema="sistema" style={cores} className="flex flex-1 flex-col">{/* sem min-h-dvh (T-4) */}
+    {/* …o mesmo conteúdo de hoje… */}
+  </div>
+);
+```
+
+e o contêiner do `src/app/p/layout.tsx` acima vira `flex min-h-dvh flex-col` para o `flex-1` valer. Prova no `e2e/portal.spec.ts`: com o tenant do paciente numa cor diferente da padrão (`#1d6b5a`; gravar `tenants.cor_primaria`, ex. `#2E7D32`, pelo campo "Cor principal" da nutricionista como em `e2e/plataforma.spec.ts`, ou direto no seed), o `getComputedStyle` do item ativo da barra de abas (`text-marca`) tem essa cor, e com `colorScheme: 'dark'` a `corNoEscuro` dela — sem o `data-tema` no contêiner do `(portal)/layout.tsx`, os dois casos dariam o verde padrão.
 
 - [ ] **Step 3: Trocas** — o mesmo `perl` da Tarefa 16, passo 2, com `FILES=$(grep -rlE '…' src/app/p --include=*.tsx)`; a barra de abas (`src/app/p/nav-portal.tsx:13`, `bg-white`) vira `bg-cartao border-t border-borda`; o item ativo, `text-marca` com sublinhado; o topo de `(portal)/layout.tsx` (`text-gray-700`) vira `text-suave`. Alvos de 44 px continuam (RNF-10).
 
@@ -5019,7 +5075,7 @@ Run: `pnpm test src/app/painel/cores.test.ts && pnpm build && pnpm test:e2e e2e/
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/app/p src/app/painel/cores.test.ts e2e/acessibilidade.spec.ts
+git add src/app/p src/app/painel/cores.test.ts e2e/acessibilidade.spec.ts e2e/portal.spec.ts
 git commit -m "feat(visual): portal do paciente com os tokens, as fontes novas e o modo do aparelho (D18)"
 ```
 
@@ -5035,7 +5091,7 @@ git commit -m "feat(visual): portal do paciente com os tokens, as fontes novas e
 - Consumes: `lerGuia`, `marcarGuiaAction`, `type ProgressoGuia`, `ID_GUIA` (T13); `CabecalhoPainel` (T14).
 - Produces:
   - `@/modules/ajuda/conteudo`: `type Passo = { alvo?: string; titulo: string; texto: string }`, `type Guia = { id: string; versao: number; padrao: RegExp; titulo: string; ajuda: { resumo: string; secoes: { titulo: string; itens: string[] }[] }; passos: Passo[] }`, `GUIAS: readonly Guia[]`, `guiaDaRota(caminho: string): Guia | null`, `ID_BOAS_VINDAS = 'boas-vindas'`, `precisaDoGuia(p: ProgressoGuia, g: Guia, estados: EstadoGuia[]): boolean`.
-  - `GuiaDoPainel({ progresso }: { progresso: ProgressoGuia })` (cliente): o botão "Ajuda" do cabeçalho, a gaveta, o tour e o aviso "Primeira vez aqui?". O `progresso` do layout é só o valor **inicial**: o layout não é renderizado de novo na navegação pelo cliente e a ação não revalida, então o componente guarda o progresso em estado local, atualizado de forma otimista a cada marcação (`aplicarMarca`, com a mesma regra do `marcarGuia`: "visto" não rebaixa concluído/dispensado na mesma versão).
+  - `GuiaDoPainel({ progresso }: { progresso: ProgressoGuia })` (cliente): o botão "Ajuda" do cabeçalho, a gaveta, o tour e o aviso "Primeira vez aqui?". O `progresso` do layout é só o valor **inicial**: o layout não é renderizado de novo na navegação pelo cliente e a ação não revalida, então o componente guarda o progresso em estado local, atualizado de forma otimista a cada marcação (`aplicarMarca`, com a mesma regra do `marcarGuia`: versão menor não sobrescreve a maior; "visto" não rebaixa concluído/dispensado na mesma versão).
   - `Tour({ guia, aberto, aoFechar, aoMarcar })`: quem grava é o `GuiaDoPainel` (`aoMarcar(estado)`), não o tour.
   - Página `/painel/ajuda` (servidor, funciona sem JavaScript).
 
@@ -5327,9 +5383,10 @@ import { marcarGuiaAction } from '../preferencias/actions';
 import { GavetaAjuda } from './gaveta-ajuda';
 import { Tour } from './tour';
 
-/** A mesma regra do marcarGuia (T13), no estado local: "visto" não rebaixa concluído/dispensado na mesma versão. */
+/** A mesma regra do marcarGuia (T13), no estado local: versão menor não sobrescreve a maior; "visto" não rebaixa concluído/dispensado na mesma versão. */
 export function aplicarMarca(p: ProgressoGuia, id: string, versao: number, estado: EstadoGuia): ProgressoGuia {
   const atual = p[id];
+  if (atual && atual.v > versao) return p;
   if (estado === 'visto' && atual?.v === versao && (atual.estado === 'concluido' || atual.estado === 'dispensado')) return p;
   return { ...p, [id]: { v: versao, estado } };
 }
@@ -5418,7 +5475,9 @@ describe('aplicarMarca (progresso local do GuiaDoPainel)', () => {
     const a = aplicarMarca({}, 'pacientes', 1, 'concluido');
     expect(a).toEqual({ pacientes: { v: 1, estado: 'concluido' } });
     expect(aplicarMarca(a, 'pacientes', 1, 'visto')).toBe(a);
-    expect(aplicarMarca(a, 'pacientes', 2, 'visto')).toEqual({ pacientes: { v: 2, estado: 'visto' } });
+    const b = aplicarMarca(a, 'pacientes', 2, 'visto');
+    expect(b).toEqual({ pacientes: { v: 2, estado: 'visto' } });
+    expect(aplicarMarca(b, 'pacientes', 1, 'concluido')).toBe(b); // versão menor não sobrescreve
   });
 });
 ```
@@ -5978,7 +6037,7 @@ git commit -m "docs(operacao): checklist do go-live para o dono assinar (P08-09)
 
 **2. Placeholders:** nenhum "TBD"/"implementar depois". Os únicos conteúdos de fora são **insumos externos declarados** (o texto do advogado na Tarefa 8, colado sem edição e conferido por teste; os números do k6 e da restauração, que são resultado de execução) — o plano diz de onde vêm e o que fazer se faltarem. Trechos em prosa são trocas mecânicas em arquivos existentes (uma linha num `select`, um import, um atributo `data-guia` num elemento identificado), com o texto exato.
 
-**3. Consistência de nomes e tipos:** `filtrarEvento`/`filtrarBreadcrumb`/`caminhoSeguro` (T1) em T2 e na rota de erro do cliente; `requestIdDe`/`CABECALHO_REQUEST_ID` (T1) em T2 e T4; `criarLimite`/`MSG_MUITAS_TENTATIVAS` (T2) em T4 e T6; `montarCsp`/`novoNonce`/`CABECALHOS_SEGURANCA` (T4) no proxy e no `next.config.ts`; `apagarAcessosDoTitular`/`limparAcessosAntigos` (T7) no `lgpd.ts` e no worker; `SUBOPERADORES` (T8) no teste e no runbook; `metricasDeSucesso`/`DIAS_CS01`/`salvarMetricasBase`/`metricasDeSucessoPorTenant` (T9) em T15 e no admin; `TOKENS`/`PARES`/`contraste`/`misturar`/`corNoEscuro`/`CINZA_SOBRE_DESTAQUE` (T12) em T14 e T15; `MarcaTenant.corNoEscuro` (T12) no layout (T14) e no portal (T18); `Tema`/`ehTema`/`proximoTema`/`ProgressoGuia`/`EstadoGuia` (T13, `preferencias-tipos.ts`) em T14 e T19; `alternarTemaAction`/`escolherTemaAction`/`marcarGuiaAction` (T13) em T14 e T19; `ITENS_DO_MENU`/`itemAtual` (T14); `Cartao`/`Botao`/`BotaoLink`/`Aviso`/`Selo` (T15) em T16; `resumoDoDia`/`contarDiariosNaoVistos` (T15); `GUIAS`/`guiaDaRota`/`precisaDoGuia`/`ID_BOAS_VINDAS` (T19/T20) no seed e nos testes; `escolherTema`/`irPeloMenu` (T17) em T20; `pularTourSeAparecer` (T20). Migrations: 0085 (T5), 0086/0087 (T9), 0088 (T13), na ordem das tarefas.
+**3. Consistência de nomes e tipos:** `filtrarEvento`/`filtrarBreadcrumb`/`caminhoSeguro` (T1) em T2 e na rota de erro do cliente; `requestIdDe`/`CABECALHO_REQUEST_ID` (T1) em T2 e T4; `criarLimite`/`MSG_MUITAS_TENTATIVAS` (T2) em T4 e T6; `montarCsp`/`novoNonce`/`CABECALHOS_SEGURANCA` (T4) no proxy e no `next.config.ts`; `apagarAcessosDoTitular`/`limparAcessosAntigos` (T7) no `lgpd.ts` e no worker; `SUBOPERADORES` (T8) no teste e no runbook; `metricasDeSucesso`/`DIAS_CS01`/`salvarMetricasBase`/`metricasDeSucessoPorTenant` (T9) em T15 e no admin; `TOKENS`/`PARES`/`contraste`/`misturar`/`corNoEscuro`/`CINZA_SOBRE_DESTAQUE` (T12) em T14 e T15; `MarcaTenant.corNoEscuro` (T12) no layout (T14) e no portal (T18); `Tema`/`ehTema`/`proximoTema`/`ProgressoGuia`/`EstadoGuia` (T13, `preferencias-tipos.ts`) em T14 e T19; `alternarTemaAction`/`escolherTemaAction`/`marcarGuiaAction` (T13) em T14 e T19; `ITENS_DO_MENU`/`itemAtual`/`iniciais` (T14, `navegacao.ts`) no menu, no `MenuConta` e no `CabecalhoPainel`; `Cartao`/`Botao`/`BotaoLink`/`Aviso`/`Selo` (T15) em T16; `resumoDoDia`/`contarDiariosNaoVistos` (T15); `GUIAS`/`guiaDaRota`/`precisaDoGuia`/`ID_BOAS_VINDAS` (T19/T20) no seed e nos testes; `escolherTema`/`irPeloMenu` (T17) em T20; `pularTourSeAparecer` (T20). Migrations: 0085 (T5), 0086/0087 (T9), 0088 (T13), na ordem das tarefas.
 
 **4. Review Focus → testes:** 1 (dado no Sentry) → T1 (`sentry-filtro.test.ts`: mensagens, URLs com token, `user`, `extra`, tags, breadcrumbs), T2 (envelope real com transporte falso; rota `/api/erro-cliente` com 5 casos de recusa e o limite); 2 (CSP) → T4 (`csp.test.ts`, `proxy.test.ts`, `e2e/csp.spec.ts` com Turnstile e as telas do painel e do portal; todas as specs rodam com a CSP valendo), T6 (player sob demanda sem violação); 3 (tema e marca) → T12 (teste de propriedade com 3000 cores, sobreposição escura), T13 (tema por conta), T17 (outro aparelho, recarregar, três modos no axe, 768 px); 4 (escrita forjada do paciente) → T5 (`paciente-colunas.test.ts`: status, `anonimizar_apos`, nome, origem do opt-in, `user_id` de outra conta, `data_exports` pronta/escopo, `audit_log`, capa fora da audiência); 5 (manual atrapalhando) → T13 (`jsonb_set` atômico, chave inválida), T19 (`conteudo.test.ts`: cobertura de páginas e alvos), T19 (`aplicarMarca`: progresso local otimista), T20 (`manual.spec.ts`: abre uma vez, Esc grava, foco preso, outro aparelho, **concluir e voltar ao Início pelo menu sem recarregar não reabre**, aviso por tela também na navegação pelo menu, alvo do holofote, sem JS, seed sem tour para as outras specs).
 
