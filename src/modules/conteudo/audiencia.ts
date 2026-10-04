@@ -5,7 +5,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import type { Visibilidade } from './constantes';
 
-export type AudienciaEnviada = { visibilidade: Visibilidade; pacientes: string[]; etiquetas: string[] };
+/** `exibidos`: os pacientes que o formulário MOSTROU (campo oculto) — só desses a ausência em `pacientes` tira o alvo (D15). */
+export type AudienciaEnviada = { visibilidade: Visibilidade; pacientes: string[]; etiquetas: string[]; exibidos: string[] };
 export type OpcoesDeAudiencia = { etiquetas: { id: string; nome: string }[]; pacientes: { id: string; nome: string }[] };
 
 /** Teto da lista de pacientes no formulário (ordem alfabética). */
@@ -55,8 +56,11 @@ const pacientesDoFormulario = (tx: Tx) =>
 /**
  * Deixa o conteúdo com estes alvos (só os da visibilidade escolhida: "todos" limpa tudo). Vale só o que a RLS mostra
  * (paciente/etiqueta de outro tenant some) e paciente ativo, não anonimizado. D15: só sai o paciente que o formulário
- * MOSTROU e a nutricionista desmarcou — alvo arquivado, ou além dos PACIENTES_NA_LISTA, não aparece no formulário e
- * fica (desarquivado, volta à audiência). Trocar a visibilidade é escolha explícita e limpa os alvos do tipo anterior.
+ * MOSTROU (`exibidos`, a lista que a tela enviou — não recalculada aqui: a janela dos PACIENTES_NA_LISTA primeiros
+ * pode ter mudado entre mostrar e salvar) e a nutricionista desmarcou. A lista é conferida: só conta alvo atual deste
+ * conteúdo, ativo e não anonimizado (id de outro tenant ou arquivado não tira ninguém) — alvo arquivado, ou que a tela
+ * não mostrou, fica (desarquivado, volta à audiência). Trocar a visibilidade é escolha explícita e limpa os alvos do
+ * tipo anterior.
  * Grava só a diferença: o gatilho de auditoria (entidade `conteudos`, D6) registra o que mudou. Chamar com o conteúdo
  * travado. Devolve os alvos pedidos que valeram (para "Escolha pelo menos uma etiqueta ou um paciente.").
  */
@@ -69,8 +73,13 @@ export async function gravarAudiencia(tx: Tx, tenantId: string, contentId: strin
     : [];
   const etiquetas = pedE.length ? (await tx.select({ id: patientTags.id }).from(patientTags).where(inArray(patientTags.id, pedE))).map((r) => r.id) : [];
   const atuais = await tx.select().from(contentAudience).where(eq(contentAudience.contentId, contentId));
-  const exibidos =
-    a.visibilidade === 'pacientes' && atuais.some((r) => r.patientId) ? new Set((await pacientesDoFormulario(tx)).map((p) => p.id)) : new Set<string>();
+  const alvosAtuais = new Set(atuais.flatMap((r) => (r.patientId ? [r.patientId] : [])));
+  const pedEx = a.visibilidade === 'pacientes' ? pedidos(a.exibidos).filter((id) => alvosAtuais.has(id)) : [];
+  const exibidos = new Set(
+    pedEx.length
+      ? (await tx.select({ id: patients.id }).from(patients).where(and(inArray(patients.id, pedEx), eq(patients.status, 'ativo'), isNull(patients.anonimizadoEm)))).map((r) => r.id)
+      : [],
+  );
   const sair = atuais
     .filter((r) =>
       r.patientId
@@ -100,7 +109,7 @@ export async function opcoesDeAudiencia(ctx: TenantContext, db: Db = getDb()): P
     ctx,
     async (tx) => ({
       etiquetas: await tx.select({ id: patientTags.id, nome: patientTags.nome }).from(patientTags).orderBy(asc(patientTags.nome)),
-      // a MESMA lista que gravarAudiencia usa para decidir o que pode sair (D15)
+      // o formulário devolve esta lista (campo `exibidos`): é dela que gravarAudiencia decide o que pode sair (D15)
       pacientes: await pacientesDoFormulario(tx),
     }),
     db,

@@ -83,6 +83,8 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
         {visibilidade === 'pacientes' && (
           <fieldset className="ml-6 max-h-64 space-y-1 overflow-y-auto">
             <legend className="text-sm font-medium">Pacientes</legend>
+            {/* D15: a lista que esta tela mostrou — o salvamento só tira da audiência quem estava nela e foi desmarcado */}
+            <input type="hidden" name="exibidos" value={opcoes.pacientes.map((p) => p.id).join(',')} />
             {opcoes.pacientes.map((p) => (
               <label key={p.id} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="pacientes" value={p.id} defaultChecked={v.pacientes.includes(p.id)} />

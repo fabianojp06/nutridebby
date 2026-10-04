@@ -147,6 +147,12 @@ describe('público do conteúdo (US-053)', () => {
       visibilidade: MSG_CONTEUDO.audienciaVazia,
     });
     expect((await listarConteudosDoPainel(T.ctx, {}, app.db)).map((c) => c.titulo)).toEqual([base.titulo]);
+    // D15: o campo oculto `exibidos` (ids separados por vírgula) diz quem a tela mostrou; sem ele, desmarcar não tira ninguém
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia' });
+    await salvarConteudo(T.ctx, id, { ...base, visibilidade: 'pacientes', pacientes: [bia.id] }, { db: app.db });
+    expect((await carregarConteudoDoPainel(T.ctx, id, app.db))!.audiencia.pacientes).toEqual([ana.id, bia.id]);
+    await salvarConteudo(T.ctx, id, { ...base, visibilidade: 'pacientes', pacientes: [bia.id], exibidos: `${ana.id},${bia.id}` }, { db: app.db });
+    expect((await carregarConteudoDoPainel(T.ctx, id, app.db))!.audiencia.pacientes).toEqual([bia.id]);
     const gestante = await novaEtiqueta(app.db, T, 'gestante');
     await salvarConteudo(T.ctx, id, { ...base, visibilidade: 'etiquetas', tags: [gestante] }, { db: app.db });
     expect((await carregarConteudoDoPainel(T.ctx, id, app.db))!.audiencia).toEqual({ pacientes: [], etiquetas: [gestante] });

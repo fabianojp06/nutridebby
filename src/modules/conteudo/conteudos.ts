@@ -9,15 +9,15 @@ import { idValido } from '@/modules/pacientes/base';
 import { apagarArquivo, CotaEsgotadaError, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { removerCapa, trocarCapa } from './arquivos';
 import { avisarConteudoNovo } from './aviso';
-import { gravarAudiencia, lerAudiencia } from './audiencia';
+import { gravarAudiencia, lerAudiencia, PACIENTES_NA_LISTA } from './audiencia';
 import { CORPO_MAX, ehVisibilidade, ETIQUETA_MAX, ETIQUETAS_MAX, MSG_CONTEUDO, RESUMO_MAX, TITULO_MAX, type TipoConteudo, type Visibilidade } from './constantes';
 import { ConteudoError, ConteudoNaoEncontradoError, VideoTrocadoError } from './erros';
 import { miniaturaDoVideo } from './oembed';
 import { lerLinkDeVideo, urlDoVideo, videoDoConteudo, type VideoDoLink } from './video';
 
-export type EntradaConteudo = { titulo?: unknown; resumo?: unknown; etiquetas?: unknown; visibilidade?: unknown; pacientes?: unknown; tags?: unknown; link?: unknown; corpo?: unknown };
+export type EntradaConteudo = { titulo?: unknown; resumo?: unknown; etiquetas?: unknown; visibilidade?: unknown; pacientes?: unknown; exibidos?: unknown; tags?: unknown; link?: unknown; corpo?: unknown };
 export type Deps = { db?: Db; dataDir?: string; agora?: Date; fetchImpl?: typeof fetch };
-type Validado = { titulo: string; resumo: string; etiquetas: string[]; visibilidade: Visibilidade; pacientes: string[]; tags: string[]; video: VideoDoLink | null; corpoMd: string };
+type Validado = { titulo: string; resumo: string; etiquetas: string[]; visibilidade: Visibilidade; pacientes: string[]; exibidos: string[]; tags: string[]; video: VideoDoLink | null; corpoMd: string };
 
 export type ConteudoDaLista = { id: string; tipo: TipoConteudo; titulo: string; status: 'rascunho' | 'publicado'; visibilidade: Visibilidade; publicadoEm: Date | null; atualizadoEm: Date };
 export type ConteudoDoPainel = {
@@ -72,6 +72,8 @@ export function validarConteudo(tipo: TipoConteudo, e: EntradaConteudo): Validad
   if (!etiquetas) erros.etiquetas = MSG_CONTEUDO.etiquetas;
   const visibilidade = ehVisibilidade(e.visibilidade) ? e.visibilidade : null;
   const pacientes = textos(e.pacientes).filter(idValido);
+  // D15: os pacientes que o formulário mostrou (campo oculto, ids separados por vírgula; no máximo a janela da lista)
+  const exibidos = (typeof e.exibidos === 'string' ? e.exibidos.split(',') : textos(e.exibidos)).filter(idValido).slice(0, PACIENTES_NA_LISTA);
   const tags = textos(e.tags).filter(idValido);
   if (!visibilidade) erros.visibilidade = MSG_CONTEUDO.visibilidade;
   else if ((visibilidade === 'pacientes' && !pacientes.length) || (visibilidade === 'etiquetas' && !tags.length)) erros.visibilidade = MSG_CONTEUDO.audienciaVazia;
@@ -81,7 +83,7 @@ export function validarConteudo(tipo: TipoConteudo, e: EntradaConteudo): Validad
   const corpoMd = tipo === 'orientacao' && typeof e.corpo === 'string' ? e.corpo.replace(/\r\n?/g, '\n').trim() : '';
   if (corpoMd.length > CORPO_MAX) erros.corpo = MSG_CONTEUDO.corpo;
   if (Object.keys(erros).length) throw new ConteudoError(erros);
-  return { titulo, resumo, etiquetas: etiquetas!, visibilidade: visibilidade!, pacientes, tags, video, corpoMd };
+  return { titulo, resumo, etiquetas: etiquetas!, visibilidade: visibilidade!, pacientes, exibidos, tags, video, corpoMd };
 }
 
 const colunas = (v: Validado, agora: Date) => ({
@@ -97,7 +99,7 @@ const colunas = (v: Validado, agora: Date) => ({
 
 /** Grava o público e confere que sobrou alguém (paciente de outro tenant/arquivado some em gravarAudiencia). */
 async function gravarPublico(tx: Tx, tenantId: string, contentId: string, v: Validado): Promise<void> {
-  const a = await gravarAudiencia(tx, tenantId, contentId, { visibilidade: v.visibilidade, pacientes: v.pacientes, etiquetas: v.tags });
+  const a = await gravarAudiencia(tx, tenantId, contentId, { visibilidade: v.visibilidade, pacientes: v.pacientes, etiquetas: v.tags, exibidos: v.exibidos });
   if (v.visibilidade !== 'todos' && !a.pacientes.length && !a.etiquetas.length) throw new ConteudoError({ visibilidade: MSG_CONTEUDO.audienciaVazia });
 }
 

@@ -29,7 +29,7 @@ export async function criarConteudoAction(tipo: string, _: ConteudoState, fd: Fo
   const valores = valoresDo(fd);
   let id: string;
   try {
-    id = await criarConteudo(ctx, tipo, valores);
+    id = await criarConteudo(ctx, tipo, { ...valores, exibidos: fd.get('exibidos') });
   } catch (e) {
     if (e instanceof ConteudoError) return { erros: e.erros, valores };
     throw e;
@@ -41,7 +41,8 @@ export async function salvarConteudoAction(id: string, _: ConteudoState, fd: For
   const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
   const valores = valoresDo(fd);
   try {
-    await salvarConteudo(ctx, id, valores);
+    // D15: `exibidos` = os pacientes que a tela mostrou (campo oculto) — só desses o desmarcar tira da audiência
+    await salvarConteudo(ctx, id, { ...valores, exibidos: fd.get('exibidos') });
   } catch (e) {
     if (e instanceof ConteudoError) return { erros: e.erros, valores };
     if (e instanceof ConteudoNaoEncontradoError) return { erros: { geral: e.message }, valores };

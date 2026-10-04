@@ -7,7 +7,7 @@ import type { Tx } from '@/db/client';
 import { auditLog, contentAudience, contents, patients, patientTagLinks } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
-import { gravarAudiencia, lerAudiencia, liberarReceitasDoPlano, naAudiencia, naAudienciaDaLinha, opcoesDeAudiencia } from './audiencia';
+import { gravarAudiencia, lerAudiencia, liberarReceitasDoPlano, naAudiencia, naAudienciaDaLinha, opcoesDeAudiencia, PACIENTES_NA_LISTA } from './audiencia';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -213,7 +213,11 @@ describe('audiência fora da sessão de paciente (naAudiencia, gravarAudiencia)'
     const deFora = await novoPaciente(app.db, U.ctx);
     const arquivado = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });
     const c = await novoConteudo(app.db, T, { status: 'rascunho' });
-    const gravar = (a: Parameters<typeof gravarAudiencia>[3]) => withTenant(T.ctx, (tx) => gravarAudiencia(tx, T.tenantId, c.id, a), app.db);
+    // como o formulário: `exibidos` = os pacientes que a tela mostrou (opcoesDeAudiencia no momento do render)
+    const gravar = async (a: Omit<Parameters<typeof gravarAudiencia>[3], 'exibidos'>) => {
+      const exibidos = (await opcoesDeAudiencia(T.ctx, app.db)).pacientes.map((p) => p.id);
+      return withTenant(T.ctx, (tx) => gravarAudiencia(tx, T.tenantId, c.id, { ...a, exibidos }), app.db);
+    };
     expect(await gravar({ visibilidade: 'pacientes', pacientes: [ana.id, deFora.id, arquivado.id, 'lixo'], etiquetas: [] })).toEqual({ pacientes: [ana.id], etiquetas: [] });
     const auditadas = () => withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'conteudos'))), app.db).then((r) => r.length);
     const antes = await auditadas();
@@ -239,6 +243,41 @@ describe('audiência fora da sessão de paciente (naAudiencia, gravarAudiencia)'
     expect(await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).toEqual({ pacientes: [], etiquetas: [gestante] });
     await gravar({ visibilidade: 'todos', pacientes: [ana.id], etiquetas: [gestante] });
     expect(await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).toEqual({ pacientes: [], etiquetas: [] });
+  });
+
+  it(`D15 com a janela do formulário (${PACIENTES_NA_LISTA} primeiros) trocando entre mostrar e salvar: só sai quem a tela MOSTROU; id forjado na lista não tira ninguém`, async () => {
+    const T = await novoTenant(app.db);
+    const numerados = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .insert(patients)
+          .values(Array.from({ length: PACIENTES_NA_LISTA }, (_, i) => ({ tenantId: T.tenantId, nome: `Paciente ${String(i + 1).padStart(3, '0')}`, dataNascimento: '1991-03-10', sexo: 'F', email: `p${i}-${T.tenantId.slice(0, 8)}@ex.com` })))
+          .returning({ id: patients.id, nome: patients.nome }),
+      app.db,
+    );
+    numerados.sort((a, b) => a.nome.localeCompare(b.nome));
+    const zeca = await novoPaciente(app.db, T.ctx, { nome: 'Zeca' }); // o 501º: fora da janela
+    const primeiro = numerados[0];
+    const c = await novoConteudo(app.db, T, { status: 'rascunho', visibilidade: 'pacientes', pacientes: [primeiro.id, zeca.id] });
+    // a tela mostra os 500 primeiros (sem o Zeca), com o Paciente 001 marcado
+    const exibidos = (await opcoesDeAudiencia(T.ctx, app.db)).pacientes.map((p) => p.id);
+    expect(exibidos).toHaveLength(PACIENTES_NA_LISTA);
+    expect(exibidos).not.toContain(zeca.id);
+    // entre mostrar e salvar, o 500º é arquivado: recalculada no salvamento, a janela passaria a incluir o Zeca
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, numerados[PACIENTES_NA_LISTA - 1].id)), app.db);
+    const gravar = (a: Parameters<typeof gravarAudiencia>[3]) => withTenant(T.ctx, (tx) => gravarAudiencia(tx, T.tenantId, c.id, a), app.db);
+    await gravar({ visibilidade: 'pacientes', pacientes: [primeiro.id], etiquetas: [], exibidos });
+    expect((await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).pacientes.sort()).toEqual([primeiro.id, zeca.id].sort()); // o Zeca fica
+    // a lista é conferida: o Zeca só sai se a tela o mostrou; paciente de outro tenant ou arquivado na lista não muda nada
+    const U = await novoTenant(app.db);
+    const deFora = await novoPaciente(app.db, U.ctx);
+    const arquivado = numerados[PACIENTES_NA_LISTA - 1].id;
+    await withTenant(T.ctx, (tx) => tx.insert(contentAudience).values({ tenantId: T.tenantId, contentId: c.id, patientId: arquivado }), app.db);
+    await gravar({ visibilidade: 'pacientes', pacientes: [primeiro.id], etiquetas: [], exibidos: [deFora.id, arquivado, 'lixo'] });
+    expect((await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).pacientes.sort()).toEqual([primeiro.id, zeca.id, arquivado].sort());
+    await gravar({ visibilidade: 'pacientes', pacientes: [primeiro.id], etiquetas: [], exibidos: [...exibidos, zeca.id] });
+    expect((await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).pacientes.sort()).toEqual([primeiro.id, arquivado].sort());
   });
 
   it('opcoesDeAudiencia: etiquetas do tenant e só pacientes ativos, por nome', async () => {
