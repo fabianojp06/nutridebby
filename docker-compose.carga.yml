@@ -1,0 +1,48 @@
+name: nutridebby-carga
+# P08-03 (D5): pilha de carga SEPARADA — banco próprio, dados sintéticos, portas só em 127.0.0.1. Nunca aponta para o
+# banco de produção. Sobe na VPS só com OK do dono, de madrugada (horário de Brasília), e é derrubada no fim (down -v).
+# Mesmos limites do Easypanel na rodada 1; na rodada 2, os que o dono decidir (variáveis CARGA_*).
+# Imagem: a do deploy do merge do Plano 08 (o GHCR não tem imagem de branch; a RNF-03 proíbe construir aqui).
+# Roteiro: docs/operacao/carga.md.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: carga_owner
+      POSTGRES_PASSWORD: ${CARGA_OWNER_SENHA:?gere com test/carga/gerar-env.sh}
+      POSTGRES_DB: nutri
+    command: ['postgres', '-c', 'shared_buffers=${CARGA_SHARED_BUFFERS:-128MB}', '-c', 'max_connections=100']
+    ports: ['127.0.0.1:54339:5432']
+    mem_limit: ${CARGA_DB_MEM:-1g}
+    volumes: ['nd-carga-db:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U carga_owner -d nutri']
+      interval: 5s
+      retries: 20
+  mailpit:
+    image: axllent/mailpit:v1.27
+    mem_limit: 128m
+  app:
+    image: ${CARGA_IMAGEM:?ghcr.io/<dono>/nutridebby:<sha do merge na main>}
+    env_file: .env.carga
+    # B-8: só o app tem a chave pública (o POST /api/p/push responde 503 sem ela); o worker fica sem as chaves VAPID,
+    # então nenhum push sai da pilha para o FCM com as inscrições sintéticas
+    environment:
+      VAPID_PUBLIC_KEY: ${CARGA_VAPID_PUBLICA:?gere com test/carga/gerar-env.sh}
+    ports: ['127.0.0.1:3200:3000']
+    cpus: ${CARGA_APP_CPUS:-1}
+    mem_limit: ${CARGA_APP_MEM:-1g}
+    tmpfs: ['/data']
+    depends_on: { db: { condition: service_healthy } }
+  worker:
+    image: ${CARGA_IMAGEM}
+    command: ['worker']
+    env_file: .env.carga
+    cpus: ${CARGA_WORKER_CPUS:-1}
+    mem_limit: ${CARGA_WORKER_MEM:-1g}
+    tmpfs: ['/data']
+    # o app aplica as migrations ao subir; o worker que sobe antes delas (sem o schema pgboss) cai e volta
+    restart: on-failure
+    depends_on: { app: { condition: service_started } }
+volumes:
+  nd-carga-db:
