@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **DECISÕES ★ APROVADAS pelo dono em 04/10/2026** (D1, D3, D4, D6, D7, D11, D13, D14, D21 — todas conforme a recomendação do plano). Escrito em 03/10/2026 a partir de `origin/main` @ `359e1bb` (Planos 01–06 em produção, spec v1.9). Próximo passo: `/code-review high` no plano, depois a execução; merge só com OK do dono. Nenhuma linha de código deste plano foi escrita ainda; nada foi rodado no banco.
+> **DECISÕES ★ APROVADAS pelo dono em 04/10/2026** (D1, D3, D4, D6, D7, D11, D13, D14, D21 — todas conforme a recomendação do plano). Escrito em 03/10/2026 a partir de `origin/main` @ `359e1bb` (Planos 01–06 em produção, spec v1.9). `/code-review high` do PR #10 feito em 04/10/2026: os 10 achados estão corrigidos no texto (audiência que não apaga alvo escondido, capa PNG com fundo branco, capa de vídeo trocado, gramas arredondadas antes de conferir, exceção da RN-12 só no caminho do plano — ajuste da D2 —, link sem esquema, exclusão sem arquivo órfão, publicado nunca vazio, métricas numa consulta, regra 8 do CLAUDE.md). Próximo passo: a execução; merge só com OK do dono. Nenhuma linha de código deste plano foi escrita ainda; nada foi rodado no banco.
 
 **Goal:** A nutricionista publica vídeos (link do YouTube/Vimeo, capa baixada pelo oEmbed, player sem cookies), receitas com o valor nutricional por porção calculado da tabela de alimentos e orientações em texto formatado (+ PDF), escolhe quem vê cada conteúdo (todos, pacientes com uma etiqueta, pacientes específicos), sugere uma receita numa refeição do plano e vê quantos pacientes abriram cada conteúdo; o paciente navega pela aba "Conteúdos" do PWA (feed, busca, filtros, favoritos, selo "Novo") e recebe no máximo um aviso de conteúdo novo por dia — com o banco garantindo que conteúdo fora da audiência não aparece nem pela URL.
 
-**Architecture:** Um módulo novo, `src/modules/conteudo` (vídeo e oEmbed, capa, markdown seguro, núcleo do conteúdo, audiência, receitas, aviso, métricas), as telas do painel em `src/app/painel/conteudos/…` e as do portal em `src/app/p/(portal)/conteudos/…` (lidas por `src/modules/portal/conteudos.ts`). Seis tabelas novas com RLS (`contents`, `recipes`, `recipe_ingredients`, `content_audience`, `content_views`, `content_favorites`) e a coluna `meals.recipe_content_id`. A audiência (RN-12) é avaliada **na leitura e no banco**: uma política RESTRICTIVE `paciente_conteudo_visivel` em `contents`, `recipes` e `recipe_ingredients` deixa a sessão de paciente ver só o conteúdo publicado da audiência dela — "pacientes" por subconsulta em `content_audience` (o paciente lê só as próprias linhas), "etiquetas" por uma função `SECURITY DEFINER` que responde só sim/não (a nota do Plano 03: `patient_tag_links` é `staff_only`) e a exceção da receita anexada ao plano publicado do próprio paciente; o acesso direto pela URL dá 404 porque a linha não existe para ele. Visualizações e favoritos são as únicas escritas novas do paciente (`PACIENTE_ESCREVE`), conferidas também no banco (só de conteúdo visível). Capa e PDF entram por `salvarArquivo`/`apagarArquivo` (regra 9), servidos por `signFileUrl`; o markdown é um subconjunto próprio renderizado como elementos React (sem HTML). O aviso de conteúdo novo sai pelo motor de notificações (tipo `conteudo_novo`, canal push), inserido na transação da publicação, no máximo um por paciente a cada 24 h.
+**Architecture:** Um módulo novo, `src/modules/conteudo` (vídeo e oEmbed, capa, markdown seguro, núcleo do conteúdo, audiência, receitas, aviso, métricas), as telas do painel em `src/app/painel/conteudos/…` e as do portal em `src/app/p/(portal)/conteudos/…` (lidas por `src/modules/portal/conteudos.ts`). Seis tabelas novas com RLS (`contents`, `recipes`, `recipe_ingredients`, `content_audience`, `content_views`, `content_favorites`) e a coluna `meals.recipe_content_id`. A audiência (RN-12) é avaliada **na leitura e no banco**: uma política RESTRICTIVE `paciente_conteudo_visivel` em `contents`, `recipes` e `recipe_ingredients` deixa a sessão de paciente ver só o conteúdo publicado da audiência dela — "pacientes" por subconsulta em `content_audience` (o paciente lê só as próprias linhas), "etiquetas" por uma função `SECURITY DEFINER` que responde só sim/não (a nota do Plano 03: `patient_tag_links` é `staff_only`) e a exceção da receita anexada ao plano publicado do próprio paciente — esta **só no caminho do plano** ("Meu plano" e a receita aberta pelo cartão ligam `app.receitas_do_plano` na própria transação; o feed, a busca, os filtros, o selo "Novo" e os favoritos nunca); o acesso direto pela URL dá 404 porque a linha não existe para ele. Visualizações e favoritos são as únicas escritas novas do paciente (`PACIENTE_ESCREVE`), conferidas também no banco (só de conteúdo visível). Capa e PDF entram por `salvarArquivo`/`apagarArquivo` (regra 9), servidos por `signFileUrl`; o markdown é um subconjunto próprio renderizado como elementos React (sem HTML). O aviso de conteúdo novo sai pelo motor de notificações (tipo `conteudo_novo`, canal push), inserido na transação da publicação, no máximo um por paciente a cada 24 h.
 
 **Tech Stack:** Node 24 · pnpm 12 · Next.js 16.3 (App Router, Route Handlers, Server Actions, `PageProps`/`RouteContext`) · React 19.2 · PostgreSQL 16 (`ON DELETE SET NULL (coluna)`, `websearch_to_tsquery`) · Drizzle 0.45 · pg-boss 12.34 · Zod 4 · `sharp` 0.35.4 (já instalado) · Vitest 5 + Testcontainers · Playwright 1.63 + `@axe-core/playwright` 4.13.0 (já instalado). **Nenhuma dependência nova.**
 
@@ -18,7 +18,7 @@
 - **Base:** `origin/main` em `359e1bb` (Plano 06 em produção, migrations até `0080`). As migrations deste plano começam em **`0081`**: `0081_conteudos` (gerada, T1), `0082_rls_conteudos` (custom, T1), `0083_audiencia_conteudos` (custom, T2), `0084_conteudo_novo` (gerada, T10). O número exato é o que o `drizzle-kit` gerar; se outra migration entrar na `main` antes (ex.: o PR de débitos), renumerar no rebase e corrigir as referências deste plano no PR. Migrations só com `DATABASE_URL_MIGRATOR` (CLAUDE.md regra 7); **nunca** no banco de dev compartilhado sem combinar, nunca em produção fora do deploy.
 - Toda tabela nova com `tenant_id`: `app_enable_tenant_rls`; com `patient_id`, `app_enable_patient_rls`; dado de saúde, `app_enable_audit` + `ENTIDADE_ROTULO`, ou entrada justificada em `AUDIT_EXCEPTIONS`; fábrica em `FABRICAS` de `test/isolamento.test.ts` (mães com FK para elas em `ULTIMAS`). CLAUDE.md regras 1, 2, 8 e 9.
 - **Escrita do paciente (D1 do Plano 06):** as únicas escritas novas da sessão de paciente são `content_views` (`insert`) e `content_favorites` (`insert`, `delete`), cada uma com `SELECT app_allow_paciente_escrita(...)` na migration **e** a entrada em `PACIENTE_ESCREVE`, na mesma tarefa (T1). `contents`, `recipes`, `recipe_ingredients` e `content_audience` ficam fechadas ao paciente.
-- **Audiência no banco (D2):** `contents`, `recipes` e `recipe_ingredients` têm a política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) e entram em `CONTEUDO_POR_AUDIENCIA` (`src/db/rls-guard.ts`); a guarda `findConteudoAudienciaViolations` quebra o CI se faltar. Nenhum código do portal filtra a audiência "à mão": quem decide é a RLS; o código do portal só lê `status = 'publicado'` por clareza.
+- **Audiência no banco (D2):** `contents`, `recipes` e `recipe_ingredients` têm a política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) e entram em `CONTEUDO_POR_AUDIENCIA` (`src/db/rls-guard.ts`); a guarda `findConteudoAudienciaViolations` quebra o CI se faltar. Nenhum código do portal filtra a audiência "à mão": quem decide é a RLS; o código do portal só lê `status = 'publicado'` por clareza. A exceção da RN-12 (receita do plano publicado) só existe na transação que chamou `liberarReceitasDoPlano` — "Meu plano" e a receita aberta pelo cartão; nunca o feed (guarda na T7).
 - **Uma conexão por transação** (Plano 05): dentro do callback de `withTenant` só o `tx` recebido. Chamadas de rede (oEmbed) **nunca** dentro de transação: antes ou depois dela.
 - **Arquivos (regra 9):** capa (`tipo: 'capa'`, JPEG convertido) e PDF da orientação (`tipo: 'orientacao_pdf'`) só por `salvarArquivo` (o `registrar` grava o ponteiro em `contents` na mesma transação) e `apagarArquivo` (o `naMesmaTransacao` confere/apaga o registro); servir só por `signFileUrl`. Nunca montar caminho com texto do usuário.
 - **Terceiros (INT-05, RN-10):** o portal nunca carrega imagem de terceiros (a capa do vídeo é baixada para `/data`); o player é `https://www.youtube-nocookie.com/embed/<id>` ou `https://player.vimeo.com/video/<id>?dnt=1`; o servidor só fala com `www.youtube.com/oembed`, `vimeo.com/api/oembed.json`, `i.ytimg.com` e `i.vimeocdn.com` (prazo total de 5 s, sem redirecionamento, corpo limitado).
@@ -34,22 +34,22 @@
 | # | Tema | Decisão (aplicada no plano) | Custo / consequência · se o dono escolher outra |
 |---|---|---|---|
 | D1 ★ ✅ aprovada 04/10 | Duas "etiquetas" (US-053 × US-055) | **São coisas diferentes.** Audiência "etiquetas" = etiquetas **de paciente** (`patient_tags`, US-019, que o paciente nunca vê), gravadas em `content_audience.tag_id`. Filtro do feed "sem lactose" = rótulos **do conteúdo** (`contents.etiquetas text[]`, texto livre, visíveis ao paciente). A US-053 escreve `visibilidade "etiquetas" = ["gestante"]`: "gestante" é a etiqueta de paciente | Nenhum custo extra. Alternativa: um campo só (rótulo do conteúdo casando com o nome da etiqueta do paciente) — o filtro do feed passaria a mostrar ao paciente nomes como "gestante"/"diabetes", contra a US-019 ("Paciente não vê etiquetas") |
-| D2 | Audiência na leitura (RN-12) | No banco: política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) em `contents` — `status = 'publicado'` **e** (`todos` · ou `pacientes` com linha do próprio paciente em `content_audience` · ou `etiquetas` por `app_conteudo_por_etiqueta(id)` (SECURITY DEFINER, devolve só sim/não, paciente `ativo`) · ou receita anexada a refeição de plano **publicado** do próprio paciente); `recipes` e `recipe_ingredients` herdam por `EXISTS` em `contents`. `content_views`/`content_favorites` só aceitam conteúdo visível (RESTRICTIVE FOR INSERT). Guarda `CONTEUDO_POR_AUDIENCIA` | A função roda por linha só nos conteúdos "etiquetas" do feed (dezenas por tenant): entra no k6 do P08-03. Fora da sessão de paciente (push, métricas) a audiência é a condição SQL `naAudiencia` sobre `patients`, rodando como equipe |
+| D2 | Audiência na leitura (RN-12) | No banco: política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) em `contents` — `status = 'publicado'` **e** (`todos` · ou `pacientes` com linha do próprio paciente em `content_audience` · ou `etiquetas` por `app_conteudo_por_etiqueta(id)` (SECURITY DEFINER, devolve só sim/não, paciente `ativo`) · ou receita anexada a refeição de plano **publicado** do próprio paciente **só com `app.receitas_do_plano = 'on'` na transação** — ligada por `liberarReceitasDoPlano(tx)` apenas em "Meu plano" e na receita aberta pelo cartão (`?de=plano`); o feed, a busca, o filtro de etiquetas, o selo "Novo" e os favoritos seguem só a audiência — ajuste do `/code-review high`, achado 5); `recipes` e `recipe_ingredients` herdam por `EXISTS` em `contents`. `content_views`/`content_favorites` só aceitam conteúdo visível **pela audiência** (RESTRICTIVE FOR INSERT, nunca com a liberação do plano ligada). Guarda `CONTEUDO_POR_AUDIENCIA` | A função roda por linha só nos conteúdos "etiquetas" do feed (dezenas por tenant): entra no k6 do P08-03. Fora da sessão de paciente (push, métricas) a audiência é a condição SQL `naAudiencia` sobre `patients`, rodando como equipe |
 | D3 ★ ✅ aprovada 04/10 | Barra de abas cheia (R16: 7 colunas em 360 px) | **"Conteúdos" entra no lugar de "Compras"**; a "Lista de compras" vira link na página "Plano" (é derivada do plano), `/p/compras` continua igual e marca a aba "Plano". Ordem: Início, Plano, Diário, Conteúdos, Evolução, Agenda, Perfil | Mantém a grade de 7 (D23 do Plano 06: "o layout não muda"). Alternativas: 8 colunas (≈ 45 px por aba em 360 px; "Conteúdos" quebra em duas linhas e o axe/360 px precisa de nova conferência) ou um item "Mais" (uma tela a mais) |
 | D4 ★ ✅ aprovada 04/10 | Texto do push de conteúdo novo (US-053 pede "Novo conteúdo: <título>") | **Texto neutro** "Sua nutricionista publicou um novo conteúdo" (título "NutriDebby"), o toque abre `/p/conteudos` (onde os novos têm o selo "Novo") — como D8/D19/D24 do Plano 06: o título de um conteúdo dirigido por etiqueta ("Cardápio para gestantes") diria na tela de bloqueio uma condição de saúde | Se o dono preferir o texto da spec, o push passa a levar o título (tipo de push com texto variável — o motor hoje só tem textos fixos por tipo) e a abrir o próprio conteúdo |
 | D5 | Regras do aviso (US-053) | Tipo `conteudo_novo` pelo motor do Plano 05 (canal `push`, sem consulta); só paciente `ativo`, não anonimizado, com conta no portal e na audiência **no momento da publicação**; **no máximo 1 a cada 24 h por paciente** (sem linha `conteudo_novo` criada nas 24 h anteriores — os outros conteúdos ficam no feed com "Novo"); publicado no horário silencioso (21h–8h no fuso do tenant) sai às 08:00. Sem e-mail. Tudo num `INSERT … SELECT` na transação da publicação | Tenant suspenso: o motor já ignora (RN-15). Audiência grande = uma instrução só |
 | D6 ★ ✅ aprovada 04/10 | Auditoria (regra 8) | `content_audience` **com gatilho** (entidade `conteudos`, rótulo "Público de conteúdo": escolher pacientes para um conteúdo é decisão clínica); `content_views` e `content_favorites` em `AUDIT_EXCEPTIONS` (registro de uso, como `access_events`); a leitura do conteúdo pelo paciente e a lista "Quem viu" da nutricionista **sem** `auditRead` (não é prontuário; como a agenda, D10 do Plano 05, e a lista de pacientes) | Alternativa: auditar visualizações e favoritos — uma linha "Criou · Conteúdos" com o nome do paciente no "Histórico de acessos" a cada conteúdo aberto |
 | D7 ★ ✅ aprovada 04/10 | Markdown "sem HTML ou script executável" (US-052) | **Subconjunto próprio**, sem dependência: parágrafos, quebras de linha, `**negrito**`, `*itálico*`, títulos `##`/`###`, listas `-`/`1.` e links `[texto](https://…)` (só http/https, `rel="noopener noreferrer nofollow"`, nova aba). Renderizado como elementos React (nunca `dangerouslySetInnerHTML`): HTML digitado aparece como texto. Quantificadores limitados (sem retrocesso catastrófico) | Alternativa: `marked` + `sanitize-html` (duas dependências, HTML real, mais superfície para a revisão de segurança do P08-05) |
-| D8 | "Uma imagem" da orientação (US-052) e capas | A imagem da orientação é a **capa** do conteúdo (como a da receita: JPEG/PNG ≤ 5 MB, US-051); não há imagem dentro do texto. Toda capa é convertida para JPEG ≤ 1280 px, qualidade 80, sem EXIF (`processarCapa`, `sharp`, como o logo). A capa do vídeo vem só do oEmbed | Imagem no meio do texto seria upload + sintaxe nova no markdown (backlog, se pedirem) |
-| D9 | oEmbed (INT-05) | Ao salvar o link (criar ou trocar), **depois** da transação: `GET` no oEmbed do provedor e na miniatura, prazo **total** de 5 s, JSON ≤ 64 KB, miniatura só de `https://i.ytimg.com` ou `https://i.vimeocdn.com`, sem seguir redirecionamento, ≤ 2 MB, tipo pelo conteúdo (JPEG/PNG/WebP), convertida pelo `processarCapa`. Qualquer falha → **capa padrão** (um bloco com o tipo do conteúdo, sem imagem) e o cadastro segue (US-050). Trocar o link de um vídeo apaga a capa antiga | O servidor nunca busca URL digitada pela nutricionista (só a do provedor, montada com o id validado): sem SSRF |
+| D8 | "Uma imagem" da orientação (US-052) e capas | A imagem da orientação é a **capa** do conteúdo (como a da receita: JPEG/PNG ≤ 5 MB, US-051); não há imagem dentro do texto. Toda capa é convertida para JPEG ≤ 1280 px, qualidade 80, sem EXIF, transparência sobre fundo branco (`processarCapa`, `sharp`, o mesmo pipeline da foto do diário — `paraJpegSemMetadados` em `src/lib/jpeg.ts`, extraído do `paraJpeg` do Plano 06). A capa do vídeo vem só do oEmbed | Imagem no meio do texto seria upload + sintaxe nova no markdown (backlog, se pedirem) |
+| D9 | oEmbed (INT-05) | Ao salvar o link (criar ou trocar), **depois** da transação: `GET` no oEmbed do provedor e na miniatura, prazo **total** de 5 s, JSON ≤ 64 KB, miniatura só de `https://i.ytimg.com` ou `https://i.vimeocdn.com`, sem seguir redirecionamento, ≤ 2 MB, tipo pelo conteúdo (JPEG/PNG/WebP), convertida pelo `processarCapa`. Qualquer falha → **capa padrão** (um bloco com o tipo do conteúdo, sem imagem) e o cadastro segue (US-050). Trocar o link de um vídeo apaga a capa antiga; a capa (ou a remoção) que chega depois do oEmbed só vale se o conteúdo **ainda** aponta para o mesmo vídeo — conferido na transação da troca (dois salvamentos sobrepostos não deixam a capa do vídeo anterior) | O servidor nunca busca URL digitada pela nutricionista (só a do provedor, montada com o id validado): sem SSRF |
 | D10 | Player | YouTube `https://www.youtube-nocookie.com/embed/<id>`; Vimeo `https://player.vimeo.com/video/<id>?dnt=1` (com `h=<hash>` do vídeo não listado). `iframe` com `title`, `loading="lazy"`, `referrerPolicy="strict-origin-when-cross-origin"` (o YouTube recusa embed sem referrer), `allow="encrypted-media; picture-in-picture; fullscreen"`. O id é validado por regex no código **e** num CHECK do banco | A CSP global (P08-05) precisará de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` (anotado para o Plano 08) |
 | D11 ★ ✅ aprovada 04/10 | Valores da receita (RN-11) | **Calculados na hora** a partir dos alimentos atuais (TACO ou "Meu alimento"), sem cópia congelada: corrigir um "Meu alimento" muda a receita publicada. Alimento sem valor na TACO conta 0 e a tela avisa "Sem valor na TACO" (RN-02) | Alternativa: congelar na publicação (como a D10 do Plano 04) — coluna de nutrientes por ingrediente e "republicar para atualizar" |
 | D12 | Ingredientes | Quantidade em gramas (0,1 a 5000, a mesma regra do plano) + "medida caseira" em texto livre opcional (`medida_caseira_txt`, como a spec), até 50 ingredientes. `recipe_ingredients.food_id` com FK `RESTRICT` (como `meal_items`): alimento usado em receita não é excluído — a mensagem passa a ser "Este alimento está em um plano ou receita e não pode ser excluído." | O seletor de medidas do editor de plano fica para depois (backlog), se a Debby pedir |
 | D13 ★ ✅ aprovada 04/10 | Receita na refeição (US-054) | Só no **rascunho** do plano (RN-01: o publicado é imutável — para sugerir no plano em uso, "Editar" cria a nova versão); anexar exige receita **publicada**; uma sugestão que ficou despublicada continua gravada e o editor mostra "Receita indisponível" (a nutricionista remove ou deixa); o portal só mostra o cartão se a receita estiver publicada (leitura viva). Modelos e "Editar" copiam a sugestão; ela **não** entra no total do plano nem no PDF. Excluir o conteúdo solta a sugestão (`ON DELETE SET NULL (recipe_content_id)`) | Alternativa: permitir anexar no plano publicado sem nova versão ("é só sugestão") — exceção à RN-01 e ao "Histórico" do plano |
 | D14 ★ ✅ aprovada 04/10 | Métricas (US-056) | **Audiência atual**: denominador = pacientes `ativos` na audiência (com ou sem conta no portal, como a RN-12 define); numerador = quantos deles já abriram; arquivado/bloqueado sai das duas contas; quem abriu só pelo cartão do plano (fora da audiência) não conta. "Quem viu" lista nome e data, mais recentes primeiro. "1 de 1 paciente (100%)" no singular | Alternativa: denominador só com conta no portal (quem pode ver) — a porcentagem sobe para quem ainda tem pacientes sem convite aceito |
-| D15 | LGPD do titular | Pedido de exclusão atendido (bloqueio) apaga do titular `content_views`, `content_favorites` e `content_audience` ("sai das audiências", "sem uso em conteúdo" — US-018, RNF-08); a anonimização apaga de novo (idempotente). Arquivar não apaga (desarquivado volta às audiências). A exportação (equipe e titular) leva `conteudos`: títulos vistos (com a data) e favoritos | — |
+| D15 | LGPD do titular | Pedido de exclusão atendido (bloqueio) apaga do titular `content_views`, `content_favorites` e `content_audience` ("sai das audiências", "sem uso em conteúdo" — US-018, RNF-08); a anonimização apaga de novo (idempotente). Arquivar não apaga (desarquivado volta às audiências) — e salvar o conteúdo também não: `gravarAudiencia` só tira paciente que o formulário mostrou (ativo, entre os 500 da lista) e a nutricionista desmarcou. A exportação (equipe e titular) leva `conteudos`: títulos vistos (com a data) e favoritos | — |
 | D16 | Rotas | Painel: `/painel/conteudos`, `/painel/conteudos/novo?tipo=video\|receita\|orientacao`, `/painel/conteudos/[id]`, `/painel/conteudos/[id]/visualizacoes`; `POST /api/painel/conteudos/[id]/capa` e `/pdf` (upload). Portal: `/p/conteudos` (`?tipo=`, `?busca=`, `?etiqueta=`, `?favoritos=1`), `/p/conteudos/[id]`; `GET /api/p/conteudos/[id]/pdf` (assina no clique). Nada disso fica offline (D6 do Plano 06: só "Meu plano") | — |
-| D17 | Ciclo de vida | `rascunho` → "Publicar" → `publicado`; "Despublicar" volta a `rascunho` (some do feed na hora); publicar de novo renova `publicado_em` (volta ao topo; "Novo" para quem não abriu). Excluir (nutricionista, com confirmação) apaga capa e PDF (regra 9) e o conteúdo | — |
+| D17 | Ciclo de vida | `rascunho` → "Publicar" → `publicado`; "Despublicar" volta a `rascunho` (some do feed na hora); publicar de novo renova `publicado_em` (volta ao topo; "Novo" para quem não abriu). O que a publicação exige (receita com ingrediente, orientação com texto ou PDF) vale também ao salvar e ao remover o PDF de um conteúdo **publicado** (nunca fica publicado vazio). Excluir (nutricionista, com confirmação) apaga capa e PDF (regra 9) e o conteúdo — o DELETE do conteúdo vai na transação do último arquivo | — |
 | D18 | Visualização e favorito (US-055) | A visualização é registrada **no navegador**, ao abrir o detalhe (Server Action chamada pela página uma vez) — não no render do servidor, para a pré-busca do `next/link` não contar; uma por paciente (`ON CONFLICT DO NOTHING`); o favorito é um formulário (Server Action) "Favoritar"/"Remover dos favoritos" | — |
 | D19 | Busca (US-055) | Full-text `portuguese` sobre `app_unaccent(titulo \|\| ' ' \|\| resumo)` (índice GIN, §7), com `websearch_to_tsquery`; filtro pela etiqueta do conteúdo com `etiquetas @> ARRAY[…]` (índice GIN). Feed com no máximo 100 itens, do mais recente para o mais antigo | Busca por pedaço de palavra ("ave") não acha "aveia": o full-text trabalha com palavras inteiras (stemming) |
 | D20 | Tamanhos e a política `paciente_arquivos` | Capa ≤ 5 MB (US-051); PDF ≤ 10 MB (a spec só dá o exemplo de 2 MB). A política `paciente_arquivos` **não muda**: o portal assina o `pdf_path`/`capa_path` lido de `contents` (já filtrado pela audiência), nunca lê `stored_files` na sessão de paciente — a nota do backlog ("o `orientacao_pdf` precisa entrar na política quando o portal o servir") fica resolvida sem liberar o tipo para todo o tenant | — |
@@ -68,12 +68,12 @@
 | US-050 "capa padrão" | Bloco com o tipo do conteúdo, sem imagem (D9) | Sem arquivo novo |
 | US-052 "uma imagem" e "texto formatado" | A imagem é a capa (D8); markdown é um subconjunto (D7) | — |
 | US-053 "Novo conteúdo: <título>" | "Sua nutricionista publicou um novo conteúdo" (D4) | Texto neutro (Plano 06) |
-| US-054 | Só no rascunho; a sugestão despublicada fica gravada como "Receita indisponível"; cópia em modelos/"Editar"; fora do PDF (D13) | RN-01 |
+| US-054 | Só no rascunho; a sugestão despublicada fica gravada como "Receita indisponível"; cópia em modelos/"Editar"; fora do PDF (D13). A receita fora da audiência abre só pelo cartão (`?de=plano`): não entra no feed, na busca nem nos favoritos, e não conta visualização (D2, D14) | RN-01; RN-12 (a exceção é "anexada ao plano", não "na biblioteca") |
 | US-055 "Registro de visualização" | Registrado pelo navegador ao abrir (D18) | Pré-busca do `next/link` |
 | US-056 | Audiência atual; singular "1 de 1 paciente (100%)" (D14) | — |
 | D23 do Plano 06 ("o layout não muda") | "Compras" sai da barra; "Lista de compras" vira link em "Plano" (D3) | R16 (7 abas em 360 px) |
 | RN-11 | Sem cópia congelada dos valores (D11) | — |
-| Textos novos de interface | Painel: "Conteúdos", "Novo vídeo", "Nova receita", "Nova orientação", "Todos", "Título", "Tipo", "Situação", "Visualizações", "Rascunho", "Publicado", "Vídeo", "Receita", "Orientação", "Nenhum conteúdo ainda.", "Resumo", "Link do vídeo", "Texto", "Use **negrito**, *itálico*, listas com - e títulos com ##.", "Etiquetas do conteúdo", "Separe por vírgula. Ex.: sem lactose, café da manhã", "Quem vê", "Todos os pacientes", "Pacientes com etiqueta", "Pacientes específicos", "Etiquetas", "Pacientes", "Nenhuma etiqueta cadastrada.", "Criar", "Salvar", "Conteúdo salvo.", "Informe o título (até 120 caracteres).", "Use no máximo 300 caracteres no resumo.", "Texto muito longo (até 20000 caracteres).", "Use até 10 etiquetas de até 30 caracteres.", "Escolha quem vê este conteúdo.", "Escolha pelo menos uma etiqueta ou um paciente.", "Conteúdo não encontrado.", "Capa (JPEG ou PNG, até 5 MB)", "Enviar capa", "Remover capa", "Material em PDF (até 10 MB)", "Enviar PDF", "Remover PDF", "Enviando…", "Capa salva.", "PDF salvo.", "Envie uma imagem JPEG ou PNG de até 5 MB.", "Envie um PDF de até 10 MB.", "Outro envio está em andamento. Tente de novo em instantes.", "Publicar", "Despublicar", "Excluir conteúdo", "Excluir este conteúdo? A sugestão de receita sai dos planos.", "Conteúdo publicado.", "Conteúdo despublicado.", "Conteúdo excluído.", "Aviso enviado para {n} pacientes." / "Aviso enviado para 1 paciente.", "Preencha a receita (rendimento, porção e ingredientes) antes de publicar.", "Escreva o texto ou envie o PDF antes de publicar.", "Rendimento total (g)", "Porção (g)", "Tempo de preparo (min)", "Modo de preparo", "Ingredientes", "Adicionar ingrediente", "Gramas de {nome}", "Medida caseira de {nome} (opcional)", "Remover {nome}", "Por porção: {kcal} kcal · proteína {g} g · carboidrato {g} g · lipídio {g} g · fibra {g} g", "Salvar receita", "Receita salva.", "Informe o rendimento total em gramas (maior que 0).", "Informe a porção em gramas (maior que 0).", "Inclua pelo menos um ingrediente.", "A receita pode ter até 50 ingredientes.", "Tempo de preparo entre 1 e 1440 minutos.", "Texto muito longo (até 10000 caracteres).", "Medida caseira até 60 caracteres.", "Sugestão de receita em {refeição}", "Nenhuma", "Receita não encontrada.", "Ver quem viu", "Ver quem viu: {título}" (nome acessível do link da métrica), "Quem viu: {título}", "Ninguém abriu este conteúdo ainda.", "Voltar ao conteúdo", "Voltar aos conteúdos", "Publicado em {data}", "Filtrar conteúdos" (nome da navegação dos filtros), "Arquivos", "Ver PDF", "Não foi possível enviar. Tente de novo.", "Notificação de teste", "Comentário no diário", "Plano novo", "Conteúdo novo" (tipos na lista de envios da consulta, W-1), "Este alimento está em um plano ou receita e não pode ser excluído." · Portal: "Conteúdos", "Todos", "Favoritos", "Buscar", "Etiqueta", "Todas", "Nenhum conteúdo por aqui ainda.", "Nenhum conteúdo encontrado.", "Você ainda não favoritou nenhum conteúdo.", "Favoritar", "Remover dos favoritos", "Voltar aos conteúdos", "Rendimento: {g} g · Porção: {g} g", "Tempo de preparo: {n} min", "Por porção", "Sem valor na TACO", "Lista de compras" (link em "Plano"), "Sugestão de receita:" (rótulo do cartão em "Meu plano"), "Vídeo: {título}" (título do iframe) · Push: "Sua nutricionista publicou um novo conteúdo" | Telas novas |
+| Textos novos de interface | Painel: "Conteúdos", "Novo vídeo", "Nova receita", "Nova orientação", "Todos", "Título", "Tipo", "Situação", "Visualizações", "Rascunho", "Publicado", "Vídeo", "Receita", "Orientação", "Nenhum conteúdo ainda.", "Resumo", "Link do vídeo", "Texto", "Use **negrito**, *itálico*, listas com - e títulos com ##.", "Etiquetas do conteúdo", "Separe por vírgula. Ex.: sem lactose, café da manhã", "Quem vê", "Todos os pacientes", "Pacientes com etiqueta", "Pacientes específicos", "Etiquetas", "Pacientes", "Nenhuma etiqueta cadastrada.", "Criar", "Salvar", "Conteúdo salvo.", "Informe o título (até 120 caracteres).", "Use no máximo 300 caracteres no resumo.", "Texto muito longo (até 20000 caracteres).", "Use até 10 etiquetas de até 30 caracteres.", "Escolha quem vê este conteúdo.", "Escolha pelo menos uma etiqueta ou um paciente.", "Conteúdo não encontrado.", "Capa (JPEG ou PNG, até 5 MB)", "Enviar capa", "Remover capa", "Material em PDF (até 10 MB)", "Enviar PDF", "Remover PDF", "Enviando…", "Capa salva.", "PDF salvo.", "Envie uma imagem JPEG ou PNG de até 5 MB.", "Envie um PDF de até 10 MB.", "Outro envio está em andamento. Tente de novo em instantes.", "Publicar", "Despublicar", "Excluir conteúdo", "Excluir este conteúdo? A sugestão de receita sai dos planos.", "Conteúdo publicado.", "Conteúdo despublicado.", "Conteúdo excluído.", "Aviso enviado para {n} pacientes." / "Aviso enviado para 1 paciente.", "Preencha a receita (rendimento, porção e ingredientes) antes de publicar.", "Escreva o texto ou envie o PDF antes de publicar.", "Um conteúdo publicado precisa de texto ou PDF. Despublique antes de tirar os dois.", "Rendimento total (g)", "Porção (g)", "Tempo de preparo (min)", "Modo de preparo", "Ingredientes", "Adicionar ingrediente", "Gramas de {nome}", "Medida caseira de {nome} (opcional)", "Remover {nome}", "Por porção: {kcal} kcal · proteína {g} g · carboidrato {g} g · lipídio {g} g · fibra {g} g", "Salvar receita", "Receita salva.", "Informe o rendimento total em gramas (maior que 0).", "Informe a porção em gramas (maior que 0).", "Inclua pelo menos um ingrediente.", "A receita pode ter até 50 ingredientes.", "Tempo de preparo entre 1 e 1440 minutos.", "Texto muito longo (até 10000 caracteres).", "Medida caseira até 60 caracteres.", "Sugestão de receita em {refeição}", "Nenhuma", "Receita não encontrada.", "Ver quem viu", "Ver quem viu: {título}" (nome acessível do link da métrica), "Quem viu: {título}", "Ninguém abriu este conteúdo ainda.", "Voltar ao conteúdo", "Voltar aos conteúdos", "Publicado em {data}", "Filtrar conteúdos" (nome da navegação dos filtros), "Arquivos", "Ver PDF", "Não foi possível enviar. Tente de novo.", "Notificação de teste", "Comentário no diário", "Plano novo", "Conteúdo novo" (tipos na lista de envios da consulta, W-1), "Este alimento está em um plano ou receita e não pode ser excluído." · Portal: "Conteúdos", "Todos", "Favoritos", "Buscar", "Etiqueta", "Todas", "Nenhum conteúdo por aqui ainda.", "Nenhum conteúdo encontrado.", "Você ainda não favoritou nenhum conteúdo.", "Favoritar", "Remover dos favoritos", "Voltar aos conteúdos", "Voltar ao plano" (receita aberta pelo cartão, fora da audiência), "Rendimento: {g} g · Porção: {g} g", "Tempo de preparo: {n} min", "Por porção", "Sem valor na TACO", "Lista de compras" (link em "Plano"), "Sugestão de receita:" (rótulo do cartão em "Meu plano"), "Vídeo: {título}" (título do iframe) · Push: "Sua nutricionista publicou um novo conteúdo" | Telas novas |
 
 ### Itens adiados de planos anteriores e débitos da mesma área
 
@@ -93,7 +93,7 @@
 
 ## Review Focus
 
-1. **Conteúdo fora da audiência chegando ao paciente.** URL direta `/p/conteudos/<id>` de conteúdo de outro paciente, de outra etiqueta, em rascunho, despublicado ou de outro consultório (conta com 2 vínculos); `GET /api/p/conteudos/<id>/pdf` do mesmo; receita anexada a um plano **arquivado** ou em rascunho (não publicado); etiqueta tirada da paciente ou paciente arquivada; favoritar/registrar visualização de conteúdo invisível. Esperado: 404 (a linha não existe para ela), cartão sem a receita, o banco recusa a visualização/favorito (42501) e nada aparece no feed. Testes nas Tarefas 2, 7, 9 e 13.
+1. **Conteúdo fora da audiência chegando ao paciente.** URL direta `/p/conteudos/<id>` de conteúdo de outro paciente, de outra etiqueta, em rascunho, despublicado ou de outro consultório (conta com 2 vínculos); `GET /api/p/conteudos/<id>/pdf` do mesmo; receita anexada a um plano **arquivado** ou em rascunho (não publicado); receita fora da audiência anexada ao plano publicado dela aparecendo no feed, na busca, no filtro de etiquetas ou com "Novo"; etiqueta tirada da paciente ou paciente arquivada; favoritar/registrar visualização de conteúdo invisível. Esperado: 404 (a linha não existe para ela), cartão sem a receita, a receita do plano só pelo cartão (`?de=plano`), o banco recusa a visualização/favorito (42501) e nada aparece no feed. Testes nas Tarefas 2, 7, 9 e 13.
 2. **Link de vídeo estranho ou hostil.** `https://youtube.com.evil.com/watch?v=dQw4w9WgXcQ`, `javascript:alert(1)`, `https://youtu.be/dQw4w9WgXcQ?t=30`, `youtube.com/shorts/<id>`, `m.youtube.com`, `http://`, sem esquema (`youtu.be/<id>`), Vimeo não listado `vimeo.com/123456789/abcdef1234`, id com 12 caracteres ou com `"`/`<`, link com usuário e senha; oEmbed que demora 6 s, responde 5 MB, redireciona, devolve `thumbnail_url` de outro host ou um SVG/HTML. Esperado: só YouTube/Vimeo com id válido ("Use um link do YouTube ou do Vimeo"), player sempre montado do id validado, capa padrão em qualquer falha do oEmbed, nenhum pedido a host fora da lista. Testes na Tarefa 3.
 3. **Markdown hostil.** `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `[x](javascript:alert(1))`, `[x](data:text/html,…)`, `[x](//evil.com)`, `**` sem fechar, 20000 asteriscos seguidos, linha de 20000 caracteres. Esperado: tudo como texto, link só http/https com `rel`, render em menos de 200 ms, sem `dangerouslySetInnerHTML` no código. Testes na Tarefa 4.
 4. **Receita com números na borda.** Porção igual ao rendimento (vale), porção maior ("A porção não pode ser maior que o rendimento"), zero, negativo, "250,5" (vírgula), alimento sem kcal na TACO (conta 0 e avisa), alimento de outro consultório (id que a RLS esconde), 51 ingredientes, "Meu alimento" corrigido depois de publicada (D11). Esperado: mensagens por campo, nenhum `NaN`, 2000 kcal / 1000 g / 250 g → 500 kcal. Testes na Tarefa 6.
@@ -112,7 +112,7 @@ src/db/schema/conteudo.ts (+ index.ts) · plano-alimentar.ts (meals) · agenda.t
 src/db/rls-guard.ts (+test) · audit-guard.ts · conteudo-schema.test.ts                           # T1 (PACIENTE_ESCREVE, B-5, AUDIT_EXCEPTIONS), T2 (CONTEUDO_POR_AUDIENCIA)
 src/lib/mesma-origem.ts (+test)                                                                  # T5 (S-9) — e as 5 rotas que copiavam a conferência
 src/modules/conteudo/
-  constantes.ts · video.ts (+test) · oembed.ts (+test) · capa.ts (+test)                         # T3
+  constantes.ts · video.ts (+test) · oembed.ts (+test) · capa.ts (+test)                         # T3 (+ src/lib/jpeg.ts, usado também pela foto do diário)
   markdown.tsx (+test)                                                                           # T4
   audiencia.ts (+test)                                                                           # T2
   conteudos.ts (+test) · arquivos.ts (+test)                                                     # T5
@@ -140,7 +140,7 @@ src/app/p/
 src/app/api/p/conteudos/[id]/pdf/route.ts                                                        # T7
 test/isolamento.test.ts · test/conteudos.ts                                                      # T1, T2
 e2e/conteudos.spec.ts · e2e/acessibilidade.spec.ts                                               # T13
-CLAUDE.md                                                                                        # T2 (regra 2: audiência), T5 (regra 9: capa/PDF)
+CLAUDE.md                                                                                        # T1 (regra 8: exceções da D6), T2 (regra 2: audiência), T5 (regra 9: capa/PDF)
 ```
 
 **Ordem e dependências:** 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13. As Tarefas 1 e 2 fecham o banco (tabelas, RLS e a audiência) antes de existir tela; 3 e 4 são peças sem banco (vídeo/oEmbed/capa, markdown); 5 é o painel do conteúdo; 6 a receita; 7 o portal; 8 e 9 o plano alimentar (débito D04-2 antes de mexer no `salvarRascunho`); 10 o aviso; 11 as métricas; 12 LGPD e exportação; 13 o E2E e o axe. As Tarefas 3 e 4 podem rodar em paralelo com a 2 (worktrees), e a 8 em paralelo com 5–7.
@@ -150,7 +150,7 @@ CLAUDE.md                                                                       
 
 **Files:**
 - Create: `src/db/schema/conteudo.ts`, `drizzle/0081_conteudos.sql` (gerada), `drizzle/0082_rls_conteudos.sql` (custom), `src/db/conteudo-schema.test.ts`
-- Modify: `src/db/schema/index.ts`, `src/db/schema/plano-alimentar.ts` (`meals.recipe_content_id`), `src/db/rls-guard.ts` (+ `rls-guard.test.ts`), `src/db/audit-guard.ts`, `src/modules/plataforma/audit.ts`, `test/isolamento.test.ts`
+- Modify: `src/db/schema/index.ts`, `src/db/schema/plano-alimentar.ts` (`meals.recipe_content_id`), `src/db/rls-guard.ts` (+ `rls-guard.test.ts`), `src/db/audit-guard.ts`, `src/modules/plataforma/audit.ts`, `test/isolamento.test.ts`, `CLAUDE.md` (regra 8: as exceções da D6)
 
 **Interfaces:**
 - Consumes: `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_audit`, `app_allow_paciente_escrita` (migrations 0000/0007/0070); `tenants`, `storedFiles` (`platform.ts`), `patients`, `patientTags` (`pacientes.ts`), `foods` (`alimentos.ts`); `PACIENTE_ESCREVE`, `findPacienteEscritaViolations` (`rls-guard.ts`).
@@ -483,6 +483,8 @@ Run: `pnpm db:migrate` (banco de **dev local** do `docker-compose.dev.yml`, com 
 
 `src/modules/plataforma/audit.ts`, em `ENTIDADE_ROTULO` (depois de `diario`): `conteudos: 'Público de conteúdo',`.
 
+`CLAUDE.md`, regra 8 (D6, aprovada pelo dono em 04/10/2026 — a regra diz que toda tabela com `patient_id` ganha `app_enable_audit`, e estas duas não ganham): logo depois da frase "A leitura da agenda (`appointments`: nome, hora e situação) não chama `auditRead`, como a lista de pacientes (Plano 05, D10); as escritas em `appointments` são auditadas pelo gatilho (entidade `agenda`).", acrescentar: "Tabela com `patient_id` que não é dado de saúde fica **sem** gatilho só com a entrada justificada em `AUDIT_EXCEPTIONS` (`src/db/audit-guard.ts`), como `access_events` e `push_subscriptions`; no Plano 07 (D6), `content_views` (o paciente abriu o conteúdo) e `content_favorites` (favorito na biblioteca) — registro de uso, não prontuário. A leitura do conteúdo pelo paciente e a lista \"Quem viu\" da nutricionista também não chamam `auditRead`; `content_audience` (quem a nutricionista escolhe para cada conteúdo) tem o gatilho (entidade `conteudos`)."
+
 - [ ] **Step 5: B-5 — a guarda confere a expressão da negação (teste falha)** — em `src/db/rls-guard.test.ts`, no `describe('escrita da sessão de paciente (D1, P-16 a)'`:
 
 ```ts
@@ -568,7 +570,7 @@ Run: `pnpm test test/isolamento.test.ts src/db` → PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/db/schema/conteudo.ts src/db/schema/index.ts src/db/schema/plano-alimentar.ts drizzle/0081_conteudos.sql drizzle/0082_rls_conteudos.sql drizzle/meta src/db/conteudo-schema.test.ts src/db/rls-guard.ts src/db/rls-guard.test.ts src/db/audit-guard.ts src/modules/plataforma/audit.ts test/isolamento.test.ts
+git add src/db/schema/conteudo.ts src/db/schema/index.ts src/db/schema/plano-alimentar.ts drizzle/0081_conteudos.sql drizzle/0082_rls_conteudos.sql drizzle/meta src/db/conteudo-schema.test.ts src/db/rls-guard.ts src/db/rls-guard.test.ts src/db/audit-guard.ts src/modules/plataforma/audit.ts test/isolamento.test.ts CLAUDE.md
 git commit -m "feat(db): tabelas de conteúdo com RLS, visualização/favorito do paciente e meals.recipe_content_id; guarda confere a expressão da negação (B-5)"
 ```
 
@@ -583,10 +585,10 @@ git commit -m "feat(db): tabelas de conteúdo com RLS, visualização/favorito d
 **Interfaces:**
 - Consumes: tabelas da Tarefa 1; `patientTagLinks`, `patientTags`, `patients`, `meals`, `mealPlans`; `listarEtiquetas` (`src/modules/pacientes/etiquetas.ts`); `idValido` (`src/modules/pacientes/base.ts`); `novoTenant`, `novoPaciente`, `ctxPaciente` (`test/pacientes.ts`).
 - Produces:
-  - SQL: `app_conteudo_por_etiqueta(uuid) RETURNS boolean` (SECURITY DEFINER); políticas RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) em `contents`, `recipes`, `recipe_ingredients`; `paciente_conteudo_visto` (`content_views`) e `paciente_conteudo_favorito` (`content_favorites`), FOR INSERT.
+  - SQL: `app_conteudo_por_etiqueta(uuid) RETURNS boolean` (SECURITY DEFINER); políticas RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT) em `contents`, `recipes`, `recipe_ingredients` — a exceção da receita do plano só com `current_setting('app.receitas_do_plano', true) = 'on'`; `paciente_conteudo_visto` (`content_views`) e `paciente_conteudo_favorito` (`content_favorites`), FOR INSERT (recusam com a liberação do plano ligada).
   - `@/db/rls-guard`: `CONTEUDO_POR_AUDIENCIA: Record<string, string>`, `findConteudoAudienciaViolations(db): Promise<RlsViolation[]>`.
   - `@/modules/conteudo/constantes` (sem banco, o cliente importa): `TIPOS_CONTEUDO`, `type TipoConteudo`, `ROTULO_TIPO_CONTEUDO`, `FILTROS_DO_FEED`, `VISIBILIDADES`, `type Visibilidade`, `ROTULO_VISIBILIDADE`, `ehTipoConteudo(v): v is TipoConteudo`, `ehVisibilidade(v)`, limites (`TITULO_MAX`, `RESUMO_MAX`, `CORPO_MAX`, `ETIQUETAS_MAX`, `ETIQUETA_MAX`, `CAPA_MAX_BYTES`, `PDF_MAX_BYTES`, `INGREDIENTES_MAX`, `RENDIMENTO_MAX`, `MODO_PREPARO_MAX`, `MEDIDA_TXT_MAX`, `FEED_LIMITE`), `MSG_CONTEUDO`, `MSG_RECEITA`, `MSG_PORTAL_CONTEUDO`.
-  - `@/modules/conteudo/audiencia`: `naAudiencia(contentId: string, visibilidade: Visibilidade): SQL` (condição sobre `patients`); `gravarAudiencia(tx, tenantId, contentId, a: AudienciaEnviada): Promise<{ pacientes: string[]; etiquetas: string[] }>`; `lerAudiencia(tx, contentId): Promise<{ pacientes: string[]; etiquetas: string[] }>`; `opcoesDeAudiencia(ctx, db?): Promise<OpcoesDeAudiencia>`; tipos `AudienciaEnviada = { visibilidade: Visibilidade; pacientes: string[]; etiquetas: string[] }`, `OpcoesDeAudiencia = { etiquetas: { id: string; nome: string }[]; pacientes: { id: string; nome: string }[] }`.
+  - `@/modules/conteudo/audiencia`: `naAudiencia(contentId: string, visibilidade: Visibilidade): SQL` (condição sobre `patients`); `naAudienciaDaLinha(contentId: AnyColumn | SQL, visibilidade: AnyColumn | SQL): SQL` (a mesma condição com o conteúdo vindo da linha da consulta — métricas agrupadas, T11); `liberarReceitasDoPlano(tx): Promise<unknown>` (liga `app.receitas_do_plano` só na transação — a exceção da RN-12; só `src/modules/portal/plano.ts` e `conteudoDoPaciente` chamam); `PACIENTES_NA_LISTA`; `gravarAudiencia(tx, tenantId, contentId, a: AudienciaEnviada): Promise<{ pacientes: string[]; etiquetas: string[] }>`; `lerAudiencia(tx, contentId): Promise<{ pacientes: string[]; etiquetas: string[] }>`; `opcoesDeAudiencia(ctx, db?): Promise<OpcoesDeAudiencia>`; tipos `AudienciaEnviada = { visibilidade: Visibilidade; pacientes: string[]; etiquetas: string[] }`, `OpcoesDeAudiencia = { etiquetas: { id: string; nome: string }[]; pacientes: { id: string; nome: string }[] }`.
   - `test/conteudos.ts`: `novoConteudo(db, T, o?)`, `novaEtiqueta(db, T, nome, pacientes?)`, `comoPaciente(db, tenantId, patientId)`.
 
 - [ ] **Step 1: Constantes do módulo** — `src/modules/conteudo/constantes.ts` (sem banco: o editor e o portal importam)
@@ -647,6 +649,8 @@ export const MSG_CONTEUDO = {
   excluido: 'Conteúdo excluído.',
   receitaIncompleta: 'Preencha a receita (rendimento, porção e ingredientes) antes de publicar.',
   orientacaoVazia: 'Escreva o texto ou envie o PDF antes de publicar.',
+  /** D17: salvar sem texto ou tirar o PDF de uma orientação PUBLICADA a deixaria vazia. */
+  publicadoVazio: 'Um conteúdo publicado precisa de texto ou PDF. Despublique antes de tirar os dois.',
   avisados: (n: number) => (n === 1 ? 'Aviso enviado para 1 paciente.' : `Aviso enviado para ${n} pacientes.`),
 } as const;
 
@@ -750,10 +754,11 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { comoPaciente, idsVisiveis, novaEtiqueta, novoConteudo } from '../../../test/conteudos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, contentAudience, patients, patientTagLinks } from '@/db/schema';
+import type { Tx } from '@/db/client';
+import { auditLog, contentAudience, contents, patients, patientTagLinks } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
-import { gravarAudiencia, lerAudiencia, naAudiencia, opcoesDeAudiencia } from './audiencia';
+import { gravarAudiencia, lerAudiencia, liberarReceitasDoPlano, naAudiencia, naAudienciaDaLinha, opcoesDeAudiencia } from './audiencia';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -818,7 +823,7 @@ describe('audiência avaliada na leitura (RN-12, US-053) — a RLS da sessão de
     expect(comoNutri.rows[0]).toEqual({ ok: false });
   });
 
-  it('exceção da RN-12 (US-054): a receita sugerida no plano PUBLICADO da Bia aparece para ela, com receita e ingredientes; plano arquivado ou receita despublicada, não', async () => {
+  it('exceção da RN-12 (US-054): a receita sugerida no plano PUBLICADO da Bia aparece para ela SÓ no caminho do plano, com receita e ingredientes; plano arquivado ou receita despublicada, não', async () => {
     const { T, ana, bia, comoBia } = await cenario();
     const r = await novoConteudo(app.db, T, {
       tipo: 'receita',
@@ -836,15 +841,29 @@ describe('audiência avaliada na leitura (RN-12, US-053) — a RLS da sessão de
       },
       app.db,
     );
-    expect(await comoBia(idsVisiveis)).toEqual([r.id]);
-    expect(await comoBia((tx) => tx.execute(sql`select count(*)::int as n from recipes`).then((x) => x.rows[0]))).toEqual({ n: 1 });
-    expect(await comoBia((tx) => tx.execute(sql`select count(*)::int as n from recipe_ingredients`).then((x) => x.rows[0]))).toEqual({ n: 1 });
-    await withTenant(T.ctx, (tx) => tx.execute(sql`update meal_plans set status = 'arquivado' where id = ${plano}`), app.db);
+    // fora do caminho do plano (feed, busca, filtro de etiquetas, selo "Novo", URL direta): a receita não existe para ela
     expect(await comoBia(idsVisiveis)).toEqual([]);
     expect(await comoBia((tx) => tx.execute(sql`select count(*)::int as n from recipe_ingredients`).then((x) => x.rows[0]))).toEqual({ n: 0 });
+    // "Meu plano" e a receita aberta pelo cartão ligam a liberação na própria transação
+    const peloPlano = <R,>(fn: (tx: Tx) => Promise<R>) =>
+      comoBia(async (tx) => {
+        await liberarReceitasDoPlano(tx);
+        return fn(tx);
+      });
+    expect(await peloPlano(idsVisiveis)).toEqual([r.id]);
+    expect(await peloPlano((tx) => tx.execute(sql`select count(*)::int as n from recipes`).then((x) => x.rows[0]))).toEqual({ n: 1 });
+    expect(await peloPlano((tx) => tx.execute(sql`select count(*)::int as n from recipe_ingredients`).then((x) => x.rows[0]))).toEqual({ n: 1 });
+    // D14: nem com a liberação ligada a visualização/favorito passam (só pela audiência)
+    await expect(peloPlano((tx) => tx.execute(sql`insert into content_views (tenant_id, content_id, patient_id) values (${T.tenantId}, ${r.id}, ${bia.id})`))).rejects.toSatisfy(violaRls);
+    await expect(peloPlano((tx) => tx.execute(sql`insert into content_favorites (tenant_id, content_id, patient_id) values (${T.tenantId}, ${r.id}, ${bia.id})`))).rejects.toSatisfy(violaRls);
+    // a liberação vale só na transação que a ligou (set_config local): a seguinte volta ao normal
+    expect(await comoBia(idsVisiveis)).toEqual([]);
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update meal_plans set status = 'arquivado' where id = ${plano}`), app.db);
+    expect(await peloPlano(idsVisiveis)).toEqual([]);
+    expect(await peloPlano((tx) => tx.execute(sql`select count(*)::int as n from recipe_ingredients`).then((x) => x.rows[0]))).toEqual({ n: 0 });
     await withTenant(T.ctx, (tx) => tx.execute(sql`update meal_plans set status = 'publicado' where id = ${plano}`), app.db);
     await withTenant(T.ctx, (tx) => tx.execute(sql`update contents set status = 'rascunho', publicado_em = null where id = ${r.id}`), app.db);
-    expect(await comoBia(idsVisiveis)).toEqual([]); // US-054 "Receita despublicada"
+    expect(await peloPlano(idsVisiveis)).toEqual([]); // US-054 "Receita despublicada"
   });
 
   it('visualização e favorito só de conteúdo visível (42501 no invisível); repetir a visualização não duplica', async () => {
@@ -873,9 +892,25 @@ describe('audiência fora da sessão de paciente (naAudiencia, gravarAudiencia)'
     expect(await quem(todos.id, 'todos')).toEqual([ana.id, bia.id]);
     expect(await quem(porEtiqueta.id, 'etiquetas')).toEqual([ana.id]);
     expect(await quem(daBia.id, 'pacientes')).toEqual([bia.id]);
+    // naAudienciaDaLinha: o mesmo resultado com o conteúdo vindo da linha (a visibilidade lida do banco)
+    const daLinha = (id: string) =>
+      withTenant(
+        T.ctx,
+        (tx) =>
+          tx
+            .select({ id: patients.id })
+            .from(patients)
+            .innerJoin(contents, and(eq(contents.tenantId, patients.tenantId), eq(contents.id, id)))
+            .where(naAudienciaDaLinha(contents.id, contents.visibilidade))
+            .orderBy(patients.nome),
+        app.db,
+      ).then((r) => r.map((x) => x.id));
+    expect(await daLinha(todos.id)).toEqual([ana.id, bia.id]);
+    expect(await daLinha(porEtiqueta.id)).toEqual([ana.id]);
+    expect(await daLinha(daBia.id)).toEqual([bia.id]);
   });
 
-  it('gravarAudiencia: grava só a diferença, ignora paciente de outro tenant, arquivado e etiqueta desconhecida; trocar a visibilidade limpa os alvos', async () => {
+  it('gravarAudiencia: grava só a diferença, ignora paciente de outro tenant, arquivado e etiqueta desconhecida; alvo que o formulário não mostra fica (D15); trocar a visibilidade limpa os alvos', async () => {
     const { T, ana, bia } = await cenario();
     const U = await novoTenant(app.db);
     const deFora = await novoPaciente(app.db, U.ctx);
@@ -887,6 +922,19 @@ describe('audiência fora da sessão de paciente (naAudiencia, gravarAudiencia)'
     const antes = await auditadas();
     await gravar({ visibilidade: 'pacientes', pacientes: [ana.id], etiquetas: [] }); // nada mudou: nenhuma escrita
     expect(await auditadas()).toBe(antes);
+    await gravar({ visibilidade: 'pacientes', pacientes: [bia.id], etiquetas: [] });
+    expect(await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).toEqual({ pacientes: [bia.id], etiquetas: [] });
+    // D15: o Caio era alvo e foi arquivado — o formulário não o mostra (só ativos), então salvar NÃO o tira;
+    // desarquivado, volta à audiência sem a nutricionista refazer a escolha
+    const caio = await novoPaciente(app.db, T.ctx, { nome: 'Caio' });
+    await gravar({ visibilidade: 'pacientes', pacientes: [bia.id, caio.id], etiquetas: [] });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, caio.id)), app.db);
+    expect(await gravar({ visibilidade: 'pacientes', pacientes: [bia.id], etiquetas: [] })).toEqual({ pacientes: [bia.id], etiquetas: [] });
+    expect(await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).toEqual({ pacientes: [bia.id, caio.id], etiquetas: [] });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'ativo' }).where(eq(patients.id, caio.id)), app.db);
+    const naDaBia = await withTenant(T.ctx, (tx) => tx.select({ id: patients.id }).from(patients).where(naAudiencia(c.id, 'pacientes')).orderBy(patients.nome), app.db);
+    expect(naDaBia.map((x) => x.id)).toEqual([bia.id, caio.id]);
+    // o que o formulário mostra e a nutricionista desmarca, sai
     await gravar({ visibilidade: 'pacientes', pacientes: [bia.id], etiquetas: [] });
     expect(await withTenant(T.ctx, (tx) => lerAudiencia(tx, c.id), app.db)).toEqual({ pacientes: [bia.id], etiquetas: [] });
     const gestante = await novaEtiqueta(app.db, T, 'gestante');
@@ -962,8 +1010,11 @@ CREATE POLICY paciente_conteudo_visivel ON contents AS RESTRICTIVE FOR SELECT
         SELECT 1 FROM content_audience a
          WHERE a.tenant_id = contents.tenant_id AND a.content_id = contents.id AND a.patient_id = app_current_patient()))
       OR (visibilidade = 'etiquetas' AND app_conteudo_por_etiqueta(contents.id))
-      -- RN-12, exceção (US-054): receita sugerida numa refeição do plano PUBLICADO do próprio paciente
-      OR (tipo = 'receita' AND EXISTS (
+      -- RN-12, exceção (US-054): receita sugerida numa refeição do plano PUBLICADO do próprio paciente — SÓ no caminho
+      -- do plano: "Meu plano" e a receita aberta pelo cartão ligam app.receitas_do_plano na própria transação
+      -- (liberarReceitasDoPlano, set_config local). O feed, a busca, o filtro de etiquetas, o selo "Novo", os favoritos
+      -- e o registro de visualização nunca ligam: lá a receita fora da audiência não existe.
+      OR (tipo = 'receita' AND current_setting('app.receitas_do_plano', true) = 'on' AND EXISTS (
         SELECT 1 FROM meals m JOIN meal_plans pl ON pl.tenant_id = m.tenant_id AND pl.id = m.plan_id
          WHERE m.tenant_id = contents.tenant_id AND m.recipe_content_id = contents.id AND pl.status = 'publicado'))
     ))
@@ -977,14 +1028,17 @@ CREATE POLICY paciente_conteudo_visivel ON recipe_ingredients AS RESTRICTIVE FOR
   USING (app_current_role() IS DISTINCT FROM 'paciente' OR EXISTS (
     SELECT 1 FROM contents c WHERE c.tenant_id = recipe_ingredients.tenant_id AND c.id = recipe_ingredients.content_id));
 --> statement-breakpoint
--- US-055 (defesa em profundidade, como a 0080): visualização e favorito só de conteúdo que o paciente vê
+-- US-055 (defesa em profundidade, como a 0080): visualização e favorito só de conteúdo que o paciente vê PELA
+-- AUDIÊNCIA — nunca com a liberação do plano ligada (D14: quem abre só pelo cartão, fora da audiência, não conta)
 CREATE POLICY paciente_conteudo_visto ON content_views AS RESTRICTIVE FOR INSERT
-  WITH CHECK (app_current_role() IS DISTINCT FROM 'paciente' OR EXISTS (
-    SELECT 1 FROM contents c WHERE c.tenant_id = content_views.tenant_id AND c.id = content_views.content_id));
+  WITH CHECK (app_current_role() IS DISTINCT FROM 'paciente' OR (
+    current_setting('app.receitas_do_plano', true) IS DISTINCT FROM 'on' AND EXISTS (
+      SELECT 1 FROM contents c WHERE c.tenant_id = content_views.tenant_id AND c.id = content_views.content_id)));
 --> statement-breakpoint
 CREATE POLICY paciente_conteudo_favorito ON content_favorites AS RESTRICTIVE FOR INSERT
-  WITH CHECK (app_current_role() IS DISTINCT FROM 'paciente' OR EXISTS (
-    SELECT 1 FROM contents c WHERE c.tenant_id = content_favorites.tenant_id AND c.id = content_favorites.content_id));
+  WITH CHECK (app_current_role() IS DISTINCT FROM 'paciente' OR (
+    current_setting('app.receitas_do_plano', true) IS DISTINCT FROM 'on' AND EXISTS (
+      SELECT 1 FROM contents c WHERE c.tenant_id = content_favorites.tenant_id AND c.id = content_favorites.content_id)));
 ```
 
 **Teste no cluster do runbook (dono sem superusuário)** — `src/db/migrate-owner.test.ts`. Nos testes comuns a função pertence ao superusuário (o `global-setup` migra como `postgres`) e ignora a RLS; em produção o dono é o migrator **sem** superusuário e **sem** BYPASSRLS, e com FORCE RLS a função só enxerga `patient_tag_links` (staff_only) porque troca `app.role` para `worker`. Se essa troca sumir numa refatoração, o CI ficaria verde e, em produção, todo conteúdo "Pacientes com etiqueta" sumiria para todos, sem erro. Mesmo precedente das funções da 0012 e da 0065 (já com caso neste arquivo). Acrescentar, no fim do `describe`:
@@ -1043,7 +1097,7 @@ Run: `pnpm test src/db/migrate-owner.test.ts` → PASS (depois da migration).
 - [ ] **Step 5: Módulo da audiência** — `src/modules/conteudo/audiencia.ts`
 
 ```ts
-import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { contentAudience, patients, patientTagLinks, patientTags } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -1056,25 +1110,54 @@ export type OpcoesDeAudiencia = { etiquetas: { id: string; nome: string }[]; pac
 /** Teto da lista de pacientes no formulário (ordem alfabética). */
 export const PACIENTES_NA_LISTA = 500;
 
+type Conteudo = string | AnyColumn | SQL;
+const ativo = () => sql`${patients.status} = 'ativo' and ${patients.anonimizadoEm} is null`;
+const porPaciente = (contentId: Conteudo) => sql`exists (select 1 from ${contentAudience} a
+      where a.tenant_id = ${patients.tenantId} and a.content_id = ${contentId} and a.patient_id = ${patients.id})`;
+const porEtiqueta = (contentId: Conteudo) => sql`exists (select 1 from ${contentAudience} a
+      join ${patientTagLinks} l on l.tenant_id = a.tenant_id and l.tag_id = a.tag_id
+      where a.tenant_id = ${patients.tenantId} and a.content_id = ${contentId} and l.patient_id = ${patients.id})`;
+
 /**
  * RN-12 fora da sessão de paciente (aviso de conteúdo novo, métricas): condição SQL sobre `patients` — ativo, não
  * anonimizado e na audiência do conteúdo. A sessão de paciente NÃO usa isto: lá a RLS decide (0083).
  */
 export function naAudiencia(contentId: string, visibilidade: Visibilidade): SQL {
-  const ativo = sql`${patients.status} = 'ativo' and ${patients.anonimizadoEm} is null`;
-  if (visibilidade === 'todos') return ativo;
-  if (visibilidade === 'pacientes')
-    return sql`${ativo} and exists (select 1 from ${contentAudience} a
-      where a.tenant_id = ${patients.tenantId} and a.content_id = ${contentId} and a.patient_id = ${patients.id})`;
-  return sql`${ativo} and exists (select 1 from ${contentAudience} a
-      join ${patientTagLinks} l on l.tenant_id = a.tenant_id and l.tag_id = a.tag_id
-      where a.tenant_id = ${patients.tenantId} and a.content_id = ${contentId} and l.patient_id = ${patients.id})`;
+  if (visibilidade === 'todos') return ativo();
+  return sql`${ativo()} and ${visibilidade === 'pacientes' ? porPaciente(contentId) : porEtiqueta(contentId)}`;
+}
+
+/** A mesma condição com o conteúdo vindo da linha da consulta (id e visibilidade lidos do banco): métricas agrupadas (T11). */
+export function naAudienciaDaLinha(contentId: AnyColumn | SQL, visibilidade: AnyColumn | SQL): SQL {
+  return sql`${ativo()} and (${visibilidade} = 'todos'
+      or (${visibilidade} = 'pacientes' and ${porPaciente(contentId)})
+      or (${visibilidade} = 'etiquetas' and ${porEtiqueta(contentId)}))`;
 }
 
 /**
- * Deixa o conteúdo com exatamente estes alvos (só os da visibilidade escolhida: "todos" limpa tudo). Vale só o que a
- * RLS mostra (paciente/etiqueta de outro tenant some) e paciente ativo, não anonimizado. Grava só a diferença: o
- * gatilho de auditoria (entidade `conteudos`, D6) registra o que mudou. Chamar com o conteúdo travado.
+ * RN-12, exceção (US-054): libera, SÓ nesta transação (set_config local), a leitura das receitas sugeridas no plano
+ * publicado do próprio paciente (política paciente_conteudo_visivel, 0083). Só "Meu plano" (`planoDoPaciente`,
+ * src/modules/portal/plano.ts) e a receita aberta pelo cartão (`conteudoDoPaciente(…, { doPlano: true })`) chamam —
+ * nunca o feed, a busca, os favoritos ou o registro de visualização (guarda em src/modules/portal/conteudos.test.ts).
+ */
+export const liberarReceitasDoPlano = (tx: Tx) => tx.execute(sql`select set_config('app.receitas_do_plano', 'on', true)`);
+
+/** Os pacientes que o formulário mostra: ativos, não anonimizados, os PACIENTES_NA_LISTA primeiros por nome. */
+const pacientesDoFormulario = (tx: Tx) =>
+  tx
+    .select({ id: patients.id, nome: patients.nome })
+    .from(patients)
+    .where(and(eq(patients.status, 'ativo'), isNull(patients.anonimizadoEm)))
+    .orderBy(asc(patients.nome), asc(patients.id))
+    .limit(PACIENTES_NA_LISTA);
+
+/**
+ * Deixa o conteúdo com estes alvos (só os da visibilidade escolhida: "todos" limpa tudo). Vale só o que a RLS mostra
+ * (paciente/etiqueta de outro tenant some) e paciente ativo, não anonimizado. D15: só sai o paciente que o formulário
+ * MOSTROU e a nutricionista desmarcou — alvo arquivado, ou além dos PACIENTES_NA_LISTA, não aparece no formulário e
+ * fica (desarquivado, volta à audiência). Trocar a visibilidade é escolha explícita e limpa os alvos do tipo anterior.
+ * Grava só a diferença: o gatilho de auditoria (entidade `conteudos`, D6) registra o que mudou. Chamar com o conteúdo
+ * travado. Devolve os alvos pedidos que valeram (para "Escolha pelo menos uma etiqueta ou um paciente.").
  */
 export async function gravarAudiencia(tx: Tx, tenantId: string, contentId: string, a: AudienciaEnviada): Promise<{ pacientes: string[]; etiquetas: string[] }> {
   const pedidos = (ids: string[]) => [...new Set(ids.filter(idValido))];
@@ -1085,7 +1168,15 @@ export async function gravarAudiencia(tx: Tx, tenantId: string, contentId: strin
     : [];
   const etiquetas = pedE.length ? (await tx.select({ id: patientTags.id }).from(patientTags).where(inArray(patientTags.id, pedE))).map((r) => r.id) : [];
   const atuais = await tx.select().from(contentAudience).where(eq(contentAudience.contentId, contentId));
-  const sair = atuais.filter((r) => (r.patientId ? !pacientes.includes(r.patientId) : !etiquetas.includes(r.tagId!))).map((r) => r.id);
+  const exibidos =
+    a.visibilidade === 'pacientes' && atuais.some((r) => r.patientId) ? new Set((await pacientesDoFormulario(tx)).map((p) => p.id)) : new Set<string>();
+  const sair = atuais
+    .filter((r) =>
+      r.patientId
+        ? a.visibilidade !== 'pacientes' || (exibidos.has(r.patientId) && !pacientes.includes(r.patientId))
+        : !etiquetas.includes(r.tagId!),
+    )
+    .map((r) => r.id);
   if (sair.length) await tx.delete(contentAudience).where(inArray(contentAudience.id, sair));
   const temP = new Set(atuais.map((r) => r.patientId));
   const temE = new Set(atuais.map((r) => r.tagId));
@@ -1108,12 +1199,8 @@ export async function opcoesDeAudiencia(ctx: TenantContext, db: Db = getDb()): P
     ctx,
     async (tx) => ({
       etiquetas: await tx.select({ id: patientTags.id, nome: patientTags.nome }).from(patientTags).orderBy(asc(patientTags.nome)),
-      pacientes: await tx
-        .select({ id: patients.id, nome: patients.nome })
-        .from(patients)
-        .where(and(eq(patients.status, 'ativo'), isNull(patients.anonimizadoEm)))
-        .orderBy(asc(patients.nome))
-        .limit(PACIENTES_NA_LISTA),
+      // a MESMA lista que gravarAudiencia usa para decidir o que pode sair (D15)
+      pacientes: await pacientesDoFormulario(tx),
     }),
     db,
   );
@@ -1150,7 +1237,7 @@ e em `src/db/rls-guard.ts`, depois de `findPacienteEscritaViolations`:
  * RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, migration 0083). Tabela nova de conteúdo entra aqui.
  */
 export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
-  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou receita do plano publicado dele',
+  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou, só com liberarReceitasDoPlano, receita do plano publicado dele',
   recipes: 'herda de contents',
   recipe_ingredients: 'herda de contents',
 };
@@ -1169,27 +1256,29 @@ export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Pr
 
 Run: `pnpm db:migrate` e `pnpm test src/modules/conteudo/audiencia.test.ts src/db test/isolamento.test.ts` → PASS.
 
-- [ ] **Step 7: CLAUDE.md** — na regra 2, depois da frase da sessão de paciente (Plano 06, D1), acrescentar: "Conteúdo (Plano 07, RN-12): tabela sem `patient_id` que o paciente lê pela audiência do conteúdo ganha a política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, herdando de `contents` por `EXISTS`) e a entrada em `CONTEUDO_POR_AUDIENCIA` (`src/db/rls-guard.ts`) — a guarda `findConteudoAudienciaViolations` quebra o CI se esquecer. O portal nunca filtra a audiência à mão; a etiqueta do paciente só por `app_conteudo_por_etiqueta`."
+- [ ] **Step 7: CLAUDE.md** — na regra 2, depois da frase da sessão de paciente (Plano 06, D1), acrescentar: "Conteúdo (Plano 07, RN-12): tabela sem `patient_id` que o paciente lê pela audiência do conteúdo ganha a política RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, herdando de `contents` por `EXISTS`) e a entrada em `CONTEUDO_POR_AUDIENCIA` (`src/db/rls-guard.ts`) — a guarda `findConteudoAudienciaViolations` quebra o CI se esquecer. O portal nunca filtra a audiência à mão; a etiqueta do paciente só por `app_conteudo_por_etiqueta`. A exceção da RN-12 (receita sugerida no plano publicado do próprio paciente, US-054) só vale com `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts`, `set_config` local à transação), chamada só por `planoDoPaciente` (`src/modules/portal/plano.ts`) e por `conteudoDoPaciente(…, { doPlano: true })` — nunca no feed, na busca, nos favoritos ou na visualização (guarda em `src/modules/portal/conteudos.test.ts`)."
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add drizzle/0083_audiencia_conteudos.sql drizzle/meta src/modules/conteudo/constantes.ts src/modules/conteudo/audiencia.ts src/modules/conteudo/audiencia.test.ts test/conteudos.ts src/db/rls-guard.ts src/db/rls-guard.test.ts src/db/migrate-owner.test.ts CLAUDE.md
-git commit -m "feat(conteudo): audiência avaliada na leitura pela RLS (todos, etiquetas via SECURITY DEFINER, pacientes, receita do plano) — RN-12"
+git commit -m "feat(conteudo): audiência avaliada na leitura pela RLS (todos, etiquetas via SECURITY DEFINER, pacientes; receita do plano só no caminho do plano) — RN-12"
 ```
 
 ---
 ### Task 3: Vídeo por link, capa pelo oEmbed e processamento da capa (P07-02 a; US-050, RN-10, INT-05)
 
 **Files:**
-- Create: `src/modules/conteudo/video.ts` (+ `video.test.ts`), `src/modules/conteudo/oembed.ts` (+ `oembed.test.ts`), `src/modules/conteudo/capa.ts` (+ `capa.test.ts`), `src/components/player-video.tsx`, `src/components/capa-conteudo.tsx`
+- Create: `src/modules/conteudo/video.ts` (+ `video.test.ts`), `src/modules/conteudo/oembed.ts` (+ `oembed.test.ts`), `src/modules/conteudo/capa.ts` (+ `capa.test.ts`), `src/lib/jpeg.ts`, `src/components/player-video.tsx`, `src/components/capa-conteudo.tsx`
+- Modify: `src/modules/portal/diario-foto-job.ts` (o `paraJpeg` passa a usar `paraJpegSemMetadados` — mesmo pipeline, sem mudança de comportamento)
 
 **Interfaces:**
 - Consumes: `detectarTipo` (`src/lib/file-type.ts`), `TipoNaoPermitidoError` (`src/modules/plataforma/armazenamento.ts`), `logger`, `nomeDoErro` (`src/lib/logger.ts`), `ROTULO_TIPO_CONTEUDO`, `TipoConteudo` (Tarefa 2).
 - Produces:
   - `@/modules/conteudo/video` (sem banco nem rede; o cliente importa): `type ProvedorVideo = 'youtube' | 'vimeo'`, `type VideoDoLink = { provider: ProvedorVideo; id: string }`, `lerLinkDeVideo(entrada: unknown): VideoDoLink | null`, `urlDoPlayer(v): string`, `urlDoVideo(v): string`, `videoDoConteudo(c: { videoProvider: string | null; videoId: string | null }): VideoDoLink | null`.
   - `@/modules/conteudo/oembed`: `miniaturaDoVideo(v: VideoDoLink, o?: { fetchImpl?: typeof fetch; prazoMs?: number }): Promise<Buffer | null>`, `urlDaMiniatura(u: unknown): string | null`, `OEMBED_PRAZO_MS = 5000`.
-  - `@/modules/conteudo/capa`: `processarCapa(conteudo: Buffer, aceitos?: readonly ('jpg' | 'png' | 'webp')[]): Promise<Buffer>` (JPEG ≤ 1280 px, sem EXIF), `CAPA_LADO_MAX = 1280`.
+  - `@/lib/jpeg` (só `sharp`, sem HEIC — rota e worker importam): `paraJpegSemMetadados(img: Sharp, ladoMax: number): Promise<Buffer>` (reduz para caber em `ladoMax`, transparência sobre branco, JPEG 80 mozjpeg, sem metadados).
+  - `@/modules/conteudo/capa`: `processarCapa(conteudo: Buffer, aceitos?: readonly ('jpg' | 'png' | 'webp')[]): Promise<Buffer>` (JPEG ≤ 1280 px, sem EXIF, fundo branco), `CAPA_LADO_MAX = 1280`.
   - `@/components/player-video`: `PlayerVideo({ video, titulo })`; `@/components/capa-conteudo`: `CapaDoConteudo({ tipo, capaUrl, className? })`.
 
 - [ ] **Step 1: Teste do link (falha)** — `src/modules/conteudo/video.test.ts`
@@ -1535,6 +1624,12 @@ describe('capa do conteúdo (D8, US-051)', () => {
     expect((await sharp(out).metadata()).width).toBe(400);
   });
 
+  it('PNG com transparência → fundo branco (sem o flatten o JPEG sai preto), como a foto do diário', async () => {
+    const transparente = await sharp({ create: { width: 20, height: 20, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const { data } = await sharp(await processarCapa(transparente)).raw().toBuffer({ resolveWithObject: true });
+    expect(Math.min(data[0], data[1], data[2])).toBeGreaterThan(245);
+  });
+
   it('recusa o que não é JPEG/PNG (upload da nutricionista) e o arquivo corrompido', async () => {
     const webp = await imagem(10, 10).webp().toBuffer();
     await expect(processarCapa(webp, ['jpg', 'png'])).rejects.toBeInstanceOf(TipoNaoPermitidoError);
@@ -1548,11 +1643,33 @@ describe('capa do conteúdo (D8, US-051)', () => {
 
 Run: `pnpm test src/modules/conteudo/capa.test.ts` → FAIL.
 
-- [ ] **Step 6: Implementação** — `src/modules/conteudo/capa.ts`
+- [ ] **Step 6: Implementação** — primeiro o pipeline comum, extraído do `paraJpeg` da foto do diário (Plano 06) para um arquivo só com `sharp` (o `diario-foto-job.ts` importa `heic-decode` e só o worker pode importá-lo; a capa roda na rota de upload) — `src/lib/jpeg.ts`:
+
+```ts
+import type { Sharp } from 'sharp';
+
+/**
+ * Pixels → JPEG que cabe em `ladoMax` × `ladoMax`, qualidade 80, sem metadados (o sharp só copia EXIF/GPS com
+ * withMetadata). Transparência (PNG/WebP) sobre fundo BRANCO: sem o flatten, o JPEG pinta o transparente de preto.
+ * Um pipeline só para a foto do diário (Plano 06, 1600 px) e a capa do conteúdo (Plano 07, 1280 px).
+ */
+export function paraJpegSemMetadados(img: Sharp, ladoMax: number): Promise<Buffer> {
+  return img
+    .resize({ width: ladoMax, height: ladoMax, fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 80, mozjpeg: true })
+    .toBuffer();
+}
+```
+
+`src/modules/portal/diario-foto-job.ts`, em `paraJpeg`: trocar o `return img.resize(…).flatten(…).jpeg(…).toBuffer().catch(…)` por `return paraJpegSemMetadados(img, LADO_MAX).catch(() => { throw new FotoInvalidaError('conversao'); });` (importar de `@/lib/jpeg`; o comentário "Pixels → JPEG ≤ 1600 px…" fica). Run: `pnpm test src/modules/portal/diario-foto-job.test.ts` → PASS (sem mudança de comportamento).
+
+`src/modules/conteudo/capa.ts`
 
 ```ts
 import sharp from 'sharp';
 import { detectarTipo } from '@/lib/file-type';
+import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 
@@ -1560,19 +1677,15 @@ export const CAPA_LADO_MAX = 1280;
 type Aceito = 'jpg' | 'png' | 'webp';
 
 /**
- * D8: toda capa vira JPEG ≤ 1280 px, qualidade 80, sem EXIF/GPS (o sharp não copia metadados; `rotate()` aplica a
- * orientação antes). Tipo pelo conteúdo; 40 MP no máximo (como o logo). Upload da nutricionista: `['jpg', 'png']`
- * (US-051); a miniatura do oEmbed também pode vir em WebP.
+ * D8: toda capa vira JPEG ≤ 1280 px, qualidade 80, sem EXIF/GPS, transparência sobre branco — o mesmo pipeline da foto
+ * do diário (`paraJpegSemMetadados`); `rotate()` aplica a orientação antes. Tipo pelo conteúdo; 40 MP no máximo (como
+ * o logo). Upload da nutricionista: `['jpg', 'png']` (US-051); a miniatura do oEmbed também pode vir em WebP.
  */
 export async function processarCapa(conteudo: Buffer, aceitos: readonly Aceito[] = ['jpg', 'png', 'webp']): Promise<Buffer> {
   const tipo = detectarTipo(conteudo);
   if (!tipo || !(aceitos as readonly string[]).includes(tipo.ext)) throw new TipoNaoPermitidoError();
   try {
-    return await sharp(conteudo, { limitInputPixels: 40_000_000, failOn: 'error' })
-      .rotate()
-      .resize(CAPA_LADO_MAX, CAPA_LADO_MAX, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80, mozjpeg: true })
-      .toBuffer();
+    return await paraJpegSemMetadados(sharp(conteudo, { limitInputPixels: 40_000_000, failOn: 'error' }).rotate(), CAPA_LADO_MAX);
   } catch (err) {
     logger.warn({ err: nomeDoErro(err) }, 'capa recusada pelo decodificador');
     throw new TipoNaoPermitidoError();
@@ -1648,13 +1761,13 @@ describe('PlayerVideo (D10)', () => {
 });
 ```
 
-Run: `pnpm test src/modules/conteudo` → PASS. `pnpm typecheck` → PASS.
+Run: `pnpm test src/modules/conteudo src/modules/portal/diario-foto-job.test.ts` → PASS. `pnpm typecheck` → PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/modules/conteudo/video.ts src/modules/conteudo/video.test.ts src/modules/conteudo/oembed.ts src/modules/conteudo/oembed.test.ts src/modules/conteudo/capa.ts src/modules/conteudo/capa.test.ts src/components/player-video.tsx src/components/capa-conteudo.tsx
-git commit -m "feat(conteudo): link do YouTube/Vimeo, capa pelo oEmbed com prazo e hosts fixos, capa em JPEG sem EXIF, player sem cookies (RN-10, INT-05)"
+git add src/modules/conteudo/video.ts src/modules/conteudo/video.test.ts src/modules/conteudo/oembed.ts src/modules/conteudo/oembed.test.ts src/modules/conteudo/capa.ts src/modules/conteudo/capa.test.ts src/lib/jpeg.ts src/modules/portal/diario-foto-job.ts src/components/player-video.tsx src/components/capa-conteudo.tsx
+git commit -m "feat(conteudo): link do YouTube/Vimeo, capa pelo oEmbed com prazo e hosts fixos, capa em JPEG sem EXIF e com fundo branco (pipeline da foto do diário), player sem cookies (RN-10, INT-05)"
 ```
 
 ---
@@ -1881,10 +1994,10 @@ git commit -m "feat(conteudo): markdown das orientações como elementos React, 
 - Consumes: `salvarArquivo`, `apagarArquivo`, `CotaEsgotadaError`, `TipoNaoPermitidoError`, `MSG_COTA_ESGOTADA` (`armazenamento.ts`); `signFileUrl`; `lerCorpoLimitado`, `CorpoGrandeError`, `CorpoLentoError`; `requireNutri`, `requireApiNutri`; `processarCapa` (T3), `miniaturaDoVideo` (T3), `lerLinkDeVideo`, `urlDoVideo`, `videoDoConteudo`, `VideoDoLink` (T3); `gravarAudiencia`, `lerAudiencia`, `opcoesDeAudiencia`, `OpcoesDeAudiencia` (T2); constantes (T2); `PlayerVideo`, `CapaDoConteudo` (T3); `Cabecalho`, `ConfirmarBotao`.
 - Produces:
   - `@/lib/mesma-origem`: `mesmaOrigem(req: Request, appUrl?: string): boolean`.
-  - `@/modules/conteudo/erros`: `ConteudoError` (`erros: Record<string, string>`), `ConteudoNaoEncontradoError`.
-  - `@/modules/conteudo/arquivos`: `trocarCapa(ctx, contentId, conteudo: Buffer, o?: { db?; dataDir?; aceitos?; tipos?: TipoConteudo[] }): Promise<string>`, `trocarPdf(ctx, contentId, conteudo, o?): Promise<string>`, `removerCapa(ctx, contentId, o?): Promise<boolean>`, `removerPdf(ctx, contentId, o?): Promise<boolean>`.
+  - `@/modules/conteudo/erros`: `ConteudoError` (`erros: Record<string, string>`), `ConteudoNaoEncontradoError`, `VideoTrocadoError` (a capa do oEmbed chegou depois de outro salvamento trocar o link).
+  - `@/modules/conteudo/arquivos`: `trocarCapa(ctx, contentId, conteudo: Buffer, o?: { db?; dataDir?; aceitos?; tipos?: TipoConteudo[]; doVideo?: VideoDoLink }): Promise<string>`, `trocarPdf(ctx, contentId, conteudo, o?): Promise<string>`, `removerCapa(ctx, contentId, o?: { db?; dataDir?; doVideo?: VideoDoLink }): Promise<boolean>`, `removerPdf(ctx, contentId, o?): Promise<boolean>` (orientação publicada sem texto → `ConteudoError({ geral: MSG_CONTEUDO.publicadoVazio })`).
   - `@/modules/conteudo/conteudos`: `type EntradaConteudo`, `type Deps = { db?; dataDir?; agora?; fetchImpl? }`, `lerEtiquetasDoConteudo(v): string[] | null`, `validarConteudo(tipo, e)`, `criarConteudo(ctx, tipo, e, deps?): Promise<string>`, `salvarConteudo(ctx, id, e, deps?): Promise<void>`, `publicarConteudo(ctx, id, deps?): Promise<void>` (**a Tarefa 10 troca a assinatura** para `(ctx, id, opcoes: { avisar: boolean }, deps?) → { avisados: number }`), `despublicarConteudo(ctx, id, deps?)`, `excluirConteudo(ctx, id, deps?)`, `listarConteudosDoPainel(ctx, filtro?, db?): Promise<ConteudoDaLista[]>`, `carregarConteudoDoPainel(ctx, id, db?): Promise<ConteudoDoPainel | null>`; tipos `ConteudoDaLista = { id; tipo: TipoConteudo; titulo; status: 'rascunho' | 'publicado'; visibilidade: Visibilidade; publicadoEm: Date | null; atualizadoEm: Date }`, `ConteudoDoPainel = { id; tipo; titulo; resumo; corpoMd; etiquetas: string[]; visibilidade; status; publicadoEm: Date | null; video: VideoDoLink | null; link: string; capaUrl: string | null; pdfUrl: string | null; audiencia: { pacientes: string[]; etiquetas: string[] } }`.
-  - Server Actions (`src/app/painel/conteudos/actions.ts`): `criarConteudoAction(tipo, s, fd)`, `salvarConteudoAction(id, s, fd)`, `publicarConteudoAction(id, s, fd)`, `despublicarConteudoAction(id)`, `excluirConteudoAction(id)`, `removerCapaAction(id)`, `removerPdfAction(id)`; tipos `ValoresDoForm`, `ConteudoState`.
+  - Server Actions (`src/app/painel/conteudos/actions.ts`): `criarConteudoAction(tipo, s, fd)`, `salvarConteudoAction(id, s, fd)`, `publicarConteudoAction(id, s, fd)`, `despublicarConteudoAction(id)`, `excluirConteudoAction(id)`, `removerCapaAction(id)`, `removerPdfAction(id): Promise<{ erro?: string }>`; tipos `ValoresDoForm`, `ConteudoState`.
   - Componentes: `ConteudoForm`, `ArquivosDoConteudo`, `PublicarForm` (`src/app/painel/conteudos/`).
 
 - [ ] **Step 1: S-9 — teste (falha)** — `src/lib/mesma-origem.test.ts`
@@ -1946,6 +2059,11 @@ export class ConteudoNaoEncontradoError extends Error {
     super(MSG_CONTEUDO.naoEncontrado);
   }
 }
+
+/** D9: a capa do oEmbed chegou depois de outro salvamento trocar o link — a capa é do salvamento mais novo. */
+export class VideoTrocadoError extends Error {
+  override name = 'VideoTrocadoError';
+}
 ```
 
 - [ ] **Step 4: Teste dos arquivos (falha)** — `src/modules/conteudo/arquivos.test.ts`
@@ -1961,7 +2079,8 @@ import { contents, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { COTA_BYTES, CotaEsgotadaError, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { removerCapa, removerPdf, trocarCapa, trocarPdf } from './arquivos';
-import { ConteudoNaoEncontradoError } from './erros';
+import { MSG_CONTEUDO } from './constantes';
+import { ConteudoNaoEncontradoError, VideoTrocadoError } from './erros';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -1999,9 +2118,31 @@ describe('capa e PDF do conteúdo (D8, regra 9)', () => {
     expect(await arquivos(T)).toEqual([]);
   });
 
+  it('D9: a capa do oEmbed (e a remoção dela) só vale se o conteúdo ainda aponta para o mesmo vídeo', async () => {
+    const T = await novoTenant(app.db);
+    const v = await novoConteudo(app.db, T, { tipo: 'video', titulo: 'V', videoProvider: 'vimeo', videoId: '76979871' });
+    const antigo = { provider: 'youtube', id: 'dQw4w9WgXcQ' } as const;
+    await expect(trocarCapa(T.ctx, v.id, png, { ...deps, doVideo: antigo })).rejects.toBeInstanceOf(VideoTrocadoError);
+    expect(await arquivos(T)).toEqual([]); // nada gravado, cota intacta
+    const capa = await trocarCapa(T.ctx, v.id, png, { ...deps, doVideo: { provider: 'vimeo', id: '76979871' } });
+    expect(await removerCapa(T.ctx, v.id, { ...deps, doVideo: antigo })).toBe(false);
+    expect((await conteudo(T, v.id)).capaPath).toBe(capa);
+  });
+
+  it('D17: orientação PUBLICADA sem texto não perde o PDF (ficaria vazia); com texto, perde', async () => {
+    const T = await novoTenant(app.db);
+    const o = await novoConteudo(app.db, T); // publicada, sem texto
+    await trocarPdf(T.ctx, o.id, pdf, deps);
+    await expect(removerPdf(T.ctx, o.id, deps)).rejects.toMatchObject({ erros: { geral: MSG_CONTEUDO.publicadoVazio } });
+    expect((await conteudo(T, o.id)).pdfPath).not.toBeNull();
+    expect(await arquivos(T)).toHaveLength(1);
+    await withTenant(T.ctx, (tx) => tx.update(contents).set({ corpoMd: 'Leia a porção.' }).where(eq(contents.id, o.id)), app.db);
+    expect(await removerPdf(T.ctx, o.id, deps)).toBe(true);
+  });
+
   it('PDF: só na orientação; tipo pelo conteúdo; cota esgotada não grava nada', async () => {
     const T = await novoTenant(app.db);
-    const o = await novoConteudo(app.db, T);
+    const o = await novoConteudo(app.db, T, { status: 'rascunho' }); // rascunho: tirar o PDF não esbarra na D17
     const caminho = await trocarPdf(T.ctx, o.id, pdf, deps);
     expect(caminho).toMatch(/\/orientacao_pdf\/.+\.pdf$/);
     await expect(trocarPdf(T.ctx, o.id, png, deps)).rejects.toBeInstanceOf(TipoNaoPermitidoError);
@@ -2028,14 +2169,19 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { processarCapa } from './capa';
-import { TIPOS_CONTEUDO, type TipoConteudo } from './constantes';
-import { ConteudoNaoEncontradoError } from './erros';
+import { MSG_CONTEUDO, TIPOS_CONTEUDO, type TipoConteudo } from './constantes';
+import { ConteudoError, ConteudoNaoEncontradoError, VideoTrocadoError } from './erros';
+import type { VideoDoLink } from './video';
 
 type DepsArquivo = { db?: Db; dataDir?: string };
+/** D9: a capa do oEmbed só vale enquanto o conteúdo aponta para este vídeo (conferido com a linha travada). */
+type DoVideo = { doVideo?: VideoDoLink };
 type Campo = 'capaPath' | 'pdfPath';
 /** O `set` do ponteiro com a coluna nomeada (chave computada não tipa no Drizzle). */
 const apontar = (campo: Campo, caminho: string | null) =>
   campo === 'capaPath' ? { capaPath: caminho, updatedAt: new Date() } : { pdfPath: caminho, updatedAt: new Date() };
+const outroVideo = (c: { videoProvider: string | null; videoId: string | null }, v: VideoDoLink | undefined) =>
+  Boolean(v) && (c.videoProvider !== v!.provider || c.videoId !== v!.id);
 
 /**
  * Regra 9: o arquivo entra por salvarArquivo e o ponteiro em `contents` é gravado no `registrar` (mesma transação);
@@ -2048,7 +2194,7 @@ async function trocar(
   campo: Campo,
   arquivo: { tipo: 'capa' | 'orientacao_pdf'; conteudo: Buffer; permitidos: readonly ('jpg' | 'pdf')[] },
   tipos: readonly TipoConteudo[],
-  o: DepsArquivo,
+  o: DepsArquivo & DoVideo,
 ): Promise<string> {
   if (!idValido(contentId)) throw new ConteudoNaoEncontradoError();
   let antigo: string | null = null;
@@ -2059,8 +2205,14 @@ async function trocar(
       conteudo: arquivo.conteudo,
       permitidos: arquivo.permitidos,
       antesDaReserva: async (tx) => {
-        const [c] = await tx.select({ tipo: contents.tipo, atual: contents[campo] }).from(contents).where(eq(contents.id, contentId)).for('update');
+        const [c] = await tx
+          .select({ tipo: contents.tipo, atual: contents[campo], videoProvider: contents.videoProvider, videoId: contents.videoId })
+          .from(contents)
+          .where(eq(contents.id, contentId))
+          .for('update');
         if (!c || !tipos.includes(c.tipo as TipoConteudo)) throw new ConteudoNaoEncontradoError();
+        // D9: outro salvamento trocou o link depois do oEmbed deste — desiste (rollback: nada gravado, cota intacta)
+        if (outroVideo(c, o.doVideo)) throw new VideoTrocadoError();
         antigo = c.atual;
       },
       registrar: async (tx, a) => {
@@ -2084,12 +2236,15 @@ async function apagarSolto(ctx: TenantContext, contentId: string, campo: Campo, 
   });
 }
 
-/** D8: capa em JPEG ≤ 1280 px sem EXIF. Upload da nutricionista: `aceitos: ['jpg','png']`, `tipos: ['receita','orientacao']`. */
+/**
+ * D8: capa em JPEG ≤ 1280 px sem EXIF. Upload da nutricionista: `aceitos: ['jpg','png']`, `tipos: ['receita','orientacao']`.
+ * Capa do oEmbed: `doVideo` — só entra se o conteúdo ainda aponta para esse vídeo (senão `VideoTrocadoError`).
+ */
 export async function trocarCapa(
   ctx: TenantContext,
   contentId: string,
   conteudo: Buffer,
-  o: DepsArquivo & { aceitos?: readonly ('jpg' | 'png' | 'webp')[]; tipos?: readonly TipoConteudo[] } = {},
+  o: DepsArquivo & DoVideo & { aceitos?: readonly ('jpg' | 'png' | 'webp')[]; tipos?: readonly TipoConteudo[] } = {},
 ): Promise<string> {
   const jpeg = await processarCapa(conteudo, o.aceitos);
   return trocar(ctx, contentId, 'capaPath', { tipo: 'capa', conteudo: jpeg, permitidos: ['jpg'] }, o.tipos ?? TIPOS_CONTEUDO, o);
@@ -2100,8 +2255,12 @@ export async function trocarPdf(ctx: TenantContext, contentId: string, conteudo:
   return trocar(ctx, contentId, 'pdfPath', { tipo: 'orientacao_pdf', conteudo, permitidos: ['pdf'] }, ['orientacao'], o);
 }
 
-/** Tira o arquivo do conteúdo: o ponteiro é limpo no `naMesmaTransacao` de apagarArquivo (regra 9). */
-async function remover(ctx: TenantContext, contentId: string, campo: Campo, o: DepsArquivo): Promise<boolean> {
+/**
+ * Tira o arquivo do conteúdo: o ponteiro é limpo no `naMesmaTransacao` de apagarArquivo (regra 9), com a linha
+ * travada. D17: o PDF de uma orientação PUBLICADA sem texto não sai (ela ficaria publicada vazia). D9: com `doVideo`,
+ * só remove se o conteúdo ainda aponta para esse vídeo.
+ */
+async function remover(ctx: TenantContext, contentId: string, campo: Campo, o: DepsArquivo & DoVideo): Promise<boolean> {
   if (!idValido(contentId)) return false;
   const db = o.db ?? getDb();
   const [c] = await withTenant(ctx, (tx) => tx.select({ atual: contents[campo] }).from(contents).where(eq(contents.id, contentId)), db);
@@ -2110,15 +2269,20 @@ async function remover(ctx: TenantContext, contentId: string, campo: Campo, o: D
   return apagarArquivo(ctx, { caminho }, {
     ...o,
     naMesmaTransacao: async (tx) => {
-      const [x] = await tx.select({ atual: contents[campo] }).from(contents).where(eq(contents.id, contentId)).for('update');
-      if (x?.atual !== caminho) return false;
+      const [x] = await tx
+        .select({ atual: contents[campo], status: contents.status, corpoMd: contents.corpoMd, videoProvider: contents.videoProvider, videoId: contents.videoId })
+        .from(contents)
+        .where(eq(contents.id, contentId))
+        .for('update');
+      if (!x || x.atual !== caminho || outroVideo(x, o.doVideo)) return false;
+      if (campo === 'pdfPath' && x.status === 'publicado' && !x.corpoMd) throw new ConteudoError({ geral: MSG_CONTEUDO.publicadoVazio });
       await tx.update(contents).set(apontar(campo, null)).where(eq(contents.id, contentId));
       return true;
     },
   });
 }
 
-export const removerCapa = (ctx: TenantContext, contentId: string, o: DepsArquivo = {}) => remover(ctx, contentId, 'capaPath', o);
+export const removerCapa = (ctx: TenantContext, contentId: string, o: DepsArquivo & DoVideo = {}) => remover(ctx, contentId, 'capaPath', o);
 export const removerPdf = (ctx: TenantContext, contentId: string, o: DepsArquivo = {}) => remover(ctx, contentId, 'pdfPath', o);
 ```
 
@@ -2215,6 +2379,27 @@ describe('vídeo por link (US-050, INT-05)', () => {
     await salvarConteudo(T.ctx, id, { ...base, link: 'https://youtu.be/dQw4w9WgXcQ' }, { db: app.db, fetchImpl: oembedFora });
     expect(await capas(T)).toEqual([]);
   });
+
+  it('dois salvamentos sobrepostos: a capa do link anterior, que chega depois do oEmbed, não fica (D9)', async () => {
+    const T = await novoTenant(app.db);
+    const id = await criarConteudo(T.ctx, 'video', { ...base, link: 'https://youtu.be/dQw4w9WgXcQ' }, { db: app.db, fetchImpl: oembedFora });
+    let segundo: Promise<void> | undefined;
+    let capaDoSegundo: string | null = null;
+    // o oEmbed do 1º salvamento (→ Vimeo) só responde depois que um 2º salvamento (→ outro YouTube) termina com a capa dele
+    const lento = (async (url: string | URL | Request) => {
+      segundo ??= salvarConteudo(T.ctx, id, { ...base, link: 'https://youtu.be/9bZkp7q19f0' }, { db: app.db, fetchImpl: oembedOk }).then(async () => {
+        capaDoSegundo = (await withTenant(T.ctx, (tx) => tx.select({ c: contents.capaPath }).from(contents).where(eq(contents.id, id)), app.db))[0].c;
+      });
+      await segundo;
+      return oembedOk(url);
+    }) as typeof fetch;
+    await salvarConteudo(T.ctx, id, { ...base, link: 'https://vimeo.com/76979871' }, { db: app.db, fetchImpl: lento });
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(contents).where(eq(contents.id, id)), app.db);
+    expect(c).toMatchObject({ videoProvider: 'youtube', videoId: '9bZkp7q19f0' });
+    expect(capaDoSegundo).not.toBeNull();
+    expect(c.capaPath).toBe(capaDoSegundo); // sem a conferência do vídeo, a capa do Vimeo trocaria esta
+    expect(await capas(T)).toEqual([{ caminho: capaDoSegundo }]);
+  });
 });
 
 describe('público do conteúdo (US-053)', () => {
@@ -2248,6 +2433,16 @@ describe('publicar, despublicar, excluir (D17)', () => {
     expect(await carregarConteudoDoPainel(T.ctx, id, app.db)).toMatchObject({ status: 'rascunho', publicadoEm: null });
   });
 
+  it('orientação PUBLICADA não fica vazia: salvar sem texto (e sem PDF) é recusado; no rascunho pode', async () => {
+    const T = await novoTenant(app.db);
+    const id = await criarConteudo(T.ctx, 'orientacao', { ...base, corpo: 'Leia a porção.' }, { db: app.db });
+    await publicarConteudo(T.ctx, id, { db: app.db });
+    expect(await erros(salvarConteudo(T.ctx, id, { ...base, corpo: '   ' }, { db: app.db }))).toEqual({ corpo: MSG_CONTEUDO.publicadoVazio });
+    expect((await carregarConteudoDoPainel(T.ctx, id, app.db))!.corpoMd).toBe('Leia a porção.');
+    await despublicarConteudo(T.ctx, id, { db: app.db });
+    await salvarConteudo(T.ctx, id, { ...base, corpo: '' }, { db: app.db });
+  });
+
   it('receita sem ingredientes não publica', async () => {
     const T = await novoTenant(app.db);
     const id = await criarConteudo(T.ctx, 'receita', { ...base, titulo: 'Panqueca de aveia' }, { db: app.db });
@@ -2269,6 +2464,20 @@ describe('publicar, despublicar, excluir (D17)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
     const [t] = await app.db.select({ b: tenants.armazenamentoBytes }).from(tenants).where(eq(tenants.id, T.tenantId));
     expect(t.b).toBe(0);
+  });
+
+  it('excluir com um envio de capa ao mesmo tempo: nunca sobra arquivo sem conteúdo nem cota contada (regra 9)', async () => {
+    for (let i = 0; i < 5; i++) {
+      const T = await novoTenant(app.db);
+      const id = await criarConteudo(T.ctx, 'orientacao', { ...base, corpo: 'x' }, { db: app.db });
+      await trocarPdf(T.ctx, id, Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(500)]), { db: app.db });
+      await Promise.allSettled([excluirConteudo(T.ctx, id, { db: app.db }), trocarCapa(T.ctx, id, jpeg, { db: app.db })]);
+      const resta = await carregarConteudoDoPainel(T.ctx, id, app.db);
+      const guardados = await withTenant(T.ctx, (tx) => tx.select({ caminho: storedFiles.caminho, bytes: storedFiles.bytes }).from(storedFiles), app.db);
+      const [t] = await app.db.select({ b: tenants.armazenamentoBytes }).from(tenants).where(eq(tenants.id, T.tenantId));
+      expect(t.b).toBe(guardados.reduce((s, f) => s + f.bytes, 0));
+      if (!resta) expect(guardados).toEqual([]);
+    }
   });
 
   it('id inválido ou de outro tenant: não encontrado (nunca 500)', async () => {
@@ -2294,11 +2503,11 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { signFileUrl } from '@/lib/signed-url';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
-import { CotaEsgotadaError, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
-import { removerCapa, removerPdf, trocarCapa } from './arquivos';
+import { apagarArquivo, CotaEsgotadaError, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
+import { removerCapa, trocarCapa } from './arquivos';
 import { gravarAudiencia, lerAudiencia } from './audiencia';
 import { CORPO_MAX, ehVisibilidade, ETIQUETA_MAX, ETIQUETAS_MAX, MSG_CONTEUDO, RESUMO_MAX, TITULO_MAX, type TipoConteudo, type Visibilidade } from './constantes';
-import { ConteudoError, ConteudoNaoEncontradoError } from './erros';
+import { ConteudoError, ConteudoNaoEncontradoError, VideoTrocadoError } from './erros';
 import { miniaturaDoVideo } from './oembed';
 import { lerLinkDeVideo, urlDoVideo, videoDoConteudo, type VideoDoLink } from './video';
 
@@ -2385,19 +2594,22 @@ async function gravarPublico(tx: Tx, tenantId: string, contentId: string, v: Val
 
 /**
  * D9: capa do vídeo pelo oEmbed, FORA da transação. Falhou (ou a cota acabou) → sem capa: a capa padrão (US-050 não
- * bloqueia o cadastro). Só o tipo `video`: na receita, a capa é a enviada pela nutricionista.
+ * bloqueia o cadastro). Só o tipo `video`: na receita, a capa é a enviada pela nutricionista. Gravar e remover
+ * reconferem, com a linha travada, que o conteúdo ainda aponta para ESTE vídeo (`doVideo`): se outro salvamento trocou o
+ * link enquanto o oEmbed respondia (ou o conteúdo foi excluído), a capa é dele e esta desiste.
  */
 async function capaDoVideo(ctx: TenantContext, id: string, video: VideoDoLink, deps: Deps): Promise<void> {
   const miniatura = await miniaturaDoVideo(video, { fetchImpl: deps.fetchImpl });
   if (miniatura) {
     try {
-      await trocarCapa(ctx, id, miniatura, deps);
+      await trocarCapa(ctx, id, miniatura, { ...deps, doVideo: video });
       return;
     } catch (err) {
+      if (err instanceof VideoTrocadoError || err instanceof ConteudoNaoEncontradoError) return;
       if (!(err instanceof TipoNaoPermitidoError || err instanceof CotaEsgotadaError)) throw err;
     }
   }
-  await removerCapa(ctx, id, deps);
+  await removerCapa(ctx, id, { ...deps, doVideo: video });
 }
 
 export async function criarConteudo(ctx: TenantContext, tipo: TipoConteudo, entrada: EntradaConteudo, deps: Deps = {}): Promise<string> {
@@ -2426,6 +2638,8 @@ export async function salvarConteudo(ctx: TenantContext, id: string, entrada: En
       if (!c) throw new ConteudoNaoEncontradoError();
       const tipo = c.tipo as TipoConteudo;
       const v = validarConteudo(tipo, entrada);
+      // D17: a mesma exigência da publicação vale para o que já está publicado — não fica publicado vazio
+      if (c.status === 'publicado' && tipo === 'orientacao' && !v.corpoMd && !c.pdfPath) throw new ConteudoError({ corpo: MSG_CONTEUDO.publicadoVazio });
       await tx.update(contents).set(colunas(v, agora)).where(eq(contents.id, id));
       await gravarPublico(tx, ctx.tenantId, id, v);
       const mudou = (v.video?.provider ?? null) !== c.videoProvider || (v.video?.id ?? null) !== c.videoId;
@@ -2476,16 +2690,41 @@ export async function despublicarConteudo(ctx: TenantContext, id: string, deps: 
   if (!r.length) throw new ConteudoNaoEncontradoError();
 }
 
+/** Voltas da exclusão: cada envio de capa/PDF que chega no meio custa uma (com capa e PDF, a primeira tira a capa). */
+const EXCLUIR_VOLTAS = 4;
+
 /**
- * D17: PDF e capa saem por apagarArquivo, que limpa o ponteiro na mesma transação (regra 9); depois o conteúdo, que já não
- * aponta para arquivo nenhum (as filhas saem em cascata; a sugestão na refeição vira nula — D13).
+ * D17 / regra 9: o conteúdo sai na MESMA transação que apaga o último arquivo dele — o `naMesmaTransacao` de
+ * apagarArquivo trava a linha, confere que os dois ponteiros são os lidos e faz o DELETE (as filhas saem em cascata; a
+ * sugestão na refeição vira nula — D13). Um upload de capa/PDF que entra entre a leitura e o DELETE troca o ponteiro:
+ * a conferência falha, nada é apagado e a volta seguinte relê — nunca sobra `stored_files` órfão nem cota contada.
+ * Com capa e PDF, a capa sai antes (removerCapa: ponteiro limpo na transação dela; a capa não tem a exigência da D17).
+ * Sem arquivo, o DELETE trava e confere do mesmo jeito. Esgotadas as voltas: "Outro envio está em andamento…".
  */
 export async function excluirConteudo(ctx: TenantContext, id: string, deps: Deps = {}): Promise<void> {
   if (!idValido(id)) throw new ConteudoNaoEncontradoError();
-  await removerPdf(ctx, id, deps);
-  await removerCapa(ctx, id, deps);
-  const r = await withTenant(ctx, (tx) => tx.delete(contents).where(eq(contents.id, id)).returning({ id: contents.id }), deps.db ?? getDb());
-  if (!r.length) throw new ConteudoNaoEncontradoError();
+  const db = deps.db ?? getDb();
+  for (let volta = 0; volta < EXCLUIR_VOLTAS; volta++) {
+    const [c] = await withTenant(ctx, (tx) => tx.select({ capaPath: contents.capaPath, pdfPath: contents.pdfPath }).from(contents).where(eq(contents.id, id)), db);
+    if (!c) throw new ConteudoNaoEncontradoError();
+    if (c.capaPath && c.pdfPath) {
+      await removerCapa(ctx, id, deps); // a próxima volta tem um arquivo só (o PDF)
+      continue;
+    }
+    let apagou = false;
+    const apagarSeIgual = async (tx: Tx): Promise<boolean> => {
+      const [x] = await tx.select({ capaPath: contents.capaPath, pdfPath: contents.pdfPath }).from(contents).where(eq(contents.id, id)).for('update');
+      if (!x || x.capaPath !== c.capaPath || x.pdfPath !== c.pdfPath) return false;
+      await tx.delete(contents).where(eq(contents.id, id));
+      apagou = true;
+      return true;
+    };
+    const ultimo = c.capaPath ?? c.pdfPath;
+    if (ultimo) await apagarArquivo(ctx, { caminho: ultimo }, { ...deps, naMesmaTransacao: apagarSeIgual });
+    else await withTenant(ctx, apagarSeIgual, db);
+    if (apagou) return;
+  }
+  throw new ConteudoError({ geral: MSG_CONTEUDO.ocupado });
 }
 
 export async function listarConteudosDoPainel(ctx: TenantContext, filtro: { tipo?: TipoConteudo } = {}, db: Db = getDb()): Promise<ConteudoDaLista[]> {
@@ -2750,9 +2989,13 @@ export async function despublicarConteudoAction(id: string): Promise<void> {
 
 export async function excluirConteudoAction(id: string): Promise<void> {
   const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
-  await excluirConteudo(ctx, id).catch((e) => {
+  try {
+    await excluirConteudo(ctx, id);
+  } catch (e) {
+    // envios de capa/PDF seguidos no meio da exclusão (D17): a página mostra "Outro envio está em andamento…"
+    if (e instanceof ConteudoError) redirect(`/painel/conteudos/${id}?ocupado=1`);
     if (!(e instanceof ConteudoNaoEncontradoError)) throw e;
-  });
+  }
   redirect('/painel/conteudos?excluido=1');
 }
 
@@ -2762,10 +3005,17 @@ export async function removerCapaAction(id: string): Promise<void> {
   revalidatePath(`/painel/conteudos/${id}`);
 }
 
-export async function removerPdfAction(id: string): Promise<void> {
+/** D17: o PDF de uma orientação publicada sem texto não sai — a mensagem volta para a tela (arquivos.tsx). */
+export async function removerPdfAction(id: string): Promise<{ erro?: string }> {
   const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
-  await removerPdf(ctx, id);
+  try {
+    await removerPdf(ctx, id);
+  } catch (e) {
+    if (e instanceof ConteudoError) return { erro: e.erros.geral };
+    throw e;
+  }
   revalidatePath(`/painel/conteudos/${id}`);
+  return {};
 }
 ```
 
@@ -2810,7 +3060,8 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
       {tipo !== 'orientacao' && (
         <div className="space-y-1">
           <label htmlFor="link" className="block font-medium">Link do vídeo</label>
-          <input id="link" name="link" type="url" inputMode="url" defaultValue={v.link} aria-invalid={erro('link') ? true : undefined} aria-describedby={`link-aviso${erro('link') ? ' link-erro' : ''}`} className="w-full rounded border p-2" />
+          {/* type="text" (não "url"): o navegador barraria "youtu.be/…" sem esquema, que lerLinkDeVideo aceita (US-050) */}
+          <input id="link" name="link" type="text" inputMode="url" autoComplete="off" spellCheck={false} defaultValue={v.link} aria-invalid={erro('link') ? true : undefined} aria-describedby={`link-aviso${erro('link') ? ' link-erro' : ''}`} className="w-full rounded border p-2" />
           <p id="link-aviso" className="text-sm text-zinc-600">{MSG_CONTEUDO.videoAviso}</p>
           <Erro c="link" />
         </div>
@@ -2920,9 +3171,17 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
           {pdfUrl && (
             <div className="flex gap-4">
               <a href={pdfUrl} className="underline">Ver PDF</a>
-              <form action={removerPdfAction.bind(null, id)}>
-                <button className="underline">Remover PDF</button>
-              </form>
+              <button
+                type="button"
+                className="underline"
+                onClick={async () => {
+                  const r = await removerPdfAction(id);
+                  if (r.erro) setEstado({ erro: r.erro });
+                  else router.refresh();
+                }}
+              >
+                Remover PDF
+              </button>
             </div>
           )}
         </>
@@ -3078,7 +3337,7 @@ import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { PlayerVideo } from '@/components/player-video';
 import { requireNutri } from '@/lib/tenant-session';
 import { opcoesDeAudiencia } from '@/modules/conteudo/audiencia';
-import { ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
+import { MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { carregarConteudoDoPainel } from '@/modules/conteudo/conteudos';
 import { Cabecalho } from '../../cabecalho';
 import { excluirConteudoAction, salvarConteudoAction } from '../actions';
@@ -3088,8 +3347,9 @@ import { PublicarForm } from '../publicar-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ConteudoPage({ params }: PageProps<'/painel/conteudos/[id]'>) {
+export default async function ConteudoPage({ params, searchParams }: PageProps<'/painel/conteudos/[id]'>) {
   const { id } = await params;
+  const { ocupado } = await searchParams;
   const { ctx, tenant } = await requireNutri(`/painel/conteudos/${id}`);
   const c = await carregarConteudoDoPainel(ctx, id);
   if (!c) notFound();
@@ -3116,6 +3376,7 @@ export default async function ConteudoPage({ params }: PageProps<'/painel/conteu
         <ConteudoForm tipo={c.tipo} inicial={inicial} opcoes={opcoes} acao={salvarConteudoAction.bind(null, c.id)} botao="Salvar" />
         {c.tipo !== 'video' && <ArquivosDoConteudo id={c.id} tipo={c.tipo} capaUrl={c.capaUrl} pdfUrl={c.pdfUrl} />}
         <PublicarForm id={c.id} publicado={c.status === 'publicado'} />
+        {ocupado === '1' && <p role="alert" className="text-red-700">{MSG_CONTEUDO.ocupado}</p>}
         <form action={excluirConteudoAction.bind(null, c.id)}>
           <ConfirmarBotao mensagem="Excluir este conteúdo? A sugestão de receita sai dos planos.">Excluir conteúdo</ConfirmarBotao>
         </form>
@@ -3127,7 +3388,7 @@ export default async function ConteudoPage({ params }: PageProps<'/painel/conteu
 
 `src/app/painel/cabecalho.tsx`: depois de `<Link href="/painel/diarios">Diários</Link>`, acrescentar `<Link href="/painel/conteudos">Conteúdos</Link>`.
 
-`CLAUDE.md`, regra 9, depois da frase da exportação: "Capa (`capa`, JPEG convertido) e PDF da orientação (`orientacao_pdf`) do conteúdo (Plano 07): só por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf` (`src/modules/conteudo/arquivos.ts`), que gravam e limpam o ponteiro em `contents` na transação do arquivo."
+`CLAUDE.md`, regra 9, depois da frase da exportação: "Capa (`capa`, JPEG convertido) e PDF da orientação (`orientacao_pdf`) do conteúdo (Plano 07): só por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf` (`src/modules/conteudo/arquivos.ts`), que gravam e limpam o ponteiro em `contents` na transação do arquivo, e por `excluirConteudo` (`src/modules/conteudo/conteudos.ts`), que apaga o conteúdo no `naMesmaTransacao` do último arquivo (linha travada, ponteiros conferidos)."
 
 Run: `pnpm test src/app/painel src/modules/conteudo src/lib` (inclui `acoes-de-paciente.test.ts` e `cabecalho.test.ts`, que passam a cobrir as ações e as páginas novas) → PASS; `pnpm lint && pnpm typecheck` → PASS.
 
@@ -3292,6 +3553,11 @@ describe('receita (US-051, RN-11)', () => {
       tempo: MSG_RECEITA.tempo,
       ingredientes: MSG_RECEITA.ingredientes,
     });
+    // "0,04" arredonda para 0,0: mensagem do campo, nunca o CHECK do banco (500)
+    expect(await erros(salvarReceita(T.ctx, r.id, { rendimento: '0,04', porcao: '0,04', ingredientes: um }, { db: app.db }))).toEqual({
+      rendimento: MSG_RECEITA.rendimento,
+      porcao: MSG_RECEITA.porcao,
+    });
     expect(await erros(salvarReceita(T.ctx, r.id, { rendimento: '100', porcao: '50', ingredientes: [{ foodId: food, quantidadeG: '0' }, { foodId: 'x', quantidadeG: '10' }] }, { db: app.db }))).toEqual({
       'ingrediente:0:quantidade': MSG_PLANO.quantidade,
       'ingrediente:1:alimento': MSG_PLANO.alimento,
@@ -3362,9 +3628,15 @@ export type ReceitaLida = {
 export type ReceitaParaPlano = { id: string; titulo: string };
 type Valida = { rendimentoG: number; porcaoG: number; tempoMin: number | null; modoPreparo: string; ingredientes: { foodId: string; quantidadeG: number; medidaCaseiraTxt: string | null }[] };
 
+/**
+ * Rendimento e porção: arredonda para 1 casa ANTES de conferir — "0,04" vira 0,0, que o CHECK do banco (> 0) recusaria
+ * com 500; aqui vira a mensagem do campo. Mínimo 0,1 g (a menor quantidade que a coluna numeric(7,1) guarda).
+ */
 const gramas = (v: unknown): number | null => {
   const n = lerDecimal(v);
-  return n === null || Number.isNaN(n) || n <= 0 || n > RENDIMENTO_MAX ? null : arredondar(n, 1);
+  if (n === null || Number.isNaN(n)) return null;
+  const g = arredondar(n, 1);
+  return g < 0.1 || g > RENDIMENTO_MAX ? null : g;
 };
 
 /** Validação completa antes do banco; erros por campo (`ingrediente:<posição>:<campo>` para os ingredientes). */
@@ -3628,9 +3900,9 @@ git commit -m "feat(conteudo): receita com ingredientes da tabela de alimentos e
 - Modify: `src/app/p/navegacao.ts` (+ `navegacao.test.ts`), `src/app/p/nav-portal.tsx`, `src/app/p/(portal)/layout.tsx` (T-4), `src/app/p/(portal)/plano/page.tsx` (link "Lista de compras", D3)
 
 **Interfaces:**
-- Consumes: `requirePaciente`, `requireApiPaciente`; `pacienteDaSessao`; `signFileUrl`; `lerReceitaNaTransacao`, `ReceitaLida` (T6); `nutrientesPorPorcao`, `textoPorPorcao` (T6); `videoDoConteudo`, `VideoDoLink` (T3); `Markdown` (T4); `PlayerVideo`, `CapaDoConteudo` (T3); `FEED_LIMITE`, `FILTROS_DO_FEED`, `MSG_PORTAL_CONTEUDO`, `ROTULO_TIPO_CONTEUDO`, `ehTipoConteudo` (T2); RLS da audiência (T2).
+- Consumes: `requirePaciente`, `requireApiPaciente`; `pacienteDaSessao`; `signFileUrl`; `lerReceitaNaTransacao`, `ReceitaLida` (T6); `nutrientesPorPorcao`, `textoPorPorcao` (T6); `videoDoConteudo`, `VideoDoLink` (T3); `Markdown` (T4); `PlayerVideo`, `CapaDoConteudo` (T3); `FEED_LIMITE`, `FILTROS_DO_FEED`, `MSG_PORTAL_CONTEUDO`, `ROTULO_TIPO_CONTEUDO`, `ehTipoConteudo` (T2); RLS da audiência e `liberarReceitasDoPlano` (T2).
 - Produces:
-  - `@/modules/portal/conteudos`: `type FiltroDoFeed = { tipo?: TipoConteudo; busca?: string; etiqueta?: string; favoritos?: boolean }`, `type ItemDoFeed = { id; tipo; titulo; resumo; capaUrl: string | null; publicadoEm: Date; novo: boolean; favorito: boolean }`, `feedDeConteudos(ctx, filtro?, db?): Promise<{ itens: ItemDoFeed[]; etiquetas: string[] }>`, `type ConteudoDoPaciente`, `conteudoDoPaciente(ctx, id, db?): Promise<ConteudoDoPaciente | null>`, `registrarVisualizacao(ctx, id, db?): Promise<boolean>`, `marcarFavorito(ctx, id, favorito: boolean, db?): Promise<boolean>`, `caminhoDoPdfDoConteudo(ctx, id, db?): Promise<string | null>`.
+  - `@/modules/portal/conteudos`: `type FiltroDoFeed = { tipo?: TipoConteudo; busca?: string; etiqueta?: string; favoritos?: boolean }`, `type ItemDoFeed = { id; tipo; titulo; resumo; capaUrl: string | null; publicadoEm: Date; novo: boolean; favorito: boolean }`, `feedDeConteudos(ctx, filtro?, db?): Promise<{ itens: ItemDoFeed[]; etiquetas: string[] }>`, `type ConteudoDoPaciente` (com `soPeloPlano: boolean`), `conteudoDoPaciente(ctx, id, db?, o?: { doPlano?: boolean }): Promise<ConteudoDoPaciente | null>` (`doPlano`: a receita aberta pelo cartão "Sugestão de receita", `?de=plano` — exceção da RN-12), `registrarVisualizacao(ctx, id, db?): Promise<boolean>`, `marcarFavorito(ctx, id, favorito: boolean, db?): Promise<boolean>`, `caminhoDoPdfDoConteudo(ctx, id, db?): Promise<string | null>`.
   - `ItemPortal = { href: string; rotulo: string; tambem?: string[] }`; `ITENS_DO_PORTAL` com "Conteúdos" no lugar de "Compras" (D3).
 
 - [ ] **Step 1: Teste do módulo do portal (falha)** — `src/modules/portal/conteudos.test.ts`
@@ -3714,6 +3986,47 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(c.video).toEqual({ provider: 'youtube', id: 'dQw4w9WgXcQ' });
     expect(c.receita).toMatchObject({ rendimentoG: 1000, porcaoG: 250, ingredientes: [{ quantidadeG: 400 }] });
     expect(c.porPorcao).toMatch(/^Por porção: \d+ kcal/);
+    expect(c.soPeloPlano).toBe(false);
+  });
+
+  it('US-054: receita fora da audiência sugerida no plano PUBLICADO da Bia só abre pelo cartão — nem feed, busca, etiqueta, "Novo", favorito ou visualização', async () => {
+    const { T, ana, bia, ctxAna, ctxBia } = await cenario();
+    const r = await novoConteudo(app.db, T, {
+      tipo: 'receita',
+      titulo: 'Panqueca de aveia',
+      etiquetas: ['sem lactose'],
+      visibilidade: 'pacientes',
+      pacientes: [ana.id],
+      receita: { rendimento: 1000, porcao: 250, ingredientes: [{ foodId: '00000000-0000-4000-8000-000000000003', g: 400 }] },
+    });
+    await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [p] = (await tx.execute(sql`insert into meal_plans (tenant_id, patient_id, titulo, status, publicado_em) values (${T.tenantId}, ${bia.id}, 'Plano', 'publicado', now()) returning id`)).rows as { id: string }[];
+        await tx.execute(sql`insert into meals (id, tenant_id, patient_id, plan_id, nome, horario, ordem, recipe_content_id) values (gen_random_uuid(), ${T.tenantId}, ${bia.id}, ${p.id}, 'Café da manhã', '07:00', 0, ${r.id})`);
+      },
+      app.db,
+    );
+    expect(await feedDeConteudos(ctxBia, {}, app.db)).toEqual({ itens: [], etiquetas: [] });
+    expect((await feedDeConteudos(ctxBia, { busca: 'aveia', etiqueta: 'sem lactose' }, app.db)).itens).toEqual([]);
+    expect(await conteudoDoPaciente(ctxBia, r.id, app.db)).toBeNull(); // URL direta, sem o caminho do plano: 404
+    expect(await conteudoDoPaciente(ctxBia, r.id, app.db, { doPlano: true })).toMatchObject({ id: r.id, soPeloPlano: true, favorito: false, receita: { porcaoG: 250 } });
+    expect(await marcarFavorito(ctxBia, r.id, true, app.db)).toBe(false);
+    expect(await registrarVisualizacao(ctxBia, r.id, app.db)).toBe(false); // D14: quem abre só pelo cartão não conta
+    // na audiência, o caminho do plano não muda nada
+    expect(await conteudoDoPaciente(ctxAna, r.id, app.db, { doPlano: true })).toMatchObject({ id: r.id, soPeloPlano: false });
+  });
+
+  it('guarda: só "Meu plano" e o detalhe pelo cartão ligam a liberação das receitas do plano (o feed nunca)', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const fontes = (await readdir('src', { recursive: true })).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    const usam: string[] = [];
+    for (const f of fontes) {
+      const texto = await readFile(`src/${f}`, 'utf8');
+      if (texto.includes('receitas_do_plano') || texto.includes('liberarReceitasDoPlano(')) usam.push(f);
+    }
+    // a Tarefa 9 acrescenta 'modules/portal/plano.ts' ("Meu plano") a esta lista — e só ele
+    expect(usam.sort()).toEqual(['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts']);
   });
 });
 ```
@@ -3728,6 +4041,7 @@ import { getDb, type Db } from '@/db/client';
 import { contentFavorites, contents, contentViews } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { signFileUrl } from '@/lib/signed-url';
+import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';
 import { FEED_LIMITE, type TipoConteudo } from '@/modules/conteudo/constantes';
 import { nutrientesPorPorcao, textoPorPorcao } from '@/modules/conteudo/receita-calculo';
 import { lerReceitaNaTransacao, type ReceitaLida } from '@/modules/conteudo/receitas';
@@ -3750,13 +4064,20 @@ export type ConteudoDoPaciente = {
   receita: ReceitaLida | null;
   /** "Por porção: …" (RN-11) ou null fora da receita. */
   porPorcao: string | null;
+  /**
+   * US-054: receita fora da audiência, aberta pelo cartão do plano publicado (`?de=plano`). A página não mostra
+   * "Favoritar" nem registra a visualização (o banco recusaria; D14: não conta) e volta para "Meu plano".
+   */
+  soPeloPlano: boolean;
 };
 
 const BUSCA_MAX = 100;
 
 /**
  * US-055: o feed. A RLS já entrega só o publicado da audiência (D2) — aqui só os filtros, o "Novo" (sem visualização
- * do próprio paciente) e os favoritos. Não é prontuário: sem auditoria (D6). Busca full-text (D19).
+ * do próprio paciente) e os favoritos. NUNCA chama `liberarReceitasDoPlano`: a receita sugerida no plano, fora da
+ * audiência, não entra no feed, na busca nem no filtro de etiquetas (US-054 só abre pelo cartão). Não é prontuário:
+ * sem auditoria (D6). Busca full-text (D19).
  */
 export async function feedDeConteudos(ctx: TenantContext, filtro: FiltroDoFeed = {}, db: Db = getDb()): Promise<{ itens: ItemDoFeed[]; etiquetas: string[] }> {
   const patientId = pacienteDaSessao(ctx, 'feedDeConteudos');
@@ -3797,14 +4118,25 @@ export async function feedDeConteudos(ctx: TenantContext, filtro: FiltroDoFeed =
   );
 }
 
-/** O conteúdo aberto pelo paciente; fora da audiência (ou id inválido) → null, e a página responde 404 (US-053). */
-export async function conteudoDoPaciente(ctx: TenantContext, id: string, db: Db = getDb()): Promise<ConteudoDoPaciente | null> {
+/**
+ * O conteúdo aberto pelo paciente; fora da audiência (ou id inválido) → null, e a página responde 404 (US-053).
+ * `doPlano` (o link do cartão "Sugestão de receita", US-054): se a audiência não o mostra, liga a liberação das receitas
+ * do plano NESTA transação e tenta de novo — a RLS só a entrega se for receita de refeição do plano publicado dele.
+ */
+export async function conteudoDoPaciente(ctx: TenantContext, id: string, db: Db = getDb(), o: { doPlano?: boolean } = {}): Promise<ConteudoDoPaciente | null> {
   const patientId = pacienteDaSessao(ctx, 'conteudoDoPaciente');
   if (!idValido(id)) return null;
   return withTenant(
     ctx,
     async (tx) => {
-      const [c] = await tx.select().from(contents).where(and(eq(contents.id, id), eq(contents.status, 'publicado')));
+      const ler = () => tx.select().from(contents).where(and(eq(contents.id, id), eq(contents.status, 'publicado')));
+      let [c] = await ler();
+      let soPeloPlano = false;
+      if (!c && o.doPlano) {
+        await liberarReceitasDoPlano(tx);
+        [c] = await ler();
+        soPeloPlano = Boolean(c);
+      }
       if (!c) return null;
       const [fav] = await tx.select({ id: contentFavorites.id }).from(contentFavorites).where(and(eq(contentFavorites.contentId, id), eq(contentFavorites.patientId, patientId)));
       const receita = c.tipo === 'receita' ? await lerReceitaNaTransacao(tx, id) : null;
@@ -3821,6 +4153,7 @@ export async function conteudoDoPaciente(ctx: TenantContext, id: string, db: Db 
         favorito: Boolean(fav),
         receita,
         porPorcao: n ? textoPorPorcao(n) : null,
+        soPeloPlano,
       };
     },
     db,
@@ -4056,19 +4389,28 @@ export const dynamic = 'force-dynamic';
 const g = (n: number) => formatarDecimal(n, casasDecimais(n));
 
 /** US-050/051/052/055. Fora da audiência, em rascunho ou de outro consultório: 404 (US-053 "acesso direto pela URL"). */
-export default async function ConteudoDoPaciente({ params }: PageProps<'/p/conteudos/[id]'>) {
+export default async function ConteudoDoPaciente({ params, searchParams }: PageProps<'/p/conteudos/[id]'>) {
   const { id } = await params;
   const { ctx } = await requirePaciente(`/p/conteudos/${id}`);
-  const c = await conteudoDoPaciente(ctx, id);
+  // US-054: o cartão "Sugestão de receita" de "Meu plano" abre com ?de=plano — só aí a receita fora da audiência abre
+  const doPlano = (await searchParams).de === 'plano';
+  const c = await conteudoDoPaciente(ctx, id, undefined, { doPlano });
   if (!c) notFound();
   return (
     <main className="space-y-4 p-6">
-      <MarcarVisto id={c.id} />
-      <Link href="/p/conteudos" className="inline-flex min-h-11 items-center underline">Voltar aos conteúdos</Link>
+      {/* D14: só pela audiência — quem abre só pelo cartão do plano não registra visualização nem favorita */}
+      {!c.soPeloPlano && <MarcarVisto id={c.id} />}
+      {c.soPeloPlano ? (
+        <Link href="/p/plano" className="inline-flex min-h-11 items-center underline">Voltar ao plano</Link>
+      ) : (
+        <Link href="/p/conteudos" className="inline-flex min-h-11 items-center underline">Voltar aos conteúdos</Link>
+      )}
       <h1 className="text-2xl font-semibold">{c.titulo}</h1>
-      <form action={favoritoAction.bind(null, c.id, !c.favorito)}>
-        <button className="min-h-11 rounded border px-4">{c.favorito ? MSG_PORTAL_CONTEUDO.desfavoritar : MSG_PORTAL_CONTEUDO.favoritar}</button>
-      </form>
+      {!c.soPeloPlano && (
+        <form action={favoritoAction.bind(null, c.id, !c.favorito)}>
+          <button className="min-h-11 rounded border px-4">{c.favorito ? MSG_PORTAL_CONTEUDO.desfavoritar : MSG_PORTAL_CONTEUDO.favoritar}</button>
+        </form>
+      )}
       {c.tipo === 'video' && c.video ? <PlayerVideo video={c.video} titulo={c.titulo} /> : <CapaDoConteudo tipo={c.tipo} capaUrl={c.capaUrl} />}
       {c.resumo && <p>{c.resumo}</p>}
       {c.receita && (
@@ -4286,10 +4628,10 @@ git commit -m "perf(plano): salvamento automático grava refeições e itens nov
 
 **Files:**
 - Create: `src/modules/plano-alimentar/receita-no-plano.test.ts`
-- Modify: `src/modules/plano-alimentar/tipos.ts`, `src/modules/plano-alimentar/constantes.ts`, `src/modules/plano-alimentar/carregar.ts`, `src/modules/plano-alimentar/rascunho.ts` (`validar`, `salvarRascunho`, `copiarConteudo`), `src/app/painel/planos/editor/estado.ts` (+ `estado.test.ts`), `src/app/painel/planos/editor/editor-plano.tsx`, `src/app/painel/pacientes/[id]/plano-alimentar/[planId]/page.tsx`, `src/app/painel/planos/modelos/[id]/page.tsx`, `src/modules/portal/plano.ts` (+ `plano.test.ts`), `src/app/p/(portal)/plano/page.tsx`
+- Modify: `src/modules/plano-alimentar/tipos.ts`, `src/modules/plano-alimentar/constantes.ts`, `src/modules/plano-alimentar/carregar.ts`, `src/modules/plano-alimentar/rascunho.ts` (`validar`, `salvarRascunho`, `copiarConteudo`), `src/app/painel/planos/editor/estado.ts` (+ `estado.test.ts`), `src/app/painel/planos/editor/editor-plano.tsx`, `src/app/painel/pacientes/[id]/plano-alimentar/[planId]/page.tsx`, `src/app/painel/planos/modelos/[id]/page.tsx`, `src/modules/portal/plano.ts` (+ `plano.test.ts`; `liberarReceitasDoPlano` em `planoDoPaciente`), `src/modules/portal/conteudos.test.ts` (a guarda da liberação), `src/app/p/(portal)/plano/page.tsx`
 
 **Interfaces:**
-- Consumes: `meals.recipeContentId` e a FK `meals_receita_fk` (T1); a exceção da RN-12 na política de `contents` (T2); `listarReceitasPublicadas`, `ReceitaParaPlano` (T6); `MSG_RECEITA` (T2); `salvarRascunho` em lote (T8); `publicarPlano`, `editarPublicado`, `salvarComoModelo`.
+- Consumes: `meals.recipeContentId` e a FK `meals_receita_fk` (T1); a exceção da RN-12 na política de `contents`, ligada por `liberarReceitasDoPlano` (T2); `conteudoDoPaciente(…, { doPlano })` e a guarda da liberação em `src/modules/portal/conteudos.test.ts` (T7); `listarReceitasPublicadas`, `ReceitaParaPlano` (T6); `MSG_RECEITA` (T2); `salvarRascunho` em lote (T8); `publicarPlano`, `editarPublicado`, `salvarComoModelo`.
 - Produces:
   - `@/modules/plano-alimentar/tipos`: `type ReceitaDaRefeicao = { id: string; titulo: string; disponivel: boolean }`; `RefeicaoPlano.receita?: ReceitaDaRefeicao` (presente só com sugestão); `RascunhoEnviado.refeicoes[].recipeContentId?: string | null`.
   - `MSG_PLANO.receita = 'Receita não encontrada.'`; erro de campo `refeicao:<id>:receita`.
@@ -4311,6 +4653,7 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { idTaco } from '@/modules/alimentos/taco';
 import { despublicarConteudo, excluirConteudo } from '@/modules/conteudo/conteudos';
+import { conteudoDoPaciente, feedDeConteudos } from '@/modules/portal/conteudos';
 import { planoDoPaciente } from '@/modules/portal/plano';
 import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
@@ -4378,6 +4721,9 @@ describe('"Sugestão de receita" (US-054)', () => {
     const plano = (await planoDoPaciente(comoAna, 'America/Sao_Paulo', { db: app.db }))!;
     expect(plano.refeicoes[0].receita).toEqual({ id: panqueca.id, titulo: 'Panqueca de aveia' });
     expect(plano.totalKcal).toBe('128 kcal'); // só o arroz (100 g): "é só sugestão"
+    // a exceção da RN-12 vale só no caminho do plano: no feed da Ana a receita (só da Bia) não aparece
+    expect((await feedDeConteudos(comoAna, {}, app.db)).itens).toEqual([]);
+    expect(await conteudoDoPaciente(comoAna, panqueca.id, app.db, { doPlano: true })).toMatchObject({ soPeloPlano: true });
     await despublicarConteudo(T.ctx, panqueca.id, { db: app.db });
     expect((await planoDoPaciente(comoAna, 'America/Sao_Paulo', { db: app.db }))!.refeicoes[0].receita).toBeUndefined();
     const { id: nova } = await editarPublicado(T.ctx, ana.id, id, deps); // "Editar" copia a sugestão
@@ -4418,8 +4764,9 @@ e em `RascunhoEnviado.refeicoes` acrescentar `recipeContentId?: string | null;` 
 - [ ] **Step 3: Leitura** — `src/modules/plano-alimentar/carregar.ts`, em `lerPlanoNaTransacao`, depois de ler `rs` (importar `contents` de `@/db/schema`, `inArray` de `drizzle-orm` e `type ReceitaDaRefeicao` de `./tipos`):
 
 ```ts
-  // US-054: título e situação da receita sugerida. Na sessão de paciente a RLS só devolve a publicada — a despublicada
-  // fica fora do mapa e a refeição sai sem `disponivel` (o portal esconde o cartão)
+  // US-054: título e situação da receita sugerida. Na sessão de paciente a RLS só devolve a publicada (e, fora da
+  // audiência, só porque planoDoPaciente ligou liberarReceitasDoPlano nesta transação) — a despublicada fica fora do
+  // mapa e a refeição sai sem `disponivel` (o portal esconde o cartão)
   const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
   const receitas = new Map(
     idsReceita.length
@@ -4540,6 +4887,18 @@ Run: `pnpm test src/app/painel/planos` → PASS.
 
 - [ ] **Step 6: Portal** — `src/modules/portal/plano.ts`: `export type RefeicaoDoPaciente = { id: string; nome: string; horario: string; observacao: string; itens: ItemDoPaciente[]; receita?: { id: string; titulo: string } };` e, no `map` das refeições, `...(r.receita?.disponivel ? { receita: { id: r.receita.id, titulo: r.receita.titulo } } : {}),`.
 
+Em `planoDoPaciente`, dentro do `withTenant`, ligar a exceção da RN-12 só nesta transação, antes de ler o plano (importar `liberarReceitasDoPlano` de `@/modules/conteudo/audiencia`):
+
+```ts
+      const [p] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
+      if (!p) return null;
+      // US-054: a receita sugerida aparece no cartão mesmo fora da audiência (RN-12) — só neste caminho (D2)
+      await liberarReceitasDoPlano(tx);
+      return lerPlanoNaTransacao(tx, p.id, { comMedidas: false });
+```
+
+Na guarda da Tarefa 7 (`src/modules/portal/conteudos.test.ts`, "guarda: só \"Meu plano\"…"), a lista esperada passa a ser `['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts', 'modules/portal/plano.ts']`.
+
 No mesmo arquivo (importar `createHash` de `node:crypto`), a versão da cópia offline — calculada no servidor e **curta**: o service worker só aceita a mensagem `plano` com `versao` de até 100 caracteres (`textoCurto` em `src/app/sw-regras.ts`) e descarta em silêncio o que passar disso (a cópia antiga ficaria, com a receita despublicada ou o plano velho). Pôr os ids das receitas por extenso estoura com 2 sugestões (36 + 1 + 36 + 1 + 36 = 110):
 
 ```ts
@@ -4562,7 +4921,8 @@ export function versaoDaCopiaOffline(plano: { id: string; refeicoes: { receita?:
                   {r.receita && (
                     <p className="mt-2 rounded bg-emerald-50 p-2 text-sm">
                       <span className="font-semibold">Sugestão de receita: </span>
-                      <Link href={`/p/conteudos/${r.receita.id}`} className="underline">{r.receita.titulo}</Link>
+                      {/* ?de=plano: a receita fora da audiência só abre por aqui (RN-12, exceção — D2) */}
+                      <Link href={`/p/conteudos/${r.receita.id}?de=plano`} className="underline">{r.receita.titulo}</Link>
                     </p>
                   )}
 ```
@@ -4592,7 +4952,7 @@ Run: `pnpm test src/modules/plano-alimentar src/modules/portal src/app/p` → PA
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/modules/plano-alimentar src/app/painel/planos src/app/painel/pacientes src/modules/portal/plano.ts src/modules/portal/plano.test.ts "src/app/p/(portal)/plano/page.tsx"
+git add src/modules/plano-alimentar src/app/painel/planos src/app/painel/pacientes src/modules/portal/plano.ts src/modules/portal/plano.test.ts src/modules/portal/conteudos.test.ts "src/app/p/(portal)/plano/page.tsx"
 git commit -m "feat(plano): receita sugerida na refeição (só publicada; não entra no total) e o cartão \"Sugestão de receita\" no portal (US-054, US-041)"
 ```
 
@@ -4854,8 +5214,8 @@ git commit -m "feat(conteudo): \"Avisar pacientes\" — push neutro de conteúdo
 - Modify: `src/app/painel/conteudos/page.tsx` (coluna "Visualizações")
 
 **Interfaces:**
-- Consumes: `naAudiencia` (T2); `contentViews`, `patients`, `contents`; `ConteudoDaLista` (T5); `arredondar`.
-- Produces: `@/modules/conteudo/metricas`: `type Metrica = { vistos: number; audiencia: number }`, `textoDaMetrica(m: Metrica): string`, `metricasDosConteudos(ctx, conteudos: { id: string; visibilidade: Visibilidade }[], db?): Promise<Map<string, Metrica>>`, `quemViu(ctx, contentId, db?): Promise<{ titulo: string; pessoas: { nome: string; vistoEm: Date }[] } | null>`.
+- Consumes: `naAudiencia`, `naAudienciaDaLinha` (T2); `contentViews`, `patients`, `contents`; `ConteudoDaLista` (T5); `arredondar`.
+- Produces: `@/modules/conteudo/metricas`: `type Metrica = { vistos: number; audiencia: number }`, `textoDaMetrica(m: Metrica): string`, `metricasDosConteudos(ctx, conteudos: { id: string }[], db?): Promise<Map<string, Metrica>>` (uma consulta agrupada por `content_id`; a visibilidade é lida do banco), `quemViu(ctx, contentId, db?): Promise<{ titulo: string; pessoas: { nome: string; vistoEm: Date }[] } | null>`.
 
 - [ ] **Step 1: Teste (falha)** — `src/modules/conteudo/metricas.test.ts`
 
@@ -4863,7 +5223,7 @@ git commit -m "feat(conteudo): \"Avisar pacientes\" — push neutro de conteúdo
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { novoConteudo } from '../../../test/conteudos';
+import { novaEtiqueta, novoConteudo } from '../../../test/conteudos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -4890,10 +5250,28 @@ describe('métricas (US-056, D14)', () => {
     await ver(caio.id, '2026-10-21T12:00:00Z');
     await ver(duda.id, '2026-10-21T13:00:00Z'); // pelo cartão do plano, fora da audiência
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, caio.id)), app.db);
-    const m = await metricasDosConteudos(T.ctx, [{ id: c.id, visibilidade: 'pacientes' }], app.db);
+    const m = await metricasDosConteudos(T.ctx, [{ id: c.id }], app.db);
     expect(m.get(c.id)).toEqual({ vistos: 1, audiencia: 2 });
     expect(await quemViu(T.ctx, c.id, app.db)).toEqual({ titulo: c.titulo, pessoas: [{ nome: 'Ana', vistoEm: new Date('2026-10-20T12:00:00Z') }] });
     expect(await quemViu(T.ctx, 'lixo', app.db)).toBeNull();
+  });
+
+  it('vários conteúdos numa consulta só: todos, etiqueta, pacientes sem ninguém na audiência e id de outro consultório', async () => {
+    const T = await novoTenant(app.db);
+    const U = await novoTenant(app.db);
+    const [ana, bia] = await Promise.all(['Ana', 'Bia'].map((nome) => novoPaciente(app.db, T.ctx, { nome })));
+    const gestante = await novaEtiqueta(app.db, T, 'gestante', [ana.id]);
+    const todos = await novoConteudo(app.db, T);
+    const porEtiqueta = await novoConteudo(app.db, T, { visibilidade: 'etiquetas', tags: [gestante] });
+    const ninguem = await novoConteudo(app.db, T, { visibilidade: 'pacientes', pacientes: [] });
+    const deFora = await novoConteudo(app.db, U);
+    await withTenant(T.ctx, (tx) => tx.execute(sql`insert into content_views (tenant_id, content_id, patient_id) values (${T.tenantId}, ${todos.id}, ${bia.id}), (${T.tenantId}, ${porEtiqueta.id}, ${ana.id})`), app.db);
+    const m = await metricasDosConteudos(T.ctx, [todos, porEtiqueta, ninguem, deFora], app.db);
+    expect(Object.fromEntries(m)).toEqual({
+      [todos.id]: { vistos: 1, audiencia: 2 },
+      [porEtiqueta.id]: { vistos: 1, audiencia: 1 },
+      [ninguem.id]: { vistos: 0, audiencia: 0 },
+    });
   });
 });
 ```
@@ -4903,13 +5281,13 @@ Run: `pnpm test src/modules/conteudo/metricas.test.ts` → FAIL.
 - [ ] **Step 2: Implementação** — `src/modules/conteudo/metricas.ts`
 
 ```ts
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { contents, contentViews, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { arredondar } from '@/lib/numero';
 import { idValido } from '@/modules/pacientes/base';
-import { naAudiencia } from './audiencia';
+import { naAudiencia, naAudienciaDaLinha } from './audiencia';
 import type { Visibilidade } from './constantes';
 
 export type Metrica = { vistos: number; audiencia: number };
@@ -4923,26 +5301,26 @@ export function textoDaMetrica(m: Metrica): string {
 /**
  * D14: a audiência ATUAL (RN-12: pacientes ativos, com ou sem conta no portal) e quantos deles já abriram — quem saiu
  * da audiência (arquivado, etiqueta tirada) não conta em nenhum dos dois; quem abriu pelo cartão do plano, fora da
- * audiência, também não. Uma consulta por conteúdo (a lista tem no máximo 200).
+ * audiência, também não. UMA consulta agrupada por conteúdo para a lista inteira (até 200 a cada render de
+ * /painel/conteudos): conteúdo × pacientes da audiência (left join — sem ninguém, 0 de 0) × visualizações deles; a
+ * visibilidade vem da própria linha. Id de outro consultório: a RLS esconde e ele fica fora do mapa.
  */
-export async function metricasDosConteudos(ctx: TenantContext, conteudos: { id: string; visibilidade: Visibilidade }[], db: Db = getDb()): Promise<Map<string, Metrica>> {
-  const out = new Map<string, Metrica>();
-  if (!conteudos.length) return out;
-  await withTenant(
+export async function metricasDosConteudos(ctx: TenantContext, conteudos: { id: string }[], db: Db = getDb()): Promise<Map<string, Metrica>> {
+  const ids = [...new Set(conteudos.map((c) => c.id).filter(idValido))];
+  if (!ids.length) return new Map();
+  const rs = await withTenant(
     ctx,
-    async (tx) => {
-      for (const c of conteudos) {
-        const r = await tx.execute(sql`
-          select count(*)::int as audiencia, count(v.id)::int as vistos
-            from ${patients}
-            left join ${contentViews} v on v.tenant_id = ${patients.tenantId} and v.patient_id = ${patients.id} and v.content_id = ${c.id}
-           where ${naAudiencia(c.id, c.visibilidade)}`);
-        out.set(c.id, r.rows[0] as Metrica);
-      }
-    },
+    (tx) =>
+      tx
+        .select({ id: contents.id, audiencia: sql<number>`count(${patients.id})::int`, vistos: sql<number>`count(${contentViews.id})::int` })
+        .from(contents)
+        .leftJoin(patients, and(eq(patients.tenantId, contents.tenantId), naAudienciaDaLinha(contents.id, contents.visibilidade)))
+        .leftJoin(contentViews, and(eq(contentViews.tenantId, patients.tenantId), eq(contentViews.contentId, contents.id), eq(contentViews.patientId, patients.id)))
+        .where(inArray(contents.id, ids))
+        .groupBy(contents.id),
     db,
   );
-  return out;
+  return new Map(rs.map((r) => [r.id, { vistos: r.vistos, audiencia: r.audiencia }]));
 }
 
 /** "Posso ver a lista de nomes de quem viu" — os da audiência atual, mais recentes primeiro. Sem auditoria (D6). */
@@ -5312,7 +5690,7 @@ test('receita (US-051, US-055): valor por porção, busca + etiqueta e favoritos
 });
 
 test('receita na refeição (US-054): a Bia vê a "Sugestão de receita" no plano; despublicada, o cartão some', async () => {
-  // a receita é "todos"; o caso "fora da audiência" é coberto no teste de banco da Tarefa 2
+  // a receita é "todos"; o caso "fora da audiência" (só pelo cartão, fora do feed) é coberto nos testes das Tarefas 2, 7 e 9
   await publicarPlanoSimples(nutri, bia.prontuario);
   await nutri.getByRole('button', { name: 'Editar' }).click();
   await expect(nutri.getByRole('heading', { name: /Plano alimentar — versão \d+/ })).toBeVisible();
@@ -5324,7 +5702,7 @@ test('receita na refeição (US-054): a Bia vê a "Sugestão de receita" no plan
 
   await bia.page.goto('/p/plano');
   await expect(bia.page.getByText('Sugestão de receita:')).toBeVisible();
-  await expect(bia.page.getByRole('link', { name: RECEITA })).toHaveAttribute('href', urlDaReceita.replace('/painel/conteudos/', '/p/conteudos/'));
+  await expect(bia.page.getByRole('link', { name: RECEITA })).toHaveAttribute('href', `${urlDaReceita.replace('/painel/conteudos/', '/p/conteudos/')}?de=plano`);
 
   await nutri.goto(urlDaReceita);
   await nutri.getByRole('button', { name: 'Despublicar' }).click();
@@ -5392,9 +5770,9 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
 ## Fechamento do plano (após a Tarefa 13)
 
 - [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` — com o **checklist reforçado** se o dono aceitar a D21:
-  - **Audiência (D2):** `contents`, `recipes`, `recipe_ingredients` com `paciente_conteudo_visivel` (guarda verde); `app_conteudo_por_etiqueta` só responde sim/não, só na sessão de paciente, e devolve o contexto do chamador (`app.role`, `app.patient_id`) antes de retornar — conferido também no cluster do runbook, com o dono sem superusuário (`src/db/migrate-owner.test.ts`, caso "audiência por etiqueta (0083)": Ana com a etiqueta vê 1, Bia sem ela vê 0); nenhuma etiqueta de paciente chega ao portal (nem no JSON); rascunho, despublicado e fora da audiência dão 404; a exceção da receita só vale para plano **publicado** do próprio paciente.
+  - **Audiência (D2):** `contents`, `recipes`, `recipe_ingredients` com `paciente_conteudo_visivel` (guarda verde); `app_conteudo_por_etiqueta` só responde sim/não, só na sessão de paciente, e devolve o contexto do chamador (`app.role`, `app.patient_id`) antes de retornar — conferido também no cluster do runbook, com o dono sem superusuário (`src/db/migrate-owner.test.ts`, caso "audiência por etiqueta (0083)": Ana com a etiqueta vê 1, Bia sem ela vê 0); nenhuma etiqueta de paciente chega ao portal (nem no JSON); rascunho, despublicado e fora da audiência dão 404; a exceção da receita só vale para plano **publicado** do próprio paciente e **só no caminho do plano** (`liberarReceitasDoPlano` só em `planoDoPaciente` e em `conteudoDoPaciente(…, { doPlano: true })` — guarda verde; a receita fora da audiência não aparece no feed, na busca, no filtro de etiquetas nem com "Novo", e não aceita visualização/favorito).
   - **Escrita do paciente:** só `content_views` (`insert`) e `content_favorites` (`insert`, `delete`), e só de conteúdo visível (`paciente_conteudo_visto`/`paciente_conteudo_favorito`); a guarda B-5 confere a expressão.
-  - **Arquivos (regra 9, D8, D20):** capa e PDF por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf`; tipo pelo conteúdo; 5 MB/10 MB conferidos no corpo; `sharp` com 40 MP; JPEG sem EXIF; ponteiro gravado/limpo na transação do arquivo; o portal assina só o caminho lido de `contents` pela RLS.
+  - **Arquivos (regra 9, D8, D20):** capa e PDF por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf`; tipo pelo conteúdo; 5 MB/10 MB conferidos no corpo; `sharp` com 40 MP; JPEG sem EXIF e com fundo branco; ponteiro gravado/limpo na transação do arquivo; `excluirConteudo` apaga o conteúdo na transação do último arquivo (upload no meio → nenhum `stored_files` órfão); a capa do oEmbed confere o vídeo com a linha travada; o portal assina só o caminho lido de `contents` pela RLS.
   - **Markdown (D7):** nada de `dangerouslySetInnerHTML`; links só http(s) com `rel`; sem retrocesso catastrófico.
   - **Vídeo e oEmbed (D9, D10):** `src` do iframe só do id validado (regex + CHECK); `referrerPolicy` só da origem; o servidor só pede aos quatro hosts fixos, sem redirecionamento, com prazo e corpo limitados; o link digitado nunca é buscado.
   - **Push (D4, D5):** texto neutro; no máximo 1 por paciente a cada 24 h; só ativo com conta e na audiência; horário silencioso.
@@ -5402,9 +5780,9 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
   - **Logs:** nada de título, texto, link, nome ou caminho (só ids, provedor e motivo).
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema Critical/Important confirmado, parar e avisar o dono.
 - [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P07-01 a P07-08 ✅ (com o PR); débitos B-5, S-9, T-4, D04-1, D04-2, F-12, W-1 ✅; os Minor da revisão num item "P07-09 — débitos do Plano 07".
-- [ ] Atualizar a spec para a versão seguinte (v2.0): §4.1 (leitura por audiência no banco, `CONTEUDO_POR_AUDIENCIA`, `app_conteudo_por_etiqueta`; B-9: o limite conhecido da D1 — tabelas sem `tenant_id` e as de `RLS_EXCEPTIONS` ficam fora da negação da escrita do paciente), §4.2 (rotas do conteúdo; "Conteúdos" no lugar de "Compras" na barra — D3), §6 INT-05 (prazo total de 5 s, hosts fixos, capa padrão, capa convertida) e INT-03 (`conteudo_novo`), §7 (as tabelas como ficaram, `meals.recipe_content_id` com `SET NULL`, `notifications.tipo`), §8 RN-10 a RN-12 (as notas deste plano), US-050 a US-056 com as notas de entrega (os "Desvios conscientes" desta página) e uma tabela **"Textos de interface do E6"** com os textos novos (como a do E4/E5); conferir também os textos do Plano 06 que ficaram fora da spec (T-9).
+- [ ] Atualizar a spec para a versão seguinte (v2.0): §4.1 (leitura por audiência no banco, `CONTEUDO_POR_AUDIENCIA`, `app_conteudo_por_etiqueta`, a exceção da RN-12 só no caminho do plano — `app.receitas_do_plano`; B-9: o limite conhecido da D1 — tabelas sem `tenant_id` e as de `RLS_EXCEPTIONS` ficam fora da negação da escrita do paciente), §4.2 (rotas do conteúdo; "Conteúdos" no lugar de "Compras" na barra — D3), §6 INT-05 (prazo total de 5 s, hosts fixos, capa padrão, capa convertida) e INT-03 (`conteudo_novo`), §7 (as tabelas como ficaram, `meals.recipe_content_id` com `SET NULL`, `notifications.tipo`), §8 RN-10 a RN-12 (as notas deste plano), US-050 a US-056 com as notas de entrega (os "Desvios conscientes" desta página) e uma tabela **"Textos de interface do E6"** com os textos novos (como a do E4/E5); conferir também os textos do Plano 06 que ficaram fora da spec (T-9).
 - [ ] Anotar para os próximos planos (no backlog):
-  - **Plano 08 (go-live):** P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa/PDF e a chamada de rede do oEmbed. P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função por linha), a busca full-text e `/painel/conteudos` (uma contagem por conteúdo publicado). P08-06 — o termo do paciente e o DPA precisam citar YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6.
+  - **Plano 08 (go-live):** P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa/PDF e a chamada de rede do oEmbed. P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função por linha), a busca full-text e `/painel/conteudos` (a consulta agrupada das métricas com 200 conteúdos publicados e muitos pacientes). P08-06 — o termo do paciente e o DPA precisam citar YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6.
   - **Pós-MVP:** Bunny Stream (P-07, Fase 2); vitrine pública de conteúdo (Fase 4); seletor de medidas caseiras na receita (D12); push com o título do conteúdo se o dono quiser (D4); "Mais" na barra quando entrarem "Exames"/"IA Nutri" (D3).
 - [ ] Lembrar o dono: backup no host (P02-11) pendente; merge (= deploy) só com OK explícito e snapshot no hPanel antes.
 - [ ] Pedir ao dono o merge do PR (= deploy).
@@ -5436,9 +5814,9 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
 
 **2. Placeholders:** nenhum "TBD"/"implementar depois"; os passos de código trazem o código. Os trechos em prosa são trocas mecânicas em arquivos existentes (uma linha num menu, uma entrada numa lista, um import, a mesma rota com outro nome de função), com o texto exato.
 
-**3. Consistência de tipos e nomes:** `Visibilidade`/`TipoConteudo`/`MSG_*` (T2) em T3–T13; `naAudiencia` (T2) em T10 e T11; `gravarAudiencia`/`lerAudiencia`/`opcoesDeAudiencia` (T2) em T5; `lerLinkDeVideo`/`urlDoVideo`/`videoDoConteudo`/`VideoDoLink` (T3) em T5 e T7; `processarCapa` (T3) em `trocarCapa` (T5); `Markdown` (T4) em T7; `ConteudoError`/`ConteudoNaoEncontradoError` (T5) em T6; `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf` (T5) em T5, T7 (teste) e no `excluirConteudo`; `publicarConteudo` muda de assinatura na T10 (anotado nas duas tarefas e nos testes da T5); `lerReceitaNaTransacao`/`ReceitaLida`/`listarReceitasPublicadas` (T6) em T7 e T9; `nutrientesPorPorcao`/`textoPorPorcao` (T6) em T7; `ReceitaDaRefeicao`/`recipeContentId` (T9) no editor, no portal e na exportação (T12); `apagarUsoDeConteudo`/`conteudosDoTitular` (T12) no `lgpd.ts` e no `exportacao-job.ts`; `novoConteudo`/`novaEtiqueta`/`comoPaciente`/`idsVisiveis` (`test/conteudos.ts`, T2) em T2–T12.
+**3. Consistência de tipos e nomes:** `Visibilidade`/`TipoConteudo`/`MSG_*` (T2) em T3–T13; `naAudiencia` (T2) em T10 e T11; `naAudienciaDaLinha` (T2) em T11; `liberarReceitasDoPlano` (T2) em T7 (`conteudoDoPaciente`) e T9 (`planoDoPaciente`); `paraJpegSemMetadados` (T3) em `capa.ts` e `diario-foto-job.ts`; `VideoTrocadoError` (T5) em `arquivos.ts` e `capaDoVideo`; `gravarAudiencia`/`lerAudiencia`/`opcoesDeAudiencia` (T2) em T5; `lerLinkDeVideo`/`urlDoVideo`/`videoDoConteudo`/`VideoDoLink` (T3) em T5 e T7; `processarCapa` (T3) em `trocarCapa` (T5); `Markdown` (T4) em T7; `ConteudoError`/`ConteudoNaoEncontradoError` (T5) em T6; `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf` (T5) em T5, T7 (teste) e no `excluirConteudo`; `publicarConteudo` muda de assinatura na T10 (anotado nas duas tarefas e nos testes da T5); `lerReceitaNaTransacao`/`ReceitaLida`/`listarReceitasPublicadas` (T6) em T7 e T9; `nutrientesPorPorcao`/`textoPorPorcao` (T6) em T7; `ReceitaDaRefeicao`/`recipeContentId` (T9) no editor, no portal e na exportação (T12); `apagarUsoDeConteudo`/`conteudosDoTitular` (T12) no `lgpd.ts` e no `exportacao-job.ts`; `novoConteudo`/`novaEtiqueta`/`comoPaciente`/`idsVisiveis` (`test/conteudos.ts`, T2) em T2–T12.
 
-**4. Review Focus:** 1 (fora da audiência) → T2 (`audiencia.test.ts`: todos, pacientes, etiquetas na hora, arquivado, exceção do plano publicado × arquivado × despublicado, visualização/favorito 42501), T7 (detalhe `null`, PDF 404, favoritar/visualizar invisível → false), T9 (cartão some), T13 (404 pela URL no navegador); 2 (link estranho) → T3 (`video.test.ts` com os 18 casos, `oembed.test.ts`: hosts, http, credenciais, redirect, 404, JSON grande/inválido, SVG, prazo); 3 (markdown hostil) → T4 (script, img, javascript:, data:, //, sem fechar, 20000 asteriscos < 200 ms); 4 (números da receita) → T6 (porção = rendimento, porção > rendimento, 0, vírgula, sem valor na TACO, outro consultório, 51 ingredientes); 5 (aviso em massa) → T10 (24 h, 22h → 08:00, só ativo com conta, etiqueta, publicações simultâneas, sem "Avisar").
+**4. Review Focus:** 1 (fora da audiência) → T2 (`audiencia.test.ts`: todos, pacientes, etiquetas na hora, arquivado, exceção do plano publicado × arquivado × despublicado só com a liberação, visualização/favorito 42501 mesmo com ela), T7 (detalhe `null`, PDF 404, favoritar/visualizar invisível → false, receita do plano fora do feed/busca/etiquetas e só com `doPlano`, guarda da liberação), T9 (cartão some; feed da Ana sem a receita), T13 (404 pela URL no navegador); 2 (link estranho) → T3 (`video.test.ts` com os 18 casos, `oembed.test.ts`: hosts, http, credenciais, redirect, 404, JSON grande/inválido, SVG, prazo); 3 (markdown hostil) → T4 (script, img, javascript:, data:, //, sem fechar, 20000 asteriscos < 200 ms); 4 (números da receita) → T6 (porção = rendimento, porção > rendimento, 0, "0,04" arredondado para 0, vírgula, sem valor na TACO, outro consultório, 51 ingredientes); 5 (aviso em massa) → T10 (24 h, 22h → 08:00, só ativo com conta, etiqueta, publicações simultâneas, sem "Avisar").
 
 ## Decisões para o dono
 
