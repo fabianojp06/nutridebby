@@ -26,12 +26,12 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
         <h2 id="exames" className="text-lg font-semibold">Exames</h2>
         {lista.length === 0 && <p>Nenhum exame registrado.</p>}
         {lista.map((e) => (
-          <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded border p-3">
+          <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
               <span className="flex gap-4">
                 {e.arquivoPath && (
-                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="underline">Baixar laudo</a>
+                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
@@ -41,9 +41,9 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
               </span>
             </div>
             {e.valores.length > 0 && (
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left">
                 <caption className="sr-only">{`Valores do exame ${e.titulo}`}</caption>
-                <thead>
+                <thead className="text-sm text-suave">
                   <tr>
                     <th scope="col">Marcador</th>
                     <th scope="col">Valor</th>
@@ -52,7 +52,7 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
                 </thead>
                 <tbody>
                   {e.valores.map((v, i) => (
-                    <tr key={`${i}-${v.nome}`} className="border-t">
+                    <tr key={`${i}-${v.nome}`} className="border-t border-linha">
                       <td>{v.nome}</td>
                       <td>{`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
                       <td>{v.referencia ?? '—'}</td>

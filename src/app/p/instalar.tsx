@@ -26,7 +26,7 @@ export function Instalar() {
           await prompt.prompt();
           promptUsado();
         }}
-        className="min-h-11 rounded bg-emerald-700 px-4 text-white"
+        className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white"
       >
         Instalar app
       </button>
@@ -34,7 +34,7 @@ export function Instalar() {
   }
   if (estado === 'ios') {
     return (
-      <section aria-labelledby="instalar-iphone" className="space-y-2 rounded border p-4">
+      <section aria-labelledby="instalar-iphone" className="space-y-2 rounded-xl border border-borda bg-cartao p-4">
         <h2 id="instalar-iphone" className="font-semibold">Instalar app</h2>
         <p>
           Para instalar no iPhone: toque em Compartilhar{' '}

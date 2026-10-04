@@ -14,7 +14,7 @@ const get = (url: string) => GET(new Request(`http://localhost:3000${url}`));
 describe('GET /api/arquivos', () => {
   it('serve o arquivo com URL assinada válida, com cabeçalhos que impedem execução', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota' }).returning();
-    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri' }, { tipo: 'logo', conteudo: PNG, permitidos: ['png'] });
+    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri', actorUserId: randomUUID() }, { tipo: 'logo', conteudo: PNG, permitidos: ['png'] });
     const res = await get(signFileUrl(a.caminho));
     expect(res.status).toBe(200);
     expect(Buffer.from(await res.arrayBuffer()).equals(PNG)).toBe(true);
@@ -33,7 +33,7 @@ describe('GET /api/arquivos', () => {
   });
   it('max-age acompanha o que falta para o exp, não um TTL fixo (T8-R2a)', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota2-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 2' }).returning();
-    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri' }, { tipo: 'logo', conteudo: PNG, permitidos: ['png'] });
+    const a = await salvarArquivo({ tenantId: t.id, role: 'nutri', actorUserId: randomUUID() }, { tipo: 'logo', conteudo: PNG, permitidos: ['png'] });
     // assinada como se emitida há quase os 5 min inteiros: restam ~5 s até expirar
     const emitidaEm = new Date(Date.now() - (FILE_URL_TTL_S - 5) * 1000);
     const res = await get(signFileUrl(a.caminho, { now: emitidaEm }));
@@ -44,7 +44,7 @@ describe('GET /api/arquivos', () => {
   });
   it('PDF é servido como anexo (o visualizador do navegador não abre documento em sandbox)', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota3-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 3' }).returning();
-    const ctx = { tenantId: t.id, role: 'nutri' } as const;
+    const ctx = { tenantId: t.id, role: 'nutri', actorUserId: randomUUID() } as const;
     const p = await novoPaciente(getDb(), ctx);
     const a = await salvarArquivo(ctx, { tipo: 'exame', conteudo: Buffer.from('%PDF-1.7\nconteudo'), permitidos: ['pdf'], patientId: p.id });
     const res = await get(signFileUrl(a.caminho));
@@ -56,7 +56,7 @@ describe('GET /api/arquivos', () => {
 
   it('ZIP da exportação é servido como anexo (US-018)', async () => {
     const [t] = await getDb().insert(tenants).values({ slug: `rota4-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Rota 4' }).returning();
-    const p = await novoPaciente(getDb(), { tenantId: t.id, role: 'nutri' });
+    const p = await novoPaciente(getDb(), { tenantId: t.id, role: 'nutri', actorUserId: randomUUID() });
     const a = await salvarArquivo(
       { tenantId: t.id, role: 'worker' },
       { tipo: 'exportacao', conteudo: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]), permitidos: ['zip'], patientId: p.id },

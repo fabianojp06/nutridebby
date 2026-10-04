@@ -10,9 +10,9 @@ export function PresencaForm({ realizada, faltou }: { realizada: () => Promise<C
   const erro = sr.erros?.geral ?? sf.erros?.geral;
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <form action={acaoRealizada}><button disabled={pr || pf} className="rounded border px-3 py-1.5">Realizada</button></form>
-      <form action={acaoFaltou}><button disabled={pr || pf} className="rounded border px-3 py-1.5">Faltou</button></form>
-      {erro && <p role="alert" className="text-red-700">{erro}</p>}
+      <form action={acaoRealizada}><button disabled={pr || pf} className="rounded-full border border-campo bg-cartao px-3 py-1.5 text-texto">Realizada</button></form>
+      <form action={acaoFaltou}><button disabled={pr || pf} className="rounded-full border border-campo bg-cartao px-3 py-1.5 text-texto">Faltou</button></form>
+      {erro && <p role="alert" className="text-erro">{erro}</p>}
     </div>
   );
 }

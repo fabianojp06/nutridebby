@@ -7,10 +7,11 @@ const COOKIE_SESSAO = 'nd.session_token';
 test('nutricionista sai pelo "Sair" do painel: cai em /entrar, /painel deixa de abrir e o cookie antigo não vale mais (US-002 "Sair")', async ({ browser }) => {
   const page = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.7.1');
   await expect(page).toHaveURL(/\/painel$/);
-  // "depois de Segurança, no fim do menu"
-  const menu = page.getByRole('navigation', { name: 'Menu do painel' });
-  await expect(menu.locator('a, button').last()).toHaveText('Sair');
-  await expect(menu.locator('a, button').nth(-2)).toHaveText('Segurança');
+  // D20 (Plano 08): "Sair" é o último item do menu da conta (avatar), depois de "Segurança"
+  await page.getByLabel(/^Conta de /).click();
+  const menu = page.locator('details[data-guia="conta"]');
+  await expect(menu.locator('li a, li button').last()).toHaveText('Sair');
+  await expect(menu.getByRole('link', { name: 'Segurança', exact: true })).toBeVisible();
   const antes = await page.context().cookies();
   expect(antes.map((c) => c.name)).toContain(COOKIE_SESSAO);
 
@@ -20,7 +21,7 @@ test('nutricionista sai pelo "Sair" do painel: cai em /entrar, /painel deixa de 
   // "Voltar" do navegador, logo depois de sair, não reabre o painel logado: a página é pedida de novo e o proxy manda para o login
   await page.goBack();
   await expect(page).toHaveURL(/\/entrar\?volta=%2Fpainel$/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toHaveCount(0);
   await page.goto('/painel');
   await expect(page).toHaveURL(/\/entrar\?volta=%2Fpainel$/);
 
@@ -28,7 +29,7 @@ test('nutricionista sai pelo "Sair" do painel: cai em /entrar, /painel deixa de 
   await page.context().addCookies(antes);
   await page.goto('/painel');
   await expect(page).toHaveURL(/\/entrar/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toHaveCount(0);
   await page.context().close();
 });
 
@@ -38,6 +39,7 @@ test('"Sair" também em "Segurança da conta", no aceite do DPA e em "Conta temp
   const sair = page.getByRole('button', { name: 'Sair', exact: true });
   for (const rota of ['/conta/seguranca', '/painel/dpa', '/indisponivel']) {
     await page.goto(rota);
+    if (rota === '/painel/dpa') await page.getByLabel(/^Conta de /).click(); // DPA já aceito: cabeçalho completo, "Sair" no menu da conta (D20)
     await expect(sair, rota).toBeVisible();
   }
   await sair.click();
@@ -57,16 +59,19 @@ test('duas abas: depois de sair numa, "Sair" na outra (que ainda mostra o painel
   await expect(primeira).toHaveURL(/\/painel$/);
   const segunda = await primeira.context().newPage();
   await segunda.goto('/painel');
-  await expect(segunda.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(segunda.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
 
+  await primeira.getByLabel(/^Conta de /).click(); // D20: "Sair" no menu da conta
   await primeira.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(primeira).toHaveURL(/\/entrar$/);
 
   // o cookie já sumiu: a segunda aba, ainda no painel, não pode quebrar ao sair
+  await segunda.getByLabel(/^Conta de /).click();
   await segunda.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(segunda).toHaveURL(/\/entrar$/);
   await expect(segunda.getByRole('button', { name: 'Entrar' })).toBeVisible();
   await expect(segunda.getByText('Application error')).toHaveCount(0);
+  await expect(segunda.getByText('Algo deu errado.')).toHaveCount(0); // P08-01: a tela de erro do app (error.tsx)
   await primeira.context().close();
 });
 
@@ -78,7 +83,7 @@ test('POST /sair só vale da própria origem: de outro site é 403 e a sessão f
   expect((await pedir({})).status()).toBe(403); // sem Origin nem Sec-Fetch-Site
   expect((await page.request.get('/sair', { maxRedirects: 0 })).status()).toBe(405);
   await page.goto('/painel'); // nada disso encerrou a sessão
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   const certo = await pedir({ origin: new URL(baseURL!).origin });
   expect(certo.status()).toBe(303);
   expect(certo.headers()['location']).toBe('/entrar');
@@ -103,10 +108,12 @@ test('as páginas de alimentos também mostram o menu do painel com "Sair" (list
   for (const rota of ['/painel/alimentos', '/painel/alimentos/novo', CHUCHU]) {
     await page.goto(rota);
     await expect(menu, rota).toBeVisible();
-    await expect(menu.getByRole('link', { name: 'Alimentos', exact: true }), rota).toBeVisible();
-    await expect(menu.getByRole('button', { name: 'Sair', exact: true }), rota).toBeVisible();
+    // D20: Alimentos mora no hub "Configurações" (o item fica marcado) e o "Sair" no menu da conta
+    await expect(menu.getByRole('link', { name: 'Configurações', exact: true }), rota).toHaveAttribute('aria-current', 'page');
+    await page.getByLabel(/^Conta de /).click();
+    await expect(page.getByRole('button', { name: 'Sair', exact: true }), rota).toBeVisible();
   }
-  await menu.getByRole('button', { name: 'Sair', exact: true }).click();
+  await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(page).toHaveURL(/\/entrar$/);
   await page.context().close();
 });

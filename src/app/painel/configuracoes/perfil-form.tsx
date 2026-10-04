@@ -24,21 +24,24 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
       <Campo id="cancelamentoMinH" rotulo="Cancelar ou remarcar até (horas antes)" inputMode="numeric" defaultValue={v ? v.cancelamentoMinH : String(tenant.cancelamentoMinH)} erro={e.cancelamentoMinH} />
       <div className="space-y-1">
         <label htmlFor="fuso" className="block font-medium">Fuso horário</label>
-        <select id="fuso" name="fuso" defaultValue={v ? v.fuso : tenant.fuso} aria-invalid={e.fuso ? true : undefined} aria-describedby={e.fuso ? 'fuso-erro' : undefined} className="w-full rounded border p-2">
+        <select id="fuso" name="fuso" defaultValue={v ? v.fuso : tenant.fuso} aria-invalid={e.fuso ? true : undefined} aria-describedby={e.fuso ? 'fuso-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
           {FUSOS_BRASIL.map((f) => <option key={f} value={f}>{f.replace('America/', '').replace('_', ' ')}</option>)}
         </select>
-        {e.fuso && <p id="fuso-erro" role="alert" className="text-sm text-red-700">{e.fuso}</p>}
+        {e.fuso && <p id="fuso-erro" role="alert" className="text-sm text-erro">{e.fuso}</p>}
       </div>
       <div className="flex items-center gap-2">
         <input id="agendamentoPublicoAtivo" name="agendamentoPublicoAtivo" type="checkbox" defaultChecked={v ? v.agendamentoPublicoAtivo === 'on' : tenant.agendamentoPublicoAtivo} />
         <label htmlFor="agendamentoPublicoAtivo">Permitir agendamento pela página pública</label>
       </div>
-      <div className="flex items-center gap-2">
-        <input id="mostrarPercGorduraPaciente" name="mostrarPercGorduraPaciente" type="checkbox" defaultChecked={v ? v.mostrarPercGorduraPaciente === 'on' : tenant.mostrarPercGorduraPaciente} />
-        <label htmlFor="mostrarPercGorduraPaciente">Mostrar % de gordura ao paciente</label>
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <input id="mostrarPercGorduraPaciente" name="mostrarPercGorduraPaciente" type="checkbox" aria-describedby="mostrarPercGorduraPaciente-dica" defaultChecked={v ? v.mostrarPercGorduraPaciente === 'on' : tenant.mostrarPercGorduraPaciente} />
+          <label htmlFor="mostrarPercGorduraPaciente">Mostrar % de gordura ao paciente</label>
+        </div>
+        <p id="mostrarPercGorduraPaciente-dica" className="text-sm text-suave">Mesmo desligada, a cópia dos dados que o paciente pede inclui todas as medidas (LGPD, art. 18, II).</p>
       </div>
       {state.ok && <p role="status">Perfil salvo.</p>}
-      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar perfil</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar perfil</button>
     </form>
   );
 }

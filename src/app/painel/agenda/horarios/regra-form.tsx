@@ -9,11 +9,11 @@ function Selecao({ id, rotulo, erro, opcoes, valor }: { id: string; rotulo: stri
   return (
     <div className="space-y-1">
       <label htmlFor={id} className="block font-medium">{rotulo}</label>
-      <select id={id} name={id} defaultValue={valor ?? ''} aria-invalid={erro ? true : undefined} aria-describedby={erro ? `${id}-erro` : undefined} className="w-full rounded border p-2">
+      <select id={id} name={id} defaultValue={valor ?? ''} aria-invalid={erro ? true : undefined} aria-describedby={erro ? `${id}-erro` : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
         <option value="" disabled>Escolha…</option>
         {opcoes.map(([v, r]) => <option key={v} value={v}>{r}</option>)}
       </select>
-      {erro && <p id={`${id}-erro`} role="alert" className="text-sm text-red-700">{erro}</p>}
+      {erro && <p id={`${id}-erro`} role="alert" className="text-sm text-erro">{erro}</p>}
     </div>
   );
 }
@@ -30,9 +30,9 @@ export function RegraForm() {
       <Selecao id="duracaoMin" rotulo="Duração" erro={e.duracaoMin} valor={v.duracaoMin ?? '60'} opcoes={DURACOES.map((d) => [String(d), `${d} min`])} />
       <Selecao id="modalidade" rotulo="Modalidade" erro={e.modalidade} valor={v.modalidade ?? 'presencial'} opcoes={Object.entries(ROTULO_MODALIDADE_REGRA)} />
       <div className="sm:col-span-5">
-        {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
+        {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
         {state.ok && <p role="status">{state.ok}</p>}
-        <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Adicionar horário</button>
+        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Adicionar horário</button>
       </div>
     </form>
   );

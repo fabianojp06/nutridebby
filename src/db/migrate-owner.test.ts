@@ -151,6 +151,45 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
+  it('métricas de sucesso do admin (0087, D15): a função SECURITY DEFINER conta por tenant sob FORCE RLS (dono sem superusuário)', async () => {
+    const c = await app.connect();
+    try {
+      const a = (await c.query(`insert into tenants (slug, nome_exibicao) values ('cs-a', 'A') returning id`)).rows[0].id as string;
+      const b = (await c.query(`insert into tenants (slug, nome_exibicao) values ('cs-b', 'B') returning id`)).rows[0].id as string;
+      const conta = (await c.query(`insert into "user" (name, email, app_role) values ('Ana', 'ana@cs.dev', 'paciente') returning id`)).rows[0].id as string;
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [a]);
+      const [comConta] = (
+        await c.query(
+          `insert into patients (tenant_id, nome, data_nascimento, sexo, email, status, user_id) values ($1, 'Com conta', '1990-01-01', 'F', 'ana@cs.dev', 'ativo', $2), ($1, 'Sem conta', '1990-01-01', 'M', 'sem@cs.dev', 'ativo', null) returning id`,
+          [a, conta],
+        )
+      ).rows.map((r) => r.id as string);
+      await c.query(`insert into access_events (tenant_id, patient_id, dia) values ($1, $2, (now() at time zone 'America/Sao_Paulo')::date)`, [a, comConta]);
+      // já começou e é deste mês no fuso do tenant (no 1º minuto do mês, o próprio início do mês)
+      await c.query(
+        `insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+         select $1, $2, i, i + interval '30 minutes', 'presencial', 'nutri', 'faltou'
+           from (select greatest(now() - interval '1 minute', date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo') as i) x`,
+        [a, comConta],
+      );
+      await c.query('commit');
+      const { rows } = await c.query(
+        `select tenant_id, pacientes_com_conta::int as com_conta, abriram_7_dias::int as abriram, faltas_mes::int as faltas, iniciadas_mes::int as iniciadas
+           from admin_metricas_sucesso() where tenant_id = any($1)`,
+        [[a, b]],
+      );
+      expect(Object.fromEntries(rows.map(({ tenant_id, ...r }) => [tenant_id, r]))).toEqual({
+        [a]: { com_conta: 1, abriram: 1, faltas: 1, iniciadas: 1 },
+        [b]: { com_conta: 0, abriram: 0, faltas: 0, iniciadas: 0 },
+      });
+      // fora da função, sem contexto, o role da aplicação não vê nada
+      expect((await c.query('select count(*)::int as n from access_events')).rows[0].n).toBe(0);
+    } finally {
+      c.release();
+    }
+  });
+
   it('aceites na anonimização (0065): a função SECURITY DEFINER do migrator sem superusuário limpa o IP sob FORCE RLS; recusa paciente não bloqueado', async () => {
     const c = await app.connect();
     const emWorker = async (t: string) => {

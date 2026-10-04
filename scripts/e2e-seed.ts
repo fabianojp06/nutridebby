@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { account, consents, patients, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
+import { GUIAS } from '@/modules/ajuda/conteudo';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
@@ -12,6 +13,7 @@ export const E2E_ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2
 export const E2E_NUTRI = { email: 'nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_RECUPERA = { email: 'recupera-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_MULTI = { email: 'multi-e2e@nutridebby.test', password: 'Multi2026segura' };
+export const E2E_MANUAL = { email: 'manual-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_ADMIN_PLATAFORMA = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
 
 const db = getDb();
@@ -29,7 +31,7 @@ const [consultorio] = await db
 
 // Plano 05: o consultório do E2E começa com a agenda vazia a cada execução (filhas antes das mães)
 const AGENDA_E2E = ['whatsapp_conexoes', 'public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules'];
-await withTenant({ tenantId: consultorio.id, role: 'nutri' }, async (tx) => {
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
   await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
   for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
@@ -54,6 +56,14 @@ await db.delete(user).where(eq(user.email, E2E_RECUPERA.email));
 const recuperaId = randomUUID();
 await db.insert(user).values({ id: recuperaId, name: 'Recupera E2E', email: E2E_RECUPERA.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
 await db.insert(account).values({ id: randomUUID(), userId: recuperaId, accountId: recuperaId, providerId: 'credential', password: await hashPassword(E2E_RECUPERA.password) });
+
+// P08-10 (D27): as contas do E2E não esbarram no tour nem no aviso "Primeira vez aqui?"; a conta do manual.spec começa zerada
+const TUDO_VISTO = Object.fromEntries(GUIAS.map((g) => [g.id, { v: g.versao, estado: 'concluido' as const }]));
+await db.update(user).set({ guia: TUDO_VISTO, tema: 'sistema' }).where(inArray(user.email, [E2E_NUTRI.email, E2E_RECUPERA.email]));
+await db.delete(user).where(eq(user.email, E2E_MANUAL.email));
+const manualId = randomUUID();
+await db.insert(user).values({ id: manualId, name: 'Manual E2E', email: E2E_MANUAL.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
+await db.insert(account).values({ id: randomUUID(), userId: manualId, accountId: manualId, providerId: 'credential', password: await hashPassword(E2E_MANUAL.password) });
 
 await db.delete(user).where(eq(user.email, E2E_ADMIN_PLATAFORMA.email));
 const admin2Id = randomUUID();
@@ -82,7 +92,7 @@ if (existente) {
   await db.insert(account).values({ id: randomUUID(), userId: multiId, accountId: multiId, providerId: 'credential', password: senhaMulti });
 }
 for (const tenantId of [consultorio.id, ...outros]) {
-  await withTenant({ tenantId, role: 'nutri' }, async (tx) => {
+  await withTenant({ tenantId, role: 'worker' }, async (tx) => {
     await tx
       .insert(patients)
       .values({ tenantId, userId: multiId, nome: 'Multi E2E', dataNascimento: '1990-01-01', sexo: 'F', email: E2E_MULTI.email })

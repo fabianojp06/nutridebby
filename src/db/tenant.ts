@@ -18,11 +18,24 @@ export type TenantContext = {
   tenantId: string;
   role: TenantRole;
   patientId?: string;
-  /** Quem age (auditoria, RNF-08). Ausente em jobs do worker. */
+  /** Quem age (auditoria, RNF-08). Obrigatório para `nutri`; para `paciente`, salvo com `semConta`. Ausente em jobs do worker. */
   actorUserId?: string;
+  /**
+   * N7 (Plano 08): paciente agindo **sem sessão de login** (link assinado da consulta, resposta pelo WhatsApp, leitura do
+   * convite antes da conta existir). Mantém a RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
+   * Só os arquivos de `SEM_CONTA_PERMITIDOS` usam (guarda em sem-conta-guarda.test.ts).
+   */
+  semConta?: true;
   /** IP de quem fez a requisição (auditoria). */
   ip?: string | null;
 };
+
+/** N7: lista fechada dos fluxos de paciente sem sessão de login (sem-conta-guarda.test.ts). */
+export const SEM_CONTA_PERMITIDOS: readonly string[] = [
+  'src/modules/agenda/acoes-link.ts',
+  'src/modules/notificacoes/whatsapp/webhook.ts',
+  'src/modules/pacientes/convite-paciente.ts',
+];
 
 export class TenantContextError extends Error {
   override name = 'TenantContextError';
@@ -38,6 +51,14 @@ function assertContext(ctx: TenantContext): void {
     }
   } else if (ctx.patientId !== undefined) {
     throw new TenantContextError('patientId só é permitido para sessão de paciente');
+  }
+  // N7 (Plano 03): toda escrita com sessão de login vai para o audit_log com o ator — sem ele, a linha sai anônima.
+  // Paciente sem login (link, WhatsApp, convite) declara isso com semConta: true (lista fechada em SEM_CONTA_PERMITIDOS).
+  if (ctx.semConta !== undefined && (ctx.semConta !== true || ctx.role !== 'paciente' || ctx.actorUserId !== undefined)) {
+    throw new TenantContextError('semConta só é permitido para paciente sem ator');
+  }
+  if ((ctx.role === 'nutri' || (ctx.role === 'paciente' && !ctx.semConta)) && !ctx.actorUserId) {
+    throw new TenantContextError('actorUserId obrigatório para sessão de nutricionista ou paciente');
   }
   if (ctx.actorUserId !== undefined && !UUID.test(ctx.actorUserId)) throw new TenantContextError('actorUserId inválido');
   if (ctx.ip && isIP(ctx.ip) === 0) throw new TenantContextError('ip inválido');

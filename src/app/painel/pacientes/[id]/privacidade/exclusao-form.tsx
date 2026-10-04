@@ -18,16 +18,16 @@ export function ExclusaoForm({
         id="confirmacao"
         name="confirmacao"
         autoComplete="off"
-        className="w-full max-w-md rounded border p-2"
+        className="w-full max-w-md rounded-xl border border-campo bg-cartao p-2 text-texto"
         aria-invalid={state.erro ? true : undefined}
         aria-describedby={state.erro ? 'confirmacao-erro' : undefined}
       />
       {state.erro && (
-        <p id="confirmacao-erro" role="alert" className="text-red-700">
+        <p id="confirmacao-erro" role="alert" className="text-erro">
           {state.erro}
         </p>
       )}
-      <button disabled={pendente} className="rounded bg-red-700 px-4 py-2 text-white">
+      <button disabled={pendente} className="rounded-full border border-erro bg-erro-fundo px-4 py-2 font-semibold text-erro">
         Atender pedido de exclusão
       </button>
     </form>

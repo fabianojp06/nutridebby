@@ -11,8 +11,8 @@ export function CancelarForm({ acao }: { acao: (prev: ConsultaState, fd: FormDat
   return (
     <form action={action} className="max-w-xl space-y-3" onSubmit={(ev) => { if (!window.confirm('Cancelar esta consulta? O paciente recebe um aviso por e-mail.')) ev.preventDefault(); }}>
       <Campo id="motivo" rotulo="Motivo do cancelamento (opcional)" maxLength={300} defaultValue={state.valores?.motivo} erro={e.motivo} dica="Só você vê." />
-      {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
-      <button disabled={pendente} className="rounded border border-red-700 px-4 py-2 text-red-800">Cancelar consulta</button>
+      {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
+      <button disabled={pendente} className="rounded border border-erro px-4 py-2 text-erro">Cancelar consulta</button>
     </form>
   );
 }

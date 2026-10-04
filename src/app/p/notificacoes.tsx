@@ -89,7 +89,7 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
   return (
     <div className="space-y-2">
       {(estado === 'pode' || estado === 'falhou') && (
-        <button type="button" onClick={ativar} className="min-h-11 rounded bg-emerald-700 px-4 text-white">
+        <button type="button" onClick={ativar} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">
           Ativar notificações
         </button>
       )}

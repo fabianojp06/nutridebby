@@ -10,7 +10,7 @@ export function DesconectarWhatsapp() {
   return (
     <form action={action} className="space-y-2">
       <ConfirmarBotao mensagem="Desconectar o WhatsApp? Os lembretes passam a sair só por e-mail e notificação no app.">Desconectar WhatsApp</ConfirmarBotao>
-      {state.erro && <p role="alert" className="text-red-700">{state.erro}</p>}
+      {state.erro && <p role="alert" className="text-erro">{state.erro}</p>}
     </form>
   );
 }

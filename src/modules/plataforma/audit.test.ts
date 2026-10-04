@@ -67,9 +67,7 @@ describe('auditoria automática (RNF-08, US-007)', () => {
     await expect(app.db.transaction((tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: P1, patientId: P1 }))).rejects.toThrow();
   });
 
-  it('paciente grava o próprio registro e só enxerga a própria auditoria', async () => {
-    // Linha de outro paciente no mesmo tenant: sem a política patient_isolation em audit_log,
-    // a sessão do paciente abaixo também veria essa linha (T4-R1).
+  it('paciente grava o próprio registro e não lê o audit_log (B-6, 0085)', async () => {
     const P2 = randomUUID();
     await withTenant(ctxA(), (tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: P2, patientId: P2 }), app.db);
 
@@ -78,10 +76,10 @@ describe('auditoria automática (RNF-08, US-007)', () => {
     const pac = await novoPaciente(app.db, ctxA());
     const ctxP = { tenantId: A, role: 'paciente' as const, patientId: pac.id, actorUserId: randomUUID() };
     await withTenant(ctxP, (tx) => tx.execute(sql`update patients set nome = nome where id = ${pac.id}`), app.db);
-    const visto = await withTenant(ctxP, (tx) => tx.select().from(auditLog), app.db);
-    expect(visto.some((l) => l.acao === 'alterar' && l.entidadeId === pac.id && l.actorUserId === ctxP.actorUserId)).toBe(true);
-    expect(visto.every((l) => l.patientId === pac.id)).toBe(true);
-    expect(visto.some((l) => l.entidadeId === P2)).toBe(false);
+    const gravado = await withTenant(ctxA(), (tx) => tx.select().from(auditLog).where(eq(auditLog.entidadeId, pac.id)), app.db);
+    expect(gravado.some((l) => l.acao === 'alterar' && l.patientId === pac.id && l.actorUserId === ctxP.actorUserId)).toBe(true);
+    // B-6: paciente_sem_leitura (RESTRICTIVE FOR SELECT) — nem as próprias linhas (IP e ator da equipe), nem as de P2
+    expect(await withTenant(ctxP, (tx) => tx.select().from(auditLog), app.db)).toEqual([]);
 
     // WITH CHECK: a sessão do paciente não consegue gravar uma linha de auditoria em nome de P2.
     await expect(
@@ -127,6 +125,6 @@ describe('listAccessHistory ("Histórico de acessos", 50 por página, mais recen
   });
 
   it('outro tenant não vê o histórico', async () => {
-    expect((await listAccessHistory({ tenantId: B, role: 'nutri' }, P3, 1, app.db)).total).toBe(0);
+    expect((await listAccessHistory({ tenantId: B, role: 'nutri', actorUserId: randomUUID() }, P3, 1, app.db)).total).toBe(0);
   });
 });

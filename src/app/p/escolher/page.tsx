@@ -25,16 +25,16 @@ export default async function EscolherNutri({ searchParams }: PageProps<'/p/esco
       {/* S-6 (RN-15): a cópia offline pode ser do consultório suspenso — sai já aqui, não só depois da escolha; a do
           consultório ativo fica (achado 4 do /code-review: só sai a de quem não está entre os escolhíveis) */}
       <EsquecerPlanoGuardado manter={vinculos.filter((v) => v.tenantStatus === 'ativa').map((v) => v.patientId)} />
-      <h1 className="text-2xl font-semibold">Com qual nutricionista você quer entrar?</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Com qual nutricionista você quer entrar?</h1>
       <ul className="space-y-3">
         {vinculos.map((v) => (
           <li key={v.tenantId}>
             {v.tenantStatus === 'ativa' ? (
               <form action={escolherAction.bind(null, v.tenantId, typeof volta === 'string' ? volta : '/p/inicio')}>
-                <button className="min-h-11 w-full rounded border border-gray-500 px-4 py-3 text-left">{v.nomeNutri}</button>
+                <button className="min-h-11 w-full rounded-xl border border-campo bg-cartao px-4 py-3 text-left">{v.nomeNutri}</button>
               </form>
             ) : (
-              <div className="min-h-11 w-full rounded border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700">
+              <div className="min-h-11 w-full rounded-xl border border-borda bg-linha px-4 py-3 text-suave">
                 <p>{v.nomeNutri}</p>
                 <p className="text-sm">Conta temporariamente indisponível</p>
               </div>

@@ -381,7 +381,7 @@ test('presença: consulta que já começou → "Faltou"; "Iniciar atendimento" �
   await nutri.getByRole('button', { name: 'Faltou' }).click();
   await expect(nutri.getByRole('alert').filter({ hasText: 'Esta consulta tem um atendimento registrado.' })).toBeVisible();
   await nutri.goto('/painel');
-  await expect(nutri.getByRole('heading', { name: 'Agenda' })).toBeVisible();
+  await expect(nutri.getByRole('heading', { name: 'Agenda', exact: true })).toBeVisible();
   await expect(nutri.getByText(/^Consultas do mês: \d+$/)).toBeVisible();
   await expect(nutri.getByText(/^Taxa de faltas do mês: (\d+,\d% \(\d+ de \d+\)|Sem dados)$/)).toBeVisible();
   await expect(nutri.getByText(/^Mês anterior: (\d+,\d%|Sem dados)$/)).toBeVisible();

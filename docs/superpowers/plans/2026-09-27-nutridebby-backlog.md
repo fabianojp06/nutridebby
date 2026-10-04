@@ -272,7 +272,9 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 
 ## Plano 08 — Go-live
 
-**Plano 08 escrito e aprovado:** [`2026-10-04-nutridebby-08-go-live.md`](2026-10-04-nutridebby-08-go-live.md), no PR #12 (só documentação, ainda não mesclado; o arquivo entra na `main` com ele): decisões ★ aprovadas pelo dono em 04/10/2026 e `/code-review high` do plano feito, com a re-revisão das correções 10/10. A execução começa agora que o Plano 07 está em produção, no mesmo branch, refeito por rebase (migrations renumeradas se preciso).
+**Plano 08 escrito e aprovado:** [`2026-10-04-nutridebby-08-go-live.md`](2026-10-04-nutridebby-08-go-live.md), no PR #12 (só documentação, ainda não mesclado; o arquivo entra na `main` com ele): decisões ★ aprovadas pelo dono em 04/10/2026 e `/code-review high` do plano feito, com a re-revisão das correções 10/10. A execução começa agora que o Plano 07 está em produção, no mesmo branch, refeito por rebase (migrations renumeradas se preciso). **Executado no branch em 04/10/2026 (T8 fora: textos legais, E-09); em revisão** — revisão final do branch com uma onda de correções; a seguir `/code-review high`, re-revisão e `/security-review`.
+
+**Da revisão final do branch (para depois do go-live):** `tenant_id` na linha de log de erro e no Sentry (RNF-11/D2 prometia "quando a sessão já foi lida"; hoje a correlação é só pelo `request_id` — desvio registrado no plano).
 
 **Notas do Plano 07:** P08-05 — a CSP global precisa de `frame-src https://www.youtube-nocookie.com https://player.vimeo.com` e de `img-src 'self'` (as capas são locais); revisar os uploads de capa e PDF, a chamada de rede do oEmbed, o `sandbox` do iframe, a busca na URL (`?busca=`) e os reforços das guardas (P07-09). P08-03 (k6) — `/p/conteudos` com 100 conteúdos e audiência por etiqueta (a função roda por linha), a busca full-text e `/painel/conteudos` (a consulta agrupada das métricas com 200 conteúdos publicados e muitos pacientes). P08-06 — o termo do paciente e o DPA citam YouTube e Vimeo (o player roda no aparelho do paciente; P-02/P-18, advogado). P08-08 — a Debby valida o cálculo das receitas (RN-11) e os textos do E6. P08-09 — o teste manual do runbook do Plano 07 (passo 5: vídeo real do YouTube e do Vimeo, push de conteúdo novo no Android e no iPhone, PDF no celular, cartão "Sugestão de receita" no plano) entra no checklist assinado.
 
@@ -287,8 +289,9 @@ Linhas com ↳ são subtarefas (ID com sufixo a/b/c) criadas quando o plano deta
 | P08-05 | Revisão de segurança (headers, CSP, uploads, rate limits, RLS) | RNF-06, RNF-07 | Planos 01–07 | Dev | M | ⬜ |
 | P08-06 | Textos legais finais publicados (termo v1.0, DPA) + prazo de guarda configurado | P-01, P-02 | E-09 | Dev | M | ⬜ |
 | P08-07 | Painel com as métricas de sucesso (CS-01 a CS-03) | CS-01–03 | P05-12, P06-02 | Dev | S | ⬜ |
-| P08-08 | Validação com a Debby (fórmulas e fluxo real) + treinamento | P-08 | E-08, Planos 03–07 | Debby + Você | M | ⬜ |
+| P08-08 | Validação com a Debby (fórmulas e fluxo real) + treinamento | P-08 | E-08, Planos 03–07, P08-10 | Debby + Você | M | ⬜ |
 | P08-09 | Go-live: conta da Debby em produção + checklist assinado | CS-01 | P08-01 a P08-08 | Você | M | ⬜ |
+| P08-10 | Manual guiado na tela para a nutricionista: tour de boas-vindas, tours por tela e central de ajuda `/painel/ajuda` (US-057; pedido do dono em 04/10/2026; D26) | US-057 | — | Dev | M | ⬜ |
 
 ## Pós-MVP — Fase 3 (Engajamento) e Fase 4 (Expansão)
 
@@ -310,7 +313,7 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 
 ## Resumo
 
-**Situação em 2026-10-04** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 07 concluídos e em produção (https://nutri.wsscloud.tech; Plano 07 pelo PR #10, mesclado e implantado em 04/10/2026, com 85 migrations; spec v1.10); também em produção desde 04/10 o PR #11 (débitos pré-go-live de P06-12/P04-10) e o PR #13 (sem modo escuro parcial: o sistema fica claro até o tema escuro do Plano 08); Plano 08 escrito e aprovado (PR #12), próximo a executar; 81 itens ✅, 5 🔄 (E-01, E-06, P02-11 — backup no host pendente —, P04-10 e P06-12, débitos em parte resolvidos), 14 ⬜ (P07-09, Plano 08 e os itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
+**Situação em 2026-10-04** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 07 concluídos e em produção (https://nutri.wsscloud.tech; Plano 07 pelo PR #10, mesclado e implantado em 04/10/2026, com 85 migrations; spec v1.10); também em produção desde 04/10 o PR #11 (débitos pré-go-live de P06-12/P04-10) e o PR #13 (sem modo escuro parcial: o sistema fica claro até o tema escuro do Plano 08); Plano 08 escrito e aprovado (PR #12), executado no branch e em revisão (P08-10, o manual guiado, entrou no plano); 81 itens ✅, 5 🔄 (E-01, E-06, P02-11 — backup no host pendente —, P04-10 e P06-12, débitos em parte resolvidos), 15 ⬜ (P07-09, Plano 08 e os itens externos E-04 revisado, E-07, E-08, E-09). Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 
 | Grupo | Tarefas | M | S |
 |---|---|---|---|
@@ -322,5 +325,5 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 | Plano 05 — Agenda & lembretes | 12 | 12 | 0 |
 | Plano 06 — Portal PWA | 13 | 9 | 4 |
 | Plano 07 — Conteúdo | 9 | 5 | 4 |
-| Plano 08 — Go-live | 9 | 8 | 1 |
-| **Total** | **100** | **86** | **14** |
+| Plano 08 — Go-live | 10 | 9 | 1 |
+| **Total** | **101** | **87** | **14** |

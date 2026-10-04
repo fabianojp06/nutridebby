@@ -12,7 +12,7 @@ export default async function Diario() {
   const registros = await diarioDoPaciente(ctx);
   return (
     <main className="space-y-6 p-6">
-      <h1 className="text-2xl font-semibold">Diário</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Diário</h1>
       <section aria-labelledby="registrar" className="space-y-3">
         <h2 id="registrar" className="text-lg font-semibold">Registrar refeição</h2>
         <DiarioForm />
@@ -22,7 +22,7 @@ export default async function Diario() {
       ) : (
         <ol className="space-y-4">
           {registros.map((r) => (
-            <li key={r.id} className="space-y-2 rounded border p-3">
+            <li key={r.id} className="space-y-2 rounded-xl border border-borda bg-cartao p-3">
               <p className="font-medium">{`${r.refeicao} · ${quandoComFuso(r.dataHora, tenant.fuso)}`}</p>
               {r.texto && <p className="whitespace-pre-line">{r.texto}</p>}
               {r.foto.estado === 'pronta' && (
@@ -32,9 +32,9 @@ export default async function Diario() {
               )}
               {/* sem role="status": uma região viva por registro seria anunciada inteira a cada router.refresh() (RNF-10) */}
               {r.foto.estado === 'processando' && <p className="text-sm">{MSG_DIARIO.processando}</p>}
-              {r.foto.estado === 'falhou' && <p className="text-sm text-red-700">{MSG_DIARIO.fotoFalhou}</p>}
+              {r.foto.estado === 'falhou' && <p className="text-sm text-erro">{MSG_DIARIO.fotoFalhou}</p>}
               {r.comentario && (
-                <div className="rounded bg-emerald-50 p-2">
+                <div className="rounded bg-ok-fundo p-2">
                   <p className="text-sm font-medium">Comentário da nutricionista</p>
                   <p className="whitespace-pre-line">{r.comentario}</p>
                 </div>

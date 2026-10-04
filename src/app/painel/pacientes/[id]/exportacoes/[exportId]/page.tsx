@@ -24,7 +24,7 @@ export default async function ExportacaoPage({
           <p>{`Pronta. O link vale até ${formatarDataHora(e.expiraEm, tenant.fuso)}.`}</p>
           <a
             href={signFileUrl(e.caminho)}
-            className="inline-block rounded bg-emerald-700 px-4 py-2 text-white"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95"
           >
             Baixar ZIP
           </a>
@@ -43,7 +43,7 @@ export default async function ExportacaoPage({
       )}
       {e.estado === 'inexistente' && <p role="alert">Exportação não encontrada.</p>}
       <p>
-        <Link href={privacidade} className="underline">
+        <Link href={privacidade} className="text-link underline">
           Voltar para Privacidade
         </Link>
       </p>

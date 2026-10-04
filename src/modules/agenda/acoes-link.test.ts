@@ -1,17 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { and, eq, inArray } from 'drizzle-orm';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { appointments, auditLog, patients, tenants, user } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, MENSAGEM_DO_LINK, remarcarPeloLink, retornoDaConfirmacao } from './acoes-link';
+import { confirmarPresenca, pedirRemarcacao } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, moverConsulta } from './consultas';
 import { assinarLinkConsulta, chaveDosLinks } from './link-consulta';
+
+// N7 (Plano 08): o contexto que o link entrega às ações (implementação real por baixo)
+vi.mock('./cancelamento', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./cancelamento')>();
+  return { ...real, confirmarPresenca: vi.fn(real.confirmarPresenca), pedirRemarcacao: vi.fn(real.pedirRemarcacao) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só lê pg_stat_activity (a ação ficou presa na trava)
@@ -211,5 +218,19 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       outra.release();
     }
     expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null });
+  });
+
+  it('N7 (Plano 08): o link age como o próprio paciente, sem conta (semConta) — a consulta de outro paciente do mesmo consultório segue invisível', async () => {
+    const { T, ana, id, token } = await cenario();
+    const bia = await novoPaciente(app.db, T.ctx);
+    const daBia = await consultaDireta(app.db, T.ctx, bia.id, em('2026-10-16', '16:00'));
+    await confirmarPeloLink(token, deps(em('2026-10-14', '09:00')));
+    await avisarRemarcacaoPeloLink(token, deps(em('2026-10-16', '09:00')));
+    const ctxs = [vi.mocked(confirmarPresenca).mock.calls.at(-1)![0], vi.mocked(pedirRemarcacao).mock.calls.at(-1)![0]];
+    for (const ctx of ctxs) {
+      expect(ctx).toEqual<TenantContext>({ tenantId: T.tenantId, role: 'paciente', patientId: ana.id, semConta: true, ip: '203.0.113.9' });
+      const vistas = await withTenant(ctx, (tx) => tx.select({ id: appointments.id }).from(appointments).where(inArray(appointments.id, [id, daBia])), app.db);
+      expect(vistas).toEqual([{ id }]);
+    }
   });
 });

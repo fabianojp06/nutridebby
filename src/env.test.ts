@@ -62,6 +62,16 @@ describe('parseEnv (app)', () => {
       '172.16.0.0/12',
     ]);
   });
+  it('P08-01: SENTRY_DSN é opcional, só https; vazio = desligado', () => {
+    expect(parseEnv({ ...base, SENTRY_DSN: '' }).SENTRY_DSN).toBeUndefined();
+    expect(parseEnv({ ...base, SENTRY_DSN: 'https://abc@o1.ingest.de.sentry.io/2' }).SENTRY_DSN).toBe('https://abc@o1.ingest.de.sentry.io/2');
+    expect(() => parseEnv({ ...base, SENTRY_DSN: 'http://abc@o1.ingest.sentry.io/2' })).toThrow('SENTRY_DSN deve começar com https://');
+  });
+  it('P08-05: CSP_MODO é opcional (valendo | relatorio); outro valor é recusado', () => {
+    expect(parseEnv({ ...base, CSP_MODO: '' }).CSP_MODO).toBeUndefined();
+    expect(parseEnv({ ...base, CSP_MODO: 'relatorio' }).CSP_MODO).toBe('relatorio');
+    expect(() => parseEnv({ ...base, CSP_MODO: 'outro' })).toThrow('CSP_MODO deve ser valendo ou relatorio');
+  });
 });
 
 describe('parseServerEnv (worker)', () => {
@@ -144,6 +154,12 @@ describe('parseEnv — armazenamento', () => {
 });
 
 describe('parseWorkerEnv (worker)', () => {
+  it('P08-01: SENTRY_* vêm do schema comum — a mesma regra no worker que no app', () => {
+    const w = { DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY, EMAIL_FROM: 'a@b.dev', MAILPIT_URL: 'http://localhost:8025', DATA_DIR: './data' };
+    expect(parseWorkerEnv({ ...w, SENTRY_DSN: '', SENTRY_ENVIRONMENT: 'producao' })).toMatchObject({ SENTRY_DSN: undefined, SENTRY_ENVIRONMENT: 'producao' });
+    expect(() => parseWorkerEnv({ ...w, SENTRY_DSN: 'http://abc@o1.ingest.sentry.io/2' })).toThrow('SENTRY_DSN deve começar com https://');
+    expect(() => parseWorkerEnv({ ...w, SENTRY_ENVIRONMENT: 'Produção' })).toThrow('SENTRY_ENVIRONMENT');
+  });
   it('exige APP_URL e ENCRYPTION_KEY, mas não AUTH_SECRET nem DATABASE_URL_MIGRATOR', () => {
     const env = parseWorkerEnv({
       DATABASE_URL,

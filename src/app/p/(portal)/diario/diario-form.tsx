@@ -65,18 +65,18 @@ export function DiarioForm() {
     <form onSubmit={enviar} className="space-y-3" noValidate>
       <div className="space-y-1">
         <label htmlFor="refeicao" className="block font-medium">Refeição</label>
-        <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded border p-2" {...campoErro('refeicao')}>
+        <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('refeicao')}>
           <option value="" disabled>Escolha a refeição</option>
           {REFEICOES_DO_DIARIO.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
-        {erros.refeicao && <p id="refeicao-erro" role="alert" className="text-sm text-red-700">{erros.refeicao}</p>}
+        {erros.refeicao && <p id="refeicao-erro" role="alert" className="text-sm text-erro">{erros.refeicao}</p>}
       </div>
       <div className="space-y-1">
         <label htmlFor="texto" className="block font-medium">O que você comeu?</label>
-        <textarea id="texto" name="texto" maxLength={TEXTO_DIARIO_MAX} rows={3} className="w-full rounded border p-2" {...campoErro('texto')} />
-        {erros.texto && <p id="texto-erro" role="alert" className="text-sm text-red-700">{erros.texto}</p>}
+        <textarea id="texto" name="texto" maxLength={TEXTO_DIARIO_MAX} rows={3} className="w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('texto')} />
+        {erros.texto && <p id="texto-erro" role="alert" className="text-sm text-erro">{erros.texto}</p>}
       </div>
       <div className="space-y-1">
         <label htmlFor="foto" className="block font-medium">Foto (opcional)</label>
@@ -89,15 +89,15 @@ export function DiarioForm() {
             const f = e.target.files?.[0];
             setPrevia(f ? URL.createObjectURL(f) : null);
           }}
-          className="block min-h-11"
+          className="block min-h-11 w-full max-w-full"
           {...campoErro('foto')}
         />
-        {erros.foto && <p id="foto-erro" role="alert" className="text-sm text-red-700">{erros.foto}</p>}
+        {erros.foto && <p id="foto-erro" role="alert" className="text-sm text-erro">{erros.foto}</p>}
         {/* eslint-disable-next-line @next/next/no-img-element -- miniatura local (blob:), antes de enviar */}
         {previa && <img src={previa} alt="Miniatura da foto escolhida" className="h-24 w-24 rounded object-cover" />}
       </div>
       {erros.geral && (
-        <p role="alert" className="text-red-700">
+        <p role="alert" className="text-erro">
           {erros.geral}
           {link && (
             <>
@@ -107,8 +107,8 @@ export function DiarioForm() {
           )}
         </p>
       )}
-      {ok && <p role="status" className="rounded bg-emerald-50 p-3">{ok}</p>}
-      <button disabled={enviando} className="min-h-11 rounded bg-emerald-700 px-4 text-white">Registrar</button>
+      {ok && <p role="status" className="rounded bg-ok-fundo p-3">{ok}</p>}
+      <button disabled={enviando} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">Registrar</button>
     </form>
   );
 }

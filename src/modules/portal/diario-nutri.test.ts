@@ -8,7 +8,7 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { registrarNoDiario } from './diario';
-import { abrirRegistro, ComentarioError, comentarRegistro, feedDeDiarios, MSG_COMENTARIO } from './diario-nutri';
+import { abrirRegistro, ComentarioError, comentarRegistro, contarDiariosNaoVistos, feedDeDiarios, MSG_COMENTARIO } from './diario-nutri';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -83,5 +83,17 @@ describe('Diários da nutricionista (US-043)', () => {
     await feedDeDiarios(T.ctx, { db: app.db });
     const lidas = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, ana.id), eq(auditLog.entidade, 'diario'), eq(auditLog.acao, 'ler'))), app.db);
     expect(lidas.length).toBeGreaterThan(0);
+  });
+
+  it('Início: conta só os não vistos do próprio consultório, sem ler registro (sem auditRead); o paciente não conta', async () => {
+    const { T, ana, b1 } = await cenario();
+    const outro = await cenario(); // outro consultório com 3 não vistos: não entra na conta
+    await abrirRegistro(T.ctx, b1.id, { db: app.db });
+    const leiturasAntes = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(eq(auditLog.acao, 'ler')), app.db);
+    expect(await contarDiariosNaoVistos(T.ctx, app.db)).toBe(2);
+    expect(await contarDiariosNaoVistos(outro.T.ctx, app.db)).toBe(3);
+    const leiturasDepois = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(eq(auditLog.acao, 'ler')), app.db);
+    expect(leiturasDepois).toHaveLength(leiturasAntes.length);
+    await expect(contarDiariosNaoVistos(ctxPaciente(T.tenantId, ana.id), app.db)).rejects.toThrow(/sessão da nutricionista/);
   });
 });

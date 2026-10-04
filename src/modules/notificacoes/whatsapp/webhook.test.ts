@@ -8,7 +8,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { conexaoDeTeste, whatsappFalso } from '../../../../test/whatsapp';
 import { closeDb } from '@/db/client';
 import { appointments, notifications, patients, publicRateLimits, tenants, user, whatsappConexoes } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { confirmarPresenca, pedirRemarcacao } from '@/modules/agenda/cancelamento';
@@ -22,7 +22,7 @@ import { classificarEvento, marcaDoPedido, processarEventoWhatsapp, receberWebho
 // a corrida "a nutricionista muda o horário entre a busca do lembrete e a confirmação" (implementação real por baixo)
 vi.mock('@/modules/agenda/cancelamento', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/agenda/cancelamento')>();
-  return { ...real, confirmarPresenca: vi.fn(real.confirmarPresenca) };
+  return { ...real, confirmarPresenca: vi.fn(real.confirmarPresenca), pedirRemarcacao: vi.fn(real.pedirRemarcacao) };
 });
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -146,6 +146,21 @@ describe('processarEventoWhatsapp (US-035)', () => {
     await processar(upsert(`nd-${T.tenantId}`, 'Confirmo')); // e o paciente respondeu de novo
     expect(await consulta(T, c)).toMatchObject({ status: 'confirmada', confirmadaVia: 'whatsapp' });
     expect((await respostas(T, c)).filter((n) => n.tipo === 'resposta_confirmacao')).toMatchObject([{ status: 'pendente', inicioConsulta: em('2026-10-16', '14:00'), agendadaPara: agora }]);
+  });
+
+  it('N7 (Plano 08): "1" e "2" agem como o próprio paciente, sem conta (semConta) — a consulta de outro paciente do mesmo consultório segue invisível', async () => {
+    const T = await tenant();
+    const { p, c } = await lembreteEnviado(T);
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const daBia = await consultaDireta(app.db, T.ctx, bia.id, em('2026-10-16', '16:00'));
+    await processar(upsert(`nd-${T.tenantId}`, '1'));
+    await processar(upsert(`nd-${T.tenantId}`, '2'));
+    const ctxs = [vi.mocked(confirmarPresenca).mock.calls.at(-1)![0], vi.mocked(pedirRemarcacao).mock.calls.at(-1)![0]];
+    for (const ctx of ctxs) {
+      expect(ctx).toEqual<TenantContext>({ tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true });
+      const vistas = await withTenant(ctx, (tx) => tx.select({ id: appointments.id }).from(appointments).where(inArray(appointments.id, [c, daBia])), app.db);
+      expect(vistas).toEqual([{ id: c }]);
+    }
   });
 
   it('"2": pedido de remarcação, aviso à nutricionista (uma vez) e resposta com o link', async () => {

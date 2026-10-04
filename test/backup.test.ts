@@ -73,6 +73,14 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     writeFileSync(path.join(bin, 'rclone'), `#!/usr/bin/env bash\n[ "$1" = ${subcomando} ] && { echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
     return `${bin}:${process.env.PATH}`;
   };
+  /** docker "falso" no PATH: falha só no `docker exec <container> <programa>` (depois de escrever `parcial` no stdout,
+   *  como um dump que cai no meio); o resto vai ao real. */
+  const dockerQueFalhaEm = (programa: string, parcial = '') => {
+    const real = execFileSync('bash', ['-c', 'command -v docker']).toString().trim();
+    const bin = mkdtempSync(path.join(base, 'fakebin-'));
+    writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env bash\n[ "$1" = exec ] && [ "$3" = ${programa} ] && { printf '%s' '${parcial}'; echo "segredo-no-stderr" >&2; exit 1; }\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    return `${bin}:${process.env.PATH}`;
+  };
   const lsf = async (p: string) =>
     (await execFile('rclone', ['lsf', `cripto:${p}`], { env })).stdout.split('\n').filter(Boolean).sort();
   const cat = async (p: string) =>
@@ -122,6 +130,10 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: true }]);
     const banco = await owner.pool.query(`select bytes from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
     expect(Number(banco.rows[0].bytes)).toBeGreaterThan(0);
+    // D6 (P08-04): os roles (sem senha) vão junto, para a restauração recriar donos e grants
+    const globais = (await cat('db/globais.sql')).toString();
+    expect(globais).toContain('nutri_app_role');
+    expect(globais).not.toMatch(/PASSWORD\s+'/i);
   });
 
   it('dia seguinte: alterado/apagado vai para o histórico datado; histórico com mais de 30 dias sai; segunda não gera semanal', async () => {
@@ -200,6 +212,46 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect(det.rows[0].detalhe).toBe('pg_dump ou envio falhou');
     expect(saida).toContain('ERRO no backup do banco');
     expect(saida).not.toContain('segredo-no-stderr');
+  });
+
+  it('falha no dump dos roles (D6): banco ok=false com detalhe fixo, o dump do dia fica, o globais.sql anterior fica, sem o stderr no log', async () => {
+    const antes = await referencia();
+    const { codigo, saida } = await rodarComSaida('2026-10-12', { PATH: dockerQueFalhaEm('pg_dumpall', 'CREATE ROLE parcial') });
+    expect(codigo).toBe(1);
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: false }]);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('roles falhou');
+    expect(await lsf('db/diario/')).toContain('nutri-2026-10-12.dump');
+    expect(saida).toContain('ERRO no backup do banco (roles falhou)');
+    expect(saida).not.toContain('segredo-no-stderr');
+    // O globais.sql é a única cópia dos roles: o dump que caiu (vazio ou pela metade) não fica por cima da última boa
+    const globais = (await cat('db/globais.sql')).toString();
+    expect(globais).toContain('nutri_app_role');
+    expect(globais).not.toContain('parcial');
+    expect(await lsf('db/')).not.toContain('globais.sql.novo'); // nem sobra o temporário
+  });
+
+  it('falha ao promover o globais.sql (D6): banco ok=false, o temporário sai e a última cópia boa fica', async () => {
+    await rcat('db/globais.sql', 'CREATE ROLE nutri_app_role; -- copia boa');
+    const antes = await referencia();
+    const { codigo } = await rodarComSaida('2026-10-13', { PATH: rcloneQueFalhaEm('moveto') });
+    expect(codigo).toBe(1);
+    const det = await owner.pool.query(`select detalhe from backup_runs where tipo = 'banco' and concluido_em > $1::timestamptz`, [antes]);
+    expect(det.rows[0].detalhe).toBe('roles falhou');
+    expect((await cat('db/globais.sql')).toString()).toBe('CREATE ROLE nutri_app_role; -- copia boa');
+    expect(await lsf('db/')).not.toContain('globais.sql.novo');
+  });
+});
+
+describe('regra 10 (CLAUDE.md): o nutri-backup.sh só roda aqui', () => {
+  it('nenhum outro arquivo de código cita o script (há bancos de produção no host)', () => {
+    const citam = ['test', 'src', 'e2e', 'scripts'].flatMap((dir) =>
+      (readdirSync(dir, { recursive: true }) as string[])
+        .filter((f) => /\.(c|m)?[jt]sx?$/.test(f))
+        .map((f) => path.join(dir, f))
+        .filter((f) => f !== path.join('test', 'backup.test.ts') && readFileSync(f, 'utf8').includes('nutri-backup.sh')),
+    );
+    expect(citam).toEqual([]);
   });
 });
 

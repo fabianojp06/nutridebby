@@ -53,9 +53,10 @@ export async function emailsNaFila<T extends EmailMessage['tipo']>(tipo: T, para
     .filter((m): m is Extract<EmailMessage, { tipo: T }> => m.tipo === tipo && m.para === para);
 }
 
-export const ctxPaciente = (tenantId: string, patientId: string, actorUserId?: string): TenantContext => ({
+/** N7 (Plano 08): sessão de paciente sempre com ator — a conta não precisa existir em `user` (audit_log sem FK). */
+export const ctxPaciente = (tenantId: string, patientId: string, actorUserId: string = randomUUID()): TenantContext => ({
   tenantId,
   role: 'paciente',
   patientId,
-  ...(actorUserId ? { actorUserId } : {}),
+  actorUserId,
 });

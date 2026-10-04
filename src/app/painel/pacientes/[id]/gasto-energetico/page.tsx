@@ -42,9 +42,9 @@ export default async function GastoEnergeticoPage({ params }: PageProps<'/painel
         {calculos.length === 0 ? (
           <p>Nenhum cálculo salvo.</p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left">
             <caption className="sr-only">Cálculos de gasto energético, do mais recente para o mais antigo</caption>
-            <thead>
+            <thead className="text-sm text-suave">
               <tr>
                 <th scope="col">Quando</th>
                 <th scope="col">Fórmula</th>
@@ -57,7 +57,7 @@ export default async function GastoEnergeticoPage({ params }: PageProps<'/painel
             </thead>
             <tbody>
               {calculos.map((c) => (
-                <tr key={c.id} className="border-t">
+                <tr key={c.id} className="border-t border-linha">
                   <td>{formatarDataHora(c.createdAt, tenant.fuso)}</td>
                   <td>{NOME[c.formula]}</td>
                   <td>{`${formatarDecimal(c.pesoKg, 2)} kg / ${formatarDecimal(c.alturaCm, 1)} cm`}</td>

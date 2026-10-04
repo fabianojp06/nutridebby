@@ -243,7 +243,7 @@ async function tratarResposta(tenantId: string, ev: Extract<EventoWhatsapp, { ti
   // consulta nem responde. Sem citação: o lembrete mais recente (D3)
   const alvo = ev.citado ? doNumero.find((x) => x.msgId === ev.citado) : doNumero[0];
   if (!alvo?.appointmentId || !alvo.inicio) return;
-  const comoPaciente: TenantContext = { tenantId, role: 'paciente', patientId: alvo.patientId };
+  const comoPaciente: TenantContext = { tenantId, role: 'paciente', patientId: alvo.patientId, semConta: true };
   const tipo = ev.intencao === 'confirmar' ? 'resposta_confirmacao' : 'resposta_remarcar';
   const responder = async (tx: Tx, c: AppointmentRow, mudou: boolean) => {
     // as respostas já gravadas para este horário da consulta (a trava da consulta está com esta transação)

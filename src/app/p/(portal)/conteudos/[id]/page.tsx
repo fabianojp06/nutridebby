@@ -37,10 +37,10 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
           Voltar aos conteúdos
         </Link>
       )}
-      <h1 className="text-2xl font-semibold">{c.titulo}</h1>
+      <h1 className="font-titulo text-2xl font-semibold">{c.titulo}</h1>
       {!c.soPeloPlano && (
         <form action={favoritoAction.bind(null, c.id, !c.favorito)}>
-          <button className="min-h-11 rounded border px-4">{c.favorito ? MSG_PORTAL_CONTEUDO.desfavoritar : MSG_PORTAL_CONTEUDO.favoritar}</button>
+          <button className="min-h-11 rounded-xl border border-borda bg-cartao px-4">{c.favorito ? MSG_PORTAL_CONTEUDO.desfavoritar : MSG_PORTAL_CONTEUDO.favoritar}</button>
         </form>
       )}
       {c.tipo === 'video' && c.video ? <PlayerVideo video={c.video} titulo={c.titulo} /> : <CapaDoConteudo tipo={c.tipo} capaUrl={c.capaUrl} />}
@@ -59,7 +59,7 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
                 <li key={k}>
                   {`${i.nome} — ${quantidadeDoItem(i)}`}
                   {/* D11 / RN-02: sem valor na TACO conta 0 na porção — a tela avisa */}
-                  {i.porCem.kcal === null && <span className="ml-2 text-sm text-zinc-700">{MSG_PLANO.semValor}</span>}
+                  {i.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor}</span>}
                 </li>
               ))}
             </ul>
@@ -80,7 +80,7 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
         <Markdown texto={c.corpoMd} className="space-y-3 [&_a]:underline [&_h2]:text-lg [&_h2]:font-semibold [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc" />
       )}
       {c.temPdf && (
-        <a href={`/api/p/conteudos/${c.id}/pdf`} className="inline-flex min-h-11 items-center rounded border px-4">
+        <a href={`/api/p/conteudos/${c.id}/pdf`} className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
           {MSG_PORTAL_CONTEUDO.baixarPdf}
         </a>
       )}

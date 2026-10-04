@@ -16,11 +16,11 @@ export default async function MeusDadosExportacao({ params }: PageProps<'/p/meus
   if (e.estado === 'inexistente') notFound();
   return (
     <main className="space-y-4 p-6">
-      <h1 className="text-2xl font-semibold">Seus dados</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Seus dados</h1>
       {e.estado === 'pronta' && (
         <>
           <p>{MSG_MEUS_DADOS.pronta(formatarQuando(e.expiraEm, tenant.fuso))}</p>
-          <a href={signFileUrl(e.caminho)} className="inline-flex min-h-11 items-center rounded bg-emerald-700 px-4 text-white">
+          <a href={signFileUrl(e.caminho)} className="inline-flex min-h-11 items-center rounded-xl bg-destaque px-4 font-semibold text-white">
             Baixar arquivo
           </a>
         </>

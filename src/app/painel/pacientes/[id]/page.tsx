@@ -34,13 +34,13 @@ export default async function ResumoPage({ params }: PageProps<'/painel/paciente
         {conviteWhatsapp && <p className="text-sm">{conviteWhatsapp}</p>}
         {acesso.estado !== 'ativo' && paciente.status === 'ativo' && (
           <form action={reenviarConviteAction.bind(null, paciente.id)}>
-            <button className="rounded border px-4 py-2">Reenviar convite</button>
+            <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Reenviar convite</button>
           </form>
         )}
       </section>
       <section aria-labelledby="etiquetas-titulo" className="space-y-2">
         <h2 id="etiquetas-titulo" className="text-lg font-semibold">Etiquetas</h2>
-        <p className="text-sm text-zinc-700">Só você vê as etiquetas. Use para filtrar a lista e direcionar conteúdos.</p>
+        <p className="text-sm text-suave">Só você vê as etiquetas. Use para filtrar a lista e direcionar conteúdos.</p>
         <EtiquetasForm acao={salvarEtiquetasAction.bind(null, paciente.id)} todas={todas} doPaciente={doPaciente.map((e) => e.id)} somenteLeitura={bloqueado} />
       </section>
     </div>

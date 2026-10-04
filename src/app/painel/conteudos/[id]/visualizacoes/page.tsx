@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { quandoComFuso } from '@/modules/agenda/fuso';
 import { quemViu } from '@/modules/conteudo/metricas';
-import { Cabecalho } from '../../../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +14,13 @@ export default async function QuemViu({ params }: PageProps<'/painel/conteudos/[
   if (!r) notFound();
   return (
     <>
-      <Cabecalho tenant={tenant} />
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <Link href={`/painel/conteudos/${id}`} className="text-sm underline">Voltar ao conteúdo</Link>
-        <h1 className="text-2xl font-semibold">{`Quem viu: ${r.titulo}`}</h1>
+        <h1 className="font-titulo text-2xl font-semibold">{`Quem viu: ${r.titulo}`}</h1>
         {r.pessoas.length === 0 ? (
           <p>Ninguém abriu este conteúdo ainda.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-linha">
             {r.pessoas.map((p, k) => <li key={k} className="py-2">{`${p.nome} — ${quandoComFuso(p.vistoEm, tenant.fuso)}`}</li>)}
           </ul>
         )}

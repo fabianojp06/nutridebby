@@ -42,25 +42,25 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
   }
 
   const aria = (k: string) => (erros[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {});
-  const erro = (k: string) => erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{erros[k]}</p>;
+  const erro = (k: string) => erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-erro">{erros[k]}</p>;
   return (
     <form ref={form} onSubmit={enviar} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <label htmlFor="titulo" className="block font-medium">Título do exame</label>
-          <input id="titulo" name="titulo" maxLength={120} className="w-full rounded border p-2" {...aria('titulo')} />
+          <input id="titulo" name="titulo" maxLength={120} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('titulo')} />
           {erro('titulo')}
         </div>
         <div className="space-y-1">
           <label htmlFor="data" className="block font-medium">Data do exame</label>
-          <input id="data" name="data" type="date" max={hoje} defaultValue={hoje} className="rounded border p-2" {...aria('data')} />
+          <input id="data" name="data" type="date" max={hoje} defaultValue={hoje} className="rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('data')} />
           {erro('data')}
         </div>
       </div>
       <div className="space-y-1">
         <label htmlFor="arquivo" className="block font-medium">Laudo (opcional)</label>
         <input id="arquivo" name="arquivo" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" {...aria('arquivo')} />
-        <p className="text-sm text-zinc-700">PDF, JPEG ou PNG de até 20 MB.</p>
+        <p className="text-sm text-suave">PDF, JPEG ou PNG de até 20 MB.</p>
         {erro('arquivo')}
       </div>
       <fieldset className="space-y-2">
@@ -77,18 +77,18 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
             ).map(([k, rotulo]) => (
               <div key={k} className="space-y-1">
                 <label htmlFor={`${k}-${l.chave}`} className="block text-sm">{rotulo}</label>
-                <input id={`${k}-${l.chave}`} {...aria('valores')} value={l[k]} onChange={(ev) => mudar(i, k, ev.target.value)} inputMode={k === 'valor' ? 'decimal' : undefined} className="w-full rounded border p-2" />
+                <input id={`${k}-${l.chave}`} {...aria('valores')} value={l[k]} onChange={(ev) => mudar(i, k, ev.target.value)} inputMode={k === 'valor' ? 'decimal' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
               </div>
             ))}
             <button type="button" onClick={() => setLinhas((ls) => ls.filter((_, j) => j !== i))} className="self-end underline" aria-label={`Remover o valor ${i + 1}`}>Remover</button>
           </div>
         ))}
-        <button type="button" onClick={() => setLinhas((ls) => [...ls, vazia(Date.now())])} className="rounded border px-3 py-1">Adicionar valor</button>
+        <button type="button" onClick={() => setLinhas((ls) => [...ls, vazia(Date.now())])} className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Adicionar valor</button>
         {erro('valores')}
       </fieldset>
       {erro('geral')}
       {ok && <p role="status">Exame salvo.</p>}
-      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar exame</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar exame</button>
     </form>
   );
 }

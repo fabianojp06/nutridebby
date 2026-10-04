@@ -95,7 +95,7 @@ test('?volta externo não redireciona para fora (Review Focus 3)', async ({ brow
   await page.getByLabel('Senha').fill(NUTRI.password);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/); // nunca sai do domínio, mesmo com ?volta=//evil.com
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   await ctx.close();
 });
 

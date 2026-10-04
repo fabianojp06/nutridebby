@@ -4,7 +4,6 @@ import { ehTipoConteudo, FILTROS_DO_FEED, MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } f
 import { listarConteudosDoPainel } from '@/modules/conteudo/conteudos';
 import { metricasDosConteudos, textoDaMetrica } from '@/modules/conteudo/metricas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
-import { Cabecalho } from '../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,14 +15,13 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
   const metricas = await metricasDosConteudos(ctx, lista.filter((c) => c.status === 'publicado'));
   return (
     <>
-      <Cabecalho tenant={tenant} />
-      <main className="mx-auto max-w-5xl space-y-4 p-6">
-        <h1 className="text-2xl font-semibold">Conteúdos</h1>
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
+        <h1 className="font-titulo text-2xl font-semibold">Conteúdos</h1>
         {excluido === '1' && <p role="status">{MSG_CONTEUDO.excluido}</p>}
-        <div className="flex flex-wrap gap-3">
-          <Link href="/painel/conteudos/novo?tipo=video" className="rounded border px-3 py-1">Novo vídeo</Link>
-          <Link href="/painel/conteudos/novo?tipo=receita" className="rounded border px-3 py-1">Nova receita</Link>
-          <Link href="/painel/conteudos/novo?tipo=orientacao" className="rounded border px-3 py-1">Nova orientação</Link>
+        <div data-guia="novo-conteudo" className="flex flex-wrap gap-3">
+          <Link href="/painel/conteudos/novo?tipo=video" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Novo vídeo</Link>
+          <Link href="/painel/conteudos/novo?tipo=receita" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Nova receita</Link>
+          <Link href="/painel/conteudos/novo?tipo=orientacao" className="rounded-full border border-campo bg-cartao px-3 py-1 text-texto">Nova orientação</Link>
         </div>
         <nav aria-label="Filtrar conteúdos" className="flex gap-3 text-sm">
           <Link href="/painel/conteudos" aria-current={!filtro ? 'page' : undefined} className="aria-[current=page]:font-semibold">Todos</Link>
@@ -34,8 +32,8 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
         {lista.length === 0 ? (
           <p>Nenhum conteúdo ainda.</p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
+          <table className="w-full text-left">
+            <thead className="text-sm text-suave">
               <tr>
                 <th scope="col">Título</th>
                 <th scope="col">Tipo</th>
@@ -45,13 +43,13 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
             </thead>
             <tbody>
               {lista.map((c) => (
-                <tr key={c.id} className="border-t">
-                  <td className="py-2"><Link href={`/painel/conteudos/${c.id}`} className="underline">{c.titulo}</Link></td>
+                <tr key={c.id} className="border-t border-linha">
+                  <td className="py-2"><Link href={`/painel/conteudos/${c.id}`} className="text-link underline">{c.titulo}</Link></td>
                   <td>{ROTULO_TIPO_CONTEUDO[c.tipo]}</td>
                   <td>{c.status === 'publicado' && c.publicadoEm ? `Publicado em ${formatarDataNoFuso(c.publicadoEm, tenant.fuso)}` : 'Rascunho'}</td>
                   <td>
                     {metricas.get(c.id) ? (
-                      <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="underline" aria-label={`Ver quem viu: ${c.titulo}`}>
+                      <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="text-link underline" aria-label={`Ver quem viu: ${c.titulo}`}>
                         {textoDaMetrica(metricas.get(c.id)!)}
                       </Link>
                     ) : (

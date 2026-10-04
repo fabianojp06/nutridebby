@@ -35,3 +35,15 @@ export async function entrarComoAdmin(browser: Browser, cred: { email: string; p
   await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
   return page;
 }
+
+/**
+ * P08-10: conta nova criada pelo fluxo do admin (plataforma.spec) vê o tour de boas-vindas no 1º acesso ao painel.
+ * Espera o tour abrir (o `showModal` vem num `useLayoutEffect`, depois da hidratação) e fecha com Esc.
+ * Não usar `isVisible({ timeout })`: o Playwright ignora o timeout e responde na hora, e o tour abriria depois.
+ */
+export async function fecharTourDeBoasVindas(page: Page): Promise<void> {
+  const tour = page.getByRole('dialog', { name: 'Boas-vindas ao NutriDebby' });
+  await expect(tour).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tour).toBeHidden();
+}

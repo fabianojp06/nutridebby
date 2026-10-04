@@ -3,7 +3,6 @@ import { requireNutri } from '@/lib/tenant-session';
 import { dataDaAgendaOuHoje } from '@/modules/agenda/fuso';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarPacientes } from '@/modules/pacientes/pacientes';
-import { Cabecalho } from '../../cabecalho';
 import { agendarAction } from '../actions';
 import { ConsultaForm } from '../consulta-form';
 
@@ -18,10 +17,9 @@ export default async function NovaConsultaPage({ searchParams }: PageProps<'/pai
   const patientId = typeof sp.paciente === 'string' && pacientes.some((p) => p.id === sp.paciente) ? sp.paciente : '';
   return (
     <>
-      <Cabecalho tenant={tenant} />
-      <main className="space-y-4 p-6">
-        <p className="text-sm"><Link href={`/painel/agenda?data=${data}`} className="underline">Agenda</Link></p>
-        <h1 className="text-2xl font-semibold">Nova consulta</h1>
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
+        <p className="text-sm"><Link href={`/painel/agenda?data=${data}`} className="text-link underline">Agenda</Link></p>
+        <h1 className="font-titulo text-2xl font-semibold">Nova consulta</h1>
         <ConsultaForm acao={agendarAction} pacientes={pacientes} linkPadrao={tenant.linkOnlinePadrao} botao="Marcar consulta"
           inicial={{ patientId, data, hora: '', duracaoMin: '60', modalidade: 'presencial', linkOnline: '' }} />
       </main>

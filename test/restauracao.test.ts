@@ -1,0 +1,113 @@
+import { execFile as execFileCb, execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+
+const execFile = promisify(execFileCb);
+const tem = (cmd: string) => {
+  try {
+    execFileSync(cmd, ['version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+const temRclone = tem('rclone');
+if (process.env.CI && !temRclone) throw new Error('rclone é obrigatório no CI (teste da restauração, P08-04)');
+
+const RESTAURAR = path.resolve('scripts/backup/nutri-restauracao-teste.sh');
+
+describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
+  let base = '';
+  let env = {} as NodeJS.ProcessEnv;
+  const container = inject('pgContainerId');
+  const usuario = inject('pgUser');
+
+  beforeAll(async () => {
+    // Regra 10 (CLAUDE.md): o script do backup só roda no test/backup.test.ts (há bancos de produção no host). Aqui o
+    // remoto cifrado ganha o layout que ele grava (o backup.test.ts confere que o script grava assim), com o banco do
+    // Testcontainers: o dump -Fc do dia em db/diario/nutri-<dia>.dump e os roles sem senha em db/globais.sql.
+    base = mkdtempSync(path.join(tmpdir(), 'nd-restaura-'));
+    const destino = path.join(base, 'r2');
+    mkdirSync(destino);
+    const senha = execFileSync('rclone', ['obscure', randomBytes(24).toString('hex')]).toString().trim();
+    env = {
+      PATH: process.env.PATH,
+      ...(process.env.DOCKER_HOST ? { DOCKER_HOST: process.env.DOCKER_HOST } : {}),
+      HOME: base,
+      RCLONE_CONFIG: path.join(base, 'rclone.conf'),
+      RCLONE_CONFIG_CRIPTO_TYPE: 'crypt',
+      RCLONE_CONFIG_CRIPTO_REMOTE: destino,
+      RCLONE_CONFIG_CRIPTO_PASSWORD: senha,
+      NUTRI_BACKUP_REMOTE: 'cripto:',
+      NUTRI_DB_USER: usuario,
+    } as unknown as NodeJS.ProcessEnv;
+    const enviar = (destinoRemoto: string, ...comando: string[]) =>
+      execFile('bash', ['-c', 'set -o pipefail; docker exec "$1" "${@:3}" | rclone rcat "$2"', 'bash', container, destinoRemoto, ...comando], { env });
+    await enviar('cripto:db/diario/nutri-2026-10-04.dump', 'pg_dump', '-U', usuario, '-d', inject('pgDatabase'), '-Fc');
+    await enviar('cripto:db/globais.sql', 'pg_dumpall', '-U', usuario, '--globals-only', '--no-role-passwords');
+  }, 180_000);
+  afterAll(() => {
+    if (base) rmSync(base, { recursive: true, force: true });
+  });
+
+  it('restaura num banco descartável sem rede, confere a RLS e os roles e só imprime contagens', async () => {
+    // Testcontainers migra como superusuário: as funções SECURITY DEFINER têm dono superusuário só aqui (em produção, 0)
+    const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 });
+    const saida = `${r.stdout}${r.stderr}`;
+    expect(saida).toMatch(/restauracao: duracao=\d+s tabelas_sem_rls=0 migrations=[1-9]\d* tenants=\d+ pacientes=\d+ funcoes_definer_superusuario=\d+ roles=ok/);
+    expect(r.stdout.trim().split('\n').at(-1)).toBe('restauracao ok'); // só depois de todas as guardas
+    expect(saida).not.toMatch(/PASSWORD|senha|@/i);
+    const sobra = execFileSync('docker', ['ps', '-a', '--filter', 'name=nutri_restauracao_teste', '--format', '{{.Names}}'], { env }).toString().trim();
+    expect(sobra).toBe(''); // o container (com dado restaurado) não fica
+  }, 180_000);
+
+  it('sem a permissão do CI, função SECURITY DEFINER com dono superusuário reprova a restauração', async () => {
+    const r = execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04' }, timeout: 170_000 });
+    await expect(r).rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('função SECURITY DEFINER com dono superusuário') });
+  }, 180_000);
+
+  it('globais.sql vazio conta como ausente: AVISO (criar os roles à mão), não "roles aplicados"', async () => {
+    const cripto = (args: string[]) => execFile('rclone', args, { env, encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 });
+    const bom = (await cripto(['cat', 'cripto:db/globais.sql'])).stdout as unknown as Buffer;
+    const regravar = (conteudo: Buffer | string) =>
+      new Promise<void>((ok, falha) => {
+        const c = execFileCb('rclone', ['rcat', 'cripto:db/globais.sql'], { env }, (e) => (e ? falha(e) : ok()));
+        c.stdin?.end(conteudo);
+      });
+    await regravar(''); // backup antigo que gravou o dump de roles vazio
+    try {
+      const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 }).then(
+        () => ({ code: 0, stdout: '' }),
+        (e: { code?: number; stdout?: string }) => ({ code: e.code ?? 1, stdout: e.stdout ?? '' }),
+      );
+      expect(r.code).toBe(1); // sem os roles, o pg_restore não passa
+      expect(r.stdout).toContain('AVISO: sem db/globais.sql');
+      expect(r.stdout).not.toContain('roles aplicados');
+    } finally {
+      await regravar(bom);
+    }
+  }, 180_000);
+
+  it('dump sem as tabelas do app (outro banco): sai com erro, sem "restauracao ok"', async () => {
+    // o banco "postgres" do Testcontainers existe e está vazio: as consultas falham e as contagens viriam vazias
+    await execFile('bash', ['-c', 'set -o pipefail; docker exec "$1" pg_dump -U "$2" -d postgres -Fc | rclone rcat "$3"', 'bash', container, usuario, 'cripto:db/diario/nutri-2026-10-03.dump'], { env });
+    const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-03', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 }).then(
+      (x) => ({ code: 0, stdout: x.stdout }),
+      (e: { code?: number; stdout?: string }) => ({ code: e.code ?? 1, stdout: e.stdout ?? '' }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('ERRO: nenhuma migration no banco restaurado');
+    expect(r.stdout).not.toContain('restauracao ok');
+  }, 180_000);
+
+  it('dia sem dump: sai com erro e mensagem fixa', async () => {
+    await expect(execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2001-01-01' } })).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.stringContaining('ERRO: dump do dia não encontrado'),
+    });
+  }, 120_000);
+});

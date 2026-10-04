@@ -24,14 +24,14 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
       key={href}
       href={href}
       aria-current={atual ? 'page' : undefined}
-      className="inline-flex min-h-11 items-center rounded border px-3 aria-[current=page]:bg-emerald-700 aria-[current=page]:text-white"
+      className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-3 aria-[current=page]:bg-destaque aria-[current=page]:font-semibold aria-[current=page]:text-white aria-[current=page]:underline"
     >
       {rotulo}
     </Link>
   );
   return (
     <main className="space-y-4 p-6">
-      <h1 className="text-2xl font-semibold">Conteúdos</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Conteúdos</h1>
       <nav aria-label="Filtrar conteúdos" className="flex flex-wrap gap-2">
         {aba('/p/conteudos', 'Todos', !tipo && !favoritos)}
         {FILTROS_DO_FEED.map((f) => aba(`/p/conteudos?tipo=${f.tipo}`, f.rotulo, tipo === f.tipo && !favoritos))}
@@ -44,14 +44,14 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
           <label htmlFor="busca" className="block text-sm">
             Buscar
           </label>
-          <input id="busca" name="busca" type="search" defaultValue={busca} maxLength={100} className="min-h-11 rounded border px-2" />
+          <input id="busca" name="busca" type="search" defaultValue={busca} maxLength={100} className="min-h-11 rounded-xl border border-campo bg-cartao text-texto px-2" />
         </div>
         {etiquetas.length > 0 && (
           <div className="space-y-1">
             <label htmlFor="etiqueta" className="block text-sm">
               Etiqueta
             </label>
-            <select id="etiqueta" name="etiqueta" defaultValue={etiqueta ?? ''} className="min-h-11 rounded border px-2">
+            <select id="etiqueta" name="etiqueta" defaultValue={etiqueta ?? ''} className="min-h-11 rounded-xl border border-campo bg-cartao text-texto px-2">
               <option value="">Todas</option>
               {etiquetas.map((e) => (
                 <option key={e} value={e}>
@@ -61,7 +61,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
             </select>
           </div>
         )}
-        <button className="min-h-11 rounded border px-4">Buscar</button>
+        <button className="min-h-11 rounded-xl border border-borda bg-cartao px-4">Buscar</button>
       </form>
       {itens.length === 0 ? (
         <p role="status">{vazio}</p>
@@ -69,11 +69,11 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
         <ul className="grid gap-4 sm:grid-cols-2">
           {itens.map((c) => (
             <li key={c.id}>
-              <Link href={`/p/conteudos/${c.id}`} className="block space-y-2 rounded border p-3">
+              <Link href={`/p/conteudos/${c.id}`} className="block space-y-2 rounded-xl border border-borda bg-cartao p-3">
                 <CapaDoConteudo tipo={c.tipo} capaUrl={c.capaUrl} />
-                <p className="text-sm text-zinc-700">
+                <p className="text-sm text-suave">
                   {ROTULO_TIPO_CONTEUDO[c.tipo]}
-                  {c.novo && <span className="ml-2 rounded bg-amber-200 px-2 font-semibold text-zinc-900">Novo</span>}
+                  {c.novo && <span className="ml-2 rounded bg-aviso-fundo px-2 font-semibold text-aviso">Novo</span>}
                 </p>
                 <h2 className="font-semibold">{c.titulo}</h2>
                 {c.resumo && <p className="text-sm">{c.resumo}</p>}

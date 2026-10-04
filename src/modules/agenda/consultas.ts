@@ -238,28 +238,28 @@ const comoConsulta = ({ c, paciente, origemPaciente, nascimento }: Linha): Consu
 
 /** D10: a agenda (nome, hora, situação) não é leitura auditada — mesmo critério da lista de pacientes. */
 export async function listarAgenda(ctx: TenantContext, de: Date, ate: Date, db: Db = getDb()): Promise<Consulta[]> {
-  const rs = await withTenant(
-    ctx,
-    (tx) => tx.select(COLUNAS).from(appointments).innerJoin(patients, eq(patients.id, appointments.patientId)).where(and(lt(appointments.inicio, ate), gt(appointments.fim, de))).orderBy(asc(appointments.inicio)),
-    db,
-  );
+  return withTenant(ctx, (tx) => listarAgendaNaTransacao(tx, de, ate), db);
+}
+
+/** listarAgenda dentro de uma transação já aberta (o Início lê tudo numa só). */
+export async function listarAgendaNaTransacao(tx: Tx, de: Date, ate: Date): Promise<Consulta[]> {
+  const rs = await tx.select(COLUNAS).from(appointments).innerJoin(patients, eq(patients.id, appointments.patientId)).where(and(lt(appointments.inicio, ate), gt(appointments.fim, de))).orderBy(asc(appointments.inicio));
   return rs.map(comoConsulta);
 }
 
 /** Listas do painel (pendências, novidades): mesmo formato da agenda, com o nome numa consulta só; sem leitura auditada (D10). */
 export async function listarConsultas(ctx: TenantContext, onde: SQL | undefined, o: { ordem: 'asc' | 'desc'; limite: number }, db: Db = getDb()): Promise<Consulta[]> {
-  const rs = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select(COLUNAS)
-        .from(appointments)
-        .innerJoin(patients, eq(patients.id, appointments.patientId))
-        .where(onde)
-        .orderBy(o.ordem === 'asc' ? asc(appointments.inicio) : desc(appointments.inicio))
-        .limit(o.limite),
-    db,
-  );
+  return withTenant(ctx, (tx) => listarConsultasNaTransacao(tx, onde, o), db);
+}
+
+export async function listarConsultasNaTransacao(tx: Tx, onde: SQL | undefined, o: { ordem: 'asc' | 'desc'; limite: number }): Promise<Consulta[]> {
+  const rs = await tx
+    .select(COLUNAS)
+    .from(appointments)
+    .innerJoin(patients, eq(patients.id, appointments.patientId))
+    .where(onde)
+    .orderBy(o.ordem === 'asc' ? asc(appointments.inicio) : desc(appointments.inicio))
+    .limit(o.limite);
   return rs.map(comoConsulta);
 }
 

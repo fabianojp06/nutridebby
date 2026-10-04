@@ -14,7 +14,7 @@ export default async function MeuAcompanhamento() {
   const proxima = (await consultasDoPaciente(ctx, tenant, new Date())).proximas[0];
   return (
     <main className="space-y-4 p-6">
-      <h1 className="text-2xl font-semibold">Meu acompanhamento</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Meu acompanhamento</h1>
       {proxima && (
         <p>
           Próxima consulta:{' '}

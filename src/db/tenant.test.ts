@@ -37,7 +37,7 @@ beforeAll(async () => {
   A = a.id;
   B = b.id;
   for (const t of [A, B]) {
-    await withTenant({ tenantId: t, role: 'nutri' }, (tx) =>
+    await withTenant({ tenantId: t, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
       tx.insert(auditLog).values({ tenantId: t, acao: 'criar', entidade: 'teste' }),
       app.db,
     );
@@ -47,7 +47,7 @@ afterAll(() => app.pool.end());
 
 describe('withTenant', () => {
   it('só enxerga registros do próprio tenant', async () => {
-    const rows = await withTenant({ tenantId: A, role: 'nutri' }, (tx) =>
+    const rows = await withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
       tx.select().from(auditLog), app.db);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.tenantId === A)).toBe(true);
@@ -55,7 +55,7 @@ describe('withTenant', () => {
 
   it('recusa inserir registro com tenant_id de outro tenant', async () => {
     const msg = await rejectionCause(
-      withTenant({ tenantId: A, role: 'nutri' }, (tx) =>
+      withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
         tx.insert(auditLog).values({ tenantId: B, acao: 'criar', entidade: 'teste' }), app.db),
     );
     expect(msg).toMatch(/row-level security/);
@@ -76,12 +76,12 @@ describe('withTenant', () => {
 
   it('audit_log não aceita UPDATE nem DELETE pelo role da aplicação', async () => {
     const updateMsg = await rejectionCause(
-      withTenant({ tenantId: A, role: 'nutri' }, (tx) =>
+      withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
         tx.execute(sql`update audit_log set acao = 'ler'`), app.db),
     );
     expect(updateMsg).toMatch(/permission denied/);
     const deleteMsg = await rejectionCause(
-      withTenant({ tenantId: A, role: 'nutri' }, (tx) => tx.execute(sql`delete from audit_log`), app.db),
+      withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(sql`delete from audit_log`), app.db),
     );
     expect(deleteMsg).toMatch(/permission denied/);
   });
@@ -97,13 +97,13 @@ describe('withTenant', () => {
   it('sessão de paciente só vê as próprias linhas (política RESTRICTIVE)', async () => {
     const P1 = randomUUID();
     const P2 = randomUUID();
-    await withTenant({ tenantId: A, role: 'nutri' }, (tx) =>
+    await withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
       tx.execute(sql`insert into rls_fixture_patient_items (tenant_id, patient_id, texto)
         values (${A}, ${P1}, 'p1'), (${A}, ${P2}, 'p2')`), app.db);
-    const seen = await withTenant({ tenantId: A, role: 'paciente', patientId: P1 }, (tx) =>
+    const seen = await withTenant({ tenantId: A, role: 'paciente', patientId: P1, actorUserId: randomUUID() }, (tx) =>
       tx.execute<{ patient_id: string }>(sql`select patient_id from rls_fixture_patient_items`), app.db);
     expect(seen.rows.map((r) => r.patient_id)).toEqual([P1]);
-    const nutriSees = await withTenant({ tenantId: A, role: 'nutri' }, (tx) =>
+    const nutriSees = await withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) =>
       tx.execute(sql`select 1 from rls_fixture_patient_items where patient_id in (${P1}, ${P2})`), app.db);
     expect(nutriSees.rows.length).toBe(2);
   });
@@ -127,7 +127,26 @@ describe('withTenant', () => {
   it('recusa papel fora da lista, ator que não é uuid e IP inválido (item adiado do Plano 01)', async () => {
     await expect(withTenant({ tenantId: A, role: 'admin' as never }, async () => 1, app.db)).rejects.toThrow(/papel/);
     await expect(withTenant({ tenantId: A, role: 'nutri', actorUserId: 'x' }, async () => 1, app.db)).rejects.toThrow(/actorUserId/);
-    await expect(withTenant({ tenantId: A, role: 'nutri', ip: '999.1.1.1' }, async () => 1, app.db)).rejects.toThrow(/ip/);
+    await expect(withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID(), ip: '999.1.1.1' }, async () => 1, app.db)).rejects.toThrow(/ip/);
+  });
+});
+
+describe('withTenant: ator obrigatório (N7, Plano 08)', () => {
+  it('N7: nutri sempre com ator; paciente com ator ou com semConta: true; worker e publico sem ator seguem', async () => {
+    const tenantId = crypto.randomUUID();
+    const patientId = crypto.randomUUID();
+    await expect(withTenant({ tenantId, role: 'nutri' }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório para sessão de nutricionista ou paciente');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId, semConta: true }, async () => 1, app.db)).resolves.toBe(1);
+    await expect(withTenant({ tenantId, role: 'paciente', patientId, actorUserId: crypto.randomUUID() }, async () => 1, app.db)).resolves.toBe(1);
+    await expect(withTenant({ tenantId, role: 'worker' }, async () => 1, app.db)).resolves.toBe(1);
+    await expect(withTenant({ tenantId, role: 'publico' }, async () => 1, app.db)).resolves.toBe(1);
+  });
+
+  it('N7: semConta só para paciente e nunca junto com um ator', async () => {
+    const tenantId = crypto.randomUUID();
+    await expect(withTenant({ tenantId, role: 'nutri', semConta: true, actorUserId: crypto.randomUUID() } as never, async () => 1, app.db)).rejects.toThrow('semConta só é permitido para paciente sem ator');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId: crypto.randomUUID(), semConta: true, actorUserId: crypto.randomUUID() }, async () => 1, app.db)).rejects.toThrow('semConta só é permitido para paciente sem ator');
   });
 });
 

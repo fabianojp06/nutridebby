@@ -21,13 +21,13 @@ export function AntropometriaForm({ acao, hoje, sexo, dataNascimento, somenteLei
   return (
     <form action={action} className="space-y-4">
       {consultationId && <input type="hidden" name="consultationId" value={consultationId} />}
-      {consultationId && <p className="text-sm text-zinc-700">Esta avaliação fica ligada ao atendimento.</p>}
+      {consultationId && <p className="text-sm text-suave">Esta avaliação fica ligada ao atendimento.</p>}
       <fieldset disabled={somenteLeitura}>
         <Campos key={state.envio ?? 0} inicial={state.valores ?? { data: hoje, protocolo: 'nenhum' }} erros={state.erros ?? {}} hoje={hoje} sexo={sexo} dataNascimento={dataNascimento} />
       </fieldset>
-      {state.erros?.geral && <p role="alert" className="text-red-700">{state.erros.geral}</p>}
+      {state.erros?.geral && <p role="alert" className="text-erro">{state.erros.geral}</p>}
       {state.ok && <p role="status">{state.aviso ? `Avaliação salva. ${state.aviso}` : 'Avaliação salva.'}</p>}
-      {!somenteLeitura && <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar avaliação</button>}
+      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar avaliação</button>}
     </form>
   );
 }
@@ -53,9 +53,9 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
   const entrada = (k: string, rotulo: string, extra: { max?: string; type?: string; inputMode?: 'decimal' } = { inputMode: 'decimal' }) => (
     <div className="space-y-1" key={k}>
       <label htmlFor={k} className="block font-medium">{rotulo}</label>
-      <input id={k} name={k} value={v[k] ?? ''} onChange={mudar(k)} className="w-full rounded border p-2" {...extra}
+      <input id={k} name={k} value={v[k] ?? ''} onChange={mudar(k)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...extra}
         aria-invalid={props.erros[k] ? true : undefined} aria-describedby={props.erros[k] ? `${k}-erro` : undefined} />
-      {props.erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{props.erros[k]}</p>}
+      {props.erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-erro">{props.erros[k]}</p>}
     </div>
   );
   return (
@@ -72,7 +72,7 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
       </fieldset>
       <div className="space-y-1">
         <label htmlFor="protocolo" className="block font-medium">Protocolo de dobras</label>
-        <select id="protocolo" name="protocolo" value={protocolo} onChange={mudar('protocolo')} className="rounded border p-2">
+        <select id="protocolo" name="protocolo" value={protocolo} onChange={mudar('protocolo')} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
           <option value="nenhum">Nenhum</option>
           <option value="jp3">JP 3 dobras</option>
           <option value="jp7">JP 7 dobras</option>

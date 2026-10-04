@@ -17,8 +17,8 @@ export default async function NovoTermo({ searchParams }: PageProps<'/p/termo'>)
   if (await termoAceito(data.user.id, tenant.id)) redirect(volta);
   return (
     <main className="mx-auto max-w-md space-y-4 p-6">
-      <h1 className="text-2xl font-semibold">{TERMO_PACIENTE_TITULO}</h1>
-      <p className="text-sm text-gray-700">{`Acompanhamento com ${tenant.nomeExibicao}`}</p>
+      <h1 className="font-titulo text-2xl font-semibold">{TERMO_PACIENTE_TITULO}</h1>
+      <p className="text-sm text-suave">{`Acompanhamento com ${tenant.nomeExibicao}`}</p>
       {TERMO_PACIENTE_PARAGRAFOS.map((t) => (
         <p key={t}>{t}</p>
       ))}

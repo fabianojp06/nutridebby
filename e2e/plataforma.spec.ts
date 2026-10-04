@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComoAdmin } from './helpers';
+import { entrarComoAdmin, fecharTourDeBoasVindas } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 
 const ADMIN = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
@@ -63,7 +63,8 @@ test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link nã
   await page.getByLabel('Li e aceito o contrato de tratamento de dados (DPA)').check();
   await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/);
-  await expect(page.getByRole('heading', { name: 'Painel da nutricionista' })).toBeVisible();
+  await fecharTourDeBoasVindas(page);
+  await expect(page.getByRole('heading', { name: /^Seu dia, / })).toBeVisible();
   await expect(page.getByRole('banner')).toContainText(NUTRI.nome);
 
   await page.goto(link);
@@ -148,7 +149,9 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await page.getByLabel('Senha').fill(NUTRI.senha);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/);
-  await page.getByRole('link', { name: 'Perfil e marca' }).click();
+  // D20: "Perfil e marca" é um cartão do hub "Configurações"
+  await page.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link', { name: 'Configurações', exact: true }).click();
+  await page.getByRole('link', { name: /^Perfil e marca/ }).click();
 
   await page.getByLabel('Cor principal').fill('#FFEB3B');
   await page.getByRole('button', { name: 'Salvar perfil' }).click();
@@ -166,7 +169,31 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await page.getByRole('button', { name: 'Enviar logo' }).click();
   await expect(page.getByText('Logo atualizado.')).toBeVisible();
   const banner = page.getByRole('banner');
-  await expect(banner).toHaveCSS('background-color', 'rgb(46, 125, 50)');
-  await expect(banner.getByRole('img', { name: `Logo de ${NUTRI.nome}` })).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
+  // D19/D20: o cabeçalho é neutro; a cor do consultório aparece no item ativo do menu (bg-destaque)
+  await expect(banner.getByRole('link', { name: 'Configurações', exact: true })).toHaveCSS('background-color', 'rgb(46, 125, 50)');
+  // o logo é decorativo (alt=""): o nome do consultório já é o nome do link da marca
+  const marcaNoTopo = banner.getByRole('link', { name: NUTRI.nome, exact: true });
+  await expect(marcaNoTopo.locator('img')).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
+  await expect(marcaNoTopo.locator('img')).toHaveAttribute('alt', '');
   await ctx.close();
+});
+
+test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; valor fora da faixa é recusado (P08-07, D15)', async () => {
+  await admin.goto('/admin');
+  const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
+  const taxa = linha.getByLabel('Taxa de faltas antes do sistema (%)');
+  await taxa.fill('120');
+  await linha.getByRole('button', { name: `Salvar as métricas de ${NUTRI.nome}` }).click();
+  await expect(linha.getByRole('alert')).toHaveText('Informe um percentual de 0 a 100');
+  await expect(taxa).toHaveAttribute('aria-invalid', 'true');
+  await taxa.fill('18,5');
+  await linha.getByLabel('Início do uso').fill('2026-10-01');
+  await linha.getByRole('button', { name: `Salvar as métricas de ${NUTRI.nome}` }).click();
+  await expect(linha.getByRole('status')).toHaveText('Métricas salvas.');
+  await admin.reload();
+  await expect(taxa).toHaveValue('18,5');
+  await expect(linha.getByLabel('Início do uso')).toHaveValue('2026-10-01');
+  // sem paciente com conta nem consulta iniciada no mês: as contagens ficam em "—"
+  await expect(admin.getByRole('columnheader', { name: 'App na semana' })).toBeVisible();
+  await expect(admin.getByRole('columnheader', { name: 'Faltas no mês' })).toBeVisible();
 });

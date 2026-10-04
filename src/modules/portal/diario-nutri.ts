@@ -1,5 +1,5 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
@@ -58,6 +58,18 @@ export async function feedDeDiarios(ctx: TenantContext, o: { db?: Db; limite?: n
     o.db ?? getDb(),
   );
   return linhas.map(paraItem);
+}
+
+/** Início (cartão "Diários para ver"): só a contagem — sem auditRead (nenhum registro é devolvido). */
+export async function contarDiariosNaoVistos(ctx: TenantContext, db: Db = getDb()): Promise<number> {
+  soNutri(ctx);
+  return withTenant(ctx, contarDiariosNaoVistosNaTransacao, db);
+}
+
+/** Só numa transação de sessão de nutricionista (quem chama confere o papel, como o soNutri). */
+export async function contarDiariosNaoVistosNaTransacao(tx: Tx): Promise<number> {
+  const [r] = await tx.select({ n: count() }).from(diaryEntries).where(isNull(diaryEntries.vistoPelaNutriEm));
+  return r.n;
 }
 
 /** US-043: abrir o registro preenche `visto_pela_nutri_em` (só na primeira vez). */

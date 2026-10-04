@@ -71,7 +71,7 @@ export async function lembreteDeWhatsappAgora(tenantId: string, appointmentId: s
 export async function conexaoDoConsultorio(tenantId: string, estado: 'conectada' | 'desconectada'): Promise<void> {
   await comBanco((db) =>
     withTenant(
-      { tenantId, role: 'nutri' },
+      { tenantId, role: 'worker' },
       (tx) =>
         tx
           .insert(schema.whatsappConexoes)

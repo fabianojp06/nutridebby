@@ -1,21 +1,11 @@
-import { urlDoPlayer, type VideoDoLink } from '@/modules/conteudo/video';
+import type { VideoDoLink } from '@/modules/conteudo/video';
+import { urlDoPlayer } from '@/modules/conteudo/video';
+import { PlayerSobDemanda } from './player-sob-demanda';
 
 /**
- * US-050 / D10: player sem cookies (YouTube) ou sem rastreamento (Vimeo `dnt=1`). O `src` sai só do id validado. O
- * YouTube recusa embed sem referrer: `strict-origin-when-cross-origin` manda só a origem (nunca o caminho do portal).
+ * US-050 / D10 (Plano 07): player sem cookies (YouTube) ou sem rastreamento (Vimeo `dnt=1`), com o `src` só do id validado.
+ * D12 (Plano 08): o player só carrega com o clique do paciente.
  */
 export function PlayerVideo({ video, titulo }: { video: VideoDoLink; titulo: string }) {
-  return (
-    <div className="relative aspect-video w-full overflow-hidden rounded bg-black">
-      <iframe
-        src={urlDoPlayer(video)}
-        title={`Vídeo: ${titulo}`}
-        loading="lazy"
-        referrerPolicy="strict-origin-when-cross-origin"
-        allow="encrypted-media; picture-in-picture; fullscreen"
-        allowFullScreen
-        className="absolute inset-0 h-full w-full border-0"
-      />
-    </div>
-  );
+  return <PlayerSobDemanda src={urlDoPlayer(video)} titulo={titulo} provedor={video.provider === 'youtube' ? 'YouTube' : 'Vimeo'} />;
 }

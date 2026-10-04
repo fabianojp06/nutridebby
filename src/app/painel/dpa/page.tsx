@@ -1,4 +1,3 @@
-import { BotaoSair } from '@/components/botao-sair';
 import { DPA_PATH, requireNutri } from '@/lib/tenant-session';
 import { DPA_PARAGRAFOS, DPA_TITULO, DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { DpaForm } from './form';
@@ -10,12 +9,9 @@ export default async function DpaPage() {
   const atual = tenant.dpaVersao === DPA_VERSAO;
   return (
     <main className="mx-auto max-w-lg space-y-4 p-6">
-      <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-semibold">{DPA_TITULO}</h1>
-        {/* a nutricionista com o DPA pendente só chega aqui: precisa poder sair sem aceitar */}
-        <BotaoSair />
-      </div>
-      <section aria-label={DPA_TITULO} tabIndex={0} className="max-h-96 space-y-2 overflow-y-auto rounded border p-3 text-sm">
+      {/* a nutricionista com o DPA pendente só chega aqui: o "Sair" está no cabeçalho mínimo do layout (sem o menu) */}
+      <h1 className="font-titulo text-2xl font-semibold">{DPA_TITULO}</h1>
+      <section aria-label={DPA_TITULO} tabIndex={0} className="max-h-96 space-y-2 overflow-y-auto rounded-2xl border border-borda bg-cartao p-3 text-sm">
         {DPA_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}
       </section>
       {atual ? <p role="status">Você já aceitou esta versão do contrato.</p> : <DpaForm />}

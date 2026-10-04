@@ -14,7 +14,7 @@ type Props = {
 
 /** A mensagem de erro do campo `c` (o `id` é o que o `aria-describedby` do campo aponta). */
 function Erro({ c, msg }: { c: string; msg?: string }) {
-  return msg ? <p id={`${c}-erro`} role="alert" className="text-sm text-red-700">{msg}</p> : null;
+  return msg ? <p id={`${c}-erro`} role="alert" className="text-sm text-erro">{msg}</p> : null;
 }
 
 /** US-050/051/052/053: campos comuns, o do tipo (link ou texto) e "Quem vê". */
@@ -26,38 +26,38 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
   const aria = (c: string) => ({ 'aria-invalid': erro(c) ? true : undefined, 'aria-describedby': erro(c) ? `${c}-erro` : undefined });
   return (
     <form action={enviar} className="space-y-4">
-      {erro('geral') && <p role="alert" className="text-red-700">{erro('geral')}</p>}
+      {erro('geral') && <p role="alert" className="text-erro">{erro('geral')}</p>}
       <div className="space-y-1">
         <label htmlFor="titulo" className="block font-medium">Título</label>
-        <input id="titulo" name="titulo" defaultValue={v.titulo} maxLength={TITULO_MAX} {...aria('titulo')} className="w-full rounded border p-2" />
+        <input id="titulo" name="titulo" defaultValue={v.titulo} maxLength={TITULO_MAX} {...aria('titulo')} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         <Erro c="titulo" msg={erro('titulo')} />
       </div>
       <div className="space-y-1">
         <label htmlFor="resumo" className="block font-medium">Resumo</label>
-        <textarea id="resumo" name="resumo" rows={2} defaultValue={v.resumo} maxLength={RESUMO_MAX} {...aria('resumo')} className="w-full rounded border p-2" />
+        <textarea id="resumo" name="resumo" rows={2} defaultValue={v.resumo} maxLength={RESUMO_MAX} {...aria('resumo')} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         <Erro c="resumo" msg={erro('resumo')} />
       </div>
       {tipo !== 'orientacao' && (
         <div className="space-y-1">
           <label htmlFor="link" className="block font-medium">Link do vídeo</label>
           {/* type="text" (não "url"): o navegador barraria "youtu.be/…" sem esquema, que lerLinkDeVideo aceita (US-050) */}
-          <input id="link" name="link" type="text" inputMode="url" autoComplete="off" spellCheck={false} defaultValue={v.link} aria-invalid={erro('link') ? true : undefined} aria-describedby={`link-aviso${erro('link') ? ' link-erro' : ''}`} className="w-full rounded border p-2" />
-          <p id="link-aviso" className="text-sm text-zinc-600">{MSG_CONTEUDO.videoAviso}</p>
+          <input id="link" name="link" type="text" inputMode="url" autoComplete="off" spellCheck={false} defaultValue={v.link} aria-invalid={erro('link') ? true : undefined} aria-describedby={`link-aviso${erro('link') ? ' link-erro' : ''}`} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+          <p id="link-aviso" className="text-sm text-suave">{MSG_CONTEUDO.videoAviso}</p>
           <Erro c="link" msg={erro('link')} />
         </div>
       )}
       {tipo === 'orientacao' && (
         <div className="space-y-1">
           <label htmlFor="corpo" className="block font-medium">Texto</label>
-          <textarea id="corpo" name="corpo" rows={12} defaultValue={v.corpo} maxLength={CORPO_MAX} aria-invalid={erro('corpo') ? true : undefined} aria-describedby={`corpo-ajuda${erro('corpo') ? ' corpo-erro' : ''}`} className="w-full rounded border p-2 font-mono text-sm" />
-          <p id="corpo-ajuda" className="text-sm text-zinc-600">Use **negrito**, *itálico*, listas com - e títulos com ##.</p>
+          <textarea id="corpo" name="corpo" rows={12} defaultValue={v.corpo} maxLength={CORPO_MAX} aria-invalid={erro('corpo') ? true : undefined} aria-describedby={`corpo-ajuda${erro('corpo') ? ' corpo-erro' : ''}`} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto font-mono text-sm" />
+          <p id="corpo-ajuda" className="text-sm text-suave">Use **negrito**, *itálico*, listas com - e títulos com ##.</p>
           <Erro c="corpo" msg={erro('corpo')} />
         </div>
       )}
       <div className="space-y-1">
         <label htmlFor="etiquetas" className="block font-medium">Etiquetas do conteúdo</label>
-        <input id="etiquetas" name="etiquetas" defaultValue={v.etiquetas} aria-invalid={erro('etiquetas') ? true : undefined} aria-describedby={`etiquetas-ajuda${erro('etiquetas') ? ' etiquetas-erro' : ''}`} className="w-full rounded border p-2" />
-        <p id="etiquetas-ajuda" className="text-sm text-zinc-600">Separe por vírgula. Ex.: sem lactose, café da manhã</p>
+        <input id="etiquetas" name="etiquetas" defaultValue={v.etiquetas} aria-invalid={erro('etiquetas') ? true : undefined} aria-describedby={`etiquetas-ajuda${erro('etiquetas') ? ' etiquetas-erro' : ''}`} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+        <p id="etiquetas-ajuda" className="text-sm text-suave">Separe por vírgula. Ex.: sem lactose, café da manhã</p>
         <Erro c="etiquetas" msg={erro('etiquetas')} />
       </div>
       <fieldset className="space-y-2" aria-describedby={erro('visibilidade') ? 'visibilidade-erro' : undefined}>
@@ -81,7 +81,7 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
           </fieldset>
         )}
         {visibilidade === 'pacientes' && (
-          <fieldset className="ml-6 max-h-64 space-y-1 overflow-y-auto">
+          <fieldset className="ml-6 max-h-64 space-y-1 overflow-y-auto p-2">
             <legend className="text-sm font-medium">Pacientes</legend>
             {/* D15: a lista que esta tela mostrou — o salvamento só tira da audiência quem estava nela e foi desmarcado */}
             <input type="hidden" name="exibidos" value={opcoes.pacientes.map((p) => p.id).join(',')} />
@@ -96,7 +96,7 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
         <Erro c="visibilidade" msg={erro('visibilidade')} />
       </fieldset>
       <p role="status">{s.ok}</p>
-      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">{botao}</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50">{botao}</button>
     </form>
   );
 }

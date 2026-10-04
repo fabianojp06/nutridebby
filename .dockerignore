@@ -4,6 +4,8 @@ node_modules
 .env*
 !.env.example
 e2e
+# a guarda src/app/painel/rotas-axe.test.ts importa a lista de telas do E2E, e o `next build` confere os tipos de src/ inteiro
+!e2e/painel-rotas.ts
 test-results
 playwright-report
 coverage

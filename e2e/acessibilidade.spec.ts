@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { devices, expect, test, type Page } from '@playwright/test';
+import { contraste } from '@/lib/tema/contraste';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -53,8 +54,9 @@ for (const url of ROTAS) {
   });
 }
 
-// Modo escuro do aparelho (prefers-color-scheme: dark): enquanto o tema escuro não chega (Plano 08), o sistema fica
-// sempre claro — nada pode escurecer só o fundo ou o texto base e deixar as cores fixas do modo claro ilegíveis.
+// Modo escuro do aparelho (prefers-color-scheme: dark). Plano 08: o painel (T14) e o portal (T18) escurecem com o aparelho
+// (data-tema=sistema); fora de um contêiner com data-tema tudo fica claro (globals.css). Nada pode escurecer só o fundo ou o
+// texto base e deixar cores fixas do modo claro ilegíveis.
 const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/conteudos', '/painel/configuracoes'];
 test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
   await paciente.page.emulateMedia({ colorScheme: 'dark' });
@@ -66,6 +68,52 @@ test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do po
   } finally {
     await paciente.page.emulateMedia({ colorScheme: 'light' });
     await nutri.emulateMedia({ colorScheme: 'light' });
+  }
+});
+
+// WCAG 2.4.7/1.4.11 (Plano 08, T12): o axe não avalia o foco. Sobre a cor do consultório ([data-sobre-marca]: o cartão de
+// destaque da T15; o cabeçalho do painel é neutro desde a T14) o foco na cor da marca sumia (1:1). Todo item focável ali tem contorno
+// visível e ≥ 3:1 contra o fundo onde ele é desenhado, no claro e com o aparelho escuro.
+test('foco visível sobre a cor do consultório: contorno ≥ 3:1 contra o fundo, no claro e com o aparelho escuro', async () => {
+  const hex = (cor: string) => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cor);
+    expect(m, cor).not.toBeNull();
+    return `#${m!.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  };
+  for (const modo of ['light', 'dark'] as const) {
+    await nutri.emulateMedia({ colorScheme: modo });
+    try {
+      await nutri.goto('/painel');
+      const alvos = nutri.locator('[data-sobre-marca] :is(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"]))');
+      const n = await alvos.count();
+      expect(n, modo).toBeGreaterThan(0);
+      await nutri.keyboard.press('Tab'); // modalidade de teclado: o focus() programático acende o :focus-visible
+      for (let k = 0; k < n; k++) {
+        const alvo = alvos.nth(k);
+        await alvo.focus();
+        const r = await alvo.evaluate((el) => {
+          // o contorno fica do lado de fora (outline-offset): o fundo que conta é o do primeiro ancestral pintado
+          let e = el.parentElement;
+          while (e && /rgba\(\d+, \d+, \d+, 0\)|transparent/.test(getComputedStyle(e).backgroundColor)) e = e.parentElement;
+          const s = getComputedStyle(el);
+          return {
+            nome: el.textContent?.trim() ?? '',
+            focoVisivel: el.matches(':focus-visible'),
+            estilo: s.outlineStyle,
+            largura: parseFloat(s.outlineWidth),
+            cor: s.outlineColor,
+            fundo: e ? getComputedStyle(e).backgroundColor : 'rgb(255, 255, 255)',
+          };
+        });
+        const rotulo = `${modo}: ${r.nome}`;
+        expect(r.focoVisivel, rotulo).toBe(true);
+        expect(r.estilo, rotulo).toBe('solid');
+        expect(r.largura, rotulo).toBeGreaterThanOrEqual(2);
+        expect(contraste(hex(r.cor), hex(r.fundo)), `${rotulo}: ${r.cor} sobre ${r.fundo}`).toBeGreaterThanOrEqual(3);
+      }
+    } finally {
+      await nutri.emulateMedia({ colorScheme: 'light' });
+    }
   }
 });
 
@@ -97,6 +145,13 @@ test('axe sem violações no detalhe de uma orientação (markdown e "Baixar mat
   const baixar = paciente.page.getByRole('link', { name: 'Baixar material (PDF)' });
   await expect(baixar).toBeVisible();
   expect(await violacoes(paciente.page)).toEqual([]);
+  // R11: o mesmo detalhe (markdown, botão do PDF) com o aparelho escuro
+  await paciente.page.emulateMedia({ colorScheme: 'dark' });
+  try {
+    expect(await violacoes(paciente.page), 'aparelho escuro').toEqual([]);
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+  }
   // o download pela sessão da paciente: a rota assina na hora (303) e o arquivo vem como PDF
   const r = await paciente.page.request.get((await baixar.getAttribute('href'))!);
   expect(r.status()).toBe(200);

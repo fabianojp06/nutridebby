@@ -1,12 +1,12 @@
 import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { formatarDecimal } from '@/lib/numero';
 import { idValido } from '@/modules/pacientes/base';
 import { travarPacienteDaConsulta } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
-import { ConsultaError, lerConsultaParaEscrita, listarConsultas, STATUS_ATIVOS, type Consulta } from './consultas';
+import { ConsultaError, lerConsultaParaEscrita, listarConsultas, listarConsultasNaTransacao, STATUS_ATIVOS, type Consulta } from './consultas';
 import { inicioDoMes, inicioDoMesSeguinte } from './fuso';
 
 export const MSG_PRESENCA = {
@@ -57,7 +57,11 @@ export function pendenciasDePresenca(ctx: TenantContext, agora: Date, db: Db = g
 }
 
 export async function contarPendenciasDePresenca(ctx: TenantContext, agora: Date, db: Db = getDb()): Promise<number> {
-  const [r] = await withTenant(ctx, (tx) => tx.select({ n: count() }).from(appointments).where(semRegistro(agora)), db);
+  return withTenant(ctx, (tx) => contarPendenciasDePresencaNaTransacao(tx, agora), db);
+}
+
+export async function contarPendenciasDePresencaNaTransacao(tx: Tx, agora: Date): Promise<number> {
+  const [r] = await tx.select({ n: count() }).from(appointments).where(semRegistro(agora));
   return r.n;
 }
 
@@ -65,25 +69,24 @@ export type Indicadores = { consultasMes: number; faltasMes: number; iniciadasMe
 
 /** CS-03 / D21: mês civil no fuso do tenant; taxa = faltas ÷ consultas não canceladas já iniciadas. Uma transação. */
 export async function indicadoresDaAgenda(ctx: TenantContext, fuso: string, agora: Date, db: Db = getDb()): Promise<Indicadores> {
+  return withTenant(ctx, (tx) => indicadoresDaAgendaNaTransacao(tx, fuso, agora), db);
+}
+
+export async function indicadoresDaAgendaNaTransacao(tx: Tx, fuso: string, agora: Date): Promise<Indicadores> {
   const ini = inicioDoMes(agora, fuso);
   const anterior = inicioDoMes(new Date(ini.getTime() - 1), fuso);
   const fim = inicioDoMesSeguinte(agora, fuso);
   const doMes = sql`${appointments.inicio} >= ${ini}`;
-  const [r] = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select({
-          total: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada')`.mapWith(Number),
-          iniciadas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
-          faltas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} = 'faltou')`.mapWith(Number),
-          iniciadasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
-          faltasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} = 'faltou')`.mapWith(Number),
-        })
-        .from(appointments)
-        .where(and(gte(appointments.inicio, anterior), lt(appointments.inicio, fim))),
-    db,
-  );
+  const [r] = await tx
+    .select({
+      total: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada')`.mapWith(Number),
+      iniciadas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
+      faltas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} = 'faltou')`.mapWith(Number),
+      iniciadasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
+      faltasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} = 'faltou')`.mapWith(Number),
+    })
+    .from(appointments)
+    .where(and(gte(appointments.inicio, anterior), lt(appointments.inicio, fim)));
   return {
     consultasMes: r.total,
     faltasMes: r.faltas,
@@ -104,12 +107,16 @@ export type Novidades = { pedidosRemarcacao: Consulta[]; marcadasPeloPaciente: C
 
 /** US-032/033/035 no painel: o que o paciente fez na agenda nos últimos 7 dias (e os pedidos de remarcação em aberto). */
 export async function novidadesDaAgenda(ctx: TenantContext, agora: Date, db: Db = getDb()): Promise<Novidades> {
+  return withTenant(ctx, (tx) => novidadesDaAgendaNaTransacao(tx, agora), db);
+}
+
+/** As três listas numa transação (uma conexão), em sequência. */
+export async function novidadesDaAgendaNaTransacao(tx: Tx, agora: Date): Promise<Novidades> {
   const semana = new Date(agora.getTime() - 7 * DIA_MS);
   const ativas = inArray(appointments.status, [...STATUS_ATIVOS]);
-  // em sequência: cada lista é uma transação (uma conexão por vez)
-  const pedidosRemarcacao = await listarConsultas(ctx, and(isNotNull(appointments.pedidoRemarcacaoEm), ativas, gte(appointments.inicio, agora)), { ordem: 'asc', limite: 20 }, db);
-  const marcadasPeloPaciente = await listarConsultas(ctx, and(eq(appointments.origem, 'paciente'), gte(appointments.createdAt, semana), ativas), { ordem: 'asc', limite: 20 }, db);
-  const canceladasPeloPaciente = await listarConsultas(ctx, and(eq(appointments.canceladoPor, 'paciente'), gte(appointments.canceladaEm, semana)), { ordem: 'desc', limite: 20 }, db);
+  const pedidosRemarcacao = await listarConsultasNaTransacao(tx, and(isNotNull(appointments.pedidoRemarcacaoEm), ativas, gte(appointments.inicio, agora)), { ordem: 'asc', limite: 20 });
+  const marcadasPeloPaciente = await listarConsultasNaTransacao(tx, and(eq(appointments.origem, 'paciente'), gte(appointments.createdAt, semana), ativas), { ordem: 'asc', limite: 20 });
+  const canceladasPeloPaciente = await listarConsultasNaTransacao(tx, and(eq(appointments.canceladoPor, 'paciente'), gte(appointments.canceladaEm, semana)), { ordem: 'desc', limite: 20 });
   return { pedidosRemarcacao, marcadasPeloPaciente, canceladasPeloPaciente };
 }
 

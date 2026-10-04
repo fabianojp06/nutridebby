@@ -75,7 +75,8 @@ describe('atualizarPerfil (US-005)', () => {
 describe('getTenantBrand', () => {
   it('cor padrão sem cor definida; logo por URL assinada', async () => {
     const t = await novoTenant();
-    expect(getTenantBrand(t)).toEqual({ nome: 'Marca', cor: COR_PADRAO, logoUrl: null });
+    expect(COR_PADRAO).toBe('#1d6b5a'); // D23
+    expect(getTenantBrand(t)).toEqual({ nome: 'Marca', cor: '#1d6b5a', corNoEscuro: expect.stringMatching(/^#[0-9a-f]{6}$/), logoUrl: null });
     const comLogo = { ...t, corPrimaria: '#2E7D32', logoPath: `${t.id}/logo/${randomUUID()}.png` };
     expect(getTenantBrand(comLogo).logoUrl).toMatch(/^\/api\/arquivos\?c=/);
     expect(getTenantBrand(comLogo).cor).toBe('#2E7D32');

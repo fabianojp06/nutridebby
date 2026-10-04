@@ -13,6 +13,9 @@ export async function aceitarDpaAction(_prev: DpaState, formData: FormData): Pro
   const { data, tenant, ctx } = await requireNutri(DPA_PATH, { permitirDpaPendente: true });
   if (formData.get('dpa') !== 'on') return { erro: DPA_NAO_ACEITO };
   await getDb().transaction((tx) => registrarAceiteDpa(tx, { userId: data.user.id, tenantId: tenant.id, ip: ctx.ip ?? null }));
+  // T14: o layout do painel (cabeçalho mínimo com o DPA pendente) é reaproveitado na navegação; sem isto o menu só
+  // apareceria depois de recarregar a página
+  revalidatePath('/painel', 'layout');
   redirect('/painel');
 }
 
@@ -22,7 +25,7 @@ const campoPerfil = (f: FormData, k: string) => String(f.get(k) ?? '');
 
 /** PF-N9: os valores digitados voltam em `state.valores` para o formulário não perder o que a nutricionista preencheu num erro. */
 export async function salvarPerfilAction(_prev: PerfilState, formData: FormData): Promise<PerfilState> {
-  const { tenant } = await requireNutri('/painel/configuracoes');
+  const { tenant } = await requireNutri('/painel/configuracoes/perfil');
   // T10-R2: o checkbox também entra em `valores` (como 'on'/''), para o formulário conseguir
   // distinguir "não veio no submit" (renderização inicial, sem erro) de "veio desmarcado".
   const valores = {

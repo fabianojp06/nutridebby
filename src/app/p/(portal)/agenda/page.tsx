@@ -22,9 +22,9 @@ export default async function Agenda() {
   );
   return (
     <main className="space-y-6 p-6">
-      <h1 className="text-2xl font-semibold">Minhas consultas</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Minhas consultas</h1>
       {podeAgendar ? (
-        <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded bg-emerald-700 px-4 text-white">Agendar consulta</Link></p>
+        <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded-xl bg-destaque px-4 font-semibold text-white">Agendar consulta</Link></p>
       ) : (
         <p>{MSG_AGENDA.limitePublico}</p> // T-1: no teto (RN-16) o botão levaria a uma recusa
       )}

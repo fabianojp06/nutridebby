@@ -10,6 +10,7 @@ export async function pacienteNoPortal(
   browser: Browser,
   nutri: Page,
   ip: string,
+  aoAbrir?: (page: Page) => void,
 ): Promise<{ page: Page; nome: string; email: string; senha: string; prontuario: string }> {
   const sufixo = `${Date.now().toString(36)}${++seq}`;
   const nome = `Paula Portal ${sufixo}`;
@@ -26,6 +27,7 @@ export async function pacienteNoPortal(
   const convite = await esperarEmail(email, { assunto: 'Convite de Consultório E2E no NutriDebby' });
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': ip } });
   const page = await ctx.newPage();
+  aoAbrir?.(page); // antes da primeira navegação (ex.: o vigia de CSP do csp.spec cobre o aceite do convite)
   await page.goto(primeiroLink(convite.texto, '/convite/paciente/'));
   await page.getByLabel('Nova senha').fill(senha);
   await page.getByLabel('Repita a senha').fill(senha);
@@ -67,7 +69,7 @@ export async function avaliar(nutri: Page, prontuario: string, data: string, pes
 
 /** Liga ou desliga "Mostrar % de gordura ao paciente" em Perfil e marca (o tenant do E2E é compartilhado: sempre voltar a desligar). */
 export async function mostrarPercGordura(nutri: Page, ligar: boolean) {
-  await nutri.goto('/painel/configuracoes');
+  await nutri.goto('/painel/configuracoes/perfil');
   await nutri.getByLabel('Mostrar % de gordura ao paciente').setChecked(ligar);
   await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Perfil salvo.' })).toBeVisible();

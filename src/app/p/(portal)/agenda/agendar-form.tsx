@@ -22,8 +22,8 @@ export function AgendarForm({ acao, horarios, temOnline, rotulo }: { acao: (s: A
         <input type="hidden" name="modalidade" value="presencial" />
       )}
       <SeletorHorarios horarios={horarios} modalidade={mod} erro={s.erro} />
-      {s.ok && <p role="status" className="rounded bg-emerald-50 p-3">{s.ok}</p>}
-      <button disabled={enviando} className="min-h-11 rounded bg-emerald-700 px-4 text-white">{rotulo}</button>
+      {s.ok && <p role="status" className="rounded bg-ok-fundo p-3">{s.ok}</p>}
+      <button disabled={enviando} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">{rotulo}</button>
     </form>
   );
 }

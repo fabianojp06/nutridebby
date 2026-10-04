@@ -18,9 +18,9 @@ export default async function EvolucaoPage({ params }: PageProps<'/painel/pacien
           <p>{MSG_POUCOS_DADOS}</p>
         ) : (
           <>
-            <table className="w-full max-w-2xl text-left text-sm">
+            <table className="w-full max-w-2xl text-left">
               <caption className="text-left font-medium">Diferença entre o primeiro e o último registro</caption>
-              <thead>
+              <thead className="text-sm text-suave">
                 <tr>
                   <th scope="col">Medida</th>
                   <th scope="col">Primeiro</th>
@@ -32,7 +32,7 @@ export default async function EvolucaoPage({ params }: PageProps<'/painel/pacien
                 {e.diferencas.map((d) => {
                   const { casas } = d;
                   return (
-                    <tr key={d.rotulo} className="border-t">
+                    <tr key={d.rotulo} className="border-t border-linha">
                       <th scope="row" className="font-normal">{d.rotulo}</th>
                       <td>{`${formatarDecimal(d.primeiro.valor, casas)} (${formatarData(d.primeiro.data)})`}</td>
                       <td>{`${formatarDecimal(d.ultimo.valor, casas)} (${formatarData(d.ultimo.data)})`}</td>
@@ -58,7 +58,7 @@ export default async function EvolucaoPage({ params }: PageProps<'/painel/pacien
           <>
             <nav aria-label="Marcadores de exame">
               <ul className="flex flex-wrap gap-3 text-sm">
-                {e.marcadores.map((m, i) => <li key={`${m.nome}-${m.unidade ?? ''}`}><a href={`#marcador-${i}`} className="underline">{m.unidade ? `${m.nome} (${m.unidade})` : m.nome}</a></li>)}
+                {e.marcadores.map((m, i) => <li key={`${m.nome}-${m.unidade ?? ''}`}><a href={`#marcador-${i}`} className="text-link underline">{m.unidade ? `${m.nome} (${m.unidade})` : m.nome}</a></li>)}
               </ul>
             </nav>
             {e.marcadores.map((m, i) => (

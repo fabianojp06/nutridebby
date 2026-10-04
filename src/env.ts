@@ -29,6 +29,9 @@ const serverSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: postgresUrl('DATABASE_URL'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  // P08-01 (D1): app e worker. Sem DSN, o Sentry fica desligado (como o WhatsApp). Só https.
+  SENTRY_DSN: opcional(z.url({ message: 'SENTRY_DSN deve ser uma URL' }).refine((v) => v.startsWith('https://'), { message: 'SENTRY_DSN deve começar com https://' }).optional()),
+  SENTRY_ENVIRONMENT: opcional(z.string().regex(/^[a-z0-9-]{1,30}$/, { message: 'SENTRY_ENVIRONMENT: letras minúsculas, números e hífen' }).optional()),
 });
 
 /**
@@ -139,6 +142,8 @@ const appSchema = serverSchema
     WHATSAPP_SANDBOX: whatsappSandbox,
     // D7 (Plano 06): a chave PÚBLICA do VAPID vai para o navegador (inscrição de push). A privada fica só no worker.
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
+    // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
+    CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
   })
   .superRefine((e, ctx) => {
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)

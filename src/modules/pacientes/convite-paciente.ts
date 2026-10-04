@@ -148,7 +148,7 @@ export async function inspecionarConvitePaciente(db: Db, token: string, now: Dat
   if (c.expiraEm.getTime() <= now.getTime()) return { estado: 'expirado' };
   const { tenantId, patientId } = c;
   const tenant = await buscarTenant(db, tenantId);
-  const [p] = await withTenant({ tenantId, role: 'paciente', patientId }, (tx) => tx.select().from(patients).where(eq(patients.id, patientId)), db);
+  const [p] = await withTenant({ tenantId, role: 'paciente', patientId, semConta: true }, (tx) => tx.select().from(patients).where(eq(patients.id, patientId)), db);
   if (!tenant || !p || p.status !== 'ativo' || p.userId) return { estado: 'invalido' };
   const [u] = await db.select({ papel: user.appRole }).from(user).where(eq(user.email, p.email));
   return {

@@ -21,11 +21,11 @@ export function DpaForm() {
         <label htmlFor="dpa">Li e aceito o contrato de tratamento de dados (DPA)</label>
       </div>
       {state.erro && (
-        <p id={ERRO_ID} role="alert" className="text-red-700">
+        <p id={ERRO_ID} role="alert" className="text-erro">
           {state.erro}
         </p>
       )}
-      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Aceitar e continuar</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Aceitar e continuar</button>
     </form>
   );
 }

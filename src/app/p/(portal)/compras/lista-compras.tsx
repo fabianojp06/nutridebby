@@ -26,7 +26,7 @@ export function ListaCompras({ planoId, grupos }: { planoId: string; grupos: Gru
           })}
         </fieldset>
       ))}
-      <p className="text-sm text-gray-700">Marque o que já comprou: a marcação fica neste aparelho.</p>
+      <p className="text-sm text-suave">Marque o que já comprou: a marcação fica neste aparelho.</p>
     </div>
   );
 }

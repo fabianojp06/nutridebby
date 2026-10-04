@@ -6,3 +6,8 @@ allowBuilds:
   sharp: true
   ssh2: false
   unrs-resolver: false
+# P08-01 (Plano 08, Tarefa 2): o @sentry/node v11 traz os plugins de bundler (vite/rollup/webpack/esbuild) como
+# dependência, com a CLI do Sentry e o oxc-parser (~6 MB comprimidos na imagem). Só os subcaminhos `@sentry/node/vite`
+# etc. os usam — nada disso roda no app nem no worker. Sem eles a imagem cabe no orçamento de 260 MB do CI.
+overrides:
+  '@sentry/bundler-plugins': '-'

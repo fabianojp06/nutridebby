@@ -596,6 +596,34 @@
       "when": 1791090524643,
       "tag": "0084_conteudo_novo",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791122657989,
+      "tag": "0085_paciente_colunas",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1791125932669,
+      "tag": "0086_metricas_sucesso",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791125937449,
+      "tag": "0087_metricas_sucesso_admin",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1791126630402,
+      "tag": "0088_preferencias_usuaria",
+      "breakpoints": true
     }
   ]
 }

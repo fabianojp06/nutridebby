@@ -5,7 +5,6 @@ import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { dataDaAgendaOuHoje, diaCurto, inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
-import { Cabecalho } from '../cabecalho';
 import { ItemConsulta } from './item-consulta';
 import { lerVisao, periodoDaVisao, type Visao } from './periodo';
 
@@ -28,21 +27,20 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
   const href = (v: Visao, d: string) => `/painel/agenda?visao=${v}&data=${d}`;
   return (
     <>
-      <Cabecalho tenant={tenant} />
-      <main className="space-y-4 p-6">
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold">Agenda</h1>
+          <h1 className="font-titulo text-2xl font-semibold">Agenda</h1>
           <div className="flex gap-3 text-sm">
-            <Link href="/painel/agenda/horarios" className="underline">Horários de atendimento</Link>
-            <Link href={`/painel/agenda/nova?data=${data}`} className="rounded bg-emerald-700 px-3 py-1.5 text-white">Nova consulta</Link>
+            <Link href="/painel/agenda/horarios" className="text-link underline">Horários de atendimento</Link>
+            <Link data-guia="nova-consulta" href={`/painel/agenda/nova?data=${data}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Nova consulta</Link>
           </div>
         </div>
-        <nav aria-label="Período da agenda" className="flex flex-wrap items-center gap-3 text-sm">
+        <nav aria-label="Período da agenda" data-guia="periodo-agenda" className="flex flex-wrap items-center gap-3 text-sm">
           {VISOES.map(([v, r]) => <Link key={v} href={href(v, data)} aria-current={v === visao ? 'page' : undefined} className={v === visao ? 'font-semibold' : 'underline'}>{r}</Link>)}
           <span aria-hidden="true">·</span>
-          <Link href={href(visao, hoje)} className="underline">Hoje</Link>
-          <Link href={href(visao, p.anterior)} className="underline">Anterior</Link>
-          <Link href={href(visao, p.proximo)} className="underline">Próximo</Link>
+          <Link href={href(visao, hoje)} className="text-link underline">Hoje</Link>
+          <Link href={href(visao, p.anterior)} className="text-link underline">Anterior</Link>
+          <Link href={href(visao, p.proximo)} className="text-link underline">Próximo</Link>
           <span>{visao === 'dia' ? diaCurto(data) : `${formatarData(p.dias[0])} a ${formatarData(p.dias.at(-1)!)}`}</span>
         </nav>
         {visao === 'lista' ? (
@@ -55,9 +53,9 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
           <div className={`grid gap-3 ${visao === 'semana' ? 'md:grid-cols-7' : ''}`}>
             {p.dias.map((dia) => (
               <section key={dia} aria-labelledby={`dia-${dia}`} className="space-y-2">
-                <h2 id={`dia-${dia}`} className={`text-sm font-semibold ${dia === hoje ? 'text-emerald-800' : ''}`}>{diaCurto(dia)}{dia === hoje ? ' (hoje)' : ''}</h2>
+                <h2 id={`dia-${dia}`} className={`text-sm font-semibold ${dia === hoje ? 'text-ok' : ''}`}>{diaCurto(dia)}{dia === hoje ? ' (hoje)' : ''}</h2>
                 {bloqueios.filter((b) => sobrepoe(b, { inicio: inicioDoDia(dia, tenant.fuso), fim: inicioDoDia(somarDias(dia, 1), tenant.fuso) })).map((b) => (
-                  <p key={b.id} className="rounded bg-amber-50 p-2 text-sm text-amber-900">{b.motivo ? `Bloqueado: ${b.motivo}` : 'Bloqueado'}</p>
+                  <p key={b.id} className="rounded bg-aviso-fundo p-2 text-sm text-aviso">{b.motivo ? `Bloqueado: ${b.motivo}` : 'Bloqueado'}</p>
                 ))}
                 <ul className="space-y-2">
                   {doDia(dia).map((c) => <ItemConsulta key={c.id} c={c} fuso={tenant.fuso} dentroDeBloqueio={emBloqueio(c)} />)}

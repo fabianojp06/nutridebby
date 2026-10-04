@@ -247,7 +247,7 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const T = await novoTenant(app.db);
     const { p, id } = await comRascunho(T);
     await salvarRascunho(T.ctx, id, conteudo(0), deps);
-    const comoPaciente = <R,>(fn: Parameters<typeof withTenant<R>>[1]) => withTenant({ tenantId: T.tenantId, role: 'paciente', patientId: p.id }, fn, app.db);
+    const comoPaciente = <R,>(fn: Parameters<typeof withTenant<R>>[1]) => withTenant({ tenantId: T.tenantId, role: 'paciente', patientId: p.id, actorUserId: randomUUID() }, fn, app.db);
     const contar = () =>
       comoPaciente(async (tx) => {
         const n = async (t: string) => Number((await tx.execute(sql`select count(*)::int as n from ${sql.identifier(t)}`)).rows[0].n);

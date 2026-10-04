@@ -41,17 +41,17 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
         ).map(([k, rotulo, valor, set]) => (
           <div key={k} className="space-y-1">
             <label htmlFor={k} className="block font-medium">{rotulo}</label>
-            <input id={k} name={k} inputMode="decimal" value={valor} onChange={(ev) => set(ev.target.value)} className="w-full rounded border p-2" {...erroDe(k)} />
-            {e[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-red-700">{e[k]}</p>}
+            <input id={k} name={k} inputMode="decimal" value={valor} onChange={(ev) => set(ev.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...erroDe(k)} />
+            {e[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-erro">{e[k]}</p>}
           </div>
         ))}
       </div>
-      <p className="text-sm text-zinc-700">{`Idade usada: ${idade} anos. Fator de ${formatarDecimal(FATOR_MIN, 2)} a ${formatarDecimal(FATOR_MAX, 2)}.`}</p>
+      <p className="text-sm text-suave">{`Idade usada: ${idade} anos. Fator de ${formatarDecimal(FATOR_MIN, 2)} a ${formatarDecimal(FATOR_MAX, 2)}.`}</p>
       <fieldset>
         <legend className="font-medium">Fórmula</legend>
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left">
           <caption className="sr-only">Comparação das fórmulas de taxa metabólica basal</caption>
-          <thead>
+          <thead className="text-sm text-suave">
             <tr>
               <th scope="col">Usar</th>
               <th scope="col">Fórmula</th>
@@ -63,7 +63,7 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
             {FORMULAS_TMB.map((fo) => {
               const t = comparacao?.[fo.id];
               return (
-                <tr key={fo.id} className="border-t">
+                <tr key={fo.id} className="border-t border-linha">
                   <td>
                     <input id={`formula-${fo.id}`} name="formula" type="radio" value={fo.id} checked={formula === fo.id} onChange={() => setFormula(fo.id)} />
                   </td>
@@ -75,11 +75,11 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
             })}
           </tbody>
         </table>
-        {e.formula && <p role="alert" className="text-sm text-red-700">{e.formula}</p>}
+        {e.formula && <p role="alert" className="text-sm text-erro">{e.formula}</p>}
       </fieldset>
-      {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}
+      {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       {state.ok && <p role="status">{`Cálculo salvo: TMB ${state.ok.tmb} kcal, GET ${state.ok.get} kcal.`}</p>}
-      <button disabled={pendente} className="rounded bg-emerald-700 px-4 py-2 text-white">Salvar cálculo</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar cálculo</button>
     </form>
   );
 }

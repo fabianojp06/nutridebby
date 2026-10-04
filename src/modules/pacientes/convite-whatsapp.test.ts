@@ -121,7 +121,7 @@ describe('convite por WhatsApp (US-010)', () => {
     const T = await novoTenant(app.db);
     const p = await criarPaciente(T.ctx, T.tenant, cadastro(), deps);
     const [email] = await emailsNaFila('convite_paciente', p.email);
-    await aceitarConvitePaciente({ token: tokenDo(email.link), senha: 'Paciente2026segura', confirmacao: 'Paciente2026segura', aceitouTermo: true, whatsapp: true, ip: null }, { db: app.db, now });
+    await aceitarConvitePaciente({ token: tokenDo(email.link), senha: 'Paciente2026segura', confirmacao: 'Paciente2026segura', aceitouTermo: true, whatsapp: true, ip: null }, { db: app.db, now: new Date(now.getTime() + 60_000) });
     await conexaoDeTeste(app.db, T.ctx, 'conectada');
     const w = whatsappFalso();
     await varrer(T.tenantId, w);

@@ -35,7 +35,7 @@ export function GraficoLinha({ id, titulo, unidade, casas, pontos }: Props) {
   const fmt = (v: number) => `${formatarDecimal(v, casas)}${unidade ? ` ${unidade}` : ''}`;
   const nome = unidade ? `${titulo} (${unidade})` : titulo;
   return (
-    <figure className="space-y-2 text-zinc-700">
+    <figure className="space-y-2 text-suave">
       <svg viewBox={`0 0 ${L} ${A}`} role="img" aria-labelledby={`${id}-titulo ${id}-desc`} className="h-auto w-full max-w-2xl">
         <title id={`${id}-titulo`}>{nome}</title>
         <desc id={`${id}-desc`}>{`${asc.length} registros, de ${formatarData(asc[0].data)} a ${formatarData(asc[asc.length - 1].data)}.`}</desc>
@@ -52,11 +52,11 @@ export function GraficoLinha({ id, titulo, unidade, casas, pontos }: Props) {
           fill="none"
           strokeWidth={2}
           strokeLinejoin="round"
-          className="stroke-emerald-700"
+          className="stroke-marca"
         />
         {asc.map((p, i) => (
           <g key={p.data + i}>
-            <circle cx={x(tempo[i])} cy={y(p.valor)} r={4} strokeWidth={2} className="fill-emerald-700 stroke-white" />
+            <circle cx={x(tempo[i])} cy={y(p.valor)} r={4} strokeWidth={2} className="fill-marca stroke-cartao" />
             <circle cx={x(tempo[i])} cy={y(p.valor)} r={12} fill="transparent">
               <title>{`${formatarData(p.data)}: ${fmt(p.valor)}`}</title>
             </circle>
