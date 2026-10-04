@@ -24,7 +24,7 @@ export default async function ExportacaoPage({
           <p>{`Pronta. O link vale até ${formatarDataHora(e.expiraEm, tenant.fuso)}.`}</p>
           <a
             href={signFileUrl(e.caminho)}
-            className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95"
           >
             Baixar ZIP
           </a>

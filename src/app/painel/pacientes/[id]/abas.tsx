@@ -28,7 +28,7 @@ export function Abas({ patientId }: { patientId: string }) {
           const ativa = a.seg ? atual === href || atual.startsWith(`${href}/`) : atual === base;
           return (
             <li key={a.seg || 'resumo'}>
-              <Link href={href} aria-current={ativa ? 'page' : undefined} className={`inline-flex min-h-11 items-center whitespace-nowrap px-3 focus-visible:outline-offset-[-3px] ${ativa ? 'border-b-2 border-destaque font-semibold' : 'text-suave'}`}>
+              <Link href={href} aria-current={ativa ? 'page' : undefined} className={`inline-flex min-h-11 items-center whitespace-nowrap px-3 focus-visible:outline-offset-[-3px] ${ativa ? 'border-b-2 border-marca font-semibold' : 'text-suave'}`}>
                 {a.rotulo}
               </Link>
             </li>

@@ -32,7 +32,7 @@ export function RegraForm() {
       <div className="sm:col-span-5">
         {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
         {state.ok && <p role="status">{state.ok}</p>}
-        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Adicionar horário</button>
+        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Adicionar horário</button>
       </div>
     </form>
   );

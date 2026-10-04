@@ -79,7 +79,7 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
       </fieldset>
       {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       {state.ok && <p role="status">{`Cálculo salvo: TMB ${state.ok.tmb} kcal, GET ${state.ok.get} kcal.`}</p>}
-      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar cálculo</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar cálculo</button>
     </form>
   );
 }

@@ -18,10 +18,10 @@ export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso 
   return (
     <header className="border-b border-borda bg-cartao">
       <div className="mx-auto flex max-w-[1360px] flex-wrap items-center gap-3 px-4 py-3 md:px-6">
-        <Link href="/painel" className="flex items-center gap-3 rounded-xl">
+        <Link href="/painel" className="flex min-h-11 items-center gap-3 rounded-xl">
           {marca.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, fora do otimizador de imagens
-            <img src={marca.logoUrl} alt={`Logo de ${marca.nome}`} className="h-10 w-auto rounded bg-white p-1" />
+            <img src={marca.logoUrl} alt="" className="h-10 w-auto rounded bg-white p-1" />
           ) : (
             <span aria-hidden="true" className="grid size-10 place-items-center rounded-full bg-destaque font-titulo font-extrabold text-white">{iniciais(marca.nome)}</span>
           )}

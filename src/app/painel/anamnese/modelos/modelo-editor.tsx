@@ -96,7 +96,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
       {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       <div className="flex gap-3">
         <button type="button" disabled={perguntas.length >= LIMITE_PERGUNTAS} onClick={() => setPerguntas((ps) => [...ps, nova(`nova-${seq.current++}`)])} className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha disabled:opacity-50">Adicionar pergunta</button>
-        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar modelo</button>
+        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar modelo</button>
       </div>
     </form>
   );

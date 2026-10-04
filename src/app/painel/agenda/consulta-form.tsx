@@ -59,7 +59,7 @@ export function ConsultaForm({ acao, inicial, pacientes, linkPadrao, botao }: Pr
         <Campo id="linkOnline" rotulo="Link da chamada" type="url" defaultValue={v.linkOnline} erro={e.linkOnline} placeholder={linkPadrao ?? 'https://…'} dica={linkPadrao ? 'Vazio = o link padrão do seu perfil.' : undefined} />
       )}
       {erro('geral')}
-      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">{botao}</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{botao}</button>
     </form>
   );
 }

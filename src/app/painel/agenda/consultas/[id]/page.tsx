@@ -58,7 +58,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           </section>
         )}
         {podeAtender && (
-          <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Iniciar atendimento</Link></p>
+          <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Iniciar atendimento</Link></p>
         )}
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">

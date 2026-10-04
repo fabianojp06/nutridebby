@@ -16,6 +16,8 @@ test('Início em bento: "Seu dia", próxima consulta, hoje, diários, agenda do 
   await expect(proxima).toHaveAttribute('data-sobre-marca', '');
 
   await expect(page.getByRole('region', { name: 'Hoje' }).getByText(/^\d+ consultas?$/)).toBeVisible();
+  // singular e plural de verdade ("1 confirmada", nunca "1 confirmadas")
+  await expect(page.getByRole('region', { name: 'Hoje' }).getByText(/^(?:1 confirmada|(?:0|[2-9]|\d{2,}) confirmadas) · (?:1 pedido de remarcação|(?:0|[2-9]|\d{2,}) pedidos de remarcação)$/)).toBeVisible();
   const diarios = page.getByRole('region', { name: 'Diários para ver' });
   await expect(diarios.getByText(/^\d+ registros? novos?$/)).toBeVisible();
   await expect(diarios.getByRole('link', { name: 'Abrir Diários' })).toHaveAttribute('href', '/painel/diarios');

@@ -31,7 +31,7 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
             {plano.refeicoes.map((r) => {
               const proxima = r.id === plano.proximaRefeicaoId;
               return (
-                <li key={r.id} aria-labelledby={`ref-${r.id}`} className={proxima ? 'rounded-xl border-2 border-destaque bg-cartao p-3' : 'rounded-xl border border-borda bg-cartao p-3'}>
+                <li key={r.id} aria-labelledby={`ref-${r.id}`} className={proxima ? 'rounded-xl border-2 border-marca bg-cartao p-3' : 'rounded-xl border border-borda bg-cartao p-3'}>
                   <h3 id={`ref-${r.id}`} className="font-semibold">
                     {`${r.nome} · ${r.horario}`}
                     {proxima && <span className="ml-2 rounded-full bg-ok-fundo px-2 text-sm font-semibold text-ok">Próxima refeição</span>}

@@ -10,7 +10,7 @@ export function ComentarioForm({ id, atual }: { id: string; atual: string | null
       <textarea id="comentario" name="comentario" rows={3} maxLength={1000} defaultValue={s.valor ?? atual ?? ''} aria-invalid={s.erro ? true : undefined} aria-describedby={s.erro ? 'comentario-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
       {s.erro && <p id="comentario-erro" role="alert" className="text-sm text-erro">{s.erro}</p>}
       {s.ok && <p role="status">{s.ok}</p>}
-      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar comentário</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar comentário</button>
     </form>
   );
 }

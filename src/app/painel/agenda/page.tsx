@@ -32,7 +32,7 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
           <h1 className="font-titulo text-2xl font-semibold">Agenda</h1>
           <div className="flex gap-3 text-sm">
             <Link href="/painel/agenda/horarios" className="text-link underline">Horários de atendimento</Link>
-            <Link data-guia="nova-consulta" href={`/painel/agenda/nova?data=${data}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Nova consulta</Link>
+            <Link data-guia="nova-consulta" href={`/painel/agenda/nova?data=${data}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Nova consulta</Link>
           </div>
         </div>
         <nav aria-label="Período da agenda" data-guia="periodo-agenda" className="flex flex-wrap items-center gap-3 text-sm">

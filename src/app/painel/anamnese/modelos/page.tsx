@@ -14,7 +14,7 @@ export default async function ModelosPage() {
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-titulo text-2xl font-semibold">Modelos de anamnese</h1>
-          <Link href="/painel/anamnese/modelos/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Novo modelo</Link>
+          <Link href="/painel/anamnese/modelos/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Novo modelo</Link>
         </div>
         <ul className="divide-y divide-linha">
           {modelos.map((m) => (

@@ -60,6 +60,7 @@ test('vídeo só para a Ana (US-050, US-053): a Ana vê no feed com "Novo" e o p
   await expect(ana.page.locator('iframe')).toHaveCount(0);
   await ana.page.getByRole('button', { name: 'Carregar o vídeo' }).click();
   await expect(ana.page.locator(`iframe[title="Vídeo: ${VIDEO}"]`)).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+  await expect(ana.page.locator(`iframe[title="Vídeo: ${VIDEO}"]`)).toBeFocused(); // o botão saiu do DOM: o foco não cai no <body> (WCAG 2.4.3)
   await expect
     .poll(async () => {
       await ana.page.goto('/p/conteudos');

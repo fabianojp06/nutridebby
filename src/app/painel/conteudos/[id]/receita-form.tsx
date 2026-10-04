@@ -95,7 +95,7 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
           {erro('modo') && <p id="modo-erro" role="alert" className="text-sm text-erro">{erro('modo')}</p>}
         </div>
         <p role="status">{s.ok}</p>
-        <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110 disabled:opacity-50">Salvar receita</button>
+        <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50">Salvar receita</button>
       </form>
     </section>
   );

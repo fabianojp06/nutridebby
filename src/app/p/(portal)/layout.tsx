@@ -23,9 +23,9 @@ export default async function PortalLayout({ children }: LayoutProps<'/p'>) {
     <div data-tema="sistema" style={cores} className="flex flex-1 flex-col">
       <DonoDoAparelho dono={vinculo.patientId} />
       <RegistrarAcesso dono={vinculo.patientId} />
-      <div className="flex items-center gap-3 px-6 py-2" style={{ borderBottom: `3px solid ${marca.cor}` }}>
+      <div className="flex items-center gap-3 border-b-[3px] border-marca px-6 py-2">
         {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, sem otimização do Next */}
-        {marca.logoUrl && <img src={marca.logoUrl} alt={`Logo de ${marca.nome}`} className="h-8 w-auto" />}
+        {marca.logoUrl && <img src={marca.logoUrl} alt={`Logo de ${marca.nome}`} className="h-8 w-auto rounded bg-white p-1" />}
         <p className="text-sm text-suave">{`Acompanhamento com ${marca.nome}`}</p>
       </div>
       <SeloOffline />

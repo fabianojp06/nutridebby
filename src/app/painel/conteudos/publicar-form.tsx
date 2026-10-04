@@ -26,7 +26,7 @@ export function PublicarForm({ id, publicado }: { id: string; publicado: boolean
             <input type="checkbox" name="avisar" />
             Avisar pacientes
           </label>
-          <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110 disabled:opacity-50">Publicar</button>
+          <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50">Publicar</button>
         </form>
       )}
     </div>

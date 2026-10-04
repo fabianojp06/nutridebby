@@ -24,7 +24,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
       key={href}
       href={href}
       aria-current={atual ? 'page' : undefined}
-      className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-3 aria-[current=page]:bg-destaque aria-[current=page]:text-white"
+      className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-3 aria-[current=page]:bg-destaque aria-[current=page]:font-semibold aria-[current=page]:text-white aria-[current=page]:underline"
     >
       {rotulo}
     </Link>

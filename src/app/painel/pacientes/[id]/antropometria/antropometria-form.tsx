@@ -27,7 +27,7 @@ export function AntropometriaForm({ acao, hoje, sexo, dataNascimento, somenteLei
       </fieldset>
       {state.erros?.geral && <p role="alert" className="text-erro">{state.erros.geral}</p>}
       {state.ok && <p role="status">{state.aviso ? `Avaliação salva. ${state.aviso}` : 'Avaliação salva.'}</p>}
-      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar avaliação</button>}
+      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar avaliação</button>}
     </form>
   );
 }

@@ -43,7 +43,7 @@ export default async function AlimentoPage({ params }: PageProps<'/painel/alimen
         {taco ? (
           <div className="space-y-2">
             <form action={duplicarAlimentoAction.bind(null, a.id)}>
-              <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Duplicar como meu alimento</button>
+              <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Duplicar como meu alimento</button>
             </form>
             <p className="text-sm text-suave">Fonte: {FONTE_TACO_TEXTO}.</p>
           </div>

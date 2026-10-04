@@ -81,7 +81,7 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
           </fieldset>
         )}
         {visibilidade === 'pacientes' && (
-          <fieldset className="ml-6 max-h-64 space-y-1 overflow-y-auto">
+          <fieldset className="ml-6 max-h-64 space-y-1 overflow-y-auto p-2">
             <legend className="text-sm font-medium">Pacientes</legend>
             {/* D15: a lista que esta tela mostrou — o salvamento só tira da audiência quem estava nela e foi desmarcado */}
             <input type="hidden" name="exibidos" value={opcoes.pacientes.map((p) => p.id).join(',')} />
@@ -96,7 +96,7 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
         <Erro c="visibilidade" msg={erro('visibilidade')} />
       </fieldset>
       <p role="status">{s.ok}</p>
-      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110 disabled:opacity-50">{botao}</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50">{botao}</button>
     </form>
   );
 }

@@ -35,7 +35,7 @@ export function LogoForm() {
       <p id="logo-dica" className="text-sm text-suave">PNG, JPEG ou SVG de até 2 MB. O logo é reduzido para no máximo 512 px.</p>
       {erro && <p role="alert" className="text-erro">{erro}</p>}
       {ok && <p role="status">Logo atualizado.</p>}
-      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Enviar logo</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Enviar logo</button>
     </form>
   );
 }

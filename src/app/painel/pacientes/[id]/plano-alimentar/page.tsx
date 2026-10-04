@@ -26,7 +26,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
       {!bloqueado && (
         <div className="flex flex-wrap gap-3">
           {rascunho ? (
-            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Continuar o rascunho (versão {rascunho.versao})</Link>
+            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Continuar o rascunho (versão {rascunho.versao})</Link>
           ) : publicado ? (
             <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
           ) : (

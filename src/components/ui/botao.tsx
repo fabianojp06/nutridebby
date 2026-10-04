@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { ButtonHTMLAttributes, ComponentProps } from 'react';
 
 const ESTILO = {
-  primario: 'bg-destaque text-white hover:brightness-110',
+  primario: 'bg-destaque text-white hover:brightness-95',
   secundario: 'border border-campo bg-cartao text-texto hover:bg-linha',
   escuro: 'bg-botao text-botao-texto hover:opacity-90',
 } as const;

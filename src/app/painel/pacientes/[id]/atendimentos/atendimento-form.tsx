@@ -45,7 +45,7 @@ export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura, co
       </fieldset>
       {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       {state.ok && <p role="status">Atendimento salvo.</p>}
-      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">{botao}</button>}
+      {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{botao}</button>}
     </form>
   );
 }

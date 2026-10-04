@@ -33,7 +33,7 @@ export function AlimentoForm({ acao, inicial, rotuloBotao }: { acao: (s: Aliment
         {numero('fibraG', 'Fibra (g)')}
       </fieldset>
       {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
-      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">{rotuloBotao}</button>
+      <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{rotuloBotao}</button>
     </form>
   );
 }

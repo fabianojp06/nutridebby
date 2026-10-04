@@ -19,6 +19,11 @@ describe('cabeçalho do painel (D20)', () => {
     expect(s).toMatch(/requireNutri\([^)]*permitirDpaPendente:\s*true/);
     expect(s).toMatch(/data-tema=/);
   });
+  it('o link da marca tem o alvo de 44 px e o logo é decorativo (o nome do consultório já está no link)', () => {
+    const s = ler('cabecalho.tsx');
+    expect(s).toMatch(/<Link href="\/painel" className="[^"]*\bmin-h-11\b/);
+    expect(s).toMatch(/<img src=\{marca\.logoUrl\} alt="" /);
+  });
   it('o contêiner do layout não é flex: o <main className="mx-auto max-w-*"> das telas ocupa a largura até o máximo', () => {
     // num flex em coluna, item com margens laterais auto não estica: 17 telas ficariam com a largura do próprio conteúdo
     const conteiner = /<div data-tema=\{tema\}[^>]*className="([^"]*)"/.exec(ler('layout.tsx'))?.[1];

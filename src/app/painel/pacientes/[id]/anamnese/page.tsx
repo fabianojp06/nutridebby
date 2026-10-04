@@ -19,7 +19,7 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
               {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
             </select>
           </div>
-          <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Preencher anamnese</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Preencher anamnese</button>
         </form>
       )}
       <section aria-labelledby="anamneses" className="space-y-2">

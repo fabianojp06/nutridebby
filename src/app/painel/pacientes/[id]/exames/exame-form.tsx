@@ -88,7 +88,7 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
       </fieldset>
       {erro('geral')}
       {ok && <p role="status">Exame salvo.</p>}
-      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">Salvar exame</button>
+      <button disabled={enviando} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar exame</button>
     </form>
   );
 }

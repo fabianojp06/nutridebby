@@ -26,7 +26,7 @@ export function ConectarWhatsapp() {
   return (
     <div data-guia="conectar-whatsapp" className="space-y-3">
       <form action={action}>
-        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-110">{state.qr ? 'Gerar novo QR code' : 'Conectar WhatsApp'}</button>
+        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{state.qr ? 'Gerar novo QR code' : 'Conectar WhatsApp'}</button>
       </form>
       {state.erro && <p role="alert" className="text-erro">{state.erro}</p>}
       {state.qr && (

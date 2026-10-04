@@ -9,6 +9,8 @@ describe('PlayerVideo (Plano 07 D10 + Plano 08 D12)', () => {
     expect(html).not.toContain('<iframe');
     expect(html).toContain('Carregar o vídeo');
     expect(html).toContain('O vídeo é exibido pelo YouTube.');
+    // a cor da marca sobre a moldura preta fica abaixo de 3:1 com marca escura: o foco ali é branco
+    expect(html).toContain('[--nd-foco:#ffffff]');
   });
 
   it('D12: Vimeo também só com o clique, e o aviso cita o Vimeo', () => {

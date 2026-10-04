@@ -18,6 +18,7 @@ const ARQUIVOS = PASTAS.flatMap((p) =>
 const EXCECOES: Record<string, { motivo: string; classes: string[] }> = {
   'src/app/painel/whatsapp/conectar.tsx': { motivo: 'o QR precisa de fundo branco para ser lido, também no modo escuro', classes: ['bg-white'] },
   'src/app/painel/cabecalho.tsx': { motivo: 'o logo do consultório fica sobre fundo branco (um logo escuro sem fundo sumiria no escuro)', classes: ['bg-white'] },
+  'src/app/p/(portal)/layout.tsx': { motivo: 'o logo do consultório no topo do portal fica sobre fundo branco (no aparelho escuro, um logo escuro sem fundo sumiria)', classes: ['bg-white'] },
   'src/app/painel/page.tsx': {
     motivo: 'Início (T15): o botão "Abrir prontuário" é branco sobre o cartão de destaque, que tem a cor original da marca nos dois modos (bg-destaque); nenhum token é branco nos dois modos',
     classes: ['bg-white'],
@@ -44,11 +45,19 @@ const BOTAO_PRINCIPAL = /(?<![\w-])bg-destaque(?![\w-])/;
 function problemas(arquivo: string): string[] {
   const s = readFileSync(arquivo, 'utf8');
   const out = [...s.matchAll(COR_FIXA)].map((m) => m[0]);
+  // Texto branco sobre a cor da marca: clarear no hover baixa o contraste (#767676 → ~#828282, 3,8:1); escurecer sobe.
+  // No arquivo todo: o Botao guarda as classes numa constante, fora do className.
+  for (const m of s.matchAll(/(?<![\w-])hover:brightness-(?:1\d\d|[2-9]\d\d)(?![\w-])/g)) out.push(`hover que clareia: ${m[0]}`);
+  // Linha na cor da marca sobre o fundo (aba ativa, refeição seguinte): bg-destaque é a cor original nos dois modos (2,6:1
+  // contra o cartão escuro); a borda usa a marca do modo (border-marca, com a variante clara no escuro).
+  for (const m of s.matchAll(/(?<![\w-])border(?:-[trblxyse])?-destaque(?![\w-])/g)) out.push(`borda na cor original da marca: ${m[0]}`);
   for (const m of s.matchAll(CLASSES)) {
     const c = m[1] ?? m[2] ?? '';
     if (BORDA.test(c) && !BORDA_COM_COR.test(c)) out.push(`borda sem cor: ${c}`);
     if (DIVISOR.test(c) && !DIVISOR_COM_COR.test(c)) out.push(`divisor sem cor: ${c}`);
     if (BOTAO_PRINCIPAL.test(c) && /(?<![\w-])px-\d/.test(c) && !/(?<![\w-])min-h-11(?![\w-])/.test(c)) out.push(`botão principal sem min-h-11: ${c}`);
+    // Estado ativo pintado com a marca: no escuro o bg-destaque fica abaixo de 3:1 contra o fundo (WCAG 1.4.1/1.4.11)
+    if (/aria-\[current=page\]:bg-destaque/.test(c) && !/aria-\[current=page\]:underline/.test(c)) out.push(`ativo só pela cor: ${c}`);
   }
   return out;
 }
@@ -62,6 +71,26 @@ describe('sem cor fixa nas telas da nutricionista (D24)', () => {
     for (const [f, { classes }] of Object.entries(EXCECOES)) {
       const achadas = new Set(problemas(f));
       for (const c of classes) expect(achadas.has(c), `${f}: ${c}`).toBe(true);
+    }
+  });
+});
+
+describe('marca do consultório no portal (US-005, D18/D19)', () => {
+  it('a faixa do topo segue a variante clara no escuro (border-marca), não a cor original em style', () => {
+    const s = readFileSync('src/app/p/(portal)/layout.tsx', 'utf8');
+    expect(s).toMatch(/(?<![\w-])border-marca(?![\w-])/);
+    expect(s).not.toMatch(/borderBottom/);
+    expect(s).toMatch(/<img [^>]*className="[^"]*\bbg-white\b/);
+  });
+});
+
+describe('foco visível dentro de lista com rolagem vertical (RNF-10/D25)', () => {
+  // O contorno global do :focus-visible (3 px, afastado 2 px) sai 5 px do item: a caixa com rolagem precisa de folga
+  // interna (p-2 ou mais), senão o contorno das caixas de seleção é cortado à esquerda (lista de pacientes da audiência).
+  it.each(ARQUIVOS.filter((f) => /(?<![\w-])overflow-y-auto(?![\w-])/.test(readFileSync(f, 'utf8'))))('%s', (f) => {
+    for (const m of readFileSync(f, 'utf8').matchAll(CLASSES)) {
+      const c = m[1] ?? m[2] ?? '';
+      if (/(?<![\w-])overflow-y-auto(?![\w-])/.test(c)) expect(c).toMatch(/(?<![\w-])p-(?:[2-9]|1\d)(?![\w-])/);
     }
   });
 });

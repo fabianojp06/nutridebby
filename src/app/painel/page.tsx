@@ -105,7 +105,7 @@ export default async function PainelHome() {
 
         <Cartao id="hoje" titulo="Hoje">
           <p className="font-titulo text-4xl font-extrabold">{plural(dia.hoje.total, 'consulta', 'consultas')}</p>
-          <p className="text-suave">{`${dia.hoje.confirmadas} confirmadas · ${plural(dia.hoje.pedidosRemarcacao, 'pedido de remarcação', 'pedidos de remarcação')}`}</p>
+          <p className="text-suave">{`${plural(dia.hoje.confirmadas, 'confirmada', 'confirmadas')} · ${plural(dia.hoje.pedidosRemarcacao, 'pedido de remarcação', 'pedidos de remarcação')}`}</p>
         </Cartao>
 
         {/* cores fixas do design (9,15:1 nos dois modos); o foco segue o texto do cartão (na cor da marca, some sobre o âmbar) */}

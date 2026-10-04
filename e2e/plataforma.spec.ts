@@ -171,7 +171,10 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   const banner = page.getByRole('banner');
   // D19/D20: o cabeçalho é neutro; a cor do consultório aparece no item ativo do menu (bg-destaque)
   await expect(banner.getByRole('link', { name: 'Configurações', exact: true })).toHaveCSS('background-color', 'rgb(46, 125, 50)');
-  await expect(banner.getByRole('img', { name: `Logo de ${NUTRI.nome}` })).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
+  // o logo é decorativo (alt=""): o nome do consultório já é o nome do link da marca
+  const marcaNoTopo = banner.getByRole('link', { name: NUTRI.nome, exact: true });
+  await expect(marcaNoTopo.locator('img')).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
+  await expect(marcaNoTopo.locator('img')).toHaveAttribute('alt', '');
   await ctx.close();
 });
 
