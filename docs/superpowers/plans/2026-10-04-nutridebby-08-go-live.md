@@ -6,7 +6,7 @@
 
 **Goal:** Deixar o NutriDebby pronto para a Debby usar com pacientes reais: erros no Sentry sem dado de saúde, monitor externo, teste de carga e de restauração documentados, cabeçalhos de segurança e CSP valendo, RLS e limites revistos, textos legais definitivos, métricas de sucesso (CS-01 a CS-03), o visual novo do painel (Versão 2 "bento", claro e escuro, com botão de alternar e preferência por usuária) em todas as telas da nutricionista, o manual guiado (P08-10) e o go-live com o checklist assinado (P08-09).
 
-**Architecture:** Quatro frentes que se encontram no checklist. (1) **Operação e observabilidade:** um filtro único (`src/lib/sentry-filtro.ts`) por onde passa todo evento do Sentry (app pelo `instrumentation.ts`, worker pelo `semDetalhe` do PR #11, erros do navegador por uma rota própria que só leva `digest`, nome e rota), `request_id` gerado no `src/proxy.ts`, `/api/health` com o motivo certo, k6 numa pilha de carga separada e um script de restauração testado no CI. (2) **Segurança e LGPD:** cabeçalhos globais no `next.config.ts`, CSP com nonce no `proxy.ts` (todas as páginas passam a ser dinâmicas), uma migration que fecha as colunas que o paciente pode alterar (B-4), tira dele a leitura do `audit_log` (B-6) e restringe as capas à audiência; `access_events` entra na exclusão e ganha retenção; os textos do advogado entram com versão nova (novo aceite pela D25 do Plano 06). (3) **Medição:** métricas CS-01..CS-03 numa função de módulo para a nutricionista e numa função `SECURITY DEFINER` só com contagens para o admin. (4) **Visual e manual:** tokens de cor com `light-dark()` e `data-tema` (sem `dark:` espalhado), um `src/app/painel/layout.tsx` que desenha o cabeçalho novo para todas as telas, preferência de tema e progresso do manual em colunas da própria `user`, componentes base (`Cartao`, `Botao`, `Aviso`, `Selo`), o Início em bento, axe do painel nos dois modos e o manual guiado com `<dialog>` nativo (tour de boas-vindas, tours por tela e a central `/painel/ajuda`).
+**Architecture:** Quatro frentes que se encontram no checklist. (1) **Operação e observabilidade:** um filtro único (`src/lib/sentry-filtro.ts`) por onde passa todo evento do Sentry (app pelo `instrumentation.ts`, worker pelo `semDetalhe` do PR #11, erros do navegador por uma rota própria que só leva `digest`, nome e rota), `request_id` gerado no `src/proxy.ts` (páginas e ações; nas APIs, que ficam fora do `matcher`, no `onRequestError`), `/api/health` com o motivo certo, k6 numa pilha de carga separada e um script de restauração testado no CI. (2) **Segurança e LGPD:** cabeçalhos globais no `next.config.ts`, CSP com nonce no `proxy.ts` (todas as páginas passam a ser dinâmicas), uma migration que fecha as colunas que o paciente pode alterar (B-4), tira dele a leitura do `audit_log` (B-6) e restringe as capas à audiência; `access_events` entra na exclusão e ganha retenção; os textos do advogado entram com versão nova (novo aceite pela D25 do Plano 06). (3) **Medição:** métricas CS-01..CS-03 numa função de módulo para a nutricionista e numa função `SECURITY DEFINER` só com contagens para o admin. (4) **Visual e manual:** tokens de cor por bloco de modo (sem `light-dark()`, que o Safari 16.4–17.4 não tem) e `data-tema` (sem `dark:` espalhado), um `src/app/painel/layout.tsx` que desenha o cabeçalho novo para todas as telas, preferência de tema e progresso do manual em colunas da própria `user`, componentes base (`Cartao`, `Botao`, `Aviso`, `Selo`), o Início em bento, axe do painel nos dois modos e o manual guiado com `<dialog>` nativo (tour de boas-vindas, tours por tela e a central `/painel/ajuda`).
 
 **Tech Stack:** Node 24 · pnpm 12 · Next.js 16.3 (App Router, `src/proxy.ts`, `instrumentation.ts`, `connection()`) · React 19.2 · Tailwind 4 (`@theme`, `@custom-variant`) · PostgreSQL 16 · Drizzle 0.45 · Better Auth 1.7 (`additionalFields`) · pg-boss 12.34 · Zod 4 · Vitest 5 + Testcontainers · Playwright 1.63 + `@axe-core/playwright` 4.13.0. **Uma dependência nova:** `@sentry/node` (versão exata fixada na Tarefa 2). Ferramentas sem dependência no `package.json`: k6 pela imagem `grafana/k6` (Docker) e Lighthouse CLI por `pnpm dlx`. Fontes Figtree e Bricolage Grotesque por `next/font/google` (baixadas no build, servidas pelo próprio app).
 
@@ -31,15 +31,15 @@
 | # | Tema | Decisão (aplicada no plano) | Custo / consequência · se o dono escolher outra |
 |---|---|---|---|
 | D1 ★ | Serviço de erros (P08-01, RNF-11) | **Sentry SaaS, plano gratuito (Developer)**, org criada na região UE se o gratuito permitir; SDK **só no servidor e no worker** (`@sentry/node`); erros do navegador vão a uma rota própria (`POST /api/erro-cliente`) que só repassa `digest`, nome do erro e rota; regras de servidor do Sentry ligadas (Data Scrubbing, "Prevent storing of IP addresses"); sem Replay e sem tracing. O DPA passa a listar o Sentry (suboperador, transferência internacional) | Custo zero; o MCP do Sentry (spec §9) funciona. Alternativas: **GlitchTip autohospedado** (dado não sai da VPS; +3 serviços no Easypanel — web, worker, Postgres/Valkey —, ~1 GB de RAM, atualização por conta do dono, sem MCP); **SDK também no navegador com túnel** (`@sentry/nextjs`: DSN no build pelo GitHub Actions, +~70 KB no bundle do PWA, mais superfície para o filtro — o clique e a URL do navegador carregam nome de paciente) |
-| D2 | `request_id` (RNF-11) | Gerado no `proxy.ts` para **toda** requisição (páginas, ações e, com o `matcher` ampliado, `/api/*`), sobrescrevendo o que o cliente mandar; volta no cabeçalho `x-request-id`; vai como tag no Sentry e na linha de log de erro (`onRequestError`), com `tenant_id` quando a sessão já foi lida | Não vai em **toda** linha de log: com o `AsyncContextFrame` do Node 24, um `enterWith` feito dentro do `requireUser` não chega à página que o chamou (o contexto é restaurado no `await`). Desvio registrado; a correlação "erro do usuário ↔ Sentry ↔ log" funciona pelo id |
+| D2 | `request_id` (RNF-11) | Gerado no `proxy.ts` para páginas e Server Actions, sobrescrevendo o que o cliente mandar; volta no cabeçalho `x-request-id`; vai como tag no Sentry e na linha de log de erro (`onRequestError`), com `tenant_id` quando a sessão já foi lida. **O `matcher` continua sem `/api/*`:** pelo `proxyClientMaxBodySize.md` do Next 16, toda requisição que passa pelo proxy tem o corpo copiado para a memória, com corte silencioso em 10 MB — o exame de até 20 MB (US-015) chegaria cortado e o `lerCorpoLimitado` (limite de tamanho e `prazoMs`) das rotas sem login só agiria depois de o Next já ter guardado até 10 MB por requisição. Nas APIs, o id nasce no `onRequestError` (`requestIdDe(cabeçalho) ?? novoRequestId()`) e não volta em cabeçalho | Não vai em **toda** linha de log: com o `AsyncContextFrame` do Node 24, um `enterWith` feito dentro do `requireUser` não chega à página que o chamou (o contexto é restaurado no `await`). Desvio registrado; a correlação "erro do usuário ↔ Sentry ↔ log" funciona pelo id |
 | D3 ★ | Monitor externo (P08-02, RNF-04) | **UptimeRobot gratuito**, checando `GET /api/health` (espera 200 e `"ok"`) e `/entrar` **a cada 5 min**, alerta por e-mail e pelo app do celular do dono; a spec passa a dizer "checagem a cada 5 min, alerta em até 10 min" (desvio). Conferir na contratação se o plano grátis permite uso comercial; se não, cair para a alternativa (b) | Custo zero, nenhum código para manter; 99% ao mês tolera 7,3 h fora — 5 min não muda a meta. Alternativas: (b) **HetrixTools grátis** (checagem de 1 min, cumpre a RNF-04 sem desvio; conta em mais um terceiro); (c) **Cloudflare Worker com Cron Trigger de 1 min** (a conta Cloudflare já existe; ~60 linhas nossas para manter e um canal de alerta a montar); (d) Uptime Kuma na própria VPS (descartado: cai junto com ela, não é externo) |
 | D4 ★ | Critério de aceite do teste de carga (P08-03, RNF-01/RNF-02) | Com 50 tenants × 300 pacientes ativos e 100 VUs: **Route Handlers (`/api/*`) p95 ≤ 300 ms** (RNF-01, bloqueia); **páginas (HTML/RSC) p95 ≤ 800 ms** (meta nova, bloqueia); **falhas < 1%** sem contar os 429 esperados; job `notificacoes` com 15 mil pacientes **< 20 s**; **LCP ≤ 2,5 s** ("Slow 4G", Lighthouse) em `/p/inicio` e `/p/plano`, medido **depois** da CSP; `cursoia_crm` sem degradação (a VPS mantém ≥ 2 vCPU livres no `docker stats` durante o teste). Rodada 1 com os limites atuais do Easypanel para achar o gargalo; rodada 2 com a configuração final | Alternativas: **300 ms também nas páginas** (provável reprovação sem cache, com o render dinâmico da CSP; mais dias de otimização antes do go-live); **só relatório, sem bloquear** (sobe sem saber se aguenta 50 tenants — aceitável para 1 tenant, mas a RNF-02 vira promessa sem medida) |
 | D5 | Onde roda o k6 | Pilha de carga separada na VPS (`docker-compose.carga.yml`: banco próprio, a mesma imagem do GHCR, os mesmos limites do Easypanel, portas só em `127.0.0.1`), semeada por `test/carga/seed.ts`, de madrugada, com OK do dono; **nunca** contra produção nem com dado real. k6 por `docker run grafana/k6`, fora do CI | O CI gratuito não tem fôlego nem rede estável para carga |
-| D6 ★ | Roles na restauração (P08-04, RNF-05) | O script de backup passa a gravar também `pg_dumpall --globals-only --no-role-passwords` (`db/globais.sql`, no mesmo remoto cifrado); a restauração aplica os roles antes do `pg_restore`. **Mexe no script → o dono reinstala no host** (regra 10) | Restauração reproduzível dentro do RTO de 4 h (os donos das funções `SECURITY DEFINER` voltam iguais). Alternativa: **criar os roles à mão** pela lista do `docs/operacao/restauracao.md` (sem mexer no script já pronto; mais passo manual na hora da crise e risco de dono errado nas funções da RLS) |
+| D6 ★ | Roles na restauração (P08-04, RNF-05) | O script de backup passa a gravar também `pg_dumpall --globals-only --no-role-passwords` (`db/globais.sql`, no mesmo remoto cifrado); a restauração aplica os roles antes do `pg_restore`; como voltam sem senha, o roteiro de desastre manda o dono devolver a senha do migrator pelo `\password` do psql (sem eco, sem passar pelo chat) antes de subir o app. **Mexe no script → o dono reinstala no host** (regra 10) | Restauração reproduzível dentro do RTO de 4 h (os donos das funções `SECURITY DEFINER` voltam iguais). Alternativa: **criar os roles à mão** pela lista do `docs/operacao/restauracao.md` (sem mexer no script já pronto; mais passo manual na hora da crise e risco de dono errado nas funções da RLS) |
 | D7 | CSP (P08-05, RNF-06) | **Nonce por requisição** no `proxy.ts` + `'strict-dynamic'` (o guia `content-security-policy.md` do Next 16); o layout raiz chama `connection()`, então **todas as páginas passam a ser dinâmicas** (`/entrar` deixa de ser pré-renderizada — o LCP é medido depois, D4). `style-src 'self' 'unsafe-inline'` (há atributos `style` do React: cor da marca, gráficos). `connect-src 'self'` (D1: o Sentry não é chamado pelo navegador). `frame-src` com YouTube sem cookies, Vimeo e Turnstile (D10 do Plano 07). **Vale direto** (produção ainda sem pacientes reais; o E2E roda todas as telas sem violação); `CSP_MODO=relatorio` no Easypanel volta para Report-Only em emergência, com os relatórios num log só de contagem | Report-Only antes por uma semana não acrescenta sinal sem usuários reais |
 | D8 ★ | HSTS | `Strict-Transport-Security: max-age=63072000` **sem `includeSubDomains` e sem `preload`** | Outros subdomínios de `wsscloud.tech` (o CRM, o Easypanel) não ficam obrigados a HTTPS por causa do NutriDebby. Alternativa: com `includeSubDomains`/`preload` (mais forte, mas um subdomínio sem HTTPS fica inacessível por 2 anos nos navegadores que já viram o cabeçalho; `preload` é difícil de desfazer) |
 | D9 | RLS final (P08-05, RNF-07; débitos B-4, B-6 e a capa do Plano 07) | Migration `0085`: gatilho `BEFORE UPDATE` em `patients` (a sessão de paciente só muda `user_id` de nulo para a própria conta, as colunas do WhatsApp — com origem `paciente` — e `updated_at`) e em `data_exports` (só `pendente → falhou`); `audit_log` sem SELECT para paciente (`RESTRICTIVE`); `paciente_arquivos` passa a mostrar ao paciente só a capa de conteúdo que a RLS da audiência já deixa ele ver | O `auditRead` e o gatilho de auditoria só fazem INSERT (sem `RETURNING`): nada quebra. Erro do gatilho = 42501 |
-| D10 | Limites e sessão (P08-05; débitos B-8, S-12, notas N4 e N7) | **B-8:** `POST /api/p/push` com limite por conta em memória (10 a cada 10 min; 1 réplica — anotado), e o custo O(tenants) do `app_soltar_endpoint_push` **medido** no k6 (sem reescrita: a RLS forçada impede achar os tenants do endpoint antes do laço). **S-12:** `GET /api/p/vinculo` **mantido** (o caso de uso são links de e-mail, que chegam como navegação de outro site; o impacto é trocar entre vínculos ativos da própria vítima) — justificativa na spec. **N4:** política de senha com `\p{L}`/`\p{Nd}` (a faixa `À-ÿ` aceitava `×` e `÷`). **N7:** `withTenant` recusa papel `nutri`/`paciente` sem `actorUserId` | Sem tabela nova |
+| D10 | Limites e sessão (P08-05; débitos B-8, S-12, notas N4 e N7) | **B-8:** `POST /api/p/push` com limite por conta em memória (10 a cada 10 min; 1 réplica — anotado), e o custo O(tenants) do `app_soltar_endpoint_push` **medido** no k6 (sem reescrita: a RLS forçada impede achar os tenants do endpoint antes do laço). **S-12:** `GET /api/p/vinculo` **mantido** (o caso de uso são links de e-mail, que chegam como navegação de outro site; o impacto é trocar entre vínculos ativos da própria vítima) — justificativa na spec. **N4:** política de senha com `\p{L}`/`\p{Nd}` (a faixa `À-ÿ` aceitava `×` e `÷`). **N7:** `withTenant` recusa `nutri` sem `actorUserId` e `paciente` sem `actorUserId`, salvo com `semConta: true` — marca explícita dos três fluxos sem login (link assinado da consulta, respostas do WhatsApp, leitura do convite), que mantêm a RLS por paciente e o `audit_log` sem ator (D20 do Plano 05); lista fechada conferida por guarda | Sem tabela nova |
 | D11 ★ | Limite de login com CGNAT | **Mantém** 5 tentativas/15 min por IP+rota (Plano 01); o teste manual do checklist confere o 429 com o IP real; se o k6 ou a Debby mostrarem bloqueio de pacientes legítimos atrás do mesmo IP de operadora, vira item do backlog | Alternativa: **IP + e-mail** (a spec fala em "IP+e-mail"): tira o risco do CGNAT, mas exige limitador próprio em volta do Better Auth (~1 dia) e um balde por e-mail permite travar a conta de alguém de propósito |
 | D12 ★ | Player do vídeo (privacidade, Plano 07) | **"Clique para carregar"**: o portal mostra a capa e o botão "Carregar o vídeo", com o aviso "O vídeo é exibido pelo YouTube." (ou Vimeo); o `iframe` só entra depois do clique | Abrir um conteúdo não manda mais o IP do paciente ao Google/Vimeo sem uma ação dele; +1 clique para assistir; ~0,5 dia. Alternativa: **player direto** (como o Plano 07 aprovou; o termo v1.0 declara YouTube/Vimeo de qualquer forma) |
 | D13 | `access_events` (RNF-08; lacuna achada na preparação) | Entra no que a exclusão (pedido atendido) e a anonimização apagam; retenção de **400 dias** (13 meses de série do CS-02 + folga), apagada pelo job `agenda-limpeza` | Dado não obrigatório some na hora (RNF-08) |
@@ -53,8 +53,8 @@
 | D21 ★ | Sino "Avisos" do design | **Fica fora na v1**: os alertas (cota de armazenamento, WhatsApp desconectado, cota do WhatsApp, pendências de presença, pedidos do titular) continuam no Início, como `Aviso` com `role="alert"`/`status` | Alternativa: central de avisos no sino (+1 dia; alerta importante escondido atrás de um clique) |
 | D22 ★ | "Peso" no cartão "Próxima consulta" | **Sai.** Mostrar peso no Início exigiria `auditRead` a cada abertura (regra 8) — o "Histórico de acessos" do paciente encheria sem a nutricionista ter aberto o prontuário — e expõe dado de saúde na tela inicial (minimização). No lugar: "Diário: N registros em 7 dias" e "Portal: N de 7 dias" (contagens, sem `auditRead`, como a agenda — D10 do Plano 05) | Alternativa: mostrar o peso com `auditRead` a cada abertura do Início |
 | D23 | `COR_PADRAO` | `#047857` → **`#1d6b5a`** (a cor do design e do `themeColor` do PWA; 6,36:1 com branco). Só muda para quem nunca gravou `cor_primaria` | — |
-| D24 | Tokens, fontes e tema no HTML | Cores como variáveis `--nd-*` com `light-dark()` no `globals.css`, expostas ao Tailwind por `@theme inline` (`bg-cartao`, `text-suave`, `text-erro`, `border-campo`…), fonte única em `src/lib/tema/tokens.ts` (teste de contraste e teste que confere o CSS); `data-tema` no `div` do layout do painel (não no `<html>`); `:focus-visible` global; Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/google` | Nenhum `dark:` espalhado; o modo "igual ao aparelho" funciona só com CSS |
-| D25 | Axe no painel (RNF-10) | O axe passa a rodar também no painel (projeto Playwright `painel`, desktop), nas ~35 rotas, em claro, escuro e "igual ao aparelho" com o aparelho escuro, mais as tags `wcag22aa` (alvo de toque) no painel; 768 px sem rolagem horizontal | A spec v1.9 só exige o axe no PWA: estender a RNF-10 (spec v2.0) |
+| D24 | Tokens, fontes e tema no HTML | Cores como variáveis `--nd-*` no `globals.css`, **sem `light-dark()`** (o Safari só o tem a partir da 17.5 e a RNF-09 exige iOS 16.4+: a variável ficaria inválida e o foco e as cores sumiriam): valores claros em `:root`/`[data-tema=claro]`, escuros em `[data-tema=escuro]` e em `@media (prefers-color-scheme: dark) { [data-tema=sistema] }`, expostas ao Tailwind por `@theme inline` (`bg-cartao`, `text-suave`, `text-erro`, `border-campo`…), fonte única em `src/lib/tema/tokens.ts` (teste de contraste e teste que confere o CSS); `data-tema` no `div` do layout do painel (não no `<html>`); `:focus-visible` global; Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/google` | Nenhum `dark:` espalhado; o modo "igual ao aparelho" funciona só com CSS |
+| D25 | Axe no painel (RNF-10) | O axe passa a rodar também no painel (projeto Playwright `painel`, desktop), em **todas** as telas (~43, uma por `page.tsx`, com as telas de id — inclusive o editor do plano — criadas no preparo; guarda `rotas-axe.test.ts` compara a lista com os `page.tsx`), em claro, escuro e "igual ao aparelho" com o aparelho escuro, mais as tags `wcag22aa` (alvo de toque) no painel; 768 px sem rolagem horizontal | A spec v1.9 só exige o axe no PWA: estender a RNF-10 (spec v2.0) |
 | D26 ★ | Formato do manual guiado (P08-10) | **Os dois:** (1) **tour de boas-vindas** que abre sozinho uma vez no `/painel`, depois do aceite do DPA (5–7 passos; "Pular o tour" grava "dispensado"); (2) **tours por tela** sob demanda (Pacientes, Prontuário, Plano alimentar, Agenda, Horários, Diários, Conteúdos, Configurações, WhatsApp); (3) **central de ajuda**: botão "Ajuda" no cabeçalho com o texto da tela atual e a página `/painel/ajuda` (manual completo, funciona sem JavaScript e dá para imprimir — base do treinamento do P08-08). Componente próprio com `<dialog>` nativo; conteúdo num arquivo TS tipado; progresso em `user.guia` | ~4–5 dias + texto. Alternativas: **só o tour** (~2–3 dias; sem material de consulta nem de treinamento); **só a central de ajuda** (~2 dias; a Debby não é guiada na primeira vez) |
 | D27 | Regras do manual | Tours por tela **não abrem sozinhos**: na primeira visita, um aviso discreto "Primeira vez aqui? Ver como funciona" (dispensável); progresso salvo só como `{id: {v, estado}}` (sem data por passo, sem cliques, sem envio a terceiros); subir a `versao` de um tour faz o aviso voltar; nenhum dado de saúde nos exemplos; `prefers-reduced-motion` respeitado | — |
 
@@ -63,7 +63,7 @@
 | Spec | Neste plano | Motivo |
 |---|---|---|
 | RNF-04 "a cada 1 min, alerta ≤ 2 min" | Checagem a cada 5 min, alerta em até 10 min (se D3 for aprovada como recomendada) | Plano gratuito |
-| RNF-11 "logs com `request_id`" | `request_id` no cabeçalho, no Sentry e na linha de erro da requisição; não em toda linha de log | D2 |
+| RNF-11 "logs com `request_id`" | `request_id` no cabeçalho, no Sentry e na linha de erro da requisição; não em toda linha de log. Nas rotas `/api/*` (fora do `matcher` do proxy, para não bufferizar o corpo) não há `x-request-id` na resposta: o id é criado no `onRequestError` e só existe no log e no Sentry | D2 |
 | RNF-11 / §9 `@sentry/nextjs` | `@sentry/node` só no servidor e no worker; erros do navegador por `/api/erro-cliente` | D1 |
 | RNF-06 CSP "`connect-src` próprio + Sentry" | `connect-src 'self'`; `style-src` com `'unsafe-inline'` | D1, D7 |
 | RNF-06 HSTS | Sem `includeSubDomains`/`preload` | D8 |
@@ -84,13 +84,14 @@
 
 **Incorporados** (a tarefa entre parênteses):
 - Notas "para o Plano 08" (pesquisa de backlog, N1–N39): N4 senha (T6), N5 texto do health + E2E (T3), N7 `actorUserId` (T6), N9/N14/N20 cenários do k6 (T10), N11 retenção do log da Evolution (runbook), N13 `access_events` no CS-02 (T9), N15/N36/N37 testes manuais e VAPID (checklist), N16/N21/N34/N39 textos legais (T8 + insumos do advogado no runbook), N17–N19 CSP (T4), N23 B-4/B-6 (T5), N27 Sentry MCP (runbook), N29 restauração (T11), N35 DMARC (checklist), N38 capas (T5).
-- Débitos da triagem: **B-4, B-6** (T5), **B-8, S-12** (T6), **W-13, X-5** (checklist), **L-5** (T8), **S-7** (`requirePaciente` medido antes/depois no k6, T10; a nutricionista ganha o `cache()` da leitura de sessão na T14).
+- Débitos da triagem: **B-4, B-6** (T5), **B-8, S-12** (T6), **W-13, X-5** (checklist), **L-5** (T8), **S-7** (a leitura de sessão ganha `cache()` na T14, em `requireUserComTenant`, que a nutricionista e o `requirePaciente` usam; o p95 de `/p/*` é medido no k6, T10).
 - Lacunas da preparação: `access_events` na exclusão (T7), roles fora do dump (T11), E-10 sem `psql` no host (fechamento), RNF-03 desatualizado (fechamento), bug do modo escuro do aparelho em produção (T12, passo 1).
 
 **Não incorporados** (motivo):
 - B-9 (tabelas fora da negação da D1) e T-9: só texto da spec, no fechamento.
 - P04-10, P06-12, P07-05/P07-08 e os Minors do Plano 07: prioridade S; ficam no backlog (não bloqueiam o go-live).
-- O O(tenants) do `app_soltar_endpoint_push` (B-8, parte 2): medido no k6; só vira tarefa se passar da meta da D4.
+- O O(tenants) do `app_soltar_endpoint_push` (B-8, parte 2): medido no k6 (o cenário do paciente chama `POST /api/p/push?sincronizar=1` com uma inscrição sintética já gravada); só vira tarefa se passar da meta da D4.
+- S-7, parte do paciente (`vinculosDaConta` e `termoAceito` por chamada no `requirePaciente`): sem `cache()` próprio neste plano; vira tarefa se o p95 de `/p/*` no k6 passar da meta da D4.
 - Staging, Asaas, acesso de suporte autorizado: Fase 2 (spec §10).
 
 ## Review Focus
@@ -124,7 +125,8 @@ src/app/api/csp-relatorio/route.ts                                              
 src/app/api/health/route.ts · src/worker/heartbeat.ts (+test)                                           # T3
 src/worker/{index,sem-detalhe}.ts                                                                       # T2, T7
 src/env.ts (+test)                                                                                      # T2, T4
-src/db/tenant.ts (+test) · src/db/paciente-colunas.test.ts                                              # T5, T6
+src/db/tenant.ts (+test, +sem-conta-guarda.test.ts) · src/db/paciente-colunas.test.ts                     # T5, T6
+src/modules/{agenda/acoes-link,notificacoes/whatsapp/webhook,pacientes/convite-paciente}.ts (semConta)   # T6
 src/app/api/p/push/route.ts (+test) · src/components/player-video.tsx (+test)                           # T6
 src/modules/portal/acesso.ts (+test) · src/modules/pacientes/lgpd.ts (+test)                            # T7
 src/modules/plataforma/{dpa,suboperadores}.ts · src/modules/pacientes/termo-paciente.ts · src/modules/plataforma/textos-legais.test.ts · src/app/painel/configuracoes/perfil-form.tsx   # T8
@@ -143,7 +145,7 @@ data-guia nas telas · scripts/e2e-seed.ts · e2e/manual.spec.ts · e2e/helpers.
 docs/operacao/go-live.md                                                                                # T21
 ```
 
-**Ordem e dependências:** Frente de operação e segurança: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Frente visual e manual: 12 → 13 → 14 → 15 → 16 → 17 → (18) → 19 → 20. Fecho: 21. As duas frentes podem correr em paralelo em worktrees (como no Plano 06), com uma regra: a T4 (CSP) e a T17 (axe do painel) se encontram no E2E — integrar a T4 antes de rodar a T17. A T10 (k6) mede a configuração final: rodar a rodada 2 só depois de 2, 4 e 14 estarem no branch (Sentry, CSP e o `cache()` da sessão mudam o tempo de resposta). A T8 espera o texto do advogado (E-09); se ele atrasar, o branch segue sem ela e a T8 vira um PR curto depois. As Tarefas 18 e 12 (passo 12.1) dependem da D18.
+**Ordem e dependências:** Frente de operação e segurança: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Frente visual e manual: 12 → 13 → 14 → 15 → 16 → 17 → (18) → 19 → 20. Fecho: 21. As duas frentes podem correr em paralelo em worktrees (como no Plano 06), com estas dependências cruzadas declaradas: **(a) T9 antes da T15** — os cartões de métricas do Início (T15) importam `metricasDeSucesso`/`DIAS_CS01`/`META_CS02` e leem `tenants.go_live_em`/`taxa_faltas_base`, tudo da T9: antes de começar a T15, integrar no worktree visual a frente de operação até a T9 (com as migrations 0085–0087; a 0088 da T13 é renumerada nessa integração, se preciso); **(b) T12 antes da T8, ou o fallback** — a nota do L-5 (T8) usa `text-suave` da T12 (sem a T12, `text-zinc-600`, e a T16 troca) e mexe em `perfil-form.tsx`, que a T14 reorganiza em `configuracoes/perfil`: resolver na integração; **(c) T4 antes da T17** — a CSP e o axe do painel se encontram no E2E. A T10 (k6) mede a configuração final e **roda depois do merge do Plano 08**, com a imagem do deploy (não há imagem do branch no GHCR) e antes de qualquer paciente real; os relatórios entram num PR curto de docs. A T8 espera o texto do advogado (E-09); se ele atrasar, o branch segue sem ela e a T8 vira um PR curto depois. As Tarefas 18 e 12 (passo 12.1) dependem da D18.
 
 ---
 ### Task 1: Filtro do Sentry e `request_id` (P08-01 a; RNF-11, CLAUDE.md regra 3)
@@ -157,7 +159,7 @@ docs/operacao/go-live.md                                                        
 - Produces:
   - `@/lib/sentry-filtro`: `filtrarEvento<E extends EventoSentry>(e: E): E`, `filtrarBreadcrumb(b: Breadcrumb): Breadcrumb | null`, `caminhoSeguro(url: string | undefined): string | undefined`, `MENSAGENS_FIXAS: ReadonlySet<string>`, tipos `EventoSentry`, `Breadcrumb`, `TAGS_PERMITIDAS`.
   - `@/lib/request-id`: `CABECALHO_REQUEST_ID = 'x-request-id'`, `novoRequestId(): string`, `requestIdDe(v: string | string[] | null | undefined): string | null`.
-  - `src/proxy.ts`: toda requisição (inclusive `/api/*`) sai com `x-request-id` no cabeçalho da requisição repassada e da resposta.
+  - `src/proxy.ts`: toda página e Server Action sai com `x-request-id` no cabeçalho da requisição repassada e da resposta. **`/api/*` continua fora do `matcher`** (D2): o Next copia para a memória o corpo de toda requisição que passa pelo proxy, com corte silencioso em 10 MB (`proxyClientMaxBodySize`); o id das APIs nasce no `onRequestError` (Tarefa 2, passo 7). **Não** resolver aumentando o `proxyClientMaxBodySize`: o corpo continuaria todo na memória e a proteção contra corpo lento (`prazoMs`) continuaria anulada.
 
 - [ ] **Step 1: Testes do filtro (falham)** — `src/lib/sentry-filtro.test.ts`
 
@@ -460,29 +462,27 @@ Run: `pnpm test src/lib/request-id.test.ts` → PASS.
 - [ ] **Step 4: Teste do proxy (falha)** — acrescentar ao fim do `describe` de `src/proxy.test.ts`:
 
 ```ts
-  it('D2: toda requisição ganha x-request-id novo (repassado e devolvido), inclusive /api, sobrescrevendo o do cliente', () => {
-    for (const url of ['http://localhost:3100/entrar', 'http://localhost:3100/api/health']) {
-      const res = proxy(new NextRequest(url, { headers: { 'x-request-id': 'forjado' } }));
+  it('D2: página e Server Action ganham x-request-id novo (repassado e devolvido), sobrescrevendo o do cliente', () => {
+    for (const url of ['http://localhost:3100/entrar', 'http://localhost:3100/painel/pacientes?busca=ana']) {
+      const res = proxy(new NextRequest(url, { headers: { 'x-request-id': 'forjado', cookie: 'nd.session_token=abc.def' } }));
       const repassado = res.headers.get('x-middleware-request-x-request-id');
       expect(repassado, url).toMatch(/^[0-9a-f-]{36}$/);
       expect(res.headers.get('x-request-id'), url).toBe(repassado);
     }
   });
 
-  it('/api nunca é redirecionada para /entrar pelo proxy (a rota responde 401 sozinha)', () => {
-    expect(getRedirectUrl(proxy(new NextRequest('http://localhost:3100/api/painel/alimentos?q=arroz')))).toBeNull();
-  });
-
-  it('o matcher passa a incluir /api e continua fora de estáticos e do service worker', async () => {
+  it('D2: o matcher continua sem /api (o Next bufferizaria o corpo, com corte em 10 MB) e fora de estáticos e do service worker', async () => {
     const { config } = await import('./proxy');
     const re = new RegExp(`^${config.matcher[0]}$`);
-    expect(re.test('/api/health')).toBe(true);
-    expect(re.test('/_next/static/chunks/a.js')).toBe(false);
-    expect(re.test('/serwist/sw.js')).toBe(false);
+    expect(re.test('/entrar')).toBe(true);
+    expect(re.test('/painel/pacientes/x/exames')).toBe(true); // a página, não a API
+    for (const fora of ['/api/health', '/api/painel/pacientes/x/exames', '/api/p/diario', '/api/erro-cliente', '/_next/static/chunks/a.js', '/serwist/sw.js']) {
+      expect(re.test(fora), fora).toBe(false);
+    }
   });
 ```
 
-Run: `pnpm test src/proxy.test.ts` → FAIL (sem `x-request-id`; o matcher exclui `api/`).
+Run: `pnpm test src/proxy.test.ts` → FAIL (sem `x-request-id`).
 
 - [ ] **Step 5: Proxy com `request_id`** — `src/proxy.ts` (a Tarefa 4 acrescenta a CSP neste mesmo arquivo)
 
@@ -505,14 +505,7 @@ function currentPath(req: NextRequest): string {
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const requestId = novoRequestId(); // D2: o do cliente nunca é usado
-  // As rotas de API respondem 401/403 sozinhas (requireApi*): aqui só ganham o request_id
-  if (pathname.startsWith('/api/')) {
-    const headers = new Headers(req.headers);
-    headers.set(CABECALHO_REQUEST_ID, requestId);
-    const res = NextResponse.next({ request: { headers } });
-    res.headers.set(CABECALHO_REQUEST_ID, requestId);
-    return res;
-  }
+  // /api/* não passa por aqui (matcher): o id das APIs nasce no onRequestError (Tarefa 2)
   const current = currentPath(req);
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (isProtected && !getSessionCookie(req, { cookiePrefix: 'nd' })) {
@@ -529,8 +522,11 @@ export function proxy(req: NextRequest) {
   return res;
 }
 
+// D2: `api/` continua fora — o Next copia para a memória o corpo de toda requisição que passa pelo proxy, com corte
+// silencioso em 10 MB (proxyClientMaxBodySize.md): o exame de até 20 MB (US-015) chegaria cortado e o lerCorpoLimitado
+// das rotas sem login só agiria depois de o Next já ter guardado o corpo. Não aumentar o proxyClientMaxBodySize.
 export const config = {
-  matcher: ['/((?!serwist/|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],
+  matcher: ['/((?!api/|serwist/|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],
 };
 ```
 
@@ -839,8 +835,10 @@ export async function register() {
 /** Todo erro de página, ação ou Route Handler: log com o request_id e o Sentry (filtrado). */
 export const onRequestError: Instrumentation.onRequestError = async (err, request, context) => {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
-  const [{ registrarErroDaRequisicao }, { requestIdDe }] = await Promise.all([import('./lib/sentry'), import('./lib/request-id')]);
-  registrarErroDaRequisicao(err, { requestId: requestIdDe(request.headers['x-request-id']), rota: context.routePath, tipoRota: context.routeType });
+  const [{ registrarErroDaRequisicao }, { novoRequestId, requestIdDe }] = await Promise.all([import('./lib/sentry'), import('./lib/request-id')]);
+  // páginas e ações: o id que o proxy gravou; /api/* fica fora do matcher (D2), então o id nasce aqui
+  const requestId = requestIdDe(request.headers['x-request-id']) ?? novoRequestId();
+  registrarErroDaRequisicao(err, { requestId, rota: context.routePath, tipoRota: context.routeType });
 };
 ```
 
@@ -1100,13 +1098,13 @@ Run: `pnpm test src/worker/heartbeat.test.ts` → PASS.
 ```ts
 import { expect, test } from '@playwright/test';
 
-// RNF-04 / P08-02: o que o monitor externo confere — 200, "ok", sem cache, com x-request-id (D2).
+// RNF-04 / P08-02: o que o monitor externo confere — 200, "ok", sem cache. Sem x-request-id: /api/* fica fora do
+// matcher do proxy (D2), o id das APIs só existe no log e no Sentry.
 test('GET /api/health responde 200 {"status":"ok"} sem cache, com o worker no ar', async ({ request }) => {
   const r = await request.get('/api/health');
   expect(r.status()).toBe(200);
   expect(await r.json()).toEqual({ status: 'ok' });
   expect(r.headers()['cache-control']).toBe('no-store');
-  expect(r.headers()['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
 });
 ```
 
@@ -1247,7 +1245,7 @@ Run: `pnpm test src/lib/csp.test.ts` → PASS.
 - [ ] **Step 3: Teste do proxy com a CSP (falha)** — `src/proxy.test.ts`, acrescentar:
 
 ```ts
-  it('D7: página ganha CSP com nonce novo, repassada ao Next (request) e devolvida (response); /api não', () => {
+  it('D7: página ganha CSP com nonce novo, repassada ao Next (request) e devolvida (response)', () => {
     const a = proxy(new NextRequest('http://localhost:3100/entrar'));
     const b = proxy(new NextRequest('http://localhost:3100/entrar'));
     const csp = a.headers.get('content-security-policy')!;
@@ -1255,7 +1253,7 @@ Run: `pnpm test src/lib/csp.test.ts` → PASS.
     expect(a.headers.get('x-middleware-request-content-security-policy')).toBe(csp);
     expect(a.headers.get('x-middleware-request-x-nonce')).toBe(nonce);
     expect(b.headers.get('content-security-policy')).not.toBe(csp);
-    expect(proxy(new NextRequest('http://localhost:3100/api/health')).headers.get('content-security-policy')).toBeNull();
+    // /api/* não chega ao proxy (matcher, D2): o teste do matcher da Tarefa 1 continua valendo
   });
 
   it('CSP_MODO=relatorio troca para Report-Only', () => {
@@ -1296,12 +1294,7 @@ export function proxy(req: NextRequest) {
   const requestId = novoRequestId(); // D2: o do cliente nunca é usado
   const headers = new Headers(req.headers);
   headers.set(CABECALHO_REQUEST_ID, requestId);
-  // As rotas de API respondem 401/403 sozinhas (requireApi*) e não são documento: só o request_id
-  if (pathname.startsWith('/api/')) {
-    const res = NextResponse.next({ request: { headers } });
-    res.headers.set(CABECALHO_REQUEST_ID, requestId);
-    return res;
-  }
+  // /api/* não passa por aqui (matcher, D2): sem CSP de documento e sem request_id no cabeçalho
   const current = currentPath(req);
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (isProtected && !getSessionCookie(req, { cookiePrefix: 'nd' })) {
@@ -1326,8 +1319,9 @@ export function proxy(req: NextRequest) {
   return res;
 }
 
+// D2: `api/` continua fora (o Next bufferizaria o corpo de toda requisição, com corte silencioso em 10 MB)
 export const config = {
-  matcher: ['/((?!serwist/|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],
+  matcher: ['/((?!api/|serwist/|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],
 };
 ```
 
@@ -1421,7 +1415,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { pacienteNoPortal, publicarPlanoSimples } from './portal';
 
-// P08-05 / RNF-06 (D7, D8). Bloco de IP deste spec: 10.9.12.x — nutri .1, paciente .2, visitante .3.
+// P08-05 / RNF-06 (D7, D8). Bloco de IP deste spec: 10.9.12.x — nutri .1 e .4, paciente .2 e .5, visitante .3.
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
@@ -1472,6 +1466,23 @@ test('login, painel, agenda, prontuário, plano, portal e página pública (Turn
   }
   expect([...erros, ...errosNutri, ...errosPaciente]).toEqual([]);
   await visitante.context().close();
+  await paciente.page.context().close();
+  await nutri.context().close();
+});
+
+// D2: /api/* fora do matcher do proxy. Se alguém incluir /api, o Next corta o corpo em 10 MB (proxyClientMaxBodySize)
+// sem erro para o cliente e este exame de 15 MB falha. Conferir que a cota do tenant de E2E comporta 15 MB.
+test('exame de 15 MB passa pelo servidor inteiro (US-015, até 20 MB)', async ({ browser }) => {
+  const nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.12.4');
+  const paciente = await pacienteNoPortal(browser, nutri, '10.9.12.5');
+  const id = paciente.prontuario.split('/').pop()!;
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(15 * 1024 * 1024, 0x20), Buffer.from('\n%%EOF\n')]);
+  const r = await nutri.request.post(`/api/painel/pacientes/${id}/exames`, {
+    headers: { origin: new URL(nutri.url()).origin },
+    multipart: { titulo: 'Exame grande', data: '2026-10-01', valores: '[]', arquivo: { name: 'grande.pdf', mimeType: 'application/pdf', buffer: pdf } },
+  });
+  expect(r.status()).toBe(200);
+  expect(await r.json()).toMatchObject({ ok: true });
   await paciente.page.context().close();
   await nutri.context().close();
 });
@@ -1696,12 +1707,12 @@ git commit -m "feat(rls): paciente só altera as colunas do convite e do WhatsAp
 ### Task 6: Limites, sessão, senha e o player sob demanda (P08-05 c; débitos B-8, S-12; notas N4, N7; D10, D12)
 
 **Files:**
-- Modify: `src/lib/password-policy.ts` (+ test), `src/db/tenant.ts` (+ `src/db/tenant.test.ts`), `scripts/e2e-seed.ts`, `test/conteudos.ts` (Plano 07), `src/app/api/p/push/route.ts` (+ `route.test.ts`), `src/components/player-video.tsx` (+ teste do Plano 07), `e2e/conteudos.spec.ts` (Plano 07)
+- Modify: `src/lib/password-policy.ts` (+ test), `src/db/tenant.ts` (+ `src/db/tenant.test.ts`, + `src/db/sem-conta-guarda.test.ts`), `src/modules/agenda/acoes-link.ts`, `src/modules/notificacoes/whatsapp/webhook.ts`, `src/modules/pacientes/convite-paciente.ts`, `scripts/e2e-seed.ts`, `test/conteudos.ts` (Plano 07), `src/app/api/p/push/route.ts` (+ `route.test.ts`), `src/components/player-video.tsx` (+ teste do Plano 07), `e2e/conteudos.spec.ts` (Plano 07)
 - Create: `src/components/player-sob-demanda.tsx`
 
 **Interfaces:**
 - Consumes: `criarLimite`, `MSG_MUITAS_TENTATIVAS` (T2); `PlayerVideo`, `urlDoPlayer`, `VideoDoLink` (Plano 07, T3).
-- Produces: `validatePasswordPolicy` com `\p{L}`/`\p{Nd}`; `withTenant`/`assertContext` recusam `nutri`/`paciente` sem `actorUserId` (`TenantContextError('actorUserId obrigatório para sessão de nutricionista ou paciente')`); `POST /api/p/push` → 429 depois de 20 em 10 min por conta; `PlayerVideo({ video, titulo })` passa a renderizar `PlayerSobDemanda` (D12).
+- Produces: `validatePasswordPolicy` com `\p{L}`/`\p{Nd}`; `TenantContext.semConta?: true` (só com `role: 'paciente'`, sem `actorUserId`); `withTenant`/`assertContext` recusam `nutri` sem `actorUserId` e `paciente` sem `actorUserId` e sem `semConta: true` (`TenantContextError('actorUserId obrigatório para sessão de nutricionista ou paciente')`); `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts`) com a lista fechada dos chamadores sem conta, conferida por guarda; `POST /api/p/push` → 429 depois de 20 em 10 min por conta; `PlayerVideo({ video, titulo })` passa a renderizar `PlayerSobDemanda` (D12).
 
 - [ ] **Step 1: Senha (N4)** — `src/lib/password-policy.test.ts`, acrescentar:
 
@@ -1716,27 +1727,99 @@ git commit -m "feat(rls): paciente só altera as colunas do convite e do WhatsAp
 
 Run → FAIL. `src/lib/password-policy.ts`: trocar a linha da regex por `if (!/\p{L}/u.test(pw) || !/\p{Nd}/u.test(pw)) {`. Run → PASS.
 
-- [ ] **Step 2: `actorUserId` obrigatório (N7)** — `src/db/tenant.test.ts`, acrescentar:
+- [ ] **Step 2: `actorUserId` obrigatório quando há sessão de login (N7)**
+
+Três fluxos de produção rodam como paciente **sem ator, de propósito**, e precisam continuar com a RLS por paciente (trocar para `worker` tiraria essa RLS de um fluxo sem login; inventar um UUID falsificaria o `audit_log`):
+- `src/modules/agenda/acoes-link.ts` (`comoPaciente`, ~linha 80): ações dos links assinados da consulta (D20 do Plano 05: "sem ator", com o IP de quem clicou);
+- `src/modules/notificacoes/whatsapp/webhook.ts` (`comoPaciente`, ~linha 246): respostas 1/2 do paciente pelo WhatsApp;
+- `src/modules/pacientes/convite-paciente.ts` (~linha 151): leitura do paciente ao abrir o convite (a conta ainda não existe).
+
+Por isso o ator passa a ser exigido **só quando há sessão de login**: um campo explícito `semConta: true` marca os três fluxos, e uma guarda fecha a lista de quem pode usá-lo. `src/db/tenant.test.ts`, acrescentar:
 
 ```ts
-  it('N7: nutri e paciente sem actorUserId → TenantContextError; worker e publico sem ator seguem', async () => {
+  it('N7: nutri sempre com ator; paciente com ator ou com semConta: true; worker e publico sem ator seguem', async () => {
     const tenantId = crypto.randomUUID();
+    const patientId = crypto.randomUUID();
     await expect(withTenant({ tenantId, role: 'nutri' }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório para sessão de nutricionista ou paciente');
-    await expect(withTenant({ tenantId, role: 'paciente', patientId: crypto.randomUUID() }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId, semConta: true }, async () => 1, app.db)).resolves.toBe(1);
+    await expect(withTenant({ tenantId, role: 'paciente', patientId, actorUserId: crypto.randomUUID() }, async () => 1, app.db)).resolves.toBe(1);
     await expect(withTenant({ tenantId, role: 'worker' }, async () => 1, app.db)).resolves.toBe(1);
+  });
+
+  it('N7: semConta só para paciente e nunca junto com um ator', async () => {
+    const tenantId = crypto.randomUUID();
+    await expect(withTenant({ tenantId, role: 'nutri', semConta: true, actorUserId: crypto.randomUUID() } as never, async () => 1, app.db)).rejects.toThrow('semConta só é permitido para paciente sem ator');
+    await expect(withTenant({ tenantId, role: 'paciente', patientId: crypto.randomUUID(), semConta: true, actorUserId: crypto.randomUUID() }, async () => 1, app.db)).rejects.toThrow('semConta só é permitido para paciente sem ator');
   });
 ```
 
-(`app` = o `makeDb` que o arquivo já usa.) Run → FAIL. `src/db/tenant.ts`, em `assertContext`, depois da conferência do `patientId`:
+(`app` = o `makeDb` que o arquivo já usa.) Run → FAIL. `src/db/tenant.ts`:
 
 ```ts
-  // N7 (Plano 03): toda escrita da equipe ou do paciente vai para o audit_log com o ator — sem ele, a linha sai anônima
-  if ((ctx.role === 'nutri' || ctx.role === 'paciente') && !ctx.actorUserId) {
+export type TenantContext = {
+  tenantId: string;
+  role: TenantRole;
+  patientId?: string;
+  /** Quem age (auditoria, RNF-08). Obrigatório para `nutri`; para `paciente`, salvo com `semConta`. Ausente em jobs do worker. */
+  actorUserId?: string;
+  /**
+   * N7 (Plano 08): paciente agindo **sem sessão de login** (link assinado da consulta, resposta pelo WhatsApp, leitura do
+   * convite antes da conta existir). Mantém a RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
+   * Só os arquivos de `SEM_CONTA_PERMITIDOS` usam (guarda em sem-conta-guarda.test.ts).
+   */
+  semConta?: true;
+  ip?: string | null;
+};
+
+/** N7: lista fechada dos fluxos de paciente sem sessão de login (sem-conta-guarda.test.ts). */
+export const SEM_CONTA_PERMITIDOS: readonly string[] = [
+  'src/modules/agenda/acoes-link.ts',
+  'src/modules/notificacoes/whatsapp/webhook.ts',
+  'src/modules/pacientes/convite-paciente.ts',
+];
+```
+
+e, em `assertContext`, depois da conferência do `patientId`:
+
+```ts
+  // N7 (Plano 03): toda escrita com sessão de login vai para o audit_log com o ator — sem ele, a linha sai anônima.
+  // Paciente sem login (link, WhatsApp, convite) declara isso com semConta: true (lista fechada em SEM_CONTA_PERMITIDOS).
+  if (ctx.semConta !== undefined && (ctx.semConta !== true || ctx.role !== 'paciente' || ctx.actorUserId !== undefined)) {
+    throw new TenantContextError('semConta só é permitido para paciente sem ator');
+  }
+  if ((ctx.role === 'nutri' || (ctx.role === 'paciente' && !ctx.semConta)) && !ctx.actorUserId) {
     throw new TenantContextError('actorUserId obrigatório para sessão de nutricionista ou paciente');
   }
 ```
 
-Run: `pnpm test` → os testes que quebrarem são chamadas sem ator. Corrigir cada uma **sem afrouxar a regra**: scripts e varreduras do sistema usam `role: 'worker'` (em `scripts/e2e-seed.ts`, as duas chamadas `withTenant({ tenantId: …, role: 'nutri' }, …)` viram `role: 'worker'`); helpers de teste recebem o ator (em `test/conteudos.ts` do Plano 07, `ctxPaciente(tenantId, patientId)` passa a montar `{ tenantId, role: 'paciente', patientId, actorUserId: crypto.randomUUID() }` — o ator não precisa existir em `user`, `audit_log.actor_user_id` não tem FK). Listar os pontos com `grep -rn "role: 'nutri'\|role: 'paciente'" src scripts test --include=*.ts | grep -v actorUserId`. Run: `pnpm test` → PASS.
+Nos três chamadores, acrescentar `semConta: true` ao contexto (nada mais muda):
+- `acoes-link.ts`: `({ tenantId: r.tenant.id, role: 'paciente', patientId: r.patientId, semConta: true, ip: ip ?? null })`;
+- `webhook.ts`: `{ tenantId, role: 'paciente', patientId: alvo.patientId, semConta: true }`;
+- `convite-paciente.ts`: `withTenant({ tenantId, role: 'paciente', patientId, semConta: true }, …)`.
+
+Guarda — `src/db/sem-conta-guarda.test.ts`:
+
+```ts
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { SEM_CONTA_PERMITIDOS } from './tenant';
+
+// N7: semConta tira a exigência do ator. Só os fluxos de paciente sem login podem usar (lista fechada).
+describe('guarda do semConta', () => {
+  it('semConta só nos arquivos de SEM_CONTA_PERMITIDOS (fora dos testes e do próprio tenant.ts)', () => {
+    const usam = readdirSync(path.resolve('src'), { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
+      .map((d) => path.relative(process.cwd(), path.join(d.parentPath, d.name)))
+      .filter((f) => f !== 'src/db/tenant.ts' && /\bsemConta\b/.test(readFileSync(f, 'utf8')))
+      .sort();
+    expect(usam).toEqual([...SEM_CONTA_PERMITIDOS].sort());
+  });
+});
+```
+
+Run: `pnpm test` → os testes que quebrarem são chamadas sem ator. Corrigir cada uma **sem afrouxar a regra**: scripts e varreduras do sistema usam `role: 'worker'` (em `scripts/e2e-seed.ts`, as duas chamadas `withTenant({ tenantId: …, role: 'nutri' }, …)` viram `role: 'worker'`); helpers de teste com sessão recebem o ator (em `test/conteudos.ts` do Plano 07, `ctxPaciente(tenantId, patientId)` passa a montar `{ tenantId, role: 'paciente', patientId, actorUserId: crypto.randomUUID() }` — o ator não precisa existir em `user`, `audit_log.actor_user_id` não tem FK); **nunca** pôr `semConta` num chamador fora da lista nem trocar os três fluxos acima para `worker`. Listar os pontos com `grep -rn "role: 'nutri'\|role: 'paciente'" src scripts test --include=*.ts | grep -v "actorUserId\|semConta"`. Os testes já existentes dos três fluxos precisam passar **sem mudança de expectativa**: `src/modules/agenda/acoes-link.test.ts` (confirmar e pedir remarcação pelo link, com o `audit_log` da consulta sem ator e com o IP), `src/modules/notificacoes/whatsapp/webhook.test.ts` (respostas 1 e 2) e `src/modules/pacientes/convite-paciente.test.ts` (abrir e aceitar o convite); acrescentar a `acoes-link.test.ts` e a `webhook.test.ts` um caso que confere que o contexto continua `paciente` (a consulta de outro paciente do mesmo tenant segue invisível ao fluxo). Run: `pnpm test` → PASS. `pnpm build && pnpm test:e2e e2e/agenda.spec.ts` → PASS (o link da consulta no navegador).
 
 - [ ] **Step 3: Limite por conta no push (B-8)** — `src/app/api/p/push/route.test.ts`, acrescentar (no padrão de sessão de paciente que o arquivo já usa):
 
@@ -1837,7 +1920,7 @@ Run: `pnpm test src/components && pnpm build && pnpm test:e2e e2e/conteudos.spec
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/password-policy.ts src/lib/password-policy.test.ts src/db/tenant.ts src/db/tenant.test.ts scripts/e2e-seed.ts test src/app/api/p/push src/components/player-video.tsx src/components/player-sob-demanda.tsx src/components/player-video.test.ts e2e/conteudos.spec.ts e2e/csp.spec.ts
+git add src/lib/password-policy.ts src/lib/password-policy.test.ts src/db/tenant.ts src/db/tenant.test.ts src/db/sem-conta-guarda.test.ts src/modules/agenda/acoes-link.ts src/modules/agenda/acoes-link.test.ts src/modules/notificacoes/whatsapp/webhook.ts src/modules/notificacoes/whatsapp/webhook.test.ts src/modules/pacientes/convite-paciente.ts scripts/e2e-seed.ts test src/app/api/p/push src/components/player-video.tsx src/components/player-sob-demanda.tsx src/components/player-video.test.ts e2e/conteudos.spec.ts e2e/csp.spec.ts
 git commit -m "feat(seguranca): limite por conta no push, ator obrigatório no withTenant, senha por classe Unicode e player sob demanda (P08-05, B-8, N4, N7, D12)"
 ```
 
@@ -2387,8 +2470,8 @@ git commit -m "feat(metricas): CS-01 a CS-03 para a nutricionista e contagens pa
 - Modify: `.gitignore` (`test/carga/.sessoes.json`)
 
 **Interfaces:**
-- Consumes: a imagem publicada no GHCR (a do commit em teste); `entrar` (`test/sessao.ts`); `consultaDireta` (`test/agenda.ts`); `novoConteudo`, `novaEtiqueta` (`test/conteudos.ts`, Plano 07); `criarRascunho`, `salvarRascunho` (`rascunho.ts`), `revisaoDoPlano` (`carregar.ts`), `publicarPlano` (`publicacao.ts`); `createAuth` (`src/lib/auth.ts`); `hashPassword` (`password.server.ts`); `DPA_VERSAO`, `TERMO_PACIENTE`.
-- Produces: `test/carga/.sessoes.json` (fora do git: cookies de teste da pilha de carga) e o relatório `docs/operacao/carga-AAAA-MM-DD.md` (preenchido pelo executor a partir de `docs/operacao/carga.md`).
+- Consumes: a imagem que o **deploy do merge do Plano 08** publica no GHCR (`ghcr.io/<dono>/nutridebby:<sha do merge na main>`) — não existe imagem do branch: o `ci.yml` constrói com `push: false`, o `deploy.yml` só publica em push na `main` e a RNF-03 proíbe construir na VPS; a imagem da `main` de antes do merge também não serve (a semente usa o `createAuth` com o `additionalFields` `tema`, que falha num banco sem a 0088). Por isso a carga roda **depois do merge e antes de qualquer paciente real** (o checklist da Tarefa 21 já bloqueia ali); `entrar` (`test/sessao.ts`); `consultaDireta` (`test/agenda.ts`); `agendarLembretes` (`src/modules/notificacoes/agendar.ts`); `pushSubscriptions` (schema); `novoConteudo`, `novaEtiqueta` (`test/conteudos.ts`, Plano 07); `criarRascunho`, `salvarRascunho` (`rascunho.ts`), `revisaoDoPlano` (`carregar.ts`), `publicarPlano` (`publicacao.ts`); `createAuth` (`src/lib/auth.ts`); `hashPassword` (`password.server.ts`); `DPA_VERSAO`, `TERMO_PACIENTE`.
+- Produces: `test/carga/.sessoes.json` (fora do git: cookies e inscrições de push sintéticas da pilha de carga) e o relatório `docs/operacao/carga-AAAA-MM-DD.md` (preenchido pelo executor a partir de `docs/operacao/carga.md`; entra num **PR curto de docs** depois do merge, não no PR do Plano 08).
 
 - [ ] **Step 1: Pilha de carga** — `docker-compose.carga.yml`
 
@@ -2397,6 +2480,7 @@ name: nutridebby-carga
 # P08-03 (D5): pilha de carga SEPARADA — banco próprio, dados sintéticos, portas só em 127.0.0.1. Nunca aponta para o
 # banco de produção. Sobe na VPS só com OK do dono, de madrugada (horário de Brasília), e é derrubada no fim (down -v).
 # Mesmos limites do Easypanel na rodada 1; na rodada 2, os que o dono decidir (variáveis CARGA_*).
+# Imagem: a do deploy do merge do Plano 08 (o GHCR não tem imagem de branch; a RNF-03 proíbe construir aqui).
 services:
   db:
     image: postgres:16-alpine
@@ -2416,8 +2500,12 @@ services:
     image: axllent/mailpit:v1.27
     mem_limit: 128m
   app:
-    image: ${CARGA_IMAGEM:?ghcr.io/<dono>/nutridebby:<sha>}
+    image: ${CARGA_IMAGEM:?ghcr.io/<dono>/nutridebby:<sha do merge na main>}
     env_file: .env.carga
+    # B-8: só o app tem a chave pública (o POST /api/p/push responde 503 sem ela); o worker fica sem as chaves VAPID,
+    # então nenhum push sai da pilha para o FCM com as inscrições sintéticas
+    environment:
+      VAPID_PUBLIC_KEY: ${CARGA_VAPID_PUBLICA:?gere com test/carga/gerar-env.sh}
     ports: ['127.0.0.1:3200:3000']
     cpus: ${CARGA_APP_CPUS:-1}
     mem_limit: ${CARGA_APP_MEM:-1g}
@@ -2442,7 +2530,9 @@ volumes:
 # P08-03: gera .env.carga com segredos novos (nunca os de produção). Uso: bash test/carga/gerar-env.sh > .env.carga
 set -euo pipefail
 owner="$(openssl rand -hex 16)"; app="$(openssl rand -hex 16)"
-echo "CARGA_OWNER_SENHA=${owner}" > .env.carga.compose
+# B-8: par VAPID novo, só da carga (a chave pública vai só para o app; a privada é descartada)
+vapid="$(node -e "console.log(require('web-push').generateVAPIDKeys().publicKey)")"
+printf 'CARGA_OWNER_SENHA=%s\nCARGA_VAPID_PUBLICA=%s\n' "${owner}" "${vapid}" > .env.carga.compose
 cat <<EOF
 NODE_ENV=production
 APP_URL=http://localhost:3200
@@ -2473,17 +2563,18 @@ EOF
  * recusa qualquer banco que não seja o da porta 54339 em 127.0.0.1.
  * Uso: CARGA_DATABASE_URL=postgres://nutri_app:<senha>@127.0.0.1:54339/nutri CARGA_AUTH_SECRET=<o do .env.carga> pnpm tsx test/carga/seed.ts
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { PgBoss } from 'pg-boss';
 import * as schema from '@/db/schema';
-import { account, accessEvents, consents, patients, tenants, user } from '@/db/schema';
+import { account, accessEvents, consents, patients, pushSubscriptions, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { createAuth } from '@/lib/auth';
 import { hashPassword } from '@/lib/password.server';
+import { agendarLembretes } from '@/modules/notificacoes/agendar';
 import { revisaoDoPlano } from '@/modules/plano-alimentar/carregar';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
@@ -2511,12 +2602,15 @@ await boss.start();
 const hash = await hashPassword(SENHA_TESTE); // um hash para todas as contas (argon2 é lento de propósito)
 const fuso = 'America/Sao_Paulo';
 const agora = new Date();
-const sessoes: { pacientes: { cookie: string; conteudo: string }[]; nutris: { cookie: string; pacientes: string[]; planos: string[] }[]; slugs: string[] } = { pacientes: [], nutris: [], slugs: [] };
+type Inscricao = { endpoint: string; keys: { p256dh: string; auth: string } };
+const sessoes: { pacientes: { cookie: string; conteudo: string; inscricao: Inscricao }[]; nutris: { cookie: string; pacientes: string[]; planos: string[] }[]; slugs: string[] } = { pacientes: [], nutris: [], slugs: [] };
+const tenantIds: string[] = [];
 const alimentos = (await db.execute<{ id: string }>(sql`select id from foods where tenant_id is null order by id limit 6`)).rows.map((r) => r.id);
 
 for (let t = 0; t < TENANTS; t++) {
   const slug = `carga-${String(t).padStart(2, '0')}`;
   const [tn] = await db.insert(tenants).values({ slug, nomeExibicao: `Consultório Carga ${t}`, dpaVersao: DPA_VERSAO, dpaAceitoEm: agora, agendamentoPublicoAtivo: true }).returning({ id: tenants.id });
+  tenantIds.push(tn.id);
   const nutriId = randomUUID();
   const emailNutri = `nutri-${slug}@carga.test`;
   await db.insert(user).values({ id: nutriId, name: `Nutri ${t}`, email: emailNutri, emailVerified: true, appRole: 'nutri', tenantId: tn.id });
@@ -2536,13 +2630,17 @@ for (let t = 0; t < TENANTS; t++) {
   await withTenant(ctx, (tx) => tx.insert(patients).values(ids.map((x, i) => ({ id: x.id, tenantId: tn.id, nome: `Paciente ${i} ${slug}`, email: x.email, userId: x.userId, dataNascimento: '1990-01-01', sexo: i % 2 ? 'F' : 'M' }))), db);
   await db.insert(consents).values(ids.map((x) => ({ userId: x.userId, tenantId: tn.id, termoVersao: TERMO_PACIENTE, ip: null })));
 
-  // agenda do mês: 8 consultas por dia útil, espalhadas entre os pacientes (varredura de notificações, N9)
+  // agenda do mês: 8 consultas por dia útil, espalhadas entre os pacientes (varredura de notificações, N9).
+  // consultaDireta grava "sem regra, sem lembrete" (test/agenda.ts): as futuras ganham os lembretes pela função real
+  // (agendarLembretes, a mesma da marcação) — senão `notifications` fica vazia e a meta da D4 não é medida
   for (let d = -10; d <= 20; d++) {
     const dia = new Date(agora.getTime() + d * 86_400_000);
     if ([0, 6].includes(dia.getUTCDay())) continue;
     for (let h = 0; h < 8; h++) {
       const inicio = new Date(Date.UTC(dia.getUTCFullYear(), dia.getUTCMonth(), dia.getUTCDate(), 11 + h, 0));
-      await consultaDireta(db, ctx, ids[(d * 8 + h + 400) % PACIENTES].id, inicio, 60, d < 0 ? { status: 'realizada' } : {});
+      const patientId = ids[(d * 8 + h + 400) % PACIENTES].id;
+      const appointmentId = await consultaDireta(db, ctx, patientId, inicio, 60, d < 0 ? { status: 'realizada' } : {});
+      if (inicio > agora) await withTenant(ctx, (tx) => agendarLembretes(tx, { tenantId: tn.id, patientId, appointmentId, inicio }, fuso, agora), db);
     }
   }
   // acessos dos últimos 30 dias (CS-02): ~60% dos pacientes por dia
@@ -2574,11 +2672,28 @@ for (let t = 0; t < TENANTS; t++) {
     }, { db });
     await publicarPlano(ctx, x.id, planId, { db, boss });
     planos.push(planId);
-    sessoes.pacientes.push({ cookie: await entrar(auth, x.email), conteudo: conteudos[sessoes.pacientes.length % conteudos.length] });
+    // B-8: uma inscrição de push sintética (formato do Zod de push-inscricao.ts) já gravada, para o
+    // POST /api/p/push?sincronizar=1 do k6 percorrer o app_soltar_endpoint_push com 50 tenants e responder 204
+    const inscricao: Inscricao = {
+      endpoint: `https://fcm.googleapis.com/fcm/send/carga-${randomUUID()}`,
+      keys: { p256dh: randomBytes(65).toString('base64url'), auth: randomBytes(16).toString('base64url') },
+    };
+    const ctxPaciente: TenantContext = { tenantId: tn.id, role: 'paciente', patientId: x.id, actorUserId: x.userId, ip: '127.0.0.1' };
+    await withTenant(ctxPaciente, (tx) => tx.insert(pushSubscriptions).values({ tenantId: tn.id, patientId: x.id, endpoint: inscricao.endpoint, p256dh: inscricao.keys.p256dh, auth: inscricao.keys.auth, userAgent: 'k6' }), db);
+    sessoes.pacientes.push({ cookie: await entrar(auth, x.email), conteudo: conteudos[sessoes.pacientes.length % conteudos.length], inscricao });
   }
   sessoes.nutris.push({ cookie: await entrar(auth, emailNutri), pacientes: ids.slice(0, 50).map((x) => x.id), planos });
   sessoes.slugs.push(slug);
   console.log(`${slug}: ${PACIENTES} pacientes, ${acessos.length} acessos, 100 conteúdos`);
+}
+
+// D4: parte dos lembretes vence DURANTE a rodada (o job `notificacoes` varre e envia de verdade, para o Mailpit).
+// CARGA_VENCER_EM_MIN: minutos entre o fim da semente e o início da rodada; os vencimentos se espalham por 12 min.
+const VENCER_EM_MIN = Number(process.env.CARGA_VENCER_EM_MIN ?? 20);
+for (const tenantId of tenantIds) {
+  await withTenant({ tenantId, role: 'worker' }, (tx) => tx.execute(sql`
+    update notifications set agendada_para = now() + make_interval(mins => ${VENCER_EM_MIN}) + random() * interval '12 minutes'
+    where id in (select id from notifications where status = 'pendente' order by random() limit 150)`), db);
 }
 
 writeFileSync('test/carga/.sessoes.json', JSON.stringify(sessoes));
@@ -2619,6 +2734,7 @@ export const options = {
   thresholds: {
     'http_req_duration{tipo:api}': ['p(95)<300'], // RNF-01 (Route Handlers)
     'http_req_duration{tipo:pagina}': ['p(95)<800'], // D4 (páginas)
+    'http_req_duration{nome:/api/p/push}': ['p(95)<300'], // B-8: app_soltar_endpoint_push com 50 tenants (linha própria no resumo)
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
   },
@@ -2631,8 +2747,9 @@ const pagina = (url, cookie) => {
   check(r, { 'página 200 (sessão válida)': (x) => x.status === 200 });
   return r;
 };
-const api = (metodo, url, cookie) => {
-  const r = http.request(metodo, `${BASE}${url}`, null, { headers: { cookie }, tags: { tipo: 'api', nome: nome(url) } });
+const api = (metodo, url, cookie, corpo = null) => {
+  const headers = corpo === null ? { cookie } : { cookie, 'content-type': 'application/json' };
+  const r = http.request(metodo, `${BASE}${url}`, corpo === null ? null : JSON.stringify(corpo), { headers, tags: { tipo: 'api', nome: nome(url) } });
   check(r, { 'api 2xx/429': (x) => (x.status >= 200 && x.status < 300) || x.status === 429 });
   return r;
 };
@@ -2641,6 +2758,7 @@ const pausa = () => sleep(1 + Math.random() * 2);
 export function paciente() {
   const p = pacientes[(__VU * 7 + __ITER) % pacientes.length];
   api('POST', '/api/p/acesso', p.cookie); // N14: uma "abertura" do app
+  api('POST', '/api/p/push?sincronizar=1', p.cookie, p.inscricao); // B-8: a sincronização da abertura (204; 429 = limite da T6)
   for (const url of ['/p/inicio', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos?busca=aveia', '/p/conteudos?etiqueta=sem%20lactose', `/p/conteudos/${p.conteudo}`, '/p/diario']) {
     pagina(url, p.cookie);
     pausa();
@@ -2680,35 +2798,36 @@ Antes da rodada de verdade, uma rodada curta de fumaça com `--vus 3 --duration 
 
 ## Roteiro
 1. Snapshot no hPanel (regra do servidor) e OK do dono para subir a pilha `nutridebby-carga`.
-2. `bash test/carga/gerar-env.sh > .env.carga` e `CARGA_IMAGEM=ghcr.io/<dono>/nutridebby:<sha do branch> docker compose -f docker-compose.carga.yml --env-file .env.carga.compose up -d` (o app aplica as migrations ao subir).
-3. `CARGA_DATABASE_URL=postgres://nutri_app:<senha do .env.carga>@127.0.0.1:54339/nutri CARGA_AUTH_SECRET=<AUTH_SECRET do .env.carga> pnpm tsx test/carga/seed.ts` (sem exibir os valores na tela: ler do arquivo com `set -a; . ./.env.carga; set +a` num shell e montar a URL).
+2. **Depois do merge do Plano 08 e antes de qualquer paciente real** (o GHCR só tem a imagem do deploy da `main`; a RNF-03 proíbe construir na VPS). `bash test/carga/gerar-env.sh > .env.carga` e `CARGA_IMAGEM=ghcr.io/<dono>/nutridebby:<sha do merge na main> docker compose -f docker-compose.carga.yml --env-file .env.carga.compose up -d` (o app aplica as migrations ao subir).
+3. Com o checkout do repositório no mesmo commit da imagem: `CARGA_DATABASE_URL=postgres://nutri_app:<senha do .env.carga>@127.0.0.1:54339/nutri CARGA_AUTH_SECRET=<AUTH_SECRET do .env.carga> CARGA_VENCER_EM_MIN=<minutos até a rodada> pnpm tsx test/carga/seed.ts` (sem exibir os valores na tela: ler do arquivo com `set -a; . ./.env.carga; set +a` num shell e montar a URL).
 4. Em outro terminal, `docker stats` gravando em arquivo (`docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'` a cada 10 s) — inclui o `cursoia_crm` (não pode piorar) e os containers da carga.
 5. Fumaça: `docker run --rm --network host -v "$PWD/test/carga:/carga" grafana/k6 run --vus 3 --duration 30s /carga/cenario.js`.
 6. Rodada: `docker run --rm --network host -v "$PWD/test/carga:/carga" -e BASE_URL=http://127.0.0.1:3200 grafana/k6 run --summary-export /carga/resumo.json /carga/cenario.js`.
-7. Worker com o volume: a duração do job `notificacoes` (roda a cada minuto; meta D4: < 20 s) pelas colunas `started_on`/`completed_on` da tabela `pgboss.job` do banco **da carga** (`select max(completed_on - started_on) from pgboss.job where name = 'notificacoes' and state = 'completed'`). `retencao-lgpd` (04h) e `agenda-limpeza` (04h30) entram no relatório se a rodada passar desses horários.
-8. S-7: repetir a rodada só com o cenário `paciente` antes e depois do `cache()` da sessão (Tarefa 14 para a nutricionista; para o paciente, o débito S-7 — anotar a diferença).
+7. Worker com o volume: antes da rodada, o total de lembretes (`docker compose -f docker-compose.carga.yml exec db psql -U carga_owner -d nutri -c "select status, count(*) from notifications group by status"`; esperado: milhares de `pendente`, ~150 por consultório vencendo durante a rodada — com `notifications` vazia a meta não está sendo medida, parar e corrigir a semente). Depois, a duração do job `notificacoes` (roda a cada minuto; meta D4: < 20 s) pelas colunas `started_on`/`completed_on` da tabela `pgboss.job` do banco **da carga** (`select max(completed_on - started_on) from pgboss.job where name = 'notificacoes' and state = 'completed'`) e quantas linhas a varredura tratou (`select status, count(*) from notifications where updated_at >= '<início da rodada>' group by status` — enviadas, ignoradas e adiadas pelo horário silencioso contam). `retencao-lgpd` (04h) e `agenda-limpeza` (04h30) entram no relatório se a rodada passar desses horários.
+8. S-7: anotar o p95 das páginas `/p/*` (cenário `paciente`). A imagem já tem o `cache()` da Tarefa 14 em `requireUserComTenant`, que o `requirePaciente` também usa; a parte própria do paciente (`vinculosDaConta`, `termoAceito`) **não** ganha `cache()` neste plano — não há "antes/depois". Se o p95 de `/p/*` passar da meta da D4, o relatório propõe o `cache()` no `requirePaciente` como tarefa.
 9. Lighthouse (LCP, D4), com a pilha no ar e uma sessão de paciente: `pnpm dlx lighthouse@12 http://127.0.0.1:3200/p/inicio --preset=perf --form-factor=mobile --throttling-method=simulate --extra-headers='{"cookie":"<cookie de .sessoes.json>"}' --output=json --output-path=/tmp/lh-inicio.json` e o mesmo para `/p/plano`; anotar o `largest-contentful-paint`. (O perfil móvel padrão do Lighthouse é o "Slow 4G" da RNF-01.)
 10. `docker compose -f docker-compose.carga.yml down -v` e apagar `.env.carga*` e `test/carga/.sessoes.json`.
 
 ## Relatório (copiar para carga-AAAA-MM-DD.md)
 - Commit/imagem: · Limites (app/worker/db, shared_buffers, pool): · Rodada: 1 / 2
 - k6: p95 api: · p95 páginas: · falhas: · checks: · pior rota (p95):
-- Worker: `notificacoes` com 15 mil pacientes: · `agenda-limpeza`:
+- Worker: lembretes pendentes antes da rodada: · tratados durante a rodada (por status): · `notificacoes` com 15 mil pacientes (máx.): · `agenda-limpeza`:
 - `docker stats`: pico de CPU/memória por container · `cursoia_crm`: sem mudança? · CPU livre mínima:
 - Lighthouse: LCP `/p/inicio`: · LCP `/p/plano`:
-- B-8 (`app_soltar_endpoint_push` com 50 tenants): tempo do `POST /api/p/push?sincronizar=1`:
+- B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (tag `nome:/api/p/push`): · respostas 204/409/429:
+- S-7: p95 das páginas `/p/*`:
 - Gargalo e ajuste proposto ao dono (limites no Easypanel, `shared_buffers`, pool):
 - Resultado contra a D4: aprovado / reprovado (o quê)
 ```
 
-- [ ] **Step 5: Execução (rodada 1 e rodada 2)** — seguir o roteiro com o dono. Rodada 1 com os limites atuais (`nutri_app` 1 vCPU/1 GiB, `nutri_db` 1 GiB, `nutri_worker` 1 vCPU/1 GiB, pool 10, `shared_buffers` 128 MB). Se reprovar, o relatório propõe os limites novos (há folga com 8 vCPU/32 GB); o dono muda **no Easypanel** (produção) e nas variáveis `CARGA_*` (carga); rodada 2 com Sentry (projeto de teste), CSP e o `cache()` da Tarefa 14. Os dois relatórios entram no PR.
+- [ ] **Step 5: Execução (rodada 1 e rodada 2)** — seguir o roteiro com o dono. Rodada 1 com os limites atuais (`nutri_app` 1 vCPU/1 GiB, `nutri_db` 1 GiB, `nutri_worker` 1 vCPU/1 GiB, pool 10, `shared_buffers` 128 MB). Se reprovar, o relatório propõe os limites novos (há folga com 8 vCPU/32 GB); o dono muda **no Easypanel** (produção) e nas variáveis `CARGA_*` (carga); rodada 2 com Sentry (projeto de teste). As duas rodadas usam a imagem do deploy do merge (CSP e `cache()` da Tarefa 14 já dentro). Os dois relatórios entram num **PR curto de docs** (`docs/carga-AAAA-MM-DD`, a partir da `main`); se a rodada pedir mudança de código, é outro PR, com nova rodada antes do primeiro paciente real.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add docker-compose.carga.yml test/carga/gerar-env.sh test/carga/seed.ts test/carga/cenario.js docs/operacao/carga.md .gitignore
 git commit -m "test(carga): pilha de carga separada, semente de 15 mil pacientes, cenário k6 e roteiro com Lighthouse (P08-03, D4, D5)"
-# depois de cada rodada:
+# depois de cada rodada, num branch de docs a partir da main (o Plano 08 já foi mergeado):
 git add docs/operacao/carga-*.md && git commit -m "docs(carga): relatório da rodada N do k6 (P08-03)"
 ```
 
@@ -2722,7 +2841,7 @@ git add docs/operacao/carga-*.md && git commit -m "docs(carga): relatório da ro
 
 **Interfaces:**
 - Consumes: o remoto `crypt` do backup (`NUTRI_BACKUP_REMOTE`), o dump diário `db/diario/nutri-<dia>.dump`; Docker no host.
-- Produces: `db/globais.sql` no remoto (roles sem senha, D6); o script de restauração imprime uma linha `restauracao ok: duracao=<s>s tabelas_sem_rls=<n> migrations=<n> tenants=<n> pacientes=<n> funcoes_definer_superusuario=<n>` (só contagens) e sai 0 só se o `pg_restore` deu certo e `tabelas_sem_rls=0`.
+- Produces: `db/globais.sql` no remoto (roles sem senha, D6); o script de restauração imprime uma linha `restauracao ok: duracao=<s>s tabelas_sem_rls=<n> migrations=<n> tenants=<n> pacientes=<n> funcoes_definer_superusuario=<n> roles=<ok|faltando>` (só contagens) e sai 0 só se o banco ficou pronto (servidor definitivo, por TCP), o `pg_restore` deu certo, `tabelas_sem_rls=0`, `roles=ok` e `funcoes_definer_superusuario=0` (este último relaxado só por `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER=1`, que só o teste do CI usa — lá as migrations rodam como superusuário do Testcontainers).
 
 - [ ] **Step 1: Teste do backup com os roles (falha)** — `test/backup.test.ts`, no caso "domingo: …", acrescentar ao fim:
 
@@ -2807,13 +2926,19 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
-  it('restaura num banco descartável sem rede, confere a RLS e só imprime contagens', async () => {
-    const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04' }, timeout: 170_000 });
+  it('restaura num banco descartável sem rede, confere a RLS e os roles e só imprime contagens', async () => {
+    // Testcontainers migra como superusuário: as funções SECURITY DEFINER têm dono superusuário só aqui (em produção, 0)
+    const r = await execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04', NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER: '1' }, timeout: 170_000 });
     const saida = `${r.stdout}${r.stderr}`;
-    expect(saida).toMatch(/restauracao ok: duracao=\d+s tabelas_sem_rls=0 migrations=\d+ tenants=\d+ pacientes=\d+ funcoes_definer_superusuario=\d+/);
+    expect(saida).toMatch(/restauracao ok: duracao=\d+s tabelas_sem_rls=0 migrations=\d+ tenants=\d+ pacientes=\d+ funcoes_definer_superusuario=\d+ roles=ok/);
     expect(saida).not.toMatch(/PASSWORD|senha|@/i);
     const sobra = execFileSync('docker', ['ps', '-a', '--filter', 'name=nutri_restauracao_teste', '--format', '{{.Names}}'], { env }).toString().trim();
     expect(sobra).toBe(''); // o container (com dado restaurado) não fica
+  }, 180_000);
+
+  it('sem a permissão do CI, função SECURITY DEFINER com dono superusuário reprova a restauração', async () => {
+    const r = execFile('bash', [RESTAURAR], { env: { ...env, NUTRI_RESTAURAR_DIA: '2026-10-04' }, timeout: 170_000 });
+    await expect(r).rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('função SECURITY DEFINER com dono superusuário') });
   }, 180_000);
 
   it('dia sem dump: sai com erro e mensagem fixa', async () => {
@@ -2849,27 +2974,35 @@ if ! rclone lsf "${REMOTO}db/diario/nutri-${DIA}.dump" >/dev/null 2>&1 || [ -z "
 fi
 
 inicio=$(date +%s)
+# Senha descartável só no ambiente (docker run/exec -e NOME, sem o valor na linha de comando)
+POSTGRES_PASSWORD="$(openssl rand -hex 16)"; PGPASSWORD="$POSTGRES_PASSWORD"; export POSTGRES_PASSWORD PGPASSWORD
 docker run -d --rm --name "$NOME" --network none --tmpfs /var/lib/postgresql/data:rw \
-  -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" -e POSTGRES_DB=nutri "$IMAGEM" >/dev/null 2>&1 \
+  -e POSTGRES_PASSWORD -e POSTGRES_DB=nutri "$IMAGEM" >/dev/null 2>&1 \
   || { log "ERRO: não subiu o banco descartável"; exit 1; }
+# A imagem oficial sobe antes um servidor TEMPORÁRIO só por socket (listen_addresses=''), cria o banco, desliga e sobe o
+# definitivo. Por socket, o pg_isready já responde no temporário e o psql/pg_restore seriam derrubados quando ele para.
+# Só o definitivo escuta TCP: esperar e conectar por 127.0.0.1 (o loopback existe mesmo com --network none).
+pronto=false
 for _ in $(seq 1 60); do
-  docker exec "$NOME" pg_isready -U postgres -d nutri >/dev/null 2>&1 && break
+  if docker exec "$NOME" pg_isready -h 127.0.0.1 -U postgres -d nutri >/dev/null 2>&1; then pronto=true; break; fi
   sleep 1
 done
+[ "$pronto" = true ] || { log "ERRO: o banco descartável não ficou pronto em 60 s"; exit 1; }
+PG=(docker exec -i -e PGPASSWORD "$NOME")
 # D6: roles antes do dump (o "role postgres já existe" e afins são esperados: ON_ERROR_STOP=0)
-if rclone cat "${REMOTO}db/globais.sql" 2>/dev/null | docker exec -i "$NOME" psql -U postgres -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1; then
+if rclone cat "${REMOTO}db/globais.sql" 2>/dev/null | "${PG[@]}" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=0 -q >/dev/null 2>&1; then
   log "roles aplicados"
 else
   log "AVISO: sem db/globais.sql — criar os roles à mão (docs/operacao/restauracao.md)"
 fi
 # Sem o stderr do pg_restore no log (cita nomes de objetos e, em erro de dado, valores)
-if ! rclone cat "${REMOTO}db/diario/nutri-${DIA}.dump" 2>/dev/null | docker exec -i "$NOME" pg_restore -U postgres -d nutri --exit-on-error >/dev/null 2>&1; then
+if ! rclone cat "${REMOTO}db/diario/nutri-${DIA}.dump" 2>/dev/null | "${PG[@]}" pg_restore -h 127.0.0.1 -U postgres -d nutri --exit-on-error >/dev/null 2>&1; then
   log "ERRO: pg_restore falhou"
   exit 1
 fi
 duracao=$(( $(date +%s) - inicio ))
 
-q() { docker exec "$NOME" psql -U postgres -d nutri -At -v ON_ERROR_STOP=1 -c "$1" 2>/dev/null; }
+q() { "${PG[@]}" psql -h 127.0.0.1 -U postgres -d nutri -At -v ON_ERROR_STOP=1 -c "$1" 2>/dev/null; }
 sem_rls=$(q "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
   where c.relkind in ('r','p') and c.relname not in ('user','consents','invites')
     and exists (select 1 from information_schema.columns k where k.table_schema = 'public' and k.table_name = c.relname and k.column_name = 'tenant_id')
@@ -2878,13 +3011,26 @@ migrations=$(q "select count(*) from drizzle.__drizzle_migrations")
 tenants=$(q "select count(*) from tenants")
 pacientes=$(q "select count(*) from patients")
 definer=$(q "select count(*) from pg_proc p join pg_roles r on r.oid = p.proowner where p.prosecdef and r.rolsuper")
+# D6: os roles voltaram — nutri_app_role sem login, ao menos um membro dele com login (o role do app) e todo dono de
+# tabela do public com login (o migrator: é ele que roda as migrations no deploy)
+roles=$(q "select case when exists (select 1 from pg_roles where rolname = 'nutri_app_role' and not rolcanlogin)
+  and exists (select 1 from pg_auth_members m join pg_roles r on r.oid = m.member
+              where m.roleid = (select oid from pg_roles where rolname = 'nutri_app_role') and r.rolcanlogin)
+  and not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+                  join pg_roles r on r.oid = c.relowner where c.relkind in ('r','p') and not r.rolcanlogin)
+  then 'ok' else 'faltando' end")
 
-echo "restauracao ok: duracao=${duracao}s tabelas_sem_rls=${sem_rls:-?} migrations=${migrations:-?} tenants=${tenants:-?} pacientes=${pacientes:-?} funcoes_definer_superusuario=${definer:-?}"
+echo "restauracao ok: duracao=${duracao}s tabelas_sem_rls=${sem_rls:-?} migrations=${migrations:-?} tenants=${tenants:-?} pacientes=${pacientes:-?} funcoes_definer_superusuario=${definer:-?} roles=${roles:-?}"
 [ "${sem_rls:-1}" = 0 ] || { log "ERRO: tabela com tenant_id sem RLS forçada depois da restauração"; exit 1; }
+[ "${roles:-}" = ok ] || { log "ERRO: roles faltando ou sem login depois da restauração (docs/operacao/restauracao.md)"; exit 1; }
+if [ "${definer:-1}" != 0 ] && [ "${NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER:-}" != 1 ]; then
+  log "ERRO: função SECURITY DEFINER com dono superusuário depois da restauração (o migrator de produção não é superusuário)"
+  exit 1
+fi
 exit 0
 ```
 
-(O `rclone lsf` de um arquivo inexistente sai 0 com saída vazia em alguns backends e 3 em outros — por isso as duas condições.) Run: `pnpm test test/restauracao.test.ts` → PASS. `bash -n scripts/backup/nutri-restauracao-teste.sh` → sem erro.
+(O `rclone lsf` de um arquivo inexistente sai 0 com saída vazia em alguns backends e 3 em outros — por isso as duas condições. O `log` vai para a saída padrão: o teste do CI confere a mensagem fixa nela.) Run: `pnpm test test/restauracao.test.ts` → PASS. `bash -n scripts/backup/nutri-restauracao-teste.sh` → sem erro.
 
 - [ ] **Step 5: Procedimento documentado** — `docs/operacao/restauracao.md`
 
@@ -2902,7 +3048,7 @@ recupera o serviço (o TOTP e os links assinados dependem das chaves).
 ## Teste mensal (no host)
 1. Snapshot no hPanel não é preciso (nada muda em produção); confirmar com o dono.
 2. `sudo -i`, `set -a; . /etc/nutri-backup/backup.env; set +a` (sem exibir).
-3. `NUTRI_RESTAURAR_DIA=<ontem> bash /opt/nutri-backup/nutri-restauracao-teste.sh` → linha `restauracao ok: …`.
+3. `NUTRI_RESTAURAR_DIA=<ontem> bash /opt/nutri-backup/nutri-restauracao-teste.sh` → linha `restauracao ok: …` com `tabelas_sem_rls=0`, `funcoes_definer_superusuario=0` e `roles=ok` (o script sai 1 se qualquer um falhar; **nunca** usar `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` no host — é só do teste do CI).
 4. Arquivos: `rclone cryptcheck "$NUTRI_DATA_DIR" cripto:data/atual` (só hashes) e restaurar 1 arquivo para `/tmp/restauracao-<data>/`,
    conferir o tamanho com `stored_files.bytes` (leitura do banco de produção → confirmação) e apagar a pasta.
 5. Registrar o resultado. Duração acima de 1 h → avisar o dono (o RTO é 4 h para o serviço inteiro).
@@ -2912,8 +3058,15 @@ recupera o serviço (o TOTP e os links assinados dependem das chaves).
 2. `nutri_db` vazio; aplicar `db/globais.sql` (roles) e depois `pg_restore -d nutri --exit-on-error` do dump mais recente.
    Sem `globais.sql` (backup antigo): criar à mão `nutri_app_role` (NOLOGIN), o role dono das migrations (o de `DATABASE_URL_MIGRATOR`,
    sem superusuário) e o role de login do app (o de `DATABASE_URL`, membro de `nutri_app_role`) **antes** do `pg_restore`.
+   **Os roles voltam SEM senha** (`--no-role-passwords`). Antes de subir o `nutri_app`, o dono devolve a senha do role
+   do migrator (o usuário de `DATABASE_URL_MIGRATOR`): `docker exec -it $(docker ps -q -f name=nutri_db | head -n1) psql -U postgres -d nutri`
+   e, dentro do psql, `\password <role do migrator>` — o psql pede a senha duas vezes **sem eco** e manda só o hash (nada vai
+   para o histórico do shell nem do psql); o valor vem do gerenciador de senhas e **nunca passa pelo chat**. Sem isso, o
+   `docker-entrypoint.sh` roda `scripts/migrate.ts` antes do `next start`, a autenticação SCRAM do migrator falha e o app
+   não sobe (o RTO de 4 h fica em risco). A senha do role do app (`DATABASE_URL`) volta sozinha: as migrations a gravam a
+   partir do `DATABASE_URL` (`ensureAppLogin`, `src/db/migrate.ts`).
 3. `/data`: `rclone copy cripto:data/atual /srv/nutri/data` (alterados/apagados dos últimos 30 dias em `data/historico/<dia>`).
-4. Variáveis do Easypanel a partir do gerenciador de senhas; subir `nutri_app` (as migrations conferem a versão) e `nutri_worker`.
+4. Variáveis do Easypanel a partir do gerenciador de senhas; subir `nutri_app` (as migrations conferem a versão e regravam a senha do role do app) e `nutri_worker`.
 5. `GET /api/health` = 200; login da nutricionista; abrir um prontuário; conferir um arquivo.
 6. O banco `evolution` não está no backup (INT-01): reconectar o WhatsApp pelo QR em "WhatsApp".
 7. Exclusões por LGPD feitas depois do dump restaurado: reaplicar (o "Histórico de acessos" e o `audit_log` do período
@@ -2985,11 +3138,24 @@ describe('tokens do visual V2 (D24, RNF-10)', () => {
       expect(contraste(TOKENS[texto as Token][m], TOKENS[fundo as Token][m])).toBeGreaterThanOrEqual(minimo);
     },
   );
-  it('o globals.css tem cada token com os mesmos valores (fonte única: tokens.ts)', () => {
+  it('o globals.css tem cada token com os mesmos valores nos três blocos (fonte única: tokens.ts), sem light-dark()', () => {
     const css = readFileSync('src/app/globals.css', 'utf8');
-    for (const [nome, [claro, escuro]] of Object.entries(TOKENS)) {
-      expect(css, nome).toContain(`--nd-${nome}: light-dark(${claro}, ${escuro});`);
+    // RNF-09: Safari < 17.5 não tem light-dark() — a variável ficaria inválida e o foco/as cores sumiriam no iOS 16.4–17.4
+    expect(css).not.toContain('light-dark(');
+    const bloco = (inicio: string) => {
+      const i = css.indexOf(inicio);
+      expect(i, inicio).toBeGreaterThanOrEqual(0);
+      return css.slice(i, css.indexOf('}', i));
+    };
+    const claro = bloco(':root {');
+    const escuro = bloco("[data-tema='escuro'] {");
+    const sistemaEscuro = bloco("@media (prefers-color-scheme: dark) {");
+    for (const [nome, [c, e]] of Object.entries(TOKENS)) {
+      expect(claro, `${nome} claro`).toContain(`--nd-${nome}: ${c};`);
+      expect(escuro, `${nome} escuro`).toContain(`--nd-${nome}: ${e};`);
+      expect(sistemaEscuro, `${nome} aparelho escuro`).toContain(`--nd-${nome}: ${e};`);
     }
+    expect(css).toMatch(/:focus-visible \{\s*outline: 3px solid var\(--nd-foco, #[0-9a-f]{6}\);/);
   });
 });
 
@@ -3131,36 +3297,84 @@ Run: `pnpm test src/lib/tema/tema.test.ts` → falha só no caso do `globals.css
 /* D24: dark: segue a escolha da usuária (data-tema), não só o aparelho. Prefira os tokens; dark: só em exceção. */
 @custom-variant dark (&:where([data-tema=escuro], [data-tema=escuro] *));
 
-/* Fora do painel e do portal (entrar, admin, páginas públicas): claro, como sempre foi */
+/* Sem a função light-dark do CSS: o Safari só a entende a partir da 17.5, e a RNF-09 exige o PWA no iOS 16.4+. Lá, uma
+   variável que a usa fica inválida na hora do cálculo — o outline do :focus-visible virava none (sem foco visível em nenhuma
+   página, WCAG 2.4.7) e as cores do portal (T18) sumiam. Cada modo declara os valores literais no próprio bloco. */
+
+/* Claro: fora do painel e do portal (entrar, admin, páginas públicas) e no data-tema=claro */
 :root {
   color-scheme: light;
-  --nd-fundo: light-dark(#eaf0ec, #0f1613);
-  --nd-cartao: light-dark(#ffffff, #17211d);
-  --nd-texto: light-dark(#14211d, #e6eeea);
-  --nd-suave: light-dark(#4b5c55, #a3b5ad);
-  --nd-borda: light-dark(#d5e0da, #26332e);
-  --nd-campo: light-dark(#6f817a, #7a8c84);
-  --nd-linha: light-dark(#edf2ef, #22302b);
-  --nd-link: light-dark(#0f4f42, #7fd4b9);
-  --nd-erro: light-dark(#8f2f22, #ff9c8f);
-  --nd-erro-fundo: light-dark(#fbe9e6, #3a1d19);
-  --nd-aviso: light-dark(#8a5306, #f0b867);
-  --nd-aviso-fundo: light-dark(#fdf3e1, #33270f);
-  --nd-ok: light-dark(#1f6b45, #7fd4b9);
-  --nd-ok-fundo: light-dark(#e4f2ea, #15302a);
-  --nd-botao: light-dark(#14211d, #e6eeea);
-  --nd-botao-texto: light-dark(#ffffff, #0f1613);
-  --nd-marca: light-dark(#1d6b5a, #6fcfb2);
+  --nd-fundo: #eaf0ec;
+  --nd-cartao: #ffffff;
+  --nd-texto: #14211d;
+  --nd-suave: #4b5c55;
+  --nd-borda: #d5e0da;
+  --nd-campo: #6f817a;
+  --nd-linha: #edf2ef;
+  --nd-link: #0f4f42;
+  --nd-erro: #8f2f22;
+  --nd-erro-fundo: #fbe9e6;
+  --nd-aviso: #8a5306;
+  --nd-aviso-fundo: #fdf3e1;
+  --nd-ok: #1f6b45;
+  --nd-ok-fundo: #e4f2ea;
+  --nd-botao: #14211d;
+  --nd-botao-texto: #ffffff;
+  --nd-marca: #1d6b5a;
   --nd-foco: var(--nd-marca);
 }
 [data-tema='claro'] { color-scheme: light; }
-[data-tema='escuro'] { color-scheme: dark; }
 [data-tema='sistema'] { color-scheme: light dark; }
 /* A cor do consultório chega no estilo do contêiner (--nd-marca-base/--nd-marca-clara): as variáveis que dependem dela
    são recalculadas NO contêiner (var() em propriedade customizada resolve onde ela é declarada, não onde é usada). */
 [data-tema] {
-  --nd-marca: light-dark(var(--nd-marca-base, #1d6b5a), var(--nd-marca-clara, #6fcfb2));
+  --nd-marca: var(--nd-marca-base, #1d6b5a);
   --nd-foco: var(--nd-marca);
+}
+/* Escuro: escolhido na conta… */
+[data-tema='escuro'] {
+  color-scheme: dark;
+  --nd-fundo: #0f1613;
+  --nd-cartao: #17211d;
+  --nd-texto: #e6eeea;
+  --nd-suave: #a3b5ad;
+  --nd-borda: #26332e;
+  --nd-campo: #7a8c84;
+  --nd-linha: #22302b;
+  --nd-link: #7fd4b9;
+  --nd-erro: #ff9c8f;
+  --nd-erro-fundo: #3a1d19;
+  --nd-aviso: #f0b867;
+  --nd-aviso-fundo: #33270f;
+  --nd-ok: #7fd4b9;
+  --nd-ok-fundo: #15302a;
+  --nd-botao: #e6eeea;
+  --nd-botao-texto: #0f1613;
+  --nd-marca: var(--nd-marca-clara, #6fcfb2);
+  --nd-foco: var(--nd-marca);
+}
+/* …ou "igual ao aparelho" com o aparelho escuro (mesmos valores; o teste confere os dois blocos) */
+@media (prefers-color-scheme: dark) {
+  [data-tema='sistema'] {
+    --nd-fundo: #0f1613;
+    --nd-cartao: #17211d;
+    --nd-texto: #e6eeea;
+    --nd-suave: #a3b5ad;
+    --nd-borda: #26332e;
+    --nd-campo: #7a8c84;
+    --nd-linha: #22302b;
+    --nd-link: #7fd4b9;
+    --nd-erro: #ff9c8f;
+    --nd-erro-fundo: #3a1d19;
+    --nd-aviso: #f0b867;
+    --nd-aviso-fundo: #33270f;
+    --nd-ok: #7fd4b9;
+    --nd-ok-fundo: #15302a;
+    --nd-botao: #e6eeea;
+    --nd-botao-texto: #0f1613;
+    --nd-marca: var(--nd-marca-clara, #6fcfb2);
+    --nd-foco: var(--nd-marca);
+  }
 }
 
 @theme inline {
@@ -3192,9 +3406,9 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* WCAG 2.4.7: o design não tinha foco visível */
+/* WCAG 2.4.7: o design não tinha foco visível. Cor literal de reserva se a variável faltar (nunca outline: none) */
 :focus-visible {
-  outline: 3px solid var(--nd-foco);
+  outline: 3px solid var(--nd-foco, #1d6b5a);
   outline-offset: 2px;
 }
 
@@ -3260,7 +3474,7 @@ export function getTenantBrand(tenant: TenantRow): MarcaTenant {
 
 ```bash
 git add src/lib/tema src/app/globals.css src/app/layout.tsx src/modules/plataforma/marca.ts src/modules/plataforma/marca.test.ts src/modules/plataforma/marca-constantes.ts
-git commit -m "feat(visual): tokens claro/escuro com light-dark, fontes Figtree/Bricolage, foco visível e a cor do consultório nos dois modos (D19, D23, D24)"
+git commit -m "feat(visual): tokens claro/escuro por bloco (sem light-dark, Safari 16.4+), fontes Figtree/Bricolage, foco visível e a cor do consultório nos dois modos (D19, D23, D24)"
 ```
 
 ---
@@ -3448,7 +3662,11 @@ export async function escolherTemaAction(_prev: TemaState, formData: FormData): 
   return { ok: true };
 }
 
-/** Manual guiado (D27): concluído, dispensado ou visto, por tour e versão. */
+/**
+ * Manual guiado (D27): concluído, dispensado ou visto, por tour e versão. Sem revalidatePath de propósito: o "visto" é
+ * gravado ao montar o aviso e revalidar o layout a cada marcação refaria o render do painel inteiro; o GuiaDoPainel
+ * (T19) mantém o progresso em estado local, atualizado de forma otimista.
+ */
 export async function marcarGuiaAction(id: string, versao: number, estado: EstadoGuia): Promise<void> {
   const { data } = await requireNutri('/painel', { permitirDpaPendente: true });
   await marcarGuia(data.user.id, id, versao, estado);
@@ -4459,12 +4677,12 @@ No fim: `pnpm test` inteiro → PASS (inclui `cores.test.ts` verde e as exceçõ
 ### Task 17: Axe do painel nos três modos, 768 px, teclado e os E2E com o menu novo (RNF-10; D25)
 
 **Files:**
-- Create: `e2e/acessibilidade-painel.spec.ts`, `e2e/painel.ts`
+- Create: `e2e/acessibilidade-painel.spec.ts`, `e2e/painel.ts`, `e2e/painel-rotas.ts`, `src/app/painel/rotas-axe.test.ts`
 - Modify: `playwright.config.ts`, os specs que navegavam pelo menu antigo (`e2e/*.spec.ts`)
 
 **Interfaces:**
 - Consumes: `entrarComo` (`e2e/helpers.ts`); `pacienteNoPortal`, `publicarPlanoSimples`, `marcarParaPaciente`, `avaliar` (`e2e/portal.ts`); o hub de Configurações e o `TemaForm` (T14).
-- Produces: projeto Playwright `painel` (Desktop Chrome) só com `acessibilidade-painel.spec.ts`; `escolherTema(page, rotulo: 'Claro' | 'Escuro' | 'Igual ao aparelho')` e `irPeloMenu(page, item)` em `e2e/painel.ts`; bloco de IP **10.9.13.x** (nutri .1, outro "aparelho" .2, paciente .3).
+- Produces: projeto Playwright `painel` (Desktop Chrome) só com `acessibilidade-painel.spec.ts`; `escolherTema(page, rotulo: 'Claro' | 'Escuro' | 'Igual ao aparelho')`, `irPeloMenu(page, item)` e `prepararTelasComId(browser, nutri, ip)` em `e2e/painel.ts`; `ROTAS_DO_PAINEL` e `type IdsDoPainel` em `e2e/painel-rotas.ts` (sem import do Playwright: a guarda do Vitest o importa); bloco de IP **10.9.13.x** (nutri .1, outro "aparelho" .2, paciente .3).
 
 - [ ] **Step 1: Projeto do Playwright** — `playwright.config.ts`, em `projects`:
 
@@ -4495,16 +4713,147 @@ export async function irPeloMenu(page: Page, item: 'Início' | 'Pacientes' | 'Ag
 }
 ```
 
-- [ ] **Step 3: O spec** — `e2e/acessibilidade-painel.spec.ts`
+- [ ] **Step 3: Todas as telas, com guarda** — `e2e/painel-rotas.ts` (um padrão por `page.tsx` de `src/app/painel`, com o caminho concreto de cada um):
+
+```ts
+/** D25: os ids que as telas com parâmetro precisam (criados pelo caminho real da UI em prepararTelasComId). */
+export type IdsDoPainel = {
+  paciente: string; consulta: string; alimento: string; modeloAnamnese: string; modeloPlano: string; diario: string;
+  anamnese: string; atendimento: string; exportacao: string; plano: string; conteudo: string;
+};
+
+/** RNF-10 (D25): toda tela do painel. A guarda rotas-axe.test.ts compara as chaves com os page.tsx — tela nova sem axe quebra o CI. */
+export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
+  '/painel': () => '/painel',
+  '/painel/agenda': () => '/painel/agenda',
+  '/painel/agenda/nova': () => '/painel/agenda/nova',
+  '/painel/agenda/horarios': () => '/painel/agenda/horarios',
+  '/painel/agenda/pendencias': () => '/painel/agenda/pendencias',
+  '/painel/agenda/consultas/[id]': (i) => `/painel/agenda/consultas/${i.consulta}`,
+  '/painel/ajuda': () => '/painel/ajuda',
+  '/painel/alimentos': () => '/painel/alimentos',
+  '/painel/alimentos/novo': () => '/painel/alimentos/novo',
+  '/painel/alimentos/[id]': (i) => `/painel/alimentos/${i.alimento}`,
+  '/painel/alimentos/[id]/editar': (i) => `/painel/alimentos/${i.alimento}/editar`,
+  '/painel/anamnese/modelos': () => '/painel/anamnese/modelos',
+  '/painel/anamnese/modelos/novo': () => '/painel/anamnese/modelos/novo',
+  '/painel/anamnese/modelos/[modeloId]': (i) => `/painel/anamnese/modelos/${i.modeloAnamnese}`,
+  '/painel/configuracoes': () => '/painel/configuracoes',
+  '/painel/configuracoes/perfil': () => '/painel/configuracoes/perfil',
+  '/painel/conteudos': () => '/painel/conteudos',
+  '/painel/conteudos/novo': () => '/painel/conteudos/novo?tipo=video',
+  '/painel/conteudos/[id]': (i) => `/painel/conteudos/${i.conteudo}`,
+  '/painel/conteudos/[id]/visualizacoes': (i) => `/painel/conteudos/${i.conteudo}/visualizacoes`,
+  '/painel/diarios': () => '/painel/diarios',
+  '/painel/diarios/[id]': (i) => `/painel/diarios/${i.diario}`,
+  '/painel/dpa': () => '/painel/dpa',
+  '/painel/pacientes': () => '/painel/pacientes',
+  '/painel/pacientes/novo': () => '/painel/pacientes/novo',
+  '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`,
+  '/painel/pacientes/[id]/anamnese': (i) => `/painel/pacientes/${i.paciente}/anamnese`,
+  '/painel/pacientes/[id]/anamnese/nova': (i) => `/painel/pacientes/${i.paciente}/anamnese/nova`,
+  '/painel/pacientes/[id]/anamnese/[anamneseId]': (i) => `/painel/pacientes/${i.paciente}/anamnese/${i.anamnese}`,
+  '/painel/pacientes/[id]/antropometria': (i) => `/painel/pacientes/${i.paciente}/antropometria`,
+  '/painel/pacientes/[id]/atendimentos': (i) => `/painel/pacientes/${i.paciente}/atendimentos`,
+  '/painel/pacientes/[id]/atendimentos/[atendimentoId]': (i) => `/painel/pacientes/${i.paciente}/atendimentos/${i.atendimento}`,
+  '/painel/pacientes/[id]/evolucao': (i) => `/painel/pacientes/${i.paciente}/evolucao`,
+  '/painel/pacientes/[id]/exames': (i) => `/painel/pacientes/${i.paciente}/exames`,
+  '/painel/pacientes/[id]/exportacoes/[exportId]': (i) => `/painel/pacientes/${i.paciente}/exportacoes/${i.exportacao}`,
+  '/painel/pacientes/[id]/gasto-energetico': (i) => `/painel/pacientes/${i.paciente}/gasto-energetico`,
+  '/painel/pacientes/[id]/historico': (i) => `/painel/pacientes/${i.paciente}/historico`,
+  '/painel/pacientes/[id]/plano-alimentar': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar`,
+  '/painel/pacientes/[id]/plano-alimentar/[planId]': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar/${i.plano}`, // o editor
+  '/painel/pacientes/[id]/privacidade': (i) => `/painel/pacientes/${i.paciente}/privacidade`,
+  '/painel/planos/modelos': () => '/painel/planos/modelos',
+  '/painel/planos/modelos/[id]': (i) => `/painel/planos/modelos/${i.modeloPlano}`,
+  '/painel/whatsapp': () => '/painel/whatsapp',
+};
+```
+
+Guarda — `src/app/painel/rotas-axe.test.ts`:
+
+```ts
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { ROTAS_DO_PAINEL } from '../../../e2e/painel-rotas';
+
+// RNF-10 (D25): o axe do painel cobre toda tela. Tela nova em src/app/painel sem entrada em ROTAS_DO_PAINEL quebra aqui.
+describe('ROTAS_DO_PAINEL', () => {
+  it('tem exatamente um caminho por page.tsx de src/app/painel', () => {
+    const raiz = path.resolve('src/app');
+    const paginas = readdirSync(path.join(raiz, 'painel'), { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && d.name === 'page.tsx')
+      .map((d) => `/${path.relative(raiz, d.parentPath).split(path.sep).join('/')}`)
+      .sort();
+    expect(Object.keys(ROTAS_DO_PAINEL).sort()).toEqual(paginas);
+  });
+});
+```
+
+(Antes da Tarefa 19, `/painel/ajuda` não existe: a entrada entra no commit da T19, com a página. Telas do Plano 07 ou de outro plano mergeado antes entram aqui do mesmo jeito — a guarda diz quais faltam.)
+
+`e2e/painel.ts` — acrescentar o preparo das telas com id, **pelo caminho real da UI** (reaproveitar os passos dos specs que já criam cada coisa: `pacientes.spec.ts`, `plano-alimentar.spec.ts`, `agenda.spec.ts`, `portal.spec.ts`, `plataforma.spec.ts` e o `conteudos.spec.ts` do Plano 07), lendo o id do link da lista:
+
+```ts
+import type { Browser } from '@playwright/test';
+import type { IdsDoPainel } from './painel-rotas';
+import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+
+/** O último segmento do primeiro link da página `lista` que casa com `padrao` (falha com a lista no texto). */
+async function idDoLink(page: Page, lista: string, padrao: RegExp): Promise<string> {
+  await page.goto(lista);
+  const hrefs = await page.locator('a[href]').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? ''));
+  const href = hrefs.find((h) => padrao.test(h.split('?')[0]));
+  expect(href, `${lista}: nenhum link casa com ${padrao}`).toBeDefined();
+  return padrao.exec(href!.split('?')[0])![1];
+}
+
+/**
+ * D25: cria um paciente e uma linha de cada tela com parâmetro — plano (publicarPlanoSimples), consulta
+ * (marcarParaPaciente), avaliação, anamnese, atendimento, alimento próprio, modelo de anamnese, modelo de plano
+ * ("Salvar como modelo" do editor), registro no diário (pelo portal, com o paciente), exportação ("Gerar cópia dos
+ * dados" em Privacidade; a tela abre "em preparo" sem o worker) e conteúdo (Plano 07) — e devolve os ids.
+ */
+export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string): Promise<IdsDoPainel> {
+  const paciente = await pacienteNoPortal(browser, nutri, ip);
+  const p = paciente.prontuario;
+  await publicarPlanoSimples(nutri, p);
+  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2);
+  await avaliar(nutri, p, '2026-08-01', '80');
+  // … os passos de criação de anamnese, atendimento, alimento, modelos, diário (paciente.page), exportação e conteúdo,
+  // copiados dos specs citados acima (mesmos rótulos e mensagens de sucesso)
+  await paciente.page.context().close();
+  const ids: IdsDoPainel = {
+    paciente: p.split('/').pop()!,
+    plano: await idDoLink(nutri, `${p}/plano-alimentar`, /\/plano-alimentar\/([0-9a-f-]{36})$/),
+    consulta: await idDoLink(nutri, p, /\/painel\/agenda\/consultas\/([0-9a-f-]{36})$/), // a próxima consulta no prontuário; se não houver link ali, a agenda da semana da consulta
+    anamnese: await idDoLink(nutri, `${p}/anamnese`, /\/anamnese\/([0-9a-f-]{36})$/),
+    atendimento: await idDoLink(nutri, `${p}/atendimentos`, /\/atendimentos\/([0-9a-f-]{36})$/),
+    exportacao: await idDoLink(nutri, `${p}/privacidade`, /\/exportacoes\/([0-9a-f-]{36})$/),
+    alimento: await idDoLink(nutri, '/painel/alimentos?origem=proprios', /\/painel\/alimentos\/([0-9a-f-]{36})$/),
+    modeloAnamnese: await idDoLink(nutri, '/painel/anamnese/modelos', /\/anamnese\/modelos\/([0-9a-f-]{36})$/),
+    modeloPlano: await idDoLink(nutri, '/painel/planos/modelos', /\/planos\/modelos\/([0-9a-f-]{36})$/),
+    diario: await idDoLink(nutri, '/painel/diarios', /\/painel\/diarios\/([0-9a-f-]{36})$/),
+    conteudo: await idDoLink(nutri, '/painel/conteudos', /\/painel\/conteudos\/([0-9a-f-]{36})$/),
+  };
+  return ids;
+}
+```
+
+(Conferir em cada lista o formato real do link — e o filtro da lista de alimentos próprios — e ajustar só o padrão; o helper falha dizendo qual lista não tinha o link.)
+
+- [ ] **Step 4: O spec** — `e2e/acessibilidade-painel.spec.ts`
 
 ```ts
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { escolherTema } from './painel';
-import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { escolherTema, prepararTelasComId } from './painel';
+import { ROTAS_DO_PAINEL } from './painel-rotas';
 
-// RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos. Bloco de IP: 10.9.13.x.
+// RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
+// (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). Bloco de IP: 10.9.13.x.
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial' });
@@ -4512,22 +4861,11 @@ let nutri: Page;
 let rotas: string[] = [];
 
 test.beforeAll(async ({ browser }) => {
+  test.setTimeout(180_000); // o preparo cria uma linha de cada tela com id
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.1');
   await expect(nutri).toHaveURL(/\/painel$/);
-  const paciente = await pacienteNoPortal(browser, nutri, '10.9.13.3');
-  await publicarPlanoSimples(nutri, paciente.prontuario);
-  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2);
-  await avaliar(nutri, paciente.prontuario, '2026-08-01', '80');
-  await paciente.page.context().close();
-  const p = paciente.prontuario;
-  rotas = [
-    '/painel', '/painel/pacientes', '/painel/pacientes/novo', '/painel/agenda', '/painel/agenda/nova', '/painel/agenda/horarios',
-    '/painel/agenda/pendencias', '/painel/diarios', '/painel/alimentos', '/painel/alimentos/novo', '/painel/planos/modelos',
-    '/painel/anamnese/modelos', '/painel/configuracoes', '/painel/configuracoes/perfil', '/painel/whatsapp', '/painel/dpa',
-    '/painel/conteudos', '/painel/conteudos/novo?tipo=video', '/painel/ajuda',
-    p, `${p}/anamnese`, `${p}/anamnese/nova`, `${p}/antropometria`, `${p}/gasto-energetico`, `${p}/atendimentos`, `${p}/exames`,
-    `${p}/evolucao`, `${p}/plano-alimentar`, `${p}/privacidade`, `${p}/historico`,
-  ];
+  const ids = await prepararTelasComId(browser, nutri, '10.9.13.3');
+  rotas = Object.values(ROTAS_DO_PAINEL).map((f) => f(ids));
 });
 test.afterAll(async () => {
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
@@ -4613,9 +4951,9 @@ test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é a
 });
 ```
 
-(A rota `/painel/ajuda` entra na Tarefa 19; até lá, tirar da lista e devolvê-la no commit da T19.)
+(A rota `/painel/ajuda` entra na Tarefa 19; até lá, tirar de `ROTAS_DO_PAINEL` e devolvê-la no commit da T19 — a guarda confere.)
 
-- [ ] **Step 4: Specs que navegavam pelo menu antigo** — listar e trocar pelo caminho novo (link no hub de Configurações, menu da conta ou `page.goto`):
+- [ ] **Step 5: Specs que navegavam pelo menu antigo** — listar e trocar pelo caminho novo (link no hub de Configurações, menu da conta ou `page.goto`):
 
 ```bash
 grep -rn "getByRole('link', { name: '\(Perfil e marca\|WhatsApp\|Alimentos\|Modelos de plano\|Modelos de anamnese\|Segurança\|Sair\)'" e2e
@@ -4624,12 +4962,12 @@ grep -rn "Menu do painel" e2e
 
 Regras: "Perfil e marca", "WhatsApp", "Alimentos", "Modelos de plano", "Modelos de anamnese" → `await irPeloMenu(page, 'Configurações'); await page.getByRole('link', { name: /^Perfil e marca|^WhatsApp|…/ }).click();` (o cartão tem o título e o texto no mesmo link: usar `{ name: /^Perfil e marca/ }`); "Segurança" e "Sair" → abrir o menu da conta antes (`await page.getByLabel(/^Conta de /).click()`), menos na tela do DPA, em que o "Sair" está no cabeçalho mínimo. A guarda do `sair.spec.ts` que procura o botão `data-sair` continua valendo (o `BotaoSair` é o mesmo).
 
-Run: `pnpm build && pnpm test:e2e` → PASS nos três projetos (`chromium`, `celular`, `painel`).
+Run: `pnpm test src/app/painel/rotas-axe.test.ts` → PASS. `pnpm build && pnpm test:e2e` → PASS nos três projetos (`chromium`, `celular`, `painel`).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add playwright.config.ts e2e
+git add playwright.config.ts e2e src/app/painel/rotas-axe.test.ts
 git commit -m "test(e2e): axe do painel nos modos claro, escuro e do aparelho, 768 px, teclado, tema na conta e specs no menu novo (RNF-10, D25)"
 ```
 
@@ -4697,7 +5035,8 @@ git commit -m "feat(visual): portal do paciente com os tokens, as fontes novas e
 - Consumes: `lerGuia`, `marcarGuiaAction`, `type ProgressoGuia`, `ID_GUIA` (T13); `CabecalhoPainel` (T14).
 - Produces:
   - `@/modules/ajuda/conteudo`: `type Passo = { alvo?: string; titulo: string; texto: string }`, `type Guia = { id: string; versao: number; padrao: RegExp; titulo: string; ajuda: { resumo: string; secoes: { titulo: string; itens: string[] }[] }; passos: Passo[] }`, `GUIAS: readonly Guia[]`, `guiaDaRota(caminho: string): Guia | null`, `ID_BOAS_VINDAS = 'boas-vindas'`, `precisaDoGuia(p: ProgressoGuia, g: Guia, estados: EstadoGuia[]): boolean`.
-  - `GuiaDoPainel({ progresso }: { progresso: ProgressoGuia })` (cliente): o botão "Ajuda" do cabeçalho, a gaveta, o tour e o aviso "Primeira vez aqui?".
+  - `GuiaDoPainel({ progresso }: { progresso: ProgressoGuia })` (cliente): o botão "Ajuda" do cabeçalho, a gaveta, o tour e o aviso "Primeira vez aqui?". O `progresso` do layout é só o valor **inicial**: o layout não é renderizado de novo na navegação pelo cliente e a ação não revalida, então o componente guarda o progresso em estado local, atualizado de forma otimista a cada marcação (`aplicarMarca`, com a mesma regra do `marcarGuia`: "visto" não rebaixa concluído/dispensado na mesma versão).
+  - `Tour({ guia, aberto, aoFechar, aoMarcar })`: quem grava é o `GuiaDoPainel` (`aoMarcar(estado)`), não o tour.
   - Página `/painel/ajuda` (servidor, funciona sem JavaScript).
 
 - [ ] **Step 1: Teste do conteúdo e das âncoras (falha)** — `src/modules/ajuda/conteudo.test.ts`
@@ -4826,7 +5165,6 @@ Run: `pnpm test src/modules/ajuda -t 'ids únicos|precisaDoGuia'` → PASS (os c
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Guia } from '@/modules/ajuda/conteudo';
-import { marcarGuiaAction } from '../preferencias/actions';
 
 const CARTAO_LARGURA = 384;
 const CARTAO_ALTURA = 240;
@@ -4843,7 +5181,7 @@ function posicao(c: DOMRect): CSSProperties | undefined {
  * ou com o alvo fora da tela (ex.: sem consulta hoje), aparece centralizado. A cada passo o foco vai ao título (o leitor
  * de tela anuncia). Esc = "Pular o tour" (grava "dispensado", D27). O alvo não é clicável durante o tour.
  */
-export function Tour({ guia, aberto, aoFechar }: { guia: Guia; aberto: boolean; aoFechar: () => void }) {
+export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto: boolean; aoFechar: () => void; aoMarcar: (estado: 'concluido' | 'dispensado') => void }) {
   const dialogo = useRef<HTMLDialogElement>(null);
   const titulo = useRef<HTMLHeadingElement>(null);
   const [i, setI] = useState(0);
@@ -4879,7 +5217,7 @@ export function Tour({ guia, aberto, aoFechar }: { guia: Guia; aberto: boolean; 
   }, [aberto, passo, medir]);
 
   const fechar = (estado: 'concluido' | 'dispensado') => {
-    void marcarGuiaAction(guia.id, guia.versao, estado);
+    aoMarcar(estado); // o GuiaDoPainel atualiza o progresso local e grava na conta
     setI(0);
     aoFechar();
   };
@@ -4982,36 +5320,64 @@ export function GavetaAjuda({ guia, aberta, aoFechar, verTour }: { guia: Guia | 
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { guiaDaRota, GUIAS, ID_BOAS_VINDAS, precisaDoGuia } from '@/modules/ajuda/conteudo';
-import type { ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
+import { useCallback, useEffect, useState } from 'react';
+import { guiaDaRota, GUIAS, ID_BOAS_VINDAS, precisaDoGuia, type Guia } from '@/modules/ajuda/conteudo';
+import type { EstadoGuia, ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { marcarGuiaAction } from '../preferencias/actions';
 import { GavetaAjuda } from './gaveta-ajuda';
 import { Tour } from './tour';
 
+/** A mesma regra do marcarGuia (T13), no estado local: "visto" não rebaixa concluído/dispensado na mesma versão. */
+export function aplicarMarca(p: ProgressoGuia, id: string, versao: number, estado: EstadoGuia): ProgressoGuia {
+  const atual = p[id];
+  if (estado === 'visto' && atual?.v === versao && (atual.estado === 'concluido' || atual.estado === 'dispensado')) return p;
+  return { ...p, [id]: { v: versao, estado } };
+}
+
 /**
  * D26/D27: o botão "Ajuda" do cabeçalho, a gaveta, o tour e o aviso "Primeira vez aqui?". Só o tour de boas-vindas abre
  * sozinho (uma vez, no Início, com o DPA já aceito — o layout só monta isto com o DPA em dia). `?tour=boas-vindas` reabre.
+ * O `progresso` do layout é só o valor inicial: o layout NÃO é renderizado de novo na navegação pelo cliente, então o
+ * progresso vive em estado local, atualizado de forma otimista a cada marcação — concluir o tour, ir a Pacientes e voltar
+ * ao Início pelo menu não o reabre.
  */
-export function GuiaDoPainel({ progresso }: { progresso: ProgressoGuia }) {
+export function GuiaDoPainel({ progresso: inicial }: { progresso: ProgressoGuia }) {
   const caminho = usePathname();
   const busca = useSearchParams();
   const router = useRouter();
   const guia = guiaDaRota(caminho);
   const boasVindas = GUIAS[0];
-  const [tour, setTour] = useState<typeof guia>(null);
+  const [progresso, setProgresso] = useState<ProgressoGuia>(inicial);
+  const [tour, setTour] = useState<Guia | null>(null);
   const [gaveta, setGaveta] = useState(false);
-  const [avisoFechado, setAvisoFechado] = useState(false);
+  // um id por aviso dispensado: dispensar numa tela não esconde o aviso das outras
+  const [avisosFechados, setAvisosFechados] = useState<ReadonlySet<string>>(() => new Set());
 
-  useEffect(() => {
-    if (caminho !== '/painel') return;
-    if (busca.get('tour') === ID_BOAS_VINDAS || precisaDoGuia(progresso, boasVindas, ['concluido', 'dispensado'])) setTour(boasVindas);
-  }, [caminho, busca, progresso, boasVindas]);
+  // um render novo do layout (recarregar, ação que revalida) traz o valor do servidor; o local, mais novo, prevalece
+  useEffect(() => setProgresso((local) => ({ ...inicial, ...local })), [inicial]);
 
-  const mostrarAviso = !!guia && guia.id !== ID_BOAS_VINDAS && !avisoFechado && precisaDoGuia(progresso, guia, ['concluido', 'dispensado', 'visto']);
+  const marcar = useCallback((g: Guia, estado: EstadoGuia) => {
+    setProgresso((p) => aplicarMarca(p, g.id, g.versao, estado));
+    void marcarGuiaAction(g.id, g.versao, estado);
+  }, []);
+  const fecharAviso = (id: string) => setAvisosFechados((f) => new Set(f).add(id));
+
+  // dois efeitos separados: o ?tour= só age quando a busca muda (fechar o tour marca o progresso antes de o
+  // router.replace tirar o parâmetro — um efeito único reabriria o tour nesse meio-tempo)
   useEffect(() => {
-    if (mostrarAviso && guia) void marcarGuiaAction(guia.id, guia.versao, 'visto'); // D27: o aviso aparece uma vez
+    if (caminho === '/painel' && busca.get('tour') === ID_BOAS_VINDAS) setTour(boasVindas);
+  }, [caminho, busca, boasVindas]);
+  useEffect(() => {
+    if (caminho === '/painel' && precisaDoGuia(progresso, boasVindas, ['concluido', 'dispensado'])) setTour(boasVindas);
+  }, [caminho, progresso, boasVindas]);
+
+  const mostrarAviso = !!guia && guia.id !== ID_BOAS_VINDAS && !avisosFechados.has(guia.id) && precisaDoGuia(progresso, guia, ['concluido', 'dispensado', 'visto']);
+  useEffect(() => {
+    // D27: o aviso aparece uma vez. Marca no servidor sem tirar o aviso desta visita (ele some ao dispensar ou ao navegar)
+    if (mostrarAviso && guia) void marcarGuiaAction(guia.id, guia.versao, 'visto');
   }, [mostrarAviso, guia]);
+  // ao sair da tela, o "visto" entra no estado local: voltar a ela pelo menu não mostra o aviso de novo
+  useEffect(() => () => { if (guia && guia.id !== ID_BOAS_VINDAS) setProgresso((p) => aplicarMarca(p, guia.id, guia.versao, 'visto')); }, [guia]);
 
   return (
     <>
@@ -5023,6 +5389,7 @@ export function GuiaDoPainel({ progresso }: { progresso: ProgressoGuia }) {
         <Tour
           guia={tour}
           aberto
+          aoMarcar={(estado) => marcar(tour, estado)}
           aoFechar={() => {
             setTour(null);
             if (busca.get('tour')) router.replace(caminho);
@@ -5032,13 +5399,28 @@ export function GuiaDoPainel({ progresso }: { progresso: ProgressoGuia }) {
       {mostrarAviso && guia && !tour && (
         <aside aria-label="Dica" className="fixed right-4 bottom-4 z-20 flex max-w-sm flex-wrap items-center gap-2 rounded-2xl border border-borda bg-cartao p-3 text-texto shadow-lg">
           <span>Primeira vez aqui?</span>
-          <button type="button" onClick={() => { setAvisoFechado(true); setTour(guia); }} className="inline-flex min-h-11 items-center rounded-full bg-destaque px-4 font-semibold text-white">Ver como funciona</button>
-          <button type="button" onClick={() => setAvisoFechado(true)} className="inline-flex min-h-11 items-center px-2 text-link underline">Dispensar</button>
+          <button type="button" onClick={() => { fecharAviso(guia.id); setTour(guia); }} className="inline-flex min-h-11 items-center rounded-full bg-destaque px-4 font-semibold text-white">Ver como funciona</button>
+          <button type="button" onClick={() => fecharAviso(guia.id)} className="inline-flex min-h-11 items-center px-2 text-link underline">Dispensar</button>
         </aside>
       )}
     </>
   );
 }
+```
+
+Teste da regra local — acrescentar a `src/modules/ajuda/conteudo.test.ts` (ou a um `guia-do-painel.test.ts` ao lado, importando só `aplicarMarca`):
+
+```ts
+import { aplicarMarca } from '@/app/painel/guia/guia-do-painel';
+
+describe('aplicarMarca (progresso local do GuiaDoPainel)', () => {
+  it('concluir grava; "visto" depois não rebaixa; versão nova volta a valer', () => {
+    const a = aplicarMarca({}, 'pacientes', 1, 'concluido');
+    expect(a).toEqual({ pacientes: { v: 1, estado: 'concluido' } });
+    expect(aplicarMarca(a, 'pacientes', 1, 'visto')).toBe(a);
+    expect(aplicarMarca(a, 'pacientes', 2, 'visto')).toEqual({ pacientes: { v: 2, estado: 'visto' } });
+  });
+});
 ```
 
 `src/app/painel/cabecalho.tsx`: a prop nova `progresso: ProgressoGuia | null` e, no grupo da direita, antes do `AlternarTema`: `{completo && progresso && <Suspense fallback={null}><GuiaDoPainel progresso={progresso} /></Suspense>}` (o `useSearchParams` pede o `Suspense`). `src/app/painel/layout.tsx`: `const completo = tenant.dpaVersao === DPA_VERSAO; const progresso = completo ? await lerGuia(data.user.id) : null;` e repassar ao `CabecalhoPainel`. `src/app/painel/alternar-tema.tsx`: `data-guia="tema"` no `<form>`.
@@ -5081,12 +5463,12 @@ export default async function AjudaPage() {
 }
 ```
 
-Devolver `/painel/ajuda` à lista de rotas do `e2e/acessibilidade-painel.spec.ts` (T17). Run: `pnpm test src/app/painel && pnpm test src/modules/ajuda -t 'ids únicos|precisaDoGuia' && pnpm typecheck && pnpm lint && pnpm build` → PASS. Os casos de cobertura de páginas e de alvos do `conteudo.test.ts` só passam com o conteúdo completo da Tarefa 20: as duas tarefas vão no mesmo PR.
+Devolver `'/painel/ajuda'` a `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts`, T17; a guarda `rotas-axe.test.ts` exige, porque a página passa a existir). Run: `pnpm test src/app/painel && pnpm test src/modules/ajuda -t 'ids únicos|precisaDoGuia' && pnpm typecheck && pnpm lint && pnpm build` → PASS. Os casos de cobertura de páginas e de alvos do `conteudo.test.ts` só passam com o conteúdo completo da Tarefa 20: as duas tarefas vão no mesmo PR.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/modules/ajuda src/app/painel/guia src/app/painel/ajuda src/app/painel/layout.tsx src/app/painel/cabecalho.tsx src/app/painel/alternar-tema.tsx e2e/acessibilidade-painel.spec.ts
+git add src/modules/ajuda src/app/painel/guia src/app/painel/ajuda src/app/painel/layout.tsx src/app/painel/cabecalho.tsx src/app/painel/alternar-tema.tsx e2e/painel-rotas.ts
 git commit -m "feat(manual): tour com <dialog> nativo, gaveta de ajuda por tela, página do manual e progresso na conta (P08-10, D26, D27)"
 ```
 
@@ -5344,7 +5726,7 @@ export async function pularTourSeAparecer(page: Page): Promise<void> {
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { escolherTema } from './painel';
+import { escolherTema, irPeloMenu } from './painel';
 
 // P08-10 (D26, D27). Conta própria, com o progresso zerado pelo seed a cada execução. Bloco de IP: 10.9.14.x.
 const MANUAL = { email: 'manual-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -5390,6 +5772,20 @@ test('rever pelo menu da conta: foco preso no diálogo, Próximo até Concluir; 
   await outro.context().close();
 });
 
+// O progresso vem do layout, que NÃO é renderizado de novo na navegação pelo cliente: este caso não pode recarregar
+test('navegação pelo cliente: depois de concluir, ir a Pacientes e voltar ao Início pelo menu não reabre o tour', async () => {
+  await page.goto('/painel?tour=boas-vindas');
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Próximo' }).click();
+  await page.getByRole('button', { name: 'Concluir' }).click();
+  await expect(tour()).toBeHidden();
+  await irPeloMenu(page, 'Pacientes');
+  await expect(page).toHaveURL(/\/painel\/pacientes$/);
+  await irPeloMenu(page, 'Início');
+  await expect(page).toHaveURL(/\/painel$/);
+  await page.waitForLoadState('networkidle');
+  await expect(tour()).toBeHidden();
+});
+
 test('axe com o tour aberto, em cada passo, nos modos claro e escuro', async () => {
   for (const tema of ['Claro', 'Escuro'] as const) {
     await escolherTema(page, tema);
@@ -5420,11 +5816,18 @@ test('Ajuda na Agenda: a gaveta mostra o texto da tela; o tour da tela marca o a
   await page.getByRole('button', { name: 'Pular o tour' }).click();
 });
 
-test('"Primeira vez aqui?" aparece uma vez por tela', async () => {
+test('"Primeira vez aqui?" aparece uma vez por tela, também na navegação pelo menu; dispensar numa tela não esconde o das outras', async () => {
+  const dica = page.getByRole('complementary', { name: 'Dica' });
   await page.goto('/painel/diarios');
-  await expect(page.getByRole('complementary', { name: 'Dica' })).toContainText('Primeira vez aqui?');
+  await expect(dica).toContainText('Primeira vez aqui?');
+  await dica.getByRole('button', { name: 'Dispensar' }).click();
+  await irPeloMenu(page, 'Conteúdos');
+  await expect(dica).toContainText('Primeira vez aqui?'); // outra tela, outro aviso (dispensados por id)
+  await irPeloMenu(page, 'Diários');
+  await page.waitForLoadState('networkidle');
+  await expect(dica).toBeHidden(); // sem recarregar: o "visto" já está no progresso local
   await page.reload();
-  await expect(page.getByRole('complementary', { name: 'Dica' })).toBeHidden();
+  await expect(dica).toBeHidden();
 });
 
 test('o manual completo funciona sem JavaScript', async ({ browser }) => {
@@ -5492,7 +5895,7 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] Snapshot no hPanel antes do merge final; volta = redeploy da imagem anterior no GHCR (ficam as 2 últimas) — **dono**
 
 ## Produto e acessibilidade
-- [ ] Teste manual do PWA no **Android** e no **iPhone (iOS 16.4+)**: instalar, ativar notificações, push real (lembrete, plano novo, conteúdo novo), plano offline, troca de conta no mesmo aparelho, foto HEIC do iPhone no diário (W-13; runbook do Plano 06, passo 5) — **dono**
+- [ ] Teste manual do PWA no **Android** e no **iPhone (iOS 16.4+, de preferência um com Safari anterior ao 17.5)**: **foco visível** ao navegar com teclado/VoiceOver em `/entrar` e no portal (o axe roda só no Chromium), cores do portal no aparelho escuro (D18), instalar, ativar notificações, push real (lembrete, plano novo, conteúdo novo), plano offline, troca de conta no mesmo aparelho, foto HEIC do iPhone no diário (W-13; runbook do Plano 06, passo 5) — **dono**
 - [ ] Teste manual do Plano 07: vídeo não listado do YouTube da Debby, Vimeo com `dnt=1`, "Carregar o vídeo" (D12), PDF de orientação, receita no plano — **dono**
 - [ ] Acessibilidade fora do axe (X-5): `<details>` abertos, selo offline, estados de erro, tutorial do iOS, alvo de toque — conferência manual no celular — **dono + Dev**
 - [ ] Painel no modo escuro e no claro, num computador e num tablet (768 px) — **Debby**
@@ -5524,7 +5927,7 @@ git commit -m "docs(operacao): checklist do go-live para o dono assinar (P08-09)
 4. **Monitor externo (D3):** monitores HTTP(S) de `https://<domínio>/api/health` (palavra-chave `"ok"`) e de `https://<domínio>/entrar`, intervalo de 5 min (ou 1 min na alternativa), alerta por e-mail e pelo app no celular; alerta de certificado TLS se o serviço tiver; mandar o "alerta de teste" do próprio serviço e marcar no checklist. O `nutri_evolution` não tem endereço público: vale o aviso do painel quando o WhatsApp cai.
 5. **Sentry (P08-01):** criar o projeto (plataforma Node), ligar em *Settings → Security & Privacy* o *Data Scrubber*, os *Default Scrubbers* e *Prevent Storing of IP Addresses*; `SENTRY_DSN` e `SENTRY_ENVIRONMENT=producao` no Easypanel em `nutri_app` **e** `nutri_worker` (o dono, pelo painel; nunca colar o DSN no chat). Depois do deploy, o **erro sintético** (com confirmação; `docker exec` só para diagnóstico): `docker exec -i $(docker ps -q -f name=nutri_app | head -n1) node --import tsx -e "const s = await import('./src/lib/sentry.ts'); s.iniciarSentry({ dsn: process.env.SENTRY_DSN, ambiente: 'producao', papel: 'app' }); s.capturarErro(new Error('Glicemia 180 de Paciente Falso'), { motivo: 'teste' }); await s.encerrarSentry();"` → no Sentry, o evento chega com `[removido]` e sem "Glicemia". MCP do Sentry nesta máquina: autenticar na org nova (sem arquivo no repositório).
 6. **Merge do Plano 08 (= deploy)**, só com OK explícito: snapshot no hPanel; as migrations **0085–0088** rodam no deploy com `DATABASE_URL_MIGRATOR` — 0085 cria dois gatilhos (`patients`, `data_exports`), uma política no `audit_log` e refaz a `paciente_arquivos` (nenhuma linha muda); 0086 e 0088 só acrescentam colunas com padrão; 0087 cria uma função. A partir do deploy, todas as páginas são dinâmicas (CSP com nonce): conferir com `curl -sI` e abrir o painel e o portal. Se algo quebrar por CSP: `CSP_MODO=relatorio` no Easypanel (`nutri_app`) e reiniciar o serviço **com confirmação**; os relatórios aparecem no log como "csp violada".
-7. **Carga (P08-03):** seguir `docs/operacao/carga.md` (madrugada, pilha separada, OK do dono). Rodada 1 → o relatório propõe os limites → o dono ajusta no Easypanel → rodada 2 → anexar os dois relatórios ao PR/checklist.
+7. **Carga (P08-03), depois do merge e antes de qualquer paciente real:** seguir `docs/operacao/carga.md` (madrugada, pilha separada, OK do dono) com a imagem do deploy do passo 6 (`ghcr.io/<dono>/nutridebby:<sha do merge>`; o GHCR não tem imagem de branch). Rodada 1 → o relatório propõe os limites → o dono ajusta no Easypanel → rodada 2 → os dois relatórios num PR curto de docs e o item do checklist marcado. Mudança de código pedida pela carga = outro PR e nova rodada, ainda antes do primeiro paciente real.
 8. **Textos legais (P08-06):** quando o advogado entregar, a Tarefa 8 vira um PR curto; no deploy, a Debby aceita o DPA v1.0 no primeiro acesso e cada paciente aceita o termo v1.0 no próximo login (D25).
 9. **Validação com a Debby (P08-08)**, em produção com um paciente de teste (apagar depois, com confirmação): cadastrar e convidar → aceite do termo → anamnese → antropometria e gasto energético com os casos do Apêndice A → plano alimentar, publicar, PDF → agenda, horários, página pública, lembretes (e-mail, push; WhatsApp se D16) → presença/falta → diário com foto e comentário → conteúdos (vídeo, receita com o valor por porção, orientação com PDF) → pedido de dados e de exclusão → histórico de acessos. Registrar o aceite dela (fórmulas, textos, fluxo, **texto do manual guiado**) e a lista de mudanças (backlog; só erro de cálculo bloqueia).
 10. **Treinamento:** sessão por videochamada gratuita usando o tour de boas-vindas e `/painel/ajuda` (impressa, se ela quiser); guia curto para os pacientes: instalar o app no Android e no iPhone, ativar notificações, "Sair" em aparelho compartilhado. Combinar o canal de suporte.
@@ -5534,10 +5937,10 @@ git commit -m "docs(operacao): checklist do go-live para o dono assinar (P08-09)
 ## Fechamento do plano (após a Tarefa 21)
 
 - [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` com o **checklist reforçado** — este é o P08-05, a revisão geral final do MVP:
-  - **Sentry e logs (RNF-11):** todo `Sentry.init` passa por `opcoesDoSentry` (guarda verde); `filtrarEvento` nos três caminhos (app, worker, navegador); `/api/erro-cliente` com origem, limite, corpo de 1 KB e campos por regex; nenhum `console`/breadcrumb/`extra` com dado; `request_id` só UUID gerado no proxy.
+  - **Sentry e logs (RNF-11):** todo `Sentry.init` passa por `opcoesDoSentry` (guarda verde); `filtrarEvento` nos três caminhos (app, worker, navegador); `/api/erro-cliente` com origem, limite, corpo de 1 KB e campos por regex; nenhum `console`/breadcrumb/`extra` com dado; `request_id` só UUID gerado no proxy (páginas e ações) ou no `onRequestError` (APIs); `matcher` do proxy sem `/api/*` (D2: nada de corpo bufferizado pelo Next; o E2E do exame de 15 MB passa).
   - **CSP e cabeçalhos (RNF-06):** nonce novo por requisição; nenhum `'unsafe-eval'` em produção; `script-src` sem `'unsafe-inline'`; `frame-src` só os três hosts; `frame-ancestors 'none'`; HSTS; `/api/arquivos` mantém o `default-src 'none'; sandbox`; o modo relatório só por variável.
   - **RLS (RNF-07):** os gatilhos da 0085 recusam toda coluna fora da lista (também com `UPDATE … SET` de várias colunas); `user_id` só de nulo para a própria conta; `audit_log` invisível ao paciente; capas só pela audiência; `admin_metricas_sucesso()` com dono sem superusuário e recusando rodar em `withTenant`.
-  - **Limites e sessão:** limite por conta no push; `actorUserId` obrigatório; `cache()` da sessão não guarda decisão de acesso (a decisão roda por chamada); S-12 mantido com justificativa.
+  - **Limites e sessão:** limite por conta no push; `actorUserId` obrigatório com sessão de login; `semConta: true` só nos três fluxos de `SEM_CONTA_PERMITIDOS` (link da consulta, respostas do WhatsApp, convite), com a RLS por paciente mantida e nenhum ator inventado; `cache()` da sessão não guarda decisão de acesso (a decisão roda por chamada); S-12 mantido com justificativa.
   - **LGPD:** `access_events` na exclusão e na anonimização; retenção de 400 dias; textos v1.0 com os suboperadores; novo aceite.
   - **Tema e manual:** `user.tema`/`user.guia` gravados só por `preferencias.ts`, com o `userId` da sessão; `marcarGuia` sem chave arbitrária no `jsonb`; o tour não executa ações; nada do progresso sai do servidor.
   - **Backup:** o script novo não põe segredo nem stderr no log; a restauração apaga o container; nada de dado restaurado em disco.
@@ -5567,7 +5970,7 @@ git commit -m "docs(operacao): checklist do go-live para o dono assinar (P08-09)
 | P08-08 Validação com a Debby + treinamento | Runbook, passos 9 e 10; checklist |
 | P08-09 Go-live + checklist assinado | Tarefa 21; runbook, passos 11 e 12 |
 | P08-10 Manual guiado | Tarefas 19, 20; D26, D27 |
-| Visual V2 (bento, claro/escuro, botão, preferência por usuária) em todas as telas do painel | Tarefas 12–17 (e 18 para o portal, D18) |
+| Visual V2 (bento, claro/escuro, botão, preferência por usuária) em todas as telas do painel | Tarefas 12–17 (e 18 para o portal, D18); o axe e os 768 px cobrem toda tela com `page.tsx` (`ROTAS_DO_PAINEL` + guarda `rotas-axe.test.ts`, T17) |
 | RNF-08 LGPD (`access_events`) | Tarefa 7 |
 | RNF-10 axe (painel e portal no escuro) | Tarefas 12 (passo 1), 17, 18, 20 |
 | Notas N1 (429 com IP real), N11 (log da Evolution), N15/N36/N37 (testes manuais, VAPID), N35 (DMARC) | Checklist (Tarefa 21) |
@@ -5577,7 +5980,7 @@ git commit -m "docs(operacao): checklist do go-live para o dono assinar (P08-09)
 
 **3. Consistência de nomes e tipos:** `filtrarEvento`/`filtrarBreadcrumb`/`caminhoSeguro` (T1) em T2 e na rota de erro do cliente; `requestIdDe`/`CABECALHO_REQUEST_ID` (T1) em T2 e T4; `criarLimite`/`MSG_MUITAS_TENTATIVAS` (T2) em T4 e T6; `montarCsp`/`novoNonce`/`CABECALHOS_SEGURANCA` (T4) no proxy e no `next.config.ts`; `apagarAcessosDoTitular`/`limparAcessosAntigos` (T7) no `lgpd.ts` e no worker; `SUBOPERADORES` (T8) no teste e no runbook; `metricasDeSucesso`/`DIAS_CS01`/`salvarMetricasBase`/`metricasDeSucessoPorTenant` (T9) em T15 e no admin; `TOKENS`/`PARES`/`contraste`/`misturar`/`corNoEscuro`/`CINZA_SOBRE_DESTAQUE` (T12) em T14 e T15; `MarcaTenant.corNoEscuro` (T12) no layout (T14) e no portal (T18); `Tema`/`ehTema`/`proximoTema`/`ProgressoGuia`/`EstadoGuia` (T13, `preferencias-tipos.ts`) em T14 e T19; `alternarTemaAction`/`escolherTemaAction`/`marcarGuiaAction` (T13) em T14 e T19; `ITENS_DO_MENU`/`itemAtual` (T14); `Cartao`/`Botao`/`BotaoLink`/`Aviso`/`Selo` (T15) em T16; `resumoDoDia`/`contarDiariosNaoVistos` (T15); `GUIAS`/`guiaDaRota`/`precisaDoGuia`/`ID_BOAS_VINDAS` (T19/T20) no seed e nos testes; `escolherTema`/`irPeloMenu` (T17) em T20; `pularTourSeAparecer` (T20). Migrations: 0085 (T5), 0086/0087 (T9), 0088 (T13), na ordem das tarefas.
 
-**4. Review Focus → testes:** 1 (dado no Sentry) → T1 (`sentry-filtro.test.ts`: mensagens, URLs com token, `user`, `extra`, tags, breadcrumbs), T2 (envelope real com transporte falso; rota `/api/erro-cliente` com 5 casos de recusa e o limite); 2 (CSP) → T4 (`csp.test.ts`, `proxy.test.ts`, `e2e/csp.spec.ts` com Turnstile e as telas do painel e do portal; todas as specs rodam com a CSP valendo), T6 (player sob demanda sem violação); 3 (tema e marca) → T12 (teste de propriedade com 3000 cores, sobreposição escura), T13 (tema por conta), T17 (outro aparelho, recarregar, três modos no axe, 768 px); 4 (escrita forjada do paciente) → T5 (`paciente-colunas.test.ts`: status, `anonimizar_apos`, nome, origem do opt-in, `user_id` de outra conta, `data_exports` pronta/escopo, `audit_log`, capa fora da audiência); 5 (manual atrapalhando) → T13 (`jsonb_set` atômico, chave inválida), T19 (`conteudo.test.ts`: cobertura de páginas e alvos), T20 (`manual.spec.ts`: abre uma vez, Esc grava, foco preso, outro aparelho, alvo do holofote, sem JS, seed sem tour para as outras specs).
+**4. Review Focus → testes:** 1 (dado no Sentry) → T1 (`sentry-filtro.test.ts`: mensagens, URLs com token, `user`, `extra`, tags, breadcrumbs), T2 (envelope real com transporte falso; rota `/api/erro-cliente` com 5 casos de recusa e o limite); 2 (CSP) → T4 (`csp.test.ts`, `proxy.test.ts`, `e2e/csp.spec.ts` com Turnstile e as telas do painel e do portal; todas as specs rodam com a CSP valendo), T6 (player sob demanda sem violação); 3 (tema e marca) → T12 (teste de propriedade com 3000 cores, sobreposição escura), T13 (tema por conta), T17 (outro aparelho, recarregar, três modos no axe, 768 px); 4 (escrita forjada do paciente) → T5 (`paciente-colunas.test.ts`: status, `anonimizar_apos`, nome, origem do opt-in, `user_id` de outra conta, `data_exports` pronta/escopo, `audit_log`, capa fora da audiência); 5 (manual atrapalhando) → T13 (`jsonb_set` atômico, chave inválida), T19 (`conteudo.test.ts`: cobertura de páginas e alvos), T19 (`aplicarMarca`: progresso local otimista), T20 (`manual.spec.ts`: abre uma vez, Esc grava, foco preso, outro aparelho, **concluir e voltar ao Início pelo menu sem recarregar não reabre**, aviso por tela também na navegação pelo menu, alvo do holofote, sem JS, seed sem tour para as outras specs).
 
 ## Decisões para o dono (★ — pendentes; o plano segue a recomendação)
 
@@ -5607,4 +6010,4 @@ Pontos que precisam de atenção (não são decisões):
 
 ## Execução
 
-Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa, revisão final do branch no fim), em **duas frentes paralelas em worktrees** — operação e segurança (Tarefas 1–11) e visual e manual (Tarefas 12–20) — integradas antes da Tarefa 17 (o axe do painel roda com a CSP da Tarefa 4) e fechadas pela 21. Motivo: são 21 tarefas com interfaces bem definidas entre si (o filtro do Sentry, a CSP, os tokens, as preferências e o conteúdo do manual são consumidos por várias outras), e um erro aqui vai direto para o go-live com dado de saúde real — uma fuga para o Sentry ou uma CSP quebrando o Turnstile em produção custa caro de desfazer. A Tarefa 8 espera o advogado; a 10 e a 11 esperam o OK do dono para rodar na VPS.
+Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa, revisão final do branch no fim), em **duas frentes paralelas em worktrees** — operação e segurança (Tarefas 1–11) e visual e manual (Tarefas 12–20) — com dois pontos de integração — a frente de operação até a Tarefa 9 entra no worktree visual **antes da Tarefa 15** (os cartões de métricas do Início usam a T9) e tudo é integrado antes da Tarefa 17 (o axe do painel roda com a CSP da Tarefa 4) — e fechadas pela 21; a carga (Tarefa 10, passo 5) roda depois do merge. Motivo: são 21 tarefas com interfaces bem definidas entre si (o filtro do Sentry, a CSP, os tokens, as preferências e o conteúdo do manual são consumidos por várias outras), e um erro aqui vai direto para o go-live com dado de saúde real — uma fuga para o Sentry ou uma CSP quebrando o Turnstile em produção custa caro de desfazer. A Tarefa 8 espera o advogado; a 10 e a 11 esperam o OK do dono para rodar na VPS.
