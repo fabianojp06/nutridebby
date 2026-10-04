@@ -596,6 +596,13 @@
       "when": 1791090524643,
       "tag": "0084_conteudo_novo",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791122657989,
+      "tag": "0085_paciente_colunas",
+      "breakpoints": true
     }
   ]
 }

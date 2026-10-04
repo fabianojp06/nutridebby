@@ -12,6 +12,8 @@ const violaRls = (e: unknown) => {
   const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
   return c.code === '42501' && /row-level security/.test(c.message ?? '');
 };
+/** 42501 da RLS ou do gatilho paciente_colunas (0085), que recusa antes do WITH CHECK. */
+const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
 
 describe('P-16 (a) / D1: a sessão de paciente não grava fora de PACIENTE_ESCREVE', () => {
   it('não cria "Meu alimento", medida nem modelo de anamnese do tenant', async () => {
@@ -111,7 +113,7 @@ describe('0080: o banco confere o que a sessão de paciente grava (defesa em pro
     await withTenant(T.ctx, (tx) => tx.execute(sql`insert into data_exports (tenant_id, patient_id, escopo) values (${T.tenantId}, ${p2.id}, 'equipe'), (${T.tenantId}, ${p2.id}, 'titular')`), app.db);
     expect((await comoP2(sql`select escopo from data_exports`)).rows).toEqual([{ escopo: 'titular' }]);
     await expect(comoP2(sql`insert into data_exports (tenant_id, patient_id, escopo) values (${T.tenantId}, ${p2.id}, 'equipe')`)).rejects.toSatisfy(violaRls);
-    await expect(comoP2(sql`update data_exports set escopo = 'equipe'`)).rejects.toSatisfy(violaRls);
+    await expect(comoP2(sql`update data_exports set escopo = 'equipe'`)).rejects.toSatisfy(negado); // gatilho paciente_colunas (0085)
     expect((await comoP2(sql`update data_exports set status = 'falhou' where escopo = 'equipe'`)).rowCount).toBe(0);
     expect((await comoP2(sql`update data_exports set status = 'falhou'`)).rowCount).toBe(1); // o do titular (solicitarExportacao)
     await comoP2(sql`insert into data_exports (tenant_id, patient_id, escopo) values (${T.tenantId}, ${p2.id}, 'titular')`);

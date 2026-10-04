@@ -17,7 +17,7 @@ export const RLS_EXCEPTIONS: Record<string, string> = {
 /** Tabelas com patient_id que não precisam da política de paciente, com a justificativa. */
 export const PATIENT_POLICY_EXCEPTIONS: Record<string, string> = {
   stored_files:
-    'D4: política própria paciente_arquivos — o paciente vê os próprios arquivos e os do consultório (logo, capa, patient_id nulo)',
+    'D4: política própria paciente_arquivos — o paciente vê os próprios arquivos e os do consultório (logo; capa só de conteúdo visível a ele, N38/0085)',
 };
 
 interface TenantTableRow {
@@ -176,7 +176,7 @@ const ESCRITAS: readonly ComandoEscrita[] = ['insert', 'update', 'delete'];
  * entrada aqui. Sem `update`, SELECT … FOR UPDATE/SHARE de paciente não enxerga a linha.
  */
 export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrita[]; motivo: string }> = {
-  patients: { comandos: ['update'], motivo: 'aceite do convite (US-011), opt-in/opt-out do WhatsApp e a trava FOR UPDATE das ações do paciente' },
+  patients: { comandos: ['update'], motivo: 'aceite do convite (US-011), opt-in/opt-out do WhatsApp e a trava FOR UPDATE das ações do paciente — colunas conferidas pelo gatilho paciente_colunas (0085, B-4)' },
   appointments: { comandos: ['insert', 'update'], motivo: 'agendar, confirmar, cancelar e remarcar pelo link, pelo WhatsApp e pelo portal (US-032, US-033, US-035)' },
   notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
@@ -185,7 +185,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   push_subscriptions: { comandos: ['insert', 'delete'], motivo: 'INT-03 / P06-02: ativar e cancelar notificações no aparelho' },
   diary_entries: { comandos: ['insert'], motivo: 'US-042: o paciente registra a refeição (não edita nem apaga, D11); sem foto convertida, comentário nem "visto" (0080)' },
   privacy_requests: { comandos: ['insert'], motivo: 'US-046: o titular pede a exclusão' },
-  data_exports: { comandos: ['insert', 'update'], motivo: 'US-046: o titular pede os próprios dados (solicitarExportacao marca o pendente esquecido como falhou); só escopo titular (0080)' },
+  data_exports: { comandos: ['insert', 'update'], motivo: 'US-046: o titular pede os próprios dados (solicitarExportacao marca o pendente esquecido como falhou); só escopo titular (0080); UPDATE só pendente → falhou (gatilho paciente_colunas, 0085)' },
   content_views: { comandos: ['insert'], motivo: 'US-055 (D18): o paciente registra que abriu o conteúdo, uma vez; só de conteúdo que ele vê (0083)' },
   content_favorites: { comandos: ['insert', 'delete'], motivo: 'US-055: favoritar e desfavoritar; só conteúdo que ele vê (0083)' },
 };

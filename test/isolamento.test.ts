@@ -121,6 +121,10 @@ let P1: string;
 let P2: string;
 let tabelas: string[] = [];
 let soEquipe = new Set<string>();
+/** B-4 (0085): o gatilho paciente_colunas confere as colunas que a sessão de paciente altera — recusa (42501) antes do WITH CHECK. */
+let colunasConferidas = new Set<string>();
+/** B-6 (0085): paciente_sem_leitura — a sessão de paciente não lê a tabela, nem as próprias linhas (audit_log). */
+let semLeituraDoPaciente = new Set<string>();
 
 const naOrdemDeCriacao = (ts: string[]) => [...ts.filter((t) => t === 'patients'), ...ts.filter((t) => t !== 'patients')];
 const naOrdemDeExclusao = (ts: string[]) => [...ts.filter((t) => !ULTIMAS.includes(t)), ...ULTIMAS.filter((t) => ts.includes(t))];
@@ -140,6 +144,12 @@ beforeAll(async () => {
   tabelas = naOrdemDeCriacao((await listTenantTables(owner.pool)).filter((t) => !RLS_EXCEPTIONS[t]));
   soEquipe = new Set(
     (await owner.pool.query<{ t: string }>(`select tablename as t from pg_policies where schemaname = 'public' and policyname = 'staff_only'`)).rows.map((r) => r.t),
+  );
+  colunasConferidas = new Set(
+    (await owner.pool.query<{ t: string }>(`select tgrelid::regclass::text as t from pg_trigger where tgname = 'paciente_colunas'`)).rows.map((r) => r.t),
+  );
+  semLeituraDoPaciente = new Set(
+    (await owner.pool.query<{ t: string }>(`select tablename as t from pg_policies where schemaname = 'public' and policyname = 'paciente_sem_leitura'`)).rows.map((r) => r.t),
   );
   for (const t of tabelas) {
     if (!FABRICAS[t]) continue;
@@ -175,6 +185,10 @@ const violaRls = (e: unknown) => {
   const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
   return c.code === '42501' && /row-level security/.test(c.message ?? '');
 };
+/** Recusa da RLS ou do gatilho paciente_colunas (B-4, 0085): o mesmo código 42501. */
+const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
+/** O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou. */
+const UPDATE_DO_PACIENTE: Record<string, SQL> = { data_exports: sql`status = 'falhou'` };
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
   Number(
@@ -213,7 +227,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
         expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
         const mover = sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`;
         // D1 (R1): sem `update` em PACIENTE_ESCREVE, paciente_sem_update (USING) esconde a linha do UPDATE: 0 linhas, sem erro
-        if ((PACIENTE_ESCREVE[t]?.comandos ?? []).includes('update')) await expect(comoP2(mover), t).rejects.toSatisfy(violaRls);
+        if ((PACIENTE_ESCREVE[t]?.comandos ?? []).includes('update')) await expect(comoP2(mover), t).rejects.toSatisfy(colunasConferidas.has(t) ? negado : violaRls);
         else expect((await comoP2(mover)).rowCount, t).toBe(0);
       }
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1);
@@ -311,15 +325,17 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const c = sql.identifier(col);
       const antesP1 = await contarPaciente(t, col, A, P1);
       const apaga = !SO_INSERE.has(t) && !SEM_DELETE_DO_PACIENTE.has(t);
+      if (semLeituraDoPaciente.has(t)) expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0); // há linhas de P2 que ela não lê
       await withTenant(
         { tenantId: A, role: 'paciente', patientId: P2 },
         async (tx) => {
           const vistas = await tx.execute(sql`select ${c} as titular from ${id}`);
+          if (semLeituraDoPaciente.has(t)) return expect(vistas.rows, t).toEqual([]); // B-6: nem as próprias (o owner contou acima)
           expect(vistas.rows.length, t).toBeGreaterThanOrEqual(1);
           for (const row of vistas.rows) expect(row.titular, t).toBe(P2);
           if (SO_INSERE.has(t)) return;
           const pode = PACIENTE_ESCREVE[t]?.comandos ?? [];
-          const alteradas = await tx.execute(sql`update ${id} set ${c} = ${c}`);
+          const alteradas = await tx.execute(sql`update ${id} set ${UPDATE_DO_PACIENTE[t] ?? sql`${c} = ${c}`}`);
           // D1: sem `update` em PACIENTE_ESCREVE, o UPDATE da própria linha também dá 0 (paciente_sem_update)
           expect(alteradas.rowCount, t).toBe(pode.includes('update') ? vistas.rows.length : 0);
           if (!apaga) return;
