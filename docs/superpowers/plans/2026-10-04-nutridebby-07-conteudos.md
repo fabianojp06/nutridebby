@@ -578,7 +578,7 @@ git commit -m "feat(db): tabelas de conteúdo com RLS, visualização/favorito d
 
 **Files:**
 - Create: `drizzle/0083_audiencia_conteudos.sql` (custom), `src/modules/conteudo/constantes.ts`, `src/modules/conteudo/audiencia.ts`, `src/modules/conteudo/audiencia.test.ts`, `test/conteudos.ts`
-- Modify: `src/db/rls-guard.ts` (+ `rls-guard.test.ts`), `CLAUDE.md` (regra 2)
+- Modify: `src/db/rls-guard.ts` (+ `rls-guard.test.ts`), `src/db/migrate-owner.test.ts` (a função SECURITY DEFINER no cluster do runbook), `CLAUDE.md` (regra 2)
 
 **Interfaces:**
 - Consumes: tabelas da Tarefa 1; `patientTagLinks`, `patientTags`, `patients`, `meals`, `mealPlans`; `listarEtiquetas` (`src/modules/pacientes/etiquetas.ts`); `idValido` (`src/modules/pacientes/base.ts`); `novoTenant`, `novoPaciente`, `ctxPaciente` (`test/pacientes.ts`).
@@ -987,6 +987,59 @@ CREATE POLICY paciente_conteudo_favorito ON content_favorites AS RESTRICTIVE FOR
     SELECT 1 FROM contents c WHERE c.tenant_id = content_favorites.tenant_id AND c.id = content_favorites.content_id));
 ```
 
+**Teste no cluster do runbook (dono sem superusuário)** — `src/db/migrate-owner.test.ts`. Nos testes comuns a função pertence ao superusuário (o `global-setup` migra como `postgres`) e ignora a RLS; em produção o dono é o migrator **sem** superusuário e **sem** BYPASSRLS, e com FORCE RLS a função só enxerga `patient_tag_links` (staff_only) porque troca `app.role` para `worker`. Se essa troca sumir numa refatoração, o CI ficaria verde e, em produção, todo conteúdo "Pacientes com etiqueta" sumiria para todos, sem erro. Mesmo precedente das funções da 0012 e da 0065 (já com caso neste arquivo). Acrescentar, no fim do `describe`:
+
+```ts
+  it('audiência por etiqueta (0083): a função SECURITY DEFINER do migrator sem superusuário enxerga patient_tag_links sob FORCE RLS e devolve o contexto do paciente', async () => {
+    const c = await app.connect();
+    const emWorker = async (t: string) => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [t]);
+    };
+    const comoPaciente = async (t: string, p: string) => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'paciente', true), set_config('app.patient_id', $2, true)`, [t, p]);
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao) values ('aud-etiqueta', 'A') returning id`)).rows[0].id as string;
+      await emWorker(t);
+      const [ana, bia] = (
+        await c.query(
+          `insert into patients (tenant_id, nome, data_nascimento, sexo, email, status)
+           values ($1, 'Ana', '1990-01-01', 'F', 'ana@aud.dev', 'ativo'), ($1, 'Bia', '1990-01-01', 'F', 'bia@aud.dev', 'ativo') returning id`,
+          [t],
+        )
+      ).rows.map((r) => r.id as string);
+      const tag = (await c.query(`insert into patient_tags (tenant_id, nome) values ($1, 'gestante') returning id`, [t])).rows[0].id as string;
+      await c.query(`insert into patient_tag_links (tenant_id, patient_id, tag_id) values ($1, $2, $3)`, [t, ana, tag]);
+      const conteudo = (
+        await c.query(
+          `insert into contents (tenant_id, tipo, titulo, visibilidade, status, publicado_em) values ($1, 'orientacao', 'Para gestantes', 'etiquetas', 'publicado', now()) returning id`,
+          [t],
+        )
+      ).rows[0].id as string;
+      await c.query(`insert into content_audience (tenant_id, content_id, tag_id) values ($1, $2, $3)`, [t, conteudo, tag]);
+      await c.query('commit');
+
+      await comoPaciente(t, ana);
+      expect((await c.query('select count(*)::int as n from contents')).rows[0].n).toBe(1);
+      const ctxDepois = await c.query(`select current_setting('app.role') as papel, current_setting('app.patient_id') as paciente`);
+      expect(ctxDepois.rows[0]).toEqual({ papel: 'paciente', paciente: ana });
+      // a sessão de paciente continua sem ver a etiqueta (staff_only)
+      expect((await c.query('select count(*)::int as n from patient_tag_links')).rows[0].n).toBe(0);
+      await c.query('rollback');
+
+      await comoPaciente(t, bia);
+      expect((await c.query('select count(*)::int as n from contents')).rows[0].n).toBe(0);
+      await c.query('rollback');
+    } finally {
+      c.release();
+    }
+  });
+```
+
+Run: `pnpm test src/db/migrate-owner.test.ts` → PASS (depois da migration).
+
 - [ ] **Step 5: Módulo da audiência** — `src/modules/conteudo/audiencia.ts`
 
 ```ts
@@ -1121,7 +1174,7 @@ Run: `pnpm db:migrate` e `pnpm test src/modules/conteudo/audiencia.test.ts src/d
 - [ ] **Step 8: Commit**
 
 ```bash
-git add drizzle/0083_audiencia_conteudos.sql drizzle/meta src/modules/conteudo/constantes.ts src/modules/conteudo/audiencia.ts src/modules/conteudo/audiencia.test.ts test/conteudos.ts src/db/rls-guard.ts src/db/rls-guard.test.ts CLAUDE.md
+git add drizzle/0083_audiencia_conteudos.sql drizzle/meta src/modules/conteudo/constantes.ts src/modules/conteudo/audiencia.ts src/modules/conteudo/audiencia.test.ts test/conteudos.ts src/db/rls-guard.ts src/db/rls-guard.test.ts src/db/migrate-owner.test.ts CLAUDE.md
 git commit -m "feat(conteudo): audiência avaliada na leitura pela RLS (todos, etiquetas via SECURITY DEFINER, pacientes, receita do plano) — RN-12"
 ```
 
@@ -2889,22 +2942,30 @@ export function ArquivosDoConteudo({ id, tipo, capaUrl, pdfUrl }: { id: string; 
 import { useActionState } from 'react';
 import { despublicarConteudoAction, publicarConteudoAction, type ConteudoState } from './actions';
 
-/** D17: "Publicar" no rascunho; "Despublicar" no publicado. A Tarefa 10 acrescenta "Avisar pacientes". */
+/**
+ * D17: "Publicar" no rascunho; "Despublicar" no publicado. A Tarefa 10 acrescenta "Avisar pacientes".
+ * A action chama `revalidatePath`: o refresh rende a página de novo já com `publicado = true`, e o estado do
+ * `useActionState` continua (mesmo componente, mesma posição). Por isso o `role="status"` fica FORA dos dois ramos —
+ * senão "Conteúdo publicado. Aviso enviado para N pacientes." (D5) nunca aparece. Só mostra o `ok` no ramo publicado:
+ * depois de "Despublicar", o "Conteúdo publicado." antigo não volta no ramo do rascunho.
+ */
 export function PublicarForm({ id, publicado }: { id: string; publicado: boolean }) {
   const [s, publicar, enviando] = useActionState<ConteudoState, FormData>(publicarConteudoAction.bind(null, id), {});
   const erro = s.erros?.geral ?? s.erros?.visibilidade;
-  if (publicado)
-    return (
-      <form action={despublicarConteudoAction.bind(null, id)}>
-        <button className="rounded border px-4 py-2">Despublicar</button>
-      </form>
-    );
   return (
-    <form action={publicar} className="space-y-2">
-      {erro && <p role="alert" className="text-red-700">{erro}</p>}
-      <p role="status">{s.ok}</p>
-      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">Publicar</button>
-    </form>
+    <div className="space-y-2">
+      {!publicado && erro && <p role="alert" className="text-red-700">{erro}</p>}
+      <p role="status">{publicado ? s.ok : undefined}</p>
+      {publicado ? (
+        <form action={despublicarConteudoAction.bind(null, id)}>
+          <button className="rounded border px-4 py-2">Despublicar</button>
+        </form>
+      ) : (
+        <form action={publicar} className="space-y-2">
+          <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">Publicar</button>
+        </form>
+      )}
+    </div>
   );
 }
 ```
@@ -3246,7 +3307,10 @@ describe('receita (US-051, RN-11)', () => {
     const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'R', status: 'rascunho' });
     expect(await erros(salvarReceita(T.ctx, r.id, { rendimento: '100', porcao: '50', ingredientes: [{ foodId: deU, quantidadeG: '10' }] }, { db: app.db }))).toEqual({ 'ingrediente:0:alimento': MSG_PLANO.alimento });
     const o = await novoConteudo(app.db, T);
-    await expect(salvarReceita(T.ctx, o.id, { rendimento: '100', porcao: '50', ingredientes: [] }, { db: app.db })).rejects.toThrow('Conteúdo não encontrado.');
+    // entrada VÁLIDA (com ingrediente do próprio consultório): `validarReceita` roda antes de conferir o tipo; com
+    // `ingredientes: []` o erro seria "Conteúdo inválido" e o caso "não é receita" nunca seria exercitado
+    const doT = await meuAlimento(T);
+    await expect(salvarReceita(T.ctx, o.id, { rendimento: '100', porcao: '50', ingredientes: [{ foodId: doT, quantidadeG: '10' }] }, { db: app.db })).rejects.toThrow('Conteúdo não encontrado.');
   });
 
   it('D12: "Meu alimento" usado em receita não é excluído, com a mensagem nova', async () => {
@@ -4476,6 +4540,21 @@ Run: `pnpm test src/app/painel/planos` → PASS.
 
 - [ ] **Step 6: Portal** — `src/modules/portal/plano.ts`: `export type RefeicaoDoPaciente = { id: string; nome: string; horario: string; observacao: string; itens: ItemDoPaciente[]; receita?: { id: string; titulo: string } };` e, no `map` das refeições, `...(r.receita?.disponivel ? { receita: { id: r.receita.id, titulo: r.receita.titulo } } : {}),`.
 
+No mesmo arquivo (importar `createHash` de `node:crypto`), a versão da cópia offline — calculada no servidor e **curta**: o service worker só aceita a mensagem `plano` com `versao` de até 100 caracteres (`textoCurto` em `src/app/sw-regras.ts`) e descarta em silêncio o que passar disso (a cópia antiga ficaria, com a receita despublicada ou o plano velho). Pôr os ids das receitas por extenso estoura com 2 sugestões (36 + 1 + 36 + 1 + 36 = 110):
+
+```ts
+/**
+ * D6 (Plano 06) + US-054: versão da cópia offline de "Meu plano" = id do plano + resumo das sugestões de receita (o
+ * cartão some da cópia quando a receita é despublicada). Resumo de 16 caracteres (sha256 em base64url): 36 + 1 + 16 = 53,
+ * dentro do limite de 100 do service worker (`textoCurto`, `src/app/sw-regras.ts`) com qualquer número de refeições.
+ */
+export function versaoDaCopiaOffline(plano: { id: string; refeicoes: { receita?: { id: string } }[] } | null): string {
+  if (!plano) return 'sem-plano';
+  const sugestoes = plano.refeicoes.map((r) => r.receita?.id ?? '-').join(',');
+  return `${plano.id}:${createHash('sha256').update(sugestoes).digest('base64url').slice(0, 16)}`;
+}
+```
+
 `src/app/p/(portal)/plano/page.tsx` (importar `Link` de `next/link`):
 - dentro do `<li>` da refeição, depois da observação:
 
@@ -4488,9 +4567,25 @@ Run: `pnpm test src/app/painel/planos` → PASS.
                   )}
 ```
 
-- a versão da cópia offline (D6 do Plano 06) passa a incluir as sugestões, para o cartão sumir também da cópia quando a receita for despublicada: `<GuardarPlano dono={vinculo.patientId} versao={plano ? `${plano.id}:${plano.refeicoes.map((r) => r.receita?.id ?? '-').join(',')}` : 'sem-plano'} />`. O link da receita não abre offline (só "Meu plano" fica no aparelho) — sem rede, cai na cópia do plano, como qualquer outra tela.
+- a versão da cópia offline (D6 do Plano 06) passa a incluir as sugestões, para o cartão sumir também da cópia quando a receita for despublicada: `<GuardarPlano dono={vinculo.patientId} versao={versaoDaCopiaOffline(plano)} />` (importar `versaoDaCopiaOffline` de `@/modules/portal/plano`; o `page.test.ts` simula o módulo com `importOriginal`, então a função real continua lá). Nunca os ids por extenso na versão (limite de 100 do service worker). O link da receita não abre offline (só "Meu plano" fica no aparelho) — sem rede, cai na cópia do plano, como qualquer outra tela.
 
-Teste — `src/modules/portal/plano.test.ts`, um caso: plano publicado sem sugestão continua com as refeições **sem** a chave `receita` (`expect(plano.refeicoes[0]).not.toHaveProperty('receita')`).
+Testes — `src/modules/portal/plano.test.ts` (importar `versaoDaCopiaOffline` de `./plano`, `lerMensagem` de `@/app/sw-regras` e `MAX_REFEICOES` de `@/modules/plano-alimentar/constantes`):
+- plano publicado sem sugestão continua com as refeições **sem** a chave `receita` (`expect(plano.refeicoes[0]).not.toHaveProperty('receita')`);
+- a versão cabe na mensagem ao service worker com o pior caso e muda quando uma sugestão sai:
+
+```ts
+  it('D6 + US-054: a versão da cópia offline com 15 refeições, todas com receita, passa por lerMensagem e muda quando uma sugestão sai', () => {
+    const refeicoes = Array.from({ length: MAX_REFEICOES }, () => ({ receita: { id: randomUUID() } }));
+    const plano = { id: randomUUID(), refeicoes };
+    const versao = versaoDaCopiaOffline(plano);
+    expect(versao.length).toBeLessThanOrEqual(100);
+    expect(lerMensagem({ tipo: 'plano', dono: randomUUID(), versao })).not.toBeNull();
+    const semUma = versaoDaCopiaOffline({ ...plano, refeicoes: [{}, ...refeicoes.slice(1)] });
+    expect(semUma).not.toBe(versao);
+    expect(semUma.startsWith(`${plano.id}:`)).toBe(true);
+    expect(versaoDaCopiaOffline(null)).toBe('sem-plano');
+  });
+```
 
 Run: `pnpm test src/modules/plano-alimentar src/modules/portal src/app/p` → PASS.
 
@@ -4699,7 +4794,7 @@ Em `conteudos.test.ts`, trocar as chamadas `publicarConteudo(T.ctx, id, { db: ap
   return { ok: avisar ? `${MSG_CONTEUDO.publicado} ${MSG_CONTEUDO.avisados(avisados)}` : MSG_CONTEUDO.publicado };
 ```
 
-`src/app/painel/conteudos/publicar-form.tsx`, dentro do formulário de publicar, antes do botão:
+`src/app/painel/conteudos/publicar-form.tsx`, dentro do formulário de publicar (o do ramo `!publicado`), antes do botão — o `<p role="status">` continua fora dos dois ramos (Tarefa 5, Step 11), para "Conteúdo publicado. Aviso enviado para N pacientes." aparecer depois do refresh:
 
 ```tsx
       <label className="flex items-center gap-2">
@@ -4708,7 +4803,7 @@ Em `conteudos.test.ts`, trocar as chamadas `publicarConteudo(T.ctx, id, { db: ap
       </label>
 ```
 
-(e o comentário do componente vira "D17 / US-053: "Publicar" (com "Avisar pacientes") no rascunho; "Despublicar" no publicado.")
+(e a primeira linha do comentário do componente vira "D17 / US-053: "Publicar" (com "Avisar pacientes") no rascunho; "Despublicar" no publicado."; o resto do comentário fica.)
 
 - [ ] **Step 5: Texto do push e tipos (W-1, X-7)** — `src/modules/notificacoes/mensagens.ts`, em `AVISOS_DO_PORTAL`:
 
@@ -5297,7 +5392,7 @@ git commit -m "test(e2e): conteúdo visível só para a audiência certa, receit
 ## Fechamento do plano (após a Tarefa 13)
 
 - [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` — com o **checklist reforçado** se o dono aceitar a D21:
-  - **Audiência (D2):** `contents`, `recipes`, `recipe_ingredients` com `paciente_conteudo_visivel` (guarda verde); `app_conteudo_por_etiqueta` só responde sim/não, só na sessão de paciente, e devolve o contexto do chamador (`app.role`, `app.patient_id`) antes de retornar; nenhuma etiqueta de paciente chega ao portal (nem no JSON); rascunho, despublicado e fora da audiência dão 404; a exceção da receita só vale para plano **publicado** do próprio paciente.
+  - **Audiência (D2):** `contents`, `recipes`, `recipe_ingredients` com `paciente_conteudo_visivel` (guarda verde); `app_conteudo_por_etiqueta` só responde sim/não, só na sessão de paciente, e devolve o contexto do chamador (`app.role`, `app.patient_id`) antes de retornar — conferido também no cluster do runbook, com o dono sem superusuário (`src/db/migrate-owner.test.ts`, caso "audiência por etiqueta (0083)": Ana com a etiqueta vê 1, Bia sem ela vê 0); nenhuma etiqueta de paciente chega ao portal (nem no JSON); rascunho, despublicado e fora da audiência dão 404; a exceção da receita só vale para plano **publicado** do próprio paciente.
   - **Escrita do paciente:** só `content_views` (`insert`) e `content_favorites` (`insert`, `delete`), e só de conteúdo visível (`paciente_conteudo_visto`/`paciente_conteudo_favorito`); a guarda B-5 confere a expressão.
   - **Arquivos (regra 9, D8, D20):** capa e PDF por `trocarCapa`/`trocarPdf`/`removerCapa`/`removerPdf`; tipo pelo conteúdo; 5 MB/10 MB conferidos no corpo; `sharp` com 40 MP; JPEG sem EXIF; ponteiro gravado/limpo na transação do arquivo; o portal assina só o caminho lido de `contents` pela RLS.
   - **Markdown (D7):** nada de `dangerouslySetInnerHTML`; links só http(s) com `rel`; sem retrocesso catastrófico.
