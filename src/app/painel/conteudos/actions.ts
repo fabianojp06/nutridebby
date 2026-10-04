@@ -3,9 +3,10 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { removerCapa, removerPdf } from '@/modules/conteudo/arquivos';
-import { ehTipoConteudo, MSG_CONTEUDO } from '@/modules/conteudo/constantes';
+import { ehTipoConteudo, MSG_CONTEUDO, MSG_RECEITA } from '@/modules/conteudo/constantes';
 import { criarConteudo, despublicarConteudo, excluirConteudo, publicarConteudo, salvarConteudo } from '@/modules/conteudo/conteudos';
 import { ConteudoError, ConteudoNaoEncontradoError } from '@/modules/conteudo/erros';
+import { salvarReceita } from '@/modules/conteudo/receitas';
 
 /** O que o formulário mandou — volta no estado com o erro (o React 19 limpa o formulário depois da ação). */
 export type ValoresDoForm = { titulo: string; resumo: string; link: string; corpo: string; etiquetas: string; visibilidade: string; pacientes: string[]; tags: string[] };
@@ -48,6 +49,28 @@ export async function salvarConteudoAction(id: string, _: ConteudoState, fd: For
   }
   revalidatePath(`/painel/conteudos/${id}`);
   return { ok: MSG_CONTEUDO.salvo };
+}
+
+export type ReceitaState = { erros?: Record<string, string>; ok?: string };
+
+/** US-051: os ingredientes chegam como JSON (o formulário monta a lista no cliente). */
+export async function salvarReceitaAction(id: string, _: ReceitaState, fd: FormData): Promise<ReceitaState> {
+  const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
+  let ingredientes: unknown = null;
+  try {
+    ingredientes = JSON.parse(String(fd.get('ingredientes') ?? '[]'));
+  } catch {
+    ingredientes = null; // vira "Inclua pelo menos um ingrediente."
+  }
+  try {
+    await salvarReceita(ctx, id, { rendimento: fd.get('rendimento'), porcao: fd.get('porcao'), tempo: fd.get('tempo'), modo: fd.get('modo'), ingredientes });
+  } catch (e) {
+    if (e instanceof ConteudoError) return { erros: e.erros };
+    if (e instanceof ConteudoNaoEncontradoError) return { erros: { geral: e.message } };
+    throw e;
+  }
+  revalidatePath(`/painel/conteudos/${id}`);
+  return { ok: MSG_RECEITA.salva };
 }
 
 export async function publicarConteudoAction(id: string, _: ConteudoState, fd: FormData): Promise<ConteudoState> {

@@ -7,11 +7,13 @@ import { requireNutri } from '@/lib/tenant-session';
 import { opcoesDeAudiencia } from '@/modules/conteudo/audiencia';
 import { MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { carregarConteudoDoPainel } from '@/modules/conteudo/conteudos';
+import { carregarReceitaDoPainel } from '@/modules/conteudo/receitas';
 import { Cabecalho } from '../../cabecalho';
 import { excluirConteudoAction, salvarConteudoAction } from '../actions';
 import { ArquivosDoConteudo } from '../arquivos';
 import { ConteudoForm } from '../conteudo-form';
 import { PublicarForm } from '../publicar-form';
+import { ReceitaForm } from './receita-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +44,7 @@ export default async function ConteudoPage({ params, searchParams }: PageProps<'
         {c.tipo === 'video' && <CapaDoConteudo tipo={c.tipo} capaUrl={c.capaUrl} className="max-w-xs" />}
         {c.video && <PlayerVideo video={c.video} titulo={c.titulo} />}
         <ConteudoForm tipo={c.tipo} inicial={inicial} opcoes={opcoes} acao={salvarConteudoAction.bind(null, c.id)} botao="Salvar" />
+        {c.tipo === 'receita' && <ReceitaForm id={c.id} inicial={await carregarReceitaDoPainel(ctx, c.id)} />}
         {c.tipo !== 'video' && <ArquivosDoConteudo id={c.id} tipo={c.tipo} capaUrl={c.capaUrl} pdfUrl={c.pdfUrl} />}
         <PublicarForm id={c.id} publicado={c.status === 'publicado'} />
         {ocupado === '1' && <p role="alert" className="text-red-700">{MSG_CONTEUDO.ocupado}</p>}
