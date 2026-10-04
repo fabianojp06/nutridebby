@@ -77,6 +77,11 @@ export const meals = pgTable(
     horario: time('horario'),
     ordem: smallint('ordem').notNull(),
     observacao: text('observacao').notNull().default(''),
+    /**
+     * US-054 (D13): receita sugerida nesta refeição — não entra no total. A FK composta com
+     * `ON DELETE SET NULL (recipe_content_id)` fica na migration 0082 (o Drizzle não gera a lista de colunas).
+     */
+    recipeContentId: uuid('recipe_content_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -86,6 +91,8 @@ export const meals = pgTable(
     foreignKey({ columns: [t.tenantId, t.planId, t.patientId], foreignColumns: [mealPlans.tenantId, mealPlans.id, mealPlans.patientId], name: 'meals_plano_paciente_fk' }).onDelete('cascade'),
     unique('meals_tenant_plano_id_unique').on(t.tenantId, t.planId, t.id),
     index('meals_plano_idx').on(t.tenantId, t.planId, t.ordem),
+    // a exceção da RN-12 (política paciente_conteudo_visivel) e o SET NULL procuram a refeição pela receita
+    index('meals_receita_idx').on(t.tenantId, t.recipeContentId).where(sql`${t.recipeContentId} is not null`),
   ],
 );
 

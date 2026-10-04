@@ -164,4 +164,20 @@ describe('escrita da sessão de paciente (D1, P-16 a)', () => {
       client.release();
     }
   });
+  it('B-5: a política com o nome e o comando certos, mas que não nega nada (USING true), também quebra', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy paciente_sem_delete on exams');
+      await client.query('create policy paciente_sem_delete on exams as restrictive for delete using (true)');
+      await client.query('drop policy paciente_sem_insert on contents');
+      await client.query('create policy paciente_sem_insert on contents as restrictive for insert with check (true)');
+      const v = await findPacienteEscritaViolations(client);
+      expect(v).toContainEqual({ table: 'exams', problem: 'a sessão de paciente pode delete sem entrada em PACIENTE_ESCREVE' });
+      expect(v).toContainEqual({ table: 'contents', problem: 'a sessão de paciente pode insert sem entrada em PACIENTE_ESCREVE' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
 });

@@ -10,6 +10,8 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
   access_events: 'CS-02: só o dia em que o paciente abriu o portal; não é dado de saúde',
   stored_files:
     'metadados do arquivo (caminho, tamanho, tipo, dono); o registro que aponta para ele — exame, plano, diário, exportação — é o auditado',
+  content_views: 'D6 (Plano 07): registro de uso (o paciente abriu o conteúdo da nutricionista), como access_events; não é prontuário',
+  content_favorites: 'D6 (Plano 07): preferência do paciente na biblioteca de conteúdo; não é prontuário',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */

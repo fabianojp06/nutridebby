@@ -186,12 +186,18 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   diary_entries: { comandos: ['insert'], motivo: 'US-042: o paciente registra a refeição (não edita nem apaga, D11); sem foto convertida, comentário nem "visto" (0080)' },
   privacy_requests: { comandos: ['insert'], motivo: 'US-046: o titular pede a exclusão' },
   data_exports: { comandos: ['insert', 'update'], motivo: 'US-046: o titular pede os próprios dados (solicitarExportacao marca o pendente esquecido como falhou); só escopo titular (0080)' },
+  content_views: { comandos: ['insert'], motivo: 'US-055 (D18): o paciente registra que abriu o conteúdo, uma vez; só de conteúdo que ele vê (0083)' },
+  content_favorites: { comandos: ['insert', 'delete'], motivo: 'US-055: favoritar e desfavoritar; só conteúdo que ele vê (0083)' },
 };
+
+/** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */
+const normalizarExpressao = (e: string | null) => (e ?? '').replace(/[\s()]/g, '').toLowerCase();
+const NEGA_PACIENTE = normalizarExpressao("app_current_role() IS DISTINCT FROM 'paciente'::text");
 
 /** Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a escrita do paciente, ou bate exatamente com PACIENTE_ESCREVE. */
 export async function findPacienteEscritaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
-  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string }>(
-    `select tablename as t, policyname as pol, cmd, permissive from pg_policies
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
       where schemaname = 'public' and policyname like 'paciente\\_sem\\_%'`,
   );
   const out: RlsViolation[] = [];
@@ -199,8 +205,12 @@ export async function findPacienteEscritaViolations(db: Pool | PoolClient): Prom
     if (RLS_EXCEPTIONS[table]) continue;
     const pode = PACIENTE_ESCREVE[table]?.comandos ?? [];
     for (const c of ESCRITAS) {
-      // nome, comando e RESTRICTIVE: um `paciente_sem_delete` criado FOR SELECT (ou PERMISSIVE) não nega o DELETE
-      const negada = rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}` && r.cmd === c.toUpperCase() && r.permissive === 'RESTRICTIVE');
+      // nome, comando, RESTRICTIVE e a expressão (B-5): um `paciente_sem_delete USING (true)` não nega o DELETE
+      const negada = rows.some(
+        (r) =>
+          r.t === table && r.pol === `paciente_sem_${c}` && r.cmd === c.toUpperCase() && r.permissive === 'RESTRICTIVE' &&
+          normalizarExpressao(c === 'insert' ? r.with_check : r.qual) === NEGA_PACIENTE,
+      );
       if (!pode.includes(c) && !negada) out.push({ table, problem: `a sessão de paciente pode ${c} sem entrada em PACIENTE_ESCREVE` });
       if (pode.includes(c) && rows.some((r) => r.t === table && r.pol === `paciente_sem_${c}`)) {
         out.push({ table, problem: `PACIENTE_ESCREVE libera ${c}, mas o banco nega (paciente_sem_${c})` });
