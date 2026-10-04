@@ -31,3 +31,11 @@ SELECT app_allow_paciente_escrita('content_favorites', 'insert', 'delete');
 -- (SET NULL com lista de colunas, PG 15+: tenant_id é NOT NULL e não pode ir junto)
 ALTER TABLE meals ADD CONSTRAINT meals_receita_fk
   FOREIGN KEY (tenant_id, recipe_content_id) REFERENCES contents (tenant_id, id) ON DELETE SET NULL (recipe_content_id);
+--> statement-breakpoint
+-- §7 (D10, defesa em profundidade): cada etiqueta do conteúdo tem de 1 a 30 caracteres (a quantidade, até 10, é o
+-- contents_etiquetas_tamanho da 0081). CHECK não aceita subconsulta, então o unnest fica numa função IMMUTABLE;
+-- fora do schema TS, como a meals_receita_fk. Elemento nulo também é recusado.
+CREATE OR REPLACE FUNCTION app_etiquetas_validas(text[]) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+  AS $$ SELECT coalesce(bool_and(e IS NOT NULL AND char_length(e) BETWEEN 1 AND 30), true) FROM unnest($1) AS e $$;
+--> statement-breakpoint
+ALTER TABLE contents ADD CONSTRAINT contents_etiqueta_tamanho CHECK (app_etiquetas_validas(etiquetas));

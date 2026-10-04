@@ -12,7 +12,7 @@ const restricao = (nome: string) => (e: unknown) => causa(e).constraint === nome
 const umId = (r: { rows: unknown[] }) => (r.rows[0] as { id: string }).id;
 
 describe('tabelas de conteúdo (§7, Plano 07)', () => {
-  it('CHECKs: vídeo sem id ou com id fora do formato, publicado sem data, porção maior que o rendimento, público sem alvo ou com os dois', async () => {
+  it('CHECKs: vídeo sem id ou com id fora do formato, publicado sem data, etiqueta vazia, longa ou em excesso, porção maior que o rendimento, público sem alvo ou com os dois', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
@@ -21,6 +21,13 @@ describe('tabelas de conteúdo (§7, Plano 07)', () => {
       q(sql`insert into contents (tenant_id, tipo, titulo, video_provider, video_id) values (${T.tenantId}, 'video', 'X', 'youtube', '"><script>x')`),
     ).rejects.toSatisfy(restricao('contents_video_id_valido'));
     await expect(q(sql`insert into contents (tenant_id, tipo, titulo, status) values (${T.tenantId}, 'orientacao', 'X', 'publicado')`)).rejects.toSatisfy(restricao('contents_publicado_em'));
+    const comEtiquetas = (etiquetas: (string | null)[]) => q(sql`insert into contents (tenant_id, tipo, titulo, etiquetas) values (${T.tenantId}, 'orientacao', 'X', array[${sql.join(etiquetas.map((e) => sql`${e}`), sql`, `)}]::text[])`);
+    await expect(comEtiquetas(['sem lactose', 'x'.repeat(31)])).rejects.toSatisfy(restricao('contents_etiqueta_tamanho'));
+    await expect(comEtiquetas(['sem lactose', ''])).rejects.toSatisfy(restricao('contents_etiqueta_tamanho'));
+    await expect(comEtiquetas([null])).rejects.toSatisfy(restricao('contents_etiqueta_tamanho'));
+    await expect(comEtiquetas(Array.from({ length: 11 }, (_, i) => `e${i}`))).rejects.toSatisfy(restricao('contents_etiquetas_tamanho'));
+    await comEtiquetas(['x'.repeat(30), 'café da manhã']); // 30 caracteres vale
+    await comEtiquetas([]); // sem etiquetas vale
     const id = umId(await q(sql`insert into contents (tenant_id, tipo, titulo) values (${T.tenantId}, 'receita', 'Panqueca de aveia') returning id`));
     await expect(q(sql`insert into recipes (tenant_id, content_id, rendimento_total_g, porcao_g) values (${T.tenantId}, ${id}, 1000, 1200)`)).rejects.toSatisfy(restricao('recipes_porcao_valida'));
     await q(sql`insert into recipes (tenant_id, content_id, rendimento_total_g, porcao_g) values (${T.tenantId}, ${id}, 1000, 1000)`); // porção = rendimento vale

@@ -38,6 +38,7 @@ export const contents = pgTable(
     check('contents_status_valido', sql`${t.status} in ('rascunho', 'publicado')`),
     check('contents_publicado_em', sql`(${t.status} = 'publicado') = (${t.publicadoEm} is not null)`),
     check('contents_textos_tamanho', sql`char_length(${t.titulo}) between 1 and 120 and char_length(${t.resumo}) <= 300 and char_length(${t.corpoMd}) <= 20000`),
+    // o tamanho de cada etiqueta (1–30) é o CHECK contents_etiqueta_tamanho, na migration 0082 (precisa de função)
     check('contents_etiquetas_tamanho', sql`cardinality(${t.etiquetas}) <= 10`),
     check(
       'contents_video_completo',
