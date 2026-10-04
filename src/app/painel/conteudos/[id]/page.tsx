@@ -47,6 +47,7 @@ export default async function ConteudoPage({ params, searchParams }: PageProps<'
         {c.tipo === 'receita' && <ReceitaForm id={c.id} inicial={await carregarReceitaDoPainel(ctx, c.id)} />}
         {c.tipo !== 'video' && <ArquivosDoConteudo id={c.id} tipo={c.tipo} capaUrl={c.capaUrl} pdfUrl={c.pdfUrl} />}
         <PublicarForm id={c.id} publicado={c.status === 'publicado'} />
+        {c.status === 'publicado' && <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="underline">Ver quem viu</Link>}
         {ocupado === '1' && <p role="alert" className="text-red-700">{MSG_CONTEUDO.ocupado}</p>}
         <form action={excluirConteudoAction.bind(null, c.id)}>
           <ConfirmarBotao mensagem="Excluir este conteúdo? A sugestão de receita sai dos planos.">Excluir conteúdo</ConfirmarBotao>

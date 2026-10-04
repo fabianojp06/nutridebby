@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { ehTipoConteudo, FILTROS_DO_FEED, MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { listarConteudosDoPainel } from '@/modules/conteudo/conteudos';
+import { metricasDosConteudos, textoDaMetrica } from '@/modules/conteudo/metricas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { Cabecalho } from '../cabecalho';
 
@@ -12,6 +13,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
   const { tipo, excluido } = await searchParams;
   const filtro = ehTipoConteudo(tipo) ? tipo : undefined;
   const lista = await listarConteudosDoPainel(ctx, { tipo: filtro });
+  const metricas = await metricasDosConteudos(ctx, lista.filter((c) => c.status === 'publicado'));
   return (
     <>
       <Cabecalho tenant={tenant} />
@@ -38,6 +40,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
                 <th scope="col">Título</th>
                 <th scope="col">Tipo</th>
                 <th scope="col">Situação</th>
+                <th scope="col">Visualizações</th>
               </tr>
             </thead>
             <tbody>
@@ -46,6 +49,15 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
                   <td className="py-2"><Link href={`/painel/conteudos/${c.id}`} className="underline">{c.titulo}</Link></td>
                   <td>{ROTULO_TIPO_CONTEUDO[c.tipo]}</td>
                   <td>{c.status === 'publicado' && c.publicadoEm ? `Publicado em ${formatarDataNoFuso(c.publicadoEm, tenant.fuso)}` : 'Rascunho'}</td>
+                  <td>
+                    {metricas.get(c.id) ? (
+                      <Link href={`/painel/conteudos/${c.id}/visualizacoes`} className="underline" aria-label={`Ver quem viu: ${c.titulo}`}>
+                        {textoDaMetrica(metricas.get(c.id)!)}
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
