@@ -10,6 +10,7 @@ import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento'
 import { recordAudit } from '@/modules/plataforma/audit';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
+import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
 import { carregarPacienteParaEscrita } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
 import { apagarConvitesPendentes } from './convite-paciente';
@@ -153,6 +154,7 @@ export async function atenderPedidoExclusao(
         .where(and(eq(notifications.patientId, p.id), eq(notifications.status, 'pendente')));
       // US-018: "inscrições de push … apagadas na hora" (só as deste vínculo — D14)
       await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
+      await apagarUsoDeConteudo(tx, p.id); // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08)
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',
@@ -400,6 +402,8 @@ export async function anonimizarVencidos(
               throw new Error('anexo novo durante a anonimização');
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
+            // D15: alvo, visualização ou favorito de conteúdo gravados depois do bloqueio também saem (idempotente)
+            if (r.length) await apagarUsoDeConteudo(tx, id);
             if (r.length) await anonimizarAgenda(tx, id, now);
             // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
             // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)
