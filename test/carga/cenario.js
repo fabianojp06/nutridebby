@@ -14,6 +14,16 @@ const slugs = new SharedArray('slugs', () => S.slugs);
 // 429 é esperado em alguns envios (MAX_ENVIOS do diário, limite do push): não conta como falha
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429));
 
+// Toda rota que o cenário chama (tag `nome`: caminho sem query, UUID → `:id`, slug → `:slug`). Rota nova entra aqui;
+// a que faltar derruba a iteração (sem linha no resumo, a "pior rota" sairia errada).
+const ROTAS = [
+  '/p/inicio', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos/:id', '/p/diario',
+  '/painel', '/painel/agenda', '/painel/pacientes', '/painel/pacientes/:id', '/painel/pacientes/:id/antropometria', '/painel/conteudos',
+  '/n/:slug',
+  '/api/p/acesso', '/api/p/push', '/api/painel/planos/:id', '/api/painel/planos/:id/revisao', '/api/painel/alimentos',
+];
+const STATUS_PUSH = [204, 409, 429]; // 204 inscrito; 409 inscrição de outra conta (falha: não deveria acontecer); 429 limite da T6
+
 const rampa = (alvo) => [{ duration: '2m', target: alvo }, { duration: '10m', target: alvo }, { duration: '1m', target: 0 }];
 export const options = {
   scenarios: {
@@ -22,8 +32,13 @@ export const options = {
     publico: { executor: 'ramping-vus', exec: 'publico', stages: rampa(5) },
   },
   thresholds: {
+    // O resumo do k6 (tela e --summary-export) só mostra a sub-métrica que tem threshold: `[]` cria a linha sem meta.
+    // Uma linha por rota (a "pior rota (p95)" do relatório) e uma por status do push (204/409/429).
+    ...Object.fromEntries(ROTAS.map((r) => [`http_req_duration{nome:${r}}`, []])),
+    ...Object.fromEntries(STATUS_PUSH.map((s) => [`http_reqs{nome:/api/p/push,status:${s}}`, []])),
     'http_req_duration{tipo:api}': ['p(95)<300'], // RNF-01 (Route Handlers)
     'http_req_duration{tipo:pagina}': ['p(95)<800'], // D4 (páginas)
+    'http_req_duration{tipo:pagina,area:p}': ['p(95)<800'], // S-7: p95 só das páginas /p/* (portal do paciente)
     'http_req_duration{nome:/api/p/push}': ['p(95)<300'], // B-8: app_soltar_endpoint_push com 50 tenants (linha própria no resumo)
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
@@ -31,9 +46,14 @@ export const options = {
   summaryTrendStats: ['avg', 'p(50)', 'p(95)', 'p(99)', 'max'],
 };
 
-const nome = (url) => url.split('?')[0].replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, ':id');
+const nome = (url) => {
+  const n = url.split('?')[0].replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, ':id').replace(/^\/n\/[^/]+$/, '/n/:slug');
+  if (!ROTAS.includes(n)) throw new Error(`rota fora de ROTAS (cenario.js): ${n}`);
+  return n;
+};
+// area: primeiro segmento do caminho (p = portal do paciente, painel, n = página pública) — o S-7 lê `area:p`
 const pagina = (url, cookie) => {
-  const r = http.get(`${BASE}${url}`, { headers: { cookie }, redirects: 0, tags: { tipo: 'pagina', nome: nome(url) } });
+  const r = http.get(`${BASE}${url}`, { headers: { cookie }, redirects: 0, tags: { tipo: 'pagina', area: url.split('/')[1], nome: nome(url) } });
   check(r, { 'página 200 (sessão válida)': (x) => x.status === 200 });
   return r;
 };

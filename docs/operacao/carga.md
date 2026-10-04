@@ -27,7 +27,10 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
    Esperado: `checks` 100% e nenhuma falha. O `-u` é para o k6 ler o `.sessoes.json` (modo 600).
 6. Rodada: `docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" -e
    BASE_URL=http://127.0.0.1:3200 grafana/k6 run --summary-export /carga/resumo.json /carga/cenario.js` (13 min: 2 de
-   subida, 10 no alvo, 1 de descida).
+   subida, 10 no alvo, 1 de descida). O resumo (tela e `resumo.json`) traz uma linha por rota (`http_req_duration{nome:…}`),
+   o p95 só das páginas `/p/*` (`{tipo:pagina,area:p}`) e as respostas do push por status
+   (`http_reqs{nome:/api/p/push,status:204|409|429}`); os números do relatório saem dele (consultas abaixo). Rota nova no
+   cenário entra na lista `ROTAS` de `cenario.js` (sem ela, o k6 derruba a iteração e a fumaça já acusa).
 7. Worker com o volume: antes da rodada, o total de lembretes (`docker compose -f docker-compose.carga.yml --env-file
    .env.carga.compose exec db psql -U carga_owner -d nutri -c "select status, count(*) from notifications group by
    status"`; esperado: milhares de `pendente`, ~150 por consultório vencendo durante a rodada — com `notifications`
@@ -38,7 +41,9 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
    rodada>' group by status` — enviadas, ignoradas e adiadas pelo horário silencioso contam). `retencao-lgpd` (04h) e
    `agenda-limpeza` (04h30) — horários de Brasília, 07h e 07h30 na VPS — entram no relatório se a rodada passar
    desses horários.
-8. S-7: anotar o p95 das páginas `/p/*` (cenário `paciente`). A imagem já tem o `cache()` da Tarefa 14 em
+8. S-7: anotar o p95 das páginas `/p/*` — a linha `http_req_duration{tipo:pagina,area:p}` do resumo (`jq -r
+   '.metrics["http_req_duration{tipo:pagina,area:p}"]["p(95)"]' test/carga/resumo.json`; também tem threshold de 800 ms,
+   então aparece como ✓/✗ no fim do k6). A imagem já tem o `cache()` da Tarefa 14 em
    `requireUserComTenant`, que o `requirePaciente` também usa; a parte própria do paciente (`vinculosDaConta`,
    `termoAceito`) **não** ganha `cache()` neste plano — não há "antes/depois". Se o p95 de `/p/*` passar da meta da D4,
    o relatório propõe o `cache()` no `requirePaciente` como tarefa.
@@ -55,13 +60,22 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
     `test/carga/.sessoes.json` e `test/carga/resumo.json` (depois de passar os números para o relatório).
 
 ## Relatório (copiar para carga-AAAA-MM-DD.md)
+Os números do k6 saem do `test/carga/resumo.json` (passo 6), antes do passo 10:
+- p95 api / páginas / `/p/*` / push: `http_req_duration{tipo:api}`, `{tipo:pagina}`, `{tipo:pagina,area:p}` e
+  `{nome:/api/p/push}`, campo `p(95)` (ms); falhas: `http_req_failed` (`value`); checks: `checks` (`value`).
+- Pior rota (p95): `jq -r '.metrics | to_entries[] | select(.key | startswith("http_req_duration{nome:")) |
+  "\(.value["p(95)"] | floor) ms \(.key)"' test/carga/resumo.json | sort -n | tail -3` (a última linha é a pior; anotar as três).
+- Respostas do push: `jq -r '.metrics | to_entries[] | select(.key | startswith("http_reqs{nome:/api/p/push,")) |
+  "\(.key) \(.value.count)"' test/carga/resumo.json` (409 conta como falha: inscrição de outra conta não deveria acontecer
+  na carga).
+
 - Commit/imagem: · Limites (app/worker/db, shared_buffers, pool): · Rodada: 1 / 2
-- k6: p95 api: · p95 páginas: · falhas: · checks: · pior rota (p95):
+- k6: p95 api: · p95 páginas: · falhas: · checks: · pior rota (p95, `nome`):
 - Worker: lembretes pendentes antes da rodada: · tratados durante a rodada (por status): · `notificacoes` com 15 mil pacientes (máx.): · `agenda-limpeza`:
 - `docker stats`: pico de CPU/memória por container · `cursoia_crm`: sem mudança? · CPU livre mínima:
 - Lighthouse: LCP `/p/inicio`: · LCP `/p/plano`:
-- B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (tag `nome:/api/p/push`): · respostas 204/409/429:
-- S-7: p95 das páginas `/p/*`:
+- B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (`http_req_duration{nome:/api/p/push}`): · respostas 204/409/429 (`http_reqs{nome:/api/p/push,status:…}`):
+- S-7: p95 das páginas `/p/*` (`http_req_duration{tipo:pagina,area:p}`; acima de 800 ms → tarefa do `cache()` no `requirePaciente`):
 - Gargalo e ajuste proposto ao dono (limites no Easypanel, `shared_buffers`, pool):
 - Resultado contra a D4: aprovado / reprovado (o quê)
 
