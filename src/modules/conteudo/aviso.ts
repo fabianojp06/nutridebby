@@ -11,9 +11,8 @@ export const JANELA_AVISO_MS = 24 * 3_600_000;
 /**
  * US-053 "Aviso de novo conteúdo" (D4, D5), na transação da publicação: um push `conteudo_novo` (texto neutro, motor do
  * Plano 05) para cada paciente ativo, não anonimizado, com conta no portal, **com push ativo** (alguma inscrição de push
- * no consultório — decisão do dono, 04/10/2026: quem não tem inscrição não é avisado nem contado), na audiência AGORA e
- * sem outro
- * `conteudo_novo` criado nas 24 h anteriores — os demais conteúdos ficam no feed com "Novo". Um INSERT … SELECT só,
+ * no consultório — decisão do dono, 04/10/2026: quem não tem inscrição não é avisado nem contado), na audiência AGORA
+ * e sem outro `conteudo_novo` criado nas 24 h anteriores — os demais conteúdos ficam no feed com "Novo". Um INSERT … SELECT só,
  * serializado por tenant (duas publicações ao mesmo tempo não avisam a mesma pessoa duas vezes). No horário
  * silencioso (21h–8h no fuso do tenant) a linha sai às 08:00 pela varredura; fora dele, o envio é disparado já.
  * Devolve quantos pacientes serão avisados.
