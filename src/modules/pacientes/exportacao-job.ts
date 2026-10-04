@@ -402,6 +402,11 @@ type DepsJob = {
 class JaConcluidaError extends Error {}
 /** A anonimização (retencao-lgpd) passou no meio: o ZIP montado antes teria dados identificados. */
 class PacienteAnonimizadoError extends Error {}
+/**
+ * L-2: pedido do titular (portal) de quem deixou de ser ativo (bloqueado, arquivado): o link do e-mail cairia em
+ * /p/sem-acesso. Decisão (débitos pré-go-live): vira "falhou", sem e-mail; os dados ficam com a nutricionista (US-018).
+ */
+class TitularSemAcessoError extends Error {}
 
 /**
  * Job `exportacao-paciente`. Idempotente: só age sobre pedido `pendente` (um retry depois do sucesso
@@ -445,7 +450,15 @@ export async function gerarExportacao(
     const tenant = await buscarTenant(db, data.tenantId);
     const { dados, laudos } = await withTenant(
       ctx,
-      (tx) => montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao),
+      async (tx) => {
+        // L-2 (achado 8 do /code-review): conferência barata antes de montar o PDF e o ZIP inteiros; a definitiva, com o
+        // paciente travado, continua em antesDaReserva
+        if (pedido.escopo === 'titular') {
+          const [p] = await tx.select({ status: patients.status }).from(patients).where(eq(patients.id, pedido.patientId));
+          if (p?.status !== 'ativo') throw new TitularSemAcessoError();
+        }
+        return montarDados(tx, pedido.patientId, now, tenant?.fuso ?? 'America/Sao_Paulo', pedido.escopo as EscopoExportacao);
+      },
       db,
     );
     const arquivosDosLaudos = await lerLaudos(
@@ -481,11 +494,13 @@ export async function gerarExportacao(
         // a anonimização, por sua vez, confere os anexos com o paciente travado (lgpd.ts).
         antesDaReserva: async (tx) => {
           const [p] = await tx
-            .select({ anonimizadoEm: patients.anonimizadoEm })
+            .select({ anonimizadoEm: patients.anonimizadoEm, status: patients.status })
             .from(patients)
             .where(eq(patients.id, pedido.patientId))
             .for('update');
           if (!p || p.anonimizadoEm) throw new PacienteAnonimizadoError();
+          // com o paciente travado: o atendimento da exclusão (ou o arquivamento) que chegar depois já acha "pronta"
+          if (pedido.escopo === 'titular' && p.status !== 'ativo') throw new TitularSemAcessoError();
         },
         registrar: async (tx, arquivo) => {
           const [e] = await tx
@@ -522,6 +537,11 @@ export async function gerarExportacao(
     return 'pronta';
   } catch (err) {
     if (err instanceof JaConcluidaError) return 'ignorada';
+    if (err instanceof TitularSemAcessoError) {
+      await marcarFalhou();
+      logger.info({ tenantId: data.tenantId, exportId: data.exportId }, 'exportação do titular sem acesso ao portal: não gerada');
+      return 'falhou';
+    }
     const definitivo =
       deps.ultimaTentativa ||
       err instanceof CotaEsgotadaError ||
@@ -535,6 +555,7 @@ export async function gerarExportacao(
       },
       'falha ao gerar exportação',
     );
+    // o worker limpa o erro relançado ao pg-boss (semDetalhe: só a fila e o código — RNF-11, achado 5 do /code-review)
     if (!definitivo) throw err;
     await marcarFalhou();
     return 'falhou';

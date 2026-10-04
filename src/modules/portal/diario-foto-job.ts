@@ -6,12 +6,17 @@ import type { Db } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
-import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 
 // Só o worker importa este arquivo (sharp + heic-decode/WASM): nenhuma rota do Next (guarda no grafo de imports).
 
-/** RN-07 / Review Focus 3: acima disto (≈ 40 MP, mais que qualquer câmera de celular) é recusado — "bomba de descompressão". */
+/**
+ * RN-07 / Review Focus 3: acima disto (≈ 40 MP) é recusado pelo cabeçalho — "bomba de descompressão". Não cobre toda
+ * câmera de celular: o modo HEIF Max de 48 MP (iPhone 14 Pro e posteriores; 8064 × 6048) passa do limite e a foto vira
+ * "falhou" ("Não foi possível processar a foto."). Mantido de propósito (débitos pré-go-live, F-3): o decode RGBA de
+ * 48 MP aloca ~195 MB por foto no worker, na VPS dividida com o CRM; o modo Max é opcional no iPhone (o padrão é 12 ou 24 MP).
+ */
 export const MAX_PIXELS = 40_000_000;
 const LADO_MAX = 1600;
 
@@ -88,8 +93,9 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
  * CLAUDE.md regra 9: o JPEG entra por salvarArquivo e o registro aponta para ele no `registrar`; o original sai por
  * apagarArquivo e o ponteiro `foto_original_path` é limpo no `naMesmaTransacao` dele — nunca numa transação separada
  * (senão uma queda entre as duas deixa o original no disco, contando na cota, sem nada que aponte para ele).
- * Imagem que não decodifica ou grande demais → "falhou" na hora (definitivo) e o original sai. Erro de infraestrutura →
- * o pg-boss tenta de novo; na última tentativa, "falhou".
+ * Imagem que não decodifica ou grande demais, ou JPEG que não cabe na cota → "falhou" na hora (definitivo) e o original
+ * sai. Erro de infraestrutura → o pg-boss tenta de novo (o worker limpa o erro relançado: só o código — semDetalhe, RNF-11); na
+ * última, "falhou".
  * `descartar` (só a varredura `expirarFotosPendentes`): registro "processando" esquecido vira "falhou" e o original sai,
  * sem nova conversão.
  * Paciente bloqueado ou anonimizado (exclusão atendida no meio da conversão) → "removida", sem JPEG, e o original sai.
@@ -187,9 +193,11 @@ export async function converterFotoDoDiario(
       logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: 'exclusao' }, 'foto do diário não convertida: titular bloqueado ou anonimizado');
       return falhar('removida');
     }
-    const definitivo = err instanceof FotoInvalidaError || deps.ultimaTentativa;
+    // Cota esgotada mesmo pela diferença (o JPEG saiu maior que o original): as outras tentativas esbarrariam nela também
+    const definitivo = err instanceof FotoInvalidaError || err instanceof CotaEsgotadaError || deps.ultimaTentativa;
+    const motivo = err instanceof FotoInvalidaError ? err.message : err instanceof CotaEsgotadaError ? 'cota' : 'erro';
     // RNF-11: só ids e o motivo; nunca o caminho nem o conteúdo
-    logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo: err instanceof FotoInvalidaError ? err.message : 'erro', definitivo }, 'falha ao converter a foto do diário');
+    logger.warn({ tenantId: data.tenantId, entryId: data.entryId, motivo, definitivo }, 'falha ao converter a foto do diário');
     if (!definitivo) throw err;
     return falhar();
   }

@@ -9,9 +9,10 @@ import { evaluateSession, MSG_SESSAO_EXPIRADA, type AppRole } from './session-ru
 /** `tenant`: a linha já lida para o RN-15 (null para admin). */
 export type ApiAuth = { ok: true; data: SessionData; tenant: TenantRow | null } | { ok: false; response: Response };
 
-export const recusaApi = (status: number, erro: string): { ok: false; response: Response } => ({
+/** `extra`: campos além do `erro` (ex.: `motivo: 'escolher'` do portal, S-4) — nunca dado pessoal. */
+export const recusaApi = (status: number, erro: string, extra: Record<string, string> = {}): { ok: false; response: Response } => ({
   ok: false,
-  response: Response.json({ erro }, { status, headers: { 'cache-control': 'no-store' } }),
+  response: Response.json({ erro, ...extra }, { status, headers: { 'cache-control': 'no-store' } }),
 });
 
 /** Route Handlers: mesma regra de requireUser (papel, 12 h, 2FA do admin, RN-15), respondendo 401/403. */

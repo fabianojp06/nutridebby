@@ -5,7 +5,7 @@ import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { notifications, pushSubscriptions } from '@/db/schema';
+import { notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { vinculosDaConta } from './vinculos';
@@ -130,10 +130,49 @@ describe('inscrição de push (US-040, contrato D14 do Plano 05)', () => {
     const outro = sub();
     await inscreverAparelho(acesso as never, este, null, { db: app.db });
     await inscreverAparelho(acesso as never, outro, null, { db: app.db });
-    await cancelarAparelho(acesso as never, este.endpoint, { db: app.db });
-    await cancelarAparelho(acesso as never, 42, { db: app.db }); // lixo: nada
+    const conta = { userId: acesso.data.user.id, ip: null };
+    await cancelarAparelho(conta, este.endpoint, { db: app.db });
+    await cancelarAparelho(conta, 42, { db: app.db }); // lixo: nada
     const restantes = async (T: typeof A, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, id)), app.db)).map((x) => x.endpoint);
     expect(await restantes(A, pa.id)).toEqual([outro.endpoint]);
     expect(await restantes(B, pb.id)).toEqual([outro.endpoint]);
+  });
+
+  it('cancelar só com a conta (S-2): sai também do vínculo em consultório suspenso e do que tem o termo pendente', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const C = await novoTenant(app.db);
+    const { userId, paciente: pa } = await pacienteComConta(app.db, A);
+    const { paciente: pb } = await pacienteComConta(app.db, B, { userId, semTermo: true });
+    const { paciente: pc } = await pacienteComConta(app.db, C, { userId });
+    const acesso = { data: { user: { id: userId } }, vinculos: await vinculosDaConta(userId, { db: app.db }), ctx: { tenantId: A.tenantId, role: 'paciente' as const, patientId: pa.id, actorUserId: userId } };
+    const s = sub();
+    await inscreverAparelho(acesso as never, s, null, { db: app.db });
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, C.tenantId)); // depois de ativar
+    await cancelarAparelho({ userId, ip: '203.0.113.9' }, s.endpoint, { db: app.db });
+    const restantes = async (T: typeof A, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, id)), app.db)).map((x) => x.endpoint);
+    expect(await restantes(A, pa.id)).toEqual([]);
+    expect(await restantes(B, pb.id)).toEqual([]);
+    expect(await restantes(C, pc.id)).toEqual([]);
+  });
+
+  it('achado 3 do /code-review: o "Sair" de /p/sem-acesso apaga também a inscrição do vínculo arquivado e do bloqueado (desarquivar não religa o aparelho)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const C = await novoTenant(app.db);
+    const { userId, paciente: pa } = await pacienteComConta(app.db, A);
+    const { paciente: pb } = await pacienteComConta(app.db, B, { userId });
+    const { paciente: pc } = await pacienteComConta(app.db, C, { userId });
+    const acesso = { data: { user: { id: userId } }, vinculos: await vinculosDaConta(userId, { db: app.db }), ctx: { tenantId: A.tenantId, role: 'paciente' as const, patientId: pa.id, actorUserId: userId } };
+    const s = sub();
+    await inscreverAparelho(acesso as never, s, null, { db: app.db });
+    // depois de ativar: B arquivado, C bloqueado (pela equipe, sem passar pela limpeza do atendimento)
+    await withTenant(B.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, pb.id)), app.db);
+    await withTenant(C.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: new Date() }).where(eq(patients.id, pc.id)), app.db);
+    await cancelarAparelho({ userId, ip: null }, s.endpoint, { db: app.db });
+    const restantes = async (T: typeof A, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(pushSubscriptions).where(eq(pushSubscriptions.patientId, id)), app.db)).map((x) => x.endpoint);
+    expect(await restantes(A, pa.id)).toEqual([]);
+    expect(await restantes(B, pb.id)).toEqual([]);
+    expect(await restantes(C, pc.id)).toEqual([]);
   });
 });

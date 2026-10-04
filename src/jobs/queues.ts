@@ -15,6 +15,9 @@ export const QUEUES = {
   'monitor-disco': { retryLimit: 0, expireInSeconds: 60 },
   // US-018: anonimização no fim do prazo de guarda (04h, depois do backup das 03h)
   'retencao-lgpd': { retryLimit: 2, retryDelay: 600, expireInSeconds: 900 },
+  // US-018 / F-13: depois do atendimento da exclusão, apaga as fotos do diário e só então avisa o paciente por e-mail.
+  // Payload { tenantId, patientId }. 5 novas tentativas (1, 2, 4, 8, 16 min + sorteio); na última, o aviso sai assim mesmo
+  'exclusao-atendida': { retryLimit: 5, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   // US-018: ZIP da exportação (PDF no worker) e remoção do arquivo 24 h depois
   'exportacao-paciente': { retryLimit: 2, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   'expirar-exportacao': { retryLimit: 3, retryDelay: 300, expireInSeconds: 120 },

@@ -32,6 +32,17 @@ export function esquecerComprasDoAparelho(): void {
   }
 }
 
+/** /p/escolher (achado 4 do /code-review): as marcações saem só se o dono delas não for um dos vínculos escolhíveis. */
+export function esquecerComprasForaDe(manter: readonly string[]): void {
+  try {
+    const dono = localStorage.getItem(CHAVE_DONO);
+    if (dono !== null && manter.includes(dono)) return;
+  } catch {
+    // sem armazenamento: só há a cópia em memória (de nenhuma tela aberta aqui) — sai
+  }
+  esquecerComprasDoAparelho();
+}
+
 /** Layout do portal: marcações de outra conta ou de outro vínculo saem (o par do conferirDono do service worker). */
 export function conferirDonoDasCompras(dono: string): void {
   try {

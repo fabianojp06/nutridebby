@@ -61,7 +61,10 @@ export async function registrarNoDiario(
   const refeicao = typeof input.refeicao === 'string' ? input.refeicao : '';
   if (!(REFEICOES_DO_DIARIO as readonly string[]).includes(refeicao)) throw new DiarioError({ refeicao: MSG_DIARIO.refeicao });
   const texto = typeof input.texto === 'string' ? input.texto.normalize('NFC').trim() : '';
-  if (texto.length > TEXTO_DIARIO_MAX) throw new DiarioError({ texto: MSG_DIARIO.texto });
+  // NUL não cabe num `text` do Postgres (SQLSTATE 22021): sem isto, um 500 em vez de um 400
+  if (texto.includes('\0')) throw new DiarioError({ geral: MSG_DIARIO.formulario });
+  // Caracteres (code points), como o CHECK do banco (char_length) e a spec — não unidades UTF-16 (um emoji conta 1)
+  if ([...texto].length > TEXTO_DIARIO_MAX) throw new DiarioError({ texto: MSG_DIARIO.texto });
   const foto = input.foto && input.foto.length > 0 ? input.foto : null;
   if (!texto && !foto) throw new DiarioError({ geral: MSG_DIARIO.vazio });
   if (foto && foto.length > FOTO_DIARIO_MAX_BYTES) throw new DiarioError({ foto: MSG_DIARIO.foto });

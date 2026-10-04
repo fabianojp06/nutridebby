@@ -211,8 +211,13 @@ test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal;
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.16');
   await p.page.goto('/p/perfil');
   await expect(p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' })).toHaveAttribute('aria-current', 'page');
+  // RNF-10 (achado 2 do /code-review): a região viva já existe, vazia, antes do clique — e é ela que recebe o texto
+  const privacidade = p.page.getByRole('region', { name: 'Privacidade' });
+  const regiao = privacidade.getByRole('status').first();
+  await expect(regiao).toBeEmpty();
+  await regiao.evaluate((el) => el.setAttribute('data-e2e-montada', ''));
   await p.page.getByRole('button', { name: 'Baixar meus dados' }).click();
-  await expect(p.page.getByRole('status').filter({ hasText: 'Pedimos seus dados. O link chega por e-mail e vale por 24 horas.' })).toBeVisible();
+  await expect(privacidade.locator('[role="status"][data-e2e-montada]')).toHaveText('Pedimos seus dados. O link chega por e-mail e vale por 24 horas.');
   const email = await esperarEmail(p.email, { assunto: 'Exportação de dados pronta' });
   expect(email.texto).toContain('pede que você entre no portal');
   await p.page.goto(primeiroLink(email.texto, '/p/meus-dados/exportacoes/'));
@@ -236,6 +241,14 @@ test('Perfil > Notificações: sem telefone, ligar o WhatsApp explica o que faze
   await p.page.getByLabel('Receber lembretes por WhatsApp').check();
   await p.page.getByRole('button', { name: 'Salvar' }).click();
   await expect(p.page.getByRole('alert').filter({ hasText: 'Para receber por WhatsApp' })).toHaveText('Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.');
+  await expect(p.page.getByLabel('Receber lembretes por WhatsApp')).not.toBeChecked(); // T-6: volta ao salvo
+  // RNF-10 (achado 2 do /code-review): a região de "Preferência salva." fica montada (vazia) e só o texto muda
+  const form = p.page.locator('form').filter({ has: p.page.getByLabel('Receber lembretes por WhatsApp') });
+  const regiao = form.getByRole('status');
+  await expect(regiao).toBeEmpty();
+  await regiao.evaluate((el) => el.setAttribute('data-e2e-montada', ''));
+  await p.page.getByRole('button', { name: 'Salvar' }).click(); // desmarcada: opt-out, que não pede telefone
+  await expect(form.locator('[role="status"][data-e2e-montada]')).toHaveText('Preferência salva.');
   await p.page.context().close();
 });
 

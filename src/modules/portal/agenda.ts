@@ -3,6 +3,7 @@ import { getDb, type Db } from '@/db/client';
 import { appointments } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
 import { horariosParaPaciente, semanaDaJanela } from '@/modules/agenda/agendamento-paciente';
+import { MAX_CONSULTAS_FUTURAS_PUBLICO } from '@/modules/agenda/constantes';
 import { podeAlterarPeloPaciente } from '@/modules/agenda/cancelamento';
 import { buscarConsulta, listarConsultas, STATUS_ATIVOS, type Consulta, type StatusConsulta, type TenantAgenda } from '@/modules/agenda/consultas';
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
@@ -37,7 +38,9 @@ export async function consultasDoPaciente(ctx: TenantContext, tenant: TenantAgen
   const ativas = inArray(appointments.status, [...STATUS_ATIVOS]);
   const proximas = await listarConsultas(ctx, and(ativas, gt(appointments.fim, agora)), { ordem: 'asc', limite: 20 }, db);
   const anteriores = await listarConsultas(ctx, or(lte(appointments.fim, agora), notInArray(appointments.status, [...STATUS_ATIVOS])), { ordem: 'desc', limite: 10 }, db);
-  return { proximas: proximas.map((c) => paraPaciente(c, tenant, agora)), anteriores: anteriores.map((c) => paraPaciente(c, tenant, agora)) };
+  // T-1: o mesmo teto do servidor (RN-16, `agendarComoPaciente`): ativas que ainda vão começar; em andamento não conta
+  const podeAgendar = proximas.filter((c) => c.inicio > agora).length < MAX_CONSULTAS_FUTURAS_PUBLICO;
+  return { podeAgendar, proximas: proximas.map((c) => paraPaciente(c, tenant, agora)), anteriores: anteriores.map((c) => paraPaciente(c, tenant, agora)) };
 }
 
 export async function consultaDoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, agora: Date, db: Db = getDb()): Promise<ConsultaDoPaciente | null> {

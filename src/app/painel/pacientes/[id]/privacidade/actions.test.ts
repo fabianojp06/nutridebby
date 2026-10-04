@@ -5,8 +5,9 @@ import { closeDb, getDb } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getEnv } from '@/env';
-import { stopBoss } from '@/jobs/boss';
+import { getBoss, stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
+import { concluirExclusaoAtendida, type DadosExclusaoAtendida } from '@/modules/pacientes/lgpd';
 import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { nutriComDpa } from '../../../../../../test/nutri';
 import { novoPaciente } from '../../../../../../test/pacientes';
@@ -40,7 +41,7 @@ const confirmacao = (nome: string) => {
 };
 
 describe('atenderExclusaoAction (US-018, Plano 06)', () => {
-  it('"Atender pedido de exclusão" bloqueia e apaga na hora as fotos do diário (o registro fica, com a foto "removida")', async () => {
+  it('"Atender pedido de exclusão" bloqueia e deixa as fotos do diário para o job exclusao-atendida (achado 6 do /code-review: um lugar só), que as apaga antes do aviso', async () => {
     const N = await nutriComDpa(db, getAuth());
     req.headers = new Headers({ cookie: N.cookie });
     const p = await novoPaciente(db, N.ctx);
@@ -51,6 +52,12 @@ describe('atenderExclusaoAction (US-018, Plano 06)', () => {
 
     const [paciente] = await withTenant(N.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, p.id)), db);
     expect(paciente.status).toBe('bloqueado');
+    // a action não apaga: a foto continua até o job rodar
+    expect(existsSync(resolverCaminho(getEnv().DATA_DIR, foto.caminho))).toBe(true);
+    const jobs = (await (await getBoss()).findJobs<DadosExclusaoAtendida>('exclusao-atendida')).map((j) => j.data).filter((d) => d.patientId === p.id);
+    expect(jobs).toEqual([{ tenantId: N.tenantId, patientId: p.id }]);
+    // o job (como o worker o roda) apaga as fotos e só então avisa
+    expect(await concluirExclusaoAtendida(jobs[0], { db, ultimaTentativa: false })).toBe('avisado');
     const [e] = await withTenant(N.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, p.id)), db);
     expect(e).toMatchObject({ fotoPath: null, fotoStatus: 'removida', texto: 'arroz' });
     expect(existsSync(resolverCaminho(getEnv().DATA_DIR, foto.caminho))).toBe(false);

@@ -18,4 +18,5 @@ export const MSG_DIARIO = {
   fotoFalhou: 'Não foi possível processar a foto.',
   nenhum: 'Nenhum registro ainda.',
   ocupado: 'Tente novamente em alguns instantes.',
+  formulario: 'Formulário inválido.',
 } as const;

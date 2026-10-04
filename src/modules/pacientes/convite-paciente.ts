@@ -248,6 +248,11 @@ export async function aceitarConvitePaciente(
   }
 }
 
+/** A conta é de paciente e tem o e-mail do convite (outro login não "adota" o prontuário). */
+function contaDoConvite(u: { email: string; papel: string } | undefined, emailDoConvite: string): boolean {
+  return !!u && u.papel === 'paciente' && normalizeEmail(u.email) === normalizeEmail(emailDoConvite);
+}
+
 /**
  * Quem já é paciente de outra nutricionista (US-010): entra com a conta existente e só confirma o termo
  * e o WhatsApp. O e-mail da conta precisa ser o do convite — outro login não "adota" o prontuário.
@@ -260,14 +265,17 @@ export async function vincularContaExistente(
   const now = deps.now ?? new Date();
   const e = await prepararAceite(db, input.token, input.aceitouTermo, now);
   const [u] = await db.select({ email: user.email, papel: user.appRole }).from(user).where(eq(user.id, input.userId));
-  if (!u || u.papel !== 'paciente' || normalizeEmail(u.email) !== normalizeEmail(e.email)) {
-    throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.outraConta);
-  }
+  if (!contaDoConvite(u, e.email)) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.outraConta);
   await withTenant(
     { tenantId: e.tenantId, role: 'paciente', patientId: e.patientId, actorUserId: input.userId, ip: input.ip },
     async (tx) => {
       const p = await travarPacienteDoConvite(tx, e.patientId); // paciente → convite (T6-R1)
       await consumirConvite(tx, e.tenantId, input.token, now);
+      // B-2 (D18): a conta lida acima pode ter sido anonimizada logo depois (job retencao-lgpd de outro consultório,
+      // que a trava FOR UPDATE). FOR SHARE espera a anonimização em curso e devolve a versão gravada: conferida de
+      // novo, aqui, nada se liga a uma conta anonimizada. Ordem paciente → convite → conta (a anonimização: paciente → conta).
+      const [travada] = await tx.select({ email: user.email, papel: user.appRole }).from(user).where(eq(user.id, input.userId)).for('share');
+      if (!contaDoConvite(travada, p.email)) throw new ConvitePacienteError(MSG_CONVITE_PACIENTE.outraConta);
       await registrarAceiteTermo(tx, input.userId, e.tenantId, input.ip, now);
       await tx.update(patients).set({ userId: input.userId, ...escolhaWhatsapp(input.whatsapp, p, now), updatedAt: now }).where(eq(patients.id, p.id));
     },

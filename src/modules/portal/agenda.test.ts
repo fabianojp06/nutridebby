@@ -30,6 +30,26 @@ describe('agenda do paciente no PWA (P06-09)', () => {
     expect(r.anteriores.map((c) => c.inicio.toISOString())).toEqual([em('2026-09-30', '09:00').toISOString()]);
   });
 
+  it('podeAgendar: some com 3 consultas futuras ativas (teto RN-16), volta com cancelada ou passada (T-1)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    const agora = em('2026-10-05', '10:00');
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-09', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-10', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-09-30', '09:00')); // passada: não conta
+    expect((await consultasDoPaciente(ctx, tenantAgenda(T), agora, app.db)).podeAgendar).toBe(true);
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-11', '09:00'));
+    expect((await consultasDoPaciente(ctx, tenantAgenda(T), agora, app.db)).podeAgendar).toBe(false);
+    // a consulta em andamento (inicio < agora < fim) não é "futura" para o teto
+    const T2 = await novoTenant(app.db);
+    const bia = await novoPaciente(app.db, T2.ctx);
+    await consultaDireta(app.db, T2.ctx, bia.id, em('2026-10-05', '09:50'));
+    await consultaDireta(app.db, T2.ctx, bia.id, em('2026-10-09', '09:00'));
+    await consultaDireta(app.db, T2.ctx, bia.id, em('2026-10-10', '09:00'));
+    expect((await consultasDoPaciente(ctxPaciente(T2.tenantId, bia.id), tenantAgenda(T2), agora, app.db)).podeAgendar).toBe(true);
+  });
+
   it('consulta de outro paciente pelo id → null (RLS)', async () => {
     const T = await novoTenant(app.db);
     const [ana, bia] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];

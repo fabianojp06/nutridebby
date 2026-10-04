@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -14,6 +14,7 @@ import { stopBoss } from '@/jobs/boss';
 import { sha256 } from '@/lib/crypto';
 import { aceitarConvite, CONVITE_INVALIDO, inspecionarConvite } from '@/modules/plataforma/convites';
 import { PacienteNaoEncontradoError } from './base';
+import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
 import { aceitarConvitePaciente, ConvitePacienteError, inspecionarConvitePaciente, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso, vincularContaExistente } from './convite-paciente';
 import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes } from './pacientes';
 import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
@@ -213,6 +214,65 @@ describe('aceite do convite — quem já tem conta (US-010 "E-mail já usado por
     expect(await buscarPaciente(primeiro.T.ctx, pB.id, app.db)).toBeNull();
     expect((await listarPacientes(primeiro.T.ctx, {}, app.db)).map((x) => x.nome)).not.toContain('Ana S.');
     expect((await lerPaciente(primeiro.T, primeiro.p.id)).userId).toBe(u.id); // o vínculo de A segue o mesmo
+  });
+
+  it('B-2 (corrida com a anonimização, D18): o vínculo que espera a conta ser anonimizada é recusado e nada fica ligado à conta anonimizada', async () => {
+    const primeiro = await convidado();
+    await aceite(primeiro.token);
+    const [u] = await app.db.select().from(user).where(eq(user.email, primeiro.email));
+    const B = await novoTenant(app.db, 'Outra Nutri');
+    const pB = await criarPaciente(B.ctx, B.tenant, dados(primeiro.email), deps);
+    const tokenB = tokenDe((await emailsNaFila('convite_paciente', primeiro.email)).filter((m) => m.nutri === 'Outra Nutri')[0].link);
+    // a sessão já foi conferida e o convite já foi lido (prepararAceite) quando a anonimização do prontuário de A começa
+
+    // anonimização de A (job retencao-lgpd) em curso: solta a conta, confere que não há outro vínculo e a anonimiza,
+    // ainda sem COMMIT
+    let soltar!: () => void;
+    const portao = new Promise<void>((res) => (soltar = res));
+    let pidDaAnonimizacao = 0;
+    let travada = false;
+    const anonimizacao = withTenant(
+      { tenantId: primeiro.T.tenantId, role: 'worker' },
+      async (tx) => {
+        pidDaAnonimizacao = (await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`)).rows[0].pid;
+        await tx.update(patients).set({ userId: null }).where(eq(patients.id, primeiro.p.id));
+        expect(await contaSemOutroVinculo(tx, u.id)).toBe(true);
+        expect(await anonimizarContaSemVinculo(tx, u.id, now)).toBe(true);
+        travada = true;
+        await portao;
+      },
+      app.db,
+    );
+    while (!travada) await new Promise((res) => setTimeout(res, 10)); // a conta já está travada pela anonimização
+
+    const vinculo = vincularContaExistente({ token: tokenB, userId: u.id, aceitouTermo: true, whatsapp: false, ip: '203.0.113.32' }, { db: app.db, now }).then(
+      () => 'vinculou',
+      (e: unknown) => e,
+    );
+    // o aceite chegou à conta e espera a transação da anonimização
+    const fim = Date.now() + 5000;
+    let esperando = false;
+    while (Date.now() < fim && !esperando) {
+      const { rows } = await app.pool.query(
+        `select 1 from pg_locks w join pg_locks h on h.locktype = 'transactionid' and h.transactionid = w.transactionid and h.granted
+          where w.locktype = 'transactionid' and not w.granted and h.pid = $1`,
+        [pidDaAnonimizacao],
+      );
+      esperando = rows.length > 0;
+      if (!esperando) await new Promise((res) => setTimeout(res, 20));
+    }
+    expect(esperando).toBe(true);
+    soltar();
+    await anonimizacao;
+
+    const r = await vinculo;
+    expect(r).toBeInstanceOf(ConvitePacienteError);
+    expect((r as Error).message).toBe(MSG_CONVITE_PACIENTE.outraConta);
+    expect((await lerPaciente(B, pB.id)).userId).toBeNull();
+    expect(await app.db.select().from(consents).where(and(eq(consents.userId, u.id), eq(consents.tenantId, B.tenantId)))).toEqual([]);
+    expect(await pendentes(pB.id)).toHaveLength(1); // o convite não foi gasto
+    // reaberto o link (sem sessão: a conta anonimizada não tem mais nenhuma), o e-mail não é mais de nenhuma conta → conta nova
+    expect(await inspecionarConvitePaciente(app.db, tokenB, now)).toMatchObject({ estado: 'valido', conta: 'nenhuma' });
   });
 
   it('conta de outro e-mail ou e-mail que é de nutricionista: mensagem clara e nada vinculado (Review Focus 3)', async () => {

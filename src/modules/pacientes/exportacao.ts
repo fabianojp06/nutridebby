@@ -14,6 +14,9 @@ import type { EscopoExportacao } from './exportacao-job';
 export const EXPORTACAO_VALIDADE_MS = 24 * 60 * 60 * 1000; // US-018: link válido por 24 h
 /** Pendente há mais que isto = o job se perdeu (3 tentativas de até 5 min + espera): um pedido novo é criado. */
 export const PENDENTE_MAX_MS = 30 * 60 * 1000;
+/** L-3: pendente perdido aparece como "falhou" (a página do link não diz "volte em alguns minutos" para sempre). */
+export const perdido = (e: { status: string; createdAt: Date }, now: Date) =>
+  e.status === 'pendente' && now.getTime() - e.createdAt.getTime() > PENDENTE_MAX_MS;
 
 export const MSG_EXPORTACAO = {
   anonimizado:
@@ -146,6 +149,7 @@ export async function estadoDaExportacao(
           ),
         );
       if (!e) return { estado: 'inexistente' };
+      if (perdido(e, now)) return { estado: 'falhou' };
       if (e.status === 'pendente' || e.status === 'falhou') return { estado: e.status };
       if (
         e.status === 'pronta' &&
@@ -163,7 +167,7 @@ export async function estadoDaExportacao(
   );
 }
 
-/** Últimos pedidos, com o mesmo estado da página do link (pronta vencida ou sem arquivo = expirada). */
+/** Últimos pedidos, com o mesmo estado da página do link (pronta vencida ou sem arquivo = expirada; pendente perdido = falhou). */
 export async function exportacoesRecentes(
   ctx: TenantContext,
   patientId: string,
@@ -194,8 +198,9 @@ export async function exportacoesRecentes(
   );
   return linhas.map(({ arquivoPath, ...r }) => ({
     ...r,
-    status:
-      r.status === 'pronta' && !(arquivoPath && r.expiraEm && r.expiraEm.getTime() > now.getTime())
+    status: perdido(r, now)
+      ? 'falhou'
+      : r.status === 'pronta' && !(arquivoPath && r.expiraEm && r.expiraEm.getTime() > now.getTime())
         ? 'expirada'
         : r.status,
   }));

@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
   CABECALHO_VERSAO,
   cabecalhosDaCopia,
+  CACHE_PLANO,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
+  esquecerPlanoGuardadoForaDe,
   idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
@@ -15,6 +17,7 @@ import {
   precisaBuscarPlano,
   RENOVAR_PLANO_MS,
   saiuDoPlano,
+  URL_PLANO,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
 } from './sw-regras';
@@ -163,5 +166,44 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(urlDaNotificacao(42, O)).toBe('/p/inicio');
     expect(urlDaNotificacao('javascript:alert(1)', O)).toBe('/p/inicio');
     expect(urlDaNotificacao('/p/plano', O)).toBe('/p/inicio'); // R7: URL relativa não lança (sem URL.canParse), só não vale
+  });
+});
+
+/** Cache Storage de mentira (o teste roda em Node): um cache com no máximo a cópia de "Meu plano". */
+function cacheStorage(copia: { dono?: string } | null) {
+  const caches = new Map<string, Map<string, Response>>();
+  if (copia) {
+    const h = new Headers({ 'content-type': 'text/html' });
+    if (copia.dono) h.set(CABECALHO_DONO, copia.dono);
+    caches.set(CACHE_PLANO, new Map([[URL_PLANO, new Response('<html>plano</html>', { headers: h })]]));
+  }
+  return {
+    has: async (nome: string) => caches.has(nome),
+    open: async (nome: string) => {
+      const c = caches.get(nome) ?? new Map<string, Response>();
+      caches.set(nome, c);
+      return { match: async (url: string) => c.get(url) };
+    },
+    delete: async (nome: string) => caches.delete(nome),
+    existe: () => caches.has(CACHE_PLANO),
+  };
+}
+
+describe('/p/escolher: a cópia offline sai só se for de quem não está entre os escolhíveis (achado 4 do /code-review)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it('do consultório ativo fica; do suspenso (ou de outra conta) e sem dono sai; sem cópia, nada é criado', async () => {
+    for (const [copia, manter, fica] of [
+      [{ dono: 'paciente-ativo' }, ['paciente-ativo', 'outro-ativo'], true],
+      [{ dono: 'paciente-suspenso' }, ['paciente-ativo'], false],
+      [{}, ['paciente-ativo'], false],
+      [null, ['paciente-ativo'], false],
+    ] as const) {
+      const c = cacheStorage(copia);
+      vi.stubGlobal('caches', c);
+      await esquecerPlanoGuardadoForaDe(manter);
+      expect(c.existe()).toBe(fica);
+    }
   });
 });

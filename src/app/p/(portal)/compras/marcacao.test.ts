@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { alternarComprado, assinarCompras, chaveCompras, conferirDonoDasCompras, esquecerComprasDoAparelho, lerBruto, lerComprados } from './marcacao';
+import { alternarComprado, assinarCompras, chaveCompras, conferirDonoDasCompras, esquecerComprasDoAparelho, esquecerComprasForaDe, lerBruto, lerComprados } from './marcacao';
 
 /** O teste roda em Node: window vira um EventTarget e o localStorage é trocado por caso. */
 function armazenamento(): Storage {
@@ -98,6 +98,20 @@ describe('marcação "comprado" (RN-13, D15)', () => {
     expect(ls.getItem(chaveCompras('plano-c'))).toBeNull();
     expect(ls.getItem('nd-compras-dono')).toBeNull();
     expect(ls.getItem('outra-coisa')).toBe('fica');
+  });
+
+  it('/p/escolher (achado 4 do /code-review): as marcações do vínculo escolhível ficam; as de outro dono saem', () => {
+    const ls = armazenamento();
+    vi.stubGlobal('localStorage', ls);
+    conferirDonoDasCompras('paciente-ativo');
+    alternarComprado(chaveCompras('plano-a'), 'Arroz');
+    esquecerComprasForaDe(['paciente-ativo', 'outro-ativo']);
+    expect(lerComprados(lerBruto(chaveCompras('plano-a')))).toEqual(['Arroz']);
+    expect(ls.getItem('nd-compras-dono')).toBe('paciente-ativo');
+    esquecerComprasForaDe(['outro-ativo']); // o dono das marcações está no consultório suspenso
+    expect([ls.getItem(chaveCompras('plano-a')), ls.getItem('nd-compras-dono')]).toEqual([null, null]);
+    vi.stubGlobal('localStorage', bloqueado());
+    expect(() => esquecerComprasForaDe(['outro-ativo'])).not.toThrow();
   });
 
   it('sem armazenamento: esquecer apaga a cópia em memória e não lança', () => {

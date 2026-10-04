@@ -79,7 +79,7 @@ describe('página pública (US-032, RN-16)', () => {
   it('ativa: nome e horários livres (só horas); desativada: "Agendamento online indisponível. Entre em contato."; inexistente', async () => {
     const T = await consultorio();
     const p = await carregarPaginaPublica(T.slug, { agora, db: app.db, semana: '2026-10-15' });
-    expect(p).toMatchObject({ estado: 'ativa', nome: 'Debby Silva', temOnline: false, semana: '2026-10-12' });
+    expect(p).toMatchObject({ estado: 'ativa', tenantId: T.tenantId, nome: 'Debby Silva', temOnline: false, semana: '2026-10-12' });
     if (p.estado !== 'ativa') throw new Error();
     expect(p.horarios[0]).toEqual({ inicio: em('2026-10-15', '08:00').toISOString(), dia: 'qui., 15/10', data: '2026-10-15', hora: '08:00', modalidades: ['presencial'] });
     const D = await consultorio({ agendamentoPublicoAtivo: false });

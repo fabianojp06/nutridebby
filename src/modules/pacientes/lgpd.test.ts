@@ -15,14 +15,14 @@ import { account, appointments, auditLog, consents, diaryEntries, exams, invites
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
-import { stopBoss } from '@/jobs/boss';
+import { getBoss, stopBoss } from '@/jobs/boss';
 import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { PacienteBloqueadoError } from './base';
 import { criarExame } from './exames';
-import { anexosDoPaciente, anonimizarVencidos, apagarFotosDoDiario, arquivarPaciente, atenderPedidoExclusao, desarquivarPaciente, LgpdError, MSG_LGPD, pedidosDoTitularAbertos, PRAZO_GUARDA_ANOS } from './lgpd';
+import { anexosDoPaciente, anonimizarVencidos, apagarFotosDoDiario, arquivarPaciente, atenderPedidoExclusao, concluirExclusaoAtendida, desarquivarPaciente, LgpdError, MSG_LGPD, pedidosDoTitularAbertos, PRAZO_GUARDA_ANOS } from './lgpd';
 import { criarPaciente } from './pacientes';
 
 // Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
@@ -48,6 +48,9 @@ const anonimizarSo = (...ts: TenantDeTeste[]) => {
   vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce(ts.map((t) => ({ id: t.tenantId, fuso: t.tenant.fuso })));
   return anonimizarVencidos(app.db, now, { dataDir });
 };
+/** F-13: os jobs `exclusao-atendida` (aviso ao paciente depois das fotos) deste paciente. */
+const jobsDaExclusao = async (patientId: string) =>
+  (await (await getBoss()).findJobs<{ tenantId: string; patientId: string }>('exclusao-atendida')).map((j) => j.data).filter((d) => d.patientId === patientId);
 const ler = async (ctx: Parameters<typeof withTenant>[0], id: string) => (await withTenant(ctx, (tx) => tx.select().from(patients).where(eq(patients.id, id)), app.db))[0];
 const cadastro = (email: string) => ({ nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', email, telefone: '(11) 91234-5678', whatsappAutorizado: true });
 
@@ -98,6 +101,10 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect(await app.db.select().from(invites).where(and(eq(invites.patientId, p.id), isNull(invites.usadoEm)))).toEqual([]);
     const log = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'bloquear'))), app.db);
     expect(log[0]).toMatchObject({ entidade: 'patients', actorUserId: T.nutriId });
+    // F-13: o aviso ao paciente sai pelo job exclusao-atendida, depois de apagar as fotos do diário
+    expect(await emailsNaFila('exclusao_atendida', email)).toEqual([]);
+    expect(await jobsDaExclusao(p.id)).toEqual([{ tenantId: T.tenantId, patientId: p.id }]);
+    expect(await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir, ultimaTentativa: false })).toBe('avisado');
     const [msg] = await emailsNaFila('exclusao_atendida', email);
     expect(msg).toMatchObject({ nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
     // prontuário mantido e só para consulta
@@ -159,7 +166,8 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect(daAna.find((n) => n.tipo === 'consulta_marcada')).toMatchObject({ status: 'enviada' });
     expect(ns.filter((n) => n.patientId === bia.id).map((n) => n.status)).toEqual(['pendente']);
 
-    // para a paciente, só o e-mail de sempre do pedido atendido; para a nutricionista, UM aviso, sem dado de saúde
+    // para a paciente, só o e-mail de sempre do pedido atendido (F-13: pelo job, depois das fotos); para a nutricionista, UM aviso, sem dado de saúde
+    await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: ana.id }, { db: app.db, dataDir, ultimaTentativa: false });
     expect((await emailsNaFila('exclusao_atendida', ana.email))).toHaveLength(1);
     expect(await emailsNaFila('exclusao_consultas_canceladas', nutriEmail)).toEqual([{ tipo: 'exclusao_consultas_canceladas', para: nutriEmail, paciente: 'Ana', quantidade: 2 }]);
 
@@ -328,6 +336,59 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
     expect(await apagarFotosDoDiario(T.ctx, p.id, { db: app.db, dataDir })).toBe(0);
   });
 
+  it('F-13: o e-mail "pedido atendido" ("Foram apagados agora: as fotos do diário…") só sai depois que as fotos saíram do disco', async () => {
+    const T = await novoTenant(app.db, 'Debby Silva');
+    const email = `f13-${randomUUID().slice(0, 8)}@ex.com`;
+    const p = await novoPaciente(app.db, T.ctx, { email });
+    const { entrada, caminhos } = await registroComFoto(T, p.id, { original: true });
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, { db: app.db });
+    expect(await emailsNaFila('exclusao_atendida', email)).toEqual([]); // nada na transação do atendimento: vai o job
+    const dados = { tenantId: T.tenantId, patientId: p.id };
+    expect(await jobsDaExclusao(p.id)).toEqual([dados]);
+
+    // disco com erro: o e-mail não sai e o job tenta de novo — o erro que volta ao pg-boss não leva caminho nem ids (F-1)
+    const naoPasta = path.join(dataDir, `arquivo-${randomUUID()}`);
+    writeFileSync(naoPasta, 'x'); // o "dataDir" é um arquivo: o rm da foto falha com ENOTDIR
+    const err = await concluirExclusaoAtendida(dados, { db: app.db, dataDir: naoPasta, ultimaTentativa: false }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const serializado = JSON.stringify(err, Object.getOwnPropertyNames(err));
+    for (const segredo of [naoPasta, T.tenantId, p.id]) expect(serializado).not.toContain(segredo);
+    expect((err as Error).message).toContain('ENOTDIR');
+    expect(await emailsNaFila('exclusao_atendida', email)).toEqual([]);
+    for (const c of caminhos) expect(existsSync(resolverCaminho(dataDir, c))).toBe(true);
+
+    // a tentativa seguinte apaga as fotos e só então avisa
+    expect(await concluirExclusaoAtendida(dados, { db: app.db, dataDir, ultimaTentativa: false })).toBe('avisado');
+    for (const c of caminhos) expect(existsSync(resolverCaminho(dataDir, c))).toBe(false);
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.id, entrada.id)), app.db);
+    expect(e).toMatchObject({ fotoPath: null, fotoOriginalPath: null, fotoStatus: 'removida' });
+    expect(await emailsNaFila('exclusao_atendida', email)).toEqual([expect.objectContaining({ nome: 'Ana Souza', nutri: 'Debby Silva' })]);
+  });
+
+  it('F-13: na última tentativa com o disco ainda falhando, o aviso sai assim mesmo (o titular não fica sem resposta; a varredura diária apaga as fotos)', async () => {
+    const T = await novoTenant(app.db);
+    const email = `f13-${randomUUID().slice(0, 8)}@ex.com`;
+    const p = await novoPaciente(app.db, T.ctx, { email });
+    await registroComFoto(T, p.id);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, { db: app.db });
+    const naoPasta = path.join(dataDir, `arquivo-${randomUUID()}`);
+    writeFileSync(naoPasta, 'x');
+    expect(await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir: naoPasta, ultimaTentativa: true })).toBe('avisado');
+    expect(await emailsNaFila('exclusao_atendida', email)).toHaveLength(1);
+  });
+
+  it('F-13: o job só age sobre quem está bloqueado e não anonimizado (o ativo não perde fotos nem recebe o aviso)', async () => {
+    const T = await novoTenant(app.db);
+    for (const extra of [{}, { status: 'arquivado' as const }, { status: 'bloqueado' as const, anonimizarApos: '2046-09-30', anonimizadoEm: new Date() }]) {
+      const email = `f13-${randomUUID().slice(0, 8)}@ex.com`;
+      const p = await novoPaciente(app.db, T.ctx, { email, ...extra });
+      const { caminhos } = await registroComFoto(T, p.id);
+      expect(await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir, ultimaTentativa: false })).toBe('ignorado');
+      expect(await emailsNaFila('exclusao_atendida', email)).toEqual([]);
+      expect(existsSync(resolverCaminho(dataDir, caminhos[0]))).toBe(true);
+    }
+  });
+
   it('rede de segurança da varredura diária: bloqueado (guarda ainda não vencida) perde as fotos e NÃO é anonimizado; o ativo fica com as dele', async () => {
     const T = await novoTenant(app.db);
     const bloqueado = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2046-09-30' });
@@ -410,5 +471,26 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
     expect(u2.email).toBe(dupla.email);
     expect(await app.db.select().from(account).where(eq(account.userId, dupla.userId))).toHaveLength(1);
     expect((await ler(A.ctx, dupla.paciente.id)).anonimizadoEm).not.toBeNull(); // o prontuário de A foi anonimizado do mesmo jeito
+  });
+
+  it('B-1: prontuário ligado (por bug) a uma conta da equipe é anonimizado, mas a conta fica intacta, com um aviso no log sem dado dela', async () => {
+    const T = await novoTenant(app.db);
+    const nutriId = randomUUID();
+    const emailNutri = `nutri-${nutriId.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id: nutriId, name: 'Debby Silva', email: emailNutri, emailVerified: true, appRole: 'nutri', tenantId: T.tenantId });
+    await app.db.insert(account).values({ id: randomUUID(), userId: nutriId, accountId: nutriId, providerId: 'credential', password: 'hash' });
+    const x = await pacienteComConta(app.db, T, { userId: nutriId, status: 'bloqueado', anonimizarApos: '2000-01-01' });
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await anonimizarSo(T)).toEqual({ anonimizados: 1 });
+      expect(aviso).toHaveBeenCalledWith({ tenantId: T.tenantId }, 'conta do titular anonimizado não é de paciente: conta de login não anonimizada');
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain(nutriId);
+    } finally {
+      aviso.mockRestore();
+    }
+    expect((await ler(T.ctx, x.paciente.id)).anonimizadoEm).not.toBeNull();
+    const [u] = await app.db.select().from(user).where(eq(user.id, nutriId));
+    expect(u).toMatchObject({ name: 'Debby Silva', email: emailNutri });
+    expect(await app.db.select().from(account).where(eq(account.userId, nutriId))).toHaveLength(1);
   });
 });

@@ -12,6 +12,7 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
+import { semDetalhe } from '@/worker/sem-detalhe';
 import { converterFotoDoDiario, expirarFotosPendentes, MAX_PIXELS } from './diario-foto-job';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -75,13 +76,39 @@ describe('conversão da foto do diário (RN-07)', () => {
     expect((await app.db.select().from(tenants).where(eq(tenants.id, r.T.tenantId)))[0].armazenamentoBytes).toBe(COTA_BYTES - 1 - orig.bytes + jpeg.bytes);
   });
 
-  it('a diferença só vale para o arquivo substituído: um JPEG MAIOR que o original, sem espaço, continua barrado pela cota', async () => {
+  it('a diferença só vale para o arquivo substituído: um JPEG MAIOR que o original, sem espaço, é barrado pela cota — "falhou" já na 1ª tentativa (definitivo, F-2) e o original sai', async () => {
     // PNG 16 × 16 de cor única (~100 bytes) → JPEG maior que ele (só as tabelas do JPEG já passam disso)
     const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#88aa44' } }).png({ compressionLevel: 9, palette: true }).toBuffer();
     const r = await registro(png);
+    const { fotoOriginalPath } = await r.ler();
     await app.db.update(tenants).set({ armazenamentoBytes: COTA_BYTES - 1 }).where(eq(tenants.id, r.T.tenantId));
-    await expect(converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).rejects.toThrow('Espaço de armazenamento esgotado');
-    expect(await r.ler()).toMatchObject({ fotoStatus: 'processando', fotoPath: null });
+    // ultimaTentativa: false — as outras tentativas do pg-boss esbarrariam na mesma cota
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, deps)).toBe('falhou');
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoPath: null, fotoOriginalPath: null });
+    expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
+    const arquivos = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.patientId, r.p.id)), app.db);
+    expect(arquivos).toEqual([]);
+  });
+
+  it('erro de infraestrutura (original sumiu do disco) antes da última tentativa: relançado e, como o worker registra o job (semDetalhe), só com o código, sem caminho nem ids (vai para o output do pg-boss, RNF-11)', async () => {
+    const r = await registro(await fotoComExif());
+    const { fotoOriginalPath } = await r.ler();
+    rmSync(resolverCaminho(dataDir, fotoOriginalPath!));
+    const job = semDetalhe('diario-foto', converterFotoDoDiario);
+    const err = await job({ tenantId: r.T.tenantId, entryId: r.id }, deps).then(
+      () => {
+        throw new Error('esperava o erro relançado');
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('ENOENT');
+    // o que o pg-boss guarda (serialize-error: message, stack e as propriedades próprias, como `path`)
+    const serializado = JSON.stringify(err, Object.getOwnPropertyNames(err));
+    for (const segredo of [fotoOriginalPath!, dataDir, r.T.tenantId, r.id, r.p.id]) expect(serializado).not.toContain(segredo);
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'processando', fotoOriginalPath }); // o pg-boss tenta de novo
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, ultimaTentativa: true })).toBe('falhou');
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null });
   });
 
   it('HEIC: decodificado pelo heic-decode (aqui simulado) e convertido do mesmo jeito; a memória do decodificador é liberada', async () => {
@@ -115,6 +142,23 @@ describe('conversão da foto do diário (RN-07)', () => {
     expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, abrirHeic })).toBe('falhou');
     expect(decodificou).toBe(false);
     expect(liberou).toBe(1);
+    expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null, fotoPath: null });
+  });
+
+  it('F-3: HEIC de 48 MP (8064 × 6048, modo HEIF Max do iPhone 14 Pro e posteriores) passa dos 40 MP → "falhou" sem decodificar (limite mantido)', async () => {
+    const r = await registro(HEIC_FALSO);
+    let decodificou = false;
+    const abrirHeic = async () => ({
+      width: 8064,
+      height: 6048,
+      decode: async () => {
+        decodificou = true;
+        return { data: new Uint8ClampedArray(0) };
+      },
+    });
+    expect(8064 * 6048).toBeGreaterThan(MAX_PIXELS);
+    expect(await converterFotoDoDiario({ tenantId: r.T.tenantId, entryId: r.id }, { ...deps, abrirHeic })).toBe('falhou');
+    expect(decodificou).toBe(false);
     expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null, fotoPath: null });
   });
 

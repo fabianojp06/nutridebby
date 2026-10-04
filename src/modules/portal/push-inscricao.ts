@@ -4,7 +4,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { notifications, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { PacienteAccess } from '@/lib/paciente-session';
-import type { Vinculo } from './vinculos';
+import { vinculosDaConta, type Vinculo } from './vinculos';
 import { dispararEnvio } from '@/modules/notificacoes/agendar';
 import { endpointDePush } from '@/modules/notificacoes/push-endpoint';
 
@@ -27,13 +27,16 @@ const inscricao = z.object({
 
 type Acesso = Pick<PacienteAccess, 'ctx' | 'vinculos' | 'data'>;
 
+/** A conta que cancela o aparelho: só a sessão de paciente (o "Sair" de /p/termo, /p/escolher, /p/sem-acesso, /indisponivel). */
+export type ContaDoAparelho = { userId: string; ip: string | null | undefined };
+
 /** O contexto de paciente de um vínculo da conta (cada um no próprio tenant). */
-const ctxDoVinculo = (acesso: Acesso, v: Vinculo): TenantContext => ({
+const ctxDoVinculo = (conta: ContaDoAparelho, v: Pick<Vinculo, 'tenantId' | 'patientId'>): TenantContext => ({
   tenantId: v.tenantId,
   role: 'paciente',
   patientId: v.patientId,
-  actorUserId: acesso.data.user.id,
-  ip: acesso.ctx.ip,
+  actorUserId: conta.userId,
+  ip: conta.ip,
 });
 
 /** Um clique em "Ativar" a cada minuto basta: o teste já pedido serve para os cliques seguintes. */
@@ -91,7 +94,7 @@ export async function inscreverAparelho(
   if (deps.sincronizar && !daConta) return 'de_outra_conta';
   for (const v of acesso.vinculos) {
     await withTenant(
-      ctxDoVinculo(acesso, v),
+      ctxDoVinculo({ userId: acesso.data.user.id, ip: acesso.ctx.ip }, v),
       async (tx) => {
         await tx
           .insert(pushSubscriptions)
@@ -108,14 +111,19 @@ export async function inscreverAparelho(
   return 'inscrito';
 }
 
-/** "Sair" / desativar: o endpoint deste aparelho sai de todos os vínculos da conta. */
-export async function cancelarAparelho(acesso: Acesso, endpoint: unknown, deps: { db?: Db } = {}): Promise<void> {
+/**
+ * "Sair" / desativar: o endpoint deste aparelho sai de TODOS os vínculos da conta (inclusive o de consultório suspenso, o
+ * de termo pendente — S-2, o "Sair" de /p/termo, /p/escolher e /indisponivel só tem a sessão — e o arquivado ou
+ * bloqueado, o "Sair" de /p/sem-acesso: desarquivado, o aparelho, talvez de outra pessoa, voltaria a receber avisos).
+ */
+export async function cancelarAparelho(conta: ContaDoAparelho, endpoint: unknown, deps: { db?: Db } = {}): Promise<void> {
   if (typeof endpoint !== 'string' || endpoint.length > 1000) return;
-  for (const v of acesso.vinculos) {
+  const db = deps.db ?? getDb();
+  for (const v of await vinculosDaConta(conta.userId, { db, todos: true })) {
     await withTenant(
-      ctxDoVinculo(acesso, v),
+      ctxDoVinculo(conta, v),
       (tx) => tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.patientId, v.patientId), eq(pushSubscriptions.endpoint, endpoint))),
-      deps.db ?? getDb(),
+      db,
     );
   }
 }

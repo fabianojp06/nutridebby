@@ -94,6 +94,14 @@ describe('POST /api/p/diario (US-042)', () => {
     expect(await registros(A.T, A.paciente.id)).toEqual([]);
   });
 
+  it('F-4: texto com NUL → 400 "Formulário inválido." (não 500), nada gravado', async () => {
+    const A = await pacienteLogado();
+    const r = await enviar({ refeicao: 'Almoço', texto: 'arroz\u0000feijão' }, { cookie: A.cookie });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ erros: { geral: MSG_DIARIO.formulario } });
+    expect(await registros(A.T, A.paciente.id)).toEqual([]);
+  });
+
   it('texto + JPEG válido → 200 "Registro salvo."; o 11º do dia → 409 com o limite', async () => {
     const A = await pacienteLogado();
     const r = await enviar({ refeicao: 'Almoço', texto: 'arroz, feijão', foto: JPEG() }, { cookie: A.cookie });

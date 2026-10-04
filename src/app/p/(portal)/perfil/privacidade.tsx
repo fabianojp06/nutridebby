@@ -4,7 +4,10 @@ import { exclusaoAction, meusDadosAction, type PerfilState } from './actions';
 
 const CONFIRMAR_EXCLUSAO = 'Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico é guardado pelo prazo legal.';
 
-/** A região de status existe desde o início (vazia): o leitor de tela anuncia o texto quando ele chega. */
+/**
+ * RNF-10: a região `role="status"` existe desde o início (vazia) e só o texto muda — região viva inserida já com o texto
+ * muitas vezes não é anunciada (VoiceOver, NVDA com Chrome). O `role="alert"` é anunciado ao entrar.
+ */
 const Retorno = ({ s }: { s: PerfilState }) => (
   <>
     <p role="status">{s.ok}</p>

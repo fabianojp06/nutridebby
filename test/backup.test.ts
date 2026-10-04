@@ -86,9 +86,12 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     readdirSync(dir, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile())
       .map((d) => path.join(d.parentPath, d.name));
-  // Ponto de referência tirado do próprio banco (texto preserva os microssegundos), não do relógio do host
+  // Ponto de referência tirado do relógio do próprio banco (texto preserva os microssegundos), não o do host: o
+  // script grava `concluido_em` com o now() do banco, sempre depois daqui. X-1: não usar max(concluido_em) — com a
+  // tabela vazia ele vira -infinity e as linhas datadas de 2020 que o monitoramento.test.ts grava ao mesmo tempo, no
+  // mesmo banco, entravam nas "execuções desde a referência"
   const referencia = async () =>
-    (await owner.pool.query<{ ref: string }>(`select coalesce(max(concluido_em), '-infinity')::text as ref from backup_runs`)).rows[0]!.ref;
+    (await owner.pool.query<{ ref: string }>(`select clock_timestamp()::text as ref`)).rows[0]!.ref;
   const execucoesDesde = async (ref: string) =>
     (await owner.pool.query(`select tipo, ok from backup_runs where concluido_em > $1::timestamptz order by tipo`, [ref])).rows;
 
@@ -100,6 +103,9 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     for (let d = 20; d <= 27; d++) await rcat(`db/diario/nutri-2026-09-${d}.dump`, 'antigo'); // 8 diários antigos
     for (const d of ['2026-08-30', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27']) await rcat(`db/semanal/nutri-${d}.dump`, 'antigo');
     const antes = await referencia();
+    // X-1: outro arquivo de teste (monitoramento.test.ts) grava no mesmo banco, ao mesmo tempo, execuções com datas
+    // antigas; com a tabela ainda vazia elas não podem entrar nas "execuções desde a referência"
+    await owner.pool.query(`insert into backup_runs (tipo, ok, iniciado_em, concluido_em) values ('banco', false, '1999-12-31', '1999-12-31')`);
     expect(await rodar('2026-10-04')).toBe(0); // 04/10/2026 é domingo
     const diarios = await lsf('db/diario/');
     expect(diarios).toHaveLength(7);

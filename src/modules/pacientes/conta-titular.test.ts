@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
-import { entrar } from '../../../test/sessao';
+import { criarEEntrar, entrar } from '../../../test/sessao';
 import { closeDb } from '@/db/client';
-import { account, patients, session, twoFactor, user } from '@/db/schema';
+import { account, patients, session, twoFactor, user, verification } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getAuth } from '@/lib/auth';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
@@ -27,17 +27,66 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     await entrar(getAuth(), email);
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toHaveLength(2);
     await app.db.insert(twoFactor).values({ secret: 'segredo', backupCodes: 'codigos', userId });
-    await app.db.update(user).set({ twoFactorEnabled: true }).where(eq(user.id, userId));
+    await app.db.update(user).set({ twoFactorEnabled: true, image: 'https://exemplo.dev/foto-da-ana.jpg' }).where(eq(user.id, userId));
+    // B-1 + achado 9 do /code-review: as linhas gravadas pelo próprio Better Auth (identifier com hash, como em
+    // produção) e com os formatos do 1.7.6 (plugins/two-factor) — link de redefinição, desafio de 2FA e aparelho
+    // confiável com o id da conta em `value`; contador e código do desafio sem nada que os ligue à conta
+    const { internalAdapter } = await getAuth().$context;
+    const daOutra = randomUUID();
+    const expira = new Date(Date.now() + 3600_000);
+    const desafio = `2fa-${randomUUID()}`;
+    const desafioDaOutra = `2fa-${randomUUID()}`;
+    const daConta = [
+      { identifier: `reset-password:${randomUUID()}`, value: userId },
+      { identifier: desafio, value: userId },
+      { identifier: `trust-device-${randomUUID()}`, value: userId },
+    ];
+    // sem ligação com a conta (expiram em minutos e não servem sem a linha do desafio): ficam
+    const doDesafio = [
+      { identifier: `2fa-attempts-${desafio}`, value: '0' },
+      { identifier: `2fa-otp-${desafio}`, value: 'hash-do-codigo:0' },
+      { identifier: `2fa-otp-${userId}!${randomUUID()}`, value: 'hash-do-codigo:1' },
+    ];
+    const daOutraConta = [
+      { identifier: `reset-password:${randomUUID()}`, value: daOutra },
+      { identifier: desafioDaOutra, value: daOutra },
+      { identifier: `2fa-attempts-${desafioDaOutra}`, value: '0' },
+    ];
+    const todas = [...daConta, ...doDesafio, ...daOutraConta];
+    for (const v of todas) await internalAdapter.createVerificationValue({ ...v, expiresAt: expira });
+    const ids = todas.map((v) => v.identifier);
+    // premissa da correção: o identifier em claro não está no banco (storeIdentifier: 'hashed')
+    expect(await app.db.select().from(verification).where(inArray(verification.identifier, ids))).toEqual([]);
+    const presentes = async () => {
+      const achadas = await Promise.all(ids.map(async (i) => ((await internalAdapter.findVerificationValue(i)) ? i : null)));
+      return achadas.filter((i) => i !== null).sort();
+    };
+    expect(await presentes()).toEqual([...ids].sort());
 
-    await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now));
+    expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now))).toBe(true);
 
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toEqual([]);
     expect(await app.db.select().from(account).where(eq(account.userId, userId))).toEqual([]);
     expect(await app.db.select().from(twoFactor).where(eq(twoFactor.userId, userId))).toEqual([]);
     const [u] = await app.db.select().from(user).where(eq(user.id, userId));
-    expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false });
+    expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false, image: null });
+    expect(await presentes()).toEqual([...doDesafio, ...daOutraConta].map((v) => v.identifier).sort()); // só as ligadas à conta saem
     await expect(entrar(getAuth(), email)).rejects.toThrow('login falhou');
     await expect(entrar(getAuth(), u.email)).rejects.toThrow('login falhou');
+  });
+
+  it('B-1: conta que não é de paciente (bug a montante) não é tocada: devolve false, sessão, senha e nome ficam', async () => {
+    const T = await novoTenant(app.db);
+    const nutri = await criarEEntrar(app.db, getAuth(), { appRole: 'nutri', tenantId: T.tenantId });
+    await app.db.insert(verification).values({ identifier: `reset-password:${randomUUID()}`, value: nutri.id, expiresAt: new Date(Date.now() + 3600_000) });
+
+    expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, nutri.id, now))).toBe(false);
+
+    expect(await app.db.select().from(session).where(eq(session.userId, nutri.id))).toHaveLength(1);
+    expect(await app.db.select().from(account).where(eq(account.userId, nutri.id))).toHaveLength(1);
+    expect(await app.db.select().from(verification).where(eq(verification.value, nutri.id))).toHaveLength(1);
+    const [u] = await app.db.select().from(user).where(eq(user.id, nutri.id));
+    expect(u).toMatchObject({ name: 'Teste nutri', email: nutri.email });
   });
 
   it('contaSemOutroVinculo: só no contexto worker; conta com outro prontuário não anonimizado (qualquer status, outro tenant) não está sozinha', async () => {

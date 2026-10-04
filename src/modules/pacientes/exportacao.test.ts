@@ -39,6 +39,7 @@ import {
 } from './exportacao-job';
 import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
+import { semDetalhe } from '@/worker/sem-detalhe';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-export-'));
@@ -702,6 +703,36 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.laudosForaDoZip).toBe(false);
   });
 
+  it('L-2: titular que deixou de ser ativo depois de pedir os dados — o pedido dele vira "falhou", sem ZIP e sem e-mail; o da equipe segue gerando', async () => {
+    for (const status of ['bloqueado', 'arquivado'] as const) {
+      const T = await novoTenant(app.db);
+      const { paciente: p, email, userId } = await pacienteComConta(app.db, T);
+      const doTitular = await solicitarExportacao({ ...ctxPaciente(T.tenantId, p.id), actorUserId: userId }, p.id, { db: app.db, escopo: 'titular' });
+      await withTenant(T.ctx, (tx) => tx.update(patients).set({ status }).where(eq(patients.id, p.id)), app.db);
+      // achado 8 do /code-review: desiste antes de montar o PDF (e o ZIP), não só na reserva
+      const renderizar = vi.fn(renderizarProntuario);
+      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: doTitular }, { ...deps, ultimaTentativa: false, renderizar })).toBe('falhou');
+      expect(renderizar).not.toHaveBeenCalled();
+      expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, now)).toEqual({ estado: 'falhou' });
+      expect(await emailsNaFila('exportacao_pronta', email)).toEqual([]); // o link cairia em /p/sem-acesso
+      expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.tipo, 'exportacao')), app.db)).toEqual([]);
+      // US-018: a nutricionista exporta o prontuário bloqueado ou arquivado normalmente
+      const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: daEquipe }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+    }
+  });
+
+  it('L-3: pendente perdido (> 30 min) aparece como "falhou" na página do link e em "Exportações recentes" (o pedido novo já o trata assim)', async () => {
+    const { T, p } = await prontuarioCompleto();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const em30 = new Date(now.getTime() + 30 * 60_000);
+    const em31 = new Date(now.getTime() + 31 * 60_000);
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, em30)).toEqual({ estado: 'pendente' });
+    expect((await exportacoesRecentes(T.ctx, p.id, app.db, em30))[0].status).toBe('pendente');
+    expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, em31)).toEqual({ estado: 'falhou' });
+    expect((await exportacoesRecentes(T.ctx, p.id, app.db, em31))[0].status).toBe('falhou');
+  });
+
   it('foto do diário no ZIP com a data no fuso do tenant: o registro das 23:30 de Brasília sai com o próprio dia', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
@@ -725,6 +756,25 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       expect(r).toBe('falhou');
       expect(erro).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'EACCES', exportId: id }), 'falha ao gerar exportação');
       expect(JSON.stringify(erro.mock.calls)).not.toContain('/data/');
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
+  it('RNF-11 (achado 5 do /code-review): o erro relançado ao pg-boss (antes da última tentativa) sai do worker só com a fila e o código', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const disco = Object.assign(new Error(`EACCES: permission denied, open '/data/${T.tenantId}/diario/foto.jpg'`), { code: 'EACCES', path: `/data/${T.tenantId}/diario/foto.jpg` });
+      const job = semDetalhe('exportacao-paciente', gerarExportacao); // como o worker registra o job
+      const err = await job({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false, renderizar: async () => Promise.reject(disco) }).catch((e: unknown) => e);
+      expect((err as Error).message).toBe('falha no job exportacao-paciente (EACCES)');
+      // o que o pg-boss guarda (serialize-error: message, stack e as propriedades próprias, como `path`)
+      const serializado = JSON.stringify(err, Object.getOwnPropertyNames(err));
+      for (const segredo of ['/data/', T.tenantId, p.id, id]) expect(serializado).not.toContain(segredo);
+      expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'pendente' }); // o pg-boss tenta de novo
     } finally {
       erro.mockRestore();
     }
@@ -756,12 +806,12 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const depois = { ...deps, now: new Date(now.getTime() + 31 * 60_000) };
     expect(await solicitarExportacao(T.ctx, p.id, depois)).not.toBe(daEquipe);
     expect(await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, depois.now)).toEqual({ estado: 'falhou' });
-    expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, depois.now)).toEqual({ estado: 'pendente' });
+    // a linha do titular não foi tocada (na tela, com 31 min, ela também já aparece como "falhou" — L-3)
     const [linha] = await withTenant(T.ctx, (tx) => tx.select().from(dataExports).where(eq(dataExports.id, doTitular)), app.db);
-    expect(linha).toMatchObject({ escopo: 'titular', solicitadoPor: userId });
+    expect(linha).toMatchObject({ escopo: 'titular', solicitadoPor: userId, status: 'pendente' });
     // R14 (c): com o filtro de escopo, o pedido da equipe não existe para quem pede só os do titular
     expect(await estadoDaExportacao(T.ctx, p.id, daEquipe, app.db, depois.now, { escopo: 'titular' })).toEqual({ estado: 'inexistente' });
-    expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, depois.now, { escopo: 'titular' })).toEqual({ estado: 'pendente' });
+    expect(await estadoDaExportacao(T.ctx, p.id, doTitular, app.db, now, { escopo: 'titular' })).toEqual({ estado: 'pendente' });
   });
 
   it('D16: o ZIP do titular pronto não apaga o da equipe (um ZIP válido por paciente e escopo); cada e-mail vai para quem pediu', async () => {

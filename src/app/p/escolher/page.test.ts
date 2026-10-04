@@ -18,6 +18,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('./actions', () => ({ escolherAction: async () => undefined }));
+vi.mock('../esquecer-plano', () => ({ EsquecerPlanoGuardado: ({ manter }: { manter?: string[] }) => `[EsquecerPlanoGuardado manter=${manter?.join(',') ?? 'tudo'}]` }));
 
 const { default: EscolherNutri } = await import('./page');
 const db = getDb();
@@ -52,5 +53,17 @@ describe('/p/escolher com consultório suspenso (RN-15)', () => {
     await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, B.tenantId));
     req.headers = new Headers({ cookie: await entrar(getAuth(), a.email) });
     await expect(pagina()).rejects.toMatchObject({ url: '/indisponivel' });
+  });
+
+  it('S-6 + achado 4 do /code-review: a cópia offline sai na escolha só se não for de um vínculo escolhível (a do consultório ativo fica)', async () => {
+    const A = await novoTenant(db);
+    const B = await novoTenant(db);
+    const a = await pacienteComConta(db, A);
+    const b = await pacienteComConta(db, B, { userId: a.userId });
+    req.headers = new Headers({ cookie: await entrar(getAuth(), a.email) });
+    const manter = (html: string) => html.match(/\[EsquecerPlanoGuardado manter=([^\]]*)\]/)?.[1].split(',').sort();
+    expect(manter(await pagina())).toEqual([a.paciente.id, b.paciente.id].sort());
+    await db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    expect(manter(await pagina())).toEqual([b.paciente.id]); // a cópia do suspenso sai; a do ativo, não
   });
 });

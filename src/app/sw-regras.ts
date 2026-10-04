@@ -158,3 +158,20 @@ export function cabecalhosDaCopia(resposta: Headers, o: { dono: string; versao: 
 export function esquecerPlanoGuardado(): Promise<boolean> {
   return 'caches' in globalThis ? caches.delete(CACHE_PLANO).catch(() => false) : Promise.resolve(false);
 }
+
+/**
+ * /p/escolher (achado 4 do /code-review): a cópia guardada sai só se o dono dela NÃO for um dos vínculos que a conta
+ * ainda pode escolher (consultório suspenso, vínculo sem acesso, outra conta) — a do consultório ativo fica, como no
+ * conferirDono do service worker. Cópia sem dono também sai.
+ */
+export async function esquecerPlanoGuardadoForaDe(manter: readonly string[]): Promise<boolean> {
+  if (!('caches' in globalThis)) return false;
+  try {
+    if (!(await caches.has(CACHE_PLANO))) return false;
+    const dono = (await (await caches.open(CACHE_PLANO)).match(URL_PLANO, { ignoreVary: true }))?.headers.get(CABECALHO_DONO);
+    if (dono && manter.includes(dono)) return false;
+    return await esquecerPlanoGuardado();
+  } catch {
+    return false;
+  }
+}

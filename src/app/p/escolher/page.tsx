@@ -4,6 +4,7 @@ import { ESCOLHER_PATH, SEM_ACESSO_PATH } from '@/lib/paciente-session';
 import { requireUser } from '@/lib/session';
 import { SUSPENDED_PATH } from '@/lib/session-rules';
 import { vinculosDaConta } from '@/modules/portal/vinculos';
+import { EsquecerPlanoGuardado } from '../esquecer-plano';
 import { escolherAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,9 @@ export default async function EscolherNutri({ searchParams }: PageProps<'/p/esco
   const { volta } = await searchParams;
   return (
     <main className="mx-auto max-w-md space-y-4 p-6">
+      {/* S-6 (RN-15): a cópia offline pode ser do consultório suspenso — sai já aqui, não só depois da escolha; a do
+          consultório ativo fica (achado 4 do /code-review: só sai a de quem não está entre os escolhíveis) */}
+      <EsquecerPlanoGuardado manter={vinculos.filter((v) => v.tenantStatus === 'ativa').map((v) => v.patientId)} />
       <h1 className="text-2xl font-semibold">Com qual nutricionista você quer entrar?</h1>
       <ul className="space-y-3">
         {vinculos.map((v) => (

@@ -131,6 +131,10 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' }).click();
   expect((await page.getByRole('link', { name: 'Trocar de nutricionista' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44); // RNF-10
   await page.getByRole('link', { name: 'Trocar de nutricionista' }).click();
+  // achado 4 do /code-review: na escolha, a cópia do consultório 1 (ativo, escolhível) fica no aparelho
+  await expect(page.getByRole('button', { name: 'Consultório E2E 3', exact: true })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  expect(await entradasDoPlano(page)).toBe(1);
   await page.getByRole('button', { name: 'Consultório E2E 3', exact: true }).click();
   await expect(page).toHaveURL(/\/p\/termo$/);
   await page.waitForLoadState('networkidle');
@@ -151,6 +155,8 @@ test('paciente não alcança o painel nem a API da nutricionista (403 ou volta a
     await paciente.page.goto(rota);
     await expect(paciente.page, rota).toHaveURL(/\/p\/inicio$/);
   }
+  // Pelo proxy, rota a rota (X-3: toda rota nova de /api/painel já é conferida, sem lista, em
+  // src/app/api/painel/acesso-negado.test.ts)
   const chamadas: [string, string][] = [
     ['GET', '/api/painel/alimentos?q=arroz'],
     ['POST', '/api/painel/marca/logo'],
