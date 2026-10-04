@@ -1,6 +1,6 @@
 import { execFile as execFileCb, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -18,33 +18,21 @@ const tem = (cmd: string) => {
 const temRclone = tem('rclone');
 if (process.env.CI && !temRclone) throw new Error('rclone é obrigatório no CI (teste da restauração, P08-04)');
 
-const BACKUP = path.resolve('scripts/backup/nutri-backup.sh');
 const RESTAURAR = path.resolve('scripts/backup/nutri-restauracao-teste.sh');
 
 describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
   let base = '';
   let env = {} as NodeJS.ProcessEnv;
-  // Cópia do banco de teste no mesmo container: o backup daqui registra em backup_runs da CÓPIA. No banco de teste, as
-  // linhas cairiam na janela das "execuções desde a referência" do test/backup.test.ts, que roda ao mesmo tempo (X-1)
   const container = inject('pgContainerId');
   const usuario = inject('pgUser');
-  const copia = `nd_restaura_${randomBytes(4).toString('hex')}`;
-  const noContainer = (...args: string[]) => execFile('docker', ['exec', container, ...args], { env: process.env });
 
   beforeAll(async () => {
-    // Regra 10: com NUTRI_DB_CONTAINER vazio o nutri-backup.sh procura o container pelo nome (nutri_db = PRODUÇÃO neste
-    // host). Falha aqui, antes de qualquer docker exec, e o filtro abaixo não casa com nenhum container.
-    if (!/^[0-9a-f]{12,64}$/.test(container)) throw new Error('container do Testcontainers ausente: o backup não roda (regra 10)');
-    await noContainer('createdb', '-U', usuario, copia);
-    await noContainer(
-      'sh', '-c', 'pg_dump -U "$1" -d "$2" -Fc | pg_restore -U "$1" -d "$3" --exit-on-error', 'sh', usuario, inject('pgDatabase'), copia,
-    );
+    // Regra 10 (CLAUDE.md): o script do backup só roda no test/backup.test.ts (há bancos de produção no host). Aqui o
+    // remoto cifrado ganha o layout que ele grava (o backup.test.ts confere que o script grava assim), com o banco do
+    // Testcontainers: o dump -Fc do dia em db/diario/nutri-<dia>.dump e os roles sem senha em db/globais.sql.
     base = mkdtempSync(path.join(tmpdir(), 'nd-restaura-'));
     const destino = path.join(base, 'r2');
-    const dados = path.join(base, 'data');
     mkdirSync(destino);
-    mkdirSync(path.join(dados, 't1', 'logo'), { recursive: true });
-    writeFileSync(path.join(dados, 't1', 'logo', 'a.png'), 'x');
     const senha = execFileSync('rclone', ['obscure', randomBytes(24).toString('hex')]).toString().trim();
     env = {
       PATH: process.env.PATH,
@@ -55,18 +43,15 @@ describe.skipIf(!temRclone)('teste de restauração (RNF-05, P08-04)', () => {
       RCLONE_CONFIG_CRIPTO_REMOTE: destino,
       RCLONE_CONFIG_CRIPTO_PASSWORD: senha,
       NUTRI_BACKUP_REMOTE: 'cripto:',
-      NUTRI_DATA_DIR: dados,
-      NUTRI_DB_CONTAINER: container,
-      NUTRI_DB_CONTAINER_FILTER: `nao-existe-${randomBytes(6).toString('hex')}`, // regra 10: o fallback nunca acha o nutri_db
       NUTRI_DB_USER: usuario,
-      NUTRI_DB_NAME: copia,
-      NUTRI_BACKUP_TODAY: '2026-10-04',
     } as unknown as NodeJS.ProcessEnv;
-    await execFile('bash', [BACKUP], { env }); // o backup do banco de teste (Testcontainers), nunca o de produção
+    const enviar = (destinoRemoto: string, ...comando: string[]) =>
+      execFile('bash', ['-c', 'set -o pipefail; docker exec "$1" "${@:3}" | rclone rcat "$2"', 'bash', container, destinoRemoto, ...comando], { env });
+    await enviar('cripto:db/diario/nutri-2026-10-04.dump', 'pg_dump', '-U', usuario, '-d', inject('pgDatabase'), '-Fc');
+    await enviar('cripto:db/globais.sql', 'pg_dumpall', '-U', usuario, '--globals-only', '--no-role-passwords');
   }, 180_000);
-  afterAll(async () => {
+  afterAll(() => {
     if (base) rmSync(base, { recursive: true, force: true });
-    await noContainer('dropdb', '-U', usuario, '--if-exists', '--force', copia).catch(() => undefined);
   });
 
   it('restaura num banco descartável sem rede, confere a RLS e os roles e só imprime contagens', async () => {

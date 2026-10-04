@@ -243,6 +243,18 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   });
 });
 
+describe('regra 10 (CLAUDE.md): o nutri-backup.sh só roda aqui', () => {
+  it('nenhum outro arquivo de código cita o script (há bancos de produção no host)', () => {
+    const citam = ['test', 'src', 'e2e', 'scripts'].flatMap((dir) =>
+      (readdirSync(dir, { recursive: true }) as string[])
+        .filter((f) => /\.(c|m)?[jt]sx?$/.test(f))
+        .map((f) => path.join(dir, f))
+        .filter((f) => f !== path.join('test', 'backup.test.ts') && readFileSync(f, 'utf8').includes('nutri-backup.sh')),
+    );
+    expect(citam).toEqual([]);
+  });
+});
+
 describe('backup_runs é escrita só pelo script do host', () => {
   it('o role da aplicação lê, mas não insere, altera nem apaga', async () => {
     const app = makeDb(inject('appDatabaseUrl'));
