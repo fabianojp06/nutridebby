@@ -67,6 +67,7 @@ test('duas abas: depois de sair numa, "Sair" na outra (que ainda mostra o painel
   await expect(segunda).toHaveURL(/\/entrar$/);
   await expect(segunda.getByRole('button', { name: 'Entrar' })).toBeVisible();
   await expect(segunda.getByText('Application error')).toHaveCount(0);
+  await expect(segunda.getByText('Algo deu errado.')).toHaveCount(0); // P08-01: a tela de erro do app (error.tsx)
   await primeira.context().close();
 });
 

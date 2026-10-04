@@ -9,6 +9,7 @@ import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { encryptionKey, openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
@@ -38,6 +39,7 @@ import { workSemDetalhe } from './sem-detalhe';
 import { urlDoApp } from '@/lib/url-do-app';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
+  iniciarSentry({ dsn: env.SENTRY_DSN, ambiente: env.SENTRY_ENVIRONMENT ?? 'producao', papel: 'worker' });
   // createSchema: false — ver Plano 01, Tarefa 10 (o schema pgboss é do role da aplicação)
   const boss = new PgBoss({
     connectionString: env.DATABASE_URL,
@@ -205,6 +207,7 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   return () =>
     (parando ??= (async () => {
       await boss.stop({ graceful: true, timeout: 30_000 });
+      await encerrarSentry();
       await closeDb();
     })());
 }

@@ -62,6 +62,11 @@ describe('parseEnv (app)', () => {
       '172.16.0.0/12',
     ]);
   });
+  it('P08-01: SENTRY_DSN é opcional, só https; vazio = desligado', () => {
+    expect(parseEnv({ ...base, SENTRY_DSN: '' }).SENTRY_DSN).toBeUndefined();
+    expect(parseEnv({ ...base, SENTRY_DSN: 'https://abc@o1.ingest.de.sentry.io/2' }).SENTRY_DSN).toBe('https://abc@o1.ingest.de.sentry.io/2');
+    expect(() => parseEnv({ ...base, SENTRY_DSN: 'http://abc@o1.ingest.sentry.io/2' })).toThrow('SENTRY_DSN deve começar com https://');
+  });
 });
 
 describe('parseServerEnv (worker)', () => {
