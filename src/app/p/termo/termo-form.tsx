@@ -15,11 +15,11 @@ export function TermoForm({ volta }: { volta: string }) {
         <label htmlFor="aceite">{TERMO_PACIENTE_ROTULO}</label>
       </div>
       {estado.erro && (
-        <p role="alert" className="text-red-700">
+        <p role="alert" className="text-erro">
           {estado.erro}
         </p>
       )}
-      <button disabled={!marcado || enviando} className="min-h-11 rounded bg-emerald-700 px-4 text-white disabled:opacity-50">
+      <button disabled={!marcado || enviando} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white disabled:opacity-50">
         Continuar
       </button>
     </form>

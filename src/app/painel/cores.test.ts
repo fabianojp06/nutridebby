@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 // Visual V2 (D24): as telas da nutricionista usam só tokens (mudam com o tema). Cor fixa da paleta do Tailwind reprova no
 // escuro (text-red-700: 2,55 sobre o cartão escuro; text-zinc-600: 2,14). `text-white` fica: só sobre bg-destaque/bg-marca.
-const PASTAS = ['src/app/painel', 'src/components', 'src/modules', 'src/app/conta'];
+const PASTAS = ['src/app/painel', 'src/components', 'src/modules', 'src/app/conta', 'src/app/p'];
 const ARQUIVOS = PASTAS.flatMap((p) =>
   readdirSync(path.resolve(p), { recursive: true, withFileTypes: true })
     .filter((d) => d.isFile() && d.name.endsWith('.tsx') && (p !== 'src/modules' || d.parentPath.split(path.sep).includes('ui')))

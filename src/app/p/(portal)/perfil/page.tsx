@@ -14,7 +14,7 @@ export default async function Perfil() {
   const whatsapp = await situacaoDoWhatsapp(ctx);
   return (
     <main className="space-y-8 p-6">
-      <h1 className="text-2xl font-semibold">Perfil</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Perfil</h1>
       <p>{`Conectado como ${data.user.email}.`}</p>
       <section aria-labelledby="notificacoes" className="space-y-3">
         <h2 id="notificacoes" className="text-lg font-semibold">

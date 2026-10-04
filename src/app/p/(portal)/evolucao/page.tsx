@@ -12,7 +12,7 @@ export default async function MinhaEvolucao() {
   const e = await evolucaoParaPaciente(ctx, tenant);
   return (
     <main className="space-y-8 p-6">
-      <h1 className="text-2xl font-semibold">Minha evolução</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Minha evolução</h1>
       <section aria-labelledby="medidas" className="space-y-4">
         <h2 id="medidas" className="text-lg font-semibold">Medidas</h2>
         {/* menos de 2 avaliações, ou 2+ sem nenhuma medida repetida (ex.: peso numa, cintura noutra): nada a comparar */}

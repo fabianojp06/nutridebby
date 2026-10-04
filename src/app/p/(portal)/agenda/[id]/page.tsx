@@ -27,8 +27,8 @@ export default async function ConsultaDoPortal({ params, searchParams }: PagePro
   const remarcada = sp.ok === 'remarcada' && ativa ? MSG_AGENDA.remarcada(quandoComFuso(c.inicio, tenant.fuso)) : null;
   return (
     <main className="space-y-4 p-6">
-      <h1 className="text-2xl font-semibold">Sua consulta</h1>
-      {remarcada && <p role="status" className="rounded bg-emerald-50 p-3">{remarcada}</p>}
+      <h1 className="font-titulo text-2xl font-semibold">Sua consulta</h1>
+      {remarcada && <p role="status" className="rounded bg-ok-fundo p-3">{remarcada}</p>}
       <p>
         <QuandoLocal semFuso={formatarQuando(c.inicio, tenant.fuso)} comFuso={quandoComFuso(c.inicio, tenant.fuso)} fuso={tenant.fuso} />
         {` · ${ROTULO_MODALIDADE[c.modalidade]}`}

@@ -27,13 +27,13 @@ export function WhatsappForm({ ativo }: { ativo: boolean }) {
         <label htmlFor="whatsapp">Receber lembretes por WhatsApp</label>
       </div>
       {s.erro && (
-        <p id="whatsapp-erro" role="alert" className="text-red-700">
+        <p id="whatsapp-erro" role="alert" className="text-erro">
           {s.erro}
         </p>
       )}
       {/* RNF-10: sempre montada, só o texto muda (região viva criada já com o texto pode não ser anunciada) */}
       <p role="status">{s.ok}</p>
-      <button disabled={enviando} className="min-h-11 rounded border px-4">
+      <button disabled={enviando} className="min-h-11 rounded-xl border border-borda bg-cartao px-4">
         Salvar
       </button>
     </form>

@@ -12,7 +12,7 @@ export default async function SemAcesso() {
   return (
     <main className="mx-auto max-w-md space-y-4 p-6">
       <EsquecerPlanoGuardado />
-      <h1 className="text-2xl font-semibold">Meu acompanhamento</h1>
+      <h1 className="font-titulo text-2xl font-semibold">Meu acompanhamento</h1>
       <p role="status">Seu acesso ao portal não está ativo. Fale com sua nutricionista.</p>
     </main>
   );

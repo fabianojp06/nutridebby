@@ -11,7 +11,7 @@ const CONFIRMAR_EXCLUSAO = 'Pedir a exclusão? Sua nutricionista tem até 15 dia
 const Retorno = ({ s }: { s: PerfilState }) => (
   <>
     <p role="status">{s.ok}</p>
-    {s.erro && <p role="alert" className="text-red-700">{s.erro}</p>}
+    {s.erro && <p role="alert" className="text-erro">{s.erro}</p>}
   </>
 );
 
@@ -22,7 +22,7 @@ export function Privacidade() {
   return (
     <div className="space-y-4">
       <form action={pedirDados}>
-        <button disabled={pedindo} className="min-h-11 rounded border px-4">
+        <button disabled={pedindo} className="min-h-11 rounded-xl border border-borda bg-cartao px-4">
           Baixar meus dados
         </button>
       </form>
@@ -33,7 +33,7 @@ export function Privacidade() {
           if (!window.confirm(CONFIRMAR_EXCLUSAO)) e.preventDefault();
         }}
       >
-        <button disabled={excluindo} className="min-h-11 rounded border border-red-700 px-4 text-red-800">
+        <button disabled={excluindo} className="min-h-11 rounded-xl border border-erro bg-cartao px-4 text-erro">
           Pedir exclusão dos meus dados
         </button>
       </form>

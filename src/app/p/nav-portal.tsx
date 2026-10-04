@@ -12,14 +12,14 @@ import { ITENS_DO_PORTAL, itemAtual } from './navegacao';
 export function NavPortal() {
   const atual = itemAtual(usePathname());
   return (
-    <nav aria-label="Portal" className="sticky bottom-0 border-t bg-white">
+    <nav aria-label="Portal" className="sticky bottom-0 border-t border-borda bg-cartao">
       <ul className="grid grid-cols-7">
         {ITENS_DO_PORTAL.map((i) => (
           <li key={i.href} className="min-w-0">
             <Link
               href={i.href}
               aria-current={atual === i.href ? 'page' : undefined}
-              className="flex min-h-11 flex-col items-center justify-center px-0.5 text-center text-xs hyphens-auto wrap-break-word aria-[current=page]:font-semibold aria-[current=page]:underline"
+              className="flex min-h-11 flex-col items-center justify-center px-0.5 text-center text-xs hyphens-auto wrap-break-word aria-[current=page]:font-semibold aria-[current=page]:text-marca aria-[current=page]:underline"
             >
               {i.rotulo}
             </Link>

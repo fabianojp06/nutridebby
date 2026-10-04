@@ -54,9 +54,9 @@ for (const url of ROTAS) {
   });
 }
 
-// Modo escuro do aparelho (prefers-color-scheme: dark). Plano 08: o tema escuro chega ao painel na Tarefa 14 (padrão
-// "igual ao aparelho", data-tema=sistema) e ao portal na Tarefa 18; fora de um contêiner com data-tema tudo fica claro
-// (globals.css). Nada pode escurecer só o fundo ou o texto base e deixar cores fixas do modo claro ilegíveis.
+// Modo escuro do aparelho (prefers-color-scheme: dark). Plano 08: o painel (T14) e o portal (T18) escurecem com o aparelho
+// (data-tema=sistema); fora de um contêiner com data-tema tudo fica claro (globals.css). Nada pode escurecer só o fundo ou o
+// texto base e deixar cores fixas do modo claro ilegíveis.
 const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/conteudos', '/painel/configuracoes'];
 test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
   await paciente.page.emulateMedia({ colorScheme: 'dark' });
@@ -145,6 +145,13 @@ test('axe sem violações no detalhe de uma orientação (markdown e "Baixar mat
   const baixar = paciente.page.getByRole('link', { name: 'Baixar material (PDF)' });
   await expect(baixar).toBeVisible();
   expect(await violacoes(paciente.page)).toEqual([]);
+  // R11: o mesmo detalhe (markdown, botão do PDF) com o aparelho escuro
+  await paciente.page.emulateMedia({ colorScheme: 'dark' });
+  try {
+    expect(await violacoes(paciente.page), 'aparelho escuro').toEqual([]);
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+  }
   // o download pela sessão da paciente: a rota assina na hora (303) e o arquivo vem como PDF
   const r = await paciente.page.request.get((await baixar.getAttribute('href'))!);
   expect(r.status()).toBe(200);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { corNoEscuro } from '@/lib/tema/marca-tema';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -325,4 +326,38 @@ test('agenda no PWA: a consulta marcada pela nutricionista aparece; confirmar pr
   await p.page.goto('/p/agenda/00000000-0000-4000-8000-000000000000');
   await expect(p.page.getByText('404')).toBeVisible();
   await p.page.context().close();
+});
+
+// Plano 08, T18 (D18): o portal usa a cor do consultório no item ativo da barra de abas (`text-marca`), no claro e com o
+// aparelho escuro (`corNoEscuro`). O contêiner do (portal)/layout repete data-tema="sistema"; sem ele os dois dariam o verde padrão.
+// IP deste teste: 10.9.13.86.
+test('cor do consultório no portal: item ativo da barra de abas, no claro e com o aparelho escuro (D18)', async ({ browser }) => {
+  const COR = '#2E7D32';
+  const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+  await nutri.goto('/painel/configuracoes/perfil');
+  const campo = nutri.getByLabel('Cor principal');
+  const original = await campo.inputValue();
+  const salvar = async (cor: string) => {
+    await nutri.goto('/painel/configuracoes/perfil');
+    await nutri.getByLabel('Cor principal').fill(cor);
+    await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
+    await expect(nutri.getByRole('status')).toHaveText('Perfil salvo.');
+  };
+  await salvar(COR);
+  try {
+    const p = await pacienteNoPortal(browser, nutri, '10.9.13.86');
+    try {
+      const item = p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Início' });
+      await expect(item).toHaveAttribute('aria-current', 'page');
+      const cor = () => item.evaluate((el) => getComputedStyle(el).color);
+      await p.page.emulateMedia({ colorScheme: 'light' });
+      expect(await cor()).toBe(rgb(COR));
+      await p.page.emulateMedia({ colorScheme: 'dark' });
+      expect(await cor()).toBe(rgb(corNoEscuro(COR)));
+    } finally {
+      await p.page.context().close();
+    }
+  } finally {
+    await salvar(original);
+  }
 });
