@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
-import { entrar } from '../../../test/sessao';
+import { criarEEntrar, entrar } from '../../../test/sessao';
 import { closeDb } from '@/db/client';
-import { account, patients, session, twoFactor, user } from '@/db/schema';
+import { account, patients, session, twoFactor, user, verification } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getAuth } from '@/lib/auth';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
@@ -27,17 +27,42 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     await entrar(getAuth(), email);
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toHaveLength(2);
     await app.db.insert(twoFactor).values({ secret: 'segredo', backupCodes: 'codigos', userId });
-    await app.db.update(user).set({ twoFactorEnabled: true }).where(eq(user.id, userId));
+    await app.db.update(user).set({ twoFactorEnabled: true, image: 'https://exemplo.dev/foto-da-ana.jpg' }).where(eq(user.id, userId));
+    // B-1: link de redefinição pendente (o Better Auth grava o id da conta em `value`) e estado do 2FA (id do two_factor)
+    const [tf] = await app.db.select({ id: twoFactor.id }).from(twoFactor).where(eq(twoFactor.userId, userId));
+    const daOutra = randomUUID();
+    const expira = new Date(Date.now() + 3600_000);
+    await app.db.insert(verification).values([
+      { identifier: `reset-password:${randomUUID()}`, value: userId, expiresAt: expira },
+      { identifier: `2fa-${randomUUID()}`, value: tf.id, expiresAt: expira },
+      { identifier: `reset-password:${randomUUID()}`, value: daOutra, expiresAt: expira },
+    ]);
 
-    await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now));
+    expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now))).toBe(true);
 
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toEqual([]);
     expect(await app.db.select().from(account).where(eq(account.userId, userId))).toEqual([]);
     expect(await app.db.select().from(twoFactor).where(eq(twoFactor.userId, userId))).toEqual([]);
     const [u] = await app.db.select().from(user).where(eq(user.id, userId));
-    expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false });
+    expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false, image: null });
+    const restantes = await app.db.select({ value: verification.value }).from(verification).where(inArray(verification.value, [userId, tf.id, daOutra]));
+    expect(restantes).toEqual([{ value: daOutra }]); // a de outra conta fica
     await expect(entrar(getAuth(), email)).rejects.toThrow('login falhou');
     await expect(entrar(getAuth(), u.email)).rejects.toThrow('login falhou');
+  });
+
+  it('B-1: conta que não é de paciente (bug a montante) não é tocada: devolve false, sessão, senha e nome ficam', async () => {
+    const T = await novoTenant(app.db);
+    const nutri = await criarEEntrar(app.db, getAuth(), { appRole: 'nutri', tenantId: T.tenantId });
+    await app.db.insert(verification).values({ identifier: `reset-password:${randomUUID()}`, value: nutri.id, expiresAt: new Date(Date.now() + 3600_000) });
+
+    expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, nutri.id, now))).toBe(false);
+
+    expect(await app.db.select().from(session).where(eq(session.userId, nutri.id))).toHaveLength(1);
+    expect(await app.db.select().from(account).where(eq(account.userId, nutri.id))).toHaveLength(1);
+    expect(await app.db.select().from(verification).where(eq(verification.value, nutri.id))).toHaveLength(1);
+    const [u] = await app.db.select().from(user).where(eq(user.id, nutri.id));
+    expect(u).toMatchObject({ name: 'Teste nutri', email: nutri.email });
   });
 
   it('contaSemOutroVinculo: só no contexto worker; conta com outro prontuário não anonimizado (qualquer status, outro tenant) não está sozinha', async () => {

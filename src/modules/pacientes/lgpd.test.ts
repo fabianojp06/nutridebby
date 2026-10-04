@@ -411,4 +411,25 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
     expect(await app.db.select().from(account).where(eq(account.userId, dupla.userId))).toHaveLength(1);
     expect((await ler(A.ctx, dupla.paciente.id)).anonimizadoEm).not.toBeNull(); // o prontuário de A foi anonimizado do mesmo jeito
   });
+
+  it('B-1: prontuário ligado (por bug) a uma conta da equipe é anonimizado, mas a conta fica intacta, com um aviso no log sem dado dela', async () => {
+    const T = await novoTenant(app.db);
+    const nutriId = randomUUID();
+    const emailNutri = `nutri-${nutriId.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id: nutriId, name: 'Debby Silva', email: emailNutri, emailVerified: true, appRole: 'nutri', tenantId: T.tenantId });
+    await app.db.insert(account).values({ id: randomUUID(), userId: nutriId, accountId: nutriId, providerId: 'credential', password: 'hash' });
+    const x = await pacienteComConta(app.db, T, { userId: nutriId, status: 'bloqueado', anonimizarApos: '2000-01-01' });
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await anonimizarSo(T)).toEqual({ anonimizados: 1 });
+      expect(aviso).toHaveBeenCalledWith({ tenantId: T.tenantId }, 'conta do titular anonimizado não é de paciente: conta de login não anonimizada');
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain(nutriId);
+    } finally {
+      aviso.mockRestore();
+    }
+    expect((await ler(T.ctx, x.paciente.id)).anonimizadoEm).not.toBeNull();
+    const [u] = await app.db.select().from(user).where(eq(user.id, nutriId));
+    expect(u).toMatchObject({ name: 'Debby Silva', email: emailNutri });
+    expect(await app.db.select().from(account).where(eq(account.userId, nutriId))).toHaveLength(1);
+  });
 });

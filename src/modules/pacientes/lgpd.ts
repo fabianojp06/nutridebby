@@ -357,8 +357,9 @@ export async function anonimizarVencidos(
             if (r.length) await anonimizarAgenda(tx, id, now);
             // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
             // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)
-            if (r.length && pendente.userId && (await contaSemOutroVinculo(tx, pendente.userId)))
-              await anonimizarContaSemVinculo(tx, pendente.userId, now);
+            // B-1: conta que não é de paciente fica intacta (bug a montante) — só o aviso, sem dado da conta
+            if (r.length && pendente.userId && (await contaSemOutroVinculo(tx, pendente.userId)) && !(await anonimizarContaSemVinculo(tx, pendente.userId, now)))
+              logger.warn({ tenantId: t.id }, 'conta do titular anonimizado não é de paciente: conta de login não anonimizada');
             if (r.length)
               await recordAudit(tx, {
                 acao: 'anonimizar',
