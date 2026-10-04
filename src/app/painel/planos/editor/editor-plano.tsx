@@ -284,8 +284,8 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
       {erro(`item:${i.id}:foodId`) && <p role="alert" className="w-full text-sm text-erro">{erro(`item:${i.id}:foodId`)}</p>}
       {!somenteLeitura && (
         <div className="flex gap-2 text-sm">
-          <button type="button" aria-label={`Subir ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: -1 })}>↑</button>
-          <button type="button" aria-label={`Descer ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: 1 })}>↓</button>
+          <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-campo bg-cartao text-texto hover:bg-linha" aria-label={`Subir ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: -1 })}><svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3 8l5-5 5 5" /></svg></button>
+          <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-campo bg-cartao text-texto hover:bg-linha" aria-label={`Descer ${i.nome}`} onClick={() => despachar({ tipo: 'moverItem', itemId: i.id, direcao: 1 })}><svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v10M3 8l5 5 5-5" /></svg></button>
           <button type="button" className="text-link underline" onClick={() => despachar({ tipo: 'removerItem', itemId: i.id })}>Remover {i.nome}</button>
         </div>
       )}
