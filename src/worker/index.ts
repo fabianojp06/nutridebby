@@ -33,6 +33,7 @@ import {
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
+import { limparAcessosAntigos } from '@/modules/portal/acesso';
 import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
 import { workSemDetalhe } from './sem-detalhe';
@@ -103,7 +104,8 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await work('agenda-limpeza', async () => {
     const pedidos = await limparPedidosPublicos(getDb(), new Date());
     const limites = await limparLimites(getDb(), new Date());
-    logger.info({ pedidos, limites }, 'limpeza da agenda pública');
+    const acessos = await limparAcessosAntigos(getDb(), new Date()); // D13: retenção dos acessos ao portal
+    logger.info({ pedidos, limites, acessos }, 'limpeza da agenda pública');
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');

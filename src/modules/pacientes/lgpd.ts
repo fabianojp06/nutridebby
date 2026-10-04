@@ -11,6 +11,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
+import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
 import { carregarPacienteParaEscrita } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
 import { apagarConvitesPendentes } from './convite-paciente';
@@ -155,6 +156,7 @@ export async function atenderPedidoExclusao(
       // US-018: "inscrições de push … apagadas na hora" (só as deste vínculo — D14)
       await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
       await apagarUsoDeConteudo(tx, p.id); // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08)
+      await apagarAcessosDoTitular(tx, p.id); // D13: acessos ao portal (CS-02) são dado de uso, não obrigatório (RNF-08)
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',
@@ -404,6 +406,8 @@ export async function anonimizarVencidos(
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             // D15: alvo, visualização ou favorito de conteúdo gravados depois do bloqueio também saem (idempotente)
             if (r.length) await apagarUsoDeConteudo(tx, id);
+            // D13: acessos ao portal gravados depois do bloqueio também saem
+            if (r.length) await apagarAcessosDoTitular(tx, id);
             if (r.length) await anonimizarAgenda(tx, id, now);
             // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
             // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)
