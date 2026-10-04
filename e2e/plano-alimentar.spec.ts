@@ -110,7 +110,8 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await expect(nutri.getByText('Sem valor na TACO').first()).toBeVisible();
   await nutri.getByRole('button', { name: 'Duplicar como meu alimento' }).click();
   await expect(nutri).toHaveURL(/\/painel\/alimentos\/[0-9a-f-]{36}\/editar\?incompleto=1$/);
-  await expect(nutri.getByRole('navigation', { name: 'Menu do painel' }).getByRole('button', { name: 'Sair', exact: true })).toBeVisible(); // menu do painel também na edição
+  await expect(nutri.getByRole('navigation', { name: 'Menu do painel' })).toBeVisible(); // menu do painel também na edição
+  await expect(nutri.getByLabel(/^Conta de /)).toBeVisible(); // e o menu da conta, com o "Sair" (D20)
   await expect(nutri.getByRole('status')).toHaveText('A TACO não tem todos os valores deste alimento: confira os campos com 0.');
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Leite e derivados'); // veio da cópia
   await nutri.getByLabel('Nome').fill(`Leite da casa ${sufixo}`);
@@ -437,6 +438,7 @@ test('editor: "Sair" logo depois de editar envia a edição antes de sair, sem d
 
   // "na hora", antes dos 800 ms do salvamento automático: o editor envia a edição, espera gravar e só então sai
   const put = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/api/painel/planos/'), { timeout: 10_000 });
+  await page.getByLabel(/^Conta de /).click(); // D20: "Sair" no menu da conta, aberto antes de editar para sair logo depois da edição
   await orientacoes.fill(texto);
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(page).toHaveURL(/\/entrar$/);
@@ -473,6 +475,7 @@ test('editor: "Sair" sem rede pede confirmação e cancelar mantém no editor; c
   await page.context().setOffline(true);
   await orientacoes.fill('Sem rede.');
   await expect(page.getByRole('status').filter({ hasText: 'Alterações não salvas' })).toBeVisible({ timeout: 5000 });
+  await page.getByLabel(/^Conta de /).click(); // D20: "Sair" no menu da conta
   await sair.click();
   await expect.poll(() => perguntas).toEqual([MSG]);
   await expect(page).toHaveURL(editor);
@@ -483,6 +486,7 @@ test('editor: "Sair" sem rede pede confirmação e cancelar mantém no editor; c
   // tudo salvo: sai direto, sem confirmação
   await orientacoes.fill(original); // deixa o rascunho como estava
   await expect(salvo).toBeVisible({ timeout: 5000 });
+  if (!(await sair.isVisible())) await page.getByLabel(/^Conta de /).click(); // o menu da conta pode ter ficado aberto
   await sair.click();
   await expect(page).toHaveURL(/\/entrar$/);
   expect(perguntas).toHaveLength(1);

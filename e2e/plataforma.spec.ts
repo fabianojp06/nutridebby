@@ -148,7 +148,9 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await page.getByLabel('Senha').fill(NUTRI.senha);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page).toHaveURL(/\/painel$/);
-  await page.getByRole('link', { name: 'Perfil e marca' }).click();
+  // D20: "Perfil e marca" é um cartão do hub "Configurações"
+  await page.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link', { name: 'Configurações', exact: true }).click();
+  await page.getByRole('link', { name: /^Perfil e marca/ }).click();
 
   await page.getByLabel('Cor principal').fill('#FFEB3B');
   await page.getByRole('button', { name: 'Salvar perfil' }).click();
@@ -166,7 +168,8 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
   await page.getByRole('button', { name: 'Enviar logo' }).click();
   await expect(page.getByText('Logo atualizado.')).toBeVisible();
   const banner = page.getByRole('banner');
-  await expect(banner).toHaveCSS('background-color', 'rgb(46, 125, 50)');
+  // D19/D20: o cabeçalho é neutro; a cor do consultório aparece no item ativo do menu (bg-destaque)
+  await expect(banner.getByRole('link', { name: 'Configurações', exact: true })).toHaveCSS('background-color', 'rgb(46, 125, 50)');
   await expect(banner.getByRole('img', { name: `Logo de ${NUTRI.nome}` })).toHaveAttribute('src', /^\/api\/arquivos\?c=/);
   await ctx.close();
 });
