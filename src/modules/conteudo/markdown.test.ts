@@ -41,7 +41,15 @@ describe('markdown das orientações (US-052: "sem HTML ou script executável", 
     html('*'.repeat(20000));
     html(`[${'['.repeat(10000)}`);
     html('**a'.repeat(6000));
+    // U+2028/U+2029 no meio da linha: `\s` casa, `.` não — com `\s+(.+)$` isso retrocedia em tempo quadrático.
+    html('-' + ' '.repeat(19990) + 'x\u2028y');
+    html('#' + ' '.repeat(19990) + 'x\u2029y');
     expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it('U+2028/U+2029 são quebra de linha; título e item pedem espaço ou tab depois do marcador', () => {
+    expect(html('a\u2028b\u2029\u2029## T\u2028- i')).toBe('<p>a<br/>b</p><h2>T</h2><ul><li>i</li></ul>');
+    expect(html('#\tTab\n\n -\tum')).toBe('<h2>Tab</h2><ul><li>um</li></ul>');
   });
 
   it('texto vazio não gera nada; espaços e linhas em branco a mais não viram parágrafos vazios', () => {

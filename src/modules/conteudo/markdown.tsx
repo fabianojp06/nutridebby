@@ -23,8 +23,11 @@ export type Bloco =
 // `[`: numa linha de muitos `[` cada posição falha na hora, em vez de varrer 200 caracteres.
 const TOKEN =
   /\*\*([^*\n]{1,500})\*\*|\*([^*\n]{1,500})\*|\[([^[\]\n]{1,200})\]\(((?:[^()\s]|\([^()\s]{0,100}\)){1,500})\)/;
-const TITULO = /^(#{1,6})\s+(.+)$/;
-const ITEM = /^\s{0,3}(?:([-*])|(\d{1,3})[.)])\s+(.+)$/;
+// Depois do marcador, só espaço ou tab e o texto começando por não-espaço: as duas partes não se sobrepõem, então a
+// linha é varrida uma vez. Com `\s+(.+)$` um U+2028/U+2029 no meio da linha (`\s` casa, `.` não) fazia o motor
+// retroceder em tempo quadrático (~0,4 s numa linha de 20000 caracteres).
+const TITULO = /^(#{1,6})[ \t]+(\S.*)$/;
+const ITEM = /^[ \t]{0,3}(?:([-*])|(\d{1,3})[.)])[ \t]+(\S.*)$/;
 
 /** Link só http(s) absoluto, sem usuário/senha; o resto (javascript:, data:, //, relativo) → null. */
 export function hrefSeguro(href: string): string | null {
@@ -69,7 +72,8 @@ export function lerMarkdown(md: string): Bloco[] {
     paragrafo = [];
     lista = null;
   };
-  for (const bruta of md.replace(/\r\n?/g, '\n').split('\n')) {
+  // U+2028/U+2029 (comuns em texto colado de PDF ou Word) também quebram a linha, como \r e \r\n.
+  for (const bruta of md.replace(/\r\n?|[\u2028\u2029]/g, '\n').split('\n')) {
     const linha = bruta.trimEnd();
     if (!linha.trim()) {
       fechar();
