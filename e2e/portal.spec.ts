@@ -236,6 +236,8 @@ test('Perfil > Notificações: sem telefone, ligar o WhatsApp explica o que faze
   await p.page.getByLabel('Receber lembretes por WhatsApp').check();
   await p.page.getByRole('button', { name: 'Salvar' }).click();
   await expect(p.page.getByRole('alert').filter({ hasText: 'Para receber por WhatsApp' })).toHaveText('Para receber por WhatsApp, peça à sua nutricionista para cadastrar seu telefone.');
+  await expect(p.page.getByLabel('Receber lembretes por WhatsApp')).not.toBeChecked(); // T-6: volta ao salvo
+  await expect(p.page.locator('main [role="status"]:empty')).toHaveCount(0); // T-6: sem região viva vazia
   await p.page.context().close();
 });
 

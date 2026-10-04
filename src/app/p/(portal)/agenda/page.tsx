@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requirePaciente } from '@/lib/paciente-session';
-import { ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
 import { formatarQuando, quandoComFuso } from '@/modules/agenda/fuso';
 import { consultasDoPaciente, type ConsultaDoPaciente } from '@/modules/portal/agenda';
 import { QuandoLocal } from '../../quando-local';
@@ -11,7 +11,7 @@ const SITUACAO: Record<string, string> = { agendada: 'Agendada', confirmada: 'Co
 
 export default async function Agenda() {
   const { ctx, tenant } = await requirePaciente('/p/agenda');
-  const { proximas, anteriores } = await consultasDoPaciente(ctx, tenant, new Date());
+  const { proximas, anteriores, podeAgendar } = await consultasDoPaciente(ctx, tenant, new Date());
   const linha = (c: ConsultaDoPaciente) => (
     <li key={c.id}>
       <Link href={`/p/agenda/${c.id}`} className="flex min-h-11 items-center underline">
@@ -23,7 +23,11 @@ export default async function Agenda() {
   return (
     <main className="space-y-6 p-6">
       <h1 className="text-2xl font-semibold">Minhas consultas</h1>
-      <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded bg-emerald-700 px-4 text-white">Agendar consulta</Link></p>
+      {podeAgendar ? (
+        <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded bg-emerald-700 px-4 text-white">Agendar consulta</Link></p>
+      ) : (
+        <p>{MSG_AGENDA.limitePublico}</p> // T-1: no teto (RN-16) o botão levaria a uma recusa
+      )}
       <section aria-labelledby="proximas">
         <h2 id="proximas" className="text-lg font-semibold">Próximas</h2>
         {proximas.length ? <ul>{proximas.map(linha)}</ul> : <p>Nenhuma consulta marcada.</p>}
