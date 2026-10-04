@@ -2,6 +2,7 @@ import { and, count, desc, eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { contents, recipeIngredients, tenants, type ContentRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { logger, nomeDoErro } from '@/lib/logger';
 import { signFileUrl } from '@/lib/signed-url';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
@@ -100,11 +101,19 @@ async function gravarPublico(tx: Tx, tenantId: string, contentId: string, v: Val
   if (v.visibilidade !== 'todos' && !a.pacientes.length && !a.etiquetas.length) throw new ConteudoError({ visibilidade: MSG_CONTEUDO.audienciaVazia });
 }
 
+/** Regra 3: só o nome e o código (ENOSPC, SQLSTATE) — a mensagem pode citar caminho ou parâmetros. */
+function avisarCapaNaoGravada(err: unknown): void {
+  const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : undefined;
+  logger.warn({ err: nomeDoErro(err), code }, 'capa do vídeo não gravada: segue com a capa padrão');
+}
+
 /**
  * D9: capa do vídeo pelo oEmbed, FORA da transação. Falhou (ou a cota acabou) → sem capa: a capa padrão (US-050 não
  * bloqueia o cadastro). Só o tipo `video`: na receita, a capa é a enviada pela nutricionista. Gravar e remover
  * reconferem, com a linha travada, que o conteúdo ainda aponta para ESTE vídeo (`doVideo`): se outro salvamento trocou o
- * link enquanto o oEmbed respondia (ou o conteúdo foi excluído), a capa é dele e esta desiste.
+ * link enquanto o oEmbed respondia (ou o conteúdo foi excluído), a capa é dele e esta desiste. Roda DEPOIS do commit
+ * do conteúdo: nenhum erro daqui sobe (disco cheio, permissão, banco) — relançar daria 500 sem o redirect e a
+ * nutricionista reenviaria, duplicando o vídeo; o erro vai para o log e o conteúdo fica com a capa padrão.
  */
 async function capaDoVideo(ctx: TenantContext, id: string, video: VideoDoLink, deps: Deps): Promise<void> {
   const miniatura = await miniaturaDoVideo(video, { fetchImpl: deps.fetchImpl });
@@ -114,10 +123,11 @@ async function capaDoVideo(ctx: TenantContext, id: string, video: VideoDoLink, d
       return;
     } catch (err) {
       if (err instanceof VideoTrocadoError || err instanceof ConteudoNaoEncontradoError) return;
-      if (!(err instanceof TipoNaoPermitidoError || err instanceof CotaEsgotadaError)) throw err;
+      if (!(err instanceof TipoNaoPermitidoError || err instanceof CotaEsgotadaError)) avisarCapaNaoGravada(err);
     }
   }
-  await removerCapa(ctx, id, { ...deps, doVideo: video });
+  // a capa do vídeo anterior (se houver) não vale para este: sai — também sem relançar
+  await removerCapa(ctx, id, { ...deps, doVideo: video }).catch(avisarCapaNaoGravada);
 }
 
 export async function criarConteudo(ctx: TenantContext, tipo: TipoConteudo, entrada: EntradaConteudo, deps: Deps = {}): Promise<string> {

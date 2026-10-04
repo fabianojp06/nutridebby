@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -94,6 +97,19 @@ describe('vídeo por link (US-050, INT-05)', () => {
     await salvarConteudo(T.ctx, id, { ...base, titulo: 'Só o título', link: 'https://vimeo.com/76979871' }, { db: app.db, fetchImpl: oembedFora }); // mesmo vídeo: nem pede o oEmbed
     expect(await capas(T)).toEqual([primeira]);
     await salvarConteudo(T.ctx, id, { ...base, link: 'https://youtu.be/dQw4w9WgXcQ' }, { db: app.db, fetchImpl: oembedFora });
+    expect(await capas(T)).toEqual([]);
+  });
+
+  it('erro fora da lista ao gravar a capa (disco: ENOTDIR/ENOSPC) depois do commit → o conteúdo fica salvo com a capa padrão, sem 500 (US-050)', async () => {
+    const T = await novoTenant(app.db);
+    const arquivoNoLugarDaPasta = path.join(mkdtempSync(path.join(tmpdir(), 'nd-capa-')), 'nao-e-pasta');
+    writeFileSync(arquivoNoLugarDaPasta, 'x'); // mkdir dentro dele falha com ENOTDIR, como um disco cheio falharia com ENOSPC
+    const deps = { db: app.db, fetchImpl: oembedOk, dataDir: arquivoNoLugarDaPasta };
+    const id = await criarConteudo(T.ctx, 'video', { ...base, link: 'https://youtu.be/dQw4w9WgXcQ' }, deps);
+    expect(await carregarConteudoDoPainel(T.ctx, id, app.db)).toMatchObject({ titulo: base.titulo, capaUrl: null });
+    await salvarConteudo(T.ctx, id, { ...base, titulo: 'Outro vídeo', link: 'https://vimeo.com/76979871' }, deps);
+    expect(await carregarConteudoDoPainel(T.ctx, id, app.db)).toMatchObject({ titulo: 'Outro vídeo', video: { provider: 'vimeo', id: '76979871' }, capaUrl: null });
+    expect(await listarConteudosDoPainel(T.ctx, {}, app.db)).toHaveLength(1);
     expect(await capas(T)).toEqual([]);
   });
 
