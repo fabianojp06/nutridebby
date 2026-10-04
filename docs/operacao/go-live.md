@@ -4,7 +4,7 @@ Assinar só com **todos** os itens de "Bloqueia" marcados. Cada item diz quem co
 segredo neste arquivo (só o nome da variável). Horários em Brasília.
 
 ## Bloqueia (sem isso, nada de paciente real)
-- [ ] Backup instalado no host (P02-11, etapas 6 e 8): timer ativo, primeiro `banco ok`/`arquivos ok`/`roles ok`, linhas em `backup_runs` — **dono**
+- [ ] Backup instalado no host (P02-11, etapas 6 e 8): timer ativo, primeiro `banco ok (N bytes)` e `arquivos ok` no log (o `banco ok` só sai com o `db/globais.sql` dos roles enviado, D6; `ERRO no backup do banco (roles falhou)` = falha), linhas em `backup_runs` — **dono**
 - [ ] Teste de restauração feito e registrado (`docs/operacao/restauracao-AAAA-MM.md`; roteiro em `docs/operacao/restauracao.md`), duração dentro do RTO — **dono + Dev**
 - [ ] Passphrase e salt do rclone crypt e os segredos do app/worker (`AUTH_SECRET`, `ENCRYPTION_KEY`, `FILE_URL_SECRET`, `VAPID_*`, R2, Turnstile, Resend, `EVOLUTION_*`) num gerenciador de senhas, fora da VPS — **dono**
 - [ ] Plano 08 mergeado com a revisão completa e o `/security-review` (checklist reforçado) sem Critical/Important; PR da Tarefa 8 (textos legais) mergeado — **Dev**
