@@ -222,7 +222,7 @@ describe('expiração de sessão por papel (RNF-06, US-002) — integração', (
       expect(aviso).toHaveBeenCalledTimes(1);
       const [obj, msg] = aviso.mock.calls[0] as unknown as [Record<string, unknown>, string];
       expect(msg).toBe('falha ao renovar a sessão');
-      expect(obj).toEqual({ err: 'banco indisponível', userId: id });
+      expect(obj).toEqual({ erro: 'Error', userId: id }); // só o nome do erro (RNF-11): a mensagem não vai ao log
       const token = decodeURIComponent(cookie.split('=')[1]).split('.')[0];
       expect(JSON.stringify(aviso.mock.calls)).not.toContain(token);
     } finally {

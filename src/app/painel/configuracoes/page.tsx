@@ -1,20 +1,40 @@
+import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
-import { Cabecalho } from '../cabecalho';
-import { LogoForm } from './logo-form';
-import { PerfilForm } from './perfil-form';
+import { ehTema } from '@/modules/plataforma/preferencias-tipos';
+import { TemaForm } from './tema-form';
 
 export const dynamic = 'force-dynamic';
 
+const CARTOES = [
+  { href: '/painel/configuracoes/perfil', titulo: 'Perfil e marca', texto: 'Nome, CRN, logo, cor e regras da agenda.' },
+  { href: '/painel/agenda/horarios', titulo: 'Horários de atendimento', texto: 'Dias, horários e bloqueios da agenda.' },
+  { href: '/painel/whatsapp', titulo: 'WhatsApp', texto: 'Conectar o número do consultório.' },
+  { href: '/painel/alimentos', titulo: 'Alimentos', texto: 'Tabela TACO e os seus alimentos.' },
+  { href: '/painel/planos/modelos', titulo: 'Modelos de plano', texto: 'Planos prontos para começar mais rápido.' },
+  { href: '/painel/anamnese/modelos', titulo: 'Modelos de anamnese', texto: 'Perguntas da primeira consulta.' },
+  { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
+];
+
+/** D20: hub de Configurações. */
 export default async function ConfiguracoesPage() {
-  const { tenant } = await requireNutri('/painel/configuracoes');
+  const { data } = await requireNutri('/painel/configuracoes');
   return (
-    <>
-      <Cabecalho tenant={tenant} />
-      <main className="mx-auto max-w-lg space-y-8 p-6">
-        <h1 className="text-2xl font-semibold">Perfil e marca</h1>
-        <LogoForm />
-        <PerfilForm tenant={tenant} />
-      </main>
-    </>
+    <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
+      <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
+      <ul className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+        {CARTOES.map((c) => (
+          <li key={c.href}>
+            <Link href={c.href} className="block h-full rounded-3xl border border-borda bg-cartao p-5 hover:border-campo">
+              <span className="block font-titulo text-lg font-semibold">{c.titulo}</span>
+              <span className="mt-1 block text-suave">{c.texto}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <section aria-labelledby="tema" className="max-w-lg rounded-3xl border border-borda bg-cartao p-5">
+        <h2 id="tema" className="sr-only">Tema</h2>
+        <TemaForm tema={ehTema(data.user.tema) ? data.user.tema : 'sistema'} />
+      </section>
+    </main>
   );
 }

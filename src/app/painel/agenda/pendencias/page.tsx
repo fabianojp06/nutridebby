@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { contarPendenciasDePresenca, MSG_PRESENCA, pendenciasDePresenca } from '@/modules/agenda/presenca';
-import { Cabecalho } from '../../cabecalho';
 import { ItemConsulta } from '../item-consulta';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +13,6 @@ export default async function PendenciasPage() {
   const lista = await pendenciasDePresenca(ctx, agora);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-2xl space-y-4 p-6">
         <p className="text-sm"><Link href="/painel/agenda" className="underline">Agenda</Link></p>
         <h1 className="text-2xl font-semibold">{MSG_PRESENCA.pendencias(total)}</h1>

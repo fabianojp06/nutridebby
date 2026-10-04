@@ -82,8 +82,8 @@
     --nd-foco: var(--nd-marca);
   }
 }
-/* Sobre a cor do consultório (cabeçalho do painel, cartão de destaque da D19, que usa bg-destaque = a cor original nos
-   dois modos): o foco na cor da marca some ali (1:1 no claro; corNoEscuro contra a cor original < 3:1 no escuro). O branco
+/* Sobre a cor do consultório (cartão de destaque da D19, que usa bg-destaque = a cor original nos dois modos; o cabeçalho
+   do painel é neutro desde a T14): o foco na cor da marca some ali (1:1 no claro; corNoEscuro contra a cor original < 3:1 no escuro). O branco
    tem ≥ 4,5 com toda cor que o perfilSchema aceita. Vai no CONTÊINER (não em .bg-destaque: o contorno de um botão
    bg-destaque fica do lado de fora, sobre o cartão). Depois dos blocos de tema: vence também no mesmo elemento. */
 [data-sobre-marca] {
@@ -111,6 +111,13 @@
   --color-destaque: var(--nd-marca-base, #1d6b5a); /* sempre a cor original: fundo com texto branco nos dois modos */
   --font-sans: var(--font-figtree), system-ui, sans-serif;
   --font-titulo: var(--font-bricolage), var(--font-figtree), system-ui, sans-serif;
+}
+
+/* T14: o fundo além do conteúdo (efeito elástico ao rolar no celular) acompanha o painel escuro. Com fundo no :root, o
+   do body deixa de pintar a tela inteira; no claro nada muda (o body continua branco). */
+:root:has([data-tema='escuro']) { background: #0f1613; }
+@media (prefers-color-scheme: dark) {
+  :root:has([data-tema='sistema']) { background: #0f1613; }
 }
 
 body {

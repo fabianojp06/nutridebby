@@ -5,7 +5,6 @@ import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { dataDaAgendaOuHoje, diaCurto, inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
-import { Cabecalho } from '../cabecalho';
 import { ItemConsulta } from './item-consulta';
 import { lerVisao, periodoDaVisao, type Visao } from './periodo';
 
@@ -28,7 +27,6 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
   const href = (v: Visao, d: string) => `/painel/agenda?visao=${v}&data=${d}`;
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Agenda</h1>

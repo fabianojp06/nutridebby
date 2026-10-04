@@ -100,7 +100,18 @@ describe('foco sobre a cor do consultório (cabeçalho do painel, cartão de des
       expect(contraste(foco ?? c, misturar(c, '#000000', 0.15)), c).toBeGreaterThanOrEqual(3);
     }
   });
-  it('o cabeçalho do painel (fundo da cor do consultório) põe o atributo', () => {
-    expect(readFileSync('src/app/painel/cabecalho.tsx', 'utf8')).toMatch(/<header data-sobre-marca /);
+  it('o cabeçalho do painel (T14) é neutro: sem fundo da cor do consultório, o foco na cor da marca aparece nele sem o atributo', () => {
+    const cabecalho = readFileSync('src/app/painel/cabecalho.tsx', 'utf8');
+    expect(cabecalho).toMatch(/<header className="[^"]*\bbg-cartao\b/);
+    expect(cabecalho).not.toMatch(/backgroundColor|data-sobre-marca/);
+    // o item ativo do menu (bg-destaque) desenha o contorno do lado de fora (outline-offset), sobre o cartão
+    for (const c of [...cores, COR_PADRAO]) {
+      expect(contraste(c, TOKENS.cartao[0]), c).toBeGreaterThanOrEqual(3);
+      expect(contraste(corNoEscuro(c), TOKENS.cartao[1]), c).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('o fundo além do conteúdo (efeito elástico) no painel escuro é o token fundo, nos dois blocos', () => {
+    expect(css).toContain(`:root:has([data-tema='escuro']) { background: ${TOKENS.fundo[1]}; }`);
+    expect(css).toContain(`:root:has([data-tema='sistema']) { background: ${TOKENS.fundo[1]}; }`);
   });
 });

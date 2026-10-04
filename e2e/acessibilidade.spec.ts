@@ -71,8 +71,8 @@ test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do po
   }
 });
 
-// WCAG 2.4.7/1.4.11 (Plano 08, T12): o axe não avalia o foco. Sobre a cor do consultório ([data-sobre-marca]: o cabeçalho
-// do painel; na T15 também o cartão de destaque) o foco na cor da marca sumia (1:1). Todo item focável ali tem contorno
+// WCAG 2.4.7/1.4.11 (Plano 08, T12): o axe não avalia o foco. Sobre a cor do consultório ([data-sobre-marca]: o cartão de
+// destaque da T15; o cabeçalho do painel é neutro desde a T14) o foco na cor da marca sumia (1:1). Todo item focável ali tem contorno
 // visível e ≥ 3:1 contra o fundo onde ele é desenhado, no claro e com o aparelho escuro.
 test('foco visível sobre a cor do consultório: contorno ≥ 3:1 contra o fundo, no claro e com o aparelho escuro', async () => {
   const hex = (cor: string) => {

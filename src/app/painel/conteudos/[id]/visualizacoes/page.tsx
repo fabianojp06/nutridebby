@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { quandoComFuso } from '@/modules/agenda/fuso';
 import { quemViu } from '@/modules/conteudo/metricas';
-import { Cabecalho } from '../../../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +14,6 @@ export default async function QuemViu({ params }: PageProps<'/painel/conteudos/[
   if (!r) notFound();
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-3xl space-y-4 p-6">
         <Link href={`/painel/conteudos/${id}`} className="text-sm underline">Voltar ao conteúdo</Link>
         <h1 className="text-2xl font-semibold">{`Quem viu: ${r.titulo}`}</h1>

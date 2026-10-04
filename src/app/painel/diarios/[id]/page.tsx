@@ -6,7 +6,6 @@ import { quandoComFuso } from '@/modules/agenda/fuso';
 import { MSG_DIARIO } from '@/modules/portal/diario-constantes';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { abrirRegistro } from '@/modules/portal/diario-nutri';
-import { Cabecalho } from '../../cabecalho';
 import { ComentarioForm } from '../comentario-form';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +17,6 @@ export default async function RegistroDoDiarioPage({ params }: PageProps<'/paine
   if (!r) notFound();
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="max-w-2xl space-y-4 p-6">
         <p><Link href="/painel/diarios" className="underline">Diários</Link></p>
         <h1 className="text-2xl font-semibold">{`${r.paciente} — ${r.refeicao}`}</h1>

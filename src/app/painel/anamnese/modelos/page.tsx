@@ -2,17 +2,15 @@ import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { listarModelos } from '@/modules/pacientes/anamnese';
-import { Cabecalho } from '../../cabecalho';
 import { arquivarModeloAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ModelosPage() {
-  const { ctx, tenant } = await requireNutri('/painel/anamnese/modelos');
+  const { ctx } = await requireNutri('/painel/anamnese/modelos');
   const modelos = await listarModelos(ctx);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Modelos de anamnese</h1>

@@ -4,7 +4,6 @@ import { requireNutri } from '@/lib/tenant-session';
 import { DIAS_SEMANA, ROTULO_MODALIDADE_REGRA } from '@/modules/agenda/constantes';
 import { listarBloqueios, listarRegras } from '@/modules/agenda/disponibilidade';
 import { formatarQuando } from '@/modules/agenda/fuso';
-import { Cabecalho } from '../../cabecalho';
 import { excluirBloqueioAction, excluirRegraAction } from './actions';
 import { BloqueioForm } from './bloqueio-form';
 import { RegraForm } from './regra-form';
@@ -17,7 +16,6 @@ export default async function HorariosPage() {
   const [regras, bloqueios] = await Promise.all([listarRegras(ctx), listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000))]);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-4xl space-y-8 p-6">
         <p className="text-sm"><Link href="/painel/agenda" className="underline">Agenda</Link></p>
         <h1 className="text-2xl font-semibold">Horários de atendimento</h1>

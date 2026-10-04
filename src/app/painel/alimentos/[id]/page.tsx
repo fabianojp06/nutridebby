@@ -6,7 +6,6 @@ import { requireNutri } from '@/lib/tenant-session';
 import { carregarAlimento } from '@/modules/alimentos/alimentos';
 import { gramasDaMedidaTexto } from '@/modules/alimentos/medidas-constantes';
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
-import { Cabecalho } from '../../cabecalho';
 import { cadastrarMedidaAction, duplicarAlimentoAction, excluirAlimentoAction, excluirMedidaAction } from '../actions';
 import { Selo } from '../busca-alimento';
 import { MedidaForm } from '../medida-form';
@@ -18,13 +17,12 @@ const valor = (v: number | null, casas: number, unidade: string) => (v === null 
 
 export default async function AlimentoPage({ params }: PageProps<'/painel/alimentos/[id]'>) {
   const { id } = await params;
-  const { ctx, tenant } = await requireNutri(`/painel/alimentos/${id}`);
+  const { ctx } = await requireNutri(`/painel/alimentos/${id}`);
   const a = await carregarAlimento(ctx, id);
   if (!a) notFound();
   const taco = a.origem === 'TACO';
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-3xl space-y-6 p-6">
         <Link href="/painel/alimentos" className="text-sm underline">Voltar</Link>
         <div className="flex flex-wrap items-center gap-3">

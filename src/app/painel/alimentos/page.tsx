@@ -1,16 +1,14 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
-import { Cabecalho } from '../cabecalho';
 import { BuscaAlimento } from './busca-alimento';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AlimentosPage() {
-  const { tenant } = await requireNutri('/painel/alimentos');
+  await requireNutri('/painel/alimentos');
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-3xl space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold">Alimentos</h1>

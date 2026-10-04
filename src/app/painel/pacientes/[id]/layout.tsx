@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
-import { Cabecalho } from '../../cabecalho';
 import { seloDoPaciente } from '../valores';
 import { Abas } from './abas';
 import { carregarProntuario } from './prontuario';
@@ -16,7 +15,6 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
   ].filter(Boolean);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <div className="space-y-4 p-6">
         <header className="space-y-1">
           <p className="text-sm"><Link href="/painel/pacientes" className="underline">Pacientes</Link></p>

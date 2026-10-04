@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { quandoComFuso } from '@/modules/agenda/fuso';
 import { feedDeDiarios, MSG_COMENTARIO } from '@/modules/portal/diario-nutri';
-import { Cabecalho } from '../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +10,6 @@ export default async function Diarios() {
   const feed = await feedDeDiarios(ctx);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="space-y-4 p-6">
         <h1 className="text-2xl font-semibold">Diários</h1>
         {feed.length === 0 ? (

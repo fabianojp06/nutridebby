@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { listarModelos } from '@/modules/plano-alimentar/modelos';
-import { Cabecalho } from '../../cabecalho';
 import { NovoModelo } from './novo-modelo';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +11,6 @@ export default async function ModelosPage() {
   const modelos = await listarModelos(ctx);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-3xl space-y-4 p-6">
         <h1 className="text-2xl font-semibold">Modelos de plano</h1>
         <NovoModelo />

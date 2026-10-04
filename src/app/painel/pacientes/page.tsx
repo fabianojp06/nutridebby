@@ -3,7 +3,6 @@ import { requireNutri } from '@/lib/tenant-session';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
 import { listarPacientes, type StatusPaciente } from '@/modules/pacientes/pacientes';
-import { Cabecalho } from '../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +20,6 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const hoje = hojeNoFuso(tenant.fuso);
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="space-y-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Pacientes</h1>

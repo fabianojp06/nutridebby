@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { revalidatePath } from 'next/cache';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
@@ -19,7 +20,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { salvarPerfilAction } = await import('./actions');
+const { aceitarDpaAction, salvarPerfilAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -93,5 +94,18 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
     fd.set('agendamentoPublicoAtivo', 'on');
     expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
     expect((await db.select({ ativo: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, t.id)))[0].ativo).toBe(true);
+  });
+});
+
+describe('aceitarDpaAction (T14)', () => {
+  it('revalida o layout do painel antes de ir ao início: o cabeçalho mínimo vira o completo sem recarregar', async () => {
+    const [t] = await db.insert(tenants).values({ slug: `dpa-${randomUUID().slice(0, 8)}`, nomeExibicao: 'DPA' }).returning();
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
+    req.headers = new Headers({ cookie: n.cookie });
+    vi.mocked(revalidatePath).mockClear();
+    await expect(aceitarDpaAction({}, form({ dpa: 'on' }))).rejects.toThrow('redirect /painel');
+    expect(revalidatePath).toHaveBeenCalledWith('/painel', 'layout');
+    const [depois] = await db.select({ dpaVersao: tenants.dpaVersao }).from(tenants).where(eq(tenants.id, t.id));
+    expect(depois.dpaVersao).not.toBeNull();
   });
 });

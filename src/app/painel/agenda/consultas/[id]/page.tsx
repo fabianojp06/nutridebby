@@ -9,7 +9,6 @@ import { sobrepoe } from '@/modules/agenda/horarios';
 import { consultaParaIniciarAtendimento, MSG_PRESENCA } from '@/modules/agenda/presenca';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
-import { Cabecalho } from '../../../cabecalho';
 import { cancelarAction, moverAction, presencaAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
@@ -37,7 +36,6 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const motivo = c.status === 'cancelada' && c.canceladoPor === 'nutri' ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="space-y-6 p-6">
         <p className="text-sm"><Link href={`/painel/agenda?data=${p.data}`} className="underline">Agenda</Link></p>
         <header className="space-y-1">

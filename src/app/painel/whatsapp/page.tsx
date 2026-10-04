@@ -3,7 +3,6 @@ import { formatarQuando } from '@/modules/agenda/fuso';
 import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
-import { Cabecalho } from '../cabecalho';
 import { ConectarWhatsapp } from './conectar';
 import { DesconectarWhatsapp } from './desconectar';
 
@@ -16,7 +15,6 @@ export default async function WhatsappPage() {
   const cota = s.ligado ? await situacaoDaCota(ctx, tenant) : null;
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-2xl space-y-6 p-6">
         <h1 className="text-2xl font-semibold">WhatsApp</h1>
         {!s.ligado ? (

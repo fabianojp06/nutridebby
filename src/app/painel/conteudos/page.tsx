@@ -4,7 +4,6 @@ import { ehTipoConteudo, FILTROS_DO_FEED, MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } f
 import { listarConteudosDoPainel } from '@/modules/conteudo/conteudos';
 import { metricasDosConteudos, textoDaMetrica } from '@/modules/conteudo/metricas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
-import { Cabecalho } from '../cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +15,6 @@ export default async function Conteudos({ searchParams }: PageProps<'/painel/con
   const metricas = await metricasDosConteudos(ctx, lista.filter((c) => c.status === 'publicado'));
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-5xl space-y-4 p-6">
         <h1 className="text-2xl font-semibold">Conteúdos</h1>
         {excluido === '1' && <p role="status">{MSG_CONTEUDO.excluido}</p>}

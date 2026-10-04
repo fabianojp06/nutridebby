@@ -9,7 +9,6 @@ import { formatarData } from '@/modules/pacientes/datas';
 import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
-import { Cabecalho } from './cabecalho';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +31,6 @@ export default async function PainelHome() {
   ];
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="p-6">
         <h1 className="text-2xl font-semibold">Painel da nutricionista</h1>
         {(() => {

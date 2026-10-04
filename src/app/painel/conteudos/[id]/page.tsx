@@ -8,7 +8,6 @@ import { opcoesDeAudiencia } from '@/modules/conteudo/audiencia';
 import { MSG_CONTEUDO, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { carregarConteudoDoPainel } from '@/modules/conteudo/conteudos';
 import { carregarReceitaDoPainel } from '@/modules/conteudo/receitas';
-import { Cabecalho } from '../../cabecalho';
 import { excluirConteudoAction, salvarConteudoAction } from '../actions';
 import { ArquivosDoConteudo } from '../arquivos';
 import { ConteudoForm } from '../conteudo-form';
@@ -20,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export default async function ConteudoPage({ params, searchParams }: PageProps<'/painel/conteudos/[id]'>) {
   const { id } = await params;
   const { ocupado } = await searchParams;
-  const { ctx, tenant } = await requireNutri(`/painel/conteudos/${id}`);
+  const { ctx } = await requireNutri(`/painel/conteudos/${id}`);
   const c = await carregarConteudoDoPainel(ctx, id);
   if (!c) notFound();
   const opcoes = await opcoesDeAudiencia(ctx);
@@ -36,7 +35,6 @@ export default async function ConteudoPage({ params, searchParams }: PageProps<'
   };
   return (
     <>
-      <Cabecalho tenant={tenant} />
       <main className="mx-auto max-w-3xl space-y-6 p-6">
         <Link href="/painel/conteudos" className="text-sm underline">Voltar aos conteúdos</Link>
         <h1 className="text-2xl font-semibold">{c.titulo}</h1>
