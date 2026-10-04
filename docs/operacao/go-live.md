@@ -10,8 +10,10 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] Plano 08 mergeado com a revisão completa e o `/security-review` (checklist reforçado) sem Critical/Important; PR da Tarefa 8 (textos legais) mergeado — **Dev**
 - [ ] Textos legais v1.0 publicados (P08-06); a Debby aceitou o DPA v1.0; o novo aceite do paciente funciona (D25 + S-1) — **dono + Debby**
 - [ ] Prazo de guarda confirmado pelo advogado/CRN (P-01) — **dono**
-- [ ] Sentry recebendo erro de produção; o erro sintético com texto falso de saúde chegou **sem** o texto (runbook, passo 5) — **dono + Dev**
-- [ ] Monitor externo ativo e o alerta de teste recebido no e-mail e no celular (D3) — **dono**
+- [ ] Sentry recebendo erro de produção; o erro sintético com texto falso de saúde chegou **sem** o texto (runbook do Plano 08, passo 5: `docs/superpowers/plans/2026-10-04-nutridebby-08-go-live.md`, "Runbook do go-live") — **dono + Dev**
+- [ ] Sentry, em *Settings → Security & Privacy*: **Data Scrubber**, **Default Scrubbers** e **Prevent Storing of IP Addresses** ligados (o erro sintético por `docker exec` não prova a opção do IP: conferir na tela) — **dono**
+- [ ] Sentry, em *Client Keys (DSN)*: Rate Limit **por dia** abaixo de cota mensal ÷ 30. Ele vale para todos os eventos da DSN: num dia de muitas falhas, corta também os erros do app e do worker até a virada do dia. Se o plano Developer não permitir rate limit por chave, anotar aqui: a cota contra um job em falha contínua fica só com a `Dedupe` do SDK e o *Spike Protection*. **Não** criar `SENTRY_TRACES_SAMPLE_RATE` no Easypanel — **dono**
+- [ ] Monitor externo ativo e o alerta de teste recebido no e-mail e no celular (D3); os termos do plano grátis permitem uso comercial (senão, a alternativa (b) da D3, HetrixTools) — **dono**
 - [ ] `curl -sI https://<domínio>/entrar`: `content-security-policy` (com nonce), `strict-transport-security`, `x-content-type-options`, `x-frame-options`, `referrer-policy`; sem `x-powered-by` — **Dev**
 - [ ] Se o domínio passar pelo proxy da Cloudflare (nuvem laranja): **Rocket Loader**, **Email Obfuscation** e o **Web Analytics automático** desligados. Eles injetam script sem nonce, que o `'strict-dynamic'` bloqueia: o Rocket Loader reescreve todos os `<script>` e derruba o app inteiro; a Email Obfuscation troca os e-mails das telas por `[email protected]` — **dono + Dev**
 - [ ] k6 (roteiro em `docs/operacao/carga.md`; relatório em `docs/operacao/carga-AAAA-MM-DD.md`): relatório aprovado pela D4 (p95 das APIs ≤ 300 ms, páginas ≤ 800 ms, falhas < 1%, `notificacoes` < 20 s, LCP ≤ 2,5 s) — **Dev**
@@ -35,7 +37,7 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] Painel no modo escuro e no claro, num computador e num tablet (768 px) — **Debby**
 - [ ] Validação da Debby (P08-08): fórmulas do Apêndice A com casos reais, cálculo das receitas (RN-11), textos do E6 e do manual guiado, fluxo real de ponta a ponta — **Debby** (lista do que ela pediu mudar vai para o backlog)
 - [ ] Treinamento feito (com o manual guiado e a página `/painel/ajuda`) — **dono + Debby**
-- [ ] Job `retencao-lgpd` rodou em produção (log das 04h) — **Dev**
+- [ ] Job `retencao-lgpd` rodou em produção (log das 04h de Brasília; 07h UTC no log da VPS) — **Dev**
 
 ## Assinatura
 - Dono: ____________________ Data: ___/___/______ — "Conferi os itens acima e autorizo o go-live."
