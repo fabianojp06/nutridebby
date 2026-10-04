@@ -28,9 +28,10 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     expect(await app.db.select().from(session).where(eq(session.userId, userId))).toHaveLength(2);
     await app.db.insert(twoFactor).values({ secret: 'segredo', backupCodes: 'codigos', userId });
     await app.db.update(user).set({ twoFactorEnabled: true, image: 'https://exemplo.dev/foto-da-ana.jpg' }).where(eq(user.id, userId));
-    // B-1 + achado 9 do /code-review: as linhas como o Better Auth 1.7.6 as grava (plugins/two-factor) — link de
-    // redefinição, desafio de 2FA e aparelho confiável com o id da conta em `value`; contador e código do desafio com o
-    // identifier dele (e o código pedido com sessão, `2fa-otp-<conta>!<sessão>`)
+    // B-1 + achado 9 do /code-review: as linhas gravadas pelo próprio Better Auth (identifier com hash, como em
+    // produção) e com os formatos do 1.7.6 (plugins/two-factor) — link de redefinição, desafio de 2FA e aparelho
+    // confiável com o id da conta em `value`; contador e código do desafio sem nada que os ligue à conta
+    const { internalAdapter } = await getAuth().$context;
     const daOutra = randomUUID();
     const expira = new Date(Date.now() + 3600_000);
     const desafio = `2fa-${randomUUID()}`;
@@ -38,18 +39,29 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     const daConta = [
       { identifier: `reset-password:${randomUUID()}`, value: userId },
       { identifier: desafio, value: userId },
+      { identifier: `trust-device-${randomUUID()}`, value: userId },
+    ];
+    // sem ligação com a conta (expiram em minutos e não servem sem a linha do desafio): ficam
+    const doDesafio = [
       { identifier: `2fa-attempts-${desafio}`, value: '0' },
       { identifier: `2fa-otp-${desafio}`, value: 'hash-do-codigo:0' },
       { identifier: `2fa-otp-${userId}!${randomUUID()}`, value: 'hash-do-codigo:1' },
-      { identifier: `trust-device-${randomUUID()}`, value: userId },
     ];
     const daOutraConta = [
       { identifier: `reset-password:${randomUUID()}`, value: daOutra },
       { identifier: desafioDaOutra, value: daOutra },
       { identifier: `2fa-attempts-${desafioDaOutra}`, value: '0' },
-      { identifier: `2fa-otp-${desafioDaOutra}`, value: 'hash-do-codigo:0' },
     ];
-    await app.db.insert(verification).values([...daConta, ...daOutraConta].map((v) => ({ ...v, expiresAt: expira })));
+    const todas = [...daConta, ...doDesafio, ...daOutraConta];
+    for (const v of todas) await internalAdapter.createVerificationValue({ ...v, expiresAt: expira });
+    const ids = todas.map((v) => v.identifier);
+    // premissa da correção: o identifier em claro não está no banco (storeIdentifier: 'hashed')
+    expect(await app.db.select().from(verification).where(inArray(verification.identifier, ids))).toEqual([]);
+    const presentes = async () => {
+      const achadas = await Promise.all(ids.map(async (i) => ((await internalAdapter.findVerificationValue(i)) ? i : null)));
+      return achadas.filter((i) => i !== null).sort();
+    };
+    expect(await presentes()).toEqual([...ids].sort());
 
     expect(await app.db.transaction((tx) => anonimizarContaSemVinculo(tx, userId, now))).toBe(true);
 
@@ -58,9 +70,7 @@ describe('conta do titular na anonimização (P06-08, D18)', () => {
     expect(await app.db.select().from(twoFactor).where(eq(twoFactor.userId, userId))).toEqual([]);
     const [u] = await app.db.select().from(user).where(eq(user.id, userId));
     expect(u).toMatchObject({ name: 'Paciente anonimizado', email: `anonimo-${userId}@anonimizado.invalid`, emailVerified: false, twoFactorEnabled: false, image: null });
-    const ids = [...daConta, ...daOutraConta].map((v) => v.identifier);
-    const restantes = await app.db.select({ i: verification.identifier }).from(verification).where(inArray(verification.identifier, ids));
-    expect(restantes.map((r) => r.i).sort()).toEqual(daOutraConta.map((v) => v.identifier).sort()); // só as da outra conta ficam
+    expect(await presentes()).toEqual([...doDesafio, ...daOutraConta].map((v) => v.identifier).sort()); // só as ligadas à conta saem
     await expect(entrar(getAuth(), email)).rejects.toThrow('login falhou');
     await expect(entrar(getAuth(), u.email)).rejects.toThrow('login falhou');
   });
