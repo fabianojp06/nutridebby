@@ -269,18 +269,19 @@ export async function concluirExclusaoAtendida(
 export async function pedidosDoTitularAbertos(
   ctx: TenantContext,
   db: Db = getDb(),
-): Promise<{ patientId: string; nome: string; tipo: 'exclusao' | 'exportacao'; prazo: string }[]> {
-  const r = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select({ patientId: privacyRequests.patientId, nome: patients.nome, tipo: privacyRequests.tipo, prazo: privacyRequests.prazo })
-        .from(privacyRequests)
-        .innerJoin(patients, eq(patients.id, privacyRequests.patientId))
-        .where(eq(privacyRequests.status, 'aberto'))
-        .orderBy(asc(privacyRequests.prazo), asc(patients.nome)),
-    db,
-  );
+): Promise<PedidoDoTitularAberto[]> {
+  return withTenant(ctx, pedidosDoTitularAbertosNaTransacao, db);
+}
+
+export type PedidoDoTitularAberto = { patientId: string; nome: string; tipo: 'exclusao' | 'exportacao'; prazo: string };
+
+export async function pedidosDoTitularAbertosNaTransacao(tx: Tx): Promise<PedidoDoTitularAberto[]> {
+  const r = await tx
+    .select({ patientId: privacyRequests.patientId, nome: patients.nome, tipo: privacyRequests.tipo, prazo: privacyRequests.prazo })
+    .from(privacyRequests)
+    .innerJoin(patients, eq(patients.id, privacyRequests.patientId))
+    .where(eq(privacyRequests.status, 'aberto'))
+    .orderBy(asc(privacyRequests.prazo), asc(patients.nome));
   return r.map((x) => ({ ...x, tipo: x.tipo as 'exclusao' | 'exportacao' }));
 }
 

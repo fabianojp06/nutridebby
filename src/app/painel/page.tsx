@@ -7,17 +7,15 @@ import { formatarDecimal } from '@/lib/numero';
 import { CINZA_SOBRE_DESTAQUE } from '@/lib/tema/marca-tema';
 import { requireNutri } from '@/lib/tenant-session';
 import type { Consulta } from '@/modules/agenda/consultas';
-import { formatarQuando } from '@/modules/agenda/fuso';
-import { resumoDoDia } from '@/modules/agenda/inicio';
-import { contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, textoTaxa } from '@/modules/agenda/presenca';
-import { provedorDoApp, situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
+import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
+import { lerInicio, MSG_INICIO, textoSemProxima } from '@/modules/agenda/inicio';
+import { MSG_PRESENCA, textoTaxa } from '@/modules/agenda/presenca';
+import { provedorDoApp } from '@/modules/notificacoes/whatsapp/conexao';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
-import { MSG_COTA, situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
+import { MSG_COTA } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarData } from '@/modules/pacientes/datas';
-import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
-import { DIAS_CS01, metricasDeSucesso } from '@/modules/plataforma/metricas-sucesso';
-import { contarDiariosNaoVistos } from '@/modules/portal/diario-nutri';
+import { DIAS_CS01 } from '@/modules/plataforma/metricas-sucesso';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,19 +28,9 @@ const LINK_PILULA = 'inline-flex min-h-11 items-center rounded-full border borde
 export default async function PainelHome() {
   const { data, tenant, ctx } = await requireNutri('/painel');
   const agora = new Date();
-  const whatsapp = await situacaoDoWhatsapp(ctx, provedorDoApp() !== null);
-  const cota = whatsapp.ligado ? await situacaoDaCota(ctx, tenant) : null; // RN-09: só com o WhatsApp ligado
-  // cada leitura é uma transação; nenhuma dentro de outra
-  const [ind, pendentes, nov, pedidos, dia, naoVistos, cs] = await Promise.all([
-    indicadoresDaAgenda(ctx, tenant.fuso, agora), // US-037 / CS-03 / D18: cartão "Agenda"
-    contarPendenciasDePresenca(ctx, agora),
-    novidadesDaAgenda(ctx, agora),
-    pedidosDoTitularAbertos(ctx), // US-046 / D17: cartão "Pedidos do titular"
-    resumoDoDia(ctx, tenant.fuso, agora), // D22: próxima consulta, hoje e agenda do dia
-    contarDiariosNaoVistos(ctx),
-    metricasDeSucesso(ctx, tenant, agora), // P08-07 / D15
-  ]);
-  const hora = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: tenant.fuso, hour: '2-digit', minute: '2-digit' }).format(d);
+  // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
+  const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
+  const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
   const novidades: [string, Consulta[]][] = [
     ['Pedidos de remarcação', nov.pedidosRemarcacao],
     ['Marcadas pelo paciente (últimos 7 dias)', nov.marcadasPeloPaciente],
@@ -97,7 +85,7 @@ export default async function PainelHome() {
             </div>
           ) : (
             <div className="space-y-4">
-              <p>Nenhuma consulta hoje.</p>
+              <p>{textoSemProxima(dia.hoje)}</p>
               <Link href="/painel/agenda/nova" className={LINK_CLARO}>Agendar</Link>
             </div>
           )}
@@ -127,7 +115,7 @@ export default async function PainelHome() {
               ))}
             </ul>
           ) : (
-            <p className="text-suave">Nenhuma consulta hoje.</p>
+            <p className="text-suave">{MSG_INICIO.semConsultaHoje}</p>
           )}
         </Cartao>
 

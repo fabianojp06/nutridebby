@@ -43,6 +43,10 @@ export async function situacaoDoWhatsapp(ctx: TenantContext, ligado: boolean, db
   return situacao(ligado, await withTenant(ctx, lerConexao, db));
 }
 
+export async function situacaoDoWhatsappNaTransacao(tx: Tx, ligado: boolean): Promise<SituacaoWhatsapp> {
+  return situacao(ligado, await lerConexao(tx));
+}
+
 type Deps = { db?: Db; agora?: Date; appUrl?: string };
 
 /** D18 (revisão 1 da T12, item 6): no máximo um e-mail de desconexão a cada 6 h por consultório. */

@@ -45,7 +45,11 @@ export type SituacaoCota = { usadas: number; cota: number; nivel: NivelCota };
 
 /** Uso do mês para o painel (US-036): só as aceitas. */
 export async function situacaoDaCota(ctx: TenantContext, tenant: Pick<TenantRow, 'fuso' | 'waCotaMensal'>, agora: Date = new Date(), db: Db = getDb()): Promise<SituacaoCota> {
-  const usadas = await withTenant(ctx, (tx) => usoDoMes(tx, tenant.fuso, agora), db);
+  return withTenant(ctx, (tx) => situacaoDaCotaNaTransacao(tx, tenant, agora), db);
+}
+
+export async function situacaoDaCotaNaTransacao(tx: Tx, tenant: Pick<TenantRow, 'fuso' | 'waCotaMensal'>, agora: Date): Promise<SituacaoCota> {
+  const usadas = await usoDoMes(tx, tenant.fuso, agora);
   return { usadas, cota: tenant.waCotaMensal, nivel: nivelDaCota(usadas, tenant.waCotaMensal) };
 }
 
