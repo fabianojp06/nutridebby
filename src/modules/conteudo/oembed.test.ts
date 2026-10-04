@@ -7,7 +7,7 @@ beforeAll(async () => {
   jpeg = await sharp({ create: { width: 480, height: 360, channels: 3, background: '#2a7' } }).jpeg().toBuffer();
 });
 
-type Resposta = { status?: number; corpo: string | Buffer; tipo?: string };
+type Resposta = { status?: number; corpo: string | Buffer; tipo?: string; tamanho?: number };
 /** fetch falso: devolve as respostas na ordem e anota os endereços pedidos. */
 function falso(...respostas: Resposta[]) {
   const pedidos: string[] = [];
@@ -16,7 +16,9 @@ function falso(...respostas: Resposta[]) {
     expect(init?.redirect).toBe('error'); // D9: nunca segue redirecionamento
     const r = respostas.shift();
     if (!r) throw new Error('pedido a mais');
-    return new Response(typeof r.corpo === 'string' ? r.corpo : new Uint8Array(r.corpo), { status: r.status ?? 200, headers: { 'content-type': r.tipo ?? 'application/json' } });
+    const headers: Record<string, string> = { 'content-type': r.tipo ?? 'application/json' };
+    if (r.tamanho !== undefined) headers['content-length'] = String(r.tamanho);
+    return new Response(typeof r.corpo === 'string' ? r.corpo : new Uint8Array(r.corpo), { status: r.status ?? 200, headers });
   }) as typeof fetch;
   return { f, pedidos };
 }
@@ -54,6 +56,48 @@ describe('capa do vídeo pelo oEmbed (INT-05, D9)', () => {
     expect(await miniaturaDoVideo(YT, { fetchImpl: falso({ corpo: '<html>' }).f })).toBeNull();
     expect(await miniaturaDoVideo(YT, { fetchImpl: falso(oembed('https://i.ytimg.com/x.jpg'), { corpo: '<svg/>', tipo: 'image/svg+xml' }).f })).toBeNull();
     expect(await miniaturaDoVideo(YT, { fetchImpl: falso(oembed('https://i.ytimg.com/x.jpg'), { corpo: Buffer.alloc(3 * 1024 * 1024, 0xff) }).f })).toBeNull();
+  });
+
+  it('D9, tetos de leitura: JSON válido acima de 64 KB e miniatura JPEG válida acima de 2 MB → null (sem os tetos, as duas passariam)', async () => {
+    const thumb = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg';
+    const grande = { corpo: JSON.stringify({ thumbnail_url: thumb, sobra: 'x'.repeat(70 * 1024) }) };
+    const j = falso(grande, { corpo: jpeg });
+    expect(await miniaturaDoVideo(YT, { fetchImpl: j.f })).toBeNull();
+    expect(j.pedidos).toHaveLength(1); // nem chega a pedir a miniatura
+    // a mesma miniatura com 2 MB a mais no fim: a assinatura JPEG continua no começo
+    const enorme = Buffer.concat([jpeg, Buffer.alloc(2 * 1024 * 1024)]);
+    const m = falso(oembed(thumb), { corpo: enorme, tipo: 'image/jpeg' });
+    expect(await miniaturaDoVideo(YT, { fetchImpl: m.f })).toBeNull();
+    expect(m.pedidos).toHaveLength(2);
+    // controle: o mesmo JPEG dentro do teto passa
+    expect(await miniaturaDoVideo(YT, { fetchImpl: falso(oembed(thumb), { corpo: jpeg }).f })).not.toBeNull();
+  });
+
+  it('D9, Content-Length acima do teto → null sem ler o corpo (oEmbed e miniatura)', async () => {
+    const thumb = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg';
+    const j = falso({ ...oembed(thumb), tamanho: 65 * 1024 }, { corpo: jpeg });
+    expect(await miniaturaDoVideo(YT, { fetchImpl: j.f })).toBeNull();
+    expect(j.pedidos).toHaveLength(1);
+    const m = falso(oembed(thumb), { corpo: jpeg, tipo: 'image/jpeg', tamanho: 3 * 1024 * 1024 });
+    expect(await miniaturaDoVideo(YT, { fetchImpl: m.f })).toBeNull();
+    expect(m.pedidos).toHaveLength(2);
+  });
+
+  it('o prazo é TOTAL: o oEmbed responde e a miniatura trava → null dentro do prazo, sem esperar outro', async () => {
+    const pedidos: string[] = [];
+    const f = (async (url: string | URL | Request, init?: RequestInit) => {
+      pedidos.push(String(url));
+      if (pedidos.length === 1) {
+        await new Promise((ok) => setTimeout(ok, 200)); // gasta a maior parte do prazo
+        return new Response(JSON.stringify({ thumbnail_url: 'https://i.ytimg.com/x.jpg' }));
+      }
+      return new Promise((_, rej) => init!.signal!.addEventListener('abort', () => rej(init!.signal!.reason)));
+    }) as typeof fetch;
+    const t0 = Date.now();
+    expect(await miniaturaDoVideo(YT, { fetchImpl: f, prazoMs: 250 })).toBeNull();
+    const gasto = Date.now() - t0;
+    expect(pedidos).toHaveLength(2);
+    expect(gasto).toBeLessThan(380); // um prazo de 250 ms para as duas, não 250 ms para cada (seriam ≥ 450 ms)
   });
 
   it('demora mais que o prazo (US-050: > 5 s) → null, sem esperar', async () => {

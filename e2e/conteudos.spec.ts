@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -13,6 +14,13 @@ const VIDEO = `Como montar o prato ${sufixo}`;
 const RECEITA = `Panqueca de aveia ${sufixo}`;
 let urlDoVideo = '';
 let urlDaReceita = '';
+
+/** RNF-10: WCAG 2.1 AA nas telas novas do PWA (como e2e/acessibilidade.spec.ts). */
+async function semViolacoes(page: Page) {
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+}
 
 test.beforeAll(async ({ browser }) => {
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.11.19');
@@ -56,6 +64,10 @@ test('vídeo só para a Ana (US-050, US-053): a Ana vê no feed com "Novo" e o p
 
   const resposta = await bia.page.goto(urlDoVideo);
   expect(resposta?.status()).toBe(404);
+  await expect(bia.page.getByText(VIDEO)).toHaveCount(0); // nem o título na página do 404
+  // a liberação do cartão do plano vale só para receita do plano dela: o vídeo continua 404
+  expect((await bia.page.goto(`${urlDoVideo}?de=plano`))?.status()).toBe(404);
+  await expect(bia.page.getByText(VIDEO)).toHaveCount(0);
   await bia.page.goto('/p/conteudos');
   await expect(bia.page.getByRole('link', { name: new RegExp(VIDEO) })).toHaveCount(0);
 });
@@ -87,6 +99,7 @@ test('receita (US-051, US-055): valor por porção, busca + etiqueta e favoritos
   await ana.page.getByRole('button', { name: 'Buscar' }).click();
   await ana.page.getByRole('link', { name: new RegExp(RECEITA) }).click();
   await expect(ana.page.getByText(/^Por porção: \d+ kcal/)).toBeVisible();
+  await semViolacoes(ana.page);
   await ana.page.getByRole('button', { name: 'Favoritar' }).click();
   await expect(ana.page.getByRole('button', { name: 'Remover dos favoritos' })).toBeVisible();
   await ana.page.goto('/p/conteudos?favoritos=1');
@@ -106,7 +119,9 @@ test('receita na refeição (US-054): a Bia vê a "Sugestão de receita" no plan
 
   await bia.page.goto('/p/plano');
   await expect(bia.page.getByText('Sugestão de receita:')).toBeVisible();
-  await expect(bia.page.getByRole('link', { name: RECEITA })).toHaveAttribute('href', `${urlDaReceita.replace('/painel/conteudos/', '/p/conteudos/')}?de=plano`);
+  const doCartao = `${urlDaReceita.replace('/painel/conteudos/', '/p/conteudos/')}?de=plano`;
+  await expect(bia.page.getByRole('link', { name: RECEITA })).toHaveAttribute('href', doCartao);
+  await semViolacoes(bia.page);
 
   await nutri.goto(urlDaReceita);
   await nutri.getByRole('button', { name: 'Despublicar' }).click();
@@ -114,4 +129,7 @@ test('receita na refeição (US-054): a Bia vê a "Sugestão de receita" no plan
   await expect(nutri.getByRole('button', { name: 'Publicar', exact: true })).toBeVisible();
   await bia.page.goto('/p/plano');
   await expect(bia.page.getByText('Sugestão de receita:')).toHaveCount(0);
+  // D2: despublicada, nem o caminho do cartão abre a receita
+  expect((await bia.page.goto(doCartao))?.status()).toBe(404);
+  await expect(bia.page.getByText(RECEITA)).toHaveCount(0);
 });

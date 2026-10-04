@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: RouteContext<'/api/painel/c
     return json(200, { ok: true });
   } catch (e) {
     if (e instanceof CorpoGrandeError) return json(413, { erro: MSG_CONTEUDO.capa });
-    if (e instanceof CorpoLentoError) return json(408, { erro: MSG_CONTEUDO.ocupado });
+    if (e instanceof CorpoLentoError) return json(408, { erro: MSG_CONTEUDO.falhou });
     if (e instanceof TipoNaoPermitidoError) return json(415, { erro: MSG_CONTEUDO.capa });
     if (e instanceof ConteudoNaoEncontradoError) return json(404, { erro: MSG_CONTEUDO.naoEncontrado });
     if (e instanceof CotaEsgotadaError) return json(507, { erro: MSG_COTA_ESGOTADA });

@@ -1,10 +1,12 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { contents } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { caminhoDoPdfDoConteudo, conteudoDoPaciente, feedDeConteudos, marcarFavorito, registrarVisualizacao } from './conteudos';
+import { trocarPdf } from '@/modules/conteudo/arquivos';
+import { caminhoDoPdfDoConteudo, conteudoDoPaciente, feedDeConteudos, marcarFavorito, mensagemDoFeedVazio, registrarVisualizacao } from './conteudos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -54,6 +56,17 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(titulos(await feedDeConteudos(ctxAna, { busca: '\0' }, app.db))).toEqual(['Panqueca de aveia']); // sobra nada: sem filtro
   });
 
+  it('lista vazia: "Nenhum conteúdo encontrado." só com filtro que filtra (também em Favoritos); busca de 1 caractere ou só \\0 não conta', () => {
+    expect(mensagemDoFeedVazio({})).toBe('Nenhum conteúdo por aqui ainda.');
+    expect(mensagemDoFeedVazio({ favoritos: true })).toBe('Você ainda não favoritou nenhum conteúdo.');
+    expect(mensagemDoFeedVazio({ favoritos: true, busca: 'aveia' })).toBe('Nenhum conteúdo encontrado.');
+    expect(mensagemDoFeedVazio({ favoritos: true, etiqueta: 'sem lactose' })).toBe('Nenhum conteúdo encontrado.');
+    expect(mensagemDoFeedVazio({ tipo: 'video' })).toBe('Nenhum conteúdo encontrado.');
+    expect(mensagemDoFeedVazio({ busca: 'a' })).toBe('Nenhum conteúdo por aqui ainda.'); // o feed ignora: mostra tudo
+    expect(mensagemDoFeedVazio({ busca: ' \0\0 ', etiqueta: '\0' })).toBe('Nenhum conteúdo por aqui ainda.');
+    expect(mensagemDoFeedVazio({ favoritos: true, busca: 'a\0' })).toBe('Você ainda não favoritou nenhum conteúdo.');
+  });
+
   it('"Favoritos": favoritar uma receita → aparece em Favoritos; desfavoritar tira; conteúdo invisível não favorita', async () => {
     const { T, ana, ctxAna, ctxBia } = await cenario();
     const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca de aveia' });
@@ -88,6 +101,25 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(c.soPeloPlano).toBe(false);
   });
 
+  it('D2: orientação em rascunho com PDF e conteúdo de outro tenant — nem detalhe, nem PDF, nem visualização ou favorito', async () => {
+    const { T, ana, ctxAna } = await cenario();
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100)]);
+    const rascunho = await novoConteudo(app.db, T, { status: 'rascunho', visibilidade: 'pacientes', pacientes: [ana.id] });
+    await trocarPdf(T.ctx, rascunho.id, pdf, { db: app.db });
+    expect(await withTenant(T.ctx, (tx) => tx.select({ p: contents.pdfPath }).from(contents).where(eq(contents.id, rascunho.id)), app.db)).toEqual([{ p: expect.any(String) }]);
+    expect(await conteudoDoPaciente(ctxAna, rascunho.id, app.db)).toBeNull();
+    expect(await caminhoDoPdfDoConteudo(ctxAna, rascunho.id, app.db)).toBeNull();
+    expect(await registrarVisualizacao(ctxAna, rascunho.id, app.db)).toBe(false);
+    expect(await marcarFavorito(ctxAna, rascunho.id, true, app.db)).toBe(false);
+    const U = await novoTenant(app.db);
+    const deFora = await novoConteudo(app.db, U);
+    await trocarPdf(U.ctx, deFora.id, pdf, { db: app.db });
+    expect(await conteudoDoPaciente(ctxAna, deFora.id, app.db, { doPlano: true })).toBeNull();
+    expect(await caminhoDoPdfDoConteudo(ctxAna, deFora.id, app.db)).toBeNull();
+    expect(await registrarVisualizacao(ctxAna, deFora.id, app.db)).toBe(false);
+    expect(await marcarFavorito(ctxAna, deFora.id, true, app.db)).toBe(false);
+  });
+
   it('US-054: receita fora da audiência sugerida no plano PUBLICADO da Bia só abre pelo cartão — nem feed, busca, etiqueta, "Novo", favorito ou visualização', async () => {
     const { T, ana, bia, ctxAna, ctxBia } = await cenario();
     const r = await novoConteudo(app.db, T, {
@@ -119,12 +151,30 @@ describe('aba "Conteúdos" (US-055)', () => {
   it('guarda: só "Meu plano" e o detalhe pelo cartão ligam a liberação das receitas do plano (o feed nunca)', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
     const fontes = (await readdir('src', { recursive: true })).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    // critério amplo: qualquer menção ao nome da função ou ao parâmetro — pega import com alias, `.then(liberar…)`,
+    // set_config e `SET SESSION` (que sobreviveria no pool). Só a guarda da RLS (db/rls-guard.ts) cita o parâmetro
+    // para conferir a política, e fica de fora pelo nome.
     const usam: string[] = [];
     for (const f of fontes) {
-      const texto = await readFile(`src/${f}`, 'utf8');
-      // quem LIGA a liberação (set_config/SET) ou chama a função; a guarda da RLS (`db/rls-guard.ts`) só lê o nome na política
-      if (/set_config\(\s*'app\.receitas_do_plano'|\bset\s+(?:local\s+)?app\.receitas_do_plano|liberarReceitasDoPlano\(/i.test(texto)) usam.push(f);
+      if (f === 'db/rls-guard.ts') continue;
+      if (/\bliberarReceitasDoPlano\b|receitas_do_plano/.test(await readFile(`src/${f}`, 'utf8'))) usam.push(f);
     }
     expect(usam.sort()).toEqual(['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts', 'modules/portal/plano.ts']);
+    // em cada chamador: o import sem alias e UMA chamada, dentro da função certa
+    const semComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    for (const [arquivo, funcao] of [
+      ['modules/portal/conteudos.ts', 'conteudoDoPaciente'],
+      ['modules/portal/plano.ts', 'planoDoPaciente'],
+    ] as const) {
+      const codigo = semComentarios(await readFile(`src/${arquivo}`, 'utf8'));
+      expect(codigo.match(/\bliberarReceitasDoPlano\b/g), arquivo).toHaveLength(2); // o import e a chamada
+      expect(codigo, arquivo).toContain("import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';");
+      expect(codigo.match(/await liberarReceitasDoPlano\(tx\);/g), arquivo).toHaveLength(1);
+      const inicio = codigo.indexOf(`export async function ${funcao}(`);
+      const fim = codigo.indexOf('\nexport ', inicio + 1);
+      const chamada = codigo.indexOf('await liberarReceitasDoPlano(tx);');
+      expect(inicio, arquivo).toBeGreaterThanOrEqual(0);
+      expect(chamada > inicio && (fim < 0 || chamada < fim), `${arquivo}: a chamada fica dentro de ${funcao}`).toBe(true);
+    }
   });
 });

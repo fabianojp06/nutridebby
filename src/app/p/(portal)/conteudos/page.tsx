@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { CapaDoConteudo } from '@/components/capa-conteudo';
 import { requirePaciente } from '@/lib/paciente-session';
-import { ehTipoConteudo, FILTROS_DO_FEED, MSG_PORTAL_CONTEUDO, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
-import { feedDeConteudos } from '@/modules/portal/conteudos';
+import { ehTipoConteudo, FILTROS_DO_FEED, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
+import { feedDeConteudos, mensagemDoFeedVazio } from '@/modules/portal/conteudos';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +18,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
   const etiqueta = um(q.etiqueta) || undefined;
   const favoritos = um(q.favoritos) === '1';
   const { itens, etiquetas } = await feedDeConteudos(ctx, { tipo, busca, etiqueta, favoritos });
-  const filtrando = Boolean(tipo || busca.trim() || etiqueta);
-  const vazio = favoritos ? MSG_PORTAL_CONTEUDO.semFavoritos : filtrando ? MSG_PORTAL_CONTEUDO.semResultado : MSG_PORTAL_CONTEUDO.vazio;
+  const vazio = mensagemDoFeedVazio({ tipo, busca, etiqueta, favoritos });
   const aba = (href: string, rotulo: string, atual: boolean) => (
     <Link
       key={href}

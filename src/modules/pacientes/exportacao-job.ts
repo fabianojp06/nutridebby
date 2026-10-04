@@ -159,9 +159,10 @@ const NOME_FORMULA = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]))
 /**
  * D04-1: todas as versões do plano em 4 consultas fixas — planos, refeições, itens e os títulos das receitas (antes, uma
  * leitura completa por versão). Publicado/arquivado com os nomes congelados na publicação (D10 do Plano 04); o rascunho
- * com os atuais. Mesma forma de antes, mais a sugestão de receita da refeição (o título, se ainda existir — D13).
+ * com os atuais. Mesma forma de antes, mais a sugestão de receita da refeição (o título, se ainda existir — D13; para o
+ * titular, só se estiver publicada).
  */
-async function planosParaExportacao(tx: Tx, ids: string[]): Promise<DadosExportacao['planos']> {
+async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExportacao): Promise<DadosExportacao['planos']> {
   if (!ids.length) return [];
   const ps = await tx.select().from(mealPlans).where(inArray(mealPlans.id, ids)).orderBy(asc(mealPlans.versao));
   const rs = await tx.select().from(meals).where(inArray(meals.planId, ids)).orderBy(asc(meals.ordem));
@@ -172,9 +173,13 @@ async function planosParaExportacao(tx: Tx, ids: string[]): Promise<DadosExporta
     .where(inArray(mealItems.planId, ids))
     .orderBy(asc(mealItems.ordem));
   const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
+  // P-16 b / D13: o titular vê a sugestão só da receita publicada, como no portal (o cartão some) — o título de uma
+  // receita despublicada (e talvez renomeada como rascunho interno) não vai para o dados.json dele; a equipe vê todas
   const titulos = new Map(
     idsReceita.length
-      ? (await tx.select({ id: contents.id, titulo: contents.titulo }).from(contents).where(inArray(contents.id, idsReceita))).map((c) => [c.id, c.titulo])
+      ? (await tx.select({ id: contents.id, titulo: contents.titulo, status: contents.status }).from(contents).where(inArray(contents.id, idsReceita)))
+          .filter((c) => escopo !== 'titular' || c.status === 'publicado')
+          .map((c) => [c.id, c.titulo])
       : [],
   );
   return ps.map((p) => {
@@ -272,7 +277,7 @@ export async function montarDados(
     .from(mealPlans)
     .where(and(eq(mealPlans.patientId, patientId), escopo === 'titular' ? ne(mealPlans.status, 'rascunho') : undefined))
     .orderBy(asc(mealPlans.versao));
-  const planos = await planosParaExportacao(tx, ids.map((x) => x.id)); // a exportação já registra "exportar"
+  const planos = await planosParaExportacao(tx, ids.map((x) => x.id), escopo); // a exportação já registra "exportar"
   const conteudos = await conteudosDoTitular(tx, patientId);
   const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath

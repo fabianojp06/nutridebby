@@ -60,11 +60,13 @@ async function cenario() {
 }
 
 describe('"Sugestão de receita" (US-054)', () => {
-  it('anexa só receita publicada: rascunho de receita, orientação ou id inventado → "Receita não encontrada." na refeição', async () => {
+  it('anexa só receita publicada do consultório: rascunho de receita, orientação, id inventado ou receita de outro tenant → "Receita não encontrada." na refeição', async () => {
     const { T, id, cafe, item } = await cenario();
     const rascunho = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Em preparo', status: 'rascunho' });
     const orientacao = await novoConteudo(app.db, T);
-    for (const ruim of [rascunho.id, orientacao.id, randomUUID()])
+    // isolamento: receita PUBLICADA de outro consultório (a RLS esconde; a FK composta também barraria)
+    const deFora = await novoConteudo(app.db, await novoTenant(app.db), { tipo: 'receita', titulo: 'De outro consultório' });
+    for (const ruim of [rascunho.id, orientacao.id, randomUUID(), deFora.id])
       expect(await erros(salvarRascunho(T.ctx, id, corpo(0, cafe, item, ruim), deps)), ruim).toEqual({ [`refeicao:${cafe}:receita`]: MSG_PLANO.receita });
     expect(await erros(salvarRascunho(T.ctx, id, corpo(0, cafe, item, 'lixo'), deps))).toEqual({ [`refeicao:${cafe}:receita`]: MSG_PLANO.receita });
   });
@@ -87,7 +89,13 @@ describe('"Sugestão de receita" (US-054)', () => {
     expect((await carregarPlano(T.ctx, nova, app.db))!.refeicoes[0].receita).toEqual({ id: panqueca.id, titulo: 'Panqueca de aveia', disponivel: false });
     const r = (await carregarPlano(T.ctx, nova, app.db))!;
     const mantido = corpo(r.revisao, r.refeicoes[0].id, r.refeicoes[0].itens[0].id, panqueca.id);
+    // anexar a despublicada numa refeição NOVA é recusado só nela — a que só manteve a sugestão não é marcada
+    const almoco = randomUUID();
+    const comNova = { ...mantido, refeicoes: [...mantido.refeicoes, { id: almoco, nome: 'Almoço', horario: '12:00', observacao: '', recipeContentId: panqueca.id, itens: [] }] };
+    expect(await erros(salvarRascunho(T.ctx, nova, comNova, deps))).toEqual({ [`refeicao:${almoco}:receita`]: MSG_PLANO.receita });
     await salvarRascunho(T.ctx, nova, mantido, deps); // a sugestão que já estava, mesmo despublicada, não barra o salvamento
+    // D13: e continua gravada (o editor mostra "indisponível"; republicada, o cartão volta)
+    expect((await carregarPlano(T.ctx, nova, app.db))!.refeicoes[0].receita).toEqual({ id: panqueca.id, titulo: 'Panqueca de aveia', disponivel: false });
   });
 
   it('modelo leva a sugestão; excluir a receita solta a sugestão (SET NULL) sem apagar a refeição', async () => {

@@ -47,6 +47,8 @@ export const MSG_CONTEUDO = {
   capa: 'Envie uma imagem JPEG ou PNG de até 5 MB.',
   pdf: 'Envie um PDF de até 10 MB.',
   ocupado: 'Outro envio está em andamento. Tente de novo em instantes.',
+  /** Envio de capa/PDF que caiu no meio (rede, corpo que não chegou no prazo — 408). */
+  falhou: 'Não foi possível enviar. Tente de novo.',
   salvo: 'Conteúdo salvo.',
   capaSalva: 'Capa salva.',
   pdfSalvo: 'PDF salvo.',

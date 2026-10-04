@@ -26,7 +26,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     .where(and(eq(mealItems.planId, p.id)))
     .orderBy(asc(mealItems.ordem));
   // US-054: título e situação da receita sugerida. Na sessão de paciente a RLS só devolve a publicada (e, fora da
-  // audiência, só porque planoDoPaciente ligou liberarReceitasDoPlano nesta transação) — a despublicada fica fora do
+  // audiência, só porque planoDoPaciente ligou a liberação das receitas do plano nesta transação) — a despublicada fica fora do
   // mapa e a refeição sai sem `disponivel` (o portal esconde o cartão)
   const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
   const receitas = new Map(

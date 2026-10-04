@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import * as schema from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPlano } from './carregar';
 import { criarRascunho, salvarRascunho } from './rascunho';
@@ -37,6 +39,15 @@ describe('salvarRascunho em lote (D04-2)', () => {
     const plano = (await carregarPlano(T.ctx, id, app.db))!;
     expect(plano.refeicoes.map((r) => r.itens.length)).toEqual([15, 15]);
     expect(plano.refeicoes[0].itens.filter((i) => i.substituiItemId).length).toBe(5);
+    // regra 8: o lote continua auditado linha a linha (gatilho FOR EACH ROW) — 2 refeições + 30 itens = 32 "criar"
+    const ids = corpo.refeicoes.flatMap((r) => [r.id, ...r.itens.map((i) => i.id)]);
+    const auditadas = await withTenant(
+      T.ctx,
+      (tx) => tx.select({ id: schema.auditLog.entidadeId }).from(schema.auditLog).where(and(eq(schema.auditLog.acao, 'criar'), inArray(schema.auditLog.entidadeId, ids))),
+      app.db,
+    );
+    expect(auditadas).toHaveLength(32);
+    expect(new Set(auditadas.map((a) => a.id)).size).toBe(32);
 
     consultas.length = 0;
     const mesmo = { ...corpo, revisao, envio: randomUUID() };
@@ -48,5 +59,6 @@ describe('salvarRascunho em lote (D04-2)', () => {
     mudado.refeicoes[1].itens[3].quantidadeG = '120';
     await salvarRascunho(T.ctx, id, mudado, { db });
     expect(contar(/^update "meal_items"/)).toBe(1);
+    expect(contar(/^(insert into|update) "meal(s|_items)"/)).toBe(1); // nada reinserido nem outra refeição regravada
   });
 });

@@ -238,20 +238,40 @@ export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
 const AUDIENCIA_EXIGE: Record<string, string[]> = {
   contents: [NEGA_PACIENTE, "status='publicado'::text", 'app_current_patient', 'app_conteudo_por_etiqueta', 'app.receitas_do_plano'],
 };
-const HERDA_DE_CONTENTS = [NEGA_PACIENTE, 'exists', 'fromcontents'];
+/** As filhas herdam de `contents` ligando a linha: sem `c.id = <tabela>.content_id`, o EXISTS vê qualquer conteúdo visível. */
+const ligaAoConteudo = (t: string) => [`c.id=${t}.content_id`, `c.tenant_id=${t}.tenant_id`];
+const HERDA_DE_CONTENTS = (t: string) => [NEGA_PACIENTE, 'exists', 'fromcontents', ...ligaAoConteudo(t)];
+
+/**
+ * US-055 / D14 (0083): a escrita do paciente nestas tabelas (PACIENTE_ESCREVE) só vale para conteúdo que ele vê PELA
+ * AUDIÊNCIA — política RESTRICTIVE de INSERT, nunca com a liberação das receitas do plano ligada. Tabela → política.
+ */
+export const ESCRITA_POR_AUDIENCIA: Record<string, string> = {
+  content_views: 'paciente_conteudo_visto',
+  content_favorites: 'paciente_conteudo_favorito',
+};
+const ESCRITA_EXIGE = (t: string) => [NEGA_PACIENTE, 'app.receitas_do_plano', "isdistinctfrom'on'", 'exists', 'fromcontents', ...ligaAoConteudo(t)];
 
 export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
-  const { rows } = await db.query<{ t: string; qual: string | null }>(
-    `select tablename as t, qual from pg_policies
-      where schemaname = 'public' and policyname = 'paciente_conteudo_visivel' and permissive = 'RESTRICTIVE' and cmd = 'SELECT'`,
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
+      where schemaname = 'public' and policyname in ('paciente_conteudo_visivel', 'paciente_conteudo_visto', 'paciente_conteudo_favorito')`,
   );
-  const qual = new Map(rows.map((r) => [r.t, normalizarExpressao(r.qual)]));
-  return Object.keys(CONTEUDO_POR_AUDIENCIA).flatMap((table): RlsViolation[] => {
-    const e = qual.get(table);
-    if (e === undefined) return [{ table, problem: 'sem política paciente_conteudo_visivel (RN-12)' }];
-    if (!(AUDIENCIA_EXIGE[table] ?? HERDA_DE_CONTENTS).every((trecho) => e.includes(trecho))) {
+  const leitura = Object.keys(CONTEUDO_POR_AUDIENCIA).flatMap((table): RlsViolation[] => {
+    const r = rows.find((x) => x.t === table && x.pol === 'paciente_conteudo_visivel' && x.permissive === 'RESTRICTIVE' && x.cmd === 'SELECT');
+    if (!r) return [{ table, problem: 'sem política paciente_conteudo_visivel (RN-12)' }];
+    const e = normalizarExpressao(r.qual);
+    if (!(AUDIENCIA_EXIGE[table] ?? HERDA_DE_CONTENTS(table)).every((trecho) => e.includes(trecho))) {
       return [{ table, problem: 'paciente_conteudo_visivel sem a audiência (RN-12)' }];
     }
     return [];
   });
+  const escrita = Object.entries(ESCRITA_POR_AUDIENCIA).flatMap(([table, pol]): RlsViolation[] => {
+    const r = rows.find((x) => x.t === table && x.pol === pol && x.permissive === 'RESTRICTIVE' && x.cmd === 'INSERT');
+    if (!r) return [{ table, problem: `sem política ${pol} (US-055, D14)` }];
+    const e = normalizarExpressao(r.with_check);
+    if (!ESCRITA_EXIGE(table).every((trecho) => e.includes(trecho))) return [{ table, problem: `${pol} sem a audiência (US-055, D14)` }];
+    return [];
+  });
+  return [...leitura, ...escrita];
 }

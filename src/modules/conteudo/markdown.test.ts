@@ -37,14 +37,19 @@ describe('markdown das orientações (US-052: "sem HTML ou script executável", 
 
   it('marcação sem fechar fica como texto; nada de retrocesso catastrófico (20000 asteriscos em menos de 200 ms)', () => {
     expect(html('**sem fechar')).toBe('<p>**sem fechar</p>');
+    const textos = [
+      '*'.repeat(20000),
+      `[${'['.repeat(10000)}`,
+      '**a'.repeat(6000),
+      // U+2028/U+2029 no meio da linha: `\s` casa, `.` não — com `\s+(.+)$` isso retrocedia em tempo quadrático.
+      '-' + ' '.repeat(19990) + 'x\u2028y',
+      '#' + ' '.repeat(19990) + 'x\u2029y',
+    ];
+    // só a leitura (onde ficam as regex) é cronometrada: o render do React em modo dev variaria com a máquina do CI
     const t0 = performance.now();
-    html('*'.repeat(20000));
-    html(`[${'['.repeat(10000)}`);
-    html('**a'.repeat(6000));
-    // U+2028/U+2029 no meio da linha: `\s` casa, `.` não — com `\s+(.+)$` isso retrocedia em tempo quadrático.
-    html('-' + ' '.repeat(19990) + 'x\u2028y');
-    html('#' + ' '.repeat(19990) + 'x\u2029y');
+    for (const t of textos) lerMarkdown(t);
     expect(performance.now() - t0).toBeLessThan(200);
+    for (const t of textos) html(t); // e renderizar o resultado não quebra
   });
 
   it('U+2028/U+2029 são quebra de linha; título e item pedem espaço ou tab depois do marcador', () => {

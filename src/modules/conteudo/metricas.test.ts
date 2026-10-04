@@ -32,6 +32,11 @@ describe('métricas (US-056, D14)', () => {
     expect(m.get(c.id)).toEqual({ vistos: 1, audiencia: 2 });
     expect(await quemViu(T.ctx, c.id, app.db)).toEqual({ titulo: c.titulo, pessoas: [{ nome: 'Ana', vistoEm: new Date('2026-10-20T12:00:00Z') }] });
     expect(await quemViu(T.ctx, 'lixo', app.db)).toBeNull();
+    // isolamento: o mesmo conteúdo (com a visualização da Ana) pedido por outro consultório não existe
+    const U = await novoTenant(app.db);
+    expect(await quemViu(U.ctx, c.id, app.db)).toBeNull();
+    const deFora = await novoConteudo(app.db, U);
+    expect(await quemViu(T.ctx, deFora.id, app.db)).toBeNull();
   });
 
   it('vários conteúdos numa consulta só: todos, etiqueta, pacientes sem ninguém na audiência e id de outro consultório', async () => {

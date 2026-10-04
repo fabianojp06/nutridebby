@@ -115,6 +115,54 @@ describe('audiência avaliada na leitura (RN-12, US-053) — a RLS da sessão de
     expect(await peloPlano(idsVisiveis)).toEqual([]); // US-054 "Receita despublicada"
   });
 
+  it('exceção da RN-12 só para o plano DELA: a Ana, com a liberação ligada, não vê a receita fora da audiência das duas que só está no plano publicado da Bia', async () => {
+    const { T, bia, comoAna, comoBia } = await cenario();
+    const caio = await novoPaciente(app.db, T.ctx, { nome: 'Caio' });
+    const r = await novoConteudo(app.db, T, {
+      tipo: 'receita',
+      titulo: 'Panqueca de aveia',
+      visibilidade: 'pacientes',
+      pacientes: [caio.id],
+      receita: { rendimento: 1000, porcao: 250, ingredientes: [{ foodId: idTaco(3), g: 200 }] },
+    });
+    await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [p] = (await tx.execute(sql`insert into meal_plans (tenant_id, patient_id, titulo, status, publicado_em) values (${T.tenantId}, ${bia.id}, 'Plano', 'publicado', now()) returning id`)).rows as { id: string }[];
+        await tx.execute(sql`insert into meals (id, tenant_id, patient_id, plan_id, nome, horario, ordem, recipe_content_id) values (gen_random_uuid(), ${T.tenantId}, ${bia.id}, ${p.id}, 'Café da manhã', '07:00', 0, ${r.id})`);
+      },
+      app.db,
+    );
+    const peloPlano = (como: typeof comoAna) => <R,>(fn: (tx: Tx) => Promise<R>) =>
+      como(async (tx) => {
+        await liberarReceitasDoPlano(tx);
+        return fn(tx);
+      });
+    const contar = (t: 'recipes' | 'recipe_ingredients') => (tx: Tx) => tx.execute(sql.raw(`select count(*)::int as n from ${t}`)).then((x) => x.rows[0]);
+    expect(await peloPlano(comoBia)(idsVisiveis)).toEqual([r.id]); // o plano é dela: a exceção vale
+    expect(await peloPlano(comoAna)(idsVisiveis)).toEqual([]); // o plano da Bia não libera nada para a Ana
+    expect(await peloPlano(comoAna)(contar('recipes'))).toEqual({ n: 0 });
+    expect(await peloPlano(comoAna)(contar('recipe_ingredients'))).toEqual({ n: 0 });
+  });
+
+  it('"etiquetas": a paciente com a etiqueta, mas anonimizada, não vê o conteúdo dirigido à etiqueta', async () => {
+    const { T, ana, comoAna } = await cenario();
+    const gestante = await novaEtiqueta(app.db, T, 'gestante', [ana.id]);
+    const c = await novoConteudo(app.db, T, { visibilidade: 'etiquetas', tags: [gestante] });
+    expect(await comoAna(idsVisiveis)).toEqual([c.id]);
+    // só o anonimizado_em muda (o status continua 'ativo'): a função também o confere
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ anonimizadoEm: new Date() }).where(eq(patients.id, ana.id)), app.db);
+    expect(await comoAna(idsVisiveis)).toEqual([]);
+  });
+
+  it('"pacientes" em rascunho: nem a paciente-alvo vê; publicado, ela vê', async () => {
+    const { T, ana, comoAna } = await cenario();
+    const c = await novoConteudo(app.db, T, { status: 'rascunho', visibilidade: 'pacientes', pacientes: [ana.id] });
+    expect(await comoAna(idsVisiveis)).toEqual([]);
+    await withTenant(T.ctx, (tx) => tx.update(contents).set({ status: 'publicado', publicadoEm: new Date() }).where(eq(contents.id, c.id)), app.db);
+    expect(await comoAna(idsVisiveis)).toEqual([c.id]);
+  });
+
   it('visualização e favorito só de conteúdo visível (42501 no invisível); repetir a visualização não duplica', async () => {
     const { T, ana, bia, comoBia } = await cenario();
     const daAna = await novoConteudo(app.db, T, { visibilidade: 'pacientes', pacientes: [ana.id] });

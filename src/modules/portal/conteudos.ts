@@ -4,7 +4,7 @@ import { contentFavorites, contents, contentViews } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { signFileUrl } from '@/lib/signed-url';
 import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';
-import { FEED_LIMITE, type TipoConteudo } from '@/modules/conteudo/constantes';
+import { FEED_LIMITE, MSG_PORTAL_CONTEUDO, type TipoConteudo } from '@/modules/conteudo/constantes';
 import { nutrientesPorPorcao, textoPorPorcao } from '@/modules/conteudo/receita-calculo';
 import { lerReceitaNaTransacao, type ReceitaLida } from '@/modules/conteudo/receitas';
 import { videoDoConteudo, type VideoDoLink } from '@/modules/conteudo/video';
@@ -38,6 +38,20 @@ const BUSCA_MAX = 100;
 /** R6: o Postgres recusa NUL em `text` (SQLSTATE 22021) — `?busca=%00` daria 500 no portal. */
 const semNul = (s: string) => s.replaceAll('\0', '');
 
+/** O termo e a etiqueta como o feed os usa: sem NUL, e a busca com pelo menos 2 caracteres (senão, sem filtro). */
+const termoDaBusca = (busca: string | undefined) => semNul(busca ?? '').trim().slice(0, BUSCA_MAX);
+const buscaFiltra = (termo: string) => termo.length >= 2;
+
+/**
+ * O texto da lista vazia: com busca, etiqueta ou tipo que de fato filtram — também em "Favoritos" — é "Nenhum conteúdo
+ * encontrado."; "Você ainda não favoritou…" só quando não há favorito nenhum.
+ */
+export function mensagemDoFeedVazio(filtro: FiltroDoFeed): string {
+  const filtrando = Boolean(filtro.tipo || buscaFiltra(termoDaBusca(filtro.busca)) || semNul(filtro.etiqueta ?? ''));
+  if (filtrando) return MSG_PORTAL_CONTEUDO.semResultado;
+  return filtro.favoritos ? MSG_PORTAL_CONTEUDO.semFavoritos : MSG_PORTAL_CONTEUDO.vazio;
+}
+
 /**
  * US-055: o feed. A RLS já entrega só o publicado da audiência (D2) — aqui só os filtros, o "Novo" (sem visualização
  * do próprio paciente) e os favoritos. NUNCA chama `liberarReceitasDoPlano`: a receita sugerida no plano, fora da
@@ -46,7 +60,7 @@ const semNul = (s: string) => s.replaceAll('\0', '');
  */
 export async function feedDeConteudos(ctx: TenantContext, filtro: FiltroDoFeed = {}, db: Db = getDb()): Promise<{ itens: ItemDoFeed[]; etiquetas: string[] }> {
   const patientId = pacienteDaSessao(ctx, 'feedDeConteudos');
-  const termo = semNul(filtro.busca ?? '').trim().slice(0, BUSCA_MAX);
+  const termo = termoDaBusca(filtro.busca);
   const etiqueta = semNul(filtro.etiqueta ?? '');
   // Qualificado à mão: na lista do SELECT de uma tabela só, o drizzle escreve `"id"` sem a tabela, e dentro da subconsulta
   // ele casaria com `v.id`/`f.id` (o "Novo" e o favorito sairiam sempre errados).
@@ -56,7 +70,7 @@ export async function feedDeConteudos(ctx: TenantContext, filtro: FiltroDoFeed =
   const condicoes: SQL[] = [eq(contents.status, 'publicado')];
   if (filtro.tipo) condicoes.push(eq(contents.tipo, filtro.tipo));
   if (etiqueta) condicoes.push(sql`${contents.etiquetas} @> array[${etiqueta}]::text[]`);
-  if (termo.length >= 2)
+  if (buscaFiltra(termo))
     condicoes.push(sql`to_tsvector('portuguese', app_unaccent(${contents.titulo} || ' ' || ${contents.resumo})) @@ websearch_to_tsquery('portuguese', app_unaccent(${termo}))`);
   if (filtro.favoritos) condicoes.push(favorito);
   return withTenant(
@@ -129,14 +143,15 @@ export async function conteudoDoPaciente(ctx: TenantContext, id: string, db: Db 
   );
 }
 
-/** D18: uma visualização por paciente (ON CONFLICT DO NOTHING). Conteúdo que ele não vê → false (o banco também recusa). */
+/** D18: uma visualização por paciente (ON CONFLICT DO NOTHING). Conteúdo que ele não vê → false (o banco também recusa). O filtro
+ * de publicado repete a RLS por clareza (D2), como no feed e no detalhe. */
 export async function registrarVisualizacao(ctx: TenantContext, id: string, db: Db = getDb()): Promise<boolean> {
   const patientId = pacienteDaSessao(ctx, 'registrarVisualizacao');
   if (!idValido(id)) return false;
   return withTenant(
     ctx,
     async (tx) => {
-      const [c] = await tx.select({ id: contents.id }).from(contents).where(eq(contents.id, id));
+      const [c] = await tx.select({ id: contents.id }).from(contents).where(and(eq(contents.id, id), eq(contents.status, 'publicado')));
       if (!c) return false;
       await tx.insert(contentViews).values({ tenantId: ctx.tenantId, contentId: id, patientId }).onConflictDoNothing();
       return true;
@@ -152,7 +167,7 @@ export async function marcarFavorito(ctx: TenantContext, id: string, favorito: b
   return withTenant(
     ctx,
     async (tx) => {
-      const [c] = await tx.select({ id: contents.id }).from(contents).where(eq(contents.id, id));
+      const [c] = await tx.select({ id: contents.id }).from(contents).where(and(eq(contents.id, id), eq(contents.status, 'publicado')));
       if (!c) return false;
       if (favorito) await tx.insert(contentFavorites).values({ tenantId: ctx.tenantId, contentId: id, patientId }).onConflictDoNothing();
       else await tx.delete(contentFavorites).where(and(eq(contentFavorites.contentId, id), eq(contentFavorites.patientId, patientId)));
@@ -166,6 +181,6 @@ export async function marcarFavorito(ctx: TenantContext, id: string, favorito: b
 export async function caminhoDoPdfDoConteudo(ctx: TenantContext, id: string, db: Db = getDb()): Promise<string | null> {
   pacienteDaSessao(ctx, 'caminhoDoPdfDoConteudo');
   if (!idValido(id)) return null;
-  const [c] = await withTenant(ctx, (tx) => tx.select({ pdfPath: contents.pdfPath }).from(contents).where(and(eq(contents.id, id), eq(contents.tipo, 'orientacao'))), db);
+  const [c] = await withTenant(ctx, (tx) => tx.select({ pdfPath: contents.pdfPath }).from(contents).where(and(eq(contents.id, id), eq(contents.tipo, 'orientacao'), eq(contents.status, 'publicado'))), db);
   return c?.pdfPath ?? null;
 }

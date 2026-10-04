@@ -703,6 +703,12 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
     expect(dados.conteudos).toEqual({ vistos: [{ titulo: 'Como ler rótulos', vistoEm: '2026-09-30T12:00:00.000Z' }], favoritos: [] });
     expect(dados.planos[0].refeicoes[0].sugestaoDeReceita).toBe('Panqueca de aveia');
+    // despublicada e renomeada como rascunho interno: o titular não recebe o título (o portal também esconde); a equipe, sim
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update contents set status = 'rascunho', publicado_em = null, titulo = 'Panqueca – rever' where id = ${panqueca.id}`), app.db);
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(titular.dados.planos[0].refeicoes[0].sugestaoDeReceita).toBeNull();
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    expect(equipe.dados.planos[0].refeicoes[0].sugestaoDeReceita).toBe('Panqueca – rever');
   });
 
   it('D04-1: as versões do plano saem em uma leitura de meal_items (sem N+1), na ordem, com os nomes e as substituições', async () => {

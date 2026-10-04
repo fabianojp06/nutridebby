@@ -188,12 +188,14 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const refeicoesAtuais = new Map((await tx.select().from(meals).where(eq(meals.planId, planId))).map((r) => [r.id, r]));
         // US-054 (D13): sugestão NOVA (ou trocada) só de receita publicada do tenant; a que já estava fica mesmo se a
         // receita foi despublicada depois ("Receita indisponível"), senão o salvamento automático travaria
-        const anexadas = [...new Set(v.refeicoes.flatMap((r) => (r.recipeContentId && r.recipeContentId !== (refeicoesAtuais.get(r.id)?.recipeContentId ?? null) ? [r.recipeContentId] : [])))];
+        const sugestaoNova = (r: RefeicaoValida) => r.recipeContentId !== null && r.recipeContentId !== (refeicoesAtuais.get(r.id)?.recipeContentId ?? null);
+        const anexadas = [...new Set(v.refeicoes.flatMap((r) => (sugestaoNova(r) ? [r.recipeContentId!] : [])))];
         if (anexadas.length) {
           const ok = new Set(
             (await tx.select({ id: contents.id }).from(contents).where(and(inArray(contents.id, anexadas), eq(contents.tipo, 'receita'), eq(contents.status, 'publicado')))).map((c) => c.id),
           );
-          const ruins = Object.fromEntries(v.refeicoes.filter((r) => r.recipeContentId && anexadas.includes(r.recipeContentId) && !ok.has(r.recipeContentId)).map((r) => [`refeicao:${r.id}:receita`, MSG_PLANO.receita]));
+          // só a refeição que anexou (ou trocou): a que manteve a mesma sugestão não é marcada
+          const ruins = Object.fromEntries(v.refeicoes.filter((r) => sugestaoNova(r) && !ok.has(r.recipeContentId!)).map((r) => [`refeicao:${r.id}:receita`, MSG_PLANO.receita]));
           if (Object.keys(ruins).length) throw new PlanoError(ruins);
         }
         const itensAtuais = new Map((await tx.select().from(mealItems).where(eq(mealItems.planId, planId))).map((i) => [i.id, i]));
