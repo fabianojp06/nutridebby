@@ -129,8 +129,10 @@ async function convidado(extra: Record<string, unknown> = {}) {
   const [msg] = await emailsNaFila('convite_paciente', email);
   return { T, p, email, token: tokenDe(msg.link) };
 }
+/** O aceite vem depois do cadastro: o opt-in do paciente tem data nova (o gatilho da 0085 recusa reaproveitar a da nutri). */
+const depois = new Date(now.getTime() + 60_000);
 const aceite = (token: string, extra: Partial<Parameters<typeof aceitarConvitePaciente>[0]> = {}) =>
-  aceitarConvitePaciente({ token, senha: SENHA, confirmacao: SENHA, aceitouTermo: true, whatsapp: true, ip: '203.0.113.30', ...extra }, { db: app.db, now });
+  aceitarConvitePaciente({ token, senha: SENHA, confirmacao: SENHA, aceitouTermo: true, whatsapp: true, ip: '203.0.113.30', ...extra }, { db: app.db, now: depois });
 const lerPaciente = async (T: { tenantId: string; ctx: Parameters<typeof withTenant>[0] }, id: string) =>
   (await withTenant(T.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, id)), app.db))[0];
 
@@ -146,7 +148,7 @@ describe('aceite do convite — conta nova (US-011)', () => {
     const [cons] = await app.db.select().from(consents).where(eq(consents.userId, u.id));
     expect(cons).toMatchObject({ termoVersao: TERMO_PACIENTE, tenantId: c.T.tenantId, ip: '203.0.113.30' });
     const p = await lerPaciente(c.T, c.p.id);
-    expect(p).toMatchObject({ userId: u.id, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
+    expect(p).toMatchObject({ userId: u.id, whatsappOptinEm: depois, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
     const log = await withTenant(c.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, c.p.id), eq(auditLog.acao, 'alterar'))).orderBy(auditLog.criadoEm), app.db);
     expect(log.at(-1)).toMatchObject({ actorUserId: u.id, ip: '203.0.113.30' });
     await expect(entrar(auth, c.email, SENHA)).resolves.toMatch(/^nd\.session_token=/);
@@ -167,7 +169,7 @@ describe('aceite do convite — conta nova (US-011)', () => {
     await aceite(c.token, { whatsapp: false });
     const p = await lerPaciente(c.T, c.p.id);
     expect(p.whatsappOptinOrigem).toBe('nutri');
-    expect(p.whatsappOptoutEm?.toISOString()).toBe(now.toISOString());
+    expect(p.whatsappOptoutEm?.toISOString()).toBe(depois.toISOString());
   });
 
   it('duplo clique em "Continuar": uma conta só, os outros envios veem convite inválido (Review Focus 3)', async () => {

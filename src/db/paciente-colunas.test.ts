@@ -38,6 +38,36 @@ describe('B-4: o que a sessão de paciente altera em patients (0085)', () => {
     await expect(comoPaciente(sql.raw(`update patients set ${set} where id = '${paciente.id}'`))).rejects.toSatisfy(negado);
   });
 
+  // A prova do consentimento da nutricionista (origem 'nutri') não é reescrita nem reativada pela sessão de paciente:
+  // só as duas formas de escolhaWhatsapp passam (opt-in novo com origem 'paciente'; opt-out sem mexer no opt-in).
+  it.each([
+    ['trocar só a data do opt-in da nutri', "whatsapp_optin_em = '2020-01-01'", false],
+    ['anular o opt-in da nutri', 'whatsapp_optin_em = null', false],
+    ['anular a data do próprio opt-in (origem paciente)', "whatsapp_optin_em = null, whatsapp_optin_origem = 'paciente'", false],
+    ['opt-out já feito: anular só o optout_em (reativa com origem nutri)', 'whatsapp_optout_em = null', true],
+    ['opt-out já feito: trocar a data do opt-out', "whatsapp_optout_em = '2020-01-01'", true],
+    ['opt-in da nutri com origem trocada para paciente sem data nova', "whatsapp_optin_origem = 'paciente'", false],
+  ])('%s → 42501', async (_n, set, comOptout) => {
+    const { T, paciente, comoPaciente } = await cenario();
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.execute(sql`update patients set whatsapp_optin_em = now(), whatsapp_optin_origem = 'nutri',
+          whatsapp_optout_em = ${comOptout ? sql`now()` : sql`null`} where id = ${paciente.id}`),
+      app.db,
+    );
+    await expect(comoPaciente(sql.raw(`update patients set ${set} where id = '${paciente.id}'`))).rejects.toSatisfy(negado);
+  });
+
+  it('com o opt-in da nutri: opt-out e depois opt-in novo do paciente passam, e a prova fica com origem paciente', async () => {
+    const { T, paciente, comoPaciente } = await cenario();
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set whatsapp_optin_em = '2026-01-01', whatsapp_optin_origem = 'nutri' where id = ${paciente.id}`), app.db);
+    await comoPaciente(sql`update patients set whatsapp_optout_em = now(), updated_at = now() where id = ${paciente.id}`);
+    await comoPaciente(sql`update patients set whatsapp_optin_em = now(), whatsapp_optin_origem = 'paciente', whatsapp_optout_em = null, updated_at = now() where id = ${paciente.id}`);
+    const r = await withTenant(T.ctx, (tx) => tx.execute(sql`select whatsapp_optin_origem as o, whatsapp_optout_em as f, whatsapp_optin_em > '2026-01-02' as nova from patients where id = ${paciente.id}`), app.db);
+    expect(r.rows[0]).toEqual({ o: 'paciente', f: null, nova: true });
+  });
+
   it('user_id: só de nulo para a própria conta; nunca troca a conta já ligada', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);

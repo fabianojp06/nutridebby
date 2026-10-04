@@ -13,8 +13,22 @@ BEGIN
   IF NEW.user_id IS DISTINCT FROM OLD.user_id AND (OLD.user_id IS NOT NULL OR NEW.user_id IS DISTINCT FROM app_current_user()) THEN
     RAISE EXCEPTION 'a sessão de paciente só liga o prontuário à própria conta' USING ERRCODE = '42501';
   END IF;
-  IF NEW.whatsapp_optin_origem IS DISTINCT FROM OLD.whatsapp_optin_origem AND NEW.whatsapp_optin_origem IS DISTINCT FROM 'paciente' THEN
-    RAISE EXCEPTION 'opt-in do paciente tem origem paciente' USING ERRCODE = '42501';
+  -- WhatsApp: só as duas formas de escolhaWhatsapp. A prova do consentimento da nutricionista (data e origem 'nutri')
+  -- não é reescrita nem reativada (anular o optout_em) pela sessão de paciente. Tudo com IS [NOT] DISTINCT / IS [NOT]
+  -- NULL: um NULL dentro do NOT (...) deixaria passar.
+  IF (NEW.whatsapp_optin_em IS DISTINCT FROM OLD.whatsapp_optin_em
+      OR NEW.whatsapp_optin_origem IS DISTINCT FROM OLD.whatsapp_optin_origem
+      OR NEW.whatsapp_optout_em IS DISTINCT FROM OLD.whatsapp_optout_em)
+     AND NOT (
+       -- opt-in novo do próprio paciente
+       (NEW.whatsapp_optin_em IS NOT NULL AND NEW.whatsapp_optin_em IS DISTINCT FROM OLD.whatsapp_optin_em
+        AND NEW.whatsapp_optin_origem IS NOT DISTINCT FROM 'paciente' AND NEW.whatsapp_optout_em IS NULL)
+       -- opt-out a partir de agora, sem mexer no opt-in
+       OR (NEW.whatsapp_optin_em IS NOT DISTINCT FROM OLD.whatsapp_optin_em
+           AND NEW.whatsapp_optin_origem IS NOT DISTINCT FROM OLD.whatsapp_optin_origem
+           AND OLD.whatsapp_optout_em IS NULL AND NEW.whatsapp_optout_em IS NOT NULL)
+     ) THEN
+    RAISE EXCEPTION 'a sessão de paciente só faz opt-in com origem paciente ou opt-out' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END $$;
