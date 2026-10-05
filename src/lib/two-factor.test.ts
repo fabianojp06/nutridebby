@@ -58,5 +58,22 @@ describe('2FA TOTP (US-003)', () => {
     cookie = '';
     const res = await call('/sign-in/email', { email, password: senha }, '10.1.0.2');
     expect(await res.json()).toMatchObject({ twoFactorRedirect: true });
+    cookie = cookiesOf(res); // cookie do desafio do 2FA, sem sessão
+  });
+
+  it('o código no login (sem sessão) continua passando pelo verify-totp da web', async () => {
+    const res = await call('/two-factor/verify-totp', { code: new TOTP({ secret, digits: 6, period: 30 }).generate() }, '10.1.0.3');
+    expect(res.status).toBe(200);
+    cookie = cookiesOf(res);
+    expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).not.toBeNull();
+  });
+
+  // RN-145 / D13 (revisão da T4): com sessão e 2FA ativo, o endpoint seria um oráculo do código fora do limite por
+  // usuária de confirmarCodigo2fa (o Better Auth não conta falhas fora do login; o rate limit HTTP é por IP).
+  it('com sessão e 2FA já ativo, o verify-totp da web é recusado (403), com o código certo ou errado', async () => {
+    const certo = await call('/two-factor/verify-totp', { code: new TOTP({ secret, digits: 6, period: 30 }).generate() }, '10.1.0.4');
+    expect(certo.status).toBe(403);
+    expect(await certo.json()).toMatchObject({ code: 'TWO_FACTOR_JA_ATIVO' });
+    expect((await call('/two-factor/verify-totp', { code: '000000' }, '10.1.0.5')).status).toBe(403);
   });
 });

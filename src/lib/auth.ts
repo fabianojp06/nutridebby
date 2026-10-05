@@ -1,7 +1,7 @@
 import { and, eq, gt } from 'drizzle-orm';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { nextCookies } from 'better-auth/next-js';
 import { getDb, type Db } from '@/db/client';
@@ -161,6 +161,19 @@ export function createAuth(
           const r = await verificarTurnstile(ctx.request.headers.get('x-turnstile-token'), clientIp(ctx.request.headers, trustedProxies));
           if (r === 'indisponivel') throw new APIError('SERVICE_UNAVAILABLE', { code: 'TURNSTILE_INDISPONIVEL', message: MSG_TURNSTILE_FORA });
           if (r !== 'ok') throw new APIError('FORBIDDEN', { code: 'TURNSTILE_INVALIDO', message: MSG_TURNSTILE_INVALIDO });
+          return;
+        }
+        // RN-145 / D13 (Plano 10A, revisão da T4): com sessão aberta e 2FA já ativo, o verify-totp pela web só confere o
+        // código — better-auth 1.7.6 não conta falhas fora do login, e o rate limit HTTP é por IP+caminho. Seria um
+        // oráculo do código fora do limite por usuária de confirmarCodigo2fa (cookie roubado + vários IPs). Seguem: o
+        // login (sem sessão, com o bloqueio do Better Auth), a ativação (sessão com 2FA ainda desligado) e a chamada
+        // interna (auth.api.verifyTOTP, sem ctx.request) que confirmarCodigo2fa faz.
+        if (ctx.path === '/two-factor/verify-totp') {
+          if (!ctx.request) return;
+          const sessao = await getSessionFromCtx(ctx);
+          if ((sessao?.user as { twoFactorEnabled?: boolean | null } | undefined)?.twoFactorEnabled === true) {
+            throw new APIError('FORBIDDEN', { code: 'TWO_FACTOR_JA_ATIVO', message: 'A verificação em duas etapas já está ativa.' });
+          }
           return;
         }
         if (ctx.path !== '/reset-password' && ctx.path !== '/change-password') return;

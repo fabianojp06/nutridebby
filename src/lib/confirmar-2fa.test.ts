@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { TOTP } from 'otpauth';
+import { APIError } from 'better-auth/api';
+import { TWO_FACTOR_ERROR_CODES } from 'better-auth/plugins';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../test/db';
 import { criarEEntrar } from '../../test/sessao';
@@ -14,7 +16,8 @@ let cookie = '';
 let userId = '';
 let totp: TOTP;
 const headers = () => new Headers({ cookie, origin: 'http://localhost:3000' });
-const verificar = (codigo: string, h: Headers) => auth.api.verifyTOTP({ body: { code: codigo }, headers: h }).then(() => true, () => false);
+// Como o padrão (verificarPeloBetterAuth): o erro do Better Auth sobe e quem o classifica é confirmarCodigo2fa.
+const verificar = (codigo: string, h: Headers) => auth.api.verifyTOTP({ body: { code: codigo }, headers: h }).then(() => true);
 
 beforeAll(async () => {
   const n = await criarEEntrar(app.db, auth, { appRole: 'nutri' });
@@ -50,13 +53,45 @@ describe('confirmarCodigo2fa (RN-145, D13)', () => {
     expect(chamou).toBe(1);
   });
 
-  it(`${MAX_TENTATIVAS_2FA} erros em 15 min → bloqueado, mesmo com o código certo; o acerto zera o contador`, async () => {
+  it(`${MAX_TENTATIVAS_2FA} erros em 15 min → bloqueado, mesmo com o código certo; passada a janela, volta a aceitar`, async () => {
     const u = randomUUID();
     const errado = { db: app.db, verificar: () => Promise.resolve(false) };
     for (let i = 0; i < MAX_TENTATIVAS_2FA; i++) expect(await confirmarCodigo2fa({ userId: u, codigo: '000000', headers: headers() }, errado)).toBe('invalido');
     expect(await confirmarCodigo2fa({ userId: u, codigo: '111111', headers: headers() }, { db: app.db, verificar: () => Promise.resolve(true) })).toBe('bloqueado');
     const depois = new Date(Date.now() + 16 * 60_000);
     expect(await confirmarCodigo2fa({ userId: u, codigo: '222222', headers: headers() }, { db: app.db, agora: depois, verificar: () => Promise.resolve(true) })).toBe('ok');
-    expect(await confirmarCodigo2fa({ userId: u, codigo: '000000', headers: headers() }, { ...errado, agora: depois })).toBe('invalido'); // contador zerado no acerto
+  });
+
+  // Revisão da T4: dentro da mesma janela. Sem o zeramento, 4 erros + 1 acerto + 1 erro = 6 tentativas → 'bloqueado'.
+  it('o acerto zera o contador na mesma janela', async () => {
+    const u = randomUUID();
+    const errado = { db: app.db, verificar: () => Promise.resolve(false) };
+    for (let i = 0; i < MAX_TENTATIVAS_2FA - 1; i++) expect(await confirmarCodigo2fa({ userId: u, codigo: '000000', headers: headers() }, errado)).toBe('invalido');
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '333333', headers: headers() }, { db: app.db, verificar: () => Promise.resolve(true) })).toBe('ok');
+    for (let i = 0; i < MAX_TENTATIVAS_2FA; i++) expect(await confirmarCodigo2fa({ userId: u, codigo: '000000', headers: headers() }, errado)).toBe('invalido');
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '000000', headers: headers() }, errado)).toBe('bloqueado'); // o 6º depois do acerto
+  });
+
+  it('código errado no Better Auth de verdade → invalido', async () => {
+    const errado = String((Number(totp.generate()) + 500_000) % 1_000_000).padStart(6, '0'); // longe da janela ±1
+    expect(await confirmarCodigo2fa({ userId, codigo: errado, headers: headers() }, { db: app.db, verificar })).toBe('invalido');
+  });
+
+  // Revisão da T4: só o "código errado" (UNAUTHORIZED + INVALID_CODE) vira 'invalido'; banco fora, sessão revogada etc.
+  // sobem — não viram "código recusado" no Histórico de acessos de quem chama.
+  it('erro que não é "código errado" sobe; INVALID_CODE vira invalido', async () => {
+    const com = (erro: unknown) => ({ db: app.db, verificar: () => Promise.reject(erro) });
+    const e = () => ({ userId: randomUUID(), codigo: '123456', headers: headers() });
+    expect(await confirmarCodigo2fa(e(), com(APIError.from('UNAUTHORIZED', TWO_FACTOR_ERROR_CODES.INVALID_CODE)))).toBe('invalido');
+    const fora = new Error('connect ECONNREFUSED');
+    await expect(confirmarCodigo2fa(e(), com(fora))).rejects.toBe(fora);
+    await expect(confirmarCodigo2fa(e(), com(APIError.from('UNAUTHORIZED', TWO_FACTOR_ERROR_CODES.INVALID_TWO_FACTOR_COOKIE)))).rejects.toBeInstanceOf(APIError);
+    await expect(confirmarCodigo2fa(e(), com(APIError.from('BAD_REQUEST', TWO_FACTOR_ERROR_CODES.TOTP_NOT_ENABLED)))).rejects.toBeInstanceOf(APIError);
+  });
+
+  it('sessão que não existe mais (Better Auth de verdade) → lança, não vira invalido', async () => {
+    await expect(
+      confirmarCodigo2fa({ userId: randomUUID(), codigo: totp.generate(), headers: new Headers({ origin: 'http://localhost:3000' }) }, { db: app.db, verificar }),
+    ).rejects.toBeInstanceOf(APIError);
   });
 });
