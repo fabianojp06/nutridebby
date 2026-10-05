@@ -30,14 +30,15 @@ Os planos 04 e 05 são independentes entre si e podem ser feitos em qualquer ord
 Fases pequenas, cada uma com o próprio plano (escrito só quando a anterior fechar, como no MVP) e a spec do escopo novo correspondente (`../specs/2026-10-03-*`, v0.2/v0.3). Antes de cada plano, a spec é conferida contra o código e o dono decide só as pendências daquela fase.
 
 ```
-09 Fechamento do MVP ──► 10 Receita ──► 11 Base de IA + laudos ──► 12 Paciente envia exames ──► 13 Parecer ──► 14 IA da nutricionista ──► 15 IA Nutri do paciente
+09 Fechamento do MVP ──► 10A Receita ──► 10B Assinatura gov.br/ICP ──► 11 Base de IA + laudos ──► 12 Paciente envia exames ──► 13 Parecer ──► 14 IA da nutricionista ──► 15 IA Nutri do paciente
                                                                     (loja: projeto à parte, nada a construir agora)
 ```
 
 | # | Plano | Escopo | Spec | Situação |
 |---|---|---|---|---|
 | **09** | Fechamento do MVP | Textos legais (Tarefa 8 do Plano 08, P08-06, depende do E-09), débitos Minor (P04-10, P06-12, P07-09, P08-11), validação com a Debby (P08-08) | MVP v1.11 | A escrever |
-| **10** | [Receita (base de documentos assinados)](2026-10-05-nutridebby-10-receita.md) | F3-06: US-140, US-142 a US-147 (perfil profissional, receita, PDF com código e QR, assinatura gov.br/ICP-Brasil/digitalizada conferida no servidor, entrega, recebimento, verificação pública) | [Documentos assinados v0.3](../specs/2026-10-03-nutridebby-documentos-assinados-design.md) | **Escrito (rascunho, aguardando o dono)** — 18 tarefas + 1 condicional; decisões ★ D1–D9; checkpoint do dono: PDFs reais assinados (spike) e consulta ao CRN-3 (liberação para uso real) |
+| **10A** | [Receita (base de documentos assinados + assinatura digitalizada)](2026-10-05-nutridebby-10a-receita.md) | F3-06: US-140, US-142 a US-147 com a assinatura **digitalizada** (opção E), US-149 (cancelar) e a base da US-150 (LGPD): perfil profissional, receita, PDF com código e QR, fotos assinadas à mão → PDF novo no worker, entrega (portal, link + código, pessoalmente), recebimento, verificação pública, exportação e anonimização | [Documentos assinados v0.3.1](../specs/2026-10-03-nutridebby-documentos-assinados-design.md) | **Aprovado pelo dono (05/10/2026)** — 16 tarefas; decisões ★ D1–D6 e D9 aprovadas; não depende do 10B; liberação para uso real: consulta ao CRN-3, textos, termo/DPA e backup no host |
+| **10B** | [Assinatura gov.br e ICP-Brasil](2026-10-05-nutridebby-10b-assinatura-digital.md) | F3-06, parte do certificado: spike (P-B2), conferência do PDF assinado sem rede (RN-144), assinante do consultório e troca do CPF (RN-145), envio do PDF assinado (US-144) | Documentos assinados v0.3.1 | **Aprovado pelo dono (05/10/2026)** — 5 tarefas + 1 condicional; decisões ★ D7, D8 e D9 aprovadas; depende do 10A e dos PDFs reais assinados do dono (spike) |
 | **11** | Base de IA + leitura de laudos | F3-01 (Subprojeto A: provedor, cota, pseudonimização, leitura de laudos com IA) | [IA da nutricionista v0.2](../specs/2026-10-03-nutridebby-ia-nutricionista-design.md) | A escrever |
 | **12** | Paciente envia exames | F3-04 (Subprojeto C, parte de exames) | [Exames e IA do paciente v0.2](../specs/2026-10-03-nutridebby-paciente-exames-ia-design.md) | A escrever |
 | **13** | Parecer nutricional | F3-05: US-141, US-148 a US-150 (parecer, retificar, cancelar se não subir para o 10, LGPD do parecer); D2 com a resposta do CRN-3 | Documentos assinados v0.3 | A escrever |
