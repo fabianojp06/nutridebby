@@ -21,7 +21,7 @@
 - **Escrita do paciente (D1 do Plano 06):** as únicas escritas novas da sessão de paciente são `signed_document_receipts` (`insert`) e `document_access_codes` (`insert`, `update` — com o gatilho `app_codigo_acesso_regras`, T2), cada uma com `SELECT app_allow_paciente_escrita(...)` na migration **e** a entrada em `PACIENTE_ESCREVE`, na mesma tarefa (T1). `signed_documents`, `signed_document_notes` e `document_verifications` ficam fechadas ao paciente.
 - **Imutabilidade (RN-140):** quem garante é o gatilho `app_documento_imutavel` no banco (T2), não o código. Nenhum código fora de `app_anonimizar_documentos` limpa `conteudo` ou `pdf_path` de documento emitido.
 - **Uma conexão por transação** (Plano 05): dentro do callback de `withTenant` só o `tx` recebido. A verificação do código do 2FA (chamada à API do Better Auth) roda **fora** de transação.
-- **Arquivos (regra 9):** PDF base (`documento_base`), PDF final (`documento_assinado`) e fotos da digitalizada (`documento_digitalizado`) só por `salvarArquivo` (o `registrar` grava o ponteiro na mesma transação) e `apagarArquivo` (o `naMesmaTransacao` confere/limpa o registro); servir só por `signFileUrl`, com a URL nascendo no clique (rota que responde 303). FKs `NO ACTION` para `stored_files.caminho` (as primeiras do projeto). Nunca montar caminho com texto do usuário.
+- **Arquivos (regra 9):** PDF base (`documento_base`), PDF final (`documento_assinado`) e fotos da digitalizada (`documento_digitalizado`) só por `salvarArquivo` (o `registrar` grava o ponteiro na mesma transação) e `apagarArquivo` (o `naMesmaTransacao` confere/limpa o registro) — inclusive depois da assinatura: ela **mantém** `base_pdf_path` e `digitalizacao`, e cada arquivo sai no seu `apagarArquivo` com o ponteiro no `naMesmaTransacao` (`soltarArquivosDoPreparo`, T5; correção do `/code-review high` do PR #18); servir só por `signFileUrl`, com a URL nascendo no clique (rota que responde 303). FKs `NO ACTION` para `stored_files.caminho` (as primeiras do projeto). Nunca montar caminho com texto do usuário.
 - **Só o worker:** `documento-pdf.tsx`, `documento-pdf-job.ts`, `digitalizada-job.ts` fora do grafo do Next — guarda de grafo em `exportacao.test.ts`. O worker importa `registrar-assinatura.ts`, que não puxa sessão (`@/lib/auth`, `confirmar-2fa`, `tenant-session`) nem pelos imports dos imports — guarda em `registrar-assinatura.test.ts` (D23).
 - RNF-142 / CLAUDE.md regra 3: nada de conteúdo, itens da receita, nome de paciente, código de verificação, token, código de 6 dígitos, código do 2FA ou caminho de arquivo em log/Sentry; logs só com ids, motivo fixo e o nome do erro.
 - Textos de interface em pt-BR, com o texto exato da spec v0.3.1 quando existir (US-140, US-142 a US-147, US-149, RN-157, RN-158). Os textos "(proposto)" da spec, a declaração da receita (D5 da spec) e os textos novos deste plano são **rascunho** até a revisão da Debby (runbook, passo 3) — como o manual guiado (P08-08). Textos novos deste plano estão na tabela de desvios (últimas linhas).
@@ -51,10 +51,10 @@ As marcadas com ★ foram **aprovadas pelo dono em 05/10/2026, como recomendadas
 | D14 | Paciente arquivado | Pode redigir, preparar e assinar (`carregarPacienteParaEscrita`); sem e-mail, push nem link: só "Entregue pessoalmente" (RN-153), e **sem** `entregue_em` (T10) | — |
 | D15 | Área reservada da assinatura | Quadro "Assinatura digital" fixo no rodapé **de cada página**, à direita, 208 × 70 pt (`AREA_ASSINATURA`, T1), gravado em `area_assinatura` no preparo (T7). O campo pré-criado com `/Lock` é do Plano 10B | O PDF é o mesmo nos dois planos |
 | D16 | Nomes no código | "Prescrição" nos identificadores (`prescricao.ts`, `ItemPrescricao`), para não colidir com as receitas culinárias do Plano 07; no banco e na tela continua "receita" | — |
-| D17 | Auditoria de leitura (RNF-142) | `auditRead` na leitura do conteúdo no painel e nas rotas que assinam a URL do PDF (painel, portal e link); as listas do painel e do portal **não** auditam, como a agenda. O worker não chama `auditRead` | — |
+| D17 | Auditoria de leitura (RNF-142) | `auditRead` na leitura do conteúdo no painel e nas rotas que assinam a URL do PDF (painel, portal e link); as listas do painel e do portal **não** auditam, como a agenda — exceção registrada na regra 8 do CLAUDE.md (T1, Passo 8) e presa por teste: os itens das listas só têm tipo, data, situação, tipo de assinatura e recibos, nunca itens, orientações ou justificativa (`documentos.test.ts`, `portal.test.ts`). O worker não chama `auditRead` | — |
 | D18 | Manual guiado | Guia novo **`documentos`** (antes do `prontuario`); guia **`configuracoes`** com `versao: 2`; guia novo **`seguranca`** para `/conta/seguranca` (a tela ganha "Como funciona"), e o teste do manual passa a cobrir `src/app/conta`. O 10B sobe o `documentos` e o `seguranca` para a v2 com o gov.br e o certificado | — |
 | D19 | Teste de isolamento | A fábrica de `signed_documents` cria um documento **`assinado` já anonimizado**; `signed_document_receipts` em `SO_INSERE`; `IMUTAVEIS` (`signed_documents`, `signed_document_notes`); em `signed_documents`, o DELETE do tenant B só apaga rascunhos | — |
-| D20 | Liberação gradual | Interruptor `tenants.documentos_liberados` (padrão `false`), ligado pelo admin na tela do consultório depois da liberação para uso real; sem ele, a aba "Documentos" não aparece e as ações respondem 404. **Não desligar depois do uso real** (confirmação do admin e runbook; Minor 12) | Evita que a Debby use antes da resposta do CRN-3 |
+| D20 | Liberação gradual | Interruptor `tenants.documentos_liberados` (padrão `false`), ligado pelo admin na tela do consultório depois da liberação para uso real; sem ele, a aba "Documentos" não aparece, as ações respondem 404 e o paciente não vê nem abre documento (portal, `/api/p/documentos/[id]/pdf`, confirmação do recebimento e link do e-mail, que também não manda código; T11 e T12). **Não desligar depois do uso real** (confirmação do admin e runbook; Minor 12) | Evita que a Debby use antes da resposta do CRN-3 |
 | D21 | Ordem e paralelismo | **T1 → T2 → T3 → [T4 ‖ T5] → T6 → T7 → T8 → T9 → T10 → [T11 ‖ T12] → T13 → T14 → T15 → T16**. Dependências reais: a T5 consome `copiaDoPerfil`, `PerfilIncompletoError` e `CopiaProfissional` da T3; a T3 e a T4 editam `src/modules/ajuda/conteudo.ts` (e a T4 também o `CLAUDE.md`); a T10 altera `registrar-assinatura.ts` (T8) e `digitalizada-job.ts` (T9); a T12 e a T13 editam `next.config.ts` e `src/lib/sentry-filtro.ts`. Só T4 ‖ T5 e T11 ‖ T12 tocam arquivos diferentes | — |
 | D22 | Divisão 10A/10B (05/10/2026) | As colunas que só a conferência do certificado lê (`base_pdf_bytes`, `area_assinatura`, `assinatura_emissor`, `assinante_nome`) e o quadro "Assinatura digital" nascem no 10A; o 10B só amplia dois CHECKs e cria a tabela do assinante do consultório | Um documento preparado no 10A pode ser assinado com certificado depois do 10B; o 10B não migra dados de uma tabela com receitas reais |
 | D23 | `registrarAssinatura` sem sessão | Em `registrar-assinatura.ts` (T8), com os tipos `AcessoAssinatura`, `DepsAssinar`, `VersaoLida`, `AssinaturaAceita` e `exigirHabilitacaoAtual`; o envio do PDF assinado do 10B importa daqui | Minor da revisão de cobertura: o worker deixava de puxar o Better Auth |
@@ -62,7 +62,7 @@ As marcadas com ★ foram **aprovadas pelo dono em 05/10/2026, como recomendadas
 
 D7 ★ (âncoras), D8 ★ (gov.br sem CPF) e D10 (CPF do assinante do consultório) estão no Plano 10B.
 
-### Desvios conscientes da spec (registrados aqui; a spec v0.3.1 já os reflete, salvo a última linha, que fica para a v0.4)
+### Desvios conscientes da spec (registrados aqui; a spec v0.3.1 já os reflete, salvo a linha da RN-140 (b) e a última linha, que ficam para a v0.4)
 
 | Spec | Neste plano | Motivo |
 |---|---|---|
@@ -74,10 +74,11 @@ D7 ★ (âncoras), D8 ★ (gov.br sem CPF) e D10 (CPF do assinante do consultór
 | US-146 lugar | Cartão no Início + link em Perfil (D5 ★) | R16 |
 | §5.1 rotas | `GET /api/painel/documentos/[id]/pdf?estado=1` devolve o estado em JSON (sem auditoria); sem `?estado`, 303 para o PDF (com auditoria) | Uma rota para as duas coisas, como a do plano |
 | RN-158 | Sessão do link: cookie `nd_doc` com `path=/documento/<token>` **e** `/api/documento/<token>` (dois cookies iguais, um por caminho) | O `path` de um cookie não cobre dois prefixos |
+| RN-140 (b): a ida a `assinado` com "`base_pdf_path` → NULL no mesmo UPDATE" | A assinatura **mantém** `base_pdf_path` e `digitalizacao`; logo depois, cada arquivo (fotos e base) sai no seu `apagarArquivo` com o ponteiro no `naMesmaTransacao` (`soltarArquivosDoPreparo`, T5; chamada pela T9 e pelo envio do PDF assinado do 10B), e a varredura da T7 repete o que falhou. Em `assinado`/`substituido`/`cancelado` o gatilho (T2) só deixa esses ponteiros **sair** (base → NULL, fotos encolhem), nunca trocar nem crescer | Regra 9 do CLAUDE.md (o ponteiro sai no `naMesmaTransacao` do `apagarArquivo` do arquivo, nunca numa transação separada) — achado do `/code-review high` do PR #18. A v0.4 da spec corrige a RN-140 (b) |
 | US-140: "o Histórico do consultório registra…" | **Não existe** tela "Histórico do consultório". A declaração e a retirada da habilitação ficam no `audit_log` (entidade "Perfil profissional", `patient_id` nulo), conferidas por teste; a tentativa de assinatura com código recusado fica no **Histórico de acessos do paciente**. Uma tela de auditoria do consultório vai para o backlog (P10A-17) | Os critérios não tinham onde ser conferidos na interface |
 | D5 da spec (declaração da receita) | O texto proposto cita também "medicamentos isentos de prescrição à base de vitaminas, minerais, aminoácidos e/ou proteínas" (Res. CFN 656/2020, art. 1º, § 1º) | Minor 10 da revisão de normas; continua rascunho para a Debby e o CRN-3 |
-| Textos novos de interface (divisão e Minors) | Cartão "Aguardando assinatura" no 10A: "Baixe o PDF, imprima, assine à mão e envie fotos das páginas aqui."; recusa `sem_habilitacao`: "A receita tem fitoterápico formulado e a habilitação em Fitoterapia não está mais no seu perfil. Registre a habilitação de novo ou volte a editar a receita."; dica da categoria "Outro": "Extrato ou produto vegetal não entra em "Outro": use "Droga ou derivado vegetal classificado como alimento ou suplemento" ou, com a habilitação, "Fitoterápico (forma farmacêutica ou fórmula magistral)"."; confirmação do admin ao bloquear: "… Só antes do uso real: bloqueado, o consultório perde a aba Documentos, inclusive Cancelar documento e a entrega das receitas já assinadas (que continuam válidas na verificação pública)."; "Espaço de armazenamento esgotado. Fale com o suporte." no preparo (texto da RNF-143) | Minors 9, 11 e 12 e RNF-143 |
-| Textos novos de interface | Painel: "Documentos", "Nova receita", "Receita", "Situação", "Data", "Nenhum documento ainda.", "Itens da receita", "Adicionar item", "Tipo do item", "Remover item {n}", "Categoria", "Componente", "Quantidade", "Unidade", "Adicionar componente", "Forma de apresentação", "Via", "Posologia", "Duração", "Manipulado", "Nomenclatura botânica", "Parte utilizada", "Modo de preparo", "Forma de utilização e preparo", "Nome popular", "Forma farmacêutica", "Dose", "Padronização do marcador", "Forma ou meio de extração", "Orientações gerais", "Justificativa de uso", "Fica no prontuário, não vai na receita.", "Salvar rascunho", "Apagar rascunho", "Apagar este rascunho?", "Rascunho apagado.", "Preparar para assinatura", "Declaração", "Confirmar e preparar", "Preparando o PDF…", "Baixar PDF para assinar", "Enviar documento digitalizado (assinado à mão)", "Fotos das páginas (JPEG ou PNG, até 5)", "Código da verificação em duas etapas", "Enviando…", "Montando o PDF digitalizado…", "Não foi possível montar o PDF. Envie as fotos de novo.", "Envie fotos das páginas (JPEG ou PNG).", "Envie de 1 a 5 fotos, até 10 MB no total.", "Baixar PDF assinado", "Entregue pessoalmente", "Marcar como entregue pessoalmente?", "Reenviar link por e-mail", "Link reenviado.", "Documentos aguardando assinatura", "{n} documento(s) aguardando assinatura", "Dados para documentos", "Nome completo", "E-mail profissional", "Telefone profissional", "Registro da habilitação no CRN", "Retirar habilitação", "Habilitação em Fitoterapia retirada do perfil.", "Dados para documentos salvos.", "Assinado em", "Assinatura", "Código de verificação", "Este documento está em outro paciente ou não existe.", "Documento não encontrado.", "Muitas tentativas. Tente de novo em 15 minutos." · Portal: "Documentos", "Meus documentos", "Abrir PDF", "Confirmo que recebi este documento", "Recebimento confirmado em {data}.", "{n} documento(s) novo(s)" · Link: "Abrir documento", "Para abrir o documento, enviaremos um código de 6 dígitos para o seu e-mail.", "Enviar código", "Código enviado. Confira seu e-mail.", "Código", "Abrir", "Código inválido.", "Código vencido. Peça outro.", "Este link expirou. Peça um novo à sua nutricionista.", "Este documento não está mais disponível. Fale com sua nutricionista.", "Aguarde 1 minuto para pedir outro código." · Verificação: "Verificar documento", "Código de verificação (12 caracteres)", "Verificar", "Documento válido", "Tipo", "Emitido por", "Impressão digital do arquivo (SHA-256)" · E-mails: "Você tem um novo documento", "Código para abrir seu documento: {codigo}", "Um documento seu foi atualizado" · Push: "Você tem um novo documento." | Telas novas |
+| Textos novos de interface (divisão e Minors) | Cartão "Aguardando assinatura" no 10A: "Baixe o PDF, imprima, assine à mão e envie fotos das páginas aqui."; recusa `sem_habilitacao`: "A receita tem fitoterápico formulado e a habilitação em Fitoterapia não está mais no seu perfil. Registre a habilitação de novo ou volte a editar a receita."; dica da categoria "Outro": "Extrato ou produto vegetal não entra em "Outro": use "Droga ou derivado vegetal classificado como alimento ou suplemento" ou, com a habilitação, "Fitoterápico (forma farmacêutica ou fórmula magistral)"."; confirmação do admin ao bloquear: "… Só antes do uso real. Bloqueado: o consultório perde a aba Documentos (inclusive Cancelar documento e Entregue pessoalmente), os pacientes deixam de ver e abrir os documentos no app e pelo link do e-mail (nenhum código é enviado), e a verificação pública pelo código continua funcionando."; "Espaço de armazenamento esgotado. Fale com o suporte." no preparo (texto da RNF-143) | Minors 9, 11 e 12 e RNF-143; a confirmação do admin diz o efeito exato do interruptor (correção do `/code-review high` do PR #18) |
+| Textos novos de interface | Painel: "Documentos", "Nova receita", "Receita", "Situação", "Data", "Nenhum documento ainda.", "Itens da receita", "Adicionar item", "Tipo do item", "Remover item {n}", "Categoria", "Componente", "Quantidade", "Unidade", "Adicionar componente", "Forma de apresentação", "Via", "Posologia", "Duração", "Manipulado", "Nomenclatura botânica", "Parte utilizada", "Modo de preparo", "Forma de utilização e preparo", "Nome popular", "Forma farmacêutica", "Dose", "Padronização do marcador", "Forma ou meio de extração", "Orientações gerais", "Justificativa de uso", "Fica no prontuário, não vai na receita.", "Salvar rascunho", "Apagar rascunho", "Apagar este rascunho?", "Rascunho apagado.", "Preparar para assinatura", "Declaração", "Confirmar e preparar", "Preparando o PDF…", "Baixar PDF para assinar", "Enviar documento digitalizado (assinado à mão)", "Fotos das páginas (JPEG ou PNG, até 5)", "Código da verificação em duas etapas", "Enviando…", "Montando o PDF digitalizado…", "Não foi possível montar o PDF. Envie as fotos de novo.", "Envie fotos das páginas (JPEG ou PNG).", "Envie de 1 a 5 fotos, até 10 MB no total.", "Baixar PDF assinado", "Entregue pessoalmente", "Marcar como entregue pessoalmente?", "Reenviar link por e-mail", "Link reenviado.", "Documentos aguardando assinatura", "{n} documento(s) aguardando assinatura", "Dados para documentos", "Nome completo", "E-mail profissional", "Telefone profissional", "Registro da habilitação no CRN", "Retirar habilitação", "Habilitação em Fitoterapia retirada do perfil.", "Dados para documentos salvos.", "Assinado em", "Assinatura", "Código de verificação", "Documento anonimizado.", "Este documento está em outro paciente ou não existe.", "Documento não encontrado.", "Muitas tentativas. Tente de novo em 15 minutos." · Portal: "Documentos", "Meus documentos", "Abrir PDF", "Confirmo que recebi este documento", "Recebimento confirmado em {data}.", "{n} documento(s) novo(s)" · Link: "Abrir documento", "Para abrir o documento, enviaremos um código de 6 dígitos para o seu e-mail.", "Enviar código", "Código enviado. Confira seu e-mail.", "Código", "Abrir", "Código inválido.", "Código vencido. Peça outro.", "Este link expirou. Peça um novo à sua nutricionista.", "Este documento não está mais disponível. Fale com sua nutricionista.", "Aguarde 1 minuto para pedir outro código." · Verificação: "Verificar documento", "Código de verificação (12 caracteres)", "Verificar", "Documento válido", "Tipo", "Emitido por", "Impressão digital do arquivo (SHA-256)" · E-mails: "Você tem um novo documento", "Código para abrir seu documento: {codigo}", "Um documento seu foi atualizado" · Push: "Você tem um novo documento." | Telas novas |
 
 ### Itens adiados de planos anteriores e débitos da mesma área
 
@@ -117,7 +118,7 @@ src/lib/sentry-filtro.ts (+test) · next.config.ts                              
 src/modules/documentos/
   constantes.ts · erros.ts                                                                                              # T1 (T5, T9 acrescentam)
   perfil-profissional.ts (+test)                                                                                        # T3
-  codigo.ts (+test) · prescricao.ts (+test) · documentos.ts (+test)                                                     # T5 (T6, T7 acrescentam)
+  codigo.ts (+test) · prescricao.ts (+test) · documentos.ts (+test) · arquivos-do-preparo.ts                            # T5 (T6, T7 acrescentam)
   documento-pdf.tsx · documento-pdf-job.ts (+test)                                                                      # T7
   registrar-assinatura.ts (+test) · verificacao.ts (+test)                                                              # T8 (T10, T13 acrescentam)
   digitalizada.ts (+test) · digitalizada-job.ts (+test)                                                                 # T9
@@ -164,6 +165,8 @@ export class RecusaAssinaturaError extends Error { codigo: CodigoRecusa; motivoT
 export function gerarCodigo(): string;                       // 12 caracteres Crockford maiúsculos
 export function normalizarCodigo(entrada: unknown): string | null;
 export function formatarCodigo(codigo: string): string;      // XXXX-XXXX-XXXX
+// src/modules/documentos/arquivos-do-preparo.ts (T5; sem sessão — o painel e o worker importam)
+export function soltarArquivosDoPreparo(ctx: TenantContext, documentoId: string, estados: readonly StatusDocumento[], deps?: { db?: Db; dataDir?: string; soFotos?: boolean }): Promise<number>;
 // src/lib/confirmar-2fa.ts (T4)
 export function confirmarCodigo2fa(e: { userId: string; codigo: unknown; headers: Headers }, deps?: Deps2fa): Promise<'ok' | 'invalido' | 'bloqueado'>;
 // src/modules/documentos/registrar-assinatura.ts (T8; sem sessão — o worker e o 10B importam)
@@ -179,7 +182,7 @@ export function mudarSituacao(tx: Tx, documentoId: string, situacao: SituacaoVer
 export function entregarDocumento(tx: Tx, e: { tenantId: string; patientId: string; documentoId: string; agora: Date; appUrl: string }): Promise<'portal' | 'link' | 'nenhuma'>;
 // test/documentos.ts (T1, T8)
 export function documentoNoBanco(db, ctx, patientId, o?): Promise<{ id: string; codigo: string | null; pdfPath: string | null }>;
-export function novoConsultorio(db); export function outroDocumento(c, db, o?: { base?: Buffer; conteudo?: object }); export function novoPreparoNoBanco(x, db);
+export function novoConsultorio(db); export function outroDocumento(c, db, o?: { base?: Buffer; conteudo?: object }); export function novoPreparoNoBanco(x, db); export function liberarDocumentos(db, tenantId);
 ```
 
 ### Task 1: Banco — tabelas dos documentos, RLS, escrita do paciente, tipos de arquivo e de aviso, guardas (P10A-01; antiga T2)
@@ -781,12 +784,12 @@ Nos testes "WITH CHECK" (tenant B move linha para A; P2 move linha para P1), a r
 
 com `let sobrouDeB = 0;` antes do `withTenant` e, depois do bloco, `if (!SO_INSERE.has(t)) expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);` (o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de `SO_APAGA` deixa — em `patients`, os pacientes de B com documento emitido ou recibo). Os emitidos de B que ficam seguram o `stored_files` deles? Não: a fábrica cria emitido **sem** PDF — anonimizado.
 
-- [ ] **Step 8: CLAUDE.md** (regras 1, 2, 8 e 9; o texto final fica no PR)
+- [ ] **Step 8: CLAUDE.md** (regras 1, 2, 8 e 9; o texto final fica no PR; as funções citadas nascem nas T5 e T11 — o texto entra aqui para valer desde a primeira tarefa)
 
 - Regra 1: "…e, com `tenant_id` mas em `RLS_EXCEPTIONS`, `invites`, `consents` **e `document_verifications`** (verificação pública de documento assinado: só `src/modules/documentos/verificacao.ts`, DELETE revogado e UPDATE só de `situacao`/`situacao_em`, Plano 10A)".
 - Regra 2: "Tabela que o paciente só **insere** (prova, como `signed_document_receipts`): `app_allow_paciente_escrita('<tabela>', 'insert')` + `REVOKE UPDATE, DELETE` de `nutri_app_role` + `SO_INSERE` no teste de isolamento."
-- Regra 8: "a anonimização de documentos assinados só pela função `app_anonimizar_documentos` (migration 0091, contexto `worker`, ao lado da `app_anonimizar_aceites`); as tabelas com gatilho de imutabilidade (`signed_documents`, `signed_document_notes`) entram em `IMUTAVEIS` do teste de isolamento."
-- Regra 9: "PDF preparado, PDF assinado e fotos da digitalizada (`documento_base`, `documento_assinado`, `documento_digitalizado`) com FK **`NO ACTION`** (o registro sai antes, no `naMesmaTransacao`); o PDF de documento e o da digitalizada só no worker (`documento-pdf.tsx`, `documento-pdf-job.ts`, `digitalizada-job.ts` — guarda de grafo em `exportacao.test.ts`)."
+- Regra 8: "a anonimização de documentos assinados só pela função `app_anonimizar_documentos` (migration 0091, contexto `worker`, ao lado da `app_anonimizar_aceites`); as tabelas com gatilho de imutabilidade (`signed_documents`, `signed_document_notes`) entram em `IMUTAVEIS` do teste de isolamento. As listas de documentos assinados — a do prontuário (`listarDocumentos`) e a do portal (`documentosDoPaciente`) — não chamam `auditRead`, como a agenda e a lista de pacientes (Plano 10A, D17): devolvem só tipo, data, situação, tipo de assinatura e recibos, nunca itens, orientações ou justificativa (teste das chaves em `documentos.test.ts` e `portal.test.ts`); a leitura do conteúdo (`lerDocumento`) e as rotas que assinam a URL do PDF (painel, portal e link) chamam."
+- Regra 9: "PDF preparado, PDF assinado e fotos da digitalizada (`documento_base`, `documento_assinado`, `documento_digitalizado`) com FK **`NO ACTION`**; o ponteiro de cada um sai no `naMesmaTransacao` do `apagarArquivo` dele, também depois da assinatura (`soltarArquivosDoPreparo`, `src/modules/documentos/arquivos-do-preparo.ts`: a assinatura mantém `base_pdf_path` e `digitalizacao`, e o gatilho `app_documento_imutavel` só deixa esses ponteiros encolherem num documento emitido); o PDF de documento e o da digitalizada só no worker (`documento-pdf.tsx`, `documento-pdf-job.ts`, `digitalizada-job.ts` — guarda de grafo em `exportacao.test.ts`)."
 
 - [ ] **Step 9: Rodar**
 
@@ -874,6 +877,31 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     await q(sql`update signed_documents set tenant_id = tenant_id, updated_at = now() where id = ${d.id}`); // no-op
     await q(sql`update signed_documents set status = 'cancelado', cancelado_em = now() where id = ${d.id}`);
     await expect(q(sql`update signed_documents set status = 'assinado', cancelado_em = null where id = ${d.id}`)).rejects.toSatisfy(negado);
+  });
+
+  it('regra 9: a assinatura mantém os ponteiros do base e das fotos; depois eles só saem (base → nulo, fotos encolhem), nunca trocam nem crescem', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
+    const arq = (tipo: string) => `${T.tenantId}/${tipo}/${randomUUID()}.pdf`;
+    const [base, assinado] = [arq('documento_base'), arq('documento_assinado')];
+    const fotos = [arq('documento_digitalizado'), arq('documento_digitalizado')];
+    const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
+    await q(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id}), (${T.tenantId}, 'documento_assinado', ${assinado}, 10, 'application/pdf', ${p.id})`);
+    await withTenant(worker(T.tenantId), (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10 where id = ${d.id}`), app.db);
+    await q(sql`update signed_documents set digitalizacao = ${JSON.stringify(fotos)}::jsonb, digitalizacao_status = 'pendente', digitalizacao_em = now() where id = ${d.id}`);
+    const assinar = (extra: ReturnType<typeof sql>) =>
+      sql`update signed_documents set status = 'assinado', pdf_path = ${assinado}, pdf_sha256 = ${'a'.repeat(64)}, assinado_em = now(), assinatura_tipo = 'digitalizada', digitalizacao_status = null, digitalizacao_em = null${extra} where id = ${d.id}`;
+    await expect(q(assinar(sql`, base_pdf_path = null`))).rejects.toSatisfy(negado); // o ponteiro só sai no apagarArquivo do base
+    await expect(q(assinar(sql`, digitalizacao = null`))).rejects.toSatisfy(negado);
+    await q(assinar(sql``));
+    await expect(q(sql`update signed_documents set digitalizacao = ${JSON.stringify([...fotos, arq('documento_digitalizado')])}::jsonb where id = ${d.id}`)).rejects.toSatisfy(negado); // cresce
+    await expect(q(sql`update signed_documents set base_pdf_path = ${arq('documento_base')} where id = ${d.id}`)).rejects.toSatisfy(negado); // troca
+    await q(sql`update signed_documents set digitalizacao = ${JSON.stringify([fotos[1]])}::jsonb where id = ${d.id}`); // uma foto sai
+    await q(sql`update signed_documents set digitalizacao = null where id = ${d.id}`);
+    await q(sql`update signed_documents set base_pdf_path = null where id = ${d.id}`);
+    await expect(q(sql`update signed_documents set base_pdf_path = ${base} where id = ${d.id}`)).rejects.toSatisfy(negado); // de nulo, não volta
+    expect(await linha(T.ctx, d.id)).toMatchObject({ status: 'assinado', pdf_path: assinado });
   });
 
   it('a FK NO ACTION recusa apagarArquivo avulso do PDF assinado, e nada muda', async () => {
@@ -1021,10 +1049,10 @@ BEGIN
       END IF;
       RETURN NEW;
     END IF;
-    -- a assinatura (RN-140 b): o PDF base sai NO MESMO UPDATE
+    -- a assinatura (RN-140 b; regra 9 do CLAUDE.md — desvio registrado): os ponteiros do base e das fotos FICAM; cada
+    -- arquivo sai depois no SEU apagarArquivo, com o ponteiro no naMesmaTransacao (soltarArquivosDoPreparo, T5)
     IF OLD.status = 'aguardando_assinatura' AND NEW.status = 'assinado' THEN
-      IF NOT (mudou <@ ARRAY['status', 'pdf_path', 'pdf_sha256', 'assinatura_tipo', 'assinatura_emissor', 'assinante_nome', 'assinado_em', 'assinado_por', 'entregue_em', 'base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'])
-         OR NEW.base_pdf_path IS NOT NULL THEN
+      IF NOT (mudou <@ ARRAY['status', 'pdf_path', 'pdf_sha256', 'assinatura_tipo', 'assinatura_emissor', 'assinante_nome', 'assinado_em', 'assinado_por', 'entregue_em', 'digitalizacao_status', 'digitalizacao_em']) THEN
         RAISE EXCEPTION 'assinatura fora da regra (RN-140 b)' USING ERRCODE = '42501';
       END IF;
       RETURN NEW;
@@ -1032,24 +1060,29 @@ BEGIN
     RAISE EXCEPTION 'transição inválida (RN-141)' USING ERRCODE = '42501';
   END IF;
 
+  -- emitido (assinado, substituido, cancelado): os ponteiros do preparo só SAEM (base → NULL, fotos encolhem), um
+  -- arquivo por vez no naMesmaTransacao do apagarArquivo dele; nunca trocam nem crescem
+  IF NOT (NEW.base_pdf_path IS NULL OR NEW.base_pdf_path IS NOT DISTINCT FROM OLD.base_pdf_path)
+     OR NOT (NEW.digitalizacao IS NULL OR (OLD.digitalizacao IS NOT NULL AND OLD.digitalizacao @> NEW.digitalizacao)) THEN
+    RAISE EXCEPTION 'ponteiro de arquivo de documento emitido só sai (RN-140, regra 9)' USING ERRCODE = '42501';
+  END IF;
+
   IF OLD.status = 'assinado' THEN
     IF NEW.status = 'assinado' AND mudou <@ ARRAY['base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em', 'entregue_em']
-       AND NEW.base_pdf_path IS NULL AND NEW.digitalizacao IS NULL AND (OLD.entregue_em IS NULL OR NEW.entregue_em IS NOT DISTINCT FROM OLD.entregue_em) THEN
+       AND (OLD.entregue_em IS NULL OR NEW.entregue_em IS NOT DISTINCT FROM OLD.entregue_em) THEN
       RETURN NEW;
     END IF;
-    IF NEW.status = 'cancelado' AND mudou <@ ARRAY['status', 'cancelado_em', 'base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] AND NEW.cancelado_em IS NOT NULL
-       AND NEW.base_pdf_path IS NULL THEN
+    IF NEW.status = 'cancelado' AND mudou <@ ARRAY['status', 'cancelado_em', 'base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] AND NEW.cancelado_em IS NOT NULL THEN
       RETURN NEW;
     END IF;
-    IF NEW.status = 'substituido' AND mudou <@ ARRAY['status', 'substituido_em', 'base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] AND NEW.substituido_em IS NOT NULL
-       AND NEW.base_pdf_path IS NULL THEN
+    IF NEW.status = 'substituido' AND mudou <@ ARRAY['status', 'substituido_em', 'base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] AND NEW.substituido_em IS NOT NULL THEN
       RETURN NEW;
     END IF;
     RAISE EXCEPTION 'documento assinado não muda (RN-140)' USING ERRCODE = '42501';
   END IF;
 
-  -- substituido / cancelado: só soltar o que sobrou do preparo
-  IF NEW.status = OLD.status AND mudou <@ ARRAY['base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] AND NEW.base_pdf_path IS NULL AND NEW.digitalizacao IS NULL THEN
+  -- substituido / cancelado: só soltar o que sobrou do preparo (a conferência de "só sai" está acima)
+  IF NEW.status = OLD.status AND mudou <@ ARRAY['base_pdf_path', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'] THEN
     RETURN NEW;
   END IF;
   RAISE EXCEPTION 'documento emitido não muda (RN-140)' USING ERRCODE = '42501';
@@ -1158,7 +1191,7 @@ END $$;
 CREATE TRIGGER codigo_acesso_regras BEFORE UPDATE ON document_access_codes FOR EACH ROW EXECUTE FUNCTION app_codigo_acesso_regras();
 ```
 
-> Nota: o `base_pdf_path` de documento emitido já é nulo (a assinatura o solta no mesmo UPDATE); a função o limpa por defesa. A conferência "nenhum PDF de documento sobrou" da anonimização é a `pdfsDeDocumentosRestantes` (T14).
+> Nota: o `base_pdf_path` e a `digitalizacao` de documento emitido normalmente já são nulos (o `soltarArquivosDoPreparo` os solta logo depois da assinatura, e a T14 o chama de novo antes da função); se um apagar falhou e a varredura da T7 ainda não passou, a função limpa o ponteiro por defesa e o arquivo, sem referência, sai na varredura. A conferência "nenhum PDF de documento sobrou" da anonimização é a `pdfsDeDocumentosRestantes` (T14).
 
 - [ ] **Step 3: Rodar**
 
@@ -1761,7 +1794,7 @@ git commit -m "feat(seguranca): código do 2FA no momento de assinar com limite 
 ### Task 5: Receita — código, esquema da prescrição e ciclo do rascunho até "Preparando o PDF" (US-142, US-143 parte 1, RN-142, RN-149, RN-150, RN-154; P10A-05; antiga T6)
 
 **Files:**
-- Create: `src/modules/documentos/codigo.ts` (+ `codigo.test.ts`), `src/modules/documentos/prescricao.ts` (+ `prescricao.test.ts`), `src/modules/documentos/documentos.ts` (+ `documentos.test.ts`)
+- Create: `src/modules/documentos/codigo.ts` (+ `codigo.test.ts`), `src/modules/documentos/prescricao.ts` (+ `prescricao.test.ts`), `src/modules/documentos/documentos.ts` (+ `documentos.test.ts`), `src/modules/documentos/arquivos-do-preparo.ts` (o caso dos emitidos é testado na T8, em `registrar-assinatura.test.ts`)
 - Modify: `src/modules/documentos/constantes.ts` (declaração da receita), `src/jobs/queues.ts` (filas `documento-pdf`, `documento-digitalizado`, `expirar-documento-pdf`)
 
 **Interfaces:**
@@ -1769,7 +1802,8 @@ git commit -m "feat(seguranca): código do 2FA no momento de assinar com limite 
 - Produces:
   - `codigo.ts`: `gerarCodigo(): string`, `normalizarCodigo(e: unknown): string | null`, `formatarCodigo(c: string): string`.
   - `prescricao.ts`: `TIPOS_ITEM`, `CATEGORIAS`, `UNIDADES`, `VIAS`, `MODOS_PREPARO` (rótulos exatos da US-142), `MSG_PRESCRICAO`, tipos `ItemPrescricao`, `ConteudoReceita = { versao: 1; tipo: 'receita'; itens: ItemPrescricao[]; orientacoes: string; copia?: { profissional: CopiaProfissional; paciente: { nome: string } }; declaracao?: string }`; `validarRascunho(input: unknown, o: { habilitada: boolean }): ConteudoReceita` (lança `DocumentoError` com chaves `itens.0.posologia`…), `validarParaPreparar(c: ConteudoReceita, justificativa: string | null, o: { habilitada: boolean }): void`, `descreverItem(item: ItemPrescricao): { titulo: string; linhas: string[] }`.
-  - `documentos.ts`: `criarReceita(ctx, patientId, deps?): Promise<string>`, `salvarRascunhoReceita(ctx, tenant, patientId, docId, input: { conteudo: unknown; justificativa: unknown }, deps?)`, `apagarRascunho(ctx, patientId, docId, deps?)`, `prepararParaAssinatura(ctx, tenant, patientId, docId, input: { declaracao: unknown }, deps?: { db?; boss?; agora? })`, `voltarAEditar(ctx, patientId, docId, deps?: { db?; dataDir? })`, `pedirNovoPdfDocumento(ctx, patientId, docId, deps?)`, `listarDocumentos(ctx, patientId, db?): Promise<ItemLista[]>`, `lerDocumento(ctx, patientId, docId, db?): Promise<DocumentoLido | null>` (com `auditRead`), `estadoDoDocumento(ctx, docId, db?)`, `lerDocumentoNaTransacao(tx, id, o: { auditar: boolean })`; tipos `ItemLista`, `DocumentoLido`.
+  - `documentos.ts`: `criarReceita(ctx, patientId, deps?): Promise<string>`, `salvarRascunhoReceita(ctx, tenant, patientId, docId, input: { conteudo: unknown; justificativa: unknown }, deps?)`, `apagarRascunho(ctx, patientId, docId, deps?)`, `prepararParaAssinatura(ctx, tenant, patientId, docId, input: { declaracao: unknown }, deps?: { db?; boss?; agora? })`, `voltarAEditar(ctx, patientId, docId, deps?: { db?; dataDir? })`, `pedirNovoPdfDocumento(ctx, patientId, docId, deps?)`, `listarDocumentos(ctx, patientId, db?): Promise<ItemLista[]>` (sem `auditRead`, D17), `lerDocumento(ctx, patientId, docId, db?): Promise<DocumentoLido | null>` (com `auditRead`), `estadoDoDocumento(ctx, docId, db?)`, `lerDocumentoNaTransacao(tx, id, o: { auditar: boolean; patientId?: string })` (com `patientId`, o filtro do paciente vai na própria leitura: documento de outro paciente → `null` antes de ler notas e recibos); tipos `ItemLista`, `DocumentoLido`.
+  - `arquivos-do-preparo.ts` (sem sessão: o painel e o worker importam): `soltarArquivosDoPreparo(ctx, documentoId, estados, deps?: { db?; dataDir?; soFotos? }): Promise<number>` — regra 9: cada foto da digitalizada e o PDF base saem no seu `apagarArquivo`, com o ponteiro no `naMesmaTransacao` (usado no "Voltar a editar" com `soFotos`, na T7, na T9, na T14 e pelo envio do PDF assinado do Plano 10B).
   - `constantes.ts`: `DECLARACAO_RECEITA` (texto da D5 da spec, **rascunho**).
 
 - [ ] **Step 1: Código Crockford — teste e implementação** (`codigo.test.ts` / `codigo.ts`)
@@ -2135,10 +2169,23 @@ describe('ciclo do documento (US-142, US-143)', () => {
     await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD], orientacoes: 'Tomar com água.' }, justificativa: 'Exposição solar baixa' }, { db: app.db });
     const lista = await listarDocumentos(T.ctx, p.id, app.db);
     expect(lista).toMatchObject([{ id, status: 'rascunho', tipo: 'receita' }]);
+    // D17 / regra 8 do CLAUDE.md: a lista não audita porque não devolve conteúdo — só estas chaves (nada de itens, orientações ou justificativa)
+    expect(Object.keys(lista[0]).sort()).toEqual(['assinadoEm', 'assinaturaTipo', 'codigo', 'createdAt', 'entregueEm', 'id', 'pdfStatus', 'recibos', 'status', 'tipo']);
     const d = await lerDocumento(T.ctx, p.id, id, app.db);
     expect(d).toMatchObject({ status: 'rascunho', justificativa: 'Exposição solar baixa', conteudo: { itens: [{ tipo: 'suplemento' }], orientacoes: 'Tomar com água.' } });
     const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select acao from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
     expect(audit.rows.length).toBe(1);
+  });
+
+  it('documento de outro paciente do mesmo consultório: null, sem auditoria (o filtro do paciente vai na própria leitura, antes de notas e recibos)', async () => {
+    const { T, tenant } = await consultorioCompleto();
+    const p = await novoPaciente(app.db, T.ctx);
+    const outro = await novoPaciente(app.db, T.ctx);
+    const id = await criarReceita(T.ctx, p.id, { db: app.db });
+    await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'Exposição solar baixa' }, { db: app.db });
+    expect(await lerDocumento(T.ctx, outro.id, id, app.db)).toBeNull();
+    const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
+    expect(audit.rows).toEqual([]);
   });
 
   it('paciente bloqueado: nada é criado (texto do MVP)', async () => {
@@ -2166,21 +2213,23 @@ describe('ciclo do documento (US-142, US-143)', () => {
     await expect(salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'x' }, { db: app.db })).rejects.toThrow(TransicaoInvalidaError);
   });
 
-  it('voltar a editar: o código deixa de existir e o PDF base sai do disco e da cota (RN-140 a)', async () => {
+  it('voltar a editar: o código deixa de existir e o PDF base e as fotos de um envio que falhou saem do disco e da cota, cada um no seu apagar (RN-140 a, regra 9)', async () => {
     const { T, tenant } = await consultorioCompleto();
     const p = await novoPaciente(app.db, T.ctx);
     const id = await criarReceita(T.ctx, p.id, { db: app.db });
     await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'J' }, { db: app.db });
     await prepararParaAssinatura(T.ctx, tenant, p.id, id, { declaracao: 'on' }, { db: app.db });
     const base = `${T.tenantId}/documento_base/${crypto.randomUUID()}.pdf`;
+    const foto = `${T.tenantId}/documento_digitalizado/${crypto.randomUUID()}.jpg`;
     await withTenant({ tenantId: T.tenantId, role: 'worker' }, async (tx) => {
-      await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id})`);
+      await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id}), (${T.tenantId}, 'documento_digitalizado', ${foto}, 10, 'image/jpeg', ${p.id})`);
       await tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10, area_assinatura = '{"x1":351,"y1":62,"x2":559,"y2":132}' where id = ${id}`);
+      await tx.execute(sql`update signed_documents set digitalizacao = ${JSON.stringify([foto])}::jsonb, digitalizacao_status = 'falhou' where id = ${id}`);
     }, app.db);
     await voltarAEditar(T.ctx, p.id, id, { db: app.db, dataDir: '/tmp' });
     const d = await lerDocumento(T.ctx, p.id, id, app.db);
     expect(d).toMatchObject({ status: 'rascunho', codigo: null });
-    const sobrou = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from stored_files where caminho = ${base}`), app.db);
+    const sobrou = await withTenant(T.ctx, (tx) => tx.execute(sql`select caminho from stored_files where caminho in (${base}, ${foto})`), app.db);
     expect(sobrou.rows).toEqual([]);
   });
 
@@ -2209,6 +2258,7 @@ import { getBoss } from '@/jobs/boss';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
 import { DECLARACAO_RECEITA, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
@@ -2302,7 +2352,11 @@ export async function prepararParaAssinatura(
   }, deps.db ?? getDb());
 }
 
-/** RN-140 (a): volta a rascunho (código e base nulos) no naMesmaTransacao do DELETE do PDF base. */
+/**
+ * RN-140 (a): volta a rascunho (código e base nulos) no naMesmaTransacao do DELETE do PDF base. Regra 9: as fotos de um
+ * envio digitalizado que falhou saem ANTES, cada uma no seu apagarArquivo (soltarArquivosDoPreparo com `soFotos`); o
+ * `digitalizacao: null` do `limpar` só cobre uma foto gravada no meio (corrida), que a varredura da T7 apaga sem referência.
+ */
 export async function voltarAEditar(ctx: TenantContext, patientId: string, docId: string, deps: { db?: Db; dataDir?: string } = {}): Promise<void> {
   const db = deps.db ?? getDb();
   const limpar = {
@@ -2316,6 +2370,7 @@ export async function voltarAEditar(ctx: TenantContext, patientId: string, docId
     return d.basePdfPath;
   }, db);
   if (!base) return;
+  await soltarArquivosDoPreparo(ctx, docId, ['aguardando_assinatura'], { db, dataDir: deps.dataDir, soFotos: true });
   const ok = await apagarArquivo(ctx, { caminho: base }, {
     db,
     dataDir: deps.dataDir,
@@ -2358,7 +2413,10 @@ const comoItem = (d: typeof signedDocuments.$inferSelect, recibos: Recibo[]): It
   assinaturaTipo: d.assinaturaTipo as TipoAssinatura | null, pdfStatus: d.pdfStatus, entregueEm: d.entregueEm, recibos,
 });
 
-/** Lista do prontuário (título, data, situação): sem auditRead, como a agenda (D17). */
+/**
+ * Lista do prontuário (título, data, situação): sem auditRead, como a agenda (D17; exceção na regra 8 do CLAUDE.md). Só
+ * devolve as chaves de ItemLista — nunca itens, orientações ou justificativa (teste das chaves em documentos.test.ts).
+ */
 export async function listarDocumentos(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<ItemLista[]> {
   if (!idValido(patientId)) return [];
   return withTenant(ctx, async (tx) => {
@@ -2368,10 +2426,13 @@ export async function listarDocumentos(ctx: TenantContext, patientId: string, db
   }, db);
 }
 
-/** Leitura completa na transação de quem chama; `auditar` = false no worker (como lerPlanoNaTransacao). */
-export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: boolean }): Promise<DocumentoLido | null> {
+/**
+ * Leitura completa na transação de quem chama; `auditar` = false no worker (como lerPlanoNaTransacao). Com `patientId`, o
+ * filtro do paciente vai na PRÓPRIA leitura do documento: de outro paciente → null antes de ler notas e recibos (uma consulta só).
+ */
+export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: boolean; patientId?: string }): Promise<DocumentoLido | null> {
   if (!idValido(id)) return null;
-  const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, id));
+  const [d] = await tx.select().from(signedDocuments).where(and(eq(signedDocuments.id, id), o.patientId ? eq(signedDocuments.patientId, o.patientId) : undefined));
   if (!d) return null;
   const [n] = await tx.select().from(signedDocumentNotes).where(eq(signedDocumentNotes.documentoId, id));
   const rs = await recibosDe(tx, [id]);
@@ -2383,16 +2444,10 @@ export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: 
   };
 }
 
-/** Página do documento no painel (conteúdo + justificativa): dado de saúde, com auditRead (RNF-142). */
+/** Página do documento no painel (conteúdo + justificativa): dado de saúde, com auditRead (RNF-142), só do paciente da rota. */
 export async function lerDocumento(ctx: TenantContext, patientId: string, docId: string, db: Db = getDb()): Promise<DocumentoLido | null> {
-  return withTenant(ctx, async (tx) => {
-    const d = await lerDocumentoNaTransacao(tx, docId, { auditar: false });
-    if (!d) return null;
-    const [dono] = await tx.select({ p: signedDocuments.patientId }).from(signedDocuments).where(eq(signedDocuments.id, docId));
-    if (dono?.p !== patientId) return null;
-    await auditRead(tx, { entidade: 'documentos', entidadeId: docId, patientId });
-    return d;
-  }, db);
+  if (!idValido(patientId)) return null;
+  return withTenant(ctx, (tx) => lerDocumentoNaTransacao(tx, docId, { auditar: true, patientId }), db);
 }
 
 /** Acompanhamento sem recarregar a página (sem auditoria, como statusDoPdf do plano). */
@@ -2405,12 +2460,56 @@ export async function estadoDoDocumento(ctx: TenantContext, docId: string, db: D
 }
 ```
 
+`src/modules/documentos/arquivos-do-preparo.ts` (sem sessão — o painel, `documentos.ts`, e o worker, T7/T9/T14, importam; o grafo do worker já é conferido pela guarda da T8):
+
+```ts
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { getDb, type Db } from '@/db/client';
+import { signedDocuments } from '@/db/schema';
+import { withTenant, type TenantContext } from '@/db/tenant';
+import { logger } from '@/lib/logger';
+import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+import type { StatusDocumento } from './constantes';
+
+/**
+ * Regra 9 do CLAUDE.md (correção do /code-review high do PR #18): cada arquivo do preparo — as fotos da digitalizada e o
+ * PDF base — sai do disco e da cota no SEU apagarArquivo, e o ponteiro sai no naMesmaTransacao desse apagar, só se o
+ * documento ainda está num dos `estados` e ainda aponta para o arquivo (como o original da foto do diário). Depois da
+ * assinatura (EMITIDOS) é o que solta o base e as fotos — a assinatura os mantém e o gatilho só deixa esses ponteiros
+ * encolherem (T2); no "Voltar a editar" (`soFotos`), as fotos saem antes do base. Um arquivo que falha não para os outros:
+ * a varredura da T7 tenta de novo. Devolve quantos arquivos saíram.
+ */
+export async function soltarArquivosDoPreparo(
+  ctx: TenantContext, documentoId: string, estados: readonly StatusDocumento[], deps: { db?: Db; dataDir?: string; soFotos?: boolean } = {},
+): Promise<number> {
+  const db = deps.db ?? getDb();
+  const noEstado = and(eq(signedDocuments.id, documentoId), inArray(signedDocuments.status, [...estados]));
+  const [d] = await withTenant(ctx, (tx) => tx.select({ base: signedDocuments.basePdfPath, fotos: signedDocuments.digitalizacao }).from(signedDocuments).where(noEstado), db);
+  if (!d) return 0;
+  const soltar = (caminho: string, set: Partial<typeof signedDocuments.$inferInsert>, aponta: SQL) =>
+    apagarArquivo(ctx, { caminho }, {
+      db,
+      dataDir: deps.dataDir,
+      naMesmaTransacao: async (tx) =>
+        (await tx.update(signedDocuments).set({ ...set, updatedAt: new Date() }).where(and(noEstado, aponta)).returning({ id: signedDocuments.id })).length > 0,
+    }).catch(() => false);
+  let n = 0;
+  for (const c of d.fotos ?? [])
+    if (await soltar(c, { digitalizacao: sql`nullif(${signedDocuments.digitalizacao} - ${c}::text, '[]'::jsonb)` }, sql`${signedDocuments.digitalizacao} ? ${c}`)) n++;
+  const comBase = !!d.base && !deps.soFotos;
+  if (comBase && (await soltar(d.base!, { basePdfPath: null }, eq(signedDocuments.basePdfPath, d.base!)))) n++;
+  if (n < (d.fotos?.length ?? 0) + (comBase ? 1 : 0))
+    logger.warn({ tenantId: ctx.tenantId, documentoId, motivo: 'arquivo_do_preparo' }, 'arquivo do preparo não apagado (a varredura tenta de novo)');
+  return n;
+}
+```
+
 Run: `pnpm test src/modules/documentos/documentos.test.ts` → PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/modules/documentos/{codigo,codigo.test,prescricao,prescricao.test,documentos,documentos.test,constantes}.ts src/jobs/queues.ts
+git add src/modules/documentos/{codigo,codigo.test,prescricao,prescricao.test,documentos,documentos.test,constantes,arquivos-do-preparo}.ts src/jobs/queues.ts
 git commit -m "feat(documentos): receita — código Crockford, esquema da prescrição e ciclo até o preparo (US-142, US-143, RN-142, RN-149, RN-150)"
 ```
 
@@ -2418,15 +2517,15 @@ git commit -m "feat(documentos): receita — código Crockford, esquema da presc
 ### Task 6: Painel — aba "Documentos", lista, editor da receita, preparo, cartão do Início, interruptor do admin e o guia `documentos` (US-142, US-143, P-B8, D18, D20; P10A-06; antiga T7)
 
 **Files:**
-- Create: `src/app/painel/pacientes/[id]/documentos/page.tsx`, `.../documentos/actions.ts`, `.../documentos/[docId]/page.tsx`, `.../documentos/[docId]/receita-form.tsx`, `.../documentos/[docId]/preparar.tsx`, `.../documentos/[docId]/estado-pdf.tsx`
+- Create: `src/app/painel/pacientes/[id]/documentos/page.tsx`, `.../documentos/actions.ts` (+ `actions.test.ts`), `.../documentos/[docId]/page.tsx` (+ `page.test.ts`), `.../documentos/[docId]/receita-form.tsx`, `.../documentos/[docId]/preparar.tsx`, `.../documentos/[docId]/estado-pdf.tsx`, `.../documentos/[docId]/acao-documento.tsx`
 - Modify: `src/app/painel/pacientes/[id]/abas.tsx` e `layout.tsx` (aba só com `documentosLiberados`), `src/modules/agenda/inicio.ts` + `src/app/painel/page.tsx` (cartão), `src/modules/plataforma/contas.ts` + `src/app/admin/{page.tsx,actions.ts,documentos-form.tsx}` (D20), `src/modules/ajuda/conteudo.ts` (+ `conteudo.test.ts`: `src/modules/documentos` em `TSX_FORA`), `e2e/painel-rotas.ts`, `e2e/painel.ts`, `scripts/e2e-seed.ts`
 
 **Interfaces:**
 - Consumes: tudo da T5; `ROTULO_STATUS`, `DECLARACAO_RECEITA`, `MSG_DECLARACAO` (constantes); `TIPOS_ITEM`, `CATEGORIAS`, `UNIDADES`, `VIAS`, `MODOS_PREPARO`, `descreverItem` (prescricao); `carregarProntuario`; `Cartao`, `Botao`, `BotaoLink`, `Aviso`, `Selo`, `ConfirmarBotao`.
 - Produces:
-  - Server Actions (`.../documentos/actions.ts`): `criarReceitaAction(patientId)`, `salvarRascunhoAction(patientId, docId, prev, form)`, `apagarRascunhoAction(patientId, docId)`, `prepararAction(patientId, docId, prev, form)`, `voltarAEditarAction(patientId, docId)`, `pedirNovoPdfAction(patientId, docId)`; tipo `EstadoForm = { erros?: Record<string, string>; ok?: boolean }`.
+  - Server Actions (`.../documentos/actions.ts`): `criarReceitaAction(patientId)`, `salvarRascunhoAction(patientId, docId, prev, form)`, `apagarRascunhoAction(patientId, docId, prev)`, `prepararAction(patientId, docId, prev, form)`, `voltarAEditarAction(patientId, docId, prev)`, `pedirNovoPdfAction(patientId, docId, prev)`; tipo `EstadoForm = { erros?: Record<string, string>; ok?: boolean }`. As ações de botão devolvem o erro ao formulário (`useActionState`, componente `AcaoDocumento`) e só dão o sinal de sucesso (`?apagado=1`, página revalidada) quando deu certo.
   - `situacaoNoPainel(d: ItemLista, fuso: string): string` (em `documentos.ts`; interface alinhada ao código — Minor da revisão de cobertura: "Rascunho", "Preparando o PDF", "Aguardando assinatura", "Assinado em dd/mm/aaaa"…, a parte da entrega vem na T10).
-  - `contarAguardandoAssinatura(tx): Promise<number>` (em `documentos.ts`); `Inicio.documentosAguardando: number | null`.
+  - `contarAguardandoAssinatura(tx): Promise<number>` (em `documentos.ts`; sem os de paciente bloqueado ou anonimizado — prontuário só para consulta, nada a resolver; o arquivado conta, porque pode assinar, D14); `Inicio.documentosAguardando: number | null`.
   - `definirDocumentosLiberados(db, tenantId, liberar: boolean, adminId: string)` (em `contas.ts`); `ContaResumo.documentosLiberados`.
   - `IdsDoPainel.documento`; rotas `/painel/pacientes/[id]/documentos` e `/painel/pacientes/[id]/documentos/[docId]` em `ROTAS_DO_PAINEL`.
   - Guia `documentos` em `GUIAS` (antes do `prontuario`).
@@ -2443,6 +2542,133 @@ Em `src/modules/ajuda/conteudo.test.ts`, no caso `guiaDaRota`:
 e `TSX_FORA` passa a incluir `'src/modules/documentos'` (os rótulos dos tipos de item e das vias vêm de `prescricao.ts`).
 
 Run: `pnpm test src/modules/ajuda/conteudo.test.ts src/app/painel/rotas-axe.test.ts` → FAIL (sem guia; depois das páginas, sem rota no axe).
+
+Os testes das correções do `/code-review high` do PR #18 (ações que engoliam o erro, página que quebrava com documento anonimizado, cartão do Início contando o que não dá para resolver):
+
+```ts
+// src/app/painel/pacientes/[id]/documentos/actions.test.ts
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closeDb, getDb } from '@/db/client';
+import { tenants } from '@/db/schema';
+import { stopBoss } from '@/jobs/boss';
+import { getAuth } from '@/lib/auth';
+import { documentoNoBanco } from '../../../../../../test/documentos';
+import { nutriComDpa } from '../../../../../../test/nutri';
+import { novoPaciente } from '../../../../../../test/pacientes';
+
+// As ações pelo caminho real (requireNutri → Postgres via Testcontainers), como plano-alimentar/actions.test.ts; só o
+// que depende do runtime do Next é simulado: headers da requisição, navegação e revalidatePath.
+const req = vi.hoisted(() => ({ headers: new Headers() }));
+const revalidatePath = vi.hoisted(() => vi.fn());
+vi.mock('server-only', () => ({}));
+vi.mock('next/headers', () => ({ headers: async () => req.headers }));
+vi.mock('next/cache', () => ({ revalidatePath }));
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Error(`redirect ${url}`);
+  },
+  notFound: () => {
+    throw new Error('notFound');
+  },
+}));
+
+const { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } = await import('./actions');
+
+const db = getDb();
+const auth = getAuth();
+afterAll(async () => {
+  await stopBoss();
+  await closeDb();
+});
+beforeEach(() => revalidatePath.mockClear());
+const MUDOU = { erros: { geral: 'Este documento mudou de situação. Recarregue a página.' } };
+
+async function consultorio() {
+  const N = await nutriComDpa(db, auth);
+  await db.update(tenants).set({ documentosLiberados: true }).where(eq(tenants.id, N.tenantId));
+  req.headers = new Headers({ cookie: N.cookie });
+  const p = await novoPaciente(db, N.ctx);
+  return { N, p };
+}
+
+describe('ações do documento: o erro volta ao formulário; o sinal de sucesso só quando deu certo', () => {
+  it('"Apagar rascunho" de um documento que outra aba já preparou: o motivo, sem "Rascunho apagado." nem revalidar', async () => {
+    const { N, p } = await consultorio();
+    const preparando = await documentoNoBanco(db, N.ctx, p.id, { status: 'preparando' });
+    expect(await apagarRascunhoAction(p.id, preparando.id, {})).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    const rascunho = await documentoNoBanco(db, N.ctx, p.id);
+    await expect(apagarRascunhoAction(p.id, rascunho.id, {})).rejects.toThrow(`redirect /painel/pacientes/${p.id}/documentos?apagado=1`);
+  });
+
+  it('"Gerar o PDF de novo" e "Voltar a editar" fora do estado: o motivo, sem revalidar; no estado certo, ok', async () => {
+    const { N, p } = await consultorio();
+    const preparando = await documentoNoBanco(db, N.ctx, p.id, { status: 'preparando' }); // pdf_status nulo: nada a pedir de novo
+    expect(await pedirNovoPdfAction(p.id, preparando.id, {})).toEqual(MUDOU);
+    const rascunho = await documentoNoBanco(db, N.ctx, p.id);
+    expect(await voltarAEditarAction(p.id, rascunho.id, {})).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(await voltarAEditarAction(p.id, preparando.id, {})).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+  });
+});
+```
+
+```ts
+// src/app/painel/pacientes/[id]/documentos/[docId]/page.test.ts
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+
+// Só a montagem da página: prontuário, documento e ações simulados (como /p/plano/page.test.ts).
+const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
+const DOC = '00000000-0000-4000-8000-0000000000d1';
+vi.mock('../../prontuario', () => ({
+  carregarProntuario: async () => ({
+    ctx: {},
+    tenant: { fuso: 'America/Sao_Paulo', documentosLiberados: true, fitoterapiaRegistro: null },
+    paciente: { id: PACIENTE, status: 'bloqueado', anonimizadoEm: new Date('2026-10-01T12:00:00Z'), userId: null, email: 'ana@ex.com' },
+    data: { user: { twoFactorEnabled: true } },
+  }),
+}));
+// a T10 acrescenta entreguePessoalmenteAction e reenviarLinkAction; a T15, cancelarAction
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn() }));
+vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
+  // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
+  lerDocumento: async () => ({
+    id: DOC, tipo: 'receita', status: 'assinado', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: new Date('2026-09-02T12:00:00Z'),
+    assinaturaTipo: 'digitalizada', pdfStatus: 'pronto', entregueEm: null, recibos: [], conteudo: {}, justificativa: null, motivoCancelamento: null,
+    assinanteNome: null, basePdfPath: null, pdfPath: null, pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, anonimizadoEm: new Date('2026-10-01T12:00:00Z'),
+  }),
+}));
+const { default: DocumentoPage } = await import('./page');
+
+describe('página do documento: documento anonimizado (RN-140 c)', () => {
+  it('não quebra com o conteúdo vazio: mostra "Documento anonimizado." e nada de itens nem de PDF', async () => {
+    const html = renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }) } as never));
+    expect(html).toContain('Documento anonimizado.');
+    expect(html).not.toContain('Itens da receita');
+    expect(html).not.toContain('Baixar PDF assinado');
+  });
+});
+```
+
+E em `src/modules/documentos/documentos.test.ts` (imports a mais: `documentoNoBanco` de `../../../test/documentos` e `contarAguardandoAssinatura` de `./documentos`):
+
+```ts
+  it('P-B8: o cartão do Início conta o que dá para assinar — arquivado conta (D14); bloqueado e anonimizado não (prontuário só para consulta)', async () => {
+    const { T } = await consultorioCompleto();
+    const ativo = await novoPaciente(app.db, T.ctx);
+    const arquivado = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });
+    const bloqueado = await novoPaciente(app.db, T.ctx);
+    for (const p of [ativo, arquivado, bloqueado]) await documentoNoBanco(app.db, T.ctx, p.id, { status: 'aguardando_assinatura' });
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${bloqueado.id}`), app.db);
+    expect(await withTenant(T.ctx, (tx) => contarAguardandoAssinatura(tx), app.db)).toBe(2);
+  });
+```
+
+Run: `pnpm test 'src/app/painel/pacientes/[id]/documentos' src/modules/documentos/documentos.test.ts` → FAIL (sem as ações, a página e a contagem).
 
 - [ ] **Step 2: Ações** — `src/app/painel/pacientes/[id]/documentos/actions.ts`
 
@@ -2506,12 +2732,17 @@ export async function salvarRascunhoAction(patientId: string, docId: string, _pr
   return { ok: true };
 }
 
-export async function apagarRascunhoAction(patientId: string, docId: string): Promise<void> {
+/**
+ * As ações de botão (AcaoDocumento, useActionState): o erro VOLTA ao formulário (role="alert") e o sinal de sucesso —
+ * "?apagado=1", a página revalidada — só sai quando deu certo (correção do /code-review high do PR #18: antes, o retorno
+ * de comoEstado era ignorado e a tela dizia "Rascunho apagado." com o documento ainda lá).
+ */
+export async function apagarRascunhoAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
   const { ctx } = await acesso(caminho(patientId, docId));
   try {
     await apagarRascunho(ctx, patientId, docId);
   } catch (e) {
-    comoEstado(e);
+    return comoEstado(e);
   }
   revalidatePath(caminho(patientId), 'layout');
   redirect(`${caminho(patientId)}?apagado=1`);
@@ -2528,24 +2759,55 @@ export async function prepararAction(patientId: string, docId: string, _prev: Es
   return { ok: true };
 }
 
-export async function voltarAEditarAction(patientId: string, docId: string): Promise<void> {
+export async function voltarAEditarAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
   const { ctx } = await acesso(caminho(patientId, docId));
   try {
     await voltarAEditar(ctx, patientId, docId);
   } catch (e) {
-    comoEstado(e);
+    return comoEstado(e);
   }
   revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
 }
 
-export async function pedirNovoPdfAction(patientId: string, docId: string): Promise<void> {
+export async function pedirNovoPdfAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
   const { ctx } = await acesso(caminho(patientId, docId));
   try {
     await pedirNovoPdfDocumento(ctx, patientId, docId);
   } catch (e) {
-    comoEstado(e);
+    return comoEstado(e);
   }
   revalidatePath(caminho(patientId, docId));
+  return { ok: true };
+}
+```
+
+`src/app/painel/pacientes/[id]/documentos/[docId]/acao-documento.tsx` (o botão das ações acima e das da T10):
+
+```tsx
+'use client';
+
+import { useActionState } from 'react';
+import { Botao } from '@/components/ui/botao';
+import type { EstadoForm } from '../actions';
+
+/**
+ * Botão de uma ação do documento, com confirmação opcional. O erro volta aqui (role="alert"); o sucesso aparece na página
+ * revalidada ou no aviso do redirect ("Rascunho apagado.", "Link reenviado.") — como BotaoAcao do plano alimentar.
+ */
+export function AcaoDocumento({ acao, rotulo, confirmar, secundario = false }: { acao: (prev: EstadoForm) => Promise<EstadoForm>; rotulo: string; confirmar?: string; secundario?: boolean }) {
+  const [s, action, pendente] = useActionState<EstadoForm>(acao, {});
+  const erro = Object.values(s.erros ?? {})[0];
+  return (
+    <form action={action} className="space-y-1" onSubmit={(e) => { if (confirmar && !window.confirm(confirmar)) e.preventDefault(); }}>
+      {secundario ? (
+        <Botao variante="secundario" disabled={pendente}>{rotulo}</Botao>
+      ) : (
+        <button disabled={pendente} className="inline-flex min-h-11 items-center text-link underline disabled:opacity-50">{rotulo}</button>
+      )}
+      {erro && <p role="alert" className="text-sm text-erro">{erro}</p>}
+    </form>
+  );
 }
 ```
 
@@ -2640,21 +2902,30 @@ export function situacaoNoPainel(d: ItemLista, fuso: string): string {
   return '';
 }
 
-/** P-B8: o cartão do Início. */
+/**
+ * P-B8: o cartão do Início — só o que a nutricionista consegue resolver. Paciente bloqueado (ou anonimizado) tem o
+ * prontuário só para consulta: não assina, não volta a editar, e a anonimização apaga o não emitido (T14) — não conta.
+ * O arquivado conta: pode redigir, preparar e assinar (D14). Correção do /code-review high do PR #18.
+ */
 export async function contarAguardandoAssinatura(tx: Tx): Promise<number> {
-  const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(signedDocuments).where(eq(signedDocuments.status, 'aguardando_assinatura'));
+  const [r] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(signedDocuments)
+    .innerJoin(patients, and(eq(patients.tenantId, signedDocuments.tenantId), eq(patients.id, signedDocuments.patientId)))
+    .where(and(eq(signedDocuments.status, 'aguardando_assinatura'), ne(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm)));
   return r?.n ?? 0;
 }
 ```
+
+(imports a mais em `documentos.ts`: `isNull`, `ne` de `drizzle-orm` e `patients` de `@/db/schema`.)
 
 
 - [ ] **Step 4: Página do documento** — `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx`
 
 ```tsx
 import { notFound } from 'next/navigation';
-import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
-import { Botao, BotaoLink } from '@/components/ui/botao';
+import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
@@ -2665,6 +2936,7 @@ import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { descreverItem } from '@/modules/documentos/prescricao';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
+import { AcaoDocumento } from './acao-documento';
 import { EstadoPdf } from './estado-pdf';
 import { Preparar } from './preparar';
 import { ReceitaForm } from './receita-form';
@@ -2680,6 +2952,8 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
   if (!d) notFound();
   const bloqueado = paciente.status === 'bloqueado' || !!paciente.anonimizadoEm;
   const habilitada = !!tenant.fitoterapiaRegistro;
+  // RN-140 (c): o emitido anonimizado tem conteudo '{}' e nenhum PDF — a página mostra só a situação (correção do /code-review high do PR #18)
+  const anonimizado = !!d.anonimizadoEm;
   return (
     <section aria-labelledby="documento" className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -2688,20 +2962,20 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
         {d.codigo && d.status !== 'rascunho' && <span className="text-sm text-suave">{`Código de verificação: ${formatarCodigo(d.codigo)}`}</span>}
       </div>
 
+      {anonimizado && <Aviso tipo="aviso">Documento anonimizado.</Aviso>}
+
       {d.status === 'rascunho' && !bloqueado && (
         <>
           <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={d.conteudo} justificativa={d.justificativa ?? ''} habilitada={habilitada} />
           <Preparar patientId={paciente.id} docId={d.id} declaracao={DECLARACAO_RECEITA} />
-          <form action={apagarRascunhoAction.bind(null, paciente.id, d.id)}>
-            <ConfirmarBotao mensagem="Apagar este rascunho?">Apagar rascunho</ConfirmarBotao>
-          </form>
+          <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
 
-      {d.status !== 'rascunho' && (
+      {d.status !== 'rascunho' && !anonimizado && (
         <Cartao id="itens-receita" titulo="Itens da receita">
           <ol className="list-decimal space-y-2 pl-5">
-            {d.conteudo.itens.map((it, i) => {
+            {(d.conteudo.itens ?? []).map((it, i) => {
               const x = descreverItem(it);
               return (
                 <li key={i}>
@@ -2721,9 +2995,9 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
           <Aviso tipo="erro" papel="alert">
             {/* RNF-143 (Minor da revisão de cobertura): cota esgotada tem a mensagem dela, não a de falha genérica */}
             {d.pdfStatus === 'sem_cota' ? MSG_COTA_ESGOTADA : 'Não foi possível gerar o PDF. Tente de novo.'}
-            <form action={pedirNovoPdfAction.bind(null, paciente.id, d.id)} className="mt-2">
-              <Botao variante="secundario">Gerar o PDF de novo</Botao>
-            </form>
+            <div className="mt-2">
+              <AcaoDocumento acao={pedirNovoPdfAction.bind(null, paciente.id, d.id)} rotulo="Gerar o PDF de novo" secundario />
+            </div>
           </Aviso>
         ) : (
           <EstadoPdf docId={d.id} />
@@ -2741,9 +3015,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
             </Aviso>
           )}
           {!bloqueado && (
-            <form action={voltarAEditarAction.bind(null, paciente.id, d.id)}>
-              <ConfirmarBotao mensagem="O PDF preparado será descartado. Continuar?">Voltar a editar</ConfirmarBotao>
-            </form>
+            <AcaoDocumento acao={voltarAEditarAction.bind(null, paciente.id, d.id)} rotulo="Voltar a editar" confirmar="O PDF preparado será descartado. Continuar?" />
           )}
         </Cartao>
       )}
@@ -2762,7 +3034,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
               </>
             )}
           </dl>
-          <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>
+          {!anonimizado && <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>}
         </Cartao>
       )}
     </section>
@@ -2770,7 +3042,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
 }
 ```
 
-> A T9 acrescenta `<EnviarDigitalizada />` dentro do cartão "Aguardando assinatura"; a T10 a seção de entrega e recebimento; a T15 o "Cancelar documento". O Plano 10B (T5) acrescenta o formulário do PDF assinado e o texto do gov.br e do certificado.
+> A T9 acrescenta `<EnviarDigitalizada />` dentro do cartão "Aguardando assinatura"; a T10 a seção de entrega e recebimento; a T15 o "Cancelar documento" — as duas só com `!anonimizado` (documento anonimizado não tem PDF nem conteúdo). O Plano 10B (T5) acrescenta o formulário do PDF assinado e o texto do gov.br e do certificado.
 
 - [ ] **Step 5: Editor da receita** — `src/app/painel/pacientes/[id]/documentos/[docId]/receita-form.tsx`
 
@@ -3020,7 +3292,7 @@ export async function definirDocumentosAction(tenantId: string, liberar: boolean
 }
 ```
 
-Na tabela do admin, coluna "Documentos" com um formulário por linha: `<form action={definirDocumentosAction.bind(null, c.tenantId, !c.documentosLiberados)}><ConfirmarBotao mensagem={c.documentosLiberados ? \`Bloquear os documentos assinados de ${c.nomeExibicao}? Só antes do uso real: bloqueado, o consultório perde a aba Documentos, inclusive Cancelar documento e a entrega das receitas já assinadas (que continuam válidas na verificação pública).\` : \`Liberar os documentos assinados para ${c.nomeExibicao}? Confira antes a resposta do CRN-3, o termo e o backup.\`}>{c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{\` os documentos de ${c.nomeExibicao}\`}</span></ConfirmarBotao></form>`.
+Na tabela do admin, coluna "Documentos" com um formulário por linha: `<form action={definirDocumentosAction.bind(null, c.tenantId, !c.documentosLiberados)}><ConfirmarBotao mensagem={c.documentosLiberados ? \`Bloquear os documentos assinados de ${c.nomeExibicao}? Só antes do uso real. Bloqueado: o consultório perde a aba Documentos (inclusive Cancelar documento e Entregue pessoalmente), os pacientes deixam de ver e abrir os documentos no app e pelo link do e-mail (nenhum código é enviado), e a verificação pública pelo código continua funcionando.\` : \`Liberar os documentos assinados para ${c.nomeExibicao}? Confira antes a resposta do CRN-3, o termo e o backup.\`}>{c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{\` os documentos de ${c.nomeExibicao}\`}</span></ConfirmarBotao></form>`.
 
 - [ ] **Step 8: Guia `documentos`** (antes do `prontuario` em `GUIAS`)
 
@@ -3087,10 +3359,10 @@ e `documento` no objeto devolvido. `scripts/e2e-seed.ts`: o consultório da nutr
 
 - [ ] **Step 10: Rodar e commit**
 
-Run: `pnpm test src/modules/ajuda src/app/painel src/app/admin src/modules/agenda/inicio.test.ts && pnpm typecheck && pnpm lint` → PASS.
+Run: `pnpm test src/modules/ajuda src/app/painel src/app/admin src/modules/agenda/inicio.test.ts src/modules/documentos/documentos.test.ts && pnpm typecheck && pnpm lint` → PASS.
 
 ```bash
-git add src/app/painel/pacientes/[id] src/app/painel/page.tsx src/modules/agenda/inicio.ts src/modules/plataforma/contas.ts src/app/admin src/modules/documentos/documentos.ts src/modules/ajuda e2e/painel-rotas.ts e2e/painel.ts scripts/e2e-seed.ts
+git add src/app/painel/pacientes/[id] src/app/painel/page.tsx src/modules/agenda/inicio.ts src/modules/plataforma/contas.ts src/app/admin src/modules/documentos/{documentos,documentos.test}.ts src/modules/ajuda e2e/painel-rotas.ts e2e/painel.ts scripts/e2e-seed.ts
 git commit -m "feat(documentos): aba Documentos, editor da receita, preparo, cartão do Início, liberação pelo admin e guia (US-142, US-143, P-B8, D18, D20)"
 ```
 
@@ -3104,11 +3376,12 @@ git commit -m "feat(documentos): aba Documentos, editor da receita, preparo, car
 - Modify: `src/worker/index.ts`, `src/modules/documentos/documentos.ts` (`caminhoDoPdfNoPainel`), `src/modules/pacientes/exportacao.test.ts` (guarda de grafo)
 
 **Interfaces:**
-- Consumes: `signedDocuments` (T1); `lerDocumentoNaTransacao`, `ConteudoReceita`, `descreverItem`, `formatarCodigo` (T5); `AREA_ASSINATURA` (T1); `salvarArquivo`, `apagarArquivo`, `resolverCaminho`, `CotaEsgotadaError`; `buscarTenant`, `tenantIsActive`, `listarTenantsParaVarredura`; `paraWinAnsi`; `QRCode` (`qrcode`); `urlDoApp`.
+- Consumes: `signedDocuments` (T1); `lerDocumentoNaTransacao`, `ConteudoReceita`, `descreverItem`, `formatarCodigo`, `soltarArquivosDoPreparo` (T5); `AREA_ASSINATURA`, `EMITIDOS` (T1); `codigoAleatorio` (`test/documentos.ts`, T1); `salvarArquivo`, `apagarArquivo`, `resolverCaminho`, `CotaEsgotadaError`; `buscarTenant`, `tenantIsActive`, `listarTenantsParaVarredura`; `paraWinAnsi`; `QRCode` (`qrcode`); `urlDoApp`.
 - Produces:
   - `renderizarDocumento(d: DadosPdfDocumento): Promise<Buffer>`; `DadosPdfDocumento = { conteudo: ConteudoReceita; codigo: string; urlVerificacao: string; data: string; cor: string; logo: Buffer | null; nomeConsultorio: string }`.
   - `gerarPdfDoDocumento(data: { tenantId: string; documentoId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean; renderizar?: typeof renderizarDocumento }): Promise<'pronto' | 'ignorado' | 'falhou'>`.
-  - `expirarPdfsDeDocumentoPendentes(db: Db, now: Date): Promise<number>` (também a digitalização `recebendo`/`pendente` com `digitalizacao_em` de mais de 1 h → `falhou`, D24); `limparArquivosOrfaosDeDocumentos(db: Db, now: Date, dataDir: string): Promise<number>`.
+  - `expirarPdfsDeDocumentoPendentes(db: Db, now: Date, o?: { tenantId?: string }): Promise<number>` (também a digitalização `recebendo`/`pendente` com `digitalizacao_em` de mais de 1 h → `falhou`, D24); `limparArquivosOrfaosDeDocumentos(db: Db, now: Date, dataDir: string, o?: { tenantId?: string }): Promise<number>` (também o que a assinatura deixou apontado, por `soltarArquivosDoPreparo`). `o.tenantId` restringe a varredura a um tenant — só os testes passam (o banco de teste é compartilhado: uma varredura de todos os tenants mexeria nos documentos de outros testes).
+  - `gerarPdfDoDocumento` amarra o `registrar` e o `marcarFalhou` à versão lida (`codigo`): o job de uma versão descartada por "Voltar a editar" + novo preparo não grava o base nem marca "falhou" na versão nova.
   - `caminhoDoPdfNoPainel(ctx, docId, qual: 'base' | 'assinado', db?): Promise<string | null>` (com `auditRead`).
   - Rota `GET /api/painel/documentos/[id]/pdf` (`?estado=1` → JSON sem auditoria; `?base=1` → 303 para o PDF preparado; sem parâmetro → 303 para o assinado).
 
@@ -3122,6 +3395,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
+import { codigoAleatorio } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -3139,18 +3413,27 @@ const conteudo = {
   copia: { profissional: { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'debby@consultorio.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false }, paciente: { nome: 'Ana Souza' } },
 };
 
+/** O código é UNIQUE no banco inteiro: cada documento do teste ganha um aleatório (um fixo colidiria no 2º emPreparo). */
 async function emPreparo() {
   const T = await novoTenant(app.db);
   const p = await novoPaciente(app.db, T.ctx);
   const id = randomUUID();
+  const codigo = codigoAleatorio();
   await withTenant(T.ctx, (tx) => tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, status, codigo, conteudo, declaracao_em, pdf_status, pdf_pedido_em)
-    values (${id}, ${T.tenantId}, ${p.id}, 'preparando', 'ABCDEFGHJKMN', ${JSON.stringify(conteudo)}::jsonb, now(), 'pendente', now())`), app.db);
-  return { T, p, id };
+    values (${id}, ${T.tenantId}, ${p.id}, 'preparando', ${codigo}, ${JSON.stringify(conteudo)}::jsonb, now(), 'pendente', now())`), app.db);
+  return { T, p, id, codigo };
 }
+
+/** "Voltar a editar" + novo preparo noutra aba, direto no banco (o caminho que o gatilho aceita): outro código, PDF pendente. */
+const novoPreparo = (T: Awaited<ReturnType<typeof emPreparo>>['T'], id: string) =>
+  withTenant(T.ctx, async (tx) => {
+    await tx.execute(sql`update signed_documents set status = 'rascunho', codigo = null, declaracao_em = null, pdf_status = null, pdf_pedido_em = null where id = ${id}`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigoAleatorio()}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${id}`);
+  }, app.db);
 
 describe('PDF preparado (US-143)', () => {
   it('gera o PDF com o código, o QR e o quadro; grava SHA-256, bytes e área; leva a "Aguardando assinatura"', async () => {
-    const { T, id } = await emPreparo();
+    const { T, id, codigo } = await emPreparo();
     const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));
     let recebido: DadosPdfDocumento | undefined;
     const r = await gerarPdfDoDocumento({ tenantId: T.tenantId, documentoId: id }, {
@@ -3158,7 +3441,7 @@ describe('PDF preparado (US-143)', () => {
       renderizar: async (d) => ((recebido = d), renderizarDocumento(d)),
     });
     expect(r).toBe('pronto');
-    expect(recebido).toMatchObject({ codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://nutri.exemplo.com/v/ABCDEFGHJKMN' });
+    expect(recebido).toMatchObject({ codigo, urlVerificacao: `https://nutri.exemplo.com/v/${codigo}` });
     const [d] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select status, pdf_status, base_pdf_path, base_pdf_sha256, base_pdf_bytes, area_assinatura from signed_documents where id = ${id}`), app.db)).rows as Record<string, unknown>[];
     expect(d).toMatchObject({ status: 'aguardando_assinatura', pdf_status: 'pronto', area_assinatura: AREA_ASSINATURA });
     const arquivo = await readFile(path.join(dataDir, String(d.base_pdf_path)));
@@ -3189,15 +3472,42 @@ describe('PDF preparado (US-143)', () => {
     expect(await gerarPdfDoDocumento({ tenantId: outro.T.tenantId, documentoId: outro.id }, { db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('ignorado');
   });
 
-  it('expira o pendente esquecido (> 1 h) e apaga PDF base sem referência (> 1 h)', async () => {
+  it('versão lida: "Voltar a editar" + novo preparo no meio → o job velho não grava o base na versão nova nem a marca como "falhou"', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));
+    const estado = async (T: Awaited<ReturnType<typeof emPreparo>>['T'], id: string) =>
+      (await withTenant(T.ctx, (tx) => tx.execute(sql`select status, pdf_status, codigo, base_pdf_path from signed_documents where id = ${id}`), app.db)).rows[0] as Record<string, unknown>;
+    const a = await emPreparo();
+    expect(await gerarPdfDoDocumento({ tenantId: a.T.tenantId, documentoId: a.id }, {
+      db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: false,
+      renderizar: async (d) => (await novoPreparo(a.T, a.id), renderizarDocumento(d)), // o PDF sai com o código VELHO
+    })).toBe('ignorado');
+    const da = await estado(a.T, a.id);
+    expect(da).toMatchObject({ status: 'preparando', pdf_status: 'pendente', base_pdf_path: null });
+    expect(da.codigo).not.toBe(a.codigo);
+    const bases = await withTenant(a.T.ctx, (tx) => tx.execute(sql`select 1 from stored_files where tipo = 'documento_base'`), app.db);
+    expect(bases.rows).toEqual([]); // o salvarArquivo desfez a reserva e o arquivo
+    // a última tentativa do job velho falha DEPOIS do novo preparo: o marcarFalhou não casa com a versão nova
+    const b = await emPreparo();
+    expect(await gerarPdfDoDocumento({ tenantId: b.T.tenantId, documentoId: b.id }, {
+      db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: true,
+      renderizar: async () => {
+        await novoPreparo(b.T, b.id);
+        throw new Error('falha de render');
+      },
+    })).toBe('falhou');
+    expect(await estado(b.T, b.id)).toMatchObject({ status: 'preparando', pdf_status: 'pendente' });
+  });
+
+  it('expira o pendente esquecido (> 1 h) e apaga PDF base sem referência (> 1 h) — varredura só no tenant do teste', async () => {
     const { T, p, id } = await emPreparo();
     const agora = new Date(Date.now() + 2 * 3600_000);
-    expect(await expirarPdfsDeDocumentoPendentes(app.db, agora)).toBeGreaterThanOrEqual(1);
+    // { tenantId }: o banco de teste é compartilhado — varrer todos os tenants com o relógio + 2 h mexeria nos outros testes
+    expect(await expirarPdfsDeDocumentoPendentes(app.db, agora, { tenantId: T.tenantId })).toBe(1);
     const [d] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select pdf_status from signed_documents where id = ${id}`), app.db)).rows;
     expect(d.pdf_status).toBe('falhou');
     const orfao = `${T.tenantId}/documento_base/${randomUUID()}.pdf`;
     await withTenant(T.ctx, (tx) => tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id, created_at) values (${T.tenantId}, 'documento_base', ${orfao}, 10, 'application/pdf', ${p.id}, now() - interval '2 hours')`), app.db);
-    expect(await limparArquivosOrfaosDeDocumentos(app.db, new Date(), '/tmp')).toBeGreaterThanOrEqual(1);
+    expect(await limparArquivosOrfaosDeDocumentos(app.db, new Date(), '/tmp', { tenantId: T.tenantId })).toBe(1);
     const sobrou = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from stored_files where caminho = ${orfao}`), app.db);
     expect(sobrou.rows).toEqual([]);
   });
@@ -3286,7 +3596,7 @@ export async function renderizarDocumento(d: DadosPdfDocumento): Promise<Buffer>
 ```ts
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { patients, signedDocuments, storedFiles } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -3296,7 +3606,8 @@ import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { COR_PADRAO } from '@/modules/plataforma/marca-constantes';
 import { buscarTenant, listarTenantsParaVarredura, tenantIsActive } from '@/modules/plataforma/tenant-status';
-import { AREA_ASSINATURA } from './constantes';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
+import { AREA_ASSINATURA, EMITIDOS } from './constantes';
 import { renderizarDocumento } from './documento-pdf';
 import type { ConteudoReceita } from './prescricao';
 
@@ -3309,22 +3620,26 @@ class TitularComExclusaoError extends Error {}
  * US-143: lê o documento em preparo (a cópia congelada, RN-154), gera o PDF com a marca, o carimbo, o quadro "Assinatura
  * digital" e o código/QR (RN-142), e grava o base (SHA-256 e bytes: o prefixo da RN-144 (2)) no `registrar` do
  * salvarArquivo, levando a "Aguardando assinatura". Idempotente (só com pdf_status pendente). Ordem: paciente → tenant → documento.
+ * Versão lida (correção do /code-review high do PR #18): o `registrar` e o `marcarFalhou` casam id + "preparando" +
+ * "pendente" + o CÓDIGO lido — "Voltar a editar" + novo preparo noutra aba troca o código, e o job velho (o PDF com o
+ * código e o conteúdo antigos) não grava o base na versão nova nem a marca como "falhou".
  */
 export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId: string }, deps: DepsJobDocumento): Promise<'pronto' | 'ignorado' | 'falhou'> {
   const { db } = deps;
   const now = deps.now ?? new Date();
   const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
-  const marcarFalhou = (pdfStatus: 'falhou' | 'sem_cota' = 'falhou') =>
-    withTenant(ctx, (tx) => tx.update(signedDocuments).set({ pdfStatus, updatedAt: now }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'preparando'), eq(signedDocuments.pdfStatus, 'pendente'))), db);
-  if (!(await tenantIsActive(db, data.tenantId))) {
-    await marcarFalhou();
-    return 'ignorado';
-  }
   const lido = await withTenant(ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'preparando'), eq(signedDocuments.pdfStatus, 'pendente')));
     return d ?? null;
   }, db);
   if (!lido || !lido.codigo) return 'ignorado';
+  const daVersao = and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'preparando'), eq(signedDocuments.pdfStatus, 'pendente'), eq(signedDocuments.codigo, lido.codigo));
+  const marcarFalhou = (pdfStatus: 'falhou' | 'sem_cota' = 'falhou') =>
+    withTenant(ctx, (tx) => tx.update(signedDocuments).set({ pdfStatus, updatedAt: now }).where(daVersao), db);
+  if (!(await tenantIsActive(db, data.tenantId))) {
+    await marcarFalhou();
+    return 'ignorado';
+  }
   try {
     const tenant = (await buscarTenant(db, data.tenantId))!;
     const logo = tenant.logoPath ? await readFile(resolverCaminho(deps.dataDir, tenant.logoPath)).catch(() => null) : null;
@@ -3354,9 +3669,9 @@ export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId:
           const r = await tx
             .update(signedDocuments)
             .set({ status: 'aguardando_assinatura', pdfStatus: 'pronto', basePdfPath: arq.caminho, basePdfSha256: sha, basePdfBytes: pdf.length, areaAssinatura: AREA_ASSINATURA })
-            .where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'preparando'), eq(signedDocuments.pdfStatus, 'pendente')))
+            .where(daVersao)
             .returning({ id: signedDocuments.id });
-          if (!r.length) throw new JaProntoError();
+          if (!r.length) throw new JaProntoError(); // já pronto, ou outra versão (outro código) no meio
         },
       },
       { db, dataDir: deps.dataDir },
@@ -3379,15 +3694,18 @@ export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId:
 
 export const PDF_DOCUMENTO_PENDENTE_MAX_MS = 3600_000;
 
+/** `o.tenantId`: só os testes (banco compartilhado: varrer todos os tenants com o relógio adiantado mexeria nos documentos de outros testes). */
+const tenantsDaVarredura = async (db: Db, o: { tenantId?: string }) => (o.tenantId ? [{ id: o.tenantId }] : await listarTenantsParaVarredura(db));
+
 /**
  * Rede de segurança do "Preparando o PDF…" (como expirarPdfsPendentes do plano) e da digitalização (D24, Minor da revisão
  * de cobertura): "recebendo" ou "pendente" com mais de 1 h viram "falhou" (a tela oferece enviar as fotos de novo; o
  * job atrasado que chegar depois não casa mais). Um tenant com erro não para os outros.
  */
-export async function expirarPdfsDeDocumentoPendentes(db: Db, now: Date): Promise<number> {
+export async function expirarPdfsDeDocumentoPendentes(db: Db, now: Date, o: { tenantId?: string } = {}): Promise<number> {
   const limite = new Date(now.getTime() - PDF_DOCUMENTO_PENDENTE_MAX_MS);
   let n = 0;
-  for (const t of await listarTenantsParaVarredura(db)) {
+  for (const t of await tenantsDaVarredura(db, o)) {
     try {
       const r = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) =>
         tx.update(signedDocuments).set({ pdfStatus: 'falhou', updatedAt: now })
@@ -3406,14 +3724,14 @@ export async function expirarPdfsDeDocumentoPendentes(db: Db, now: Date): Promis
 }
 
 /**
- * RN-140 (b) e RN-157: o PDF base que sobrou (o apagarArquivo depois da assinatura falhou) e as fotos da digitalizada sem
- * documento que aponte para elas, com mais de 1 h, saem do disco e da cota. A referência é conferida de novo dentro da
- * transação do apagar (naMesmaTransacao).
+ * RN-140 (b) e RN-157: (1) o PDF base e as fotos da digitalizada sem documento que aponte para eles, com mais de 1 h, saem
+ * do disco e da cota (a referência é conferida de novo no naMesmaTransacao); (2) regra 9: o que a assinatura deixou
+ * apontado num documento emitido (o soltarArquivosDoPreparo logo depois dela falhou) sai pelo mesmo soltarArquivosDoPreparo.
  */
-export async function limparArquivosOrfaosDeDocumentos(db: Db, now: Date, dataDir: string): Promise<number> {
+export async function limparArquivosOrfaosDeDocumentos(db: Db, now: Date, dataDir: string, o: { tenantId?: string } = {}): Promise<number> {
   const limite = new Date(now.getTime() - PDF_DOCUMENTO_PENDENTE_MAX_MS);
   let n = 0;
-  for (const t of await listarTenantsParaVarredura(db)) {
+  for (const t of await tenantsDaVarredura(db, o)) {
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
     const semReferencia = sql`not exists (select 1 from signed_documents d where d.tenant_id = ${storedFiles.tenantId} and (d.base_pdf_path = ${storedFiles.caminho} or d.digitalizacao ? ${storedFiles.caminho}))`;
     try {
@@ -3427,6 +3745,10 @@ export async function limparArquivosOrfaosDeDocumentos(db: Db, now: Date, dataDi
         });
         if (ok) n++;
       }
+      const sobras = await withTenant(ctx, (tx) =>
+        tx.select({ id: signedDocuments.id }).from(signedDocuments)
+          .where(and(inArray(signedDocuments.status, [...EMITIDOS]), or(isNotNull(signedDocuments.basePdfPath), isNotNull(signedDocuments.digitalizacao)))), db);
+      for (const s of sobras) n += await soltarArquivosDoPreparo(ctx, s.id, EMITIDOS, { db, dataDir });
     } catch (err) {
       logger.error({ err: err instanceof Error ? err.name : 'erro', tenantId: t.id }, 'falha ao limpar arquivos órfãos de documentos');
     }
@@ -3510,9 +3832,9 @@ git commit -m "feat(documentos): PDF preparado no worker com carimbo, quadro de 
 ```
 
 ---
-### Task 8: Assinatura no banco — `registrarAssinatura` (versão lida, base solto, verificação pública) sem dependência de sessão (RN-140 b, RN-143, RN-156 parte de escrita; P10A-08; parte comum da antiga T10)
+### Task 8: Assinatura no banco — `registrarAssinatura` (versão lida, verificação pública; base e fotos soltos depois, um a um) sem dependência de sessão (RN-140 b, RN-143, RN-156 parte de escrita; P10A-08; parte comum da antiga T10)
 
-> Da antiga Tarefa 10 (envio do PDF assinado), ficou aqui tudo o que é **comum às duas formas de assinar**: a ida a "assinado" amarrada à versão lida, o base solto no mesmo UPDATE, a linha da verificação pública, a conferência da habilitação no momento de assinar e os ajudantes de teste. A entrega (portal, link, `entregue_em`) entra no fim de `registrarAssinatura` na T10; a auditoria das escritas é do gatilho (`app_enable_audit`, T1) e a da tentativa com código recusado é da T9. O que é do certificado (upload do PDF assinado, conferência, primeiro certificado com 2FA, CPF e troca do CPF do consultório, liberação de cada assinador pelo spike) está no **Plano 10B, Tarefas 3 e 5**.
+> Da antiga Tarefa 10 (envio do PDF assinado), ficou aqui tudo o que é **comum às duas formas de assinar**: a ida a "assinado" amarrada à versão lida (o base e as fotos continuam apontados e saem depois, cada um no seu `apagarArquivo`, por `soltarArquivosDoPreparo` — regra 9, desvio da RN-140 (b) registrado), a linha da verificação pública, a conferência da habilitação no momento de assinar e os ajudantes de teste. A entrega (portal, link, `entregue_em`) entra no fim de `registrarAssinatura` na T10; a auditoria das escritas é do gatilho (`app_enable_audit`, T1) e a da tentativa com código recusado é da T9. O que é do certificado (upload do PDF assinado, conferência, primeiro certificado com 2FA, CPF e troca do CPF do consultório, liberação de cada assinador pelo spike) está no **Plano 10B, Tarefas 3 e 5**.
 >
 > **Minor da revisão de cobertura aplicado (D23):** `registrarAssinatura` mora em `registrar-assinatura.ts`, que não importa nada de sessão (`@/lib/auth`, `confirmar-2fa`, `next/*`), nem pelos imports dos imports (`grafoDeImports` de `test/grafo-de-imports.ts`, o mesmo da guarda de `exportacao.test.ts`). No plano único ela ficava no arquivo do envio do PDF assinado, e o `digitalizada-job.ts` (worker) puxava o Better Auth com `nextCookies` para dentro do worker.
 
@@ -3531,7 +3853,7 @@ git commit -m "feat(documentos): PDF preparado no worker com carimbo, quadro de 
     - `type AssinaturaAceita = { documentoId; codigo; patientId; tenantId; caminho; sha256; tipo: TipoAssinatura; emissor: string | null; assinanteNome: string | null; userId; agora: Date; copia: CopiaProfissional; base: string | null; versao: VersaoLida }` (a T10 acrescenta `appUrl: string`)
     - `registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<void>` — lança `TransicaoInvalidaError` se a versão lida não é mais a do banco
     - `exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegistro'>, conteudo: ConteudoReceita): void` — lança `RecusaAssinaturaError('sem_habilitacao')` (Minor 9 da revisão de segurança)
-  - `test/documentos.ts`: `pdfDeTeste(texto?: string): Buffer`, `novoConsultorio(db)`, `type Consultorio`, `outroDocumento(c, db, o?: { base?: Buffer; conteudo?: object })`, `novoPreparoNoBanco(x, db)`.
+  - `test/documentos.ts`: `pdfDeTeste(texto?: string): Buffer`, `novoConsultorio(db)`, `type Consultorio`, `outroDocumento(c, db, o?: { base?: Buffer; conteudo?: object })`, `novoPreparoNoBanco(x, db)`, `liberarDocumentos(db, tenantId)` (D20 ligado — os testes do portal e do link, T11, T12 e T15, que usam `novoTenant`).
 
 - [ ] **Step 1: Ajudantes de teste** — acrescentar a `test/documentos.ts`
 
@@ -3547,6 +3869,9 @@ git commit -m "feat(documentos): PDF preparado no worker com carimbo, quadro de 
 export function pdfDeTeste(texto = 'base de teste'): Buffer {
   return Buffer.from(`%PDF-1.3\n% ${texto}\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1');
 }
+
+/** D20: liga o interruptor do admin (o `novoTenant` nasce com `documentos_liberados = false`, como em produção). */
+export const liberarDocumentos = (db: Db, tenantId: string) => db.update(tenants).set({ documentosLiberados: true }).where(eq(tenants.id, tenantId));
 
 /** Consultório completo (perfil e documentos liberados) e a pasta de dados do teste. */
 export async function novoConsultorio(db: Db) {
@@ -3605,14 +3930,20 @@ export async function novoPreparoNoBanco(x: Awaited<ReturnType<typeof outroDocum
 
 ```ts
 import { readFileSync } from 'node:fs';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { sql } from 'drizzle-orm';
+import sharp from 'sharp';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConsultorio, novoPreparoNoBanco, outroDocumento, pdfDeTeste } from '../../../test/documentos';
 import { caminhoAte, grafoDeImports } from '../../../test/grafo-de-imports';
+import { signedDocuments } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
+import { EMITIDOS } from './constantes';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import { exigirHabilitacaoAtual, registrarAssinatura, type VersaoLida } from './registrar-assinatura';
 
@@ -3634,13 +3965,34 @@ async function assinarNoBanco(x: Awaited<ReturnType<typeof outroDocumento>>, ver
 }
 
 describe('registrarAssinatura (RN-140 b, RN-143, RN-156)', () => {
-  it('leva a "assinado" com o base solto no MESMO UPDATE e grava a verificação "valido" com o emissor da cópia, sem "Assinado por"', async () => {
+  it('leva a "assinado" e grava a verificação "valido" com o emissor da cópia, sem "Assinado por"; o base continua apontado até o próprio apagar (regra 9)', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
     const pdf = await assinarNoBanco(x, { codigo: x.codigo, baseSha256: x.baseSha256 });
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, pdf_sha256, base_pdf_path, assinatura_tipo, assinante_nome from signed_documents where id = ${x.id}`), app.db)).rows;
-    expect(d).toEqual({ status: 'assinado', pdf_sha256: createHash('sha256').update(pdf).digest('hex'), base_pdf_path: null, assinatura_tipo: 'digitalizada', assinante_nome: null });
+    expect(d).toEqual({ status: 'assinado', pdf_sha256: createHash('sha256').update(pdf).digest('hex'), base_pdf_path: x.base, assinatura_tipo: 'digitalizada', assinante_nome: null });
     const v = (await app.db.execute(sql`select situacao, pdf_sha256, emissor_nome, emissor_crn, assinante_nome from document_verifications where codigo = ${x.codigo}`)).rows[0];
     expect(v).toEqual({ situacao: 'valido', pdf_sha256: d.pdf_sha256, emissor_nome: 'Débora Silva Santos', emissor_crn: 'CRN-3 12345', assinante_nome: null });
+  });
+
+  it('regra 9: soltarArquivosDoPreparo apaga o base e as fotos do documento emitido, cada um com o ponteiro no naMesmaTransacao do próprio apagar; antes de emitido, nada sai', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const jpeg = await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    const foto = await salvarArquivo(x.T.ctx, {
+      tipo: 'documento_digitalizado', conteudo: jpeg, permitidos: ['jpg'], patientId: x.p.id,
+      registrar: async (tx, arq) => {
+        await tx.update(signedDocuments).set({ digitalizacao: [arq.caminho], digitalizacaoStatus: 'pendente', digitalizacaoEm: new Date() }).where(eq(signedDocuments.id, x.id));
+      },
+    }, { db: app.db, dataDir: x.dataDir });
+    const soltar = () => soltarArquivosDoPreparo(x.T.ctx, x.id, EMITIDOS, { db: app.db, dataDir: x.dataDir });
+    expect(await soltar()).toBe(0); // ainda "aguardando_assinatura": nada sai
+    await assinarNoBanco(x, { codigo: x.codigo, digitalizacaoPendente: true });
+    expect(await soltar()).toBe(2);
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, base_pdf_path, digitalizacao from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ status: 'assinado', base_pdf_path: null, digitalizacao: null });
+    const sobra = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select tipo from stored_files where caminho in (${x.base}, ${foto.caminho})`), app.db);
+    expect(sobra.rows).toEqual([]);
+    for (const c of [x.base, foto.caminho]) await expect(access(path.join(x.dataDir, c))).rejects.toThrow();
+    expect(await soltar()).toBe(0); // idempotente
   });
 
   it('versão lida: "Voltar a editar" + novo preparo no meio → TransicaoInvalidaError e nada muda (nem arquivo, nem verificação)', async () => {
@@ -3772,7 +4124,12 @@ export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegis
   if (!tenant.fitoterapiaRegistro && conteudo.itens.some((i) => i.tipo === 'fitoterapico')) throw new RecusaAssinaturaError('sem_habilitacao', 'habilitacao_retirada');
 }
 
-/** RN-140 (b): a ida a "assinado" com o base solto NO MESMO UPDATE e a verificação pública — na transação do arquivo. A T10 acrescenta a entrega. */
+/**
+ * RN-140 (b): a ida a "assinado" e a verificação pública — na transação do arquivo (o `registrar` do salvarArquivo do PDF
+ * final). Regra 9 (desvio registrado da RN-140 b): `base_pdf_path` e `digitalizacao` NÃO mudam aqui; quem chama, depois do
+ * salvarArquivo, solta cada arquivo no seu apagarArquivo com `soltarArquivosDoPreparo(ctx, id, EMITIDOS)` (T9; o envio do
+ * PDF assinado do Plano 10B faz o mesmo), e a varredura da T7 repete o que falhar. A T10 acrescenta a entrega.
+ */
 export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<void> {
   const daVersao = 'baseSha256' in a.versao
     ? eq(signedDocuments.basePdfSha256, a.versao.baseSha256)
@@ -3781,8 +4138,8 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
     .update(signedDocuments)
     .set({
       status: 'assinado', pdfPath: a.caminho, pdfSha256: a.sha256, assinaturaTipo: a.tipo, assinaturaEmissor: a.emissor?.slice(0, 200) ?? null,
-      assinanteNome: a.assinanteNome?.slice(0, 200) ?? null, assinadoEm: a.agora, assinadoPor: a.userId, basePdfPath: null,
-      digitalizacao: null, digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: a.agora,
+      assinanteNome: a.assinanteNome?.slice(0, 200) ?? null, assinadoEm: a.agora, assinadoPor: a.userId,
+      digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: a.agora,
     })
     .where(and(eq(signedDocuments.id, a.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, a.versao.codigo), daVersao))
     .returning({ id: signedDocuments.id });
@@ -3796,7 +4153,7 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
 
 > `entregue_em` **não** é gravado aqui: a T10 o grava só quando `entregarDocumento` entrega de fato (portal ou link) — Minor da revisão de cobertura (paciente arquivado aparecia como "Enviado em … · ainda não aberto").
 
-Run: `pnpm test src/modules/documentos/registrar-assinatura.test.ts src/modules/documentos/verificacao.test.ts` → PASS.
+Run: `pnpm test src/modules/documentos/registrar-assinatura.test.ts src/modules/documentos/verificacao.test.ts` → PASS (o caso "regra 9" usa o `soltarArquivosDoPreparo` da T5).
 
 - [ ] **Step 5: Commit**
 
@@ -3815,10 +4172,10 @@ git commit -m "feat(documentos): assinatura no banco amarrada à versão lida e 
 - Modify: `src/worker/index.ts`, `src/modules/documentos/constantes.ts` (`MAX_PIXELS_FOTO = 40_000_000`, como o diário e a capa: acima disto, recusa pelo cabeçalho, sem decodificar; `DIGITALIZACAO_MAX_MS = 3_600_000`), a página do documento (cartão "Aguardando assinatura" e o estado "Montando o PDF digitalizado…")
 
 **Interfaces:**
-- Consumes: `registrarAssinatura`, `AssinaturaAceita`, `VersaoLida`, `AcessoAssinatura`, `DepsAssinar`, `exigirHabilitacaoAtual` (T8, `registrar-assinatura.ts`); `novoConsultorio`, `outroDocumento`, `novoPreparoNoBanco` (T8, testes); `expirarPdfsDeDocumentoPendentes` (T7, teste); `confirmarCodigo2fa` (T4); `salvarArquivo`, `apagarArquivo`; `detectarTipo`; `sharp` e `paraJpegSemMetadados` (`src/lib/jpeg.ts`, Planos 06–07); `formatarCodigo`, `AREA_ASSINATURA`; `getBoss`, `fromDrizzle`; `recordAudit`.
+- Consumes: `registrarAssinatura`, `AssinaturaAceita`, `VersaoLida`, `AcessoAssinatura`, `DepsAssinar`, `exigirHabilitacaoAtual` (T8, `registrar-assinatura.ts`); `novoConsultorio`, `outroDocumento`, `novoPreparoNoBanco` (T8, testes); `expirarPdfsDeDocumentoPendentes` (T7, teste); `soltarArquivosDoPreparo` (T5); `confirmarCodigo2fa` (T4); `salvarArquivo`, `apagarArquivo`; `detectarTipo`; `sharp` e `paraJpegSemMetadados` (`src/lib/jpeg.ts`, Planos 06–07); `formatarCodigo`, `AREA_ASSINATURA`; `getBoss`, `fromDrizzle`; `recordAudit`.
 - Produces:
   - `receberDigitalizada(a: AcessoAssinatura, docId: string, imagens: Buffer[], codigo2fa: unknown, deps: DepsAssinar & { boss?: PgBoss }): Promise<void>` (lança `RecusaAssinaturaError` com `imagens`, `sem_2fa`, `codigo_2fa`, `tentativas_2fa`, `sem_habilitacao`; `TransicaoInvalidaError` com outro envio em curso ou outra versão); `MSG_DIGITALIZADA = { aviso, fotos, montando, falhou }`.
-  - `montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean }): Promise<'pronto' | 'ignorado' | 'falhou'>`; `renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer>` (as páginas chegam já normalizadas: JPEG sem metadados, orientação aplicada, até 3508 px).
+  - `montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean; renderizar?: typeof renderizarDigitalizada }): Promise<'pronto' | 'ignorado' | 'falhou'>` (o `marcarFalhou` casa a versão lida: id + "pendente" + código; depois da assinatura, `soltarArquivosDoPreparo`); `renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer>` (as páginas chegam já normalizadas: JPEG sem metadados, orientação aplicada, até 3508 px).
 
 - [ ] **Step 1: Testes (falham)** — `digitalizada.test.ts` e `digitalizada-job.test.ts`
 
@@ -3911,7 +4268,8 @@ describe('digitalizada (RN-157, D4)', () => {
   it('D24: "recebendo" ou "pendente" esquecido há mais de 1 h vira "falhou" na varredura e libera um envio novo', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
     await withTenant(x.T.ctx, (tx) => tx.execute(sql`update signed_documents set digitalizacao_status = 'recebendo', digitalizacao_em = now() - interval '2 hours' where id = ${x.id}`), app.db);
-    expect(await expirarPdfsDeDocumentoPendentes(app.db, new Date())).toBeGreaterThanOrEqual(1);
+    // só o tenant do teste: o banco é compartilhado (a varredura de todos expiraria envios "recebendo" de outros testes)
+    expect(await expirarPdfsDeDocumentoPendentes(app.db, new Date(), { tenantId: x.T.tenantId })).toBe(1);
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
     expect(d.digitalizacao_status).toBe('falhou');
     await receberDigitalizada(x.acesso, x.id, [await png()], '123456', deps(x.dataDir)); // "Envie as fotos de novo"
@@ -3937,11 +4295,11 @@ import sharp from 'sharp';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { novoConsultorio, outroDocumento } from '../../../test/documentos';
+import { novoConsultorio, novoPreparoNoBanco, outroDocumento } from '../../../test/documentos';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { receberDigitalizada } from './digitalizada';
-import { montarPdfDigitalizado } from './digitalizada-job';
+import { montarPdfDigitalizado, renderizarDigitalizada } from './digitalizada-job';
 import { TransicaoInvalidaError } from './erros';
 import { registrarAssinatura } from './registrar-assinatura';
 
@@ -3982,6 +4340,25 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as { pdf_path: string }[];
     const arquivo = await readFile(path.join(x.dataDir, d.pdf_path));
     for (const marca of ['Exif', 'CelularTeste', 'Serie-XYZ-123']) expect(arquivo.includes(marca), marca).toBe(false); // o bloco APP1 inteiro (com o GPS) some
+  });
+
+  it('versão lida: "Voltar a editar" + novo preparo + envio novo enquanto o job velho monta → o job velho não assina nem marca "falhou" o envio novo', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const foto = await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    const receber = () => receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    await receber();
+    const r = await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, {
+      db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false,
+      renderizar: async (d) => {
+        await novoPreparoNoBanco(x, app.db); // outra aba: outro código, outro base
+        await receber(); // e um envio novo, "pendente" na versão nova
+        return renderizarDigitalizada(d);
+      },
+    });
+    expect(r).toBe('ignorado');
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, digitalizacao_status, codigo, pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as Record<string, string | null>[];
+    expect(d).toMatchObject({ status: 'aguardando_assinatura', digitalizacao_status: 'pendente', pdf_path: null }); // o envio novo continua de pé para o job dele
+    expect(d.codigo).not.toBe(x.codigo);
   });
 
   it('registrarAssinatura da digitalizada com a versão antiga (outro código) → TransicaoInvalidaError', async () => {
@@ -4126,9 +4503,10 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
-import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
-import { MAX_PIXELS_FOTO } from './constantes';
+import { EMITIDOS, MAX_PIXELS_FOTO } from './constantes';
 import { TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
 import { registrarAssinatura } from './registrar-assinatura';
@@ -4172,19 +4550,29 @@ async function normalizarPagina(dados: Buffer): Promise<{ dados: Buffer; formato
   }
 }
 
-/** RN-157: o PDF novo com as fotos e o rodapé; a ida a "assinado" (tipo digitalizada) no registrar; depois, fotos e base apagados. */
-export async function montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean }): Promise<'pronto' | 'ignorado' | 'falhou'> {
+/**
+ * RN-157: o PDF novo com as fotos e o rodapé; a ida a "assinado" (tipo digitalizada) no registrar; depois, regra 9: cada
+ * foto e o base no seu apagarArquivo, com o ponteiro no naMesmaTransacao (soltarArquivosDoPreparo). A versão lida (o código)
+ * amarra o registrar e o marcarFalhou (correção do /code-review high do PR #18): "Voltar a editar" + novo preparo + envio
+ * novo enquanto este job monta → a versão nova (outro código, também "pendente") não é assinada nem marcada "falhou".
+ */
+export async function montarPdfDigitalizado(
+  data: { tenantId: string; documentoId: string; userId: string },
+  deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean; renderizar?: typeof renderizarDigitalizada },
+): Promise<'pronto' | 'ignorado' | 'falhou'> {
   const { db } = deps;
   const agora = deps.now ?? new Date();
   const ctx: TenantContext = { tenantId: data.tenantId, role: 'worker' };
-  const marcarFalhou = () => withTenant(ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.digitalizacaoStatus, 'pendente'))), db);
   const d = await withTenant(ctx, async (tx) => (await tx.select().from(signedDocuments).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.digitalizacaoStatus, 'pendente'))))[0] ?? null, db);
   if (!d || !d.codigo || !d.digitalizacao?.length) return 'ignorado';
+  const codigo = d.codigo;
+  const marcarFalhou = () =>
+    withTenant(ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.digitalizacaoStatus, 'pendente'), eq(signedDocuments.codigo, codigo))), db);
   try {
     // uma por vez (não Promise.all): até 5 fotos de 40 MP decodificadas juntas pesariam no worker de todos
     const paginas: { dados: Buffer; formato: 'jpg' }[] = [];
     for (const c of d.digitalizacao) paginas.push(await normalizarPagina(await readFile(resolverCaminho(deps.dataDir, c))));
-    const pdf = await renderizarDigitalizada({ paginas, codigo: d.codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${d.codigo}`) });
+    const pdf = await (deps.renderizar ?? renderizarDigitalizada)({ paginas, codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${codigo}`) });
     const sha = createHash('sha256').update(pdf).digest('hex');
     const copia = (d.conteudo as ConteudoReceita).copia!.profissional;
     await salvarArquivo(ctx, {
@@ -4195,18 +4583,20 @@ export async function montarPdfDigitalizado(data: { tenantId: string; documentoI
       },
       registrar: async (tx, arq) => {
         await registrarAssinatura(tx, {
-          documentoId: d.id, codigo: d.codigo!, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',
+          documentoId: d.id, codigo, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',
           emissor: null, assinanteNome: null, userId: data.userId, agora, copia, base: d.basePdfPath,
-          versao: { codigo: d.codigo!, digitalizacaoPendente: true }, // a versão lida: mesmo código e ainda "pendente"
+          versao: { codigo, digitalizacaoPendente: true }, // a versão lida: mesmo código e ainda "pendente"
         });
       },
     }, { db, dataDir: deps.dataDir });
-    for (const c of [...d.digitalizacao, ...(d.basePdfPath ? [d.basePdfPath] : [])])
-      await apagarArquivo(ctx, { caminho: c }, { db, dataDir: deps.dataDir }).catch(() => logger.warn({ tenantId: data.tenantId, documentoId: d.id }, 'arquivo da digitalização não apagado (a varredura apaga)'));
+    // regra 9: os ponteiros ficaram na assinatura; cada foto e o base saem agora no SEU apagar (o que falhar, a varredura repete)
+    await soltarArquivosDoPreparo(ctx, d.id, EMITIDOS, { db, dataDir: deps.dataDir });
     return 'pronto';
   } catch (e) {
     if (e instanceof JaFeitoError || e instanceof TransicaoInvalidaError) {
-      await marcarFalhou(); // só casa se ainda "pendente"; numa versão nova (TransicaoInvalida), não muda nada
+      // casa só a versão lida (mesmo código) ainda "pendente": numa versão nova — outro código, mesmo que com um envio
+      // novo também "pendente" — não muda nada
+      await marcarFalhou();
       return 'ignorado';
     }
     if (e instanceof FotoInvalidaError || e instanceof CotaEsgotadaError || deps.ultimaTentativa) {
@@ -4705,35 +5095,52 @@ Em `registrar-assinatura.ts` (T8), `AssinaturaAceita` ganha `appUrl: string` e o
 Em `.../documentos/actions.ts`:
 
 ```ts
-export async function entreguePessoalmenteAction(patientId: string, docId: string): Promise<void> {
+// como as ações de botão da T6: o erro volta ao formulário (AcaoDocumento) e "Link reenviado." só sai quando deu certo
+export async function entreguePessoalmenteAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
   const { ctx } = await acesso(caminho(patientId, docId));
   try {
     await marcarEntreguePessoalmente(ctx, patientId, docId);
   } catch (e) {
-    comoEstado(e);
+    return comoEstado(e);
   }
   revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
 }
 
-export async function reenviarLinkAction(patientId: string, docId: string): Promise<void> {
+export async function reenviarLinkAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
   const { ctx } = await acesso(caminho(patientId, docId));
   try {
     await reenviarLink(ctx, patientId, docId);
   } catch (e) {
-    comoEstado(e);
+    return comoEstado(e);
   }
   redirect(`${caminho(patientId, docId)}?link=1`);
 }
 ```
 
-`entrega.tsx` (componente de servidor, dentro do cartão "Documento assinado"):
+Em `actions.test.ts` (T6), o import passa a trazer também `entreguePessoalmenteAction` e `reenviarLinkAction`, e entra o caso (o mock de `../actions` do `page.test.ts` da T6 ganha as duas):
+
+```ts
+  it('"Reenviar link" e "Entregue pessoalmente" fora do estado: o motivo, sem "Link reenviado." nem revalidar; no estado certo, o sinal', async () => {
+    const { N, p } = await consultorio(); // paciente ativo, sem conta, com e-mail
+    const rascunho = await documentoNoBanco(db, N.ctx, p.id);
+    expect(await reenviarLinkAction(p.id, rascunho.id, {})).toEqual(MUDOU);
+    expect(await entreguePessoalmenteAction(p.id, rascunho.id, {})).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    const assinado = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    await expect(reenviarLinkAction(p.id, assinado.id, {})).rejects.toThrow(`redirect /painel/pacientes/${p.id}/documentos/${assinado.id}?link=1`);
+    expect(await entreguePessoalmenteAction(p.id, assinado.id, {})).toEqual({ ok: true });
+  });
+```
+
+`entrega.tsx` (componente de servidor, dentro do cartão "Documento assinado", só com o documento não anonimizado):
 
 ```tsx
-import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
 import { MSG_ENTREGA, situacaoDaEntrega } from '@/modules/documentos/entrega';
 import type { DocumentoLido } from '@/modules/documentos/documentos';
 import { entreguePessoalmenteAction, reenviarLinkAction } from '../actions';
+import { AcaoDocumento } from './acao-documento';
 
 export function Entrega({ d, paciente, fuso, linkReenviado }: { d: DocumentoLido; paciente: { id: string; userId: string | null; status: string; email: string | null }; fuso: string; linkReenviado: boolean }) {
   const recebido = d.recibos.some((r) => r.evento === 'recebido');
@@ -4745,14 +5152,10 @@ export function Entrega({ d, paciente, fuso, linkReenviado }: { d: DocumentoLido
       {paciente.status === 'ativo' && !paciente.userId && <Aviso tipo="aviso">{MSG_ENTREGA.semPortal}</Aviso>}
       {linkReenviado && <Aviso tipo="ok" papel="status">{MSG_ENTREGA.linkReenviado}</Aviso>}
       {d.status === 'assinado' && !recebido && (
-        <form action={entreguePessoalmenteAction.bind(null, paciente.id, d.id)}>
-          <ConfirmarBotao mensagem="Marcar como entregue pessoalmente?">Entregue pessoalmente</ConfirmarBotao>
-        </form>
+        <AcaoDocumento acao={entreguePessoalmenteAction.bind(null, paciente.id, d.id)} rotulo="Entregue pessoalmente" confirmar="Marcar como entregue pessoalmente?" />
       )}
       {d.status === 'assinado' && paciente.status === 'ativo' && !paciente.userId && paciente.email && (
-        <form action={reenviarLinkAction.bind(null, paciente.id, d.id)}>
-          <ConfirmarBotao mensagem="Reenviar o link do documento para o e-mail do paciente?">Reenviar link por e-mail</ConfirmarBotao>
-        </form>
+        <AcaoDocumento acao={reenviarLinkAction.bind(null, paciente.id, d.id)} rotulo="Reenviar link por e-mail" confirmar="Reenviar o link do documento para o e-mail do paciente?" />
       )}
     </section>
   );
@@ -4763,7 +5166,7 @@ Na lista (T6), a coluna "Situação" passa a mostrar `situacaoDaEntrega(d, tenan
 
 - [ ] **Step 6: Rodar e commit**
 
-Run: `pnpm test src/modules/documentos src/db/sem-conta-guarda.test.ts src/email src/modules/notificacoes` → PASS.
+Run: `pnpm test src/modules/documentos src/db/sem-conta-guarda.test.ts src/email src/modules/notificacoes 'src/app/painel/pacientes/[id]/documentos'` → PASS.
 
 ```bash
 git add src/modules/documentos/{entrega,entrega.test,recebimento,link-documento,registrar-assinatura,registrar-assinatura.test,digitalizada-job,digitalizada-job.test}.ts* src/app/painel/pacientes/[id]/documentos src/email src/modules/notificacoes/mensagens.ts src/db/tenant.ts
@@ -4781,7 +5184,7 @@ git commit -m "feat(documentos): entrega pelo portal ou por link de uso único, 
 
 **Interfaces:**
 - Consumes: `registrarRecibo` (T10); `auditRead`; `EMITIDOS`; `TIPO_DOCUMENTO_ROTULO`; `requirePaciente`/`requireApiPaciente`; `signFileUrl`.
-- Produces: `documentosDoPaciente(ctx, db?): Promise<DocumentoNoPortal[]>` (sem `auditRead`), `DocumentoNoPortal = { id; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; assinaturaTipo: TipoAssinatura; aberto: boolean; recebidoEm: Date | null }` (a tela mostra `linhaDaAssinatura`, RN-157); `novosNoPortal(ctx, db?): Promise<number>`; `caminhoDoPdfNoPortal(ctx, docId, db?): Promise<string | null>` (`auditRead` + evento `aberto`); `confirmarRecebimentoNoPortal(ctx, docId, db?): Promise<Date | null>`; `MSG_PORTAL_DOC`.
+- Produces: `documentosDoPaciente(ctx, db?): Promise<DocumentoNoPortal[]>` (sem `auditRead`), `DocumentoNoPortal = { id; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; assinaturaTipo: TipoAssinatura; aberto: boolean; recebidoEm: Date | null }` (a tela mostra `linhaDaAssinatura`, RN-157); `novosNoPortal(ctx, db?): Promise<number>`; `caminhoDoPdfNoPortal(ctx, docId, db?): Promise<string | null>` (`auditRead` + evento `aberto`); `confirmarRecebimentoNoPortal(ctx, docId, db?): Promise<Date | null>`; `MSG_PORTAL_DOC`. Todas conferem o interruptor do admin (D20, `tenants.documentos_liberados`) junto com a situação do paciente: desligado, a lista vem vazia, nada é contado, nenhum PDF abre e nenhum recibo é gravado (correção do `/code-review high` do PR #18); a página e a rota do PDF também conferem.
 
 - [ ] **Step 1: Teste (falha)** — `src/modules/documentos/portal.test.ts`
 
@@ -4789,7 +5192,7 @@ git commit -m "feat(documentos): entrega pelo portal ou por link de uso único, 
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco } from '../../../test/documentos';
+import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
 import { linhaDaAssinatura } from './constantes';
@@ -4797,10 +5200,16 @@ import { caminhoDoPdfNoPortal, confirmarRecebimentoNoPortal, documentosDoPacient
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
+/** D20 ligado (o novoTenant nasce desligado, como em produção). */
+const consultorioLiberado = async () => {
+  const T = await novoTenant(app.db);
+  await liberarDocumentos(app.db, T.tenantId);
+  return T;
+};
 
 describe('documentos no portal (US-146)', () => {
   it('só os emitidos do próprio paciente, do mais novo para o mais antigo; a lista não audita', async () => {
-    const T = await novoTenant(app.db);
+    const T = await consultorioLiberado();
     const p = await novoPaciente(app.db, T.ctx);
     const outro = await novoPaciente(app.db, T.ctx);
     await documentoNoBanco(app.db, T.ctx, p.id);
@@ -4810,13 +5219,28 @@ describe('documentos no portal (US-146)', () => {
     const ctx = ctxPaciente(T.tenantId, p.id);
     const lista = await documentosDoPaciente(ctx, app.db);
     expect(lista.map((d) => d.id).sort()).toEqual([a.id, c.id].sort());
+    // D17 / regra 8 do CLAUDE.md: a lista não audita porque não devolve conteúdo — só estas chaves
+    expect(Object.keys(lista[0]).sort()).toEqual(['aberto', 'assinaturaTipo', 'data', 'id', 'recebidoEm', 'status', 'titulo']);
     expect(await novosNoPortal(ctx, app.db)).toBe(1); // o assinado ainda não aberto (o cancelado não conta)
     const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
     expect(audit.rows).toEqual([]);
   });
 
+  it('D20: com o interruptor do admin desligado, o portal não mostra nem entrega nada (lista vazia, 0 novos, sem PDF, sem recibo)', async () => {
+    const T = await novoTenant(app.db); // documentos_liberados = false (padrão)
+    const p = await novoPaciente(app.db, T.ctx);
+    const a = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    expect(await documentosDoPaciente(ctx, app.db)).toEqual([]);
+    expect(await novosNoPortal(ctx, app.db)).toBe(0);
+    expect(await caminhoDoPdfNoPortal(ctx, a.id, app.db)).toBeNull();
+    expect(await confirmarRecebimentoNoPortal(ctx, a.id, app.db)).toBeNull();
+    const recibos = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from signed_document_receipts where documento_id = ${a.id}`), app.db);
+    expect(recibos.rows).toEqual([]);
+  });
+
   it('RN-157: a digitalizada aparece como "Assinatura: Digitalizado" (o Plano 10B acrescenta o caso do gov.br)', async () => {
-    const T = await novoTenant(app.db);
+    const T = await consultorioLiberado();
     const p = await novoPaciente(app.db, T.ctx);
     const dig = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', assinaturaTipo: 'digitalizada' });
     const lista = await documentosDoPaciente(ctxPaciente(T.tenantId, p.id), app.db);
@@ -4824,7 +5248,7 @@ describe('documentos no portal (US-146)', () => {
   });
 
   it('abrir o PDF audita e grava "aberto" uma vez; confirmar grava "recebido" uma vez; cancelado não confirma; rascunho dá 404', async () => {
-    const T = await novoTenant(app.db);
+    const T = await consultorioLiberado();
     const p = await novoPaciente(app.db, T.ctx);
     const a = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
     const c = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'cancelado' });
@@ -4850,7 +5274,7 @@ Run: `pnpm test src/modules/documentos/portal.test.ts` → FAIL.
 ```ts
 import { and, desc, eq, inArray, notExists, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { patients, signedDocumentReceipts, signedDocuments } from '@/db/schema';
+import { patients, signedDocumentReceipts, signedDocuments, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -4867,16 +5291,25 @@ export const MSG_PORTAL_DOC = {
 
 export type DocumentoNoPortal = { id: string; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; assinaturaTipo: TipoAssinatura; aberto: boolean; recebidoEm: Date | null };
 
-/** RN-153: bloqueado ou anonimizado não vê mais nada (o prontuário fica só para a nutricionista). */
-async function ativo(tx: Parameters<Parameters<typeof withTenant>[1]>[0], patientId: string): Promise<boolean> {
-  const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, patientId));
+/**
+ * RN-153: bloqueado ou anonimizado não vê mais nada (o prontuário fica só para a nutricionista). D20: com o interruptor
+ * do admin desligado (`documentos_liberados`), o portal também não mostra nem entrega documento — a regra vale dos dois
+ * lados, não só na aba da nutricionista (correção do /code-review high do PR #18).
+ */
+async function ativo(tx: Parameters<Parameters<typeof withTenant>[1]>[0], ctx: TenantContext): Promise<boolean> {
+  const [t] = await tx.select({ liberado: tenants.documentosLiberados }).from(tenants).where(eq(tenants.id, ctx.tenantId));
+  if (!t?.liberado) return false;
+  const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ctx.patientId!));
   return !!p && p.status !== 'bloqueado' && !p.anonimizadoEm;
 }
 
-/** A lista (título, data, situação) não chama auditRead, como a agenda (D17). A RLS (paciente_so_emitidos) já filtra. */
+/**
+ * A lista (título, data, situação) não chama auditRead, como a agenda (D17; exceção na regra 8 do CLAUDE.md): só as chaves
+ * de DocumentoNoPortal, nunca itens ou orientações (teste das chaves em portal.test.ts). A RLS (paciente_so_emitidos) já filtra.
+ */
 export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb()): Promise<DocumentoNoPortal[]> {
   return withTenant(ctx, async (tx) => {
-    if (!(await ativo(tx, ctx.patientId!))) return [];
+    if (!(await ativo(tx, ctx))) return [];
     const ds = await tx
       .select({ id: signedDocuments.id, status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, assinaturaTipo: signedDocuments.assinaturaTipo })
       .from(signedDocuments)
@@ -4893,7 +5326,7 @@ export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb())
 /** O número do cartão do Início: assinados ainda não abertos. */
 export async function novosNoPortal(ctx: TenantContext, db: Db = getDb()): Promise<number> {
   return withTenant(ctx, async (tx) => {
-    if (!(await ativo(tx, ctx.patientId!))) return 0;
+    if (!(await ativo(tx, ctx))) return 0;
     const [r] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(signedDocuments)
@@ -4906,7 +5339,7 @@ export async function novosNoPortal(ctx: TenantContext, db: Db = getDb()): Promi
 export async function caminhoDoPdfNoPortal(ctx: TenantContext, docId: string, db: Db = getDb()): Promise<string | null> {
   if (!idValido(docId)) return null;
   return withTenant(ctx, async (tx) => {
-    if (!(await ativo(tx, ctx.patientId!))) return null;
+    if (!(await ativo(tx, ctx))) return null;
     const [d] = await tx.select({ pdf: signedDocuments.pdfPath, status: signedDocuments.status }).from(signedDocuments).where(eq(signedDocuments.id, docId));
     if (!d?.pdf) return null;
     await auditRead(tx, { entidade: 'documentos', entidadeId: docId, patientId: ctx.patientId! });
@@ -4919,7 +5352,7 @@ export async function caminhoDoPdfNoPortal(ctx: TenantContext, docId: string, db
 export async function confirmarRecebimentoNoPortal(ctx: TenantContext, docId: string, db: Db = getDb()): Promise<Date | null> {
   if (!idValido(docId)) return null;
   return withTenant(ctx, async (tx) => {
-    if (!(await ativo(tx, ctx.patientId!))) return null;
+    if (!(await ativo(tx, ctx))) return null;
     const [d] = await tx.select({ status: signedDocuments.status }).from(signedDocuments).where(eq(signedDocuments.id, docId));
     if (d?.status !== 'assinado') return null;
     await registrarRecibo(tx, { tenantId: ctx.tenantId, patientId: ctx.patientId!, documentoId: docId, evento: 'recebido', via: 'portal' });
@@ -4942,10 +5375,11 @@ import { caminhoDoPdfNoPortal } from '@/modules/documentos/portal';
 
 export const dynamic = 'force-dynamic';
 
-/** US-146: a URL assinada (5 min) nasce no clique, nunca no HTML guardado (como /api/p/plano/pdf). */
+/** US-146: a URL assinada (5 min) nasce no clique, nunca no HTML guardado (como /api/p/plano/pdf). D20: desligado, 404 (o módulo confere de novo). */
 export async function GET(req: Request, { params }: RouteContext<'/api/p/documentos/[id]/pdf'>) {
   const acesso = await requireApiPaciente(req);
   if (!acesso.ok) return acesso.response;
+  if (!acesso.tenant.documentosLiberados) return new Response(null, { status: 404, headers: { 'cache-control': 'no-store' } });
   const { id } = await params;
   const caminho = await caminhoDoPdfNoPortal(acesso.ctx, id);
   if (!caminho) return new Response(null, { status: 404, headers: { 'cache-control': 'no-store' } });
@@ -4972,6 +5406,7 @@ export async function confirmarRecebimentoAction(docId: string): Promise<void> {
 `src/app/p/(portal)/documentos/page.tsx`:
 
 ```tsx
+import { notFound } from 'next/navigation';
 import { requirePaciente } from '@/lib/paciente-session';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { linhaDaAssinatura } from '@/modules/documentos/constantes';
@@ -4980,9 +5415,10 @@ import { confirmarRecebimentoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
-/** US-146 / D5 ★: chega pelo cartão do Início e pelo link em Perfil; marca a aba "Perfil". Fora da cópia offline. */
+/** US-146 / D5 ★: chega pelo cartão do Início e pelo link em Perfil; marca a aba "Perfil". Fora da cópia offline. D20: desligado, 404. */
 export default async function MeusDocumentos() {
   const { ctx, tenant } = await requirePaciente('/p/documentos');
+  if (!tenant.documentosLiberados) notFound();
   const lista = await documentosDoPaciente(ctx);
   const data = (d: Date) => formatarData(hojeNoFuso(tenant.fuso, d));
   return (
@@ -5015,7 +5451,7 @@ export default async function MeusDocumentos() {
 }
 ```
 
-`src/app/p/navegacao.ts`: `{ href: '/p/perfil', rotulo: 'Perfil', tambem: ['/p/documentos'] }` (e o teste de `navegacao.test.ts` ganha `expect(itemAtual('/p/documentos')).toBe('/p/perfil')`). Em Perfil, antes de "Notificações": `<p><Link href="/p/documentos" className="inline-flex min-h-11 items-center underline">Meus documentos</Link></p>`. No Início, com `novosNoPortal(ctx) > 0` (consulta só com `tenant.documentosLiberados`): um cartão "Documentos" com "1 documento novo" / "{n} documentos novos" e o link "Ver documentos".
+`src/app/p/navegacao.ts`: `{ href: '/p/perfil', rotulo: 'Perfil', tambem: ['/p/documentos'] }` (e o teste de `navegacao.test.ts` ganha `expect(itemAtual('/p/documentos')).toBe('/p/perfil')`). Em Perfil, antes de "Notificações" e só com `tenant.documentosLiberados` (D20): `<p><Link href="/p/documentos" className="inline-flex min-h-11 items-center underline">Meus documentos</Link></p>`. No Início, com `novosNoPortal(ctx) > 0` (consulta só com `tenant.documentosLiberados`): um cartão "Documentos" com "1 documento novo" / "{n} documentos novos" e o link "Ver documentos".
 
 Em `src/app/sw-regras.test.ts`, o caso novo (US-146: "Documentos" fica fora da cópia offline; o service worker não muda):
 
@@ -5047,19 +5483,20 @@ git commit -m "feat(portal): Documentos — lista, abrir o PDF e confirmar o rec
 
 **Interfaces:**
 - Consumes: token da T10; `documentAccessCodes`, `signedDocuments`, `patients`, `tenants` (status); `registrarRecibo`; `auditRead`; `consumirLimite`/`chaveDoLimite('documento-ip' | 'documento-envio' | 'documento-codigo-ip')`; `verifyTurnstile` (via `depsDaRequisicao` do `/api/n/[slug]/resposta.ts`, reaproveitado); `enqueueEmail`; `randomInt`, `createHmac`.
-- Produces: `estadoDoLink(token, deps): Promise<EstadoLink>` (`{ tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo; data: Date; recebidoEm: Date | null }` — com `sessao` opcional), `pedirCodigoDocumento(token, input: { turnstile?: unknown }, deps): Promise<void>`, `confirmarCodigoDocumento(token, input: { codigo?: unknown }, deps): Promise<{ sessao: string; expira: Date }>`, `pdfDoLink(token, sessao, deps): Promise<string | null>`, `confirmarRecebimentoPeloLink(token, sessao, deps): Promise<Date | null>`; `LinkError { status: number; mensagem: string }`; `MSG_LINK`; `NOME_COOKIE_LINK = 'nd_doc'`; `limparCodigosDeDocumentoVencidos(db: Db, agora: Date): Promise<number>`; `DepsLink = { db?; agora?; ip: string | null; ipDoLimite: string | null; verificarTurnstile: (t: string | null) => Promise<'ok' | 'invalido' | 'indisponivel'>; appUrl: string }`.
+- Produces: `estadoDoLink(token, deps): Promise<EstadoLink>` (`{ tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo; data: Date; recebidoEm: Date | null }` — com `sessao` opcional), `pedirCodigoDocumento(token, input: { turnstile?: unknown }, deps): Promise<void>`, `confirmarCodigoDocumento(token, input: { codigo?: unknown }, deps): Promise<{ sessao: string; expira: Date }>`, `pdfDoLink(token, sessao, deps): Promise<string | null>`, `confirmarRecebimentoPeloLink(token, sessao, deps): Promise<Date | null>`; `LinkError { status: number; mensagem: string }`; `MSG_LINK`; `NOME_COOKIE_LINK = 'nd_doc'`; `limparCodigosDeDocumentoVencidos(db: Db, agora: Date, o?: { tenantId?: string }): Promise<number>` (`o.tenantId` só nos testes, como as varreduras da T7); o link só é utilizável com o interruptor do admin ligado (D20: desligado, "indisponível" e nenhum código enviado); `DepsLink = { db?; agora?; ip: string | null; ipDoLimite: string | null; verificarTurnstile: (t: string | null) => Promise<'ok' | 'invalido' | 'indisponivel'>; appUrl: string }`.
 
 - [ ] **Step 1: Testes (falham)** — `src/modules/documentos/link-documento.test.ts`
 
 ```ts
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco } from '../../../test/documentos';
+import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { assinarLinkDocumento, confirmarCodigoDocumento, estadoDoLink, limparCodigosDeDocumentoVencidos, LinkError, MSG_LINK, pdfDoLink, pedirCodigoDocumento } from './link-documento';
+import { assinarLinkDocumento, confirmarCodigoDocumento, confirmarRecebimentoPeloLink, estadoDoLink, limparCodigosDeDocumentoVencidos, LinkError, MSG_LINK, pdfDoLink, pedirCodigoDocumento } from './link-documento';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -5069,8 +5506,10 @@ afterAll(async () => {
 let ip = 0;
 const deps = (agora = new Date()) => ({ db: app.db, agora, ip: `198.51.100.${++ip % 250}`, ipDoLimite: `198.51.100.${ip % 250}`, verificarTurnstile: async () => 'ok' as const, appUrl: 'https://x' });
 
-async function cenario() {
+/** `liberado`: o interruptor do admin (D20); o novoTenant nasce desligado, como em produção. */
+async function cenario(o: { liberado?: boolean } = {}) {
   const T = await novoTenant(app.db);
+  if (o.liberado !== false) await liberarDocumentos(app.db, T.tenantId);
   const p = await novoPaciente(app.db, T.ctx);
   const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
   const token = assinarLinkDocumento({ tenantId: T.tenantId, patientId: p.id, documentoId: d.id, emitidoEm: new Date(), email: p.email });
@@ -5133,13 +5572,28 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     expect(await pdfDoLink(z.token, sessao, deps())).toBeNull();
   });
 
+  it('D20: com o interruptor do admin desligado, o link fica indisponível, nenhum código é enviado e a sessão aberta antes deixa de abrir o PDF', async () => {
+    const x = await cenario({ liberado: false });
+    expect((await estadoDoLink(x.token, undefined, deps())).tipo).toBe('indisponivel');
+    await expect(pedirCodigoDocumento(x.token, { turnstile: 't' }, deps())).rejects.toSatisfy((e) => e instanceof LinkError && e.mensagem === MSG_LINK.invalido);
+    expect(await emailsNaFila('codigo_documento', x.p.email)).toEqual([]);
+    const y = await cenario();
+    await pedirCodigoDocumento(y.token, { turnstile: 't' }, deps());
+    const { sessao } = await confirmarCodigoDocumento(y.token, { codigo: await ultimoCodigo(y.p.email) }, deps());
+    await app.db.update(tenants).set({ documentosLiberados: false }).where(eq(tenants.id, y.T.tenantId)); // o admin desliga
+    expect(await pdfDoLink(y.token, sessao, deps())).toBeNull();
+    expect(await confirmarRecebimentoPeloLink(y.token, sessao, deps())).toBeNull();
+    const r = await withTenant(y.T.ctx, (tx) => tx.execute(sql`select 1 from signed_document_receipts where documento_id = ${y.d.id}`), app.db);
+    expect(r.rows).toEqual([]);
+  });
+
   it('limpeza diária: código vencido há mais de 1 dia (e sem sessão viva) sai; o da sessão em uso fica', async () => {
     const x = await cenario();
     const q = (s: ReturnType<typeof sql>) => withTenant(x.T.ctx, (tx) => tx.execute(s), app.db);
     await q(sql`insert into document_access_codes (tenant_id, patient_id, documento_id, codigo_hash, expira_em, created_at) values (${x.T.tenantId}, ${x.p.id}, ${x.d.id}, 'velho', now() - interval '2 days', now() - interval '2 days')`);
     await pedirCodigoDocumento(x.token, { turnstile: 't' }, deps());
     const { sessao } = await confirmarCodigoDocumento(x.token, { codigo: await ultimoCodigo(x.p.email) }, deps());
-    expect(await limparCodigosDeDocumentoVencidos(app.db, new Date())).toBeGreaterThanOrEqual(1);
+    expect(await limparCodigosDeDocumentoVencidos(app.db, new Date(), { tenantId: x.T.tenantId })).toBe(1); // só o tenant do teste (banco compartilhado)
     const restam = await q(sql`select codigo_hash from document_access_codes where documento_id = ${x.d.id}`);
     expect(restam.rows.map((r) => r.codigo_hash)).not.toContain('velho');
     expect(await pdfDoLink(x.token, sessao, deps())).toBe(x.d.pdfPath); // a sessão em uso continua valendo
@@ -5208,7 +5662,9 @@ async function abrirLink(token: unknown, deps: DepsLink) {
         const [p] = await tx.select({ email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ids.patientId));
         const [d] = await tx.select({ status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, pdf: signedDocuments.pdfPath }).from(signedDocuments).where(eq(signedDocuments.id, ids.documentoId));
         if (!p) return null;
-        const disponivel = t?.status === 'ativa' && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf;
+        // D20 (correção do /code-review high do PR #18): o interruptor do admin vale também aqui — desligado, o link fica
+        // indisponível, nenhum código é enviado (linkUtilizavel) e a sessão já aberta não abre o PDF nem confirma
+        const disponivel = t?.status === 'ativa' && !!t.liberado && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf;
         return { email: p.email, disponivel, assinadoEm: d?.assinadoEm ?? null, pdf: d?.pdf ?? null };
       }, db);
     } catch {
@@ -5319,10 +5775,11 @@ export async function confirmarRecebimentoPeloLink(token: unknown, sessao: strin
  * sessão também já venceu (ou nunca existiu) saem do banco — o HMAC do código e o hash da sessão não ficam para sempre.
  * Roda no worker (contexto `worker` de cada tenant), na `agenda-limpeza` das 04:30. Um tenant com erro não para os outros.
  */
-export async function limparCodigosDeDocumentoVencidos(db: Db, agora: Date): Promise<number> {
+export async function limparCodigosDeDocumentoVencidos(db: Db, agora: Date, o: { tenantId?: string } = {}): Promise<number> {
   const limite = new Date(agora.getTime() - 86_400_000);
   let n = 0;
-  for (const t of await listarTenantsParaVarredura(db)) {
+  // `o.tenantId`: só os testes (banco compartilhado), como as varreduras da T7
+  for (const t of o.tenantId ? [{ id: o.tenantId }] : await listarTenantsParaVarredura(db)) {
     try {
       const r = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) =>
         tx.delete(documentAccessCodes)
@@ -5606,7 +6063,7 @@ git commit -m "feat(documentos): verificação pública por código e QR, sem da
 - Modify: `src/modules/pacientes/lgpd.ts` (`anonimizarVencidos`), `src/modules/pacientes/exportacao-job.ts` (`DadosExportacao.documentos`, `AnexoParaZip`, `montarDados`, `lerAnexos`), `src/modules/pacientes/exportacao.test.ts`, `src/modules/pacientes/lgpd.test.ts`
 
 **Interfaces:**
-- Consumes: `app_anonimizar_documentos` (T2); `apagarArquivo`; `descreverItem`, `ConteudoReceita` (T5); `EMITIDOS`; `formatarCodigo`.
+- Consumes: `app_anonimizar_documentos` (T2); `apagarArquivo`; `descreverItem`, `ConteudoReceita`, `soltarArquivosDoPreparo` (T5); `EMITIDOS`; `formatarCodigo`.
 - Produces:
   - `DocumentoExportado = { tipo: 'Receita'; situacao: string; criadoEm: string; assinadoEm: string | null; codigo: string | null; sha256: string | null; assinatura: string | null; itens: { titulo: string; linhas: string[] }[]; orientacoes: string; justificativaDeUso: string | null; recebimento: { evento: string; via: string; em: string }[]; pdf: string | null }`.
   - `documentosParaExportacao(tx, patientId, escopo: EscopoExportacao): Promise<{ documentos: DocumentoExportado[]; anexos: { indice: number; caminho: string; nome: string }[] }>`.
@@ -5680,6 +6137,7 @@ import { signedDocumentNotes, signedDocumentReceipts, signedDocuments } from '@/
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { EscopoExportacao } from '@/modules/pacientes/exportacao-job';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
 import { EMITIDOS, ROTULO_ASSINATURA, ROTULO_STATUS, type StatusDocumento, type TipoAssinatura } from './constantes';
 import { descreverItem, type ConteudoReceita } from './prescricao';
@@ -5726,6 +6184,8 @@ export async function anonimizarDocumentosDoPaciente(ctx: TenantContext, patient
   const ds = await withTenant(ctx, (tx) => tx.select({ id: signedDocuments.id, status: signedDocuments.status, pdf: signedDocuments.pdfPath, base: signedDocuments.basePdfPath }).from(signedDocuments).where(and(eq(signedDocuments.patientId, patientId), isNull(signedDocuments.anonimizadoEm))), deps.db);
   let n = 0;
   for (const d of ds) {
+    // regra 9: o que sobrou do preparo (base, fotos) sai antes, cada arquivo no seu apagar (soltarArquivosDoPreparo, T5)
+    await soltarArquivosDoPreparo(ctx, d.id, EMITIDOS.includes(d.status as StatusDocumento) ? EMITIDOS : ['preparando', 'aguardando_assinatura'], { db: deps.db, dataDir: deps.dataDir, soFotos: !EMITIDOS.includes(d.status as StatusDocumento) });
     if (EMITIDOS.includes(d.status as StatusDocumento)) {
       const anonimizar = async (tx: Tx) => {
         const r = await tx.execute<{ caminho: string | null }>(sql`select app_anonimizar_documentos(${d.id}) as caminho`);
@@ -5755,7 +6215,7 @@ export async function pdfsDeDocumentosRestantes(tx: Tx, patientId: string): Prom
 }
 ```
 
-> As fotos de uma digitalização pendente (`digitalizacao`) de paciente bloqueado: a varredura `limparArquivosOrfaosDeDocumentos` (T7) as apaga depois que o documento some (sem referência) — fica anotado no teste da T14 (caso "aguardando com fotos": depois da anonimização e de uma varredura com o relógio + 2 h, nenhuma `documento_digitalizado` sobra).
+> As fotos de uma digitalização (`digitalizacao`) e o base que sobrou de um emitido saem antes, cada um no seu `apagarArquivo` (`soltarArquivosDoPreparo`, regra 9); uma foto gravada no meio (corrida com um envio) fica sem referência quando o documento some, e a varredura `limparArquivosOrfaosDeDocumentos` (T7) a apaga — fica anotado no teste da T14 (caso "aguardando com fotos": depois da anonimização nenhuma `documento_digitalizado` sobra; a varredura, se o caso precisar dela, roda com `{ tenantId }`, nunca em todos os tenants do banco de teste).
 
 - [ ] **Step 3: Encaixe em `lgpd.ts` e na exportação**
 
@@ -5808,7 +6268,7 @@ git commit -m "feat(documentos): exportação da equipe e do titular, bloqueio e
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco } from '../../../test/documentos';
+import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
 import { ctxPaciente, emailsNaFila, novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
@@ -5829,6 +6289,7 @@ afterAll(async () => {
 describe('cancelar documento (US-149, RN-147)', () => {
   it('sem motivo → texto da spec; com motivo → cancelado no prontuário, no portal e na verificação; e-mail neutro (D11)', async () => {
     const T = await novoTenant(app.db, 'Consultório Debby');
+    await liberarDocumentos(app.db, T.tenantId); // D20 ligado: o "não confirma" do fim é pelo cancelamento, não pelo interruptor
     const { paciente, email } = await pacienteComConta(app.db, T, { nome: 'Ana Souza' });
     const d = await documentoNoBanco(app.db, T.ctx, paciente.id, { status: 'assinado' });
     await app.db.execute(sql`insert into document_verifications (codigo, tenant_id, documento_id, tipo, assinado_em, emissor_nome, emissor_crn, assinante_nome, assinatura_tipo, pdf_sha256)
@@ -6115,7 +6576,7 @@ git commit -m "test(documentos): E2E da receita pela digitalizada, axe das telas
   - **Banco:** `app_documento_imutavel` (todas as transições, no-op passa, rascunho sem PDF nem assinatura, anonimização só no worker), notas imutáveis, `paciente_so_emitidos`, recibo só INSERT (`paciente_recibo_proprio`, REVOKE), `document_verifications` fora da RLS só em `verificacao.ts` (guarda verde) com UPDATE só de duas colunas e DELETE revogado, `app_codigo_acesso_regras`, `signed_document_notes` STAFF_ONLY, `paciente_arquivos` sem o base e as fotos, FKs `NO ACTION`, `app_anonimizar_documentos` INVOKER (desvio registrado).
   - **Link (RN-158):** GET não consome; token sem estado com o e-mail atual no MAC (e-mail vazio → link morto); 30 dias; código HMAC por pedido, 10 min, 5 erros (o incremento grava mesmo com o erro: resultado devolvido, throw fora do `withTenant`), 1/min e 5/h por documento, 20/h por IP no pedido e 30/h por IP na confirmação, Turnstile; sessão de 15 min só com hash no banco, cookie `HttpOnly`/`SameSite=Strict` por caminho; `semConta` na lista fechada; limpeza diária; `no-referrer`, `noindex`, `no-store`; `caminhoSeguro` com `:token`.
   - **Página pública (RN-156):** só `document_verifications`; nada do paciente; 30/h por IP; mesma resposta para inexistente e malformado; `no-referrer`, `noindex`, sem script; `/v/:codigo` no Sentry.
-  - **Arquivos (regra 9):** base, PDF final e fotos só por `salvarArquivo`/`apagarArquivo`; registro no `registrar`/`naMesmaTransacao`; base solto no mesmo UPDATE da assinatura; varredura de órfãos; PDFs e a digitalizada só no worker (grafo verde); cota esgotada com a mensagem da RNF-143.
+  - **Arquivos (regra 9):** base, PDF final e fotos só por `salvarArquivo`/`apagarArquivo`; registro no `registrar`/`naMesmaTransacao`, também depois da assinatura (ela mantém os ponteiros; `soltarArquivosDoPreparo` solta cada arquivo no seu apagar; o gatilho só deixa os ponteiros de emitido encolherem); varredura de órfãos e de sobras; PDFs e a digitalizada só no worker (grafo verde); cota esgotada com a mensagem da RNF-143.
   - **LGPD (D1 ★):** exportações com e sem rascunho, justificativa só onde a D15 da spec manda, nunca o motivo de cancelamento; anonimização pela função antes dos anexos, conferência final, verificação "eliminado".
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema Critical/Important confirmado, parar e avisar o dono.
 - [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P10A-01 a P10A-16 (com o PR); os Minor da revisão num item "P10A-17 — débitos do Plano 10A" (com a tela de auditoria do consultório e a seg. 12, se o dono quiser).
@@ -6151,9 +6612,9 @@ git commit -m "test(documentos): E2E da receita pela digitalizada, axe das telas
 
 **2. Placeholders:** nenhum. Os trechos em prosa são trocas mecânicas em arquivos existentes (uma entrada numa lista, um import, uma linha num menu) com o texto exato, ou repetem um esqueleto já escrito no plano (as rotas do link na T12 seguem `depsDaRequisicao` do `/api/n/[slug]`).
 
-**3. Consistência de nomes:** `AREA_ASSINATURA`/`TipoAssinatura`/`RecusaAssinaturaError`/`MSG_RECUSA` (T1) em T7–T9; `documentoNoBanco`/`codigoAleatorio` (T1) e `novoConsultorio`/`outroDocumento`/`novoPreparoNoBanco`/`pdfDeTeste` (T8) em T9–T15; `confirmarCodigo2fa` (T4) em T9; `copiaDoPerfil`/`CopiaProfissional` (T3) em T5 e T8; `validarRascunho`/`validarParaPreparar`/`descreverItem`/`ConteudoReceita` (T5) em T6, T7, T8, T14; `lerDocumentoNaTransacao`/`dataHora`/`ItemLista`/`situacaoNoPainel(d, fuso)` (T5/T6) em T7 e T10; `registrarAssinatura`/`VersaoLida`/`AcessoAssinatura`/`DepsAssinar`/`exigirHabilitacaoAtual` (T8, com `appUrl` na T10) em T9 e T10; `EstadoPdf` com `esperando` (T6, prop na T9); `linhaDaAssinatura` (T1) em T6 e T11; `registrarVerificacao`/`mudarSituacao` (T8) em T13 e T15; `assinarLinkDocumento`/`lerLinkDocumento` (T10) em T12 e T15; `registrarRecibo` (T10) em T11 e T12; `expirarPdfsDeDocumentoPendentes` (T7) no teste da T9; `DIGITALIZACAO_MAX_MS`/`MAX_PIXELS_FOTO` (T9) em `digitalizada.ts` e `digitalizada-job.ts`.
+**3. Consistência de nomes:** `AREA_ASSINATURA`/`TipoAssinatura`/`RecusaAssinaturaError`/`MSG_RECUSA` (T1) em T7–T9; `documentoNoBanco`/`codigoAleatorio` (T1) e `novoConsultorio`/`outroDocumento`/`novoPreparoNoBanco`/`pdfDeTeste` (T8) em T9–T15; `confirmarCodigo2fa` (T4) em T9; `copiaDoPerfil`/`CopiaProfissional` (T3) em T5 e T8; `validarRascunho`/`validarParaPreparar`/`descreverItem`/`ConteudoReceita` (T5) em T6, T7, T8, T14; `lerDocumentoNaTransacao`/`dataHora`/`ItemLista`/`situacaoNoPainel(d, fuso)` (T5/T6) em T7 e T10; `registrarAssinatura`/`VersaoLida`/`AcessoAssinatura`/`DepsAssinar`/`exigirHabilitacaoAtual` (T8, com `appUrl` na T10) em T9 e T10; `EstadoPdf` com `esperando` (T6, prop na T9); `linhaDaAssinatura` (T1) em T6 e T11; `registrarVerificacao`/`mudarSituacao` (T8) em T13 e T15; `assinarLinkDocumento`/`lerLinkDocumento` (T10) em T12 e T15; `registrarRecibo` (T10) em T11 e T12; `expirarPdfsDeDocumentoPendentes` (T7, com `{ tenantId }` nos testes) no teste da T9; `soltarArquivosDoPreparo` (T5) em T7, T8 (teste), T9 e T14; `liberarDocumentos` (T8) em T11, T12 e T15; `AcaoDocumento` (T6) em T10; `DIGITALIZACAO_MAX_MS`/`MAX_PIXELS_FOTO` (T9) em `digitalizada.ts` e `digitalizada-job.ts`.
 
-**4. Review Focus:** 1 (fotos no limite) → T9 (PDF disfarçado, 6 fotos, bomba de pixels, EXIF/GPS, dois envios, expiração) e T7 (varredura); 2 (2FA no limite) → T4 (5 erros → bloqueado, repetição, espaço; cookie da sessão nova depois da ativação) e T9 (tentativa registrada, sem 2FA antes de gravar); 3 (link na caixa errada) → T12 (GET não consome, e-mail corrigido, limites, 5 erros que sobrevivem ao erro, limite por IP na confirmação, código reusado, cancelado, sessão de outro link, limpeza) e T2 (gatilho das colunas); 4 (campos da receita) → T5 (UFC/U, 21 itens, 11 componentes, 0 e 1e9, 301 caracteres, habilitação retirada entre salvar e preparar), T8 e T9 (habilitação retirada antes do envio); 5 (documento muda por baixo) → T2 (gatilho, FK, anonimização), T8 e T9 (versão lida).
+**4. Review Focus:** 1 (fotos no limite) → T9 (PDF disfarçado, 6 fotos, bomba de pixels, EXIF/GPS, dois envios, expiração) e T7 (varredura); 2 (2FA no limite) → T4 (5 erros → bloqueado, repetição, espaço; cookie da sessão nova depois da ativação) e T9 (tentativa registrada, sem 2FA antes de gravar); 3 (link na caixa errada) → T12 (GET não consome, e-mail corrigido, limites, 5 erros que sobrevivem ao erro, limite por IP na confirmação, código reusado, cancelado, sessão de outro link, limpeza) e T2 (gatilho das colunas); 4 (campos da receita) → T5 (UFC/U, 21 itens, 11 componentes, 0 e 1e9, 301 caracteres, habilitação retirada entre salvar e preparar), T8 e T9 (habilitação retirada antes do envio); 5 (documento muda por baixo) → T2 (gatilho, FK, anonimização, ponteiros de emitido que só saem), T7, T8 e T9 (versão lida: também o `registrar` e o `marcarFalhou` dos jobs do PDF preparado e da digitalizada).
 
 ## Decisões do dono (aprovadas em 05/10/2026)
 
