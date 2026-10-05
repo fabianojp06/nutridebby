@@ -26,6 +26,10 @@ export const MSG_PRESCRICAO = {
   itensDemais: 'A receita pode ter até 20 itens.',
   componentes: 'Informe de 1 a 10 componentes.',
   quantidade: 'Informe uma quantidade maior que zero.',
+  /** Revisão da T5 (I2): ponto só de milhar, como se escreve em pt-BR; "50.000" nunca vira 50. Texto novo, rascunho para a Debby. */
+  quantidadeFormato: 'Use vírgula para decimais (até 3 casas) e ponto só para milhar (ex.: 2000, 2.000 ou 0,5).',
+  /** Revisão da T5 (I1): teto só contra valor absurdo; probiótico em UFC vai a 10^10 ou mais. Texto novo, rascunho para a Debby. */
+  quantidadeTeto: 'Use uma quantidade de até 10.000.000.000.000.',
   opcao: 'Escolha uma das opções.',
   orientacoes: 'Use no máximo 2000 caracteres.',
   /** Minor 11 da revisão de normas (texto novo, rascunho para a Debby): o extrato vegetal não é "Outro". */
@@ -37,13 +41,28 @@ const obrig = (rotulo: string, min: number, max: number) =>
   z.string({ message: `Informe ${rotulo} (até ${max} caracteres).` }).transform(esp).pipe(z.string().min(min, `Informe ${rotulo} (até ${max} caracteres).`).max(max, `Informe ${rotulo} (até ${max} caracteres).`));
 const opc = (max: number) => z.string().optional().transform((s) => (s ? esp(s) : '')).pipe(z.string().max(max, `Use no máximo ${max} caracteres.`));
 const escolha = <T extends Record<string, string>>(o: T) => z.enum(Object.keys(o) as [keyof T & string, ...(keyof T & string)[]], { message: MSG_PRESCRICAO.opcao });
-const numero = z.union([z.number(), z.string()]).transform((v, c) => {
-  const n = typeof v === 'number' ? v : Number(v.trim().replace(',', '.'));
-  if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) {
-    c.addIssue({ code: 'custom', message: MSG_PRESCRICAO.quantidade });
+/** Revisão da T5 (I1): 10^13 cobre a dose de probiótico em UFC (10^8 a 10^12) e ainda barra o absurdo. */
+const TETO_QUANTIDADE = 10_000_000_000_000;
+/** Revisão da T5 (I2): só formatos sem ambiguidade — "2000", "0,5", "2.000", "2.000,5". Nada de ponto decimal, exponencial ou hexadecimal. */
+const QTD_SIMPLES = /^\d+(,\d{1,3})?$/;
+const QTD_MILHAR = /^[1-9]\d{0,2}(\.\d{3})+(,\d{1,3})?$/;
+const numero = z.union([z.number(), z.string()], { message: MSG_PRESCRICAO.quantidade }).transform((v, c) => {
+  const falha = (message: string) => {
+    c.addIssue({ code: 'custom', message });
     return z.NEVER;
+  };
+  let n = v as number;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return falha(MSG_PRESCRICAO.quantidade);
+    if (!QTD_SIMPLES.test(t) && !QTD_MILHAR.test(t)) return falha(MSG_PRESCRICAO.quantidadeFormato);
+    n = Number(t.replace(/\./g, '').replace(',', '.'));
   }
-  return Math.round(n * 1000) / 1000;
+  if (!Number.isFinite(n)) return falha(MSG_PRESCRICAO.quantidade);
+  const arredondado = Math.round(n * 1000) / 1000;
+  if (arredondado <= 0) return falha(MSG_PRESCRICAO.quantidade); // depois do arredondamento: "0,0004" nunca vira 0 gravado
+  if (arredondado > TETO_QUANTIDADE) return falha(MSG_PRESCRICAO.quantidadeTeto);
+  return arredondado;
 });
 
 const componente = z.object({ nome: obrig('o componente', 1, 120), quantidade: numero, unidade: z.enum(UNIDADES, { message: MSG_PRESCRICAO.opcao }) });

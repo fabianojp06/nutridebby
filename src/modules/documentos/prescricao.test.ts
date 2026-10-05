@@ -5,6 +5,14 @@ import { descreverItem, MSG_PRESCRICAO, validarParaPreparar, validarRascunho } f
 const vitD = { tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Vitamina D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cápsula', via: 'oral', posologia: '1 cápsula ao dia, no almoço' };
 const curcuma = { tipo: 'derivado_vegetal', nomenclatura: 'Curcuma longa L.', parte: 'Rizoma', formaFarmaceutica: 'Cápsula', dose: '500 mg', via: 'oral', posologia: '1 cápsula ao dia' };
 const erroEm = (chave: string, msg: string) => (e: unknown) => e instanceof DocumentoError && e.erros[chave] === msg;
+const lanca = (chave: string, msg: string) => (f: () => unknown) => {
+  try {
+    f();
+  } catch (e) {
+    return erroEm(chave, msg)(e);
+  }
+  return false;
+};
 
 describe('receita (US-142, RN-149, RN-150)', () => {
   it('aceita suplemento e derivado vegetal sem habilitação; quantidade com vírgula vira número', () => {
@@ -41,12 +49,44 @@ describe('receita (US-142, RN-149, RN-150)', () => {
     }
     expect(validarRascunho({ itens: [fito] }, { habilitada: true }).itens).toHaveLength(1);
   });
-  it('limites: 21 itens, 11 componentes, quantidade 0 ou 1e9, posologia com 301 caracteres', () => {
+  it('limites: 21 itens, 11 componentes, quantidade 0 ou acima do teto, posologia com 301 caracteres', () => {
     expect(() => validarRascunho({ itens: Array(21).fill(vitD) }, { habilitada: false })).toThrow(DocumentoError);
     expect(() => validarRascunho({ itens: [{ ...vitD, composicao: Array(11).fill(vitD.composicao[0]) }] }, { habilitada: false })).toThrow(DocumentoError);
     expect(() => validarRascunho({ itens: [{ ...vitD, composicao: [{ ...vitD.composicao[0], quantidade: '0' }] }] }, { habilitada: false })).toThrow(DocumentoError);
-    expect(() => validarRascunho({ itens: [{ ...vitD, composicao: [{ ...vitD.composicao[0], quantidade: '1e9' }] }] }, { habilitada: false })).toThrow(DocumentoError);
+    const qtd = (quantidade: unknown) => () => validarRascunho({ itens: [{ ...vitD, composicao: [{ ...vitD.composicao[0], quantidade }] }] }, { habilitada: false });
+    // teto absurdo, com mensagem própria (revisão da T5, I1: o "maior que zero" confundia)
+    expect(qtd('10000000000001')).toSatisfy(lanca('itens.0.composicao.0.quantidade', MSG_PRESCRICAO.quantidadeTeto));
+    expect(qtd(1e14)).toSatisfy(lanca('itens.0.composicao.0.quantidade', MSG_PRESCRICAO.quantidadeTeto));
     expect(() => validarRascunho({ itens: [{ ...vitD, posologia: 'x'.repeat(301) }] }, { habilitada: false })).toThrow(DocumentoError);
+  });
+  it('quantidade em pt-BR: ponto só de milhar, vírgula decimal com até 3 casas; > 0 depois do arredondamento (revisão da T5, I1/I2)', () => {
+    const q = (quantidade: unknown, categoria = 'nutriente', unidade = 'UI') =>
+      validarRascunho({ itens: [{ ...vitD, categoria, composicao: [{ nome: 'X', quantidade, unidade }] }] }, { habilitada: false }).itens[0];
+    const valor = (quantidade: unknown) => (q(quantidade) as { composicao: { quantidade: number }[] }).composicao[0].quantidade;
+    expect(valor('50.000')).toBe(50000); // vitamina D3 50.000 UI, nunca 50
+    expect(valor('2.000')).toBe(2000);
+    expect(valor('2.000,5')).toBe(2000.5);
+    expect(valor('1.234.567,125')).toBe(1234567.125);
+    expect(valor(' 0,5 ')).toBe(0.5);
+    expect(valor('0,001')).toBe(0.001);
+    expect(valor(2000.5)).toBe(2000.5); // número (JSON) segue aceito
+    // probiótico na dose usual em UFC (10^10) é aceito
+    expect((q('10000000000', 'probiotico', 'UFC') as { composicao: { quantidade: number }[] }).composicao[0].quantidade).toBe(1e10);
+    expect((q('10.000.000.000', 'probiotico', 'UFC') as { composicao: { quantidade: number }[] }).composicao[0].quantidade).toBe(1e10);
+    expect((q(1e10, 'probiotico', 'UFC') as { composicao: { quantidade: number }[] }).composicao[0].quantidade).toBe(1e10);
+    const formato = (quantidade: unknown) => expect(() => q(quantidade)).toSatisfy(lanca('itens.0.composicao.0.quantidade', MSG_PRESCRICAO.quantidadeFormato));
+    const zero = (quantidade: unknown) => expect(() => q(quantidade)).toSatisfy(lanca('itens.0.composicao.0.quantidade', MSG_PRESCRICAO.quantidade));
+    // ponto que não é de milhar, exponencial, hexadecimal, mais de 3 casas e lixo: recusados, nunca reinterpretados
+    for (const v of ['1.5', '1.50', '0.500', '2.0000', '50.000.0', '12.34,5', '1e3', '1E3', '0x10', 'Infinity', '0,0004', '1,2345', '1,', ',5', '2 000', '-1', '+1', 'abc']) formato(v);
+    // vazio, zero e não finito: "maior que zero"; > 0 conferido depois do arredondamento para 3 casas
+    zero('');
+    zero(' ');
+    zero('0');
+    zero('0,000');
+    zero(0.0004);
+    zero(-1);
+    zero(Number.NaN);
+    zero(null); // campo ausente ou de outro tipo
   });
   it('para preparar: ao menos 1 item e a justificativa (texto da spec); a habilitação é conferida de novo', () => {
     const vazio = validarRascunho({ itens: [] }, { habilitada: false });
