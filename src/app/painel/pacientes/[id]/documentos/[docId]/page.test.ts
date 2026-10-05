@@ -16,8 +16,8 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-// a T10 acrescenta entreguePessoalmenteAction e reenviarLinkAction; a T15, cancelarAction
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn() }));
+// a T15 acrescenta cancelarAction
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
@@ -35,6 +35,43 @@ describe('página do documento: documento anonimizado (RN-140 c)', () => {
     expect(html).toContain('Documento anonimizado.');
     expect(html).not.toContain('Itens da receita');
     expect(html).not.toContain('Baixar PDF assinado');
+    expect(html).not.toContain('Entregue pessoalmente'); // T10: sem a entrega no anonimizado
+  });
+});
+
+describe('página do documento: a entrega do assinado (US-145, D3, D4, D6)', () => {
+  const assinado = (recibos: unknown[] = []) => ({
+    id: DOC, tipo: 'receita', status: 'assinado', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: new Date('2026-09-02T12:00:00Z'),
+    assinaturaTipo: 'digitalizada', pdfStatus: null, entregueEm: new Date('2026-09-02T12:00:00Z'), recibos, conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: '' },
+    justificativa: null, motivoCancelamento: null, assinanteNome: null, basePdfPath: null, pdfPath: 'x', pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, anonimizadoEm: null,
+  });
+  const pagina = async (paciente: Record<string, unknown>, doc: Record<string, unknown>, busca: Record<string, string> = {}) => {
+    caso.paciente = { id: PACIENTE, anonimizadoEm: null, email: 'ana@ex.com', ...paciente };
+    caso.doc = doc;
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve(busca) } as never));
+  };
+
+  it('ativo sem conta: "Enviado em …", o aviso do link, "Entregue pessoalmente" e "Reenviar link por e-mail"; ?link=1 → "Link reenviado."', async () => {
+    const html = await pagina({ status: 'ativo', userId: null }, assinado());
+    expect(html).toContain('Enviado em 02/09/2026 · ainda não aberto');
+    expect(html).toContain('Este paciente ainda não tem acesso ao app.');
+    expect(html).toContain('Entregue pessoalmente');
+    expect(html).toContain('Reenviar link por e-mail');
+    expect(html).not.toContain('Link reenviado.');
+    expect(await pagina({ status: 'ativo', userId: null }, assinado(), { link: '1' })).toContain('Link reenviado.');
+  });
+
+  it('com conta: sem "Reenviar link"; recebido: sem "Entregue pessoalmente"; arquivado: o aviso dele e sem reenviar', async () => {
+    const comConta = await pagina({ status: 'ativo', userId: 'u1' }, assinado());
+    expect(comConta).toContain('Entregue pessoalmente');
+    expect(comConta).not.toContain('Reenviar link por e-mail');
+    expect(comConta).not.toContain('Este paciente ainda não tem acesso ao app.');
+    const recebido = await pagina({ status: 'ativo', userId: 'u1' }, assinado([{ evento: 'recebido', via: 'portal', em: new Date('2026-09-03T13:00:00Z') }]));
+    expect(recebido).toContain('Recebido pelo paciente em 03/09/2026 às 10:00');
+    expect(recebido).not.toContain('>Entregue pessoalmente<');
+    const arquivado = await pagina({ status: 'arquivado', userId: null }, assinado());
+    expect(arquivado).toContain('Paciente arquivado: entregue o documento pessoalmente');
+    expect(arquivado).not.toContain('Reenviar link por e-mail');
   });
 });
 

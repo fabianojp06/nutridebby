@@ -101,6 +101,23 @@ describe('plano_novo (US-025)', () => {
   });
 });
 
+describe('documento_novo e documento_link (US-145, RN-152, RN-158)', () => {
+  it('neutros: primeiro nome e consultório, sem tipo de documento, item ou produto; o link no botão e no texto', () => {
+    const novo = renderEmail({ tipo: 'documento_novo', para: 'ana@ex.com', nome: 'Ana', consultorio: 'Consultório Debby', link: 'https://x.dev/p/documentos?v=t' });
+    expect(novo.subject).toBe('Você tem um novo documento');
+    expect(novo.text).toContain('Olá, Ana. Consultório Debby disponibilizou um novo documento para você. Para ver, entre no app: https://x.dev/p/documentos?v=t');
+    expect(novo.html).toContain('href="https://x.dev/p/documentos?v=t"');
+    expect(novo.html).toContain('Ver meus documentos');
+    const link = renderEmail({ tipo: 'documento_link', para: 'bia@ex.com', nome: 'Bia', consultorio: 'Consultório Debby', link: 'https://x.dev/documento/tok' });
+    expect(link.subject).toBe('Você tem um novo documento');
+    expect(link.text).toContain('Olá, Bia. Consultório Debby disponibilizou um novo documento para você.');
+    expect(link.text).toContain('Para abrir, use o link abaixo. Vamos enviar um código de 6 dígitos para este e-mail. O link vale por 30 dias.');
+    expect(link.html).toContain('href="https://x.dev/documento/tok"');
+    expect(link.html).toContain('Abrir documento');
+    for (const r of [novo, link]) for (const dado of ['receita', 'Receita', 'suplemento', 'Vitamina']) expect(r.subject + r.text + r.html, dado).not.toContain(dado);
+  });
+});
+
 describe('consulta (US-031, US-033, US-034)', () => {
   it('consulta: lembretes de 24 h e 2 h, marcada e cancelada (com o fuso no texto)', () => {
     const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };

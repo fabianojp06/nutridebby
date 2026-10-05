@@ -113,6 +113,8 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   plano_novo: { corpo: 'Seu novo plano alimentar está disponível', tela: '/p/plano' },
   // D4 (Plano 07): neutro — o título do conteúdo pode dizer uma condição de saúde na tela de bloqueio
   conteudo_novo: { corpo: 'Sua nutricionista publicou um novo conteúdo', tela: '/p/conteudos' },
+  // US-145 / RN-152: neutro — nem o tipo do documento, nem itens ou produtos
+  documento_novo: { corpo: 'Você tem um novo documento.', tela: '/p/documentos' },
 };
 
 /**

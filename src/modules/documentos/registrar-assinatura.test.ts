@@ -10,6 +10,7 @@ import { novoConsultorio, novoPreparoNoBanco, outroDocumento, pdfDeTeste } from 
 import { caminhoAte, grafoDeImports } from '../../../test/grafo-de-imports';
 import { signedDocuments } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { stopBoss } from '@/jobs/boss';
 import { salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { EMITIDOS } from './constantes';
@@ -17,7 +18,10 @@ import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import { exigirHabilitacaoAtual, registrarAssinatura, type VersaoLida } from './registrar-assinatura';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+afterAll(async () => {
+  await stopBoss(); // R7: registrarAssinatura enfileira o e-mail da entrega (T10)
+  await app.pool.end();
+});
 const COPIA = { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'd@x.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false };
 
 /** O que a digitalizada (T9) e o envio do 10B fazem: o PDF final por salvarArquivo, com a transição no registrar. */
@@ -27,7 +31,7 @@ async function assinarNoBanco(x: Awaited<ReturnType<typeof outroDocumento>>, ver
     tipo: 'documento_assinado', conteudo: pdf, permitidos: ['pdf'], patientId: x.p.id, substitui: x.base,
     registrar: (tx, arq) => registrarAssinatura(tx, {
       documentoId: x.id, codigo: x.codigo, patientId: x.p.id, tenantId: x.T.tenantId, caminho: arq.caminho, sha256: createHash('sha256').update(pdf).digest('hex'),
-      tipo: 'digitalizada', emissor: null, assinanteNome: null, userId: x.T.nutriId, agora, copia: COPIA, base: x.base, versao,
+      tipo: 'digitalizada', emissor: null, assinanteNome: null, userId: x.T.nutriId, agora, copia: COPIA, base: x.base, versao, appUrl: 'https://x',
     }),
   }, { db: app.db, dataDir: x.dataDir });
   return pdf;

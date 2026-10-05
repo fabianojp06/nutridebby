@@ -3,6 +3,7 @@ import type { Db, Tx } from '@/db/client';
 import { signedDocuments, type TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
 import type { TipoAssinatura } from './constantes';
+import { entregarDocumento } from './entrega';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { CopiaProfissional } from './perfil-profissional';
 import type { ConteudoReceita } from './prescricao';
@@ -31,6 +32,8 @@ export type AssinaturaAceita = {
   documentoId: string; codigo: string; patientId: string; tenantId: string; caminho: string; sha256: string; tipo: TipoAssinatura;
   emissor: string | null; assinanteNome: string | null; userId: string; agora: Date; copia: CopiaProfissional; base: string | null;
   versao: VersaoLida;
+  /** T10: o link do e-mail da entrega (portal ou link de uso único). A rota passa `getEnv().APP_URL`; o worker, o dele. */
+  appUrl: string;
 };
 
 /**
@@ -46,7 +49,7 @@ export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegis
  * RN-140 (b): a ida a "assinado" e a verificação pública — na transação do arquivo (o `registrar` do salvarArquivo do PDF
  * final). Regra 9 (desvio registrado da RN-140 b): `base_pdf_path` e `digitalizacao` NÃO mudam aqui; quem chama, depois do
  * salvarArquivo, solta cada arquivo no seu apagarArquivo com `soltarArquivosDoPreparo(ctx, id, EMITIDOS)` (T9; o envio do
- * PDF assinado do Plano 10B faz o mesmo), e a varredura da T7 repete o que falhar. A T10 acrescenta a entrega.
+ * PDF assinado do Plano 10B faz o mesmo), e a varredura da T7 repete o que falhar. No fim, a entrega (T10).
  */
 export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<void> {
   const daVersao = 'baseSha256' in a.versao
@@ -66,4 +69,8 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
     codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: 'receita', assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
     emissorCrn: a.copia.crn, assinanteNome: a.tipo === 'digitalizada' ? null : a.assinanteNome, assinaturaTipo: a.tipo, pdfSha256: a.sha256,
   });
+  // RN-152/RN-153: a entrega na mesma transação; `entregue_em` só quando houve entrega de fato (Minor da revisão de
+  // cobertura): arquivado → 'nenhuma' e a lista não mostra "Enviado em …" (só "Entregue pessoalmente", se marcado)
+  const via = await entregarDocumento(tx, { tenantId: a.tenantId, patientId: a.patientId, documentoId: a.documentoId, agora: a.agora, appUrl: a.appUrl });
+  if (via !== 'nenhuma') await tx.update(signedDocuments).set({ entregueEm: a.agora }).where(eq(signedDocuments.id, a.documentoId));
 }

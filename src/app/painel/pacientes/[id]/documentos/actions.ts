@@ -4,8 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { apagarRascunho, criarReceita, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoReceita, voltarAEditar } from '@/modules/documentos/documentos';
+import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
 import { PerfilIncompletoError } from '@/modules/documentos/perfil-profissional';
+import { marcarEntreguePessoalmente } from '@/modules/documentos/recebimento';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
 export type EstadoForm = { erros?: Record<string, string>; ok?: boolean; perfilIncompleto?: boolean };
@@ -121,4 +123,29 @@ export async function pedirNovoPdfAction(patientId: string, docId: string, _prev
   }
   revalidatePath(caminho(patientId, docId));
   return { ok: true };
+}
+
+/** D3 a: "Entregue pessoalmente" (o recibo é da nutricionista); como as ações de botão acima, o erro volta ao formulário. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- o estado anterior do useActionState (AcaoDocumento) não é usado
+export async function entreguePessoalmenteAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  try {
+    await marcarEntreguePessoalmente(ctx, patientId, docId);
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
+}
+
+/** D6 ★: "Reenviar link por e-mail"; "Link reenviado." (`?link=1`) só sai quando deu certo. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- o estado anterior do useActionState (AcaoDocumento) não é usado
+export async function reenviarLinkAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  try {
+    await reenviarLink(ctx, patientId, docId);
+  } catch (e) {
+    return comoEstado(e);
+  }
+  redirect(`${caminho(patientId, docId)}?link=1`);
 }

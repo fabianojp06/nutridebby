@@ -77,7 +77,7 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     const copia = { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'd@x.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false };
     await expect(withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => registrarAssinatura(tx, {
       documentoId: x.id, codigo: 'ZZZZZZZZZZZZ', patientId: x.p.id, tenantId: x.T.tenantId, caminho: x.base, sha256: 'x', tipo: 'digitalizada', emissor: null,
-      assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacaoPendente: true },
+      assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacaoPendente: true }, appUrl: 'https://x',
     }), app.db)).rejects.toBeInstanceOf(TransicaoInvalidaError);
   });
 });

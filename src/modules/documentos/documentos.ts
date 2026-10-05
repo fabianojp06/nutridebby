@@ -231,7 +231,7 @@ export function dataHora(d: Date, fuso: string): string {
   return `${formatarData(p.data)} às ${p.hora}`;
 }
 
-/** Linha da situação na lista (a parte da entrega e do recebimento entra na T10). */
+/** Linha da situação na lista; no assinado, a lista usa a situação da entrega (`situacaoDaEntrega`, entrega.ts, T10). */
 export function situacaoNoPainel(d: ItemLista, fuso: string): string {
   if (d.status === 'preparando') return d.pdfStatus === 'falhou' ? 'Não foi possível gerar o PDF. Tente de novo.' : d.pdfStatus === 'sem_cota' ? MSG_COTA_ESGOTADA : '';
   if (d.status === 'assinado' && d.assinadoEm) return `Assinado em ${dataHora(d.assinadoEm, fuso)}`;

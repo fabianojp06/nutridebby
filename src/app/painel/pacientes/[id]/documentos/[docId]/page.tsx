@@ -13,14 +13,16 @@ import { descreverItem } from '@/modules/documentos/prescricao';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
+import { Entrega } from './entrega';
 import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
 import { ReceitaForm } from './receita-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function DocumentoPage({ params }: PageProps<'/painel/pacientes/[id]/documentos/[docId]'>) {
+export default async function DocumentoPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/documentos/[docId]'>) {
   const { id, docId } = await params;
+  const busca = await searchParams;
   if (!idValido(docId)) notFound();
   const { ctx, tenant, paciente, data } = await carregarProntuario(id);
   if (!tenant.documentosLiberados) notFound();
@@ -122,6 +124,8 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
             )}
           </dl>
           {!anonimizado && <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>}
+          {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
+          {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
         </Cartao>
       )}
     </section>

@@ -261,6 +261,27 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.link].join('\n\n'),
       };
     }
+    case 'documento_novo':
+    case 'documento_link': {
+      const subject = 'Você tem um novo documento';
+      const linhas =
+        msg.tipo === 'documento_novo'
+          ? [`Olá, ${msg.nome}. ${msg.consultorio} disponibilizou um novo documento para você. Para ver, entre no app: ${msg.link}`]
+          : [`Olá, ${msg.nome}. ${msg.consultorio} disponibilizou um novo documento para você.`, 'Para abrir, use o link abaixo. Vamos enviar um código de 6 dígitos para este e-mail. O link vale por 30 dias.'];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>{msg.tipo === 'documento_novo' ? 'Ver meus documentos' : 'Abrir documento'}</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
     case 'consulta': {
       const subject = {
         lembrete_24h: `Lembrete: sua consulta é amanhã às ${msg.hora}`,

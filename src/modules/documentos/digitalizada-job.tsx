@@ -93,6 +93,7 @@ export async function montarPdfDigitalizado(
           documentoId: d.id, codigo, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',
           emissor: null, assinanteNome: null, userId: data.userId, agora, copia, base: d.basePdfPath,
           versao: { codigo, digitalizacaoPendente: true }, // a versão lida: mesmo código e ainda "pendente"
+          appUrl: deps.appUrl,
         });
       },
     }, { db, dataDir: deps.dataDir });

@@ -4,6 +4,7 @@ import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { Selo } from '@/components/ui/selo';
 import { listarDocumentos, situacaoNoPainel } from '@/modules/documentos/documentos';
+import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { linhaDaAssinatura, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
@@ -52,7 +53,8 @@ export default async function DocumentosPage({ params, searchParams }: PageProps
                 </td>
                 <td>{formatarData(hojeNoFuso(tenant.fuso, d.assinadoEm ?? d.createdAt))}</td>
                 <td>
-                  <Selo>{ROTULO_STATUS[d.status]}</Selo> <span className="text-sm text-suave">{situacaoNoPainel(d, tenant.fuso)}</span>
+                  {/* D4 (T10): no assinado, a situação da entrega no lugar do "Assinado em …" (a data já está na coluna "Data") */}
+                  <Selo>{ROTULO_STATUS[d.status]}</Selo> <span className="text-sm text-suave">{d.status === 'assinado' ? situacaoDaEntrega(d, tenant.fuso) : situacaoNoPainel(d, tenant.fuso)}</span>
                   {/* RN-157 / US-144: "Assinatura: Digitalizado" (ou gov.br, ICP) também na lista da nutricionista */}
                   {d.assinaturaTipo && <span className="block text-sm text-suave">{linhaDaAssinatura(d.assinaturaTipo)}</span>}
                 </td>

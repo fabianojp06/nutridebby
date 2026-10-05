@@ -25,7 +25,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, pedirNovoPdfAction, prepararAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, reenviarLinkAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -67,6 +67,17 @@ describe('ações do documento: o erro volta ao formulário; o sinal de sucesso 
     expect(revalidatePath).not.toHaveBeenCalled();
     expect(await voltarAEditarAction(p.id, preparando.id, {})).toEqual({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+  });
+
+  it('"Reenviar link" e "Entregue pessoalmente" fora do estado: o motivo, sem "Link reenviado." nem revalidar; no estado certo, o sinal', async () => {
+    const { N, p } = await consultorio(); // paciente ativo, sem conta, com e-mail
+    const rascunho = await documentoNoBanco(db, N.ctx, p.id);
+    expect(await reenviarLinkAction(p.id, rascunho.id, {})).toEqual(MUDOU);
+    expect(await entreguePessoalmenteAction(p.id, rascunho.id, {})).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    const assinado = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    await expect(reenviarLinkAction(p.id, assinado.id, {})).rejects.toThrow(`redirect /painel/pacientes/${p.id}/documentos/${assinado.id}?link=1`);
+    expect(await entreguePessoalmenteAction(p.id, assinado.id, {})).toEqual({ ok: true });
   });
 });
 
