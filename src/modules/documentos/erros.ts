@@ -20,7 +20,8 @@ export class TransicaoInvalidaError extends Error {
 }
 
 /** Plano 10A: as recusas do envio digitalizado. O Plano 10B acrescenta as da conferência do PDF assinado (US-144). */
-export type CodigoRecusa = 'sem_2fa' | 'codigo_2fa' | 'tentativas_2fa' | 'imagens' | 'sem_habilitacao';
+/** `imagens`: o tipo (só JPEG/PNG pelo conteúdo); `fotos`: quantidade, tamanho ou foto acima de 40 MP (US-144). */
+export type CodigoRecusa = 'sem_2fa' | 'codigo_2fa' | 'tentativas_2fa' | 'imagens' | 'fotos' | 'sem_habilitacao';
 
 /** US-144 (texto exato da spec v0.3); `sem_habilitacao` é texto novo deste plano (Minor 9 da revisão de segurança, tabela de desvios). */
 export const MSG_RECUSA: Record<CodigoRecusa, string> = {
@@ -28,6 +29,7 @@ export const MSG_RECUSA: Record<CodigoRecusa, string> = {
   codigo_2fa: 'Código inválido. Confira o horário do celular e tente de novo.',
   tentativas_2fa: 'Muitas tentativas. Tente de novo em 15 minutos.',
   imagens: 'Envie fotos das páginas (JPEG ou PNG).',
+  fotos: 'Envie de 1 a 5 fotos, até 10 MB no total.',
   sem_habilitacao: 'A receita tem fitoterápico formulado e a habilitação em Fitoterapia não está mais no seu perfil. Registre a habilitação de novo ou volte a editar a receita.',
 };
 

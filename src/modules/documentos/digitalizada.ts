@@ -12,7 +12,7 @@ import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
 import { DIGITALIZACAO_MAX_MS, MAX_PIXELS_FOTO } from './constantes';
-import { DocumentoNaoEncontradoError, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
+import { DocumentoNaoEncontradoError, MSG_RECUSA, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
 import { exigirHabilitacaoAtual, type AcessoAssinatura, type DepsAssinar } from './registrar-assinatura';
 
@@ -21,7 +21,7 @@ export const MAX_FOTOS_BYTES = 10 * 1024 * 1024;
 /** US-144 (texto exato da spec v0.3) e os novos deste plano. */
 export const MSG_DIGITALIZADA = {
   aviso: 'O sistema não confere o conteúdo de documentos digitalizados. Envie fotos das páginas do PDF preparado, assinadas e sem alterações.',
-  fotos: 'Envie de 1 a 5 fotos, até 10 MB no total.',
+  fotos: MSG_RECUSA.fotos, // a mesma do 413 da rota e da recusa `fotos`
   montando: 'Montando o PDF digitalizado…',
   falhou: 'Não foi possível montar o PDF. Envie as fotos de novo.',
 } as const;
@@ -43,13 +43,14 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
   const agora = deps.agora ?? new Date();
   if (!a.user.twoFactorEnabled) throw new RecusaAssinaturaError('sem_2fa');
   const total = imagens.reduce((s, b) => s + b.length, 0);
-  if (!imagens.length || imagens.length > MAX_FOTOS || total > MAX_FOTOS_BYTES) throw new RecusaAssinaturaError('imagens', 'quantidade_ou_tamanho');
+  if (!imagens.length || imagens.length > MAX_FOTOS || total > MAX_FOTOS_BYTES) throw new RecusaAssinaturaError('fotos', 'quantidade_ou_tamanho');
   if (!imagens.every((b) => ['jpg', 'png'].includes(detectarTipo(b)?.ext ?? ''))) throw new RecusaAssinaturaError('imagens', 'tipo');
+  // US-144: "foto acima de 40 megapixels é recusada com 'Envie de 1 a 5 fotos, até 10 MB no total.'"
   // RN-157: bomba de pixels (PNG de poucos MB que declara 30.000 × 30.000) recusada pelo cabeçalho — decodificada no
   // worker, derrubaria o processo e o pg-boss repetiria o job em laço (e-mails, push e exportações de todos parados)
   for (const img of imagens) {
     const m = await sharp(img, { limitInputPixels: MAX_PIXELS_FOTO, failOn: 'error' }).metadata().catch(() => null);
-    if (!m?.width || !m.height || m.width * m.height > MAX_PIXELS_FOTO) throw new RecusaAssinaturaError('imagens', 'pixels');
+    if (!m?.width || !m.height || m.width * m.height > MAX_PIXELS_FOTO) throw new RecusaAssinaturaError('fotos', 'pixels');
   }
   const lida = await withTenant(a.ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, docId));
@@ -76,12 +77,14 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
   }, db);
   const daVersao = and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, lida.codigo), eq(signedDocuments.digitalizacaoStatus, 'recebendo'));
   try {
-    // regra 9: as fotos de um envio anterior (que falhou) saem cada uma no seu apagarArquivo, com o ponteiro na mesma transação
+    // regra 9: as fotos de um envio anterior (que falhou) saem cada uma no seu apagarArquivo, com o ponteiro na mesma
+    // transação. Erro aqui SOBE (o catch marca "falhou"): engolido, o ponteiro antigo ficaria e o PDF somaria as páginas
+    // dos dois envios (D24) — revisão da T9
     for (const c of antigas)
       await apagarArquivo(a.ctx, { caminho: c }, {
         db, dataDir: deps.dataDir,
         naMesmaTransacao: async (tx) => (await tx.update(signedDocuments).set({ digitalizacao: sql`coalesce(${signedDocuments.digitalizacao}, '[]'::jsonb) - ${c}::text` }).where(daVersao).returning({ id: signedDocuments.id })).length > 0,
-      }).catch(() => undefined); // a varredura da T7 apaga a foto sem referência
+      });
     for (const img of imagens) {
       await salvarArquivo(a.ctx, {
         tipo: 'documento_digitalizado', conteudo: img, permitidos: ['jpg', 'png'], patientId: lida.patientId,
@@ -97,7 +100,9 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     }
     const boss = deps.boss ?? (await getBoss());
     await withTenant(a.ctx, async (tx) => {
-      const ok = await tx.update(signedDocuments).set({ digitalizacaoStatus: 'pendente' }).where(daVersao).returning({ id: signedDocuments.id });
+      // D24: só as fotos deste envio (nenhuma sobra de um envio anterior) vão para o PDF
+      const soEste = sql`jsonb_array_length(coalesce(${signedDocuments.digitalizacao}, '[]'::jsonb)) = ${imagens.length}`;
+      const ok = await tx.update(signedDocuments).set({ digitalizacaoStatus: 'pendente' }).where(and(daVersao, soEste)).returning({ id: signedDocuments.id });
       if (!ok.length) throw new TransicaoInvalidaError();
       await boss.send('documento-digitalizado', { tenantId: a.ctx.tenantId, documentoId: docId, userId: a.user.id }, { db: fromDrizzle(tx, sql) });
     }, db);

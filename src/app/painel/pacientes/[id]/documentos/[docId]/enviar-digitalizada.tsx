@@ -1,15 +1,22 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Botao } from '@/components/ui/botao';
 
-/** RN-157 / D4: fotos das páginas + o código do 2FA (todo envio). Os textos vêm do servidor (MSG_DIGITALIZADA). */
+/**
+ * RN-157 / D4: fotos das páginas + o código do 2FA (todo envio). Os textos vêm do servidor (MSG_DIGITALIZADA).
+ * O botão sai do DOM no clique: o foco vai ao aviso da spec (WCAG 2.4.3, RNF-10), que o leitor de tela lê, não cai no <body>.
+ */
 export function EnviarDigitalizada({ docId, aviso, dica }: { docId: string; aviso: string; dica: string }) {
   const router = useRouter();
   const [aberto, setAberto] = useState(false);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const avisoRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (aberto) avisoRef.current?.focus();
+  }, [aberto]);
   if (!aberto) return <Botao type="button" variante="secundario" onClick={() => setAberto(true)}>Enviar documento digitalizado (assinado à mão)</Botao>;
   return (
     <form
@@ -25,7 +32,7 @@ export function EnviarDigitalizada({ docId, aviso, dica }: { docId: string; avis
         else setErro(j.erro ?? 'Não foi possível enviar. Tente de novo.');
       }}
     >
-      <p role="note" className="rounded-xl border border-borda p-3">{aviso}</p>
+      <p ref={avisoRef} tabIndex={-1} role="note" className="rounded-xl border border-borda p-3">{aviso}</p>
       <label htmlFor="fotos" className="block font-medium">Fotos das páginas (JPEG ou PNG, até 5)</label>
       <input id="fotos" name="fotos" type="file" accept="image/jpeg,image/png" multiple required aria-describedby="fotos-dica" />
       <p id="fotos-dica" className="text-sm text-suave">{dica}</p>

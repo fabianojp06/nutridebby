@@ -7,7 +7,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getAuth } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
-import { codigoAleatorio, pdfDeTeste } from '../../../../../../../test/documentos';
+import { codigoAleatorio, pdfDeTeste, pngDeclarando } from '../../../../../../../test/documentos';
 import { novoPaciente } from '../../../../../../../test/pacientes';
 import { criarEEntrar } from '../../../../../../../test/sessao';
 import { POST } from './route';
@@ -90,5 +90,17 @@ describe('POST /api/painel/documentos/[id]/digitalizada (RN-157, US-144)', () =>
     const recusa = info.mock.calls.find((c) => c[1] === 'digitalização recusada');
     expect(recusa?.[0]).toEqual({ tenantId: A.tenantId, documentoId: id, motivo: 'tipo' });
     expect(JSON.stringify(info.mock.calls)).not.toContain('482913'); // nunca o código do 2FA
+  });
+
+  it('foto acima de 40 MP (PNG que declara 30.000 × 30.000) → 422 "Envie de 1 a 5 fotos, até 10 MB no total." (US-144); nada muda', async () => {
+    const A = await consultorio();
+    const id = await aguardando(A.ctx);
+    const form = new FormData();
+    form.append('fotos', new Blob([new Uint8Array(pngDeclarando(30_000, 30_000))], { type: 'image/png' }), 'pagina.png');
+    form.append('codigo2fa', '482913');
+    const r = await enviar(id, { cookie: A.cookie, corpo: form });
+    expect(r.status).toBe(422);
+    expect(await r.json()).toEqual({ erro: 'Envie de 1 a 5 fotos, até 10 MB no total.', codigo: 'fotos' });
+    expect(await situacao(A.ctx, id)).toEqual({ status: 'aguardando_assinatura', digitalizacao: null, digitalizacao_status: null });
   });
 });

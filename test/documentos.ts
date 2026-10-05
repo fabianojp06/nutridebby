@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { crc32 } from 'node:zlib';
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
@@ -44,6 +45,23 @@ export async function documentoNoBanco(
  */
 export function pdfDeTeste(texto = 'base de teste'): Buffer {
   return Buffer.from(`%PDF-1.3\n% ${texto}\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+}
+
+/** PNG de poucos bytes que DECLARA largura × altura no IHDR (uma "bomba de pixels": decodificado, seriam gigabytes). */
+export function pngDeclarando(largura: number, altura: number): Buffer {
+  const chunk = (tipo: string, dados: Buffer) => {
+    const t = Buffer.from(tipo, 'latin1');
+    const tam = Buffer.alloc(4);
+    tam.writeUInt32BE(dados.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([t, dados])));
+    return Buffer.concat([tam, t, dados, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(largura, 0);
+  ihdr.writeUInt32BE(altura, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8); // 8 bits, RGBA
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01])), chunk('IEND', Buffer.alloc(0))]);
 }
 
 /** D20: liga o interruptor do admin (o `novoTenant` nasce com `documentos_liberados = false`, como em produção). */
