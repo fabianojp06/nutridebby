@@ -5,10 +5,10 @@ import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_RECEITA, ROTULO_ASSINATURA, ROTULO_STATUS } from '@/modules/documentos/constantes';
+import { DECLARACAO_RECEITA, envioEmCurso, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
-import { envioEmCurso, MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
+import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { descreverItem } from '@/modules/documentos/prescricao';
@@ -37,7 +37,13 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const anonimizado = !!d.anonimizadoEm;
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…"), com o mesmo prazo
   // de 1 h do servidor; esquecido além dele, a página já pede as fotos de novo (Minor 7 da Etapa 3)
-  const emCurso = envioEmCurso(d, new Date());
+  const agora = new Date();
+  const emCurso = envioEmCurso(d, agora);
+  // RN-141 (code review do PR #19, item 9): também no PDF falho ou sem cota (senão o documento fica preso em "Preparando o
+  // PDF"); nunca com um envio digitalizado em curso (o módulo também recusa)
+  const voltarAEditar = !bloqueado && podeVoltarAEditar(d, agora) && (
+    <AcaoDocumento acao={voltarAEditarAction.bind(null, paciente.id, d.id)} rotulo="Voltar a editar" confirmar="O PDF preparado será descartado. Continuar?" />
+  );
   const envioFalhou = d.digitalizacaoStatus === 'falhou' || (!emCurso && (d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente'));
   // spec §4: o emitido (assinado ou cancelado) mostra à nutricionista como foi assinado e o PDF; o paciente baixa o cancelado pelo portal
   const emitido = (
@@ -101,6 +107,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
             <Aviso tipo="erro" papel="alert">{d.pdfStatus === 'sem_cota' ? MSG_COTA_ESGOTADA : 'Não foi possível gerar o PDF. Tente de novo.'}</Aviso>
             {/* R3: o botão (um <form>) fica fora do Aviso, que é um <p> */}
             <AcaoDocumento acao={pedirNovoPdfAction.bind(null, paciente.id, d.id)} rotulo="Gerar o PDF de novo" secundario />
+            {voltarAEditar}
           </>
         ) : (
           <EstadoPdf docId={d.id} />
@@ -127,9 +134,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
               {data.user.twoFactorEnabled && !bloqueado && <EnviarDigitalizada docId={d.id} aviso={MSG_DIGITALIZADA.aviso} dica={MSG_DIGITALIZADA.fotos} />}
             </>
           )}
-          {!bloqueado && (
-            <AcaoDocumento acao={voltarAEditarAction.bind(null, paciente.id, d.id)} rotulo="Voltar a editar" confirmar="O PDF preparado será descartado. Continuar?" />
-          )}
+          {voltarAEditar}
         </Cartao>
       )}
 

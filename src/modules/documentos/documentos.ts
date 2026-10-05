@@ -11,7 +11,7 @@ import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenam
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
-import { DECLARACAO_RECEITA, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type ViaRecibo } from './constantes';
+import { DECLARACAO_RECEITA, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import { copiaDoPerfil } from './perfil-profissional';
 import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
@@ -105,24 +105,37 @@ export async function prepararParaAssinatura(
 }
 
 /**
+ * RN-140 (a): tudo do preparo volta a nulo — a lista ÚNICA do "Voltar a editar" e da anonimização do não emitido
+ * (lgpd-documentos.ts; code review do PR #19, item 8). Quem usa acrescenta o `updatedAt`.
+ */
+export const RESET_PREPARO = {
+  status: 'rascunho', codigo: null, declaracaoEm: null, basePdfPath: null, basePdfSha256: null, basePdfBytes: null, areaAssinatura: null,
+  pdfStatus: null, pdfPedidoEm: null, digitalizacao: null, digitalizacaoStatus: null, digitalizacaoEm: null,
+} as const;
+
+/**
  * RN-140 (a): volta a rascunho (código e base nulos) no naMesmaTransacao do DELETE do PDF base. Regra 9: as fotos de um
  * envio digitalizado que falhou saem ANTES, cada uma no seu apagarArquivo (soltarArquivosDoPreparo com `soFotos`); o
- * `digitalizacao: null` do `limpar` só cobre uma foto gravada no meio (corrida), que a varredura da T7 apaga sem referência.
+ * `digitalizacao: null` do RESET_PREPARO só cobre uma foto gravada no meio (corrida), que a varredura da T7 apaga sem referência.
+ * Code review do PR #19: com um envio digitalizado em curso (D24), recusado (item 9) — nem na trava nem no apagar do base;
+ * e a volta gravada sem a linha do base em stored_files é sucesso (item 4: a varredura da T7 cuida do que sobrar).
  */
-export async function voltarAEditar(ctx: TenantContext, patientId: string, docId: string, deps: { db?: Db; dataDir?: string } = {}): Promise<void> {
+export async function voltarAEditar(ctx: TenantContext, patientId: string, docId: string, deps: { db?: Db; dataDir?: string; agora?: Date } = {}): Promise<void> {
   const db = deps.db ?? getDb();
-  const limpar = {
-    status: 'rascunho', codigo: null, declaracaoEm: null, basePdfPath: null, basePdfSha256: null, basePdfBytes: null, areaAssinatura: null,
-    pdfStatus: null, pdfPedidoEm: null, digitalizacao: null, digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: new Date(),
-  } as const;
+  const agora = deps.agora ?? new Date();
+  const limpar = { ...RESET_PREPARO, updatedAt: agora };
   const base = await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['preparando', 'aguardando_assinatura']);
+    if (d.status === 'aguardando_assinatura' && envioEmCurso(d, agora)) throw new TransicaoInvalidaError();
     if (!d.basePdfPath) await tx.update(signedDocuments).set(limpar).where(eq(signedDocuments.id, docId));
     return d.basePdfPath;
   }, db);
   if (!base) return;
   await soltarArquivosDoPreparo(ctx, docId, ['aguardando_assinatura'], { db, dataDir: deps.dataDir, soFotos: true });
+  // um envio que começou depois da trava acima (D24) não perde o base: a mesma regra do envioEmCurso, no banco
+  const semEnvioEmCurso = sql`not coalesce(${signedDocuments.digitalizacaoStatus} in ('recebendo', 'pendente') and ${signedDocuments.digitalizacaoEm} > ${new Date(agora.getTime() - DIGITALIZACAO_MAX_MS)}, false)`;
+  let voltou = false;
   const ok = await apagarArquivo(ctx, { caminho: base }, {
     db,
     dataDir: deps.dataDir,
@@ -131,12 +144,13 @@ export async function voltarAEditar(ctx: TenantContext, patientId: string, docId
       const r = await tx
         .update(signedDocuments)
         .set(limpar)
-        .where(and(eq(signedDocuments.id, docId), eq(signedDocuments.basePdfPath, base), inArray(signedDocuments.status, ['preparando', 'aguardando_assinatura'])))
+        .where(and(eq(signedDocuments.id, docId), eq(signedDocuments.basePdfPath, base), inArray(signedDocuments.status, ['preparando', 'aguardando_assinatura']), semEnvioEmCurso))
         .returning({ id: signedDocuments.id });
-      return r.length > 0;
+      voltou = r.length > 0;
+      return voltou;
     },
   });
-  if (!ok) throw new TransicaoInvalidaError();
+  if (!ok && !voltou) throw new TransicaoInvalidaError();
 }
 
 /** US-143 "Gerar o PDF de novo": só com o PDF falho (ou sem cota, RNF-143) e ainda em preparo. */

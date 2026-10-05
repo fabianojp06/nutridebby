@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
@@ -8,9 +9,17 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
+import { DIGITALIZACAO_MAX_MS, podeVoltarAEditar } from './constantes';
 import { DocumentoError, TransicaoInvalidaError } from './erros';
-import { apagarRascunho, contarAguardandoAssinatura, criarReceita, lerDocumento, listarDocumentos, prepararParaAssinatura, salvarRascunhoReceita, situacaoNoPainel, voltarAEditar, type ItemLista } from './documentos';
+import { apagarRascunho, contarAguardandoAssinatura, criarReceita, lerDocumento, listarDocumentos, prepararParaAssinatura, RESET_PREPARO, salvarRascunhoReceita, situacaoNoPainel, voltarAEditar, type ItemLista } from './documentos';
 import { MSG_PERFIL_PROF, PerfilIncompletoError } from './perfil-profissional';
+
+/** Item 4 do code review do PR #19: a linha do base em stored_files some — o apagar do base não acha o que apagar. */
+const semLinhaDoBase = vi.hoisted(() => ({ ligada: false }));
+vi.mock('@/modules/plataforma/armazenamento', async (original) => {
+  const m = await original<typeof import('@/modules/plataforma/armazenamento')>();
+  return { ...m, apagarArquivo: (...[ctx, filtro, deps]: Parameters<typeof m.apagarArquivo>) => m.apagarArquivo(ctx, semLinhaDoBase.ligada ? { id: crypto.randomUUID() } : filtro, deps) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -97,6 +106,70 @@ describe('ciclo do documento (US-142, US-143)', () => {
     expect(d).toMatchObject({ status: 'rascunho', codigo: null });
     const sobrou = await withTenant(T.ctx, (tx) => tx.execute(sql`select caminho from stored_files where caminho in (${base}, ${foto})`), app.db);
     expect(sobrou.rows).toEqual([]);
+  });
+
+  /** Um documento preparado e em "Aguardando assinatura" com o base em stored_files (como depois do worker). */
+  async function aguardando() {
+    const { T, tenant } = await consultorioCompleto();
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await criarReceita(T.ctx, p.id, { db: app.db });
+    await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'J' }, { db: app.db });
+    await prepararParaAssinatura(T.ctx, tenant, p.id, id, { declaracao: 'on' }, { db: app.db });
+    const base = `${T.tenantId}/documento_base/${crypto.randomUUID()}.pdf`;
+    await withTenant({ tenantId: T.tenantId, role: 'worker' }, async (tx) => {
+      await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id})`);
+      await tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10, area_assinatura = '{"x1":351,"y1":62,"x2":559,"y2":132}' where id = ${id}`);
+    }, app.db);
+    return { T, tenant, p, id, base };
+  }
+
+  it('code review do PR #19 (item 4): voltar a editar com a volta gravada mas sem a linha do base em stored_files → sucesso, não "transição inválida"', async () => {
+    const { T, p, id } = await aguardando();
+    semLinhaDoBase.ligada = true;
+    try {
+      await voltarAEditar(T.ctx, p.id, id, { db: app.db, dataDir: '/tmp' });
+    } finally {
+      semLinhaDoBase.ligada = false;
+    }
+    expect(await lerDocumento(T.ctx, p.id, id, app.db)).toMatchObject({ status: 'rascunho', codigo: null, basePdfPath: null });
+  });
+
+  it('code review do PR #19 (item 9): voltar a editar é recusado com um envio digitalizado em curso; passado 1 h, ou com o PDF falho no preparo, volta', async () => {
+    const { T, tenant, p, id } = await aguardando();
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update signed_documents set digitalizacao_status = 'pendente', digitalizacao_em = now() where id = ${id}`), app.db);
+    await expect(voltarAEditar(T.ctx, p.id, id, { db: app.db, dataDir: '/tmp' })).rejects.toBeInstanceOf(TransicaoInvalidaError);
+    expect(await lerDocumento(T.ctx, p.id, id, app.db)).toMatchObject({ status: 'aguardando_assinatura', digitalizacaoStatus: 'pendente' });
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update signed_documents set digitalizacao_em = now() - interval '2 hours' where id = ${id}`), app.db); // o envio expirou
+    await voltarAEditar(T.ctx, p.id, id, { db: app.db, dataDir: '/tmp' });
+    expect(await lerDocumento(T.ctx, p.id, id, app.db)).toMatchObject({ status: 'rascunho' });
+    // "Preparando o PDF" com o PDF falho (ou sem cota): o documento não fica preso
+    await prepararParaAssinatura(T.ctx, tenant, p.id, id, { declaracao: 'on' }, { db: app.db });
+    await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set pdf_status = 'sem_cota' where id = ${id}`), app.db);
+    await voltarAEditar(T.ctx, p.id, id, { db: app.db, dataDir: '/tmp' });
+    expect(await lerDocumento(T.ctx, p.id, id, app.db)).toMatchObject({ status: 'rascunho', pdfStatus: null });
+  });
+
+  it('item 9: o botão "Voltar a editar" aparece no PDF falho/sem cota e em "Aguardando assinatura" sem envio em curso', () => {
+    const agora = new Date();
+    const d = (status: string, pdfStatus: string | null, digitalizacaoStatus: string | null = null, ha = 0) =>
+      podeVoltarAEditar({ status: status as never, pdfStatus, digitalizacaoStatus, digitalizacaoEm: digitalizacaoStatus ? new Date(agora.getTime() - ha) : null }, agora);
+    expect(d('preparando', 'falhou')).toBe(true);
+    expect(d('preparando', 'sem_cota')).toBe(true);
+    expect(d('preparando', 'pendente')).toBe(false); // "Preparando o PDF…": o worker está nele
+    expect(d('aguardando_assinatura', 'pronto')).toBe(true);
+    expect(d('aguardando_assinatura', 'pronto', 'falhou')).toBe(true);
+    expect(d('aguardando_assinatura', 'pronto', 'recebendo')).toBe(false);
+    expect(d('aguardando_assinatura', 'pronto', 'pendente')).toBe(false);
+    expect(d('aguardando_assinatura', 'pronto', 'pendente', DIGITALIZACAO_MAX_MS + 1000)).toBe(true); // esquecido além de 1 h
+    for (const s of ['rascunho', 'assinado', 'cancelado', 'substituido']) expect(d(s, null)).toBe(false);
+  });
+
+  it('item 8: RESET_PREPARO é a lista única do "Voltar a editar" e da anonimização do não emitido', () => {
+    expect(Object.keys(RESET_PREPARO).sort()).toEqual(['areaAssinatura', 'basePdfBytes', 'basePdfPath', 'basePdfSha256', 'codigo', 'declaracaoEm', 'digitalizacao', 'digitalizacaoEm', 'digitalizacaoStatus', 'pdfPedidoEm', 'pdfStatus', 'status']);
+    expect(Object.entries(RESET_PREPARO).every(([k, v]) => (k === 'status' ? v === 'rascunho' : v === null))).toBe(true);
+    const lgpd = readFileSync('src/modules/documentos/lgpd-documentos.ts', 'utf8');
+    expect(lgpd).toContain('RESET_PREPARO');
+    expect(lgpd).not.toMatch(/basePdfSha256: null/);
   });
 
   it('apagar: só o rascunho (com a nota em cascata)', async () => {

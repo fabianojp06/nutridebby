@@ -52,3 +52,22 @@ export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
 export const MAX_PIXELS_FOTO = 40_000_000;
 /** D24: um envio digitalizado "recebendo"/"pendente" vale por 1 h; depois, a varredura o expira e outro envio pode começar. */
 export const DIGITALIZACAO_MAX_MS = 3_600_000;
+
+/**
+ * Um envio digitalizado em curso (recebendo ou pendente) que ainda não expirou: outro envio espera (D24) e "Voltar a
+ * editar" também (code review do PR #19, item 9). A página do documento usa a mesma regra (Minor 7 da Etapa 3): passada
+ * 1 h, mostra o formulário de novo sem esperar a varredura marcar "falhou". Aqui (sem imports) para o módulo de documentos,
+ * a digitalizada e a página usarem a mesma.
+ */
+export const envioEmCurso = (d: { digitalizacaoStatus: string | null; digitalizacaoEm: Date | null }, agora: Date) =>
+  (d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente') && !!d.digitalizacaoEm && agora.getTime() - d.digitalizacaoEm.getTime() < DIGITALIZACAO_MAX_MS;
+
+/**
+ * RN-141 (preparando/aguardando_assinatura → rascunho), na tela (code review do PR #19, item 9): em "Preparando o PDF"
+ * só com o PDF falho ou sem cota (senão o documento ficaria preso; com o PDF a caminho, a tela só acompanha); em
+ * "Aguardando assinatura", fora de um envio digitalizado em curso (o módulo também o recusa).
+ */
+export const podeVoltarAEditar = (
+  d: { status: StatusDocumento; pdfStatus: string | null; digitalizacaoStatus: string | null; digitalizacaoEm: Date | null }, agora: Date,
+): boolean =>
+  d.status === 'preparando' ? d.pdfStatus === 'falhou' || d.pdfStatus === 'sem_cota' : d.status === 'aguardando_assinatura' && !envioEmCurso(d, agora);

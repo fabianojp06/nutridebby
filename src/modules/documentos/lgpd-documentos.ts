@@ -6,6 +6,7 @@ import type { EscopoExportacao } from '@/modules/pacientes/exportacao-job';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
+import { RESET_PREPARO } from './documentos';
 import { EMITIDOS, ROTULO_ASSINATURA, ROTULO_STATUS, type StatusDocumento, type TipoAssinatura } from './constantes';
 import { descreverItem, type ConteudoReceita } from './prescricao';
 
@@ -108,10 +109,7 @@ export async function anonimizarDocumentosDoPaciente(ctx: TenantContext, patient
         if (d.status !== 'rascunho')
           await tx
             .update(signedDocuments)
-            .set({
-              status: 'rascunho', codigo: null, declaracaoEm: null, basePdfPath: null, basePdfSha256: null, basePdfBytes: null, areaAssinatura: null,
-              pdfStatus: null, pdfPedidoEm: null, digitalizacao: null, digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: new Date(),
-            })
+            .set({ ...RESET_PREPARO, updatedAt: new Date() })
             .where(eq(signedDocuments.id, d.id));
         await tx.delete(signedDocuments).where(eq(signedDocuments.id, d.id));
         return true;

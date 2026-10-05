@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
-import { DIGITALIZACAO_MAX_MS, MAX_PIXELS_FOTO } from './constantes';
+import { envioEmCurso, MAX_PIXELS_FOTO } from './constantes';
 import { DocumentoNaoEncontradoError, MSG_RECUSA, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
 import { travarDocumentoAntesDaCota } from './arquivos-do-preparo';
@@ -26,13 +26,6 @@ export const MSG_DIGITALIZADA = {
   montando: 'Montando o PDF digitalizado…',
   falhou: 'Não foi possível montar o PDF. Envie as fotos de novo.',
 } as const;
-
-/**
- * Um envio em curso (recebendo ou pendente) que ainda não expirou: outro envio espera (D24). A página do documento usa a
- * mesma regra (Minor 7 da Etapa 3): passada 1 h, mostra o formulário de novo sem esperar a varredura marcar "falhou".
- */
-export const envioEmCurso = (d: { digitalizacaoStatus: string | null; digitalizacaoEm: Date | null }, agora: Date) =>
-  (d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente') && !!d.digitalizacaoEm && agora.getTime() - d.digitalizacaoEm.getTime() < DIGITALIZACAO_MAX_MS;
 
 /**
  * RN-157 / D4: só fotos (JPEG/PNG, tipo pelo conteúdo, 1 a 5, 10 MB no total) e o código do 2FA em TODO envio (sem
