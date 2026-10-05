@@ -12,6 +12,7 @@ import { termoAceito } from '@/modules/portal/termo';
 import { escolherVinculo, vinculosDaConta, type Vinculo } from '@/modules/portal/vinculos';
 import { recusaApi, requireApiUser } from './api-auth';
 import { clientIp } from './ip';
+import { lerCookie } from './ler-cookie';
 import { requestIp } from './request-ip';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
 import { requireUserComTenant, type SessionData } from './session';
@@ -46,13 +47,7 @@ export function cookieDoVinculoApagado(secure: boolean): string {
   return `${COOKIE_VINCULO}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
-export function lerCookie(header: string | null, nome: string): string | undefined {
-  for (const parte of (header ?? '').split(';')) {
-    const [n, ...v] = parte.trim().split('=');
-    if (n === nome) return v.join('=');
-  }
-  return undefined;
-}
+export { lerCookie } from './ler-cookie';
 
 /**
  * Destino de volta dentro do portal (escolha do consultório, troca pelo link): só uma página do portal que não seja a

@@ -1,4 +1,5 @@
 import { getEnv } from '@/env';
+import { lerCookie } from '@/lib/ler-cookie';
 import { PublicoError } from '@/modules/agenda/agendamento-publico';
 import { LinkError, NOME_COOKIE_LINK, SESSAO_LINK_S, type DepsLink } from '@/modules/documentos/link-documento';
 import { comoResposta, depsDaRequisicao, SEM_CACHE } from '../../n/[slug]/resposta';
@@ -10,13 +11,7 @@ export function depsDoLink(req: Request): DepsLink {
 }
 
 /** A sessão curta do link (`nd_doc`), lida do cabeçalho (o cookie só vai às rotas e à página deste token). */
-export function sessaoDoCookie(req: Request): string | undefined {
-  for (const parte of (req.headers.get('cookie') ?? '').split(';')) {
-    const [n, ...v] = parte.trim().split('=');
-    if (n === NOME_COOKIE_LINK) return v.join('=');
-  }
-  return undefined;
-}
+export const sessaoDoCookie = (req: Request): string | undefined => lerCookie(req.headers.get('cookie'), NOME_COOKIE_LINK);
 
 /**
  * Dois cookies (a página e as rotas do mesmo token), nunca em `/`: a sessão de um link não vai a outro caminho.

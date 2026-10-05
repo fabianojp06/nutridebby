@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeDb, getDb } from '@/db/client';
 import { stopBoss } from '@/jobs/boss';
@@ -7,6 +8,7 @@ import { emailsNaFila, novoPaciente, novoTenant } from '../../../../../test/paci
 import { POST as pedir } from './codigo/route';
 import { POST as confirmar } from './confirmar/route';
 import { GET as pdf } from './pdf/route';
+import { sessaoDoCookie } from './link';
 import { POST as recebido } from './recebido/route';
 
 const db = getDb();
@@ -39,6 +41,16 @@ async function link() {
 }
 
 describe('rotas do link do documento (RN-158)', () => {
+  it('code review do PR #19 (item 7): a sessão do link é lida pelo lerCookie de sempre, sem um parser próprio', () => {
+    const fonte = readFileSync('src/app/api/documento/[token]/link.ts', 'utf8');
+    expect(fonte).toContain('lerCookie(');
+    expect(fonte).not.toContain(".split(';')");
+    const req = (cookie: string) => new Request('http://localhost:3000/', { headers: { cookie } });
+    expect(sessaoDoCookie(req('a=1; nd_doc=abc=def; b=2'))).toBe('abc=def');
+    expect(sessaoDoCookie(req('nd_doc_x=1'))).toBeUndefined();
+    expect(sessaoDoCookie(new Request('http://localhost:3000/'))).toBeUndefined();
+  });
+
   it('codigo: outra origem → 403; JSON inválido → 400; sem Turnstile → 403 com a mensagem; sem cache', async () => {
     const x = await link();
     expect((await chamar(pedir, 'codigo', x.token, { origem: 'https://evil.example' })).status).toBe(403);
