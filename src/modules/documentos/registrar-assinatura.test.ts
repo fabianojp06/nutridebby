@@ -58,7 +58,7 @@ describe('registrarAssinatura (RN-140 b, RN-143, RN-156)', () => {
     }, { db: app.db, dataDir: x.dataDir });
     const soltar = () => soltarArquivosDoPreparo(x.T.ctx, x.id, EMITIDOS, { db: app.db, dataDir: x.dataDir });
     expect(await soltar()).toBe(0); // ainda "aguardando_assinatura": nada sai
-    await assinarNoBanco(x, { codigo: x.codigo, digitalizacaoPendente: true });
+    await assinarNoBanco(x, { codigo: x.codigo, digitalizacao: [foto.caminho] });
     expect(await soltar()).toBe(2);
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, base_pdf_path, digitalizacao from signed_documents where id = ${x.id}`), app.db)).rows;
     expect(d).toEqual({ status: 'assinado', base_pdf_path: null, digitalizacao: null });
@@ -82,7 +82,7 @@ describe('registrarAssinatura (RN-140 b, RN-143, RN-156)', () => {
 
   it('a variante da digitalizada exige digitalizacao_status "pendente"; já assinado → TransicaoInvalidaError', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
-    await expect(assinarNoBanco(x, { codigo: x.codigo, digitalizacaoPendente: true })).rejects.toBeInstanceOf(TransicaoInvalidaError);
+    await expect(assinarNoBanco(x, { codigo: x.codigo, digitalizacao: [] })).rejects.toBeInstanceOf(TransicaoInvalidaError);
     await assinarNoBanco(x, { codigo: x.codigo, baseSha256: x.baseSha256 });
     await expect(assinarNoBanco(x, { codigo: x.codigo, baseSha256: x.baseSha256 })).rejects.toBeInstanceOf(TransicaoInvalidaError);
   });

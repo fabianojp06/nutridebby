@@ -83,13 +83,35 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     expect(d.codigo).not.toBe(x.codigo);
   });
 
+  it('versão lida (code review do PR #19): job das fotos A + envio novo depois de 1 h (fotos B, MESMO código) → não assina com A nem marca "falhou" o B', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const foto = () => sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    await receberDigitalizada(x.acesso, x.id, [await foto()], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    const depois = new Date(Date.now() + 2 * 3_600_000); // o envio A passou do prazo de 1 h (envioEmCurso falso)
+    let fotosB: string[] = [];
+    const r = await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, {
+      db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false,
+      renderizar: async (d) => {
+        await receberDigitalizada(x.acesso, x.id, [await foto(), await foto()], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok', agora: depois });
+        fotosB = ((await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao from signed_documents where id = ${x.id}`), app.db)).rows[0] as { digitalizacao: string[] }).digitalizacao;
+        return renderizarDigitalizada(d);
+      },
+    });
+    expect(r).toBe('ignorado');
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, digitalizacao_status, digitalizacao, codigo, pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as Record<string, unknown>[];
+    expect(d).toMatchObject({ status: 'aguardando_assinatura', digitalizacao_status: 'pendente', pdf_path: null, codigo: x.codigo }); // o envio B segue para o job dele
+    expect(fotosB).toHaveLength(2);
+    expect(d.digitalizacao).toEqual(fotosB);
+    expect((await app.db.execute(sql`select 1 from document_verifications where documento_id = ${x.id}`)).rows).toEqual([]);
+  });
+
   it('registrarAssinatura da digitalizada com a versão antiga (outro código) → TransicaoInvalidaError', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
     await receberDigitalizada(x.acesso, x.id, [await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer()], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
     const copia = { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'd@x.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false };
     await expect(withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => registrarAssinatura(tx, {
       documentoId: x.id, codigo: 'ZZZZZZZZZZZZ', patientId: x.p.id, tenantId: x.T.tenantId, caminho: x.base, sha256: 'x', tipo: 'digitalizada', emissor: null,
-      assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacaoPendente: true }, appUrl: 'https://x',
+      assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacao: [] }, appUrl: 'https://x',
     }), app.db)).rejects.toBeInstanceOf(TransicaoInvalidaError);
   });
 });

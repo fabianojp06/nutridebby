@@ -17,7 +17,7 @@ import { formatarCodigo } from './codigo';
 import { EMITIDOS, MAX_PIXELS_FOTO } from './constantes';
 import { TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
-import { registrarAssinatura } from './registrar-assinatura';
+import { fotosLidas, registrarAssinatura } from './registrar-assinatura';
 
 /** A4 a 300 dpi no lado maior: legível na farmácia, sem levar a foto original. */
 const LADO_MAX_PAGINA = 3508;
@@ -60,9 +60,10 @@ async function normalizarPagina(dados: Buffer): Promise<{ dados: Buffer; formato
 
 /**
  * RN-157: o PDF novo com as fotos e o rodapé; a ida a "assinado" (tipo digitalizada) no registrar; depois, regra 9: cada
- * foto e o base no seu apagarArquivo, com o ponteiro no naMesmaTransacao (soltarArquivosDoPreparo). A versão lida (o código)
- * amarra o registrar e o marcarFalhou (correção do /code-review high do PR #18): "Voltar a editar" + novo preparo + envio
- * novo enquanto este job monta → a versão nova (outro código, também "pendente") não é assinada nem marcada "falhou".
+ * foto e o base no seu apagarArquivo, com o ponteiro no naMesmaTransacao (soltarArquivosDoPreparo). A versão lida (o código
+ * e as fotos) amarra o registrar e o marcarFalhou (correções do /code-review high dos PRs #18 e #19): "Voltar a editar" +
+ * novo preparo + envio novo enquanto este job monta (outro código), ou um envio novo depois de 1 h com o MESMO código
+ * (outras fotos) → a versão nova, também "pendente", não é assinada com as fotos antigas nem marcada "falhou".
  */
 export async function montarPdfDigitalizado(
   data: { tenantId: string; documentoId: string; userId: string },
@@ -74,8 +75,9 @@ export async function montarPdfDigitalizado(
   const d = await withTenant(ctx, async (tx) => (await tx.select().from(signedDocuments).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.digitalizacaoStatus, 'pendente'))))[0] ?? null, db);
   if (!d || !d.codigo || !d.digitalizacao?.length) return 'ignorado';
   const codigo = d.codigo;
+  const fotos = d.digitalizacao;
   const marcarFalhou = () =>
-    withTenant(ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.digitalizacaoStatus, 'pendente'), eq(signedDocuments.codigo, codigo))), db);
+    withTenant(ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.digitalizacaoStatus, 'pendente'), eq(signedDocuments.codigo, codigo), fotosLidas(fotos))), db);
   // US-004 / RN-15 (como gerarPdfDoDocumento): consultório suspenso com o job na fila não assina nem publica a verificação
   if (!(await tenantIsActive(db, data.tenantId))) {
     await marcarFalhou();
@@ -84,7 +86,7 @@ export async function montarPdfDigitalizado(
   try {
     // uma por vez (não Promise.all): até 5 fotos de 40 MP decodificadas juntas pesariam no worker de todos
     const paginas: { dados: Buffer; formato: 'jpg' }[] = [];
-    for (const c of d.digitalizacao) paginas.push(await normalizarPagina(await readFile(resolverCaminho(deps.dataDir, c))));
+    for (const c of fotos) paginas.push(await normalizarPagina(await readFile(resolverCaminho(deps.dataDir, c))));
     const pdf = await (deps.renderizar ?? renderizarDigitalizada)({ paginas, codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${codigo}`) });
     const sha = createHash('sha256').update(pdf).digest('hex');
     const copia = (d.conteudo as ConteudoReceita).copia!.profissional;
@@ -98,7 +100,7 @@ export async function montarPdfDigitalizado(
         await registrarAssinatura(tx, {
           documentoId: d.id, codigo, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',
           emissor: null, assinanteNome: null, userId: data.userId, agora, copia, base: d.basePdfPath,
-          versao: { codigo, digitalizacaoPendente: true }, // a versão lida: mesmo código e ainda "pendente"
+          versao: { codigo, digitalizacao: fotos }, // a versão lida: mesmo código, ainda "pendente" e as mesmas fotos
           appUrl: deps.appUrl,
         });
       },
@@ -111,8 +113,8 @@ export async function montarPdfDigitalizado(
     return 'pronto';
   } catch (e) {
     if (e instanceof JaFeitoError || e instanceof TransicaoInvalidaError) {
-      // casa só a versão lida (mesmo código) ainda "pendente": numa versão nova — outro código, mesmo que com um envio
-      // novo também "pendente" — não muda nada
+      // casa só a versão lida (mesmo código e mesmas fotos) ainda "pendente": numa versão nova — outro código ou outro
+      // envio, mesmo que também "pendente" — não muda nada
       await marcarFalhou();
       return 'ignorado';
     }

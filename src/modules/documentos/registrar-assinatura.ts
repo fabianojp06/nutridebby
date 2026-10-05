@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
 import { signedDocuments, type TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
@@ -24,10 +24,11 @@ export type DepsAssinar = {
  * `versao` amarra o registrar à versão do documento que foi LIDA (revisão do rascunho, Important): entre a leitura e o
  * registrar (2FA, disco, worker) a nutricionista pode, noutra aba, "Voltar a editar" e preparar de novo — o documento
  * volta a "aguardando_assinatura" com outro código e outro base, e um UPDATE só por status aceitaria o PDF antigo sobre o
- * conteúdo novo (quebra "PDF = prontuário", CS-141). A digitalizada amarra pelo código + "pendente"; o envio do PDF
- * assinado (Plano 10B) pelo código + SHA-256 do base conferido.
+ * conteúdo novo (quebra "PDF = prontuário", CS-141). A digitalizada amarra pelo código + "pendente" + as FOTOS lidas
+ * (code review do PR #19: passada 1 h, um envio novo troca as fotos com o mesmo código, e o job das fotos antigas não
+ * assina por cima dele); o envio do PDF assinado (Plano 10B) pelo código + SHA-256 do base conferido.
  */
-export type VersaoLida = { codigo: string } & ({ baseSha256: string } | { digitalizacaoPendente: true });
+export type VersaoLida = { codigo: string } & ({ baseSha256: string } | { digitalizacao: readonly string[] });
 export type AssinaturaAceita = {
   documentoId: string; codigo: string; patientId: string; tenantId: string; caminho: string; sha256: string; tipo: TipoAssinatura;
   emissor: string | null; assinanteNome: string | null; userId: string; agora: Date; copia: CopiaProfissional; base: string | null;
@@ -35,6 +36,9 @@ export type AssinaturaAceita = {
   /** T10: o link do e-mail da entrega (portal ou link de uso único). A rota passa `getEnv().APP_URL`; o worker, o dele. */
   appUrl: string;
 };
+
+/** As fotos do envio que o worker leu, na mesma ordem (jsonb: igualdade exata do array). */
+export const fotosLidas = (fotos: readonly string[]) => sql`${signedDocuments.digitalizacao} = ${JSON.stringify(fotos)}::jsonb`;
 
 /**
  * Minor 9 da revisão de segurança: a habilitação em Fitoterapia é conferida ao salvar e ao preparar (T5) e de novo AO
@@ -54,7 +58,7 @@ export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegis
 export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<void> {
   const daVersao = 'baseSha256' in a.versao
     ? eq(signedDocuments.basePdfSha256, a.versao.baseSha256)
-    : eq(signedDocuments.digitalizacaoStatus, 'pendente');
+    : and(eq(signedDocuments.digitalizacaoStatus, 'pendente'), fotosLidas(a.versao.digitalizacao));
   const r = await tx
     .update(signedDocuments)
     .set({
