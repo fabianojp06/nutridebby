@@ -34,3 +34,5 @@ Manual técnico (especificação técnica do produto, fonte de verdade = código
 ## Revisão a cada entrega
 
 Revisor por tarefa → revisão final do branch (workflow) com uma onda de correções → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor vai para o backlog) → re-revisão **só do diff das correções** → `/security-review`. Se sobrar problema Critical/Important confirmado depois da re-revisão, parar e avisar o dono. Fluxo revisto pelo dono em 02/10/2026 (a 2ª rodada completa de `/code-review high` "precisa sair limpo" saiu). Detalhes no índice dos planos.
+
+Agentes especialistas em `.claude/agents/` (pedido do dono em 05/10/2026): `revisor-rls` (banco, RLS, auditoria), `normas-cfn-lgpd` (CFN, LGPD, assinatura eletrônica), `guardiao-manual` (manual técnico e do usuário, atualizados no fechamento de cada plano) e `revisor-interface` (visual V2, textos, manual guiado, acessibilidade). Use-os nas revisões por tarefa e nos workflows (`agentType`); cada um guarda o que aprende em `.claude/agent-memory/<nome>/`.
