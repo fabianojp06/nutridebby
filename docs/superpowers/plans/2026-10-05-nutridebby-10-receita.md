@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **RASCUNHO — aguardando o dono.** Escrito em 05/10/2026 a partir de `origin/main` @ `62615b9` (Planos 01–08 em produção, migrations 0000–0088, spec do MVP v1.11) e da spec de documentos assinados **v0.3** (commit `e9035f0`, branch `plano-10-receita`). As decisões ★ (D1 a D9 abaixo) precisam do OK do dono antes da execução; a Tarefa 1 (spike) precisa dos PDFs reais assinados que só o dono e a Debby conseguem produzir (runbook, passo 1). Nenhuma linha de código deste plano foi escrita; nada foi rodado no banco. Próximos passos: o dono decide as ★ → `/code-review high` **do plano** (como no Plano 08) → execução.
+> **RASCUNHO — aguardando o dono.** Escrito em 05/10/2026 a partir de `origin/main` @ `62615b9` (Planos 01–08 em produção, migrations 0000–0088, spec do MVP v1.11) e da spec de documentos assinados **v0.3** (commit `e9035f0`, branch `plano-10-receita`). As decisões ★ (D1 a D9 abaixo) precisam do OK do dono antes da execução; a Tarefa 1b (relatório do spike) precisa dos PDFs reais assinados que só o dono e a Debby conseguem produzir (runbook, passo 1), sem bloquear as outras. Nenhuma linha de código deste plano foi escrita; nada foi rodado no banco. **Revisão do rascunho aplicada (05/10/2026):** 18 achados confirmados (3 Critical, 15 Important) corrigidos aqui e na spec v0.3 — conferência (`/Names` do pdfkit, *shadow* disfarçado de `/ObjStm`/`/XRef`, `/DSS` só, orçamento de inflate e prazo), link (5 erros fora do rollback, limite por IP na confirmação), versão lida no registrar, troca do CPF do consultório, digitalizada sem EXIF e com limite de pixels, isolamento, `Cartao` com `id`, 2FA no teste e no E2E, ordem T1a/T1b e a D21. Próximos passos: o dono decide as ★ → `/code-review high` **do plano** (como no Plano 08) → execução.
 
 **Goal:** A nutricionista monta no prontuário uma receita de suplementos e fitoterápicos com os campos que o CFN exige, prepara um PDF com a marca, código de verificação e QR, assina fora do sistema (gov.br ou certificado ICP-Brasil) ou à mão (digitalizada) e envia de volta; o sistema confere a assinatura sem rede e sem serviço pago, trava o documento no banco, entrega ao paciente pelo portal, por link de uso único com código ou pessoalmente, registra a confirmação de recebimento e responde numa página pública de verificação sem dado de saúde.
 
@@ -56,7 +56,7 @@
 | D18 | Manual guiado | Guia novo **`documentos`** (antes do `prontuario` na lista, padrão `/painel/pacientes/<id>/documentos…`, com os passos "Nova receita", "Preparar para assinatura", "Enviar PDF assinado" e "Entrega"); guia **`configuracoes`** com `versao: 2` (a seção "Dados para documentos"); guia **novo `seguranca`** para `/conta/seguranca` (fora do layout do painel: a própria tela ganha a seção "Como funciona" com o resumo e os passos do guia, sem tour), e o teste do manual passa a cobrir `src/app/conta` | Achado do manual: toda tela nova do painel precisa de guia, e o 2FA passa a ser exigido para assinar |
 | D19 | Teste de isolamento | A fábrica de `signed_documents` cria um documento **`assinado` já anonimizado** (visível ao paciente, sem arquivo, para a FK `NO ACTION` não segurar `stored_files`); `signed_document_receipts` em `SO_INSERE`; `IMUTAVEIS` (`signed_documents`, `signed_document_notes`) aceitam a recusa do gatilho (42501) nos testes de WITH CHECK e, em `signed_documents`, o DELETE do tenant B só apaga rascunhos | — |
 | D20 | Liberação gradual | Interruptor `tenants.documentos_liberados` (padrão `false`), ligado pelo admin na tela do consultório depois da liberação para uso real (Global Constraints); sem ele, a aba "Documentos" não aparece e as ações respondem 404 | Evita que a Debby use antes da resposta do CRN-3 |
-| D21 | Ordem e paralelismo | T1 (spike) → T2 → T3 → [T4, T5, T6 em paralelo] → T7 → T8 → T9 → T10 → [T11, T12] → [T13, T14, T15 em paralelo] → T16 → T17 → T18; T19 só se o relatório do spike pedir. As Tarefas 4, 5 e 6 tocam arquivos diferentes; 13, 14 e 15 também | — |
+| D21 | Ordem e paralelismo | **T1a → T2 → T3 → T4 → [T5 ‖ T6] → T7 → T8 → T9 → T10 → T11 → T12 → [T13 ‖ T14] → T15 → T16 → T17 → T18**; a **T1b** (checkpoint do dono, relatório do spike, D16, `CAMPO_PRE_CRIADO`, `ASSINATURAS_LIBERADAS`) corre à parte e não bloqueia a T2; T19 só se o relatório da T1b pedir. Dependências reais (revisão do rascunho): a T6 consome `copiaDoPerfil`, `PerfilIncompletoError` e `CopiaProfissional` da T4; a T4 e a T5 editam `src/modules/ajuda/conteudo.ts` (e a T5 também o `CLAUDE.md`); a T12 altera `assinar.ts` (T10) e `digitalizada-job.ts` (T11); a T14 e a T15 editam `next.config.ts` e `src/lib/sentry-filtro.ts`. Só T5 ‖ T6 e T13 ‖ T14 tocam arquivos diferentes | — |
 
 ### Desvios conscientes da spec (registrados aqui; atualizar a spec no fim do plano)
 
@@ -68,6 +68,9 @@
 | US-146 lugar | Cartão no Início + link em Perfil (D5) | R16 |
 | §5.1 rotas | `GET /api/painel/documentos/[id]/pdf?estado=1` devolve o estado em JSON (sem auditoria); sem `?estado`, 303 para o PDF (com auditoria) | Uma rota para as duas coisas, como a do plano |
 | RN-158 | Sessão do link: cookie `nd_doc` com `path=/documento/<token>` **e** `/api/documento/<token>` (dois cookies iguais, um por caminho) | O `path` de um cookie não cobre dois prefixos |
+| US-140 e US-144: "o Histórico do consultório registra…" | **Não existe** tela "Histórico do consultório" (o código só tem `listAccessHistory(ctx, patientId)`, o histórico **do paciente**). A declaração e a retirada da habilitação e a troca do certificado ficam no `audit_log` (entidade "Perfil profissional", `patient_id` nulo), conferidas por teste; a tentativa de assinatura com código recusado fica no **Histórico de acessos do paciente** do documento. A spec v0.3 já foi corrigida neste sentido (Gherkin "registrada na auditoria" / "no Histórico de acessos do paciente"). Uma tela de auditoria do consultório vai para o backlog (P10-20) | Revisão do rascunho (Important): os critérios não tinham onde ser conferidos na interface; tela nova de auditoria é escopo a mais sem pedido do dono |
+| RN-145 "troca do CPF do consultório" | A troca acontece **no próprio envio**: CPF diferente do confirmado + nome do titular igual ao `nome_profissional` copiado → a mesma confirmação "Assinado por … (CPF ***…)", com a máscara do CPF anterior, e o código do 2FA; `gravarAssinante` faz compare-and-set (só troca a linha que ainda tem o CPF anterior; dois "primeiros" simultâneos → o segundo recebe 409), audita "Perfil profissional" e manda o e-mail de aviso. Nome diferente → "O PDF foi assinado por outra pessoa." | Sem a troca, um CPF gravado errado (D8), uma troca da `ENCRYPTION_KEY` (muda o HMAC) ou um certificado novo travariam a assinatura sem saída fora do banco de produção (revisão do rascunho) |
+| Textos novos de interface (revisão do rascunho) | "O CPF confirmado no consultório era {cpf anterior}. Ao confirmar, este passa a ser o certificado do consultório." (troca, T10); e-mail "Certificado do consultório confirmado" com "O certificado do consultório para assinar documentos no NutriDebby foi trocado: o CPF {anterior} deu lugar ao CPF {novo}."; "Assinatura: {gov.br \| Certificado ICP-Brasil \| Digitalizado}" também na lista do painel e no portal (RN-157) | Achados da revisão |
 | Textos novos de interface | Painel: "Documentos", "Nova receita", "Receita", "Situação", "Data", "Nenhum documento ainda.", "Itens da receita", "Adicionar item", "Tipo do item", "Remover item {n}", "Categoria", "Componente", "Quantidade", "Unidade", "Adicionar componente", "Forma de apresentação", "Via", "Posologia", "Duração", "Manipulado", "Nomenclatura botânica", "Parte utilizada", "Modo de preparo", "Forma de utilização e preparo", "Nome popular", "Forma farmacêutica", "Dose", "Padronização do marcador", "Forma ou meio de extração", "Orientações gerais", "Justificativa de uso", "Fica no prontuário, não vai na receita.", "Salvar rascunho", "Apagar rascunho", "Apagar este rascunho?", "Rascunho apagado.", "Preparar para assinatura", "Declaração", "Confirmar e preparar", "Preparando o PDF…", "Baixar PDF para assinar", "Enviar PDF assinado", "Enviando…", "Conferindo a assinatura…", "Arquivo do PDF assinado", "Código da verificação em duas etapas", "Sim, sou eu", "Não", "Enviar documento digitalizado (assinado à mão)", "Fotos das páginas (JPEG ou PNG, até 5)", "Montando o PDF digitalizado…", "Não foi possível montar o PDF. Envie as fotos de novo.", "Envie fotos das páginas (JPEG ou PNG).", "Envie de 1 a 5 fotos, até 10 MB no total.", "Baixar PDF assinado", "Entregue pessoalmente", "Marcar como entregue pessoalmente?", "Reenviar link por e-mail", "Link reenviado.", "Documentos aguardando assinatura", "{n} documento(s) aguardando assinatura", "Dados para documentos", "Nome completo", "E-mail profissional", "Telefone profissional", "Registro da habilitação no CRN", "Retirar habilitação", "Habilitação em Fitoterapia retirada do perfil.", "Dados para documentos salvos.", "Assinado por", "Assinado em", "Assinatura", "Código de verificação", "Este documento está em outro paciente ou não existe.", "Documento não encontrado.", "Muitas tentativas. Tente de novo em 15 minutos." · Portal: "Documentos", "Meus documentos", "Abrir PDF", "Confirmo que recebi este documento", "Recebimento confirmado em {data}.", "{n} documento(s) novo(s)" · Link: "Abrir documento", "Para abrir o documento, enviaremos um código de 6 dígitos para o seu e-mail.", "Enviar código", "Código enviado. Confira seu e-mail.", "Código", "Abrir", "Código inválido.", "Código vencido. Peça outro.", "Este link expirou. Peça um novo à sua nutricionista.", "Este documento não está mais disponível. Fale com sua nutricionista.", "Aguarde 1 minuto para pedir outro código." · Verificação: "Verificar documento", "Código de verificação (12 caracteres)", "Verificar", "Documento válido", "Tipo", "Emitido por", "Impressão digital do arquivo (SHA-256)", "Validar a assinatura no validador oficial do ITI" · E-mails: "Você tem um novo documento", "Código para abrir seu documento: {codigo}", "Certificado do consultório confirmado", "Um documento seu foi atualizado" · Push: "Você tem um novo documento." | Telas novas |
 
 ### Itens adiados de planos anteriores e débitos da mesma área
@@ -78,7 +81,7 @@
 
 ## Review Focus
 
-1. **PDF assinado que parece certo mas mostra outra coisa.** O mesmo PDF preparado com, na atualização da assinatura: uma `/FreeText` "Vitamina D3 50000 UI" sobre a dose; o widget da assinatura com `/Rect` sobre o conteúdo e um `/AP` que pinta um retângulo branco; a fonte ou o *stream* de conteúdo da página redefinido com o mesmo número de objeto; `/Resources` ou `/MediaBox` trocados; uma revisão depois da assinatura que não é `/DSS`; dois dicionários `/Sig`; `/ByteRange` com `b + c` antes do fim. Esperado: recusa "Este PDF recebeu alterações além da assinatura…" (ou "A assinatura deste PDF não confere…"), documento continua "Aguardando assinatura", nada gravado. Testes na Tarefa 9 (fixtures da Tarefa 1).
+1. **PDF assinado que parece certo mas mostra outra coisa.** O mesmo PDF preparado com, na atualização da assinatura: uma `/FreeText` "Vitamina D3 50000 UI" sobre a dose; o widget da assinatura com `/Rect` sobre o conteúdo e um `/AP` que pinta um retângulo branco; a fonte ou o *stream* de conteúdo da página redefinido com o mesmo número de objeto — inclusive disfarçado com `/Type /ObjStm` ou `/Type /XRef`; `/Resources` ou `/MediaBox` trocados; uma revisão depois da assinatura que não é `/DSS`; dois dicionários `/Sig`; `/ByteRange` com `b + c` antes do fim. Esperado: recusa "Este PDF recebeu alterações além da assinatura…" (ou "A assinatura deste PDF não confere…"), documento continua "Aguardando assinatura", nada gravado. E o contrário: o PDF real do react-pdf (Catálogo com `/Names`) com uma assinatura limpa, com ou sem a revisão de longo prazo só com `/DSS`, **aceito**. Testes na Tarefa 9 (fixtures da Tarefa 1a). Também: um PDF de 10 MB feito para inflar gigabytes recusado em menos de 3 s, sem parar o app.
 2. **Certificado errado na hora certa.** e-CPF vencido (o A1 que ficou com o contador), e-CNPJ da clínica, certificado de outra pessoa no primeiro envio e depois dele, cadeia que termina numa raiz desconhecida, raiz ICP v7 (algoritmo não lido), SHA-1. Esperado: a mensagem certa da US-144 para cada um; nenhum CPF gravado no primeiro envio recusado; o CN e o CPF nunca no log. Testes nas Tarefas 9 e 10.
 3. **Código do 2FA no limite.** Código errado 5 vezes, o 6º certo dentro dos 15 min; o mesmo código certo usado duas vezes em 30 s (dois envios); usuária sem 2FA ativo; código com espaço ("123 456"). Esperado: "Muitas tentativas…" a partir da 6ª tentativa, a repetição recusada, "Ative a verificação em duas etapas…" antes de qualquer conferência, o espaço aceito. Testes na Tarefa 5 e na 10.
 4. **Link de uso único na caixa de entrada errada.** O GET do link feito pelo leitor de links do Outlook antes do paciente; o link aberto depois de o e-mail do paciente ser corrigido; 6 códigos pedidos em 1 hora; o código certo digitado duas vezes; o link de um documento depois cancelado; a página aberta com o cookie da sessão de outro link. Esperado: o GET não gasta nada; link com e-mail antigo → "Este documento não está mais disponível…"; o 6º pedido recusado; o segundo uso do código recusado; documento cancelado indisponível; a sessão de um link não abre outro. Testes na Tarefa 14.
@@ -99,8 +102,8 @@ src/lib/confirmar-2fa.ts (+test)                                                
 src/lib/sentry-filtro.ts (+test) · next.config.ts                                                                       # T14, T15
 src/modules/documentos/
   constantes.ts · erros.ts · codigo.ts (+test)                                                                          # T2, T6
-  ancoras/{icp-raizes.pem, icp-acs.pem, govbr.pem, fonte.json} · ancoras.ts · ancoras-fonte.test.ts                     # T1
-  pdf-leitor.ts (+test)                                                                                                 # T1
+  ancoras/{icp-raizes.pem, icp-acs.pem, govbr.pem, fonte.json} · ancoras.ts · ancoras-fonte.test.ts                     # T1a
+  pdf-leitor.ts (+test)                                                                                                 # T1a
   pdf-atualizacao.ts · cms.ts · certificados.ts · assinatura-pades.ts (+tests)                                          # T9
   perfil-profissional.ts (+test)                                                                                        # T4
   prescricao.ts (+test) · documentos.ts (+test)                                                                         # T6
@@ -128,14 +131,14 @@ src/app/p/navegacao.ts · (portal)/documentos/{page.tsx, actions.ts} · (portal)
 src/app/api/p/documentos/[id]/pdf/route.ts                                                                              # T13
 src/app/documento/[token]/{page.tsx, codigo-form.tsx} · src/app/api/documento/[token]/{codigo,confirmar,recebido,pdf}/route.ts   # T14
 src/app/v/{page.tsx, [codigo]/page.tsx}                                                                                 # T15
-scripts/certs/gerar-ancoras.ts · scripts/certs/relatorio-pdf.ts                                                         # T1
-test/assinatura/{fabrica.ts, base-minimo.ts} · test/documentos.ts · test/isolamento.test.ts                             # T1, T2, T6
+scripts/certs/gerar-ancoras.ts · scripts/certs/relatorio-pdf.ts                                                         # T1a
+test/assinatura/{fabrica.ts, base-minimo.ts} · test/documentos.ts · test/isolamento.test.ts                             # T1a, T2, T6, T10
 e2e/documentos.spec.ts · e2e/painel-rotas.ts · e2e/acessibilidade.spec.ts                                               # T7, T18
-docs/operacao/ancoras-assinatura.md · docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md               # T1
+docs/operacao/ancoras-assinatura.md (T1a) · docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md (T1b)  # T1a, T1b
 CLAUDE.md                                                                                                               # T2 (regras 1, 2, 8, 9), T5 (regra 1)
 ```
 
-**Ordem e dependências:** ver D21. A Tarefa 1 entrega o leitor e a fábrica de PDFs de teste usados pelas Tarefas 9 e 10; o relatório do spike decide `CAMPO_PRE_CRIADO` (T8), a tolerância do fim de linha (T9), onde fica o CPF do gov.br (T9, D8) e se a T19 entra.
+**Ordem e dependências:** ver D21. A Tarefa 1a entrega o leitor e a fábrica de PDFs de teste usados pelas Tarefas 9 e 10; o relatório do spike (Tarefa 1b) decide `CAMPO_PRE_CRIADO` (T8), a tolerância do fim de linha (T9), onde fica o CPF do gov.br (T9, D8) e se a T19 entra.
 
 ### Contratos entre tarefas (nomes que várias tarefas usam)
 
@@ -152,7 +155,7 @@ export function normalizarCodigo(entrada: unknown): string | null;
 export function formatarCodigo(codigo: string): string;      // XXXX-XXXX-XXXX
 // src/modules/documentos/pdf-leitor.ts (T1)
 export type PdfValor = number | boolean | null | PdfNome | PdfTexto | PdfRef | PdfValor[] | PdfDict | PdfStream;
-export function lerAtualizacao(arquivo: Buffer, inicio: number): Atualizacao;    // revisões depois do prefixo
+export function lerAtualizacao(arquivo: Buffer, inicio: number, orc?: Orcamento): Revisao[];    // revisões depois do prefixo (orçamento de inflate e prazo, RNF-141)
 // src/modules/documentos/assinatura-pades.ts (T9)
 export function conferirPdfAssinado(arquivo: Buffer, base: BaseDoDocumento, deps?: DepsConferencia): Conferido; // lança RecusaAssinaturaError
 // src/modules/documentos/erros.ts (T2)
@@ -167,22 +170,25 @@ export function entregarDocumento(tx: Tx, e: EntregaDoDocumento): Promise<'porta
 ```
 
 ---
-### Task 1: Spike da conferência da assinatura — âncoras, leitor limitado, fábrica de PDFs assinados de teste e relatório (P-B2, D16 da spec; P10-01)
+### Task 1a: Spike da conferência da assinatura — âncoras, leitor limitado e fábrica de PDFs assinados de teste (P-B2, D16 da spec; P10-01)
 
-**Objetivo do spike:** responder, com código que fica no repositório, às perguntas da P-B2 antes de escrever a conferência (T9): (1) o leitor limitado lê as atualizações incrementais reais (tabela clássica, *xref stream*, `/ObjStm`)? (2) o gov.br e os programas ICP preservam o PDF preparado como prefixo? (3) que objetos cada um põe na atualização (para a lista fechada da RN-144 (5))? (4) onde fica o CPF no certificado gov.br? (5) o assinador usa o campo pré-criado (FieldMDP) e o VALIDAR aprova? (6) o carimbo visível cabe no quadro "Assinatura digital"? (7) há tolerância de fim de linha depois do `%%EOF`? A saída é o relatório `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md` (sem nome nem CPF) e a decisão da D16 da spec registrada nele: **leitor síncrono** (T9 como está) ou **plano B** (T19 entra).
+> **Revisão do rascunho:** a antiga Tarefa 1 virou **1a** (este código, com commit próprio, que destrava a T2) e **1b** (o checkpoint do dono, o relatório do spike e o que ele decide — `CAMPO_PRE_CRIADO`, a D16, `ASSINATURAS_LIBERADAS`), que não bloqueia as outras. O commit da antiga T1 incluía o relatório, que só existe depois do checkpoint, e a D21 punha T1 → T2 em série.
+
+**Objetivo do spike:** responder, com código que fica no repositório, às perguntas da P-B2 antes de escrever a conferência (T9): (1) o leitor limitado lê as atualizações incrementais reais (tabela clássica, *xref stream*, `/ObjStm`)? (2) o gov.br e os programas ICP preservam o PDF preparado como prefixo? (3) que objetos cada um põe na atualização (para a lista fechada da RN-144 (5))? (4) onde fica o CPF no certificado gov.br? (5) o assinador usa o campo pré-criado (FieldMDP) e o VALIDAR aprova? (6) o carimbo visível cabe no quadro "Assinatura digital"? (7) há tolerância de fim de linha depois do `%%EOF`? A saída da 1a é o código (leitor, âncoras, fábrica, scripts do relatório e do PDF de teste); a da **1b** é o relatório `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md` (sem nome nem CPF) e a decisão da D16 da spec registrada nele: **leitor síncrono** (T9 como está) ou **plano B** (T19 entra).
 
 **Files:**
-- Create: `src/modules/documentos/constantes.ts` (parte inicial), `src/modules/documentos/pdf-leitor.ts`, `src/modules/documentos/pdf-leitor.test.ts`, `src/modules/documentos/pdf-escrita.ts`, `src/modules/documentos/campo-assinatura.ts`, `src/modules/documentos/ancoras.ts`, `src/modules/documentos/ancoras-raizes.ts`, `src/modules/documentos/ancoras/dados.ts` (gerado), `src/modules/documentos/ancoras/fonte.json` (gerado), `src/modules/documentos/ancoras-fonte.test.ts`, `scripts/certs/gerar-ancoras.ts`, `scripts/certs/relatorio-pdf.ts`, `scripts/certs/pdf-de-teste.tsx`, `test/assinatura/base-minimo.ts`, `test/assinatura/fabrica.ts`, `docs/operacao/ancoras-assinatura.md`, `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md`
+- Create: `src/modules/documentos/constantes.ts` (parte inicial), `src/modules/documentos/pdf-leitor.ts`, `src/modules/documentos/pdf-leitor.test.ts`, `src/modules/documentos/pdf-escrita.ts`, `src/modules/documentos/campo-assinatura.ts`, `src/modules/documentos/ancoras.ts`, `src/modules/documentos/ancoras-raizes.ts`, `src/modules/documentos/ancoras/dados.ts` (gerado), `src/modules/documentos/ancoras/fonte.json` (gerado), `src/modules/documentos/ancoras-fonte.test.ts`, `scripts/certs/gerar-ancoras.ts`, `scripts/certs/relatorio-pdf.ts`, `scripts/certs/pdf-de-teste.tsx`, `test/assinatura/base-minimo.ts`, `test/assinatura/fabrica.ts`, `docs/operacao/ancoras-assinatura.md` (o relatório do spike é da Tarefa 1b)
 - Modify: `package.json` (dependências e scripts `certs:ancoras`, `assinatura:relatorio`, `assinatura:pdf-teste`), `.gitignore` (`test/assinatura/reais/`)
 
 **Interfaces:**
 - Consumes: nada do Plano 10 (é a primeira tarefa); `@react-pdf/renderer` e `qrcode` (já instalados) no script do PDF de teste.
 - Produces:
   - `constantes.ts`: `AREA_ASSINATURA: AreaAssinatura` (`{ x1: 351, y1: 62, x2: 559, y2: 132 }`, em pontos, origem embaixo à esquerda, A4 595 × 842), `TOLERANCIA_AREA_PT = 2`, `CAMPO_PRE_CRIADO` (boolean decidido pelo relatório; começa `false`), tipos `AreaAssinatura`, `TipoAssinatura`.
-  - `pdf-leitor.ts`: tipos `PdfValor`, `PdfNome { n }`, `PdfTexto { s: Buffer; hex: boolean }`, `PdfRef { num; gen }`, `PdfDict { d: Map<string, PdfValor> }`, `PdfStream { dict: PdfDict; dados: Buffer; inicio: number }`, `ObjetoLido { num; gen; valor; offset: number | null; objStm: number | null }`, `Revisao { inicio; fim; xrefOffset; trailer: PdfDict; objetos: Map<number, ObjetoLido>; xrefStream: boolean }`, `BaseLida { objetos: Map<number, ObjetoLido>; trailer: PdfDict; startxref: number; tamanho: number }`; funções `lerBase(buf: Buffer): BaseLida`, `lerAtualizacao(buf: Buffer, inicio: number): Revisao[]`, `pegar(d: PdfDict, chave: string): PdfValor | undefined`, `nomeDe(v): string | null`, `ehDict`, `ehRef`, `ehStream`, `ehNome`, `iguais(a, b): boolean` (comparação estrutural), `percorrer(v, visita)`; erro `PdfIlegivelError { motivo }`; `LIMITES_LEITOR`.
+  - `pdf-leitor.ts`: tipos `PdfValor`, `PdfNome { n }`, `PdfTexto { s: Buffer; hex: boolean }`, `PdfRef { num; gen }`, `PdfDict { d: Map<string, PdfValor> }`, `PdfStream { dict: PdfDict; dados: Buffer; inicio: number }`, `ObjetoLido { num; gen; valor; offset: number | null; objStm: number | null }`, `Revisao { inicio; fim; xrefOffset; trailer: PdfDict; objetos: Map<number, ObjetoLido>; xrefStream: boolean }`, `BaseLida { objetos: Map<number, ObjetoLido>; trailer: PdfDict; startxref: number; tamanho: number }`; funções `lerBase(buf: Buffer, orc?: Orcamento): BaseLida`, `lerAtualizacao(buf: Buffer, inicio: number, orc?: Orcamento): Revisao[]`, `Orcamento`, `novoOrcamento(ms?)`, `verificarPrazo(orc)` (orçamento total de inflate de 32 MB, no máximo 16 /ObjStm por revisão e prazo conferido dentro dos laços, RNF-141), `pegar(d: PdfDict, chave: string): PdfValor | undefined`, `nomeDe(v): string | null`, `ehDict`, `ehRef`, `ehStream`, `ehNome`, `iguais(a, b): boolean` (comparação estrutural), `percorrer(v, visita)`; erro `PdfIlegivelError { motivo }`; `LIMITES_LEITOR`.
   - `pdf-escrita.ts`: `serializar(v: PdfValor): Buffer`, `nome(n)`, `dict(o)`, `ref(num, gen?)`, `texto(s)`, `hex(buf)`, `escreverAtualizacao(anterior: Buffer, e: { prev: number; size: number; trailer: Record<string, PdfValor>; objetos: { num: number; corpo: Buffer }[] }): Buffer`.
   - `campo-assinatura.ts`: `acrescentarCampoDeAssinatura(pdf: Buffer, area: AreaAssinatura): Buffer` (atualização incremental com o campo vazio e `/Lock`; usado pela T8 só se `CAMPO_PRE_CRIADO`).
   - `ancoras.ts`: `RAIZES_FIXADAS: Record<string, string>` (nome → SHA-256), `carregarAncoras(): Ancoras` com `{ raizes: X509Certificate[]; acs: X509Certificate[]; govbr: { raiz; intermediaria; final }; conjunto(c: X509Certificate): 'icp' | 'govbr' | null }`.
+  - `test/assinatura/base-minimo.ts`: `baseMinimo(texto?, { names? })` (Catálogo com `/Names`, como o pdfkit), `baseComRecursos()` + `OBJ` (logo e `/FontFile2`), `revisaoComXrefStream(...)`, `objStmCheio(...)`.
   - `test/assinatura/fabrica.ts`: `criarAc(o?)`, `criarTitular(ac, o)`, `assinarDeTeste(base, titular, o?)`, `pdfBaseDeTeste()`, tipos `AcDeTeste`, `TitularDeTeste`, `OpcoesAssinatura` (variantes válidas e adulteradas da §9.2 da pesquisa).
 
 - [ ] **Step 1: Dependências e `.gitignore`**
@@ -215,7 +221,7 @@ export const TOLERANCIA_AREA_PT = 2;
 
 /**
  * §6.5 da pesquisa / INT-B1 "VALIDAR e DocMDP": o PDF preparado ganha um campo de assinatura vazio com /Lock (FieldMDP)?
- * Decidido pelo relatório do spike (Tarefa 1): true só se o gov.br e os programas ICP testados usarem o campo e o VALIDAR
+ * Decidido pelo relatório do spike (Tarefa 1b): true só se o gov.br e os programas ICP testados usarem o campo e o VALIDAR
  * aprovar. Mudar aqui muda o PDF base (T8) e a lista fechada aceita o campo pré-criado (T9).
  */
 export const CAMPO_PRE_CRIADO = false;
@@ -224,20 +230,49 @@ export const CAMPO_PRE_CRIADO = false;
 - [ ] **Step 3: PDF base mínimo para os testes do leitor** — `test/assinatura/base-minimo.ts`
 
 ```ts
+import { deflateSync } from 'node:zlib';
+
 /**
  * PDF-1.3 de uma página, xref clássica, sem /ObjStm — a forma do que o @react-pdf gera (pesquisa §8) — escrito à mão para
  * os testes do leitor serem rápidos e determinísticos. Objetos: 1 Catalog, 2 Pages, 3 Page, 4 Contents, 5 Font, 6 Info.
+ * O Catálogo tem /Names << /Dests … >>, como o do pdfkit 0.20.1 (dependência do @react-pdf/renderer 4.9; pdfkit.js
+ * 7021-7028 cria o Catálogo SEMPRE com /Names): sem isso, os testes não pegariam uma conferência que recusa todo PDF
+ * real (revisão do rascunho, Critical). `names: false` só para o teste de /Names acrescentado.
  */
-export function baseMinimo(textoDaDose = 'Vitamina D3 2000 UI'): Buffer {
+export function baseMinimo(textoDaDose = 'Vitamina D3 2000 UI', o: { names?: boolean } = {}): Buffer {
   const conteudo = `BT /F1 12 Tf 72 720 Td (${textoDaDose}) Tj ET`;
-  const objs = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
+  return montar([
+    o.names === false ? '<< /Type /Catalog /Pages 2 0 R >>' : '<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names [] >> >> >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
     `<< /Length ${conteudo.length} >>\nstream\n${conteudo}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     '<< /Producer (NutriDebby) >>',
-  ];
+  ]);
+}
+
+/**
+ * O base com os streams que um PDF real do react-pdf tem: logo (7, XObject /Image) e fonte embutida (5 → 8
+ * /FontDescriptor → 9 /FontFile2). Para os testes de stream do base redefinido disfarçado de /ObjStm ou /XRef (T9).
+ */
+export const OBJ = { conteudo: 4, logo: 7, fontFile: 9 } as const;
+export function baseComRecursos(): Buffer {
+  const conteudo = 'q 60 0 0 30 72 760 cm /Im1 Do Q BT /F1 12 Tf 72 720 Td (Vitamina D3 2000 UI) Tj ET';
+  const fonte = 'A'.repeat(64);
+  return montar([
+    '<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names [] >> >> >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${conteudo.length} >>\nstream\n${conteudo}\nendstream`,
+    '<< /Type /Font /Subtype /TrueType /BaseFont /FonteTeste /FirstChar 32 /LastChar 32 /Widths [250] /FontDescriptor 8 0 R >>',
+    '<< /Producer (NutriDebby) >>',
+    '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\x80\nendstream',
+    '<< /Type /FontDescriptor /FontName /FonteTeste /Flags 32 /FontBBox [0 0 500 700] /ItalicAngle 0 /Ascent 700 /Descent 0 /CapHeight 700 /StemV 80 /FontFile2 9 0 R >>',
+    `<< /Length ${fonte.length} >>\nstream\n${fonte}\nendstream`,
+  ]);
+}
+
+function montar(objs: string[]): Buffer {
   let corpo = '%PDF-1.3\n%\xe2\xe3\xcf\xd3\n';
   const offsets: number[] = [];
   objs.forEach((o, i) => {
@@ -250,6 +285,55 @@ export function baseMinimo(textoDaDose = 'Vitamina D3 2000 UI'): Buffer {
   corpo += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(corpo, 'latin1');
 }
+
+/**
+ * Uma revisão com xref stream (/W [1 4 2], /Predictor 12, como o Acrobat) e objetos dentro de /ObjStm comprimidos: cada
+ * `stms[i]` vira um objeto tipo 1 e os números em `objetos` viram entradas TIPO 2 que apontam para ele (é a entrada tipo
+ * 2 que obriga o leitor a decodificar o /ObjStm). A xref stream ganha o número seguinte ao maior usado.
+ */
+export function revisaoComXrefStream(base: Buffer, prev: number, stms: { num: number; dados: Buffer; first: number; objetos: number[]; n?: number }[]): Buffer {
+  const partes: Buffer[] = [Buffer.from('\n')];
+  let tam = base.length + 1;
+  const entradas: [number, number, number, number][] = []; // [número, tipo, campo 2, campo 3]
+  for (const s of stms) {
+    entradas.push([s.num, 1, tam, 0]);
+    const cab = Buffer.from(`${s.num} 0 obj\n<< /Type /ObjStm /N ${s.n ?? s.objetos.length} /First ${s.first} /Filter /FlateDecode /Length ${s.dados.length} >>\nstream\n`, 'latin1');
+    const fim = Buffer.from('\nendstream\nendobj\n', 'latin1');
+    partes.push(cab, s.dados, fim);
+    tam += cab.length + s.dados.length + fim.length;
+    s.objetos.forEach((o, i) => entradas.push([o, 2, s.num, i]));
+  }
+  const nXref = Math.max(...entradas.map((e) => e[0])) + 1;
+  entradas.push([nXref, 1, tam, 0]);
+  entradas.sort((x, y) => x[0] - y[0]);
+  let anterior = Buffer.alloc(7);
+  const filtradas = entradas.map(([, t, a, g]) => {
+    const l = Buffer.from([t, (a >>> 24) & 255, (a >>> 16) & 255, (a >>> 8) & 255, a & 255, (g >>> 8) & 255, g & 255]);
+    const f = Buffer.alloc(8);
+    f[0] = 2; // preditor PNG "Up"
+    for (let i = 0; i < 7; i++) f[i + 1] = (l[i] - anterior[i]) & 255;
+    anterior = l;
+    return f;
+  });
+  const dados = deflateSync(Buffer.concat(filtradas));
+  const index = entradas.map((e) => `${e[0]} 1`).join(' ');
+  partes.push(
+    Buffer.from(`${nXref} 0 obj\n<< /Type /XRef /Size ${nXref + 1} /Root 1 0 R /Prev ${prev} /W [1 4 2] /Index [${index}] /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 7 >> /Length ${dados.length} >>\nstream\n`, 'latin1'),
+    dados,
+    Buffer.from(`\nendstream\nendobj\nstartxref\n${tam}\n%%EOF\n`, 'latin1'),
+  );
+  return Buffer.concat([base, ...partes]);
+}
+
+/**
+ * Conteúdo de /ObjStm com os objetos `nums` (todos no deslocamento 0, o mesmo `<< >>`; /N = nums.length), completado
+ * com zeros até `bytes` descomprimidos. UM deflate serve a vários /ObjStm (testes de orçamento e de negação de serviço).
+ */
+export function objStmCheio(nums: number[], bytes: number): { dados: Buffer; first: number; n: number } {
+  const cab = nums.map((x) => `${x} 0 `).join('');
+  const corpo = Buffer.from(`${cab}<< >>`, 'latin1');
+  return { dados: deflateSync(Buffer.concat([corpo, Buffer.alloc(Math.max(0, bytes - corpo.length))])), first: cab.length, n: nums.length };
+}
 ```
 
 - [ ] **Step 4: Testes do leitor (falham)** — `src/modules/documentos/pdf-leitor.test.ts`
@@ -257,9 +341,9 @@ export function baseMinimo(textoDaDose = 'Vitamina D3 2000 UI'): Buffer {
 ```ts
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { baseMinimo } from '../../../test/assinatura/base-minimo';
+import { baseMinimo, objStmCheio, revisaoComXrefStream } from '../../../test/assinatura/base-minimo';
 import { dict, escreverAtualizacao, nome, ref, serializar } from './pdf-escrita';
-import { ehStream, iguais, lerAtualizacao, lerBase, LIMITES_LEITOR, nomeDe, pegar, PdfIlegivelError, type PdfDict } from './pdf-leitor';
+import { ehStream, iguais, lerAtualizacao, lerBase, LIMITES_LEITOR, nomeDe, novoOrcamento, pegar, PdfIlegivelError, type PdfDict } from './pdf-leitor';
 
 const ilegivel = (motivo: string) => (e: unknown) => e instanceof PdfIlegivelError && e.motivo === motivo;
 
@@ -294,32 +378,10 @@ describe('leitor limitado de PDF (RN-144, RNF-141)', () => {
   it('lê xref stream com preditor PNG e objetos dentro de /ObjStm', () => {
     const base = baseMinimo();
     const b = lerBase(base);
-    // ObjStm com o objeto 8 dentro; xref stream (objeto 9) com /W [1 4 2] e Predictor 12
+    // ObjStm (7) com o objeto 8 dentro; xref stream (9) com /W [1 4 2] e Predictor 12
     const dentro = serializar(dict({ Type: nome('Annot'), Subtype: nome('Widget') })).toString('latin1');
     const cabeca = `8 0 `;
-    const objStmDados = deflateSync(Buffer.from(cabeca + dentro, 'latin1'));
-    const inicioRev = base.length;
-    let corpo = Buffer.from('\n');
-    const off7 = inicioRev + corpo.length;
-    corpo = Buffer.concat([corpo, Buffer.from(`7 0 obj\n<< /Type /ObjStm /N 1 /First ${cabeca.length} /Filter /FlateDecode /Length ${objStmDados.length} >>\nstream\n`), objStmDados, Buffer.from('\nendstream\nendobj\n')]);
-    const off9 = inicioRev + corpo.length;
-    const linhas = [
-      [1, off7, 0],
-      [2, 7, 0],
-      [1, off9, 0],
-    ].map(([t, o, g]) => Buffer.from([t, (o >>> 24) & 255, (o >>> 16) & 255, (o >>> 8) & 255, o & 255, (g >>> 8) & 255, g & 255]));
-    // preditor PNG "Up" (tipo 2) linha a linha
-    let anterior = Buffer.alloc(7);
-    const filtradas = linhas.map((l) => {
-      const f = Buffer.alloc(8);
-      f[0] = 2;
-      for (let i = 0; i < 7; i++) f[i + 1] = (l[i] - anterior[i]) & 255;
-      anterior = l;
-      return f;
-    });
-    const xrefDados = deflateSync(Buffer.concat(filtradas));
-    corpo = Buffer.concat([corpo, Buffer.from(`9 0 obj\n<< /Type /XRef /Size 10 /Root 1 0 R /Prev ${b.startxref} /W [1 4 2] /Index [7 3] /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 7 >> /Length ${xrefDados.length} >>\nstream\n`), xrefDados, Buffer.from(`\nendstream\nendobj\nstartxref\n${off9}\n%%EOF\n`)]);
-    const pdf = Buffer.concat([base, corpo]);
+    const pdf = revisaoComXrefStream(base, b.startxref, [{ num: 7, dados: deflateSync(Buffer.from(cabeca + dentro, 'latin1')), first: cabeca.length, objetos: [8] }]);
     const [rev] = lerAtualizacao(pdf, base.length);
     expect(rev.xrefStream).toBe(true);
     expect(rev.objetos.get(8)!.objStm).toBe(7);
@@ -348,11 +410,41 @@ describe('leitor limitado de PDF (RN-144, RNF-141)', () => {
     } catch (e) {
       expect(ilegivel('aninhamento')(e)).toBe(true);
     }
-    const bomba = deflateSync(Buffer.alloc(LIMITES_LEITOR.inflateBytes + 1));
-    const comBomba = Buffer.concat([base, Buffer.from(`\n7 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${bomba.length} >>\nstream\n`), bomba, Buffer.from('\nendstream\nendobj\n')]);
-    const off7 = base.length + 1;
-    const final = Buffer.concat([comBomba, Buffer.from(`xref\n0 1\n0000000000 65535 f \n7 2\n${String(off7).padStart(10, '0')} 00000 n \n0000000000 00000 n \ntrailer\n<< /Size 9 /Root 1 0 R /Prev ${b.startxref} >>\nstartxref\n${comBomba.length}\n%%EOF\n`)]);
-    expect(() => lerAtualizacao(final, base.length)).toThrow(PdfIlegivelError);
+    // bomba de inflate: xref STREAM com a entrada tipo 2 (8 → /ObjStm 7), que obriga o leitor a decodificar o /ObjStm
+    // (numa xref clássica o /ObjStm nunca seria decodificado e o teste passaria sem chegar ao inflate — revisão do rascunho)
+    const bomba = revisaoComXrefStream(base, b.startxref, [{ num: 7, dados: deflateSync(Buffer.alloc(LIMITES_LEITOR.inflateBytes + 1)), first: 4, objetos: [8] }]);
+    let motivo: string | undefined;
+    try {
+      lerAtualizacao(bomba, base.length);
+    } catch (e) {
+      motivo = (e as PdfIlegivelError).motivo;
+    }
+    expect(motivo).toBe('inflate');
+  });
+
+  it('RNF-141: orçamento total de inflate por conferência, no máximo 16 /ObjStm por revisão e prazo dentro dos laços', () => {
+    const base = baseMinimo();
+    const b = lerBase(base);
+    // 20 MB descomprimidos cada (dentro do limite POR stream), com o cabeçalho válido para os números 1000 e 1001
+    const cheio = objStmCheio([1000, 1001], LIMITES_LEITOR.inflateBytes);
+    const stms = (qtd: number) => Array.from({ length: qtd }, (_, i) => ({ num: 7 + i, ...cheio, objetos: [1000 + i] }));
+    const motivoDe = (f: () => unknown) => {
+      try {
+        f();
+      } catch (e) {
+        return (e as PdfIlegivelError).motivo;
+      }
+      return undefined;
+    };
+    // 2 × 20 MB > 32 MB de orçamento: recusa no 2º, sem decodificar o resto
+    expect(motivoDe(() => lerAtualizacao(revisaoComXrefStream(base, b.startxref, stms(2)), base.length))).toBe('inflate_total');
+    // 17 /ObjStm pequenos: recusa pelo número, antes de decodificar o 17º
+    const nums = Array.from({ length: 17 }, (_, i) => 1000 + i);
+    const pequeno = objStmCheio(nums, 0);
+    const muitos = nums.map((x, i) => ({ num: 7 + i, ...pequeno, objetos: [x] }));
+    expect(motivoDe(() => lerAtualizacao(revisaoComXrefStream(base, b.startxref, muitos), base.length))).toBe('objstm_demais');
+    // prazo já vencido: recusa 'tempo' no primeiro laço
+    expect(motivoDe(() => lerAtualizacao(revisaoComXrefStream(base, b.startxref, stms(1)), base.length, novoOrcamento(-1)))).toBe('tempo');
   });
 });
 ```
@@ -377,7 +469,21 @@ export class PdfIlegivelError extends Error {
   }
 }
 
-export const LIMITES_LEITOR = { aninhamento: 32, objetos: 2000, inflateBytes: 20 * 1024 * 1024, revisoes: 2 } as const;
+/**
+ * RNF-141. `inflateBytes` vale POR stream; `inflateTotalBytes` é o ORÇAMENTO da conferência inteira (todas as revisões);
+ * `objStmPorRevisao` limita quantos /ObjStm uma revisão pode obrigar a decodificar. Sem o orçamento total, ~500 /ObjStm
+ * de 20 KB (20 MB cada, Predictor 12) cabem em 10 MB e param o event loop do Next por dezenas de segundos para todos os
+ * consultórios (revisão do rascunho, Important).
+ */
+export const LIMITES_LEITOR = { aninhamento: 32, objetos: 2000, inflateBytes: 20 * 1024 * 1024, inflateTotalBytes: 32 * 1024 * 1024, objStmPorRevisao: 16, revisoes: 2 } as const;
+
+/** Orçamento de UMA conferência: bytes que ainda podem ser descomprimidos e o prazo (performance.now()). */
+export type Orcamento = { bytes: number; prazo: number };
+export const novoOrcamento = (ms = 3000): Orcamento => ({ bytes: LIMITES_LEITOR.inflateTotalBytes, prazo: performance.now() + ms });
+/** Conferido DENTRO dos laços do leitor e da conferência (T9), não só no fim: código síncrono não é interrompido de fora. */
+export function verificarPrazo(orc: Orcamento): void {
+  if (performance.now() > orc.prazo) throw new PdfIlegivelError('tempo');
+}
 
 export type PdfNome = { n: string };
 export type PdfTexto = { s: Buffer; hex: boolean };
@@ -587,16 +693,21 @@ function objetoEm(buf: Buffer, offset: number, resolver?: ResolverTamanho): { nu
   return { num: Number(num), gen: Number(gen), valor };
 }
 
-function inflar(dados: Buffer): Buffer {
+function inflar(dados: Buffer, orc: Orcamento): Buffer {
+  verificarPrazo(orc);
+  const limite = Math.min(LIMITES_LEITOR.inflateBytes, orc.bytes);
+  let out: Buffer;
   try {
-    return inflateSync(dados, { maxOutputLength: LIMITES_LEITOR.inflateBytes });
+    out = inflateSync(dados, { maxOutputLength: limite });
   } catch {
-    throw new PdfIlegivelError('inflate');
+    throw new PdfIlegivelError(limite < LIMITES_LEITOR.inflateBytes ? 'inflate_total' : 'inflate');
   }
+  orc.bytes -= out.length;
+  return out;
 }
 
-/** /DecodeParms com /Predictor ≥ 10 (PNG), o comum nas xref streams. */
-function desfazerPreditor(dados: Buffer, parms: PdfValor | undefined): Buffer {
+/** /DecodeParms com /Predictor ≥ 10 (PNG), o comum nas xref streams. Prazo conferido a cada 4.096 linhas. */
+function desfazerPreditor(dados: Buffer, parms: PdfValor | undefined, orc: Orcamento): Buffer {
   const p = ehDict(parms) ? parms : null;
   const preditor = p ? pegar(p, 'Predictor') : undefined;
   if (preditor === undefined || preditor === 1) return dados;
@@ -608,6 +719,7 @@ function desfazerPreditor(dados: Buffer, parms: PdfValor | undefined): Buffer {
   const out = Buffer.alloc((dados.length / linha) * colunas);
   let anterior = Buffer.alloc(colunas);
   for (let i = 0; i < dados.length / linha; i++) {
+    if ((i & 4095) === 0) verificarPrazo(orc);
     const tipo = dados[i * linha];
     const atual = Buffer.from(dados.subarray(i * linha + 1, (i + 1) * linha));
     for (let j = 0; j < colunas; j++) {
@@ -626,17 +738,17 @@ function desfazerPreditor(dados: Buffer, parms: PdfValor | undefined): Buffer {
   return out;
 }
 
-function decodificar(s: PdfStream): Buffer {
+function decodificar(s: PdfStream, orc: Orcamento): Buffer {
   const filtro = pegar(s.dict, 'Filter');
   const filtros = Array.isArray(filtro) ? filtro : filtro === undefined ? [] : [filtro];
   if (filtros.length > 1 || (filtros.length === 1 && nomeDe(filtros[0]) !== 'FlateDecode')) throw new PdfIlegivelError('filtro');
-  const cru = filtros.length ? inflar(s.dados) : s.dados;
-  return desfazerPreditor(cru, pegar(s.dict, 'DecodeParms'));
+  const cru = filtros.length ? inflar(s.dados, orc) : s.dados;
+  return desfazerPreditor(cru, pegar(s.dict, 'DecodeParms'), orc);
 }
 
 type Entrada = { tipo: 'n'; offset: number; gen: number } | { tipo: 'o'; stm: number; indice: number } | { tipo: 'f' };
 
-function lerXref(buf: Buffer, offset: number): { entradas: Map<number, Entrada>; trailer: PdfDict; stream: boolean } {
+function lerXref(buf: Buffer, offset: number, orc: Orcamento): { entradas: Map<number, Entrada>; trailer: PdfDict; stream: boolean } {
   const lx = new Lexer(buf, offset);
   const salvo = lx.pos;
   if (lx.palavra() === 'xref') {
@@ -669,7 +781,7 @@ function lerXref(buf: Buffer, offset: number): { entradas: Map<number, Entrada>;
   const [w1, w2, w3] = W as number[];
   const idx = pegar(valor.dict, 'Index') ?? [0, size];
   if (!Array.isArray(idx) || idx.length % 2 || !idx.every((x) => typeof x === 'number')) throw new PdfIlegivelError('xref');
-  const dados = decodificar(valor);
+  const dados = decodificar(valor, orc);
   const larg = w1 + w2 + w3;
   const campo = (pos: number, w: number) => {
     let v = 0;
@@ -702,7 +814,7 @@ function ultimoStartxref(buf: Buffer, ate: number): number {
 }
 
 /** Objetos de uma xref restritos a [inicio, fim); objetos de /ObjStm do mesmo intervalo. */
-function lerObjetos(buf: Buffer, entradas: Map<number, Entrada>, inicio: number, fim: number, apagadoProibido: boolean): Map<number, ObjetoLido> {
+function lerObjetos(buf: Buffer, entradas: Map<number, Entrada>, inicio: number, fim: number, apagadoProibido: boolean, orc: Orcamento): Map<number, ObjetoLido> {
   if (entradas.size > LIMITES_LEITOR.objetos) throw new PdfIlegivelError('objetos_demais');
   const porNum = new Map<number, ObjetoLido>();
   const resolver: ResolverTamanho = (r) => {
@@ -713,6 +825,7 @@ function lerObjetos(buf: Buffer, entradas: Map<number, Entrada>, inicio: number,
   };
   const stms = new Map<number, Map<number, PdfValor>>();
   for (const [num, e] of entradas) {
+    verificarPrazo(orc);
     if (num === 0) continue;
     if (e.tipo === 'f') {
       if (apagadoProibido) throw new PdfIlegivelError('objeto_apagado');
@@ -733,7 +846,8 @@ function lerObjetos(buf: Buffer, entradas: Map<number, Entrada>, inicio: number,
       if (!ehStream(s) || nomeDe(pegar(s.dict, 'Type')) !== 'ObjStm') throw new PdfIlegivelError('objstm');
       const n = pegar(s.dict, 'N'), first = pegar(s.dict, 'First');
       if (typeof n !== 'number' || typeof first !== 'number' || n > LIMITES_LEITOR.objetos) throw new PdfIlegivelError('objstm');
-      const dados = decodificar(s);
+      if (stms.size >= LIMITES_LEITOR.objStmPorRevisao) throw new PdfIlegivelError('objstm_demais');
+      const dados = decodificar(s, orc);
       const lx = new Lexer(dados, 0);
       const pares: [number, number][] = [];
       for (let i = 0; i < n; i++) {
@@ -753,13 +867,13 @@ function lerObjetos(buf: Buffer, entradas: Map<number, Entrada>, inicio: number,
 }
 
 /** O PDF base (o nosso): uma revisão, xref clássica. */
-export function lerBase(buf: Buffer): BaseLida {
+export function lerBase(buf: Buffer, orc: Orcamento = novoOrcamento()): BaseLida {
   const startxref = ultimoStartxref(buf, buf.length);
-  const { entradas, trailer } = lerXref(buf, startxref);
+  const { entradas, trailer } = lerXref(buf, startxref, orc);
   if (pegar(trailer, 'Prev') !== undefined) throw new PdfIlegivelError('base_com_revisoes');
   const size = pegar(trailer, 'Size');
   if (typeof size !== 'number') throw new PdfIlegivelError('trailer');
-  return { objetos: lerObjetos(buf, entradas, 0, buf.length, false), trailer, startxref, tamanho: size };
+  return { objetos: lerObjetos(buf, entradas, 0, buf.length, false, orc), trailer, startxref, tamanho: size };
 }
 
 const EOL = (buf: Buffer, i: number) => (buf[i] === 0x0d && buf[i + 1] === 0x0a ? 2 : buf[i] === 0x0a || buf[i] === 0x0d ? 1 : 0);
@@ -769,7 +883,7 @@ const EOL = (buf: Buffer, i: number) => (buf[i] === 0x0d && buf[i + 1] === 0x0a 
  * arquivo termina exatamente no fim da última (nada depois). Cada xref fica dentro da própria revisão e o /Prev aponta
  * para o startxref anterior (o do base, na primeira) — conferido em pdf-atualizacao.ts (T9).
  */
-export function lerAtualizacao(buf: Buffer, inicio: number): Revisao[] {
+export function lerAtualizacao(buf: Buffer, inicio: number, orc: Orcamento = novoOrcamento()): Revisao[] {
   const revisoes: Revisao[] = [];
   let ini = inicio;
   while (ini < buf.length) {
@@ -779,9 +893,9 @@ export function lerAtualizacao(buf: Buffer, inicio: number): Revisao[] {
     if (revisoes.length >= LIMITES_LEITOR.revisoes) throw new PdfIlegivelError('revisoes_demais');
     const xrefOffset = ultimoStartxref(buf, eof);
     if (xrefOffset < ini || xrefOffset >= eof) throw new PdfIlegivelError('xref_fora_da_revisao');
-    const { entradas, trailer, stream } = lerXref(buf, xrefOffset);
+    const { entradas, trailer, stream } = lerXref(buf, xrefOffset, orc);
     // a própria xref stream é um objeto da revisão: entra no mapa (é conferida como "xref", não como conteúdo)
-    const objetos = lerObjetos(buf, entradas, ini, eof, true);
+    const objetos = lerObjetos(buf, entradas, ini, eof, true, orc);
     revisoes.push({ inicio: ini, fim, xrefOffset, trailer, objetos, xrefStream: stream });
     ini = fim;
   }
@@ -1133,8 +1247,17 @@ export type OpcoesAssinatura = {
   byteRangeCurto?: boolean;
   digestErrado?: boolean;
   lixoNoFim?: boolean;
-  /** Segunda revisão: 'ltv' (/DSS válido) ou 'isa' (texto depois da assinatura). */
-  depois?: 'ltv' | 'isa';
+  /** RNF-141: /Launch no widget, anexo (/Filespec + /EmbeddedFile), /Names trocado no Catálogo, aninhamento de 10.000 níveis. */
+  launch?: boolean;
+  anexo?: boolean;
+  namesNovo?: boolean;
+  aninhamento?: boolean;
+  /** Shadow attack "replace" disfarçado: o objeto `num` do base redefinido como stream com /Type /ObjStm ou /XRef. */
+  disfarce?: { num: number; tipo: 'ObjStm' | 'XRef' };
+  /** Um segundo stream /Type /XRef (número novo) que não é o do startxref. */
+  xrefExtra?: boolean;
+  /** Segunda revisão: 'ltv' (só /DSS), 'ltv-carimbo' (só /DocTimeStamp), 'ltv-dss-carimbo' (os dois) ou 'isa' (texto depois da assinatura). */
+  depois?: 'ltv' | 'ltv-carimbo' | 'ltv-dss-carimbo' | 'isa';
   /** Certificado a mais no CMS (a cadeia completa); padrão: só o do titular, como o Acrobat. */
   cadeiaNoCms?: AcDeTeste;
 };
@@ -1190,6 +1313,7 @@ export async function assinarDeTeste(base: Buffer, t: TitularDeTeste, o: OpcoesA
   const widget: Record<string, PdfValor> = { Type: nome('Annot'), Subtype: nome('Widget'), FT: nome('Sig'), T: texto('Assinatura1'), V: ref(nSig), F: 132, Rect: rect, P: pagRef };
   if (o.rect) widget.AP = dict({ N: ref(nAp) });
   if (o.javascriptNoWidget) widget.AA = dict({ E: dict({ S: nome('JavaScript'), JS: texto('app.alert(1)') }) });
+  if (o.launch) widget.A = dict({ S: nome('Launch'), F: texto('calc.exe') });
   add(nCampo, dict(widget));
   add(nAp, { dict: dict({ Type: nome('XObject'), Subtype: nome('Form'), BBox: bbox }), dados: Buffer.from(o.rect ? '1 1 1 rg 0 0 500 500 re f' : ''), inicio: 0 });
   add(nAcro, dict({ Fields: [ref(nCampo)], SigFlags: 3 }));
@@ -1213,6 +1337,8 @@ export async function assinarDeTeste(base: Buffer, t: TitularDeTeste, o: OpcoesA
   const novoCatalogo = new Map(catalogo.d);
   novoCatalogo.set('AcroForm', ref(nAcro));
   if (o.openAction) novoCatalogo.set('OpenAction', dict({ S: nome('JavaScript'), JS: texto('app.alert(1)') }));
+  // /Names trocado (ou acrescentado, num base sem /Names): uma árvore de JavaScript de documento
+  if (o.namesNovo) novoCatalogo.set('Names', dict({ JavaScript: dict({ Names: [texto('a'), dict({ S: nome('JavaScript'), JS: texto('app.alert(1)') })] }) }));
   add(raiz.num, { d: novoCatalogo });
   if (o.redefinirConteudoDaPagina) {
     const c = pegar(pagina, 'Contents') as { num: number };
@@ -1225,38 +1351,70 @@ export async function assinarDeTeste(base: Buffer, t: TitularDeTeste, o: OpcoesA
     const nPag = novo();
     add(nPag, dict({ Type: nome('Page'), Parent: pegar(catalogo, 'Pages')!, MediaBox: [0, 0, 595, 842] }));
   }
+  if (o.anexo) {
+    const nArq = novo(), nEsp = novo();
+    add(nArq, { dict: dict({ Type: nome('EmbeddedFile') }), dados: Buffer.from('MZ'), inicio: 0 });
+    add(nEsp, dict({ Type: nome('Filespec'), F: texto('receita.exe'), EF: dict({ F: ref(nArq) }) }));
+  }
+  if (o.aninhamento) add(novo(), Buffer.from('['.repeat(10_000) + ']'.repeat(10_000), 'latin1'));
+  if (o.disfarce) {
+    // o conteúdo original + um retângulo branco sobre a dose: um leitor de PDF ignora o /Type de um stream de conteúdo
+    const antes = b.objetos.get(o.disfarce.num)!.valor as { dados: Buffer };
+    add(o.disfarce.num, { dict: dict({ Type: nome(o.disfarce.tipo) }), dados: Buffer.concat([antes.dados, Buffer.from(' 1 1 1 rg 70 715 200 20 re f')]), inicio: 0 });
+  }
+  if (o.xrefExtra) add(novo(), { dict: dict({ Type: nome('XRef'), Size: 1, W: [1, 4, 2] }), dados: Buffer.alloc(0), inicio: 0 });
 
   let pdf = escreverAtualizacao(base, { prev: b.startxref, size: n, trailer: { Root: ref(raiz.num), ...(pegar(b.trailer, 'Info') ? { Info: pegar(b.trailer, 'Info')! } : {}) }, objetos });
-  // /ByteRange [0 a b c]: a = o "<" do /Contents deste /Sig; b = depois do ">"; c = até o fim
-  const s = pdf.toString('latin1');
-  const iSig = s.indexOf(MARCA_BR, base.length);
-  const a = s.indexOf('/Contents <', iSig) + '/Contents '.length;
-  const bfim = a + LARGURA_CONTENTS * 2 + 2;
-  const c = (o.byteRangeCurto ? pdf.length - 10 : pdf.length) - bfim;
-  const br = `/ByteRange [0 ${a} ${bfim} ${c}]`.padEnd(MARCA_BR.length, ' ');
-  pdf.write(br, iSig, 'latin1');
-  const cobertos = Buffer.concat([pdf.subarray(0, a), pdf.subarray(bfim, bfim + c)]);
-  const assinatura = await cms(cobertos, t, o);
-  if (assinatura.length > LARGURA_CONTENTS) throw new Error('CMS maior que o espaço reservado');
-  pdf.write(assinatura.toString('hex').toUpperCase().padEnd(LARGURA_CONTENTS * 2, '0'), a + 1, 'latin1');
+  await fecharByteRange(pdf, base.length, (cobertos) => cms(cobertos, t, o), o.byteRangeCurto);
 
   // o startxref da revisão da assinatura (o "xref" de "startxref" não serve: procurar o número depois dele)
   const startxrefAtual = () => Number(/startxref\n(\d+)\n%%EOF\n$/.exec(pdf.toString('latin1'))![1]);
   if (o.depois === 'isa') {
     pdf = escreverAtualizacao(pdf, { prev: startxrefAtual(), size: n + 1, trailer: { Root: ref(raiz.num) }, objetos: [{ num: n, corpo: serializar(dict({ Type: nome('Annot'), Subtype: nome('FreeText'), Rect: [72, 700, 400, 730], Contents: texto('Dose alterada') })) }] });
   }
-  if (o.depois === 'ltv') {
-    const nDss = n;
-    pdf = escreverAtualizacao(pdf, {
-      prev: startxrefAtual(), size: n + 1, trailer: { Root: ref(raiz.num) },
-      objetos: [
-        { num: nDss, corpo: serializar(dict({ Certs: [] })) },
-        { num: raiz.num, corpo: serializar({ d: new Map([...novoCatalogo, ['DSS', ref(nDss)]]) }) },
-      ],
-    });
+  if (o.depois && o.depois !== 'isa') {
+    // RN-144 (7): /DSS e/ou carimbo do tempo (/DocTimeStamp, ETSI.RFC3161, widget de área zero); o token não é validado
+    const comDss = o.depois !== 'ltv-carimbo';
+    const comCarimbo = o.depois !== 'ltv';
+    let m = n;
+    const objs: { num: number; corpo: Buffer }[] = [];
+    if (comDss) {
+      const nDss = m++;
+      objs.push({ num: nDss, corpo: serializar(dict({ Certs: [] })) });
+      objs.push({ num: raiz.num, corpo: serializar({ d: new Map([...novoCatalogo, ['DSS', ref(nDss)]]) }) });
+    }
+    if (comCarimbo) {
+      const nTs = m++, nTsCampo = m++;
+      objs.push({ num: nTs, corpo: Buffer.from(`<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 ${MARCA_BR} /Contents <${'0'.repeat(LARGURA_CONTENTS * 2)}> >>`, 'latin1') });
+      objs.push({ num: nTsCampo, corpo: serializar(dict({ Type: nome('Annot'), Subtype: nome('Widget'), FT: nome('Sig'), T: texto('Carimbo1'), V: ref(nTs), F: 132, Rect: [0, 0, 0, 0], P: pagRef })) });
+      objs.push({ num: pagRef.num, corpo: serializar({ d: new Map([...novaPagina, ['Annots', [...annots, ref(nTsCampo)]]]) }) });
+      objs.push({ num: nAcro, corpo: serializar(dict({ Fields: [ref(nCampo), ref(nTsCampo)], SigFlags: 3 })) });
+    }
+    const inicio2 = pdf.length;
+    pdf = escreverAtualizacao(pdf, { prev: startxrefAtual(), size: m, trailer: { Root: ref(raiz.num) }, objetos: objs });
+    if (comCarimbo) await fecharByteRange(pdf, inicio2, async () => TOKEN_DE_CARIMBO);
   }
   if (o.lixoNoFim) pdf = Buffer.concat([pdf, Buffer.from('% lixo\n')]);
   return pdf;
+}
+
+/** Um DER qualquer no lugar do token RFC 3161: a RN-144 (7) aceita o carimbo e não o valida. */
+const TOKEN_DE_CARIMBO = Buffer.from('3003020100', 'hex');
+
+/**
+ * Preenche o primeiro MARCA_BR depois de `desde`: /ByteRange [0 a b c] (a = o "<" do /Contents deste dicionário; b = depois
+ * do ">"; c = até o fim do arquivo, ou 10 bytes antes com `curto`) e o /Contents com o que `gerar` devolver.
+ */
+async function fecharByteRange(pdf: Buffer, desde: number, gerar: (cobertos: Buffer) => Promise<Buffer>, curto = false): Promise<void> {
+  const s = pdf.toString('latin1');
+  const iSig = s.indexOf(MARCA_BR, desde);
+  const a = s.indexOf('/Contents <', iSig) + '/Contents '.length;
+  const bfim = a + LARGURA_CONTENTS * 2 + 2;
+  const c = (curto ? pdf.length - 10 : pdf.length) - bfim;
+  pdf.write(`/ByteRange [0 ${a} ${bfim} ${c}]`.padEnd(MARCA_BR.length, ' '), iSig, 'latin1');
+  const assinatura = await gerar(Buffer.concat([pdf.subarray(0, a), pdf.subarray(bfim, bfim + c)]));
+  if (assinatura.length > LARGURA_CONTENTS) throw new Error('CMS maior que o espaço reservado');
+  pdf.write(assinatura.toString('hex').toUpperCase().padEnd(LARGURA_CONTENTS * 2, '0'), a + 1, 'latin1');
 }
 
 /** O widget visível dentro do quadro "Assinatura digital" (variante válida). */
@@ -1392,7 +1550,7 @@ out(`- fim do arquivo: ${JSON.stringify(ultimo)}`);
 console.log(linhas.join('\n'));
 ```
 
-Run: `pnpm assinatura:relatorio test/assinatura/reais/base.pdf test/assinatura/reais/govbr-a.pdf` (depois do Step 13).
+Run: `pnpm assinatura:relatorio test/assinatura/reais/base.pdf test/assinatura/reais/govbr-a.pdf` (na Tarefa 1b, depois do checkpoint do dono).
 
 - [ ] **Step 12: PDF de teste para o dono assinar** — `scripts/certs/pdf-de-teste.tsx`
 
@@ -1437,33 +1595,7 @@ main();
 
 Run: `pnpm assinatura:pdf-teste` → os dois PDFs em `test/assinatura/reais/` (ignorados pelo git).
 
-- [ ] **Step 13: CHECKPOINT DO DONO — PDFs reais (runbook, passo 1)**
-
-Parar e pedir ao dono, com os dois arquivos do Step 12 (enviados por canal privado, nunca no git):
-1. `base.pdf` assinado no **`assinador.iti.br`** com a conta gov.br prata/ouro da Debby ou do dono: (a) carimbo visível onde o assinador propõe; (b) carimbo dentro do quadro "Assinatura digital"; (c) sem carimbo visível, se o assinador oferecer. E `base-com-campo.pdf` assinado da forma (b).
-2. Se houver e-CPF (A1 ou A3): o mesmo `base.pdf` e o `base-com-campo.pdf` assinados no **Adobe Acrobat Reader** e no **Assinador SERPRO** (ambos gratuitos), anotando o nome e a versão de cada programa.
-3. Para cada arquivo assinado, o **relatório de conformidade do VALIDAR** (validar.iti.gov.br).
-4. Os arquivos voltam para `test/assinatura/reais/` na máquina de dev (fora do git).
-
-Enquanto os arquivos não chegam, o plano segue (Tarefas 2–8 não dependem deles) com as réplicas da fábrica; **a opção C só é liberada** depois de um arquivo real de pelo menos um programa ICP (critério de aceite da T9), e o **gov.br** só depois do arquivo real dele.
-
-- [ ] **Step 14: Relatório do spike e decisão da D16** — `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md`
-
-Rodar `pnpm assinatura:relatorio test/assinatura/reais/base.pdf <cada assinado>` e escrever o relatório com: a saída de cada arquivo (sem nome nem CPF — o script não os imprime), o resultado do VALIDAR de cada um ("Aprovado"/"Indeterminado"), e a aplicação da tabela de critérios (§9.4 da pesquisa):
-
-| Resultado | Caminho |
-|---|---|
-| gov.br e os programas ICP testados preservam o prefixo e a atualização cabe na lista da RN-144 (5)–(6) | **Leitor síncrono** (T9 como está). Ajustar a lista com o que o relatório mostrou (ex.: `/Prop_Build`, `/Metadata`) e criar uma **réplica estrutural** de cada formato na fábrica (`OpcoesAssinatura` nova, sem o arquivo real) |
-| Algum preserva o prefixo, mas o carimbo visível fica fora do quadro sem controle | Instrução + recusa específica (texto da US-144); se o atrito for alto, **T19** só para esse caso |
-| Algum **não** preserva o prefixo (reescreve o arquivo) | **T19** (D16 = (a) da spec) para aquele assinador; (c) se o programa for raro |
-| `/ObjStm` ilegível ou formato instável entre versões | **T19** |
-| O certificado gov.br não traz o CPF em campo próprio | **D8 ★** volta ao dono com o relatório |
-| O campo pré-criado foi usado e o VALIDAR aprovou | `CAMPO_PRE_CRIADO = true` (T8) |
-| Algum programa aceito sai "Indeterminado" no VALIDAR | Nota curta perto do link do ITI na `/v` (T15), texto a escrever com o resultado |
-
-Também no relatório: a tolerância de fim de linha depois do `%%EOF` do base (se algum programa emenda sem o `\n` ou troca por `\r\n`, a T9 aceita só a variação "base sem o fim de linha final", com um segundo hash gravado no preparo — coluna `base_pdf_sha256_sem_eol`, desvio a registrar) e onde fica o CPF no gov.br (`serialNumber`? SAN?) para a T9.
-
-- [ ] **Step 15: Operação das âncoras** — `docs/operacao/ancoras-assinatura.md`
+- [ ] **Step 13: Operação das âncoras** — `docs/operacao/ancoras-assinatura.md`
 
 ```markdown
 # Âncoras de confiança da assinatura (INT-B1, D7 do Plano 10)
@@ -1482,11 +1614,55 @@ e-CPF de AC credenciada.
 4. A cadeia gov.br (`GOVBR_PEM`) só muda se o ITI publicar uma nova (vence em 06/2033); conferir pelas LCRs de `repo.iti.br`.
 ```
 
-- [ ] **Step 16: Commit**
+- [ ] **Step 14: Commit (Tarefa 1a)**
 
 ```bash
-git add package.json pnpm-lock.yaml .gitignore src/modules/documentos/{constantes,pdf-leitor,pdf-leitor.test,pdf-escrita,campo-assinatura,ancoras,ancoras-raizes,ancoras-fonte.test}.ts src/modules/documentos/ancoras scripts/certs test/assinatura/base-minimo.ts test/assinatura/fabrica.ts docs/operacao/ancoras-assinatura.md docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md
-git commit -m "feat(documentos): spike da conferência da assinatura — âncoras, leitor limitado, fábrica de PDFs de teste e relatório (P-B2)"
+git add package.json pnpm-lock.yaml .gitignore src/modules/documentos/{constantes,pdf-leitor,pdf-leitor.test,pdf-escrita,campo-assinatura,ancoras,ancoras-raizes,ancoras-fonte.test}.ts src/modules/documentos/ancoras scripts/certs test/assinatura/base-minimo.ts test/assinatura/fabrica.ts docs/operacao/ancoras-assinatura.md
+git commit -m "feat(documentos): spike da conferência da assinatura — âncoras, leitor limitado e fábrica de PDFs de teste (P-B2)"
+```
+
+---
+### Task 1b: Checkpoint do dono, relatório do spike e a decisão da D16 (P-B2; P10-01) — não bloqueia a Tarefa 2
+
+**Depende de:** Tarefa 1a (os scripts) e dos PDFs reais do dono (runbook, passo 1). **Não bloqueia** a T2 nem as seguintes: até ela fechar, o envio responde "Tipo de assinatura não aceito" para o conjunto sem arquivo real (`ASSINATURAS_LIBERADAS`, T9) e `CAMPO_PRE_CRIADO` fica `false`.
+
+**Files:**
+- Create: `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md`
+- Modify: `src/modules/documentos/constantes.ts` (`CAMPO_PRE_CRIADO` e, se a T9 já entrou, `ASSINATURAS_LIBERADAS`), e as réplicas estruturais em `test/assinatura/fabrica.ts`, se o relatório pedir
+
+- [ ] **Step 1: CHECKPOINT DO DONO — PDFs reais (runbook, passo 1)**
+
+Parar e pedir ao dono, com os dois arquivos do Step 12 da Tarefa 1a (enviados por canal privado, nunca no git):
+1. `base.pdf` assinado no **`assinador.iti.br`** com a conta gov.br prata/ouro da Debby ou do dono: (a) carimbo visível onde o assinador propõe; (b) carimbo dentro do quadro "Assinatura digital"; (c) sem carimbo visível, se o assinador oferecer. E `base-com-campo.pdf` assinado da forma (b).
+2. Se houver e-CPF (A1 ou A3): o mesmo `base.pdf` e o `base-com-campo.pdf` assinados no **Adobe Acrobat Reader** e no **Assinador SERPRO** (ambos gratuitos), anotando o nome e a versão de cada programa.
+3. Para cada arquivo assinado, o **relatório de conformidade do VALIDAR** (validar.iti.gov.br).
+4. Os arquivos voltam para `test/assinatura/reais/` na máquina de dev (fora do git).
+
+Enquanto os arquivos não chegam, o plano segue (as Tarefas 2–18 não esperam a 1b) com as réplicas da fábrica; **a opção C só é liberada** depois de um arquivo real de pelo menos um programa ICP (critério de aceite da T9), e o **gov.br** só depois do arquivo real dele.
+
+- [ ] **Step 2: Relatório do spike e decisão da D16** — `docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md`
+
+Rodar `pnpm assinatura:relatorio test/assinatura/reais/base.pdf <cada assinado>` e escrever o relatório com: a saída de cada arquivo (sem nome nem CPF — o script não os imprime), o resultado do VALIDAR de cada um ("Aprovado"/"Indeterminado"), e a aplicação da tabela de critérios (§9.4 da pesquisa):
+
+| Resultado | Caminho |
+|---|---|
+| gov.br e os programas ICP testados preservam o prefixo e a atualização cabe na lista da RN-144 (5)–(6) | **Leitor síncrono** (T9 como está). Ajustar a lista com o que o relatório mostrou (ex.: `/Prop_Build`, `/Metadata`) e criar uma **réplica estrutural** de cada formato na fábrica (`OpcoesAssinatura` nova, sem o arquivo real) |
+| Algum preserva o prefixo, mas o carimbo visível fica fora do quadro sem controle | Instrução + recusa específica (texto da US-144); se o atrito for alto, **T19** só para esse caso |
+| Algum **não** preserva o prefixo (reescreve o arquivo) | **T19** (D16 = (a) da spec) para aquele assinador; (c) se o programa for raro |
+| `/ObjStm` ilegível ou formato instável entre versões | **T19** |
+| O certificado gov.br não traz o CPF em campo próprio | **D8 ★** volta ao dono com o relatório |
+| O campo pré-criado foi usado e o VALIDAR aprovou | `CAMPO_PRE_CRIADO = true` (T8) |
+| Algum programa aceito sai "Indeterminado" no VALIDAR | Nota curta perto do link do ITI na `/v` (T15), texto a escrever com o resultado |
+
+Também no relatório: a tolerância de fim de linha depois do `%%EOF` do base (se algum programa emenda sem o `\n` ou troca por `\r\n`, a T9 aceita só a variação "base sem o fim de linha final", com um segundo hash gravado no preparo — coluna `base_pdf_sha256_sem_eol`, desvio a registrar) e onde fica o CPF no gov.br (`serialNumber`? SAN?) para a T9.
+
+- [ ] **Step 3: Aplicar o resultado** — `CAMPO_PRE_CRIADO` em `constantes.ts` (e a T8 passa a acrescentar o campo no preparo); com a T9 já na branch, `ASSINATURAS_LIBERADAS` liga o conjunto cujo arquivo real passou no teste local da T9 (Step 7); réplicas estruturais na fábrica para o que o relatório mostrou. Se a T9 ainda não entrou, este passo fica para o PR curto da liberação (runbook, etapa 8). Se o relatório cair numa linha "T19", a Tarefa 19 entra.
+
+- [ ] **Step 4: Commit (Tarefa 1b)**
+
+```bash
+git add docs/superpowers/plans/2026-10-xx-nutridebby-10-spike-assinatura.md src/modules/documentos/constantes.ts test/assinatura/fabrica.ts
+git commit -m "docs(documentos): relatório do spike da assinatura e decisão da D16 (P-B2)"
 ```
 
 ---
@@ -1501,10 +1677,10 @@ git commit -m "feat(documentos): spike da conferência da assinatura — âncora
 - Produces:
   - `@/db/schema`: `signedDocuments`, `signedDocumentNotes`, `signedDocumentReceipts`, `documentAccessCodes`, `documentVerifications`, `tenantSigner` e os tipos `SignedDocumentRow`, `SignedDocumentReceiptRow`, `DocumentVerificationRow`; `tenants.nomeProfissional`, `contatoEmail`, `contatoTelefoneE164`, `fitoterapiaRegistro`, `fitoterapiaDeclaradaEm`, `fitoterapiaTermoVersao`, `documentosLiberados`.
   - `TipoDeArquivo` + `TIPOS_DO_PACIENTE` com `'documento_base' | 'documento_assinado' | 'documento_digitalizado'`; `TipoNotificacao` com `'documento_novo' | 'documento_atualizado'` (rótulos "Documento novo", "Documento atualizado").
-  - `constantes.ts`: `STATUS_DOCUMENTO`, `StatusDocumento`, `EMITIDOS`, `ROTULO_STATUS`, `ROTULO_ASSINATURA`, `SituacaoVerificacao`, `EventoRecibo`, `ViaRecibo`.
+  - `constantes.ts`: `STATUS_DOCUMENTO`, `StatusDocumento`, `EMITIDOS`, `ROTULO_STATUS`, `ROTULO_ASSINATURA`, `linhaDaAssinatura` ("Assinatura: Digitalizado", RN-157), `SituacaoVerificacao`, `EventoRecibo`, `ViaRecibo`.
   - `erros.ts`: `DocumentoNaoEncontradoError`, `DocumentoError { erros: Record<string, string> }`, `TransicaoInvalidaError`, `RecusaAssinaturaError { codigo: CodigoRecusa }`, `CodigoRecusa`, `MSG_RECUSA: Record<CodigoRecusa, string>`.
   - `ENTIDADE_ROTULO.documentos = 'Documentos assinados'`, `.perfil_profissional = 'Perfil profissional'`, `.tentativa_assinatura = 'Tentativa de assinatura com código recusado'`.
-  - `test/documentos.ts`: `documentoNoBanco(db, ctx, patientId, o?: { status?: StatusDocumento; conteudo?: object }): Promise<{ id: string; codigo: string | null; pdfPath: string | null }>`.
+  - `test/documentos.ts`: `documentoNoBanco(db, ctx, patientId, o?: { status?: StatusDocumento; conteudo?: object; assinaturaTipo?: TipoAssinatura }): Promise<{ id: string; codigo: string | null; pdfPath: string | null }>` (emitido: `govbr` por padrão; `digitalizada` sem `assinante_nome`).
 
 - [ ] **Step 1: Teste do esquema e da RLS (falha)** — `src/db/documentos-schema.test.ts`
 
@@ -1621,6 +1797,8 @@ export const ROTULO_STATUS: Record<StatusDocumento, string> = {
   cancelado: 'Cancelado',
 };
 export const ROTULO_ASSINATURA: Record<TipoAssinatura, string> = { govbr: 'gov.br', icp: 'Certificado ICP-Brasil', digitalizada: 'Digitalizado' };
+/** RN-157 / US-144 / US-147: a mesma linha no portal, na lista da nutricionista, na página do documento e na /v. */
+export const linhaDaAssinatura = (t: TipoAssinatura): string => `Assinatura: ${ROTULO_ASSINATURA[t]}`;
 export type SituacaoVerificacao = 'valido' | 'substituido' | 'cancelado' | 'eliminado';
 export type EventoRecibo = 'aberto' | 'recebido';
 export type ViaRecibo = 'portal' | 'link_email' | 'pessoalmente';
@@ -2000,7 +2178,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import type { StatusDocumento } from '@/modules/documentos/constantes';
+import type { StatusDocumento, TipoAssinatura } from '@/modules/documentos/constantes';
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export const codigoAleatorio = () => Array.from({ length: 12 }, () => CROCKFORD[Math.floor(Math.random() * 32)]).join('');
@@ -2013,7 +2191,7 @@ export async function documentoNoBanco(
   db: Db,
   ctx: TenantContext,
   patientId: string,
-  o: { status?: StatusDocumento; conteudo?: Record<string, unknown> } = {},
+  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura } = {},
 ): Promise<{ id: string; codigo: string | null; pdfPath: string | null }> {
   const status = o.status ?? 'rascunho';
   const emitido = ['assinado', 'substituido', 'cancelado'].includes(status);
@@ -2025,7 +2203,7 @@ export async function documentoNoBanco(
       await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${ctx.tenantId}, 'documento_assinado', ${pdfPath}, 100, 'application/pdf', ${patientId})`);
     await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em)
       values (${id}, ${ctx.tenantId}, ${patientId}, ${status}, ${codigo}, ${JSON.stringify(o.conteudo ?? { versao: 1, tipo: 'receita', itens: [], orientacoes: '' })}::jsonb,
-              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? 'govbr' : null}, ${emitido ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null})`);
+              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'govbr') : null}, ${emitido && o.assinaturaTipo !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null})`);
   }, db);
   return { id, codigo, pdfPath };
 }
@@ -2058,7 +2236,16 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
  * (mensagem própria, não "row-level security"); em signed_documents, só o rascunho é apagado.
  */
 const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes']);
-const SO_APAGA: Record<string, SQL> = { signed_documents: sql`status = 'rascunho'` };
+/**
+ * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
+ * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
+ * que ainda têm documento emitido ou recibo — então patients de B só apaga os pacientes sem eles (revisão do rascunho).
+ */
+const SO_APAGA: Record<string, SQL> = {
+  signed_documents: sql`status = 'rascunho'`,
+  patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
+                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)`,
+};
 const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'patients'];
 ```
 
@@ -2067,10 +2254,11 @@ Nos testes "WITH CHECK" (tenant B move linha para A; P2 move linha para P1), a r
 ```ts
           const apagaveis = SO_APAGA[t] ? (await tx.execute(sql`select 1 from ${id} where ${SO_APAGA[t]}`)).rows.length : proprias.length;
           const apagadas = await tx.execute(sql`delete from ${id}${SO_APAGA[t] ? sql` where ${SO_APAGA[t]}` : sql``}`);
-          expect(apagadas.rowCount, t).toBe(apagaveis); // em signed_documents, só os rascunhos de B (os emitidos ficam)
+          expect(apagadas.rowCount, t).toBe(apagaveis); // signed_documents: só os rascunhos de B; patients: só os sem emitido nem recibo
+          sobrouDeB = proprias.length - apagaveis;
 ```
 
-e, depois do bloco, `if (!SO_INSERE.has(t) && !SO_APAGA[t]) expect(await contarTenant(t, B), t).toBe(0);`. (Os emitidos de B que ficam seguram o `stored_files` deles? Não: a fábrica cria emitido **sem** PDF — anonimizado.)
+com `let sobrouDeB = 0;` antes do `withTenant` e, depois do bloco, `if (!SO_INSERE.has(t)) expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);` (o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de `SO_APAGA` deixa — em `patients`, os pacientes de B com documento emitido ou recibo). Os emitidos de B que ficam seguram o `stored_files` deles? Não: a fábrica cria emitido **sem** PDF — anonimizado.
 
 - [ ] **Step 8: CLAUDE.md** (regras 1, 2, 8 e 9; o texto final fica no PR)
 
@@ -2430,7 +2618,7 @@ git commit -m "feat(documentos): imutabilidade no banco e anonimização só pel
   - `type CopiaProfissional = { nomeCompleto: string; crn: string; email: string; telefone: string; endereco: string | null; fitoterapia: boolean }`.
   - `perfilCompleto(t: TenantRow): boolean`, `copiaDoPerfil(t: TenantRow): CopiaProfissional` (lança `PerfilIncompletoError`), `class PerfilIncompletoError`.
   - `salvarDadosParaDocumentos(ctx, input: Record<string, unknown>, db?): Promise<void>` (lança `DocumentoError`), `declararFitoterapia(ctx, input, deps?)`, `retirarFitoterapia(ctx, deps?)`.
-  - `hmacDoCpf(cpf: string): string`, `mascararCpf(cpf: string): string` (`***.456.789-**`), `lerAssinante(tx): Promise<{ cpfHmac: string; cpfMascarado: string } | null>`, `gravarAssinante(tx, a: { tenantId: string; cpf: string; userId: string; agora: Date }): Promise<void>`.
+  - `hmacDoCpf(cpf: string): string`, `mascararCpf(cpf: string): string` (`***.456.789-**`), `lerAssinante(tx): Promise<{ cpfHmac: string; cpfMascarado: string } | null>`, `gravarAssinante(tx, a: { tenantId: string; cpf: string; userId: string; agora: Date; anterior: string | null }): Promise<void>` (compare-and-set: `anterior = null` só insere; senão só troca a linha que ainda tem o HMAC anterior; nada casou → `TransicaoInvalidaError`; audita "Perfil profissional").
 
 - [ ] **Step 1: Testes (falham)** — `src/modules/documentos/perfil-profissional.test.ts`
 
@@ -2441,7 +2629,7 @@ import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { DocumentoError } from './erros';
+import { DocumentoError, TransicaoInvalidaError } from './erros';
 import { copiaDoPerfil, declararFitoterapia, gravarAssinante, hmacDoCpf, lerAssinante, mascararCpf, MSG_PERFIL_PROF, perfilCompleto, PerfilIncompletoError, retirarFitoterapia, salvarDadosParaDocumentos } from './perfil-profissional';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -2488,9 +2676,19 @@ describe('perfil profissional (US-140)', () => {
     expect(mascararCpf('12345678909')).toBe('***.456.789-**');
     expect(hmacDoCpf('12345678909')).not.toContain('12345678909');
     expect(hmacDoCpf('12345678909')).toBe(hmacDoCpf('123.456.789-09'));
-    await withTenant(T.ctx, (tx) => gravarAssinante(tx, { tenantId: T.tenantId, cpf: '12345678909', userId: T.nutriId, agora: new Date() }), app.db);
+    await withTenant(T.ctx, (tx) => gravarAssinante(tx, { tenantId: T.tenantId, cpf: '12345678909', userId: T.nutriId, agora: new Date(), anterior: null }), app.db);
     const a = await withTenant(T.ctx, (tx) => lerAssinante(tx), app.db);
     expect(a).toEqual({ cpfHmac: hmacDoCpf('12345678909'), cpfMascarado: '***.456.789-**' });
+  });
+
+  it('RN-145 troca: só troca a partir do CPF que a tela mostrou; dois "primeiros" ao mesmo tempo → o segundo perde (TransicaoInvalidaError)', async () => {
+    const T = await novoTenant(app.db);
+    const grava = (cpf: string, anterior: string | null) => withTenant(T.ctx, (tx) => gravarAssinante(tx, { tenantId: T.tenantId, cpf, userId: T.nutriId, agora: new Date(), anterior }), app.db);
+    await grava('12345678909', null);
+    await expect(grava('98765432100', null)).rejects.toBeInstanceOf(TransicaoInvalidaError); // "primeiro" de novo: já existe
+    await expect(grava('98765432100', hmacDoCpf('11111111111'))).rejects.toBeInstanceOf(TransicaoInvalidaError); // anterior errado
+    await grava('98765432100', hmacDoCpf('12345678909'));
+    expect((await withTenant(T.ctx, (tx) => lerAssinante(tx), app.db))?.cpfMascarado).toBe('***.654.321-**');
   });
 });
 ```
@@ -2501,7 +2699,7 @@ Run: `pnpm test src/modules/documentos/perfil-profissional.test.ts` → FAIL (m�
 
 ```ts
 import { createHmac, hkdfSync } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { tenants, tenantSigner, type TenantRow } from '@/db/schema';
@@ -2510,7 +2708,7 @@ import { encryptionKey } from '@/lib/crypto';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { formatarTelefone, normalizarTelefone } from '@/modules/pacientes/telefone';
 import { recordAudit } from '@/modules/plataforma/audit';
-import { DocumentoError } from './erros';
+import { DocumentoError, TransicaoInvalidaError } from './erros';
 
 /** US-140 (texto exato da spec v0.3). */
 export const MSG_PERFIL_PROF = {
@@ -2614,10 +2812,19 @@ export async function lerAssinante(tx: Tx): Promise<{ cpfHmac: string; cpfMascar
   return a ?? null;
 }
 
-/** Primeiro certificado ou troca de CPF (RN-145), sempre na transação da assinatura, depois do código do 2FA. */
-export async function gravarAssinante(tx: Tx, a: { tenantId: string; cpf: string; userId: string; agora: Date }): Promise<void> {
+/**
+ * Primeiro certificado (`anterior = null`) ou TROCA do CPF do consultório (`anterior` = o HMAC que a tela mostrou), RN-145
+ * e D13 — sempre na transação da assinatura, depois do código do 2FA. Compare-and-set: o primeiro só INSERE (dois
+ * primeiros envios simultâneos → o segundo não grava nada) e a troca só ATUALIZA a linha que ainda tem o CPF anterior.
+ * Nada casou → TransicaoInvalidaError (409) e o salvarArquivo desfaz tudo. Audita "Perfil profissional".
+ */
+export async function gravarAssinante(tx: Tx, a: { tenantId: string; cpf: string; userId: string; agora: Date; anterior: string | null }): Promise<void> {
   const valores = { cpfHmac: hmacDoCpf(a.cpf), cpfMascarado: mascararCpf(a.cpf), confirmadoEm: a.agora, confirmadoPor: a.userId, updatedAt: a.agora };
-  await tx.insert(tenantSigner).values({ tenantId: a.tenantId, ...valores }).onConflictDoUpdate({ target: tenantSigner.tenantId, set: valores });
+  const r = a.anterior === null
+    ? await tx.insert(tenantSigner).values({ tenantId: a.tenantId, ...valores }).onConflictDoNothing({ target: tenantSigner.tenantId }).returning({ id: tenantSigner.tenantId })
+    : await tx.update(tenantSigner).set(valores).where(and(eq(tenantSigner.tenantId, a.tenantId), eq(tenantSigner.cpfHmac, a.anterior))).returning({ id: tenantSigner.tenantId });
+  if (!r.length) throw new TransicaoInvalidaError();
+  await recordAudit(tx, { acao: a.anterior === null ? 'criar' : 'alterar', entidade: 'perfil_profissional', entidadeId: a.tenantId, patientId: null });
 }
 ```
 
@@ -2832,7 +3039,7 @@ git commit -m "feat(documentos): dados para documentos, habilitação em Fitoter
 **Interfaces:**
 - Consumes: `getAuth().api.verifyTOTP` (Better Auth `twoFactor`), `consumirLimite`/`liberarLimite`/`chaveDoLimite` (`limite-ip.ts`).
 - Produces:
-  - `chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'totp-erro' | 'totp-usado', valor)`.
+  - `chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'documento-codigo-ip' | 'totp-erro' | 'totp-usado', valor)`.
   - `confirmarCodigo2fa(e: { userId: string; codigo: unknown; headers: Headers }, deps?: { db?: Db; agora?: Date; verificar?: (codigo: string, headers: Headers) => Promise<boolean> }): Promise<'ok' | 'invalido' | 'bloqueado'>`; `MAX_TENTATIVAS_2FA = 5`, `JANELA_2FA_S = 900`, `REPETICAO_2FA_S = 90`.
   - Guia `seguranca` em `GUIAS` (`padrao: /^\/conta\/seguranca$/`), componente `AjudaSeguranca`.
 
@@ -2863,7 +3070,14 @@ beforeAll(async () => {
   userId = n.id;
   const r = await auth.api.enableTwoFactor({ body: { password: 'Nutri2026segura' }, headers: headers() });
   totp = new TOTP({ secret: new URL(r.totpURI).searchParams.get('secret')!, digits: 6, period: 30 });
-  await auth.api.verifyTOTP({ body: { code: totp.generate() }, headers: headers() }); // ativa
+  // better-auth 1.7.6 (plugins/two-factor/totp): o verifyTOTP que ATIVA o 2FA cria uma sessão nova e apaga a antiga —
+  // o cookie de antes morre aqui. Guardar o cookie novo (como src/lib/two-factor.test.ts faz com getSetCookie); sem
+  // isso, o 1º caso chamaria o Better Auth com sessão morta e receberia 'invalido' (revisão do rascunho).
+  const ativado = await auth.api.verifyTOTP({ body: { code: totp.generate() }, headers: headers(), returnHeaders: true });
+  const novos = new Map(cookie.split('; ').filter(Boolean).map((c) => [c.split('=')[0], c] as const));
+  for (const c of ativado.headers.getSetCookie()) novos.set(c.split('=')[0], c.split(';')[0]);
+  cookie = [...novos.values()].join('; ');
+  expect(await auth.api.getSession({ headers: headers() })).not.toBeNull(); // a sessão do cookie guardado está viva
 });
 
 describe('confirmarCodigo2fa (RN-145, D13)', () => {
@@ -2899,7 +3113,7 @@ Run: `pnpm test src/lib/confirmar-2fa.test.ts` → FAIL.
 
 - [ ] **Step 2: Implementação** — `src/lib/confirmar-2fa.ts` (e os tipos novos em `limite-ip.ts`)
 
-Em `src/modules/agenda/limite-ip.ts`: `export function chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'totp-erro' | 'totp-usado', valor: string): string` (o corpo não muda; o comentário do arquivo ganha: "Plano 10: verificação pública por IP, código do link por IP e por documento, tentativas e repetição do código do 2FA").
+Em `src/modules/agenda/limite-ip.ts`: `export function chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'documento-codigo-ip' | 'totp-erro' | 'totp-usado', valor: string): string` (o corpo não muda; o comentário do arquivo ganha: "Plano 10: verificação pública por IP, código do link por IP (pedido e confirmação) e por documento, tentativas e repetição do código do 2FA").
 
 ```ts
 import { getDb, type Db } from '@/db/client';
@@ -2970,7 +3184,7 @@ Em `src/modules/ajuda/conteudo.ts`, depois do guia `whatsapp`:
         {
           titulo: 'Perguntas comuns',
           itens: [
-            'Ao assinar documentos, o sistema pede o código do aplicativo no primeiro certificado do consultório e em todo envio digitalizado.',
+            'Ao assinar documentos, o sistema pede o código do aplicativo no primeiro certificado do consultório, na troca do certificado (outro CPF com o mesmo nome) e em todo envio digitalizado.',
             'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
             'Se o código não confere, confira se a hora do celular está automática.',
           ],
@@ -3821,7 +4035,7 @@ import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { Selo } from '@/components/ui/selo';
 import { listarDocumentos, situacaoNoPainel } from '@/modules/documentos/documentos';
-import { ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { linhaDaAssinatura, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
 import { criarReceitaAction } from './actions';
@@ -3870,6 +4084,8 @@ export default async function DocumentosPage({ params, searchParams }: PageProps
                 <td>{formatarData(hojeNoFuso(tenant.fuso, d.assinadoEm ?? d.createdAt))}</td>
                 <td>
                   <Selo>{ROTULO_STATUS[d.status]}</Selo> <span className="text-sm text-suave">{situacaoNoPainel(d, tenant.fuso)}</span>
+                  {/* RN-157 / US-144: "Assinatura: Digitalizado" (ou gov.br, ICP) também na lista da nutricionista */}
+                  {d.assinaturaTipo && <span className="block text-sm text-suave">{linhaDaAssinatura(d.assinaturaTipo)}</span>}
                 </td>
               </tr>
             ))}
@@ -3958,7 +4174,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
       )}
 
       {d.status !== 'rascunho' && (
-        <Cartao titulo="Itens da receita">
+        <Cartao id="itens-receita" titulo="Itens da receita">
           <ol className="list-decimal space-y-2 pl-5">
             {d.conteudo.itens.map((it, i) => {
               const x = descreverItem(it);
@@ -3989,7 +4205,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
       )}
 
       {d.status === 'aguardando_assinatura' && (
-        <Cartao titulo="Aguardando assinatura" data-guia="assinar-documento">
+        <Cartao id="aguardando-assinatura" titulo="Aguardando assinatura" data-guia="assinar-documento">
           <p>
             Assine o PDF no assinador do gov.br (assinador.iti.br) ou com o seu certificado ICP-Brasil e envie o arquivo assinado aqui. Sem gov.br nem certificado, imprima, assine à mão e envie fotos das páginas.
           </p>
@@ -4009,7 +4225,7 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
       )}
 
       {d.status === 'assinado' && (
-        <Cartao titulo="Documento assinado">
+        <Cartao id="documento-assinado" titulo="Documento assinado">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
             <dt>Assinado em</dt>
             <dd>{d.assinadoEm ? dataHora(d.assinadoEm, tenant.fuso) : '—'}</dd>
@@ -4250,7 +4466,7 @@ export function EstadoPdf({ docId }: { docId: string }) {
 `inicio.ts`: `lerInicio` recebe `tenant` com `documentosLiberados` e devolve `documentosAguardando: tenant.documentosLiberados ? await contarAguardandoAssinatura(tx) : null` (na mesma transação). `src/app/painel/page.tsx` mostra, quando `documentosAguardando` > 0:
 
 ```tsx
-        <Cartao titulo="Documentos aguardando assinatura" data-guia="documentos-aguardando">
+        <Cartao id="documentos-aguardando" titulo="Documentos aguardando assinatura" data-guia="documentos-aguardando">
           <p>{documentosAguardando === 1 ? '1 documento aguardando assinatura' : `${documentosAguardando} documentos aguardando assinatura`}</p>
           <p className="text-sm text-suave">Abra o prontuário do paciente, aba "Documentos", para assinar e enviar.</p>
         </Cartao>
@@ -4753,17 +4969,17 @@ git commit -m "feat(documentos): PDF preparado no worker com carimbo, quadro de 
 ---
 ### Task 9: Conferência do PDF assinado — forma do `/ByteRange`, lista fechada por alcance, CMS, cadeia, validade e titular, sem rede (RN-144, RN-145 parte técnica, RNF-141; P10-09)
 
-> Escrita com o resultado do relatório do spike (T1, Step 14): se ele mandou ajustar a lista fechada (ex.: um `/Prop_Build` ou `/Metadata` que o gov.br põe), o ajuste entra aqui **com uma réplica estrutural** na fábrica; se mandou a T19, esta tarefa fica com a parte criptográfica (CMS, cadeia, titular) e a comparação de conteúdo vai para o worker.
+> Escrita com o resultado do relatório do spike, se ele já existir (T1b, Step 2; senão, a T1b aplica o resultado depois): se ele mandou ajustar a lista fechada (ex.: um `/Prop_Build` ou `/Metadata` que o gov.br põe), o ajuste entra aqui **com uma réplica estrutural** na fábrica; se mandou a T19, esta tarefa fica com a parte criptográfica (CMS, cadeia, titular) e a comparação de conteúdo vai para o worker.
 
 **Files:**
 - Create: `src/modules/documentos/pdf-atualizacao.ts`, `src/modules/documentos/cms.ts`, `src/modules/documentos/certificados.ts`, `src/modules/documentos/assinatura-pades.ts`, `src/modules/documentos/assinatura-pades.test.ts`, `src/modules/documentos/sem-rede.test.ts`
 - Modify: `src/modules/documentos/constantes.ts` (`MAX_ENVIO_BYTES`, `LIMITE_CONFERENCIA_MS`)
 
 **Interfaces:**
-- Consumes: `lerBase`, `lerAtualizacao`, `pegar`, `iguais`, `percorrer`, `ehDict`, `ehRef`, `ehStream`, `nomeDe`, `dictDe`, `PdfIlegivelError` (T1); `carregarAncoras`, `Ancoras` (T1); `RecusaAssinaturaError` (T2); fábrica `criarAc`, `criarTitular`, `assinarDeTeste`, `RECT_NO_QUADRO`, `RECT_SOBRE_A_DOSE` (T1); `baseMinimo` (T1).
+- Consumes: `lerBase`, `lerAtualizacao`, `pegar`, `iguais`, `percorrer`, `ehDict`, `ehRef`, `ehStream`, `nomeDe`, `dictDe`, `PdfIlegivelError`, `Orcamento`, `novoOrcamento`, `verificarPrazo`, `LIMITES_LEITOR` (T1); `baseComRecursos`, `OBJ`, `objStmCheio`, `revisaoComXrefStream` (T1, testes); `carregarAncoras`, `Ancoras` (T1); `RecusaAssinaturaError` (T2); fábrica `criarAc`, `criarTitular`, `assinarDeTeste`, `RECT_NO_QUADRO`, `RECT_SOBRE_A_DOSE` (T1); `baseMinimo` (T1).
 - Produces:
   - `BaseDoDocumento = { bytes: number; sha256: string; area: AreaAssinatura }`.
-  - `conferirAtualizacao(arquivo: Buffer, base: BaseDoDocumento): { contents: Buffer; byteRange: [number, number, number, number]; subFilter: string }` (o base com o campo pré-criado — uma revisão nossa — é lido sozinho por `estadoInicial`).
+  - `conferirAtualizacao(arquivo: Buffer, base: BaseDoDocumento, orc?: Orcamento): { contents: Buffer; byteRange: [number, number, number, number]; subFilter: string }` (o base reenviado sem assinar → `sem_assinatura`; a revisão de longo prazo aceita só `/DSS`, só o carimbo ou os dois) (o base com o campo pré-criado — uma revisão nossa — é lido sozinho por `estadoInicial`).
   - `lerCms(contents: Buffer): CmsLido`, `conferirCms(c: CmsLido, cobertos: Buffer, o: { cades: boolean }): void`.
   - `cadeiaAte(titular: X509Certificate, extras: X509Certificate[], ancoras: Ancoras, agora: Date): { conjunto: 'icp' | 'govbr'; emissor: string }`, `titularDoCertificado(c: X509Certificate, conjunto): { nome: string; cpf: string | null }`, `cpfValido(cpf: string): boolean`, `normalizarNome(n: string): string`.
   - `conferirPdfAssinado(arquivo: Buffer, base: BaseDoDocumento, deps?: { ancoras?: Ancoras; agora?: Date; campoPreCriado?: boolean; limiteMs?: number }): Conferido` com `Conferido = { tipo: 'govbr' | 'icp'; emissor: string; titularNome: string; cpf: string | null; sha256: string }`. Lança só `RecusaAssinaturaError` (código fixo; `motivoTecnico` só para o log).
@@ -4773,11 +4989,12 @@ git commit -m "feat(documentos): PDF preparado no worker com carimbo, quadro de 
 ```ts
 import { createHash } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { baseMinimo } from '../../../test/assinatura/base-minimo';
+import { baseComRecursos, baseMinimo, OBJ, objStmCheio, revisaoComXrefStream } from '../../../test/assinatura/base-minimo';
 import { assinarDeTeste, criarAc, criarTitular, RECT_NO_QUADRO, RECT_SOBRE_A_DOSE, type AcDeTeste, type OpcoesAssinatura, type TitularDeTeste } from '../../../test/assinatura/fabrica';
 import type { Ancoras } from './ancoras';
 import { conferirPdfAssinado, type BaseDoDocumento } from './assinatura-pades';
-import { AREA_ASSINATURA } from './constantes';
+import { AREA_ASSINATURA, MAX_ENVIO_BYTES } from './constantes';
+import { lerBase, LIMITES_LEITOR } from './pdf-leitor';
 import { RecusaAssinaturaError, type CodigoRecusa } from './erros';
 
 let icp: AcDeTeste, gov: AcDeTeste, estranha: AcDeTeste;
@@ -4801,8 +5018,17 @@ beforeAll(async () => {
 }, 60_000);
 
 const recusa = (codigo: CodigoRecusa) => (e: unknown) => e instanceof RecusaAssinaturaError && e.codigo === codigo;
-const conferir = (pdf: Buffer) => conferirPdfAssinado(pdf, base, { ancoras });
+const conferir = (pdf: Buffer, b: BaseDoDocumento = base) => conferirPdfAssinado(pdf, b, { ancoras });
 const assinado = (t: TitularDeTeste, o: OpcoesAssinatura = {}) => assinarDeTeste(BASE, t, o);
+const baseDe = (pdf: Buffer): BaseDoDocumento => ({ bytes: pdf.length, sha256: createHash('sha256').update(pdf).digest('hex'), area: AREA_ASSINATURA });
+const erroDe = (f: () => unknown) => {
+  try {
+    f();
+  } catch (e) {
+    return e;
+  }
+  return undefined;
+};
 
 describe('conferência do PDF assinado — variantes válidas (RN-144)', () => {
   it.each<[string, OpcoesAssinatura]>([
@@ -4810,12 +5036,19 @@ describe('conferência do PDF assinado — variantes válidas (RN-144)', () => {
     ['ETSI.CAdES.detached com signingCertificateV2', { subFilter: 'ETSI.CAdES.detached' }],
     ['visível dentro do quadro "Assinatura digital"', { rect: RECT_NO_QUADRO }],
     ['com a cadeia completa no CMS', { cadeiaNoCms: icp }],
-    ['com a revisão de validação de longo prazo (/DSS)', { depois: 'ltv' }],
+    ['revisão de longo prazo só com /DSS', { depois: 'ltv' }],
+    ['revisão de longo prazo só com o carimbo do tempo (/DocTimeStamp)', { depois: 'ltv-carimbo' }],
+    ['revisão de longo prazo com /DSS e carimbo do tempo', { depois: 'ltv-dss-carimbo' }],
   ])('%s → aceito, tipo icp, titular e CPF lidos do campo próprio', async (_n, o) => {
     const pdf = await assinado(debby, o);
     const c = conferir(pdf);
     expect(c).toMatchObject({ tipo: 'icp', titularNome: 'DEBORA SILVA SANTOS', cpf: '12345678909' });
     expect(c.sha256).toBe(createHash('sha256').update(pdf).digest('hex'));
+  });
+
+  it('o Catálogo com /Names inalterado (como o do pdfkit/react-pdf) é aceito: a lista proibida vale só para o que mudou', async () => {
+    expect(BASE.toString('latin1')).toContain('/Names');
+    expect(conferir(await assinado(debby)).tipo).toBe('icp');
   });
 
   it('gov.br: o conjunto vem da âncora (nunca do nome do emissor); o nome sem acento confere depois (RN-145, T10)', async () => {
@@ -4845,6 +5078,13 @@ describe('conferência do PDF assinado — adulterações recusadas (RN-144, RNF
     ['/ByteRange que não chega ao fim (USF)', { byteRangeCurto: true }, 'alterado'],
     ['lixo depois do %%EOF', { lixoNoFim: true }, 'alterado'],
     ['atualização depois da assinatura que não é /DSS (ISA)', { depois: 'isa' }, 'alterado'],
+    ['/Launch no widget', { launch: true }, 'alterado'],
+    ['anexo (/Filespec + /EmbeddedFile)', { anexo: true }, 'alterado'],
+    ['/Names trocado no Catálogo', { namesNovo: true }, 'alterado'],
+    ['aninhamento de 10.000 níveis', { aninhamento: true }, 'alterado'],
+    ['stream de conteúdo da página redefinido com /Type /ObjStm', { disfarce: { num: OBJ.conteudo, tipo: 'ObjStm' } }, 'alterado'],
+    ['stream de conteúdo da página redefinido com /Type /XRef', { disfarce: { num: OBJ.conteudo, tipo: 'XRef' } }, 'alterado'],
+    ['segundo /XRef fora do startxref', { xrefExtra: true }, 'alterado'],
     ['widget visível sobre a dose', { rect: RECT_SOBRE_A_DOSE }, 'fora_do_quadro'],
     ['/BBox da aparência maior que o /Rect', { rect: RECT_NO_QUADRO, bbox: [0, 0, 600, 800] }, 'alterado'],
     ['messageDigest que não confere', { digestErrado: true }, 'nao_confere'],
@@ -4860,6 +5100,25 @@ describe('conferência do PDF assinado — adulterações recusadas (RN-144, RNF
     expect(recusa(codigo)(erro)).toBe(true);
   });
 
+  it.each<[string, number, 'ObjStm' | 'XRef']>([
+    ['logo', OBJ.logo, 'ObjStm'],
+    ['logo', OBJ.logo, 'XRef'],
+    ['/FontFile2', OBJ.fontFile, 'ObjStm'],
+    ['/FontFile2', OBJ.fontFile, 'XRef'],
+  ])('shadow "replace" disfarçado: %s do base redefinido com /Type /%s → alterado', async (_n, num, tipo) => {
+    const rico = baseComRecursos();
+    const pdf = await assinarDeTeste(rico, debby, { disfarce: { num, tipo } });
+    expect(recusa('alterado')(erroDe(() => conferir(pdf, baseDe(rico))))).toBe(true);
+    expect(conferir(await assinarDeTeste(rico, debby), baseDe(rico)).tipo).toBe('icp'); // o mesmo base sem o disfarce passa
+  });
+
+  it('/Names acrescentado num base que não tinha → alterado', async () => {
+    const semNames = baseMinimo(undefined, { names: false });
+    expect(conferir(await assinarDeTeste(semNames, debby), baseDe(semNames)).tipo).toBe('icp');
+    const comNames = await assinarDeTeste(semNames, debby, { namesNovo: true });
+    expect(recusa('alterado')(erroDe(() => conferir(comNames, baseDe(semNames))))).toBe(true);
+  });
+
   it('PDF de outro documento (prefixo diferente) → "Este PDF não é o documento preparado."', async () => {
     const outro = await assinarDeTeste(baseMinimo('Vitamina D3 50000 UI'), debby);
     expect(() => conferir(outro)).toThrow(RecusaAssinaturaError);
@@ -4870,10 +5129,14 @@ describe('conferência do PDF assinado — adulterações recusadas (RN-144, RNF
     }
   });
 
-  it('o PDF preparado sem assinatura, um arquivo que não é PDF e um de 11 MB', () => {
-    expect(() => conferir(Buffer.concat([BASE, Buffer.from('\n')]))).toThrow(RecusaAssinaturaError);
-    expect(() => conferir(Buffer.from('MZ não é pdf'))).toThrow(RecusaAssinaturaError);
-    expect(() => conferir(Buffer.concat([BASE, Buffer.alloc(11 * 1024 * 1024)]))).toThrow(RecusaAssinaturaError);
+  it('o PDF preparado reenviado sem assinar → "Não encontramos assinatura digital…" (sem_assinatura), não "não é o preparado"', () => {
+    expect(recusa('sem_assinatura')(erroDe(() => conferir(BASE)))).toBe(true); // idêntico ao base
+    expect(recusa('sem_assinatura')(erroDe(() => conferir(Buffer.concat([BASE, Buffer.from('\r\n  \n')]))))).toBe(true); // base + bytes sem revisão nova
+  });
+
+  it('um arquivo que não é PDF e um de 11 MB → "Envie o PDF assinado (até 10 MB)."', () => {
+    expect(recusa('arquivo')(erroDe(() => conferir(Buffer.from('MZ não é pdf'))))).toBe(true);
+    expect(recusa('arquivo')(erroDe(() => conferir(Buffer.concat([BASE, Buffer.alloc(11 * 1024 * 1024)]))))).toBe(true);
   });
 });
 
@@ -4901,6 +5164,18 @@ describe('certificados (RN-144 (9)–(10), Review Focus 2)', () => {
       const r = e as RecusaAssinaturaError;
       expect(`${r.message} ${r.motivoTecnico}`).not.toMatch(/98765432100|OUTRA PESSOA/);
     }
+  });
+});
+
+describe('negação de serviço (RNF-141)', () => {
+  it('500 /ObjStm de 20 MB descomprimidos cada (≈ 10 MB de arquivo) → recusa em menos de 3 s, sem assinatura válida', () => {
+    const nums = Array.from({ length: 500 }, (_, i) => 1000 + i);
+    const cheio = objStmCheio(nums, LIMITES_LEITOR.inflateBytes); // UM deflate, reaproveitado nos 500 /ObjStm
+    const pdf = revisaoComXrefStream(BASE, lerBase(BASE).startxref, nums.map((x, i) => ({ num: 7 + i, ...cheio, objetos: [x] })));
+    expect(pdf.length).toBeLessThan(MAX_ENVIO_BYTES);
+    const t0 = performance.now();
+    expect(recusa('alterado')(erroDe(() => conferir(pdf)))).toBe(true);
+    expect(performance.now() - t0).toBeLessThan(3000);
   });
 });
 
@@ -4935,8 +5210,8 @@ import type { AreaAssinatura } from './constantes';
 import { TOLERANCIA_AREA_PT } from './constantes';
 import { RecusaAssinaturaError } from './erros';
 import {
-  dictDe, ehDict, ehRef, ehStream, iguais, lerAtualizacao, lerBase, nomeDe, pegar, percorrer, PdfIlegivelError,
-  type ObjetoLido, type PdfDict, type PdfRef, type PdfValor, type Revisao,
+  dictDe, ehDict, ehRef, ehStream, iguais, lerAtualizacao, lerBase, nomeDe, novoOrcamento, pegar, percorrer, PdfIlegivelError, verificarPrazo,
+  type ObjetoLido, type Orcamento, type PdfDict, type PdfRef, type PdfValor, type Revisao,
 } from './pdf-leitor';
 
 export type BaseDoDocumento = { bytes: number; sha256: string; area: AreaAssinatura };
@@ -4944,9 +5219,15 @@ export type AssinaturaDaAtualizacao = { contents: Buffer; byteRange: [number, nu
 
 const alterado = (motivo: string) => new RecusaAssinaturaError('alterado', motivo);
 const SUBFILTERS = new Set(['adbe.pkcs7.detached', 'ETSI.CAdES.detached']);
-/** RN-144 (5): ação, script ou anexo em qualquer objeto novo ou redefinido → recusa. */
+/**
+ * RN-144 (5): ação, script ou anexo em qualquer objeto NOVO, ou numa chave que MUDOU de um objeto redefinido → recusa.
+ * Nunca no objeto redefinido inteiro: o Catálogo do pdfkit (react-pdf) nasce sempre com /Names, e varrer as chaves que
+ * não mudaram recusaria toda assinatura real (revisão do rascunho, Critical). Que o /Names não mude é o `so(...)` de
+ * `redefinido` (o Catálogo só pode mudar /AcroForm, /Perms, /Version, /Extensions e /Metadata).
+ */
 const PROIBIDAS = new Set(['JavaScript', 'JS', 'OpenAction', 'AA', 'Launch', 'EmbeddedFile', 'EmbeddedFiles', 'Names', 'XFA', 'URI', 'SubmitForm', 'ImportData', 'GoToR', 'RichMedia', 'Movie', 'Sound', 'Rendition']);
-const TIPOS_DE_APARENCIA = new Set(['XObject', 'Font', 'FontDescriptor', 'ExtGState', 'Encoding', 'ObjStm', 'XRef', 'SigRef', 'TransformParams', 'Sig', 'Metadata']);
+/** /ObjStm e /XRef NÃO estão aqui: têm regra própria em conferirRevisao (número novo; contêiner desta revisão; o startxref). */
+const TIPOS_DE_APARENCIA = new Set(['XObject', 'Font', 'FontDescriptor', 'ExtGState', 'Encoding', 'SigRef', 'TransformParams', 'Sig', 'Metadata']);
 /** ISO 32000, 12.5.6: todo /Subtype de anotação (a /FreeText sem /Type /Annot também é anotação). */
 const SUBTIPOS_DE_ANOTACAO = new Set(['Text', 'Link', 'FreeText', 'Line', 'Square', 'Circle', 'Polygon', 'PolyLine', 'Highlight', 'Underline', 'Squiggly', 'StrikeOut', 'Stamp', 'Caret', 'Ink', 'Popup', 'FileAttachment', 'Sound', 'Movie', 'Widget', 'Screen', 'PrinterMark', 'TrapNet', 'Watermark', '3D', 'Redact', 'Projection', 'RichMedia']);
 
@@ -4956,14 +5237,14 @@ const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const num = (v: PdfValor | undefined) => (ehRef(v) ? v.num : null);
 const valorDe = (e: Estado, v: PdfValor | undefined): PdfValor | undefined => (ehRef(v) ? e.objetos.get(v.num)?.valor : v);
 
-function estadoInicial(base: Buffer): Estado {
+function estadoInicial(base: Buffer, orc: Orcamento): Estado {
   // o base pode já ter uma revisão nossa (o campo pré-criado, CAMPO_PRE_CRIADO): a 1ª revisão é a do react-pdf
   const eol = (i: number) => (base[i] === 0x0d && base[i + 1] === 0x0a ? 2 : base[i] === 0x0a || base[i] === 0x0d ? 1 : 0);
   const primeiro = base.indexOf('%%EOF', 0, 'latin1');
   const fim1 = primeiro + 5 + eol(primeiro + 5);
-  const b = lerBase(base.subarray(0, fim1));
+  const b = lerBase(base.subarray(0, fim1), orc);
   const e: Estado = { objetos: new Map(b.objetos), tamanho: b.tamanho, raiz: num(pegar(b.trailer, 'Root'))!, paginas: new Set(), acroform: null, info: num(pegar(b.trailer, 'Info')), startxref: b.startxref };
-  if (fim1 < base.length) for (const r of lerAtualizacao(base, fim1)) aplicar(e, r);
+  if (fim1 < base.length) for (const r of lerAtualizacao(base, fim1, orc)) aplicar(e, r);
   recalcular(e);
   return e;
 }
@@ -5031,23 +5312,38 @@ const ehWidgetDeAssinatura = (d: PdfDict) => nomeDe(pegar(d, 'Subtype')) === 'Wi
 
 /**
  * RN-144 (5)–(7): o que uma revisão pode trazer. `tipo` = 'assinatura' (a 1ª) ou 'ltv' (a 2ª, opcional).
- * Devolve o número do objeto do dicionário de assinatura (com /ByteRange) desta revisão.
+ * Devolve o número do objeto com /ByteRange desta revisão: o /Sig (obrigatório na 'assinatura') ou o /DocTimeStamp
+ * (opcional na 'ltv', que traz /DSS e/ou o carimbo — RN-144 (7)); `null` = revisão 'ltv' só com /DSS.
+ *
+ * Ordem (revisão do rascunho, Critical — shadow attack "replace" disfarçado): PRIMEIRO "redefinido ou novo", DEPOIS o
+ * /Type. Todo número que já existia vai para redefinido() — um stream do base com /Type /ObjStm ou /XRef é stream do
+ * base redefinido e é recusado. /XRef só é aceito como o objeto no startxref desta revisão (número novo); /ObjStm só
+ * com número novo e como contêiner de entradas tipo 2 desta revisão.
  */
-function conferirRevisao(e: Estado, r: Revisao, tipo: 'assinatura' | 'ltv', area: AreaAssinatura): number {
+function conferirRevisao(e: Estado, r: Revisao, tipo: 'assinatura' | 'ltv', area: AreaAssinatura, orc: Orcamento): number | null {
   const anteriores = new Map(e.objetos);
-  const tamanhoAntes = e.tamanho;
+  const raizAntes = dictDe(anteriores.get(e.raiz)?.valor);
   const assinaturas: number[] = [];
   const widgetsNovos = new Set<number>();
+  const conteineres = new Set([...r.objetos.values()].map((x) => x.objStm).filter((x): x is number => x !== null));
   for (const [n, o] of r.objetos) {
+    verificarPrazo(orc);
     const d = dictDe(o.valor);
-    if (d && (nomeDe(pegar(d, 'Type')) === 'XRef' || nomeDe(pegar(d, 'Type')) === 'ObjStm')) continue; // contêineres da própria revisão
-    semProibidas(o.valor);
-    if (n < tamanhoAntes && anteriores.has(n)) {
+    const t = d ? nomeDe(pegar(d, 'Type')) : null;
+    if (anteriores.has(n)) {
       redefinido(e, anteriores.get(n)!.valor, o.valor, n, tipo);
       continue;
     }
+    if (t === 'XRef') {
+      if (!r.xrefStream || o.offset !== r.xrefOffset) throw alterado('xref_extra');
+      continue; // a própria xref stream da revisão (o trailer dela já foi lido pelo leitor)
+    }
+    if (t === 'ObjStm') {
+      if (o.objStm !== null || !conteineres.has(n)) throw alterado('objstm_extra');
+      continue; // contêiner: os objetos de dentro são conferidos um a um, como entradas próprias
+    }
+    semProibidas(o.valor);
     if (!d) continue; // número, array ou texto solto (ex.: /Length indireto)
-    const t = nomeDe(pegar(d, 'Type'));
     if (pegar(d, 'ByteRange') !== undefined) {
       const sf = nomeDe(pegar(d, 'SubFilter'));
       if (tipo === 'assinatura' && (!sf || !SUBFILTERS.has(sf))) throw new RecusaAssinaturaError(sf?.includes('sha1') ? 'nao_aceito' : 'alterado', 'subfilter');
@@ -5068,8 +5364,14 @@ function conferirRevisao(e: Estado, r: Revisao, tipo: 'assinatura' | 'ltv', area
     if (t && !TIPOS_DE_APARENCIA.has(t)) throw alterado('tipo_desconhecido');
   }
   aplicar(e, r);
-  if (!assinaturas.length) throw tipo === 'assinatura' ? new RecusaAssinaturaError('sem_assinatura', 'sem_byterange') : alterado('ltv_sem_carimbo');
   if (assinaturas.length > 1) throw alterado('duas_assinaturas');
+  if (tipo === 'assinatura' && !assinaturas.length) throw new RecusaAssinaturaError('sem_assinatura', 'sem_byterange');
+  if (tipo === 'ltv') {
+    // RN-144 (7): "/DSS e/ou carimbo do tempo" — a revisão tem de trazer pelo menos um dos dois (o /DSS entra pelo Catálogo)
+    const raizDepois = dictDe(e.objetos.get(e.raiz)?.valor);
+    const dssNoCatalogo = !!raizDepois && pegar(raizDepois, 'DSS') !== undefined && !iguais(raizAntes ? pegar(raizAntes, 'DSS') : undefined, pegar(raizDepois, 'DSS'));
+    if (!assinaturas.length && !dssNoCatalogo) throw alterado('ltv_vazia');
+  }
   for (const w of widgetsNovos) conferirWidget(e, dictDe(e.objetos.get(w)!.valor)!, area, tipo === 'ltv');
   // toda referência nova em /Annots aponta para um widget novo desta revisão
   for (const p of e.paginas) {
@@ -5079,15 +5381,25 @@ function conferirRevisao(e: Estado, r: Revisao, tipo: 'assinatura' | 'ltv', area
     const a1 = (agora && (pegar(agora, 'Annots') as PdfValor[] | undefined)) ?? [];
     for (const x of a1.slice(a0.length)) if (!ehRef(x) || !widgetsNovos.has(x.num)) throw alterado('annots');
   }
-  return assinaturas[0];
+  return assinaturas[0] ?? null;
 }
 
-/** RN-144 (5): o que um objeto do base redefinido pode mudar, chave a chave. */
+/**
+ * RN-144 (5): o que um objeto do base redefinido pode mudar, chave a chave. Stream do base redefinido é SEMPRE recusa
+ * (conteúdo da página, fonte, /FontFile2, logo — mesmo com /Type /ObjStm ou /XRef no dicionário novo): nenhum dos
+ * objetos que um assinador pode redefinir (Catálogo, /Info, página, /AcroForm, campo pré-criado) é stream.
+ */
 function redefinido(e: Estado, antes: PdfValor, depois: PdfValor, n: number, tipo: 'assinatura' | 'ltv'): void {
+  if (ehStream(antes) || ehStream(depois)) throw alterado('stream_redefinido');
   const a = dictDe(antes), b = dictDe(depois);
-  if (!a || !b || ehStream(antes) !== ehStream(depois)) throw alterado('objeto_redefinido');
-  if (ehStream(antes) && ehStream(depois) && !antes.dados.equals(depois.dados)) throw alterado('objeto_redefinido');
+  if (!a || !b) throw alterado('objeto_redefinido');
   const mud = chavesMudadas(a, b);
+  // ação/anexo só nas chaves que mudaram (o /Names inalterado do Catálogo do pdfkit passa; ver PROIBIDAS)
+  for (const k of mud) {
+    if (PROIBIDAS.has(k)) throw alterado('acao_ou_anexo');
+    const v = b.d.get(k);
+    if (v !== undefined) semProibidas(v);
+  }
   const so = (permitidas: string[]) => {
     if (!mud.every((k) => permitidas.includes(k))) throw alterado('objeto_redefinido');
   };
@@ -5137,20 +5449,25 @@ function conferirByteRange(arquivo: Buffer, o: ObjetoLido, fimDaRevisao: number)
  * RN-144 (2)–(7). O prefixo é conferido pelo SHA-256 do base (nunca regenerado); o resto pelo leitor limitado.
  * Qualquer PdfIlegivelError → "alterado" (nunca 500).
  */
-export function conferirAtualizacao(arquivo: Buffer, base: BaseDoDocumento): AssinaturaDaAtualizacao {
-  if (arquivo.length <= base.bytes || sha256(arquivo.subarray(0, base.bytes)) !== base.sha256) throw new RecusaAssinaturaError('nao_e_o_preparado', 'prefixo');
+export function conferirAtualizacao(arquivo: Buffer, base: BaseDoDocumento, orc: Orcamento = novoOrcamento()): AssinaturaDaAtualizacao {
+  if (arquivo.length < base.bytes || sha256(arquivo.subarray(0, base.bytes)) !== base.sha256) throw new RecusaAssinaturaError('nao_e_o_preparado', 'prefixo');
+  // o erro mais comum: reenviar o PDF baixado sem assinar (idêntico ao base, ou o base + bytes soltos sem revisão nova)
+  // → o texto da US-144 "Não encontramos assinatura digital neste PDF…", não "Este PDF não é o documento preparado"
+  const resto = arquivo.subarray(base.bytes);
+  if (!resto.length || !resto.includes('%%EOF', 0, 'latin1')) throw new RecusaAssinaturaError('sem_assinatura', 'sem_revisao');
   try {
-    const e = estadoInicial(arquivo.subarray(0, base.bytes));
-    const revs = lerAtualizacao(arquivo, base.bytes);
+    const e = estadoInicial(arquivo.subarray(0, base.bytes), orc);
+    const revs = lerAtualizacao(arquivo, base.bytes, orc);
     if (pegar(revs[0].trailer, 'Prev') !== e.startxref) throw alterado('prev');
     if (num(pegar(revs[0].trailer, 'Root')) !== e.raiz) throw alterado('root');
-    const nSig = conferirRevisao(e, revs[0], 'assinatura', base.area);
+    const nSig = conferirRevisao(e, revs[0], 'assinatura', base.area, orc)!;
     recalcular(e);
     const sig = conferirByteRange(arquivo, revs[0].objetos.get(nSig)!, revs[0].fim);
     if (revs[1]) {
       if (pegar(revs[1].trailer, 'Prev') !== revs[0].xrefOffset) throw alterado('prev_ltv');
-      const nTs = conferirRevisao(e, revs[1], 'ltv', base.area);
-      conferirByteRange(arquivo, revs[1].objetos.get(nTs)!, revs[1].fim);
+      const nTs = conferirRevisao(e, revs[1], 'ltv', base.area, orc);
+      // /ByteRange do carimbo só se houver carimbo (RN-144 (7): a revisão só com /DSS não tem)
+      if (nTs !== null) conferirByteRange(arquivo, revs[1].objetos.get(nTs)!, revs[1].fim);
     }
     return sig;
   } catch (err) {
@@ -5384,6 +5701,7 @@ import { conferirCms, lerCms } from './cms';
 import { LIMITE_CONFERENCIA_MS, MAX_ENVIO_BYTES } from './constantes';
 import { RecusaAssinaturaError } from './erros';
 import { conferirAtualizacao, type BaseDoDocumento } from './pdf-atualizacao';
+import { novoOrcamento } from './pdf-leitor';
 
 export type { BaseDoDocumento };
 export type Conferido = { tipo: 'govbr' | 'icp'; emissor: string; titularNome: string; cpf: string | null; sha256: string };
@@ -5396,7 +5714,9 @@ export type Conferido = { tipo: 'govbr' | 'icp'; emissor: string; titularNome: s
 export function conferirPdfAssinado(arquivo: Buffer, base: BaseDoDocumento, deps: { ancoras?: Ancoras; agora?: Date; limiteMs?: number } = {}): Conferido {
   const t0 = performance.now();
   if (arquivo.length > MAX_ENVIO_BYTES || !arquivo.subarray(0, 1024).includes('%PDF-')) throw new RecusaAssinaturaError('arquivo', 'tipo_ou_tamanho');
-  const sig = conferirAtualizacao(arquivo, base);
+  // RNF-141: orçamento total de inflate (32 MB) e prazo conferidos DENTRO dos laços do leitor e da lista fechada — código
+  // síncrono no processo do Next não é interrompido de fora; o teste do fim só pega o que passou do prazo na criptografia
+  const sig = conferirAtualizacao(arquivo, base, novoOrcamento(deps.limiteMs ?? LIMITE_CONFERENCIA_MS));
   const [, a, b, c] = sig.byteRange;
   const cobertos = Buffer.concat([arquivo.subarray(0, a), arquivo.subarray(b, b + c)]);
   const cms = lerCms(sig.contents);
@@ -5407,6 +5727,8 @@ export function conferirPdfAssinado(arquivo: Buffer, base: BaseDoDocumento, deps
   return { tipo: conjunto, emissor, titularNome: titular.nome, cpf: titular.cpf, sha256: createHash('sha256').update(arquivo).digest('hex') };
 }
 ```
+
+**Negação de serviço (RNF-141, revisão do rascunho):** o leitor roda antes de qualquer criptografia, então basta um documento "Aguardando assinatura" do próprio consultório para mandar um PDF hostil. Por isso o orçamento (32 MB descomprimidos no total, 16 `/ObjStm` por revisão) e o prazo (`LIMITE_CONFERENCIA_MS`) são conferidos **dentro** dos laços do leitor e da lista fechada, e não só no fim — código síncrono no processo do Next não é interrompido de fora, e o semáforo de 2 da rota não protege o event loop. Isolar a conferência em `worker_threads` (com `resourceLimits` e `terminate` aos 3 s) seria a defesa mais forte, mas pede um *bundle* separado no Next 16; fica para o backlog (P10-20) se o teste de negação de serviço desta tarefa passar perto do limite.
 
 - [ ] **Step 6: Guarda "sem rede"** — `src/modules/documentos/sem-rede.test.ts`
 
@@ -5492,8 +5814,8 @@ git commit -m "feat(documentos): conferência do PDF assinado sem rede — /Byte
 - Consumes: `conferirPdfAssinado`, `BaseDoDocumento`, `normalizarNome` (T9); `ASSINATURAS_LIBERADAS`, `MAX_ENVIO_BYTES` (constantes); `confirmarCodigo2fa` (T5); `lerAssinante`, `gravarAssinante`, `hmacDoCpf`, `mascararCpf` (T4); `salvarArquivo`, `apagarArquivo`; `recordAudit`; `enqueueEmail`; `mesmaOrigem`, `requireApiNutri`, `lerCorpoLimitado`.
 - Produces:
   - `verificacao.ts` (ÚNICO acesso a `document_verifications`): `registrarVerificacao(tx, v: NovaVerificacao)`, `mudarSituacao(tx, documentoId: string, situacao: SituacaoVerificacao, em: Date)`; a T15 acrescenta a leitura pública.
-  - `assinar.ts`: `aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arquivo: Buffer, input: { codigo2fa?: unknown }, deps: DepsAssinar): Promise<ResultadoEnvio>`; `ResultadoEnvio = { tipo: 'assinado' } | { tipo: 'confirmar_certificado'; nome: string; cpfMascarado: string }`; `AcessoAssinatura = { ctx: TenantContext; tenant: TenantRow; user: { id: string; email: string; twoFactorEnabled: boolean | null } }`; `DepsAssinar = { headers: Headers; db?; dataDir?; agora?; ancoras?; liberadas?; confirmar2fa? }`; `registrarAssinatura(tx, e: AssinaturaAceita)` (o pedaço do `registrar` que a digitalizada reusa, T11) com `AssinaturaAceita = { documentoId; codigo; patientId; tenantId; caminho; sha256; tipo: TipoAssinatura; emissor: string | null; assinanteNome: string | null; userId: string; agora: Date; copia: CopiaProfissional; base: string | null }`.
-  - E-mail `{ tipo: 'certificado_confirmado'; para: string; mascara: string }`.
+  - `assinar.ts`: `aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arquivo: Buffer, input: { codigo2fa?: unknown }, deps: DepsAssinar): Promise<ResultadoEnvio>`; `ResultadoEnvio = { tipo: 'assinado' } | { tipo: 'confirmar_certificado'; nome: string; cpfMascarado: string; cpfAnterior: string | null }` (`cpfAnterior` = troca do CPF do consultório); `AcessoAssinatura = { ctx: TenantContext; tenant: TenantRow; user: { id: string; email: string; twoFactorEnabled: boolean | null } }`; `DepsAssinar = { headers: Headers; db?; dataDir?; agora?; ancoras?; liberadas?; confirmar2fa? }`; `registrarAssinatura(tx, e: AssinaturaAceita)` (o pedaço do `registrar` que a digitalizada reusa, T11) com `AssinaturaAceita = { documentoId; codigo; patientId; tenantId; caminho; sha256; tipo: TipoAssinatura; emissor: string | null; assinanteNome: string | null; userId: string; agora: Date; copia: CopiaProfissional; base: string | null; versao: VersaoLida }` com `VersaoLida = { codigo } & ({ baseSha256 } | { digitalizacaoPendente: true })` — o UPDATE exige também `codigo` e `base_pdf_sha256` (ou `digitalizacao_status = 'pendente'`) iguais aos lidos.
+  - E-mail `{ tipo: 'certificado_confirmado'; para: string; mascara: string; anterior: string | null }` (primeiro certificado ou troca).
 
 - [ ] **Step 1: Testes (falham)** — `src/modules/documentos/assinar.test.ts`
 
@@ -5507,14 +5829,14 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { baseMinimo } from '../../../test/assinatura/base-minimo';
 import { assinarDeTeste, criarAc, criarTitular, type AcDeTeste, type TitularDeTeste } from '../../../test/assinatura/fabrica';
 import { makeDb } from '../../../test/db';
-import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import type { Ancoras } from './ancoras';
 import { aceitarPdfAssinado } from './assinar';
 import { AREA_ASSINATURA } from './constantes';
-import { RecusaAssinaturaError, type CodigoRecusa } from './erros';
+import { RecusaAssinaturaError, TransicaoInvalidaError, type CodigoRecusa } from './erros';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -5562,6 +5884,24 @@ export async function outroDocumento(c: Consultorio, db: Db) {
   await withTenant({ tenantId: c.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${createHash('sha256').update(BASE_DOC).digest('hex')}, base_pdf_bytes = ${BASE_DOC.length}, area_assinatura = ${JSON.stringify(AREA_ASSINATURA)}::jsonb where id = ${id}`), db);
   return { ...c, p, id, base };
 }
+
+/**
+ * "Voltar a editar" + novo preparo + o worker com OUTRO base, direto no banco (o mesmo caminho que o gatilho aceita):
+ * o documento volta a "aguardando_assinatura" com outro código e outro SHA-256. Para o teste da versão lida (T10/T11).
+ */
+export async function novoPreparoNoBanco(x: Awaited<ReturnType<typeof outroDocumento>>, db: Db) {
+  const outro = Buffer.concat([BASE_DOC, Buffer.from('% outra versão\n')]);
+  const base = `${x.T.tenantId}/documento_base/${randomUUID()}.pdf`;
+  await mkdir(path.join(x.dataDir, path.dirname(base)), { recursive: true });
+  await writeFile(path.join(x.dataDir, base), outro);
+  const codigo = Array.from({ length: 12 }, () => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[Math.floor(Math.random() * 32)]).join('');
+  await withTenant(x.T.ctx, async (tx) => {
+    await tx.execute(sql`update signed_documents set status = 'rascunho', codigo = null, declaracao_em = null, base_pdf_path = null, base_pdf_sha256 = null, base_pdf_bytes = null, area_assinatura = null, digitalizacao = null, digitalizacao_status = null where id = ${x.id}`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now() where id = ${x.id}`);
+    await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${x.T.tenantId}, 'documento_base', ${base}, ${outro.length}, 'application/pdf', ${x.p.id})`);
+  }, db);
+  await withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${createHash('sha256').update(outro).digest('hex')}, base_pdf_bytes = ${outro.length}, area_assinatura = ${JSON.stringify(AREA_ASSINATURA)}::jsonb where id = ${x.id}`), db);
+}
 // ---- fim de test/documentos.ts
 const aguardando = async () => outroDocumento(await novoConsultorio(app.db), app.db);
 const deps = (dataDir: string, codigo: 'ok' | 'invalido' | 'bloqueado' = 'ok') => ({
@@ -5587,7 +5927,7 @@ describe('enviar o PDF assinado (US-144, RN-145)', () => {
   it('primeiro certificado com o nome certo: pede "Sim, sou eu" com a máscara; código errado → recusa e registra a tentativa; código certo → assinado', async () => {
     const x = await aguardando();
     const pdf = await assinarDeTeste(BASE, debby);
-    expect(await aceitarPdfAssinado(x.acesso, x.id, pdf, {}, deps(x.dataDir))).toEqual({ tipo: 'confirmar_certificado', nome: 'DEBORA SILVA SANTOS', cpfMascarado: '***.456.789-**' });
+    expect(await aceitarPdfAssinado(x.acesso, x.id, pdf, {}, deps(x.dataDir))).toEqual({ tipo: 'confirmar_certificado', nome: 'DEBORA SILVA SANTOS', cpfMascarado: '***.456.789-**', cpfAnterior: null });
     await expect(aceitarPdfAssinado(x.acesso, x.id, pdf, { codigo2fa: '000000' }, deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
     const tent = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select acao, entidade from audit_log where entidade = 'tentativa_assinatura'`), app.db);
     expect(tent.rows).toEqual([{ acao: 'criar', entidade: 'tentativa_assinatura' }]);
@@ -5610,6 +5950,35 @@ describe('enviar o PDF assinado (US-144, RN-145)', () => {
     expect(await aceitarPdfAssinado(x.acesso, y.id, await assinarDeTeste(BASE, debby), {}, deps(x.dataDir))).toEqual({ tipo: 'assinado' });
     const w = await outroDocumento(x, app.db);
     await expect(aceitarPdfAssinado(x.acesso, w.id, await assinarDeTeste(BASE, outra), {}, deps(x.dataDir))).rejects.toSatisfy(recusa('outra_pessoa'));
+  });
+
+  it('troca do CPF do consultório (RN-145, D13): mesmo nome e outro CPF → confirmação com a máscara antiga; com o 2FA troca, audita e avisa; outro nome → recusa', async () => {
+    const x = await aguardando();
+    await aceitarPdfAssinado(x.acesso, x.id, await assinarDeTeste(BASE, debby), { codigo2fa: '123456' }, deps(x.dataDir));
+    const novoCert = await criarTitular(ac, { nome: 'Débora Silva Santos', cpf: '11144477735' }); // certificado novo (ou o CPF agora lido certo)
+    const y = await outroDocumento(x, app.db);
+    const pdf = await assinarDeTeste(BASE, novoCert);
+    expect(await aceitarPdfAssinado(x.acesso, y.id, pdf, {}, deps(x.dataDir))).toEqual({ tipo: 'confirmar_certificado', nome: 'Débora Silva Santos', cpfMascarado: '***.444.777-**', cpfAnterior: '***.456.789-**' });
+    await expect(aceitarPdfAssinado(x.acesso, y.id, pdf, { codigo2fa: '000000' }, deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
+    expect(await aceitarPdfAssinado(x.acesso, y.id, pdf, { codigo2fa: '123456' }, deps(x.dataDir))).toEqual({ tipo: 'assinado' });
+    const s = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select cpf_mascarado from tenant_signer`), app.db);
+    expect(s.rows).toEqual([{ cpf_mascarado: '***.444.777-**' }]);
+    const aud = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select acao from audit_log where entidade = 'perfil_profissional' order by em`), app.db);
+    expect(aud.rows).toEqual([{ acao: 'criar' }, { acao: 'alterar' }]);
+    expect((await emailsNaFila('certificado_confirmado', 'd@x.com')).at(-1)).toMatchObject({ mascara: '***.444.777-**', anterior: '***.456.789-**' });
+    const w = await outroDocumento(x, app.db);
+    await expect(aceitarPdfAssinado(x.acesso, w.id, await assinarDeTeste(BASE, outra), { codigo2fa: '123456' }, deps(x.dataDir))).rejects.toSatisfy(recusa('outra_pessoa'));
+  });
+
+  it('versão lida: "Voltar a editar" e um novo preparo durante o envio → 409 e nada muda (o PDF antigo nunca assina o conteúdo novo)', async () => {
+    const x = await aguardando();
+    const pdf = await assinarDeTeste(BASE, debby);
+    // o código do 2FA é conferido entre a conferência do PDF e o registrar: o novo preparo acontece "noutra aba" bem ali
+    const noMeio = async () => (await novoPreparoNoBanco(x, app.db), 'ok' as const);
+    await expect(aceitarPdfAssinado(x.acesso, x.id, pdf, { codigo2fa: '123456' }, { ...deps(x.dataDir), confirmar2fa: noMeio })).rejects.toBeInstanceOf(TransicaoInvalidaError);
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, pdf_path from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ status: 'aguardando_assinatura', pdf_path: null });
+    expect((await withTenant(x.T.ctx, (tx) => tx.execute(sql`select 1 from tenant_signer`), app.db)).rows).toEqual([]);
   });
 });
 ```
@@ -5688,14 +6057,26 @@ export type DepsAssinar = {
   headers: Headers; db?: Db; dataDir?: string; agora?: Date; ancoras?: Ancoras; liberadas?: Record<'govbr' | 'icp', boolean>;
   confirmar2fa?: (e: { userId: string; codigo: unknown; headers: Headers }) => Promise<'ok' | 'invalido' | 'bloqueado'>;
 };
-export type ResultadoEnvio = { tipo: 'assinado' } | { tipo: 'confirmar_certificado'; nome: string; cpfMascarado: string };
+/** `cpfAnterior` ≠ null = TROCA do CPF do consultório (RN-145, D13): a tela mostra a máscara antiga junto. */
+export type ResultadoEnvio = { tipo: 'assinado' } | { tipo: 'confirmar_certificado'; nome: string; cpfMascarado: string; cpfAnterior: string | null };
+/**
+ * `versao` amarra o registrar à versão do documento que foi LIDA e CONFERIDA (revisão do rascunho, Important): entre a
+ * leitura e o registrar (conferência de até 3 s, 2FA, disco) a nutricionista pode, noutra aba, "Voltar a editar" e
+ * preparar de novo — o documento volta a "aguardando_assinatura" com outro código e outro base, e o UPDATE só por
+ * status aceitaria o PDF antigo sobre o conteúdo novo (quebra "PDF = prontuário", CS-141).
+ */
+export type VersaoLida = { codigo: string } & ({ baseSha256: string } | { digitalizacaoPendente: true });
 export type AssinaturaAceita = {
   documentoId: string; codigo: string; patientId: string; tenantId: string; caminho: string; sha256: string; tipo: TipoAssinatura;
   emissor: string | null; assinanteNome: string | null; userId: string; agora: Date; copia: CopiaProfissional; base: string | null;
+  versao: VersaoLida;
 };
 
 /** RN-140 (b): a ida a "assinado" com o base solto NO MESMO UPDATE, a verificação pública e (T12) a entrega — na transação do arquivo. */
 export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<void> {
+  const daVersao = 'baseSha256' in a.versao
+    ? eq(signedDocuments.basePdfSha256, a.versao.baseSha256)
+    : eq(signedDocuments.digitalizacaoStatus, 'pendente');
   const r = await tx
     .update(signedDocuments)
     .set({
@@ -5703,16 +6084,16 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
       assinanteNome: a.assinanteNome?.slice(0, 200) ?? null, assinadoEm: a.agora, assinadoPor: a.userId, entregueEm: a.agora, basePdfPath: null,
       digitalizacao: null, digitalizacaoStatus: null, updatedAt: a.agora,
     })
-    .where(and(eq(signedDocuments.id, a.documentoId), eq(signedDocuments.status, 'aguardando_assinatura')))
+    .where(and(eq(signedDocuments.id, a.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, a.versao.codigo), daVersao))
     .returning({ id: signedDocuments.id });
-  if (!r.length) throw new TransicaoInvalidaError();
+  if (!r.length) throw new TransicaoInvalidaError(); // outra versão no meio (ou já assinado): o salvarArquivo desfaz tudo
   await registrarVerificacao(tx, {
     codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: 'receita', assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
     emissorCrn: a.copia.crn, assinanteNome: a.tipo === 'digitalizada' ? null : a.assinanteNome, assinaturaTipo: a.tipo, pdfSha256: a.sha256,
   });
 }
 
-type Lido = { patientId: string; codigo: string; base: string; sha: string; bytes: number; area: AreaAssinatura; copia: CopiaProfissional; assinante: { cpfHmac: string } | null };
+type Lido = { patientId: string; codigo: string; base: string; sha: string; bytes: number; area: AreaAssinatura; copia: CopiaProfissional; assinante: { cpfHmac: string; cpfMascarado: string } | null };
 
 async function lerParaAssinar(ctx: TenantContext, docId: string, db: Db): Promise<Lido> {
   return withTenant(ctx, async (tx) => {
@@ -5727,9 +6108,10 @@ async function lerParaAssinar(ctx: TenantContext, docId: string, db: Db): Promis
 }
 
 /**
- * US-144 / RN-145. Ordem: 2FA ativo → conferência (fora de transação, sem rede) → quem assina (CPF do consultório, ou o
- * primeiro certificado com o nome e o código do 2FA) → salvarArquivo do assinado (substitui o base; o registrar faz a
- * transição, a verificação e a entrega) → apagarArquivo do base. Nada é gravado numa recusa.
+ * US-144 / RN-145. Ordem: 2FA ativo → conferência (fora de transação, sem rede) → quem assina (CPF do consultório; ou o
+ * primeiro certificado, ou a TROCA do CPF do consultório, os dois com o nome do titular = nome do perfil e o código do
+ * 2FA) → salvarArquivo do assinado (substitui o base; o registrar troca/grava o assinante, faz a transição amarrada à
+ * versão lida, a verificação e a entrega) → apagarArquivo do base. Nada é gravado numa recusa.
  */
 export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arquivo: Buffer, input: { codigo2fa?: unknown }, deps: DepsAssinar): Promise<ResultadoEnvio> {
   const db = deps.db ?? getDb();
@@ -5740,10 +6122,17 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
   if (!(deps.liberadas ?? ASSINATURAS_LIBERADAS)[c.tipo]) throw new RecusaAssinaturaError('nao_aceito', 'assinador_nao_liberado');
   if (!c.cpf) throw new RecusaAssinaturaError('nao_aceito', 'certificado_sem_cpf'); // D8 ★ (gov.br sem CPF em campo próprio)
   const primeiro = !d.assinante;
-  if (d.assinante && hmacDoCpf(c.cpf) !== d.assinante.cpfHmac) throw new RecusaAssinaturaError('outra_pessoa', 'cpf_diferente');
-  if (primeiro) {
-    if (normalizarNome(c.titularNome) !== normalizarNome(d.copia.nomeCompleto)) throw new RecusaAssinaturaError('outro_titular_primeiro', 'nome_diferente', c.titularNome);
-    if (input.codigo2fa === undefined || input.codigo2fa === null || input.codigo2fa === '') return { tipo: 'confirmar_certificado', nome: c.titularNome, cpfMascarado: mascararCpf(c.cpf) };
+  // RN-145 / D13: CPF diferente do confirmado no consultório = TROCA, só com o nome do titular igual ao do perfil e o
+  // código do 2FA (certificado novo, CPF lido errado no primeiro envio, troca da ENCRYPTION_KEY que muda o HMAC);
+  // com outro nome, "O PDF foi assinado por outra pessoa." — sem saída pelo banco de produção
+  const troca = !!d.assinante && hmacDoCpf(c.cpf) !== d.assinante.cpfHmac;
+  const mesmoNome = normalizarNome(c.titularNome) === normalizarNome(d.copia.nomeCompleto);
+  if (troca && !mesmoNome) throw new RecusaAssinaturaError('outra_pessoa', 'cpf_diferente');
+  if (primeiro || troca) {
+    if (!mesmoNome) throw new RecusaAssinaturaError('outro_titular_primeiro', 'nome_diferente', c.titularNome);
+    if (input.codigo2fa === undefined || input.codigo2fa === null || input.codigo2fa === '') {
+      return { tipo: 'confirmar_certificado', nome: c.titularNome, cpfMascarado: mascararCpf(c.cpf), cpfAnterior: d.assinante?.cpfMascarado ?? null };
+    }
     const r = await (deps.confirmar2fa ?? ((e) => confirmarCodigo2fa(e, { db })))({ userId: a.user.id, codigo: input.codigo2fa, headers: deps.headers });
     if (r === 'bloqueado') throw new RecusaAssinaturaError('tentativas_2fa');
     if (r === 'invalido') {
@@ -5761,12 +6150,13 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
         if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new PacienteBloqueadoError();
       },
       registrar: async (tx, arq) => {
-        if (primeiro) await gravarAssinante(tx, { tenantId: a.ctx.tenantId, cpf: c.cpf!, userId: a.user.id, agora });
+        if (primeiro || troca) await gravarAssinante(tx, { tenantId: a.ctx.tenantId, cpf: c.cpf!, userId: a.user.id, agora, anterior: d.assinante?.cpfHmac ?? null });
         await registrarAssinatura(tx, {
           documentoId: docId, codigo: d.codigo, patientId: d.patientId, tenantId: a.ctx.tenantId, caminho: arq.caminho, sha256: c.sha256, tipo: c.tipo,
           emissor: c.emissor, assinanteNome: c.titularNome, userId: a.user.id, agora, copia: d.copia, base: d.base,
+          versao: { codigo: d.codigo, baseSha256: d.sha },
         });
-        if (primeiro) await enqueueEmail({ tipo: 'certificado_confirmado', para: a.user.email, mascara: mascararCpf(c.cpf!) }, { tenantId: a.ctx.tenantId, tx });
+        if (primeiro || troca) await enqueueEmail({ tipo: 'certificado_confirmado', para: a.user.email, mascara: mascararCpf(c.cpf!), anterior: d.assinante?.cpfMascarado ?? null }, { tenantId: a.ctx.tenantId, tx });
       },
     },
     { db, dataDir: deps.dataDir },
@@ -5779,12 +6169,14 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
 }
 ```
 
-E-mail (`src/email/types.ts`): `| { tipo: 'certificado_confirmado'; para: string; mascara: string }`; template (`templates.tsx`):
+E-mail (`src/email/types.ts`): `| { tipo: 'certificado_confirmado'; para: string; mascara: string; anterior: string | null }`; template (`templates.tsx`):
 
 ```tsx
     case 'certificado_confirmado':
       return simples('Certificado do consultório confirmado', [
-        `O certificado com CPF ${msg.mascara} passou a ser o do consultório para assinar documentos no NutriDebby.`,
+        msg.anterior
+          ? `O certificado do consultório para assinar documentos no NutriDebby foi trocado: o CPF ${msg.anterior} deu lugar ao CPF ${msg.mascara}.`
+          : `O certificado com CPF ${msg.mascara} passou a ser o do consultório para assinar documentos no NutriDebby.`,
         'Se não foi você, troque a senha e fale com o suporte.',
       ]);
 ```
@@ -5837,7 +6229,7 @@ export async function POST(req: Request, { params }: RouteContext<'/api/painel/d
       { ctx: acesso.ctx, tenant: acesso.tenant, user: { id: acesso.data.user.id, email: acesso.data.user.email, twoFactorEnabled: acesso.data.user.twoFactorEnabled ?? null } },
       id, Buffer.from(await arquivo.arrayBuffer()), { codigo2fa: form.get('codigo2fa') ?? undefined }, { headers: req.headers },
     );
-    return resposta(200, r.tipo === 'assinado' ? { ok: true } : { confirmar: { nome: r.nome, cpfMascarado: r.cpfMascarado } });
+    return resposta(200, r.tipo === 'assinado' ? { ok: true } : { confirmar: { nome: r.nome, cpfMascarado: r.cpfMascarado, cpfAnterior: r.cpfAnterior } });
   } catch (e) {
     if (e instanceof RecusaAssinaturaError) {
       logger.info({ tenantId: acesso.ctx.tenantId, documentoId: id, motivo: e.motivoTecnico }, 'PDF assinado recusado');
@@ -5864,9 +6256,9 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { Botao } from '@/components/ui/botao';
 
-type Confirmar = { nome: string; cpfMascarado: string };
+type Confirmar = { nome: string; cpfMascarado: string; cpfAnterior: string | null };
 
-/** US-144: envio do PDF assinado; no primeiro certificado, "Sim, sou eu" reenvia o MESMO arquivo com o código do 2FA (D13). */
+/** US-144: envio do PDF assinado; no primeiro certificado e na troca do CPF do consultório, "Sim, sou eu" reenvia o MESMO arquivo com o código do 2FA (D13). */
 export function EnviarAssinado({ docId }: { docId: string }) {
   const router = useRouter();
   const arquivo = useRef<File | null>(null);
@@ -5910,6 +6302,7 @@ export function EnviarAssinado({ docId }: { docId: string }) {
       {estado === 'confirmar' && confirmar && (
         <form onSubmit={(e) => (e.preventDefault(), enviar(String(new FormData(e.currentTarget).get('codigo') ?? '')))} className="space-y-2" aria-labelledby="confirmar-cert">
           <p id="confirmar-cert">{`Assinado por ${confirmar.nome} (CPF ${confirmar.cpfMascarado}). Este é o seu certificado?`}</p>
+          {confirmar.cpfAnterior && <p>{`O CPF confirmado no consultório era ${confirmar.cpfAnterior}. Ao confirmar, este passa a ser o certificado do consultório.`}</p>}
           <label htmlFor="codigo-2fa" className="block font-medium">Código da verificação em duas etapas</label>
           <input id="codigo-2fa" name="codigo" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required className="w-40 rounded-xl border border-campo bg-cartao p-2 text-texto" />
           <div className="flex gap-2">
@@ -5941,27 +6334,28 @@ git commit -m "feat(documentos): envio do PDF assinado — primeiro certificado 
 
 **Files:**
 - Create: `src/modules/documentos/digitalizada.ts` (+ `digitalizada.test.ts`), `src/modules/documentos/digitalizada-job.ts` (+ `digitalizada-job.test.ts`), `src/app/api/painel/documentos/[id]/digitalizada/route.ts`, `src/app/painel/pacientes/[id]/documentos/[docId]/enviar-digitalizada.tsx`
-- Modify: `src/worker/index.ts`, a página do documento (cartão "Aguardando assinatura" e o estado "Montando o PDF digitalizado…")
+- Modify: `src/worker/index.ts`, `src/modules/documentos/constantes.ts` (`MAX_PIXELS_FOTO = 40_000_000`, como o diário e a capa: acima disto, recusa pelo cabeçalho, sem decodificar), a página do documento (cartão "Aguardando assinatura" e o estado "Montando o PDF digitalizado…")
 
 **Interfaces:**
-- Consumes: `registrarAssinatura`, `AssinaturaAceita` (T10); `confirmarCodigo2fa` (T5); `salvarArquivo`, `apagarArquivo`; `detectarTipo`; `formatarCodigo`, `AREA_ASSINATURA`; `getBoss`, `fromDrizzle`; `recordAudit`.
+- Consumes: `registrarAssinatura`, `AssinaturaAceita`, `VersaoLida` (T10); `novoPreparoNoBanco` (T10, testes); `confirmarCodigo2fa` (T5); `salvarArquivo`, `apagarArquivo`; `detectarTipo`; `sharp` e `paraJpegSemMetadados` (`src/lib/jpeg.ts`, Planos 06–07); `formatarCodigo`, `AREA_ASSINATURA`; `getBoss`, `fromDrizzle`; `recordAudit`.
 - Produces:
   - `receberDigitalizada(a: AcessoAssinatura, docId: string, imagens: Buffer[], codigo2fa: unknown, deps: DepsAssinar & { boss?: PgBoss }): Promise<void>` (lança `RecusaAssinaturaError` com `imagens`, `sem_2fa`, `codigo_2fa`, `tentativas_2fa`); `MSG_DIGITALIZADA = { aviso, fotos, montando, falhou }`.
-  - `montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean }): Promise<'pronto' | 'ignorado' | 'falhou'>`; `renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' | 'png' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer>`.
+  - `montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean }): Promise<'pronto' | 'ignorado' | 'falhou'>`; `renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer>` (as páginas chegam já normalizadas: JPEG sem metadados, orientação aplicada, até 3508 px).
 
 - [ ] **Step 1: Testes (falham)** — `digitalizada.test.ts` e `digitalizada-job.test.ts`
 
 ```ts
-// digitalizada.test.ts (ajudantes novoConsultorio/outroDocumento de test/documentos.ts, T10)
+// digitalizada.test.ts (ajudantes novoConsultorio/outroDocumento/novoPreparoNoBanco de test/documentos.ts, T10)
+import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { novoConsultorio, outroDocumento } from '../../../test/documentos';
+import { novoConsultorio, novoPreparoNoBanco, outroDocumento } from '../../../test/documentos';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { receberDigitalizada } from './digitalizada';
-import { RecusaAssinaturaError } from './erros';
+import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -5972,6 +6366,22 @@ const png = () => sharp({ create: { width: 800, height: 1100, channels: 3, backg
 const pdf = Buffer.from('%PDF-1.7\n1 0 obj << /OpenAction << /S /JavaScript /JS (app.alert(1)) >> >> endobj\n%%EOF\n');
 const recusa = (c: string) => (e: unknown) => e instanceof RecusaAssinaturaError && e.codigo === c;
 const deps = (dataDir: string, codigo: 'ok' | 'invalido' = 'ok') => ({ db: app.db, dataDir, headers: new Headers(), confirmar2fa: async () => codigo });
+/** PNG de poucos bytes que DECLARA largura × altura no IHDR (uma "bomba de pixels": decodificado, seriam gigabytes). */
+function pngDeclarando(largura: number, altura: number): Buffer {
+  const chunk = (tipo: string, dados: Buffer) => {
+    const t = Buffer.from(tipo, 'latin1');
+    const tam = Buffer.alloc(4);
+    tam.writeUInt32BE(dados.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([t, dados])));
+    return Buffer.concat([tam, t, dados, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(largura, 0);
+  ihdr.writeUInt32BE(altura, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8); // 8 bits, RGBA
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01])), chunk('IEND', Buffer.alloc(0))]);
+}
 
 describe('digitalizada (RN-157, D4)', () => {
   it('PDF como "digitalizado" é recusado (só fotos); 6 fotos também; o código do 2FA é pedido em todo envio', async () => {
@@ -5980,6 +6390,19 @@ describe('digitalizada (RN-157, D4)', () => {
     const f = await png();
     await expect(receberDigitalizada(x.acesso, x.id, Array(6).fill(f), '123456', deps(x.dataDir))).rejects.toSatisfy(recusa('imagens'));
     await expect(receberDigitalizada(x.acesso, x.id, [f], '000000', deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
+  });
+
+  it('PNG que declara 30.000 × 30.000 → recusa "imagens" pelo cabeçalho, sem decodificar (o processo segue de pé)', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    await expect(receberDigitalizada(x.acesso, x.id, [pngDeclarando(30_000, 30_000)], '123456', deps(x.dataDir))).rejects.toSatisfy(recusa('imagens'));
+  });
+
+  it('versão lida: "Voltar a editar" e um novo preparo durante o envio → 409 e nenhuma foto presa à versão nova', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const noMeio = async () => (await novoPreparoNoBanco(x, app.db), 'ok' as const);
+    await expect(receberDigitalizada(x.acesso, x.id, [await png()], '123456', { ...deps(x.dataDir), confirmar2fa: noMeio })).rejects.toBeInstanceOf(TransicaoInvalidaError);
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ digitalizacao: null, digitalizacao_status: null });
   });
 
   it('fotos aceitas: guardadas como documento_digitalizado (o paciente não vê), status "pendente" e o job na fila', async () => {
@@ -6006,8 +6429,10 @@ import { makeDb } from '../../../test/db';
 import { novoConsultorio, outroDocumento } from '../../../test/documentos';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { registrarAssinatura } from './assinar';
 import { receberDigitalizada } from './digitalizada';
 import { montarPdfDigitalizado } from './digitalizada-job';
+import { TransicaoInvalidaError } from './erros';
 import { lerBase, percorrer } from './pdf-leitor';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -6033,6 +6458,30 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     const sobra = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select tipo from stored_files where tipo in ('documento_digitalizado', 'documento_base') and patient_id = ${x.p.id}`), app.db);
     expect(sobra.rows).toEqual([]);
   });
+
+  it('a foto do celular com EXIF e GPS sai no PDF sem metadados (normalizada pelo paraJpegSemMetadados, orientação aplicada)', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const foto = await sharp({ create: { width: 1100, height: 800, channels: 3, background: '#ffffff' } })
+      .jpeg()
+      .withExif({ IFD0: { Make: 'CelularTeste', Model: 'Serie-XYZ-123', Orientation: '6' }, IFD3: { GPSLatitudeRef: 'S', GPSLatitude: '23/1 33/1 0/1', GPSLongitudeRef: 'W', GPSLongitude: '46/1 38/1 0/1' } })
+      .toBuffer();
+    expect(foto.includes('Exif')).toBe(true);
+    await receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    expect(await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, { db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('pronto');
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as { pdf_path: string }[];
+    const arquivo = await readFile(path.join(x.dataDir, d.pdf_path));
+    for (const marca of ['Exif', 'CelularTeste', 'Serie-XYZ-123']) expect(arquivo.includes(marca), marca).toBe(false); // o bloco APP1 inteiro (com o GPS) some
+  });
+
+  it('registrarAssinatura da digitalizada com a versão antiga (outro código) → TransicaoInvalidaError', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    await receberDigitalizada(x.acesso, x.id, [await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer()], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    const copia = { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'd@x.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false };
+    await expect(withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => registrarAssinatura(tx, {
+      documentoId: x.id, codigo: 'ZZZZZZZZZZZZ', patientId: x.p.id, tenantId: x.T.tenantId, caminho: x.base, sha256: 'x', tipo: 'digitalizada', emissor: null,
+      assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacaoPendente: true },
+    }), app.db)).rejects.toBeInstanceOf(TransicaoInvalidaError);
+  });
 });
 ```
 
@@ -6043,6 +6492,7 @@ Run: `pnpm test src/modules/documentos/digitalizada.test.ts src/modules/document
 ```ts
 import { and, eq, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
+import sharp from 'sharp';
 import { getDb } from '@/db/client';
 import { patients, signedDocuments } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -6054,6 +6504,7 @@ import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
 import type { AcessoAssinatura, DepsAssinar } from './assinar';
+import { MAX_PIXELS_FOTO } from './constantes';
 import { DocumentoNaoEncontradoError, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 
 export const MAX_FOTOS = 5;
@@ -6077,15 +6528,23 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
   const total = imagens.reduce((s, b) => s + b.length, 0);
   if (!imagens.length || imagens.length > MAX_FOTOS || total > MAX_FOTOS_BYTES) throw new RecusaAssinaturaError('imagens', 'quantidade_ou_tamanho');
   if (!imagens.every((b) => ['jpg', 'png'].includes(detectarTipo(b)?.ext ?? ''))) throw new RecusaAssinaturaError('imagens', 'tipo');
+  // RN-157: bomba de pixels (PNG de poucos MB que declara 30.000 × 30.000) recusada pelo cabeçalho — decodificada no
+  // worker, derrubaria o processo e o pg-boss repetiria o job em laço (e-mails, push e exportações de todos parados)
+  for (const img of imagens) {
+    const m = await sharp(img, { limitInputPixels: MAX_PIXELS_FOTO, failOn: 'error' }).metadata().catch(() => null);
+    if (!m?.width || !m.height || m.width * m.height > MAX_PIXELS_FOTO) throw new RecusaAssinaturaError('imagens', 'pixels');
+  }
   // trava o envio (um por vez) e guarda as fotos antigas de um envio que falhou, para apagar depois
-  const { patientId, antigas } = await withTenant(a.ctx, async (tx) => {
+  const { patientId, antigas, codigo } = await withTenant(a.ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, docId)).for('update');
     if (!d) throw new DocumentoNaoEncontradoError();
     if (d.status !== 'aguardando_assinatura' || d.digitalizacaoStatus === 'pendente') throw new TransicaoInvalidaError();
     const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId));
     if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new PacienteBloqueadoError();
-    return { patientId: d.patientId, antigas: d.digitalizacao ?? [] };
+    return { patientId: d.patientId, antigas: d.digitalizacao ?? [], codigo: d.codigo! };
   }, db);
+  // versão lida (como registrarAssinatura, T10): "Voltar a editar" + novo preparo no meio troca o código → nada se prende
+  const daVersao = and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, codigo));
   const r = await (deps.confirmar2fa ?? ((e) => confirmarCodigo2fa(e, { db })))({ userId: a.user.id, codigo: codigo2fa, headers: deps.headers });
   if (r === 'bloqueado') throw new RecusaAssinaturaError('tentativas_2fa');
   if (r === 'invalido') {
@@ -6101,19 +6560,20 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
           const ok = await tx
             .update(signedDocuments)
             .set({ digitalizacao: sql`coalesce(${signedDocuments.digitalizacao}, '[]'::jsonb) || jsonb_build_array(${arq.caminho}::text)`, digitalizacaoStatus: null })
-            .where(and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura')))
+            .where(daVersao)
             .returning({ id: signedDocuments.id });
           if (!ok.length) throw new TransicaoInvalidaError();
         },
       }, { db, dataDir: deps.dataDir });
     }
   } catch (e) {
-    await withTenant(a.ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura'))), db).catch(() => undefined);
+    await withTenant(a.ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(daVersao), db).catch(() => undefined);
     throw e;
   }
   const boss = deps.boss ?? (await getBoss());
   await withTenant(a.ctx, async (tx) => {
-    await tx.update(signedDocuments).set({ digitalizacaoStatus: 'pendente' }).where(and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura')));
+    const ok = await tx.update(signedDocuments).set({ digitalizacaoStatus: 'pendente' }).where(daVersao).returning({ id: signedDocuments.id });
+    if (!ok.length) throw new TransicaoInvalidaError();
     await boss.send('documento-digitalizado', { tenantId: a.ctx.tenantId, documentoId: docId, userId: a.user.id }, { db: fromDrizzle(tx, sql) });
   }, db);
   logger.info({ tenantId: a.ctx.tenantId, documentoId: docId, fotos: imagens.length }, 'digitalização recebida');
@@ -6128,19 +6588,25 @@ import { readFile } from 'node:fs/promises';
 import { Document, Image, Page, Text, View, renderToBuffer } from '@react-pdf/renderer';
 import { and, eq } from 'drizzle-orm';
 import QRCode from 'qrcode';
+import sharp from 'sharp';
 import type { Db } from '@/db/client';
 import { patients, signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { detectarTipo } from '@/lib/file-type';
+import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
 import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarAssinatura } from './assinar';
 import { formatarCodigo } from './codigo';
+import { MAX_PIXELS_FOTO } from './constantes';
+import { TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
 
+/** A4 a 300 dpi no lado maior: legível na farmácia, sem levar a foto original. */
+const LADO_MAX_PAGINA = 3508;
+
 /** Só o worker importa este arquivo (guarda de grafo). */
-export async function renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' | 'png' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer> {
+export async function renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer> {
   const qr = await QRCode.toBuffer(d.urlVerificacao, { errorCorrectionLevel: 'M', margin: 1, width: 240 });
   return renderToBuffer(
     <Document title="Receita (digitalizada)" creator="NutriDebby" producer="NutriDebby">
@@ -6160,6 +6626,20 @@ export async function renderizarDigitalizada(d: { paginas: { dados: Buffer; form
 }
 
 class JaFeitoError extends Error {}
+class FotoInvalidaError extends Error {}
+
+/**
+ * RN-157: a foto NUNCA entra no PDF como veio. O pdfkit embute o JPEG com o APP1 (EXIF: GPS — muitas vezes a casa da
+ * nutricionista —, modelo e série do aparelho) e não aplica a orientação. Aqui: limite de pixels, rotate() (aplica a
+ * orientação do EXIF antes de descartá-lo) e o pipeline do diário e da capa (sem metadados, fundo branco).
+ */
+async function normalizarPagina(dados: Buffer): Promise<{ dados: Buffer; formato: 'jpg' }> {
+  try {
+    return { dados: await paraJpegSemMetadados(sharp(dados, { limitInputPixels: MAX_PIXELS_FOTO, failOn: 'error' }).rotate(), LADO_MAX_PAGINA), formato: 'jpg' };
+  } catch {
+    throw new FotoInvalidaError();
+  }
+}
 
 /** RN-157: o PDF novo com as fotos e o rodapé; a ida a "assinado" (tipo digitalizada) no registrar; depois, fotos e base apagados. */
 export async function montarPdfDigitalizado(data: { tenantId: string; documentoId: string; userId: string }, deps: { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean }): Promise<'pronto' | 'ignorado' | 'falhou'> {
@@ -6170,12 +6650,9 @@ export async function montarPdfDigitalizado(data: { tenantId: string; documentoI
   const d = await withTenant(ctx, async (tx) => (await tx.select().from(signedDocuments).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.digitalizacaoStatus, 'pendente'))))[0] ?? null, db);
   if (!d || !d.codigo || !d.digitalizacao?.length) return 'ignorado';
   try {
-    const paginas = await Promise.all(d.digitalizacao.map(async (c) => {
-      const dados = await readFile(resolverCaminho(deps.dataDir, c));
-      const t = detectarTipo(dados)?.ext;
-      if (t !== 'jpg' && t !== 'png') throw new Error('foto inválida');
-      return { dados, formato: t };
-    }));
+    // uma por vez (não Promise.all): até 5 fotos de 40 MP decodificadas juntas pesariam no worker de todos
+    const paginas: { dados: Buffer; formato: 'jpg' }[] = [];
+    for (const c of d.digitalizacao) paginas.push(await normalizarPagina(await readFile(resolverCaminho(deps.dataDir, c))));
     const pdf = await renderizarDigitalizada({ paginas, codigo: d.codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${d.codigo}`) });
     const sha = createHash('sha256').update(pdf).digest('hex');
     const copia = (d.conteudo as ConteudoReceita).copia!.profissional;
@@ -6189,6 +6666,7 @@ export async function montarPdfDigitalizado(data: { tenantId: string; documentoI
         await registrarAssinatura(tx, {
           documentoId: d.id, codigo: d.codigo!, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',
           emissor: null, assinanteNome: null, userId: data.userId, agora, copia, base: d.basePdfPath,
+          versao: { codigo: d.codigo!, digitalizacaoPendente: true }, // a versão lida: mesmo código e ainda "pendente"
         });
       },
     }, { db, dataDir: deps.dataDir });
@@ -6196,12 +6674,13 @@ export async function montarPdfDigitalizado(data: { tenantId: string; documentoI
       await apagarArquivo(ctx, { caminho: c }, { db, dataDir: deps.dataDir }).catch(() => logger.warn({ tenantId: data.tenantId, documentoId: d.id }, 'arquivo da digitalização não apagado (a varredura apaga)'));
     return 'pronto';
   } catch (e) {
-    if (e instanceof JaFeitoError) {
-      await marcarFalhou();
+    if (e instanceof JaFeitoError || e instanceof TransicaoInvalidaError) {
+      await marcarFalhou(); // só casa se ainda "pendente"; numa versão nova (TransicaoInvalida), não muda nada
       return 'ignorado';
     }
-    if (e instanceof CotaEsgotadaError || deps.ultimaTentativa) {
-      logger.warn({ documentoId: data.documentoId, tenantId: data.tenantId, motivo: e instanceof CotaEsgotadaError ? 'cota' : 'erro' }, 'PDF da digitalização não montado');
+    if (e instanceof FotoInvalidaError || e instanceof CotaEsgotadaError || deps.ultimaTentativa) {
+      // foto ilegível ou acima do limite de pixels não melhora na próxima tentativa: falha já, sem laço no pg-boss
+      logger.warn({ documentoId: data.documentoId, tenantId: data.tenantId, motivo: e instanceof CotaEsgotadaError ? 'cota' : e instanceof FotoInvalidaError ? 'foto' : 'erro' }, 'PDF da digitalização não montado');
       await marcarFalhou();
       return 'falhou';
     }
@@ -6274,7 +6753,7 @@ Na página do documento: no cartão "Aguardando assinatura", `{data.user.twoFact
 Run: `pnpm test src/modules/documentos/digitalizada.test.ts src/modules/documentos/digitalizada-job.test.ts src/modules/pacientes/exportacao.test.ts` → PASS (a guarda de grafo agora encontra `digitalizada-job.ts` e confere que nenhuma rota o importa).
 
 ```bash
-git add src/modules/documentos/{digitalizada,digitalizada.test,digitalizada-job,digitalizada-job.test}.ts* src/app/api/painel/documentos/[id]/digitalizada src/app/painel/pacientes/[id]/documentos/[docId] src/worker/index.ts test/documentos.ts
+git add src/modules/documentos/{digitalizada,digitalizada.test,digitalizada-job,digitalizada-job.test}.ts* src/modules/documentos/constantes.ts src/app/api/painel/documentos/[id]/digitalizada src/app/painel/pacientes/[id]/documentos/[docId] src/worker/index.ts test/documentos.ts
 git commit -m "feat(documentos): digitalizada por fotos com 2FA a cada envio e PDF novo montado no worker (RN-157, D4)"
 ```
 
@@ -6520,7 +6999,7 @@ export async function marcarEntreguePessoalmente(ctx: TenantContext, patientId: 
 }
 ```
 
-Em `assinar.ts`, `AssinaturaAceita` ganha `appUrl: string` e o fim de `registrarAssinatura` passa a `await entregarDocumento(tx, { tenantId: a.tenantId, patientId: a.patientId, documentoId: a.documentoId, agora: a.agora, appUrl: a.appUrl });`; `aceitarPdfAssinado` recebe `appUrl` em `DepsAssinar` (padrão `getEnv().APP_URL`) e o passa no `registrarAssinatura`; em `digitalizada-job.ts` (T11), a chamada de `registrarAssinatura` ganha `appUrl: deps.appUrl`.
+Em `assinar.ts`, `AssinaturaAceita` ganha `appUrl: string` e o fim de `registrarAssinatura` passa a `await entregarDocumento(tx, { tenantId: a.tenantId, patientId: a.patientId, documentoId: a.documentoId, agora: a.agora, appUrl: a.appUrl });`; `aceitarPdfAssinado` recebe `appUrl` em `DepsAssinar` (padrão `getEnv().APP_URL`) e o passa no `registrarAssinatura`; em `digitalizada-job.ts` (T11), a chamada de `registrarAssinatura` ganha `appUrl: deps.appUrl` (e a chamada direta do teste de versão em `digitalizada-job.test.ts`, `appUrl: 'https://x'`).
 
 - [ ] **Step 4: Textos do e-mail e do push**
 
@@ -6638,7 +7117,7 @@ git commit -m "feat(documentos): entrega pelo portal ou por link de uso único, 
 
 **Interfaces:**
 - Consumes: `registrarRecibo` (T12); `auditRead`; `EMITIDOS`; `TIPO_DOCUMENTO_ROTULO`; `requirePaciente`/`requireApiPaciente`; `signFileUrl`.
-- Produces: `documentosDoPaciente(ctx, db?): Promise<DocumentoNoPortal[]>` (sem `auditRead`), `DocumentoNoPortal = { id; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; aberto: boolean; recebidoEm: Date | null }`; `novosNoPortal(ctx, db?): Promise<number>`; `caminhoDoPdfNoPortal(ctx, docId, db?): Promise<string | null>` (`auditRead` + evento `aberto`); `confirmarRecebimentoNoPortal(ctx, docId, db?): Promise<Date | null>`; `MSG_PORTAL_DOC`.
+- Produces: `documentosDoPaciente(ctx, db?): Promise<DocumentoNoPortal[]>` (sem `auditRead`), `DocumentoNoPortal = { id; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; assinaturaTipo: TipoAssinatura; aberto: boolean; recebidoEm: Date | null }` (a tela mostra `linhaDaAssinatura`, RN-157); `novosNoPortal(ctx, db?): Promise<number>`; `caminhoDoPdfNoPortal(ctx, docId, db?): Promise<string | null>` (`auditRead` + evento `aberto`); `confirmarRecebimentoNoPortal(ctx, docId, db?): Promise<Date | null>`; `MSG_PORTAL_DOC`.
 
 - [ ] **Step 1: Teste (falha)** — `src/modules/documentos/portal.test.ts`
 
@@ -6649,6 +7128,7 @@ import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
+import { linhaDaAssinatura } from './constantes';
 import { caminhoDoPdfNoPortal, confirmarRecebimentoNoPortal, documentosDoPaciente, novosNoPortal } from './portal';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -6669,6 +7149,16 @@ describe('documentos no portal (US-146)', () => {
     expect(await novosNoPortal(ctx, app.db)).toBe(1); // o assinado ainda não aberto (o cancelado não conta)
     const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
     expect(audit.rows).toEqual([]);
+  });
+
+  it('RN-157: a digitalizada aparece como "Assinatura: Digitalizado" (e o gov.br como "Assinatura: gov.br")', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const dig = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', assinaturaTipo: 'digitalizada' });
+    const gov = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
+    const lista = await documentosDoPaciente(ctxPaciente(T.tenantId, p.id), app.db);
+    expect(linhaDaAssinatura(lista.find((d) => d.id === dig.id)!.assinaturaTipo)).toBe('Assinatura: Digitalizado');
+    expect(linhaDaAssinatura(lista.find((d) => d.id === gov.id)!.assinaturaTipo)).toBe('Assinatura: gov.br');
   });
 
   it('abrir o PDF audita e grava "aberto" uma vez; confirmar grava "recebido" uma vez; cancelado não confirma; rascunho dá 404', async () => {
@@ -6702,6 +7192,7 @@ import { patients, signedDocumentReceipts, signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
+import type { TipoAssinatura } from './constantes';
 import { registrarRecibo } from './recebimento';
 
 /** US-146 (texto exato da spec v0.3). */
@@ -6712,7 +7203,7 @@ export const MSG_PORTAL_DOC = {
   confirmar: 'Confirmo que recebi este documento',
 } as const;
 
-export type DocumentoNoPortal = { id: string; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; aberto: boolean; recebidoEm: Date | null };
+export type DocumentoNoPortal = { id: string; titulo: 'Receita'; data: Date; status: 'assinado' | 'substituido' | 'cancelado'; assinaturaTipo: TipoAssinatura; aberto: boolean; recebidoEm: Date | null };
 
 /** RN-153: bloqueado ou anonimizado não vê mais nada (o prontuário fica só para a nutricionista). */
 async function ativo(tx: Parameters<Parameters<typeof withTenant>[1]>[0], patientId: string): Promise<boolean> {
@@ -6725,13 +7216,13 @@ export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb())
   return withTenant(ctx, async (tx) => {
     if (!(await ativo(tx, ctx.patientId!))) return [];
     const ds = await tx
-      .select({ id: signedDocuments.id, status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm })
+      .select({ id: signedDocuments.id, status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, assinaturaTipo: signedDocuments.assinaturaTipo })
       .from(signedDocuments)
       .where(sql`${signedDocuments.anonimizadoEm} is null`)
       .orderBy(desc(signedDocuments.assinadoEm));
     const rs = ds.length ? await tx.select().from(signedDocumentReceipts).where(inArray(signedDocumentReceipts.documentoId, ds.map((d) => d.id))) : [];
     return ds.map((d) => ({
-      id: d.id, titulo: 'Receita' as const, data: d.assinadoEm!, status: d.status as DocumentoNoPortal['status'],
+      id: d.id, titulo: 'Receita' as const, data: d.assinadoEm!, status: d.status as DocumentoNoPortal['status'], assinaturaTipo: d.assinaturaTipo as TipoAssinatura,
       aberto: rs.some((r) => r.documentoId === d.id && r.evento === 'aberto'), recebidoEm: rs.find((r) => r.documentoId === d.id && r.evento === 'recebido')?.em ?? null,
     }));
   }, db);
@@ -6821,6 +7312,7 @@ export async function confirmarRecebimentoAction(docId: string): Promise<void> {
 ```tsx
 import { requirePaciente } from '@/lib/paciente-session';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { linhaDaAssinatura } from '@/modules/documentos/constantes';
 import { documentosDoPaciente, MSG_PORTAL_DOC } from '@/modules/documentos/portal';
 import { confirmarRecebimentoAction } from './actions';
 
@@ -6839,6 +7331,7 @@ export default async function MeusDocumentos() {
         {lista.map((d) => (
           <li key={d.id} className="space-y-2 rounded-2xl border border-borda bg-cartao p-4">
             <h2 className="font-semibold">{`${d.titulo} · ${data(d.data)}`}</h2>
+            <p className="text-sm text-suave">{linhaDaAssinatura(d.assinaturaTipo)}</p>
             {d.status === 'substituido' && <p>{MSG_PORTAL_DOC.substituido}</p>}
             {d.status === 'cancelado' && <p role="note" className="font-semibold">{MSG_PORTAL_DOC.cancelado}</p>}
             <a href={`/api/p/documentos/${d.id}/pdf`} className="inline-flex min-h-11 items-center underline">{`Abrir PDF da ${d.titulo.toLowerCase()} de ${data(d.data)}`}</a>
@@ -6876,7 +7369,7 @@ git commit -m "feat(portal): Documentos — lista, abrir o PDF e confirmar o rec
 - Create: `src/app/documento/[token]/page.tsx`, `src/app/documento/[token]/codigo-form.tsx`, `src/app/api/documento/[token]/codigo/route.ts`, `.../confirmar/route.ts`, `.../recebido/route.ts`, `.../pdf/route.ts`
 
 **Interfaces:**
-- Consumes: token da T12; `documentAccessCodes`, `signedDocuments`, `patients`, `tenants` (status); `registrarRecibo`; `auditRead`; `consumirLimite`/`chaveDoLimite('documento-ip' | 'documento-envio')`; `verifyTurnstile` (via `depsDaRequisicao` do `/api/n/[slug]/resposta.ts`, reaproveitado); `enqueueEmail`; `randomInt`, `createHmac`.
+- Consumes: token da T12; `documentAccessCodes`, `signedDocuments`, `patients`, `tenants` (status); `registrarRecibo`; `auditRead`; `consumirLimite`/`chaveDoLimite('documento-ip' | 'documento-envio' | 'documento-codigo-ip')`; `verifyTurnstile` (via `depsDaRequisicao` do `/api/n/[slug]/resposta.ts`, reaproveitado); `enqueueEmail`; `randomInt`, `createHmac`.
 - Produces: `estadoDoLink(token, deps): Promise<EstadoLink>` (`{ tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo; data: Date; recebidoEm: Date | null }` — com `sessao` opcional), `pedirCodigoDocumento(token, input: { turnstile?: unknown }, deps): Promise<void>`, `confirmarCodigoDocumento(token, input: { codigo?: unknown }, deps): Promise<{ sessao: string; expira: Date }>`, `pdfDoLink(token, sessao, deps): Promise<string | null>`, `confirmarRecebimentoPeloLink(token, sessao, deps): Promise<Date | null>`; `LinkError { status: number; mensagem: string }`; `MSG_LINK`; `NOME_COOKIE_LINK = 'nd_doc'`; `DepsLink = { db?; agora?; ip: string | null; ipDoLimite: string | null; verificarTurnstile: (t: string | null) => Promise<'ok' | 'invalido' | 'indisponivel'>; appUrl: string }`.
 
 - [ ] **Step 1: Testes (falham)** — `src/modules/documentos/link-documento.test.ts`
@@ -6933,8 +7426,19 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     const y = await cenario();
     await pedirCodigoDocumento(y.token, { turnstile: 't' }, deps());
     const certo = await ultimoCodigo(y.p.email);
-    for (let i = 0; i < 5; i++) await expect(confirmarCodigoDocumento(y.token, { codigo: certo === '000000' ? '111111' : '000000' }, deps())).rejects.toBeInstanceOf(LinkError);
+    for (let i = 0; i < 5; i++) await expect(confirmarCodigoDocumento(y.token, { codigo: certo === '000000' ? '111111' : '000000' }, deps())).rejects.toSatisfy((e) => e instanceof LinkError && e.mensagem === MSG_LINK.codigoInvalido);
+    // o incremento sobreviveu aos erros (nada de rollback junto com o LinkError)
+    const t = await withTenant(y.T.ctx, (tx) => tx.execute(sql`select tentativas from document_access_codes where documento_id = ${y.d.id}`), app.db);
+    expect(t.rows).toEqual([{ tentativas: 5 }]);
     await expect(confirmarCodigoDocumento(y.token, { codigo: certo }, deps())).rejects.toSatisfy((e) => e instanceof LinkError && e.mensagem === MSG_LINK.codigoVencido);
+  });
+
+  it('a confirmação também tem limite por IP: a 31ª tentativa na hora, do mesmo IP, é recusada', async () => {
+    const x = await cenario();
+    await pedirCodigoDocumento(x.token, { turnstile: 't' }, deps());
+    const mesmoIp = (agora = new Date()) => ({ ...deps(agora), ipDoLimite: '203.0.113.77' });
+    for (let i = 0; i < 30; i++) await expect(confirmarCodigoDocumento(x.token, { codigo: 'abc' }, mesmoIp())).rejects.toBeInstanceOf(LinkError);
+    await expect(confirmarCodigoDocumento(x.token, { codigo: await ultimoCodigo(x.p.email) }, mesmoIp())).rejects.toSatisfy((e) => e instanceof LinkError && e.mensagem === MSG_LINK.limite);
   });
 
   it('e-mail corrigido, documento cancelado, paciente bloqueado, link de 31 dias → indisponível/expirado; a sessão de um link não abre outro', async () => {
@@ -6988,6 +7492,7 @@ const MAX_ERROS = 5;
 const INTERVALO_MS = 60_000;
 const POR_HORA_DOCUMENTO = 5;
 const POR_HORA_IP = 20;
+const CONFIRMACOES_POR_HORA_IP = 30;
 
 export class LinkError extends Error {
   override name = 'LinkError';
@@ -7070,23 +7575,32 @@ export async function pedirCodigoDocumento(token: unknown, input: { turnstile?: 
   }, db);
 }
 
-/** O código do pedido mais recente; 5 erros invalidam; acerto → "usado" + sessão de 15 min (só o hash no banco). */
+/**
+ * O código do pedido mais recente; 5 erros invalidam; acerto → "usado" + sessão de 15 min (só o hash no banco).
+ * O erro volta como RESULTADO do callback e só é lançado FORA do withTenant: um throw lá dentro desfaria (rollback) o
+ * "tentativas + 1", e o código de 6 dígitos ficaria aberto a tentativas ilimitadas (revisão do rascunho, Critical).
+ * Limite por IP também na confirmação (30/h), além do limite do pedido.
+ */
 export async function confirmarCodigoDocumento(token: unknown, input: { codigo?: unknown }, deps: DepsLink): Promise<{ sessao: string; expira: Date }> {
+  const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
+  if (!(await consumirLimite(db, chaveDoLimite('documento-codigo-ip', deps.ipDoLimite ?? 'sem-ip'), CONFIRMACOES_POR_HORA_IP, 3600, agora))) throw new LinkError(429, MSG_LINK.limite);
   const l = await linkUtilizavel(token, deps);
   const codigo = typeof input.codigo === 'string' ? input.codigo.replace(/\s/g, '') : '';
-  return withTenant(ctxDo(l.ids, deps.ip), async (tx) => {
+  const r = await withTenant(ctxDo(l.ids, deps.ip), async (tx) => {
     const [c] = await tx.select().from(documentAccessCodes).where(eq(documentAccessCodes.documentoId, l.ids.documentoId)).orderBy(desc(documentAccessCodes.createdAt)).limit(1).for('update');
-    if (!c || c.usadoEm || c.tentativas >= MAX_ERROS || c.expiraEm <= agora) throw new LinkError(410, MSG_LINK.codigoVencido);
+    if (!c || c.usadoEm || c.tentativas >= MAX_ERROS || c.expiraEm <= agora) return { erro: 'vencido' } as const;
     if (!/^\d{6}$/.test(codigo) || !safeEqual(hashDoCodigo(c.id, codigo), c.codigoHash)) {
       await tx.update(documentAccessCodes).set({ tentativas: c.tentativas + 1 }).where(eq(documentAccessCodes.id, c.id));
-      throw new LinkError(400, MSG_LINK.codigoInvalido);
+      return { erro: 'invalido' } as const; // a transação faz COMMIT do incremento
     }
     const sessao = randomBytes(32).toString('base64url');
     const expira = new Date(agora.getTime() + SESSAO_MS);
     await tx.update(documentAccessCodes).set({ usadoEm: agora, sessaoHash: sha256(sessao), sessaoExpiraEm: expira }).where(and(eq(documentAccessCodes.id, c.id), isNull(documentAccessCodes.usadoEm)));
     return { sessao, expira };
-  }, deps.db ?? getDb());
+  }, db);
+  if ('erro' in r) throw r.erro === 'vencido' ? new LinkError(410, MSG_LINK.codigoVencido) : new LinkError(400, MSG_LINK.codigoInvalido);
+  return r;
 }
 
 /** "Abrir PDF" pela página do link: sessão do PRÓPRIO link; audita sem ator (D20 do Plano 05) e grava "aberto" (link_email). */
@@ -7737,32 +8251,56 @@ git commit -m "feat(documentos): cancelar documento com motivo só no prontuári
 
 **Files:**
 - Create: `e2e/documentos.spec.ts`
-- Modify: `e2e/acessibilidade.spec.ts` (portal `/p/documentos`, `/v/<código>`, `/documento/<token>`), `e2e/acessibilidade-painel.spec.ts` (nada: as rotas novas já estão em `ROTAS_DO_PAINEL`, T7), `src/modules/ajuda/conteudo.ts` (aspas de volta no guia `documentos`; passos "Entrega" e "Cancelar"), `docs/operacao/go-live.md` (itens do Plano 10)
+- Modify: `scripts/e2e-seed.ts` (`E2E_DOCS`: nutricionista própria do fluxo de documentos, no mesmo consultório, com o 2FA já ativo e um segredo TOTP conhecido), `e2e/acessibilidade.spec.ts` (portal `/p/documentos`, `/v/<código>`, `/documento/<token>`), `e2e/acessibilidade-painel.spec.ts` (nada: as rotas novas já estão em `ROTAS_DO_PAINEL`, T7), `src/modules/ajuda/conteudo.ts` (aspas de volta no guia `documentos`; passos "Entrega" e "Cancelar"), `docs/operacao/go-live.md` (itens do Plano 10)
 
 **Interfaces:**
-- Consumes: as telas das Tarefas 7 a 17; `e2e/helpers.ts`, `e2e/portal.ts`, `e2e/mailpit.ts` (código do e-mail); `otpauth` (o 2FA da nutricionista no E2E).
+- Consumes: as telas das Tarefas 7 a 17; `entrarComo` (`e2e/helpers.ts`; não existe `entrarComoNutri`), `e2e/portal.ts`, `e2e/mailpit.ts` (código do e-mail); `otpauth` (o 2FA da nutricionista no E2E); `symmetricEncrypt` (`better-auth/crypto`, só no seed).
 - Produces: `e2e/documentos.spec.ts` com o fluxo de ponta a ponta pela **digitalizada** (o caminho que não depende de certificado real: a assinatura gov.br/ICP do E2E exigiria âncoras de teste dentro do app, o que não fazemos).
 
-- [ ] **Step 1: O fluxo de ponta a ponta** — `e2e/documentos.spec.ts`
+- [ ] **Step 1: Conta própria do fluxo** — `scripts/e2e-seed.ts`
+
+A spec **não** ativa o 2FA na conta compartilhada `E2E_NUTRI`: nessa execução e na seguinte sem reseed, todo login dela cairia no desafio do 2FA e quebraria as outras specs do painel (revisão do rascunho). O seed cria uma nutricionista só deste fluxo, no mesmo consultório, já com o 2FA ativo e um segredo conhecido (fictício, só de teste):
+
+```ts
+import { symmetricEncrypt } from 'better-auth/crypto';
+import { twoFactor } from '@/db/schema';
+import { getEnv } from '@/lib/env';
+// …
+/** Plano 10 (T18): assinar exige 2FA; segredo TOTP fixo e fictício (base32), só do E2E. */
+export const E2E_DOCS = { email: 'docs-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+// …
+await db.delete(user).where(eq(user.email, E2E_DOCS.email));
+const docsId = randomUUID();
+await db.insert(user).values({ id: docsId, name: 'Docs E2E', email: E2E_DOCS.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id, twoFactorEnabled: true });
+await db.insert(account).values({ id: randomUUID(), userId: docsId, accountId: docsId, providerId: 'credential', password: await hashPassword(E2E_DOCS.password) });
+// como o enableTwoFactor do better-auth 1.7.6 grava (two-factor/index.mjs: symmetricEncrypt com o secretConfig = AUTH_SECRET)
+await db.insert(twoFactor).values({
+  id: randomUUID(), userId: docsId, verified: true,
+  secret: await symmetricEncrypt({ key: getEnv().AUTH_SECRET, data: E2E_DOCS.totp }),
+  backupCodes: await symmetricEncrypt({ key: getEnv().AUTH_SECRET, data: JSON.stringify([]) }),
+});
+```
+
+E `E2E_DOCS.email` entra na lista do `guia: TUDO_VISTO` (o tour não abre por cima do fluxo). Conferir, na versão instalada, que o `secretConfig` do Better Auth é a própria `AUTH_SECRET` (sem rotação de segredos); se não for, ativar o 2FA dessa conta pelo `auth.api` no seed.
+
+- [ ] **Step 2: O fluxo de ponta a ponta** — `e2e/documentos.spec.ts`
 
 ```ts
 import { expect, test } from '@playwright/test';
 import { TOTP } from 'otpauth';
-import { entrarComoNutri } from './helpers';
+import { E2E_DOCS } from '../scripts/e2e-seed';
+import { entrarComo } from './helpers';
 import { pacienteNoPortal } from './portal';
 
-test('receita: rascunho → preparar → digitalizada → portal (abrir e confirmar) → verificação pública', async ({ browser, page }) => {
+test('receita: rascunho → preparar → digitalizada → portal (abrir e confirmar) → verificação pública', async ({ browser }) => {
   test.setTimeout(180_000);
-  await entrarComoNutri(page);
-  // 2FA da nutricionista (exigido para assinar), pela tela de Segurança
-  await page.goto('/conta/seguranca');
-  await page.getByLabel('Confirme sua senha').fill(process.env.E2E_SENHA_NUTRI ?? 'Nutri2026segura');
-  await page.getByRole('button', { name: 'Ativar verificação em duas etapas' }).click();
-  const segredo = await page.getByTestId('totp-secret').innerText();
-  const totp = new TOTP({ secret: segredo, digits: 6, period: 30 });
-  await page.getByLabel('Código de 6 dígitos').fill(totp.generate());
-  await page.getByRole('button', { name: 'Confirmar' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Verificação em duas etapas ativada.' })).toBeVisible();
+  // conta própria do fluxo (E2E_DOCS), com o 2FA já ativo no seed: o login passa pelo desafio do 2FA
+  const totp = new TOTP({ secret: E2E_DOCS.totp, digits: 6, period: 30 });
+  const page = await entrarComo(browser, E2E_DOCS.email, E2E_DOCS.password, '10.9.14.9', { viewport: { width: 1280, height: 900 } });
+  await expect(page).toHaveURL(/\/entrar\/2fa/);
+  await page.getByLabel('Código do app autenticador').fill(totp.generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page).toHaveURL(/\/painel/);
 
   const paciente = await pacienteNoPortal(browser, page, '10.9.14.10');
   await page.goto(`${paciente.prontuario}/documentos`);
@@ -7792,6 +8330,7 @@ test('receita: rascunho → preparar → digitalizada → portal (abrir e confir
   await p.goto('/p/inicio');
   await p.getByRole('link', { name: 'Ver documentos' }).click();
   await expect(p.getByRole('heading', { name: /^Receita · / })).toBeVisible();
+  await expect(p.getByText('Assinatura: Digitalizado')).toBeVisible(); // RN-157 no portal
   const download = p.waitForEvent('download');
   await p.getByRole('link', { name: /^Abrir PDF da receita/ }).click();
   await download;
@@ -7801,6 +8340,9 @@ test('receita: rascunho → preparar → digitalizada → portal (abrir e confir
   // painel: situação da entrega
   await page.reload();
   await expect(page.getByText(/^Recebido pelo paciente em /)).toBeVisible();
+  // RN-157 também na lista da nutricionista
+  await page.goto(`${paciente.prontuario}/documentos`);
+  await expect(page.getByText('Assinatura: Digitalizado')).toBeVisible();
 
   // verificação pública: sem login, sem nada do paciente
   const anonimo = await browser.newPage();
@@ -7815,9 +8357,9 @@ test('receita: rascunho → preparar → digitalizada → portal (abrir e confir
 
 `e2e/fixtures/pagina-assinada.png`: uma imagem PNG pequena gerada por `sharp` no setup do teste (ou versionada, 1 página em branco com um rabisco; sem dado pessoal).
 
-- [ ] **Step 2: Acessibilidade** — em `e2e/acessibilidade.spec.ts`, os casos `/p/documentos` (paciente com uma receita emitida), `/v/<código>` (válido e "não encontrado") e `/documento/<token>` (estado "pedir código") nos três modos (claro, escuro, aparelho) e a 360 px, com o mesmo `axe` do Plano 08 (zero violação WCAG 2.1 AA). As telas do painel já entram pelo `ROTAS_DO_PAINEL` (T7).
+- [ ] **Step 3: Acessibilidade** — em `e2e/acessibilidade.spec.ts`, os casos `/p/documentos` (paciente com uma receita emitida), `/v/<código>` (válido e "não encontrado") e `/documento/<token>` (estado "pedir código") nos três modos (claro, escuro, aparelho) e a 360 px, com o mesmo `axe` do Plano 08 (zero violação WCAG 2.1 AA). As telas do painel já entram pelo `ROTAS_DO_PAINEL` (T7).
 
-- [ ] **Step 3: Manual guiado — fechamento** (`src/modules/ajuda/conteudo.ts`)
+- [ ] **Step 4: Manual guiado — fechamento** (`src/modules/ajuda/conteudo.ts`)
 
 No guia `documentos`, as três frases que ficaram sem aspas na T7 voltam com os rótulos exatos ("Enviar documento digitalizado (assinado à mão)", "Entregue pessoalmente", "Cancelar documento") e os passos ganham:
 
@@ -7828,21 +8370,21 @@ No guia `documentos`, as três frases que ficaram sem aspas na T7 voltam com os 
 
 O guia `prontuario` ganha "documentos" no resumo ("…evolução, plano alimentar, documentos e privacidade.") e sobe para `versao: 2`. Conferir com `pnpm test src/modules/ajuda` (alvos, aspas e rotas) e rodar `e2e/manual.spec.ts`.
 
-- [ ] **Step 4: Checklist do go-live** — `docs/operacao/go-live.md` ganha a seção "Plano 10 — documentos assinados (liberação para uso real)": resposta do CRN-3 (P-B1) arquivada; textos da D5 e "(proposto)" revistos pela Debby; termo e DPA com a entrega eletrônica e a verificação (P-B3/E-09) e o novo aceite; backup no host (P02-11); `ASSINATURAS_LIBERADAS` com o resultado do spike; o admin liga "Documentos" do consultório (D20); um teste manual completo com um PDF real assinado no gov.br da Debby e um paciente de teste.
+- [ ] **Step 5: Checklist do go-live** — `docs/operacao/go-live.md` ganha a seção "Plano 10 — documentos assinados (liberação para uso real)": resposta do CRN-3 (P-B1) arquivada; textos da D5 e "(proposto)" revistos pela Debby; termo e DPA com a entrega eletrônica e a verificação (P-B3/E-09) e o novo aceite; backup no host (P02-11); `ASSINATURAS_LIBERADAS` com o resultado do spike; o admin liga "Documentos" do consultório (D20); um teste manual completo com um PDF real assinado no gov.br da Debby e um paciente de teste.
 
-- [ ] **Step 5: Rodar e commit**
+- [ ] **Step 6: Rodar e commit**
 
-Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm build && pnpm test:e2e e2e/documentos.spec.ts e2e/acessibilidade.spec.ts e2e/acessibilidade-painel.spec.ts e2e/manual.spec.ts` → PASS.
+Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm build && pnpm test:e2e` → PASS (a suíte inteira, não só as specs novas: prova que nenhuma conta compartilhada ficou com 2FA).
 
 ```bash
-git add e2e src/modules/ajuda docs/operacao/go-live.md
+git add e2e scripts/e2e-seed.ts src/modules/ajuda docs/operacao/go-live.md
 git commit -m "test(documentos): E2E da receita pela digitalizada, axe das telas novas e manual guiado (RNF-144)"
 ```
 
 ---
 ### Task 19 (CONDICIONAL — só se o relatório do spike pedir): conferência de conteúdo assíncrona no worker (D16 = (a) da spec; P10-19)
 
-> Entra **só** se o relatório da T1 cair numa das linhas "T19" da tabela de decisão (assinador que reescreve o arquivo, `/ObjStm` instável, carimbo fora do quadro sem controle). Sem isso, nada desta tarefa é feito e `pdfjs-dist` não entra.
+> Entra **só** se o relatório da T1b cair numa das linhas "T19" da tabela de decisão (assinador que reescreve o arquivo, `/ObjStm` instável, carimbo fora do quadro sem controle). Sem isso, nada desta tarefa é feito e `pdfjs-dist` não entra.
 
 **Files:**
 - Create: `src/modules/documentos/conferencia-visual-job.ts` (+ `conferencia-visual-job.test.ts`)
@@ -7943,7 +8485,7 @@ git commit -m "feat(documentos): conferência de conteúdo assíncrona no worker
 
 ## Runbook do Plano 10 (o dono faz; nada disto é código)
 
-1. **PDFs reais para o spike (P-B2, T1 Step 13).** Com os dois PDFs fictícios gerados pela T1 (`base.pdf` e `base-com-campo.pdf`, enviados por canal privado): a Debby (ou o dono) assina no **assinador.iti.br** com a conta gov.br prata/ouro — (a) carimbo onde o assinador propõe, (b) dentro do quadro "Assinatura digital", (c) sem carimbo visível, se houver a opção — e, se houver e-CPF, no **Adobe Acrobat Reader** e no **Assinador SERPRO** (gratuitos); para cada arquivo, o **relatório de conformidade do VALIDAR** (validar.iti.gov.br). Os arquivos voltam para `test/assinatura/reais/` na máquina de dev (**nunca** no git: têm nome e CPF reais). Só documento fictício; nunca receita de paciente real no VALIDAR.
+1. **PDFs reais para o spike (P-B2, T1b Step 1).** Com os dois PDFs fictícios gerados pela T1a (`base.pdf` e `base-com-campo.pdf`, enviados por canal privado): a Debby (ou o dono) assina no **assinador.iti.br** com a conta gov.br prata/ouro — (a) carimbo onde o assinador propõe, (b) dentro do quadro "Assinatura digital", (c) sem carimbo visível, se houver a opção — e, se houver e-CPF, no **Adobe Acrobat Reader** e no **Assinador SERPRO** (gratuitos); para cada arquivo, o **relatório de conformidade do VALIDAR** (validar.iti.gov.br). Os arquivos voltam para `test/assinatura/reais/` na máquina de dev (**nunca** no git: têm nome e CPF reais). Só documento fictício; nunca receita de paciente real no VALIDAR.
 2. **Consulta ao CRN-3 (P-B1)** — escrita, pela Debby ou pelo dono, com: (i) o gov.br (assinatura avançada) atende o "assinatura digital certificada" das Res. 656/680 na receita? (ii) a assinatura na plataforma com 2FA + código verificador atende o parecer (D2) e (iii) o plano alimentar online (D12, Res. 760/2023, art. 10)? (iv) a identificação do cliente no documento precisa de e-mail e telefone além do nome (art. 10, I)? (v) os textos da D5 (declaração da receita e, para o Plano 13, a ressalva e a declaração do parecer). **A liberação para uso real depende da resposta** (o desenvolvimento não).
 3. **Textos para a Debby revisar** (junto com o manual guiado, P08-08): a declaração da receita (D5), os textos "(proposto)" da spec v0.3 (US-143 dica do quadro; US-144 "Certificado do consultório confirmado"; US-145 paciente sem portal e arquivado), os do link (RN-158) e o guia `documentos`, `configuracoes` (v2) e `seguranca` do manual.
 4. **Advogado (P-B3, junto com o E-09):** o termo do paciente e o DPA citam a entrega eletrônica de documentos (portal e link por e-mail com código), a assinatura usada e a página pública de verificação; o termo novo exige novo aceite. A D15 (justificativa na exportação do titular) é confirmada aqui.
@@ -7956,12 +8498,12 @@ git commit -m "feat(documentos): conferência de conteúdo assíncrona no worker
 ## Fechamento do plano (após a Tarefa 18, ou a 19)
 
 - [ ] Revisão da entrega conforme o índice (revista em 02/10/2026): revisor por tarefa (ao longo) → **revisão final do branch (workflow) com uma onda de correções** → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor → backlog) → re-revisão **só do diff das correções** → `/security-review` com o **checklist reforçado** (D9):
-  - **Conferência (RN-144):** forma do `/ByteRange` `[0 a b c]` com um único dicionário de assinatura e `b + c` = fim da revisão; lista fechada por alcance e comparação chave a chave dos redefinidos (fonte, stream, `/Resources`, `/MediaBox` recusados); widget só de área zero ou no quadro, `/BBox` dentro do `/Rect`; nenhuma ação/anexo; CMS com um `SignerInfo`, destacado, `messageDigest` e assinatura pelo `node:crypto`; cadeia até âncora fixada, validade de todos, certificado de pessoa (e-CNPJ, ACT, SSL recusados), CPF do campo próprio; "Assinado em" = hora do servidor; **sem rede** (guarda verde); leitor com limites (inflate, aninhamento, objetos, revisões) e nenhum 500; nada de CN/CPF no log.
-  - **2FA (RN-145):** `confirmarCodigo2fa` só pela API do Better Auth; 5 tentativas em 15 min; anti-repetição de 90 s; recusa registrada no histórico; nada gravado antes do código no primeiro certificado.
+  - **Conferência (RN-144):** forma do `/ByteRange` `[0 a b c]` com um único dicionário de assinatura e `b + c` = fim da revisão; lista fechada por alcance e comparação chave a chave dos redefinidos (fonte, stream, `/Resources`, `/MediaBox` recusados); widget só de área zero ou no quadro, `/BBox` dentro do `/Rect`; nenhuma ação/anexo; CMS com um `SignerInfo`, destacado, `messageDigest` e assinatura pelo `node:crypto`; cadeia até âncora fixada, validade de todos, certificado de pessoa (e-CNPJ, ACT, SSL recusados), CPF do campo próprio; "Assinado em" = hora do servidor; **sem rede** (guarda verde); leitor com limites (inflate por stream e orçamento total de 32 MB, no máximo 16 `/ObjStm` por revisão, prazo conferido dentro dos laços, aninhamento, objetos, revisões) e nenhum 500; todo número do base passa por `redefinido()` antes de olhar o `/Type` (stream do base redefinido = recusa), `/XRef` só no `startxref` da revisão e `/ObjStm` só como contêiner novo; lista proibida só nos objetos novos e nas chaves que mudaram (o `/Names` do pdfkit passa); revisão de longo prazo com `/DSS` e/ou carimbo; `registrarAssinatura` amarrado à versão lida (`codigo` + `base_pdf_sha256`, ou `digitalizacao_status = 'pendente'`); nada de CN/CPF no log.
+  - **2FA (RN-145):** `confirmarCodigo2fa` só pela API do Better Auth; 5 tentativas em 15 min; anti-repetição de 90 s; recusa registrada no histórico do paciente; nada gravado antes do código no primeiro certificado nem na troca do CPF do consultório (mesmo nome + 2FA, compare-and-set em `tenant_signer`, auditoria e e-mail).
   - **Banco:** `app_documento_imutavel` (todas as transições, no-op passa, anonimização só no worker), notas imutáveis, `paciente_so_emitidos`, recibo só INSERT (`paciente_recibo_proprio`, REVOKE), `document_verifications` fora da RLS só em `verificacao.ts` (guarda verde) com UPDATE só de duas colunas e DELETE revogado, `tenant_signer` e `signed_document_notes` STAFF_ONLY, `paciente_arquivos` sem o base e as fotos, FKs `NO ACTION`.
-  - **Link (RN-158):** GET não consome; token sem estado com o e-mail atual no MAC; 30 dias; código HMAC por pedido, 10 min, 5 erros, 1/min e 5/h por documento, 20/h por IP, Turnstile; sessão de 15 min só com hash no banco, cookie `HttpOnly`/`SameSite=Strict` por caminho; `semConta` na lista fechada; `no-referrer`, `noindex`, `no-store`; `caminhoSeguro` com `:token`.
+  - **Link (RN-158):** GET não consome; token sem estado com o e-mail atual no MAC; 30 dias; código HMAC por pedido, 10 min, 5 erros (o incremento grava mesmo com o erro: resultado devolvido, throw fora do `withTenant`), 1/min e 5/h por documento, 20/h por IP no pedido e 30/h por IP na confirmação, Turnstile; sessão de 15 min só com hash no banco, cookie `HttpOnly`/`SameSite=Strict` por caminho; `semConta` na lista fechada; `no-referrer`, `noindex`, `no-store`; `caminhoSeguro` com `:token`.
   - **Página pública (RN-156):** só `document_verifications`; nada do paciente; 30/h por IP; mesma resposta para inexistente e malformado; `no-referrer`, `noindex`, sem script; `/v/:codigo` no Sentry.
-  - **Arquivos (regra 9):** base, assinado e fotos só por `salvarArquivo`/`apagarArquivo`; registro no `registrar`/`naMesmaTransacao`; base solto no mesmo UPDATE da assinatura; varredura de órfãos; PDFs e a digitalizada só no worker (grafo verde); digitalizada nunca entrega o arquivo enviado.
+  - **Arquivos (regra 9):** base, assinado e fotos só por `salvarArquivo`/`apagarArquivo`; registro no `registrar`/`naMesmaTransacao`; base solto no mesmo UPDATE da assinatura; varredura de órfãos; PDFs e a digitalizada só no worker (grafo verde); digitalizada nunca entrega o arquivo enviado: limite de 40 MP pelo cabeçalho no envio e cada página normalizada (`rotate()` + `paraJpegSemMetadados`, sem EXIF/GPS) antes do react-pdf.
   - **LGPD (D1, se aprovada):** exportações com e sem rascunho, justificativa só onde a D15 manda, nunca o motivo de cancelamento; anonimização pela função antes dos anexos, conferência final, verificação "eliminado".
   Tudo na assinatura (sem `/code-review ultra`). Registrar os resumos no PR. Se sobrar problema Critical/Important confirmado, parar e avisar o dono.
 - [ ] Atualizar o backlog (`2026-09-27-nutridebby-backlog.md` **e** o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): P10-01 a P10-19 (com o PR); os Minor da revisão num item "P10-20 — débitos do Plano 10".
@@ -7988,7 +8530,7 @@ git commit -m "feat(documentos): conferência de conteúdo assíncrona no worker
 | US-149 (★ D3) e US-150 base (★ D1) | Tarefas 17 e 16 |
 | RN-140/RN-141 (imutabilidade, transições, ordem de operações, FK NO ACTION) | Tarefas 3 (gatilhos, função), 6 (voltar), 10 (assinar), 16 (anonimizar) |
 | RN-142/RN-143 (código, SHA-256) | Tarefas 6, 8, 10, 15 |
-| RN-144 (toda a conferência) | Tarefas 1 (leitor, âncoras, fábrica) e 9; T19 se o spike pedir |
+| RN-144 (toda a conferência) | Tarefas 1a (leitor com orçamento de inflate e prazo, âncoras, fábrica) e 9 (lista fechada por alcance com "redefinido antes do /Type", /DSS e/ou carimbo); 1b (relatório); T19 se o spike pedir |
 | RN-145 (2FA, nome, CPF HMAC, troca) | Tarefas 4, 5 e 10 |
 | RN-149/RN-150/RN-151 | Tarefa 6 (sem campo de marca) |
 | RN-152/RN-153/RN-154 | Tarefas 12, 13, 6 |
@@ -7996,11 +8538,11 @@ git commit -m "feat(documentos): conferência de conteúdo assíncrona no worker
 | RNF-140 a RNF-145 | T8 (30 s), T9 (3 s, sem rede, limites), T10/T11 (rotas), T14/T15 (Sentry), T16 (cota), T18 (axe), Tech Stack (custo) |
 | Manual guiado (toda tela nova do painel com guia; `/conta/seguranca`) | Tarefas 4 (`configuracoes` v2), 5 (`seguranca`), 7 (`documentos`, `ROTAS_DO_PAINEL`) e 18 (fechamento) |
 
-**2. Placeholders:** os PEM das âncoras (`ancoras-raizes.ts`, T1 Step 7) são dado público baixado no próprio passo (não cabem no plano) e a guarda `ancoras-fonte.test.ts` reprova o arquivo incompleto; o resto dos passos de código traz o código. Os trechos em prosa são trocas mecânicas em arquivos existentes (uma entrada numa lista, um import, uma linha num menu) com o texto exato, ou repetem um esqueleto já escrito no plano (as rotas da T11 e da T14 seguem a rota da T10, citada).
+**2. Placeholders:** os PEM das âncoras (`ancoras-raizes.ts`, T1a Step 7) são dado público baixado no próprio passo (não cabem no plano) e a guarda `ancoras-fonte.test.ts` reprova o arquivo incompleto; o resto dos passos de código traz o código. Os trechos em prosa são trocas mecânicas em arquivos existentes (uma entrada numa lista, um import, uma linha num menu) com o texto exato, ou repetem um esqueleto já escrito no plano (as rotas da T11 e da T14 seguem a rota da T10, citada).
 
-**3. Consistência de nomes:** `AREA_ASSINATURA`/`CAMPO_PRE_CRIADO` (T1) em T8 e T9; `lerBase`/`lerAtualizacao`/`PdfIlegivelError` (T1) em T9 e T11; `RecusaAssinaturaError`/`MSG_RECUSA`/`CodigoRecusa` (T2) em T9–T11; `documentoNoBanco`/`codigoAleatorio` (T2) e `novoConsultorio`/`outroDocumento` (T10) em T11–T17; `confirmarCodigo2fa` (T5) em T10 e T11; `copiaDoPerfil`/`gravarAssinante`/`hmacDoCpf` (T4) em T6 e T10; `validarRascunho`/`validarParaPreparar`/`descreverItem`/`ConteudoReceita` (T6) em T7, T8, T16; `lerDocumentoNaTransacao`/`dataHora`/`ItemLista` (T6/T7) em T8 e T12; `registrarAssinatura` (T10, com `appUrl` na T12) em T11 e T19; `registrarVerificacao`/`mudarSituacao` (T10) em T15 e T17; `assinarLinkDocumento`/`lerLinkDocumento` (T12) em T14 e T17; `registrarRecibo` (T12) em T13 e T14; `ASSINATURAS_LIBERADAS` (T9) em T10.
+**3. Consistência de nomes:** `AREA_ASSINATURA`/`CAMPO_PRE_CRIADO` (T1a) em T8 e T9; `lerBase`/`lerAtualizacao`/`PdfIlegivelError` (T1a) em T9 e T11; `RecusaAssinaturaError`/`MSG_RECUSA`/`CodigoRecusa` (T2) em T9–T11; `documentoNoBanco`/`codigoAleatorio` (T2) e `novoConsultorio`/`outroDocumento` (T10) em T11–T17; `confirmarCodigo2fa` (T5) em T10 e T11; `copiaDoPerfil`/`gravarAssinante`/`hmacDoCpf` (T4) em T6 e T10; `validarRascunho`/`validarParaPreparar`/`descreverItem`/`ConteudoReceita` (T6) em T7, T8, T16; `lerDocumentoNaTransacao`/`dataHora`/`ItemLista` (T6/T7) em T8 e T12; `registrarAssinatura`/`VersaoLida` (T10, com `appUrl` na T12) em T11 e T19; `gravarAssinante` com `anterior` (T4, troca do CPF) em T10; `novoPreparoNoBanco` (T10) em T11; `revisaoComXrefStream`/`objStmCheio`/`baseComRecursos` (T1a) em T9; `linhaDaAssinatura` (T2) em T7 e T13; `registrarVerificacao`/`mudarSituacao` (T10) em T15 e T17; `assinarLinkDocumento`/`lerLinkDocumento` (T12) em T14 e T17; `registrarRecibo` (T12) em T13 e T14; `ASSINATURAS_LIBERADAS` (T9) em T10.
 
-**4. Review Focus:** 1 (PDF que mostra outra coisa) → T9 (`it.each` das adulterações: FreeText, Stamp, stream e fonte redefinidos, `/Resources`, `/MediaBox`, widget sobre a dose, `/BBox`, duas assinaturas, `/ByteRange` curto, ISA, lixo); 2 (certificado errado) → T9 (vencido, e-CNPJ, sem uso, raiz desconhecida, SHA-1) e T10 (primeiro de outra pessoa, CPF diferente, nada gravado); 3 (2FA no limite) → T5 (5 erros → bloqueado, repetição, espaço) e T10 (tentativa registrada, sem 2FA antes da conferência); 4 (link na caixa errada) → T14 (GET não consome, e-mail corrigido, limites, código reusado, cancelado, sessão de outro link); 5 (campos da receita) → T6 (UFC/U, 21 itens, 11 componentes, 0 e 1e9, 301 caracteres, habilitação retirada entre salvar e preparar, derivado sem habilitação).
+**4. Review Focus:** 1 (PDF que mostra outra coisa) → T9 (`it.each` das adulterações: FreeText, Stamp, stream e fonte redefinidos, `/Resources`, `/MediaBox`, widget sobre a dose, `/BBox`, duas assinaturas, `/ByteRange` curto, ISA, lixo, `/Launch`, anexo, `/Names` trocado e acrescentado, aninhamento de 10.000 níveis, conteúdo/logo/`/FontFile2` do base redefinidos com `/Type /ObjStm` ou `/XRef`, segundo `/XRef`; o `/Names` inalterado do pdfkit aceito; `/DSS` só, carimbo só e os dois aceitos; base reenviado sem assinar → `sem_assinatura`; 500 `/ObjStm` de 20 MB recusados em < 3 s); 2 (certificado errado) → T9 (vencido, e-CNPJ, sem uso, raiz desconhecida, SHA-1) e T10 (primeiro de outra pessoa, CPF diferente, nada gravado); 3 (2FA no limite) → T5 (5 erros → bloqueado, repetição, espaço; cookie da sessão nova depois da ativação) e T10 (tentativa registrada, sem 2FA antes da conferência, troca do CPF do consultório, versão lida no registrar); 4 (link na caixa errada) → T14 (GET não consome, e-mail corrigido, limites, 5 erros que sobrevivem ao erro — incremento fora do rollback —, limite por IP na confirmação, código reusado, cancelado, sessão de outro link); 5 (campos da receita) → T6 (UFC/U, 21 itens, 11 componentes, 0 e 1e9, 301 caracteres, habilitação retirada entre salvar e preparar, derivado sem habilitação).
 
 ## Decisões para o dono
 
@@ -8024,4 +8566,4 @@ Pontos que precisam de atenção (não são decisões):
 
 ## Execução
 
-Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa com as lentes spec/qualidade e segurança/LGPD, revisão final do branch no fim) — as 18 tarefas (19 com o ramo condicional) dependem umas das outras por interfaces bem definidas (o leitor da T1 decide a T9; o `registrarAssinatura` da T10 é o mesmo da digitalizada e da entrega), e uma falha na conferência da assinatura (aceitar um PDF adulterado) ou no gatilho de imutabilidade é cara de desfazer com receitas reais em produção. As Tarefas 4, 5 e 6 podem correr em paralelo depois da 3, e as 13, 14 e 15 depois da 12, em worktrees, como nos Planos 06–08. A Tarefa 1 tem um checkpoint do dono (os PDFs reais) que não bloqueia as Tarefas 2–8.
+Recomendado: **subagent-driven** (uma tarefa por subagente, revisor por tarefa com as lentes spec/qualidade e segurança/LGPD, revisão final do branch no fim) — as 19 tarefas (1a, 1b e 2 a 18; 20 com o ramo condicional) dependem umas das outras por interfaces bem definidas (o leitor da T1a decide a T9; o `registrarAssinatura` da T10 é o mesmo da digitalizada e da entrega), e uma falha na conferência da assinatura (aceitar um PDF adulterado) ou no gatilho de imutabilidade é cara de desfazer com receitas reais em produção. Ordem da D21: T1a → T2 → T3 → T4 → [T5 ‖ T6] → T7 → T8 → T9 → T10 → T11 → T12 → [T13 ‖ T14] → T15 → T16 → T17 → T18. Só a T5 com a T6 (depois da 4) e a T13 com a T14 (depois da 12) correm em paralelo, em worktrees, como nos Planos 06–08: as outras compartilham arquivos ou consomem o que a anterior produz (D21). A Tarefa 1b (checkpoint do dono com os PDFs reais, relatório, D16) corre à parte e não bloqueia nenhuma.
