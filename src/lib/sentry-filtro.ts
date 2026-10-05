@@ -36,7 +36,7 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 const REMOVIDO = '[removido]';
 
-/** Só o caminho, sem query nem fragmento; UUID → `:id`; segmento longo sem cara de palavra → `:token`; convites e links de consulta e de documento → `:token`. */
+/** Só o caminho, sem query nem fragmento; UUID → `:id`; segmento longo sem cara de palavra → `:token`; convites e links de consulta e de documento → `:token`; código da verificação → `:codigo`. */
 export function caminhoSeguro(url: string | undefined): string | undefined {
   if (url === undefined) return undefined;
   let caminho: string;
@@ -50,7 +50,8 @@ export function caminhoSeguro(url: string | undefined): string | undefined {
     .map((s) => s.replace(UUID, ':id'))
     .map((s) => (s !== ':id' && TOKEN.test(s) ? ':token' : s))
     .join('/')
-    .replace(/^\/(convite(?:\/paciente)?|consulta|documento|api\/documento)\/[^/]+/, '/$1/:token');
+    .replace(/^\/(convite(?:\/paciente)?|consulta|documento|api\/documento)\/[^/]+/, '/$1/:token')
+    .replace(/^\/v\/[^/]+/, '/v/:codigo'); // RNF-142: os 12 caracteres do código não pegam na regra dos 20
 }
 
 function origemSegura(url: unknown): string | undefined {
