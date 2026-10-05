@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { makeDb } from '../../test/db';
@@ -260,5 +262,16 @@ describe('leitura por audiência (RN-12, Plano 07)', () => {
       await client.query('rollback');
       client.release();
     }
+  });
+});
+
+describe('teste de restauração (regra 10): a lista do script acompanha RLS_EXCEPTIONS', () => {
+  it('nutri-restauracao-teste.sh deixa fora da conta exatamente as tabelas de RLS_EXCEPTIONS', () => {
+    const script = readFileSync(path.resolve('scripts/backup/nutri-restauracao-teste.sh'), 'utf8');
+    const m = script.match(/c\.relname not in \(([^)]*)\)/);
+    expect(m, 'a lista "c.relname not in (…)" do sem_rls sumiu do script').not.toBeNull();
+    const doScript = m![1].split(',').map((t) => t.trim().replace(/^'|'$/g, ''));
+    // mudou a lista → o dono reinstala o script no host (regra 10 do CLAUDE.md, P02-11)
+    expect(doScript.sort()).toEqual(Object.keys(RLS_EXCEPTIONS).sort());
   });
 });
