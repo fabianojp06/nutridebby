@@ -21,8 +21,10 @@ async function enviar(url: string, corpo: unknown): Promise<{ status: number; er
 }
 
 /**
- * RN-158: sem sessão, Turnstile + "Enviar código" → o campo "Código" + "Abrir" (a página recarrega com a sessão);
- * com `confirmarRecebimento`, só o botão "Confirmo que recebi este documento".
+ * RN-158: sem sessão, Turnstile + "Enviar código" e, sempre abaixo, o campo "Código" + "Abrir" (a página recarrega com a
+ * sessão). O campo não depende do envio nesta aba (revisão da T12): quem reabre o link com o código já no e-mail (o
+ * navegador do app de e-mail fecha ao voltar à caixa de entrada) digita o código sem pedir outro, que invalidaria o
+ * anterior. Com `confirmarRecebimento`, só o botão "Confirmo que recebi este documento".
  */
 export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Props) {
   const router = useRouter();
@@ -39,7 +41,9 @@ export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Pro
       setEnviando(true);
       const r = await enviar(`${base}/recebido`, {});
       setEnviando(false);
-      if (r.status === 200) router.refresh();
+      // 410: a sessão de 15 min venceu com a página aberta (ou o documento saiu do ar). A página recarregada mostra o
+      // pedido do código ou o aviso de verdade — nunca "não está mais disponível" para um documento que está (revisão da T12)
+      if (r.status === 200 || r.status === 410) router.refresh();
       else setErro(r.erro);
     };
     return (
@@ -61,7 +65,10 @@ export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Pro
     setTurnstile(null);
     setWidget((n) => n + 1);
     setErro(r.status === 200 ? '' : r.erro);
-    if (r.status === 200) setEnviado(true);
+    if (r.status === 200) {
+      setEnviado(true);
+      setErroCodigo(''); // o erro do código anterior ("Código vencido…") não fica sobre o código novo
+    }
   }
 
   async function abrir(e: React.FormEvent<HTMLFormElement>) {
@@ -87,14 +94,12 @@ export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Pro
           Enviar código
         </Botao>
       </form>
-      {enviado && (
-        <form onSubmit={abrir} className="max-w-sm space-y-3">
-          <Campo id="codigo" rotulo="Código" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required erro={erroCodigo || undefined} />
-          <Botao type="submit" disabled={enviando}>
-            Abrir
-          </Botao>
-        </form>
-      )}
+      <form onSubmit={abrir} className="max-w-sm space-y-3">
+        <Campo id="codigo" rotulo="Código" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required erro={erroCodigo || undefined} />
+        <Botao type="submit" variante={enviado ? 'primario' : 'secundario'} disabled={enviando}>
+          Abrir
+        </Botao>
+      </form>
     </div>
   );
 }

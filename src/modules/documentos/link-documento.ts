@@ -100,30 +100,30 @@ export type EstadoLink = { tipo: 'invalido' | 'expirado' | 'indisponivel' } | { 
 const hashDoCodigo = (pedido: string, codigo: string) => createHmac('sha256', chaveDoLinkDocumento()).update(`codigo:${pedido}:${codigo}`).digest('base64url');
 const ctxDo = (ids: IdsDoLink, ip: string | null): TenantContext => ({ tenantId: ids.tenantId, role: 'paciente', patientId: ids.patientId, semConta: true, ip });
 
-/** Lê o token no contexto do paciente SEM LOGIN (a RLS limita ao paciente do token e aos emitidos) e confere tudo. */
+/**
+ * Lê o token no contexto do paciente SEM LOGIN (a RLS limita ao paciente do token e aos emitidos) e confere tudo.
+ * Ids que não existem (ou de outro tenant) só devolvem zero linhas → null (token inválido). Sem `try/catch` (revisão
+ * da T12): uma falha de banco sobe como erro (500 e Sentry), nunca como "documento não está mais disponível".
+ */
 async function abrirLink(token: unknown, deps: DepsLink) {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  return lerLinkDocumento(token, agora, async (ids) => {
-    try {
-      return await withTenant(
-        ctxDo(ids, deps.ip),
-        async (tx) => {
-          const [t] = await tx.select({ status: tenants.status, liberado: tenants.documentosLiberados }).from(tenants).where(eq(tenants.id, ids.tenantId));
-          const [p] = await tx.select({ email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ids.patientId));
-          const [d] = await tx.select({ status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, pdf: signedDocuments.pdfPath }).from(signedDocuments).where(eq(signedDocuments.id, ids.documentoId));
-          if (!p) return null;
-          // D20 (correção do /code-review high do PR #18): o interruptor do admin vale também aqui — desligado, o link fica
-          // indisponível, nenhum código é enviado (linkUtilizavel) e a sessão já aberta não abre o PDF nem confirma
-          const disponivel = t?.status === 'ativa' && !!t.liberado && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf;
-          return { email: p.email, disponivel, assinadoEm: d?.assinadoEm ?? null, pdf: d?.pdf ?? null };
-        },
-        db,
-      );
-    } catch {
-      return null; // ids forjados (UUID de outro tenant, contexto inválido): como token inválido
-    }
-  });
+  return lerLinkDocumento(token, agora, (ids) =>
+    withTenant(
+      ctxDo(ids, deps.ip),
+      async (tx) => {
+        const [t] = await tx.select({ status: tenants.status, liberado: tenants.documentosLiberados }).from(tenants).where(eq(tenants.id, ids.tenantId));
+        const [p] = await tx.select({ email: patients.email, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ids.patientId));
+        const [d] = await tx.select({ status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, pdf: signedDocuments.pdfPath }).from(signedDocuments).where(eq(signedDocuments.id, ids.documentoId));
+        if (!p) return null;
+        // D20 (correção do /code-review high do PR #18): o interruptor do admin vale também aqui — desligado, o link fica
+        // indisponível, nenhum código é enviado (linkUtilizavel) e a sessão já aberta não abre o PDF nem confirma
+        const disponivel = t?.status === 'ativa' && !!t.liberado && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf;
+        return { email: p.email, disponivel, assinadoEm: d?.assinadoEm ?? null, pdf: d?.pdf ?? null };
+      },
+      db,
+    ),
+  );
 }
 
 async function sessaoValida(ids: IdsDoLink, sessao: string | undefined, deps: DepsLink): Promise<boolean> {

@@ -72,7 +72,11 @@ describe('rotas do link do documento (RN-158)', () => {
       `nd_doc=${sessao}; Path=/api/documento/${x.token}; HttpOnly; SameSite=Strict; Max-Age=900`,
     ]);
 
-    expect((await chamar(pdf, 'pdf', x.token, { metodo: 'GET' })).status).toBe(404);
+    // sem a sessão (cookie de 15 min vencido): volta à página do link, que pede o código de novo (nunca um 404 vazio)
+    const semCookie = await chamar(pdf, 'pdf', x.token, { metodo: 'GET' });
+    expect(semCookie.status).toBe(303);
+    expect(semCookie.headers.get('location')).toBe(`/documento/${x.token}`);
+    expect(semCookie.headers.get('cache-control')).toBe('no-store');
     const aberto = await chamar(pdf, 'pdf', x.token, { metodo: 'GET', cookie: `outro=1; nd_doc=${sessao}` });
     expect(aberto.status).toBe(303);
     expect(aberto.headers.get('location')).toMatch(/^\/api\/arquivos\?c=/);
@@ -90,10 +94,14 @@ describe('rotas do link do documento (RN-158)', () => {
     expect(await (await chamar(recebido, 'recebido', x.token, { cookie: `nd_doc=${sessao}` })).json()).toEqual({ em });
   });
 
-  it('token inválido: confirmar → 410 "não está mais disponível"; pdf → 404', async () => {
+  it('token inválido: confirmar → 410 "não está mais disponível"; pdf → 303 para a página do link (que mostra o aviso)', async () => {
     const r = await chamar(confirmar, 'confirmar', 'x'.repeat(92), { corpo: JSON.stringify({ codigo: '123456' }) });
     expect(r.status).toBe(410);
     expect(await r.json()).toEqual({ erro: MSG_LINK.invalido });
-    expect((await chamar(pdf, 'pdf', 'x'.repeat(92), { metodo: 'GET', cookie: `nd_doc=${'a'.repeat(43)}` })).status).toBe(404);
+    const p = await chamar(pdf, 'pdf', 'x'.repeat(92), { metodo: 'GET', cookie: `nd_doc=${'a'.repeat(43)}` });
+    expect(p.status).toBe(303);
+    expect(p.headers.get('location')).toBe(`/documento/${'x'.repeat(92)}`);
+    // o token vem da URL: no Location, sempre codificado (nada de outro caminho nem de quebra de cabeçalho)
+    expect((await chamar(pdf, 'pdf', 'a/../b?c', { metodo: 'GET' })).headers.get('location')).toBe('/documento/a%2F..%2Fb%3Fc');
   });
 });

@@ -97,6 +97,18 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     expect(r.rows).toEqual([]);
   });
 
+  it('falha de banco ao abrir o link sobe como erro (500, Sentry), não vira "documento indisponível" (revisão da T12)', async () => {
+    const x = await cenario();
+    const fora = { transaction: async () => { throw new Error('banco fora do ar'); } } as unknown as typeof app.db;
+    const d = { ...deps(), db: fora };
+    await expect(estadoDoLink(x.token, undefined, d)).rejects.toThrow('banco fora do ar');
+    await expect(pdfDoLink(x.token, 'a'.repeat(43), d)).rejects.toThrow('banco fora do ar');
+    await expect(confirmarRecebimentoPeloLink(x.token, 'a'.repeat(43), d)).rejects.toThrow('banco fora do ar');
+    // ids que não existem (token bem formado de outro banco) continuam "inválido", sem erro
+    const forjado = assinarLinkDocumento({ tenantId: crypto.randomUUID(), patientId: crypto.randomUUID(), documentoId: crypto.randomUUID(), emitidoEm: new Date(), email: 'x@ex.com' });
+    expect(await estadoDoLink(forjado, undefined, deps())).toEqual({ tipo: 'invalido' });
+  });
+
   it('limpeza diária: código vencido há mais de 1 dia (e sem sessão viva) sai; o da sessão em uso fica', async () => {
     const x = await cenario();
     const q = (s: ReturnType<typeof sql>) => withTenant(x.T.ctx, (tx) => tx.execute(s), app.db);
