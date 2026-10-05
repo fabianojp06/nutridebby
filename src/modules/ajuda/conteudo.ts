@@ -186,6 +186,35 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [{ alvo: 'conectar-whatsapp', titulo: 'Conectar', texto: 'Leia o código QR com o WhatsApp do celular do consultório (Aparelhos conectados).' }],
   },
+  {
+    id: 'seguranca',
+    versao: 1,
+    padrao: /^\/conta\/seguranca$/,
+    titulo: 'Segurança da conta',
+    ajuda: {
+      resumo: 'A verificação em duas etapas pede, além da senha, um código de 6 dígitos do aplicativo autenticador do celular. Ela é obrigatória para assinar documentos.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Instale um aplicativo autenticador no celular (Google Authenticator, Authy, 1Password…).',
+            'Clique em "Ativar verificação em duas etapas" e confirme a sua senha.',
+            'Leia o QR Code com o aplicativo e digite o código de 6 dígitos que ele mostra.',
+            'Guarde os códigos de recuperação num lugar seguro: cada um funciona uma vez, se você perder o celular.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Ao enviar um documento assinado à mão (digitalizado), o sistema pede o código do aplicativo a cada envio.',
+            'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
+            'Se o código não confere, confira se a hora do celular está automática.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
+  },
 ];
 
 export function guiaDaRota(caminho: string): Guia | null {

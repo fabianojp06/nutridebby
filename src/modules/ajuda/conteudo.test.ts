@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ID_GUIA } from '@/modules/plataforma/preferencias-tipos';
 import { GUIAS, guiaDaRota, ID_BOAS_VINDAS, precisaDoGuia } from './conteudo';
 
-const TSX = ['src/app/painel', 'src/components']
+const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tsx')).map((d) => path.join(d.parentPath, d.name)))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
@@ -21,9 +21,12 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/ajuda': 'é o próprio manual',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
-const PAGINAS = readdirSync(path.resolve('src/app/painel'), { recursive: true, withFileTypes: true })
-  .filter((d) => d.isFile() && d.name === 'page.tsx')
-  .map((d) => `/painel/${path.relative(path.resolve('src/app/painel'), d.parentPath).split(path.sep).join('/')}`.replace(/\/$/, '').replace(/\[[^\]]+\]/g, UUID));
+// D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
+const PAGINAS = ['painel', 'conta'].flatMap((raiz) =>
+  readdirSync(path.resolve('src/app', raiz), { recursive: true, withFileTypes: true })
+    .filter((d) => d.isFile() && d.name === 'page.tsx')
+    .map((d) => `/${raiz}/${path.relative(path.resolve('src/app', raiz), d.parentPath).split(path.sep).join('/')}`.replace(/\/$/, '').replace(/\[[^\]]+\]/g, UUID)),
+);
 
 describe('conteúdo do manual (P08-10)', () => {
   it('ids únicos e no formato do progresso; versão ≥ 1; textos curtos e não vazios', () => {
@@ -56,6 +59,9 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/${UUID}`)?.id).toBe('plano-alimentar');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames`)?.id).toBe('prontuario');
     expect(guiaDaRota('/painel/agenda/horarios')?.id).toBe('horarios');
+  });
+  it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
+    expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });
   it('precisaDoGuia: versão nova volta a pedir; concluído/dispensado na versão atual, não', () => {
     const g = GUIAS[0];

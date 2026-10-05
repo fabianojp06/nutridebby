@@ -24,3 +24,14 @@ describe('/conta/seguranca: tema da conta (D17)', () => {
     expect(await temaDaPagina()).toBe('claro');
   });
 });
+
+describe('/conta/seguranca: ajuda na própria tela (D18, Plano 10A)', () => {
+  it.each([false, true])('2FA ativo = %s → "Como funciona" com o resumo do guia', async (twoFactorEnabled) => {
+    usuario.atual = { appRole: 'nutri', tema: 'claro', twoFactorEnabled };
+    const html = renderToStaticMarkup(await SegurancaPage());
+    expect(html).toContain('<summary');
+    expect(html).toContain('Como funciona');
+    expect(html).toContain('Ela é obrigatória para assinar documentos.');
+    expect(html).toContain('Depois de 5 códigos errados, espere 15 minutos para tentar de novo.');
+  });
+});
