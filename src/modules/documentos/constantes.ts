@@ -44,3 +44,11 @@ export const TIPO_DOCUMENTO_ROTULO = { receita: 'Receita' } as const;
 export const DECLARACAO_RECEITA =
   'Declaro que os itens são suplementos alimentares, medicamentos isentos de prescrição à base de vitaminas, minerais, aminoácidos e/ou proteínas, produtos vegetais classificáveis como alimento ou suplemento ou fitoterápicos isentos de prescrição médica, dentro da minha competência (Resoluções CFN nº 656/2020 e nº 680/2021), e que a receita não indica marca nem local de compra.';
 export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
+
+/**
+ * RN-157: fotos da digitalizada acima disto são recusadas pelo cabeçalho, sem decodificar (como o diário e a capa): uma
+ * "bomba de pixels" decodificada no worker derrubaria o processo e o pg-boss repetiria o job em laço.
+ */
+export const MAX_PIXELS_FOTO = 40_000_000;
+/** D24: um envio digitalizado "recebendo"/"pendente" vale por 1 h; depois, a varredura o expira e outro envio pode começar. */
+export const DIGITALIZACAO_MAX_MS = 3_600_000;

@@ -13,6 +13,7 @@ import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
+import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -199,6 +200,10 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   // Plano 10A (US-143): PDF preparado da receita; a cada 15 min, pendente esquecido (PDF ou digitalização) → falhou e PDF base/fotos órfãos apagados
   await work('documento-pdf', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string }>[]) => {
     await gerarPdfDoDocumento(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  // RN-157 (D4): o PDF novo com as fotos da digitalizada, assinado como "digitalizada" (foto ilegível ou cota: falha já)
+  await work('documento-digitalizado', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string; userId: string }>[]) => {
+    await montarPdfDigitalizado(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
   await boss.schedule('expirar-documento-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-documento-pdf', async () => {

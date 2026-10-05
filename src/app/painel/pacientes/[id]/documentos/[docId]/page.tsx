@@ -7,11 +7,13 @@ import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
 import { DECLARACAO_RECEITA, ROTULO_ASSINATURA, ROTULO_STATUS } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
+import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { descreverItem } from '@/modules/documentos/prescricao';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
+import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
 import { ReceitaForm } from './receita-form';
 
@@ -28,6 +30,8 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
   const habilitada = !!tenant.fitoterapiaRegistro;
   // RN-140 (c): o emitido anonimizado tem conteudo '{}' e nenhum PDF — a página mostra só a situação (correção do /code-review high do PR #18)
   const anonimizado = !!d.anonimizadoEm;
+  // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…")
+  const emCurso = d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente';
   return (
     <section aria-labelledby="documento" className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -86,6 +90,16 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
             <Aviso tipo="aviso">
               Ative a verificação em duas etapas em Segurança para assinar documentos. <a href="/conta/seguranca" className="underline">Ativar agora</a>
             </Aviso>
+          )}
+          {/* RN-157 / D4: as fotos assinadas e o código do 2FA; o worker monta o PDF novo (D24: um envio por vez) */}
+          {emCurso ? (
+            <EstadoPdf docId={d.id} esperando="digitalizacao" />
+          ) : (
+            <>
+              {/* R3: só texto dentro do Aviso (um <p>); o formulário fica fora dele */}
+              {d.digitalizacaoStatus === 'falhou' && <Aviso tipo="erro" papel="alert">{MSG_DIGITALIZADA.falhou}</Aviso>}
+              {data.user.twoFactorEnabled && !bloqueado && <EnviarDigitalizada docId={d.id} aviso={MSG_DIGITALIZADA.aviso} dica={MSG_DIGITALIZADA.fotos} />}
+            </>
           )}
           {!bloqueado && (
             <AcaoDocumento acao={voltarAEditarAction.bind(null, paciente.id, d.id)} rotulo="Voltar a editar" confirmar="O PDF preparado será descartado. Continuar?" />
