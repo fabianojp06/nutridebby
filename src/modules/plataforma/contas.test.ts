@@ -11,7 +11,8 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
-import { ContaError, criarContaNutri, listarContas, reenviarConvite } from './contas';
+import { ContaError, criarContaNutri, definirDocumentosLiberados, listarContas, reenviarConvite } from './contas';
+import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -223,5 +224,19 @@ describe('listarContas', () => {
     expect(await achar()).toMatchObject({ taxaFaltasBase: null, goLiveEm: null });
     await app.db.update(tenants).set({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' }).where(eq(tenants.id, r.tenantId));
     expect(await achar()).toMatchObject({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' });
+  });
+});
+
+describe('definirDocumentosLiberados (D20, Plano 10A)', () => {
+  it('nasce bloqueado; o admin libera e bloqueia de novo; a lista mostra; conta inexistente → ContaNaoEncontradaError', async () => {
+    const x = s();
+    const r = await criarContaNutri({ nomeExibicao: 'Documentos', email: `doc-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `doc-${x}` }, deps);
+    const achar = async () => (await listarContas(app.db, now)).find((c) => c.tenantId === r.tenantId)!;
+    expect((await achar()).documentosLiberados).toBe(false);
+    await definirDocumentosLiberados(app.db, r.tenantId, true, randomUUID());
+    expect((await achar()).documentosLiberados).toBe(true);
+    await definirDocumentosLiberados(app.db, r.tenantId, false, randomUUID());
+    expect((await achar()).documentosLiberados).toBe(false);
+    await expect(definirDocumentosLiberados(app.db, randomUUID(), true, randomUUID())).rejects.toThrow(ContaNaoEncontradaError);
   });
 });

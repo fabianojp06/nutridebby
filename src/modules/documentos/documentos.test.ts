@@ -1,13 +1,15 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
+import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
+import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { DocumentoError, TransicaoInvalidaError } from './erros';
-import { apagarRascunho, criarReceita, lerDocumento, listarDocumentos, prepararParaAssinatura, salvarRascunhoReceita, voltarAEditar } from './documentos';
+import { apagarRascunho, contarAguardandoAssinatura, criarReceita, lerDocumento, listarDocumentos, prepararParaAssinatura, salvarRascunhoReceita, situacaoNoPainel, voltarAEditar, type ItemLista } from './documentos';
 import { MSG_PERFIL_PROF, PerfilIncompletoError } from './perfil-profissional';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -104,5 +106,27 @@ describe('ciclo do documento (US-142, US-143)', () => {
     await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'J' }, { db: app.db });
     await apagarRascunho(T.ctx, p.id, id, { db: app.db });
     expect(await listarDocumentos(T.ctx, p.id, app.db)).toEqual([]);
+  });
+
+  it('P-B8: o cartão do Início conta o que dá para assinar — arquivado conta (D14); bloqueado e anonimizado não (prontuário só para consulta)', async () => {
+    const { T } = await consultorioCompleto();
+    const ativo = await novoPaciente(app.db, T.ctx);
+    const arquivado = await novoPaciente(app.db, T.ctx, { status: 'arquivado' });
+    const bloqueado = await novoPaciente(app.db, T.ctx);
+    for (const p of [ativo, arquivado, bloqueado]) await documentoNoBanco(app.db, T.ctx, p.id, { status: 'aguardando_assinatura' });
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${bloqueado.id}`), app.db);
+    expect(await withTenant(T.ctx, (tx) => contarAguardandoAssinatura(tx), app.db)).toBe(2);
+  });
+});
+
+describe('situacaoNoPainel (linha da situação na lista)', () => {
+  const base: ItemLista = { id: 'x', tipo: 'receita', status: 'rascunho', codigo: null, createdAt: new Date('2026-10-01T12:00:00Z'), assinadoEm: null, assinaturaTipo: null, pdfStatus: null, entregueEm: null, recibos: [] };
+  it('preparo com falha ou sem cota tem a mensagem própria; assinado mostra data e hora no fuso; o resto, nada', () => {
+    const fuso = 'America/Sao_Paulo';
+    expect(situacaoNoPainel(base, fuso)).toBe('');
+    expect(situacaoNoPainel({ ...base, status: 'preparando', pdfStatus: 'pendente' }, fuso)).toBe('');
+    expect(situacaoNoPainel({ ...base, status: 'preparando', pdfStatus: 'falhou' }, fuso)).toBe('Não foi possível gerar o PDF. Tente de novo.');
+    expect(situacaoNoPainel({ ...base, status: 'preparando', pdfStatus: 'sem_cota' }, fuso)).toBe(MSG_COTA_ESGOTADA);
+    expect(situacaoNoPainel({ ...base, status: 'assinado', assinadoEm: new Date('2026-10-02T01:30:00Z') }, fuso)).toBe('Assinado em 01/10/2026 às 22:30');
   });
 });

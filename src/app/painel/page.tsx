@@ -29,7 +29,7 @@ export default async function PainelHome() {
   const { data, tenant, ctx } = await requireNutri('/painel');
   const agora = new Date();
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
-  const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
+  const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
   const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
   const novidades: [string, Consulta[]][] = [
     ['Pedidos de remarcação', nov.pedidosRemarcacao],
@@ -165,6 +165,14 @@ export default async function PainelHome() {
                 </li>
               ))}
             </ul>
+          </Cartao>
+        )}
+
+        {/* P-B8 (Plano 10A): só com os documentos liberados (D20) e algo a assinar */}
+        {!!documentosAguardando && (
+          <Cartao id="documentos-aguardando" titulo="Documentos aguardando assinatura" data-guia="documentos-aguardando">
+            <p>{documentosAguardando === 1 ? '1 documento aguardando assinatura' : `${documentosAguardando} documentos aguardando assinatura`}</p>
+            <p className="text-sm text-suave">{'Abra o prontuário do paciente, aba "Documentos", para assinar e enviar.'}</p>
           </Cartao>
         )}
 

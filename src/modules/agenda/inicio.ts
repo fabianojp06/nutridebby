@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { accessEvents, appointments, auditLog, diaryEntries, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { contarAguardandoAssinatura } from '@/modules/documentos/documentos';
 import { situacaoDoWhatsappNaTransacao, type SituacaoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { situacaoDaCotaNaTransacao, type SituacaoCota } from '@/modules/notificacoes/whatsapp/cota';
 import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
@@ -89,6 +90,8 @@ export type Inicio = {
   dia: ResumoDoDia;
   naoVistos: number;
   metricas: MetricasSucesso;
+  /** P-B8 (Plano 10A): documentos aguardando assinatura; null sem a liberação dos documentos (D20). */
+  documentosAguardando: number | null;
 };
 
 /**
@@ -98,7 +101,7 @@ export type Inicio = {
  */
 export async function lerInicio(
   ctx: TenantContext,
-  tenant: Pick<TenantRow, 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal'>,
+  tenant: Pick<TenantRow, 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados'>,
   agora: Date,
   o: { whatsappLigado: boolean },
   db: Db = getDb(),
@@ -118,6 +121,7 @@ export async function lerInicio(
         dia: await resumoDoDiaNaTransacao(tx, tenant.fuso, agora), // D22: próxima consulta, hoje e agenda do dia
         naoVistos: await contarDiariosNaoVistosNaTransacao(tx),
         metricas: await metricasDeSucessoNaTransacao(tx, tenant, agora), // P08-07 / D15
+        documentosAguardando: tenant.documentosLiberados ? await contarAguardandoAssinatura(tx) : null, // P-B8 / D20
       };
     },
     db,

@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/pacientes']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/pacientes']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
@@ -59,6 +59,8 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/${UUID}`)?.id).toBe('plano-alimentar');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames`)?.id).toBe('prontuario');
     expect(guiaDaRota('/painel/agenda/horarios')?.id).toBe('horarios');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/documentos`)?.id).toBe('documentos');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/documentos/${UUID}`)?.id).toBe('documentos');
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');

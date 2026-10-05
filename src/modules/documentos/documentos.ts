@@ -1,11 +1,13 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { signedDocumentNotes, signedDocumentReceipts, signedDocuments, type TenantRow } from '@/db/schema';
+import { patients, signedDocumentNotes, signedDocumentReceipts, signedDocuments, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { partesNoFuso } from '@/modules/agenda/fuso';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+import { formatarData } from '@/modules/pacientes/datas';
+import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
@@ -206,4 +208,31 @@ export async function estadoDoDocumento(ctx: TenantContext, docId: string, db: D
     const [d] = await tx.select({ status: signedDocuments.status, pdfStatus: signedDocuments.pdfStatus, digitalizacaoStatus: signedDocuments.digitalizacaoStatus }).from(signedDocuments).where(eq(signedDocuments.id, docId));
     return d ? { status: d.status as StatusDocumento, pdfStatus: d.pdfStatus, digitalizacaoStatus: d.digitalizacaoStatus } : null;
   }, db);
+}
+
+/** "dd/mm/aaaa às hh:mm" no fuso do consultório (o formatarQuando da agenda põe o dia da semana na frente). */
+export function dataHora(d: Date, fuso: string): string {
+  const p = partesNoFuso(d, fuso);
+  return `${formatarData(p.data)} às ${p.hora}`;
+}
+
+/** Linha da situação na lista (a parte da entrega e do recebimento entra na T10). */
+export function situacaoNoPainel(d: ItemLista, fuso: string): string {
+  if (d.status === 'preparando') return d.pdfStatus === 'falhou' ? 'Não foi possível gerar o PDF. Tente de novo.' : d.pdfStatus === 'sem_cota' ? MSG_COTA_ESGOTADA : '';
+  if (d.status === 'assinado' && d.assinadoEm) return `Assinado em ${dataHora(d.assinadoEm, fuso)}`;
+  return '';
+}
+
+/**
+ * P-B8: o cartão do Início — só o que a nutricionista consegue resolver. Paciente bloqueado (ou anonimizado) tem o
+ * prontuário só para consulta: não assina, não volta a editar, e a anonimização apaga o não emitido (T14) — não conta.
+ * O arquivado conta: pode redigir, preparar e assinar (D14). Correção do /code-review high do PR #18.
+ */
+export async function contarAguardandoAssinatura(tx: Tx): Promise<number> {
+  const [r] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(signedDocuments)
+    .innerJoin(patients, and(eq(patients.tenantId, signedDocuments.tenantId), eq(patients.id, signedDocuments.patientId)))
+    .where(and(eq(signedDocuments.status, 'aguardando_assinatura'), ne(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm)));
+  return r?.n ?? 0;
 }

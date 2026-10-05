@@ -6,10 +6,11 @@ import { uniqueViolation } from '@/db/errors';
 import { account, tenants, user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
+import { logger } from '@/lib/logger';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { criarConvite, linkDoConvite } from './convites';
-import { getTenantStatus } from './tenant-status';
+import { ContaNaoEncontradaError, getTenantStatus } from './tenant-status';
 
 export const CRN_REGEX = /^CRN-?\d{1,2}\s?\d{3,6}$/i;
 
@@ -126,6 +127,8 @@ export type ContaResumo = {
   /** D15: base do CS-03 (%) e início do uso (CS-01, 'AAAA-MM-DD'), informados pelo admin. */
   taxaFaltasBase: number | null;
   goLiveEm: string | null;
+  /** D20 (Plano 10A): documentos assinados liberados pelo admin. */
+  documentosLiberados: boolean;
 };
 
 /** Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. */
@@ -133,10 +136,10 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
   const r = await db.execute<{
     tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
     created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
-    taxa_faltas_base: string | null; go_live_em: string | null;
+    taxa_faltas_base: string | null; go_live_em: string | null; documentos_liberados: boolean;
   }>(sql`
     select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
-           t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em,
+           t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
@@ -149,6 +152,14 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
       tenantId: row.tenant_id, slug: row.slug, nomeExibicao: row.nome_exibicao, status: row.status, crn: row.crn,
       email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at), waCotaMensal: row.wa_cota_mensal,
       taxaFaltasBase: row.taxa_faltas_base === null ? null : Number(row.taxa_faltas_base), goLiveEm: row.go_live_em,
+      documentosLiberados: row.documentos_liberados,
     };
   });
+}
+
+/** D20 (Plano 10A): o admin libera os documentos assinados do consultório só depois da liberação para uso real. */
+export async function definirDocumentosLiberados(db: Db, tenantId: string, liberar: boolean, adminId: string): Promise<void> {
+  const r = await db.update(tenants).set({ documentosLiberados: liberar, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
+  if (!r.length) throw new ContaNaoEncontradaError();
+  logger.info({ tenantId, adminId, documentosLiberados: liberar }, 'documentos assinados liberados/bloqueados pelo admin');
 }

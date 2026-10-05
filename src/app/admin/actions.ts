@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { getDb } from '@/db/client';
 import { requireUser } from '@/lib/session';
-import { ContaError, criarContaNutri, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
+import { ContaError, criarContaNutri, definirDocumentosLiberados, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
 import { ajustarCotaWhatsapp, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
@@ -73,6 +74,19 @@ export async function reativarAction(tenantId: string): Promise<void> {
   const aviso = await naoEncontradaVira('reativada', () => reativarConta(tenantId, user.id));
   revalidatePath('/admin');
   redirect(`/admin?aviso=${aviso}`);
+}
+
+/** D20 (Plano 10A): liga/desliga os documentos assinados do consultório (a confirmação fica no botão da tabela). */
+export async function definirDocumentosAction(tenantId: string, liberar: boolean): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) return;
+  try {
+    await definirDocumentosLiberados(getDb(), tenantId, liberar, user.id);
+  } catch (e) {
+    if (e instanceof ContaNaoEncontradaError) redirect('/admin?aviso=nao_encontrada'); // M9: aviso, não página de erro
+    throw e;
+  }
+  revalidatePath('/admin');
 }
 
 export type CotaState = { erro?: string; ok?: boolean };

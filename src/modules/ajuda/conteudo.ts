@@ -71,6 +71,41 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    id: 'documentos',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}/documentos(/.*)?$`),
+    titulo: 'Documentos e receita',
+    ajuda: {
+      resumo: 'Receitas de suplementos e fitoterápicos com os campos que o CFN exige, assinadas por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Clique em "Nova receita", adicione os itens e escreva a justificativa de uso (ela fica no prontuário e não vai na receita). Clique em "Salvar rascunho".',
+            'Clique em "Preparar para assinatura" e confirme a declaração. Em alguns segundos o PDF fica pronto.',
+            'Clique em "Baixar PDF para assinar", imprima, assine à mão e envie as fotos das páginas em Enviar documento digitalizado (assinado à mão), com o código da verificação em duas etapas.',
+            'Assinado, o documento vai para o app do paciente; quem não tem o app recebe um link por e-mail. Na consulta presencial, use Entregue pessoalmente.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Para assinar, a verificação em duas etapas precisa estar ativa (Segurança).',
+            'Depois de assinado, o documento não muda. Errou? Use Cancelar documento e faça uma receita nova.',
+            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
+            '"Fitoterápico (forma farmacêutica ou fórmula magistral)" só aparece com a habilitação registrada em Configurações.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'nova-receita', titulo: 'Nova receita', texto: 'Comece aqui. A receita nasce como rascunho e só o paciente certo a recebe depois de assinada.' },
+      { alvo: 'editor-receita', titulo: 'Itens e justificativa', texto: 'Cada tipo de item pede os campos da resolução do CFN. A justificativa de uso fica só no prontuário.' },
+      { alvo: 'preparar-documento', titulo: 'Preparar para assinatura', texto: 'A declaração confirma a sua responsabilidade. O PDF sai com a sua marca, o código de verificação e o QR code.' },
+      { alvo: 'assinar-documento', titulo: 'Assinar e enviar', texto: 'Baixe o PDF, imprima, assine à mão e envie as fotos das páginas com o código da verificação em duas etapas. O sistema monta um PDF novo com o código e o QR.' },
+    ],
+  },
+  {
     id: 'prontuario',
     versao: 1,
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
@@ -163,7 +198,7 @@ export const GUIAS: readonly Guia[] = [
           titulo: 'Dados para documentos',
           itens: [
             'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas, junto com o CRN.',
-            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece Fitoterápico (forma farmacêutica ou fórmula magistral).',
+            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
             'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
           ],
         },
