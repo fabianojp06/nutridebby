@@ -333,6 +333,11 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         `Use o código ${msg.codigo} para confirmar o agendamento com ${msg.nutri}.`,
         'Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail.',
       ]);
+    case 'codigo_documento':
+      return simples(`Código para abrir seu documento: ${msg.codigo}`, [
+        `Use o código ${msg.codigo} para abrir o documento enviado por ${msg.consultorio}.`,
+        'Ele vale por 10 minutos. Se não foi você que pediu, ignore este e-mail.',
+      ]);
     case 'exclusao_consultas_canceladas':
       // o nome do paciente só no corpo, não no assunto (D18)
       return simples('Pedido de exclusão atendido', [

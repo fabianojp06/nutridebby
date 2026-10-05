@@ -33,6 +33,7 @@ export type TenantContext = {
 /** N7: lista fechada dos fluxos de paciente sem sessão de login (sem-conta-guarda.test.ts). */
 export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/agenda/acoes-link.ts',
+  'src/modules/documentos/link-documento.ts',
   'src/modules/notificacoes/whatsapp/webhook.ts',
   'src/modules/pacientes/convite-paciente.ts',
 ];

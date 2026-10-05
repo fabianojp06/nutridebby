@@ -15,6 +15,7 @@ import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
+import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -107,7 +108,8 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     const pedidos = await limparPedidosPublicos(getDb(), new Date());
     const limites = await limparLimites(getDb(), new Date());
     const acessos = await limparAcessosAntigos(getDb(), new Date()); // D13: retenção dos acessos ao portal
-    logger.info({ pedidos, limites, acessos }, 'limpeza da agenda pública');
+    const codigos = await limparCodigosDeDocumentoVencidos(getDb(), new Date()); // RN-158 / §10: códigos do link do documento
+    logger.info({ pedidos, limites, acessos, codigos }, 'limpeza da agenda pública');
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');

@@ -16,6 +16,8 @@ export type EmailMessage =
   | { tipo: 'documento_novo'; para: string; nome: string; consultorio: string; link: string }
   /** RN-158 / D3 b: paciente sem conta — o link de uso único (pede um código no e-mail para abrir). */
   | { tipo: 'documento_link'; para: string; nome: string; consultorio: string; link: string }
+  /** RN-158 / D3 b: código de 6 dígitos para abrir o documento pelo link (neutro: sem tipo nem conteúdo do documento). */
+  | { tipo: 'codigo_documento'; para: string; codigo: string; consultorio: string }
   /** RN-16: código de 6 dígitos da página pública (o job da fila `email` vai cifrado, como todos). */
   | { tipo: 'codigo_agendamento'; para: string; nutri: string; codigo: string }
   | {
