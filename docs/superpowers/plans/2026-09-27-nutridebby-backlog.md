@@ -416,7 +416,7 @@ Plano 10 dividido em 05/10/2026 (decisão do dono), com as decisões ★ D1–D9
 | P10A-14 | LGPD da receita (exportações, bloqueio, anonimização) — D1 ★ aprovada | US-150 base | P10A-10 | Dev | M | ⬜ |
 | P10A-15 | Cancelar documento — D3 ★ aprovada | US-149 | P10A-13 | Dev | M | ⬜ |
 | P10A-16 | E2E pela digitalizada, axe e manual guiado | RNF-144, US-057 | P10A-11 a P10A-15 | Dev | M | ⬜ |
-| P10A-17 | Débitos do Plano 10A (Minors da revisão do PR; tela de auditoria do consultório; interruptor do admin depois do uso real, seg. 12, se o dono quiser) | — | P10A-16 | Dev | S | ⬜ |
+| P10A-17 | Débitos do Plano 10A (Minors da revisão do PR; tela de auditoria do consultório; interruptor do admin depois do uso real, seg. 12, se o dono quiser; "documentos" no resumo do guia `prontuario`, com `versao: 2`, só quando a aba deixar de depender do interruptor D20 — revisão da T16) | — | P10A-16 | Dev | S | ⬜ |
 
 ### Plano 10B — Assinatura gov.br e ICP-Brasil
 
