@@ -19,6 +19,8 @@ export type AcessoAssinatura = { ctx: TenantContext; tenant: TenantRow; user: { 
 export type DepsAssinar = {
   headers: Headers; db?: Db; dataDir?: string; agora?: Date; appUrl?: string;
   confirmar2fa?: (e: { userId: string; codigo: unknown; headers: Headers }) => Promise<'ok' | 'invalido' | 'bloqueado'>;
+  /** I3 do PR #19: devolve a marca anti-repetição quando a ação falha depois do 'ok' (padrão: liberarCodigo2fa). */
+  liberar2fa?: (e: { userId: string; codigo: unknown }) => Promise<void>;
 };
 /**
  * `versao` amarra o registrar à versão do documento que foi LIDA (revisão do rascunho, Important): entre a leitura e o

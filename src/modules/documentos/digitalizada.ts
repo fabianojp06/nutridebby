@@ -5,7 +5,7 @@ import { getDb } from '@/db/client';
 import { patients, signedDocuments } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
-import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
+import { confirmarCodigo2fa, liberarCodigo2fa } from '@/lib/confirmar-2fa';
 import { detectarTipo } from '@/lib/file-type';
 import { logger } from '@/lib/logger';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -40,7 +40,8 @@ export const envioEmCurso = (d: { digitalizacaoStatus: string | null; digitaliza
  * paciente) e o worker monta o PDF novo — o arquivo enviado nunca é entregue como veio.
  * Ordem: fotos conferidas → versão lida (código) e habilitação (Minor 9) → 2FA → TRAVA "recebendo" (D24: um envio por
  * vez; o segundo recebe 409) → fotos antigas apagadas e as novas gravadas, cada uma amarrada à versão + "recebendo" →
- * "pendente" e o job na mesma transação. Qualquer erro depois da trava → "falhou" (a tela pede as fotos de novo).
+ * "pendente" e o job na mesma transação. Qualquer erro depois da trava → "falhou" (a tela pede as fotos de novo); da trava
+ * em diante, um erro também devolve a marca anti-repetição do código (liberarCodigo2fa, I3 do PR #19).
  */
 export async function receberDigitalizada(a: AcessoAssinatura, docId: string, imagens: Buffer[], codigo2fa: unknown, deps: DepsAssinar & { boss?: PgBoss }): Promise<void> {
   const db = deps.db ?? getDb();
@@ -72,13 +73,19 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     logger.warn({ tenantId: a.ctx.tenantId, documentoId: docId }, 'código do 2FA recusado ao assinar');
     throw new RecusaAssinaturaError('codigo_2fa');
   }
+  // I3 do PR #19: daqui em diante, uma falha (409, 507, gravação) devolve a marca anti-repetição do código — o envio não
+  // aconteceu, e o mesmo código certo reenviado não pode virar "Código inválido" nem contar para o bloqueio
+  const liberar2fa = () => (deps.liberar2fa ?? ((e) => liberarCodigo2fa(e, { db })))({ userId: a.user.id, codigo: codigo2fa }).catch(() => undefined);
   // D24: a trava. Versão lida (o código) + nenhum envio em curso; "Voltar a editar" + novo preparo no meio troca o código
   const antigas = await withTenant(a.ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, docId)).for('update');
     if (!d || d.status !== 'aguardando_assinatura' || d.codigo !== lida.codigo || envioEmCurso(d, agora)) throw new TransicaoInvalidaError();
     await tx.update(signedDocuments).set({ digitalizacaoStatus: 'recebendo', digitalizacaoEm: agora }).where(eq(signedDocuments.id, docId));
     return d.digitalizacao ?? [];
-  }, db);
+  }, db).catch(async (e: unknown) => {
+    await liberar2fa();
+    throw e;
+  });
   const daVersao = and(eq(signedDocuments.id, docId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, lida.codigo), eq(signedDocuments.digitalizacaoStatus, 'recebendo'));
   try {
     // regra 9: as fotos de um envio anterior (que falhou) saem cada uma no seu apagarArquivo, com o ponteiro na mesma
@@ -113,6 +120,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     }, db);
   } catch (e) {
     await withTenant(a.ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(daVersao), db).catch(() => undefined);
+    await liberar2fa();
     throw e;
   }
   logger.info({ tenantId: a.ctx.tenantId, documentoId: docId, fotos: imagens.length }, 'digitalização recebida');

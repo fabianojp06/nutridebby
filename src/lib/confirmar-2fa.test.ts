@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../test/db';
 import { criarEEntrar } from '../../test/sessao';
 import { createAuth } from './auth';
-import { confirmarCodigo2fa, MAX_TENTATIVAS_2FA } from './confirmar-2fa';
+import { confirmarCodigo2fa, liberarCodigo2fa, MAX_TENTATIVAS_2FA } from './confirmar-2fa';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const auth = createAuth(app.db);
@@ -41,6 +41,17 @@ describe('confirmarCodigo2fa (RN-145, D13)', () => {
     const codigo = totp.generate();
     expect(await confirmarCodigo2fa({ userId, codigo, headers: headers() }, { db: app.db, verificar })).toBe('ok'); // Better Auth de verdade
     expect(await confirmarCodigo2fa({ userId, codigo, headers: headers() }, { db: app.db, verificar })).toBe('invalido');
+  });
+
+  it('I3 do PR #19: liberarCodigo2fa devolve a marca da ação que falhou — o mesmo código passa de novo; sem devolver, não', async () => {
+    const u = randomUUID();
+    const certo = { db: app.db, verificar: () => Promise.resolve(true) };
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '135 790', headers: headers() }, certo)).toBe('ok');
+    await liberarCodigo2fa({ userId: u, codigo: '135790' }, { db: app.db }); // a ação falhou (409/507)
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '135790', headers: headers() }, certo)).toBe('ok');
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '135790', headers: headers() }, certo)).toBe('invalido'); // a ação confirmou: a marca fica
+    await liberarCodigo2fa({ userId: randomUUID(), codigo: '135790' }, { db: app.db }); // de outra usuária: não mexe nesta
+    expect(await confirmarCodigo2fa({ userId: u, codigo: '135790', headers: headers() }, certo)).toBe('invalido');
   });
 
   it('aceita espaço no meio ("123 456"); recusa formato errado sem chamar o Better Auth', async () => {

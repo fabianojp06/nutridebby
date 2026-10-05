@@ -3116,6 +3116,8 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
       throw new RecusaAssinaturaError('codigo_2fa');
     }
   }
+  // 10A, code review do PR #19 (I3): com o código já aceito, uma falha do salvarArquivo abaixo (507, 409, gravação) devolve
+  // a marca anti-repetição — `.catch(async (e) => { await (deps.liberar2fa ?? ((x) => liberarCodigo2fa(x, { db })))({ userId: a.user.id, codigo: input.codigo2fa }).catch(() => undefined); throw e; })`, como a digitalizada
   await salvarArquivo(
     a.ctx,
     {

@@ -1,11 +1,14 @@
 // Ajudantes novoConsultorio/outroDocumento/novoPreparoNoBanco de test/documentos.ts (T8).
 import sharp from 'sharp';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConsultorio, novoPreparoNoBanco, outroDocumento, pngDeclarando } from '../../../test/documentos';
+import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
 import { logger } from '@/lib/logger';
+import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { receberDigitalizada } from './digitalizada';
 import { expirarPdfsDeDocumentoPendentes } from './documento-pdf-job';
@@ -67,6 +70,21 @@ describe('digitalizada (RN-157, D4)', () => {
     expect(await tentativas()).toHaveLength(1);
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
     expect(d).toEqual({ digitalizacao: null, digitalizacao_status: null });
+  });
+
+  it('RN-145 (code review do PR #19, I3): o envio que falha depois do 2FA (507) devolve a marca anti-repetição — o MESMO código certo, reenviado em seguida, passa', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    // a confirmação de verdade (limite e marca no banco); só o Better Auth é trocado por "código certo"
+    const real = { ...deps(x.dataDir), confirmar2fa: (e: { userId: string; codigo: unknown; headers: Headers }) => confirmarCodigo2fa(e, { db: app.db, verificar: async () => true }) };
+    await app.db.update(tenants).set({ armazenamentoBytes: COTA_BYTES }).where(eq(tenants.id, x.T.tenantId)); // cota esgotada
+    await expect(receberDigitalizada(x.acesso, x.id, [await png()], '246810', real)).rejects.toThrow('Espaço de armazenamento esgotado');
+    await app.db.update(tenants).set({ armazenamentoBytes: 0 }).where(eq(tenants.id, x.T.tenantId)); // o suporte liberou espaço
+    await receberDigitalizada(x.acesso, x.id, [await png()], '246810', real);
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d.digitalizacao_status).toBe('pendente');
+    // e o envio que DEU CERTO gasta o código: o mesmo, de novo, é recusado (anti-repetição continua)
+    await withTenant(x.T.ctx, (tx) => tx.execute(sql`update signed_documents set digitalizacao_status = 'falhou' where id = ${x.id}`), app.db);
+    await expect(receberDigitalizada(x.acesso, x.id, [await png()], '246810', real)).rejects.toSatisfy(recusa('codigo_2fa'));
   });
 
   it('PNG que declara 30.000 × 30.000 → recusa "fotos" (US-144: acima de 40 MP) pelo cabeçalho, sem decodificar (o processo segue de pé)', async () => {

@@ -33,14 +33,17 @@ function codigoRecusado(err: unknown): boolean {
  * RN-145 / D13 (Plano 10A): o código do 2FA "no momento de assinar". `auth.api.verifyTOTP` chamado no servidor não passa
  * pelo rate limit HTTP do Better Auth nem conta falhas com sessão ativa (G7 da pesquisa) — por isso o limite próprio:
  * 5 tentativas em 15 min por usuária (chave = HMAC do id, `public_rate_limits`), zerado no acerto, e a recusa do mesmo
- * código já aceito nos últimos 90 s. O código nunca vai ao log; quem chama registra a recusa no histórico (digitalizada.ts; no Plano 10B, também o envio do PDF assinado).
+ * código já aceito nos últimos 90 s (devolvido por `liberarCodigo2fa` se a ação falhar). O código nunca vai ao log; quem chama registra a recusa no histórico (digitalizada.ts; no Plano 10B, também o envio do PDF assinado).
  * Um erro que não é o "código errado" do Better Auth sobe (codigoRecusado). O endpoint HTTP `/two-factor/verify-totp` com
  * sessão e 2FA ativo é recusado em auth.ts (hooks.before): sem isso, ele seria um oráculo fora deste limite.
  */
+const normalizar = (codigo: unknown) => (typeof codigo === 'string' ? codigo.replace(/\s/g, '') : '');
+const marcaDoCodigo = (userId: string, codigo: string) => chaveDoLimite('totp-usado', `${userId}:${codigo}`);
+
 export async function confirmarCodigo2fa(e: { userId: string; codigo: unknown; headers: Headers }, deps: Deps2fa = {}): Promise<'ok' | 'invalido' | 'bloqueado'> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  const codigo = typeof e.codigo === 'string' ? e.codigo.replace(/\s/g, '') : '';
+  const codigo = normalizar(e.codigo);
   const tentativas = chaveDoLimite('totp-erro', e.userId);
   if (!(await consumirLimite(db, tentativas, MAX_TENTATIVAS_2FA, JANELA_2FA_S, agora))) return 'bloqueado';
   if (!/^\d{6}$/.test(codigo)) return 'invalido';
@@ -52,7 +55,18 @@ export async function confirmarCodigo2fa(e: { userId: string; codigo: unknown; h
     certo = false;
   }
   if (!certo) return 'invalido';
-  if (!(await consumirLimite(db, chaveDoLimite('totp-usado', `${e.userId}:${codigo}`), 1, REPETICAO_2FA_S, agora))) return 'invalido';
+  if (!(await consumirLimite(db, marcaDoCodigo(e.userId, codigo), 1, REPETICAO_2FA_S, agora))) return 'invalido';
   await liberarLimite(db, tentativas);
   return 'ok';
+}
+
+/**
+ * Code review do PR #19 (I3): a marca anti-repetição é gasta no 'ok' (dois envios simultâneos com o mesmo código: só um
+ * passa), mas a AÇÃO pode falhar depois (409 de um envio em curso, 507 da cota, erro de gravação). Quem chama devolve a
+ * marca nessa falha — senão o mesmo código certo, reenviado em menos de 90 s, viraria "Código inválido" e contaria para o
+ * bloqueio. Não abre repetição: só a ação que NÃO aconteceu devolve; a que confirmou fica com a marca.
+ */
+export async function liberarCodigo2fa(e: { userId: string; codigo: unknown }, deps: { db?: Db } = {}): Promise<void> {
+  const codigo = normalizar(e.codigo);
+  if (/^\d{6}$/.test(codigo)) await liberarLimite(deps.db ?? getDb(), marcaDoCodigo(e.userId, codigo));
 }
