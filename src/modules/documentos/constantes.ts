@@ -35,3 +35,12 @@ export type SituacaoVerificacao = 'valido' | 'substituido' | 'cancelado' | 'elim
 export type EventoRecibo = 'aberto' | 'recebido';
 export type ViaRecibo = 'portal' | 'link_email' | 'pessoalmente';
 export const TIPO_DOCUMENTO_ROTULO = { receita: 'Receita' } as const;
+
+/**
+ * D5 da spec (RASCUNHO até a revisão da Debby e a consulta ao CRN-3, runbook passo 3). Minor 10 da revisão de normas:
+ * o texto cita também os medicamentos isentos de prescrição à base de vitaminas, minerais, aminoácidos e/ou proteínas
+ * (Res. CFN 656/2020, art. 1º, § 1º) — registrado na spec v0.3.1 como o texto proposto que vai à Debby e ao CRN-3.
+ */
+export const DECLARACAO_RECEITA =
+  'Declaro que os itens são suplementos alimentares, medicamentos isentos de prescrição à base de vitaminas, minerais, aminoácidos e/ou proteínas, produtos vegetais classificáveis como alimento ou suplemento ou fitoterápicos isentos de prescrição médica, dentro da minha competência (Resoluções CFN nº 656/2020 e nº 680/2021), e que a receita não indica marca nem local de compra.';
+export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';

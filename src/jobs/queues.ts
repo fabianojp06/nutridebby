@@ -43,6 +43,13 @@ export const QUEUES = {
   // As novas tentativas (backoff do pg-boss 12 com sorteio: 30–60 s, 60–120 s, 120–240 s; de 3,5 a 7 min ao todo) também
   // cobrem o ERROR que chega antes de o envio gravar o id da mensagem
   'whatsapp-evento': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
+  // Plano 10A (US-143): PDF preparado da receita, com o código e o QR (≤ 30 s, RNF-140). Payload { tenantId, documentoId }
+  'documento-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 10A (RN-157, D4): PDF montado com as fotos da digitalizada. Payload { tenantId, documentoId }
+  'documento-digitalizado': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 180, deleteAfterSeconds: 86_400 },
+  // Plano 10A: PDF pendente há mais de 1 h → falhou; digitalização "recebendo"/"pendente" há mais de 1 h → falhou; PDF base e
+  // fotos da digitalizada sem referência → apagados (de 15 em 15 min)
+  'expirar-documento-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;
