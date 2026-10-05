@@ -40,6 +40,9 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     expect(await pdfDoLink(x.token, sessao, deps())).toBe(x.d.pdfPath);
     const r = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select evento, via from signed_document_receipts where documento_id = ${x.d.id}`), app.db);
     expect(r.rows).toEqual([{ evento: 'aberto', via: 'link_email' }]);
+    // regra 8 / RNF-142: a abertura pelo link é uma leitura auditada, sem ator (D20 do Plano 05)
+    const a = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select actor_user_id, patient_id from audit_log where acao = 'ler' and entidade = 'documentos' and entidade_id = ${x.d.id}`), app.db);
+    expect(a.rows).toEqual([{ actor_user_id: null, patient_id: x.p.id }]);
   });
 
   it('limites: 1 código por minuto e 5 por hora por documento; 5 erros invalidam o código', async () => {
@@ -80,6 +83,8 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     await pedirCodigoDocumento(w.token, { turnstile: 't' }, deps());
     const { sessao } = await confirmarCodigoDocumento(w.token, { codigo: await ultimoCodigo(w.p.email) }, deps());
     expect(await pdfDoLink(z.token, sessao, deps())).toBeNull();
+    const lido = await withTenant(z.T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where acao = 'ler' and entidade = 'documentos' and entidade_id = ${z.d.id}`), app.db);
+    expect(lido.rows).toEqual([]); // a sessão de outro link não abre nem audita
   });
 
   it('D20: com o interruptor do admin desligado, o link fica indisponível, nenhum código é enviado e a sessão aberta antes deixa de abrir o PDF', async () => {

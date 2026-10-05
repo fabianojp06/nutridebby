@@ -5,6 +5,7 @@ import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConsultorio, novoPreparoNoBanco, outroDocumento, pngDeclarando } from '../../../test/documentos';
 import { withTenant } from '@/db/tenant';
+import { logger } from '@/lib/logger';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { receberDigitalizada } from './digitalizada';
 import { expirarPdfsDeDocumentoPendentes } from './documento-pdf-job';
@@ -25,7 +26,7 @@ afterAll(async () => {
 const png = () => sharp({ create: { width: 800, height: 1100, channels: 3, background: '#ffffff' } }).png().toBuffer();
 const pdf = Buffer.from('%PDF-1.7\n1 0 obj << /OpenAction << /S /JavaScript /JS (app.alert(1)) >> >> endobj\n%%EOF\n');
 const recusa = (c: string) => (e: unknown) => e instanceof RecusaAssinaturaError && e.codigo === c;
-const deps = (dataDir: string, codigo: 'ok' | 'invalido' = 'ok') => ({ db: app.db, dataDir, headers: new Headers(), confirmar2fa: async () => codigo });
+const deps = (dataDir: string, codigo: 'ok' | 'invalido' | 'bloqueado' = 'ok') => ({ db: app.db, dataDir, headers: new Headers(), confirmar2fa: async () => codigo });
 describe('digitalizada (RN-157, D4)', () => {
   it('PDF como "digitalizado" é recusado (só fotos); 6 fotos também, com o texto da US-144; o código do 2FA é pedido em todo envio', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
@@ -35,6 +36,36 @@ describe('digitalizada (RN-157, D4)', () => {
     expect(seis).toSatisfy(recusa('fotos'));
     expect((seis as RecusaAssinaturaError).mensagem()).toBe('Envie de 1 a 5 fotos, até 10 MB no total.');
     await expect(receberDigitalizada(x.acesso, x.id, [f], '000000', deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
+  });
+
+  it('RN-145: sem o 2FA ativo → "sem_2fa" antes de pedir o código; nada gravado', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const confirmar2fa = vi.fn(async () => 'ok' as const);
+    for (const twoFactorEnabled of [false, null])
+      await expect(receberDigitalizada({ ...x.acesso, user: { ...x.acesso.user, twoFactorEnabled } }, x.id, [await png()], '123456', { ...deps(x.dataDir), confirmar2fa })).rejects.toSatisfy(recusa('sem_2fa'));
+    expect(confirmar2fa).not.toHaveBeenCalled();
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ digitalizacao: null, digitalizacao_status: null });
+  });
+
+  it('RN-145: código recusado → "codigo_2fa" e a tentativa no audit_log (sem o código); bloqueado → "tentativas_2fa" sem auditoria nova', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const tentativas = async () =>
+      (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select acao, entidade, entidade_id, patient_id, row_to_json(a)::text as linha from audit_log a where entidade = 'tentativa_assinatura' and entidade_id = ${x.id}`), app.db)).rows as { acao: string; entidade: string; entidade_id: string; patient_id: string; linha: string }[];
+    const aviso = vi.spyOn(logger, 'warn');
+    try {
+      await expect(receberDigitalizada(x.acesso, x.id, [await png()], '987654', deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain('987654'); // regra 3: o código não vai para o log
+    } finally {
+      aviso.mockRestore();
+    }
+    const t = await tentativas();
+    expect(t.map(({ linha: _, ...r }) => r)).toEqual([{ acao: 'criar', entidade: 'tentativa_assinatura', entidade_id: x.id, patient_id: x.p.id }]);
+    expect(t[0].linha).not.toContain('987654');
+    await expect(receberDigitalizada(x.acesso, x.id, [await png()], '987654', deps(x.dataDir, 'bloqueado'))).rejects.toSatisfy(recusa('tentativas_2fa'));
+    expect(await tentativas()).toHaveLength(1);
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ digitalizacao: null, digitalizacao_status: null });
   });
 
   it('PNG que declara 30.000 × 30.000 → recusa "fotos" (US-144: acima de 40 MP) pelo cabeçalho, sem decodificar (o processo segue de pé)', async () => {

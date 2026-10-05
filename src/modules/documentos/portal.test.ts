@@ -63,9 +63,15 @@ describe('documentos no portal (US-146)', () => {
     const c = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'cancelado' });
     const r = await documentoNoBanco(app.db, T.ctx, p.id);
     const ctx = ctxPaciente(T.tenantId, p.id);
+    // regra 8 / RNF-142: cada abertura do PDF é uma leitura auditada do documento (o rascunho, que não abre, não audita)
+    const leituras = async (id: string) =>
+      (await withTenant(T.ctx, (tx) => tx.execute(sql`select patient_id from audit_log where acao = 'ler' and entidade = 'documentos' and entidade_id = ${id}`), app.db)).rows;
     expect(await caminhoDoPdfNoPortal(ctx, a.id, app.db)).toBe(a.pdfPath);
+    expect(await leituras(a.id)).toEqual([{ patient_id: p.id }]);
     expect(await caminhoDoPdfNoPortal(ctx, a.id, app.db)).toBe(a.pdfPath);
+    expect(await leituras(a.id)).toHaveLength(2);
     expect(await caminhoDoPdfNoPortal(ctx, r.id, app.db)).toBeNull();
+    expect(await leituras(r.id)).toEqual([]);
     const recibos = await withTenant(T.ctx, (tx) => tx.execute(sql`select evento, via from signed_document_receipts where documento_id = ${a.id}`), app.db);
     expect(recibos.rows).toEqual([{ evento: 'aberto', via: 'portal' }]);
     const em = await confirmarRecebimentoNoPortal(ctx, a.id, app.db);

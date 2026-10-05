@@ -5,13 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
 const DOC = '00000000-0000-4000-8000-0000000000d1';
 // T9: cada caso pode trocar o paciente e o documento (o padrão é o emitido anonimizado da T6)
-const caso = vi.hoisted(() => ({ paciente: null as Record<string, unknown> | null, doc: null as Record<string, unknown> | null }));
+const caso = vi.hoisted(() => ({ paciente: null as Record<string, unknown> | null, doc: null as Record<string, unknown> | null, twoFactorEnabled: true as boolean | null }));
 vi.mock('../../prontuario', () => ({
   carregarProntuario: async () => ({
     ctx: {},
     tenant: { fuso: 'America/Sao_Paulo', documentosLiberados: true, fitoterapiaRegistro: null },
     paciente: caso.paciente ?? { id: PACIENTE, status: 'bloqueado', anonimizadoEm: new Date('2026-10-01T12:00:00Z'), userId: null, email: 'ana@ex.com' },
-    data: { user: { twoFactorEnabled: true } },
+    data: { user: { twoFactorEnabled: caso.twoFactorEnabled } },
   }),
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
@@ -131,7 +131,8 @@ describe('página do documento: cancelar (US-149, RN-147)', () => {
 });
 
 describe('página do documento: digitalizada em "Aguardando assinatura" (RN-157, D24)', () => {
-  const pagina = async (digitalizacaoStatus: string | null) => {
+  const pagina = async (digitalizacaoStatus: string | null, twoFactorEnabled: boolean | null = true) => {
+    caso.twoFactorEnabled = twoFactorEnabled;
     caso.paciente = { id: PACIENTE, status: 'ativo', anonimizadoEm: null, userId: null, email: 'ana@ex.com' };
     caso.doc = {
       id: DOC, tipo: 'receita', status: 'aguardando_assinatura', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: null,
@@ -145,6 +146,14 @@ describe('página do documento: digitalizada em "Aguardando assinatura" (RN-157,
     const html = await pagina(null);
     expect(html).toContain('Enviar documento digitalizado (assinado à mão)');
     expect(html).not.toContain('Montando o PDF digitalizado…');
+  });
+
+  it.each([false, null])('RN-145: 2FA %s → o aviso "Ative a verificação em duas etapas…" e nada de formulário', async (dois) => {
+    const html = await pagina(null, dois);
+    expect(html).toContain('Ative a verificação em duas etapas em Segurança para assinar documentos.');
+    expect(html).toContain('href="/conta/seguranca"');
+    expect(html).not.toContain('Enviar documento digitalizado (assinado à mão)');
+    expect(await pagina(null)).not.toContain('Ative a verificação em duas etapas'); // com o 2FA, sem o aviso
   });
 
   it.each(['recebendo', 'pendente'])('"%s": "Montando o PDF digitalizado…" e nada de formulário (um envio por vez)', async (st) => {
