@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { symmetricEncrypt } from 'better-auth/crypto';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, patients, tenants, user } from '@/db/schema';
+import { account, consents, patients, tenants, twoFactor, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { getEnv } from '@/env';
 import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { GUIAS } from '@/modules/ajuda/conteudo';
@@ -15,6 +17,13 @@ export const E2E_RECUPERA = { email: 'recupera-e2e@nutridebby.test', password: '
 export const E2E_MULTI = { email: 'multi-e2e@nutridebby.test', password: 'Multi2026segura' };
 export const E2E_MANUAL = { email: 'manual-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_ADMIN_PLATAFORMA = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
+/**
+ * Plano 10A (T16): assinar exige 2FA (RN-145). Conta só do fluxo de documentos, no mesmo consultório, com o 2FA já ativo:
+ * ativá-lo na `E2E_NUTRI` compartilhada mandaria todo login dela para o desafio e quebraria as outras specs. `totp` é o
+ * segredo como o Better Auth guarda (texto puro, a chave do HMAC em UTF-8; a URI do app leva o base32 dele): fixo e
+ * fictício, só do E2E. As specs copiam a credencial (importar este arquivo roda o seed).
+ */
+export const E2E_DOCS = { email: 'docs-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
 
 const db = getDb();
 
@@ -59,9 +68,26 @@ const recuperaId = randomUUID();
 await db.insert(user).values({ id: recuperaId, name: 'Recupera E2E', email: E2E_RECUPERA.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
 await db.insert(account).values({ id: randomUUID(), userId: recuperaId, accountId: recuperaId, providerId: 'credential', password: await hashPassword(E2E_RECUPERA.password) });
 
+await db.delete(user).where(eq(user.email, E2E_DOCS.email));
+const docsId = randomUUID();
+await db.insert(user).values({ id: docsId, name: 'Docs E2E', email: E2E_DOCS.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id, twoFactorEnabled: true });
+await db.insert(account).values({ id: randomUUID(), userId: docsId, accountId: docsId, providerId: 'credential', password: await hashPassword(E2E_DOCS.password) });
+// como o enableTwoFactor do Better Auth 1.7.6 grava (plugins/two-factor/index.mjs): symmetricEncrypt com o `secretConfig`,
+// que é a própria AUTH_SECRET (sem BETTER_AUTH_SECRETS, a rotação de segredos, em auth.ts e no .env)
+const chave = getEnv().AUTH_SECRET;
+await db.insert(twoFactor).values({
+  id: randomUUID(),
+  userId: docsId,
+  verified: true,
+  secret: await symmetricEncrypt({ key: chave, data: E2E_DOCS.totp }),
+  backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
+});
+// RN-156: as consultas da verificação pública do E2E (documentos.spec e acessibilidade.spec, 10.9.14.77 a .80) começam zeradas
+for (const ip of ['10.9.14.77', '10.9.14.78', '10.9.14.79', '10.9.14.80']) await liberarLimite(db, chaveDoLimite('verificacao-ip', ip));
+
 // P08-10 (D27): as contas do E2E não esbarram no tour nem no aviso "Primeira vez aqui?"; a conta do manual.spec começa zerada
 const TUDO_VISTO = Object.fromEntries(GUIAS.map((g) => [g.id, { v: g.versao, estado: 'concluido' as const }]));
-await db.update(user).set({ guia: TUDO_VISTO, tema: 'sistema' }).where(inArray(user.email, [E2E_NUTRI.email, E2E_RECUPERA.email]));
+await db.update(user).set({ guia: TUDO_VISTO, tema: 'sistema' }).where(inArray(user.email, [E2E_NUTRI.email, E2E_RECUPERA.email, E2E_DOCS.email]));
 await db.delete(user).where(eq(user.email, E2E_MANUAL.email));
 const manualId = randomUUID();
 await db.insert(user).values({ id: manualId, name: 'Manual E2E', email: E2E_MANUAL.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
