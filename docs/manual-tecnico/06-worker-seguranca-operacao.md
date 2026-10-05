@@ -658,10 +658,15 @@ Os roles voltam **sem senha** (`--no-role-passwords`). Sem a senha do migrator, 
 
 ### 6.5.10 Estado atual
 
-O backup ainda **não está instalado no host**: P02-11 está 🔄 no backlog
-(`docs/superpowers/plans/2026-09-27-nutridebby-backlog.md:63`) e é o primeiro item de "Antes do go-live (dono)"
-(linha 299). Sem ele, nada de paciente real (`docs/operacao/go-live.md`, "Bloqueia"). A instalação copia os **dois**
-scripts para `/usr/local/lib/nutri-backup/` (`docs/operacao/restauracao.md:11-14`; Plano 02, Tarefa 14, passos 6 e 8).
+O backup ainda **não roda**: está **parcial**. Os scripts e as unidades estão no host desde 30/09/2026
+(`/etc/systemd/system/nutri-backup.{service,timer}`, `/usr/local/lib/nutri-backup/`, `/etc/nutri-backup/`), mas o
+timer está desabilitado (`systemctl list-unit-files 'nutri*'`: `nutri-backup.service static`, `nutri-backup.timer
+disabled`). Falta o passo do dono: chaves no `backup.env` e habilitar o timer (P02-11 passo 6), sem refazer a
+instalação do zero. P02-11 está 🔄 no backlog (`docs/superpowers/plans/2026-09-27-nutridebby-backlog.md:63`) e é o
+primeiro item de "Antes do go-live (dono)" (linha 299). Sem ele, nada de paciente real (`docs/operacao/go-live.md`,
+"Bloqueia"). A instalação copia os **dois** scripts para `/usr/local/lib/nutri-backup/`
+(`docs/operacao/restauracao.md`, "Instalação no host"; Plano 02, Tarefa 14, passos 6 e 8); a cada mudança dos scripts
+o dono reinstala (regra 10).
 
 ---
 
@@ -824,6 +829,10 @@ tabela pede. (6) Atualizar o gerenciador de senhas e registrar o incidente; LGPD
 | Configurar Sentry (scrubbers, IP, rate limit) e o monitor externo | `docs/operacao/go-live.md` |
 | Autorizar e acompanhar a rodada de carga | `docs/operacao/carga.md:3` |
 | Assinar o checklist do go-live | `docs/operacao/go-live.md`, "Assinatura" |
+| Fazer (ou pedir ao Claude, só os itens de leitura) a rotina de sustentação e registrá-la na issue mensal | [Cap. 8](08-sustentacao.md); checklist em `docs/operacao/sustentacao.md` |
+
+A rotina periódica (diária a anual), o catálogo dos serviços externos com cotas e vencimentos, quem confere cada item
+e onde fica o registro estão no [capítulo 8, Sustentação](08-sustentacao.md).
 
 ---
 

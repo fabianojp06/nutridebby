@@ -7,7 +7,7 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026 |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data |
 | Escopo | Planos 01–08, spec do MVP v1.11, migrations `0000`–`0088` (89 arquivos em `drizzle/`) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
@@ -21,7 +21,9 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
   [cap. 7](07-testes-qualidade-e-processo.md).
 - **Quem opera** o servidor (dono): [cap. 6](06-worker-seguranca-operacao.md), em especial
   [O que só o dono faz](06-worker-seguranca-operacao.md#610-o-que-só-o-dono-faz) e a
-  [Rotina de incidentes](06-worker-seguranca-operacao.md#69-rotina-de-incidentes).
+  [Rotina de incidentes](06-worker-seguranca-operacao.md#69-rotina-de-incidentes); e o [cap. 8](08-sustentacao.md)
+  para a rotina periódica, os serviços externos e o registro (checklist em
+  [`docs/operacao/sustentacao.md`](../operacao/sustentacao.md)).
 
 Não é manual de uso. O manual da nutricionista é o "manual guiado" dentro do painel
 ([§5.8](05-agenda-portal-conteudo.md#58-manual-guiado-p08-10-p08-d26-d27)).
@@ -32,7 +34,7 @@ Não é manual de uso. O manual da nutricionista é o "manual guiado" dentro do 
    `.github/workflows/`).
 2. Spec do MVP: `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-mvp-historias.md`.
 3. Planos, índice e backlog: `docs/superpowers/plans/`.
-4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`).
+4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`, `sustentacao.md`).
 5. `CLAUDE.md` do projeto.
 
 Quando a spec e o código divergem, o manual descreve o código e registra a divergência no fim do capítulo. A lista
@@ -56,6 +58,7 @@ flowchart LR
   C5 --> C6
   C2 --> C7["7 Testes, qualidade<br/>e processo"]
   C6 --> C7
+  C6 --> C8["8 Sustentação<br/>rotina e serviços externos"]
 ```
 
 | Cap. | Arquivo | Assunto | Dono de |
@@ -67,6 +70,7 @@ flowchart LR
 | 5 | [05-agenda-portal-conteudo.md](05-agenda-portal-conteudo.md) | Agenda, página pública, motor de notificações, canais (e-mail, WhatsApp, push), portal PWA, conteúdos, interface V2, manual guiado | Notificações, contexto `publico`, portal, audiência do conteúdo |
 | 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 17 filas, segurança HTTP, backup e restauração |
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
+| 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
 
 ### Seções principais
 
@@ -142,6 +146,13 @@ flowchart LR
 [7.11 Plano novo](07-testes-qualidade-e-processo.md#711-como-abrir-um-plano-novo) ·
 [7.12 Primeiro dia](07-testes-qualidade-e-processo.md#712-guia-do-primeiro-dia)
 
+**8. Sustentação** — [8.1 Visão geral e estado atual](08-sustentacao.md#81-visão-geral) ·
+[8.2 O que roda sozinho](08-sustentacao.md#82-o-que-roda-sozinho-e-onde-ver-que-rodou) ·
+[8.3 Rotina periódica](08-sustentacao.md#83-rotina-periódica) ·
+[8.4 Serviços externos](08-sustentacao.md#84-catálogo-de-serviços-externos) ·
+[8.5 Responsáveis e registro](08-sustentacao.md#85-responsáveis-e-registro) ·
+[8.6 Lacunas](08-sustentacao.md#86-lacunas-o-que-hoje-não-é-vigiado)
+
 ### Onde cada assunto mora
 
 Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem um resumo de uma ou duas frases e um link.
@@ -163,6 +174,8 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Tela nova (painel e portal) | [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova) | §1 (rotas), §3.17, §5.9 |
 | Volta atrás de um deploy | [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás) | §1.8, §7.7 |
 | Segredo vazado (troca de variável) | [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado) | §6.10 |
+| Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
+| Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
 
 ---
 
@@ -305,7 +318,8 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 [cap. 4](04-modulos-clinicos.md#divergências-encontradas) ·
 [cap. 5](05-agenda-portal-conteudo.md#divergências-encontradas) ·
 [cap. 6](06-worker-seguranca-operacao.md#divergências-encontradas) ·
-[cap. 7](07-testes-qualidade-e-processo.md#713-divergências-encontradas)
+[cap. 7](07-testes-qualidade-e-processo.md#713-divergências-encontradas) ·
+[cap. 8](08-sustentacao.md#divergências-encontradas)
 
 ### Arquitetura, stack, infraestrutura e CI
 
@@ -389,6 +403,15 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 46 | Plano 01 | `/code-review high` 2× até sair limpo | Uma vez + re-revisão do diff (revisto em 02/10/2026) | Doc | 7 #8 |
 | 47 | `README.md` da raiz | Texto do `create-next-app` (porta 3000, Vercel) | Porta 3100, `src/app`, deploy GHCR → Easypanel | Doc | 7 #9 |
 | 48 | `.prettierrc` | `printWidth: 100` | O CI não roda o Prettier; muitos arquivos passam de 100 colunas | Doc | 7 #10 |
+
+### Operação e sustentação
+
+| # | Fonte | Diz | Produção / código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 49 | §6.4.1; `src/app/api/csp-relatorio/route.ts:14-15` | O log do Swarm não tem rotação | Rotação `json-file` 10 MB × 3 e só as 5 últimas tarefas do serviço: o log some depressa | Doc | 8 #1 |
+| 50 | `docs/operacao/restauracao.md`, "Instalação no host" | `postgres:16-alpine` é a mesma imagem do `nutri_db` | O `nutri_db` roda `postgres:16` (Debian); mesma versão principal | Doc | 8 #2 |
+| 51 | Spec INT-02; `docs/operacao/go-live.md` | DMARC `p=quarantine` | DNS publica `p=none` | Pend. | 8 #3 |
+| 52 | — | (nada sobre receber e-mail no domínio) | MX de `wsscloud.tech` aponta para a VPS, que não recebe e-mail; alertas e respostas para `@wsscloud.tech` se perdem | Pend. | 8 #4 |
 
 **Para decidir com o dono** (tipo Comp.): #3, #10, #18, #28, #32, #35, #36, #39 e #40. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

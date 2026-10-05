@@ -6,7 +6,8 @@ Metas: **RPO 24 h, RTO 4 h**. Teste **mensal**, com OK do dono (lê o backup de 
 ## O que precisa estar FORA da VPS (gerenciador de senhas do dono — nunca colar em chat)
 `BACKUP_PASSPHRASE` e o salt do rclone crypt; `AUTH_SECRET` (cifra o TOTP), `ENCRYPTION_KEY`, `FILE_URL_SECRET`,
 `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, `EVOLUTION_*`, chaves do R2, do Turnstile e do Resend. Sem eles o backup não
-recupera o serviço (o TOTP e os links assinados dependem das chaves).
+recupera o serviço (o TOTP e os links assinados dependem das chaves). Que a cópia do gerenciador **abre** o backup se
+prova no "Teste da chave fora da VPS", abaixo (o teste mensal usa o `backup.env` da VPS e não testa essa cópia).
 
 ## Instalação no host (uma vez, e de novo a cada mudança dos scripts — regra 10)
 Junto com o `nutri-backup.sh` (Plano 02, Tarefa 14):
@@ -25,6 +26,20 @@ O teste de restauração usa a imagem `postgres:16-alpine` (a mesma do `nutri_db
    `rclone copy cripto:data/atual/<tenant>/logo/<arquivo> "$d"`; conferir o tamanho com `stored_files.bytes` (leitura do
    banco de produção → confirmação) e `rm -rf "$d"`.
 5. Registrar o resultado. Duração acima de 1 h → avisar o dono (o RTO é 4 h para o serviço inteiro).
+
+## Teste da chave fora da VPS (trimestral, item T11 do cap. 8; só o dono)
+Perdida a VPS, a única chave é a do gerenciador de senhas. Este teste prova que ela abre o backup, sem baixar dado de
+saúde e sem tocar na VPS.
+1. Na máquina do dono (**fora** da VPS), com o rclone instalado: `d=$(mktemp -d)` (modo 0700) e
+   `export RCLONE_CONFIG="$d/rclone.conf"`.
+2. Montar a config só com valores do gerenciador: um remoto S3 do R2 (provider Cloudflare, chave de acesso e endpoint
+   da conta) e, sobre ele, o remoto `cripto` do tipo `crypt` apontando para o bucket, com `password` e `password2`
+   gerados por `rclone obscure` a partir da passphrase e do salt (digitados no terminal, nunca colados em chat).
+3. `rclone lsl cripto:db/diario`: os nomes `nutri-AAAA-MM-DD.dump` aparecem **decifrados** e com data recente. Nome
+   embaralhado ou erro de acesso = chave errada ou rodada → incidente (o backup seria irrecuperável no desastre).
+4. `rm -rf "$d"; unset RCLONE_CONFIG`.
+5. Registrar "chave do gerenciador ok" na issue de sustentação do mês. Opcional: comparar o `sha256sum` de
+   `AUTH_SECRET` e `ENCRYPTION_KEY` do gerenciador com o do Easypanel, sem exibir o valor.
 
 ## Restauração de verdade (desastre)
 1. VPS nova ou a mesma: Easypanel com o projeto `nutri` (serviços `nutri_db`, `nutri_app`, `nutri_worker`; `nutri_evolution` à parte).
