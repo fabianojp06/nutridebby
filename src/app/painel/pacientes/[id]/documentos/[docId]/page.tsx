@@ -10,6 +10,7 @@ import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
+import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { descreverItem } from '@/modules/documentos/prescricao';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
@@ -36,6 +37,25 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const anonimizado = !!d.anonimizadoEm;
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…")
   const emCurso = d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente';
+  // spec §4: o emitido (assinado ou cancelado) mostra à nutricionista como foi assinado e o PDF; o paciente baixa o cancelado pelo portal
+  const emitido = (
+    <>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+        <dt>Assinado em</dt>
+        <dd>{d.assinadoEm ? dataHora(d.assinadoEm, tenant.fuso) : '—'}</dd>
+        <dt>Assinatura</dt>
+        <dd>{d.assinaturaTipo ? ROTULO_ASSINATURA[d.assinaturaTipo] : '—'}</dd>
+        {d.assinanteNome && (
+          <>
+            <dt>Assinado por</dt>
+            <dd>{d.assinanteNome}</dd>
+          </>
+        )}
+      </dl>
+      {!anonimizado && <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>}
+    </>
+  );
+  const entregaAntes = d.status === 'cancelado' && !anonimizado ? situacaoDaEntrega(d, tenant.fuso) : '';
   return (
     <section aria-labelledby="documento" className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -113,19 +133,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
 
       {d.status === 'assinado' && (
         <Cartao id="documento-assinado" titulo="Documento assinado">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-            <dt>Assinado em</dt>
-            <dd>{d.assinadoEm ? dataHora(d.assinadoEm, tenant.fuso) : '—'}</dd>
-            <dt>Assinatura</dt>
-            <dd>{d.assinaturaTipo ? ROTULO_ASSINATURA[d.assinaturaTipo] : '—'}</dd>
-            {d.assinanteNome && (
-              <>
-                <dt>Assinado por</dt>
-                <dd>{d.assinanteNome}</dd>
-              </>
-            )}
-          </dl>
-          {!anonimizado && <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>}
+          {emitido}
           {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
           {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
           {/* US-149 / RN-147: só de "assinado", com o paciente não bloqueado (o bloqueado é só leitura) */}
@@ -138,6 +146,14 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {d.canceladoEm && <p>{`Cancelado em ${dataHora(d.canceladoEm, tenant.fuso).split(' às ')[0]}`}</p>}
           {/* D15 da spec: o motivo é só da equipe (STAFF_ONLY), nunca vai ao paciente nem às exportações */}
           {d.motivoCancelamento && <p className="text-sm text-suave">{`Motivo (só no prontuário): ${d.motivoCancelamento}`}</p>}
+          {emitido}
+          {/* a entrega e o recebimento de antes do cancelamento, só para leitura (sem "Entregue pessoalmente" nem "Reenviar link") */}
+          {entregaAntes && (
+            <section aria-labelledby="entrega" className="mt-4 space-y-2">
+              <h3 id="entrega" className="font-semibold">Entrega</h3>
+              <p>{entregaAntes}</p>
+            </section>
+          )}
         </Cartao>
       )}
     </section>

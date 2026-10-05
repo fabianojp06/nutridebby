@@ -4,15 +4,21 @@ import { useActionState } from 'react';
 import { Botao } from '@/components/ui/botao';
 import { cancelarAction, type EstadoForm } from '../actions';
 
-/** US-149: o motivo fica só no prontuário; a confirmação diz que não tem volta. */
+/**
+ * US-149: o motivo fica só no prontuário; a confirmação diz que não tem volta.
+ * noValidate: o motivo vazio vai ao servidor, que devolve o texto da spec (não o balão do navegador);
+ * sem motivo, não pergunta "não pode ser desfeita" antes do erro.
+ */
 export function Cancelar({ patientId, docId, confirmacao }: { patientId: string; docId: string; confirmacao: string }) {
   const [s, action, pendente] = useActionState<EstadoForm, FormData>(cancelarAction.bind(null, patientId, docId), {});
   return (
     <form
       action={action}
       className="mt-4 space-y-2"
+      noValidate
       onSubmit={(e) => {
-        if (!window.confirm(confirmacao)) e.preventDefault();
+        const motivo = new FormData(e.currentTarget).get('motivo');
+        if (typeof motivo === 'string' && motivo.trim() && !window.confirm(confirmacao)) e.preventDefault();
       }}
       data-guia="cancelar-documento"
     >

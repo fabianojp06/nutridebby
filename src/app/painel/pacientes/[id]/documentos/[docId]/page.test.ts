@@ -97,12 +97,36 @@ describe('página do documento: cancelar (US-149, RN-147)', () => {
     expect(await pagina({ status: 'bloqueado' }, doc('assinado'))).not.toContain('Cancelar documento');
   });
 
+  it('o motivo vazio chega ao servidor: o formulário tem novalidate (o texto da US-149, não o balão do navegador)', async () => {
+    const html = await pagina({ status: 'ativo' }, doc('assinado'));
+    expect(html).toMatch(/<form[^>]*novalidate=""[^>]*data-guia="cancelar-documento"/i);
+  });
+
   it('cancelado: "Cancelado em dd/mm/aaaa" e o motivo só no prontuário; sem entrega nem botão de cancelar', async () => {
     const html = await pagina({ status: 'ativo' }, doc('cancelado', { canceladoEm: new Date('2026-09-05T12:00:00Z'), motivoCancelamento: 'Dose digitada errada' }));
     expect(html).toContain('Cancelado em 05/09/2026');
     expect(html).toContain('Motivo (só no prontuário): Dose digitada errada');
     expect(html).not.toContain('Cancelar documento');
     expect(html).not.toContain('Entregue pessoalmente');
+    // spec §4: a nutricionista continua vendo o emitido (o paciente ainda baixa o PDF pelo portal)
+    expect(html).toContain('Assinado em');
+    expect(html).toContain('02/09/2026 às 09:00');
+    expect(html).toContain('Assinatura');
+    expect(html).toContain('Baixar PDF assinado');
+    expect(html).toContain(`/api/painel/documentos/${DOC}/pdf`);
+  });
+
+  it('cancelado: a entrega e o recebimento de antes do cancelamento só para leitura, sem "Entregue pessoalmente" nem "Reenviar link"', async () => {
+    const recebido = [{ evento: 'recebido', via: 'portal', em: new Date('2026-09-03T13:00:00Z') }];
+    const html = await pagina({ status: 'ativo' }, doc('cancelado', { canceladoEm: new Date('2026-09-05T12:00:00Z'), entregueEm: new Date('2026-09-02T12:00:00Z'), recibos: recebido }));
+    expect(html).toContain('Recebido pelo paciente em 03/09/2026 às 10:00');
+    expect(html).not.toContain('>Entregue pessoalmente<');
+    expect(html).not.toContain('Reenviar link por e-mail');
+    expect(html).not.toContain('Este paciente ainda não tem acesso ao app.');
+    // anonimizado (RN-140 c): sem PDF e sem a entrega, como no assinado
+    const anon = await pagina({ status: 'ativo' }, doc('cancelado', { canceladoEm: new Date('2026-09-05T12:00:00Z'), recibos: recebido, anonimizadoEm: new Date('2026-10-01T12:00:00Z') }));
+    expect(anon).not.toContain('Baixar PDF assinado');
+    expect(anon).not.toContain('Recebido pelo paciente');
   });
 });
 
