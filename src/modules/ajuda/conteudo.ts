@@ -152,13 +152,27 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 1,
+    versao: 2,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
-    ajuda: { resumo: 'Perfil e marca, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.', secoes: [{ titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] }] },
+    ajuda: {
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.',
+      secoes: [
+        { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
+        {
+          titulo: 'Dados para documentos',
+          itens: [
+            'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas, junto com o CRN.',
+            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece Fitoterápico (forma farmacêutica ou fórmula magistral).',
+            'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
+          ],
+        },
+      ],
+    },
     passos: [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
+      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Nome completo, e-mail e telefone do carimbo das receitas. Mudar aqui não altera documento já preparado.' },
     ],
   },
   {

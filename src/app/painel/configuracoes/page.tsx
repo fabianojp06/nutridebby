@@ -6,7 +6,7 @@ import { TemaForm } from './tema-form';
 export const dynamic = 'force-dynamic';
 
 const CARTOES = [
-  { href: '/painel/configuracoes/perfil', titulo: 'Perfil e marca', texto: 'Nome, CRN, logo, cor e regras da agenda.' },
+  { href: '/painel/configuracoes/perfil', titulo: 'Perfil e marca', texto: 'Nome, CRN, logo, cor, regras da agenda e dados para documentos.' },
   { href: '/painel/agenda/horarios', titulo: 'Horários de atendimento', texto: 'Dias, horários e bloqueios da agenda.' },
   { href: '/painel/whatsapp', titulo: 'WhatsApp', texto: 'Conectar o número do consultório.' },
   { href: '/painel/alimentos', titulo: 'Alimentos', texto: 'Tabela TACO e os seus alimentos.' },
