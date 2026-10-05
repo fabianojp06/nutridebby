@@ -118,6 +118,17 @@ describe('documento_novo e documento_link (US-145, RN-152, RN-158)', () => {
   });
 });
 
+describe('documento_atualizado (US-149, D11)', () => {
+  it('assunto e corpo da spec, botão "Ver meus documentos"; neutro: sem tipo de documento nem motivo', () => {
+    const r = renderEmail({ tipo: 'documento_atualizado', para: 'ana@ex.com', nome: 'Ana', consultorio: 'Consultório Debby', link: 'https://x.dev/p/documentos?v=t' });
+    expect(r.subject).toBe('Um documento seu foi atualizado');
+    expect(r.text).toContain('Olá, Ana. Consultório Debby atualizou um documento seu. Para ver, entre no app: https://x.dev/p/documentos?v=t');
+    expect(r.html).toContain('href="https://x.dev/p/documentos?v=t"');
+    expect(r.html).toContain('Ver meus documentos');
+    for (const dado of ['receita', 'Receita', 'cancel', 'Cancel']) expect(r.subject + r.text + r.html, dado).not.toContain(dado);
+  });
+});
+
 describe('consulta (US-031, US-033, US-034)', () => {
   it('consulta: lembretes de 24 h e 2 h, marcada e cancelada (com o fuso no texto)', () => {
     const base = { tipo: 'consulta' as const, para: 'ana@ex.com', nome: 'Ana', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', hora: '14:00', modalidade: 'presencial' as const, local: 'Rua das Flores, 10', link: 'https://x.dev/consulta/tok' };

@@ -115,6 +115,8 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   conteudo_novo: { corpo: 'Sua nutricionista publicou um novo conteúdo', tela: '/p/conteudos' },
   // US-145 / RN-152: neutro — nem o tipo do documento, nem itens ou produtos
   documento_novo: { corpo: 'Você tem um novo documento.', tela: '/p/documentos' },
+  // US-149 / D11: o cancelamento, também neutro (nem o tipo do documento, nem o motivo)
+  documento_atualizado: { corpo: 'Um documento seu foi atualizado.', tela: '/p/documentos' },
 };
 
 /**

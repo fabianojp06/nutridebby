@@ -25,7 +25,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, reenviarLinkAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, cancelarAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, reenviarLinkAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -78,6 +78,23 @@ describe('ações do documento: o erro volta ao formulário; o sinal de sucesso 
     const assinado = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
     await expect(reenviarLinkAction(p.id, assinado.id, {})).rejects.toThrow(`redirect /painel/pacientes/${p.id}/documentos/${assinado.id}?link=1`);
     expect(await entreguePessoalmenteAction(p.id, assinado.id, {})).toEqual({ ok: true });
+  });
+
+  it('"Cancelar documento" (US-149): sem motivo e fora de "assinado", o erro volta sem revalidar; com motivo, cancelado e revalida', async () => {
+    const { N, p } = await consultorio();
+    const motivo = (m: string) => {
+      const f = new FormData();
+      f.set('motivo', m);
+      return f;
+    };
+    const assinado = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    expect(await cancelarAction(p.id, assinado.id, {}, motivo('   '))).toEqual({ erros: { motivo: 'Escreva o motivo do cancelamento (até 500 caracteres).' } });
+    const rascunho = await documentoNoBanco(db, N.ctx, p.id);
+    expect(await cancelarAction(p.id, rascunho.id, {}, motivo('Dose errada'))).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(await cancelarAction(p.id, assinado.id, {}, motivo('Dose errada'))).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+    expect(await lerDocumento(N.ctx, p.id, assinado.id, db)).toMatchObject({ status: 'cancelado', motivoCancelamento: 'Dose errada', canceladoEm: expect.any(Date) });
   });
 });
 

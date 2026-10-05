@@ -7,12 +7,14 @@ import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
 import { DECLARACAO_RECEITA, ROTULO_ASSINATURA, ROTULO_STATUS } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
+import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { descreverItem } from '@/modules/documentos/prescricao';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
+import { Cancelar } from './cancelar';
 import { Entrega } from './entrega';
 import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
@@ -126,6 +128,16 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {!anonimizado && <BotaoLink href={`/api/painel/documentos/${d.id}/pdf`} prefetch={false} variante="secundario">Baixar PDF assinado</BotaoLink>}
           {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
           {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
+          {/* US-149 / RN-147: só de "assinado", com o paciente não bloqueado (o bloqueado é só leitura) */}
+          {!bloqueado && <Cancelar patientId={paciente.id} docId={d.id} confirmacao={MSG_CANCELAMENTO.confirmacao} />}
+        </Cartao>
+      )}
+
+      {d.status === 'cancelado' && (
+        <Cartao id="documento-cancelado" titulo="Documento cancelado">
+          {d.canceladoEm && <p>{`Cancelado em ${dataHora(d.canceladoEm, tenant.fuso).split(' às ')[0]}`}</p>}
+          {/* D15 da spec: o motivo é só da equipe (STAFF_ONLY), nunca vai ao paciente nem às exportações */}
+          {d.motivoCancelamento && <p className="text-sm text-suave">{`Motivo (só no prontuário): ${d.motivoCancelamento}`}</p>}
         </Cartao>
       )}
     </section>

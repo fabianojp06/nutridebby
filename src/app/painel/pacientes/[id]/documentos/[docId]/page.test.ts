@@ -16,8 +16,7 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-// a T15 acrescenta cancelarAction
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn() }));
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
@@ -72,6 +71,38 @@ describe('página do documento: a entrega do assinado (US-145, D3, D4, D6)', () 
     const arquivado = await pagina({ status: 'arquivado', userId: null }, assinado());
     expect(arquivado).toContain('Paciente arquivado: entregue o documento pessoalmente');
     expect(arquivado).not.toContain('Reenviar link por e-mail');
+  });
+});
+
+describe('página do documento: cancelar (US-149, RN-147)', () => {
+  const doc = (status: string, extra: Record<string, unknown> = {}) => ({
+    id: DOC, tipo: 'receita', status, codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: new Date('2026-09-02T12:00:00Z'),
+    assinaturaTipo: 'digitalizada', pdfStatus: null, entregueEm: null, recibos: [], conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: '' },
+    justificativa: null, motivoCancelamento: null, assinanteNome: null, basePdfPath: null, pdfPath: 'x', pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null,
+    anonimizadoEm: null, canceladoEm: null, ...extra,
+  });
+  const pagina = async (paciente: Record<string, unknown>, d: Record<string, unknown>) => {
+    caso.paciente = { id: PACIENTE, anonimizadoEm: null, email: 'ana@ex.com', userId: null, ...paciente };
+    caso.doc = d;
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
+  };
+
+  it('assinado: o motivo ("Fica só no prontuário.") e o botão "Cancelar documento"; arquivado também; bloqueado não', async () => {
+    const html = await pagina({ status: 'ativo' }, doc('assinado'));
+    expect(html).toContain('data-guia="cancelar-documento"');
+    expect(html).toContain('Motivo do cancelamento');
+    expect(html).toContain('Fica só no prontuário.');
+    expect(html).toContain('Cancelar documento');
+    expect(await pagina({ status: 'arquivado' }, doc('assinado'))).toContain('Cancelar documento');
+    expect(await pagina({ status: 'bloqueado' }, doc('assinado'))).not.toContain('Cancelar documento');
+  });
+
+  it('cancelado: "Cancelado em dd/mm/aaaa" e o motivo só no prontuário; sem entrega nem botão de cancelar', async () => {
+    const html = await pagina({ status: 'ativo' }, doc('cancelado', { canceladoEm: new Date('2026-09-05T12:00:00Z'), motivoCancelamento: 'Dose digitada errada' }));
+    expect(html).toContain('Cancelado em 05/09/2026');
+    expect(html).toContain('Motivo (só no prontuário): Dose digitada errada');
+    expect(html).not.toContain('Cancelar documento');
+    expect(html).not.toContain('Entregue pessoalmente');
   });
 });
 

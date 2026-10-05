@@ -24,6 +24,7 @@ export type ItemLista = {
 export type DocumentoLido = ItemLista & {
   conteudo: ConteudoReceita; justificativa: string | null; motivoCancelamento: string | null; assinanteNome: string | null;
   basePdfPath: string | null; pdfPath: string | null; pdfSha256: string | null; digitalizacaoStatus: string | null; anonimizadoEm: Date | null;
+  canceladoEm: Date | null;
 };
 
 const CONTEUDO_VAZIO: ConteudoReceita = { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
@@ -192,6 +193,7 @@ export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: 
     ...comoItem(d, rs.get(id) ?? []),
     conteudo: d.conteudo as ConteudoReceita, justificativa: n?.justificativaUso ?? null, motivoCancelamento: n?.motivoCancelamento ?? null,
     assinanteNome: d.assinanteNome, basePdfPath: d.basePdfPath, pdfPath: d.pdfPath, pdfSha256: d.pdfSha256, digitalizacaoStatus: d.digitalizacaoStatus, anonimizadoEm: d.anonimizadoEm,
+    canceladoEm: d.canceladoEm,
   };
 }
 

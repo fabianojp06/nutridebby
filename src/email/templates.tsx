@@ -282,6 +282,24 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         text: [...linhas, msg.link].join('\n\n'),
       };
     }
+    case 'documento_atualizado': {
+      // US-149 / D11: o mesmo texto com e sem conta (o link sem conta abre a página do link, que diz "não está mais disponível")
+      const subject = 'Um documento seu foi atualizado';
+      const linhas = [`Olá, ${msg.nome}. ${msg.consultorio} atualizou um documento seu. Para ver, entre no app: ${msg.link}`];
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            {linhas.map((l) => (
+              <P key={l}>{l}</P>
+            ))}
+            <Botao href={msg.link}>Ver meus documentos</Botao>
+            <LinkReserva href={msg.link} />
+          </Layout>,
+        ),
+        text: [...linhas, msg.link].join('\n\n'),
+      };
+    }
     case 'consulta': {
       const subject = {
         lembrete_24h: `Lembrete: sua consulta é amanhã às ${msg.hora}`,

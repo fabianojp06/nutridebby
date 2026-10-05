@@ -112,8 +112,10 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
     expect(pushDaNotificacao(semConsulta('conteudo_novo'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Sua nutricionista publicou um novo conteúdo', url: `https://app.exemplo.com/p/conteudos?v=${tenant.id}` });
     // US-145 / RN-152: o documento novo, sem dizer o tipo
     expect(pushDaNotificacao(semConsulta('documento_novo'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Você tem um novo documento.', url: `https://app.exemplo.com/p/documentos?v=${tenant.id}` });
+    // US-149 / D11: o cancelamento, também sem dizer o tipo nem o motivo
+    expect(pushDaNotificacao(semConsulta('documento_atualizado'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Um documento seu foi atualizado.', url: `https://app.exemplo.com/p/documentos?v=${tenant.id}` });
     expect(pushDaNotificacao(semConsulta('toString'), deps)).toBeNull();
-    for (const tipo of ['push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo']) {
+    for (const tipo of ['push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado']) {
       const corpo = pushDaNotificacao(semConsulta(tipo), deps)!.corpo; // o título é o nome do app ("NutriDebby")
       for (const dado of ['Ana', 'Souza', 'Debby', 'Silva']) expect(corpo, dado).not.toContain(dado);
     }

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
+import { cancelarDocumento } from '@/modules/documentos/cancelamento';
 import { apagarRascunho, criarReceita, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoReceita, voltarAEditar } from '@/modules/documentos/documentos';
 import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
@@ -148,4 +149,16 @@ export async function reenviarLinkAction(patientId: string, docId: string, _prev
     return comoEstado(e);
   }
   redirect(`${caminho(patientId, docId)}?link=1`);
+}
+
+/** US-149 / RN-147: "Cancelar documento" com o motivo (fica só no prontuário); o erro de campo volta ao formulário. */
+export async function cancelarAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  try {
+    await cancelarDocumento(ctx, patientId, docId, f.get('motivo'));
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
 }
