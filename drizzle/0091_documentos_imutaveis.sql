@@ -42,8 +42,10 @@ BEGIN
       RAISE EXCEPTION 'transição inválida a partir do rascunho (RN-141)' USING ERRCODE = '42501';
     END IF;
     -- Minor 13 (revisão de segurança): fora dos emitidos, nada do PDF assinado nem do base (defesa em profundidade)
+    -- e nada da digitalizada (revisão T2, I1: a trava D24 e as fotos só existem em aguardando_assinatura)
     IF NEW.pdf_path IS NOT NULL OR NEW.pdf_sha256 IS NOT NULL OR NEW.assinado_em IS NOT NULL OR NEW.assinatura_tipo IS NOT NULL
-       OR NEW.base_pdf_path IS NOT NULL OR NEW.entregue_em IS NOT NULL OR NEW.digitalizacao IS NOT NULL THEN
+       OR NEW.base_pdf_path IS NOT NULL OR NEW.entregue_em IS NOT NULL
+       OR NEW.digitalizacao IS NOT NULL OR NEW.digitalizacao_status IS NOT NULL OR NEW.digitalizacao_em IS NOT NULL THEN
       RAISE EXCEPTION 'rascunho sem PDF nem assinatura (RN-141)' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
@@ -54,7 +56,8 @@ BEGIN
     IF NEW.status = 'rascunho' THEN
       IF NOT (mudou <@ ARRAY['status', 'codigo', 'declaracao_em', 'base_pdf_path', 'base_pdf_sha256', 'base_pdf_bytes', 'area_assinatura', 'pdf_status', 'pdf_pedido_em', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em'])
          OR NEW.codigo IS NOT NULL OR NEW.declaracao_em IS NOT NULL OR NEW.base_pdf_path IS NOT NULL OR NEW.base_pdf_sha256 IS NOT NULL
-         OR NEW.base_pdf_bytes IS NOT NULL OR NEW.area_assinatura IS NOT NULL OR NEW.digitalizacao IS NOT NULL THEN
+         OR NEW.base_pdf_bytes IS NOT NULL OR NEW.area_assinatura IS NOT NULL
+         OR NEW.digitalizacao IS NOT NULL OR NEW.digitalizacao_status IS NOT NULL OR NEW.digitalizacao_em IS NOT NULL THEN
         RAISE EXCEPTION 'voltar a editar fora da regra (RN-140 a)' USING ERRCODE = '42501';
       END IF;
       RETURN NEW;
@@ -68,9 +71,11 @@ BEGIN
       END IF;
       RETURN NEW;
     END IF;
-    -- mesmo estado: só o acompanhamento do PDF e da digitalizada
+    -- mesmo estado: só o acompanhamento do PDF; a digitalizada (fotos e trava D24) só em aguardando_assinatura
+    -- (revisão T2, I1: fotos gravadas em "preparando" chegariam ao PDF de outra versão, com outro código)
     IF NEW.status = OLD.status THEN
-      IF NOT (mudou <@ ARRAY['pdf_status', 'pdf_pedido_em', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em']) THEN
+      IF NOT (mudou <@ ARRAY['pdf_status', 'pdf_pedido_em'])
+         AND NOT (OLD.status = 'aguardando_assinatura' AND mudou <@ ARRAY['pdf_status', 'pdf_pedido_em', 'digitalizacao', 'digitalizacao_status', 'digitalizacao_em']) THEN
         RAISE EXCEPTION 'conteúdo congelado desde o preparo (RN-140)' USING ERRCODE = '42501';
       END IF;
       RETURN NEW;

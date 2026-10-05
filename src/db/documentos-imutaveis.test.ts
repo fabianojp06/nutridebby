@@ -13,6 +13,8 @@ import { withTenant, type TenantContext } from './tenant';
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
+/** Revisão T2: a recusa vem do ramo certo do gatilho (o 42501 sozinho também é o código da RLS). */
+const negadoPor = (trecho: string) => (e: unknown) => negado(e) && String((((e as { cause?: unknown }).cause ?? e) as { message?: string }).message).includes(trecho);
 const fk = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '23503';
 const worker = (tenantId: string): TenantContext => ({ tenantId, role: 'worker' });
 const linha = async (ctx: TenantContext, id: string) =>
@@ -30,6 +32,9 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     // Minor 13 (revisão de segurança): fora dos emitidos, nada de PDF assinado, SHA-256, data ou tipo de assinatura
     await expect(q(sql`update signed_documents set pdf_sha256 = ${'c'.repeat(64)} where id = ${d.id}`)).rejects.toSatisfy(negado);
     await expect(q(sql`update signed_documents set assinatura_tipo = 'digitalizada' where id = ${d.id}`)).rejects.toSatisfy(negado);
+    // revisão T2 (I1): nem a trava da digitalizada (D24)
+    await expect(q(sql`update signed_documents set digitalizacao_status = 'recebendo' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('rascunho sem PDF'));
+    await expect(q(sql`update signed_documents set digitalizacao_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('rascunho sem PDF'));
     await q(sql`delete from signed_documents where id = ${d.id}`);
   });
 
@@ -39,27 +44,75 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
     const base = `${T.tenantId}/documento_base/${randomUUID()}.pdf`;
     await withTenant(T.ctx, (tx) => tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id})`), app.db);
+    // revisão T2 (I1): em "preparando" só o acompanhamento do PDF muda; a digitalizada só em aguardando_assinatura
+    const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
+    await q(sql`update signed_documents set pdf_status = 'pendente', pdf_pedido_em = now() where id = ${d.id}`);
+    await expect(q(sql`update signed_documents set digitalizacao = ${JSON.stringify([`${T.tenantId}/documento_digitalizado/${randomUUID()}.jpg`])}::jsonb where id = ${d.id}`)).rejects.toSatisfy(negadoPor('congelado'));
+    await expect(q(sql`update signed_documents set digitalizacao_status = 'pendente', digitalizacao_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('congelado'));
     const pronto = sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10, area_assinatura = '{"x1":351,"y1":62,"x2":559,"y2":132}' where id = ${d.id}`;
     await expect(withTenant(T.ctx, (tx) => tx.execute(pronto), app.db)).rejects.toSatisfy(negado);
     await withTenant(worker(T.tenantId), (tx) => tx.execute(pronto), app.db);
     await expect(withTenant(T.ctx, (tx) => tx.execute(sql`update signed_documents set conteudo = '{}' where id = ${d.id}`), app.db)).rejects.toSatisfy(negado);
     await expect(withTenant(T.ctx, (tx) => tx.execute(sql`update signed_documents set status = 'rascunho' where id = ${d.id}`), app.db)).rejects.toSatisfy(negado); // código ficou
-    await withTenant(T.ctx, (tx) => tx.execute(sql`update signed_documents set status = 'rascunho', codigo = null, declaracao_em = null, base_pdf_path = null, base_pdf_sha256 = null, base_pdf_bytes = null, area_assinatura = null, pdf_status = null, digitalizacao_em = null where id = ${d.id}`), app.db);
+    await q(sql`update signed_documents set digitalizacao_status = 'recebendo', digitalizacao_em = now() where id = ${d.id}`); // aguardando: a trava D24 entra
+    const voltar = sql`update signed_documents set status = 'rascunho', codigo = null, declaracao_em = null, base_pdf_path = null, base_pdf_sha256 = null, base_pdf_bytes = null, area_assinatura = null, pdf_status = null`;
+    await expect(q(sql`${voltar}, digitalizacao_em = null where id = ${d.id}`)).rejects.toSatisfy(negadoPor('voltar a editar')); // a trava ficaria no rascunho
+    await expect(q(sql`${voltar}, digitalizacao_status = null where id = ${d.id}`)).rejects.toSatisfy(negadoPor('voltar a editar'));
+    await q(sql`${voltar}, digitalizacao_status = null, digitalizacao_em = null where id = ${d.id}`);
     expect((await linha(T.ctx, d.id)).codigo).toBeNull();
   });
 
-  it('assinado: conteúdo, PDF e SHA-256 nunca mudam, nem pelo DELETE; o PDF base pode sair; o no-op passa; cancelar é a única saída', async () => {
+  it('assinado: conteúdo, PDF e SHA-256 nunca mudam, nem pelo DELETE; o no-op passa; cancelado não volta nem vira substituído', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
     const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
     await expect(q(sql`update signed_documents set conteudo = '{"x":1}' where id = ${d.id}`)).rejects.toSatisfy(negado);
+    // RN-140 (teste obrigatório; revisão T2, I2): trocar o PDF por outro arquivo do tenant passa no CHECK e na FK; só o gatilho segura
+    const outroPdf = `${T.tenantId}/documento_assinado/${randomUUID()}.pdf`;
+    await q(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_assinado', ${outroPdf}, 10, 'application/pdf', ${p.id})`);
+    await expect(q(sql`update signed_documents set pdf_path = ${outroPdf} where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda'));
+    await expect(q(sql`update signed_documents set pdf_path = null where id = ${d.id}`)).rejects.toSatisfy(negado);
     await expect(q(sql`update signed_documents set pdf_sha256 = ${'c'.repeat(64)} where id = ${d.id}`)).rejects.toSatisfy(negado);
     await expect(q(sql`update signed_documents set status = 'rascunho', codigo = null where id = ${d.id}`)).rejects.toSatisfy(negado);
     await expect(q(sql`delete from signed_documents where id = ${d.id}`)).rejects.toSatisfy(negado);
     await q(sql`update signed_documents set tenant_id = tenant_id, updated_at = now() where id = ${d.id}`); // no-op
     await q(sql`update signed_documents set status = 'cancelado', cancelado_em = now() where id = ${d.id}`);
     await expect(q(sql`update signed_documents set status = 'assinado', cancelado_em = null where id = ${d.id}`)).rejects.toSatisfy(negado);
+    await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    expect((await linha(T.ctx, d.id)).status).toBe('cancelado');
+  });
+
+  it('substituído (D2 ★, testado por SQL): assinado → substituido só com substituido_em; depois só solta o base e as fotos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
+    const arq = (tipo: string) => `${T.tenantId}/${tipo}/${randomUUID()}.pdf`;
+    const [base, assinado] = [arq('documento_base'), arq('documento_assinado')];
+    const fotos = [arq('documento_digitalizado'), arq('documento_digitalizado')];
+    const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
+    await q(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${p.id}), (${T.tenantId}, 'documento_assinado', ${assinado}, 10, 'application/pdf', ${p.id})`);
+    await withTenant(worker(T.tenantId), (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10 where id = ${d.id}`), app.db);
+    await q(sql`update signed_documents set digitalizacao = ${JSON.stringify(fotos)}::jsonb, digitalizacao_status = 'pendente', digitalizacao_em = now() where id = ${d.id}`);
+    await q(sql`update signed_documents set status = 'assinado', pdf_path = ${assinado}, pdf_sha256 = ${'a'.repeat(64)}, assinado_em = now(), assinatura_tipo = 'digitalizada', digitalizacao_status = null, digitalizacao_em = null where id = ${d.id}`);
+
+    await expect(q(sql`update signed_documents set status = 'substituido' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda')); // sem substituido_em
+    await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now(), conteudo = '{"x":1}' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda'));
+    await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now(), cancelado_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda'));
+    await q(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}`);
+
+    await expect(q(sql`update signed_documents set conteudo = '{"x":1}' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    await expect(q(sql`update signed_documents set cancelado_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    await expect(q(sql`update signed_documents set substituido_em = now() + interval '1 day' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    await expect(q(sql`update signed_documents set status = 'cancelado', cancelado_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    await expect(q(sql`update signed_documents set status = 'assinado', substituido_em = null where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));
+    await expect(q(sql`update signed_documents set base_pdf_path = ${arq('documento_base')} where id = ${d.id}`)).rejects.toSatisfy(negadoPor('só sai')); // troca
+    await expect(q(sql`delete from signed_documents where id = ${d.id}`)).rejects.toSatisfy(negado);
+
+    await q(sql`update signed_documents set digitalizacao = ${JSON.stringify([fotos[1]])}::jsonb where id = ${d.id}`); // uma foto sai
+    await q(sql`update signed_documents set digitalizacao = null where id = ${d.id}`);
+    await q(sql`update signed_documents set base_pdf_path = null where id = ${d.id}`);
+    expect(await linha(T.ctx, d.id)).toMatchObject({ status: 'substituido', pdf_path: assinado });
   });
 
   it('regra 9: a assinatura mantém os ponteiros do base e das fotos; depois eles só saem (base → nulo, fotos encolhem), nunca trocam nem crescem', async () => {
