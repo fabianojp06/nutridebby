@@ -379,6 +379,46 @@ Sem os itens abaixo, nada de paciente real. O checklist completo, para assinar, 
 **Processo (para o dono):**
 - A migration 0085 mudou depois de aplicada no banco de dev compartilhado e foi reaplicada lá (função e gatilho, com `DATABASE_URL_MIGRATOR`, só em `127.0.0.1:54329`) — confirmar se está tudo bem.
 
+## Pós-MVP — roadmap aprovado (05/10/2026)
+
+O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2026-09-27-nutridebby-00-indice.md), seção "Pós-MVP"). Cada fase tem um item `Pnn-00` (o plano) no painel; as tarefas `Pnn-01…` nascem quando o plano é escrito. A loja (F4-01) é projeto à parte.
+
+| ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
+|---|---|---|---|---|---|---|
+| P09-00 | Plano 09 — Fechamento do MVP: textos legais (P08-06), débitos Minor (P04-10, P06-12, P07-09, P08-11), validação com a Debby (P08-08) | MVP v1.11 | E-09, P08-08 | Dev + Você | M | ⬜ |
+| P10-00 | Plano 10 — Receita (F3-06) e base de documentos assinados: **plano escrito (rascunho, aguardando o dono)** — [`2026-10-05-nutridebby-10-receita.md`](2026-10-05-nutridebby-10-receita.md); spec de documentos assinados v0.3 (decisões D1, D3–D16 aprovadas em 05/10/2026; D2 para o Plano 13) | US-140, US-142–147 | P09-00 (ordem), P-B1 (uso real) | Dev | M | 🔄 |
+| P11-00 | Plano 11 — Base de IA + leitura de laudos (F3-01) | Spec A v0.2 | P10-00 | Dev | M | ⬜ |
+| P12-00 | Plano 12 — Paciente envia exames (F3-04) | Spec C v0.2 | P11-00 | Dev | M | ⬜ |
+| P13-00 | Plano 13 — Parecer nutricional (F3-05): US-141, US-148–150; D2 | Spec B v0.3 | P10-00, P12-00, P-B1 | Dev | M | ⬜ |
+| P14-00 | Plano 14 — IA da nutricionista (F3-03) | Spec A v0.2 | P11-00 | Dev | M | ⬜ |
+| P15-00 | Plano 15 — IA Nutri do paciente (F3-02) | Spec C v0.2 | P14-00 | Dev | M | ⬜ |
+
+### Plano 10 — Receita e base de documentos assinados (rascunho)
+
+Plano escrito em 05/10/2026, **aguardando o dono** (decisões ★ D1–D9; depois, `/code-review high` do plano e a execução). Para uso real, além do código: PDFs reais assinados para o spike (runbook, etapa 1), resposta do CRN-3 (P-B1), textos revistos pela Debby, termo e DPA (P-B3/E-09) e backup no host (P02-11).
+
+| ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
+|---|---|---|---|---|---|---|
+| P10-01 | Spike da conferência da assinatura: âncoras (ITI + gov.br), leitor limitado da atualização incremental, fábrica de PDFs de teste, relatório e decisão da D16 | P-B2, RN-144, D16 | PDFs reais (dono) | Dev + Você | M | ⬜ |
+| P10-02 | Banco: tabelas, RLS, recibo só INSERT, verificação fora da RLS, guardas | §10 | P10-01 | Dev | M | ⬜ |
+| P10-03 | Imutabilidade no banco e anonimização só pelo worker | RN-140, RN-141, CS-141 | P10-02 | Dev | M | ⬜ |
+| P10-04 | Perfil profissional e assinante do consultório | US-140, D6 | P10-03 | Dev | M | ⬜ |
+| P10-05 | Código do 2FA no momento de assinar + guia da tela de Segurança | RN-145, D13, D18 | P10-03 | Dev | M | ⬜ |
+| P10-06 | Receita: código, esquema da prescrição e ciclo até o preparo | US-142, US-143, RN-142, RN-149, RN-150 | P10-04 | Dev | M | ⬜ |
+| P10-07 | Painel: aba Documentos, editor, preparo, cartão do Início, liberação pelo admin, guia | US-142, US-143, P-B8, D20 | P10-06 | Dev | M | ⬜ |
+| P10-08 | PDF preparado no worker (carimbo, quadro de assinatura, código e QR) | US-143 | P10-07 | Dev | M | ⬜ |
+| P10-09 | Conferência do PDF assinado sem rede | RN-144 | P10-01, P10-08 | Dev | M | ⬜ |
+| P10-10 | Envio do PDF assinado (primeiro certificado com 2FA, CPF, verificação) | US-144, RN-145 | P10-05, P10-09 | Dev | M | ⬜ |
+| P10-11 | Digitalizada por fotos com 2FA e PDF montado no worker | RN-157, D4 | P10-10 | Dev | M | ⬜ |
+| P10-12 | Entrega (portal ou link de uso único), entregue pessoalmente, situação | US-145, RN-152, RN-153 | P10-10 | Dev | M | ⬜ |
+| P10-13 | Portal: Documentos, abrir o PDF, confirmar o recebimento | US-146, D4 | P10-12 | Dev | M | ⬜ |
+| P10-14 | Link de uso único com código e sessão curta | RN-158 | P10-12 | Dev | M | ⬜ |
+| P10-15 | Verificação pública por código e QR | US-147, RN-156 | P10-10 | Dev | M | ⬜ |
+| P10-16 | LGPD da receita (exportações, bloqueio, anonimização) — só com a D1 ★ | US-150 base | P10-12 | Dev | M | ⬜ |
+| P10-17 | Cancelar documento — só com a D3 ★ | US-149 | P10-15 | Dev | M | ⬜ |
+| P10-18 | E2E, axe e manual guiado | RNF-144, US-057 | P10-13 a P10-17 | Dev | M | ⬜ |
+| P10-19 | (Condicional) Conferência de conteúdo assíncrona no worker | D16 (a) | P10-01 (relatório) | Dev | S | ⬜ |
+
 ## Pós-MVP — Fase 3 (Engajamento) e Fase 4 (Expansão)
 
 Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming depois do Plano 05** (espelham o painel; não entram na contagem do MVP). Todos com IA ou dado de saúde enviado a terceiros exigem, ao especificar: suboperador declarado no DPA e no aviso de privacidade (LGPD), provedor sem retenção, cota/custo por tenant, nada de conteúdo em log e auditoria.
@@ -395,11 +435,13 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 | F3-02 | "IA Nutri" para o paciente: conversar com um assistente sobre o próprio plano, orientações e dúvidas do dia a dia (limites: não diagnostica, não altera plano, encaminha à nutricionista; ligado/desligado por paciente; conferir regras do CFN) | Pedido do dono 02/10/2026 | P06 (portal), F3-03 | Dev | pós-MVP | ⬜ |
 | F3-03 | "IA Nutri" para a nutricionista: assistente para montar planos, resumir o histórico do paciente e sugerir condutas para ela revisar (nada salvo sem a confirmação dela) | §10 Fase 3 | go-live, F3-01 | Dev | pós-MVP | ⬜ |
 | F3-04 | Paciente envia exames pelo portal; a nutricionista recebe aviso e revisa (com a leitura por IA da F3-01); o exame só entra no prontuário depois de ela aceitar | US-015 | P06 (portal), P03 (exames), F3-01 | Dev | pós-MVP | ⬜ |
-| F3-05 | Parecer nutricional sobre os exames, validado e assinado pela nutricionista, entregue ao paciente em PDF (definir assinatura e validade jurídica; conferir com o CFN/CRN) | Pedido do dono 02/10/2026 | F3-04, F3-01 | Dev | pós-MVP | ⬜ |
-| F3-06 | Receita: prescrição de suplementos e fitoterápicos pela nutricionista, em PDF assinado, visível ao paciente (só o que o CFN permite; nunca medicamentos) | §10 Fase 3 | go-live | Dev | pós-MVP | ⬜ |
-| F4-01 | Loja de produtos do ramo (suplementos, livros, e-books, consultas avulsas…) dentro do NutriDebby (modelo, pagamento pelo Asaas da Fase 2, nota fiscal e ética do CFN/CRN a definir) | §10 Fase 4 | Fase 2 (Asaas), F3-06 | Dev | pós-MVP | ⬜ |
+| F3-05 | Parecer nutricional sobre os exames, validado e assinado pela nutricionista, entregue ao paciente em PDF (definir assinatura e validade jurídica; conferir com o CFN/CRN) — **Plano 13** (spec de documentos assinados v0.3) | Pedido do dono 02/10/2026 | F3-04, F3-01 | Dev | pós-MVP | ⬜ |
+| F3-06 | Receita: prescrição de suplementos e fitoterápicos pela nutricionista, em PDF assinado, visível ao paciente (só o que o CFN permite; nunca medicamentos) — **Plano 10** (rascunho escrito em 05/10/2026, aguardando o dono) | §10 Fase 3 | go-live | Dev | pós-MVP | 🔄 |
+| F4-01 | Loja de produtos do ramo (suplementos, livros, e-books, consultas avulsas…) — **projeto à parte** (roadmap de 05/10/2026; nada a construir agora; integração a definir quando for retomada) | §10 Fase 4 | Fase 2 (Asaas), F3-06 | Dev | pós-MVP | ⬜ |
 
 ## Resumo
+
+**Atualização em 2026-10-05:** roadmap pós-MVP aprovado (Planos 09 a 15; loja à parte) e **Plano 10 escrito (rascunho, aguardando o dono)**; os itens P09-00 a P15-00 e P10-01 a P10-19 ficam fora da contagem do MVP abaixo.
 
 **Situação em 2026-10-04** (espelha o painel https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT): Planos 01 a 08 em produção (https://nutri.wsscloud.tech; Plano 08 pelo PR #12, mesclado e implantado em 04/10/2026, com 89 migrations; spec v1.11) — **o MVP está completo no código**, menos os textos legais (P08-06, ⛔ bloqueado no E-09); também em produção desde 04/10 o PR #11 (débitos pré-go-live) e o PR #13 (modo escuro parcial retirado até o tema do Plano 08); 88 itens ✅, 5 🔄 (E-01, E-06, P02-11 — backup no host pendente —, P04-10 e P06-12, débitos em parte resolvidos), 1 ⛔ (P08-06) e 8 ⬜ (E-04 revisado, E-07, E-08, E-09, P07-09, P08-08, P08-09 e P08-11). Antes de qualquer paciente real, a lista "Antes do go-live (dono)" do Plano 08. Pós-MVP: 7 itens (F3-01 a F3-06, F4-01) fora da contagem.
 

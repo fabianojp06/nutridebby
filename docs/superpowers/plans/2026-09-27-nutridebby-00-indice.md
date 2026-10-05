@@ -25,6 +25,26 @@ Os planos 04 e 05 são independentes entre si e podem ser feitos em qualquer ord
 | **07** | [Biblioteca de conteúdo (M6)](2026-10-04-nutridebby-07-conteudos.md) | US-050 a US-056; INT-05; RN-10 a RN-12 | Vídeos, receitas com cálculo, orientações, audiência no banco, aba Conteúdos, aviso de conteúdo novo, métricas — **em produção** (PR #10, deploy em 04/10/2026, migrations 0081–0084; spec v1.10) |
 | **08** | [Go-live](2026-10-04-nutridebby-08-go-live.md) | RNF-01, RNF-02 (k6), RNF-05 (teste de restauração), RNF-10 (auditoria axe), RNF-11 (Sentry); CS-01 a CS-03; job de retenção LGPD; P08-10 (manual guiado) | Sentry com filtro, CSP e cabeçalhos, RLS final, métricas de sucesso, visual V2 do painel (claro/escuro), manual guiado, pilha de carga e teste de restauração prontos — **em produção, menos a Tarefa 8** (PR #12, deploy em 04/10/2026, migrations 0085–0088; spec v1.11). **MVP completo no código.** Os textos legais (P08-06, Tarefa 8) estão bloqueados no E-09 e viram um PR curto; o go-live da Debby (checklist assinado, P08-09) depende do dono: backup no host, Sentry e monitor, textos legais, teste no celular, rodada de carga e validação com a Debby (backlog, "Antes do go-live (dono)") |
 
+## Pós-MVP — roadmap aprovado pelo dono em 05/10/2026
+
+Fases pequenas, cada uma com o próprio plano (escrito só quando a anterior fechar, como no MVP) e a spec do escopo novo correspondente (`../specs/2026-10-03-*`, v0.2/v0.3). Antes de cada plano, a spec é conferida contra o código e o dono decide só as pendências daquela fase.
+
+```
+09 Fechamento do MVP ──► 10 Receita ──► 11 Base de IA + laudos ──► 12 Paciente envia exames ──► 13 Parecer ──► 14 IA da nutricionista ──► 15 IA Nutri do paciente
+                                                                    (loja: projeto à parte, nada a construir agora)
+```
+
+| # | Plano | Escopo | Spec | Situação |
+|---|---|---|---|---|
+| **09** | Fechamento do MVP | Textos legais (Tarefa 8 do Plano 08, P08-06, depende do E-09), débitos Minor (P04-10, P06-12, P07-09, P08-11), validação com a Debby (P08-08) | MVP v1.11 | A escrever |
+| **10** | [Receita (base de documentos assinados)](2026-10-05-nutridebby-10-receita.md) | F3-06: US-140, US-142 a US-147 (perfil profissional, receita, PDF com código e QR, assinatura gov.br/ICP-Brasil/digitalizada conferida no servidor, entrega, recebimento, verificação pública) | [Documentos assinados v0.3](../specs/2026-10-03-nutridebby-documentos-assinados-design.md) | **Escrito (rascunho, aguardando o dono)** — 18 tarefas + 1 condicional; decisões ★ D1–D9; checkpoint do dono: PDFs reais assinados (spike) e consulta ao CRN-3 (liberação para uso real) |
+| **11** | Base de IA + leitura de laudos | F3-01 (Subprojeto A: provedor, cota, pseudonimização, leitura de laudos com IA) | [IA da nutricionista v0.2](../specs/2026-10-03-nutridebby-ia-nutricionista-design.md) | A escrever |
+| **12** | Paciente envia exames | F3-04 (Subprojeto C, parte de exames) | [Exames e IA do paciente v0.2](../specs/2026-10-03-nutridebby-paciente-exames-ia-design.md) | A escrever |
+| **13** | Parecer nutricional | F3-05: US-141, US-148 a US-150 (parecer, retificar, cancelar se não subir para o 10, LGPD do parecer); D2 com a resposta do CRN-3 | Documentos assinados v0.3 | A escrever |
+| **14** | IA da nutricionista | F3-03 (Subprojeto A) | IA da nutricionista v0.2 | A escrever |
+| **15** | IA Nutri do paciente | F3-02 (Subprojeto C, parte de IA) | Exames e IA do paciente v0.2 | A escrever |
+| — | Loja (F4-01) | Projeto à parte (decisão do dono); nada a construir agora | [Viabilidade da loja](../specs/2026-10-03-nutridebby-loja-viabilidade.md) | Fora do roadmap |
+
 **Registro do processo — Plano 06:** a execução usou **workflow** com tarefas paralelas: depois das Tarefas 1–5 em sequência, as Tarefas 6–13 rodaram com revisão sobreposta, e as Tarefas 8, 9, 10 e 12 em worktrees paralelos, integradas por cherry-pick no branch do plano. A revisão por tarefa foi em **lentes** (spec/qualidade e segurança/LGPD) com três verificadores adversariais, até duas rodadas de correção; a revisão final do branch, em seis lentes com verificação adversarial; depois, o `/code-review high` uma vez, a re-revisão só do diff das correções (também em lentes), uma auditoria de segurança em seis lentes e o `/security-review`. Resultados no fim do plano ("Resultado da entrega").
 
 **Registro do processo — Plano 07:** varredura prévia do plano contra a `main` (11 decisões, R1–R11, por cima do texto: base no PR #11, ordem das tarefas, testes e guardas) e execução por **workflow** (57 agentes): depois da Tarefa 1, as Tarefas 2, 3, 4 e 8 em worktrees paralelos, integradas no branch do plano; revisão por tarefa em duas lentes (spec/qualidade e segurança/LGPD), com uma rodada de correção nas Tarefas 1, 4 e 13; revisão final do branch em quatro lentes (banco, painel e arquivos, portal, LGPD e testes) com uma onda de correções; depois, o `/code-review high` uma vez (no plano, antes da execução, e no código), a re-revisão só do diff das correções e o `/security-review` com o checklist reforçado (D21). Resultados no fim do plano ("Resultado da entrega").
