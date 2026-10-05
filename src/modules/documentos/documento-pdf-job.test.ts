@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { codigoAleatorio } from '../../../test/documentos';
+import { codigoAleatorio, tenantLivreEnquantoEsperaODocumento } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -42,6 +42,14 @@ const novoPreparo = (T: Awaited<ReturnType<typeof emPreparo>>['T'], id: string) 
   }, app.db);
 
 describe('PDF preparado (US-143)', () => {
+  it('ordem de travas (code review do PR #19, I2): o documento é travado ANTES da cota do tenant, como no soltarArquivosDoPreparo', async () => {
+    const { T, id } = await emPreparo();
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));
+    const r = await tenantLivreEnquantoEsperaODocumento(app.db, T.ctx, id, () =>
+      gerarPdfDoDocumento({ tenantId: T.tenantId, documentoId: id }, { db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: false }));
+    expect(r).toEqual({ tenantLivre: true, resultado: 'pronto' });
+  });
+
   it('gera o PDF com o código, o QR e o quadro; grava SHA-256, bytes e área; leva a "Aguardando assinatura"', async () => {
     const { T, id, codigo } = await emPreparo();
     const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));

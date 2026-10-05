@@ -14,6 +14,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { DIGITALIZACAO_MAX_MS, MAX_PIXELS_FOTO } from './constantes';
 import { DocumentoNaoEncontradoError, MSG_RECUSA, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
+import { travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { exigirHabilitacaoAtual, type AcessoAssinatura, type DepsAssinar } from './registrar-assinatura';
 
 export const MAX_FOTOS = 5;
@@ -91,6 +92,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     for (const img of imagens) {
       await salvarArquivo(a.ctx, {
         tipo: 'documento_digitalizado', conteudo: img, permitidos: ['jpg', 'png'], patientId: lida.patientId,
+        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, docId), // documento → tenant (I2 do PR #19)
         registrar: async (tx, arq) => {
           const ok = await tx
             .update(signedDocuments)

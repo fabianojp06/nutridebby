@@ -10,7 +10,7 @@ import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { apagarArquivo, CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { COR_PADRAO } from '@/modules/plataforma/marca-constantes';
 import { buscarTenant, listarTenantsParaVarredura, tenantIsActive } from '@/modules/plataforma/tenant-status';
-import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
+import { soltarArquivosDoPreparo, travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { AREA_ASSINATURA, EMITIDOS } from './constantes';
 import { renderizarDocumento } from './documento-pdf';
 import type { ConteudoReceita } from './prescricao';
@@ -23,7 +23,8 @@ class TitularComExclusaoError extends Error {}
 /**
  * US-143: lê o documento em preparo (a cópia congelada, RN-154), gera o PDF com a marca, o carimbo, o quadro "Assinatura
  * digital" e o código/QR (RN-142), e grava o base (SHA-256 e bytes: o prefixo da RN-144 (2)) no `registrar` do
- * salvarArquivo, levando a "Aguardando assinatura". Idempotente (só com pdf_status pendente). Ordem: paciente → tenant → documento.
+ * salvarArquivo, levando a "Aguardando assinatura". Idempotente (só com pdf_status pendente). Ordem de travas: paciente →
+ * documento → tenant (code review do PR #19, I2: a mesma do soltarArquivosDoPreparo, documento → tenant).
  * Versão lida (correção do /code-review high do PR #18): o `registrar` e o `marcarFalhou` casam id + "preparando" +
  * "pendente" + o CÓDIGO lido — "Voltar a editar" + novo preparo noutra aba troca o código, e o job velho (o PDF com o
  * código e o conteúdo antigos) não grava o base na versão nova nem a marca como "falhou".
@@ -68,6 +69,7 @@ export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId:
         antesDaReserva: async (tx) => {
           const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, lido.patientId)).for('update');
           if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new TitularComExclusaoError();
+          await travarDocumentoAntesDaCota(tx, lido.id);
         },
         registrar: async (tx, arq) => {
           const r = await tx

@@ -3123,6 +3123,7 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
       antesDaReserva: async (tx) => {
         const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId)).for('update');
         if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new PacienteBloqueadoError();
+        await travarDocumentoAntesDaCota(tx, docId); // 10A, code review do PR #19 (I2): paciente → documento → tenant, como o soltarArquivosDoPreparo
       },
       registrar: async (tx, arq) => {
         if (primeiro || troca) await gravarAssinante(tx, { tenantId: a.ctx.tenantId, titular, userId: a.user.id, agora, anterior: d.assinante?.titularHmac ?? null });

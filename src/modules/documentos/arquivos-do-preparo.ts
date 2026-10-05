@@ -1,11 +1,21 @@
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import type { StatusDocumento } from './constantes';
+
+/**
+ * Ordem de travas de armazenamento.ts (dono → tenant → registro), com o documento como dono (code review do PR #19, I2):
+ * todo salvarArquivo que grava em `signed_documents` no `registrar` chama isto no `antesDaReserva` (depois do paciente,
+ * quando o trava). Sem isso, o salvarArquivo travaria tenant → documento e o soltarArquivosDoPreparo (abaixo), documento
+ * → tenant: os dois ao mesmo tempo no mesmo documento terminam em deadlock (40P01).
+ */
+export async function travarDocumentoAntesDaCota(tx: Tx, documentoId: string): Promise<void> {
+  await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, documentoId)).for('update');
+}
 
 /**
  * Regra 9 do CLAUDE.md (correção do /code-review high do PR #18): cada arquivo do preparo — as fotos da digitalizada e o

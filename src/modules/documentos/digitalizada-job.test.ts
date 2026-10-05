@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { novoConsultorio, novoPreparoNoBanco, outroDocumento } from '../../../test/documentos';
+import { novoConsultorio, novoPreparoNoBanco, outroDocumento, tenantLivreEnquantoEsperaODocumento } from '../../../test/documentos';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
@@ -103,6 +103,15 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     expect(fotosB).toHaveLength(2);
     expect(d.digitalizacao).toEqual(fotosB);
     expect((await app.db.execute(sql`select 1 from document_verifications where documento_id = ${x.id}`)).rows).toEqual([]);
+  });
+
+  it('ordem de travas (code review do PR #19, I2): o documento é travado ANTES da cota do tenant, como no soltarArquivosDoPreparo', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const foto = await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    await receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    const r = await tenantLivreEnquantoEsperaODocumento(app.db, x.T.ctx, x.id, () =>
+      montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, { db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false }));
+    expect(r).toEqual({ tenantLivre: true, resultado: 'pronto' });
   });
 
   it('registrarAssinatura da digitalizada com a versão antiga (outro código) → TransicaoInvalidaError', async () => {

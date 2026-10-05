@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
 import { CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
-import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
+import { soltarArquivosDoPreparo, travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
 import { EMITIDOS, MAX_PIXELS_FOTO } from './constantes';
 import { TransicaoInvalidaError } from './erros';
@@ -95,6 +95,7 @@ export async function montarPdfDigitalizado(
       antesDaReserva: async (tx) => {
         const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId)).for('update');
         if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new JaFeitoError();
+        await travarDocumentoAntesDaCota(tx, d.id); // paciente → documento → tenant (I2 do PR #19)
       },
       registrar: async (tx, arq) => {
         await registrarAssinatura(tx, {

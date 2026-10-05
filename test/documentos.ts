@@ -112,8 +112,42 @@ export async function novoPreparoNoBanco(x: Awaited<ReturnType<typeof outroDocum
   const codigo = codigoAleatorio();
   await withTenant(x.T.ctx, async (tx) => {
     await tx.execute(sql`update signed_documents set status = 'rascunho', codigo = null, declaracao_em = null, base_pdf_path = null, base_pdf_sha256 = null, base_pdf_bytes = null, area_assinatura = null, digitalizacao = null, digitalizacao_status = null, digitalizacao_em = null where id = ${x.id}`);
-    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now() where id = ${x.id}`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${x.id}`);
     await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${x.T.tenantId}, 'documento_base', ${base}, ${outro.length}, 'application/pdf', ${x.p.id})`);
   }, db);
   await withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${sha256(outro)}, base_pdf_bytes = ${outro.length}, area_assinatura = ${JSON.stringify(AREA_ASSINATURA)}::jsonb where id = ${x.id}`), db);
+}
+
+/**
+ * Ordem de travas (code review do PR #19, I2): segura a linha do documento noutra transação, roda `acao` e, quando ela
+ * para esperando essa linha, confere se a linha do tenant (a cota) está livre. A ordem do salvarArquivo/apagarArquivo é
+ * dono (documento) → tenant → registro; quem trava o tenant ANTES do documento (e o soltarArquivosDoPreparo, documento →
+ * tenant, no outro sentido) faz o Postgres abortar um dos dois com deadlock (40P01). Devolve se o tenant estava livre e
+ * o resultado da ação.
+ */
+export async function tenantLivreEnquantoEsperaODocumento<R>(db: Db, ctx: TenantContext, documentoId: string, acao: () => Promise<R>): Promise<{ tenantLivre: boolean; resultado: R }> {
+  let soltar!: () => void;
+  const solto = new Promise<void>((r) => (soltar = r));
+  let travou!: (pid: number) => void;
+  const travado = new Promise<number>((r) => (travou = r));
+  const dono = withTenant(ctx, async (tx) => {
+    const [{ pid }] = (await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`)).rows;
+    await tx.execute(sql`select 1 from signed_documents where id = ${documentoId} for update`);
+    travou(Number(pid));
+    await solto;
+  }, db);
+  const pid = await travado;
+  const emCurso = acao();
+  emCurso.catch(() => undefined);
+  let esperando = false;
+  for (let i = 0; i < 400 && !esperando; i++) {
+    const r = await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`);
+    esperando = Number(r.rows[0].n) > 0;
+    if (!esperando) await new Promise((r) => setTimeout(r, 25));
+  }
+  if (!esperando) throw new Error('a ação não chegou a esperar a linha do documento');
+  const tenantLivre = await db.execute(sql`select 1 from tenants where id = ${ctx.tenantId} for no key update nowait`).then(() => true, () => false);
+  soltar();
+  await dono;
+  return { tenantLivre, resultado: await emCurso };
 }
