@@ -8,6 +8,8 @@ SaaS multi-tenant de gestão de consultório de nutrição (spec: `docs/superpow
 
 Node 24 · pnpm · Next.js 16 (App Router, `src/proxy.ts`) · PostgreSQL 16 · Drizzle · Better Auth · pg-boss · Vitest + Testcontainers · Playwright.
 
+Manual técnico (especificação técnica do produto, fonte de verdade = código): `docs/manual-tecnico/` (comece pelo `README.md`: índice, glossário e divergências spec × código). É atualizado no fechamento de cada plano.
+
 ## Comandos
 
 - `docker compose -f docker-compose.dev.yml up -d` — Postgres (127.0.0.1:54329) + Mailpit (:8025)
