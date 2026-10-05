@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
+import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
@@ -17,7 +18,9 @@ import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
 import { getBoss, stopBoss } from '@/jobs/boss';
-import { resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { registrarVerificacao, consultarVerificacao } from '@/modules/documentos/verificacao';
+import { anonimizarDocumentosDoPaciente } from '@/modules/documentos/lgpd-documentos';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
@@ -31,6 +34,15 @@ import { criarPaciente } from './pacientes';
 vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
   return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
+// Plano 10A (T14): a ordem dos apagarArquivo (documentos antes dos anexos) e a falha simulada da etapa dos documentos
+vi.mock('@/modules/plataforma/armazenamento', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/armazenamento')>();
+  return { ...real, apagarArquivo: vi.fn(real.apagarArquivo) };
+});
+vi.mock('@/modules/documentos/lgpd-documentos', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/documentos/lgpd-documentos')>();
+  return { ...real, anonimizarDocumentosDoPaciente: vi.fn(real.anonimizarDocumentosDoPaciente) };
 });
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -475,6 +487,53 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
       erro.mockRestore();
     }
     expect((await ler(T.ctx, p.id)).anonimizadoEm).toBeNull(); // o dia seguinte tenta de novo
+  });
+
+  it('Plano 10A (RN-140 c): anonimizarVencidos trata os documentos antes dos anexos, e a verificação pública fica "eliminado"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(500)]);
+    await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Hemograma', data: '2026-09-01', valores: [], arquivo: PDF }, deps);
+    const [exame] = await withTenant(T.ctx, (tx) => tx.select().from(exams).where(eq(exams.patientId, p.id)), app.db);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-01' }).where(eq(patients.id, p.id)), app.db);
+    const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: 'Tomar com água.' } });
+    mkdirSync(path.dirname(resolverCaminho(dataDir, d.pdfPath!)), { recursive: true });
+    writeFileSync(resolverCaminho(dataDir, d.pdfPath!), pdfDeTeste());
+    const rascunho = await documentoNoBanco(app.db, T.ctx, p.id);
+    await withTenant(T.ctx, (tx) => registrarVerificacao(tx, { codigo: d.codigo!, tenantId: T.tenantId, documentoId: d.id, tipo: 'receita', assinadoEm: now, emissorNome: 'Debby Silva', emissorCrn: 'CRN-3 12345', assinanteNome: null, assinaturaTipo: 'digitalizada', pdfSha256: 'a'.repeat(64) }), app.db);
+    vi.mocked(apagarArquivo).mockClear();
+
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    const caminhos = vi.mocked(apagarArquivo).mock.calls.map(([, f]) => ('caminho' in f ? f.caminho : f.id));
+    expect(caminhos.indexOf(d.pdfPath!), 'o PDF do documento sai').toBeGreaterThanOrEqual(0);
+    expect(caminhos.indexOf(d.pdfPath!), 'documentos antes dos anexos').toBeLessThan(caminhos.indexOf(exame.arquivoPath!));
+    const docs = await withTenant(T.ctx, (tx) => tx.execute(sql`select id, status, conteudo, pdf_path, anonimizado_em is not null as anonimizado from signed_documents where patient_id = ${p.id}`), app.db);
+    expect(docs.rows).toEqual([{ id: d.id, status: 'assinado', conteudo: {}, pdf_path: null, anonimizado: true }]); // o rascunho foi apagado
+    expect(docs.rows.map((r) => r.id)).not.toContain(rascunho.id);
+    expect(existsSync(resolverCaminho(dataDir, d.pdfPath!))).toBe(false);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles), app.db)).toEqual([]);
+    const v = await consultarVerificacao(d.codigo, { db: app.db, ipDoLimite: `203.0.113.${Math.floor(Math.random() * 250)}` });
+    expect(v).toMatchObject({ tipo: 'ok', v: { situacao: 'eliminado' } });
+  });
+
+  it('Plano 10A: PDF de documento que sobrou depois da etapa dos documentos desfaz a anonimização; no dia seguinte, ela sai', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'cancelado' });
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    // como um documento gravado entre a etapa dos documentos e a transação final
+    vi.mocked(anonimizarDocumentosDoPaciente).mockResolvedValueOnce(0);
+    try {
+      expect(await anonimizarSo(T)).toEqual({ anonimizados: 0 });
+      expect((await ler(T.ctx, p.id)).anonimizadoEm).toBeNull();
+      expect(JSON.stringify(erro.mock.calls)).not.toContain(d.pdfPath!); // RNF-11: só o código do erro
+    } finally {
+      erro.mockRestore();
+    }
+    expect(await anonimizarSo(T)).toEqual({ anonimizados: 1 });
+    const [doc] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select pdf_path, anonimizado_em is not null as anonimizado from signed_documents where id = ${d.id}`), app.db)).rows;
+    expect(doc).toEqual({ pdf_path: null, anonimizado: true });
   });
 
   it('anonimização de quem tem foto no diário: a foto sai antes, o registro fica com a foto "removida"', async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
@@ -8,6 +8,7 @@ import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultaDireta } from '../../../test/agenda';
+import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
@@ -627,6 +628,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         dispositivosPush: [],
         diario: [],
         conteudos: { vistos: [], favoritos: [] },
+        documentos: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -759,6 +761,48 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const zip = await zipDoPedido(T, id);
     expect(Buffer.from(zip['diario/2026-10-01-2.jpg']).equals(JPEG)).toBe(true); // o JPEG convertido; o original nunca vai
     expect(dados.laudosForaDoZip).toBe(false);
+  });
+
+  it('Plano 10A (US-150 base): o ZIP do titular traz o PDF assinado em documentos/ e não traz o rascunho nem a justificativa de outro paciente', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T);
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const conteudo = { versao: 1, tipo: 'receita', itens: [], orientacoes: 'Tomar com água.' };
+    const PDF = pdfDeTeste('receita assinada');
+    const emitido = async (patientId: string) => {
+      const d = await documentoNoBanco(app.db, T.ctx, patientId, { status: 'assinado', conteudo });
+      mkdirSync(path.dirname(path.join(dataDir, d.pdfPath!)), { recursive: true });
+      writeFileSync(path.join(dataDir, d.pdfPath!), PDF);
+      return d;
+    };
+    const comJustificativa = async (patientId: string, j: string) => {
+      const d = await documentoNoBanco(app.db, T.ctx, patientId, { conteudo: { ...conteudo, orientacoes: j } });
+      await withTenant(T.ctx, (tx) => tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) values (${T.tenantId}, ${patientId}, ${d.id}, ${j})`), app.db);
+      return d;
+    };
+    const d = await emitido(p.id);
+    await comJustificativa(p.id, 'J do rascunho');
+    const deOutro = await emitido(outro.id);
+    await comJustificativa(outro.id, 'J de outro paciente');
+
+    const id = await solicitarExportacao({ ...ctxPaciente(T.tenantId, p.id), actorUserId: userId }, p.id, { db: app.db, escopo: 'titular' });
+    await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { db: app.db, dataDir, appUrl: 'http://localhost:3000', ultimaTentativa: false });
+    const dados = await dadosDoZip(T, id);
+    expect(dados.documentos).toHaveLength(1);
+    expect(dados.documentos[0]).toMatchObject({ tipo: 'Receita', situacao: 'Assinado', orientacoes: 'Tomar com água.', assinatura: 'Digitalizado', sha256: 'a'.repeat(64) });
+    const nome = dados.documentos[0].pdf as string;
+    expect(nome).toMatch(/^documentos\/\d{4}-\d{2}-\d{2}-01\.pdf$/);
+    const zip = await zipDoPedido(T, id);
+    expect(Buffer.from(zip[nome]).equals(PDF)).toBe(true);
+    expect(Object.keys(zip).filter((k) => k.startsWith('documentos/'))).toEqual([nome]);
+    const json = JSON.stringify(dados);
+    for (const fora of ['J do rascunho', 'J de outro paciente', deOutro.codigo!.slice(0, 4) + '-' + deOutro.codigo!.slice(4, 8)]) expect(json).not.toContain(fora);
+    expect(json).toContain(d.codigo!.slice(0, 4) + '-' + d.codigo!.slice(4, 8));
+
+    // a equipe recebe também o rascunho, com a justificativa (D15)
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    expect(equipe.dados.documentos.map((x) => [x.situacao, x.justificativaDeUso])).toEqual([['Assinado', null], ['Rascunho', 'J do rascunho']]);
+    expect(equipe.laudos.filter((l) => l.tipo === 'documento').map((l) => l.caminho)).toEqual([d.pdfPath]);
   });
 
   it('L-2: titular que deixou de ser ativo depois de pedir os dados — o pedido dele vira "falhou", sem ZIP e sem e-mail; o da equipe segue gerando', async () => {
@@ -946,6 +990,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         dispositivosPush: [],
         diario: [],
         conteudos: { vistos: [], favoritos: [] },
+        documentos: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',

@@ -44,6 +44,7 @@ import {
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
+import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { respostaParaCampo } from './anamnese-tipos';
 import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
@@ -138,15 +139,17 @@ export type DadosExportacao = {
   diario: { dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null }[];
   /** Plano 07 (D15): conteúdos que o titular abriu e favoritou (título e data). */
   conteudos: ConteudosDoTitular;
-  /** Os laudos ou fotos do diário passaram do teto de memória da exportação e não foram no ZIP. */
+  /** Plano 10A (US-150 base): receitas; o titular recebe só as emitidas (D15 = (b): com a justificativa de uso). */
+  documentos: DocumentoExportado[];
+  /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
 
 /**
- * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`) ou foto do diário (`indice` em `diario`); `nome` sem
- * texto do usuário (data + posição).
+ * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`), foto do diário (`indice` em `diario`) ou PDF assinado de
+ * documento (`indice` em `documentos`, Plano 10A); `nome` sem texto do usuário (data + posição).
  */
-type AnexoParaZip = { tipo: 'laudo' | 'foto'; indice: number; caminho: string; nome: string };
+type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento'; indice: number; caminho: string; nome: string };
 
 /** O ZIP é montado em memória no worker: acima disto, laudos e fotos ficam de fora (com aviso), não a exportação. */
 export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
@@ -279,6 +282,7 @@ export async function montarDados(
     .orderBy(asc(mealPlans.versao));
   const planos = await planosParaExportacao(tx, ids.map((x) => x.id), escopo); // a exportação já registra "exportar"
   const conteudos = await conteudosDoTitular(tx, patientId);
+  const docs = await documentosParaExportacao(tx, patientId, escopo);
   const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
@@ -376,13 +380,16 @@ export async function montarDados(
     dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
     diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri })),
     conteudos,
+    documentos: docs.documentos,
     laudosForaDoZip: false,
   };
-  return { dados, laudos: [...laudos, ...fotos] };
+  // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
+  const pdfsDeDocumentos: AnexoParaZip[] = docs.anexos.map((a) => ({ tipo: 'documento', ...a }));
+  return { dados, laudos: [...laudos, ...fotos, ...pdfsDeDocumentos] };
 }
 
 /**
- * Lê os anexos (laudos e fotos do diário) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
+ * Lê os anexos (laudos, fotos do diário e PDFs assinados de documentos) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
  * o que não cabe não vai (e `laudosForaDoZip` avisa); arquivo que sumiu do disco fica de fora sem derrubar a exportação.
  */
 async function lerAnexos(
@@ -421,7 +428,8 @@ async function lerAnexos(
     }
     arquivos[l.nome] = conteudo;
     if (l.tipo === 'laudo') dados.exames[l.indice].laudo = l.nome;
-    else dados.diario[l.indice].foto = l.nome;
+    else if (l.tipo === 'foto') dados.diario[l.indice].foto = l.nome;
+    else if (l.tipo === 'documento') dados.documentos[l.indice].pdf = l.nome;
     total += conteudo.length;
   }
   if (ausentes)
