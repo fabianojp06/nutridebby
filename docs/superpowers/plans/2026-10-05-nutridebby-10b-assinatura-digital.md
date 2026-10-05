@@ -2876,7 +2876,7 @@ git commit -m "feat(documentos): conferência do PDF assinado sem rede — /Byte
 - Modify: a página do documento (10A-T6: o cartão "Aguardando assinatura" com o texto do gov.br e do certificado e o `<EnviarAssinado />`), `src/modules/ajuda/conteudo.ts` (guias `documentos` e `seguranca`), `src/modules/documentos/verificacao.ts` (`MSG_VERIFICACAO.validador`) + `src/app/v/[codigo]/page.tsx` (link do ITI) + `verificacao-publica.test.ts`, `src/modules/documentos/portal.test.ts` (caso do gov.br), `src/email/types.ts` + `src/email/templates.tsx` (`certificado_confirmado`)
 
 **Interfaces:**
-- Consumes: `conferirPdfAssinado`, `Conferido`, `normalizarNome` (T4); `ASSINATURAS_LIBERADAS`, `MAX_ENVIO_BYTES` (T4, `constantes.ts`); `Titular`, `lerAssinante`, `gravarAssinante`, `hmacDoTitular`, `identificacaoDoTitular` (T3); do Plano 10A: `registrarAssinatura`, `exigirHabilitacaoAtual`, `AcessoAssinatura`, `DepsAssinar` (10A-T8, `registrar-assinatura.ts`), `confirmarCodigo2fa` (10A-T4), `novoConsultorio`, `outroDocumento`, `novoPreparoNoBanco` (10A-T8, testes), `salvarArquivo`, `apagarArquivo`, `recordAudit`, `enqueueEmail`, `mesmaOrigem`, `requireApiNutri`, `lerCorpoLimitado`; `baseMinimo` e a fábrica (T1, testes).
+- Consumes: `conferirPdfAssinado`, `Conferido`, `normalizarNome` (T4); `ASSINATURAS_LIBERADAS`, `MAX_ENVIO_BYTES` (T4, `constantes.ts`); `Titular`, `lerAssinante`, `gravarAssinante`, `hmacDoTitular`, `identificacaoDoTitular` (T3); do Plano 10A: `registrarAssinatura`, `exigirHabilitacaoAtual`, `AcessoAssinatura`, `DepsAssinar` (10A-T8, `registrar-assinatura.ts`), `confirmarCodigo2fa` (10A-T4), `novoConsultorio`, `outroDocumento`, `novoPreparoNoBanco` (10A-T8, testes), `soltarArquivosDoPreparo` (10A-T5, `arquivos-do-preparo.ts`), `EMITIDOS` (10A-T1, `constantes.ts`), `salvarArquivo`, `recordAudit`, `enqueueEmail`, `mesmaOrigem`, `requireApiNutri`, `lerCorpoLimitado`; `baseMinimo` e a fábrica (T1, testes).
 - Produces:
   - `assinar.ts`: `DepsEnvio = DepsAssinar & { ancoras?: Ancoras; liberadas?: Record<'govbr' | 'icp', boolean> }`; `ResultadoEnvio = { tipo: 'assinado' } | { tipo: 'confirmar_certificado'; nome: string; identificacao: string; anterior: string | null }` (`anterior` ≠ null = troca do titular do consultório); `aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arquivo: Buffer, input: { codigo2fa?: unknown }, deps: DepsEnvio): Promise<ResultadoEnvio>`; `titularDoConferido(c: Conferido): Titular | null`.
   - E-mail `{ tipo: 'certificado_confirmado'; para: string; identificacao: string; anterior: string | null }`.
@@ -2886,6 +2886,8 @@ git commit -m "feat(documentos): conferência do PDF assinado sem rede — /Byte
 
 ```ts
 import { createHash } from 'node:crypto';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { baseMinimo } from '../../../test/assinatura/base-minimo';
@@ -2948,10 +2950,13 @@ describe('enviar o PDF assinado (US-144, RN-145)', () => {
     await expect(aceitarPdfAssinado(x.acesso, x.id, pdf, { codigo2fa: '000000' }, deps(x.dataDir, 'bloqueado'))).rejects.toSatisfy(recusa('tentativas_2fa'));
     expect(await aceitarPdfAssinado(x.acesso, x.id, pdf, { codigo2fa: '123456' }, deps(x.dataDir))).toEqual({ tipo: 'assinado' });
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, pdf_sha256, base_pdf_path, assinatura_tipo, assinante_nome, codigo from signed_documents where id = ${x.id}`), app.db)).rows as Record<string, string | null>[];
+    // regra 9: o registrar mantém o base apontado; o base_pdf_path nulo, o registro e o arquivo fora vêm do
+    // soltarArquivosDoPreparo (10A-T5) depois do salvarArquivo — o ponteiro sai no naMesmaTransacao do apagarArquivo do base
     expect(d).toMatchObject({ status: 'assinado', pdf_sha256: createHash('sha256').update(pdf).digest('hex'), base_pdf_path: null, assinatura_tipo: 'icp', assinante_nome: 'DEBORA SILVA SANTOS' });
     const v = (await app.db.execute(sql`select situacao, pdf_sha256, emissor_nome, emissor_crn, assinante_nome from document_verifications where codigo = ${d.codigo}`)).rows[0];
     expect(v).toEqual({ situacao: 'valido', pdf_sha256: d.pdf_sha256, emissor_nome: 'Débora Silva Santos', emissor_crn: 'CRN-3 12345', assinante_nome: 'DEBORA SILVA SANTOS' });
     expect((await withTenant(x.T.ctx, (tx) => tx.execute(sql`select 1 from stored_files where caminho = ${x.base}`), app.db)).rows).toEqual([]);
+    await expect(access(path.join(x.dataDir, x.base))).rejects.toThrow();
     const s = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select titular_identificacao from tenant_signer`), app.db);
     expect(s.rows).toEqual([{ titular_identificacao: 'CPF ***.456.789-**' }]);
   });
@@ -3029,13 +3034,14 @@ import { getEnv } from '@/env';
 import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
 import { logger } from '@/lib/logger';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
-import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
 import type { Ancoras } from './ancoras';
+import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gravarAssinante, hmacDoTitular, identificacaoDoTitular, lerAssinante, type Titular } from './assinante';
 import { conferirPdfAssinado, type Conferido } from './assinatura-pades';
 import { normalizarNome } from './certificados';
-import { ASSINATURAS_LIBERADAS, type AreaAssinatura } from './constantes';
+import { ASSINATURAS_LIBERADAS, EMITIDOS, type AreaAssinatura } from './constantes';
 import { DocumentoNaoEncontradoError, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { CopiaProfissional } from './perfil-profissional';
 import type { ConteudoReceita } from './prescricao';
@@ -3074,8 +3080,10 @@ async function lerParaAssinar(ctx: TenantContext, docId: string, db: Db): Promis
 /**
  * US-144 / RN-145. Ordem: 2FA ativo → leitura (versão) e habilitação (Minor 9) → conferência (fora de transação, sem
  * rede, T4) → quem assina (o titular do consultório; ou o primeiro certificado, ou a TROCA do titular, os dois com o nome
- * do certificado = nome do perfil e o código do 2FA) → salvarArquivo do assinado (substitui o base; o registrar
- * troca/grava o assinante e chama o registrarAssinatura do 10A, amarrado à versão lida) → apagarArquivo do base.
+ * do certificado = nome do perfil e o código do 2FA) → salvarArquivo do assinado (substitui o base na conta da cota; o
+ * registrar troca/grava o assinante e chama o registrarAssinatura do 10A, amarrado à versão lida, que MANTÉM o base
+ * apontado) → regra 9: soltarArquivosDoPreparo (10A-T5) apaga o base no seu apagarArquivo, com o ponteiro saindo no
+ * naMesmaTransacao (o que falhar, a varredura da 10A-T7 repete).
  * Nada é gravado numa recusa.
  */
 export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arquivo: Buffer, input: { codigo2fa?: unknown }, deps: DepsEnvio): Promise<ResultadoEnvio> {
@@ -3128,10 +3136,10 @@ export async function aceitarPdfAssinado(a: AcessoAssinatura, docId: string, arq
     },
     { db, dataDir: deps.dataDir },
   );
-  await apagarArquivo(a.ctx, { caminho: d.base }, {
-    db, dataDir: deps.dataDir,
-    naMesmaTransacao: async (tx) => !(await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.basePdfPath, d.base))).length,
-  }).catch(() => logger.warn({ tenantId: a.ctx.tenantId, documentoId: docId }, 'PDF base não apagado depois da assinatura (a varredura apaga)'));
+  // regra 9: a assinatura já valeu; o base (e fotos de uma digitalização que tenha ficado) sai agora, cada arquivo no seu
+  // apagarArquivo com o ponteiro no naMesmaTransacao — uma falha aqui não desfaz a assinatura (a varredura repete)
+  await soltarArquivosDoPreparo(a.ctx, docId, EMITIDOS, { db, dataDir: deps.dataDir })
+    .catch(() => logger.warn({ tenantId: a.ctx.tenantId, documentoId: docId }, 'PDF base não apagado depois da assinatura (a varredura apaga)'));
   return { tipo: 'assinado' };
 }
 ```
@@ -3435,7 +3443,7 @@ export async function compararConteudo(base: Buffer, assinado: Buffer, area: Are
 }
 ```
 
-- [ ] **Step 3: O ramo assíncrono** — `aceitarPdfAssinado` com `{ soCriptografia: true }` na conferência (prefixo dispensado só para o assinador do relatório que reescreve o arquivo; forma do `/ByteRange`, CMS, cadeia e titular continuam síncronos): grava o PDF enviado como `documento_assinado` pendente (`conferencia_path`, `conferencia_status = 'pendente'`) e enfileira `documento-conferir`; o job lê o base e o enviado, roda `compararConteudo` e, se `'igual'`, chama o `registrarAssinatura` (10A-T8/10A-T10, `versao: { codigo, baseSha256 }`) na transação; se diferente, apaga o enviado (`apagarArquivo` com o `naMesmaTransacao` limpando os dois campos) e grava `conferencia_status = 'recusado'` com o motivo; a tela mostra "Conferindo o PDF assinado…" e, na recusa, "Este PDF recebeu alterações além da assinatura. Baixe o PDF de novo, assine sem editar e envie.". Meta do job: 30 s (p95) (RNF-140 v0.3).
+- [ ] **Step 3: O ramo assíncrono** — `aceitarPdfAssinado` com `{ soCriptografia: true }` na conferência (prefixo dispensado só para o assinador do relatório que reescreve o arquivo; forma do `/ByteRange`, CMS, cadeia e titular continuam síncronos): grava o PDF enviado como `documento_assinado` pendente (`conferencia_path`, `conferencia_status = 'pendente'`) e enfileira `documento-conferir`; o job lê o base e o enviado, roda `compararConteudo` e, se `'igual'`, chama o `registrarAssinatura` (10A-T8/10A-T10, `versao: { codigo, baseSha256 }`) na transação e, depois do commit, `soltarArquivosDoPreparo(ctx, id, EMITIDOS)` (regra 9, como na Tarefa 5); se diferente, apaga o enviado (`apagarArquivo` com o `naMesmaTransacao` limpando os dois campos) e grava `conferencia_status = 'recusado'` com o motivo; a tela mostra "Conferindo o PDF assinado…" e, na recusa, "Este PDF recebeu alterações além da assinatura. Baixe o PDF de novo, assine sem editar e envie.". Meta do job: 30 s (p95) (RNF-140 v0.3).
 
 - [ ] **Step 4: Rodar e commit**
 
