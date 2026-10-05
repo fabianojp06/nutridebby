@@ -1270,6 +1270,18 @@ describe('perfil profissional (US-140)', () => {
     expect(await tenantDe(T.tenantId)).toMatchObject({ fitoterapiaRegistro: 'CRN-3 nº 1234/2024', fitoterapiaTermoVersao: '2026-10-05', fitoterapiaDeclaradaEm: new Date('2026-10-05T12:00:00Z') });
     await retirarFitoterapia(T.ctx, { db: app.db });
     expect(await tenantDe(T.tenantId)).toMatchObject({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null });
+    // retirar de novo (duas abas, clique duplo) não grava outra retirada
+    await retirarFitoterapia(T.ctx, { db: app.db });
+    // US-140/D6: a declaração (com a versão do termo) e a retirada ficam no audit_log, sem paciente, distintas da edição do contato
+    const audit = await withTenant(
+      T.ctx,
+      (tx) => tx.execute(sql`select acao, entidade, entidade_id, patient_id from audit_log where entidade = 'perfil_profissional' order by criado_em, id`),
+      app.db,
+    );
+    expect(audit.rows).toEqual([
+      { acao: 'criar', entidade: 'perfil_profissional', entidade_id: 'fitoterapia:2026-10-05', patient_id: null },
+      { acao: 'excluir', entidade: 'perfil_profissional', entidade_id: 'fitoterapia', patient_id: null },
+    ]);
   });
 });
 ```
@@ -1279,7 +1291,7 @@ Run: `pnpm test src/modules/documentos/perfil-profissional.test.ts` → FAIL (m�
 - [ ] **Step 2: Implementação** — `src/modules/documentos/perfil-profissional.ts`
 
 ```ts
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
@@ -1363,14 +1375,21 @@ export async function declararFitoterapia(ctx: TenantContext, input: Record<stri
       .update(tenants)
       .set({ fitoterapiaRegistro: registro, fitoterapiaDeclaradaEm: agora, fitoterapiaTermoVersao: TERMO_FITOTERAPIA.versao, updatedAt: agora })
       .where(eq(tenants.id, ctx.tenantId));
-    await recordAudit(tx, { acao: 'alterar', entidade: 'perfil_profissional', entidadeId: ctx.tenantId, patientId: null });
+    // D6: a declaração fica no audit_log com a versão do termo aceito; a retirada zera `tenants`, e é este registro
+    // (com a data em `criado_em`) que prova quando ela se declarou e qual termo aceitou
+    await recordAudit(tx, { acao: 'criar', entidade: 'perfil_profissional', entidadeId: `fitoterapia:${TERMO_FITOTERAPIA.versao}`, patientId: null });
   }, deps.db ?? getDb());
 }
 
 export async function retirarFitoterapia(ctx: TenantContext, deps: { db?: Db } = {}): Promise<void> {
   await withTenant(ctx, async (tx) => {
-    await tx.update(tenants).set({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null, updatedAt: new Date() }).where(eq(tenants.id, ctx.tenantId));
-    await recordAudit(tx, { acao: 'alterar', entidade: 'perfil_profissional', entidadeId: ctx.tenantId, patientId: null });
+    const retirada = await tx
+      .update(tenants)
+      .set({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null, updatedAt: new Date() })
+      .where(and(eq(tenants.id, ctx.tenantId), isNotNull(tenants.fitoterapiaRegistro)))
+      .returning({ id: tenants.id });
+    // sem habilitação (duas abas, clique duplo), não há o que retirar nem registrar
+    if (retirada.length) await recordAudit(tx, { acao: 'excluir', entidade: 'perfil_profissional', entidadeId: 'fitoterapia', patientId: null });
   }, deps.db ?? getDb());
 }
 ```
@@ -1389,7 +1408,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { DocumentoError } from '@/modules/documentos/erros';
 import { declararFitoterapia, retirarFitoterapia, salvarDadosParaDocumentos } from '@/modules/documentos/perfil-profissional';
 
-export type DadosDocState = { erros?: Record<string, string>; ok?: boolean; valores?: Record<string, string> };
+export type DadosDocState = { erros?: Record<string, string>; ok?: boolean; retirada?: boolean; valores?: Record<string, string> };
 const PATH = '/painel/configuracoes/perfil';
 
 export async function salvarDadosDocumentosAction(_prev: DadosDocState, f: FormData): Promise<DadosDocState> {
@@ -1418,10 +1437,11 @@ export async function declararFitoterapiaAction(_prev: DadosDocState, f: FormDat
   return { ok: true };
 }
 
-export async function retirarFitoterapiaAction(): Promise<void> {
+export async function retirarFitoterapiaAction(): Promise<DadosDocState> {
   const { ctx } = await requireNutri(PATH);
   await retirarFitoterapia(ctx);
   revalidatePath(PATH);
+  return { retirada: true };
 }
 ```
 
@@ -1457,27 +1477,53 @@ export function DocumentosForm({ dados }: { dados: { nomeProfissional: string; c
 ```tsx
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { Campo } from '@/components/campo';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Botao } from '@/components/ui/botao';
 import { declararFitoterapiaAction, retirarFitoterapiaAction, type DadosDocState } from './actions';
 
-/** D6 da spec: autodeclaração com registro e termo. O rótulo e o termo vêm do módulo (texto exato da US-140). */
+/**
+ * D6 da spec: autodeclaração com registro e termo. O rótulo e o termo vêm do módulo (texto exato da US-140).
+ * Cada aviso de sucesso fica no ramo que a ação mostra depois do `revalidatePath`: "registrada" no da habilitação
+ * (US-140: "Então vejo 'Habilitação em Fitoterapia registrada no perfil.'") e "retirada" no formulário de declarar.
+ * Na troca de ramo, o botão que tinha o foco sai do DOM: o foco vai ao aviso (RNF-10), que o leitor de tela lê.
+ */
 export function FitoterapiaForm({ registro, declaradaEm, rotulo, termo }: { registro: string | null; declaradaEm: string | null; rotulo: string; termo: string }) {
   const [s, action, pendente] = useActionState<DadosDocState, FormData>(declararFitoterapiaAction, {});
+  const [r, retirar] = useActionState<DadosDocState, FormData>(retirarFitoterapiaAction, {});
   const e = s.erros ?? {};
+  const aviso = useRef<HTMLParagraphElement>(null);
+  const habilitada = !!registro;
+  const anterior = useRef(habilitada);
+  useEffect(() => {
+    if (anterior.current === habilitada) return;
+    anterior.current = habilitada;
+    aviso.current?.focus();
+  }, [habilitada]);
+
   if (registro)
     return (
       <div className="space-y-2">
+        {s.ok && (
+          <p ref={aviso} tabIndex={-1} role="status">
+            Habilitação em Fitoterapia registrada no perfil.
+          </p>
+        )}
         <p>{`Habilitação em Fitoterapia: ${registro} (declarada em ${declaradaEm}).`}</p>
-        <form action={retirarFitoterapiaAction}>
+        <form action={retirar}>
           <ConfirmarBotao mensagem="Retirar a habilitação em Fitoterapia do perfil? Os fitoterápicos formulados deixam de poder ser prescritos.">Retirar habilitação</ConfirmarBotao>
         </form>
       </div>
     );
   return (
     <form action={action} className="space-y-3">
+      {/* depois de uma tentativa com erro, o aviso velho da retirada some (o erro é o resultado mais recente) */}
+      {r.retirada && !s.erros && (
+        <p ref={aviso} tabIndex={-1} role="status">
+          Habilitação em Fitoterapia retirada do perfil.
+        </p>
+      )}
       <fieldset className="space-y-3">
         <legend className="font-medium">{rotulo}</legend>
         <Campo id="registro" rotulo="Registro da habilitação no CRN" maxLength={60} defaultValue={s.valores?.registro ?? ''} erro={e.registro} dica='Ex.: "CRN-3 nº 1234/2024"' />
@@ -1487,7 +1533,6 @@ export function FitoterapiaForm({ registro, declaradaEm, rotulo, termo }: { regi
         </div>
         {e.confirmo && <p id="confirmo-erro" role="alert" className="text-sm text-erro">{e.confirmo}</p>}
       </fieldset>
-      {s.ok && <p role="status">Habilitação em Fitoterapia registrada no perfil.</p>}
       <Botao disabled={pendente}>Registrar habilitação</Botao>
     </form>
   );
@@ -1560,12 +1605,12 @@ No hub (`src/app/painel/configuracoes/page.tsx`), o texto do cartão de perfil p
     passos: [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
-      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Nome completo, e-mail e telefone do carimbo das receitas. Mudar aqui não altera documento já preparado.' },
+      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas. Mudar depois não altera documento já preparado.' },
     ],
   },
 ```
 
-> O passo `dados-documentos` só tem alvo na página "Perfil e marca": na página do hub, o tour pula o passo cujo alvo não está na tela (comportamento do `Tour` do Plano 08). Os textos entre aspas ("Perfil e marca", "Dados para documentos", "Segurança", "Fitoterápico (forma farmacêutica ou fórmula magistral)") precisam existir nos `.tsx`; o último é rótulo de opção do formulário da receita (T6) — até a T6, deixar a frase sem as aspas e voltá-las na T6.
+> O passo `dados-documentos` só tem alvo na página "Perfil e marca". Na página do hub, o `Tour` do Plano 08 **não pula** o passo sem alvo: mostra o cartão centralizado, sem holofote. Por isso o texto do passo diz onde a seção fica e serve nas duas telas. Os textos entre aspas ("Perfil e marca", "Dados para documentos", "Segurança", "Fitoterápico (forma farmacêutica ou fórmula magistral)") precisam existir nos `.tsx`; o último é rótulo de opção do formulário da receita (T6) — até a T6, deixar a frase sem as aspas e voltá-las na T6.
 
 Run: `pnpm test src/modules/ajuda/conteudo.test.ts src/app/painel` → PASS.
 

@@ -5,7 +5,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { DocumentoError } from '@/modules/documentos/erros';
 import { declararFitoterapia, retirarFitoterapia, salvarDadosParaDocumentos } from '@/modules/documentos/perfil-profissional';
 
-export type DadosDocState = { erros?: Record<string, string>; ok?: boolean; valores?: Record<string, string> };
+export type DadosDocState = { erros?: Record<string, string>; ok?: boolean; retirada?: boolean; valores?: Record<string, string> };
 const PATH = '/painel/configuracoes/perfil';
 
 export async function salvarDadosDocumentosAction(_prev: DadosDocState, f: FormData): Promise<DadosDocState> {
@@ -34,8 +34,9 @@ export async function declararFitoterapiaAction(_prev: DadosDocState, f: FormDat
   return { ok: true };
 }
 
-export async function retirarFitoterapiaAction(): Promise<void> {
+export async function retirarFitoterapiaAction(): Promise<DadosDocState> {
   const { ctx } = await requireNutri(PATH);
   await retirarFitoterapia(ctx);
   revalidatePath(PATH);
+  return { retirada: true };
 }

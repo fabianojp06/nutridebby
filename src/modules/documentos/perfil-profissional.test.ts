@@ -44,5 +44,17 @@ describe('perfil profissional (US-140)', () => {
     expect(await tenantDe(T.tenantId)).toMatchObject({ fitoterapiaRegistro: 'CRN-3 nº 1234/2024', fitoterapiaTermoVersao: '2026-10-05', fitoterapiaDeclaradaEm: new Date('2026-10-05T12:00:00Z') });
     await retirarFitoterapia(T.ctx, { db: app.db });
     expect(await tenantDe(T.tenantId)).toMatchObject({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null });
+    // retirar de novo (duas abas, clique duplo) não grava outra retirada
+    await retirarFitoterapia(T.ctx, { db: app.db });
+    // US-140/D6: a declaração (com a versão do termo) e a retirada ficam no audit_log, sem paciente, distintas da edição do contato
+    const audit = await withTenant(
+      T.ctx,
+      (tx) => tx.execute(sql`select acao, entidade, entidade_id, patient_id from audit_log where entidade = 'perfil_profissional' order by criado_em, id`),
+      app.db,
+    );
+    expect(audit.rows).toEqual([
+      { acao: 'criar', entidade: 'perfil_profissional', entidade_id: 'fitoterapia:2026-10-05', patient_id: null },
+      { acao: 'excluir', entidade: 'perfil_profissional', entidade_id: 'fitoterapia', patient_id: null },
+    ]);
   });
 });

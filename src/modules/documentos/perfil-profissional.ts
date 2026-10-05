@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
@@ -82,13 +82,20 @@ export async function declararFitoterapia(ctx: TenantContext, input: Record<stri
       .update(tenants)
       .set({ fitoterapiaRegistro: registro, fitoterapiaDeclaradaEm: agora, fitoterapiaTermoVersao: TERMO_FITOTERAPIA.versao, updatedAt: agora })
       .where(eq(tenants.id, ctx.tenantId));
-    await recordAudit(tx, { acao: 'alterar', entidade: 'perfil_profissional', entidadeId: ctx.tenantId, patientId: null });
+    // D6: a declaração fica no audit_log com a versão do termo aceito; a retirada zera `tenants`, e é este registro
+    // (com a data em `criado_em`) que prova quando ela se declarou e qual termo aceitou
+    await recordAudit(tx, { acao: 'criar', entidade: 'perfil_profissional', entidadeId: `fitoterapia:${TERMO_FITOTERAPIA.versao}`, patientId: null });
   }, deps.db ?? getDb());
 }
 
 export async function retirarFitoterapia(ctx: TenantContext, deps: { db?: Db } = {}): Promise<void> {
   await withTenant(ctx, async (tx) => {
-    await tx.update(tenants).set({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null, updatedAt: new Date() }).where(eq(tenants.id, ctx.tenantId));
-    await recordAudit(tx, { acao: 'alterar', entidade: 'perfil_profissional', entidadeId: ctx.tenantId, patientId: null });
+    const retirada = await tx
+      .update(tenants)
+      .set({ fitoterapiaRegistro: null, fitoterapiaDeclaradaEm: null, fitoterapiaTermoVersao: null, updatedAt: new Date() })
+      .where(and(eq(tenants.id, ctx.tenantId), isNotNull(tenants.fitoterapiaRegistro)))
+      .returning({ id: tenants.id });
+    // sem habilitação (duas abas, clique duplo), não há o que retirar nem registrar
+    if (retirada.length) await recordAudit(tx, { acao: 'excluir', entidade: 'perfil_profissional', entidadeId: 'fitoterapia', patientId: null });
   }, deps.db ?? getDb());
 }

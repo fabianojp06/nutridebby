@@ -172,7 +172,7 @@ export const GUIAS: readonly Guia[] = [
     passos: [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
-      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Nome completo, e-mail e telefone do carimbo das receitas. Mudar aqui não altera documento já preparado.' },
+      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas. Mudar depois não altera documento já preparado.' },
     ],
   },
   {
