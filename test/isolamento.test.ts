@@ -146,6 +146,11 @@ const owner = makeDb(inject('ownerDatabaseUrl'));
 let A: string;
 let B: string;
 let PAC: Record<string, [string, string]> = {};
+/**
+ * Revisão T1 (Plano 10A): um paciente a mais por tenant, criado só pela fábrica de `patients` (sem documento emitido nem
+ * recibo), para o filtro de SO_APAGA.patients casar com alguma linha — o DELETE de B tem de apagar o de B e deixar o de A.
+ */
+let SEM_DOCUMENTO: Record<string, string> = {};
 let P1: string;
 let P2: string;
 let tabelas: string[] = [];
@@ -185,6 +190,10 @@ beforeAll(async () => {
     for (const tenantId of [A, B]) {
       for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
+  }
+  SEM_DOCUMENTO = { [A]: randomUUID(), [B]: randomUUID() };
+  for (const tenantId of [A, B]) {
+    await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS.patients(tenantId, SEM_DOCUMENTO[tenantId])), app.db);
   }
 });
 afterAll(async () => {
@@ -338,6 +347,8 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           const alteradas = await tx.execute(sql`update ${id} set tenant_id = tenant_id`);
           expect(alteradas.rowCount, t).toBe(proprias.length);
           const apagaveis = SO_APAGA[t] ? (await tx.execute(sql`select 1 from ${id} where ${SO_APAGA[t]}`)).rows.length : proprias.length;
+          // o filtro de SO_APAGA nunca pode ficar vazio: com 0 apagáveis o DELETE não provaria nada (revisão T1)
+          if (SO_APAGA[t]) expect(apagaveis, t).toBeGreaterThan(0);
           const apagadas = await tx.execute(sql`delete from ${id}${SO_APAGA[t] ? sql` where ${SO_APAGA[t]}` : sql``}`);
           expect(apagadas.rowCount, t).toBe(apagaveis); // signed_documents: só os rascunhos de B; patients: só os sem emitido nem recibo
           sobrouDeB = proprias.length - apagaveis;
@@ -348,6 +359,13 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
         expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: A não foi tocado
         // o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de SO_APAGA deixa (em patients, os de B com documento emitido ou recibo)
         expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);
+      }
+      if (t === 'patients') {
+        // o paciente sem documento de B foi apagado; o de A, que também casa com o filtro, segue lá
+        const existe = async (tenantId: string) =>
+          (await owner.pool.query(`select 1 from patients where tenant_id = $1 and id = $2`, [tenantId, SEM_DOCUMENTO[tenantId]])).rowCount;
+        expect(await existe(B)).toBe(0);
+        expect(await existe(A)).toBe(1);
       }
     }
   });
