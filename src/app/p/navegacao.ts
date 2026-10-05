@@ -3,7 +3,7 @@ export type ItemPortal = { href: string; rotulo: string; /** Outras telas que ma
 /**
  * D23 (Plano 06): as abas do portal, em ordem — grade de 7 colunas (R16, 360 px). D3 (Plano 07): "Conteúdos" entrou no
  * lugar de "Compras"; a lista de compras é um link em "Plano" e marca essa aba. Depois do MVP ("Exames", "IA Nutri"),
- * decidir de novo o que sai da barra (ou um "Mais").
+ * decidir de novo o que sai da barra (ou um "Mais"). US-146 (Plano 10A): "Documentos" não é aba — marca "Perfil".
  */
 export const ITENS_DO_PORTAL: ItemPortal[] = [
   { href: '/p/inicio', rotulo: 'Início' },
@@ -12,7 +12,7 @@ export const ITENS_DO_PORTAL: ItemPortal[] = [
   { href: '/p/conteudos', rotulo: 'Conteúdos' },
   { href: '/p/evolucao', rotulo: 'Evolução' },
   { href: '/p/agenda', rotulo: 'Agenda' },
-  { href: '/p/perfil', rotulo: 'Perfil' },
+  { href: '/p/perfil', rotulo: 'Perfil', tambem: ['/p/documentos'] },
 ];
 
 const dentro = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
