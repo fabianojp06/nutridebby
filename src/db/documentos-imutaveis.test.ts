@@ -5,7 +5,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../test/db';
-import { documentoNoBanco } from '../../test/documentos';
+import { codigoAleatorio, documentoNoBanco } from '../../test/documentos';
 import { novoPaciente, novoTenant } from '../../test/pacientes';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { withTenant, type TenantContext } from './tenant';
@@ -15,6 +15,10 @@ afterAll(() => app.pool.end());
 const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
 /** Revisão T2: a recusa vem do ramo certo do gatilho (o 42501 sozinho também é o código da RLS). */
 const negadoPor = (trecho: string) => (e: unknown) => negado(e) && String((((e as { cause?: unknown }).cause ?? e) as { message?: string }).message).includes(trecho);
+const violaCheck = (nome: string) => (e: unknown) => {
+  const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; constraint?: string };
+  return c.code === '23514' && c.constraint === nome;
+};
 const fk = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '23503';
 const worker = (tenantId: string): TenantContext => ({ tenantId, role: 'worker' });
 const linha = async (ctx: TenantContext, id: string) =>
@@ -60,6 +64,53 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     await expect(q(sql`${voltar}, digitalizacao_status = null where id = ${d.id}`)).rejects.toSatisfy(negadoPor('voltar a editar'));
     await q(sql`${voltar}, digitalizacao_status = null, digitalizacao_em = null where id = ${d.id}`);
     expect((await linha(T.ctx, d.id)).codigo).toBeNull();
+  });
+
+  it('code review do PR #19 (item 6): o rascunho não carrega nada da assinatura nem do cancelamento; preparar exige a declaração e o PDF pendente', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const d = await documentoNoBanco(app.db, T.ctx, p.id);
+    const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
+    for (const campo of [sql`cancelado_em = now()`, sql`substituido_em = now()`, sql`assinado_por = ${T.nutriId}`, sql`assinatura_emissor = 'AC Teste'`, sql`assinante_nome = 'DEBBY SILVA'`])
+      await expect(q(sql`update signed_documents set ${campo} where id = ${d.id}`)).rejects.toSatisfy(negadoPor('rascunho sem PDF'));
+    const preparar = (resto: ReturnType<typeof sql>) => q(sql`update signed_documents set status = 'preparando', codigo = ${codigoAleatorio()}${resto} where id = ${d.id}`);
+    await expect(preparar(sql`, pdf_status = 'pendente', pdf_pedido_em = now()`)).rejects.toSatisfy(negadoPor('preparo fora da regra')); // sem a declaração
+    await expect(preparar(sql`, declaracao_em = now()`)).rejects.toSatisfy(negadoPor('preparo fora da regra')); // sem o PDF pedido
+    await expect(preparar(sql`, declaracao_em = now(), pdf_status = 'pronto'`)).rejects.toSatisfy(negadoPor('preparo fora da regra')); // o PDF nasce pendente
+    await expect(preparar(sql`, declaracao_em = now(), pdf_status = 'pendente', cancelado_em = now()`)).rejects.toSatisfy(negadoPor('rascunho sem PDF'));
+    await preparar(sql`, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now()`);
+    expect((await linha(T.ctx, d.id)).status).toBe('preparando');
+  });
+
+  it('code review do PR #19 (item 5): o PDF assinado só em <tenant>/documento_assinado/ (sem o "_" coringa) e só um stored_files do tipo documento_assinado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
+    const novoArquivo = async (tipo: string, pasta = tipo) => {
+      const c = `${T.tenantId}/${pasta}/${randomUUID()}.pdf`;
+      await q(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${T.tenantId}, ${tipo}, ${c}, 10, 'application/pdf', ${p.id})`);
+      return c;
+    };
+    // CHECK: o PDF assinado não pode ser o base, uma foto ou um caminho com outro caractere no lugar do "_"
+    const inserir = (pdf: string) => q(sql`insert into signed_documents (tenant_id, patient_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo)
+      values (${T.tenantId}, ${p.id}, 'assinado', ${codigoAleatorio()}, '{}'::jsonb, ${pdf}, ${'a'.repeat(64)}, now(), 'digitalizada')`);
+    for (const pasta of ['documento_base', 'documento_digitalizado', 'documentoXassinado'])
+      await expect(inserir(await novoArquivo('documento_base', pasta))).rejects.toSatisfy(violaCheck('signed_documents_arquivos_do_tenant'));
+    await inserir(await novoArquivo('documento_assinado'));
+    // o base também sem o coringa
+    const d0 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
+    const baseTorto = await novoArquivo('documento_base', 'documentoXbase');
+    await expect(withTenant(worker(T.tenantId), (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${baseTorto}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10 where id = ${d0.id}`), app.db))
+      .rejects.toSatisfy(violaCheck('signed_documents_arquivos_do_tenant'));
+    // gatilho: a ida a "assinado" confere o TIPO do arquivo (um base gravado na pasta do assinado não passa)
+    const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
+    const base = await novoArquivo('documento_base');
+    await withTenant(worker(T.tenantId), (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10 where id = ${d.id}`), app.db);
+    const assinar = (pdf: string) => q(sql`update signed_documents set status = 'assinado', pdf_path = ${pdf}, pdf_sha256 = ${'a'.repeat(64)}, assinado_em = now(), assinatura_tipo = 'digitalizada' where id = ${d.id}`);
+    await expect(assinar(await novoArquivo('documento_base', 'documento_assinado'))).rejects.toSatisfy(negadoPor('PDF assinado fora da regra'));
+    await expect(assinar(await novoArquivo('documento_digitalizado', 'documento_assinado'))).rejects.toSatisfy(negadoPor('PDF assinado fora da regra'));
+    await assinar(await novoArquivo('documento_assinado'));
+    expect((await linha(T.ctx, d.id)).status).toBe('assinado');
   });
 
   it('assinado: conteúdo, PDF e SHA-256 nunca mudam, nem pelo DELETE; o no-op passa; cancelado não volta nem vira substituído', async () => {
@@ -185,7 +236,7 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
     await q(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) values (${T.tenantId}, ${p.id}, ${d.id}, 'A')`);
     await q(sql`update signed_document_notes set justificativa_uso = 'B' where documento_id = ${d.id}`);
-    await q(sql`update signed_documents set status = 'preparando', codigo = ${'ABCDEFGHJKMN'.split('').reverse().join('')}, declaracao_em = now() where id = ${d.id}`);
+    await q(sql`update signed_documents set status = 'preparando', codigo = ${'ABCDEFGHJKMN'.split('').reverse().join('')}, declaracao_em = now(), pdf_status = 'pendente' where id = ${d.id}`);
     await expect(q(sql`update signed_document_notes set justificativa_uso = 'C' where documento_id = ${d.id}`)).rejects.toSatisfy(negado);
     await expect(q(sql`delete from signed_document_notes where documento_id = ${d.id}`)).rejects.toSatisfy(negado);
   });

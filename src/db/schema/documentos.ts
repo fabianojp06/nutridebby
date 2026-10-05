@@ -68,7 +68,9 @@ export const signedDocuments = pgTable(
     check('signed_documents_digitalizacao_status_valido', sql`${t.digitalizacaoStatus} is null or ${t.digitalizacaoStatus} in ('recebendo','pendente','falhou')`),
     check('signed_documents_sha256_formato', sql`(${t.pdfSha256} is null or ${t.pdfSha256} ~ '^[0-9a-f]{64}$') and (${t.basePdfSha256} is null or ${t.basePdfSha256} ~ '^[0-9a-f]{64}$')`),
     check('signed_documents_textos_tamanho', sql`coalesce(char_length(${t.assinanteNome}), 0) <= 200 and coalesce(char_length(${t.assinaturaEmissor}), 0) <= 200`),
-    check('signed_documents_arquivos_do_tenant', sql`(${t.basePdfPath} is null or ${t.basePdfPath} like ${t.tenantId}::text || '/documento_base/%') and (${t.pdfPath} is null or ${t.pdfPath} like ${t.tenantId}::text || '/documento_%')`),
+    // 0093 (code review do PR #19, item 5): prefixo exato, sem o "_" coringa do LIKE; o PDF assinado só na pasta dele (o
+    // gatilho confere também o tipo do stored_files na ida a "assinado")
+    check('signed_documents_arquivos_do_tenant', sql`(${t.basePdfPath} is null or starts_with(${t.basePdfPath}, ${t.tenantId}::text || '/documento_base/')) and (${t.pdfPath} is null or starts_with(${t.pdfPath}, ${t.tenantId}::text || '/documento_assinado/'))`),
     check('signed_documents_versao_positiva', sql`${t.versao} >= 1`),
     unique('signed_documents_tenant_id_unique').on(t.tenantId, t.id),
     unique('signed_documents_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),

@@ -6,7 +6,7 @@
 
 **Goal:** A nutricionista assina o PDF preparado (Plano 10A) no assinador do gov.br ou com o seu certificado ICP-Brasil e envia o arquivo de volta; o sistema confere a assinatura sem rede e sem serviço pago (prefixo intacto, atualização incremental dentro de uma lista fechada, CMS, cadeia até âncora fixada, validade e titular), confirma o primeiro certificado — e a troca dele — com o código do 2FA, e leva o documento a "assinado" pelo mesmo `registrarAssinatura` do 10A (verificação pública, entrega e recebimento iguais aos da digitalizada).
 
-**Architecture:** Os arquivos novos de `src/modules/documentos` são a conferência (`pdf-leitor.ts` + `pdf-escrita.ts`, leitor **limitado** à atualização incremental; `pdf-atualizacao.ts`, lista fechada por alcance; `cms.ts` e `certificados.ts`, toda a criptografia pelo `node:crypto`; `ancoras*`, raízes fixadas no repositório; `assinatura-pades.ts`, a conferência inteira), o assinante do consultório (`assinante.ts` + tabela `tenant_signer`, STAFF_ONLY) e o envio (`assinar.ts` + Route Handler `/api/painel/documentos/[id]/assinado`, que confere em ≤ 3 s e, no `registrar` do `salvarArquivo`, chama o `registrarAssinatura` do 10A). Duas migrations (0092–0093): `tenant_signer` e os CHECKs de `assinatura_tipo` com `'govbr'` e `'icp'` (sem migração de dados: a tabela de documentos e o PDF preparado já são os do 10A, D22). A Tarefa 2 (relatório do spike) decide o campo pré-criado, a liberação de cada assinador e, se for o caso, a Tarefa 6 (conferência assíncrona no worker).
+**Architecture:** Os arquivos novos de `src/modules/documentos` são a conferência (`pdf-leitor.ts` + `pdf-escrita.ts`, leitor **limitado** à atualização incremental; `pdf-atualizacao.ts`, lista fechada por alcance; `cms.ts` e `certificados.ts`, toda a criptografia pelo `node:crypto`; `ancoras*`, raízes fixadas no repositório; `assinatura-pades.ts`, a conferência inteira), o assinante do consultório (`assinante.ts` + tabela `tenant_signer`, STAFF_ONLY) e o envio (`assinar.ts` + Route Handler `/api/painel/documentos/[id]/assinado`, que confere em ≤ 3 s e, no `registrar` do `salvarArquivo`, chama o `registrarAssinatura` do 10A). Duas migrations (0094–0095): `tenant_signer` e os CHECKs de `assinatura_tipo` com `'govbr'` e `'icp'` (sem migração de dados: a tabela de documentos e o PDF preparado já são os do 10A, D22). A Tarefa 2 (relatório do spike) decide o campo pré-criado, a liberação de cada assinador e, se for o caso, a Tarefa 6 (conferência assíncrona no worker).
 
 **Tech Stack:** Node 24 · pnpm 12 · Next.js 16.3 · PostgreSQL 16 · Drizzle 0.45 · `node:crypto` (RSA PKCS#1 e PSS, ECDSA inclusive brainpool, Ed25519) · **novos:** `pkijs` 3.4 + `asn1js` 3.0 (BSD-3, só leitura de ASN.1) e, só em desenvolvimento, `@peculiar/x509` 2.1 + `reflect-metadata` (AC de teste). Só se a D16 da spec entrar pelo spike: `pdfjs-dist` 6.4 no worker (Tarefa 6).
 
@@ -16,7 +16,7 @@
 
 - Tudo do Plano 10A continua valendo (Global Constraints de lá: Planos 01–08, regras do CLAUDE.md, visual V2, acessibilidade, custo zero, regras do servidor, política de revisão, liberação para uso real pelo interruptor `documentos_liberados`).
 - **Depende do Plano 10A:** `constantes.ts` (`AREA_ASSINATURA`, `TOLERANCIA_AREA_PT`, `AreaAssinatura`), `erros.ts`, `registrar-assinatura.ts` (`registrarAssinatura`, `exigirHabilitacaoAtual`, `AcessoAssinatura`, `DepsAssinar`, `VersaoLida`), `confirmar-2fa.ts`, `verificacao.ts`, o PDF preparado (`documento-pdf-job.ts`), a página do documento e os ajudantes de teste (`test/documentos.ts`). Nada do 10A importa o 10B; o 10B importa o 10A, nunca o contrário (o worker continua sem sessão).
-- **Migrations:** `0092_assinatura_certificado` (gerada, T3) e `0093_rls_tenant_signer` (custom, T3); `0094`/`0095` só com a Tarefa 6. Se o Plano 09 ou outro plano entrar na `main` antes com migration, renumerar no rebase. Migrations só com `DATABASE_URL_MIGRATOR`; nunca no banco de dev compartilhado sem combinar, nunca em produção fora do deploy.
+- **Migrations:** `0094_assinatura_certificado` (gerada, T3) e `0095_rls_tenant_signer` (custom, T3); `0096`/`0097` só com a Tarefa 6. Renumeradas a partir da 0094 porque o 10A terminou com a `0093_documentos_arquivos_e_rascunho` (code review do PR #19: CHECK do caminho do PDF assinado e `app_documento_imutavel` com o rascunho e o tipo do arquivo na assinatura). Se o Plano 09 ou outro plano entrar na `main` antes com migration, renumerar no rebase. Migrations só com `DATABASE_URL_MIGRATOR`; nunca no banco de dev compartilhado sem combinar, nunca em produção fora do deploy.
 - **Conferência sem rede (RN-144):** nada de `fetch`, `http`, `https`, LCR, OCSP nem `caIssuers` na conferência; guarda de teste `sem-rede.test.ts` (T4). A conferência (CPU, até 3 s) roda **fora** de transação; a verificação do código do 2FA também.
 - **Nunca erro 500 na conferência:** todo erro do leitor, do CMS, da cadeia ou do titular vira `RecusaAssinaturaError` com código fixo e `motivoTecnico` fixo; `err.message` do `pkijs`/`asn1js`/leitor nunca vai ao logger (T4, Minor 3).
 - RNF-142 / CLAUDE.md regra 3: nada de CN do certificado, CPF, número de série, conteúdo, código de verificação ou caminho de arquivo em log/Sentry; logs só com ids, motivo fixo e o nome do erro. O "Assinado por" público nunca leva dígitos (T4, Minor 5).
@@ -72,9 +72,9 @@ As marcadas com ★ foram **aprovadas pelo dono em 05/10/2026, como recomendadas
 
 ```
 drizzle/
-  0092_assinatura_certificado (gerada: tenant_signer, CHECKs de assinatura_tipo com 'govbr' e 'icp')                     # T3
-  0093_rls_tenant_signer (custom: app_enable_tenant_rls, app_enable_staff_only)                                         # T3
-  0094_conferencia_assincrona · 0095_gatilho_conferencia                                                                # T6 (condicional)
+  0094_assinatura_certificado (gerada: tenant_signer, CHECKs de assinatura_tipo com 'govbr' e 'icp')                     # T3
+  0095_rls_tenant_signer (custom: app_enable_tenant_rls, app_enable_staff_only)                                         # T3
+  0096_conferencia_assincrona · 0097_gatilho_conferencia                                                                # T6 (condicional)
 src/db/schema/documentos.ts (tenantSigner, CHECKs) · src/db/rls-guard.ts (STAFF_ONLY) · src/db/documentos-schema.test.ts   # T3
 src/modules/documentos/
   constantes.ts (+ CAMPO_PRE_CRIADO, MAX_ENVIO_BYTES, LIMITE_CONFERENCIA_MS, ASSINATURAS_LIBERADAS; TipoAssinatura e ROTULO_ASSINATURA ampliados)  # T1, T3, T4
@@ -1692,7 +1692,7 @@ git commit -m "docs(documentos): relatório do spike da assinatura e decisões d
 > Tudo o que o Plano 10A deixou de fora por ser do certificado: a tabela do assinante (no plano único, na antiga T2), as funções do CPF (na antiga T4), a troca do CPF do consultório (RN-145/D13, revisão do rascunho) e os códigos de recusa da conferência. O 10A não tem CPF: a digitalizada liga a autoria pelo código do 2FA a cada envio. **D8 ★ (a), aprovada pelo dono em 05/10/2026:** se o spike (T2) mostrar que o certificado gov.br não traz o CPF em campo próprio, o titular do gov.br é identificado pelo **número de série do certificado** (`Titular { tipo: 'serie' }`), e todo certificado novo (renovação anual) passa pela mesma confirmação da troca — mesmo nome do perfil + código do 2FA. Se o gov.br trouxer o CPF, o ramo `'serie'` simplesmente não é usado.
 
 **Files:**
-- Create: `drizzle/0092_assinatura_certificado.sql` (gerada: tabela `tenant_signer` e os dois CHECKs ampliados), `drizzle/0093_rls_tenant_signer.sql` (custom), `src/modules/documentos/assinante.ts` (+ `assinante.test.ts`)
+- Create: `drizzle/0094_assinatura_certificado.sql` (gerada: tabela `tenant_signer` e os dois CHECKs ampliados), `drizzle/0095_rls_tenant_signer.sql` (custom), `src/modules/documentos/assinante.ts` (+ `assinante.test.ts`)
 - Modify: `src/db/schema/documentos.ts` (`tenantSigner`, CHECKs), `src/db/rls-guard.ts` (`STAFF_ONLY`), `src/db/documentos-schema.test.ts` (o caso do tipo de assinatura), `src/modules/documentos/constantes.ts` (`TipoAssinatura`, `ROTULO_ASSINATURA`), `src/modules/documentos/erros.ts` (códigos e mensagens da conferência), `test/isolamento.test.ts` (`FABRICAS`)
 
 **Interfaces:**
@@ -1798,9 +1798,9 @@ export const tenantSigner = pgTable(
 );
 ```
 
-Run: `pnpm db:generate` → `drizzle/0092_assinatura_certificado.sql` (renomear o arquivo gerado e a entrada do `meta/_journal.json`, se o nome sair outro). Conferir no SQL: `CREATE TABLE "tenant_signer"` e, para cada CHECK, `DROP CONSTRAINT` + `ADD CONSTRAINT` (sem migração de dados: os valores antigos, só `'digitalizada'`, continuam válidos).
+Run: `pnpm db:generate` → `drizzle/0094_assinatura_certificado.sql` (renomear o arquivo gerado e a entrada do `meta/_journal.json`, se o nome sair outro). Conferir no SQL: `CREATE TABLE "tenant_signer"` e, para cada CHECK, `DROP CONSTRAINT` + `ADD CONSTRAINT` (sem migração de dados: os valores antigos, só `'digitalizada'`, continuam válidos).
 
-`pnpm drizzle-kit generate --custom --name rls_tenant_signer` → `drizzle/0093_rls_tenant_signer.sql`:
+`pnpm drizzle-kit generate --custom --name rls_tenant_signer` → `drizzle/0095_rls_tenant_signer.sql`:
 
 ```sql
 -- Plano 10B (D10): o assinante do consultório. CLAUDE.md regra 2 (sem patient_id: só tenant e STAFF_ONLY).
@@ -1929,7 +1929,7 @@ Run: `pnpm test src/modules/documentos/assinante.test.ts src/db/documentos-schem
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/db/schema/documentos.ts drizzle/0092_assinatura_certificado.sql drizzle/0093_rls_tenant_signer.sql drizzle/meta src/db/{rls-guard,documentos-schema.test}.ts src/modules/documentos/{assinante,assinante.test,constantes,erros}.ts test/isolamento.test.ts
+git add src/db/schema/documentos.ts drizzle/0094_assinatura_certificado.sql drizzle/0095_rls_tenant_signer.sql drizzle/meta src/db/{rls-guard,documentos-schema.test}.ts src/modules/documentos/{assinante,assinante.test,constantes,erros}.ts test/isolamento.test.ts
 git commit -m "feat(documentos): assinante do consultório, CHECKs com gov.br e ICP-Brasil e recusas da conferência (D10, RN-145, D8)"
 ```
 
@@ -3364,7 +3364,7 @@ git commit -m "feat(documentos): envio do PDF assinado — primeiro certificado 
 
 **Files:**
 - Create: `src/modules/documentos/conferencia-visual-job.ts` (+ `conferencia-visual-job.test.ts`)
-- Modify: `src/modules/documentos/assinar.ts` (ramo assíncrono), `src/modules/documentos/assinatura-pades.ts` (`conferirPdfAssinado(…, { soCriptografia: true })`), `src/jobs/queues.ts` (`documento-conferir`), `src/worker/index.ts`, a página do documento ("Conferindo o PDF assinado…"), `package.json` (`pdfjs-dist@6.4.299` só no worker), `src/modules/pacientes/exportacao.test.ts` (o pacote `pdfjs-dist` na lista dos proibidos no grafo do Next), `src/db/schema/documentos.ts` + migration `0094_conferencia_assincrona` (gerada: `conferencia_status text` e `conferencia_path text` → `stored_files.caminho` NO ACTION) + `0095_gatilho_conferencia` (custom: `CREATE OR REPLACE FUNCTION app_documento_imutavel()` do 10A-T2 com as duas colunas novas nas listas do mesmo estado e da assinatura, liberadas só em `aguardando_assinatura`, e limpas pela `app_anonimizar_documentos`; teste novo em `documentos-imutaveis.test.ts`)
+- Modify: `src/modules/documentos/assinar.ts` (ramo assíncrono), `src/modules/documentos/assinatura-pades.ts` (`conferirPdfAssinado(…, { soCriptografia: true })`), `src/jobs/queues.ts` (`documento-conferir`), `src/worker/index.ts`, a página do documento ("Conferindo o PDF assinado…"), `package.json` (`pdfjs-dist@6.4.299` só no worker), `src/modules/pacientes/exportacao.test.ts` (o pacote `pdfjs-dist` na lista dos proibidos no grafo do Next), `src/db/schema/documentos.ts` + migration `0096_conferencia_assincrona` (gerada: `conferencia_status text` e `conferencia_path text` → `stored_files.caminho` NO ACTION) + `0097_gatilho_conferencia` (custom: `CREATE OR REPLACE FUNCTION app_documento_imutavel()` do 10A-T2, **na versão da `0093` do 10A** (rascunho sem assinatura nem cancelamento, preparo com declaração e PDF pendente, tipo do arquivo na ida a "assinado"), com as duas colunas novas nas listas do mesmo estado e da assinatura, liberadas só em `aguardando_assinatura`, e limpas pela `app_anonimizar_documentos`; teste novo em `documentos-imutaveis.test.ts`)
 
 **Interfaces:**
 - Consumes: `conferirAtualizacao` (só a parte de forma do `/ByteRange` e o CMS continuam síncronos), `registrarAssinatura` (10A-T8, com a entrega da 10A-T10; o job importa `registrar-assinatura.ts`, sem sessão).
@@ -3464,7 +3464,7 @@ git commit -m "feat(documentos): conferência de conteúdo assíncrona no worker
 1. **PDFs reais para o spike (P-B2, Tarefa 2 Step 1).** Com os dois PDFs fictícios gerados pela Tarefa 1 (`base.pdf` e `base-com-campo.pdf`, enviados por canal privado): a Debby (ou o dono) assina no **assinador.iti.br** com a conta gov.br prata/ouro — (a) carimbo onde o assinador propõe, (b) dentro do quadro "Assinatura digital", (c) sem carimbo visível, se houver a opção — e, se houver e-CPF, no **Adobe Acrobat Reader** e no **Assinador SERPRO** (gratuitos); para cada arquivo, o **relatório de conformidade do VALIDAR** (validar.iti.gov.br). Os arquivos voltam para `test/assinatura/reais/` na máquina de dev (**nunca** no git: têm nome e CPF reais). Só documento fictício; nunca receita de paciente real no VALIDAR.
 2. **Consulta ao CRN-3 (P-B1):** a mesma do Plano 10A; para este plano, a pergunta (i) — o gov.br (assinatura avançada) atende o "assinatura digital certificada" das Res. 656/680 na receita? Se o CRN-3 recusar o gov.br, `ASSINATURAS_LIBERADAS.govbr` fica `false` e a receita segue com C (ICP-Brasil) e E (digitalizada), pela D1 da spec.
 3. **Textos para a Debby revisar:** os da US-144 do certificado ("(proposto)"), a dica do quadro, o e-mail "Certificado do consultório confirmado", a confirmação da troca e os guias `documentos` e `seguranca` na v2.
-4. **Deploy (merge = deploy), com o OK do dono e snapshot no hPanel antes.** As migrations 0092–0093 (ou a numeração depois de outros planos) criam `tenant_signer` e trocam dois CHECKs para aceitar mais valores (sem migração de dados; a validação lê `signed_documents` e `document_verifications` uma vez). Nenhuma variável nova. Com `ASSINATURAS_LIBERADAS` desligado, nada muda para a Debby: o envio do PDF assinado responde "Tipo de assinatura não aceito" e a digitalizada continua.
+4. **Deploy (merge = deploy), com o OK do dono e snapshot no hPanel antes.** As migrations 0094–0095 (ou a numeração depois de outros planos) criam `tenant_signer` e trocam dois CHECKs para aceitar mais valores (sem migração de dados; a validação lê `signed_documents` e `document_verifications` uma vez). Nenhuma variável nova. Com `ASSINATURAS_LIBERADAS` desligado, nada muda para a Debby: o envio do PDF assinado responde "Tipo de assinatura não aceito" e a digitalizada continua.
 5. **Liberação de cada assinador** (PR curto, com o resultado do spike): `ASSINATURAS_LIBERADAS` liga o conjunto cujo arquivo real passou na conferência (Tarefa 4, Step 7); `CAMPO_PRE_CRIADO` conforme o relatório; o checklist do `docs/operacao/go-live.md` ganha a seção do 10B (teste manual com um PDF real assinado no gov.br da Debby e um paciente de teste; a `/v` com o link do ITI).
 6. **Trimestral (D7 ★):** atualização das âncoras (`docs/operacao/ancoras-assinatura.md`) — o Claude faz a pedido do dono.
 
