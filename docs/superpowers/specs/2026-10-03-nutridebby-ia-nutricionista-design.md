@@ -6,10 +6,10 @@
 | Data | 2026-10-03 |
 | Status | **Em revisão** — depende das decisões da §16 |
 | Revisão 0.2 | Revisão do workflow aplicada: ciência de **todo** paciente antes da IA (RN-100, US-104, A-D19); art. 37 da Res. CFN nº 856/2026 com a redação literal (A-D13); caminho pela UE da Res. CD/ANPD nº 32/2026 (A-D1, A-D5, A-D6); função `lerValorLaudo` no lugar de `lerDecimal` (RN-111); reserva pelo `count_tokens` e teto por tarefa com `limite_custo` (RN-104); seções "Exames" e "Pontos para avaliar" do resumo sem interpretação (A-D17); refatoração transacional do editor e dos exames (RN-114, RN-122); auditoria pelo gatilho com rótulo próprio (RN-101); aditivo de IA separado do DPA (A-D20). Pontos menores não aplicados na §15 |
-| Itens do backlog | F3-01 (leitura de laudos com IA) · F3-03 ("IA Nutri" para a nutricionista) · base de IA compartilhada por F3-02, F3-04 e F3-05 |
+| Itens do backlog | F3-01 (leitura de laudos com IA) · F3-03 ("IA Nutri" para a nutricionista) · base de IA compartilhada por F3-02 e F3-04 (F3-05 sem IA: D7 = (a) da spec de documentos assinados, 05/10/2026) |
 | Quando | Só **depois do go-live** do MVP (Plano 08). Os Planos 06 (portal), 07 (biblioteca) e 08 (go-live) seguem como previstos |
 | Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (v1.8) e [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md). IDs RN-xx, RNF-xx, INT-xx, US-0xx e P-xx citados aqui são daqueles documentos |
-| Numeração nova | US-100 a US-129 · RN-100 a RN-129 · RNF-100 a RNF-109 · INT-07 · R-100 a R-110 · A-D1 a A-D20 (decisões deste documento; o prefixo "A-" evita colisão com as decisões dos planos do MVP, como "Plano 05, D10", e segue a forma que a spec do Subprojeto B já usa para citar estas: "A-D4", "A-D6") |
+| Numeração nova | US-100 a US-129 · RN-100 a RN-129 · RNF-100 a RNF-109 · INT-07 · R-100 a R-110 · A-D1 a A-D20 (decisões deste documento; o prefixo "A-" evita colisão com as decisões dos planos do MVP, como "Plano 05, D10", e segue a forma que a spec do Subprojeto C já usa para citar estas: "A-D4", "A-D6") |
 
 ---
 
@@ -709,7 +709,7 @@ Achados menores da revisão 0.2. Os aplicados no corpo estão marcados; os demai
 | # | Ponto | Situação |
 |---|---|---|
 | PM-1 | Cenário "DPA desatualizado" impossível (qualquer `DPA_VERSAO` diferente já redireciona o painel) | Aplicado: aditivo de IA separado (US-101, A-D20) |
-| PM-2 | Gatilho de auditoria em `ia_tarefas` duplicava o `enviar_ia` e enchia o histórico com mudanças do worker | Aplicado: só o gatilho, com rótulo "Enviou à IA" e filtro do ator nulo (RN-101). **Alinhar a spec do Subprojeto B** (`2026-10-03-nutridebby-paciente-exames-ia-design.md`, DEP-06), que ainda cita "ação de auditoria `enviar_ia`" — este documento não altera aquele arquivo |
+| PM-2 | Gatilho de auditoria em `ia_tarefas` duplicava o `enviar_ia` e enchia o histórico com mudanças do worker | Aplicado: só o gatilho, com rótulo "Enviou à IA" e filtro do ator nulo (RN-101). **Spec do Subprojeto C** (`2026-10-03-nutridebby-paciente-exames-ia-design.md`, DEP-06) alinhada em 05/10/2026, junto com a v0.3 da spec de documentos assinados: sem ação `enviar_ia` |
 | PM-3 | FK composta `ia_tarefas` → `exams` sem UNIQUE de destino | Aplicado: `exams_tenant_paciente_id_unique` (§11) |
 | PM-4 | Biblioteca de PDF ausente | Aplicado: `pdf-lib` no worker, `arquivo_invalido` e medição de memória (RN-110, RNF-101) |
 | PM-5 | `maxRetries` padrão do SDK repetiria chamadas cobradas | Aplicado: `maxRetries: 0` + teste (§5.6, INT-07) |
@@ -718,7 +718,7 @@ Achados menores da revisão 0.2. Os aplicados no corpo estão marcados; os demai
 | PM-8 | App não sabe se a chave existe | Aplicado: `credencial_invalida` no worker (§12, RN-112) |
 | PM-9 | Teto global e vizinho barulhento; custo da ZDR | Aplicado em §5.5, A-D4 e A-D10 |
 | PM-10 | Critérios não testáveis do resumo; injeção pelo prontuário; taxa de recusa | Aplicado (US-120, RN-120, RN-127) |
-| PM-11 | Colisão de IDs de decisão; chat livre decidido sem o dono | Aplicado: prefixo "A-D" e A-D18. **Desvio consciente:** a revisão sugeriu "DA-n"; usei "A-Dn" porque a spec do Subprojeto B já cita estas decisões como "A-D4", "A-D5" e "A-D6" (números mantidos) |
+| PM-11 | Colisão de IDs de decisão; chat livre decidido sem o dono | Aplicado: prefixo "A-D" e A-D18. **Desvio consciente:** a revisão sugeriu "DA-n"; usei "A-Dn" porque a spec do Subprojeto C já cita estas decisões como "A-D4", "A-D5" e "A-D6" (números mantidos) |
 | PM-12 | Categoria de recusa `bio` do Opus 5.5 citada pela revisão | Não citada no texto: não a confirmei na documentação; a métrica genérica de recusa da RN-127 cobre o caso |
 | PM-13 | Lista "Pacientes sem aviso de IA" no painel (R-110) | Backlog, só se a Debby pedir |
 
