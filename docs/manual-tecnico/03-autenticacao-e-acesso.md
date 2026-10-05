@@ -352,7 +352,7 @@ Tabela `invites` (`src/db/schema/access.ts`). Guarda só o SHA-256 do token (`to
 | Validade | 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:11`) | 7 dias (`CONVITE_PACIENTE_VALIDADE_MS`, `convite-paciente.ts:18`) |
 | Aponta para | `user_id` (a conta já existe, sem senha) | `tenant_id` + `patient_id` (a conta nasce no aceite) |
 | Quem cria | admin: `criarContaNutri` / `reenviarConvite` (`src/modules/plataforma/contas.ts:59`, `:89`) | nutricionista: `enviarConvitePaciente` / `reenviarConvitePaciente` (`convite-paciente.ts:52`, `:102`) |
-| Link | `/convite/<token>` | `/convite/paciente/<token>` |
+| Link | `/convite/<token>` (montado por `urlDoApp(appUrl, …)`, `src/lib/url-do-app.ts`, `convites.ts:32`) | `/convite/paciente/<token>` |
 | Canal | e-mail pela fila, na mesma transação | e-mail na mesma transação. O WhatsApp é só um aviso **sem link** (decisão do dono, US-010, nota do Plano 05) |
 | Aceite grava | senha (`account`), `emailVerified`, DPA | `user` de paciente, senha, termo, `patients.user_id`, escolha do WhatsApp |
 | Mensagens | "Convite expirado. Peça um novo ao suporte." / "Convite inválido ou já usado. Se você já definiu sua senha, entre com seu e-mail e senha." | `MSG_CONVITE_PACIENTE` (`convite-paciente.ts:20-28`) |
@@ -408,7 +408,7 @@ sequenceDiagram
   N->>App: abre o link (inspecionarConvite)
   N->>App: senha + aceite do DPA (aceitarConviteAction)
   App->>App: checa token sem trava, depois argon2id
-  App->>DB: tx: FOR UPDATE user → UPDATE invites usado_em → account → emailVerified → consents(dpa) → tenants.dpa_versao
+  App->>DB: tx: FOR UPDATE user → confere se já há account credential (convites.ts:93-97; se houver, convite inválido) → UPDATE invites usado_em (:99-103) → grava account → emailVerified → consents(dpa) → tenants.dpa_versao
   App->>App: signInEmail (hooks: tenant ativo? expira em 12 h)
   App-->>N: redirect /painel
 ```

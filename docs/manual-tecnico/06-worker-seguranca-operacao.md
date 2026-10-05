@@ -245,9 +245,10 @@ pg-boss real, que o `output` de um job falho não contém `/data/` nem o UUID.
 5. Tabela com `tenant_id`: dentro do job, `withTenant({ tenantId, role: 'worker' }, …)` (exemplo:
    `ignorarPendentesDoTenant`, `src/modules/notificacoes/agendar.ts:210-218`). Varredura entre tenants parte de `tenants`
    (spec §4.1, linha 127).
-6. Log só com ids, contagens e `motivoDoErro(err)`. Nada de mensagem de erro, caminho ou e-mail.
-7. Se o job pode morrer na última tentativa deixando estado intermediário, crie a rede de segurança (seção 6.2.4).
-8. Cron: `boss.schedule(nome, '<cron>', {}, { tz: 'America/Sao_Paulo' })`.
+6. Job que manda algo ao paciente (e-mail, push, WhatsApp, PDF, exportação) confere o tenant suspenso (RN-15) com `getTenantStatus(tx, tenantId, { aguardarSuspensao: true })` ou `tenantIsActive`, relido sob trava na mesma transação (exemplos: `src/modules/notificacoes/enviar.ts:270-272`, `agendar.ts:214`). O papel `'worker'` só existe em código do worker; rota e Server Action usam o contexto de `requireNutri`/`requirePaciente`.
+7. Log só com ids, contagens e `motivoDoErro(err)`. Nada de mensagem de erro, caminho ou e-mail.
+8. Se o job pode morrer na última tentativa deixando estado intermediário, crie a rede de segurança (seção 6.2.4).
+9. Cron: `boss.schedule(nome, '<cron>', {}, { tz: 'America/Sao_Paulo' })`.
 
 ---
 
@@ -316,7 +317,7 @@ Pontos de atenção:
 - **Modo de emergência:** `CSP_MODO=relatorio` (variável do Easypanel, `src/env.ts:146`) troca para
   `Content-Security-Policy-Report-Only` com `report-uri /api/csp-relatorio`. A rota só registra a diretiva e a
   origem bloqueada; com a CSP valendo, ela não registra nada (`src/app/api/csp-relatorio/route.ts:12-35`).
-- `/api/arquivos` tem CSP própria `default-src 'none'; sandbox` (`src/app/api/arquivos/route.ts:42`).
+- `/api/arquivos` tem CSP própria `default-src 'none'; sandbox`, só na resposta 200 (`src/app/api/arquivos/route.ts:42`); as respostas de erro (`route.ts:18`) têm apenas `cache-control: no-store` e os cabeçalhos globais.
 - Cloudflare com proxy laranja: Rocket Loader, Email Obfuscation e Web Analytics automático injetam script sem nonce
   e quebram o app (`docs/operacao/go-live.md`, item da Cloudflare).
 
@@ -333,7 +334,7 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 | Onde | Limite | Chave | Armazenamento | Fonte |
 |---|---|---|---|---|
 | Better Auth, padrão | 100 / 60 s | IP + rota | Banco (`rate_limit`) | `src/lib/auth.ts:122-126` |
-| Login, 2FA, recuperação de senha, troca de senha, `verify-password`, ativar/desativar 2FA, códigos de backup, `delete-user` | 5 / 15 min | IP + rota | Banco | `src/lib/auth.ts:127-140` |
+| Login, 2FA, recuperação de senha, troca de senha, `verify-password`, ativar/desativar 2FA, `/two-factor/get-totp-uri` (`auth.ts:137`), códigos de backup, `delete-user` | 5 / 15 min | IP + rota | Banco | `src/lib/auth.ts:127-140` |
 | Página pública de agendamento: pedido | 10 / h | HMAC do IP (IPv6 pelo /64) | `public_rate_limits` | `src/modules/agenda/agendamento-publico.ts:60,122-123` |
 | Página pública: código por e-mail | 5 / h | HMAC de tenant + e-mail | `public_rate_limits` | `agendamento-publico.ts:61,158` |
 | Webhook do WhatsApp (anti-repetição) | 1 por janela de aceite | HMAC do JWT + corpo | `public_rate_limits`, na transação do evento | `src/modules/notificacoes/whatsapp/webhook.ts:138` |
@@ -385,7 +386,7 @@ agendamento (`src/app/api/n/[slug]/resposta.ts:41`). Falhas vão ao log só com 
 ### 6.3.7 URLs assinadas
 
 `signFileUrl` (`src/lib/signed-url.ts:16`): HMAC-SHA256 com `FILE_URL_SECRET`, validade de 300 s; `GET /api/arquivos`
-confere em tempo constante e responde 403/410/404 com `default-src 'none'; sandbox`, `nosniff` e `no-referrer`. A
+confere em tempo constante e responde 403/410/404 só com `cache-control: no-store` (mais os cabeçalhos globais); o 200 leva `default-src 'none'; sandbox`, `nosniff` e `no-referrer`. A
 rota não reabre a sessão: a assinatura é emitida por quem já conferiu o acesso. Detalhe (formato do caminho,
 cabeçalhos, `attachment` × `inline`) em [§4.1.3](04-modulos-clinicos.md#413-armazenamento-com-cota-e-url-assinada-rn-18-regra-9-do-claudemd).
 

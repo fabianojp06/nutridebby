@@ -611,7 +611,7 @@ sequenceDiagram
   `conectar` reconfigura o webhook a cada conexão, com o cabeçalho `jwt_key` (`evolution.ts`). Trocar o segredo exige
   "Conectar WhatsApp" de novo em cada consultório.
 - `verificarJwtWebhook`: só `alg = HS256`, HMAC em tempo constante, grafia canônica da assinatura, `exp` com folga de
-  60 s, `iat` não no futuro, validade máxima de 900 s, `app = 'evolution'`, `action = 'webhook'`.
+  60 s, `iat` aceito até 60 s no futuro (`FOLGA_S`; `src/modules/notificacoes/whatsapp/jwt.ts:51`), validade máxima de 900 s, `app = 'evolution'`, `action = 'webhook'`.
 - **Anti-repetição**: o JWT da Evolution não tem `jti`. A marca é `HMAC(JWT + SHA-256 do corpo)` (`marcaDoPedido`),
   gravada em `public_rate_limits` na **mesma transação** do evento na fila, pelo tempo em que o JWT pode ser aceito
   (`aceitoPorS`). Pedido repetido → **200 sem efeito**. Se enfileirar falhar, não fica marca e a repetição da Evolution
@@ -806,7 +806,7 @@ sequenceDiagram
 ```
 
 - Validação em `registrarNoDiario` (`src/modules/portal/diario.ts`): refeição da lista `REFEICOES_DO_DIARIO`; texto até
-  2000 caracteres contados em code points; texto ou foto obrigatório; sem `\0`.
+  2000 caracteres (`TEXTO_DIARIO_MAX`; as constantes `REFEICOES_DO_DIARIO`, `FOTO_DIARIO_MAX_BYTES` de 10 MB, `LIMITE_DIARIO_POR_DIA`, `TEXTO_DIARIO_MAX`, `COMENTARIO_MAX` e `MSG_DIARIO` ficam em `src/modules/portal/diario-constantes.ts:2-9`, sem banco, porque o formulário do cliente também as usa) contados em code points; texto ou foto obrigatório; sem `\0`.
 - Limite de 10 registros por dia no fuso do tenant (`LIMITE_DIARIO_POR_DIA`), decidido com a linha do paciente travada
   (`conferirLimite`, P06 D12).
 - Cota esgotada com texto → salva sem a foto ("Registro salvo sem a foto."); só a foto → erro da cota.

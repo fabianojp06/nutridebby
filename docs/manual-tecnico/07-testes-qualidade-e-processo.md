@@ -491,7 +491,7 @@ sequenceDiagram
 | Poda antes dos webhooks | `deploy.yml:53-57` | Se o deploy falhar, a poda já rodou; mantém a imagem nova e a anterior (a que roda) |
 | Webhooks obrigatórios | `deploy.yml:58` | Sem `EASYPANEL_DEPLOY_HOOK_APP`/`_WORKER` o job falha com mensagem clara |
 | `concurrency: deploy-main`, sem cancelamento | `deploy.yml` | Dois merges seguidos implantam em ordem |
-| Migrations no app, antes do `start` | `docker-entrypoint.sh` (modo `app`) | O Drizzle roda cada migration em transação; se falhar, o container novo não sobe |
+| Migrations no app, antes do `start` | `docker-entrypoint.sh` (modo `app`) | O migrator do Drizzle aplica **todas** as pendentes numa única transação (`drizzle-orm/pg-core/dialect.js`, `migrate`, `session.transaction`, linhas 60-71), não uma transação por migration: se uma falhar, nenhuma da leva fica gravada e o container novo não sobe |
 | `DATABASE_URL_MIGRATOR` fora dos processos longos | `docker-entrypoint.sh` (`env -u`) | O role dono do schema pode desligar a RLS; só o passo de migration o vê |
 
 **Merge = deploy = reinício de serviço.** Por isso o merge exige o OK explícito do dono e um snapshot no hPanel antes

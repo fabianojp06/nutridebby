@@ -322,7 +322,7 @@ sequenceDiagram
 | `src/env.ts` | Validação das variáveis por processo (app, worker, migrator), com Zod |
 | `src/instrumentation.ts` | Sentry do servidor e `onRequestError` |
 | `src/jobs/` | Produtor pg-boss do app (`boss.ts`) e catálogo de filas (`queues.ts`) |
-| `src/lib/` | Infraestrutura transversal: autenticação e sessão (`auth.ts`, `session.ts`, `session-rules.ts`, `tenant-session.ts`, `paciente-session.ts`, `api-auth.ts`), criptografia (`crypto.ts`), URL assinada (`signed-url.ts`), IP real (`ip.ts`, `request-ip.ts`), CSP (`csp.ts`), logs e Sentry (`logger.ts`, `sentry.ts`, `sentry-filtro.ts`), limites (`limite-memoria.ts`, `corpo.ts`), Turnstile, formatos pt-BR (`numero.ts`, `format.ts`, `text.ts`), tema (`tema/`) |
+| `src/lib/` | Infraestrutura transversal: autenticação e sessão (`auth.ts`, `session.ts`, `session-rules.ts`, `tenant-session.ts`, `paciente-session.ts`, `api-auth.ts`), criptografia (`crypto.ts`), URL assinada (`signed-url.ts`), link absoluto do app (`url-do-app.ts`: `urlDoApp(APP_URL, caminho)` só concatena, mantendo o prefixo de caminho; usado em `convites.ts:32` e em `admin/contas/nova/page.tsx:16`), erros de formulário Zod (`validacao.ts`: `primeiroErroPorCampo`, usado em `contas.ts:63`, `marca.ts:66`, `alimentos/medidas.ts`), IP real (`ip.ts`, `request-ip.ts`), CSP (`csp.ts`), logs e Sentry (`logger.ts`, `sentry.ts`, `sentry-filtro.ts`), limites (`limite-memoria.ts`, `corpo.ts`), Turnstile, formatos pt-BR (`numero.ts`, `format.ts`, `text.ts`), tema (`tema/`) |
 | `src/modules/` | Domínio, um diretório por módulo (§1.6) |
 | `src/proxy.ts` | Interceptador do Next 16 (§1.4) |
 | `src/types/` | Tipos de pacotes sem tipagem (`heic-decode.d.ts`) |
@@ -360,7 +360,7 @@ rotas e a UI chamam o módulo; o módulo abre `withTenant` e fala com o banco.
 
 | Módulo | Responsabilidade | Arquivos principais | Origem |
 |---|---|---|---|
-| `plataforma` | Contas de nutricionista, convites, DPA, suspensão/reativação, status do tenant, armazenamento em `/data` com cota e URL assinada, auditoria (`auditRead`, `recordAudit`, "Histórico de acessos"), marca e logo, métricas do admin, métricas de sucesso, monitor de backup/disco, preferências da usuária (tema, manual), bootstrap do admin | `contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `tenant-status.ts`, `armazenamento.ts`, `audit.ts`, `marca.ts`, `logo.ts`, `metricas.ts`, `metricas-sucesso.ts`, `monitoramento.ts`, `preferencias.ts`, `admin-bootstrap.ts` | Planos 01, 02, 08 |
+| `plataforma` | Contas de nutricionista, convites, DPA, suspensão/reativação, status do tenant, armazenamento em `/data` com cota e URL assinada, auditoria (`auditRead`, `recordAudit`, "Histórico de acessos" e sua tabela de tela, `ui/historico-acessos.tsx`: `HistoricoAcessos`, `HistoricoAcessosTabela`, `formatarDataHora`), marca e logo, métricas do admin, métricas de sucesso, monitor de backup/disco, preferências da usuária (tema, manual), bootstrap do admin | `contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `tenant-status.ts`, `armazenamento.ts`, `audit.ts`, `marca.ts`, `logo.ts`, `metricas.ts`, `metricas-sucesso.ts`, `monitoramento.ts`, `preferencias.ts`, `admin-bootstrap.ts` | Planos 01, 02, 08 |
 | `pacientes` | Cadastro, convite e aceite do paciente, etiquetas (`staff_only`), anamnese, antropometria e fórmulas (Apêndice A), gasto energético, atendimentos e notas privadas, exames, evolução, LGPD (arquivar, bloquear, anonimizar), exportação ZIP e anonimização da conta do titular | `pacientes.ts`, `convite-paciente.ts`, `etiquetas.ts`, `anamnese.ts`, `antropometria.ts`, `formulas.ts`, `gasto-energetico.ts`, `atendimentos.ts`, `exames.ts`, `evolucao.ts`, `lgpd.ts`, `exportacao.ts`, `exportacao-job.ts`*, `prontuario-pdf.tsx`*, `conta-titular.ts`, `termo-paciente.ts`; utilitários `base.ts`, `datas.ts`, `telefone.ts` | Plano 03 (+06) |
 | `alimentos` | TACO (somente leitura), busca com trigramas, alimentos próprios, medidas caseiras | `taco.ts`, `busca.ts`, `alimentos.ts`, `medidas.ts`, `grupos.ts` | Plano 04 |
 | `plano-alimentar` | Cálculo (função pura usada no editor, no servidor e no PDF), rascunho com salvamento por diferença e `revisao`, modelos, publicação/versionamento, meta, PDF | `calculo.ts`, `rascunho.ts`, `carregar.ts`, `modelos.ts`, `publicacao.ts`, `meta.ts`, `plano-pdf.tsx`*, `plano-pdf-job.ts`* | Plano 04 |
@@ -449,14 +449,14 @@ Nenhuma rota de API passa pelo `src/proxy.ts` (§1.4).
 | `/api/painel/pacientes/[id]` | GET | JSON do paciente (404 fora do tenant) | `requireApiNutri` |
 | `/api/painel/pacientes/[id]/exames` | POST | Upload de laudo (até 20 MB) | `mesmaOrigem` + `requireApiNutri` + corpo limitado |
 | `/api/painel/alimentos` | GET | Busca de alimentos do editor | `requireApiNutri` |
-| `/api/painel/planos/[id]` | GET, PUT | Carrega e salva o rascunho do plano (por diferença, `revisao`) | `requireApiNutri`; corpo do PUT ≤ 512 KB; sem `mesmaOrigem` |
+| `/api/painel/planos/[id]` | GET, PUT | Carrega e salva o rascunho do plano (por diferença, `revisao`) | `requireApiNutri`; corpo do PUT ≤ 512 KB; sem `mesmaOrigem` (exceção sem motivo no código: divergência 12) |
 | `/api/painel/planos/[id]/revisao`, `/pdf` | GET | Revisão atual; PDF do plano | `requireApiNutri` |
 | `/api/painel/marca/logo` | POST | Upload do logo | `mesmaOrigem` + `requireApiNutri` |
 | `/api/painel/conteudos/[id]/capa`, `/pdf` | POST | Upload da capa e do PDF do conteúdo | `mesmaOrigem` + `requireApiNutri` |
 | `/api/painel/whatsapp/estado` | GET | Estado da conexão do WhatsApp (QR) | `requireApiNutri` |
 | `/api/p/acesso` | POST | Acesso do dia (CS-02) e renovação dos cookies | `mesmaOrigem` + `requireApiPaciente` |
 | `/api/p/diario` | POST | Registro do diário (multipart) | `mesmaOrigem` + `requireApiPaciente` |
-| `/api/p/push` | POST, DELETE | Ativar, sincronizar e cancelar push | `mesmaOrigem` + `requireApiUser(['paciente'])` + limite em memória |
+| `/api/p/push` | POST, DELETE | Ativar, sincronizar e cancelar push | POST: `mesmaOrigem` + `requireApiPaciente` + limite em memória (`src/app/api/p/push/route.ts:48`); DELETE: `mesmaOrigem` + `requireApiUser(['paciente'])` (`:66`), que basta a sessão de paciente, sem termo nem vínculo (S-2) |
 | `/api/p/plano/pdf`, `/api/p/conteudos/[id]/pdf` | GET | PDF do plano publicado; PDF da orientação (303 para URL assinada) | `requireApiPaciente` |
 | `/api/p/vinculo` | GET | Troca o consultório do cookie `nd_vinculo` | `requireApiUser(['paciente'])` |
 | `/api/p/ping` | GET | 204 para o selo offline | Pública |
@@ -645,6 +645,7 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `NUTRI_BACKUP_TZ`, `NUTRI_BACKUP_TODAY`, `NUTRI_PG_DUMP_ARGS`, `NUTRI_DB_CONTAINER` | Script de backup, opcionais | Ajustes usados pelos testes (`nutri-backup.sh:14-22`, `:79`) |
 | `NUTRI_RESTAURAR_IMAGEM`, `NUTRI_RESTAURAR_DIA`, `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` | `nutri-restauracao-teste.sh` | Teste de restauração (`docs/operacao/restauracao.md`) |
 | `CARGA_TENANTS`, `CARGA_PACIENTES`, `CARGA_VENCER_EM_MIN` | `test/carga/seed.ts` | Tamanho da semente sintética da pilha de carga |
+| `NUTRI_DEV_DATABASE_URL` | Ambiente do desenvolvedor, lida pelo `.mcp.json` (`:16`) | Conexão do MCP `postgres-dev`, **só banco de dev** (regra 5 do CLAUDE.md); só o nome aqui, nunca o valor |
 | `DOCKER_HOST` | `test/backup.test.ts`, `test/restauracao.test.ts` | Docker usado pelos testes |
 
 `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` e `BACKUP_PASSPHRASE` aparecem no
@@ -701,7 +702,7 @@ Os capítulos seguintes detalham cada item. O mínimo para não quebrar a arquit
 5. **Migration**: sempre expand/contract (app novo e antigo convivem no deploy `start-first`) e sempre com
    `DATABASE_URL_MIGRATOR` (`CLAUDE.md` do projeto, regra 7).
 6. **Rota de API nova**: ela não passa pelo proxy — chamar `requireApiNutri`/`requireApiPaciente`, `mesmaOrigem` em
-   `POST` com cookie e `lerCorpoLimitado` em upload ([§3.13](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro)).
+   `POST` com cookie (a única rota de escrita sem ela é o `PUT /api/painel/planos/[id]`, ver divergência 12) e `lerCorpoLimitado` em upload ([§3.13](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro)).
 7. **Dado do paciente num módulo novo**: incluir a limpeza em `src/modules/pacientes/lgpd.ts` (exclusão atendida e
    anonimização) e, se couber, na exportação.
 
@@ -724,3 +725,4 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 9 | Spec §4.1: "As rotas e a UI chamam só o módulo, nunca o banco direto" | `src/app/sair/route.ts:49` apaga a linha de `session` direto; `src/app/api/health/route.ts` lê `system_heartbeat` direto. Ambas as tabelas ficam fora da RLS. Outras páginas só passam `getDb()` para funções de módulo (`src/app/painel/actions.ts:15`, `src/app/admin/painel-infra.tsx:17`, páginas de convite) | Exceções pequenas e sem dado de tenant; manter a lista curta |
 | 10 | Infraestrutura real: serviço `nutri_app` | A mensagem de erro de `EVOLUTION_WEBHOOK_URL` (`src/env.ts:182`) e o comentário do `.env.example` dão como exemplo `http://nutridebby_app:3000/…` | O exemplo não funciona copiado: o nome do serviço na rede interna é `nutri_app` |
 | 11 | Spec §4 (diagrama): `nutri_evolution` na VPS | Não implantado em 05/10/2026 (`docker service ls`); o WhatsApp é opcional e o go-live pode sair sem ele (Plano 08, D16) | Estado operacional, não erro de código |
+| 12 | §1.11 item 6 (e `src/lib/mesma-origem.ts:3-7`): rota de escrita com cookie chama `mesmaOrigem` | `PUT /api/painel/planos/[id]` (`src/app/api/painel/planos/[id]/route.ts:22`) só chama `requireApiNutri`; nenhum comentário ou teste explica a exceção. O que protege na prática é o cookie de sessão `SameSite=Lax`, que o navegador não envia em requisição entre sites, mais o corpo JSON lido por `lerCorpoLimitado`. Os outros handlers de escrita (`/api/p/push` POST e DELETE, uploads, `/api/erro-cliente`) conferem a origem | Defesa em profundidade a menos, sem motivo registrado. Sugestão: incluir `mesmaOrigem` no `PUT` ou registrar por que não |
