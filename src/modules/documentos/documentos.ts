@@ -210,6 +210,21 @@ export async function estadoDoDocumento(ctx: TenantContext, docId: string, db: D
   }, db);
 }
 
+/**
+ * RNF-142: devolver o PDF de um documento é leitura de dado de saúde — auditRead na transação que lê o caminho. O base
+ * (`?base=1`) só enquanto "Aguardando assinatura" (é o que a nutricionista baixa para assinar); o assinado, sempre que houver.
+ */
+export async function caminhoDoPdfNoPainel(ctx: TenantContext, docId: string, qual: 'base' | 'assinado', db: Db = getDb()): Promise<string | null> {
+  if (!idValido(docId)) return null;
+  return withTenant(ctx, async (tx) => {
+    const [d] = await tx.select({ patientId: signedDocuments.patientId, status: signedDocuments.status, base: signedDocuments.basePdfPath, pdf: signedDocuments.pdfPath }).from(signedDocuments).where(eq(signedDocuments.id, docId));
+    const caminho = !d ? null : qual === 'base' ? (d.status === 'aguardando_assinatura' ? d.base : null) : d.pdf;
+    if (!caminho || !d) return null;
+    await auditRead(tx, { entidade: 'documentos', entidadeId: docId, patientId: d.patientId });
+    return caminho;
+  }, db);
+}
+
 /** "dd/mm/aaaa às hh:mm" no fuso do consultório (o formatarQuando da agenda põe o dia da semana na frente). */
 export function dataHora(d: Date, fuso: string): string {
   const p = partesNoFuso(d, fuso);

@@ -13,6 +13,7 @@ import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
+import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -194,6 +195,15 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-plano-pdf', async () => {
     await expirarPdfsPendentes(getDb(), new Date());
+  });
+  // Plano 10A (US-143): PDF preparado da receita; a cada 15 min, pendente esquecido (PDF ou digitalização) → falhou e PDF base/fotos órfãos apagados
+  await work('documento-pdf', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string }>[]) => {
+    await gerarPdfDoDocumento(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  await boss.schedule('expirar-documento-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('expirar-documento-pdf', async () => {
+    await expirarPdfsDeDocumentoPendentes(getDb(), new Date());
+    await limparArquivosOrfaosDeDocumentos(getDb(), new Date(), env.DATA_DIR);
   });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('limpar-tmp', async () => {

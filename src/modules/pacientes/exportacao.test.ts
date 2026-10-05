@@ -969,11 +969,15 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(paraWinAnsi('ação – “ok” 😀')).toBe('ação – “ok” ?');
   });
 
-  it('o PDF e o ZIP ficam fora do grafo do Next: nada de src/app (nem proxy, instrumentation, next.config) alcança exportacao-job, prontuario-pdf, plano-pdf ou @react-pdf, direta ou indiretamente', () => {
+  it('o PDF e o ZIP ficam fora do grafo do Next: nada de src/app (nem proxy, instrumentation, next.config) alcança exportacao-job, prontuario-pdf, plano-pdf, documento-pdf, digitalizada-job ou @react-pdf, direta ou indiretamente', () => {
     // R11 (T13): o mesmo grafo transitivo da guarda do push (test/grafo-de-imports.ts), em vez da busca por texto nos imports diretos
     const g = grafoDeImports(raizesDoNext());
     expect(g.arquivos.has('src/modules/pacientes/exportacao.ts'), 'o grafo anda de verdade (a tela de privacidade pede a exportação)').toBe(true);
-    for (const proibido of ['src/modules/pacientes/exportacao-job.ts', 'src/modules/pacientes/prontuario-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf-job.ts']) {
+    // Plano 10A: o PDF preparado da receita e o da digitalizada (digitalizada-job nasce na T9; antes dela, passa por não existir)
+    for (const proibido of [
+      'src/modules/pacientes/exportacao-job.ts', 'src/modules/pacientes/prontuario-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf.tsx', 'src/modules/plano-alimentar/plano-pdf-job.ts',
+      'src/modules/documentos/documento-pdf.tsx', 'src/modules/documentos/documento-pdf-job.ts', 'src/modules/documentos/digitalizada-job.tsx',
+    ]) {
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }
     for (const pacote of ['@react-pdf/renderer', 'fflate']) expect(g.pacotes.get(pacote), `${pacote} importado (no grafo do Next) por`).toBeUndefined();
