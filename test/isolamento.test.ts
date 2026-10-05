@@ -111,7 +111,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) select ${t}, ${p}, d.id, 'Iso' from d`,
   signed_document_receipts: (t, p) =>
     sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
-        insert into signed_document_receipts (tenant_id, patient_id, documento_id, evento, via) select ${t}, ${p}, d.id, 'aberto', 'portal' from d`,
+        insert into signed_document_receipts (tenant_id, patient_id, documento_id, evento, via, registrado_por) select ${t}, ${p}, d.id, 'recebido', 'pessoalmente', app_current_user() from d`, // 0092: fora da sessão de paciente, só "pessoalmente"
   document_access_codes: (t, p) =>
     sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
         insert into document_access_codes (tenant_id, patient_id, documento_id, codigo_hash, expira_em) select ${t}, ${p}, d.id, 'h', now() + interval '10 minutes' from d`,

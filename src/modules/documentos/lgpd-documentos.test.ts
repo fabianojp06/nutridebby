@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco, novoConsultorio, outroDocumento } from '../../../test/documentos';
-import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
 import { limparArquivosOrfaosDeDocumentos } from './documento-pdf-job';
 import { anonimizarDocumentosDoPaciente, documentosParaExportacao, pdfsDeDocumentosRestantes } from './lgpd-documentos';
@@ -21,11 +21,13 @@ describe('LGPD dos documentos (US-150 base, D15 da spec)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const r = await documentoNoBanco(app.db, T.ctx, p.id, { conteudo });
-    const a = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'cancelado', conteudo });
+    const a = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', conteudo });
+    // 0092: o recibo "portal" só nasce na sessão do paciente, com o documento assinado; depois a nutricionista cancela
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.execute(sql`insert into signed_document_receipts (tenant_id, patient_id, documento_id, evento, via) values (${T.tenantId}, ${p.id}, ${a.id}, 'aberto', 'portal')`), app.db);
     await withTenant(T.ctx, async (tx) => {
+      await tx.execute(sql`update signed_documents set status = 'cancelado', cancelado_em = now() where id = ${a.id}`);
       await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) values (${T.tenantId}, ${p.id}, ${r.id}, 'J rascunho')`);
       await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, motivo_cancelamento) values (${T.tenantId}, ${p.id}, ${a.id}, 'Dose errada')`);
-      await tx.execute(sql`insert into signed_document_receipts (tenant_id, patient_id, documento_id, evento, via) values (${T.tenantId}, ${p.id}, ${a.id}, 'aberto', 'portal')`);
     }, app.db);
     const equipe = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => documentosParaExportacao(tx, p.id, 'equipe'), app.db);
     expect(equipe.documentos.map((d) => d.situacao).sort()).toEqual(['Cancelado', 'Rascunho']);

@@ -1,9 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { codigoAleatorio } from '../../../test/documentos';
-import { novoTenant } from '../../../test/pacientes';
+import { documentoNoBanco } from '../../../test/documentos';
+import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
 import { formatarCodigo } from './codigo';
 import { consultarVerificacao, textoSha256 } from './verificacao';
@@ -15,9 +14,11 @@ const ip = () => `2001:db8:${++n}::1`;
 
 async function verificacao(situacao = 'valido', assinatura = 'digitalizada') {
   const T = await novoTenant(app.db);
-  const codigo = codigoAleatorio();
+  // 0092: a verificação aponta para um documento do mesmo tenant e com o mesmo código
+  const d = await documentoNoBanco(app.db, T.ctx, (await novoPaciente(app.db, T.ctx)).id, { status: 'assinado' });
+  const codigo = d.codigo!;
   await app.db.execute(sql`insert into document_verifications (codigo, tenant_id, documento_id, tipo, situacao, assinado_em, emissor_nome, emissor_crn, assinante_nome, assinatura_tipo, pdf_sha256)
-    values (${codigo}, ${T.tenantId}, ${randomUUID()}, 'receita', ${situacao}, '2026-10-05T15:30:00Z', 'Débora Silva Santos', 'CRN-3 12345', ${assinatura === 'digitalizada' ? null : 'DEBORA SILVA SANTOS'}, ${assinatura}, ${'ab'.repeat(32)})`);
+    values (${codigo}, ${T.tenantId}, ${d.id}, 'receita', ${situacao}, '2026-10-05T15:30:00Z', 'Débora Silva Santos', 'CRN-3 12345', ${assinatura === 'digitalizada' ? null : 'DEBORA SILVA SANTOS'}, ${assinatura}, ${'ab'.repeat(32)})`);
   return { T, codigo };
 }
 
