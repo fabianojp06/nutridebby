@@ -11,10 +11,10 @@ import { logger } from '@/lib/logger';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { apagarArquivo, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { recordAudit } from '@/modules/plataforma/audit';
+import { travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { envioEmCurso, MAX_PIXELS_FOTO } from './constantes';
 import { DocumentoNaoEncontradoError, MSG_RECUSA, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { ConteudoReceita } from './prescricao';
-import { travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { exigirHabilitacaoAtual, type AcessoAssinatura, type DepsAssinar } from './registrar-assinatura';
 
 export const MAX_FOTOS = 5;
