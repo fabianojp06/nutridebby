@@ -7,3 +7,4 @@ export * from './plano-alimentar';
 export * from './conteudo';
 export * from './agenda';
 export * from './portal';
+export * from './documentos';

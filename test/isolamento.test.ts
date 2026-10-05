@@ -103,14 +103,43 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   // uma linha por tenant (tenant_id UNIQUE): a fábrica roda duas vezes por tenant
   whatsapp_conexoes: (t) =>
     sql`insert into whatsapp_conexoes (tenant_id, instancia) select ${t}, ${`nd-${t}`} where not exists (select 1 from whatsapp_conexoes where tenant_id = ${t})`,
+  // Plano 10A: as fábricas rodam como nutri; documento EMITIDO já anonimizado (visível ao paciente e sem arquivo)
+  signed_documents: (t, p) =>
+    sql`insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now())`,
+  signed_document_notes: (t, p) =>
+    sql`with d as (insert into signed_documents (tenant_id, patient_id) values (${t}, ${p}) returning id)
+        insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) select ${t}, ${p}, d.id, 'Iso' from d`,
+  signed_document_receipts: (t, p) =>
+    sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
+        insert into signed_document_receipts (tenant_id, patient_id, documento_id, evento, via) select ${t}, ${p}, d.id, 'aberto', 'portal' from d`,
+  document_access_codes: (t, p) =>
+    sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
+        insert into document_access_codes (tenant_id, patient_id, documento_id, codigo_hash, expira_em) select ${t}, ${p}, d.id, 'h', now() + interval '10 minutes' from d`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log']);
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
+/**
+ * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
+ * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
+ * (mensagem própria, não "row-level security"); em signed_documents, só o rascunho é apagado.
+ */
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes']);
+/**
+ * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
+ * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
+ * que ainda têm documento emitido ou recibo — então patients de B só apaga os pacientes sem eles (revisão do rascunho).
+ */
+const SO_APAGA: Record<string, SQL> = {
+  signed_documents: sql`status = 'rascunho'`,
+  patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
+                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)`,
+};
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
- * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta).
+ * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta;
+ * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`).
  */
-const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -209,7 +238,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       await expect(comoB(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para tentar mover
-        await expect(comoB(sql`update ${sql.identifier(t)} set tenant_id = ${A}`), t).rejects.toSatisfy(violaRls);
+        await expect(comoB(sql`update ${sql.identifier(t)} set tenant_id = ${A}`), t).rejects.toSatisfy(IMUTAVEIS.has(t) ? negado : violaRls);
       }
       expect(await contarTenant(t, A), t).toBe(antesA);
     }
@@ -227,7 +256,9 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
         expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
         const mover = sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`;
         // D1 (R1): sem `update` em PACIENTE_ESCREVE, paciente_sem_update (USING) esconde a linha do UPDATE: 0 linhas, sem erro
-        if ((PACIENTE_ESCREVE[t]?.comandos ?? []).includes('update')) await expect(comoP2(mover), t).rejects.toSatisfy(colunasConferidas.has(t) ? negado : violaRls);
+        if ((PACIENTE_ESCREVE[t]?.comandos ?? []).includes('update')) {
+          await expect(comoP2(mover), t).rejects.toSatisfy(IMUTAVEIS.has(t) || colunasConferidas.has(t) ? negado : violaRls);
+        }
         else expect((await comoP2(mover)).rowCount, t).toBe(0);
       }
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1);
@@ -291,6 +322,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     for (const t of naOrdemDeExclusao(tabelas)) {
       const id = sql.identifier(t);
       const antesA = await contarTenant(t, A);
+      let sobrouDeB = 0;
       await withTenant(
         { tenantId: B, role: 'nutri', actorUserId: randomUUID() },
         async (tx) => {
@@ -305,14 +337,17 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           // UPDATE e DELETE sem filtro: só podem afetar as linhas próprias que a RLS mostrou
           const alteradas = await tx.execute(sql`update ${id} set tenant_id = tenant_id`);
           expect(alteradas.rowCount, t).toBe(proprias.length);
-          const apagadas = await tx.execute(sql`delete from ${id}`);
-          expect(apagadas.rowCount, t).toBe(proprias.length);
+          const apagaveis = SO_APAGA[t] ? (await tx.execute(sql`select 1 from ${id} where ${SO_APAGA[t]}`)).rows.length : proprias.length;
+          const apagadas = await tx.execute(sql`delete from ${id}${SO_APAGA[t] ? sql` where ${SO_APAGA[t]}` : sql``}`);
+          expect(apagadas.rowCount, t).toBe(apagaveis); // signed_documents: só os rascunhos de B; patients: só os sem emitido nem recibo
+          sobrouDeB = proprias.length - apagaveis;
         },
         app.db,
       );
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: A não foi tocado
-        expect(await contarTenant(t, B), t).toBe(0); // e o DELETE de B de fato aconteceu
+        // o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de SO_APAGA deixa (em patients, os de B com documento emitido ou recibo)
+        expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);
       }
     }
   });

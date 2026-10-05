@@ -61,6 +61,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   agenda: 'Agenda',
   diario: 'Diário alimentar',
   conteudos: 'Público de conteúdo',
+  documentos: 'Documentos assinados',
+  perfil_profissional: 'Perfil profissional',
+  tentativa_assinatura: 'Tentativa de assinatura com código recusado',
 };
 
 export type AccessHistoryItem = {

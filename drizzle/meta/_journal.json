@@ -624,6 +624,20 @@
       "when": 1791126630402,
       "tag": "0088_preferencias_usuaria",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1791215857038,
+      "tag": "0089_documentos_assinados",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1791215863939,
+      "tag": "0090_rls_documentos",
+      "breakpoints": true
     }
   ]
 }

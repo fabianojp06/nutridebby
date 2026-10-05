@@ -27,6 +27,16 @@ export const tenants = pgTable(
     taxaFaltasBase: numeric('taxa_faltas_base', { precision: 5, scale: 2, mode: 'number' }),
     /** CS-01 (D15): dia em que a nutricionista passou a atender pelo sistema. */
     goLiveEm: date('go_live_em', { mode: 'string' }),
+    /** US-140 (Plano 10A): dados do carimbo dos documentos. */
+    nomeProfissional: text('nome_profissional'),
+    contatoEmail: text('contato_email'),
+    contatoTelefoneE164: text('contato_telefone_e164'),
+    /** D6 da spec: autodeclaração da habilitação em Fitoterapia (registro, data e versão do termo juntos ou nulos). */
+    fitoterapiaRegistro: text('fitoterapia_registro'),
+    fitoterapiaDeclaradaEm: timestamp('fitoterapia_declarada_em', { withTimezone: true }),
+    fitoterapiaTermoVersao: text('fitoterapia_termo_versao'),
+    /** D20 do Plano 10A: documentos só depois da liberação para uso real (CRN-3, termo, backup); o admin liga. */
+    documentosLiberados: boolean('documentos_liberados').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -39,6 +49,9 @@ export const tenants = pgTable(
     check('tenants_wa_cota_valida', sql`${t.waCotaMensal} >= 0`),
     check('tenants_armazenamento_valido', sql`${t.armazenamentoBytes} >= 0`),
     check('tenants_taxa_faltas_base_valida', sql`${t.taxaFaltasBase} is null or ${t.taxaFaltasBase} between 0 and 100`),
+    check('tenants_nome_profissional_tamanho', sql`${t.nomeProfissional} is null or char_length(${t.nomeProfissional}) between 5 and 120`),
+    check('tenants_fitoterapia_junta', sql`(${t.fitoterapiaRegistro} is null) = (${t.fitoterapiaDeclaradaEm} is null) and (${t.fitoterapiaRegistro} is null) = (${t.fitoterapiaTermoVersao} is null)`),
+    check('tenants_fitoterapia_tamanho', sql`${t.fitoterapiaRegistro} is null or char_length(${t.fitoterapiaRegistro}) between 1 and 60`),
   ],
 );
 
@@ -95,7 +108,7 @@ export const storedFiles = pgTable(
   (t) => [
     check(
       'stored_files_tipo_valido',
-      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao')`,
+      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado')`,
     ),
     check('stored_files_bytes_positivo', sql`${t.bytes} > 0`),
     // logo/capa nunca têm dono; o resto sempre (orientacao_pdf é do Plano 07: do consultório).
