@@ -11,6 +11,7 @@ import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
 import { CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
+import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
 import { EMITIDOS, MAX_PIXELS_FOTO } from './constantes';
@@ -75,6 +76,11 @@ export async function montarPdfDigitalizado(
   const codigo = d.codigo;
   const marcarFalhou = () =>
     withTenant(ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(and(eq(signedDocuments.id, data.documentoId), eq(signedDocuments.digitalizacaoStatus, 'pendente'), eq(signedDocuments.codigo, codigo))), db);
+  // US-004 / RN-15 (como gerarPdfDoDocumento): consultório suspenso com o job na fila não assina nem publica a verificação
+  if (!(await tenantIsActive(db, data.tenantId))) {
+    await marcarFalhou();
+    return 'ignorado';
+  }
   try {
     // uma por vez (não Promise.all): até 5 fotos de 40 MP decodificadas juntas pesariam no worker de todos
     const paginas: { dados: Buffer; formato: 'jpg' }[] = [];

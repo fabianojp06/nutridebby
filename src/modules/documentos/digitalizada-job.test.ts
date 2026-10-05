@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConsultorio, novoPreparoNoBanco, outroDocumento } from '../../../test/documentos';
+import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { receberDigitalizada } from './digitalizada';
@@ -50,6 +51,17 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as { pdf_path: string }[];
     const arquivo = await readFile(path.join(x.dataDir, d.pdf_path));
     for (const marca of ['Exif', 'CelularTeste', 'Serie-XYZ-123']) expect(arquivo.includes(marca), marca).toBe(false); // o bloco APP1 inteiro (com o GPS) some
+  });
+
+  it('US-004 / RN-15: consultório suspenso com o job na fila → não assina nem cria a verificação pública; o envio vira "falhou"', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db);
+    const foto = await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    await receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, x.T.tenantId)); // o admin suspende
+    expect(await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, { db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('ignorado');
+    const [d] = (await withTenant({ tenantId: x.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select status, digitalizacao_status, pdf_path from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ status: 'aguardando_assinatura', digitalizacao_status: 'falhou', pdf_path: null });
+    expect((await app.db.execute(sql`select 1 from document_verifications where documento_id = ${x.id}`)).rows).toEqual([]);
   });
 
   it('versão lida: "Voltar a editar" + novo preparo + envio novo enquanto o job velho monta → o job velho não assina nem marca "falhou" o envio novo', async () => {
