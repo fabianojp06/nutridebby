@@ -13,7 +13,6 @@ import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
 import { EstadoPdf } from './estado-pdf';
-import { Preparar } from './preparar';
 import { ReceitaForm } from './receita-form';
 
 export const dynamic = 'force-dynamic';
@@ -41,8 +40,8 @@ export default async function DocumentoPage({ params }: PageProps<'/painel/pacie
 
       {d.status === 'rascunho' && !bloqueado && (
         <>
-          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={d.conteudo} justificativa={d.justificativa ?? ''} habilitada={habilitada} />
-          <Preparar patientId={paciente.id} docId={d.id} declaracao={DECLARACAO_RECEITA} />
+          {/* o preparo é um botão do mesmo formulário: envia o que está na tela (revisão da T6) */}
+          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={d.conteudo} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}

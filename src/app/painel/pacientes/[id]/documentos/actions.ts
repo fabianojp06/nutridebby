@@ -40,16 +40,21 @@ export async function criarReceitaAction(patientId: string): Promise<void> {
   redirect(caminho(patientId, id));
 }
 
+/** O editor manda os itens e as orientações num campo só (JSON), e a justificativa à parte (D15 da spec). */
+function lerEditor(f: FormData): { conteudo: unknown; justificativa: unknown } | null {
+  try {
+    return { conteudo: JSON.parse(String(f.get('conteudo') ?? '{}')), justificativa: f.get('justificativa') };
+  } catch {
+    return null;
+  }
+}
+
 export async function salvarRascunhoAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
   const { ctx, tenant } = await acesso(caminho(patientId, docId));
-  let conteudo: unknown = null;
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
-    conteudo = JSON.parse(String(f.get('conteudo') ?? '{}'));
-  } catch {
-    return { erros: { geral: 'Formulário inválido.' } };
-  }
-  try {
-    await salvarRascunhoReceita(ctx, tenant, patientId, docId, { conteudo, justificativa: f.get('justificativa') });
+    await salvarRascunhoReceita(ctx, tenant, patientId, docId, editor);
   } catch (e) {
     return comoEstado(e);
   }
@@ -74,9 +79,18 @@ export async function apagarRascunhoAction(patientId: string, docId: string, _pr
   redirect(`${caminho(patientId)}?apagado=1`);
 }
 
+/**
+ * "Preparar para assinatura" prepara o que está na tela (revisão da T6): o preparo é um botão do formulário do editor, que
+ * manda os itens e a justificativa junto com a declaração; grava como o "Salvar rascunho" e prepara em seguida. Erro de
+ * campo: volta ao editor e nada é gravado. Erro do preparo (declaração, perfil, justificativa vazia): volta ao editor, e o
+ * que estava na tela já ficou salvo — nos dois casos, o documento continua rascunho.
+ */
 export async function prepararAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
   const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
+    await salvarRascunhoReceita(ctx, tenant, patientId, docId, editor);
     await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
   } catch (e) {
     return comoEstado(e);

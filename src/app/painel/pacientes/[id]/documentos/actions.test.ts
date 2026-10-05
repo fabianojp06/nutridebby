@@ -4,6 +4,7 @@ import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
+import { criarReceita, lerDocumento } from '@/modules/documentos/documentos';
 import { documentoNoBanco } from '../../../../../../test/documentos';
 import { nutriComDpa } from '../../../../../../test/nutri';
 import { novoPaciente } from '../../../../../../test/pacientes';
@@ -24,7 +25,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, pedirNovoPdfAction, prepararAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -37,7 +38,11 @@ const MUDOU = { erros: { geral: 'Este documento mudou de situação. Recarregue 
 
 async function consultorio() {
   const N = await nutriComDpa(db, auth);
-  await db.update(tenants).set({ documentosLiberados: true }).where(eq(tenants.id, N.tenantId));
+  // perfil completo: o preparo copia o carimbo (US-143)
+  await db
+    .update(tenants)
+    .set({ documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Débora Silva Santos', contatoEmail: 'debby@consultorio.com', contatoTelefoneE164: '+5511912345678' })
+    .where(eq(tenants.id, N.tenantId));
   req.headers = new Headers({ cookie: N.cookie });
   const p = await novoPaciente(db, N.ctx);
   return { N, p };
@@ -62,5 +67,49 @@ describe('ações do documento: o erro volta ao formulário; o sinal de sucesso 
     expect(revalidatePath).not.toHaveBeenCalled();
     expect(await voltarAEditarAction(p.id, preparando.id, {})).toEqual({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+  });
+});
+
+// Revisão da T6: o editor e o preparo são um só formulário; "Preparar para assinatura" envia o que está na tela.
+const vitD = (quantidade: string, posologia = '1 cápsula ao dia, no almoço') => ({
+  tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Vitamina D3', quantidade, unidade: 'mg' }], forma: 'Cápsula', via: 'oral', posologia,
+});
+function formulario(campos: { itens: unknown[]; justificativa: string; declaracao?: boolean }): FormData {
+  const f = new FormData();
+  f.set('conteudo', JSON.stringify({ itens: campos.itens, orientacoes: '' }));
+  f.set('justificativa', campos.justificativa);
+  if (campos.declaracao) f.set('declaracao', 'on');
+  return f;
+}
+
+describe('"Preparar para assinatura" prepara o que está na tela (revisão da T6)', () => {
+  it('a dose trocada e a justificativa digitadas, sem "Salvar rascunho", vão para o preparo', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    expect(await salvarRascunhoAction(p.id, id, {}, formulario({ itens: [vitD('500')], justificativa: '' }))).toEqual({ ok: true });
+    // na tela: 50 mg e a justificativa, sem salvar
+    expect(await prepararAction(p.id, id, {}, formulario({ itens: [vitD('50')], justificativa: 'Exposição solar baixa', declaracao: true }))).toEqual({ ok: true });
+    const d = await lerDocumento(N.ctx, p.id, id, db);
+    expect(d).toMatchObject({ status: 'preparando', justificativa: 'Exposição solar baixa', conteudo: { itens: [{ composicao: [{ nome: 'Vitamina D3', quantidade: 50 }] }] } });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+  });
+
+  it('campo inválido na tela: o erro volta ao campo do editor e o documento continua rascunho, com o que estava salvo', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    expect(await salvarRascunhoAction(p.id, id, {}, formulario({ itens: [vitD('500')], justificativa: 'Exposição solar baixa' }))).toEqual({ ok: true });
+    revalidatePath.mockClear();
+    const r = await prepararAction(p.id, id, {}, formulario({ itens: [vitD('50', '')], justificativa: 'Exposição solar baixa', declaracao: true }));
+    expect(r.erros?.['itens.0.posologia']).toBeTruthy();
+    expect(revalidatePath).not.toHaveBeenCalled();
+    const d = await lerDocumento(N.ctx, p.id, id, db);
+    expect(d).toMatchObject({ status: 'rascunho', conteudo: { itens: [{ composicao: [{ quantidade: 500 }] }] } });
+  });
+
+  it('sem a declaração: "Confirme a declaração para continuar." e o documento continua rascunho', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    expect(await prepararAction(p.id, id, {}, formulario({ itens: [vitD('50')], justificativa: 'Exposição solar baixa' }))).toEqual({ erros: { declaracao: 'Confirme a declaração para continuar.' } });
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.status).toBe('rascunho');
   });
 });
