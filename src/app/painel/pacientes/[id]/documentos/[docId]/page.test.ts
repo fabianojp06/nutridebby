@@ -131,13 +131,13 @@ describe('página do documento: cancelar (US-149, RN-147)', () => {
 });
 
 describe('página do documento: digitalizada em "Aguardando assinatura" (RN-157, D24)', () => {
-  const pagina = async (digitalizacaoStatus: string | null, twoFactorEnabled: boolean | null = true) => {
+  const pagina = async (digitalizacaoStatus: string | null, twoFactorEnabled: boolean | null = true, digitalizacaoEm: Date | null = digitalizacaoStatus ? new Date() : null) => {
     caso.twoFactorEnabled = twoFactorEnabled;
     caso.paciente = { id: PACIENTE, status: 'ativo', anonimizadoEm: null, userId: null, email: 'ana@ex.com' };
     caso.doc = {
       id: DOC, tipo: 'receita', status: 'aguardando_assinatura', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: null,
       assinaturaTipo: null, pdfStatus: 'pronto', entregueEm: null, recibos: [], conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: '' }, justificativa: null,
-      motivoCancelamento: null, assinanteNome: null, basePdfPath: 'x', pdfPath: null, pdfSha256: null, digitalizacaoStatus, anonimizadoEm: null,
+      motivoCancelamento: null, assinanteNome: null, basePdfPath: 'x', pdfPath: null, pdfSha256: null, digitalizacaoStatus, digitalizacaoEm, anonimizadoEm: null,
     };
     return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
   };
@@ -160,6 +160,13 @@ describe('página do documento: digitalizada em "Aguardando assinatura" (RN-157,
     const html = await pagina(st);
     expect(html).toContain('Montando o PDF digitalizado…');
     expect(html).not.toContain('Enviar documento digitalizado');
+  });
+
+  it.each(['recebendo', 'pendente'])('"%s" esquecido há mais de 1 h (D24): o aviso de falha e o formulário de novo, sem esperar a varredura', async (st) => {
+    const html = await pagina(st, true, new Date(Date.now() - 61 * 60_000));
+    expect(html).not.toContain('Montando o PDF digitalizado…');
+    expect(html).toContain('Não foi possível montar o PDF. Envie as fotos de novo.');
+    expect(html).toContain('Enviar documento digitalizado (assinado à mão)');
   });
 
   it('"falhou": o aviso "Não foi possível montar o PDF. Envie as fotos de novo." e o botão de novo', async () => {

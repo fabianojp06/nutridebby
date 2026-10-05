@@ -26,8 +26,11 @@ export const MSG_DIGITALIZADA = {
   falhou: 'Não foi possível montar o PDF. Envie as fotos de novo.',
 } as const;
 
-/** Um envio em curso (recebendo ou pendente) que ainda não expirou: outro envio espera (D24). */
-const emCurso = (d: { digitalizacaoStatus: string | null; digitalizacaoEm: Date | null }, agora: Date) =>
+/**
+ * Um envio em curso (recebendo ou pendente) que ainda não expirou: outro envio espera (D24). A página do documento usa a
+ * mesma regra (Minor 7 da Etapa 3): passada 1 h, mostra o formulário de novo sem esperar a varredura marcar "falhou".
+ */
+export const envioEmCurso = (d: { digitalizacaoStatus: string | null; digitalizacaoEm: Date | null }, agora: Date) =>
   (d.digitalizacaoStatus === 'recebendo' || d.digitalizacaoStatus === 'pendente') && !!d.digitalizacaoEm && agora.getTime() - d.digitalizacaoEm.getTime() < DIGITALIZACAO_MAX_MS;
 
 /**
@@ -55,7 +58,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
   const lida = await withTenant(a.ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, docId));
     if (!d) throw new DocumentoNaoEncontradoError();
-    if (d.status !== 'aguardando_assinatura' || !d.codigo || emCurso(d, agora)) throw new TransicaoInvalidaError();
+    if (d.status !== 'aguardando_assinatura' || !d.codigo || envioEmCurso(d, agora)) throw new TransicaoInvalidaError();
     const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId));
     if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new PacienteBloqueadoError();
     return { patientId: d.patientId, codigo: d.codigo, conteudo: d.conteudo as ConteudoReceita };
@@ -71,7 +74,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
   // D24: a trava. Versão lida (o código) + nenhum envio em curso; "Voltar a editar" + novo preparo no meio troca o código
   const antigas = await withTenant(a.ctx, async (tx) => {
     const [d] = await tx.select().from(signedDocuments).where(eq(signedDocuments.id, docId)).for('update');
-    if (!d || d.status !== 'aguardando_assinatura' || d.codigo !== lida.codigo || emCurso(d, agora)) throw new TransicaoInvalidaError();
+    if (!d || d.status !== 'aguardando_assinatura' || d.codigo !== lida.codigo || envioEmCurso(d, agora)) throw new TransicaoInvalidaError();
     await tx.update(signedDocuments).set({ digitalizacaoStatus: 'recebendo', digitalizacaoEm: agora }).where(eq(signedDocuments.id, docId));
     return d.digitalizacao ?? [];
   }, db);
