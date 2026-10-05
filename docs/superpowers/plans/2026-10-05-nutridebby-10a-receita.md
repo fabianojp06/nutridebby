@@ -2464,6 +2464,7 @@ export async function estadoDoDocumento(ctx: TenantContext, docId: string, db: D
 
 ```ts
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { getDb, type Db } from '@/db/client';
 import { signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -2486,7 +2487,7 @@ export async function soltarArquivosDoPreparo(
   const noEstado = and(eq(signedDocuments.id, documentoId), inArray(signedDocuments.status, [...estados]));
   const [d] = await withTenant(ctx, (tx) => tx.select({ base: signedDocuments.basePdfPath, fotos: signedDocuments.digitalizacao }).from(signedDocuments).where(noEstado), db);
   if (!d) return 0;
-  const soltar = (caminho: string, set: Partial<typeof signedDocuments.$inferInsert>, aponta: SQL) =>
+  const soltar = (caminho: string, set: PgUpdateSetSource<typeof signedDocuments>, aponta: SQL) =>
     apagarArquivo(ctx, { caminho }, {
       db,
       dataDir: deps.dataDir,
