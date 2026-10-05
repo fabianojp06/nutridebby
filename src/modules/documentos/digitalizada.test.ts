@@ -51,7 +51,9 @@ describe('digitalizada (RN-157, D4)', () => {
   it('RN-145: código recusado → "codigo_2fa" e a tentativa no audit_log (sem o código); bloqueado → "tentativas_2fa" sem auditoria nova', async () => {
     const x = await outroDocumento(await novoConsultorio(app.db), app.db);
     const tentativas = async () =>
-      (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select acao, entidade, entidade_id, patient_id, row_to_json(a)::text as linha from audit_log a where entidade = 'tentativa_assinatura' and entidade_id = ${x.id}`), app.db)).rows as { acao: string; entidade: string; entidade_id: string; patient_id: string; linha: string }[];
+      (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select acao, entidade, entidade_id, patient_id from audit_log where entidade = 'tentativa_assinatura' and entidade_id = ${x.id}`), app.db)).rows;
+    const linhaInteira = async () =>
+      (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select row_to_json(a)::text as linha from audit_log a where entidade = 'tentativa_assinatura' and entidade_id = ${x.id}`), app.db)).rows.map((r) => r.linha).join('');
     const aviso = vi.spyOn(logger, 'warn');
     try {
       await expect(receberDigitalizada(x.acesso, x.id, [await png()], '987654', deps(x.dataDir, 'invalido'))).rejects.toSatisfy(recusa('codigo_2fa'));
@@ -59,9 +61,8 @@ describe('digitalizada (RN-157, D4)', () => {
     } finally {
       aviso.mockRestore();
     }
-    const t = await tentativas();
-    expect(t.map(({ linha: _, ...r }) => r)).toEqual([{ acao: 'criar', entidade: 'tentativa_assinatura', entidade_id: x.id, patient_id: x.p.id }]);
-    expect(t[0].linha).not.toContain('987654');
+    expect(await tentativas()).toEqual([{ acao: 'criar', entidade: 'tentativa_assinatura', entidade_id: x.id, patient_id: x.p.id }]);
+    expect(await linhaInteira()).not.toContain('987654');
     await expect(receberDigitalizada(x.acesso, x.id, [await png()], '987654', deps(x.dataDir, 'bloqueado'))).rejects.toSatisfy(recusa('tentativas_2fa'));
     expect(await tentativas()).toHaveLength(1);
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows;
