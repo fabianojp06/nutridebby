@@ -27,6 +27,7 @@
     "icones": "tsx scripts/gerar-icones.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@node-rs/argon2": "2.2.1",
     "@react-pdf/renderer": "4.9.0",
     "@sentry/node": "11.4.0",

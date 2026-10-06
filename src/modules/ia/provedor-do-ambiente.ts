@@ -1,6 +1,7 @@
 import type { WorkerEnv } from '@/env';
 import { configIA, type ModoIA } from './modo';
 import type { ProvedorIA } from './provedor';
+import { provedorAnthropic } from './provedor-anthropic';
 import { provedorFake } from './provedor-fake';
 import { provedorSandbox } from './provedor-sandbox';
 
@@ -15,6 +16,8 @@ export function provedorIADoAmbiente(env: WorkerEnv): { modo: ModoIA; provedor: 
       return { modo, provedor: provedorSandbox() };
     case 'fake':
       return { modo, provedor: provedorFake() };
+    case 'anthropic':
+      return { modo, provedor: env.ANTHROPIC_API_KEY ? provedorAnthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null };
     default:
       return { modo, provedor: null };
   }

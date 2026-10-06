@@ -18,6 +18,8 @@ process.env.FILE_URL_SECRET = 'file-url-secret-de-teste-com-32-caracteres!';
 // Chaves de teste oficiais da Cloudflare (sempre passa); os testes de unidade injetam o verificador
 process.env.TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
 process.env.TURNSTILE_SECRET_KEY = '1x0000000000000000000000000000000AA';
+// Rede de segurança (Plano 11, T4): nenhum teste herda a chave da Anthropic do ambiente.
+delete process.env.ANTHROPIC_API_KEY;
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-data-'));
 process.env.DATA_DIR = dataDir;
 
