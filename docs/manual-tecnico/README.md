@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data |
-| Escopo | Planos 01–08, spec do MVP v1.11, migrations `0000`–`0088` (89 arquivos em `drizzle/`) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026 |
+| Escopo | Planos 01–08 e 10A, spec do MVP v1.12 e spec de documentos assinados v0.4, migrations `0000`–`0093` (94 arquivos em `drizzle/`) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -59,6 +59,8 @@ flowchart LR
   C2 --> C7["7 Testes, qualidade<br/>e processo"]
   C6 --> C7
   C6 --> C8["8 Sustentação<br/>rotina e serviços externos"]
+  C4 --> C9["9 Documentos assinados<br/>e receita (Plano 10A)"]
+  C5 --> C9
 ```
 
 | Cap. | Arquivo | Assunto | Dono de |
@@ -71,6 +73,7 @@ flowchart LR
 | 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 17 filas, segurança HTTP, backup e restauração |
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
+| 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Plano 10A): receita, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
 
 ### Seções principais
 
@@ -83,7 +86,7 @@ flowchart LR
 [1.7 Rotas](01-visao-geral-e-arquitetura.md#17-rotas-principais) ·
 [1.8 Infraestrutura](01-visao-geral-e-arquitetura.md#18-infraestrutura) ·
 [1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente) ·
-[1.10 Cronologia dos planos](01-visao-geral-e-arquitetura.md#110-cronologia-dos-planos-0108) ·
+[1.10 Cronologia dos planos](01-visao-geral-e-arquitetura.md#110-cronologia-dos-planos) ·
 [1.11 Como estender](01-visao-geral-e-arquitetura.md#111-como-estender-com-segurança-resumo)
 
 **2. Banco de dados** — [2.2 Roles](02-banco-de-dados.md#22-roles-e-credenciais) ·
@@ -153,6 +156,16 @@ flowchart LR
 [8.5 Responsáveis e registro](08-sustentacao.md#85-responsáveis-e-registro) ·
 [8.6 Lacunas](08-sustentacao.md#86-lacunas-o-que-hoje-não-é-vigiado)
 
+**9. Documentos assinados e receita** — [9.1 Visão geral e interruptor](09-documentos-assinados.md#91-visão-geral) ·
+[9.2 Arquivos do módulo](09-documentos-assinados.md#92-arquivos-do-módulo) ·
+[9.3 Banco](09-documentos-assinados.md#93-banco) ·
+[9.4 Ciclo do documento](09-documentos-assinados.md#94-ciclo-do-documento) ·
+[9.5 Link e verificação](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) ·
+[9.6 2FA ao assinar](09-documentos-assinados.md#96-código-do-2fa-no-momento-de-assinar-rn-145-d13) ·
+[9.7 Rotas](09-documentos-assinados.md#97-rotas) ·
+[9.8 Filas](09-documentos-assinados.md#98-filas-e-varreduras) ·
+[9.10 Operação](09-documentos-assinados.md#910-operação)
+
 ### Onde cada assunto mora
 
 Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem um resumo de uma ou duas frases e um link.
@@ -167,7 +180,8 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Suspensão do tenant | [§3.14](03-autenticacao-e-acesso.md#314-suspensão-de-conta-rn-15-us-004) | §5.3.8 (lembretes) |
 | Armazenamento, cota e URL assinada | [§4.1.3](04-modulos-clinicos.md#413-armazenamento-com-cota-e-url-assinada-rn-18-regra-9-do-claudemd) | §6.3.6, §6.3.7 |
 | Monitor de backup e disco | [§4.1.4](04-modulos-clinicos.md#414-monitoramento-de-backup-e-disco-rnf-05-rnf-13) | §6.5.6 |
-| Filas do worker (17) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10 |
+| Filas do worker (20) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10, §9.8 |
+| Documentos assinados (receita, link, verificação) | [cap. 9](09-documentos-assinados.md) | §1.6, §1.7, §2.5, §2.7, §2.9, §6.2.3, §6.3, §7.4 |
 | Backup e restauração | [§6.5](06-worker-seguranca-operacao.md#65-backup-e-restauração-rnf-05-regra-10) | §1.8 |
 | CI, imagem e deploy | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) | §1.8 (diagrama), §6.8 |
 | Matriz de isolamento | [§7.4.2](07-testes-qualidade-e-processo.md#742-a-matriz-de-isolamento-testisolamentotestts) | §2.7 |
@@ -200,7 +214,7 @@ Roteiro do fechamento:
 5. Módulo, rota ou tela nova: [§1.6](01-visao-geral-e-arquitetura.md#16-módulos-de-domínio-srcmodules),
    [§1.7](01-visao-geral-e-arquitetura.md#17-rotas-principais) e o capítulo do domínio.
 6. Decisões do plano (Dx) que mudam arquitetura: no capítulo do assunto, com o número da decisão; linha nova na
-   [cronologia](01-visao-geral-e-arquitetura.md#110-cronologia-dos-planos-0108).
+   [cronologia](01-visao-geral-e-arquitetura.md#110-cronologia-dos-planos).
 7. Confira as divergências: remova as resolvidas (spec corrigida ou código alterado), registre as novas no capítulo e
    na [lista consolidada](#divergências-spec--código-consolidadas).
 8. Linhas citadas (`arquivo:N`) envelhecem rápido. Prefira citar a função quando o arquivo mudou muito.
@@ -236,6 +250,11 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Página pública | `/n/<slug>`: agendamento sem login, com Turnstile e código por e-mail (RN-16) | [§5.2](05-agenda-portal-conteudo.md#52-página-pública-nslug-rn-16-p05-d11d13) |
 | Evolution API | Serviço autohospedado que conecta o WhatsApp de cada consultório (INT-01, Plano 05) | [§5.4.2](05-agenda-portal-conteudo.md#542-whatsapp-pela-evolution-api-int-01-p05-d1d5) |
 | Manual guiado | Ajuda dentro do painel para a nutricionista (`src/modules/ajuda`, Plano 08) | [§5.8](05-agenda-portal-conteudo.md#58-manual-guiado-p08-10-p08-d26-d27) |
+| Documento assinado / receita | Documento com validade profissional emitido no prontuário (no 10A, só a receita de suplementos e fitoterápicos), imutável depois do preparo e verificável por código | [cap. 9](09-documentos-assinados.md) |
+| Código de verificação | 12 caracteres Crockford (`XXXX-XXXX-XXXX`) impressos com o QR no PDF; a verificação pública em `/v/<código>` não mostra nada do paciente | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
+| Digitalizada | Assinatura à mão: a nutricionista envia fotos das páginas assinadas com o código do 2FA e o worker monta um PDF novo (opção E da D1 da spec de documentos) | [§9.4.2](09-documentos-assinados.md#942-assinatura-digitalizada-rn-157-d4-d24) |
+| Link do documento | `/documento/<token>`: entrega a quem não tem o app, com código de 6 dígitos por e-mail e sessão de 15 min | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
+| Interruptor "Documentos" | `tenants.documentos_liberados`, ligado pelo admin só depois da liberação para uso real (Plano 10A, D20) | [§9.1](09-documentos-assinados.md#91-visão-geral) |
 
 ### Isolamento e banco
 
@@ -248,13 +267,13 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | `withConta(userId, fn)` | Contexto `conta`: a conta de paciente, sem tenant, procurando os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa | `src/db/tenant.ts:99`; Plano 06, D2 |
 | Contexto (papel) | Valor de `app.role`: `nutri`, `paciente`, `worker` ou `publico` (`TenantRole`), mais `conta` via `withConta`. O admin não tem contexto | `src/db/tenant.ts:14`; [§2.6.3](02-banco-de-dados.md#263-contextos) |
 | Contexto `publico` | Páginas sem login (página pública, link da consulta, horários livres). Negado em toda tabela por `publico_negado`, salvo o que `PUBLICO_LIBERADO` lista | `src/db/tenant.ts:8-13`; Plano 05, D11 |
-| `semConta` | Paciente agindo sem sessão de login (link, WhatsApp, convite). Lista fechada em `SEM_CONTA_PERMITIDOS` | `src/db/tenant.ts:34` |
+| `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento). Lista fechada em `SEM_CONTA_PERMITIDOS` | `src/db/tenant.ts:34` |
 | `tenant_isolation` / `patient_isolation` | Políticas base: linha do tenant do contexto; na sessão de paciente, só as linhas do próprio `patient_id` | `drizzle/0000_base_roles_e_rls.sql:30-50` |
 | `STAFF_ONLY` | Lista de tabelas que o paciente nunca vê, nem as próprias linhas (notas privadas, etiquetas, regras da agenda…). Política RESTRICTIVE `staff_only` por `app_enable_staff_only` | `src/db/rls-guard.ts:103`; `drizzle/0020_rls_etiquetas.sql:3` |
 | `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:131`; `drizzle/0051_rls_consultas.sql:19` |
 | `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:178`; `drizzle/0070_paciente_sem_escrita.sql:25` |
 | `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:227`; `drizzle/0083_audiencia_conteudos.sql:42` |
-| `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
+| `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, `document_verifications`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
 | `AUDIT_EXCEPTIONS` | Tabelas com `patient_id` sem gatilho de auditoria, com justificativa | `src/db/audit-guard.ts:4` |
 | `liberarReceitasDoPlano` | Exceção da RN-12: libera, na transação, as receitas sugeridas no plano publicado do próprio paciente | `src/modules/conteudo/audiencia.ts:45` |
 | Guarda | Teste que confere uma regra do projeto (não uma função) e quebra o CI se alguém a esquecer | [§7.4](07-testes-qualidade-e-processo.md#74-guardas-do-ci) |
@@ -263,7 +282,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | `auditRead` | Registra a leitura de dado de saúde, na mesma transação (regra 8) | `src/modules/plataforma/audit.ts:28` |
 | Migrator / `nutri_app_role` | Migrator = role dono do schema (`DATABASE_URL_MIGRATOR`), só nas migrations. `nutri_app_role` = grupo sem login que recebe os privilégios; o role de `DATABASE_URL` é membro dele, sem `BYPASSRLS` | `drizzle/0000_base_roles_e_rls.sql:10-19`; [§2.2](02-banco-de-dados.md#22-roles-e-credenciais) |
 | Expand/contract | Migration em duas fases (acrescenta, depois remove), porque app novo e antigo convivem no deploy `start-first` | Spec §9.7 |
-| `SECURITY DEFINER` | Função SQL que roda com o dono e devolve só o mínimo (métricas do admin, anonimização de aceites…) | [§2.6.8](02-banco-de-dados.md#268-funções-security-definer) |
+| `SECURITY DEFINER` | Função SQL que roda com o dono e devolve só o mínimo (métricas do admin, anonimização de aceites…). A anonimização dos documentos (`app_anonimizar_documentos`) é `SECURITY INVOKER` | [§2.6.8](02-banco-de-dados.md#268-funções-security-definer) |
 
 ### Aplicação e operação
 
@@ -285,6 +304,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 |---|---|---|
 | M1–M6 | Módulos do MVP (plataforma, prontuário, plano alimentar, agenda, portal, conteúdo) | Spec §2.1 |
 | US-xxx | Histórias de usuário (46). A dezena indica o módulo: US-00x M1, US-01x M2, US-02x M3, US-03x M4, US-04x M5, US-05x M6 | `…-mvp-historias.md` |
+| US-14x, RN-14x/15x, RNF-14x, P-Bx | Histórias, regras, requisitos e pendências da spec de documentos assinados (faixa 140–159; subprojeto B) | `2026-10-03-nutridebby-documentos-assinados-design.md` |
 | RN-xx | Regras de negócio (RN-01 a RN-18) | Spec §8 |
 | RNF-xx | Requisitos não funcionais (RNF-01 a RNF-13) | Spec §5 |
 | INT-xx | Integrações (INT-01 WhatsApp a INT-06 Turnstile) | Spec §6 |
@@ -319,7 +339,8 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 [cap. 5](05-agenda-portal-conteudo.md#divergências-encontradas) ·
 [cap. 6](06-worker-seguranca-operacao.md#divergências-encontradas) ·
 [cap. 7](07-testes-qualidade-e-processo.md#713-divergências-encontradas) ·
-[cap. 8](08-sustentacao.md#divergências-encontradas)
+[cap. 8](08-sustentacao.md#divergências-encontradas) ·
+[cap. 9](09-documentos-assinados.md#divergências-encontradas)
 
 ### Arquitetura, stack, infraestrutura e CI
 
@@ -413,5 +434,14 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 51 | Spec INT-02; `docs/operacao/go-live.md` | DMARC `p=quarantine` | DNS publica `p=none` | Pend. | 8 #3 |
 | 52 | — | (nada sobre receber e-mail no domínio) | MX de `wsscloud.tech` aponta para a VPS, que não recebe e-mail; alertas e respostas para `@wsscloud.tech` se perdem | Pend. | 8 #4 |
 
-**Para decidir com o dono** (tipo Comp.): #3, #10, #18, #28, #32, #35, #36, #39 e #40. As de tipo Doc entram na
+### Documentos assinados (Plano 10A)
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 53 | Spec de documentos §10 (`tenants`) | Declaração e retirada da Fitoterapia como `alterar` com o id do tenant | `criar` com `fitoterapia:<versão>` e `excluir` com `fitoterapia` (registrado na spec v0.4) | Reg. | 9 #1 |
+| 54 | Spec de documentos US-147 | SHA-256 com os 64 caracteres seguidos | Em grupos de 4 (`textoSha256`), como a RN-143 | Doc | 9 #2 |
+| 55 | Portal e painel (fuso do consultório) | — | `/documento/[token]` formata as datas em `America/Sao_Paulo` | Comp. | 9 #3 |
+| 56 | D20 do Plano 10A | Liberação dos documentos pelo admin | Sem registro durável (só log) | Pend. | 9 #4 |
+
+**Para decidir com o dono** (tipo Comp.): #3, #10, #18, #28, #32, #35, #36, #39, #40 e #55. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

@@ -42,21 +42,22 @@ flowchart LR
 ## 7.2 Números atuais
 
 Medidos no commit `62615b9` (`origin/main`). Nenhum código mudou desde `d5662bb`, o último commit com CI
-verde do Plano 08 (`git log d5662bb..HEAD` só tem docs).
+verde do Plano 08 (`git log d5662bb..HEAD` só tem docs). **Atualização do Plano 10A** (`3991c7d`, PR #19, 06/10/2026):
+os valores entre parênteses "10A" abaixo.
 
 | Item | Valor | Como conferir |
 |---|---|---|
-| Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`) | `find src test -name "*.test.ts" \| wc -l` |
-| Casos do Vitest (execução) | **2024** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes) |
+| Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`); 10A: **244** | `find src test -name "*.test.ts" \| wc -l` |
+| Casos do Vitest (execução) | **2024**; 10A: **2244** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes); relatório das correções do `/code-review high` do PR #19 (244 arquivos, 2244 testes) |
 | Chamadas `it(`/`test(` no código | 1502 | Contagem estática; a diferença para 2024 vem de laços e `it.each` (21 arquivos usam `it.each`) |
-| Specs do Playwright | **17** | `ls e2e/*.spec.ts` |
+| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`) | `ls e2e/*.spec.ts` |
 | Testes E2E (execução no CI) | **130**, em 10,6 min | "Resultado da entrega" do Plano 08; 120 chamadas `test(` estáticas, o resto vem de laços (ex.: um teste por rota do portal em `e2e/acessibilidade.spec.ts:51`) |
-| Migrations | **89** (`0000` a `0088`) | `ls drizzle/*.sql`; 24 delas se chamam `*rls_*` |
-| Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`) | `FABRICAS`, `test/isolamento.test.ts:24` |
-| Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca` | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
+| Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`) | `ls drizzle/*.sql`; 24 delas se chamam `*rls_*` |
+| Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
+| Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca`; 10A: 45 + `/conta/seguranca` | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
 | Telas do portal no axe | 10 rotas fixas + telas avulsas | `ROTAS`, `e2e/acessibilidade.spec.ts:50` |
 | Imagem Docker | 255 MB comprimida (limite 260 MB) | Job `image`, `.github/workflows/ci.yml:106`; valor do Plano 08 |
-| Commits na `main` | 414, desde 27/09/2026 | `git log --oneline \| wc -l` |
+| Commits na `main` | 414, desde 27/09/2026; 10A: 470 | `git log --oneline \| wc -l` |
 
 ---
 
@@ -229,8 +230,10 @@ falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 | Peça | Linha | O que é |
 |---|---|---|
 | `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `SO_INSERE` | `:108` | Tabelas append-only (`audit_log`): UPDATE/DELETE já são negados por permissão |
-| `ULTIMAS` | `:113` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); `patients` é sempre a última |
+| `SO_INSERE` | `:120` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`): UPDATE/DELETE já são negados por permissão |
+| `IMUTAVEIS` | `:126` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes` — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
+| `SO_APAGA` | `:132` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`). Um paciente a mais por tenant, sem documento, faz o filtro casar |
+| `ULTIMAS` | `:142` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); `patients` é sempre a última |
 | `COLUNA_TITULAR` | `:167` | Em `patients` o titular é a coluna `id` |
 | `SEM_DELETE_DO_PACIENTE` | `:169` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
 | `UPDATE_DO_PACIENTE` | `:191` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`) |
@@ -260,14 +263,19 @@ qualquer. Uma FK quebrada não conta como isolamento.
 | `semConta` em lista fechada | `src/db/sem-conta-guarda.test.ts` | `semConta: true` só nos arquivos de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:34`) |
 | Ações e APIs do painel fora da sessão certa | `src/app/painel/acoes-de-paciente.test.ts`, `src/app/api/painel/acesso-negado.test.ts` | Toda função exportada de todo arquivo `actions.ts` de `src/app/painel` e `src/app/admin` (`acoesDe`, `acoes-de-paciente.test.ts:31-35`), chamada por paciente, volta ao portal; por nutricionista, as do admin voltam ao painel; toda rota de `/api/painel` responde 403 a paciente e a admin. Ação `'use server'` fora de um `actions.ts` (em `page.tsx` ou outro arquivo) **não** é conferida |
 | Liberação das receitas do plano | `src/modules/portal/conteudos.test.ts`, caso "guarda: só 'Meu plano' e o detalhe pelo cartão…" (`:151`) | `liberarReceitasDoPlano` só em `planoDoPaciente` e `conteudoDoPaciente(…, { doPlano: true })` |
-| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:972` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs ou o `@react-pdf` |
+| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1017` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
+| Assinatura sem sessão (Plano 10A, D23) | `src/modules/documentos/registrar-assinatura.test.ts`, caso "D23…" | `registrar-assinatura.ts` (importado pelo worker) não puxa o Better Auth, `confirmar-2fa` nem `tenant-session`, nem pelos imports dos imports |
+| Verificação pública por um arquivo só (Plano 10A) | `src/modules/documentos/verificacao.test.ts` | Nenhum arquivo de `src` além de `verificacao.ts` (e do schema) cita `document_verifications` (`RLS_EXCEPTIONS`) |
+| Listas sem conteúdo (Plano 10A, D17) | `src/modules/documentos/documentos.test.ts`, `portal.test.ts` | As listas do painel e do portal só devolvem tipo, data, situação, assinatura e recibos, nunca itens, orientações ou justificativa (não chamam `auditRead`) |
+| Restauração × `RLS_EXCEPTIONS` (Plano 10A) | `src/db/rls-guard.test.ts` | A lista de tabelas fora da conta no `nutri-restauracao-teste.sh` é a mesma de `RLS_EXCEPTIONS` |
+| Documentos fora da cópia offline (Plano 10A) | `src/app/sw-regras.test.ts` | `/p/documentos` nunca é a página guardada pelo service worker nem entra no cache do plano |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
 | Axe em toda tela | `src/app/painel/rotas-axe.test.ts:8` | `ROTAS_DO_PAINEL` tem exatamente um caminho por `page.tsx` de `src/app/painel` (Plano 08, D25) |
 | Imagem Docker | `src/app/painel/rotas-axe.test.ts:19` | Todo arquivo de `e2e/` importado por `src/` volta ao contexto do build no `.dockerignore` |
 | Visual V2 | `src/app/painel/cores.test.ts`, `cabecalho.test.ts`, `navegacao.test.ts` | Sem cor fixa nas telas da nutricionista (D24), foco visível, cabeçalho desenhado só pelo layout (D20); todo `page.tsx` do painel chama `requireNutri(` ou `carregarProntuario(` (`cabecalho.test.ts:49-51`, conferência de texto) |
-| Manual guiado | `src/modules/ajuda/conteudo.test.ts:48` | Todo nome de botão citado no manual existe numa tela |
+| Manual guiado | `src/modules/ajuda/conteudo.test.ts:48` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20) |
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 
 O grafo de imports (`test/grafo-de-imports.ts`) usa o parser do TypeScript, segue `import`, `export … from`,
@@ -349,7 +357,8 @@ O Safari do iOS fica no teste manual do runbook (comentário em `playwright.conf
 - apaga a agenda desse tenant (filhas antes das mães) e arquiva os pacientes ativos de execuções anteriores;
 - zera o limite por IP do visitante da página pública;
 - recria as contas de teste (`E2E_ADMIN`, `E2E_NUTRI`, `E2E_RECUPERA`, `E2E_MULTI`, `E2E_MANUAL`,
-  `E2E_ADMIN_PLATAFORMA`) com o progresso do manual marcado como visto, menos a conta do `manual.spec`.
+  `E2E_ADMIN_PLATAFORMA` e, desde o Plano 10A, `E2E_DOCS` — a nutricionista dos documentos, com o 2FA já ativo e o
+  consultório com os documentos liberados) com o progresso do manual marcado como visto, menos a conta do `manual.spec`.
 
 As senhas dessas contas são fictícias e fixas no arquivo (o GitGuardian acusou; o backlog manda marcar como
 credencial de teste). Nunca reaproveite essas contas fora do E2E.
@@ -407,6 +416,7 @@ Detalhes que evitam falso verde:
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
 | `acessibilidade-painel.spec.ts` | 5 (+ laço) | Painel |
+| `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 

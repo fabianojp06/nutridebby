@@ -103,8 +103,9 @@ exportação ⇔ job `exportacao-paciente` (`src/modules/pacientes/exportacao.ts
 
 ### 6.2.3 Filas
 
-São **17 filas**, todas em `QUEUES` (`src/jobs/queues.ts:9-46`) e todas registradas em `src/worker/index.ts` pelo
-`work` embrulhado (seção 6.2.7). A guarda `src/worker/sem-detalhe.test.ts` exige pelo menos 17 registros.
+São **20 filas** (17 até o Plano 08 e 3 do Plano 10A), todas em `QUEUES` (`src/jobs/queues.ts:9-53`) e todas registradas em `src/worker/index.ts` pelo
+`work` embrulhado (seção 6.2.7). A guarda `src/worker/sem-detalhe.test.ts` exige pelo menos 17 registros (não subiu com
+o Plano 10A).
 
 Legenda das colunas de tentativa (opções do pg-boss 12, `package.json:39`): **retry** = `retryLimit` (número de
 **novas** tentativas, leitura da INT-02 no Plano 02, linha "Fila de e-mail"); **atraso** = `retryDelay` em segundos,
@@ -118,7 +119,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `notificacoes` | cron `* * * * *` (`index.ts:85`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:199`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:36`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:178`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
 | `agenda-tenant` | Produtor na suspensão/reativação (`src/modules/plataforma/suspensao.ts:11`) | Suspenso: pendentes viram `ignorada`/`tenant_suspenso`; reativado: lembretes de consultas futuras voltam (`ignorarPendentesDoTenant`, `reagendarTenantReativado`) | 3 / 60↗ / 300 / 86 400 | `{ tenantId, evento }` |
 | `whatsapp-evento` | Produtor na rota do webhook (`src/modules/notificacoes/whatsapp/webhook.ts:91`) | Conexão, status de entrega e resposta "1"/"2"; idempotente (`processarEventoWhatsapp`) | 3 / 30↗ / 60 / 86 400 | `{ selado }` |
-| `agenda-limpeza` | cron `30 4 * * *` (`index.ts:103`) | Apaga pedidos da página pública com mais de 24 h, contadores de limite com mais de 1 dia e `access_events` com mais de 400 dias (D13 do Plano 08) | 2 / 600 / 300 / — | `{}` |
+| `agenda-limpeza` | cron `30 4 * * *` (`index.ts:103`) | Apaga pedidos da página pública com mais de 24 h, contadores de limite com mais de 1 dia, `access_events` com mais de 400 dias (D13 do Plano 08) e, desde o Plano 10A, os códigos do link do documento vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`; campo `codigos` no log "limpeza da agenda pública", `index.ts:111-112`) | 2 / 600 / 300 / — | `{}` |
 | `monitor-backup` | cron `0 7 * * *` (`index.ts:118`) | Confere `backup_runs` e avisa os admins por e-mail (seção 6.5.6) | 2 / 300 / 120 / — | `{}` |
 | `monitor-disco` | cron `0 * * * *` (`index.ts:128`) | Mede o disco de `DATA_DIR`; ≥ 70% → e-mail aos admins, no máximo 1 a cada 24 h (RNF-13) | 0 / — / 60 / — | `{}` |
 | `retencao-lgpd` | cron `0 4 * * *` (`index.ts:140`) | Anonimiza bloqueados com prazo de guarda vencido (`anonimizarVencidos`) e, mesmo se falhar, apaga exportações vencidas (`expirarExportacoesVencidas`) | 2 / 600 / 900 / — | `{}` |
@@ -129,7 +130,10 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `diario-foto` | Produtor no envio do diário (`src/modules/portal/diario.ts:102`) | Converte para JPEG ≤ 1600 px sem EXIF/GPS e apaga o original (`converterFotoDoDiario`, RN-07) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, entryId }` |
 | `expirar-diario-foto` | cron `*/15 * * * *` (`index.ts:190`) | Foto "processando" há mais de 30 min sem job vivo → "falhou" e o original sai (`expirarFotosPendentes`) | 1 / 60 / 300 / — | `{}` |
 | `expirar-plano-pdf` | cron `*/15 * * * *` (`index.ts:194`) | PDF "pendente" há mais de 1 h → "falhou" (`expirarPdfsPendentes`) | 1 / 60 / 120 / — | `{}` |
-| `limpar-tmp` | cron `0 4 * * *` (`index.ts:198`) | Apaga `.tmp` órfãos de `salvarArquivo` com mais de 24 h (`limparTmpOrfaos`) | 1 / 600 / 300 / — | `{}` |
+| `limpar-tmp` | cron `0 4 * * *` (`index.ts:215`) | Apaga `.tmp` órfãos de `salvarArquivo` com mais de 24 h (`limparTmpOrfaos`) | 1 / 600 / 300 / — | `{}` |
+| `documento-pdf` | Produtor no preparo e no "Gerar o PDF de novo" (`src/modules/documentos/documentos.ts`, `prepararParaAssinatura`, `pedirNovoPdfDocumento`) | PDF preparado da receita com marca, carimbo, quadro "Assinatura digital", código e QR (`gerarPdfDoDocumento`; Plano 10A) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
+| `documento-digitalizado` | Produtor no envio das fotos (`receberDigitalizada`, `src/modules/documentos/digitalizada.ts`) | Normaliza as fotos, monta o PDF e assina como "digitalizada" (`montarPdfDigitalizado`); foto ilegível ou cota: falha sem nova tentativa | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
+| `expirar-documento-pdf` | cron `*/15 * * * *` (`index.ts:210`) | PDF `pendente` ou digitalização `recebendo`/`pendente` há mais de 1 h → `falhou` (`expirarPdfsDeDocumentoPendentes`); PDF base e fotos sem referência há mais de 1 h e ponteiros que sobraram num documento emitido → apagados (`limparArquivosOrfaosDeDocumentos`) | 1 / 60 / 300 / — | `{}` |
 
 Ordem do dia (BRT): 03h backup no host → 04h `retencao-lgpd` e `limpar-tmp` → 04h30 `agenda-limpeza` → 07h
 `monitor-backup`. A retenção roda **depois** do backup de propósito (comentário em `src/jobs/queues.ts:16`).
@@ -263,7 +267,7 @@ por `next.config.ts:12`. `poweredByHeader: false` tira o `x-powered-by` (`next.c
 |---|---|---|
 | `Strict-Transport-Security` | `max-age=63072000` (2 anos), **sem** `includeSubDomains` e **sem** `preload` | D8 do Plano 08 |
 | `X-Content-Type-Options` | `nosniff` | RNF-06 |
-| `Referrer-Policy` | `strict-origin-when-cross-origin`; `no-referrer` em `/convite/*`, `/consulta/*` e `/api/arquivos` (`next.config.ts:15-20`) | M7 (Plano 02), D20 (Plano 05) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin`; `no-referrer` em `/convite/*`, `/consulta/*`, `/api/arquivos` e, desde o Plano 10A, em `/documento/*`, `/api/documento/*` (estas duas também com `Cache-Control: no-store`) e `/v/*` (`next.config.ts:15-25`) | M7 (Plano 02), D20 (Plano 05), RN-156 e RN-158 (Plano 10A) |
 | `X-Frame-Options` | `DENY` | RNF-06 |
 | `Permissions-Policy` | `camera=(self), microphone=(), geolocation=(), payment=(), usb=()` | RNF-06 |
 
@@ -341,6 +345,11 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 | `POST /api/erro-cliente` | 20 / min | IP (/64 no IPv6) | Memória | `src/app/api/erro-cliente/route.ts:13,25` |
 | `POST /api/csp-relatorio` (só no modo relatório) | 60 / min | IP (/64) | Memória | `src/app/api/csp-relatorio/route.ts:9,20` |
 | `POST /api/p/push` | 20 / 10 min | Conta | Memória | `src/app/api/p/push/route.ts:16,50` |
+| Verificação pública `/v/<código>` (Plano 10A) | 30 / h | HMAC do IP (`verificacao-ip`, /64) | `public_rate_limits` | `src/modules/documentos/verificacao.ts` (`consultarVerificacao`) |
+| Link do documento: pedir código (Plano 10A) | 20 / h por IP; 5 / h e 1 / min por documento | `documento-ip`; `documento-envio` | `public_rate_limits` (+ data do último código) | `src/modules/documentos/link-documento.ts` (`pedirCodigoDocumento`) |
+| Link do documento: confirmar código (Plano 10A) | 30 / h por IP; 5 erros por código | `documento-codigo-ip`; `tentativas` na linha | `public_rate_limits`; `document_access_codes` | `link-documento.ts` (`confirmarCodigoDocumento`) |
+| Código do 2FA ao assinar (Plano 10A) | 5 erros / 15 min por usuária; mesmo código recusado por 90 s | `totp-erro`, `totp-usado` (HMAC do id) | `public_rate_limits` | `src/lib/confirmar-2fa.ts` |
+| `POST /api/painel/documentos/[id]/digitalizada` (Plano 10A) | 2 envios processando por processo, 1 por usuária | Memória | Memória | `src/app/api/painel/documentos/[id]/digitalizada/route.ts` |
 
 As rotas do Better Auth com limite de 5/15 min, uma a uma, estão em [§3.3 Limite de tentativas](03-autenticacao-e-acesso.md#limite-de-tentativas).
 
@@ -480,7 +489,7 @@ Inicialização:
 | `message` | `[removido]`, salvo `MENSAGENS_FIXAS` (`'erro no navegador'`) |
 | `exception.values[].value` | `[removido]`, salvo classes de texto fixo (`TenantContextError`, `CorpoGrandeError`, `CorpoLentoError`, até 200 caracteres) |
 | `exception…frames` | Sem `vars`, `context_line`, `pre_context`, `post_context` |
-| `request` | Só `method` e `url` reduzida por `caminhoSeguro` (sem query; UUID → `:id`; segmento longo → `:token`; convite e consulta → `:token`) |
+| `request` | Só `method` e `url` reduzida por `caminhoSeguro` (sem query; UUID → `:id`; segmento longo → `:token`; convite, consulta e, desde o Plano 10A, `/documento/<token>` e `/api/documento/<token>` → `:token`; `/v/<código>` → `/v/:codigo`; `src/lib/sentry-filtro.ts:53-54`) |
 | `user` | Só `id` |
 | `breadcrumbs` | Só `http`/`fetch`, com método, status e **origem** da URL |
 | `tags` | Só `TAGS_PERMITIDAS` (`request_id`, `tenant_id`, `papel`, `rota`, `tipo_rota`, `fila`, `motivo`, `digest`, `nome_erro`) com valor no formato seguro |
@@ -793,7 +802,7 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 | Variável | Efeito da troca (no código) | O que refazer |
 |---|---|---|
 | `AUTH_SECRET` | Assina os cookies de sessão (`src/lib/auth.ts:54`): **todas as sessões caem**. É também a chave do segredo TOTP e dos códigos de recuperação em `two_factor` (cifrados pelo Better Auth, `storeBackupCodes: "encrypted"` por padrão; §3.5): **toda conta com 2FA fica sem conseguir entrar**, inclusive o admin, para quem o 2FA é obrigatório (`src/lib/session-rules.ts:57`) | Plano para o 2FA abaixo. Depois, todos entram de novo |
-| `ENCRYPTION_KEY` | (1) Jobs já na fila `email` e `whatsapp-evento` estão selados com a chave antiga e falham com `SealError` (`src/email/job.ts:17`, `src/worker/index.ts:98`, `src/lib/crypto.ts:58`), assim como o convite com conteúdo selado ainda pendente em `notifications` (`src/modules/notificacoes/mensagens.ts:86`). (2) Todo link de consulta já enviado por e-mail deixa de abrir (chave derivada, `src/modules/agenda/link-consulta.ts:14`). (3) Os códigos de agendamento público em andamento deixam de conferir (`src/modules/agenda/agendamento-publico.ts:69`). (4) Os contadores de limite e as marcas anti-repetição do webhook zeram (`src/modules/agenda/limite-ip.ts:13`) | Reenviar os e-mails e convites que falharam; avisar que links de consulta antigos não abrem (o paciente usa o portal ou pede outro). Trocar no app **e** no worker ao mesmo tempo |
+| `ENCRYPTION_KEY` | (1) Jobs já na fila `email` e `whatsapp-evento` estão selados com a chave antiga e falham com `SealError` (`src/email/job.ts:17`, `src/worker/index.ts:98`, `src/lib/crypto.ts:58`), assim como o convite com conteúdo selado ainda pendente em `notifications` (`src/modules/notificacoes/mensagens.ts:86`). (2) Todo link de consulta já enviado por e-mail deixa de abrir (chave derivada, `src/modules/agenda/link-consulta.ts:14`). (3) Os códigos de agendamento público em andamento deixam de conferir (`src/modules/agenda/agendamento-publico.ts:69`). (4) Os contadores de limite e as marcas anti-repetição do webhook zeram (`src/modules/agenda/limite-ip.ts:13`), inclusive os do 2FA ao assinar e da verificação pública. (5) Plano 10A: todo link de documento já enviado deixa de abrir (`chaveDoLinkDocumento`, `src/modules/documentos/link-documento.ts:26`) e os códigos de 6 dígitos pendentes deixam de conferir | Reenviar os e-mails e convites que falharam; avisar que links de consulta antigos não abrem (o paciente usa o portal ou pede outro); para cada receita entregue por link a paciente sem app, usar "Reenviar link por e-mail" no documento. Trocar no app **e** no worker ao mesmo tempo |
 | `EVOLUTION_WEBHOOK_SECRET` | A chave do JWT do webhook de cada consultório é derivada dele (`src/modules/notificacoes/whatsapp/jwt.ts:8`): os eventos das instâncias atuais passam a ser recusados | Cada consultório reconecta em "Conectar WhatsApp", que reconfigura o webhook (comentário em `jwt.ts:6`) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | As inscrições de push foram criadas com a chave pública antiga (`src/app/p/notificacoes.tsx:78`); o serviço de push recusa os envios (4xx definitivo, `src/modules/notificacoes/push.ts:44`) | Pacientes reativam as notificações no portal. A pública tem de ser igual no app e no worker (§6.7) |
 | `FILE_URL_SECRET` | Só as URLs de arquivo já emitidas deixam de valer; duram 5 min (`FILE_URL_TTL_S`, `src/lib/signed-url.ts:5`) | Nada |

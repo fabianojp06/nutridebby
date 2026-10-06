@@ -90,10 +90,11 @@ A tabela completa das filas (payload, tentativas, redes de segurança) está em
 | `heartbeat` | todo minuto | `src/worker/index.ts:58` | `/api/health` 200 | 503 "worker sem heartbeat…" |
 | `notificacoes` | todo minuto | `src/worker/index.ts:85` | Seção "Lembretes" da consulta (`src/app/painel/agenda/consultas/[id]/page.tsx:76-87`) | Lembrete com hora passada ainda pendente, ou "falhou" |
 | `expirar-diario-foto`, `expirar-plano-pdf` | a cada 15 min | `src/worker/index.ts:190`, `:194` | Foto do diário "processando" vira falha depois de 30 min (`FOTO_PENDENTE_MAX_MS`, `src/modules/portal/diario-foto-job.ts:203`); PDF do plano "gerando" vira "falhou" depois de 1 h (`PDF_PENDENTE_MAX_MS`, `src/modules/plano-alimentar/plano-pdf-job.ts:114`) | Foto "processando" há mais de 45 min; PDF "gerando" há mais de 1 h 15 (prazo + uma passada da varredura) |
+| `expirar-documento-pdf` (Plano 10A) | a cada 15 min | `src/worker/index.ts:210` | Receita "Preparando o PDF" ou "Montando o PDF digitalizado…" vira falha depois de 1 h (`PDF_DOCUMENTO_PENDENTE_MAX_MS`, `src/modules/documentos/documento-pdf-job.ts:101`); só loga quando falha (`falha ao expirar PDFs de documento pendentes`, `falha ao limpar arquivos órfãos de documentos`) | Uma dessas linhas no log; a nutricionista vendo "Preparando o PDF…" por mais de 1 h 15 |
 | `monitor-disco` | hh:00 | `src/worker/index.ts:128` | `/admin`, "Disco da VPS: N% usado" (`src/app/admin/painel-infra.tsx:26`) | ≥ 70% (`DISCO_LIMITE`, `src/modules/plataforma/monitoramento.ts:11`) |
 | `retencao-lgpd` | 04h00 / 07h00 | `src/worker/index.ts:140` | Log `retenção LGPD concluída` e `exportações vencidas apagadas` | Linha ausente no dia |
 | `limpar-tmp` | 04h00 / 07h00 | `src/worker/index.ts:198` | `find /srv/nutri/data -regextype posix-extended -regex '.*\.[0-9]+\.tmp' -mtime +1 \| wc -l` = 0 | > 0 em dias seguidos |
-| `agenda-limpeza` | 04h30 / 07h30 | `src/worker/index.ts:103` | Log `limpeza da agenda pública` (com `pedidos`, `limites`, `acessos`) | Linha ausente no dia |
+| `agenda-limpeza` | 04h30 / 07h30 | `src/worker/index.ts:103` | Log `limpeza da agenda pública` (com `pedidos`, `limites`, `acessos` e, desde o Plano 10A, `codigos` — códigos vencidos do link do documento) | Linha ausente no dia |
 | `monitor-backup` | 07h00 / 10h00 | `src/worker/index.ts:118` | `/admin`, "Backup do banco/dos arquivos: concluído em …" (`painel-infra.tsx:9-13`) | E-mail `alerta_backup`; "FALHOU"; "nenhum backup registrado" |
 
 Comando único para as linhas da madrugada (leitura livre, regra 2 do servidor):
@@ -194,6 +195,7 @@ destes itens ([§8.5.2](#852-onde-registrar-issue-mensal-no-github)).
 | S4 | `.tmp` órfãos | `find /srv/nutri/data -name '*.tmp' -mtime +1 \| wc -l` | > 0 | `limpar-tmp` não roda: D3 e log do worker | Claude |
 | S5 | Deploys fora de hora | `docker service ps nutri_worker --format '{{.CurrentState}}'` e o horário do merge (`git fetch -q && git log --first-parent origin/main --format='%ci %s' -5`) | Deploy entre 03h e 07h30 BRT | Conferir D3 do dia seguinte | Claude |
 | S7 | Produção roda a última imagem da `main` | Digest de `docker service inspect nutri_app nutri_worker --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'` comparado com o do último push no GHCR (GitHub → Packages, ou a última execução do `deploy.yml`) | Digest diferente depois de um merge (webhook aceito, mas o pull falhou: token do GHCR vencido, GHCR fora) | Dono confere o deploy no Easypanel e o token (T2) | Claude → Dono |
+| S8 | Receitas presas (Plano 10A; só depois de o admin ligar "Documentos" para algum consultório) | `docker service logs nutri_worker --since 7d --raw \| grep -cE 'PDF do documento não gerado\|PDF da digitalização não montado\|digitalização recusada'` (só contagem; as linhas levam só ids e o motivo fixo, regra 3) e a Debby | Contagem que cresce; receita em "Preparando o PDF…" ou "Montando o PDF digitalizado…" por mais de 1 h; "digitalização recusada" repetida com o mesmo motivo | Motivo `cota` → M4 (armazenamento); `foto`/`pixels` → orientar a Debby (fotos menores, uma por página); erro repetido → incidente. Lembrete: a Debby precisa do 2FA ativo para assinar | Claude → Dono / Debby |
 | S6 | Status dos provedores | Páginas de status de [§8.4.1](#841-catálogo) (ou as notificações por e-mail delas, [§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 5) | Incidente aberto que afete Resend, Cloudflare, Hostinger ou GitHub | Registrar; se afetou usuário, §6.9 | Dono |
 
 ### 8.3.3 Mensal
@@ -410,6 +412,8 @@ flowchart TB
 | 20 | Alertas só chegam ao dono | Na ausência dele, queda e falha de backup passam sem resposta | Linha "Ausência do dono" de [§8.5.1](#851-quem-faz-o-quê) | Dono |
 | 21 | Configuração do Easypanel só na VPS e no snapshot da Hostinger | Perdida a conta ou o data center, recriar os serviços depende de memória | A5 confere se o §1.8 basta (bind, limites, domínio, `start-first`/`stop-first`) | Dono + Claude |
 | 22 | Nada confere que produção roda a última imagem | Webhook aceito com pull falhando deixa a versão velha no ar, sem aviso | S7 semanal (digest do serviço × último push no GHCR) | Claude → Dono |
+| 23 | Liberação dos documentos sem registro (Plano 10A, D20) | Ligar ou desligar "Documentos" de um consultório só deixa a linha `documentos assinados liberados/bloqueados pelo admin` no log, que dura ~1 dia; desligar depois do uso real tira do consultório "Cancelar documento" e a entrega | Registrar na issue do mês quem ligou e quando; backlog P10A-18 (auditoria da plataforma) | Dono; código |
+| 24 | `APP_URL` impresso nas receitas (Plano 10A) | O QR e o rodapé de toda receita apontam para `https://nutri.wsscloud.tech/v/<código>`; perder ou trocar o domínio quebra a verificação de receitas já entregues | Renovar o domínio com folga (A1); numa troca, manter `/v/*` respondendo no domínio antigo | Dono |
 
 ---
 
