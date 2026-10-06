@@ -59,7 +59,7 @@ async function conferirLimites(tx: Tx, usuaria: string, agora: Date): Promise<vo
 export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, patientId: string, examId: string, deps: DepsPedido): Promise<string> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  const estado = estadoIaDoTenant(tenant, deps.ia.modo);
+  const estado = estadoIaDoTenant(tenant, deps.ia.modo); // atalho barato; a decisão vale sob a trava D16, abaixo
   if (estado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estado));
   if (!idValido(examId) || !ctx.actorUserId) throw new PedidoIaError(MSG_FALHA.exame_indisponivel);
   const boss = deps.boss ?? (await getBoss());
@@ -79,7 +79,15 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
           .from(iaTarefas)
           .where(and(eq(iaTarefas.examId, e.id), inArray(iaTarefas.status, [...EM_ANDAMENTO])));
         if (jaLendo) throw new PedidoIaError(MSG_IA.emAndamento);
-        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('update'); // D16
+        // D16: decide com a linha travada do tenant de `ctx`, não com a cópia da action (desativar, bloqueio, suspensão ou
+        // aditivo trocado entre a leitura e a trava não deixam tarefa, reserva nem "Pediu leitura à IA" — US-101, D19)
+        const [tn] = await tx
+          .select({ status: tenants.status, iaLiberada: tenants.iaLiberada, iaAtivadaEm: tenants.iaAtivadaEm, iaAditivoVersao: tenants.iaAditivoVersao })
+          .from(tenants)
+          .where(eq(tenants.id, ctx.tenantId))
+          .for('update');
+        const estadoTravado = tn ? estadoIaDoTenant(tn, deps.ia.modo) : 'suspensa';
+        if (estadoTravado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estadoTravado));
         await conferirLimites(tx, ctx.actorUserId!, agora);
         const tarefaId = randomUUID();
         const microUsd = reservaDaLeitura(deps.ia.modelo, deps.ia.geo, arq.mime === 'application/pdf' ? 'pdf' : 'imagem');

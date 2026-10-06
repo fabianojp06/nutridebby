@@ -12,6 +12,7 @@ import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } 
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
+import { desativarIa } from './ativacao';
 import { MSG_IA } from './constantes';
 import type { ConfigIA } from './modo';
 import { reservaDaLeitura } from './precos';
@@ -119,6 +120,34 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
     expect(await mensagem(pedirLeituraExame(desativada.T.ctx, desativada.tenant, desativada.p.id, desativada.examId, deps({ ia: { ...IA, modo: 'emergencia' } })))).toBe(MSG_IA.indisponivel);
     expect(await mensagem(pedirLeituraExame(desativada.T.ctx, { ...desativada.tenant, iaAditivoVersao: '0.0' }, desativada.p.id, desativada.examId, deps()))).toBe(MSG_IA.aditivoDesatualizado);
     expect(await withTenant(desativada.T.ctx, (tx) => tx.select().from(iaTarefas), app.db)).toEqual([]);
+  });
+
+  it('D16/US-101: decide com a linha do tenant travada — desativada, bloqueada, suspensa ou aditivo velho depois da leitura da action → nada é criado', async () => {
+    const semRastro = async (c: Awaited<ReturnType<typeof cenario>>) => {
+      expect(await withTenant(c.T.ctx, (tx) => tx.select().from(iaTarefas), app.db)).toEqual([]);
+      expect(await withTenant(c.T.ctx, (tx) => tx.select().from(iaUso), app.db)).toEqual([]);
+    };
+    const desativada = await cenario(); // a action leu o tenant com a IA ativa; outra aba desativa antes da trava
+    await desativarIa(desativada.T.ctx, { db: app.db, agora });
+    expect(await mensagem(pedirLeituraExame(desativada.T.ctx, desativada.tenant, desativada.p.id, desativada.examId, deps()))).toBe(MSG_IA.indisponivel);
+    await semRastro(desativada);
+    const bloqueada = await cenario(); // D19: o bloqueio da admin impede novos pedidos
+    await app.db.update(tenants).set({ iaLiberada: false }).where(eq(tenants.id, bloqueada.T.tenantId));
+    expect(await mensagem(pedirLeituraExame(bloqueada.T.ctx, bloqueada.tenant, bloqueada.p.id, bloqueada.examId, deps()))).toBe(MSG_IA.indisponivel);
+    await semRastro(bloqueada);
+    const suspensa = await cenario();
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, suspensa.T.tenantId));
+    expect(await mensagem(pedirLeituraExame(suspensa.T.ctx, suspensa.tenant, suspensa.p.id, suspensa.examId, deps()))).toBe(MSG_IA.indisponivel);
+    await semRastro(suspensa);
+    const aditivo = await cenario();
+    await app.db.update(tenants).set({ iaAditivoVersao: '0.0' }).where(eq(tenants.id, aditivo.T.tenantId));
+    expect(await mensagem(pedirLeituraExame(aditivo.T.ctx, aditivo.tenant, aditivo.p.id, aditivo.examId, deps()))).toBe(MSG_IA.aditivoDesatualizado);
+    await semRastro(aditivo);
+    const outro = await cenario(); // a linha passada é de outro consultório (IA ativa): vale a do ctx
+    await desativarIa(outro.T.ctx, { db: app.db, agora });
+    const ativo = await cenario();
+    expect(await mensagem(pedirLeituraExame(outro.T.ctx, ativo.tenant, outro.p.id, outro.examId, deps()))).toBe(MSG_IA.indisponivel);
+    await semRastro(outro);
   });
 
   it('exame de outro paciente ou id inválido: "Este exame não está mais disponível."', async () => {
