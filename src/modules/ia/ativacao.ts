@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { registrarAceiteAditivoIa } from '@/modules/plataforma/dpa';
 import { cancelarTarefas } from './cancelar';
 import { MSG_IA } from './constantes';
+import { IA_ADITIVO_VERSAO } from './textos-legais';
 
 export const MSG_ATIVACAO = {
   naoLiberada: MSG_IA.naoLiberada,
@@ -28,11 +29,14 @@ export async function ativarIa(a: { userId: string; tenantId: string; ip: string
   if (!aceite) throw new AtivacaoIaError(MSG_ATIVACAO.aceite);
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  await db.transaction(async (tx) => {
+  const aceiteNovo = await db.transaction(async (tx) => {
     const [t] = await tx.select({ liberada: tenants.iaLiberada, status: tenants.status }).from(tenants).where(eq(tenants.id, a.tenantId)).for('update');
     if (!t?.liberada || t.status !== 'ativa') throw new AtivacaoIaError(MSG_ATIVACAO.naoLiberada);
-    await registrarAceiteAditivoIa(tx, { ...a, now: agora });
+    return registrarAceiteAditivoIa(tx, { ...a, now: agora });
   });
+  // D21 (NGS1.07): a reativação da mesma versão não grava `consents` novo (onConflictDoNothing); toda ativação deixa
+  // trilha no log, como a desativação (só ids, sem IP)
+  logger.info({ tenantId: a.tenantId, userId: a.userId, aditivoVersao: IA_ADITIVO_VERSAO, aceiteNovo }, 'IA ativada pela nutricionista');
 }
 
 /** US-101 "Desativar": a IA some do painel; fila e sugestões canceladas (conteúdo esvaziado, linhas ficam). */

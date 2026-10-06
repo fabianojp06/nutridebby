@@ -45,9 +45,15 @@ export async function registrarAceiteDpa(
  * Prova em consents (termo `ia-aditivo-<versão>`, a usuária, o CONSULTÓRIO, data e IP) + marca no tenant, na mesma
  * transação de quem chama. Diferente do DPA, a marca do tenant muda mesmo se o aceite da versão já existia: reativar a IA
  * depois de desativar não pede um aceite novo da mesma versão.
+ * Devolve se o aceite é novo (`true`) ou se a linha da versão já existia (reativação): quem chama registra no log.
  */
-export async function registrarAceiteAditivoIa(q: Queryable, a: { userId: string; tenantId: string; ip: string | null; now?: Date }): Promise<void> {
+export async function registrarAceiteAditivoIa(q: Queryable, a: { userId: string; tenantId: string; ip: string | null; now?: Date }): Promise<boolean> {
   const now = a.now ?? new Date();
-  await q.insert(consents).values({ userId: a.userId, tenantId: a.tenantId, termoVersao: IA_ADITIVO_TERMO, aceitoEm: now, ip: a.ip }).onConflictDoNothing();
+  const inserido = await q
+    .insert(consents)
+    .values({ userId: a.userId, tenantId: a.tenantId, termoVersao: IA_ADITIVO_TERMO, aceitoEm: now, ip: a.ip })
+    .onConflictDoNothing()
+    .returning({ id: consents.id });
   await q.update(tenants).set({ iaAtivadaEm: now, iaAditivoVersao: IA_ADITIVO_VERSAO, updatedAt: now }).where(eq(tenants.id, a.tenantId));
+  return inserido.length > 0;
 }

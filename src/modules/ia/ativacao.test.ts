@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
@@ -6,11 +6,13 @@ import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tarefaNoBanco } from '../../../test/ia';
 import { consents, iaTarefas, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { logger } from '@/lib/logger';
 import { ativarIa, AtivacaoIaError, desativarIa, MSG_ATIVACAO } from './ativacao';
 import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
+afterEach(() => vi.restoreAllMocks());
 const agora = new Date('2026-10-06T15:00:00Z');
 const tenantDe = async (id: string) => (await app.db.select().from(tenants).where(eq(tenants.id, id)))[0];
 
@@ -39,6 +41,30 @@ describe('US-101 — ativar e desativar a IA do consultório (A-D20)', () => {
     await ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: '203.0.113.5' }, true, { db: app.db, agora: new Date(agora.getTime() + 1000) });
     expect(await app.db.select().from(consents).where(and(eq(consents.userId, T.nutriId), eq(consents.termoVersao, IA_ADITIVO_TERMO)))).toHaveLength(1);
     expect((await tenantDe(T.tenantId)).iaAtivadaEm).not.toBeNull();
+  });
+
+  it('D21 (NGS1.07): toda ativação deixa trilha no log com a usuária — inclusive a reativação, que não grava consents novo', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ iaLiberada: true }).where(eq(tenants.id, T.tenantId));
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const ativacoes = () => info.mock.calls.filter((c) => c[1] === 'IA ativada pela nutricionista').map((c) => c[0]);
+    await ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: '203.0.113.5' }, true, { db: app.db, agora });
+    expect(ativacoes()).toEqual([{ tenantId: T.tenantId, userId: T.nutriId, aditivoVersao: IA_ADITIVO_VERSAO, aceiteNovo: true }]);
+    await desativarIa(T.ctx, { db: app.db, agora });
+    await ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: '203.0.113.9' }, true, { db: app.db, agora: new Date(agora.getTime() + 1000) });
+    expect(ativacoes()).toEqual([
+      { tenantId: T.tenantId, userId: T.nutriId, aditivoVersao: IA_ADITIVO_VERSAO, aceiteNovo: true },
+      { tenantId: T.tenantId, userId: T.nutriId, aditivoVersao: IA_ADITIVO_VERSAO, aceiteNovo: false },
+    ]);
+    // sem IP no log (só ids)
+    expect(JSON.stringify(ativacoes())).not.toContain('203.0.113');
+  });
+
+  it('recusada (sem liberação) não registra ativação no log', async () => {
+    const T = await novoTenant(app.db);
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    await expect(ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: null }, true, { db: app.db, agora })).rejects.toBeInstanceOf(AtivacaoIaError);
+    expect(info.mock.calls.filter((c) => c[1] === 'IA ativada pela nutricionista')).toEqual([]);
   });
 
   it('desativar: tarefas na fila e prontas ficam canceladas e esvaziadas (as linhas ficam)', async () => {

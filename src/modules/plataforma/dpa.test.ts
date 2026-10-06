@@ -75,7 +75,9 @@ describe('consents é prova de aceite (T6-R2c)', () => {
 
 it('Plano 11 (A-D20): o aceite do aditivo de IA não mexe no DPA e grava o consultório no consents', async () => {
   const T = await novoTenant(app.db);
-  await registrarAceiteAditivoIa(app.db, { userId: T.nutriId, tenantId: T.tenantId, ip: null, now: new Date('2026-10-06T12:00:00Z') });
+  expect(await registrarAceiteAditivoIa(app.db, { userId: T.nutriId, tenantId: T.tenantId, ip: null, now: new Date('2026-10-06T12:00:00Z') })).toBe(true);
+  // mesma versão de novo (reativação): não insere outra linha e avisa quem chama (log da ativação, D21)
+  expect(await registrarAceiteAditivoIa(app.db, { userId: T.nutriId, tenantId: T.tenantId, ip: null, now: new Date('2026-10-06T12:01:00Z') })).toBe(false);
   const [t] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
   expect(t).toMatchObject({ dpaVersao: null, iaAditivoVersao: IA_ADITIVO_VERSAO });
   const [c] = await app.db.select().from(consents).where(and(eq(consents.userId, T.nutriId), eq(consents.termoVersao, IA_ADITIVO_TERMO)));
