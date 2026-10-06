@@ -3,10 +3,11 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { account, tenants, user } from '@/db/schema';
+import { account, adminActions, tenants, user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
 import { logger } from '@/lib/logger';
+import { AVISO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { criarConvite, linkDoConvite } from './convites';
@@ -129,6 +130,10 @@ export type ContaResumo = {
   goLiveEm: string | null;
   /** D20 (Plano 10A): documentos assinados liberados pelo admin. */
   documentosLiberados: boolean;
+  /** Plano 11: IA liberada (admin), ativada (nutricionista) e cota (US$/mês). */
+  iaLiberada: boolean;
+  iaAtivada: boolean;
+  iaCotaMensalUsd: number;
 };
 
 /** Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. */
@@ -137,9 +142,11 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
     tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
     created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
     taxa_faltas_base: string | null; go_live_em: string | null; documentos_liberados: boolean;
+    ia_liberada: boolean; ia_ativada: boolean; ia_cota_mensal_usd: string;
   }>(sql`
     select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
            t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
+           t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd,
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
@@ -153,6 +160,7 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
       email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at), waCotaMensal: row.wa_cota_mensal,
       taxaFaltasBase: row.taxa_faltas_base === null ? null : Number(row.taxa_faltas_base), goLiveEm: row.go_live_em,
       documentosLiberados: row.documentos_liberados,
+      iaLiberada: row.ia_liberada, iaAtivada: row.ia_ativada, iaCotaMensalUsd: Number(row.ia_cota_mensal_usd),
     };
   });
 }
@@ -162,4 +170,26 @@ export async function definirDocumentosLiberados(db: Db, tenantId: string, liber
   const r = await db.update(tenants).set({ documentosLiberados: liberar, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
   if (!r.length) throw new ContaNaoEncontradaError();
   logger.info({ tenantId, adminId, documentosLiberados: liberar }, 'documentos assinados liberados/bloqueados pelo admin');
+}
+
+/**
+ * Plano 11 (US-100, A-06, D6): a admin libera a IA do consultório só depois da ZDR, do parecer do advogado, da avaliação e
+ * dos textos finais (runbook). Trilha em admin_actions (NGS1.07.03); só tenants e admin_actions (nenhuma tabela 🔒).
+ */
+export class IaProvisoriaError extends Error {
+  override name = 'IaProvisoriaError';
+  constructor() {
+    super('Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar.');
+  }
+}
+
+export async function definirIaLiberada(db: Db, tenantId: string, liberar: boolean, adminId: string, o: { producao?: boolean } = {}): Promise<void> {
+  // D22 (A-06 também no código): em produção, só com o aviso e o aditivo finais (versões sem "-provisorio")
+  if (liberar && o.producao && [AVISO_IA_VERSAO, IA_ADITIVO_VERSAO].some((v) => v.endsWith('-provisorio'))) throw new IaProvisoriaError();
+  await db.transaction(async (tx) => {
+    const r = await tx.update(tenants).set({ iaLiberada: liberar, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
+    if (!r.length) throw new ContaNaoEncontradaError();
+    await tx.insert(adminActions).values({ adminUserId: adminId, acao: liberar ? 'liberar_ia' : 'bloquear_ia', alvoTenantId: tenantId, origem: 'admin' });
+  });
+  logger.info({ tenantId, adminId, iaLiberada: liberar }, 'IA liberada/bloqueada pelo admin');
 }

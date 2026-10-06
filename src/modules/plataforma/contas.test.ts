@@ -3,15 +3,16 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { makeDb, semPreChecagem } from '../../../test/db';
+import { novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { account, invites, tenants, user } from '@/db/schema';
+import { account, adminActions, invites, tenants, user } from '@/db/schema';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
-import { ContaError, criarContaNutri, definirDocumentosLiberados, listarContas, reenviarConvite } from './contas';
+import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
 
@@ -238,5 +239,34 @@ describe('definirDocumentosLiberados (D20, Plano 10A)', () => {
     await definirDocumentosLiberados(app.db, r.tenantId, false, randomUUID());
     expect((await achar()).documentosLiberados).toBe(false);
     await expect(definirDocumentosLiberados(app.db, randomUUID(), true, randomUUID())).rejects.toThrow(ContaNaoEncontradaError);
+  });
+});
+
+describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
+  it('liga/desliga ia_liberada e grava admin_actions (liberar_ia / bloquear_ia, alvo = consultório, origem admin)', async () => {
+    const T = await novoTenant(app.db);
+    const admin = randomUUID();
+    await definirIaLiberada(app.db, T.tenantId, true, admin);
+    await definirIaLiberada(app.db, T.tenantId, false, admin);
+    const acoes = await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId));
+    expect(acoes.map((a) => a.acao).sort()).toEqual(['bloquear_ia', 'liberar_ia']);
+    expect(acoes[0]).toMatchObject({ adminUserId: admin, origem: 'admin', alvoUserId: null });
+    const [t] = await app.db.select({ l: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t.l).toBe(false);
+    await expect(definirIaLiberada(app.db, randomUUID(), true, admin)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
+  });
+
+  it('D22 (A-06): em produção, recusa liberar enquanto o aviso ou o aditivo forem provisórios; bloquear sempre passa', async () => {
+    const T = await novoTenant(app.db);
+    const admin = randomUUID();
+    await expect(definirIaLiberada(app.db, T.tenantId, true, admin, { producao: true })).rejects.toBeInstanceOf(IaProvisoriaError);
+    await definirIaLiberada(app.db, T.tenantId, false, admin, { producao: true });
+    expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
+  });
+
+  it('listarContas mostra IA liberada, ativada e a cota', async () => {
+    const T = await novoTenant(app.db);
+    await definirIaLiberada(app.db, T.tenantId, true, randomUUID());
+    expect((await listarContas(app.db)).find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
   });
 });

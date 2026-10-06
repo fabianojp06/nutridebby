@@ -99,7 +99,7 @@ const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0
  * Produção de verdade: NODE_ENV=production fora de localhost (o E2E com `next start` roda como produção em localhost).
  * M18: APP_URL inválida já tem o próprio erro (z.url); aqui não pode virar TypeError cru.
  */
-const emProducao = (e: { NODE_ENV: string; APP_URL: string }) => e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL);
+export const emProducao = (e: { NODE_ENV: string; APP_URL: string }) => e.NODE_ENV === 'production' && URL.canParse(e.APP_URL) && !ehLocal(e.APP_URL);
 /**
  * O valor que o `.env.example` traz para o dev com WHATSAPP_SANDBOX=1: é público, então é recusado em produção (como as
  * chaves de teste do Turnstile) — senão o `jwt_key` de toda instância sairia de um texto conhecido (D4 a).

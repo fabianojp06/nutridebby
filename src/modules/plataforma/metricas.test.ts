@@ -3,11 +3,12 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { tenants } from '@/db/schema';
+import { novoTenant } from '../../../test/pacientes';
+import { adminActions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
-import { ajustarCotaWhatsapp, CotaWhatsappError, metricasDeSucessoPorTenant, metricasPorTenant, MSG_METRICAS, salvarMetricasBase } from './metricas';
+import { ajustarCotaIa, ajustarCotaWhatsapp, CotaWhatsappError, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant, MSG_COTA_IA, MSG_METRICAS, salvarMetricasBase } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -148,5 +149,22 @@ describe('salvarMetricasBase (D15: o admin grava a base do CS-03 e o início do 
   });
   it('salvarMetricasBase: tenant inexistente → ContaNaoEncontradaError (M9)', async () => {
     await expect(salvarMetricasBase(randomUUID(), { taxaBase: '10', goLiveEm: '' }, ADMIN, app.db)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
+  });
+});
+
+describe('Plano 11 (US-100) — limite de IA do consultório', () => {
+  it('aceita 0 a 1000 com até 2 casas (vírgula ou ponto) e grava ajustar_cota_ia; fora disso: "Informe um valor entre 0 e 1000"', async () => {
+    const T = await novoTenant(app.db);
+    const admin = randomUUID();
+    await ajustarCotaIa(T.tenantId, '25,50', admin, app.db);
+    const [t] = await app.db.select({ c: tenants.iaCotaMensalUsd }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t.c).toBe(25.5);
+    for (const ruim of ['1000,01', '-1', 'abc', '', '12,345']) await expect(ajustarCotaIa(T.tenantId, ruim, admin, app.db)).rejects.toThrow(MSG_COTA_IA);
+    expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
+  });
+
+  it('metricasDeIaPorTenant lê só a função SECURITY DEFINER (contagens e somas)', async () => {
+    const T = await novoTenant(app.db);
+    expect((await metricasDeIaPorTenant(app.db)).get(T.tenantId)).toEqual({ tarefasMes: 0, custoMesMicroUsd: 0 });
   });
 });

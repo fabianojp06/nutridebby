@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
-import { tenants } from '@/db/schema';
+import { adminActions, tenants } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { dataValida } from '@/modules/pacientes/datas';
 import { ContaNaoEncontradaError } from './tenant-status';
@@ -101,4 +101,36 @@ export async function salvarMetricasBase(tenantId: string, entrada: { taxaBase: 
     .returning({ id: tenants.id });
   if (!up.length) throw new ContaNaoEncontradaError(); // M9, como ajustarCotaWhatsapp
   logger.info({ tenantId, adminId }, 'métricas de sucesso ajustadas');
+}
+
+export const MSG_COTA_IA = 'Informe um valor entre 0 e 1000';
+const cotaIaSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,4}([.,]\d{1,2})?$/, MSG_COTA_IA)
+  .transform((v) => Number(v.replace(',', '.')))
+  .pipe(z.number().max(1000, MSG_COTA_IA));
+
+export class CotaIaAdminError extends Error {
+  override name = 'CotaIaAdminError';
+}
+
+/** US-100: limite mensal de IA (US$) do consultório; trilha em admin_actions; o valor só no log (como a cota de WhatsApp). */
+export async function ajustarCotaIa(tenantId: string, valor: string, adminId: string, db: Db = getDb()): Promise<void> {
+  const r = cotaIaSchema.safeParse(valor);
+  if (!r.success) throw new CotaIaAdminError(MSG_COTA_IA);
+  await db.transaction(async (tx) => {
+    const up = await tx.update(tenants).set({ iaCotaMensalUsd: r.data, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
+    if (!up.length) throw new ContaNaoEncontradaError();
+    await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'ajustar_cota_ia', alvoTenantId: tenantId, origem: 'admin' });
+  });
+  logger.info({ tenantId, adminId, cotaIaUsd: r.data }, 'limite de IA ajustado');
+}
+
+export type MetricasIaTenant = { tarefasMes: number; custoMesMicroUsd: number };
+
+/** US-100: só contagens e somas do mês (função SECURITY DEFINER admin_metricas_ia, 0099). */
+export async function metricasDeIaPorTenant(db: Db = getDb()): Promise<Map<string, MetricasIaTenant>> {
+  const r = await db.execute<{ tenant_id: string; tarefas_mes: string; custo_mes_micro_usd: string }>(sql`select * from admin_metricas_ia()`);
+  return new Map(r.rows.map((x) => [x.tenant_id, { tarefasMes: Number(x.tarefas_mes), custoMesMicroUsd: Number(x.custo_mes_micro_usd) }]));
 }
