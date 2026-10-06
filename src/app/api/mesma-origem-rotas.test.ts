@@ -1,6 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 
 // P09-01 (manual técnico, cap. 01, divergência 12): toda rota de API que usa cookie e muda estado confere a origem
 // (mesmaOrigem) ANTES da sessão. Sem cookie e com Origin de outro site, a resposta tem de ser 403 — uma rota sem a
@@ -8,6 +9,13 @@ import { describe, expect, it, vi } from 'vitest';
 // Fora daqui, de propósito: /api/auth (o Better Auth confere a origem), /api/n (página pública, sem cookie, Turnstile),
 // /api/webhooks (assinatura), /api/csp-relatorio e /api/erro-cliente (sem sessão).
 vi.mock('server-only', () => ({}));
+// O 403 tem de sair da conferência de origem, não de outra recusa (Turnstile, papel): a guarda espia `mesmaOrigem` e
+// exige, a cada chamada, que ela tenha sido consultada e devolvido false. Sem isso, tirar a conferência do POST de
+// documento/[token]/codigo passaria (o corpo '{}' sem Turnstile também dá 403) — achado da revisão da Tarefa 1.
+vi.mock('@/lib/mesma-origem', async (orig) => {
+  const m = await orig<typeof import('@/lib/mesma-origem')>();
+  return { mesmaOrigem: vi.fn(m.mesmaOrigem) };
+});
 
 const PASTAS = ['painel', 'p', 'documento'] as const;
 const METODOS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -24,6 +32,7 @@ const ROTAS = PASTAS.flatMap((pasta) =>
 describe('rotas de escrita com cookie: Origin de outro site → 403 antes da sessão (S-9, P09-01)', () => {
   it('todo POST/PUT/PATCH/DELETE recusa Origin estranho com 403', async () => {
     const chamadas: string[] = [];
+    const espiao = vi.mocked(mesmaOrigem);
     for (const arquivo of ROTAS) {
       const segmentos = arquivo.split('/').slice(0, -1);
       const ehParam = (s: string) => /^\[\w+\]$/.test(s);
@@ -33,11 +42,14 @@ describe('rotas de escrita com cookie: Origin de outro site → 403 antes da ses
       for (const metodo of METODOS) {
         if (typeof m[metodo] !== 'function') continue;
         chamadas.push(`${metodo} ${arquivo}`);
+        espiao.mockClear();
         const r = await (m[metodo] as Handler)(
           new Request(url, { method: metodo, body: '{}', headers: { origin: 'https://evil.example', 'content-type': 'application/json' } }),
           { params: Promise.resolve(params) },
         );
         expect(r.status, `${metodo} ${arquivo}`).toBe(403);
+        expect(espiao, `${metodo} ${arquivo}: o 403 não saiu de mesmaOrigem`).toHaveBeenCalled();
+        expect(espiao.mock.results.map((x) => x.value), `${metodo} ${arquivo}`).toContain(false);
       }
     }
     expect(chamadas).toContain('PUT painel/planos/[id]/route.ts');
