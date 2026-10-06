@@ -343,11 +343,14 @@ test('documentos (Plano 10A): axe em /p/documentos, /v/<código> (válido e não
   }
 });
 
-test('paciente não alcança o painel nem a API da nutricionista (403 ou volta ao portal, nunca 500 nem dado)', async () => {
+test('paciente não alcança o painel nem a API da nutricionista (403 ou vai ao aviso de outro papel, nunca 500 nem dado)', async () => {
   const id = '00000000-0000-4000-8000-000000000000';
+  const aviso = paciente.page.getByRole('status').filter({ hasText: 'Este aparelho está conectado como paciente.' });
   for (const rota of ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/configuracoes', '/painel/diarios', `/painel/pacientes/${id}`, '/admin']) {
     await paciente.page.goto(rota);
-    await expect(paciente.page, rota).toHaveURL(/\/p\/inicio$/);
+    // P09-03: o papel errado não cai calado no portal — vai à tela que diz com qual conta o aparelho está
+    await expect(paciente.page, rota).toHaveURL(rota === '/admin' ? /\/conta\/outro-papel\?esperado=admin$/ : /\/conta\/outro-papel\?esperado=nutri$/);
+    await expect(aviso, rota).toHaveText(`Este aparelho está conectado como paciente. Saia e entre com a conta de ${rota === '/admin' ? 'administrador' : 'nutricionista'}.`);
   }
   // Pelo proxy, rota a rota (X-3: toda rota nova de /api/painel já é conferida, sem lista, em
   // src/app/api/painel/acesso-negado.test.ts)
