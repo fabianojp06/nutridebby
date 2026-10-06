@@ -211,3 +211,12 @@ describe('/p/escolher: a cópia offline sai só se for de quem não está entre 
     }
   });
 });
+
+describe('P09-05 (D8): as regras do service worker nunca tratam o painel', () => {
+  it('navegação e "Meu plano" só em /p/: /painel, /painel/pacientes/… e /conta ficam de fora', () => {
+    for (const p of ['/painel', '/painel/', '/painel/pacientes/123', '/painel.webmanifest', '/conta/seguranca', '/p']) {
+      expect(ehNavegacaoDoPortal(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
+      expect(ehPaginaDoPlano(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
+    }
+  });
+});

@@ -1,10 +1,14 @@
+import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
+import { METADADOS_DO_PAINEL } from '@/app/manifesto-painel';
 import { requireNutri } from '@/lib/tenant-session';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { getTenantBrand } from '@/modules/plataforma/marca';
 import { lerGuia } from '@/modules/plataforma/preferencias';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 import { CabecalhoPainel } from './cabecalho';
+
+export const metadata: Metadata = METADADOS_DO_PAINEL;
 
 /**
  * Visual V2 (D24): o tema (data-tema, D17) e a cor do consultório (D19) valem para todas as telas do painel. O layout
