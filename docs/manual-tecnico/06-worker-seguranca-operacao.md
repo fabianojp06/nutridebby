@@ -71,7 +71,7 @@ Princípios que atravessam o capítulo:
 | Role do banco | O mesmo da aplicação (`DATABASE_URL`, sem `BYPASSRLS`) | spec §4.1, linha 127 |
 | Schema da fila | `pgboss`, criado pelas migrations com dono = role da aplicação; o worker usa `createSchema: false` | `src/db/migrate.ts:80-81`, `src/worker/index.ts:44-49` |
 | Filas | Criadas **e atualizadas** a cada subida por `ensureQueues` (`createQueue` + `updateQueue`): o código é a fonte da verdade | `src/jobs/queues.ts:50-55` |
-| Parada | `SIGTERM`/`SIGINT` → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; idempotente | `src/worker/index.ts:207-226` |
+| Parada | `SIGTERM`/`SIGINT` ouvidos antes de iniciar (`rodarComSinais`): no ar → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; ainda esperando o schema → corta a espera e fecha Sentry e pool; idempotente | `src/worker/sinais.ts`, `src/worker/index.ts` |
 | Erro não tratado | O worker **não** usa a integração `OnUnhandledRejection` do Sentry: a rejeição derruba o processo e o Swarm o reinicia | `src/lib/sentry.ts:87-91,110` |
 
 Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DATABASE_URL`, `LOG_LEVEL`,
@@ -84,7 +84,9 @@ as três do VAPID vêm juntas e do mesmo par. Tabela completa: [§1.9 Variáveis
 **Espera do schema (P09-02).** Antes de subir o pg-boss, `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`) confere
 pela função `app_versao_do_schema()` (0094) que a última migration do `drizzle/meta/_journal.json` da imagem já foi
 aplicada pelo app; confere de novo a cada 3 s por até 5 min (`INTERVALO_SCHEMA_MS`, `PRAZO_SCHEMA_MS`). Passou do prazo:
-log `schema do banco atrás do worker`, o processo sai com erro e o Swarm o reinicia. Em dev, `pnpm worker` num banco sem
+log `schema do banco atrás do worker` (com a migration esperada, o `when` da última aplicada lida, o nome do erro e o
+SQLSTATE), o processo sai com erro e o Swarm o reinicia. Um `SIGTERM` durante a espera a corta na hora (code review do
+PR #22: com node como PID 1, sem o ouvinte o Swarm esperaria o grace period). Em dev, `pnpm worker` num banco sem
 as migrations do branch espera e sai com a mesma mensagem: rode `pnpm db:migrate`.
 
 ### 6.2.2 Produtor e consumidor
@@ -812,7 +814,10 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
   o admin é levado de novo à configuração (`setup-2fa`) e a nutricionista reativa se quiser.
 - Se não der (vazamento ativo): troque primeiro. Depois da troca, um admin que ainda entra reinicia o 2FA das contas
   travadas em **/admin › Verificação em duas etapas** (P09-02: apaga a linha de `two_factor`, desliga o 2FA, revoga as
-  sessões, registra em `admin_actions` e avisa a conta por e-mail). Se nenhum admin consegue entrar, o dono roda, com
+  sessões, registra em `admin_actions` e avisa a conta por e-mail). O painel pede o código atual do 2FA da própria
+  admin (code review do PR #22: `confirmarCodigo2fa`, 5 tentativas em 15 min, o mesmo código não vale duas vezes em
+  90 s; a recusa fica em `admin_actions` como `codigo_2fa_recusado`, sem conta-alvo) e recusa conta de paciente, que só
+  o comando abaixo reinicia. Se nenhum admin consegue entrar, o dono roda, com
   OK explícito e snapshot no hPanel antes, `docker exec -it <container do nutri_app> /app/docker-entrypoint.sh
   admin:reiniciar-2fa <email do admin>` (o modo roda sem `DATABASE_URL_MIGRATOR`, `env -u`, como o `admin:criar`;
   nunca por subagente).
