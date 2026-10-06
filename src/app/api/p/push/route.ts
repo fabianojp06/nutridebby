@@ -44,6 +44,7 @@ async function entrada<T>(
  * 409 = a inscrição era de outra conta (ou de ninguém) — o cliente a descarta e mostra "Ativar notificações".
  */
 export async function POST(req: Request): Promise<Response> {
+  if (!mesmaOrigem(req)) return resposta(403); // P09-01: a origem antes de tudo, até da falta de VAPID (guarda mesma-origem-rotas)
   if (!getEnv().VAPID_PUBLIC_KEY) return resposta(503, { erro: MSG_PUSH.indisponivel });
   const e = await entrada<PacienteAccess>(req, requireApiPaciente);
   if (!e.ok) return e.erro;

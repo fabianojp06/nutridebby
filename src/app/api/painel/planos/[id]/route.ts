@@ -1,4 +1,5 @@
 import { CorpoGrandeError, lerCorpoLimitado } from '@/lib/corpo';
+import { mesmaOrigem } from '@/lib/mesma-origem';
 import { requireApiNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
@@ -18,8 +19,9 @@ export async function GET(req: Request, { params }: RouteContext<'/api/painel/pl
   return plano ? json(200, paraCliente(plano)) : json(404, { erro: new PlanoNaoEncontradoError().message });
 }
 
-/** US-022 "Salvamento automático" (D7). */
+/** US-022 "Salvamento automático" (D7). P09-01: só da própria origem (o editor manda o `fetch` do próprio app). */
 export async function PUT(req: Request, { params }: RouteContext<'/api/painel/planos/[id]'>) {
+  if (!mesmaOrigem(req)) return json(403, { erro: 'Acesso negado' });
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return acesso.response;
   const { id } = await params;

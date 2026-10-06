@@ -59,6 +59,12 @@ describe('POST /api/p/push (US-040)', () => {
     expect(estado.inscricoes).toEqual([]);
   });
 
+  it('P09-01: outra origem é 403 mesmo sem VAPID_PUBLIC_KEY (a origem vem antes de tudo)', async () => {
+    estado.chave = undefined;
+    expect((await POST(pedido({ origin: 'https://evil.example' }))).status).toBe(403);
+    expect(estado.inscricoes).toEqual([]);
+  });
+
   it('outra origem → 403; sem sessão → a recusa; nada inscrito', async () => {
     expect((await POST(pedido({ origin: 'https://evil.example' }))).status).toBe(403);
     estado.acesso = { ok: false, response: new Response(null, { status: 401 }) };

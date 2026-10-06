@@ -340,7 +340,7 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 | Webhook do WhatsApp (anti-repetição) | 1 por janela de aceite | HMAC do JWT + corpo | `public_rate_limits`, na transação do evento | `src/modules/notificacoes/whatsapp/webhook.ts:138` |
 | `POST /api/erro-cliente` | 20 / min | IP (/64 no IPv6) | Memória | `src/app/api/erro-cliente/route.ts:13,25` |
 | `POST /api/csp-relatorio` (só no modo relatório) | 60 / min | IP (/64) | Memória | `src/app/api/csp-relatorio/route.ts:9,20` |
-| `POST /api/p/push` | 20 / 10 min | Conta | Memória | `src/app/api/p/push/route.ts:16,50` |
+| `POST /api/p/push` | 20 / 10 min | Conta | Memória | `src/app/api/p/push/route.ts:16,51` |
 
 As rotas do Better Auth com limite de 5/15 min, uma a uma, estão em [§3.3 Limite de tentativas](03-autenticacao-e-acesso.md#limite-de-tentativas).
 

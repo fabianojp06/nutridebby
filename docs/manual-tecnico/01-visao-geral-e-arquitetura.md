@@ -449,14 +449,14 @@ Nenhuma rota de API passa pelo `src/proxy.ts` (§1.4).
 | `/api/painel/pacientes/[id]` | GET | JSON do paciente (404 fora do tenant) | `requireApiNutri` |
 | `/api/painel/pacientes/[id]/exames` | POST | Upload de laudo (até 20 MB) | `mesmaOrigem` + `requireApiNutri` + corpo limitado |
 | `/api/painel/alimentos` | GET | Busca de alimentos do editor | `requireApiNutri` |
-| `/api/painel/planos/[id]` | GET, PUT | Carrega e salva o rascunho do plano (por diferença, `revisao`) | `requireApiNutri`; corpo do PUT ≤ 512 KB; sem `mesmaOrigem` (exceção sem motivo no código: divergência 12) |
+| `/api/painel/planos/[id]` | GET, PUT | Carrega e salva o rascunho do plano (por diferença, `revisao`) | `requireApiNutri`; corpo do PUT ≤ 512 KB; PUT: `mesmaOrigem` antes da sessão (P09-01) |
 | `/api/painel/planos/[id]/revisao`, `/pdf` | GET | Revisão atual; PDF do plano | `requireApiNutri` |
 | `/api/painel/marca/logo` | POST | Upload do logo | `mesmaOrigem` + `requireApiNutri` |
 | `/api/painel/conteudos/[id]/capa`, `/pdf` | POST | Upload da capa e do PDF do conteúdo | `mesmaOrigem` + `requireApiNutri` |
 | `/api/painel/whatsapp/estado` | GET | Estado da conexão do WhatsApp (QR) | `requireApiNutri` |
 | `/api/p/acesso` | POST | Acesso do dia (CS-02) e renovação dos cookies | `mesmaOrigem` + `requireApiPaciente` |
 | `/api/p/diario` | POST | Registro do diário (multipart) | `mesmaOrigem` + `requireApiPaciente` |
-| `/api/p/push` | POST, DELETE | Ativar, sincronizar e cancelar push | POST: `mesmaOrigem` + `requireApiPaciente` + limite em memória (`src/app/api/p/push/route.ts:48`); DELETE: `mesmaOrigem` + `requireApiUser(['paciente'])` (`:66`), que basta a sessão de paciente, sem termo nem vínculo (S-2) |
+| `/api/p/push` | POST, DELETE | Ativar, sincronizar e cancelar push | POST: `mesmaOrigem` (primeira linha, antes até da falta de VAPID, P09-01) + `requireApiPaciente` + limite em memória (`src/app/api/p/push/route.ts:49`); DELETE: `mesmaOrigem` + `requireApiUser(['paciente'])` (`:67`), que basta a sessão de paciente, sem termo nem vínculo (S-2) |
 | `/api/p/plano/pdf`, `/api/p/conteudos/[id]/pdf` | GET | PDF do plano publicado; PDF da orientação (303 para URL assinada) | `requireApiPaciente` |
 | `/api/p/vinculo` | GET | Troca o consultório do cookie `nd_vinculo` | `requireApiUser(['paciente'])` |
 | `/api/p/ping` | GET | 204 para o selo offline | Pública |
@@ -599,7 +599,7 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `LOG_LEVEL` | todos | Não (padrão `info`) | Nível do pino | `src/env.ts:31`; `src/lib/logger.ts:27` (lê `process.env`) |
 | `SENTRY_DSN` | app, worker | Não (sem ela, Sentry desligado) | DSN do Sentry; só `https://` | `src/env.ts:33`; `src/instrumentation.ts:9`; `src/worker/index.ts:43` |
 | `SENTRY_ENVIRONMENT` | app, worker | Não (padrão `producao`) | Ambiente no Sentry (`[a-z0-9-]`) | `src/env.ts:34`; mesmos pontos |
-| `APP_URL` | app, worker | **Sim** | URL pública; base de todos os links (e-mail, push, WhatsApp), `baseURL` do Better Auth, conferência de origem; normalizada sem barra final | `src/env.ts:111`, `:219`; `src/lib/auth.ts:42`; `src/lib/mesma-origem.ts:8`; `src/proxy.ts:33` |
+| `APP_URL` | app, worker | **Sim** | URL pública; base de todos os links (e-mail, push, WhatsApp), `baseURL` do Better Auth, conferência de origem; normalizada sem barra final | `src/env.ts:111`, `:219`; `src/lib/auth.ts:42`; `src/lib/mesma-origem.ts:9`; `src/proxy.ts:33` |
 | `AUTH_SECRET` | app | **Sim** (≥ 32) | Segredo do Better Auth (cookies, cifra do TOTP) | `src/env.ts:112`; `src/lib/auth.ts:54` |
 | `ENCRYPTION_KEY` | app, worker | **Sim** (32 bytes em base64 canônico) | AES-256-GCM dos payloads da fila (e-mail, eventos do WhatsApp) e chave-mãe (HKDF) do link assinado da consulta | `src/env.ts:115`, `:220`; `src/lib/crypto.ts:27`; Plano 05, D20 |
 | `FILE_URL_SECRET` | app | **Sim** (≥ 32) | HMAC das URLs assinadas de arquivo (5 min) | `src/env.ts:116`; `src/lib/signed-url.ts:18`, `:32` |
@@ -613,7 +613,7 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `EVOLUTION_WEBHOOK_URL` | app | **Sim em produção** com Evolution ligada; tem de ser endereço interno | URL que a Evolution chama (padrão em dev: `APP_URL` + `/api/webhooks/whatsapp`) | `src/env.ts:140`, `:176-191`; `ambiente.ts:30` |
 | `EVOLUTION_WEBHOOK_URL_PUBLICA` | app | Não | `1` permite URL pública no webhook (opção explícita) | `src/env.ts:141` |
 | `WHATSAPP_SANDBOX` | app, worker | Não; **recusada em produção** | `1` = WhatsApp vira e-mail no Mailpit (dev, CI, E2E) | `src/env.ts:142`, `:230`; `ambiente.ts:20` |
-| `VAPID_PUBLIC_KEY` | app, worker | Não (no worker, as três `VAPID_*` juntas) | Chave pública do push; a do app entrega ao navegador e tem de ser **a mesma** do worker | `src/env.ts:144`, `:232`; `src/app/api/p/push/route.ts:47`; `src/modules/notificacoes/push.ts:79` |
+| `VAPID_PUBLIC_KEY` | app, worker | Não (no worker, as três `VAPID_*` juntas) | Chave pública do push; a do app entrega ao navegador e tem de ser **a mesma** do worker | `src/env.ts:144`, `:232`; `src/app/api/p/push/route.ts:48`; `src/modules/notificacoes/push.ts:79` |
 | `VAPID_PRIVATE_KEY` | worker | Junto com as outras `VAPID_*` | Chave privada; o worker confere que é do mesmo par da pública | `src/env.ts:233`, `:264-266` |
 | `VAPID_SUBJECT` | worker | Junto com as outras `VAPID_*` | `mailto:` ou `https://` de contato | `src/env.ts:234` |
 | `CSP_MODO` | app | Não (vazio = CSP valendo) | `relatorio` = só `Report-Only`, para emergência | `src/env.ts:146`; `src/proxy.ts:34` e `src/app/api/csp-relatorio/route.ts:19` (leem `process.env`) |
@@ -701,8 +701,8 @@ Os capítulos seguintes detalham cada item. O mínimo para não quebrar a arquit
    tabela da §1.9 e no Easypanel; nunca ler `process.env` direto sem motivo registrado.
 5. **Migration**: sempre expand/contract (app novo e antigo convivem no deploy `start-first`) e sempre com
    `DATABASE_URL_MIGRATOR` (`CLAUDE.md` do projeto, regra 7).
-6. **Rota de API nova**: ela não passa pelo proxy — chamar `requireApiNutri`/`requireApiPaciente`, `mesmaOrigem` em
-   `POST` com cookie (a única rota de escrita sem ela é o `PUT /api/painel/planos/[id]`, ver divergência 12) e `lerCorpoLimitado` em upload ([§3.13](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro)).
+6. **Rota de API nova**: ela não passa pelo proxy — chamar `requireApiNutri`/`requireApiPaciente`, `mesmaOrigem` antes da
+   sessão em `POST`/`PUT`/`PATCH`/`DELETE` com cookie — guarda em `src/app/api/mesma-origem-rotas.test.ts` — e `lerCorpoLimitado` em upload ([§3.13](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro)).
 7. **Dado do paciente num módulo novo**: incluir a limpeza em `src/modules/pacientes/lgpd.ts` (exclusão atendida e
    anonimização) e, se couber, na exportação.
 
@@ -725,4 +725,4 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 9 | Spec §4.1: "As rotas e a UI chamam só o módulo, nunca o banco direto" | `src/app/sair/route.ts:49` apaga a linha de `session` direto; `src/app/api/health/route.ts` lê `system_heartbeat` direto. Ambas as tabelas ficam fora da RLS. Outras páginas só passam `getDb()` para funções de módulo (`src/app/painel/actions.ts:15`, `src/app/admin/painel-infra.tsx:17`, páginas de convite) | Exceções pequenas e sem dado de tenant; manter a lista curta |
 | 10 | Infraestrutura real: serviço `nutri_app` | A mensagem de erro de `EVOLUTION_WEBHOOK_URL` (`src/env.ts:182`) e o comentário do `.env.example` dão como exemplo `http://nutridebby_app:3000/…` | O exemplo não funciona copiado: o nome do serviço na rede interna é `nutri_app` |
 | 11 | Spec §4 (diagrama): `nutri_evolution` na VPS | Não implantado em 05/10/2026 (`docker service ls`); o WhatsApp é opcional e o go-live pode sair sem ele (Plano 08, D16) | Estado operacional, não erro de código |
-| 12 | §1.11 item 6 (e `src/lib/mesma-origem.ts:3-7`): rota de escrita com cookie chama `mesmaOrigem` | `PUT /api/painel/planos/[id]` (`src/app/api/painel/planos/[id]/route.ts:22`) só chama `requireApiNutri`; nenhum comentário ou teste explica a exceção. O que protege na prática é o cookie de sessão `SameSite=Lax`, que o navegador não envia em requisição entre sites, mais o corpo JSON lido por `lerCorpoLimitado`. Os outros handlers de escrita (`/api/p/push` POST e DELETE, uploads, `/api/erro-cliente`) conferem a origem | Defesa em profundidade a menos, sem motivo registrado. Sugestão: incluir `mesmaOrigem` no `PUT` ou registrar por que não |
+| 12 | §1.11 item 6 (e `src/lib/mesma-origem.ts:3-7`): rota de escrita com cookie chama `mesmaOrigem` | `PUT /api/painel/planos/[id]` (`src/app/api/painel/planos/[id]/route.ts:22`) só chama `requireApiNutri`; nenhum comentário ou teste explica a exceção. O que protege na prática é o cookie de sessão `SameSite=Lax`, que o navegador não envia em requisição entre sites, mais o corpo JSON lido por `lerCorpoLimitado`. Os outros handlers de escrita (`/api/p/push` POST e DELETE, uploads, `/api/erro-cliente`) conferem a origem | **Resolvida no Plano 09 (P09-01).** Defesa em profundidade a menos, sem motivo registrado. Sugestão: incluir `mesmaOrigem` no `PUT` ou registrar por que não |

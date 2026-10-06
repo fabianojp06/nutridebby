@@ -50,6 +50,24 @@ describe('PUT /api/painel/planos/[id] (US-022 "Salvamento automático", D7)', ()
     expect((await get(id, B.cookie)).status).toBe(404);
   });
 
+  it('P09-01: Origin de outro site (ou "null") é 403 e não grava; a própria origem salva', async () => {
+    const A = await nutriComDpa(db, auth);
+    const p = await novoPaciente(db, A.ctx);
+    const { id } = await criarRascunho(A.ctx, p.id, { db });
+    const comOrigem = (origin: string, revisao: number) =>
+      PUT(
+        new Request(url(id), { method: 'PUT', body: JSON.stringify(corpo(revisao)), headers: { 'content-type': 'application/json', cookie: A.cookie, origin } }),
+        { params: Promise.resolve({ id }) },
+      );
+    const estranha = await comOrigem('https://evil.example', 0);
+    expect(estranha.status).toBe(403);
+    expect(await estranha.json()).toEqual({ erro: 'Acesso negado' });
+    expect((await comOrigem('null', 0)).status).toBe(403);
+    const propria = await comOrigem('http://localhost:3000', 0); // APP_URL dos testes
+    expect(propria.status).toBe(200);
+    expect(await propria.json()).toEqual({ revisao: 1 }); // as recusas não gravaram: a revisão 0 ainda era a atual
+  });
+
   it('409 diz o motivo: paciente bloqueado e versão já publicada não são "alterado em outra aba"', async () => {
     const A = await nutriComDpa(db, auth);
     const p = await novoPaciente(db, A.ctx);
