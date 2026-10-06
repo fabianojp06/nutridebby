@@ -15,4 +15,10 @@ describe('navegação do portal (D23)', () => {
     expect(itemAtual('/p/conteudos/0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f')).toBe('/p/conteudos');
     expect(itemAtual('/p/compras')).toBe('/p/plano');
   });
+
+  it('US-146 (Plano 10A): "Documentos" marca a aba "Perfil"; a barra continua com 7 abas (R16)', () => {
+    expect(itemAtual('/p/documentos')).toBe('/p/perfil');
+    expect(itemAtual('/p/perfil')).toBe('/p/perfil');
+    expect(ITENS_DO_PORTAL).toHaveLength(7);
+  });
 });

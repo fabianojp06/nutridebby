@@ -8,14 +8,21 @@ import { WhatsappForm } from './whatsapp-form';
 
 export const dynamic = 'force-dynamic';
 
-/** D20: "Perfil" — Notificações (push e WhatsApp), Privacidade (US-046) e "Trocar de nutricionista" (2+ vínculos). */
+/** D20: "Perfil" — "Meus documentos" (US-146, só com o D20 do Plano 10A ligado), Notificações (push e WhatsApp), Privacidade (US-046) e "Trocar de nutricionista" (2+ vínculos). */
 export default async function Perfil() {
-  const { ctx, data, vinculo, vinculos } = await requirePaciente('/p/perfil');
+  const { ctx, data, tenant, vinculo, vinculos } = await requirePaciente('/p/perfil');
   const whatsapp = await situacaoDoWhatsapp(ctx);
   return (
     <main className="space-y-8 p-6">
       <h1 className="font-titulo text-2xl font-semibold">Perfil</h1>
       <p>{`Conectado como ${data.user.email}.`}</p>
+      {tenant.documentosLiberados && (
+        <p>
+          <Link href="/p/documentos" className="inline-flex min-h-11 items-center underline">
+            Meus documentos
+          </Link>
+        </p>
+      )}
       <section aria-labelledby="notificacoes" className="space-y-3">
         <h2 id="notificacoes" className="text-lg font-semibold">
           Notificações

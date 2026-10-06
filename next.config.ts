@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
     { source: '/convite/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
     // D20: o token do link da consulta também está na URL
     { source: '/consulta/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    // RN-158: o token do link do documento está na URL, e a página e as rotas dele mostram dado de saúde (nada em cache)
+    { source: '/documento/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    { source: '/api/documento/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    // RN-156: o código de verificação está na URL (/v/<código>)
+    { source: '/v/:path*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
     // O cabeçalho do next.config vence o do Route Handler (send-response.js só põe o do handler se a chave ainda não
     // existir): sem esta regra, o 'no-referrer' de /api/arquivos (URL assinada na query) virava o global.
     { source: '/api/arquivos', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },

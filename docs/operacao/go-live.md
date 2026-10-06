@@ -39,6 +39,17 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] Treinamento feito (com o manual guiado e a página `/painel/ajuda`) — **dono + Debby**
 - [ ] Job `retencao-lgpd` rodou em produção (log das 04h de Brasília; 07h UTC no log da VPS) — **Dev**
 
+## Plano 10A — receita (liberação para uso real)
+Nada disto bloqueia o deploy: `documentos_liberados` nasce desligado e nada aparece para a Debby até o admin ligar. Bloqueia **ligar "Documentos"** para o consultório dela (runbook do Plano 10A, etapa 7: `docs/superpowers/plans/2026-10-05-nutridebby-10a-receita.md`).
+- [ ] Resposta escrita do CRN-3 à consulta (P-B1) arquivada: gov.br, assinatura com 2FA e código verificador, identificação do cliente, textos da D5 e a receita **digitalizada** com a entrega eletrônica — **dono + Debby**
+- [ ] Textos da D5 e os marcados "(proposto)" na spec revistos pela Debby: a declaração da receita (inclusive os medicamentos isentos à base de vitaminas e minerais, Minor 10), a dica da categoria "Outro" (Minor 11), a recusa `sem_habilitacao`, os textos do link (RN-158), o cartão "Aguardando assinatura" e os guias `documentos`, `configuracoes` e `seguranca` do manual guiado — **Debby**
+- [ ] Termo do paciente e DPA (P-B3/E-09) citando a entrega eletrônica (portal e link por e-mail com código), a assinatura usada e a página pública de verificação; o termo novo publicado e o novo aceite funcionando — **dono + advogado**
+- [ ] Backup no host (P02-11) instalado e conferido (o item do bloco "Bloqueia" acima): receita é prontuário — **dono**
+- [ ] Cota do Resend comporta o link e o código (até 2 e-mails por documento de paciente sem app, mais os reenvios) — **dono**
+- [ ] O admin liga "Documentos" do consultório da Debby (D20) **e não desliga depois do uso real**: desligado, o consultório perde "Cancelar documento" e a entrega das receitas já assinadas (Minor 12) — **dono**
+- [ ] Teste manual completo pela digitalizada, em produção, com pacientes de teste: receita (rascunho → preparar → fotos assinadas + código do 2FA), paciente **com** app (cartão no Início, "Abrir PDF", "Confirmo que recebi este documento"), paciente **sem** app (link + código por e-mail), verificação pelo QR no celular (`/v/<código>`, sem nada do paciente), a situação da entrega no painel e "Cancelar documento" (a verificação passa a "cancelado") — **dono + Debby**
+- O Plano 10B acrescenta aqui a parte do gov.br e do certificado ICP-Brasil.
+
 ## Assinatura
 - Dono: ____________________ Data: ___/___/______ — "Conferi os itens acima e autorizo o go-live."
 - Debby (fluxo e fórmulas): ____________________ Data: ___/___/______

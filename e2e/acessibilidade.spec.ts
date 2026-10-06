@@ -1,19 +1,24 @@
 import AxeBuilder from '@axe-core/playwright';
 import { devices, expect, test, type Page } from '@playwright/test';
 import { contraste } from '@/lib/tema/contraste';
+import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
-// Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30.
+// Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
+// dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios, o "3" sem o termo
 test.describe.configure({ mode: 'serial' });
 let nutri: Page;
 let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
+let docs: Page; // Plano 10A: a nutricionista dos documentos (E2E_DOCS, 2FA), um login só (o limite de login é por IP)
+let codigoDaReceita = ''; // Plano 10A: a receita assinada da paciente (XXXX-XXXX-XXXX)
 
 test.beforeAll(async ({ browser }) => {
+  test.setTimeout(180_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado)
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.21', devices['Desktop Chrome']); // o painel, em tela de computador
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
@@ -28,8 +33,12 @@ test.beforeAll(async ({ browser }) => {
   await paciente.page.getByLabel('O que você comeu?').fill('arroz e feijão');
   await paciente.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(paciente.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  // Plano 10A (T16, RNF-144): uma receita emitida, para /p/documentos não sair vazia (assinar exige 2FA: a conta E2E_DOCS)
+  docs = await entrarComoDocs(browser, '10.9.14.79', devices['Desktop Chrome']);
+  codigoDaReceita = await emitirReceita(docs, paciente.prontuario);
 });
 test.afterAll(async () => {
+  await docs?.context().close();
   await paciente?.page.context().close();
   await nutri?.context().close();
 });
@@ -47,7 +56,7 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil'];
+const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -59,6 +68,7 @@ for (const url of ROTAS) {
 // texto base e deixar cores fixas do modo claro ilegíveis.
 const PAINEL = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/alimentos', '/painel/diarios', '/painel/conteudos', '/painel/configuracoes'];
 test('modo escuro do aparelho: axe sem violações (WCAG 2.1 AA) nas telas do portal e do painel', async () => {
+  test.setTimeout(90_000); // ~20 telas com o axe: passava perto dos 30 s padrão (e estourou na suíte inteira, já antes da T16)
   await paciente.page.emulateMedia({ colorScheme: 'dark' });
   await nutri.emulateMedia({ colorScheme: 'dark' });
   try {
@@ -276,6 +286,61 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await expect(page.getByText('Acompanhamento com Consultório E2E 2')).toBeVisible();
   await expect.poll(() => entradasDoPlano(page)).toBe(0);
   await page.context().close();
+});
+
+// Plano 10A (T16, RNF-144): as telas novas fora do painel (o painel entra pelo ROTAS_DO_PAINEL, e /p/documentos, com a
+// receita emitida no beforeAll, pelas listas acima). O portal segue o aparelho (data-tema="sistema") e as páginas sem login
+// ficam no claro: os "três modos" aqui são o aparelho claro e o escuro, e a 360 px.
+test('documentos (Plano 10A): axe em /p/documentos, /v/<código> (válido e não encontrado) e /documento/<token> (pedir código), com o aparelho claro e escuro e a 360 px', async ({ browser }) => {
+  test.setTimeout(180_000);
+  // paciente sem o app (o convite não foi aceito): a receita assinada chega por um link no e-mail (RN-158)
+  const email = `sem-app-${Date.now().toString(36)}@nutridebby.test`;
+  await docs.goto('/painel/pacientes/novo');
+  await docs.getByLabel('Nome').fill('Sara Sem App');
+  await docs.getByLabel('Data de nascimento').fill('1988-03-10');
+  await docs.getByLabel('Feminino').check();
+  await docs.getByLabel('E-mail').fill(email);
+  await docs.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  await expect(docs).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
+  await emitirReceita(docs, new URL(docs.url()).pathname);
+  const aviso = await esperarEmail(email, { assunto: 'Você tem um novo documento' });
+  const token = /\/documento\/([\w-]{92})/.exec(aviso.html)?.[1];
+  expect(token, 'link do documento no e-mail').toBeTruthy();
+
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.14.80' } })).newPage();
+  const ociosa = (page: Page) => () => page.waitForLoadState('networkidle');
+  const telas = [
+    { page: paciente.page, url: '/p/documentos', espera: ociosa(paciente.page), estado: paciente.page.getByRole('heading', { name: /^Receita · / }) },
+    { page: anonimo, url: `/v/${codigoDaReceita.replace(/-/g, '')}`, espera: ociosa(anonimo), estado: anonimo.getByRole('heading', { name: 'Documento válido' }) },
+    { page: anonimo, url: '/v/000000000000', espera: ociosa(anonimo), estado: anonimo.getByText('Código não encontrado. Confira os 12 caracteres.') },
+    // o Turnstile (site key de teste da Cloudflare, sempre passa) não deixa a rede ociosa: espera o token chegar, que
+    // habilita o "Enviar código" (formulário hidratado e widget no lugar), como o agenda.spec e o recuperacao.spec
+    { page: anonimo, url: `/documento/${token}`, espera: () => expect(anonimo.locator('input[name="cf-turnstile-response"]')).toHaveValue(/.+/, { timeout: 15_000 }), estado: anonimo.getByRole('button', { name: 'Enviar código' }) },
+  ];
+  try {
+    for (const modo of ['light', 'dark'] as const) {
+      for (const t of telas) {
+        await t.page.emulateMedia({ colorScheme: modo });
+        await t.page.goto(t.url);
+        await t.espera();
+        await expect(t.estado, `${modo}: ${t.url}`).toBeVisible();
+        expect(await violacoes(t.page), `${modo}: ${t.url}`).toEqual([]);
+      }
+    }
+    for (const t of telas) {
+      await t.page.emulateMedia({ colorScheme: 'light' });
+      await t.page.setViewportSize({ width: 360, height: 780 });
+      await t.page.goto(t.url);
+      await t.espera();
+      await expect(t.estado, `360 px: ${t.url}`).toBeVisible();
+      expect(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `360 px: ${t.url}`).toBe(true);
+      expect(await violacoes(t.page), `360 px: ${t.url}`).toEqual([]);
+    }
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+    await anonimo.context().close();
+  }
 });
 
 test('paciente não alcança o painel nem a API da nutricionista (403 ou volta ao portal, nunca 500 nem dado)', async () => {

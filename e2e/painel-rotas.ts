@@ -1,7 +1,7 @@
 /** D25: os ids que as telas com parâmetro precisam (criados pelo caminho real da UI em prepararTelasComId). */
 export type IdsDoPainel = {
   paciente: string; consulta: string; alimento: string; modeloAnamnese: string; modeloPlano: string; diario: string;
-  anamnese: string; atendimento: string; exportacao: string; plano: string; conteudo: string;
+  anamnese: string; atendimento: string; exportacao: string; plano: string; conteudo: string; documento: string;
 };
 
 /**
@@ -40,6 +40,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/antropometria': (i) => `/painel/pacientes/${i.paciente}/antropometria`,
   '/painel/pacientes/[id]/atendimentos': (i) => `/painel/pacientes/${i.paciente}/atendimentos`,
   '/painel/pacientes/[id]/atendimentos/[atendimentoId]': (i) => `/painel/pacientes/${i.paciente}/atendimentos/${i.atendimento}`,
+  '/painel/pacientes/[id]/documentos': (i) => `/painel/pacientes/${i.paciente}/documentos`,
+  '/painel/pacientes/[id]/documentos/[docId]': (i) => `/painel/pacientes/${i.paciente}/documentos/${i.documento}`,
   '/painel/pacientes/[id]/evolucao': (i) => `/painel/pacientes/${i.paciente}/evolucao`,
   '/painel/pacientes/[id]/exames': (i) => `/painel/pacientes/${i.paciente}/exames`,
   '/painel/pacientes/[id]/exportacoes/[exportId]': (i) => `/painel/pacientes/${i.paciente}/exportacoes/${i.exportacao}`,

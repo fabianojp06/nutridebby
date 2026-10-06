@@ -13,6 +13,9 @@ import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
 import { chaveDosLinks } from '@/modules/agenda/link-consulta';
+import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
+import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
+import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -105,7 +108,8 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
     const pedidos = await limparPedidosPublicos(getDb(), new Date());
     const limites = await limparLimites(getDb(), new Date());
     const acessos = await limparAcessosAntigos(getDb(), new Date()); // D13: retenção dos acessos ao portal
-    logger.info({ pedidos, limites, acessos }, 'limpeza da agenda pública');
+    const codigos = await limparCodigosDeDocumentoVencidos(getDb(), new Date()); // RN-158 / §10: códigos do link do documento
+    logger.info({ pedidos, limites, acessos, codigos }, 'limpeza da agenda pública');
   });
 
   const painelUrl = urlDoApp(env.APP_URL, '/admin');
@@ -194,6 +198,19 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
   await boss.schedule('expirar-plano-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-plano-pdf', async () => {
     await expirarPdfsPendentes(getDb(), new Date());
+  });
+  // Plano 10A (US-143): PDF preparado da receita; a cada 15 min, pendente esquecido (PDF ou digitalização) → falhou e PDF base/fotos órfãos apagados
+  await work('documento-pdf', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string }>[]) => {
+    await gerarPdfDoDocumento(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  // RN-157 (D4): o PDF novo com as fotos da digitalizada, assinado como "digitalizada" (foto ilegível ou cota: falha já)
+  await work('documento-digitalizado', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string; userId: string }>[]) => {
+    await montarPdfDigitalizado(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
+  });
+  await boss.schedule('expirar-documento-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('expirar-documento-pdf', async () => {
+    await expirarPdfsDeDocumentoPendentes(getDb(), new Date());
+    await limparArquivosOrfaosDeDocumentos(getDb(), new Date(), env.DATA_DIR);
   });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('limpar-tmp', async () => {

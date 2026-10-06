@@ -12,6 +12,14 @@ export type EmailMessage =
   | { tipo: 'pedido_exclusao_registrado'; para: string; nutri: string; prazo: string }
   /** US-025: a nutricionista publicou um plano novo; `link` = /p/plano. Sem dado de saúde. */
   | { tipo: 'plano_novo'; para: string; link: string }
+  /** US-145 / RN-152: documento novo no portal; sem tipo de documento, item ou produto. `nome` = primeiro nome. */
+  | { tipo: 'documento_novo'; para: string; nome: string; consultorio: string; link: string }
+  /** RN-158 / D3 b: paciente sem conta — o link de uso único (pede um código no e-mail para abrir). */
+  | { tipo: 'documento_link'; para: string; nome: string; consultorio: string; link: string }
+  /** US-149 / D11: documento cancelado — e-mail neutro (nem o tipo do documento, nem o motivo); link do portal ou de uso único. */
+  | { tipo: 'documento_atualizado'; para: string; nome: string; consultorio: string; link: string }
+  /** RN-158 / D3 b: código de 6 dígitos para abrir o documento pelo link (neutro: sem tipo nem conteúdo do documento). */
+  | { tipo: 'codigo_documento'; para: string; codigo: string; consultorio: string }
   /** RN-16: código de 6 dígitos da página pública (o job da fila `email` vai cifrado, como todos). */
   | { tipo: 'codigo_agendamento'; para: string; nutri: string; codigo: string }
   | {

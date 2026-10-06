@@ -2,6 +2,7 @@ import { BotaoSair } from '@/components/botao-sair';
 import { requireUser } from '@/lib/session';
 import { SECURITY_PATH } from '@/lib/session-rules';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
+import { AjudaSeguranca } from './ajuda-seguranca';
 import { Enable2fa } from './enable-2fa';
 import { Aviso } from '@/components/ui/aviso';
 
@@ -19,6 +20,7 @@ export default async function SegurancaPage() {
           {/* quem cai aqui obrigado a ativar o 2FA precisa poder sair sem configurar */}
           <BotaoSair />
         </div>
+        <AjudaSeguranca />
         {user.twoFactorEnabled ? (
           <p>A verificação em duas etapas está ativa.</p>
         ) : (

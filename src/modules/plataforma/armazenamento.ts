@@ -14,10 +14,13 @@ export const COTA_AVISO = 0.8;
 export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o suporte.';
 
 export type TipoDeArquivo =
-  'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao';
+  | 'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao'
+  | 'documento_base' | 'documento_assinado' | 'documento_digitalizado';
 
 /** D4: arquivos com dono (paciente). O resto é do consultório. */
-export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = ['exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao'];
+export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = [
+  'exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao', 'documento_base', 'documento_assinado', 'documento_digitalizado',
+];
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 
 export class CotaEsgotadaError extends Error {

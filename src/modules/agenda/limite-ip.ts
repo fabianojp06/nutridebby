@@ -5,15 +5,19 @@ import { publicRateLimits } from '@/db/schema';
 import { encryptionKey } from '@/lib/crypto';
 
 /**
- * RN-16: contadores da página pública e marcas anti-repetição do webhook do WhatsApp (D4 b). `public_rate_limits` não
- * tem tenant_id nem RLS: só este arquivo a acessa (CLAUDE.md regra 1).
+ * RN-16: contadores da página pública e marcas anti-repetição do webhook do WhatsApp (D4 b). Plano 10A: verificação
+ * pública por IP, código do link por IP (pedido e confirmação) e por documento, tentativas e repetição do código do 2FA.
+ * `public_rate_limits` não tem tenant_id nem RLS: só este arquivo a acessa (CLAUDE.md regra 1).
  */
 
 let chave: Buffer | undefined;
 const chaveDosLimites = () => (chave ??= Buffer.from(hkdfSync('sha256', encryptionKey(), Buffer.alloc(0), 'nutridebby:limite-publico:v1', 32)));
 
 /** RN-16 / LGPD: a linha guarda o HMAC do IP, do e-mail ou do pedido do webhook (JWT + corpo), nunca o valor. */
-export function chaveDoLimite(tipo: 'ip' | 'email-hora' | 'webhook', valor: string): string {
+export function chaveDoLimite(
+  tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'documento-codigo-ip' | 'totp-erro' | 'totp-usado',
+  valor: string,
+): string {
   return `${tipo}:${createHmac('sha256', chaveDosLimites()).update(valor).digest('base64url')}`;
 }
 

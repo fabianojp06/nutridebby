@@ -12,6 +12,7 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
     'metadados do arquivo (caminho, tamanho, tipo, dono); o registro que aponta para ele — exame, plano, diário, exportação — é o auditado',
   content_views: 'D6 (Plano 07): registro de uso (o paciente abriu o conteúdo da nutricionista), como access_events; não é prontuário',
   content_favorites: 'D6 (Plano 07): preferência do paciente na biblioteca de conteúdo; não é prontuário',
+  document_access_codes: 'RN-158: código do link de uso único (só HMAC, validade, tentativas); não é dado de saúde — a abertura vira evento auditado em signed_document_receipts',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */

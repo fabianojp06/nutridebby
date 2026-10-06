@@ -14,21 +14,24 @@ export const ABAS: readonly { seg: string; rotulo: string }[] = [
   { seg: 'evolucao', rotulo: 'Evolução' },
   { seg: 'privacidade', rotulo: 'Privacidade' },
   { seg: 'plano-alimentar', rotulo: 'Plano alimentar' },
+  { seg: 'documentos', rotulo: 'Documentos' },
   { seg: 'historico', rotulo: 'Histórico de acessos' },
 ];
 
-export function Abas({ patientId }: { patientId: string }) {
+/** `documentos`: D20 (Plano 10A) — a aba só existe com os documentos assinados liberados pelo admin. */
+export function Abas({ patientId, documentos }: { patientId: string; documentos: boolean }) {
   const atual = usePathname();
   const base = `/painel/pacientes/${patientId}`;
   return (
     <nav aria-label="Seções do prontuário" data-guia="abas-prontuario">
-      <ul className="flex gap-1 overflow-x-auto border-b border-borda">
-        {ABAS.map((a) => {
+      {/* 11 abas (Documentos, Plano 10A): sem o gap e com px-2, cabem inteiras a partir de 1280 px (o axe do painel); mais estreito, a faixa rola */}
+      <ul className="flex overflow-x-auto border-b border-borda">
+        {ABAS.filter((a) => a.seg !== 'documentos' || documentos).map((a) => {
           const href = a.seg ? `${base}/${a.seg}` : base;
           const ativa = a.seg ? atual === href || atual.startsWith(`${href}/`) : atual === base;
           return (
             <li key={a.seg || 'resumo'}>
-              <Link href={href} aria-current={ativa ? 'page' : undefined} className={`inline-flex min-h-11 items-center whitespace-nowrap px-3 focus-visible:outline-offset-[-3px] ${ativa ? 'border-b-2 border-marca font-semibold' : 'text-suave'}`}>
+              <Link href={href} aria-current={ativa ? 'page' : undefined} className={`inline-flex min-h-11 items-center whitespace-nowrap px-2 focus-visible:outline-offset-[-3px] ${ativa ? 'border-b-2 border-marca font-semibold' : 'text-suave'}`}>
                 {a.rotulo}
               </Link>
             </li>

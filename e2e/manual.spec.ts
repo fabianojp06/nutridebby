@@ -70,7 +70,7 @@ test('axe com o tour aberto, em cada passo, nos modos claro e escuro', async () 
     await escolherTema(page, tema);
     await page.goto('/painel?tour=boas-vindas');
     for (let i = 0; i < 7; i++) {
-      await expect(page.getByText(`${i + 1} de 7`)).toBeVisible();
+      await expect(page.getByText(`${i + 1} de 7`, { exact: true })).toBeVisible(); // não o "N de M pacientes abriram o app" do Início
       await semViolacoes();
       if (i < 6) await page.getByRole('button', { name: 'Próximo' }).click();
     }

@@ -53,6 +53,10 @@ describe('regras do cache do PWA (D6, Review Focus 4)', () => {
     expect(podeGuardarPlano(resposta({ tipo: 'application/json' }), O)).toBe(false);
     expect(podeGuardarPlano(resposta({ url: '' }), O)).toBe(false); // R7: sem URL válida não lança
   });
+  it('US-146 (Plano 10A): /p/documentos nunca é a página guardada nem é gravada no cache do plano', () => {
+    expect(ehPaginaDoPlano(new URL(`${O}/p/documentos`), 'navigate', O)).toBe(false);
+    expect(podeGuardarPlano(resposta({ url: `${O}/p/documentos` }), O)).toBe(false);
+  });
   it('Review Focus 4: o plano guardado é de uma conta + vínculo (dono) e de uma versão; outro dono → buscar de novo (e o velho sai)', () => {
     const DONO = '0b6f8f1e-3c1a-4f7e-9d2a-1a2b3c4d5e6f';
     const agora = Date.parse('2026-10-05T12:00:00Z');

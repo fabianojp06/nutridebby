@@ -37,7 +37,7 @@ function idDaUrl(page: Page, padrao: RegExp): string {
  * D25: cria um paciente e uma linha de cada tela com parâmetro — plano (publicarPlanoSimples), consulta
  * (marcarParaPaciente), avaliação, anamnese, atendimento, alimento próprio, modelo de anamnese, modelo de plano
  * ("Salvar como modelo" do editor), registro no diário (pelo portal, com o paciente), exportação ("Exportar dados" em
- * Privacidade; a tela abre "em preparo" sem o worker) e conteúdo (Plano 07) — e devolve os ids.
+ * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07) e receita (Plano 10A, rascunho) — e devolve os ids.
  * `ip`: o IP só do paciente (o limite de login é por IP).
  */
 export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string): Promise<IdsDoPainel> {
@@ -114,6 +114,12 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri).toHaveURL(/\/painel\/conteudos\/[0-9a-f-]{36}$/);
   const conteudo = idDaUrl(nutri, new RegExp(`/painel/conteudos/(${UUID})$`));
 
+  // receita (Plano 10A): o consultório do E2E tem os documentos liberados no seed (D20)
+  await nutri.goto(`${p}/documentos`);
+  await nutri.getByRole('button', { name: 'Nova receita' }).click();
+  await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+  const documento = idDaUrl(nutri, new RegExp(`/documentos/(${UUID})$`));
+
   return {
     paciente: p.split('/').pop()!,
     plano,
@@ -126,5 +132,6 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     modeloPlano: await idDoLink(nutri, '/painel/planos/modelos', new RegExp(`/planos/modelos/(${UUID})$`)),
     diario: await idDoLink(nutri, '/painel/diarios', new RegExp(`/painel/diarios/(${UUID})$`)),
     conteudo,
+    documento,
   };
 }

@@ -6,7 +6,7 @@ import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas
 import { textoTaxa } from '@/modules/agenda/presenca';
 import { metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
-import { reativarAction, reenviarConviteAction, suspenderAction } from './actions';
+import { definirDocumentosAction, reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { CotaForm } from './cota-form';
 import { MetricasForm } from './metricas-form';
@@ -72,6 +72,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
             <th scope="col">Cota de WhatsApp</th>
             <th scope="col">Armazenamento</th>
             <th scope="col">Métricas de sucesso</th>
+            <th scope="col">Documentos</th>
             <th scope="col">Ações</th>
           </tr>
         </thead>
@@ -95,6 +96,21 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
               <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} conta={c.nomeExibicao} /></td>
               <td>{m ? `${formatarBytes(m.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)} (${m.arquivos} arquivos)` : '—'}</td>
               <td><MetricasForm tenantId={c.tenantId} conta={c.nomeExibicao} taxaBase={c.taxaFaltasBase} goLiveEm={c.goLiveEm} /></td>
+              {/* D20 (Plano 10A): a liberação dos documentos assinados, conta a conta */}
+              <td>
+                <p>{c.documentosLiberados ? 'Liberados' : 'Bloqueados'}</p>
+                <form action={definirDocumentosAction.bind(null, c.tenantId, !c.documentosLiberados)}>
+                  <ConfirmarBotao
+                    mensagem={
+                      c.documentosLiberados
+                        ? `Bloquear os documentos assinados de ${c.nomeExibicao}? Só antes do uso real. Bloqueado: o consultório perde a aba Documentos (inclusive Cancelar documento e Entregue pessoalmente), os pacientes deixam de ver e abrir os documentos no app e pelo link do e-mail (nenhum código é enviado), e a verificação pública pelo código continua funcionando.`
+                        : `Liberar os documentos assinados para ${c.nomeExibicao}? Confira antes a resposta do CRN-3, o termo e o backup.`
+                    }
+                  >
+                    {c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` os documentos de ${c.nomeExibicao}`}</span>
+                  </ConfirmarBotao>
+                </form>
+              </td>
               <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (
                   <form action={reenviarConviteAction.bind(null, c.tenantId)}>

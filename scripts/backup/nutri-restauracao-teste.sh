@@ -57,8 +57,9 @@ fi
 duracao=$(( $(date +%s) - inicio ))
 
 q() { "${PG[@]}" psql -h 127.0.0.1 -U "$SU" -d nutri -At -v ON_ERROR_STOP=1 -c "$1" 2>/dev/null; }
+# Fora da conta: as tabelas de RLS_EXCEPTIONS (src/db/rls-guard.ts) — document_verifications entrou no Plano 10A (0090)
 sem_rls=$(q "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-  where c.relkind in ('r','p') and c.relname not in ('user','consents','invites')
+  where c.relkind in ('r','p') and c.relname not in ('user','consents','invites','document_verifications')
     and exists (select 1 from information_schema.columns k where k.table_schema = 'public' and k.table_name = c.relname and k.column_name = 'tenant_id')
     and not (c.relrowsecurity and c.relforcerowsecurity)")
 migrations=$(q "select count(*) from drizzle.__drizzle_migrations")

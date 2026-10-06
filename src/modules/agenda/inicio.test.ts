@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
+import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
 import { accessEvents, auditLog, diaryEntries, privacyRequests, tenants } from '@/db/schema';
@@ -166,12 +167,19 @@ describe('Início em bento (D22)', () => {
       dia: { proxima, ...semProxima },
       naoVistos: await contarDiariosNaoVistos(T.ctx, app.db),
       metricas: await metricasDeSucesso(T.ctx, tenant, agora, app.db),
+      documentosAguardando: null, // D20: sem a liberação, nem conta
     });
     expect(r.pendentes).toBe(1);
     expect(r.pedidos).toHaveLength(1);
     expect(r.novidades.pedidosRemarcacao).toHaveLength(1);
     // sem WhatsApp ligado, a cota nem é lida (RN-09)
     expect((await lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, app.db)).cota).toBeNull();
+    // P-B8 / D20: com os documentos liberados, o cartão conta os que aguardam assinatura (na mesma transação)
+    await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'aguardando_assinatura' });
+    const liberado = { ...tenant, documentosLiberados: true };
+    const c2 = contandoTransacoes(app.db);
+    expect((await lerInicio(T.ctx, liberado, agora, { whatsappLigado: false }, c2.db)).documentosAguardando).toBe(1);
+    expect(c2.n()).toBe(1);
   });
   it('achado 4: sem próxima consulta, o cartão diz "pela frente" quando já houve consulta hoje', () => {
     expect(textoSemProxima({ total: 0, confirmadas: 0, pedidosRemarcacao: 0 })).toBe('Nenhuma consulta hoje.');

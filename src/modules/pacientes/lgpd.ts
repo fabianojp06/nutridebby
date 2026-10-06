@@ -10,6 +10,7 @@ import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento'
 import { recordAudit } from '@/modules/plataforma/audit';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
+import { anonimizarDocumentosDoPaciente, pdfsDeDocumentosRestantes } from '@/modules/documentos/lgpd-documentos';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
 import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
 import { carregarPacienteParaEscrita } from './base';
@@ -371,6 +372,8 @@ export async function anonimizarVencidos(
     }
     for (const { id } of vencidos) {
       try {
+        // RN-140 (c) (Plano 10A): documentos assinados primeiro, pela função de anonimização (nunca por anexosDoPaciente)
+        await anonimizarDocumentosDoPaciente(ctx, id, { db, dataDir: deps.dataDir });
         for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
           await apagarArquivo(
             ctx,
@@ -403,6 +406,8 @@ export async function anonimizarVencidos(
             // desfaz tudo e fica para o dia seguinte, que apaga o ZIP antes (exportacao-job.ts)
             if (r.length && (await anexosDoPaciente(tx, id)).length)
               throw new Error('anexo novo durante a anonimização');
+            // RN-140 (c): nenhum PDF de documento (assinado ou preparado) pode ter sobrado
+            if (r.length && (await pdfsDeDocumentosRestantes(tx, id))) throw new Error('documento novo durante a anonimização');
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             // D15: alvo, visualização ou favorito de conteúdo gravados depois do bloqueio também saem (idempotente)

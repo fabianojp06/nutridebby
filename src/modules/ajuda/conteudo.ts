@@ -71,7 +71,45 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    id: 'documentos',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}/documentos(/.*)?$`),
+    titulo: 'Documentos e receita',
+    ajuda: {
+      resumo: 'Receitas de suplementos e fitoterápicos com os campos que o CFN exige, assinadas por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Clique em "Nova receita", adicione os itens e escreva a justificativa de uso (ela fica no prontuário e não vai na receita). Clique em "Salvar rascunho".',
+            'Clique em "Preparar para assinatura" e confirme a declaração. Em alguns segundos o PDF fica pronto.',
+            'Clique em "Baixar PDF para assinar", imprima, assine à mão e envie as fotos das páginas em "Enviar documento digitalizado (assinado à mão)", com o código da verificação em duas etapas.',
+            'Assinado, o documento vai para o app do paciente; quem não tem o app recebe um link por e-mail. Na consulta presencial, use "Entregue pessoalmente".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Para assinar, a verificação em duas etapas precisa estar ativa (Segurança).',
+            'Depois de assinado, o documento não muda. Errou? Use "Cancelar documento" e faça uma receita nova.',
+            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
+            '"Fitoterápico (forma farmacêutica ou fórmula magistral)" só aparece com a habilitação registrada em Configurações.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'nova-receita', titulo: 'Nova receita', texto: 'Comece aqui. A receita nasce como rascunho e só o paciente certo a recebe depois de assinada.' },
+      { alvo: 'editor-receita', titulo: 'Itens e justificativa', texto: 'Cada tipo de item pede os campos da resolução do CFN. A justificativa de uso fica só no prontuário.' },
+      { alvo: 'preparar-documento', titulo: 'Preparar para assinatura', texto: 'A declaração confirma a sua responsabilidade. O PDF sai com a sua marca, o código de verificação e o QR code.' },
+      { alvo: 'assinar-documento', titulo: 'Assinar e enviar', texto: 'Baixe o PDF, imprima, assine à mão e envie as fotos das páginas com o código da verificação em duas etapas. O sistema monta um PDF novo com o código e o QR.' },
+      { alvo: 'entrega-documento', titulo: 'Entrega', texto: 'O paciente recebe pelo app ou por um link por e-mail. Aqui você vê se ele abriu e confirmou o recebimento, ou marca a entrega pessoal.' },
+      { alvo: 'cancelar-documento', titulo: 'Cancelar', texto: 'Documento errado? Cancele com o motivo (fica só no prontuário) e faça uma receita nova. A verificação pública passa a mostrar "cancelado".' },
+    ],
+  },
+  {
     id: 'prontuario',
+    // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`
     versao: 1,
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
@@ -152,13 +190,27 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 1,
+    versao: 2,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
-    ajuda: { resumo: 'Perfil e marca, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.', secoes: [{ titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] }] },
+    ajuda: {
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.',
+      secoes: [
+        { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
+        {
+          titulo: 'Dados para documentos',
+          itens: [
+            'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas, junto com o CRN.',
+            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
+            'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
+          ],
+        },
+      ],
+    },
     passos: [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
+      { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas. Mudar depois não altera documento já preparado.' },
     ],
   },
   {
@@ -171,6 +223,35 @@ export const GUIAS: readonly Guia[] = [
       secoes: [{ titulo: 'Perguntas comuns', itens: ['Sem WhatsApp, os lembretes continuam por e-mail e notificação no app.', 'Só recebem mensagem os pacientes que autorizaram.', 'Se o celular desconectar, o Início avisa e mostra como conectar de novo.'] }],
     },
     passos: [{ alvo: 'conectar-whatsapp', titulo: 'Conectar', texto: 'Leia o código QR com o WhatsApp do celular do consultório (Aparelhos conectados).' }],
+  },
+  {
+    id: 'seguranca',
+    versao: 1,
+    padrao: /^\/conta\/seguranca$/,
+    titulo: 'Segurança da conta',
+    ajuda: {
+      resumo: 'A verificação em duas etapas pede, além da senha, um código de 6 dígitos do aplicativo autenticador do celular. Ela é obrigatória para assinar documentos.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Instale um aplicativo autenticador no celular (Google Authenticator, Authy, 1Password…).',
+            'Clique em "Ativar verificação em duas etapas" e confirme a sua senha.',
+            'Leia o QR Code com o aplicativo e digite o código de 6 dígitos que ele mostra.',
+            'Guarde os códigos de recuperação num lugar seguro: cada um funciona uma vez, se você perder o celular.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Ao enviar um documento assinado à mão (digitalizado), o sistema pede o código do aplicativo a cada envio.',
+            'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
+            'Se o código não confere, confira se a hora do celular está automática.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
   },
 ];
 

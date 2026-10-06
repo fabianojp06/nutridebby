@@ -25,7 +25,7 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
           </div>
           <p className="text-sm text-suave">{partes.join(' · ')}</p>
         </header>
-        <Abas patientId={paciente.id} />
+        <Abas patientId={paciente.id} documentos={tenant.documentosLiberados} />
         {children}
       </div>
     </>

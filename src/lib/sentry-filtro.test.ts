@@ -110,6 +110,12 @@ describe('caminhoSeguro', () => {
   it.each([
     ['/consulta/AbCdEfGhIjKlMnOpQrStUvWx', '/consulta/:token'],
     ['/convite/xYz123-_abcdefghijklmnop', '/convite/:token'],
+    ['/documento/AbCddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', '/documento/:token'],
+    ['/api/documento/AbCddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/pdf', '/api/documento/:token/pdf'],
+    ['/documento/curto', '/documento/:token'],
+    ['/v/ABCDEFGHJKMN', '/v/:codigo'],
+    ['/v/abcd-efgh-jkmn?x=1', '/v/:codigo'],
+    ['/v', '/v'],
     ['https://x.test/definir-senha?token=abc', '/definir-senha'],
     ['/p/conteudos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b?de=plano#x', '/p/conteudos/:id'],
     ['/painel/pacientes/novo', '/painel/pacientes/novo'],

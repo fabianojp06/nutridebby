@@ -12,6 +12,8 @@ export const RLS_EXCEPTIONS: Record<string, string> = {
     'prova de aceite (termo do paciente, DPA) gravada fora do contexto de tenant, append-only; tenant_id só identifica o vínculo aceito; acesso só por src/modules/plataforma/dpa.ts, src/modules/pacientes/convite-paciente.ts, src/modules/agenda/agendamento-publico.ts (aceite da página pública, D13), src/modules/pacientes/exportacao-job.ts (leitura dos aceites do titular no dados.json), src/modules/portal/termo.ts (novo aceite do termo no portal, US-011), test/portal.ts (helper de testes que grava o aceite do termo do paciente), scripts/e2e-seed.ts (aceites da conta de paciente de vários consultórios do E2E) e test/carga/seed.ts (aceites dos pacientes sintéticos da pilha de carga, P08-03); a anonimização (src/modules/pacientes/lgpd.ts) só pela função app_anonimizar_aceites (0065)',
   invites:
     'lido pelo token antes de existir sessão (o paciente ainda nem tem conta); acesso só por src/modules/plataforma/convites.ts, src/modules/pacientes/convite-paciente.ts e src/modules/plataforma/contas.ts (validade do convite da nutricionista na lista do admin)',
+  document_verifications:
+    'RN-156: lida pelo código antes de existir contexto de tenant (verificação pública); sem dado de saúde nem do paciente; acesso só por src/modules/documentos/verificacao.ts (guarda em verificacao.test.ts); DELETE e UPDATE revogados, menos situacao/situacao_em (0090)',
 };
 
 /** Tabelas com patient_id que não precisam da política de paciente, com a justificativa. */
@@ -108,6 +110,7 @@ export const STAFF_ONLY: Record<string, string> = {
   availability_blocks: 'US-030 / D11: o motivo do bloqueio pode ser pessoal ("Médico")',
   public_booking_requests: 'RN-16: pedido da página pública (código, contato) — só o contexto publico e a equipe',
   whatsapp_conexoes: 'D2: número e estado do WhatsApp do consultório — só a equipe',
+  signed_document_notes: 'Res. CFN 656, art. 3º, XII / D15 da spec de documentos: justificativa de uso e motivo de cancelamento — só a equipe (a exportação do titular lê pelo worker)',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -188,6 +191,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   data_exports: { comandos: ['insert', 'update'], motivo: 'US-046: o titular pede os próprios dados (solicitarExportacao marca o pendente esquecido como falhou); só escopo titular (0080); UPDATE só pendente → falhou (gatilho paciente_colunas, 0085)' },
   content_views: { comandos: ['insert'], motivo: 'US-055 (D18): o paciente registra que abriu o conteúdo, uma vez; só de conteúdo que ele vê (0083)' },
   content_favorites: { comandos: ['insert', 'delete'], motivo: 'US-055: favoritar e desfavoritar; só conteúdo que ele vê (0083)' },
+  signed_document_receipts: { comandos: ['insert'], motivo: 'D4 da spec de documentos: o paciente registra que abriu e confirma o recebimento do próprio documento emitido, uma vez por evento (paciente_recibo_proprio, 0090)' },
+  document_access_codes: { comandos: ['insert', 'update'], motivo: 'RN-158 / D3 b: o paciente sem login pede e confere o código do próprio documento (src/modules/documentos/link-documento.ts, contexto de paciente sem conta, N7)' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */
