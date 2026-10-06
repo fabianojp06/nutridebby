@@ -7,13 +7,14 @@ import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
-import { closeDb } from '@/db/client';
+import { closeDb, type Tx } from '@/db/client';
 import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { excluirExame } from '@/modules/pacientes/exames';
 import { atenderPedidoExclusao } from '@/modules/pacientes/lgpd';
 import { desativarIa } from './ativacao';
+import { cancelarTarefas } from './cancelar';
 import { definirRecusaIa } from './ciencia-paciente';
 import type { ConfigIA } from './modo';
 import { expirarTarefasDoTenant, processarTarefaIA, RepetirIaError, type DepsJobIA } from './leitura-job';
@@ -247,6 +248,70 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     };
     expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
     expect(await tarefa(P)).toMatchObject({ erro: motivo, resultado: null });
+    expect((await usoDe(P)).situacao).toBe('confirmado');
+  });
+
+  // Revisão da T11 (Important 1): a mudança faz o trabalho dela (inclusive o cancelarTarefas, que ainda vê "processando" e
+  // pula a linha) e fica SEM commit enquanto o passo (6) grava. Sem as travas no passo (6), ele leria a versão confirmada
+  // (sem a mudança) e gravaria a "pronta" com o resultado. Com elas (paciente → exame → tenant FOR SHARE, antes da tarefa),
+  // o passo (6) espera o commit e vê a mudança.
+  it.each([
+    [
+      '"Não usar IA"',
+      async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
+        await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, P.p.id)).for('update');
+        await tx.update(patients).set({ iaRecusadaEm: agora }).where(eq(patients.id, P.p.id));
+        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, P.T.tenantId)).for('update');
+        await cancelarTarefas(tx, { patientId: P.p.id, agora });
+      },
+      'paciente_indisponivel',
+    ],
+    [
+      'a desativação da IA',
+      async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
+        await tx.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, P.T.tenantId));
+        await cancelarTarefas(tx, { agora });
+      },
+      'ia_desligada',
+    ],
+    [
+      'a exclusão do exame',
+      async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
+        await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, P.p.id)).for('update');
+        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, P.T.tenantId)).for('update');
+        await cancelarTarefas(tx, { patientId: P.p.id, examId: P.examId, agora });
+      },
+      'exame_indisponivel',
+      // o DELETE (e o SET NULL na tarefa) vem depois: o passo (6) pegaria a tarefa antes e gravaria a "pronta", órfã
+      async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => tx.delete(exams).where(eq(exams.id, P.examId)),
+    ],
+  ])('%s sem commit enquanto o passo (6) grava: ele espera a mudança e não deixa "pronta" com o resultado', async (_n, mudar, motivo, depois?) => {
+    const P = await pedido();
+    const f = provedorFake();
+    const lerOriginal = f.lerDocumento.bind(f);
+    let soltar!: () => void;
+    const portaoDaMudanca = new Promise<void>((r) => (soltar = r));
+    let mudanca: Promise<unknown> = Promise.resolve();
+    f.lerDocumento = async (p) => {
+      let feito!: () => void;
+      const mudou = new Promise<void>((r) => (feito = r));
+      mudanca = withTenant(
+        P.T.ctx,
+        async (tx) => {
+          await mudar(tx, P);
+          feito();
+          await portaoDaMudanca; // fica aberta (travas mantidas, sem commit) enquanto o passo (6) corre
+          await depois?.(tx, P);
+        },
+        app.db,
+      );
+      await mudou;
+      setTimeout(soltar, 300); // o commit chega depois de o passo (6) começar
+      return lerOriginal(p);
+    };
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    await mudanca;
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: motivo, resultado: null });
     expect((await usoDe(P)).situacao).toBe('confirmado');
   });
 

@@ -182,21 +182,28 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
 
   // (6) valida e grava, com o acerto, numa transação; confere de novo o que pode ter mudado durante a chamada: a tarefa
   // (varredura, cancelamento), a IA do consultório (desativada, bloqueada pela admin, tenant suspenso), o paciente e o
-  // exame (excluído → exam_id nulo pelo SET NULL). Resultado que chega depois de qualquer mudança não é gravado.
+  // exame (excluído → sem linha, e exam_id nulo pelo SET NULL). Resultado que chega depois de qualquer mudança não é
+  // gravado. Com as MESMAS travas do portão, na ordem da spec (§5.5): paciente FOR SHARE → exame FOR SHARE → tenant FOR
+  // SHARE → tarefa FOR UPDATE → (acertar) ia_uso → plataforma. Sem elas, uma mudança ainda sem commit (definirRecusaIa,
+  // excluirExame e a exclusão atendida travam o paciente; desativarIa, o bloqueio da admin e a suspensão, o tenant) não é
+  // vista aqui, e o cancelarTarefas dela, que ainda vê "processando", pula a linha: ficaria uma "pronta" com o resultado
+  // (revisão da T11). Com elas, ou este passo espera o commit e vê a mudança, ou a mudança espera e o cancelarTarefas dela
+  // encontra a "pronta" já gravada e a esvazia.
   const custo = custoMicroUsd(pedido.modelo, pedido.geo, r.uso);
   const v = r.tipo === 'ok' ? validarRespostaLeitura(r.texto, arquivo.tipo === 'pdf' ? arquivo.paginas : 1) : null;
   const fim = await withTenant(
     ctx,
     async (tx): Promise<{ status: 'pronta' | 'falhou'; motivo: MotivoFalha | null }> => {
+      const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId)).for('share');
+      const [e] = t.examId ? await tx.select({ id: exams.id }).from(exams).where(eq(exams.id, t.examId)).for('share') : [];
+      const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [atual] = await tx.select({ status: iaTarefas.status, examId: iaTarefas.examId }).from(iaTarefas).where(eq(iaTarefas.id, t.id)).for('update');
-      const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId));
-      const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId));
       const doPaciente = p ? motivoDoPaciente(p) : 'paciente_indisponivel';
       let motivo: MotivoFalha | null = null;
       if (atual?.status !== 'processando') motivo = 'interrompida';
       else if (!tn || estadoIaDoTenant(tn, deps.modo) !== 'ativa') motivo = 'ia_desligada';
       else if (doPaciente) motivo = doPaciente;
-      else if (!atual.examId) motivo = 'exame_indisponivel';
+      else if (!atual.examId || !e) motivo = 'exame_indisponivel';
       else if (r.tipo === 'recusa') motivo = 'recusa';
       else if (r.tipo === 'cortada' || !v || v.tipo === 'invalida') motivo = 'resposta_invalida';
       else if (v.tipo === 'nao_reconhecido') motivo = 'documento_nao_reconhecido';
