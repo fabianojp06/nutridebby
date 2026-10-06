@@ -14,9 +14,9 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('@anthropic-ai/sdk'))).toEqual(['src/modules/ia/provedor-anthropic.ts']);
   });
 
-  it('pdf-lib só no preparo do laudo e no gerador dos laudos fictícios', () => {
+  it('pdf-lib só na thread do preparo do laudo e no gerador dos laudos fictícios', () => {
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('pdf-lib')).sort()).toEqual(
-      ['src/modules/ia/avaliacao/laudos-ficticios.ts', 'src/modules/ia/preparar-arquivo.ts'].filter((f) => existsSync(f)).sort(),
+      ['src/modules/ia/avaliacao/laudos-ficticios.ts', 'src/modules/ia/preparar-pdf-thread.ts'].filter((f) => existsSync(f)).sort(),
     );
   });
 
@@ -36,6 +36,7 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       'src/modules/ia/provedor-anthropic.ts',
       'src/modules/ia/provedor-do-ambiente.ts',
       'src/modules/ia/preparar-arquivo.ts',
+      'src/modules/ia/preparar-pdf-thread.ts',
       'src/modules/ia/leitura-job.ts',
       'src/modules/ia/avaliacao/laudos-ficticios.ts',
       'src/modules/ia/avaliacao/avaliar.ts',

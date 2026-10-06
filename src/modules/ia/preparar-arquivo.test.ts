@@ -2,25 +2,60 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import sharp from 'sharp';
 import { fotoDeTeste, pdfDeTeste } from '../../../test/ia';
-import { LADO_MAX_IMAGEM, prepararLaudo, PreparoError } from './preparar-arquivo';
+import { LADO_MAX_IMAGEM, MAX_BYTES_IMAGEM_ENTRELACADA, MAX_PIXELS_IMAGEM, prepararLaudo, PreparoError } from './preparar-arquivo';
 
 const execFileP = promisify(execFile);
 
-/** Roda o preparo num Node novo (com tsx) e devolve o pico de RSS acima do de antes do preparo. */
+/**
+ * Roda o preparo num Node novo (com tsx) e devolve o pico de RSS acima do de antes do preparo. O pico é o VmHWM do
+ * processo, zerado logo antes (clear_refs 5), e não o maxRSS: no Linux o maxRSS de um processo filho herda o do pai no
+ * fork/exec (o processo do vitest, que já passou de 250 MB com os PDFs-bomba montados aqui).
+ */
 const MEDIR_PREPARO = `
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 const { prepararLaudo } = await import('./src/modules/ia/preparar-arquivo.ts');
-const pdf = readFileSync(process.argv[1]);
+const arquivo = readFileSync(process.argv[1]);
+const pico = () => Number(/VmHWM:\\s+(\\d+) kB/.exec(readFileSync('/proc/self/status', 'utf8'))[1]) * 1024;
 globalThis.gc();
+writeFileSync('/proc/self/clear_refs', '5');
 const antes = process.memoryUsage().rss;
-const r = await prepararLaudo(pdf);
-console.log(JSON.stringify({ pico: process.resourceUsage().maxRSS * 1024 - antes, base64: r.base64.length }));
+const r = await prepararLaudo(arquivo).catch((e) => ({ motivo: e.motivo ?? 'erro inesperado' }));
+console.log(JSON.stringify({ pico: pico() - antes, ...r, base64: r.base64?.length }));
 `;
+const RAIZ = fileURLToPath(new URL('../../..', import.meta.url));
+const MB = 1024 * 1024;
+/** RNF-101 / A-03 / D17: o que o preparo pode somar ao worker de 512 MB (compartilhado com as outras filas). */
+const TETO_DO_PREPARO = 160 * MB;
+
+/**
+ * Medido num processo à parte: o preparo não cede o laço de eventos (pdf-lib e base64 são síncronos com poucos objetos),
+ * então um setInterval aqui nunca dispararia durante ele e mediria 0. O VmHWM do processo é o pico real (heap, Buffers,
+ * memória nativa do libvips e a thread do PDF).
+ */
+async function medirPreparo(conteudo: Buffer): Promise<{ pico: number; tipo?: string; motivo?: string; base64?: number }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'preparo-'));
+  try {
+    const arquivo = path.join(dir, 'laudo');
+    await writeFile(arquivo, conteudo);
+    const { stdout } = await execFileP(process.execPath, ['--expose-gc', '--import', 'tsx', '--input-type=module', '-e', MEDIR_PREPARO, arquivo], {
+      cwd: RAIZ,
+      timeout: 90_000,
+    });
+    return JSON.parse(stdout);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Imagem lisa (o tamanho do arquivo é pequeno; a memória do decodificador depende só das dimensões). */
+const imagem = (largura: number, altura: number, canais: 3 | 4 = 3) =>
+  sharp({ create: { width: largura, height: altura, channels: canais, background: { r: 240, g: 240, b: 240, alpha: 0.5 } } });
 
 const motivo = async (p: Promise<unknown>) => {
   try {
@@ -125,28 +160,60 @@ describe('preparo do laudo (A-D7, RN-110): o que sai do sistema', () => {
     // um stream de ~19 MB pendurado na página (como a imagem de um laudo escaneado): o preparo copia a página com ele
     const doc = await PDFDocument.create();
     const pagina = doc.addPage();
-    pagina.node.set(PDFName.of('Enchimento'), doc.context.register(doc.context.stream(Buffer.alloc(19 * 1024 * 1024, 0x41))));
+    pagina.node.set(PDFName.of('Enchimento'), doc.context.register(doc.context.stream(Buffer.alloc(19 * MB, 0x41))));
     const grande = Buffer.from(await doc.save());
-    expect(grande.length).toBeGreaterThan(19 * 1024 * 1024);
-    // Medido num processo à parte: o preparo não cede o laço de eventos (pdf-lib e base64 são síncronos com poucos
-    // objetos), então um setInterval aqui nunca dispararia durante ele e mediria 0. O maxRSS do processo é o pico real
-    // (heap + Buffers + memória nativa); descontado o RSS de antes do preparo, só pode superestimar (picos anteriores contam).
-    const dir = await mkdtemp(path.join(tmpdir(), 'preparo-'));
-    try {
-      const arquivo = path.join(dir, 'laudo.pdf');
-      await writeFile(arquivo, grande);
-      const { stdout } = await execFileP(
-        process.execPath,
-        ['--expose-gc', '--import', 'tsx', '--input-type=module', '-e', MEDIR_PREPARO, arquivo],
-        { cwd: process.cwd(), timeout: 60_000 },
-      );
-      const { pico, base64 } = JSON.parse(stdout) as { pico: number; base64: number };
-      console.info(`RNF-101: pico do preparo com PDF de 20 MB ≈ ${Math.round(pico / 1024 / 1024)} MB (RSS)`);
-      expect(base64, 'o preparo rodou de verdade').toBeGreaterThan(25 * 1024 * 1024);
-      expect(pico, 'a medida não é vazia: o base64 de ~25 MB fica na memória').toBeGreaterThan(20 * 1024 * 1024);
-      expect(pico).toBeLessThan(160 * 1024 * 1024);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+    expect(grande.length).toBeGreaterThan(19 * MB);
+    const r = await medirPreparo(grande);
+    console.info(`RNF-101: pico do preparo com PDF de 20 MB ≈ ${Math.round(r.pico / MB)} MB (RSS)`);
+    expect(r.tipo, 'o preparo rodou de verdade').toBe('pdf');
+    expect(r.base64).toBeGreaterThan(25 * MB);
+    expect(r.pico, 'a medida não é vazia: o base64 de ~25 MB fica na memória').toBeGreaterThan(20 * MB);
+    expect(r.pico).toBeLessThan(TETO_DO_PREPARO);
+  }, 120_000);
+
+  it('RNF-101 / A-03: PDF pequeno com objeto enorme comprimido (bomba no /ObjStm) → arquivo_invalido, abaixo de 160 MB', async () => {
+    // Sem o teto: ~2,1 GB (fluxo de 60 MB descomprimido + a string analisada no heap) a partir de ~60 KB; o worker morria.
+    const comString = await PDFDocument.create();
+    comString.addPage();
+    comString.context.register(PDFString.of('A'.repeat(60 * MB)));
+    // Sem o teto do heap: ~520 MB (5 milhões de números analisados) a partir de ~10 KB.
+    const comArray = await PDFDocument.create();
+    comArray.addPage();
+    const numeros = comArray.context.obj([]);
+    for (let i = 0; i < 5_000_000; i++) numeros.push(comArray.context.obj(0));
+    comArray.context.register(numeros);
+    for (const [nome, doc] of [['string de 60 MB', comString], ['array de 5 milhões de números', comArray]] as const) {
+      const bomba = Buffer.from(await doc.save({ useObjectStreams: true }));
+      expect(bomba.length, nome).toBeLessThan(100 * 1024);
+      const r = await medirPreparo(bomba);
+      console.info(`RNF-101: PDF-bomba (${nome}, ${Math.round(bomba.length / 1024)} KB) → ${r.motivo}, pico ≈ ${Math.round(r.pico / MB)} MB`);
+      expect(r.motivo, nome).toBe('arquivo_invalido');
+      expect(r.pico, nome).toBeLessThan(TETO_DO_PREPARO);
     }
-  }, 90_000);
+  }, 180_000);
+
+  it('RNF-101: imagem acima de 40 M px, JPEG progressivo e PNG entrelaçado grandes → arquivo_invalido (sem decodificar)', async () => {
+    expect(9990 * 9990).toBeGreaterThan(MAX_PIXELS_IMAGEM);
+    expect(await motivo(prepararLaudo(await imagem(9990, 9990).jpeg({ progressive: true }).toBuffer()))).toBe('arquivo_invalido');
+    expect(await motivo(prepararLaudo(await imagem(9990, 9990).jpeg().toBuffer()))).toBe('arquivo_invalido');
+    // abaixo dos 40 M px, mas a leitura inteira passa do teto: progressivo 4000 × 4000 (~92 MB de coeficientes) e
+    // entrelaçado 6300 × 6300 (~114 MB; antes, ~170 MB de pico)
+    expect(4000 * 4000 * 3 * 2).toBeGreaterThan(MAX_BYTES_IMAGEM_ENTRELACADA);
+    expect(await motivo(prepararLaudo(await imagem(4000, 4000).jpeg({ progressive: true }).toBuffer()))).toBe('arquivo_invalido');
+    expect(await motivo(prepararLaudo(await imagem(6300, 6300).png({ progressive: true }).toBuffer()))).toBe('arquivo_invalido');
+  }, 60_000);
+
+  it('RNF-101: as maiores imagens aceitas (40 M px girada; progressiva e entrelaçada no teto) ficam abaixo de 160 MB', async () => {
+    const casos: [string, Buffer][] = [
+      ['JPEG 6300 × 6300 girado pelo EXIF', await imagem(6300, 6300).jpeg().withMetadata({ orientation: 6 }).toBuffer()],
+      ['JPEG progressivo 4:4:4 2896 × 2896', await imagem(2896, 2896).jpeg({ progressive: true, chromaSubsampling: '4:4:4' }).toBuffer()],
+      ['PNG entrelaçado com transparência 3546 × 3546', await imagem(3546, 3546, 4).png({ progressive: true }).toBuffer()],
+    ];
+    for (const [nome, conteudo] of casos) {
+      const r = await medirPreparo(conteudo);
+      console.info(`RNF-101: ${nome} → ${r.tipo ?? r.motivo}, pico ≈ ${Math.round(r.pico / MB)} MB`);
+      expect(r.tipo, nome).toBe('imagem');
+      expect(r.pico, nome).toBeLessThan(TETO_DO_PREPARO);
+    }
+  }, 180_000);
 });
