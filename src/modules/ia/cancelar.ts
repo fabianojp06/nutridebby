@@ -1,0 +1,32 @@
+import { and, eq, inArray } from 'drizzle-orm';
+import type { Tx } from '@/db/client';
+import { iaTarefas } from '@/db/schema';
+import { estornar } from './cota';
+
+/**
+ * US-101 (desativar), US-103 ("Não usar IA"), US-018 (exclusão atendida) e exclusão do exame (D20, com `examId`): tarefas
+ * na fila e sugestões prontas ficam "cancelada", com o conteúdo esvaziado e a reserva da fila estornada. A linha fica
+ * (§5.11). As que estão "processando" ficam para o worker, que confere de novo no portão do envio (com travas) e antes de
+ * gravar. Chamar dentro de withTenant, com o tenant já travado (ordem da cota: tenant → tarefa → ia_uso → plataforma).
+ */
+export async function cancelarTarefas(tx: Tx, o: { patientId?: string; examId?: string; agora: Date; por?: string | null }): Promise<number> {
+  const alvo = await tx
+    .select({ id: iaTarefas.id, status: iaTarefas.status })
+    .from(iaTarefas)
+    .where(
+      and(
+        inArray(iaTarefas.status, ['na_fila', 'pronta']),
+        o.patientId ? eq(iaTarefas.patientId, o.patientId) : undefined,
+        o.examId ? eq(iaTarefas.examId, o.examId) : undefined,
+      ),
+    )
+    .for('update');
+  for (const t of alvo) {
+    await tx
+      .update(iaTarefas)
+      .set({ status: 'cancelada', parametros: null, resultado: null, encerradoEm: o.agora, encerradoPor: o.por ?? null, updatedAt: o.agora })
+      .where(eq(iaTarefas.id, t.id));
+    if (t.status === 'na_fila') await estornar(tx, t.id, o.agora);
+  }
+  return alvo.length;
+}

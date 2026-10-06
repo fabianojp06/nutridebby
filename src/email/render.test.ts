@@ -216,3 +216,18 @@ describe('aviso_2fa_reiniciado (P09-02 b)', () => {
     expect(r.html).not.toContain('href=');
   });
 });
+
+describe('Plano 11 — e-mails da IA', () => {
+  it('cota_ia: aviso de 80% sem valores em US$ e com o link de Configurações', () => {
+    const r = renderEmail({ tipo: 'cota_ia', para: 'd@x.dev', link: 'https://x.dev/painel/configuracoes' });
+    expect(r.subject).toBe('Você já usou 80% do limite de IA deste mês');
+    expect(r.text).toContain('https://x.dev/painel/configuracoes');
+    expect(r.text).not.toMatch(/US\$/);
+  });
+  it('alerta_ia: credencial cita só o NOME da variável; teto não cita valores', () => {
+    const c = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'credencial', painelUrl: 'https://x.dev/admin' });
+    expect(c.text).toContain('ANTHROPIC_API_KEY');
+    expect(c.text).not.toMatch(/sk-ant-/);
+    expect(renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'teto', painelUrl: 'https://x.dev/admin' }).text).toContain('teto mensal');
+  });
+});
