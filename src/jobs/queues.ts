@@ -50,6 +50,13 @@ export const QUEUES = {
   // Plano 10A: PDF pendente há mais de 1 h → falhou; digitalização "recebendo"/"pendente" há mais de 1 h → falhou; PDF base e
   // fotos da digitalizada sem referência → apagados (de 15 em 15 min)
   'expirar-documento-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
+  // Plano 11 (spec v0.3 §5.6, RN-105): leitura de laudo pela IA. Payload { tenantId, tarefaId } (nada de dado de saúde).
+  // O handler decide: relança só o que pode repetir (antes do envio, 429/500/529) — backoff do pg-boss ≈ 30–60 s e 60–120 s.
+  // expireInSeconds 300: acima do pior caso do handler (preparo de um PDF de 20 MB + uma chamada de 120 s). O pg-boss 12
+  // relança o job expirado com o handler antigo ainda rodando; o portão do envio (T11) garante que o laudo sai uma vez só.
+  ia: { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
+  // Plano 11: processando há mais de 15 min / na fila há mais de 30 min → falhou (interrompida); pronta vencida → expirada (15 em 15 min)
+  'expirar-ia': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;
