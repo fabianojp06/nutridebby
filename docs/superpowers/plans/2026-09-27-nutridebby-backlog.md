@@ -415,8 +415,8 @@ O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2
 | P11-07 | Preços, cota com reserva e acerto, teto da plataforma, cancelamento e alertas | RN-104, US-102, A-D10 | P11-05, P11-06 | Dev | M | ⬜ |
 | P11-08 | Liberação pela admin (com trilha), ativação com o aditivo e a IA no histórico de acessos | US-100, US-101, RN-101 | P11-07 | Dev | M | ⬜ |
 | P11-09 | Ciência do paciente (e-mail no pós-envio, em mãos) e "Não usar IA" | US-103, US-104, A-D9, A-D19 | P11-07 | Dev | M | ⬜ |
-| P11-10 | Pedir a leitura (RN-100, limites, reserva, fila, "Enviou à IA") e estado sem auditoria | US-110, RN-100, RN-103 | P11-08, P11-09 | Dev | M | ⬜ |
-| P11-11 | Job da leitura no worker (RN-100 de novo, `count_tokens`, envio marcado, RN-105, acerto, varreduras) | §5.6, RN-105, RN-106 | P11-10 | Dev | M | ⬜ |
+| P11-10 | Pedir a leitura (RN-100, limites, reserva, fila, "Pediu leitura à IA") e estado sem auditoria | US-110, RN-100, RN-103 | P11-08, P11-09 | Dev | M | ⬜ |
+| P11-11 | Job da leitura no worker (RN-100 de novo, portão do envio com travas, saída marcada, RN-105, acerto, varreduras) | §5.6, RN-105, RN-106 | P11-10 | Dev | M | ⬜ |
 | P11-12 | Conferir, salvar só o marcado (origem por linha, quem e quando) e descartar | US-111, RN-114, §5.11 | P11-11 | Dev | M | ⬜ |
 | P11-13 | Telas da aba Exames (botão, estado, conferência, marca da origem) | US-110 a US-112, RNF-106 | P11-12 | Dev | M | ⬜ |
 | P11-14 | Telas de Configurações (ativar), Privacidade (Uso de IA) e Admin (coluna IA) | US-100, US-101, US-103, US-104 | P11-12 | Dev | M | ⬜ |
