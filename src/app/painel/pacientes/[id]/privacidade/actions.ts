@@ -10,6 +10,7 @@ import {
   desarquivarPaciente,
   LgpdError,
 } from '@/modules/pacientes/lgpd';
+import { definirRecusaIa, enviarAvisoPorEmail, registrarEntregaEmMaos } from '@/modules/ia/ciencia-paciente';
 import { ExportacaoIndisponivelError, solicitarExportacao } from '@/modules/pacientes/exportacao';
 
 const caminho = (id: string) => `/painel/pacientes/${id}/privacidade`;
@@ -70,4 +71,27 @@ export async function exportarAction(patientId: string): Promise<void> {
     throw e;
   }
   redirect(`/painel/pacientes/${patientId}/exportacoes/${id}`);
+}
+
+/** US-104 "Enviar aviso por e-mail" (D5: a ciência entra no pós-envio do worker). */
+export async function enviarAvisoIaAction(patientId: string): Promise<void> {
+  const { ctx, tenant } = await requireNutri(caminho(patientId));
+  try {
+    await enviarAvisoPorEmail(ctx, tenant, patientId);
+  } catch (e) {
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    if (!(e instanceof PacienteBloqueadoError)) throw e;
+    redirect(caminho(patientId)); // bloqueado: a ação não acontece, a página mostra o bloqueio
+  }
+  redirect(`${caminho(patientId)}?ia=enviado`);
+}
+
+/** US-104 "Entreguei o aviso ao paciente". */
+export async function registrarEntregaIaAction(patientId: string): Promise<void> {
+  await situacao(patientId, (ctx) => registrarEntregaEmMaos(ctx, patientId));
+}
+
+/** US-103 "Não usar IA com os dados deste paciente" / "Voltar a usar IA com este paciente". */
+export async function recusaIaAction(patientId: string, recusar: boolean): Promise<void> {
+  await situacao(patientId, (ctx) => definirRecusaIa(ctx, patientId, recusar));
 }

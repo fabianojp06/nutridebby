@@ -5,9 +5,10 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getDb } from '@/db/client';
+import { emProducao, getEnv } from '@/env';
 import { requireUser } from '@/lib/session';
-import { ContaError, criarContaNutri, definirDocumentosLiberados, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
-import { ajustarCotaWhatsapp, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
+import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
+import { ajustarCotaIa, ajustarCotaWhatsapp, CotaIaAdminError, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
 import { MSG_2FA, Reiniciar2faError, reiniciarPeloAdmin } from '@/modules/plataforma/reiniciar-2fa';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
@@ -91,6 +92,20 @@ export async function definirDocumentosAction(tenantId: string, liberar: boolean
   revalidatePath('/admin');
 }
 
+/** US-100 (A-06): libera/bloqueia a IA do consultório; a confirmação do botão lembra as condições do uso real. */
+export async function definirIaAction(tenantId: string, liberar: boolean): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) return;
+  try {
+    await definirIaLiberada(getDb(), tenantId, liberar, user.id, { producao: emProducao(getEnv()) });
+  } catch (e) {
+    if (e instanceof ContaNaoEncontradaError) redirect('/admin?aviso=nao_encontrada');
+    if (e instanceof IaProvisoriaError) redirect('/admin?aviso=ia_provisoria'); // D22
+    throw e;
+  }
+  revalidatePath('/admin');
+}
+
 export type CotaState = { erro?: string; ok?: boolean };
 
 export async function ajustarCotaAction(tenantId: string, _prev: CotaState, formData: FormData): Promise<CotaState> {
@@ -100,6 +115,21 @@ export async function ajustarCotaAction(tenantId: string, _prev: CotaState, form
     await ajustarCotaWhatsapp(tenantId, String(formData.get('cota') ?? ''), user.id);
   } catch (e) {
     if (e instanceof CotaWhatsappError) return { erro: e.message };
+    if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
+    throw e;
+  }
+  revalidatePath('/admin');
+  return { ok: true };
+}
+
+/** US-100: "Limite de IA (US$/mês)". */
+export async function ajustarCotaIaAction(tenantId: string, _prev: CotaState, formData: FormData): Promise<CotaState> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) return { erro: 'Conta inválida' };
+  try {
+    await ajustarCotaIa(tenantId, String(formData.get('cotaIa') ?? ''), user.id);
+  } catch (e) {
+    if (e instanceof CotaIaAdminError) return { erro: e.message };
     if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
     throw e;
   }
