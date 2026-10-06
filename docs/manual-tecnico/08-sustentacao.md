@@ -94,7 +94,7 @@ A tabela completa das filas (payload, tentativas, redes de segurança) está em
 | `monitor-disco` | hh:00 | `src/worker/index.ts:128` | `/admin`, "Disco da VPS: N% usado" (`src/app/admin/painel-infra.tsx:26`) | ≥ 70% (`DISCO_LIMITE`, `src/modules/plataforma/monitoramento.ts:11`) |
 | `retencao-lgpd` | 04h00 / 07h00 | `src/worker/index.ts:140` | Log `retenção LGPD concluída` e `exportações vencidas apagadas` | Linha ausente no dia |
 | `limpar-tmp` | 04h00 / 07h00 | `src/worker/index.ts:198` | `find /srv/nutri/data -regextype posix-extended -regex '.*\.[0-9]+\.tmp' -mtime +1 \| wc -l` = 0 | > 0 em dias seguidos |
-| `agenda-limpeza` | 04h30 / 07h30 | `src/worker/index.ts:103` | Log `limpeza da agenda pública` (com `pedidos`, `limites`, `acessos` e, desde o Plano 10A, `codigos` — códigos vencidos do link do documento) | Linha ausente no dia |
+| `agenda-limpeza` | 04h30 / 07h30 | `src/worker/index.ts:106` | Log `limpeza da agenda pública` (com `pedidos`, `limites`, `acessos` e, desde o Plano 10A, `codigos` — códigos vencidos do link do documento) | Linha ausente no dia |
 | `monitor-backup` | 07h00 / 10h00 | `src/worker/index.ts:118` | `/admin`, "Backup do banco/dos arquivos: concluído em …" (`painel-infra.tsx:9-13`) | E-mail `alerta_backup`; "FALHOU"; "nenhum backup registrado" |
 
 Comando único para as linhas da madrugada (leitura livre, regra 2 do servidor):

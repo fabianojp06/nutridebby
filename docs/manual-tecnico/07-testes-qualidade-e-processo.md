@@ -52,7 +52,7 @@ os valores entre parênteses "10A" abaixo.
 | Chamadas `it(`/`test(` no código | 1502 | Contagem estática; a diferença para 2024 vem de laços e `it.each` (21 arquivos usam `it.each`) |
 | Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`) | `ls e2e/*.spec.ts` |
 | Testes E2E (execução no CI) | **130**, em 10,6 min | "Resultado da entrega" do Plano 08; 120 chamadas `test(` estáticas, o resto vem de laços (ex.: um teste por rota do portal em `e2e/acessibilidade.spec.ts:51`) |
-| Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`) | `ls drizzle/*.sql`; 24 delas se chamam `*rls_*` |
+| Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`) | `ls drizzle/*.sql`; 24 delas (10A: 25) se chamam `*rls_*` |
 | Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
 | Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca`; 10A: 45 + `/conta/seguranca` | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
 | Telas do portal no axe | 10 rotas fixas + telas avulsas | `ROTAS`, `e2e/acessibilidade.spec.ts:50` |
