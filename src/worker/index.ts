@@ -40,14 +40,16 @@ import { limparAcessosAntigos } from '@/modules/portal/acesso';
 import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
 import { workSemDetalhe } from './sem-detalhe';
+import { rodarComSinais } from './sinais';
 import { esperarVersaoDoSchema, versaoAplicada, versaoEsperada } from './versao-schema';
 import { urlDoApp } from '@/lib/url-do-app';
 
-export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
+export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<() => Promise<void>> {
   iniciarSentry({ dsn: env.SENTRY_DSN, ambiente: env.SENTRY_ENVIRONMENT ?? 'producao', papel: 'worker' });
   // P09-02 (a) / spec §9.7: o deploy sobe app e worker juntos e as migrations rodam no boot do app. Nenhum consumidor nem
   // agendamento antes de o banco ter a última migration deste código (espera até PRAZO_SCHEMA_MS; depois sai com erro).
-  await esperarVersaoDoSchema({ esperada: versaoEsperada(), aplicada: () => versaoAplicada(getDb()) });
+  // O sinal de encerramento corta a espera (code review do PR #22, item 4: rodarComSinais).
+  await esperarVersaoDoSchema({ esperada: versaoEsperada(), aplicada: () => versaoAplicada(getDb()), sinal });
   // createSchema: false — ver Plano 01, Tarefa 10 (o schema pgboss é do role da aplicação)
   const boss = new PgBoss({
     connectionString: env.DATABASE_URL,
@@ -237,12 +239,12 @@ export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> 
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const env = getWorkerEnv(); // falha rápido se faltar configuração
-  const stop = await startWorker(env);
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'encerrando worker');
-    await stop();
-    process.exit(0);
-  };
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  // item 4 do code review do PR #22: SIGTERM/SIGINT ouvidos antes da espera pelo schema (sinais.ts)
+  await rodarComSinais({
+    iniciar: (sinal) => startWorker(env, sinal),
+    fechar: async () => {
+      await encerrarSentry();
+      await closeDb();
+    },
+  });
 }

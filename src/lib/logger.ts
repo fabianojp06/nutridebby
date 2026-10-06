@@ -44,3 +44,16 @@ export const logger = createLogger();
 export function nomeDoErro(err: unknown): string {
   return err instanceof Error ? err.name : typeof err;
 }
+
+/**
+ * O SQLSTATE (5 caracteres) de um erro do Postgres, procurado também no `cause` em que o Drizzle o embrulha — nunca a
+ * mensagem, que pode citar SQL e parâmetros (RNF-11, regra 3). Código fora do formato (ECONNREFUSED…) não conta.
+ */
+export function sqlstateDoErro(err: unknown): string | undefined {
+  let e: unknown = err;
+  for (let i = 0; i < 3 && e !== null && typeof e === 'object'; i++, e = (e as { cause?: unknown }).cause) {
+    const c = (e as { code?: unknown }).code;
+    if (typeof c === 'string' && /^[0-9A-Z]{5}$/.test(c)) return c;
+  }
+  return undefined;
+}

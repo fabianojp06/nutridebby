@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
-import { logger, nomeDoErro } from '@/lib/logger';
+import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
 
 /** P09-02 (a) / spec §9.7: quanto o worker espera o app aplicar as migrations (o heartbeat tolera 10 min). */
 export const PRAZO_SCHEMA_MS = 5 * 60_000;
@@ -12,6 +12,14 @@ export type VersaoEsperada = { when: number; tag: string };
 
 export class SchemaAtrasadoError extends Error {
   override name = 'SchemaAtrasadoError';
+}
+
+/** Code review do PR #22, item 4: SIGTERM/SIGINT durante a espera (deploy seguinte, `docker stop`). */
+export class EsperaCanceladaError extends Error {
+  override name = 'EsperaCanceladaError';
+  constructor() {
+    super('espera pelo schema cancelada pelo encerramento do worker');
+  }
 }
 
 /** A última migration do journal que veio com este código (a pasta `drizzle/` é copiada na imagem, Dockerfile). */
@@ -29,17 +37,13 @@ export async function versaoAplicada(db: Db): Promise<number | null> {
   return v === null || v === undefined ? null : Number(v);
 }
 
-/** SQLSTATE (5 caracteres) de um erro do Postgres — nunca a mensagem, que pode citar SQL e parâmetros (regra 3). */
-const sqlstate = (e: unknown): string | undefined => {
-  const c = (e as { code?: unknown } | null)?.code;
-  return typeof c === 'string' && /^[0-9A-Z]{5}$/.test(c) ? c : undefined;
-};
-
 /**
  * O deploy dispara app e worker juntos e as migrations rodam no boot do app (`docker-entrypoint.sh`): o worker novo pode
  * subir antes delas. Nada de consumidor antes de o banco ter, no mínimo, a última migration deste código. Erro na leitura
  * (função ainda inexistente, banco fora) conta como "ainda não". Passou do prazo: lança — o processo sai com erro e o
- * Swarm o reinicia, conferindo de novo.
+ * Swarm o reinicia, conferindo de novo. O `sinal` (SIGTERM/SIGINT, item 4 do code review do PR #22) corta a espera na
+ * hora com EsperaCanceladaError: com node como PID 1, sem isso o Swarm esperaria o grace period inteiro. O log final leva a
+ * última versão aplicada lida (item 6): `when` da migration, número sem dado pessoal.
  */
 export async function esperarVersaoDoSchema(deps: {
   esperada: VersaoEsperada;
@@ -48,25 +52,46 @@ export async function esperarVersaoDoSchema(deps: {
   dormir?: (ms: number) => Promise<void>;
   prazoMs?: number;
   intervaloMs?: number;
+  sinal?: AbortSignal;
 }): Promise<void> {
   const agora = deps.agora ?? Date.now;
-  const dormir = deps.dormir ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const sinal = deps.sinal;
+  const dormir =
+    deps.dormir ??
+    ((ms: number) =>
+      new Promise<void>((r) => {
+        const fim = () => {
+          clearTimeout(t);
+          r();
+        };
+        const t = setTimeout(() => {
+          sinal?.removeEventListener('abort', fim);
+          r();
+        }, ms);
+        sinal?.addEventListener('abort', fim, { once: true });
+      }));
   const limite = agora() + (deps.prazoMs ?? PRAZO_SCHEMA_MS);
   let esperou = false;
+  let ultimaLida: number | null = null;
   for (;;) {
+    if (sinal?.aborted) {
+      logger.info({ migration: deps.esperada.tag, aplicada: ultimaLida }, 'espera pelo schema cancelada: worker encerrando');
+      throw new EsperaCanceladaError();
+    }
     let aplicada: number | null = null;
     let falha: { erro: string; sqlstate: string | undefined } | undefined;
     try {
       aplicada = await deps.aplicada();
+      if (aplicada !== null) ultimaLida = aplicada;
     } catch (e) {
-      falha = { erro: nomeDoErro(e), sqlstate: sqlstate(e) };
+      falha = { erro: nomeDoErro(e), sqlstate: sqlstateDoErro(e) };
     }
     if (aplicada !== null && aplicada >= deps.esperada.when) {
       if (esperou) logger.info({ migration: deps.esperada.tag }, 'schema do banco em dia; worker seguindo');
       return;
     }
     if (agora() >= limite) {
-      logger.error({ migration: deps.esperada.tag, ...falha }, 'schema do banco atrás do worker: o app não aplicou as migrations a tempo');
+      logger.error({ migration: deps.esperada.tag, aplicada: ultimaLida, ...falha }, 'schema do banco atrás do worker: o app não aplicou as migrations a tempo');
       throw new SchemaAtrasadoError(`schema do banco atrás do worker (esperada ${deps.esperada.tag})`);
     }
     if (!esperou) logger.warn({ migration: deps.esperada.tag, ...falha }, 'esperando o app aplicar as migrations');
