@@ -7,8 +7,8 @@
 
 | Item | Valor |
 |---|---|
-| Conferido contra | `main` em `62615b9` (merge do PR #15, 04/10/2026), worktree `docs-manual-tecnico` |
-| Data da conferência | 05/10/2026 |
+| Conferido contra | `main` em `62615b9` (merge do PR #15, 04/10/2026), worktree `docs-manual-tecnico`; as linhas do Plano 10A contra `3991c7d` (merge do PR #19) |
+| Data da conferência | 05/10/2026; Plano 10A em 06/10/2026 |
 | Spec de referência | `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` v1.11 e `…-mvp-historias.md` |
 | Ordem de autoridade | **código** > spec > planos e backlog (`docs/superpowers/plans/`) > runbooks (`docs/operacao/`) > `CLAUDE.md` |
 | Segredos | Este manual só cita **nomes** de variáveis. Nenhum valor. |
@@ -327,7 +327,7 @@ sequenceDiagram
 | `src/proxy.ts` | Interceptador do Next 16 (§1.4) |
 | `src/types/` | Tipos de pacotes sem tipagem (`heic-decode.d.ts`) |
 | `src/worker/` | Entrada do worker (`index.ts`), heartbeat e embrulho dos consumidores (`sem-detalhe.ts`) |
-| `drizzle/` | 89 migrations SQL versionadas (`0000` a `0088`) e o journal do Drizzle |
+| `drizzle/` | 94 migrations SQL versionadas (`0000` a `0093`) e o journal do Drizzle |
 | `scripts/` | `migrate.ts`, `admin-criar.ts`, `e2e-seed.ts`, `gerar-icones.ts`, seeds da TACO/IBGE (`seeds/`) e o backup do host (`backup/`) |
 | `seeds/` | Fontes oficiais (TACO, IBGE) e CSVs curados (Plano 04, D3) |
 | `test/` | Helpers do Vitest, teste de isolamento (`isolamento.test.ts`), backup/restauração, grafo de imports, pilha de carga (`carga/`) |
@@ -350,6 +350,7 @@ sequenceDiagram
 | `agenda.ts` | `availability_rules`, `availability_blocks`, `appointments`, `notifications`, `public_booking_requests`, `public_rate_limits`, `whatsapp_conexoes`, `push_subscriptions` |
 | `conteudo.ts` | `contents`, `recipes`, `recipe_ingredients`, `content_audience`, `content_views`, `content_favorites` |
 | `portal.ts` | `access_events`, `diary_entries` |
+| `documentos.ts` (Plano 10A) | `signed_documents`, `signed_document_notes`, `signed_document_receipts`, `document_access_codes`, `document_verifications` |
 
 ---
 
@@ -368,13 +369,16 @@ rotas e a UI chamam o módulo; o módulo abre `withTenant` e fala com o banco.
 | `notificacoes` | Planejamento dos lembretes (app e worker), envio (só worker), textos, push (só worker), WhatsApp (provedor `evolution`/`sandbox`/`fake`, conexão por QR, cota, JWT e webhook) | `agendar.ts`, `enviar.ts`*, `mensagens.ts`, `push.ts`*, `push-endpoint.ts`, `whatsapp/*` | Plano 05 |
 | `portal` | Vínculos da conta (`withConta`), sessão e termo do paciente, acesso diário (CS-02), plano, diário (e conversão da foto*), comentários da nutricionista, evolução, lista de compras, meus dados, perfil, inscrição de push, agenda e conteúdos do portal | `vinculos.ts`, `sessao.ts`, `termo.ts`, `acesso.ts`, `plano.ts`, `diario.ts`, `diario-foto-job.ts`*, `diario-nutri.ts`, `evolucao.ts`, `lista-compras.ts`, `meus-dados.ts`, `perfil.ts`, `push-inscricao.ts`, `agenda.ts`, `conteudos.ts`, `avisos.ts`, `link-portal.ts` | Planos 06, 07 |
 | `conteudo` | Conteúdos (vídeo, receita, orientação), arquivos (capa, PDF), audiência, vídeo e oEmbed, markdown seguro, receitas e cálculo, aviso de conteúdo novo, métricas, LGPD do titular | `conteudos.ts`, `arquivos.ts`, `audiencia.ts`, `video.ts`, `oembed.ts`, `capa.ts`, `markdown.tsx`, `receitas.ts`, `receita-calculo.ts`, `aviso.ts`, `metricas.ts`, `titular.ts` | Plano 07 |
-| `ajuda` | Texto tipado do manual guiado do painel (`GUIAS`) | `conteudo.ts` | Plano 08 (P08-10) |
+| `ajuda` | Texto tipado do manual guiado do painel (`GUIAS`; desde o Plano 10A também o guia de `/conta/seguranca`) | `conteudo.ts` | Plano 08 (P08-10) |
+| `documentos` | Documentos assinados: perfil profissional para documentos, receita (prescrição), preparo e PDF com código e QR*, assinatura digitalizada (fotos + 2FA → PDF novo*), assinatura no banco sem sessão, entrega (portal, link de uso único, pessoalmente), recebimento, verificação pública, cancelamento, LGPD da receita. Detalhe no [cap. 9](09-documentos-assinados.md) | `constantes.ts`, `erros.ts`, `perfil-profissional.ts`, `codigo.ts`, `prescricao.ts`, `documentos.ts`, `arquivos-do-preparo.ts`, `documento-pdf.tsx`*, `documento-pdf-job.ts`*, `digitalizada.ts`, `digitalizada-job.tsx`*, `registrar-assinatura.ts`, `verificacao.ts`, `entrega.ts`, `recebimento.ts`, `link-documento.ts`, `portal.ts`, `cancelamento.ts`, `lgpd-documentos.ts` | Plano 10A |
 
 \* Só roda no worker; protegido pela guarda de grafo de imports (§1.4).
 
 ### Dependências entre módulos
 
-Contagem de `import` de `@/modules/<outro>` em código de produção (sem testes), em 05/10/2026:
+Contagem de `import` de `@/modules/<outro>` em código de produção (sem testes), em 05/10/2026 (antes do Plano 10A; o
+módulo `documentos` usa `pacientes`, `plataforma`, `notificacoes`, `portal` e `agenda`, e é usado por `pacientes`
+— exportação e anonimização — e por `agenda/inicio.ts`, o cartão do Início):
 
 | Módulo → | agenda | alimentos | conteudo | notificacoes | pacientes | plano-alimentar | plataforma | portal |
 |---|---|---|---|---|---|---|---|---|
@@ -426,11 +430,11 @@ Como ler o grafo:
 | Área | Rotas | Guarda |
 |---|---|---|
 | Entrada | `/` (redireciona para `/entrar`), `/entrar`, `/entrar/2fa`, `/esqueci-senha`, `/definir-senha`, `/inicio` (desvia pelo papel), `/indisponivel` (tenant suspenso), `/sair/erro` | Públicas; `/inicio` usa `requireUser` |
-| Conta | `/conta/seguranca` (2FA e senha; usada pelo admin e pela nutricionista) | `requireUser` |
+| Conta | `/conta/seguranca` (2FA e senha; usada pelo admin e pela nutricionista; bloco "Como funciona" com o guia `seguranca` desde o Plano 10A) | `requireUser` |
 | Admin | `/admin` (contas, métricas, cota de WhatsApp, infraestrutura), `/admin/contas/nova` | `requireUser(['admin'])` |
-| Painel da nutricionista | `/painel` (Início em bento), `/painel/pacientes` e o prontuário `/painel/pacientes/[id]/…` (anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar, privacidade, histórico, exportações), `/painel/agenda` (+ `nova`, `horarios`, `pendencias`, `consultas/[id]`), `/painel/diarios`, `/painel/conteudos`, `/painel/alimentos`, `/painel/planos/modelos`, `/painel/anamnese/modelos`, `/painel/whatsapp`, `/painel/configuracoes` (+ `perfil`), `/painel/ajuda`, `/painel/dpa` | `requireNutri` em cada página. Menu de 6 itens em `src/app/painel/navegacao.ts:3-8` |
-| Portal do paciente (PWA) | `/p/inicio`, `/p/plano`, `/p/compras`, `/p/diario`, `/p/conteudos` (+ `[id]`), `/p/evolucao`, `/p/agenda` (+ `nova`, `[id]`), `/p/perfil`, `/p/meus-dados/exportacoes/[id]`; fora do layout: `/p/escolher`, `/p/sem-acesso`, `/p/termo` | `requirePaciente`. Abas em `src/app/p/navegacao.ts:9-15`. Manifest com `scope: '/p/'` e `start_url: '/p/inicio'` (`src/app/manifest.ts`) |
-| Visitante | `/n/[slug]` (agendamento público), `/consulta/[token]` (link da consulta), `/convite/[token]` (nutricionista, 72 h), `/convite/paciente/[token]` (paciente, 7 dias) | Sem login; Turnstile, token com hash ou HMAC |
+| Painel da nutricionista | `/painel` (Início em bento), `/painel/pacientes` e o prontuário `/painel/pacientes/[id]/…` (anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar, privacidade, histórico, exportações), `/painel/agenda` (+ `nova`, `horarios`, `pendencias`, `consultas/[id]`), `/painel/diarios`, `/painel/conteudos`, `/painel/alimentos`, `/painel/planos/modelos`, `/painel/anamnese/modelos`, `/painel/whatsapp`, `/painel/configuracoes` (+ `perfil`, com a seção "Dados para documentos"), `/painel/ajuda`, `/painel/dpa`; Plano 10A: `/painel/pacientes/[id]/documentos` (+ `[docId]`), só com o interruptor `documentos_liberados` | `requireNutri` em cada página. Menu de 6 itens em `src/app/painel/navegacao.ts:3-8` |
+| Portal do paciente (PWA) | `/p/inicio`, `/p/plano`, `/p/compras`, `/p/diario`, `/p/conteudos` (+ `[id]`), `/p/evolucao`, `/p/agenda` (+ `nova`, `[id]`), `/p/perfil`, `/p/meus-dados/exportacoes/[id]`, `/p/documentos` (Plano 10A; marca a aba "Perfil"); fora do layout: `/p/escolher`, `/p/sem-acesso`, `/p/termo` | `requirePaciente`. Abas em `src/app/p/navegacao.ts:9-15`. Manifest com `scope: '/p/'` e `start_url: '/p/inicio'` (`src/app/manifest.ts`) |
+| Visitante | `/n/[slug]` (agendamento público), `/consulta/[token]` (link da consulta), `/convite/[token]` (nutricionista, 72 h), `/convite/paciente/[token]` (paciente, 7 dias), `/documento/[token]` (link do documento, 30 dias, código de 6 dígitos; Plano 10A), `/v` e `/v/[codigo]` (verificação pública do documento; Plano 10A) | Sem login; Turnstile, token com hash ou HMAC; limites por IP |
 
 A lista de telas do painel no E2E de acessibilidade (`e2e/painel-rotas.ts`) é comparada com os `page.tsx` pela
 guarda `src/app/painel/rotas-axe.test.ts`: tela nova sem axe quebra o CI (Plano 08, D25). Checklist de tela nova
@@ -465,6 +469,11 @@ Nenhuma rota de API passa pelo `src/proxy.ts` (§1.4).
 | `/api/erro-cliente` | POST | Erros do navegador (RNF-11) | `mesmaOrigem` + limite + corpo limitado |
 | `/api/csp-relatorio` | POST | Relatórios de CSP, só com `CSP_MODO=relatorio` | Limite + corpo limitado |
 | `/serwist/[path]` | GET | Service worker gerado no build | Pública |
+| `/api/painel/documentos/[id]/pdf` | GET | Estado do PDF (`?estado=1`), PDF preparado (`?base=1`) ou assinado (303 para URL assinada) — Plano 10A | `requireApiNutri` + interruptor `documentos_liberados` |
+| `/api/painel/documentos/[id]/digitalizada` | POST | Fotos assinadas + código do 2FA (multipart, ≤ 10 MB) — Plano 10A | `mesmaOrigem` + `requireApiNutri` + corpo limitado + 2 envios por processo, 1 por usuária |
+| `/api/p/documentos/[id]/pdf` | GET | PDF do documento no portal (registra "aberto") — Plano 10A | `requireApiPaciente` + interruptor |
+| `/api/documento/[token]/codigo`, `/confirmar`, `/recebido` | POST | Link do documento: pedir o código, abrir a sessão, confirmar o recebimento — Plano 10A | `mesmaOrigem`; Turnstile e limites por IP e por documento; sessão `nd_doc` |
+| `/api/documento/[token]/pdf` | GET | PDF pelo link (com a sessão) | Token + sessão `nd_doc` |
 
 ---
 
@@ -600,9 +609,9 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `LOG_LEVEL` | todos | Não (padrão `info`) | Nível do pino | `src/env.ts:31`; `src/lib/logger.ts:27` (lê `process.env`) |
 | `SENTRY_DSN` | app, worker | Não (sem ela, Sentry desligado) | DSN do Sentry; só `https://` | `src/env.ts:33`; `src/instrumentation.ts:9`; `src/worker/index.ts:43` |
 | `SENTRY_ENVIRONMENT` | app, worker | Não (padrão `producao`) | Ambiente no Sentry (`[a-z0-9-]`) | `src/env.ts:34`; mesmos pontos |
-| `APP_URL` | app, worker | **Sim** | URL pública; base de todos os links (e-mail, push, WhatsApp), `baseURL` do Better Auth, conferência de origem; normalizada sem barra final | `src/env.ts:111`, `:219`; `src/lib/auth.ts:42`; `src/lib/mesma-origem.ts:9`; `src/proxy.ts:33` |
+| `APP_URL` | app, worker | **Sim** | URL pública; base de todos os links (e-mail, push, WhatsApp), `baseURL` do Better Auth, conferência de origem; normalizada sem barra final. Desde o Plano 10A, impressa no QR e no rodapé de toda receita (`/v/<código>`): mudar o domínio exige manter `/v/*` respondendo | `src/env.ts:111`, `:219`; `src/lib/auth.ts:42`; `src/lib/mesma-origem.ts:9`; `src/proxy.ts:33` |
 | `AUTH_SECRET` | app | **Sim** (≥ 32) | Segredo do Better Auth (cookies, cifra do TOTP) | `src/env.ts:112`; `src/lib/auth.ts:54` |
-| `ENCRYPTION_KEY` | app, worker | **Sim** (32 bytes em base64 canônico) | AES-256-GCM dos payloads da fila (e-mail, eventos do WhatsApp) e chave-mãe (HKDF) do link assinado da consulta | `src/env.ts:115`, `:220`; `src/lib/crypto.ts:27`; Plano 05, D20 |
+| `ENCRYPTION_KEY` | app, worker | **Sim** (32 bytes em base64 canônico) | AES-256-GCM dos payloads da fila (e-mail, eventos do WhatsApp) e chave-mãe (HKDF) do link assinado da consulta, dos contadores de `public_rate_limits` e, desde o Plano 10A, do link do documento (`nutridebby:link-documento:v1`); trocar a chave invalida esses links | `src/env.ts:115`, `:220`; `src/lib/crypto.ts:27`; Plano 05, D20 |
 | `FILE_URL_SECRET` | app | **Sim** (≥ 32) | HMAC das URLs assinadas de arquivo (5 min) | `src/env.ts:116`; `src/lib/signed-url.ts:18`, `:32` |
 | `DATA_DIR` | app, worker | **Sim** | Pasta dos arquivos (`/data` em produção), resolvida para caminho absoluto | `src/env.ts:119`, `:221`; `src/modules/plataforma/armazenamento.ts:88`; `src/worker/index.ts` |
 | `TURNSTILE_SITE_KEY` | app | **Sim** | Chave pública do widget (recuperação de senha, página pública); chave de teste recusada em produção | `src/env.ts:120`; `src/app/esqueci-senha/page.tsx:10`; `src/app/n/[slug]/page.tsx:52` |
@@ -665,7 +674,7 @@ O worker **não** recebe `DATABASE_URL_MIGRATOR`, como manda o Plano 01 (Tarefa 
 
 ---
 
-## 1.10 Cronologia dos Planos 01–08
+## 1.10 Cronologia dos planos
 
 Cada plano entrega software em produção, com testes, e termina atualizando a spec (índice dos planos). Datas = merge
 na `main` (`git log --merges`). Migrations = arquivos SQL adicionados pelo merge.
@@ -680,6 +689,8 @@ na `main` (`git log --merges`). Migrations = arquivos SQL adicionados pelo merge
 | **06 Portal do paciente (M5)** | #8 (03/10/2026); fechamento no #9 | 0070–0080 | v1.9 | **Escrita do paciente negada por padrão** (`paciente_sem_*`); `stored_files` por paciente; contexto **`conta`** e `withConta`; `requirePaciente` e cookie `nd_vinculo`; PWA instalável com "Meu plano" offline; inscrição de push; `access_events` (CS-02); diário com foto (HEIC no worker); "Diários" da nutricionista; evolução, lista de compras, perfil e direitos do titular; agenda no PWA; axe no portal (D1–D26) |
 | **07 Biblioteca de conteúdo (M6)** | #10 (04/10/2026); débitos no #11, correção de tema no #13, fechamento no #14 | 0081–0084 | v1.10 | `contents` e tabelas filhas; **audiência na RLS** (`paciente_conteudo_visivel`, `app_conteudo_por_etiqueta`); vídeo por link com player sem cookies e capa pelo oEmbed; markdown seguro sem HTML; receitas com cálculo; receita sugerida no plano (`liberarReceitasDoPlano`); aviso de conteúdo novo; métricas "Quem viu" (D1–D21) |
 | **08 Go-live** | #12 (04/10/2026); fechamento no #15 | 0085–0088 | v1.11 | Sentry (`@sentry/node`) com filtro e `request_id`; `/api/erro-cliente`; health com motivo; **CSP com nonce** e cabeçalhos; RLS final por coluna (`paciente_colunas`); limites e player sob demanda; retenção de `access_events`; métricas de sucesso; pilha de carga k6 e teste de restauração; visual V2 do painel com tema na conta (`user.tema`, `user.guia`); menu e Início em bento; **manual guiado** (`modules/ajuda`). Tarefa 8 (textos legais) pendente no E-09 (D1–D27) |
+| **09 Fechamento do MVP** (P09-01 a P09-05) | PR do branch `plano-09-fechamento-mvp` (aguardando merge) | 0094–0097 | — | Conferência de origem no salvamento do plano e nas rotas de escrita (`mesmaOrigem`); worker espera a versão do schema; reinício do 2FA pelo admin (`admin_actions`, `admin:reiniciar-2fa`); aviso de aparelho com outro papel; E2E estável; painel instalável (PWA) sem cópia offline de dado de saúde; formulários em POST |
+| **10A Receita** (pós-MVP) | #19 (06/10/2026); plano no #18, divisão 10A/10B aprovada em 05/10/2026 | 0089–0093 | MVP v1.12; documentos v0.4 | Módulo **`documentos`** ([cap. 9](09-documentos-assinados.md)): receita de suplementos e fitoterápicos; **imutabilidade no banco** (gatilho `app_documento_imutavel`) e anonimização só pela função `app_anonimizar_documentos` (`SECURITY INVOKER`, só `worker`); primeiras FKs `NO ACTION` para `stored_files`; PDF preparado e PDF da digitalizada no worker; **2FA no momento de assinar** (`confirmarCodigo2fa`); recibo só INSERT; link de uso único sem login (`semConta`) com código de 6 dígitos; **verificação pública** `/v` fora da RLS (`document_verifications`); interruptor do admin `documentos_liberados` (D1–D24; Plano 10B, gov.br e ICP-Brasil, ainda por fazer) |
 
 O processo de revisão de cada entrega (revisor por tarefa, revisão final do branch, `/code-review high` uma vez,
 re-revisão do diff das correções e `/security-review`) está no índice dos planos e no `CLAUDE.md` do projeto.

@@ -558,7 +558,9 @@ O admin nunca toca tabela com `tenant_id`. Ele só enfileira o job `agenda-tenan
 - Lembretes e avisos do motor: chave de idempotência `notificacao:<id>:<início da consulta>` (`enviarEmail`). A
   repetição não duplica no Resend.
 - E-mails fora do motor (código da página pública, avisos à nutricionista, plano novo, exportação) vão pela fila `email`
-  (3 novas tentativas a partir de 60 s, `src/jobs/queues.ts`).
+  (3 novas tentativas a partir de 60 s, `src/jobs/queues.ts`). Plano 10A: `documento_novo`, `documento_link` (paciente
+  sem conta, link de uso único), `codigo_documento` (código de 6 dígitos do link) e `documento_atualizado` (cancelamento),
+  todos neutros, sem o tipo do documento nem itens ([cap. 9](09-documentos-assinados.md#943-entrega-recebimento-e-cancelamento)).
 - E-mail da nutricionista vem de `user` (`src/modules/agenda/aviso-nutri.ts`, na lista de exceções da regra 1). O nome do
   paciente vai só no corpo, nunca no assunto (INT-02).
 
@@ -728,10 +730,13 @@ automático; nunca rola na horizontal (E2E a 360 e 320 px; ratificado pelo dono 
 | `/p/conteudos`, `/p/conteudos/<id>` | `feedDeConteudos`, `conteudoDoPaciente` (`portal/conteudos.ts`) | sem `auditRead` (P07 D6) |
 | `/p/perfil` | `preferenciaWhatsapp`, push, privacidade, trocar de nutricionista | — |
 | `/p/meus-dados/exportacoes/<id>` | destino do e-mail da exportação | — |
+| `/p/documentos` (Plano 10A; marca a aba "Perfil", com o cartão "Documentos" no Início e "Meus documentos" em Perfil) | `documentosDoPaciente`, `confirmarRecebimentoNoPortal` (`documentos/portal.ts`) | lista sem `auditRead` (Plano 10A, D17); o PDF com `auditRead` |
 | `/p/escolher`, `/p/sem-acesso`, `/p/termo` | fora do layout do portal | — |
 
 APIs: `POST /api/p/acesso`, `POST /api/p/diario` (multipart), `POST`/`DELETE /api/p/push`, `GET /api/p/plano/pdf`,
-`GET /api/p/conteudos/<id>/pdf`, `GET /api/p/vinculo`, `GET /api/p/ping` (204, sem sessão).
+`GET /api/p/conteudos/<id>/pdf`, `GET /api/p/documentos/<id>/pdf` (Plano 10A: `auditRead` + recibo "aberto"),
+`GET /api/p/vinculo`, `GET /api/p/ping` (204, sem sessão). Os documentos não ficam na cópia offline (o service worker
+só guarda `/p/plano`; teste em `src/app/sw-regras.test.ts`).
 
 A leitura de dado de saúde pelo **próprio paciente** gera "Visualizou" com o ator = a conta do paciente (P06 D22).
 
@@ -1113,8 +1118,11 @@ disposição (360 px, barra de abas) não virou bento.
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 12 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
-`prontuario`, `agenda`, `horarios`, `diarios`, `conteudos`, `alimentos`, `modelos`, `configuracoes`, `whatsapp`).
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 14 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`documentos`, `prontuario`, `agenda`, `horarios`, `diarios`, `conteudos`, `alimentos`, `modelos`, `configuracoes`, `whatsapp`
+e `seguranca`). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
+(`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`.
 
 | Campo | Papel |
 |---|---|

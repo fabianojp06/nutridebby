@@ -21,17 +21,17 @@ rótulo `incidente`. Horários em BRT (log da VPS em UTC, +3 h). Sem merge das 0
 - D7 Monitor externo sem alerta (quando configurado) — dono
 
 ## Semanal — um comentário por semana ([§8.3.2](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#832-semanal))
-- [ ] Semana 1: diárias em ___ de 7 dias; S1–S7
-- [ ] Semana 2: diárias em ___ de 7 dias; S1–S7
-- [ ] Semana 3: diárias em ___ de 7 dias; S1–S7
-- [ ] Semana 4: diárias em ___ de 7 dias; S1–S7
+- [ ] Semana 1: diárias em ___ de 7 dias; S1–S8
+- [ ] Semana 2: diárias em ___ de 7 dias; S1–S8
+- [ ] Semana 3: diárias em ___ de 7 dias; S1–S8
+- [ ] Semana 4: diárias em ___ de 7 dias; S1–S8
 - [ ] Semana 5 (se houver)
 
 Itens de cada semana: S1 reinícios inesperados (`docker service ps` e `uptime -s`) · S2 memória < ~800 MiB,
 `oom_kill` de `/proc/vmstat` sem subir e `OOMKilled=false` (nada de `journalctl`: como `deploy` ele volta vazio) ·
 S3 pico diário do Resend < 80 · S4 nenhum `.N.tmp` órfão em `/srv/nutri/data` · S5 nenhum deploy entre 03h e 07h30
 (`git fetch` antes do `git log origin/main`) · S6 páginas de status dos provedores sem incidente que nos afete ·
-S7 digest da imagem do `nutri_app`/`nutri_worker` = último push no GHCR.
+S7 digest da imagem do `nutri_app`/`nutri_worker` = último push no GHCR · S8 (Plano 10A, depois da liberação dos documentos) nenhuma receita presa em "Preparando o PDF…" ou "Montando o PDF digitalizado…" e nenhuma recusa da digitalizada repetida no log da semana (só contagem).
 Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" acima.
 
 ## Mensal ([§8.3.3](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#833-mensal))

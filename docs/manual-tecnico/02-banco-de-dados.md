@@ -1,6 +1,6 @@
 # 2. Banco de dados
 
-Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0088`, `drizzle/meta/_journal.json` com 89 entradas). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
+Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0093`, `drizzle/meta/_journal.json` com 94 entradas; as tabelas e funções dos documentos assinados, `0089`–`0093`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco)). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
 
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
@@ -158,7 +158,7 @@ Regras de operação:
 
 ## 2.5 Catálogo de tabelas
 
-São 46 tabelas em `public`: 34 com `tenant_id` sob RLS, 3 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 9 sem `tenant_id`. Contagem conferida nos `pgTable(` de `src/db/schema/*.ts`.
+São 51 tabelas em `public`: 38 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 9 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts`.
 
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
@@ -168,7 +168,7 @@ Legenda da coluna "Proteção":
 | Tabela | Proteção | Migration da RLS |
 |---|---|---|
 | `audit_log` | T, P, Pub `insert`, PE `insert`, X `paciente_sem_leitura` | 0002, 0007, 0051, 0070, 0085 |
-| `stored_files` | T, PE `insert`, X `paciente_arquivos`, `paciente_arquivo_insert` | 0011, 0072, 0080, 0085 |
+| `stored_files` | T, PE `insert`, X `paciente_arquivos`, `paciente_arquivo_insert` | 0011, 0072, 0080, 0085, 0090 (`paciente_arquivos` sem `documento_base` e `documento_digitalizado`) |
 | `patients` | T, P (coluna `id`), Pub `select`/`insert`, PE `update`, A `patients`, X `paciente_por_conta`, gatilho `paciente_colunas` | 0017, 0051, 0070, 0073, 0085 |
 | `patient_tags` | T, S | 0020 |
 | `patient_tag_links` | T, P, S, A `etiquetas` | 0020 |
@@ -201,6 +201,10 @@ Legenda da coluna "Proteção":
 | `content_audience` | T, P, A `conteudos` | 0082 |
 | `content_views` | T, P, PE `insert` (sem auditoria), X `paciente_conteudo_visto` | 0082, 0083 |
 | `content_favorites` | T, P, PE `insert`/`delete` (sem auditoria), X `paciente_conteudo_favorito` | 0082, 0083 |
+| `signed_documents` | T, P, A `documentos`, X `paciente_so_emitidos`, gatilho `documento_imutavel` | 0090, 0091, 0093 |
+| `signed_document_notes` | T, P, S, A `documentos`, gatilho `notas_imutaveis` | 0090, 0091 |
+| `signed_document_receipts` | T, P, PE `insert`, A `documentos`, X `paciente_recibo_proprio`, `recibo_fora_do_paciente`; `REVOKE UPDATE, DELETE` | 0090, 0092 |
+| `document_access_codes` | T, P, PE `insert`/`update` (sem auditoria), X `paciente_codigo_de_assinado`, gatilho `codigo_acesso_regras` | 0090, 0091, 0092 |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
 
@@ -234,10 +238,10 @@ erDiagram
 
 | Tabela | Colunas principais | Chaves e restrições | Fonte |
 |---|---|---|---|
-| `tenants` | `slug`, `nome_exibicao`, `status` (`ativa`/`suspensa`), `fuso` (padrão `America/Sao_Paulo`), `crn`, `logo_path`, `cor_primaria`, `wa_cota_mensal` (500), `antecedencia_min_h` (12), `cancelamento_min_h` (24), `endereco_consultorio`, `link_online_padrao`, `agendamento_publico_ativo` (padrão `false` desde a 0067), `mostrar_perc_gordura_paciente`, `armazenamento_bytes`, `dpa_aceito_em`, `dpa_versao`, `taxa_faltas_base`, `go_live_em` | `slug` UNIQUE e regex `^[a-z0-9-]{3,40}$`; CHECKs de faixa (0–72 h, cota ≥ 0, bytes ≥ 0, cor `#rrggbb`, taxa 0–100) | 0001, 0008, 0067, 0086 |
+| `tenants` | `slug`, `nome_exibicao`, `status` (`ativa`/`suspensa`), `fuso` (padrão `America/Sao_Paulo`), `crn`, `logo_path`, `cor_primaria`, `wa_cota_mensal` (500), `antecedencia_min_h` (12), `cancelamento_min_h` (24), `endereco_consultorio`, `link_online_padrao`, `agendamento_publico_ativo` (padrão `false` desde a 0067), `mostrar_perc_gordura_paciente`, `armazenamento_bytes`, `dpa_aceito_em`, `dpa_versao`, `taxa_faltas_base`, `go_live_em`; Plano 10A: `nome_profissional`, `contato_email`, `contato_telefone_e164`, `fitoterapia_registro`, `fitoterapia_declarada_em`, `fitoterapia_termo_versao`, `documentos_liberados` (padrão `false`) | `slug` UNIQUE e regex `^[a-z0-9-]{3,40}$`; CHECKs de faixa (0–72 h, cota ≥ 0, bytes ≥ 0, cor `#rrggbb`, taxa 0–100); Plano 10A: nome profissional 5–120, registro da Fitoterapia 1–60, registro/data/termo juntos ou nulos | 0001, 0008, 0067, 0086, 0089 |
 | `audit_log` | `tenant_id`, `actor_user_id`, `acao`, `entidade`, `entidade_id`, `patient_id`, `ip`, `criado_em` | CHECK `acao` em (`ler`,`criar`,`alterar`,`excluir`,`exportar`,`bloquear`,`anonimizar`); índices (`tenant_id`,`entidade`,`entidade_id`,`criado_em`) e (`tenant_id`,`patient_id`,`criado_em`) | 0001, 0006 |
 | `system_heartbeat` | `name` (PK), `beat_at` | Batimento do worker lido pelo `/api/health` | 0001; `src/worker/heartbeat.ts` |
-| `stored_files` | `tenant_id`, `patient_id` (nulo = arquivo do consultório), `tipo`, `caminho`, `bytes`, `mime`, `criado_por` | `caminho` UNIQUE; `bytes > 0`; `tipo` em (`logo`,`capa`,`exame`,`plano_pdf`,`diario_foto`,`diario_foto_original`,`orientacao_pdf`,`exportacao`); CHECK `stored_files_dono` (`logo`/`capa`/`orientacao_pdf` ⇔ `patient_id` nulo); FK (`tenant_id`,`patient_id`) → `patients` | 0010, 0071, 0072 |
+| `stored_files` | `tenant_id`, `patient_id` (nulo = arquivo do consultório), `tipo`, `caminho`, `bytes`, `mime`, `criado_por` | `caminho` UNIQUE; `bytes > 0`; `tipo` em (`logo`,`capa`,`exame`,`plano_pdf`,`diario_foto`,`diario_foto_original`,`orientacao_pdf`,`exportacao`,`documento_base`,`documento_assinado`,`documento_digitalizado`; os três últimos desde a 0089); CHECK `stored_files_dono` (`logo`/`capa`/`orientacao_pdf` ⇔ `patient_id` nulo); FK (`tenant_id`,`patient_id`) → `patients` | 0010, 0071, 0072 |
 | `backup_runs` | `tipo` (`banco`/`arquivos`), `ok`, `bytes`, `detalhe`, `iniciado_em`, `concluido_em` | índice (`tipo`,`concluido_em`) | 0013 |
 | `user` | `name`, `email` (citext), `email_verified`, `two_factor_enabled`, `app_role` (`admin`/`nutri`/`paciente`), `tenant_id` (nutri), `tema` (`sistema`/`claro`/`escuro`), `guia` (jsonb) | `email` UNIQUE; FK `tenant_id` → `tenants` | 0003, 0004, 0088 |
 | `session`, `account`, `verification`, `two_factor`, `rate_limit` | Tabelas do Better Auth | FKs `user_id` → `user` `ON DELETE CASCADE` | 0003, 0004 |
@@ -312,6 +316,16 @@ Anti-sobreposição (Plano 05, D9): `EXCLUDE USING gist (tenant_id WITH =, tstzr
 
 `content_audience.tag_id` é etiqueta **de paciente** (`patient_tags`); `contents.etiquetas` são rótulos do conteúdo, visíveis ao paciente (Plano 07, D1).
 
+### 2.5.9 Documentos assinados (`documentos.ts`, Plano 10A)
+
+| Tabela | Papel | Detalhe |
+|---|---|---|
+| `signed_documents` | O documento (receita): estados, conteúdo congelado, código, PDF preparado e final (FKs `NO ACTION` para `stored_files.caminho`, as primeiras do projeto), assinatura, entrega, cancelamento, anonimização, envio digitalizado | [§9.3.1](09-documentos-assinados.md#931-tabelas) |
+| `signed_document_notes` | Justificativa de uso e motivo de cancelamento (`staff_only`) | idem |
+| `signed_document_receipts` | Recebimento (`aberto`/`recebido`), só INSERT | idem |
+| `document_access_codes` | Código do link de uso único (só HMAC) e a sessão curta | idem |
+| `document_verifications` | Linha pública da verificação, **fora da RLS** (§2.9) | idem |
+
 ---
 
 ## 2.6 RLS em detalhe
@@ -340,7 +354,7 @@ Tudo é gravado com `set_config(..., true)`, local à transação. Depois do com
 3. Roda `fn(tx)`.
 4. Qualquer erro passa por `sanitizarErroDeBanco`: o erro do Drizzle leva SQL e parâmetros na mensagem, que não podem chegar a log nem Sentry (RNF-11; `src/db/tenant.ts:87-90`). A mesma sanitização vale para toda consulta, pelo *patch* em `PgPreparedQuery.queryWithCache` (`src/db/client.ts:8-27`).
 
-`semConta` (N7, Plano 08) marca o paciente agindo sem sessão de login (link assinado da consulta, resposta pelo WhatsApp, convite). Só três arquivos podem usar: `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:34-38`), conferido por `src/db/sem-conta-guarda.test.ts`.
+`semConta` (N7, Plano 08) marca o paciente agindo sem sessão de login (link assinado da consulta, resposta pelo WhatsApp, convite). Só quatro arquivos podem usar: `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:34-39`; o quarto, `src/modules/documentos/link-documento.ts`, é o link do documento do Plano 10A), conferido por `src/db/sem-conta-guarda.test.ts`.
 
 `withConta(userId, fn, db?)` (`src/db/tenant.ts:99-114`; Plano 06, D2): grava `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id = ''`. Serve para a conta de paciente (sem tenant) achar os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa (CLAUDE.md regra 1).
 
@@ -366,7 +380,7 @@ sequenceDiagram
 | `nutri` (equipe) | `requireNutri` / `requireApiNutri` | Tudo do próprio tenant. As políticas RESTRICTIVE só restringem `paciente` e `publico` | `src/lib/tenant-session.ts:22-28`, `:47` |
 | `worker` | Jobs do worker, com `tenant_id` no payload; sem ator | Igual à equipe no tenant do job; varreduras entre tenants partem de `tenants` | spec §4.1 "Worker"; ex. `src/modules/notificacoes/agendar.ts:212` |
 | `paciente` | `requirePaciente` / `requireApiPaciente`; tenant e paciente vêm dos vínculos da conta | Só linhas próprias (`patient_isolation`), nada de `staff_only`, nada de rascunho, conteúdo só pela audiência, escrita só em `PACIENTE_ESCREVE` e com colunas conferidas | `src/lib/paciente-session.ts:111`, `:147`, `:165`; Plano 06, D1 |
-| `paciente` + `semConta` | Três fluxos sem login (`SEM_CONTA_PERMITIDOS`) | Mesma RLS do paciente; `audit_log` sem ator | `src/db/tenant.ts:21-38` |
+| `paciente` + `semConta` | Quatro fluxos sem login (`SEM_CONTA_PERMITIDOS`; o link do documento desde o Plano 10A) | Mesma RLS do paciente; `audit_log` sem ator | `src/db/tenant.ts:21-39` |
 | `publico` | Página pública `/n/<slug>`, link da consulta, horários livres; sem ator | Só `PUBLICO_LIBERADO`, só nos comandos listados; o resto nega | Plano 05, D11; `src/db/tenant.ts:8-13`; ex. `src/modules/agenda/agendamento-publico.ts:74` |
 | `conta` | `withConta` | Só `patients` da própria conta (`paciente_por_conta`, `SELECT`) e a TACO; nada é gravado | Plano 06, D2; `drizzle/0073_conta_vinculos.sql` |
 | admin | Não tem contexto: `withTenant` recusa | Lê tabelas fora da RLS (`tenants`, `user`…) e as contagens das funções `SECURITY DEFINER` de métricas | `src/db/tenant.ts:47`; `src/modules/plataforma/metricas.ts:25`, `:46`; spec §3 |
@@ -415,6 +429,11 @@ Políticas criadas à mão (fora dos helpers):
 | `paciente_conteudo_visivel` | `contents`, `recipes`, `recipe_ingredients` | RESTRICTIVE, SELECT | Publicado e da audiência; filhas herdam por `EXISTS` em `contents` | Plano 07, D2; `drizzle/0083_audiencia_conteudos.sql:42-67` |
 | `paciente_conteudo_visto` / `paciente_conteudo_favorito` | `content_views` / `content_favorites` | RESTRICTIVE, INSERT | Só conteúdo visível **pela audiência**, nunca com `app.receitas_do_plano` ligado | `drizzle/0083_audiencia_conteudos.sql:69-79` |
 | `paciente_sem_leitura` | `audit_log` | RESTRICTIVE, SELECT | Paciente não lê o `audit_log` (B-6) | Plano 08, D9; `drizzle/0085_paciente_colunas.sql:52-54` |
+| `paciente_arquivos` (refeita) | `stored_files` | RESTRICTIVE, ALL | Como na 0085, menos `documento_base` e `documento_digitalizado` | Plano 10A; `drizzle/0090_rls_documentos.sql` |
+| `paciente_so_emitidos` | `signed_documents` | RESTRICTIVE, ALL | Paciente só vê assinado/substituído/cancelado e nunca grava | Plano 10A; `drizzle/0090_rls_documentos.sql` |
+| `paciente_recibo_proprio` | `signed_document_receipts` | RESTRICTIVE, INSERT | Paciente só grava recibo de documento `assinado` dele, nunca `pessoalmente` | Plano 10A, D11; 0090 |
+| `recibo_fora_do_paciente` | `signed_document_receipts` | RESTRICTIVE, INSERT | Fora da sessão de paciente, só `pessoalmente` com `registrado_por = app_current_user()` | Plano 10A; `drizzle/0092_documentos_defesa.sql` |
+| `paciente_codigo_de_assinado` | `document_access_codes` | RESTRICTIVE, INSERT | Sessão de paciente só cria código de documento `assinado` | Plano 10A; 0092 |
 
 ### 2.6.6 Conferência de colunas na sessão de paciente
 
@@ -424,6 +443,11 @@ A RLS decide **onde** o paciente grava. Os gatilhos `BEFORE UPDATE` `paciente_co
 |---|---|---|
 | `patients` | `app_paciente_colunas_patients()` | Mudar só `user_id` (de nulo para a própria conta), opt-in do WhatsApp com origem `paciente` ou opt-out a partir de agora, e `updated_at` (`:4-36`) |
 | `data_exports` | `app_paciente_colunas_exports()` | Só passar `status` de `pendente` para `falhou` (e `updated_at`) (`:39-50`) |
+
+Os documentos do Plano 10A têm gatilhos de colunas que valem para **todo** papel, não só o do paciente:
+`app_documento_imutavel` (`signed_documents`, 0091/0093), `app_notas_imutaveis` (`signed_document_notes`),
+`app_codigo_acesso_regras` (`document_access_codes`) e `app_verificacao_situacao` (`document_verifications`, 0092).
+Detalhe em [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções).
 
 ### 2.6.7 Conteúdo pela audiência e a exceção do plano
 
@@ -447,6 +471,10 @@ Todas seguem o mesmo molde:
 | `app_conta_sem_outro_vinculo(uuid)` | 0079 | `src/modules/pacientes/conta-titular.ts:11` | Só `worker` de um tenant | Trava a conta (`FOR UPDATE`), lê vínculos no papel `conta`, devolve se não há outro vínculo não anonimizado (Plano 06, D18) |
 | `app_conteudo_por_etiqueta(uuid)` | 0083 | A política `paciente_conteudo_visivel` | Fora da sessão de paciente responde `false` | Lê `patient_tag_links` (staff_only) como `worker` do mesmo tenant e responde só sim/não |
 
+`app_anonimizar_documentos(uuid)` (0091, Plano 10A) segue o molde (`search_path` fixo, `REVOKE`/`GRANT`) mas é
+**`SECURITY INVOKER`**: o gatilho `app_documento_imutavel` já exige o contexto `worker`, e rodar com o papel de quem chama
+não dá privilégio a mais (desvio consciente da spec v0.3; [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções)).
+
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 
 ---
@@ -457,14 +485,14 @@ As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da ver
 
 | Lista | Conteúdo hoje | Guarda | Teste |
 |---|---|---|---|
-| `RLS_EXCEPTIONS` (`rls-guard.ts:9`) | `user`, `consents`, `invites` | `findRlsViolations` (`:55`): toda tabela com `tenant_id` fora da lista tem RLS habilitada, forçada e `tenant_isolation`; com `patient_id` (ou `patients`), também `patient_isolation` | `src/db/rls-guard.test.ts:24-55` |
-| `PATIENT_POLICY_EXCEPTIONS` (`:18`) | `stored_files` (política própria `paciente_arquivos`) | idem | idem |
-| `STAFF_ONLY` (`:103`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes` | `findStaffOnlyViolations` (`:113`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:57-73` |
+| `RLS_EXCEPTIONS` (`rls-guard.ts:9`) | `user`, `consents`, `invites`, `document_verifications` (Plano 10A) | `findRlsViolations` (`:57`): toda tabela com `tenant_id` fora da lista tem RLS habilitada, forçada e `tenant_isolation`; com `patient_id` (ou `patients`), também `patient_isolation` | `src/db/rls-guard.test.ts:26-57` |
+| `PATIENT_POLICY_EXCEPTIONS` (`:20`) | `stored_files` (política própria `paciente_arquivos`) | idem | idem |
+| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A) | `findStaffOnlyViolations` (`:116`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:59-75` |
 | `PUBLICO_LIBERADO` (`:131`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:142`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:75-115` |
-| `PACIENTE_ESCREVE` (`:178`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`) | `findPacienteEscritaViolations` (`:198`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:117-186` |
+| `PACIENTE_ESCREVE` (`:181`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A) | `findPacienteEscritaViolations` (`:203`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:119-188` |
 | `CONTEUDO_POR_AUDIENCIA` (`:227`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:255`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:188+` |
 | `ESCRITA_POR_AUDIENCIA` (`:249`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
-| `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites` | `findAuditViolations` (`:18`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-46` |
+| `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites`, `document_access_codes` (Plano 10A) | `findAuditViolations` (`:19`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-46` |
 
 A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:113`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
 
@@ -525,6 +553,11 @@ Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, 
 | `appointments` | `agenda` | Agenda |
 | `diary_entries` | `diario` | Diário alimentar |
 | `content_audience` | `conteudos` | Público de conteúdo |
+| `signed_documents`, `signed_document_notes`, `signed_document_receipts` | `documentos` | Documentos assinados |
+
+Entidades gravadas só por `recordAudit` (sem tabela de gatilho), do Plano 10A: `perfil_profissional` ("Perfil
+profissional", sem paciente: dados para documentos e habilitação em Fitoterapia) e `tentativa_assinatura` ("Tentativa de
+assinatura com código recusado", no histórico do paciente do documento).
 
 ### 2.8.3 Leitura auditada
 
@@ -537,6 +570,7 @@ Não chamam `auditRead`, por decisão:
 | Agenda (nome, hora, situação) e lista de pacientes | Não é prontuário | Plano 05, D10 |
 | Conteúdo lido pelo paciente; lista "Quem viu" | Registro de uso | Plano 07, D6 |
 | Contagem do diário no Início | Auditada no máximo uma vez por paciente por dia, por ator | spec RNF-08, "Plano 08" |
+| Listas de documentos no painel e no portal (tipo, data, situação, assinatura, recibos) | Como a agenda; o conteúdo e o PDF são auditados | Plano 10A, D17 |
 
 Tabelas com `patient_id` sem gatilho estão em `AUDIT_EXCEPTIONS`, cada uma com o motivo (`src/db/audit-guard.ts:4-15`).
 
@@ -559,9 +593,10 @@ Estas tabelas não têm RLS. A proteção é o código: acesso só pelos arquivo
 | `user` (tem `tenant_id`) | Identidade global; o login acontece antes do contexto | `src/lib/auth.ts`, `admin-bootstrap.ts`, `audit.ts`, `contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `monitoramento.ts`, `preferencias.ts` (plataforma); `convite-paciente.ts`, `exportacao-job.ts`, `conta-titular.ts` (pacientes); `aviso-nutri.ts` (agenda); `scripts/e2e-seed.ts`; `test/sessao.ts`, `test/pacientes.ts`, `test/portal.ts`, `test/carga/seed.ts` | `RLS_EXCEPTIONS.user`; CLAUDE.md regra 1 |
 | `session`, `account`, `verification`, `two_factor`, `rate_limit` | Internas do Better Auth | `src/lib/auth.ts` | spec §7 |
 | `consents` (tem `tenant_id`) | Aceite gravado antes da sessão; append-only | `dpa.ts`, `convite-paciente.ts`, `agendamento-publico.ts`, `exportacao-job.ts`, `portal/termo.ts`, `test/portal.ts`, `scripts/e2e-seed.ts`, `test/carga/seed.ts`; anonimização só por `app_anonimizar_aceites` | `src/db/rls-guard.ts:11-12` |
+| `document_verifications` (tem `tenant_id`) | Lida pelo código antes de existir contexto de tenant (verificação pública); sem dado de saúde nem do paciente | Só `src/modules/documentos/verificacao.ts` (guarda em `verificacao.test.ts`); `UPDATE` só de `situacao`/`situacao_em`, `DELETE` revogado; a situação só avança (gatilho) | `src/db/rls-guard.ts:15`; 0090, 0092 |
 | `invites` (tem `tenant_id`) | Lido pelo token antes de existir conta | `plataforma/convites.ts`, `pacientes/convite-paciente.ts`, `plataforma/contas.ts`, sempre por tipo ou `user_id` (e tenant no de paciente) | `src/db/rls-guard.ts:13-14` |
 | `backup_runs` | Escrita do script do host; app só lê | Script de backup; `monitoramento.ts` | `drizzle/0014_backup_runs_somente_leitura.sql`; CLAUDE.md regra 10 |
-| `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:24`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
+| `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook; desde o Plano 10A também a verificação pública, o link do documento e o código do 2FA ao assinar | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:28`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
 | `system_heartbeat` | Batimento do worker | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts` | `drizzle/0001_plataforma.sql:13-16` |
 | Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:80-81` |
 
