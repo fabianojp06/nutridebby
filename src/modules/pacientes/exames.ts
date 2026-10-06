@@ -13,7 +13,8 @@ import { EXAME_MAX_BYTES, MSG_EXAME } from './exames-constantes';
 
 export { EXAME_MAX_BYTES, MSG_EXAME };
 
-export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null };
+/** `iaTarefaId` (Plano 11, §5.11): a linha veio da leitura por IA dessa tarefa. A digitação manual (lerValores) nunca o grava. */
+export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string };
 
 export class ExameError extends Error {
   override name = 'ExameError';
