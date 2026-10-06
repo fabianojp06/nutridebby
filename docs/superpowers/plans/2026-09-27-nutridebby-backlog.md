@@ -386,6 +386,12 @@ O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2
 | ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
 |---|---|---|---|---|---|---|
 | P09-00 | Plano 09 — Fechamento do MVP: textos legais (P08-06), débitos Minor (P04-10, P06-12, P07-09, P08-11), validação com a Debby (P08-08) | MVP v1.11 | E-09, P08-08 | Dev + Você | M | ⬜ |
+| P09-01 | Conferência de origem no salvamento do plano alimentar + guarda das rotas de escrita (divergência 12 do manual técnico) | Plano 09, T1 | — | Dev | M | ✅ aguardando merge |
+| P09-02 | Worker espera a versão do schema no deploy (a) e admin reinicia o 2FA de uma conta, com `admin_actions` e aviso por e-mail (b) | Plano 09, T2 | — | Dev | M | ✅ aguardando merge |
+| P09-03 | Aviso claro quando o aparelho está conectado com outro papel | Plano 09, T3 | — | Dev | M | ✅ aguardando merge |
+| P09-04 | Estabilizar o E2E (tour do primeiro acesso, diário com sessão vencida, offline do plano) | Plano 09, T4 | — | Dev | M | ✅ aguardando merge |
+| P09-05 | Painel da nutricionista instalável (PWA), sem cópia offline de dado de saúde (ícone provisório; layout a definir pelo dono) | Plano 09, T5 | — | Dev | M | ✅ aguardando merge |
+| P09-06 | Status do sistema | Plano 09 | — | Dev | M | ⬜ (fora deste PR) |
 | P10A-00 | Plano 10A — Receita (F3-06): base de documentos assinados + receita com assinatura **digitalizada**, entrega, recebimento, verificação, cancelar e LGPD — **concluído em 06/10/2026** (PR #19, em produção; migrations 0089–0093; spec de documentos assinados **v0.4** e spec do MVP v1.12 no fechamento) — plano aprovado pelo dono em 05/10/2026 — [`2026-10-05-nutridebby-10a-receita.md`](2026-10-05-nutridebby-10a-receita.md); spec de documentos assinados v0.4 | US-140, US-142–147, US-149, US-150 base | P09-00 (ordem), P-B1 (uso real) | Dev | M | ✅ |
 | P10B-00 | Plano 10B — Assinatura gov.br e ICP-Brasil (F3-06, parte do certificado) — **plano aprovado pelo dono (05/10/2026)** — [`2026-10-05-nutridebby-10b-assinatura-digital.md`](2026-10-05-nutridebby-10b-assinatura-digital.md) | US-144, RN-144, RN-145, P-B2 | P10A-00, PDFs reais (dono) | Dev + Você | M | ⬜ |
 | P11-00 | Plano 11 — Base de IA + leitura de laudos (F3-01) | Spec A v0.2 | P10A-00 | Dev | M | ⬜ |

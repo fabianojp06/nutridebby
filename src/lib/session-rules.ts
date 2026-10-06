@@ -16,6 +16,27 @@ export function homeFor(role: AppRole): string {
   return role === 'admin' ? '/admin' : role === 'nutri' ? '/painel' : '/p/inicio';
 }
 
+/** P09-03: tela "este aparelho está conectado com outra conta" (o caso `forbidden` de requireUser). */
+export const OUTRO_PAPEL_PATH = '/conta/outro-papel';
+export const ROTULO_PAPEL: Record<AppRole, string> = { admin: 'administrador', nutri: 'nutricionista', paciente: 'paciente' };
+
+export function ehPapel(v: unknown): v is AppRole {
+  return v === 'admin' || v === 'nutri' || v === 'paciente';
+}
+
+/** O papel que a tela pedia. A Segurança aceita admin e nutricionista: o aviso pede a conta de nutricionista. */
+export function papelEsperado(allowed: readonly AppRole[]): AppRole {
+  return allowed.includes('nutri') ? 'nutri' : allowed[0];
+}
+
+export function caminhoOutroPapel(allowed: readonly AppRole[]): string {
+  return `${OUTRO_PAPEL_PATH}?esperado=${papelEsperado(allowed)}`;
+}
+
+export function textoOutroPapel(atual: AppRole, esperado: AppRole): string {
+  return `Este aparelho está conectado como ${ROTULO_PAPEL[atual]}. Saia e entre com a conta de ${ROTULO_PAPEL[esperado]}.`;
+}
+
 /** Quando a sessão expira se houver atividade agora. */
 export function sessionExpiresAt(role: AppRole, now: Date): Date {
   return new Date(now.getTime() + (role === 'paciente' ? PATIENT_SESSION_MS : STAFF_IDLE_MS));

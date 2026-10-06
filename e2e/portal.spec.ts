@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { corNoEscuro } from '@/lib/tema/marca-tema';
 import { entrarComo } from './helpers';
@@ -37,9 +38,24 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
   await p.page.context().close();
 });
 
-test('nutricionista em /p/inicio volta ao painel', async () => {
+test('aparelho com outro papel: a tela diz qual conta está conectada e oferece "Sair" — portal, admin e painel (P09-03)', async ({ browser }) => {
+  const aviso = (page: Page) => page.getByRole('status').filter({ hasText: 'Este aparelho está conectado como' });
   await nutri.goto('/p/inicio');
-  await expect(nutri).toHaveURL(/\/painel$/);
+  await expect(nutri).toHaveURL(/\/conta\/outro-papel\?esperado=paciente$/);
+  await expect(aviso(nutri)).toHaveText('Este aparelho está conectado como nutricionista. Saia e entre com a conta de paciente.');
+  await expect(nutri.getByRole('button', { name: 'Sair' })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: 'Ir para o painel' })).toHaveAttribute('href', '/painel');
+  expect((await new AxeBuilder({ page: nutri }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations.map((v) => v.id)).toEqual([]);
+  await nutri.goto('/admin');
+  await expect(aviso(nutri)).toHaveText('Este aparelho está conectado como nutricionista. Saia e entre com a conta de administrador.');
+  // IP 10.9.17.1 (bloco do Plano 09)
+  const p = await pacienteNoPortal(browser, nutri, '10.9.17.1');
+  await p.page.goto('/painel/pacientes');
+  await expect(p.page).toHaveURL(/\/conta\/outro-papel\?esperado=nutri$/);
+  await expect(aviso(p.page)).toHaveText('Este aparelho está conectado como paciente. Saia e entre com a conta de nutricionista.');
+  await expect(p.page.getByText(p.email)).toHaveCount(0); // Review Focus 4: nada da conta na tela
+  await expect(p.page.getByText(p.nome)).toHaveCount(0);
+  await p.page.context().close();
 });
 
 test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu plano"; publicado → refeições e PDF (US-041)', async ({ browser }) => {
@@ -70,6 +86,9 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await expect(p.page.getByRole('status').filter({ hasText: 'Offline — exibindo última versão' })).toBeVisible();
   await p.page.goto('/p/inicio');
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  // P09-04: a cópia de "Meu plano" servida offline em /p/inicio navega sozinha para /p/plano quando a rede volta e
+  // atropelava o goto (run 37304638500). Sair dela antes de religar a rede.
+  await p.page.goto('about:blank');
   await p.page.context().setOffline(false);
   await p.page.goto('/p/inicio');
   await p.page.getByRole('button', { name: 'Sair', exact: true }).click();
@@ -170,11 +189,20 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
 
 test('diário com a sessão vencida: a tela diz "Sessão expirada. Entre de novo.", oferece o login e não apaga o que foi escrito', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.8');
+  // P09-04: o POST /api/p/acesso da abertura devolve Set-Cookie com a sessão renovada (P06-11). Se a resposta chegasse
+  // depois do clearCookies, a sessão "voltava" e o registro era salvo (run 37304638500): esperar por ela antes. O atraso
+  // de 1,5 s fica de propósito: rede lenta não pode mudar o resultado.
+  await p.page.route('**/api/p/acesso', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue().catch(() => undefined);
+  });
+  const acesso = p.page.waitForResponse((r) => new URL(r.url()).pathname === '/api/p/acesso');
   await p.page.goto('/p/diario');
+  await acesso;
   await p.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
   await p.page.getByLabel('O que você comeu?').fill('iogurte com granola');
   await p.page.context().clearCookies(); // a sessão "vence" com a página aberta
-  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await p.page.getByRole('button', { name: 'Registrar' }).click(); // o clique espera o botão habilitar (hidratação)
   const alerta = p.page.getByRole('alert').filter({ hasText: 'Sessão expirada. Entre de novo.' });
   await expect(alerta).toBeVisible();
   await expect(alerta.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar?volta=%2Fp%2Fdiario');

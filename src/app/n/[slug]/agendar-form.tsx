@@ -126,7 +126,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
   if (etapa === 'pronto') return <p role="status" className="rounded bg-emerald-50 p-3">{MSG_PUBLICO.agendada(quando)}</p>;
   if (etapa === 'codigo') {
     return (
-      <form onSubmit={confirmar} className="max-w-sm space-y-3">
+      <form method="post" onSubmit={confirmar} className="max-w-sm space-y-3">
         <p role="status">{MSG_PUBLICO.enviado(dados?.email ?? '')}</p>
         <label htmlFor="codigo" className="block font-medium">Código</label>
         <input id="codigo" name="codigo" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="w-full rounded border p-2" {...aria('codigo')} />
@@ -138,7 +138,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
   }
   if (etapa === 'outro') {
     return (
-      <form onSubmit={escolherOutro} className="space-y-3">
+      <form method="post" onSubmit={escolherOutro} className="space-y-3">
         {alerta}
         <p className="font-medium">Escolha um horário</p>
         <SeletorHorarios horarios={outros} modalidade={modalidade} erro={erros.inicio} />
@@ -148,7 +148,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
   }
   const semanaHref = (s: string) => `/n/${slug}?semana=${s}&modalidade=${modalidade}`;
   return (
-    <form onSubmit={pedirCodigo} className="space-y-4">
+    <form method="post" onSubmit={pedirCodigo} className="space-y-4">
       {temOnline && (
         <fieldset className="space-y-1">
           <legend className="font-medium">Escolha a modalidade</legend>

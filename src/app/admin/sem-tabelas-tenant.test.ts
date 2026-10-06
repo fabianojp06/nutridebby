@@ -13,6 +13,7 @@ const ARQUIVOS_DO_ADMIN = [
   path.resolve('src/modules/plataforma/contas.ts'),
   path.resolve('src/modules/plataforma/metricas.ts'),
   path.resolve('src/modules/plataforma/monitoramento.ts'),
+  path.resolve('src/modules/plataforma/reiniciar-2fa.ts'),
   path.resolve('src/modules/plataforma/suspensao.ts'),
 ];
 

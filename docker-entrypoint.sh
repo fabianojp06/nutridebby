@@ -15,6 +15,9 @@ case "$MODE" in
   admin:criar)
     exec env -u DATABASE_URL_MIGRATOR node --import tsx scripts/admin-criar.ts "$@"
     ;;
+  admin:reiniciar-2fa)
+    exec env -u DATABASE_URL_MIGRATOR node --import tsx scripts/admin-reiniciar-2fa.ts "$@"
+    ;;
   *)
     exec "$MODE" "$@"
     ;;

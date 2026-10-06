@@ -659,6 +659,34 @@
       "when": 1791240613192,
       "tag": "0093_documentos_arquivos_e_rascunho",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1791288910816,
+      "tag": "0094_versao_do_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1791289052241,
+      "tag": "0095_admin_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791289059127,
+      "tag": "0096_admin_actions_somente_insercao",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1791296384784,
+      "tag": "0097_admin_actions_codigo_recusado",
+      "breakpoints": true
     }
   ]
 }

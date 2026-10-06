@@ -71,7 +71,7 @@ Princípios que atravessam o capítulo:
 | Role do banco | O mesmo da aplicação (`DATABASE_URL`, sem `BYPASSRLS`) | spec §4.1, linha 127 |
 | Schema da fila | `pgboss`, criado pelas migrations com dono = role da aplicação; o worker usa `createSchema: false` | `src/db/migrate.ts:80-81`, `src/worker/index.ts:44-49` |
 | Filas | Criadas **e atualizadas** a cada subida por `ensureQueues` (`createQueue` + `updateQueue`): o código é a fonte da verdade | `src/jobs/queues.ts:50-55` |
-| Parada | `SIGTERM`/`SIGINT` → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; idempotente | `src/worker/index.ts:207-226` |
+| Parada | `SIGTERM`/`SIGINT` ouvidos antes de iniciar (`rodarComSinais`): no ar → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; ainda esperando o schema → corta a espera e fecha Sentry e pool; idempotente | `src/worker/sinais.ts`, `src/worker/index.ts` |
 | Erro não tratado | O worker **não** usa a integração `OnUnhandledRejection` do Sentry: a rejeição derruba o processo e o Swarm o reinicia | `src/lib/sentry.ts:87-91,110` |
 
 Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DATABASE_URL`, `LOG_LEVEL`,
@@ -80,6 +80,14 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
 as três do VAPID vêm juntas e do mesmo par. Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
+
+**Espera do schema (P09-02).** Antes de subir o pg-boss, `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`) confere
+pela função `app_versao_do_schema()` (0094) que a última migration do `drizzle/meta/_journal.json` da imagem já foi
+aplicada pelo app; confere de novo a cada 3 s por até 5 min (`INTERVALO_SCHEMA_MS`, `PRAZO_SCHEMA_MS`). Passou do prazo:
+log `schema do banco atrás do worker` (com a migration esperada, o `when` da última aplicada lida, o nome do erro e o
+SQLSTATE), o processo sai com erro e o Swarm o reinicia. Um `SIGTERM` durante a espera a corta na hora (code review do
+PR #22: com node como PID 1, sem o ouvinte o Swarm esperaria o grace period). Em dev, `pnpm worker` num banco sem
+as migrations do branch espera e sai com a mesma mensagem: rode `pnpm db:migrate`.
 
 ### 6.2.2 Produtor e consumidor
 
@@ -344,7 +352,7 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 | Webhook do WhatsApp (anti-repetição) | 1 por janela de aceite | HMAC do JWT + corpo | `public_rate_limits`, na transação do evento | `src/modules/notificacoes/whatsapp/webhook.ts:138` |
 | `POST /api/erro-cliente` | 20 / min | IP (/64 no IPv6) | Memória | `src/app/api/erro-cliente/route.ts:13,25` |
 | `POST /api/csp-relatorio` (só no modo relatório) | 60 / min | IP (/64) | Memória | `src/app/api/csp-relatorio/route.ts:9,20` |
-| `POST /api/p/push` | 20 / 10 min | Conta | Memória | `src/app/api/p/push/route.ts:16,50` |
+| `POST /api/p/push` | 20 / 10 min | Conta | Memória | `src/app/api/p/push/route.ts:16,51` |
 | Verificação pública `/v/<código>` (Plano 10A) | 30 / h | HMAC do IP (`verificacao-ip`, /64) | `public_rate_limits` | `src/modules/documentos/verificacao.ts` (`consultarVerificacao`) |
 | Link do documento: pedir código (Plano 10A) | 20 / h por IP; 5 / h e 1 / min por documento | `documento-ip`; `documento-envio` | `public_rate_limits` (+ data do último código) | `src/modules/documentos/link-documento.ts` (`pedirCodigoDocumento`) |
 | Link do documento: confirmar código (Plano 10A) | 30 / h por IP; 5 erros por código | `documento-codigo-ip`; `tentativas` na linha | `public_rate_limits`; `document_access_codes` | `link-documento.ts` (`confirmarCodigoDocumento`) |
@@ -810,12 +818,18 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 | `DATABASE_URL_MIGRATOR` | Não se regrava sozinha | O dono troca a senha do role com `\password` no `psql` (sem eco, nunca no chat) e atualiza a variável do app |
 | `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EVOLUTION_API_KEY`, `SENTRY_DSN`, chaves do R2 | Sem efeito em dado guardado | Gerar a nova no provedor, trocar a variável, revogar a antiga |
 
-**Plano para o 2FA ao trocar `AUTH_SECRET`.** Não há no código rota para reiniciar o 2FA de outra conta.
+**Plano para o 2FA ao trocar `AUTH_SECRET`.**
 - Se der tempo (troca planejada): antes da troca, cada conta com 2FA o desativa em `/conta/seguranca`; depois da troca,
   o admin é levado de novo à configuração (`setup-2fa`) e a nutricionista reativa se quiser.
-- Se não der (vazamento ativo): troque primeiro. Para as contas travadas, é preciso apagar a linha de `two_factor` e
-  pôr `two_factor_enabled = false` na tabela `user` em produção. É mexer no banco de produção: só o dono, com OK
-  explícito e snapshot (regras 3 e 5 do servidor). Nunca por subagente.
+- Se não der (vazamento ativo): troque primeiro. Depois da troca, um admin que ainda entra reinicia o 2FA das contas
+  travadas em **/admin › Verificação em duas etapas** (P09-02: apaga a linha de `two_factor`, desliga o 2FA, revoga as
+  sessões, registra em `admin_actions` e avisa a conta por e-mail). O painel pede o código atual do 2FA da própria
+  admin (code review do PR #22: `confirmarCodigo2fa`, 5 tentativas em 15 min, o mesmo código não vale duas vezes em
+  90 s; a recusa fica em `admin_actions` como `codigo_2fa_recusado`, sem conta-alvo) e recusa conta de paciente, que só
+  o comando abaixo reinicia. Se nenhum admin consegue entrar, o dono roda, com
+  OK explícito e snapshot no hPanel antes, `docker exec -it <container do nutri_app> /app/docker-entrypoint.sh
+  admin:reiniciar-2fa <email do admin>` (o modo roda sem `DATABASE_URL_MIGRATOR`, `env -u`, como o `admin:criar`;
+  nunca por subagente).
 
 **Ordem.** (1) Snapshot no hPanel. (2) O dono troca a variável no Easypanel, no app e no worker (regra 1 do servidor).
 (3) Reinício dos serviços com OK do dono. (4) `/api/health` 200 e logs sem `SealError` inesperado. (5) Refazer o que a

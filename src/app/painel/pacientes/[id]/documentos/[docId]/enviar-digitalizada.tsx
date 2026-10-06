@@ -20,6 +20,7 @@ export function EnviarDigitalizada({ docId, aviso, dica }: { docId: string; avis
   if (!aberto) return <Botao type="button" variante="secundario" onClick={() => setAberto(true)}>Enviar documento digitalizado (assinado à mão)</Botao>;
   return (
     <form
+      method="post"
       className="space-y-2"
       onSubmit={async (e) => {
         e.preventDefault();

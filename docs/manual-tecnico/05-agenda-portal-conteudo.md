@@ -1186,8 +1186,8 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 O checklist de tela nova (painel e portal) está no [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova).
 
 - Comece com `requirePaciente(path)`; use o `ctx` devolvido em `withTenant`. Rota em `/api/p/*`: `requireApiPaciente`
-  e, em POST, `mesmaOrigem`. **Nenhuma guarda do CI confere isso no portal**: uma página ou rota sem a guarda passa no
-  CI.
+  e, em POST, `mesmaOrigem` antes da sessão. A origem tem guarda (`src/app/api/mesma-origem-rotas.test.ts`, P09-01);
+  a sessão, **nenhuma no portal**: uma página ou rota sem `requirePaciente`/`requireApiPaciente` passa no CI.
 - Dado de saúde devolvido → `auditRead` na mesma transação (P06 D22).
 - Nada novo no cache offline: só "Meu plano" (P06 D6). Se precisar mudar isso, revise `sw-regras.ts` e as regras de
   limpeza.

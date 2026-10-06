@@ -1,10 +1,13 @@
 'use client';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { FOTO_DIARIO_MAX_BYTES, MSG_DIARIO, REFEICOES_DO_DIARIO, TEXTO_DIARIO_MAX } from '@/modules/portal/diario-constantes';
 import { linkDaRecusa, recusaDoPortal } from '../../recusa-api';
 
 type Erros = Partial<Record<'refeicao' | 'texto' | 'foto' | 'geral', string>>;
+
+/** true só no cliente depois da hidratação (no servidor e na hidratação, false) — sem setState em efeito. */
+const semInscricao = () => () => {};
 
 /** US-042: envia por fetch (multipart) e mostra a miniatura local na hora, antes de o worker converter a foto. */
 export function DiarioForm() {
@@ -13,6 +16,11 @@ export function DiarioForm() {
   const [ok, setOk] = useState<string | null>(null);
   const [previa, setPrevia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  /**
+   * P09-04: antes da hidratação, "Registrar" faria o envio nativo do formulário (GET com o texto do diário na URL — dado
+   * de saúde no log de acesso e no Referer). O botão nasce desabilitado e habilita quando o onSubmit já está ligado.
+   */
+  const hidratado = useSyncExternalStore(semInscricao, () => true, () => false);
   /**
    * Recusa da sessão: o link do login (401) ou da escolha do consultório (403 de vínculo a escolher, S-4) fica junto da
    * mensagem e o formulário NÃO é apagado (o texto não se perde).
@@ -62,7 +70,7 @@ export function DiarioForm() {
   };
   const campoErro = (id: keyof Erros) => (erros[id] ? { 'aria-invalid': true, 'aria-describedby': `${id}-erro` } : {});
   return (
-    <form onSubmit={enviar} className="space-y-3" noValidate>
+    <form method="post" onSubmit={enviar} className="space-y-3" noValidate>
       <div className="space-y-1">
         <label htmlFor="refeicao" className="block font-medium">Refeição</label>
         <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('refeicao')}>
@@ -108,7 +116,7 @@ export function DiarioForm() {
         </p>
       )}
       {ok && <p role="status" className="rounded bg-ok-fundo p-3">{ok}</p>}
-      <button disabled={enviando} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">Registrar</button>
+      <button disabled={enviando || !hidratado} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">Registrar</button>
     </form>
   );
 }

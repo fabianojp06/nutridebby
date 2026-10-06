@@ -85,7 +85,7 @@ export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Pro
 
   return (
     <div className="space-y-4">
-      <form onSubmit={pedirCodigo} className="space-y-3">
+      <form method="post" onSubmit={pedirCodigo} className="space-y-3">
         <p>Para abrir o documento, enviaremos um código de 6 dígitos para o seu e-mail.</p>
         {siteKey && <TurnstileWidget key={widget} siteKey={siteKey} onToken={setTurnstile} onIndisponivel={() => setErro(FORA)} />}
         {erro && <Aviso tipo="erro">{erro}</Aviso>}
@@ -94,7 +94,7 @@ export function CodigoForm({ token, siteKey, confirmarRecebimento = false }: Pro
           Enviar código
         </Botao>
       </form>
-      <form onSubmit={abrir} className="max-w-sm space-y-3">
+      <form method="post" onSubmit={abrir} className="max-w-sm space-y-3">
         <Campo id="codigo" rotulo="Código" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required erro={erroCodigo || undefined} />
         <Botao type="submit" variante={enviado ? 'primario' : 'secundario'} disabled={enviando}>
           Abrir

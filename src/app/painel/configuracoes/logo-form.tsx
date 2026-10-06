@@ -29,7 +29,7 @@ export function LogoForm() {
   }
 
   return (
-    <form onSubmit={enviar} className="space-y-2">
+    <form method="post" onSubmit={enviar} className="space-y-2">
       <label htmlFor="logo" className="block font-medium">Logo</label>
       <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/svg+xml" aria-describedby="logo-dica" />
       <p id="logo-dica" className="text-sm text-suave">PNG, JPEG ou SVG de até 2 MB. O logo é reduzido para no máximo 512 px.</p>

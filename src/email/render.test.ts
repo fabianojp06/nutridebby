@@ -206,3 +206,13 @@ describe('cota_whatsapp (RN-09, US-036)', () => {
     expect(r.text).toContain('Ver o uso do WhatsApp: https://x.dev/painel/whatsapp');
   });
 });
+
+describe('aviso_2fa_reiniciado (P09-02 b)', () => {
+  it('aviso de 2FA reiniciado (P09-02 b): diz o que aconteceu, onde reativar e o que fazer se não foi pedido; sem link', () => {
+    const r = renderEmail({ tipo: 'aviso_2fa_reiniciado', para: 'a@b.dev' });
+    expect(r.subject).toBe('A verificação em duas etapas da sua conta foi desativada');
+    expect(r.text).toContain('Conta > Segurança');
+    expect(r.text).toContain('Se você não pediu isso');
+    expect(r.html).not.toContain('href=');
+  });
+});

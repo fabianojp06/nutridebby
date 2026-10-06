@@ -9,7 +9,7 @@ import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession, type Auth } from './auth';
 import { logger, nomeDoErro } from './logger';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
-import { evaluateSession, homeFor, SECURITY_PATH, SUSPENDED_PATH, type AppRole } from './session-rules';
+import { caminhoOutroPapel, evaluateSession, SECURITY_PATH, SUSPENDED_PATH, type AppRole } from './session-rules';
 
 export type SessionData = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
 
@@ -81,7 +81,8 @@ export async function requireUserComTenant(
     case 'suspended':
       redirect(SUSPENDED_PATH);
     case 'forbidden':
-      redirect(homeFor(data!.user.appRole as AppRole));
+      // P09-03: nada de redirect calado para a home do papel — a tela diz com qual conta o aparelho está
+      redirect(caminhoOutroPapel(allowed));
     default: {
       const unreachable: never = decision;
       throw new Error(`Decisão de sessão desconhecida: ${String(unreachable)}`);

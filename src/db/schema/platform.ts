@@ -139,3 +139,30 @@ export const backupRuns = pgTable(
     index('backup_runs_tipo_idx').on(t.tipo, t.concluidoEm),
   ],
 );
+
+/**
+ * P09-02 (b): ações sensíveis do admin sobre contas — hoje só o reinício do 2FA e, pelo painel, o código do 2FA da
+ * própria admin recusado ao pedir esse reinício (code review do PR #22, item 1: a recusa fica registrada como a da
+ * assinatura do Plano 10A; sem conta-alvo, porque o código é conferido antes de procurar o e-mail). Sem tenant_id (fora
+ * da RLS; o admin não toca tabela 🔒). Para a aplicação, só INSERT e SELECT (0096). Sem e-mail: a conta é o id e o papel.
+ */
+export const adminActions = pgTable(
+  'admin_actions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Nulo quando veio do comando no servidor (`admin:reiniciar-2fa`, sem sessão). */
+    adminUserId: uuid('admin_user_id'),
+    acao: text('acao').notNull(),
+    /** Nulos só em `codigo_2fa_recusado` (admin_actions_alvo_coerente). */
+    alvoUserId: uuid('alvo_user_id'),
+    alvoPapel: text('alvo_papel'),
+    origem: text('origem').notNull(),
+    criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('admin_actions_acao_valida', sql`${t.acao} in ('reiniciar_2fa', 'codigo_2fa_recusado')`),
+    check('admin_actions_alvo_coerente', sql`(${t.acao} = 'reiniciar_2fa') = (${t.alvoUserId} is not null and ${t.alvoPapel} is not null)`),
+    check('admin_actions_origem_valida', sql`${t.origem} in ('admin', 'cli')`),
+    check('admin_actions_autor_coerente', sql`(${t.origem} = 'cli') = (${t.adminUserId} is null)`),
+  ],
+);

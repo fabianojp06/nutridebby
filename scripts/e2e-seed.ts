@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, patients, tenants, twoFactor, user } from '@/db/schema';
+import { account, consents, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { hashPassword } from '@/lib/password.server';
@@ -52,6 +52,9 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));
+// P09-04: o seed zera os limites de login do Better Auth dos IPs do E2E (chave "<ip>|<caminho>", só a faixa 10.9.x.x):
+// rodar o E2E várias vezes seguidas não esbarra nas 5 tentativas por 15 min
+await db.delete(rateLimit).where(like(rateLimit.key, '10.9.%'));
 
 await db.delete(user).where(eq(user.email, E2E_ADMIN.email));
 const adminId = randomUUID();

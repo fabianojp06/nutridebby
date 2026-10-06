@@ -48,7 +48,7 @@ export function EsqueciSenhaForm({ siteKey }: { siteKey: string }) {
 
   if (enviado) return <p role="status">Se o e-mail estiver cadastrado, você receberá um link</p>;
   return (
-    <form onSubmit={enviar} className="space-y-3">
+    <form method="post" onSubmit={enviar} className="space-y-3">
       <label htmlFor="email" className="block">E-mail</label>
       <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
       <TurnstileWidget
