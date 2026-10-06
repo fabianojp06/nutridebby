@@ -13,6 +13,11 @@ const estado = vi.hoisted(() => ({
 vi.mock('@/lib/paciente-session', () => ({ requireApiPaciente: async () => estado.acesso }));
 vi.mock('@/lib/api-auth', () => ({ requireApiUser: async (_req: Request, papeis: string[]) => (papeis.join() === 'paciente' ? estado.usuario : null) }));
 vi.mock('@/lib/ip', () => ({ clientIp: () => '203.0.113.9' }));
+vi.mock('@/lib/mesma-origem', async (orig) => {
+  const m = await orig<typeof import('@/lib/mesma-origem')>();
+  return { mesmaOrigem: vi.fn(m.mesmaOrigem) };
+});
+const { mesmaOrigem } = await import('@/lib/mesma-origem');
 vi.mock('@/env', () => ({ getEnv: () => ({ APP_URL: 'http://localhost:3000', VAPID_PUBLIC_KEY: estado.chave }) }));
 vi.mock('@/modules/portal/push-inscricao', async () => {
   class InscricaoInvalidaError extends Error {}
@@ -48,6 +53,26 @@ beforeEach(() => {
   estado.inscricoes = [];
   estado.cancelados = [];
   estado.contas = [];
+});
+
+describe('uma só conferência de origem por pedido (code review do PR #22, item 7)', () => {
+  it('POST e DELETE conferem a origem uma vez; Origin de outro site → 403 sem sessão nem corpo', async () => {
+    const espiao = vi.mocked(mesmaOrigem);
+    espiao.mockClear();
+    expect((await POST(pedido())).status).toBe(204);
+    expect(espiao).toHaveBeenCalledTimes(1);
+    espiao.mockClear();
+    expect((await DELETE(pedido({ metodo: 'DELETE', corpo: JSON.stringify({ endpoint: inscricao.endpoint }) }))).status).toBe(204);
+    expect(espiao).toHaveBeenCalledTimes(1);
+    espiao.mockClear();
+    estado.inscricoes = [];
+    estado.cancelados = [];
+    expect((await POST(pedido({ origin: 'https://evil.example' }))).status).toBe(403);
+    expect((await DELETE(pedido({ metodo: 'DELETE', origin: 'https://evil.example' }))).status).toBe(403);
+    expect(espiao).toHaveBeenCalledTimes(2);
+    expect(estado.inscricoes).toEqual([]);
+    expect(estado.cancelados).toEqual([]);
+  });
 });
 
 describe('POST /api/p/push (US-040)', () => {

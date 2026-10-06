@@ -23,12 +23,14 @@ async function json(req: Request): Promise<unknown> {
   return JSON.parse(new TextDecoder().decode(corpo));
 }
 
-/** Mesma origem (ou sem Origin) e o corpo em JSON; `autorizar` decide a sessão exigida (antes de ler o corpo). */
+/**
+ * A sessão exigida (`autorizar`) e o corpo em JSON, lido depois dela. A origem é conferida por quem chama, antes de tudo
+ * (P09-01; uma só vez por pedido — code review do PR #22, item 7).
+ */
 async function entrada<T>(
   req: Request,
   autorizar: (req: Request) => Promise<({ ok: true } & T) | { ok: false; response: Response }>,
 ): Promise<{ ok: false; erro: Response } | { ok: true; acesso: T; corpo: unknown }> {
-  if (!mesmaOrigem(req)) return { ok: false, erro: resposta(403) };
   const acesso = await autorizar(req);
   if (!acesso.ok) return { ok: false, erro: acesso.response };
   try {
@@ -64,6 +66,7 @@ export async function POST(req: Request): Promise<Response> {
  * "Sair" de /p/termo, /p/escolher, /p/sem-acesso e /indisponivel não tem termo aceito nem vínculo escolhido.
  */
 export async function DELETE(req: Request): Promise<Response> {
+  if (!mesmaOrigem(req)) return resposta(403); // P09-01: a origem antes da sessão
   const e = await entrada<ApiAuth & { ok: true }>(req, (r) => requireApiUser(r, ['paciente']));
   if (!e.ok) return e.erro;
   const conta = { userId: e.acesso.data.user.id, ip: clientIp(req.headers, getEnv().TRUSTED_PROXIES) };
