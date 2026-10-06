@@ -4,9 +4,11 @@ import { iaTarefas, patients, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
+import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import sharp from 'sharp';
 import { novoPaciente } from './pacientes';
 
-/** Bytes que o detectarTipo aceita como PDF (para exames cujo conteúdo não é lido). A T5 acrescenta `pdfDeTeste` (PDF de verdade). */
+/** Bytes que o detectarTipo aceita como PDF (para exames cujo conteúdo não é lido). Para um PDF de verdade, `pdfDeTeste`. */
 export const PDF_MINIMO = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(200, 0x20)]);
 
 /** A IA liberada pela admin e ativada pela nutricionista, com o aditivo atual (T2 cria IA_ADITIVO_VERSAO). */
@@ -56,4 +58,28 @@ export async function tarefaNoBanco(db: Db, ctx: TenantContext, patientId: strin
     db,
   );
   return t.id;
+}
+
+/** PDF de verdade (abre no pdf-lib), com texto por página e, se pedido, metadados com o "nome do paciente". */
+export async function pdfDeTeste(o: { paginas?: number; textos?: string[]; titulo?: string; xmp?: string } = {}): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const fonte = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < (o.paginas ?? 1); i++) {
+    const p = doc.addPage([595, 842]);
+    p.drawText(o.textos?.[i] ?? `Glicose de jejum 92 mg/dL (página ${i + 1})`, { x: 50, y: 780, size: 11, font: fonte });
+  }
+  if (o.titulo) {
+    doc.setTitle(o.titulo);
+    doc.setAuthor(o.titulo);
+    doc.setSubject(o.titulo);
+    doc.setKeywords([o.titulo]);
+  }
+  if (o.xmp) doc.catalog.set(PDFName.of('Metadata'), doc.context.register(doc.context.stream(o.xmp, { Type: 'Metadata', Subtype: 'XML' })));
+  return Buffer.from(await doc.save());
+}
+
+/** Foto "de celular": JPEG com EXIF (orientação e um texto no Copyright) — o preparo tem de girar e tirar tudo. */
+export async function fotoDeTeste(o: { largura?: number; altura?: number; orientacao?: number; copyright?: string } = {}): Promise<Buffer> {
+  const img = sharp({ create: { width: o.largura ?? 4000, height: o.altura ?? 3000, channels: 3, background: '#f0f0f0' } });
+  return img.jpeg().withMetadata({ orientation: o.orientacao ?? 6, exif: { IFD0: { Copyright: o.copyright ?? 'Ana Souza' } } }).toBuffer();
 }
