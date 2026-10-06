@@ -40,10 +40,14 @@ import { limparAcessosAntigos } from '@/modules/portal/acesso';
 import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
 import { workSemDetalhe } from './sem-detalhe';
+import { esperarVersaoDoSchema, versaoAplicada, versaoEsperada } from './versao-schema';
 import { urlDoApp } from '@/lib/url-do-app';
 
 export async function startWorker(env: WorkerEnv): Promise<() => Promise<void>> {
   iniciarSentry({ dsn: env.SENTRY_DSN, ambiente: env.SENTRY_ENVIRONMENT ?? 'producao', papel: 'worker' });
+  // P09-02 (a) / spec §9.7: o deploy sobe app e worker juntos e as migrations rodam no boot do app. Nenhum consumidor nem
+  // agendamento antes de o banco ter a última migration deste código (espera até PRAZO_SCHEMA_MS; depois sai com erro).
+  await esperarVersaoDoSchema({ esperada: versaoEsperada(), aplicada: () => versaoAplicada(getDb()) });
   // createSchema: false — ver Plano 01, Tarefa 10 (o schema pgboss é do role da aplicação)
   const boss = new PgBoss({
     connectionString: env.DATABASE_URL,

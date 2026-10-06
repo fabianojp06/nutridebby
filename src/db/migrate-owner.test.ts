@@ -125,6 +125,12 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
+  it('P09-02 (a): app_versao_do_schema() funciona com o migrator sem superusuário (dono do schema drizzle)', async () => {
+    const { rows } = await app.query('select app_versao_do_schema() as v');
+    const { rows: dono } = await owner.query('select max(created_at)::bigint as v from drizzle.__drizzle_migrations');
+    expect(Number(rows[0].v)).toBe(Number(dono[0].v));
+  });
+
   it('métricas do admin: a função SECURITY DEFINER conta por tenant sob FORCE RLS (dono sem superusuário)', async () => {
     const c = await app.connect();
     try {

@@ -64,6 +64,15 @@ describe('migrations de base', () => {
     expect(check[0].d).toContain(`'sistema'`);
   });
 
+  it('P09-02 (a): o role da aplicação lê a versão do schema só pela função (= `when` da última migration do journal), nunca a tabela do drizzle', async () => {
+    const journal = JSON.parse(readFileSync(new URL('../../drizzle/meta/_journal.json', import.meta.url), 'utf8')) as { entries: { when: number }[] };
+    const { rows } = await app.pool.query('select app_versao_do_schema() as v');
+    expect(Number(rows[0].v)).toBe(journal.entries.at(-1)!.when);
+    const { versaoAplicada } = await import('@/worker/versao-schema');
+    expect(await versaoAplicada(app.db)).toBe(journal.entries.at(-1)!.when);
+    await expect(app.pool.query('select count(*) from drizzle.__drizzle_migrations')).rejects.toMatchObject({ code: '42501' });
+  });
+
   it('rodar as migrations de novo é seguro (idempotente)', async () => {
     const { runMigrations } = await import('./migrate');
     await expect(

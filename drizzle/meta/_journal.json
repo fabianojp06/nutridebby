@@ -659,6 +659,13 @@
       "when": 1791240613192,
       "tag": "0093_documentos_arquivos_e_rascunho",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1791288910816,
+      "tag": "0094_versao_do_schema",
+      "breakpoints": true
     }
   ]
 }

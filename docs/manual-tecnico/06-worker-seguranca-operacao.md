@@ -81,6 +81,12 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
 as três do VAPID vêm juntas e do mesmo par. Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
 
+**Espera do schema (P09-02).** Antes de subir o pg-boss, `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`) confere
+pela função `app_versao_do_schema()` (0094) que a última migration do `drizzle/meta/_journal.json` da imagem já foi
+aplicada pelo app; confere de novo a cada 3 s por até 5 min (`INTERVALO_SCHEMA_MS`, `PRAZO_SCHEMA_MS`). Passou do prazo:
+log `schema do banco atrás do worker`, o processo sai com erro e o Swarm o reinicia. Em dev, `pnpm worker` num banco sem
+as migrations do branch espera e sai com a mesma mensagem: rode `pnpm db:migrate`.
+
 ### 6.2.2 Produtor e consumidor
 
 Há **duas** instâncias do pg-boss, com papéis diferentes.
