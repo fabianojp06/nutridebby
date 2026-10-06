@@ -44,7 +44,7 @@ export function ExameForm({ patientId, hoje }: { patientId: string; hoje: string
   const aria = (k: string) => (erros[k] ? { 'aria-invalid': true as const, 'aria-describedby': `${k}-erro` } : {});
   const erro = (k: string) => erros[k] && <p id={`${k}-erro`} role="alert" className="text-sm text-erro">{erros[k]}</p>;
   return (
-    <form ref={form} onSubmit={enviar} className="space-y-4">
+    <form method="post" ref={form} onSubmit={enviar} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <label htmlFor="titulo" className="block font-medium">Título do exame</label>

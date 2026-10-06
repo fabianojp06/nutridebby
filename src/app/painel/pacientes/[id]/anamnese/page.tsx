@@ -12,7 +12,7 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
   return (
     <div className="space-y-8">
       {paciente.status !== 'bloqueado' && (
-        <form action={`/painel/pacientes/${paciente.id}/anamnese/nova`} className="flex flex-wrap items-end gap-3">
+        <form method="get" action={`/painel/pacientes/${paciente.id}/anamnese/nova`} className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <label htmlFor="modelo" className="block font-medium">Modelo</label>
             <select id="modelo" name="modelo" className="rounded-xl border border-campo bg-cartao p-2 text-texto">

@@ -35,7 +35,7 @@ function Form() {
   }
 
   return (
-    <form onSubmit={entrar} className="space-y-3">
+    <form method="post" onSubmit={entrar} className="space-y-3">
       <label htmlFor="email" className="block">E-mail</label>
       <input id="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border p-2" />
       <label htmlFor="password" className="block">Senha</label>

@@ -31,7 +31,7 @@ function Form() {
 
   return (
     <>
-      <form onSubmit={verificar} className="space-y-3">
+      <form method="post" onSubmit={verificar} className="space-y-3">
         <label htmlFor="code" className="block">{usarRecuperacao ? 'Código de recuperação' : 'Código do app autenticador'}</label>
         <input id="code" autoComplete="one-time-code" required value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded border p-2" />
         {erro && <p role="alert" className="text-red-700">{erro}</p>}

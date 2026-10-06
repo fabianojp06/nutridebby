@@ -29,7 +29,7 @@ function Form() {
   if (ok) return <p role="status">Senha definida. <a href="/entrar" className="underline">Entrar</a></p>;
   if (!token) return <p role="alert">Link inválido ou expirado. Peça um novo.</p>;
   return (
-    <form onSubmit={salvar} className="space-y-3">
+    <form method="post" onSubmit={salvar} className="space-y-3">
       <p className="text-sm">Mínimo de 10 caracteres, com pelo menos 1 letra e 1 número.</p>
       <label htmlFor="senha" className="block">Nova senha</label>
       <input id="senha" type="password" autoComplete="new-password" required value={senha} onChange={(e) => setSenha(e.target.value)} className="w-full rounded border p-2" />

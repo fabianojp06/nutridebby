@@ -33,7 +33,7 @@ export function Enable2fa() {
 
   if (step === 'senha')
     return (
-      <form onSubmit={iniciar} data-guia="ativar-2fa" className="space-y-3">
+      <form method="post" onSubmit={iniciar} data-guia="ativar-2fa" className="space-y-3">
         <label htmlFor="senha" className="block">Confirme sua senha</label>
         <input id="senha" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         {erro && <p role="alert" className="text-erro">{erro}</p>}
@@ -43,7 +43,7 @@ export function Enable2fa() {
 
   if (step === 'codigo')
     return (
-      <form onSubmit={confirmar} data-guia="ativar-2fa" className="space-y-3">
+      <form method="post" onSubmit={confirmar} data-guia="ativar-2fa" className="space-y-3">
         <p>Leia o QR Code no app autenticador (Google Authenticator, Authy, 1Password…).</p>
         {qr && (
           // eslint-disable-next-line @next/next/no-img-element -- QR é data: URL gerada no cliente; next/image não otimiza data URLs

@@ -120,3 +120,18 @@ test('token de redefinição inválido mostra mensagem em pt-BR (fix round 1)', 
   await expect(page.locator('p[role="alert"]')).toHaveText('Link inválido ou expirado. Peça um novo.');
   await ctx.close();
 });
+
+test('antes da hidratação (sem JavaScript), o formulário de login posta: e-mail e senha nunca vão para a URL (code review do PR #22, item 2)', async ({ browser }) => {
+  const ctx = await browser.newContext({ javaScriptEnabled: false, extraHTTPHeaders: { 'x-forwarded-for': '10.9.0.9' } });
+  const page = await ctx.newPage();
+  await page.goto('/entrar');
+  await page.getByLabel('E-mail').fill(NUTRI.email);
+  await page.getByLabel('Senha').fill(NUTRI.password);
+  const [pedido] = await Promise.all([page.waitForRequest((r) => r.isNavigationRequest() && r.frame() === page.mainFrame()), page.getByRole('button', { name: 'Entrar' }).click()]);
+  expect(pedido.method()).toBe('POST');
+  expect(pedido.url()).not.toContain('?');
+  await page.waitForLoadState();
+  expect(page.url()).not.toContain(encodeURIComponent(NUTRI.email));
+  expect(page.url()).not.toContain(NUTRI.password);
+  await ctx.close();
+});

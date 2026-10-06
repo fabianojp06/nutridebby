@@ -70,7 +70,7 @@ export function DiarioForm() {
   };
   const campoErro = (id: keyof Erros) => (erros[id] ? { 'aria-invalid': true, 'aria-describedby': `${id}-erro` } : {});
   return (
-    <form onSubmit={enviar} className="space-y-3" noValidate>
+    <form method="post" onSubmit={enviar} className="space-y-3" noValidate>
       <div className="space-y-1">
         <label htmlFor="refeicao" className="block font-medium">Refeição</label>
         <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('refeicao')}>
