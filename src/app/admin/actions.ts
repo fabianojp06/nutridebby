@@ -1,13 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getDb } from '@/db/client';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, definirDocumentosLiberados, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
 import { ajustarCotaWhatsapp, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
-import { MSG_2FA, Reiniciar2faError, reiniciarDoisFatores } from '@/modules/plataforma/reiniciar-2fa';
+import { MSG_2FA, Reiniciar2faError, reiniciarPeloAdmin } from '@/modules/plataforma/reiniciar-2fa';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 
@@ -124,17 +125,20 @@ export async function salvarMetricasAction(tenantId: string, _prev: MetricasStat
   return { ok: true };
 }
 
-export type Reiniciar2faState = { erro?: string; ok?: string; valor?: string };
+export type Reiniciar2faState = { erro?: string; ok?: string; valor?: string; campo?: 'email' | 'codigo' };
 
-/** P09-02 (b): reinicia o 2FA de outra conta (a confirmação fica no botão). */
+/**
+ * P09-02 (b): reinicia o 2FA de outra conta. Code review do PR #22, item 1: exige o código atual do 2FA da própria admin
+ * (reiniciarPeloAdmin, com a sessão dela nos cabeçalhos); a confirmação do botão fica.
+ */
 export async function reiniciar2faAction(_prev: Reiniciar2faState, formData: FormData): Promise<Reiniciar2faState> {
   const { user } = await requireUser(['admin'], '/admin');
   const email = campo(formData, 'email');
   try {
-    const r = await reiniciarDoisFatores(email, { origem: 'admin', adminId: user.id });
+    const r = await reiniciarPeloAdmin(email, { adminId: user.id, codigo: formData.get('codigo'), headers: new Headers(await headers()) });
     return { ok: r.papel === 'admin' ? MSG_2FA.okAdmin : MSG_2FA.ok };
   } catch (e) {
-    if (e instanceof Reiniciar2faError) return { erro: e.message, valor: email };
+    if (e instanceof Reiniciar2faError) return { erro: e.message, valor: email, campo: e.codigo === 'codigo' || e.codigo === 'tentativas' ? 'codigo' : 'email' };
     throw e;
   }
 }

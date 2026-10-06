@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComoAdmin, fecharTourDeBoasVindas } from './helpers';
+import { codigoDoAdmin, entrarComoAdmin, fecharTourDeBoasVindas } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 
 const ADMIN = { email: 'admin-plataforma-e2e@nutridebby.test', password: 'Nutri2026segura' };
@@ -196,4 +196,24 @@ test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; va
   // sem paciente com conta nem consulta iniciada no mês: as contagens ficam em "—"
   await expect(admin.getByRole('columnheader', { name: 'App na semana' })).toBeVisible();
   await expect(admin.getByRole('columnheader', { name: 'Faltas no mês' })).toBeVisible();
+});
+
+test('reiniciar o 2FA de outra conta pede o código da própria admin: errado é recusado; certo segue (code review do PR #22, item 1)', async () => {
+  await admin.goto('/admin');
+  admin.on('dialog', (d) => void d.accept());
+  const email = admin.getByLabel('E-mail da conta');
+  const codigo = admin.getByLabel('Seu código da verificação em duas etapas');
+  const botao = admin.getByRole('button', { name: 'Reiniciar verificação em duas etapas' });
+  await email.fill(NUTRI.email);
+  await codigo.fill(codigoDoAdmin(ADMIN.email) === '000000' ? '111111' : '000000');
+  await botao.click();
+  await expect(admin.getByRole('alert').filter({ hasText: 'Código inválido' })).toHaveText('Código inválido. Confira o horário do celular e tente de novo.');
+  await expect(codigo).toHaveAttribute('aria-invalid', 'true');
+  await expect(email).toHaveValue(NUTRI.email); // a recusa devolve o e-mail; o código nunca volta
+  await expect(codigo).toHaveValue('');
+  // o código certo passa; a conta da nutricionista não tem 2FA ativo → a recusa seguinte é a da conta, não a do código
+  await codigo.fill(codigoDoAdmin(ADMIN.email));
+  await botao.click();
+  await expect(admin.getByRole('alert').filter({ hasText: 'duas etapas' })).toHaveText('Esta conta não tem a verificação em duas etapas ativa.');
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
 });

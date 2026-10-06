@@ -36,6 +36,13 @@ export async function entrarComoAdmin(browser: Browser, cred: { email: string; p
   return page;
 }
 
+/** Código atual do 2FA do admin da execução (o segredo guardado no primeiro login de entrarComoAdmin). */
+export function codigoDoAdmin(email: string): string {
+  const segredo = segredos.get(email);
+  if (!segredo) throw new Error('entrarComoAdmin antes de pedir o código');
+  return new TOTP({ secret: segredo }).generate();
+}
+
 /**
  * P08-10: conta nova criada pelo fluxo do admin (plataforma.spec) vê o tour de boas-vindas no 1º acesso ao painel.
  * Espera o tour abrir (o `showModal` vem num `useLayoutEffect`, depois da hidratação) e fecha com Esc.

@@ -4,15 +4,16 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { adminActions, session, twoFactor, user } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
+import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
 import { criarEEntrar, entrar } from '../../../test/sessao';
-import { MSG_2FA, Reiniciar2faError, reiniciarDoisFatores, type Codigo2fa } from './reiniciar-2fa';
+import { mensagemDaFalha, MSG_2FA, Reiniciar2faError, reiniciarDoisFatores, reiniciarPeloAdmin, type Codigo2fa } from './reiniciar-2fa';
 
 const db = getDb();
 const auth = getAuth();
 afterAll(() => closeDb());
 
 /** Conta com 2FA "ativo" no banco (a linha de two_factor com segredo qualquer: o que importa aqui é ela sumir). */
-async function comDoisFatores(appRole: 'admin' | 'nutri') {
+async function comDoisFatores(appRole: 'admin' | 'nutri' | 'paciente') {
   const c = await criarEEntrar(db, auth, { appRole });
   await entrar(auth, c.email); // segunda sessão
   await db.insert(twoFactor).values({ userId: c.id, secret: 'cifrado-qualquer', backupCodes: 'cifrado-qualquer' });
@@ -58,6 +59,19 @@ describe('reiniciarDoisFatores (P09-02 b, manual técnico §6.9.1)', () => {
     expect(await db.select().from(adminActions).where(eq(adminActions.alvoUserId, admin.id))).toEqual([]);
   });
 
+  it('code review do PR #22, item 3: configuração pela metade (linha de two_factor sem two_factor_enabled) → sem_2fa e nada muda', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const metade = await criarEEntrar(db, auth, { appRole: 'nutri' });
+    await db.insert(twoFactor).values({ userId: metade.id, secret: 'cifrado-qualquer', backupCodes: 'cifrado-qualquer' });
+    const avisar = avisos();
+    const erro = await reiniciarDoisFatores(metade.email, { origem: 'admin', adminId: admin.id }, { db, avisar }).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ codigo: 'sem_2fa', message: MSG_2FA.semDoisFatores });
+    expect(avisar).not.toHaveBeenCalled();
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, metade.id))).toHaveLength(1);
+    expect(await db.select().from(session).where(eq(session.userId, metade.id))).toHaveLength(1);
+    expect(await db.select().from(adminActions).where(eq(adminActions.alvoUserId, metade.id))).toEqual([]);
+  });
+
   it('o e-mail não entra na fila → nada muda (mesma transação)', async () => {
     const alvo = await comDoisFatores('nutri');
     const falha = vi.fn(async () => { throw new Error('A fila de e-mail recusou o envio'); });
@@ -72,5 +86,92 @@ describe('reiniciarDoisFatores (P09-02 b, manual técnico §6.9.1)', () => {
     expect(r.papel).toBe('admin');
     const [reg] = await db.select().from(adminActions).where(eq(adminActions.alvoUserId, alvo.id));
     expect(reg).toMatchObject({ adminUserId: null, origem: 'cli' });
+  });
+});
+
+describe('reiniciarPeloAdmin: o código do 2FA da própria admin (code review do PR #22, item 1)', () => {
+  const headers = () => new Headers({ cookie: 'nd.session_token=qualquer' });
+  const recusas = (adminId: string) =>
+    db.select().from(adminActions).where(eq(adminActions.adminUserId, adminId)).then((r) => r.filter((x) => x.acao === 'codigo_2fa_recusado'));
+
+  it('código certo: confere o código da admin (sessão dela) e reinicia o 2FA da outra conta', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const alvo = await comDoisFatores('nutri');
+    const confirmar2fa = vi.fn(async () => 'ok' as const);
+    const h = headers();
+    const r = await reiniciarPeloAdmin(alvo.email, { adminId: admin.id, codigo: '123456', headers: h }, { db, avisar: avisos(), confirmar2fa });
+    expect(r.papel).toBe('nutri');
+    expect(confirmar2fa).toHaveBeenCalledWith({ userId: admin.id, codigo: '123456', headers: h });
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, alvo.id))).toEqual([]);
+  });
+
+  it('código errado: recusa com a mensagem, registra a recusa (sem conta-alvo, sem e-mail) e nada muda na outra conta', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const alvo = await comDoisFatores('nutri');
+    const avisar = avisos();
+    const erro = await reiniciarPeloAdmin(alvo.email, { adminId: admin.id, codigo: '000000', headers: headers() }, { db, avisar, confirmar2fa: async () => 'invalido' }).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ codigo: 'codigo', message: MSG_2FA.codigo });
+    expect(await recusas(admin.id)).toEqual([expect.objectContaining({ acao: 'codigo_2fa_recusado', alvoUserId: null, alvoPapel: null, origem: 'admin' })]);
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, alvo.id))).toHaveLength(1);
+    expect(avisar).not.toHaveBeenCalled();
+  });
+
+  it('muitas tentativas: recusa sem conferir mais nada', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const alvo = await comDoisFatores('nutri');
+    const erro = await reiniciarPeloAdmin(alvo.email, { adminId: admin.id, codigo: '123456', headers: headers() }, { db, avisar: avisos(), confirmar2fa: async () => 'bloqueado' }).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ codigo: 'tentativas', message: MSG_2FA.tentativas });
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, alvo.id))).toHaveLength(1);
+  });
+
+  it('e-mail vazio: recusa antes de gastar uma tentativa do código', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const confirmar2fa = vi.fn(async () => 'ok' as const);
+    await expect(reiniciarPeloAdmin('  ', { adminId: admin.id, codigo: '123456', headers: headers() }, { db, confirmar2fa })).rejects.toMatchObject({ codigo: 'email' });
+    expect(confirmar2fa).not.toHaveBeenCalled();
+  });
+
+  it('conta de paciente: recusa com código próprio, nada muda e o código volta a valer', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const paciente = await comDoisFatores('paciente');
+    const liberar2fa = vi.fn(async () => undefined);
+    const avisar = avisos();
+    const erro = await reiniciarPeloAdmin(paciente.email, { adminId: admin.id, codigo: '123456', headers: headers() }, { db, avisar, confirmar2fa: async () => 'ok', liberar2fa }).catch((e: unknown) => e);
+    expect(erro).toBeInstanceOf(Reiniciar2faError);
+    expect(erro).toMatchObject({ codigo: 'paciente', message: MSG_2FA.paciente });
+    expect(liberar2fa).toHaveBeenCalledWith({ userId: admin.id, codigo: '123456' });
+    expect(avisar).not.toHaveBeenCalled();
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, paciente.id))).toHaveLength(1);
+    expect(await db.select().from(session).where(eq(session.userId, paciente.id))).toHaveLength(2);
+  });
+
+  it('pelo comando no servidor, a conta de paciente continua podendo ser reiniciada (só o dono, no host)', async () => {
+    const paciente = await comDoisFatores('paciente');
+    await expect(reiniciarDoisFatores(paciente.email, { origem: 'cli', adminId: null }, { db, avisar: avisos() })).resolves.toMatchObject({ papel: 'paciente' });
+  });
+
+  it('anti-repetição e limite de verdade (confirmarCodigo2fa): o mesmo código não reinicia duas contas; a recusa por conta inexistente devolve o código', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const a = await comDoisFatores('nutri');
+    const b = await comDoisFatores('nutri');
+    const confirmar2fa = (e: Parameters<typeof confirmarCodigo2fa>[0]) => confirmarCodigo2fa(e, { db, verificar: async () => true });
+    const deps = { db, avisar: avisos(), confirmar2fa };
+    const pedido = { adminId: admin.id, codigo: '246 810', headers: headers() };
+    await expect(reiniciarPeloAdmin(`ninguem-${randomUUID()}@teste.dev`, pedido, deps)).rejects.toMatchObject({ codigo: 'nao_encontrada' });
+    await expect(reiniciarPeloAdmin(a.email, pedido, deps)).resolves.toMatchObject({ userId: a.id }); // o código voltou a valer
+    await expect(reiniciarPeloAdmin(b.email, pedido, deps)).rejects.toMatchObject({ codigo: 'codigo' }); // já usado
+    expect(await db.select().from(twoFactor).where(eq(twoFactor.userId, b.id))).toHaveLength(1);
+    expect(await recusas(admin.id)).toHaveLength(1);
+  });
+});
+
+describe('mensagemDaFalha do comando no servidor (code review do PR #22, item 9)', () => {
+  it('recusa conhecida: a mensagem; erro inesperado: o nome e o SQLSTATE, nunca a mensagem (regra 3)', () => {
+    expect(mensagemDaFalha(new Reiniciar2faError('nao_encontrada'))).toBe(MSG_2FA.naoEncontrada);
+    const pg = Object.assign(new Error('insert into admin_actions … ana@exemplo.com'), { code: '42501' });
+    const drizzle = Object.assign(new Error('Failed query: … ana@exemplo.com'), { name: 'DrizzleQueryError', cause: pg });
+    const m = mensagemDaFalha(drizzle);
+    expect(m).toBe('Erro inesperado ao reiniciar a verificação em duas etapas (DrizzleQueryError, SQLSTATE 42501)');
+    expect(mensagemDaFalha(new TypeError('x@y.z'))).toBe('Erro inesperado ao reiniciar a verificação em duas etapas (TypeError)');
   });
 });

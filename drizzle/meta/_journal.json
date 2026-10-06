@@ -680,6 +680,13 @@
       "when": 1791289059127,
       "tag": "0096_admin_actions_somente_insercao",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1791296384784,
+      "tag": "0097_admin_actions_codigo_recusado",
+      "breakpoints": true
     }
   ]
 }
