@@ -86,6 +86,9 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await expect(p.page.getByRole('status').filter({ hasText: 'Offline — exibindo última versão' })).toBeVisible();
   await p.page.goto('/p/inicio');
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  // P09-04: a cópia de "Meu plano" servida offline em /p/inicio navega sozinha para /p/plano quando a rede volta e
+  // atropelava o goto (run 37304638500). Sair dela antes de religar a rede.
+  await p.page.goto('about:blank');
   await p.page.context().setOffline(false);
   await p.page.goto('/p/inicio');
   await p.page.getByRole('button', { name: 'Sair', exact: true }).click();
@@ -186,11 +189,20 @@ test('diário: registro com texto e foto aparece na hora; o worker converte a fo
 
 test('diário com a sessão vencida: a tela diz "Sessão expirada. Entre de novo.", oferece o login e não apaga o que foi escrito', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.8');
+  // P09-04: o POST /api/p/acesso da abertura devolve Set-Cookie com a sessão renovada (P06-11). Se a resposta chegasse
+  // depois do clearCookies, a sessão "voltava" e o registro era salvo (run 37304638500): esperar por ela antes. O atraso
+  // de 1,5 s fica de propósito: rede lenta não pode mudar o resultado.
+  await p.page.route('**/api/p/acesso', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue().catch(() => undefined);
+  });
+  const acesso = p.page.waitForResponse((r) => new URL(r.url()).pathname === '/api/p/acesso');
   await p.page.goto('/p/diario');
+  await acesso;
   await p.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
   await p.page.getByLabel('O que você comeu?').fill('iogurte com granola');
   await p.page.context().clearCookies(); // a sessão "vence" com a página aberta
-  await p.page.getByRole('button', { name: 'Registrar' }).click();
+  await p.page.getByRole('button', { name: 'Registrar' }).click(); // o clique espera o botão habilitar (hidratação)
   const alerta = p.page.getByRole('alert').filter({ hasText: 'Sessão expirada. Entre de novo.' });
   await expect(alerta).toBeVisible();
   await expect(alerta.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar?volta=%2Fp%2Fdiario');
