@@ -666,6 +666,20 @@
       "when": 1791288910816,
       "tag": "0094_versao_do_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1791289052241,
+      "tag": "0095_admin_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791289059127,
+      "tag": "0096_admin_actions_somente_insercao",
+      "breakpoints": true
     }
   ]
 }

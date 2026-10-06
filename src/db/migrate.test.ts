@@ -73,6 +73,13 @@ describe('migrations de base', () => {
     await expect(app.pool.query('select count(*) from drizzle.__drizzle_migrations')).rejects.toMatchObject({ code: '42501' });
   });
 
+  it('P09-02 (b): admin_actions é só de inclusão para a aplicação', async () => {
+    const { rows } = await app.pool.query(
+      `select has_table_privilege('nutri_app', 'admin_actions', 'INSERT') as i, has_table_privilege('nutri_app', 'admin_actions', 'UPDATE') as u, has_table_privilege('nutri_app', 'admin_actions', 'DELETE') as d`,
+    );
+    expect(rows[0]).toEqual({ i: true, u: false, d: false });
+  });
+
   it('rodar as migrations de novo é seguro (idempotente)', async () => {
     const { runMigrations } = await import('./migrate');
     await expect(

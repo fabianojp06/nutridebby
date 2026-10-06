@@ -7,6 +7,7 @@ import { getDb } from '@/db/client';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, definirDocumentosLiberados, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
 import { ajustarCotaWhatsapp, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
+import { MSG_2FA, Reiniciar2faError, reiniciarDoisFatores } from '@/modules/plataforma/reiniciar-2fa';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 
@@ -121,4 +122,19 @@ export async function salvarMetricasAction(tenantId: string, _prev: MetricasStat
   }
   revalidatePath('/admin');
   return { ok: true };
+}
+
+export type Reiniciar2faState = { erro?: string; ok?: string; valor?: string };
+
+/** P09-02 (b): reinicia o 2FA de outra conta (a confirmação fica no botão). */
+export async function reiniciar2faAction(_prev: Reiniciar2faState, formData: FormData): Promise<Reiniciar2faState> {
+  const { user } = await requireUser(['admin'], '/admin');
+  const email = campo(formData, 'email');
+  try {
+    const r = await reiniciarDoisFatores(email, { origem: 'admin', adminId: user.id });
+    return { ok: r.papel === 'admin' ? MSG_2FA.okAdmin : MSG_2FA.ok };
+  } catch (e) {
+    if (e instanceof Reiniciar2faError) return { erro: e.message, valor: email };
+    throw e;
+  }
 }

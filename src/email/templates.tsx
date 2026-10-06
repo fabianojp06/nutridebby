@@ -378,6 +378,12 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ],
         { href: msg.link, rotulo: 'Ver o uso do WhatsApp' },
       );
+    case 'aviso_2fa_reiniciado':
+      return simples('A verificação em duas etapas da sua conta foi desativada', [
+        'A verificação em duas etapas da sua conta no NutriDebby foi desativada pelo suporte, e as sessões abertas foram encerradas.',
+        'Na próxima entrada, ative de novo em Conta > Segurança (para a administração, a ativação é obrigatória).',
+        'Se você não pediu isso, fale com o suporte agora.',
+      ]);
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

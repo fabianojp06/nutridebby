@@ -807,12 +807,15 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 | `DATABASE_URL_MIGRATOR` | Não se regrava sozinha | O dono troca a senha do role com `\password` no `psql` (sem eco, nunca no chat) e atualiza a variável do app |
 | `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EVOLUTION_API_KEY`, `SENTRY_DSN`, chaves do R2 | Sem efeito em dado guardado | Gerar a nova no provedor, trocar a variável, revogar a antiga |
 
-**Plano para o 2FA ao trocar `AUTH_SECRET`.** Não há no código rota para reiniciar o 2FA de outra conta.
+**Plano para o 2FA ao trocar `AUTH_SECRET`.**
 - Se der tempo (troca planejada): antes da troca, cada conta com 2FA o desativa em `/conta/seguranca`; depois da troca,
   o admin é levado de novo à configuração (`setup-2fa`) e a nutricionista reativa se quiser.
-- Se não der (vazamento ativo): troque primeiro. Para as contas travadas, é preciso apagar a linha de `two_factor` e
-  pôr `two_factor_enabled = false` na tabela `user` em produção. É mexer no banco de produção: só o dono, com OK
-  explícito e snapshot (regras 3 e 5 do servidor). Nunca por subagente.
+- Se não der (vazamento ativo): troque primeiro. Depois da troca, um admin que ainda entra reinicia o 2FA das contas
+  travadas em **/admin › Verificação em duas etapas** (P09-02: apaga a linha de `two_factor`, desliga o 2FA, revoga as
+  sessões, registra em `admin_actions` e avisa a conta por e-mail). Se nenhum admin consegue entrar, o dono roda, com
+  OK explícito e snapshot no hPanel antes, `docker exec -it <container do nutri_app> /app/docker-entrypoint.sh
+  admin:reiniciar-2fa <email do admin>` (o modo roda sem `DATABASE_URL_MIGRATOR`, `env -u`, como o `admin:criar`;
+  nunca por subagente).
 
 **Ordem.** (1) Snapshot no hPanel. (2) O dono troca a variável no Easypanel, no app e no worker (regra 1 do servidor).
 (3) Reinício dos serviços com OK do dono. (4) `/api/health` 200 e logs sem `SealError` inesperado. (5) Refazer o que a

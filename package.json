@@ -20,6 +20,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/worker/index.ts",
     "admin:criar": "tsx --env-file-if-exists=.env.local scripts/admin-criar.ts",
+    "admin:reiniciar-2fa": "tsx --env-file-if-exists=.env.local scripts/admin-reiniciar-2fa.ts",
     "e2e:seed": "tsx --env-file-if-exists=.env.local scripts/e2e-seed.ts",
     "seed:taco": "tsx scripts/seeds/gerar-taco.ts",
     "seed:medidas": "tsx scripts/seeds/gerar-medidas.ts",

@@ -11,6 +11,7 @@ import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { CotaForm } from './cota-form';
 import { MetricasForm } from './metricas-form';
 import { PainelInfra } from './painel-infra';
+import { Reiniciar2faForm } from './reiniciar-2fa-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,11 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
         </p>
       )}
       <PainelInfra />
+      <section aria-labelledby="titulo-2fa" className="space-y-2 rounded border p-4">
+        <h2 id="titulo-2fa" className="text-lg font-semibold">Verificação em duas etapas</h2>
+        <p className="text-sm">Use quando alguém perdeu o app autenticador e os códigos de recuperação, ou depois da troca do AUTH_SECRET. Confirme antes a identidade de quem pediu.</p>
+        <Reiniciar2faForm />
+      </section>
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Contas de nutricionista</caption>
         <thead>

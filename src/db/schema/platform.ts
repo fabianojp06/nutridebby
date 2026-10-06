@@ -139,3 +139,26 @@ export const backupRuns = pgTable(
     index('backup_runs_tipo_idx').on(t.tipo, t.concluidoEm),
   ],
 );
+
+/**
+ * P09-02 (b): ações sensíveis do admin sobre contas — hoje só o reinício do 2FA. Sem tenant_id (fora da RLS; o admin não
+ * toca tabela 🔒). Para a aplicação, só INSERT e SELECT (0096). Sem e-mail: a conta é o id e o papel.
+ */
+export const adminActions = pgTable(
+  'admin_actions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Nulo quando veio do comando no servidor (`admin:reiniciar-2fa`, sem sessão). */
+    adminUserId: uuid('admin_user_id'),
+    acao: text('acao').notNull(),
+    alvoUserId: uuid('alvo_user_id').notNull(),
+    alvoPapel: text('alvo_papel').notNull(),
+    origem: text('origem').notNull(),
+    criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('admin_actions_acao_valida', sql`${t.acao} in ('reiniciar_2fa')`),
+    check('admin_actions_origem_valida', sql`${t.origem} in ('admin', 'cli')`),
+    check('admin_actions_autor_coerente', sql`(${t.origem} = 'cli') = (${t.adminUserId} is null)`),
+  ],
+);

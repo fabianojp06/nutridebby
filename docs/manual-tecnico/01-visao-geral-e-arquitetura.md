@@ -526,6 +526,7 @@ O `src/` vai para a imagem porque o worker, as migrations e o `admin:criar` roda
 | `app` | `node --import tsx scripts/migrate.ts` e depois `next start` | Migrations antes do start; o Next sobe **sem** `DATABASE_URL_MIGRATOR` no ambiente (`env -u`) |
 | `worker` | `node --import tsx src/worker/index.ts` | Sem `DATABASE_URL_MIGRATOR` |
 | `admin:criar` | `node --import tsx scripts/admin-criar.ts <email>` | Só por `docker exec -it` interativo: o link de definição de senha sai no terminal (Plano 01, Tarefa 13, Step 5) |
+| `admin:reiniciar-2fa` | `node --import tsx scripts/admin-reiniciar-2fa.ts <email>` | Sem `DATABASE_URL_MIGRATOR`. Só o dono, por `docker exec -it`, com OK e snapshot, quando nenhum admin consegue entrar (P09-02; [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado)) |
 | outro | `exec` do comando | Depuração |
 
 Por que remover `DATABASE_URL_MIGRATOR`: é a credencial do dono do schema, capaz de desligar a RLS; só o script de

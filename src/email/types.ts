@@ -57,7 +57,9 @@ export type EmailMessage =
   /** D18: o celular saiu de "Aparelhos conectados" (não foi pelo painel); `link` = /painel/whatsapp. */
   | { tipo: 'whatsapp_desconectado'; para: string; link: string }
   /** US-036: 80% (ou mais) da cota de WhatsApp do mês, uma vez por mês; `link` = /painel/whatsapp. */
-  | { tipo: 'cota_whatsapp'; para: string; usadas: number; cota: number; link: string };
+  | { tipo: 'cota_whatsapp'; para: string; usadas: number; cota: number; link: string }
+  /** P09-02 (b): o admin (ou o comando no servidor) reiniciou o 2FA da conta; sem link (aviso de segurança). */
+  | { tipo: 'aviso_2fa_reiniciado'; para: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };
