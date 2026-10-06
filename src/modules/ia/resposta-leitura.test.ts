@@ -57,6 +57,34 @@ describe('resposta da leitura (RN-111, spec §5.8)', () => {
     expect(r).toEqual({ tipo: 'ok', resultado: { versao: 1, dataColeta: '2026-08-28', linhas: [limpa, limpa], descartadas: 1 } });
   });
 
+  it('campo bruto enorme (instrução escondida) é descartado antes da limpeza, sem travar o worker', () => {
+    const enorme = (c: string) => c.repeat(100_000);
+    const t = performance.now();
+    const r = validarRespostaLeitura(
+      resp({
+        marcadores: [
+          linha(),
+          linha({ nome_no_laudo: enorme('a') }),
+          linha({ valor_texto: enorme('a.') }),
+          linha({ unidade: enorme('x') }),
+          linha({ referencia: enorme('a-') }),
+        ],
+      }),
+      1,
+    );
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(r).toMatchObject({ tipo: 'ok', resultado: { linhas: [{ nome: 'Glicose' }], descartadas: 4 } });
+  });
+
+  it('a folga do teto bruto (4× o limite) deixa passar invisíveis que somem; acima dela a linha sai mesmo se a limpeza caberia', () => {
+    const zw = '​';
+    const r = validarRespostaLeitura(
+      resp({ marcadores: [linha({ nome_no_laudo: zw.repeat(300) + 'Glicose' }), linha({ nome_no_laudo: zw.repeat(400) + 'Glicose' })] }),
+      1,
+    );
+    expect(r).toMatchObject({ tipo: 'ok', resultado: { linhas: [{ nome: 'Glicose' }], descartadas: 1 } });
+  });
+
   it('página inexistente vira null; data inválida vira null', () => {
     const r = validarRespostaLeitura(resp({ data_coleta: '2026-02-30', marcadores: [linha({ pagina: 9 })] }), 2);
     expect(r.tipo === 'ok' && r.resultado).toMatchObject({ dataColeta: null, linhas: [{ pagina: null }] });

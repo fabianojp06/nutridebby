@@ -32,9 +32,10 @@ const linhaSchema = z
   .strict();
 const respostaSchema = z.object({ documento_reconhecido: z.boolean(), data_coleta: z.string().nullable(), marcadores: z.array(linhaSchema) }).strict();
 
-// Link de qualquer esquema (http, ftp, hxxp…) ou www.; colado a uma palavra ("Glicosehttps://…"), a palavra sai junto
-// (o campo pode ficar vazio e a linha é descartada).
-const LINK = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/gi;
+// Link de qualquer esquema (http, ftp, hxxp…) ou www.: a palavra inteira que o contém sai ("Glicosehttps://…" some todo;
+// o campo pode ficar vazio e a linha é descartada). Filtro por palavra, depois do colapso dos espaços: só literais, custo
+// linear (um regex com esquema genérico, `[a-z][a-z0-9+.-]*:\/\/`, volta atrás a cada letra e fica quadrático).
+const LINK = /:\/\/|www\./i;
 // Controle C0/C1 (\p{Cc}): vira espaço (não some), "70\na 99" fica "70 a 99", não "70a 99".
 const CONTROLE = /\p{Cc}/gu;
 // Formatação invisível (\p{Cf}: marcas de direção, largura zero, hífen suave, caracteres de "tag" U+E0000…) e surrogate
@@ -43,9 +44,15 @@ const CONTROLE = /\p{Cc}/gu;
 const INVISIVEL = /[\p{Cf}\p{Cs}]/gu;
 /** Texto da IA → texto puro de uma linha (spec §5.8, 3 e 4): sem link, sem controle nem invisível, espaços colapsados. */
 function limpar(s: string): string {
-  return s.normalize('NFC').replace(INVISIVEL, '').replace(CONTROLE, ' ').replace(LINK, '').replace(/\s+/g, ' ').trim();
+  const palavras = s.normalize('NFC').replace(INVISIVEL, '').replace(CONTROLE, ' ').replace(/\s+/g, ' ').trim().split(' ');
+  return palavras.filter((p) => !LINK.test(p)).join(' ');
 }
 const LIMITES = { nome: 80, valor: 40, unidade: 20, referencia: 80 } as const;
+// Teto do campo BRUTO (antes de limpar): folga de 4× para invisíveis e espaços que somem. Acima dele a linha é descartada
+// sem passar pela limpeza (instrução escondida pode pedir um campo com dezenas de milhares de caracteres; o schema da API
+// não aceita maxLength).
+const FOLGA_BRUTA = 4;
+const brutoGrandeDemais = (s: string | null, limite: number) => (s?.length ?? 0) > FOLGA_BRUTA * limite;
 
 export type ValidacaoLeitura = { tipo: 'ok'; resultado: ResultadoLeitura } | { tipo: 'nao_reconhecido' } | { tipo: 'vazio' } | { tipo: 'invalida' };
 
@@ -63,6 +70,15 @@ export function validarRespostaLeitura(texto: string, paginas: number): Validaca
   const linhas: LinhaSugerida[] = [];
   let descartadas = 0;
   for (const m of r.data.marcadores) {
+    if (
+      brutoGrandeDemais(m.nome_no_laudo, LIMITES.nome) ||
+      brutoGrandeDemais(m.valor_texto, LIMITES.valor) ||
+      brutoGrandeDemais(m.unidade, LIMITES.unidade) ||
+      brutoGrandeDemais(m.referencia, LIMITES.referencia)
+    ) {
+      descartadas++;
+      continue;
+    }
     const nome = limpar(m.nome_no_laudo);
     const valorTexto = limpar(m.valor_texto);
     const unidade = m.unidade === null ? null : limpar(m.unidade) || null;
