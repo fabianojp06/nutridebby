@@ -140,6 +140,17 @@ Onde a política roda:
 
 A tela de 2FA sempre manda `trustDevice: false` (`src/app/entrar/2fa/page.tsx:19`). Nenhum aparelho fica "confiável"; o código é pedido em todo login.
 
+**2FA para assinar documentos (Plano 10A, RN-145, D13).** Para a nutricionista, o 2FA continua opcional para entrar, mas
+passa a ser **condição para assinar** documentos: sem `twoFactorEnabled`, o envio digitalizado é recusado e a tela
+mostra "Ative a verificação em duas etapas em Segurança para assinar documentos." com o link "Ativar agora". O código é
+pedido em todo envio, por `confirmarCodigo2fa` (`src/lib/confirmar-2fa.ts`: `auth.api.verifyTOTP` com a sessão da
+própria usuária, 5 erros em 15 min por usuária, anti-repetição de 90 s, `liberarCodigo2fa` quando o envio falha depois
+do código aceito). Para não virar um oráculo do código fora desse limite, o hook `before` de `src/lib/auth.ts` recusa o
+`/two-factor/verify-totp` chamado pela web com sessão aberta e 2FA já ativo (`TWO_FACTOR_JA_ATIVO`); o login (sem
+sessão) e a ativação (2FA ainda desligado) seguem, e a chamada interna (`auth.api`, sem `request`) também. A tela
+`/conta/seguranca` ganhou o bloco "Como funciona" com o guia `seguranca`. Detalhe em
+[§9.6](09-documentos-assinados.md#96-código-do-2fa-no-momento-de-assinar-rn-145-d13).
+
 ---
 
 ## 3.6 Sessão, inatividade e renovação
