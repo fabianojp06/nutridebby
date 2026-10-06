@@ -290,3 +290,55 @@ describe('push (INT-03): VAPID no worker', () => {
     expect(msg.includes(outro.privateKey) || msg.includes(par.publicKey), 'a mensagem não pode trazer as chaves').toBe(false);
   });
 });
+
+describe('Plano 11 — variáveis da IA (spec v0.3 §12)', () => {
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  const prodApp = { ...base, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', TRUSTED_PROXIES: '10.0.0.0/8', TURNSTILE_SITE_KEY: 'chave-real', TURNSTILE_SECRET_KEY: 'segredo-real' };
+  const prodWorker = { ...w, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', EMAIL_TRANSPORT: 'mailpit' };
+
+  it('padrões: IA ausente (desligada), Opus 5.5 provisório (A-D2), região us (A-D5), teto de US$ 50 (A-D10)', () => {
+    const app = parseEnv(base);
+    expect(app).toMatchObject({ IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 });
+    expect(app.IA_PROVEDOR).toBeUndefined();
+    expect(app.IA_DESLIGADA).toBeUndefined();
+    const worker = parseWorkerEnv(w);
+    expect(worker).toMatchObject({ IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us' });
+    expect(worker.IA_PROVEDOR).toBeUndefined();
+    expect(worker.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('o app nunca recebe a chave do provedor (RNF-103): a variável some do ambiente validado', () => {
+    expect(parseEnv({ ...base, ANTHROPIC_API_KEY: 'sk-ant-api03-' + 'a'.repeat(40) })).not.toHaveProperty('ANTHROPIC_API_KEY');
+  });
+
+  it('modelo fora da lista é recusado (RNF-109; Fable e Mythos exigem retenção de 30 dias)', () => {
+    expect(() => parseEnv({ ...base, IA_MODELO_LEITURA: 'claude-fable-5-1' })).toThrow(/IA_MODELO_LEITURA/);
+    expect(() => parseWorkerEnv({ ...w, IA_MODELO_LEITURA: 'claude-haiku-4-5' })).toThrow(/IA_MODELO_LEITURA/);
+    expect(parseWorkerEnv({ ...w, IA_MODELO_LEITURA: 'claude-sonnet-5-5' }).IA_MODELO_LEITURA).toBe('claude-sonnet-5-5');
+  });
+
+  it('RNF-107: sandbox e fake só fora de produção; em produção a região é us', () => {
+    expect(() => parseEnv({ ...prodApp, IA_PROVEDOR: 'sandbox' })).toThrow(/IA_PROVEDOR/);
+    expect(() => parseWorkerEnv({ ...prodWorker, IA_PROVEDOR: 'fake' })).toThrow(/IA_PROVEDOR/);
+    expect(() => parseWorkerEnv({ ...prodWorker, IA_PROVEDOR: 'anthropic', IA_INFERENCE_GEO: 'global' })).toThrow(/IA_INFERENCE_GEO/);
+    expect(parseEnv({ ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', IA_PROVEDOR: 'sandbox' }).IA_PROVEDOR).toBe('sandbox'); // E2E: produção em localhost
+  });
+
+  it('a chave tem o formato da Anthropic, e a mensagem nunca repete o valor', () => {
+    const errado = 'chave-colada-errado-1234567890';
+    let msg = '';
+    try {
+      parseWorkerEnv({ ...w, ANTHROPIC_API_KEY: errado });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toMatch(/ANTHROPIC_API_KEY/);
+    expect(msg).not.toContain(errado);
+  });
+
+  it('teto global: número de 0 a 10000; vazio vira o padrão', () => {
+    expect(parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '' }).IA_TETO_GLOBAL_MENSAL_USD).toBe(50);
+    expect(parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '120' }).IA_TETO_GLOBAL_MENSAL_USD).toBe(120);
+    expect(() => parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '-1' })).toThrow(/IA_TETO_GLOBAL_MENSAL_USD/);
+  });
+});

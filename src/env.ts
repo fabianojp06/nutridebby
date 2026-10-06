@@ -2,6 +2,7 @@ import { createECDH } from 'node:crypto';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
+import { GEOS_IA, MODELOS_IA } from '@/modules/ia/constantes';
 
 /*
  * Cada processo valida só o que usa (RNF-07): a credencial do role dono do schema
@@ -79,6 +80,20 @@ const appUrl = z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exem
 const evolutionUrl = opcional(z.url({ message: 'EVOLUTION_API_URL deve ser uma URL (ex.: http://nutri_evolution:8080)' }).optional());
 const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY precisa de pelo menos 16 caracteres' }).optional());
 const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
+/** Plano 11 (spec §12): ausente = IA desligada; fake/sandbox só fora de produção (RNF-107). App e worker. */
+const iaProvedor = opcional(z.enum(['anthropic', 'sandbox', 'fake'], { message: 'IA_PROVEDOR deve ser anthropic, sandbox ou fake' }).optional());
+const iaDesligada = opcional(z.enum(['0', '1'], { message: 'IA_DESLIGADA deve ser 0 ou 1' }).optional());
+const iaModelo = opcional(z.enum(MODELOS_IA, { message: `IA_MODELO_LEITURA deve ser um destes: ${MODELOS_IA.join(', ')}` }).default('claude-opus-5-5'));
+const iaGeo = opcional(z.enum(GEOS_IA, { message: 'IA_INFERENCE_GEO deve ser us ou global' }).default('us'));
+const iaTeto = opcional(
+  z.coerce.number({ message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser um número' }).min(0, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).max(10_000, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).default(50),
+);
+/** A conferência da IA em produção, igual no app e no worker. A mensagem nunca repete valor. */
+function conferirIaEmProducao(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string }, ctx: z.RefinementCtx): void {
+  if (!emProducao(e)) return;
+  if (e.IA_PROVEDOR === 'fake' || e.IA_PROVEDOR === 'sandbox') ctx.addIssue({ code: 'custom', path: ['IA_PROVEDOR'], message: 'IA_PROVEDOR sandbox ou fake só fora de produção' });
+  if (e.IA_INFERENCE_GEO !== 'us') ctx.addIssue({ code: 'custom', path: ['IA_INFERENCE_GEO'], message: 'IA_INFERENCE_GEO deve ser us em produção (A-D5)' });
+}
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
 /**
  * Produção de verdade: NODE_ENV=production fora de localhost (o E2E com `next start` roda como produção em localhost).
@@ -144,8 +159,10 @@ const appSchema = serverSchema
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
     CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto,
   })
   .superRefine((e, ctx) => {
+    conferirIaEmProducao(e, ctx);
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
     if (emProducao(e)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {
@@ -228,6 +245,9 @@ const workerSchema = serverSchema
     EVOLUTION_API_URL: evolutionUrl,
     EVOLUTION_API_KEY: evolutionKey,
     WHATSAPP_SANDBOX: whatsappSandbox,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto,
+    // Plano 11 (RNF-103): a chave do provedor só existe no worker; o app nunca a declara (o schema dele a descarta)
+    ANTHROPIC_API_KEY: opcional(z.string().regex(/^sk-ant-[A-Za-z0-9_-]{20,}$/, { message: 'ANTHROPIC_API_KEY em formato inválido (confira se foi colada inteira)' }).optional()),
     // INT-03: chaves do push (gere com: npx web-push generate-vapid-keys). Sem elas, o push fica desligado
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     VAPID_PRIVATE_KEY: opcional(z.string().regex(VAPID_PRIVADA, { message: 'VAPID_PRIVATE_KEY deve ser a chave privada em base64url (43 caracteres)' }).optional()),
@@ -244,6 +264,7 @@ const workerSchema = serverSchema
     EMAIL_TRANSPORT: e.EMAIL_TRANSPORT ?? (e.NODE_ENV === 'production' ? 'resend' : 'mailpit'),
   }))
   .superRefine((e, ctx) => {
+    conferirIaEmProducao(e, ctx);
     if (e.EMAIL_TRANSPORT === 'resend' && !e.RESEND_API_KEY) {
       ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'RESEND_API_KEY é obrigatória para enviar pelo Resend' });
     }
