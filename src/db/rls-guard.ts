@@ -111,6 +111,8 @@ export const STAFF_ONLY: Record<string, string> = {
   public_booking_requests: 'RN-16: pedido da página pública (código, contato) — só o contexto publico e a equipe',
   whatsapp_conexoes: 'D2: número e estado do WhatsApp do consultório — só a equipe',
   signed_document_notes: 'Res. CFN 656, art. 3º, XII / D15 da spec de documentos: justificativa de uso e motivo de cancelamento — só a equipe (a exportação do titular lê pelo worker)',
+  ia_tarefas: 'Plano 11 (spec da IA §3): pedidos e sugestões da IA — só a equipe; o paciente nunca vê, nem os próprios',
+  ia_uso: 'Plano 11 (D3): registro técnico de custo da IA — só a equipe (o admin lê pela função admin_metricas_ia)',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

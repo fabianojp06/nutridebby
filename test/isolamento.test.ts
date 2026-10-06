@@ -115,9 +115,26 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   document_access_codes: (t, p) =>
     sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
         insert into document_access_codes (tenant_id, patient_id, documento_id, codigo_hash, expira_em) select ${t}, ${p}, d.id, 'h', now() + interval '10 minutes' from d`,
+  // Plano 11: a tarefa cria o exame (mãe) no mesmo comando; "falhou" para não cair no índice único de leitura em andamento
+  ia_tarefas: (t, p) =>
+    sql`with e as (insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso') returning id)
+        insert into ia_tarefas (tenant_id, patient_id, tipo, status, exam_id, pedido_por, modelo, prompt_versao, reserva_micro_usd, erro)
+        select ${t}, ${p}, 'leitura_exame', 'falhou', e.id, coalesce(app_current_user(), gen_random_uuid()), 'claude-opus-5-5', 'iso', 0, 'interrompida' from e`,
+  ia_uso: (t) =>
+    sql`insert into ia_uso (tenant_id, tarefa_id, tipo, modelo, prompt_versao, custo_micro_usd, situacao, mes) values (${t}, gen_random_uuid(), 'leitura_exame', 'claude-opus-5-5', 'iso', 1, 'confirmado', '2026-10')`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
+/**
+ * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
+ * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
+ */
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso']);
+/**
+ * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
+ * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
+ */
+const DELETE_REVOGADO = new Set(['ia_uso']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -132,7 +149,8 @@ const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'documen
 const SO_APAGA: Record<string, SQL> = {
   signed_documents: sql`status = 'rascunho'`,
   patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
-                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)`,
+                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
+                and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
@@ -310,7 +328,8 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       else await expect(comoPublico(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
       if (SO_INSERE.has(t)) continue; // UPDATE/DELETE já negados por permissão
       if (!pode.includes('update')) expect((await comoPublico(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
-      if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
+      if (DELETE_REVOGADO.has(t)) await expect(comoPublico(sql`delete from ${sql.identifier(t)}`), t).rejects.toSatisfy(negado);
+      else if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
     }
     expect((await comoPublico(sql`select 1 from consultation_notes`)).rows).toEqual([]);
     expect((await comoPublico(sql`select 1 from anamneses`)).rows).toEqual([]);
@@ -346,6 +365,13 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           // UPDATE e DELETE sem filtro: só podem afetar as linhas próprias que a RLS mostrou
           const alteradas = await tx.execute(sql`update ${id} set tenant_id = tenant_id`);
           expect(alteradas.rowCount, t).toBe(proprias.length);
+          if (SEM_DELETE.has(t)) {
+            await expect(tx.execute(sql`savepoint sem_delete`)).resolves.toBeDefined();
+            await expect(tx.execute(sql`delete from ${id}`), t).rejects.toSatisfy(negado);
+            await tx.execute(sql`rollback to savepoint sem_delete`);
+            sobrouDeB = proprias.length;
+            return;
+          }
           const apagaveis = SO_APAGA[t] ? (await tx.execute(sql`select 1 from ${id} where ${SO_APAGA[t]}`)).rows.length : proprias.length;
           // o filtro de SO_APAGA nunca pode ficar vazio: com 0 apagáveis o DELETE não provaria nada (revisão T1)
           if (SO_APAGA[t]) expect(apagaveis, t).toBeGreaterThan(0);
@@ -358,7 +384,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: A não foi tocado
         // o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de SO_APAGA deixa (em patients, os de B com documento emitido ou recibo)
-        expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);
+        expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] || SEM_DELETE.has(t) ? sobrouDeB : 0);
       }
       if (t === 'patients') {
         // o paciente sem documento de B foi apagado; o de A, que também casa com o filtro, segue lá
