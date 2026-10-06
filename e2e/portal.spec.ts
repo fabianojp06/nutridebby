@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { corNoEscuro } from '@/lib/tema/marca-tema';
 import { entrarComo } from './helpers';
@@ -37,9 +38,24 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
   await p.page.context().close();
 });
 
-test('nutricionista em /p/inicio volta ao painel', async () => {
+test('aparelho com outro papel: a tela diz qual conta está conectada e oferece "Sair" — portal, admin e painel (P09-03)', async ({ browser }) => {
+  const aviso = (page: Page) => page.getByRole('status').filter({ hasText: 'Este aparelho está conectado como' });
   await nutri.goto('/p/inicio');
-  await expect(nutri).toHaveURL(/\/painel$/);
+  await expect(nutri).toHaveURL(/\/conta\/outro-papel\?esperado=paciente$/);
+  await expect(aviso(nutri)).toHaveText('Este aparelho está conectado como nutricionista. Saia e entre com a conta de paciente.');
+  await expect(nutri.getByRole('button', { name: 'Sair' })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: 'Ir para o painel' })).toHaveAttribute('href', '/painel');
+  expect((await new AxeBuilder({ page: nutri }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations.map((v) => v.id)).toEqual([]);
+  await nutri.goto('/admin');
+  await expect(aviso(nutri)).toHaveText('Este aparelho está conectado como nutricionista. Saia e entre com a conta de administrador.');
+  // IP 10.9.17.1 (bloco do Plano 09)
+  const p = await pacienteNoPortal(browser, nutri, '10.9.17.1');
+  await p.page.goto('/painel/pacientes');
+  await expect(p.page).toHaveURL(/\/conta\/outro-papel\?esperado=nutri$/);
+  await expect(aviso(p.page)).toHaveText('Este aparelho está conectado como paciente. Saia e entre com a conta de nutricionista.');
+  await expect(p.page.getByText(p.email)).toHaveCount(0); // Review Focus 4: nada da conta na tela
+  await expect(p.page.getByText(p.nome)).toHaveCount(0);
+  await p.page.context().close();
 });
 
 test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu plano"; publicado → refeições e PDF (US-041)', async ({ browser }) => {

@@ -10,9 +10,9 @@ import { nutriComDpa } from '../../../test/nutri';
 import { entrar } from '../../../test/sessao';
 
 // Plano 06, T13 (revisão da T3): uma sessão de paciente que dispara uma Server Action do painel ou do admin (o ID da
-// ação é público no HTML) volta ao portal — nunca erro 500 nem dado. Cobre TODA `actions.ts` de `src/app/painel` e de
+// ação é público no HTML) vai ao aviso de outro papel (`/conta/outro-papel`, P09-03) — nunca erro 500 nem dado. Cobre TODA `actions.ts` de `src/app/painel` e de
 // `src/app/admin` (X-3): uma ação nova sem `requireNutri`/`requireUser(['admin'])` quebra aqui. A sessão de
-// nutricionista nas ações do admin volta ao painel. As rotas de `/api/painel`: `src/app/api/painel/acesso-negado.test.ts`.
+// nutricionista nas ações do admin vai ao mesmo aviso. As rotas de `/api/painel`: `src/app/api/painel/acesso-negado.test.ts`.
 const req = vi.hoisted(() => ({ headers: new Headers() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ headers: async () => req.headers, cookies: async () => ({ get: () => undefined, set: () => undefined }) }));
@@ -35,6 +35,7 @@ const acoesDe = (raiz: string) =>
     .sort();
 const PAINEL = acoesDe('painel');
 const ADMIN = acoesDe('admin');
+const escapar = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const db = getDb();
 afterAll(() => closeDb());
 
@@ -51,7 +52,7 @@ async function todasRedirecionam(arquivos: string[], cookie: string, destino: st
     for (const [nome, fn] of Object.entries(m)) {
       if (typeof fn !== 'function') continue;
       chamadas.push(`${caminho}#${nome}`);
-      await expect((fn as (...a: unknown[]) => Promise<unknown>)(...args), `${caminho}#${nome}`).rejects.toThrow(new RegExp(`^redirect ${destino}$`));
+      await expect((fn as (...a: unknown[]) => Promise<unknown>)(...args), `${caminho}#${nome}`).rejects.toThrow(new RegExp(`^redirect ${escapar(destino)}$`));
     }
   }
   return chamadas;
@@ -63,18 +64,20 @@ describe('Server Actions do painel e do admin chamadas por uma sessão de pacien
     expect(ADMIN).toContain('admin/actions.ts');
   });
 
-  it('todas voltam ao portal (redirect /p/inicio), sem erro', async () => {
+  it('todas levam ao aviso de outro papel (P09-03), sem erro', async () => {
     const T = await novoTenant(db);
     const { email } = await pacienteComConta(db, T);
-    const chamadas = await todasRedirecionam([...PAINEL, ...ADMIN], await entrar(getAuth(), email), '/p/inicio');
-    expect(chamadas.filter((c) => c.startsWith('painel/')).length).toBeGreaterThanOrEqual(40);
-    expect(chamadas.filter((c) => c.startsWith('admin/')).length).toBeGreaterThanOrEqual(5);
+    const cookie = await entrar(getAuth(), email);
+    const painel = await todasRedirecionam(PAINEL, cookie, '/conta/outro-papel?esperado=nutri');
+    const admin = await todasRedirecionam(ADMIN, cookie, '/conta/outro-papel?esperado=admin');
+    expect(painel.length).toBeGreaterThanOrEqual(40);
+    expect(admin.length).toBeGreaterThanOrEqual(5);
   });
 });
 
 describe('Server Actions do admin chamadas por uma sessão de nutricionista (X-3)', () => {
-  it('todas voltam ao painel (redirect /painel), sem erro', async () => {
+  it('todas levam ao aviso de outro papel (P09-03), sem erro', async () => {
     const n = await nutriComDpa(db, getAuth());
-    expect((await todasRedirecionam(ADMIN, n.cookie, '/painel')).length).toBeGreaterThanOrEqual(5);
+    expect((await todasRedirecionam(ADMIN, n.cookie, '/conta/outro-papel?esperado=admin')).length).toBeGreaterThanOrEqual(5);
   });
 });

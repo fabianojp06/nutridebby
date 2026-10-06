@@ -244,3 +244,14 @@ describe('conta suspensa (RN-15)', () => {
     expect(await redirectDe(requireComo(n.cookie, ['nutri'], '/painel'))).toBe('/indisponivel');
   });
 });
+
+describe('papel errado (P09-03)', () => {
+  it('nutricionista no portal e no admin, paciente no painel → aviso de outro papel com o papel esperado; nunca a home calada', async () => {
+    const [t] = await db.insert(tenants).values({ slug: `pap-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Pap' }).returning();
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
+    expect(await redirectDe(requireComo(n.cookie, ['paciente'], '/p/inicio'))).toBe('/conta/outro-papel?esperado=paciente');
+    expect(await redirectDe(requireComo(n.cookie, ['admin'], '/admin'))).toBe('/conta/outro-papel?esperado=admin');
+    const p = await criarEEntrar(db, auth, { appRole: 'paciente', tenantId: t.id });
+    expect(await redirectDe(requireComo(p.cookie, ['nutri'], '/painel'))).toBe('/conta/outro-papel?esperado=nutri');
+  });
+});

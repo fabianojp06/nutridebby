@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  caminhoOutroPapel,
   capSessionExpiry,
+  ehPapel,
   evaluateSession,
   homeFor,
   isRefreshDue,
+  OUTRO_PAPEL_PATH,
+  papelEsperado,
   PATIENT_SESSION_MS,
   SESSION_REFRESH_MS,
   sessionExpiresAt,
   STAFF_IDLE_MS,
+  textoOutroPapel,
 } from './session-rules';
 
 const now = new Date('2026-10-01T12:00:00Z');
@@ -76,5 +81,23 @@ describe('expiresAt por papel (RNF-06)', () => {
   it('isRefreshDue só depois da cadência', () => {
     expect(isRefreshDue(new Date(now.getTime() - SESSION_REFRESH_MS + 1), now)).toBe(false);
     expect(isRefreshDue(new Date(now.getTime() - SESSION_REFRESH_MS), now)).toBe(true);
+  });
+});
+
+describe('outro papel no aparelho (P09-03)', () => {
+  it('o papel esperado é o da tela: só paciente → paciente; só admin → admin; equipe (admin e nutri) → nutricionista', () => {
+    expect(papelEsperado(['paciente'])).toBe('paciente');
+    expect(papelEsperado(['admin'])).toBe('admin');
+    expect(papelEsperado(['nutri'])).toBe('nutri');
+    expect(papelEsperado(['admin', 'nutri'])).toBe('nutri');
+    expect(caminhoOutroPapel(['paciente'])).toBe(`${OUTRO_PAPEL_PATH}?esperado=paciente`);
+  });
+  it('o texto da tela', () => {
+    expect(textoOutroPapel('nutri', 'paciente')).toBe('Este aparelho está conectado como nutricionista. Saia e entre com a conta de paciente.');
+    expect(textoOutroPapel('paciente', 'admin')).toBe('Este aparelho está conectado como paciente. Saia e entre com a conta de administrador.');
+  });
+  it('ehPapel só aceita os três papéis', () => {
+    for (const v of ['admin', 'nutri', 'paciente']) expect(ehPapel(v)).toBe(true);
+    for (const v of ['javascript:alert(1)', 'Nutri', '', undefined, ['nutri'], 'root']) expect(ehPapel(v)).toBe(false);
   });
 });

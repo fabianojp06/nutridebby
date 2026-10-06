@@ -106,11 +106,11 @@ describe('requirePaciente (D2, D3, RN-08, RN-15)', () => {
     expect((await requirePaciente('/p/termo', { permitirTermoPendente: true })).tenant.id).toBe(A.tenantId);
   });
 
-  it('nutricionista no portal vai para a home dela; sem sessão vai para o login', async () => {
+  it('nutricionista no portal vai ao aviso de outro papel (P09-03); sem sessão vai para o login', async () => {
     const [t] = await db.insert(tenants).values({ slug: `ps-${randomUUID().slice(0, 8)}`, nomeExibicao: 'X' }).returning();
     const n = await criarEEntrar(db, getAuth(), { appRole: 'nutri', tenantId: t.id });
     req.headers = new Headers({ cookie: n.cookie });
-    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/painel' });
+    await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/conta/outro-papel?esperado=paciente' });
     req.headers = new Headers();
     await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/entrar?volta=%2Fp%2Finicio' });
   });
