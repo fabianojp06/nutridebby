@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getBoss, stopBoss } from '@/jobs/boss';
-import { openSecret } from '@/lib/crypto';
+import { openSecret, sealSecret } from '@/lib/crypto';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { processEmailJob } from './job';
 import { EMAIL_FINALIDADE, enqueueEmail } from './queue';
@@ -70,5 +70,16 @@ describe('fila de e-mail (INT-02)', () => {
 
   it('a fila tem 3 novas tentativas com backoff exponencial', async () => {
     expect(await (await getBoss()).getQueue('email')).toMatchObject({ retryLimit: 3, retryDelay: 60, retryBackoff: true });
+  });
+
+  it('Plano 11 (D5): aposEnviar recebe a mensagem decifrada só DEPOIS do envio aceito; falha no envio não chama', async () => {
+    const chamadas: string[] = [];
+    const msg = { tipo: 'aviso_ia' as const, para: 'p@x.dev', nome: 'Ana', consultorio: 'Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001' };
+    const data = { tenantId: null, selado: sealSecret(JSON.stringify(msg), EMAIL_FINALIDADE) };
+    const aposEnviar = async (m: { tipo: string }) => void chamadas.push(`apos:${m.tipo}`);
+    await processEmailJob(data, 'job-1', { transport: { send: async () => void chamadas.push('send') }, from: 'a@b.dev', tenantAtivo: async () => true, aposEnviar });
+    expect(chamadas).toEqual(['send', 'apos:aviso_ia']);
+    await expect(processEmailJob(data, 'job-2', { transport: { send: async () => { throw new Error('smtp'); } }, from: 'a@b.dev', tenantAtivo: async () => true, aposEnviar })).rejects.toThrow('smtp');
+    expect(chamadas).toEqual(['send', 'apos:aviso_ia']);
   });
 });

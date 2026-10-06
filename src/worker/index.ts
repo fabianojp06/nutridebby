@@ -16,6 +16,7 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
+import { registrarCienciaPorEmail } from '@/modules/ia/ciencia-paciente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -75,6 +76,10 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
       transport,
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
+      // D5 (Plano 11): a ciência do aviso de IA só é gravada depois do envio aceito
+      aposEnviar: async (msg, tenantId) => {
+        if (msg.tipo === 'aviso_ia' && tenantId) await registrarCienciaPorEmail(getDb(), tenantId, msg.patientId, msg.versao, msg.para, new Date());
+      },
     });
   });
 

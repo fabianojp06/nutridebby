@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { avisoDaVersao } from '@/modules/ia/textos-legais';
 import type { EmailMessage, RenderedEmail } from './types';
 
 // Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
@@ -401,6 +402,10 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
           : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
         { href: msg.painelUrl, rotulo: 'Abrir o painel do admin' },
       );
+    case 'aviso_ia': {
+      const aviso = avisoDaVersao(msg.versao);
+      return simples(aviso.titulo, [`Olá, ${msg.nome}!`, `Este aviso é do consultório ${msg.consultorio}.`, ...aviso.paragrafos]);
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
