@@ -1,14 +1,11 @@
 'use client';
 
 import { useActionState } from 'react';
-import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
-import { MSG_IA } from '@/modules/ia/constantes';
 import { ativarIaAction, type AtivarIaState } from './actions';
 
 export function IaAtivarForm({ versao, rotulo }: { versao: string; rotulo: string }) {
   const [state, action, pendente] = useActionState<AtivarIaState, FormData>(ativarIaAction, {});
-  if (state.ok) return <Aviso tipo="ok">{MSG_IA.iaAtivada}</Aviso>;
   return (
     <form action={action} className="space-y-2">
       <label className="flex items-start gap-2">

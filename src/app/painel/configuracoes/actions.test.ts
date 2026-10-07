@@ -4,6 +4,11 @@ vi.mock('server-only', () => ({}));
 const sessao = { data: { user: { id: '00000000-0000-4000-8000-000000000002' } }, tenant: { id: '00000000-0000-4000-8000-000000000001' }, ctx: { tenantId: '00000000-0000-4000-8000-000000000001', role: 'nutri', actorUserId: '00000000-0000-4000-8000-000000000002', ip: '203.0.113.9' } };
 vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => sessao) }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Error(`redirect ${url}`);
+  },
+}));
 const ativar = vi.fn();
 vi.mock('@/modules/ia/ativacao', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/ativacao')>()), ativarIa: ativar }));
 const { ativarIaAction } = await import('./actions');
@@ -16,7 +21,8 @@ describe('Configurações > Inteligência artificial (US-101)', () => {
     const fd = new FormData();
     fd.set('aceite', '1');
     fd.set('tenantId', 'outro'); // ignorado
-    expect(await ativarIaAction({}, fd)).toEqual({ ok: true });
+    // A confirmação "IA ativada." vai pela URL: o formulário some quando a seção passa para o ramo "ativa".
+    await expect(ativarIaAction({}, fd)).rejects.toThrow('redirect /painel/configuracoes?ia=ativada');
     expect(ativar).toHaveBeenCalledWith({ userId: sessao.data.user.id, tenantId: sessao.tenant.id, ip: '203.0.113.9' }, true);
   });
 

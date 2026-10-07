@@ -10,8 +10,11 @@ import { IA_ADITIVO_PARAGRAFOS, IA_ADITIVO_TITULO, IA_ADITIVO_VERSAO } from '@/m
 import { desativarIaAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
 
-/** US-101 / US-102: seção "Inteligência artificial (IA)" de Configurações. Sem IA_PROVEDOR, a seção não existe. */
-export async function IaSecao({ tenant, ctx }: { tenant: TenantRow; ctx: TenantContext }) {
+/**
+ * US-101 / US-102: seção "Inteligência artificial (IA)" de Configurações. Sem IA_PROVEDOR, a seção não existe.
+ * `ativada`: a página recebeu `?ia=ativada` do `ativarIaAction`; a confirmação só aparece se a IA está mesmo ativa.
+ */
+export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean }) {
   const estado = estadoIaDoTenant(tenant, configIA(getEnv()).modo);
   if (estado === 'ausente' || estado === 'suspensa') return null;
   const aditivo = (
@@ -36,6 +39,7 @@ export async function IaSecao({ tenant, ctx }: { tenant: TenantRow; ctx: TenantC
       )}
       {estado === 'ativa' && cota && (
         <>
+          {ativada && <Aviso tipo="ok">{MSG_IA.iaAtivada}</Aviso>}
           <p role="status">{MSG_IA.usoDoMes(cota.percentual)}</p>
           {cota.nivel === 'aviso' && <Aviso tipo="aviso">{MSG_IA.aviso80}</Aviso>}
           {cota.nivel === 'esgotada' && <Aviso tipo="aviso">{MSG_IA.cotaAcabou}</Aviso>}
