@@ -36,6 +36,14 @@ export const MAX_VALORES_EXAME = 50;
 export const IA_ARQUIVO_MAX_BYTES = 20 * 1024 * 1024;
 /** RNF-100: o painel consulta o estado a cada 3 s. */
 export const POLL_IA_MS = 3000;
+/**
+ * Revisão final: depois das primeiras 60 consultas (3 min), a leitura pode ainda estar na fila (um job por vez para todos
+ * os consultórios) ou repetindo depois de 429/529 (RN-105). O painel segue consultando a cada 15 s até a tarefa não poder
+ * mais estar em andamento: 30 min na fila + 15 min em processamento + 15 min até a varredura (`expirar-ia`) = 60 min.
+ */
+export const POLL_IA_RAPIDO_VEZES = 60;
+export const POLL_IA_LENTO_MS = 15_000;
+export const ACOMPANHAR_IA_MAX_MS = 60 * 60_000;
 
 const PROVEDOR_FORA = 'Não foi possível ler o laudo agora. Tente de novo em alguns minutos ou lance os valores manualmente.';
 const INDISPONIVEL = 'A IA está indisponível no momento. Você pode continuar sem ela.';
