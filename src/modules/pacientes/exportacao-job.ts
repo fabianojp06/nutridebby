@@ -14,6 +14,7 @@ import {
   dataExports,
   diaryEntries,
   energyCalcs,
+  examSubmissions,
   exams,
   foods,
   iaTarefas,
@@ -48,6 +49,7 @@ import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/
 import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { respostaParaCampo } from './anamnese-tipos';
+import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
 import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
 import { FORMULAS_TMB, kcal } from './formulas';
@@ -157,15 +159,34 @@ export type DadosExportacao = {
    * staff_only: inclusão explícita).
    */
   ia: { id: string; tipo: string; status: string; criadoEm: string; encerradoEm: string | null; enviadoEm: string | null; provedor: string | null }[];
+  /**
+   * Plano 12 (§13.3): exames enviados pelo paciente pelo app — envio, coleta, nome, observação, situação e motivo da recusa.
+   * `pdf` = o PDF limpo no ZIP (`envios/…`), só dos que aguardam revisão (o dos aceitos já sai em `laudos/`, como exame).
+   * Nunca as imagens de página nem os originais.
+   */
+  examesEnviados: {
+    enviadoEm: string;
+    dataColeta: string;
+    nome: string | null;
+    observacao: string | null;
+    situacao: string;
+    motivoRecusa: string | null;
+    /** Revisão do plano (LGPD art. 19, II — origem do dado): quando a nutricionista aceitou ou recusou. */
+    revisadoEm: string | null;
+    /** Revisão do plano: o exame em que o envio aceito se transformou (o mesmo de `exames[]`); null se não aceito ou excluído. */
+    exame: { data: string; titulo: string } | null;
+    pdf: string | null;
+  }[];
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
 
 /**
- * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`), foto do diário (`indice` em `diario`) ou PDF assinado de
- * documento (`indice` em `documentos`, Plano 10A); `nome` sem texto do usuário (data + posição).
+ * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`), foto do diário (`indice` em `diario`), PDF assinado de
+ * documento (`indice` em `documentos`, Plano 10A) ou PDF limpo de exame enviado aguardando revisão (`indice` em
+ * `examesEnviados`, Plano 12); `nome` sem texto do usuário (data + posição).
  */
-type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento'; indice: number; caminho: string; nome: string };
+type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento' | 'envio'; indice: number; caminho: string; nome: string };
 
 /** O ZIP é montado em memória no worker: acima disto, laudos e fotos ficam de fora (com aviso), não a exportação. */
 export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
@@ -290,6 +311,7 @@ export async function montarDados(
     .where(eq(pushSubscriptions.patientId, patientId))
     .orderBy(asc(pushSubscriptions.createdAt));
   const di = await tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, patientId)).orderBy(asc(diaryEntries.dataHora));
+  const ee = await tx.select().from(examSubmissions).where(eq(examSubmissions.patientId, patientId)).orderBy(asc(examSubmissions.createdAt));
   // P-16 (b): o titular não recebe o rascunho (a sessão de paciente também não o vê — paciente_sem_rascunho)
   const ids = await tx
     .select({ id: mealPlans.id })
@@ -320,6 +342,12 @@ export async function montarDados(
   const fotos: AnexoParaZip[] = di.flatMap((e, i) =>
     e.fotoStatus === 'pronta' && e.fotoPath
       ? [{ tipo: 'foto' as const, indice: i, caminho: e.fotoPath, nome: `diario/${hojeNoFuso(fuso, e.dataHora)}-${i + 1}.jpg` }]
+      : [],
+  );
+  // Plano 12: o PDF limpo dos envios que aguardam revisão (nome sem texto do usuário: data da coleta + posição)
+  const envios: AnexoParaZip[] = ee.flatMap((e, i) =>
+    e.status === 'recebido' && e.arquivoPath
+      ? [{ tipo: 'envio' as const, indice: i, caminho: e.arquivoPath, nome: `envios/${e.dataColeta}-${String(i + 1).padStart(2, '0')}.pdf` }]
       : [],
   );
   const dados: DadosExportacao = {
@@ -415,15 +443,29 @@ export async function montarDados(
       enviadoEm: t.saiuEm?.toISOString() ?? null,
       provedor: t.saiuEm ? PROVEDOR_IA_DESCRICAO : null,
     })),
+    examesEnviados: ee.map((e) => {
+      const exame = e.examId ? ex.find((x) => x.id === e.examId) : undefined;
+      return {
+        enviadoEm: e.createdAt.toISOString(),
+        dataColeta: e.dataColeta,
+        nome: e.nome,
+        observacao: e.observacao,
+        situacao: e.status,
+        motivoRecusa: e.motivoRecusa === 'outro' ? e.motivoRecusaTexto : e.motivoRecusa ? ROTULO_MOTIVO_RECUSA[e.motivoRecusa as MotivoRecusa] : null,
+        revisadoEm: e.revisadoEm?.toISOString() ?? null,
+        exame: exame ? { data: exame.data, titulo: exame.titulo } : null,
+        pdf: null,
+      };
+    }),
     laudosForaDoZip: false,
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
   const pdfsDeDocumentos: AnexoParaZip[] = docs.anexos.map((a) => ({ tipo: 'documento', ...a }));
-  return { dados, laudos: [...laudos, ...fotos, ...pdfsDeDocumentos] };
+  return { dados, laudos: [...laudos, ...fotos, ...envios, ...pdfsDeDocumentos] };
 }
 
 /**
- * Lê os anexos (laudos, fotos do diário e PDFs assinados de documentos) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
+ * Lê os anexos (laudos, fotos do diário, PDFs assinados de documentos e PDFs limpos de exames enviados) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
  * o que não cabe não vai (e `laudosForaDoZip` avisa); arquivo que sumiu do disco fica de fora sem derrubar a exportação.
  */
 async function lerAnexos(
@@ -464,6 +506,7 @@ async function lerAnexos(
     if (l.tipo === 'laudo') dados.exames[l.indice].laudo = l.nome;
     else if (l.tipo === 'foto') dados.diario[l.indice].foto = l.nome;
     else if (l.tipo === 'documento') dados.documentos[l.indice].pdf = l.nome;
+    else if (l.tipo === 'envio') dados.examesEnviados[l.indice].pdf = l.nome;
     total += conteudo.length;
   }
   if (ausentes)
