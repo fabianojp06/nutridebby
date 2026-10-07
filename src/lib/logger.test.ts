@@ -88,7 +88,7 @@ describe('logger redact (RNF-11)', () => {
 
   it('os outros segredos continuam removidos mesmo com cara de código', () => {
     const stream = makeMemoryStream();
-    createLogger(stream).error({ token: 'abc', user: { password: 'senha' }, apiKey: 'chave' });
+    createLogger(stream).error({ token: 'abc', user: { password: 'a' }, apiKey: 'chave' });
     const parsed = JSON.parse(stream.lines[0]);
     expect(parsed).toMatchObject({ token: '[removido]', user: { password: '[removido]' }, apiKey: '[removido]' });
   });
