@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
@@ -25,11 +25,14 @@ import { RESPOSTA_SANDBOX } from './provedor-sandbox';
 import { pedirLeituraExame } from './tarefas';
 
 const app = makeDb(inject('appDatabaseUrl'));
+// só para envelhecer criado_em, coluna fixa da tarefa (gatilho ia_tarefas_imutavel, 0100): gatilhos desligados só na transação
+const dono = makeDb(inject('ownerDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-job-'));
 afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await dono.pool.end();
   rmSync(dataDir, { recursive: true, force: true });
 });
 // relógio real: as tarefas nascem "agora"; a varredura do teste roda só nos tenants do próprio teste (expirarTarefasDoTenant)
@@ -322,7 +325,10 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     const D = await pedido();
     await withTenant(A.T.ctx, (tx) => tx.update(iaTarefas).set({ status: 'processando', iniciadoEm: new Date(agora.getTime() - 16 * 60_000) }).where(eq(iaTarefas.id, A.tarefaId)), app.db);
     await withTenant(B.T.ctx, (tx) => tx.update(iaTarefas).set({ status: 'processando', iniciadoEm: new Date(agora.getTime() - 16 * 60_000), enviadoEm: new Date(agora.getTime() - 15 * 60_000) }).where(eq(iaTarefas.id, B.tarefaId)), app.db);
-    await withTenant(C.T.ctx, (tx) => tx.update(iaTarefas).set({ criadoEm: new Date(agora.getTime() - 31 * 60_000) }).where(eq(iaTarefas.id, C.tarefaId)), app.db);
+    await dono.db.transaction(async (tx) => {
+      await tx.execute(sql`set local session_replication_role = replica`);
+      await tx.update(iaTarefas).set({ criadoEm: new Date(agora.getTime() - 31 * 60_000) }).where(eq(iaTarefas.id, C.tarefaId));
+    });
     await processarTarefaIA(D.d, deps(provedorFake()));
     await withTenant(D.T.ctx, (tx) => tx.update(iaTarefas).set({ expiraEm: new Date(agora.getTime() - 1) }).where(eq(iaTarefas.id, D.tarefaId)), app.db);
     // a varredura global (expirarTarefasIA) percorre todos os tenants do banco de teste, que é compartilhado pelos arquivos
