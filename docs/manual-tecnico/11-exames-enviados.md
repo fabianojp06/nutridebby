@@ -41,7 +41,8 @@ nutri_worker, fila `exame-envio` (um job por vez) → processarEnvio (exames-env
    │  cada página: salvarArquivo (exame_pagina; registrar = linha 'pagina'); por último o PDF limpo: salvarArquivo (exame;
    │  registrar = envio 'recebido' com arquivo_path + avisarExamesRecebidos); depois os originais saem (apagarArquivosDoEnvio)
    ▼
-Painel /painel/exames-recebidos (filaDeEnvios, sem auditoria) → /painel/exames-recebidos/[id] (abrirEnvio, auditRead)
+Painel /painel/exames-recebidos (filaDeEnvios, sem auditoria) → /painel/exames-recebidos/[id] (abrirEnvio: conteúdo e
+   auditRead só no 'recebido'; nas outras situações, só a situação)
    → aceitarEnvio: paciente → envio travados; INSERT exams apontando para o MESMO PDF limpo; envio 'aceito' (exam_id,
      revisado_por/em, arquivo_path → nulo); push neutro; depois do commit, as páginas saem
    → "Aceitar e ler valores com IA": aceitarEnvio e, em seguida, pedirLeituraExame (src/modules/ia/tarefas.ts)
@@ -186,7 +187,12 @@ pede KEY SHARE no paciente pela FK. O job trava o paciente (`FOR UPDATE`) e o en
 paciente primeiro (revisão do plano). `avisarExamesRecebidos` relê o tenant em `FOR NO KEY UPDATE` (D10): `FOR UPDATE`
 conflitaria com o KEY SHARE de toda FK `tenant_id`, inclusive a do `audit_log`, e fecharia deadlock com qualquer escrita
 auditada do consultório (o erro corrigido no Plano 11 em `src/modules/ia/cota.ts`; teste com duas conexões na T6). Em
-`apagarArquivosDoEnvio` a ordem é envio → tenant (o arquivo já tem dono e nada insere em `stored_files`).
+`apagarArquivosDoEnvio` a ordem é envio (`FOR NO KEY UPDATE`) → tenant (o arquivo já tem dono e nada insere em
+`stored_files`). **Ação de RI:** excluir o exame de um envio aceito (`excluirExame`) dispara o `SET NULL (exam_id)` da FK
+`exam_submissions_exame_fk` (0102), um `UPDATE` implícito que trava a linha do envio; por isso o `excluirExame` trava o envio
+que aponta para o exame (`FOR NO KEY UPDATE`) logo depois do paciente e antes do tenant (paciente → envio → tenant). Com a
+ação de RI depois do tenant, a exclusão e a limpeza das páginas do mesmo envio fechavam ciclo (40P01; code review do PR #25,
+P12-22 a; teste com duas conexões em `exames-enviados-arquivos.test.ts`).
 
 **Cota.** Toda falha definitiva (`conversao`, `paginas`, `cota`), o cancelamento, a recusa e a expiração devolvem o espaço
 exatamente (os testes conferem `tenants.armazenamento_bytes` antes e depois de cada caminho). A varredura apaga as sobras
@@ -269,8 +275,9 @@ imagem podada, sem rede ("rasterização ok na imagem"). Detalhe em [§7.7](07-t
   pacientes", botão "Ver exames recebidos") diz "Você tem exames novos enviados por pacientes para revisar." e, se há envio
   aguardando há mais de 30 dias, a frase do lembrete (D6) — sem nome de paciente, de exame ou arquivo; no máximo 1 a cada
   6 h por consultório (`tenants.exames_aviso_em`), reaproveitando `avisarNutri` (regra 1).
-- **Auditoria de leitura (regra 8; Plano 06, D22).** `auditRead` (entidade `exames_enviados`) ao **abrir** um envio no painel
-  (`abrirEnvio`) e, no portal, na **lista** (`meusEnvios`, quando não está vazia) e no **download** do próprio PDF
+- **Auditoria de leitura (regra 8; Plano 06, D22).** `auditRead` (entidade `exames_enviados`) ao **abrir** um envio
+  `recebido` no painel (`abrirEnvio`; nas outras situações ele não devolve observação, PDF nem páginas e não audita — code
+  review do PR #25, P12-22 b) e, no portal, na **lista** (`meusEnvios`, quando não está vazia) e no **download** do próprio PDF
   (`pdfDoMeuEnvio`). A fila e os contadores do menu não chamam (só listam, como a lista de pacientes). As escritas viram
   `audit_log` pelo gatilho; o worker grava com ator nulo ("Sistema").
 - **O original nunca sai.** Ele só existe enquanto o envio está `processando`, não é servido por nenhuma rota, não chega ao

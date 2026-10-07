@@ -122,12 +122,14 @@ export async function jpegDe(bytes: number): Promise<Buffer> {
 
 /**
  * Corridas com duas conexões (revisão do plano): espera outra conexão (mesmo role: o pg_stat_activity mostra o comando) ficar
- * parada numa trava cujo comando contém `trecho`.
+ * parada numa trava cujo comando contém `trecho` (com uma lista, qualquer um deles: o teste de um ciclo de travas espera a
+ * mesma conexão parar num comando antes da correção e noutro depois).
  */
-export async function esperarNaTrava(db: Db, trecho: string): Promise<void> {
+export async function esperarNaTrava(db: Db, trecho: string | readonly string[]): Promise<void> {
+  const algum = sql.join((typeof trecho === 'string' ? [trecho] : trecho).map((t) => sql`query ilike ${`%${t}%`}`), sql` or `);
   for (let i = 0; i < 400; i++) {
     const r = await db.execute<{ n: number }>(
-      sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query ilike ${`%${trecho}%`}`,
+      sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and (${algum})`,
     );
     if (r.rows[0].n > 0) return;
     await new Promise((ok) => setTimeout(ok, 25));

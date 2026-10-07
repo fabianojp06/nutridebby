@@ -33,7 +33,11 @@ const codigoDoErro = (err: unknown): string => {
  * envio, travado ali, ainda permite (situação relida). Ordem de travas: envio → tenant, sem o paciente na frente porque aqui nada
  * se grava com FK para `patients` (só o ponteiro do envio, o DELETE em cascata das linhas de arquivo — auditado, FK só para
  * `tenants` — e a devolução da cota); quem grava filha de `patients` trava o paciente antes (revisão do plano: a expiração da
- * T8). A de salvarArquivo é paciente → envio → tenant. Um arquivo que falha não para os outros: a varredura (exames-enviados-varredura.ts) tenta de novo. `papel`: só os
+ * T8). A de salvarArquivo é paciente → envio → tenant. A trava do envio é FOR NO KEY UPDATE (code review do PR #25, P12-22 a):
+ * basta para serializar com quem muda a situação ou o ponteiro (todos UPDATE sem coluna-chave) e com a ação de RI do
+ * `excluirExame` (o SET NULL de `exam_id` da FK exam_submissions_exame_fk, 0102, que trava o envio aceito) — e o excluirExame
+ * trava o envio ANTES do tenant (paciente → envio → tenant), senão a ação de RI, depois do tenant, fechava ciclo com esta
+ * função. Um arquivo que falha não para os outros: a varredura (exames-enviados-varredura.ts) tenta de novo. `papel`: só os
  * originais (fim do processamento) ou só as páginas. Devolve quantos arquivos saíram. Log só com ids (RNF-11).
  */
 export async function apagarArquivosDoEnvio(
@@ -57,7 +61,7 @@ export async function apagarArquivosDoEnvio(
     db,
   );
   if (!lido) return 0;
-  const situacaoTravada = async (tx: Tx) => (await tx.select({ status: examSubmissions.status }).from(examSubmissions).where(eq(examSubmissions.id, envioId)).for('update'))[0]?.status;
+  const situacaoTravada = async (tx: Tx) => (await tx.select({ status: examSubmissions.status }).from(examSubmissions).where(eq(examSubmissions.id, envioId)).for('no key update'))[0]?.status;
   let n = 0;
   const codigos: string[] = [];
   const falhou = (err: unknown) => {

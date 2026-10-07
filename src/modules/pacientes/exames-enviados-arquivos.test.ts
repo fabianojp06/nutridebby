@@ -5,12 +5,13 @@ import { afterAll, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { arquivoDeEnvio, envioNoBanco, envioRecebido } from '../../../test/exames-enviados';
-import { examSubmissionFiles, examSubmissions, tenants } from '@/db/schema';
+import { arquivoDeEnvio, envioNoBanco, envioRecebido, esperarNaTrava } from '../../../test/exames-enviados';
+import { examSubmissionFiles, examSubmissions, exams, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { apagarArquivosDoEnvio } from './exames-enviados-arquivos';
+import { excluirExame } from './exames';
 
 // O apagarArquivo de verdade, embrulhado só para um caso forçar a falha de um arquivo
 vi.mock('@/modules/plataforma/armazenamento', async (importOriginal) => {
@@ -104,4 +105,49 @@ describe('apagarArquivosDoEnvio (regra 9: um apagarArquivo por arquivo, ponteiro
     expect(await apagarArquivosDoEnvio(worker(T.tenantId), e.id, deps)).toBe(2);
     expect(aviso).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('excluirExame × limpeza do envio aceito (code review do PR #25, P12-22 a)', () => {
+  it('excluir o exame aceito enquanto as páginas do envio saem não fecha ciclo: a exclusão trava o envio (SET NULL da FK) antes do tenant', async () => {
+    const { T, p } = await cenario();
+    const e = await envioRecebido(app.db, T.ctx, p.id, dataDir, { paginas: 1 });
+    // o aceite (molde de aceitarEnvio), sem a limpeza das páginas depois do commit: a página sobra para a corrida
+    const examId = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [ex] = await tx.insert(exams).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-28', titulo: 'Hemograma', arquivoPath: e.pdf, valores: [] }).returning({ id: exams.id });
+        await tx.update(examSubmissions).set({ status: 'aceito', examId: ex.id, arquivoPath: null, revisadoPor: T.nutriId, revisadoEm: new Date() }).where(eq(examSubmissions.id, e.id));
+        return ex.id;
+      },
+      app.db,
+    );
+    // H segura o exame (FOR SHARE): a exclusão para no DELETE do exame, já com as travas que pega antes dele
+    let segurou!: () => void;
+    let soltar!: () => void;
+    const seguro = new Promise<void>((ok) => (segurou = ok));
+    const solto = new Promise<void>((ok) => (soltar = ok));
+    const h = withTenant(
+      T.ctx,
+      async (tx) => {
+        await tx.select({ id: exams.id }).from(exams).where(eq(exams.id, examId)).for('share');
+        segurou();
+        await solto;
+      },
+      app.db,
+    );
+    await seguro;
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined); // a limpeza engole a falha de um arquivo (40P01) e avisa
+    const exclusao = excluirExame(T.ctx, p.id, examId, deps);
+    await esperarNaTrava(app.db, 'delete from "exams"');
+    const limpeza = apagarArquivosDoEnvio(T.ctx, e.id, deps);
+    // antes da correção a limpeza para no tenant SEGURANDO o envio (que o SET NULL do DELETE vai pedir: 40P01); depois, no envio
+    await esperarNaTrava(app.db, ['"armazenamento_bytes"', 'from "exam_submissions"']);
+    soltar();
+    await h;
+    const r = await Promise.all([exclusao, limpeza]);
+    expect(aviso.mock.calls).toEqual([]);
+    expect(r).toEqual([true, 1]);
+    expect(await envio(T.ctx, e.id)).toMatchObject({ status: 'aceito', examId: null });
+    expect(await linhas(T.ctx, e.id)).toEqual([]);
+  }, 30_000);
 });
