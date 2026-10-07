@@ -202,4 +202,20 @@ describe('envio de exame pelo paciente (US-160, US-161, RN-160 a RN-162, RN-166,
     expect((await meusEnvios(ctx, { db: app.db })).map((e) => e.id)).not.toContain(doOutro.id);
     expect((await envios(T, outro.id))[0].status).toBe('recebido');
   });
+
+  it('US-161 "Cancelar" com a tela ainda em "Processando…" (soConferir): nunca cancela; processando → "Aguarde…"; recebido fica recebido, sem job', async () => {
+    const { T, p, ctx } = await cenario();
+    const rec = await envioRecebido(app.db, T.ctx, p.id, dataDir);
+    await cancelarMeuEnvio(ctx, rec.id, { db: app.db, soConferir: true });
+    expect((await envios(T, p.id)).find((e) => e.id === rec.id)?.status).toBe('recebido');
+    const jobs = await (await getBoss()).findJobs('exame-envio-limpar');
+    expect(jobs.some((j) => (j.data as { envioId: string }).envioId === rec.id)).toBe(false);
+    const proc = await envioNoBanco(app.db, T.ctx, p.id, { status: 'processando' });
+    expect(await erroDe(cancelarMeuEnvio(ctx, proc, { db: app.db, soConferir: true }))).toEqual({ status: 409, erros: { geral: MSG_ENVIO.aguarde } });
+    const aceito = await envioNoBanco(app.db, T.ctx, p.id, { status: 'aceito', revisadoPor: T.nutriId, revisadoEm: new Date() });
+    expect((await erroDe(cancelarMeuEnvio(ctx, aceito, { db: app.db, soConferir: true }))).status).toBe(404);
+    const outro = await novoPaciente(app.db, T.ctx);
+    const doOutro = await envioRecebido(app.db, T.ctx, outro.id, dataDir);
+    expect((await erroDe(cancelarMeuEnvio(ctx, doOutro.id, { db: app.db, soConferir: true }))).status).toBe(404);
+  });
 });

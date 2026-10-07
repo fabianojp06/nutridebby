@@ -221,10 +221,27 @@ export async function pdfDoMeuEnvio(ctx: TenantContext, id: string, db: Db = get
  * RN-166: a sessão de paciente marca o próprio envio "recebido" como "cancelado" (a única transição que a política e o gatilho
  * deixam) e enfileira `exame-envio-limpar` na MESMA transação; quem apaga os arquivos é o worker. "processando" → "Aguarde o
  * processamento terminar."; outro envio, revisado ou inexistente → 404.
+ * `soConferir` (a tela ainda mostrava "Processando…", sem a confirmação da US-161): nunca cancela; só responde a situação
+ * ("processando" → 409 "Aguarde…"; "recebido" → nada muda e a tela é refeita com o botão que confirma; outro → 404).
  */
-export async function cancelarMeuEnvio(ctx: TenantContext, id: string, deps: { db?: Db; boss?: PgBoss; agora?: Date } = {}): Promise<void> {
+export async function cancelarMeuEnvio(
+  ctx: TenantContext,
+  id: string,
+  deps: { db?: Db; boss?: PgBoss; agora?: Date; soConferir?: boolean } = {},
+): Promise<void> {
   const patientId = pacienteDaSessao(ctx, 'cancelarMeuEnvio');
   if (!idValido(id)) throw new EnvioError(404, {});
+  if (deps.soConferir) {
+    const status = await withTenant(
+      ctx,
+      async (tx) =>
+        (await tx.select({ status: examSubmissions.status }).from(examSubmissions).where(and(eq(examSubmissions.id, id), eq(examSubmissions.patientId, patientId))))[0]?.status,
+      deps.db ?? getDb(),
+    );
+    if (status === 'processando') throw new EnvioError(409, { geral: MSG_ENVIO.aguarde });
+    if (status !== 'recebido') throw new EnvioError(404, {});
+    return;
+  }
   const boss = deps.boss ?? (await getBoss());
   const agora = deps.agora ?? new Date();
   await withTenant(

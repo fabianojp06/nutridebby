@@ -3,9 +3,12 @@ import { useActionState } from 'react';
 import { MSG_ENVIO } from '@/modules/pacientes/exames-enviados-constantes';
 import { cancelarEnvioAction, type CancelarState } from './actions';
 
-/** US-161: "Cancelar envio" — no "recebido" pede a confirmação da spec; no "processando" o servidor responde "Aguarde…". */
+/**
+ * US-161: "Cancelar envio" — no "recebido" pede a confirmação da spec; no "processando" não pede e a ação só confere
+ * (nunca cancela): "Aguarde…" ou, se já terminou, a lista refeita com o botão que confirma.
+ */
 export function CancelarEnvio({ id, processando, rotulo }: { id: string; processando: boolean; rotulo: string }) {
-  const [state, action, pendente] = useActionState<CancelarState, FormData>(cancelarEnvioAction.bind(null, id), {});
+  const [state, action, pendente] = useActionState<CancelarState, FormData>(cancelarEnvioAction.bind(null, id, processando), {});
   const idErro = `cancelar-erro-${id}`;
   return (
     <form action={action} className="space-y-1">
