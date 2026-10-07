@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
-import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { describe, expect, it, vi } from 'vitest';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFStream, PDFString } from 'pdf-lib';
 import sharp from 'sharp';
 import { fotoDeTeste, pdfDeTeste } from '../../../test/ia';
+import { logger } from '@/lib/logger';
 import { LADO_MAX_IMAGEM, MAX_BYTES_IMAGEM_ENTRELACADA, MAX_PIXELS_IMAGEM, prepararLaudo, PreparoError } from './preparar-arquivo';
 
 const execFileP = promisify(execFile);
@@ -104,6 +105,60 @@ describe('preparo do laudo (A-D7, RN-110): o que sai do sistema', () => {
     expect(novo.getPage(0).node.Resources()?.toString()).toContain('/Im1');
   });
 
+  it('revisão final (A-D7, aviso de IA): anotações e anexos não saem; JPEG embutido sai sem EXIF/GPS; o que se vê fica', async () => {
+    const doc = await PDFDocument.create();
+    const pagina = doc.addPage([595, 842]);
+    const ctx = doc.context;
+    // foto do laudo embutida como está (DCTDecode), com EXIF e GPS — o que um app de "scanner" do celular faz
+    const foto = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#e0e0e0' } })
+      .jpeg()
+      .withExif({ IFD0: { Copyright: 'Ana Souza no EXIF', Make: 'CelularTeste' }, IFD3: { GPSLatitudeRef: 'S', GPSLatitude: '23/1 33/1 0/1', GPSLongitudeRef: 'W', GPSLongitude: '46/1 38/1 0/1' } })
+      .toBuffer();
+    pagina.drawImage(await doc.embedJpg(foto), { x: 50, y: 500, width: 64, height: 48 });
+    const anexo = ctx.register(ctx.stream('CPF 123.456.789-00, Rua das Flores 10', { Type: 'EmbeddedFile' }));
+    const aparencia = ctx.register(ctx.stream('BT /Helv 10 Tf 2 4 Td (92 mg/dL) Tj ET', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 80, 16] }));
+    const anotacoes = [
+      // nota com autor e texto escondidos
+      ctx.obj({ Type: 'Annot', Subtype: 'Text', Rect: [10, 10, 30, 30], Contents: PDFString.of('Ana Souza tem HIV'), T: PDFString.of('Dra. Anotadora') }),
+      // anexo dentro do PDF (XML do laboratório com CPF e endereço)
+      ctx.obj({ Type: 'Annot', Subtype: 'FileAttachment', Rect: [40, 10, 60, 30], T: PDFString.of('Laboratorio'), FS: { Type: 'Filespec', F: PDFString.of('dados.xml'), EF: { F: anexo } } }),
+      // campo de formulário preenchido: a aparência (o que se vê) fica; nome e valor do campo, não
+      ctx.obj({ Type: 'Annot', Subtype: 'Widget', FT: 'Tx', Rect: [100, 700, 180, 716], T: PDFString.of('nome_paciente'), V: PDFString.of('Ana Souza no campo'), AP: { N: aparencia } }),
+      // aparência marcada como escondida: não vai
+      ctx.obj({ Type: 'Annot', Subtype: 'FreeText', Rect: [100, 600, 180, 616], F: 2, AP: { N: aparencia } }),
+    ].map((a) => ctx.register(a));
+    pagina.node.set(PDFName.of('Annots'), ctx.obj(anotacoes));
+    const original = Buffer.from(await doc.save({ useObjectStreams: false }));
+    for (const t of ['Ana Souza no EXIF', 'CPF 123', 'Dra. Anotadora']) expect(original.includes(Buffer.from(t)), t).toBe(true);
+
+    const a = await prepararLaudo(original);
+    if (a.tipo !== 'pdf') throw new Error('esperava PDF');
+    const bytes = Buffer.from(a.base64, 'base64');
+    for (const t of ['Ana Souza', 'CPF 123', 'Exif', 'CelularTeste']) expect(bytes.includes(Buffer.from(t)), t).toBe(false);
+    const novo = await PDFDocument.load(bytes, { updateMetadata: false });
+    const proibidas = ['T', 'TU', 'TM', 'V', 'DV', 'Contents', 'RC', 'FS', 'EF', 'Popup', 'Parent', 'A', 'AA'];
+    const imagens: Buffer[] = [];
+    const subtipos: string[] = [];
+    for (const [, obj] of novo.context.enumerateIndirectObjects()) {
+      const dict = obj instanceof PDFDict ? obj : obj instanceof PDFStream ? obj.dict : null;
+      if (!dict) continue;
+      if (dict.get(PDFName.of('Type'))?.toString() === '/Annot') {
+        subtipos.push(String(dict.get(PDFName.of('Subtype'))));
+        for (const k of proibidas) expect(dict.has(PDFName.of(k)), `/Annot com /${k}`).toBe(false);
+      }
+      if (dict.get(PDFName.of('Type'))?.toString() === '/EmbeddedFile') throw new Error('anexo saiu');
+      if (obj instanceof PDFRawStream && dict.get(PDFName.of('Subtype'))?.toString() === '/Image') imagens.push(Buffer.from(obj.contents));
+    }
+    expect(subtipos).toEqual(['/Widget']);
+    const annots = novo.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    expect(annots.size()).toBe(1);
+    expect(annots.lookup(0, PDFDict).lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N'))).toBeDefined();
+    expect(imagens).toHaveLength(1);
+    const m = await sharp(imagens[0]).metadata(); // ainda é um JPEG válido, do mesmo tamanho
+    expect(m).toMatchObject({ format: 'jpeg', width: 64, height: 48 });
+    expect(m.exif).toBeUndefined();
+  });
+
   it('A-D14: 15 páginas passam; 16 viram laudo_longo (nada é montado para envio)', async () => {
     expect((await prepararLaudo(await pdfDeTeste({ paginas: 15 }))).tipo).toBe('pdf');
     expect(await motivo(prepararLaudo(await pdfDeTeste({ paginas: 16 })))).toBe('laudo_longo');
@@ -133,6 +188,23 @@ describe('preparo do laudo (A-D7, RN-110): o que sai do sistema', () => {
     expect(await motivo(prepararLaudo(Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(500, 0x41)])))).toBe('arquivo_invalido');
     expect(await motivo(prepararLaudo(Buffer.from('GIF89a…')))).toBe('arquivo_invalido');
     expect(await motivo(prepararLaudo(Buffer.alloc(0)))).toBe('arquivo_invalido');
+  });
+
+  it('Minor 6 da revisão final: a recusa deixa rastro no log só com o nome do erro (regra 3: nada do laudo)', async () => {
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const pdfQuebrado = Buffer.concat([Buffer.from('%PDF-1.7\n1 0 obj\n<< /Title (Ana Souza segredo) >>\n'), Buffer.alloc(300, 0x41)]);
+      expect(await motivo(prepararLaudo(pdfQuebrado))).toBe('arquivo_invalido');
+      const jpegQuebrado = Buffer.concat([(await fotoDeTeste({ largura: 64, altura: 48, copyright: 'Ana Souza segredo' })).subarray(0, 400), Buffer.from('Ana Souza segredo')]);
+      expect(await motivo(prepararLaudo(jpegQuebrado))).toBe('arquivo_invalido');
+      expect(aviso.mock.calls.map((c) => c[0])).toEqual([
+        { etapa: 'pdf', erro: expect.any(String) },
+        { etapa: 'imagem', erro: expect.any(String) },
+      ]);
+      expect(JSON.stringify(aviso.mock.calls)).not.toContain('Ana Souza');
+    } finally {
+      aviso.mockRestore();
+    }
   });
 
   it('foto: girada pela orientação EXIF, JPEG sem metadados, maior lado ≤ 2576 px', async () => {

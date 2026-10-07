@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import sharp from 'sharp';
 import { detectarTipo } from '@/lib/file-type';
 import { paraJpegSemMetadados } from '@/lib/jpeg';
+import { logger } from '@/lib/logger';
 import { LIMITE_PAGINAS } from './constantes';
 import type { SaidaDoPdf } from './preparar-pdf-thread';
 import type { ArquivoPreparado } from './provedor';
@@ -50,9 +51,18 @@ export async function prepararLaudo(conteudo: Buffer): Promise<ArquivoPreparado>
   throw new PreparoError('arquivo_invalido');
 }
 
+/** Minor 6 da revisão final: o motivo técnico da recusa fica no log, só o nome do erro (regra 3: nada do laudo). */
+function registrarRecusa(etapa: 'pdf' | 'thread' | 'imagem', erro: unknown): void {
+  const nome = typeof erro === 'string' ? erro : erro instanceof Error ? ((erro as NodeJS.ErrnoException).code ?? erro.name) : 'erro';
+  logger.warn({ etapa, erro: nome.slice(0, 60) }, 'laudo recusado no preparo para a IA');
+}
+
 async function prepararPdf(conteudo: Buffer): Promise<ArquivoPreparado> {
   const saida = await lerPdfNaThread(conteudo);
-  if ('motivo' in saida) throw new PreparoError(saida.motivo);
+  if ('motivo' in saida) {
+    if (saida.erro) registrarRecusa('pdf', saida.erro);
+    throw new PreparoError(saida.motivo);
+  }
   if (!cabeNoPedido(saida.bytes.length)) throw new PreparoError('arquivo_invalido');
   return { tipo: 'pdf', base64: Buffer.from(saida.bytes.buffer, saida.bytes.byteOffset, saida.bytes.byteLength).toString('base64'), paginas: saida.paginas };
 }
@@ -64,7 +74,13 @@ async function prepararPdf(conteudo: Buffer): Promise<ArquivoPreparado> {
  */
 function lerPdfNaThread(conteudo: Buffer): Promise<SaidaDoPdf> {
   return new Promise((resolve, reject) => {
-    const invalido = () => reject(new PreparoError('arquivo_invalido'));
+    let respondeu = false;
+    const invalido = (motivo: unknown) => {
+      if (respondeu) return;
+      respondeu = true;
+      registrarRecusa('thread', motivo);
+      reject(new PreparoError('arquivo_invalido'));
+    };
     let thread: Worker;
     try {
       thread = new Worker(new URL('./preparar-pdf-thread.ts', import.meta.url), {
@@ -75,24 +91,28 @@ function lerPdfNaThread(conteudo: Buffer): Promise<SaidaDoPdf> {
         stdout: true,
         stderr: true, // nada da thread vai para o log: pode citar o conteúdo do laudo
       });
-    } catch {
-      return invalido();
+    } catch (e) {
+      return invalido(e);
     }
     thread.stdout.resume(); // descartados, sem acumular
     thread.stderr.resume();
-    const prazo = setTimeout(() => void thread.terminate(), TEMPO_MAX_PDF_MS);
+    const prazo = setTimeout(() => {
+      invalido('prazo');
+      void thread.terminate();
+    }, TEMPO_MAX_PDF_MS);
     thread.once('message', (saida: SaidaDoPdf) => {
       clearTimeout(prazo);
+      respondeu = true;
       resolve(saida);
       void thread.terminate();
     });
-    thread.once('error', () => {
+    thread.once('error', (e) => {
       clearTimeout(prazo);
-      invalido();
+      invalido(e); // ERR_WORKER_OUT_OF_MEMORY: o PDF pediu mais heap que o teto
     });
     thread.once('exit', () => {
       clearTimeout(prazo);
-      invalido(); // sem efeito se a resposta (ou o erro) já veio
+      invalido('saiu_sem_resposta'); // sem efeito se a resposta (ou o erro) já veio
     });
   });
 }
@@ -107,7 +127,8 @@ async function prepararImagem(conteudo: Buffer): Promise<ArquivoPreparado> {
     if (m.isProgressive && bytesDaLeituraInteira > MAX_BYTES_IMAGEM_ENTRELACADA) throw new PreparoError('arquivo_invalido');
     // rotate() sem argumento = gira pela orientação EXIF; o JPEG novo sai sem nenhum metadado (src/lib/jpeg.ts)
     jpeg = await paraJpegSemMetadados(sharp(conteudo, { failOn: 'error', limitInputPixels: MAX_PIXELS_IMAGEM }).rotate(), LADO_MAX_IMAGEM);
-  } catch {
+  } catch (e) {
+    if (!(e instanceof PreparoError)) registrarRecusa('imagem', e);
     throw new PreparoError('arquivo_invalido');
   }
   if (!cabeNoPedido(jpeg.length)) throw new PreparoError('arquivo_invalido');
