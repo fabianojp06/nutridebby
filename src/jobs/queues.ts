@@ -57,6 +57,14 @@ export const QUEUES = {
   ia: { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   // Plano 11: processando há mais de 15 min / na fila há mais de 30 min → falhou (interrompida); pronta vencida → expirada (15 em 15 min)
   'expirar-ia': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
+  // Plano 12 (RN-163, D23 = a): o envio de exame do paciente — fotos convertidas e PDF rasterizado num processo filho, PDF
+  // limpo, páginas e aviso. Payload { tenantId, envioId } (nada de dado de saúde). Um por vez (padrão do boss.work, RNF-162);
+  // 300 s acima do pior caso (rasterização de até 120 s + gravações); na última tentativa, "falhou" (o handler decide).
+  'exame-envio': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
+  // RN-166: o paciente cancelou; o worker apaga o PDF limpo e as páginas (a sessão de paciente não apaga stored_files)
+  'exame-envio-limpar': { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // RN-163/RN-167: processando parado > 30 min sem job vivo → falhou; recebido há 90 dias → expirado; sobras de arquivo (15 em 15 min)
+  'expirar-exame-envio': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;
