@@ -7,8 +7,8 @@
 
 | Item | Valor |
 |---|---|
-| Conferido contra | `main` em `62615b9` (merge do PR #15, 04/10/2026), worktree `docs-manual-tecnico`; as linhas do Plano 10A contra `3991c7d` (merge do PR #19) |
-| Data da conferência | 05/10/2026; Plano 10A em 06/10/2026 |
+| Conferido contra | `main` em `62615b9` (merge do PR #15, 04/10/2026), worktree `docs-manual-tecnico`; as linhas do Plano 10A contra `3991c7d` (merge do PR #19); as do Plano 11 contra `2efa27b` (merge do PR #23) |
+| Data da conferência | 05/10/2026; Plano 10A em 06/10/2026; Plano 11 em 07/10/2026 |
 | Spec de referência | `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` v1.11 e `…-mvp-historias.md` |
 | Ordem de autoridade | **código** > spec > planos e backlog (`docs/superpowers/plans/`) > runbooks (`docs/operacao/`) > `CLAUDE.md` |
 | Segredos | Este manual só cita **nomes** de variáveis. Nenhum valor. |
@@ -33,7 +33,9 @@ Situação em 05/10/2026: Planos 01 a 08 em produção em `https://nutri.wssclou
 (`drizzle/0000_…` a `drizzle/0088_…`) e o **MVP completo no código**, exceto os textos legais definitivos
 (Plano 08, Tarefa 8, bloqueada no item externo E-09) — ver `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`,
 "Resumo", e o índice dos planos (`…-00-indice.md`, linha do Plano 08). O go-live com pacientes reais depende do
-checklist `docs/operacao/go-live.md`.
+checklist `docs/operacao/go-live.md`. Depois do MVP (07/10/2026): Planos 09 (itens P09-01 a P09-05), 10A (receita) e 11
+(base de IA e leitura de laudos) em produção, com 101 migrations (`0000` a `0100`); a receita e a IA nascem desligadas
+para uso real, cada uma com o seu interruptor da admin (`documentos_liberados`, `ia_liberada`).
 
 ### Módulos funcionais do MVP
 
@@ -107,6 +109,8 @@ Versões conferidas em `package.json` (dependências fixadas; `^` indica faixa).
 | QR code | `qrcode` | ^1.5.4 | QR do 2FA |
 | Runtime TS | `tsx` | 4.23.15 | Dependência **de produção**: o worker, as migrations e o `admin:criar` rodam TypeScript direto (`node --import tsx`, `docker-entrypoint.sh:9-15`) |
 | Marcador | `server-only` | ^0.0.1 | Impede importar módulos de servidor no cliente |
+| IA (Plano 11) | `@anthropic-ai/sdk` | 0.131.0 | Messages API da Anthropic; importado **só** por `src/modules/ia/provedor-anthropic.ts` e **só no worker** (guarda `src/modules/ia/guardas.test.ts`; [cap. 10](10-ia.md)) |
+| PDF do laudo (Plano 11) | `pdf-lib` | 1.17.1 | Regrava o laudo sem metadados antes da IA; **só no worker**, numa `worker_thread` (`preparar-pdf-thread.ts`) e no gerador de laudos fictícios |
 
 ### Dependências de desenvolvimento
 
@@ -130,7 +134,8 @@ com as extensões `citext`, `pg_trgm`, `unaccent` e `btree_gist` (`drizzle/0000_
 Mailpit no dev e no CI; k6 por imagem Docker e Lighthouse por `pnpm dlx` só na pilha de carga (spec §9.1).
 
 `pnpm-workspace.yaml` poda `@sentry/bundler-plugins` por `overrides` (só os caminhos de bundler do SDK o usam) para a
-imagem caber no orçamento de 260 MB do CI (spec §9.1, "Logs / erros").
+imagem caber no orçamento de 260 MB do CI (spec §9.1, "Logs / erros"). No Plano 11, o estágio `build` do `Dockerfile`
+poda do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (258 MB no job `image` do PR #23; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)).
 
 ---
 
@@ -195,17 +200,21 @@ Agendamentos (todos no fuso `America/Sao_Paulo`; a VPS roda em UTC):
 | `monitor-disco` | a cada hora | Alerta com o disco de `/data` em 70% (RNF-13) | `:128` |
 | `expirar-diario-foto`, `expirar-plano-pdf` | a cada 15 min | Recupera fotos e PDFs presos em "processando"/"pendente" | `:190`, `:194` |
 | `limpar-tmp` | 04:00 | Remove `.tmp` órfãos de `DATA_DIR` | `:198` |
+| `expirar-documento-pdf`, `expirar-ia` | a cada 15 min | Recupera PDFs de documento presos (Plano 10A); tarefas de IA paradas, esquecidas na fila ou com sugestão vencida (Plano 11, [§10.3](10-ia.md#103-fluxo)) | `:231`, `:250` |
 
 Filas sem agendamento, disparadas pelo app: `email`, `agenda-tenant`, `whatsapp-evento`, `exportacao-paciente`,
-`expirar-exportacao`, `exclusao-atendida`, `plano-pdf`, `diario-foto` (`src/worker/index.ts:64-187`). As opções de
+`expirar-exportacao`, `exclusao-atendida`, `plano-pdf`, `diario-foto`, `documento-pdf`, `documento-digitalizado` (Plano
+10A) e `ia` (Plano 11; um job por vez, a única fila que chama um serviço de IA) (`src/worker/index.ts`). As opções de
 novas tentativas e expiração de cada fila estão em `src/jobs/queues.ts`.
 
 **Guarda de arquitetura:** testes percorrem o grafo de imports a partir das raízes do Next (`src/app`, `proxy`,
 `instrumentation`, `next.config`) e falham se ele alcançar código exclusivo do worker —
 `push.ts`, `enviar.ts`, `diario-foto-job.ts`, `web-push`, `heic-decode` (`src/modules/notificacoes/push.test.ts:433`)
 e `exportacao-job.ts`, `prontuario-pdf.tsx`, `plano-pdf*.tsx`, `@react-pdf/renderer`, `fflate`
-(`src/modules/pacientes/exportacao.test.ts`, teste "o PDF e o ZIP ficam fora do grafo do Next"). O grafo é montado
-por `test/grafo-de-imports.ts`.
+(`src/modules/pacientes/exportacao.test.ts`, teste "o PDF e o ZIP ficam fora do grafo do Next"); desde o Plano 11, também
+`provedor-anthropic.ts`, `provedor-do-ambiente.ts`, `preparar-arquivo.ts`, `preparar-pdf-thread.ts`, `leitura-job.ts`,
+`avaliacao/*`, `@anthropic-ai/sdk` e `pdf-lib` (`src/modules/ia/guardas.test.ts`). O grafo é montado por
+`test/grafo-de-imports.ts`.
 
 ### O banco (PostgreSQL 16)
 
@@ -341,7 +350,7 @@ sequenceDiagram
 
 | Arquivo (`src/db/schema/`) | Tabelas |
 |---|---|
-| `platform.ts` | `tenants`, `audit_log`, `system_heartbeat`, `stored_files`, `backup_runs` |
+| `platform.ts` | `tenants`, `audit_log`, `system_heartbeat`, `stored_files`, `backup_runs`, `admin_actions` (Plano 09) |
 | `auth.ts` | `user`, `session`, `account`, `verification`, `two_factor`, `rate_limit` (Better Auth) |
 | `access.ts` | `invites`, `consents` |
 | `pacientes.ts` | `patients`, `patient_tags`, `patient_tag_links`, `consultations`, `consultation_notes`, `anthropometry`, `energy_calcs`, `anamnesis_templates`, `anamneses`, `exams`, `privacy_requests`, `data_exports` |
@@ -351,6 +360,7 @@ sequenceDiagram
 | `conteudo.ts` | `contents`, `recipes`, `recipe_ingredients`, `content_audience`, `content_views`, `content_favorites` |
 | `portal.ts` | `access_events`, `diary_entries` |
 | `documentos.ts` (Plano 10A) | `signed_documents`, `signed_document_notes`, `signed_document_receipts`, `document_access_codes`, `document_verifications` |
+| `ia.ts` (Plano 11) | `ia_tarefas`, `ia_uso`, `ia_gasto_plataforma` |
 
 ---
 
@@ -370,6 +380,7 @@ rotas e a UI chamam o módulo; o módulo abre `withTenant` e fala com o banco.
 | `portal` | Vínculos da conta (`withConta`), sessão e termo do paciente, acesso diário (CS-02), plano, diário (e conversão da foto*), comentários da nutricionista, evolução, lista de compras, meus dados, perfil, inscrição de push, agenda e conteúdos do portal | `vinculos.ts`, `sessao.ts`, `termo.ts`, `acesso.ts`, `plano.ts`, `diario.ts`, `diario-foto-job.ts`*, `diario-nutri.ts`, `evolucao.ts`, `lista-compras.ts`, `meus-dados.ts`, `perfil.ts`, `push-inscricao.ts`, `agenda.ts`, `conteudos.ts`, `avisos.ts`, `link-portal.ts` | Planos 06, 07 |
 | `conteudo` | Conteúdos (vídeo, receita, orientação), arquivos (capa, PDF), audiência, vídeo e oEmbed, markdown seguro, receitas e cálculo, aviso de conteúdo novo, métricas, LGPD do titular | `conteudos.ts`, `arquivos.ts`, `audiencia.ts`, `video.ts`, `oembed.ts`, `capa.ts`, `markdown.tsx`, `receitas.ts`, `receita-calculo.ts`, `aviso.ts`, `metricas.ts`, `titular.ts` | Plano 07 |
 | `ajuda` | Texto tipado do manual guiado do painel (`GUIAS`; desde o Plano 10A também o guia de `/conta/seguranca`) | `conteudo.ts` | Plano 08 (P08-10) |
+| `ia` | Leitura de laudos com IA (F3-01): provedor trocável (`anthropic`, `sandbox`, `fake`), preparo do laudo sem metadados*, job da leitura com portão do envio*, cota e teto da plataforma, ativação com aditivo, ciência do paciente e "Não usar IA", conferência e aplicação das sugestões, avaliação com laudos fictícios*. Detalhe no [cap. 10](10-ia.md) | `constantes.ts`, `textos-legais.ts`, `modo.ts`, `provedor.ts`, `provedor-anthropic.ts`*, `provedor-sandbox.ts`, `provedor-fake.ts`, `provedor-do-ambiente.ts`*, `precos.ts`, `cota.ts`, `cancelar.ts`, `alertas.ts`, `ativacao.ts`, `ciencia-paciente.ts`, `tarefas.ts`, `preparar-arquivo.ts`*, `preparar-pdf-thread.ts`*, `instrucoes/leitura.ts`, `resposta-leitura.ts`, `valor-laudo.ts`, `correspondencia.ts`, `leitura-job.ts`*, `conferencia.ts`, `avaliacao/`* | Plano 11 |
 | `documentos` | Documentos assinados: perfil profissional para documentos, receita (prescrição), preparo e PDF com código e QR*, assinatura digitalizada (fotos + 2FA → PDF novo*), assinatura no banco sem sessão, entrega (portal, link de uso único, pessoalmente), recebimento, verificação pública, cancelamento, LGPD da receita. Detalhe no [cap. 9](09-documentos-assinados.md) | `constantes.ts`, `erros.ts`, `perfil-profissional.ts`, `codigo.ts`, `prescricao.ts`, `documentos.ts`, `arquivos-do-preparo.ts`, `documento-pdf.tsx`*, `documento-pdf-job.ts`*, `digitalizada.ts`, `digitalizada-job.tsx`*, `registrar-assinatura.ts`, `verificacao.ts`, `entrega.ts`, `recebimento.ts`, `link-documento.ts`, `portal.ts`, `cancelamento.ts`, `lgpd-documentos.ts` | Plano 10A |
 
 \* Só roda no worker; protegido pela guarda de grafo de imports (§1.4).
@@ -378,7 +389,9 @@ rotas e a UI chamam o módulo; o módulo abre `withTenant` e fala com o banco.
 
 Contagem de `import` de `@/modules/<outro>` em código de produção (sem testes), em 05/10/2026 (antes do Plano 10A; o
 módulo `documentos` usa `pacientes`, `plataforma`, `notificacoes`, `portal` e `agenda`, e é usado por `pacientes`
-— exportação e anonimização — e por `agenda/inicio.ts`, o cartão do Início):
+— exportação e anonimização — e por `agenda/inicio.ts`, o cartão do Início; o módulo `ia`, do Plano 11, usa `pacientes`
+(13 imports), `plataforma` (6), `agenda` (2) e `notificacoes` (1), e é usado por `pacientes` — `lgpd.ts`, `exames.ts`,
+`exportacao-job.ts` — e por `plataforma` — `contas.ts`, `dpa.ts`):
 
 | Módulo → | agenda | alimentos | conteudo | notificacoes | pacientes | plano-alimentar | plataforma | portal |
 |---|---|---|---|---|---|---|---|---|
@@ -474,6 +487,7 @@ Nenhuma rota de API passa pelo `src/proxy.ts` (§1.4).
 | `/api/p/documentos/[id]/pdf` | GET | PDF do documento no portal (registra "aberto") — Plano 10A | `requireApiPaciente` + interruptor |
 | `/api/documento/[token]/codigo`, `/confirmar`, `/recebido` | POST | Link do documento: pedir o código, abrir a sessão, confirmar o recebimento — Plano 10A | `mesmaOrigem`; Turnstile e limites por IP e por documento; sessão `nd_doc` |
 | `/api/documento/[token]/pdf` | GET | PDF pelo link (com a sessão) | Token + sessão `nd_doc` |
+| `/api/painel/ia/tarefas/[id]` | GET | Situação da leitura de laudo (`{ status, erro }`, `no-store`, sem auditoria) para o acompanhamento da aba Exames — Plano 11 | `requireApiNutri` |
 
 ---
 
@@ -631,6 +645,12 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `EMAIL_TRANSPORT` | worker | Não (padrão `resend` em produção, `mailpit` fora) | Transporte de e-mail | `src/env.ts:225`, `:244`; `src/email/transport.ts:60` |
 | `RESEND_API_KEY` | worker | **Sim** com transporte `resend` | Chave do Resend | `src/env.ts:226`, `:248-250`; `src/email/transport.ts:60` |
 | `MAILPIT_URL` | worker | **Sim** com `mailpit` ou `WHATSAPP_SANDBOX=1` | API do Mailpit | `src/env.ts:227`; `src/email/transport.ts:60`; `ambiente.ts:35` |
+| `IA_PROVEDOR` | app, worker | Não (**ausente = IA desligada**, a seção nem aparece) | `anthropic`, `sandbox` ou `fake` (Plano 11); `sandbox` e `fake` recusados em produção | `src/env.ts:84`, `:92-95`; `configIA`, `src/modules/ia/modo.ts` |
+| `IA_DESLIGADA` | app, worker | Não | `1` = interruptor de emergência: esconde os botões e mostra "A IA está indisponível no momento. Você pode continuar sem ela." | `src/env.ts:85`; `modo.ts` |
+| `IA_MODELO_LEITURA` | app, worker | Não (padrão `claude-opus-5-5`, provisório até a D12 ★) | Modelo da leitura; só `claude-opus-5-5` ou `claude-sonnet-5-5` (`MODELOS_IA`) | `src/env.ts:86` |
+| `IA_INFERENCE_GEO` | app, worker | Não (padrão `us`) | Região de inferência; **só `us` em produção** (A-D5) | `src/env.ts:87`, `:95` |
+| `IA_TETO_GLOBAL_MENSAL_USD` | app, worker | Não (padrão 50) | Teto mensal da plataforma inteira, em US$ (0–10000) | `src/env.ts:89` |
+| `ANTHROPIC_API_KEY` | **só worker** | Não (sem ela, cada leitura falha como `credencial_invalida` e os admins recebem e-mail, 1 por hora) | Chave do workspace **de produção** do Console; o app não a declara (RNF-103). Nenhuma outra `ANTHROPIC_*` no worker: o SDK leria `ANTHROPIC_CUSTOM_HEADERS` ([§10.9](10-ia.md#109-divergências-conhecidas)) | `src/env.ts:250`; `src/modules/ia/provedor-do-ambiente.ts` |
 
 ### Container e deploy
 
@@ -655,6 +675,7 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `NUTRI_BACKUP_TZ`, `NUTRI_BACKUP_TODAY`, `NUTRI_PG_DUMP_ARGS`, `NUTRI_DB_CONTAINER` | Script de backup, opcionais | Ajustes usados pelos testes (`nutri-backup.sh:14-22`, `:79`) |
 | `NUTRI_RESTAURAR_IMAGEM`, `NUTRI_RESTAURAR_DIA`, `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` | `nutri-restauracao-teste.sh` | Teste de restauração (`docs/operacao/restauracao.md`) |
 | `CARGA_TENANTS`, `CARGA_PACIENTES`, `CARGA_VENCER_EM_MIN` | `test/carga/seed.ts` | Tamanho da semente sintética da pilha de carga |
+| `IA_AVALIACAO`, `IA_AVALIACAO_DIR`, `IA_AVALIACAO_MODELOS`, `IA_AVALIACAO_TETO_USD`, `IA_AVALIACAO_ESFORCO` | `.env.avaliacao` na máquina do dono (fora do git), lido por `pnpm ia:avaliar` (`scripts/ia-avaliar.ts`) | Avaliação da IA com laudos fictícios e a chave do workspace de **dev** (runbook do Plano 11, passo 4); `IA_AVALIACAO_DIR` também em `pnpm ia:laudos`. Nunca no Easypanel |
 | `NUTRI_DEV_DATABASE_URL` | Ambiente do desenvolvedor, lida pelo `.mcp.json` (`:16`) | Conexão do MCP `postgres-dev`, **só banco de dev** (regra 5 do CLAUDE.md); só o nome aqui, nunca o valor |
 | `DOCKER_HOST` | `test/backup.test.ts`, `test/restauracao.test.ts` | Docker usado pelos testes |
 
@@ -670,7 +691,9 @@ As variáveis de app e worker ficam no **Easypanel**, serviço a serviço. Em 05
 `TRUSTED_PROXIES`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` e `VAPID_PUBLIC_KEY`; o `nutri_worker` tem `APP_ROLE`,
 `APP_URL`, `DATABASE_URL`, `DATA_DIR`, `EMAIL_FROM`, `ENCRYPTION_KEY`, `LOG_LEVEL`, `NODE_ENV`, `RESEND_API_KEY` e as três
 `VAPID_*`. Não há ainda `SENTRY_*` nem `EVOLUTION_*` (Sentry e WhatsApp desligados; itens E-07 e E-04 do backlog).
-O worker **não** recebe `DATABASE_URL_MIGRATOR`, como manda o Plano 01 (Tarefa 13).
+O worker **não** recebe `DATABASE_URL_MIGRATOR`, como manda o Plano 01 (Tarefa 13). As variáveis da IA (Plano 11) entram
+pelo passo 6 do runbook `docs/operacao/ia.md` (`IA_*` no app e no worker; `ANTHROPIC_API_KEY` só no worker); sem
+`IA_PROVEDOR` a IA fica desligada.
 
 ---
 
@@ -689,8 +712,9 @@ na `main` (`git log --merges`). Migrations = arquivos SQL adicionados pelo merge
 | **06 Portal do paciente (M5)** | #8 (03/10/2026); fechamento no #9 | 0070–0080 | v1.9 | **Escrita do paciente negada por padrão** (`paciente_sem_*`); `stored_files` por paciente; contexto **`conta`** e `withConta`; `requirePaciente` e cookie `nd_vinculo`; PWA instalável com "Meu plano" offline; inscrição de push; `access_events` (CS-02); diário com foto (HEIC no worker); "Diários" da nutricionista; evolução, lista de compras, perfil e direitos do titular; agenda no PWA; axe no portal (D1–D26) |
 | **07 Biblioteca de conteúdo (M6)** | #10 (04/10/2026); débitos no #11, correção de tema no #13, fechamento no #14 | 0081–0084 | v1.10 | `contents` e tabelas filhas; **audiência na RLS** (`paciente_conteudo_visivel`, `app_conteudo_por_etiqueta`); vídeo por link com player sem cookies e capa pelo oEmbed; markdown seguro sem HTML; receitas com cálculo; receita sugerida no plano (`liberarReceitasDoPlano`); aviso de conteúdo novo; métricas "Quem viu" (D1–D21) |
 | **08 Go-live** | #12 (04/10/2026); fechamento no #15 | 0085–0088 | v1.11 | Sentry (`@sentry/node`) com filtro e `request_id`; `/api/erro-cliente`; health com motivo; **CSP com nonce** e cabeçalhos; RLS final por coluna (`paciente_colunas`); limites e player sob demanda; retenção de `access_events`; métricas de sucesso; pilha de carga k6 e teste de restauração; visual V2 do painel com tema na conta (`user.tema`, `user.guia`); menu e Início em bento; **manual guiado** (`modules/ajuda`). Tarefa 8 (textos legais) pendente no E-09 (D1–D27) |
-| **09 Fechamento do MVP** (P09-01 a P09-05) | PR do branch `plano-09-fechamento-mvp` (aguardando merge) | 0094–0097 | — | Conferência de origem no salvamento do plano e nas rotas de escrita (`mesmaOrigem`); worker espera a versão do schema; reinício do 2FA pelo admin (`admin_actions`, `admin:reiniciar-2fa`); aviso de aparelho com outro papel; E2E estável; painel instalável (PWA) sem cópia offline de dado de saúde; formulários em POST |
+| **09 Fechamento do MVP** (P09-01 a P09-05) | #22 (06/10/2026) | 0094–0097 | — | Conferência de origem no salvamento do plano e nas rotas de escrita (`mesmaOrigem`); worker espera a versão do schema; reinício do 2FA pelo admin (`admin_actions`, `admin:reiniciar-2fa`); aviso de aparelho com outro papel; E2E estável; painel instalável (PWA) sem cópia offline de dado de saúde; formulários em POST |
 | **10A Receita** (pós-MVP) | #19 (06/10/2026); plano no #18, divisão 10A/10B aprovada em 05/10/2026 | 0089–0093 | MVP v1.12; documentos v0.4 | Módulo **`documentos`** ([cap. 9](09-documentos-assinados.md)): receita de suplementos e fitoterápicos; **imutabilidade no banco** (gatilho `app_documento_imutavel`) e anonimização só pela função `app_anonimizar_documentos` (`SECURITY INVOKER`, só `worker`); primeiras FKs `NO ACTION` para `stored_files`; PDF preparado e PDF da digitalizada no worker; **2FA no momento de assinar** (`confirmarCodigo2fa`); recibo só INSERT; link de uso único sem login (`semConta`) com código de 6 dígitos; **verificação pública** `/v` fora da RLS (`document_verifications`); interruptor do admin `documentos_liberados` (D1–D24; Plano 10B, gov.br e ICP-Brasil, ainda por fazer) |
+| **11 Base de IA + leitura de laudos** (pós-MVP) | #23 (07/10/2026) | 0098–0100 | MVP v1.13; IA v0.4 | Módulo **`ia`** ([cap. 10](10-ia.md)): primeiro serviço de IA, **só no worker** (`@anthropic-ai/sdk` e `pdf-lib` fora do grafo do Next); provedor trocável com `sandbox`/`fake` (o CI nunca chama a API real); **portão do envio** (RN-100 reconferida com travas antes de o laudo sair, uma vez); cota em micro-dólares com reserva e acerto (`ia_uso`) e teto da plataforma (`ia_gasto_plataforma`, sem `tenant_id`); travas do tenant em `FOR NO KEY UPDATE`; ciência do paciente e aditivo de IA em `consents`; interruptor da admin `ia_liberada` e gatilho que só deixa a admin mudar os interruptores (`0100`); tarefas sem `DELETE` fora da anonimização e com colunas fixas; `censor` do pino para `resultado`/`parametros` (D1–D22; A-D21 e A-D22 do dono em 07/10/2026) |
 
 O processo de revisão de cada entrega (revisor por tarefa, revisão final do branch, `/code-review high` uma vez,
 re-revisão do diff das correções e `/security-review`) está no índice dos planos e no `CLAUDE.md` do projeto.

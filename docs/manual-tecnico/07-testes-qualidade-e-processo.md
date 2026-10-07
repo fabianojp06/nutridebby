@@ -43,21 +43,21 @@ flowchart LR
 
 Medidos no commit `62615b9` (`origin/main`). Nenhum código mudou desde `d5662bb`, o último commit com CI
 verde do Plano 08 (`git log d5662bb..HEAD` só tem docs). **Atualização do Plano 10A** (`3991c7d`, PR #19, 06/10/2026):
-os valores entre parênteses "10A" abaixo.
+os valores marcados "10A" abaixo. **Atualização do Plano 11** (`2efa27b`, PR #23, 07/10/2026): os valores marcados "11".
 
 | Item | Valor | Como conferir |
 |---|---|---|
-| Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`); 10A: **244** | `find src test -name "*.test.ts" \| wc -l` |
-| Casos do Vitest (execução) | **2024**; 10A: **2244** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes); relatório das correções do `/code-review high` do PR #19 (244 arquivos, 2244 testes) |
+| Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`); 10A: **244**; 11: **282** | `find src test -name "*.test.ts" \| wc -l` |
+| Casos do Vitest (execução) | **2024**; 10A: **2244**; 11: **2558** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes); relatório das correções do `/code-review high` do PR #19 (244 arquivos, 2244 testes) e do PR #23 (282 arquivos, 2558 testes) |
 | Chamadas `it(`/`test(` no código | 1502 | Contagem estática; a diferença para 2024 vem de laços e `it.each` (21 arquivos usam `it.each`) |
-| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`) | `ls e2e/*.spec.ts` |
+| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`); 11: **21** (`painel-pwa.spec.ts` do Plano 09, `ia-laudos.spec.ts` e `conferencia-ia.spec.ts`) | `ls e2e/*.spec.ts` |
 | Testes E2E (execução no CI) | **130**, em 10,6 min | "Resultado da entrega" do Plano 08; 120 chamadas `test(` estáticas, o resto vem de laços (ex.: um teste por rota do portal em `e2e/acessibilidade.spec.ts:51`) |
-| Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`) | `ls drizzle/*.sql`; 24 delas (10A: 25) se chamam `*rls_*` |
-| Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
-| Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca`; 10A: 45 + `/conta/seguranca` | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
+| Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`); 11: **101** (`0000` a `0100`) | `ls drizzle/*.sql`; 24 delas (10A: 25; 11: 26) se chamam `*rls_*` |
+| Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2); 11: 42 (40 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
+| Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca`; 10A: 45 + `/conta/seguranca` (o Plano 11 não criou tela: a IA mora nas abas Exames e Privacidade, em Configurações e no `/admin`) | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
 | Telas do portal no axe | 10 rotas fixas + telas avulsas | `ROTAS`, `e2e/acessibilidade.spec.ts:50` |
-| Imagem Docker | 256 MB comprimida na `main` 7ada357 (limite 260 MB); o Plano 11 soma ~7 MB (`pdf-lib`, `@anthropic-ai/sdk`) e o Dockerfile poda ~5 MB deles — o valor do branch sai do job `image` do PR | Job `image`, `.github/workflows/ci.yml:106`; run 37483326880 |
-| Commits na `main` | 414, desde 27/09/2026; 10A: 470 | `git log --oneline \| wc -l` |
+| Imagem Docker | 256 MB comprimida na `main` 7ada357 (limite 260 MB); 11: **258 MB** (o Plano 11 soma ~7 MB com `pdf-lib` e `@anthropic-ai/sdk`, e o Dockerfile poda ~5 MB deles) — **2 MB de folga** | Job `image`, `.github/workflows/ci.yml:106`; runs 37483326880 e 37611756099 (PR #23) |
+| Commits na `main` | 414, desde 27/09/2026; 10A: 470; 11: 533 | `git log --oneline \| wc -l` |
 
 ---
 
@@ -222,7 +222,7 @@ Outros testes de banco que funcionam como guarda:
 É o teste do RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant em
 todas as tabelas 🔒". Nasceu no Plano 02, Tarefa 8, e cada plano acrescentou as suas tabelas.
 
-**Montagem (`beforeAll`, `:132`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
+**Montagem (`beforeAll`, `:186`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
 P1 e P2. Para cada tabela com `tenant_id` fora de `RLS_EXCEPTIONS`, roda a fábrica uma vez por paciente de cada
 tenant, como nutricionista (`withTenant`, papel `nutri`, conexão `nutri_app`). Semear os **dois** tenants faz o teste
 falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
@@ -230,30 +230,34 @@ falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 | Peça | Linha | O que é |
 |---|---|---|
 | `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `SO_INSERE` | `:120` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`): UPDATE/DELETE já são negados por permissão |
-| `IMUTAVEIS` | `:126` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes` — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
-| `SO_APAGA` | `:132` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`). Um paciente a mais por tenant, sem documento, faz o filtro casar |
-| `ULTIMAS` | `:142` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); `patients` é sempre a última |
-| `COLUNA_TITULAR` | `:167` | Em `patients` o titular é a coluna `id` |
-| `SEM_DELETE_DO_PACIENTE` | `:169` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
-| `UPDATE_DO_PACIENTE` | `:191` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`) |
+| `SO_INSERE` | `:128` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`): UPDATE/DELETE já são negados por permissão |
+| `SEM_DELETE`, `DELETE_REVOGADO` | `:133`, `:138` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight) |
+| `IMUTAVEIS` | `:145` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas` — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
+| `SO_APAGA` | `:151` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`). Um paciente a mais por tenant, sem documento, faz o filtro casar |
+| `ULTIMAS` | `:162` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); `patients` é sempre a última |
+| `COLUNA_TITULAR` | `:225` | Em `patients` o titular é a coluna `id` |
+| `SEM_DELETE_DO_PACIENTE` | `:227` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
+| `UPDATE_DO_PACIENTE` | `:275` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`) |
 
-**O que cada caso prova (`describe` em `:199`):**
+**O que cada caso prova (`describe` em `:283`):**
 
 | Caso | Prova |
 |---|---|
-| "toda tabela com tenant_id tem fábrica neste teste" (`:200`) | Tabela nova sem fábrica quebra o CI |
-| WITH CHECK do tenant (`:205`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
-| WITH CHECK do paciente (`:218`) | P2 não grava linha de P1 nem move a própria para P1 |
-| D1 (`:237`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
-| `staff_only` (`:246`) | A sessão de paciente não vê nem grava nada nessas tabelas |
-| `publico` (`:259`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
-| `conta` (`:279`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
-| Leitura, alteração e exclusão de B (`:290`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
-| Leitura, alteração e exclusão de P2 (`:320`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
+| "toda tabela com tenant_id tem fábrica neste teste" (`:284`) | Tabela nova sem fábrica quebra o CI |
+| WITH CHECK do tenant (`:289`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
+| WITH CHECK do paciente (`:302`) | P2 não grava linha de P1 nem move a própria para P1 |
+| D1 (`:323`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
+| `staff_only` (`:332`) | A sessão de paciente não vê nem grava nada nessas tabelas |
+| `publico` (`:345`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
+| `conta` (`:366`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
+| Leitura, alteração e exclusão de B (`:377`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
+| Leitura, alteração e exclusão de P2 (`:427`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
 
 O teste distingue a recusa da RLS (`violaRls`: código `42501` e mensagem de *row-level security*) de outro erro
-qualquer. Uma FK quebrada não conta como isolamento.
+qualquer. Uma FK quebrada não conta como isolamento. Desde o Plano 11 (revisão da T1), nos testes negativos de escrita a
+recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem cita `for table "<tabela>"`); só as
+fábricas de `COM_MAE` (`:251`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
+`COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
 ### 7.4.3 Guardas de código (leitura do fonte)
 
@@ -270,6 +274,10 @@ qualquer. Uma FK quebrada não conta como isolamento.
 | Listas sem conteúdo (Plano 10A, D17) | `src/modules/documentos/documentos.test.ts`, `portal.test.ts` | As listas do painel e do portal só devolvem tipo, data, situação, assinatura e recibos, nunca itens, orientações ou justificativa (não chamam `auditRead`) |
 | Restauração × `RLS_EXCEPTIONS` (Plano 10A) | `src/db/rls-guard.test.ts` | A lista de tabelas fora da conta no `nutri-restauracao-teste.sh` é a mesma de `RLS_EXCEPTIONS` |
 | Documentos fora da cópia offline (Plano 10A) | `src/app/sw-regras.test.ts` | `/p/documentos` nunca é a página guardada pelo service worker nem entra no cache do plano |
+| IA: SDK, `pdf-lib` e ZDR (Plano 11, RNF-103/RNF-105) | `src/modules/ia/guardas.test.ts` | `@anthropic-ai/sdk` só em `provedor-anthropic.ts` (em `src` e `scripts`); `pdf-lib` só em `preparar-pdf-thread.ts` e no gerador de laudos fictícios; o provedor não usa Batch, Files, execução de código, MCP, `fallbacks`, `speed`, `betas`, citações, `source: url`, `thinking`, ferramentas nem `count_tokens`, e fixa `maxRetries: 0` e `logLevel: 'off'`; nada do grafo do Next alcança o SDK, o `pdf-lib`, o provedor real, o preparo, o job da leitura nem a avaliação. `test/setup.ts` apaga `ANTHROPIC_API_KEY` do ambiente dos testes |
+| IA: nada em log, fila ou Sentry (Plano 11, RNF-104) | `src/modules/ia/logs.test.ts` | Uma leitura com textos marcadores (ok, recusa e erro com nova tentativa): o marcador não aparece nos espiões do logger, nos dados dos jobs da fila `ia`, no erro limpo do job nem no evento do Sentry filtrado; a tag `motivo` só com formato de código; o pino tira `apiKey`, `x-api-key`, `parametros` e `resultado` |
+| IA: travas sem ciclo (Plano 11, revisão final) | `src/modules/ia/travas.test.ts` | Transações reais em paralelo, conferidas por `pg_blocking_pids`: worker × "Não usar IA", `cancelarTarefas` × portão do envio, varredura × cancelamento — nenhuma termina em 40P01 |
+| IA: gatilhos e CHECKs do banco (Plano 11) | `src/db/ia-schema.test.ts` | `ia_tarefas_sem_apagar`, `patients_ia_quem`, `ia_tarefas_imutavel`, `tenants_interruptores_da_admin`, os CHECKs de `ia_tarefas`, `admin_actions` e `patients`, com os ramos que liberam |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
@@ -419,6 +427,10 @@ Detalhes que evitam falso verde:
 | `acessibilidade-painel.spec.ts` | 5 (+ laço) | Painel |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
+| `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |
+| `ia-laudos.spec.ts` (Plano 11) | 1 | Com `IA_PROVEDOR=sandbox`: aviso em mãos na Privacidade → laudo → "Ler valores com IA" → conferir → salvar só o marcado, com a marca "IA · conferido em {data}" |
+| `conferencia-ia.spec.ts` (Plano 11) | 1 | A conferência guarda marcações e correções depois de um erro e no segundo envio (o React 19 limpava o formulário; revisão da T13) |
+
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 
 ### Rodar localmente
@@ -465,7 +477,8 @@ Comentários com `eslint-disable` existem e explicam o motivo na mesma linha (ex
 
 Variáveis do job `e2e` (só nomes): `NODE_ENV`, `APP_URL`, `DATABASE_URL`, `DATABASE_URL_MIGRATOR`, `AUTH_SECRET`,
 `ENCRYPTION_KEY`, `TRUSTED_PROXIES`, `EMAIL_FROM`, `EMAIL_TRANSPORT`, `MAILPIT_URL`, `FILE_URL_SECRET`, `DATA_DIR`,
-`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `WHATSAPP_SANDBOX`, `EVOLUTION_WEBHOOK_SECRET`, `CI`. Todos fictícios,
+`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `WHATSAPP_SANDBOX`, `EVOLUTION_WEBHOOK_SECRET`, `IA_PROVEDOR` (`sandbox`; desde o
+Plano 11), `CI`. Todos fictícios,
 escritos no próprio workflow; nenhum vem de `secrets`.
 
 **Concorrência (`ci.yml:11`).** Num PR, um commit novo cancela a execução anterior (economiza minutos do Actions).
@@ -738,7 +751,7 @@ merge: merge é deploy e precisa do OK do dono.
 
 | # | Fonte | O que diz | O que o código faz |
 |---|---|---|---|
-| 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | Nenhuma espera. `startWorker` (`src/worker/index.ts:42`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
+| 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | **Resolvida no Plano 09 (P09-02 a):** o worker espera a versão do schema (`esperarVersaoDoSchema`, §6.2.1). Antes dela: nenhuma espera. `startWorker` (`src/worker/index.ts:42`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
 | 2 | Spec §9.7, "Pull request" | Pipeline em sequência: lint → `tsc` → Vitest → testes de RLS/isolamento → build → Playwright | Quatro jobs paralelos (`quality`, `test`, `e2e`, `image`). Os testes de RLS e isolamento estão dentro do `pnpm test`; o build está dentro do job `e2e`; o job `image` (orçamento de 260 MB) não aparece na spec |
 | 3 | Spec §9.7, "Merge na `main`" | Push para o GHCR "com tag = SHA do commit" | Também publica `:latest` e poda o pacote para as 2 versões mais recentes (`deploy.yml:39-57`) |
 | 4 | Spec RNF-10 (v1.11) | Axe em "42 rotas de `ROTAS_DO_PAINEL`" | 43 entradas em `ROTAS_DO_PAINEL`, uma por `page.tsx` de `src/app/painel` (43), mais `/conta/seguranca` = 44 telas. O Plano 08, D25, fala em "~43" |

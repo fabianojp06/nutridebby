@@ -488,6 +488,14 @@ Tabela `consents` (`src/db/schema/access.ts`). É prova de aceite: sem `ON DELET
 
 O termo do paciente é aceito **por consultório**: cada nutricionista é controladora dos dados (RNF-08). Plano 06, D25.
 
+**Aditivo de IA (Plano 11, A-D20).** Terceiro tipo de aceite em `consents`: `ia-aditivo-<versão>` (`IA_ADITIVO_TERMO`,
+`src/modules/ia/textos-legais.ts`), da nutricionista, **com** o `tenant_id` do consultório (o DPA usa `tenant_id` nulo),
+gravado por `registrarAceiteAditivoIa` (`dpa.ts:50`) quando ela marca "Li e aceito o aditivo de inteligência artificial
+(versão {versão})" e clica em "Ativar a IA no consultório" (Configurações). Marca extra: `tenants.ia_ativada_em` (a data
+da primeira ativação fica, `coalesce`) e `tenants.ia_aditivo_versao`. Diferente do DPA, versão nova do aditivo **não**
+redireciona o painel: só os botões de IA mostram "Para continuar usando a IA, aceite a versão atual do aditivo de
+inteligência artificial." (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
+
 **Como publicar uma versão nova** (texto do advogado, P08-06): trocar `DPA_VERSAO` ou `TERMO_PACIENTE_VERSAO` e os parágrafos. Na próxima requisição, toda nutricionista vai para `/painel/dpa` e todo paciente para `/p/termo`. Não precisa de migration.
 
 ---

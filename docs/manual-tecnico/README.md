@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 (Plano 11) contra o branch `plano-11-ia-laudos` (Tarefas 1–17), em 07/10/2026 |
-| Escopo | Planos 01–08, 10A e 11, spec do MVP v1.12, spec de documentos assinados v0.4 e spec da IA v0.3, migrations `0000`–`0100` (101 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026 |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05), 10A e 11, spec do MVP v1.13, spec de documentos assinados v0.4 e spec da IA v0.4, migrations `0000`–`0100` (101 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -72,7 +72,7 @@ flowchart LR
 | 3 | [03-autenticacao-e-acesso.md](03-autenticacao-e-acesso.md) | Better Auth, senha, 2FA, sessão, guardas por papel, vínculos do paciente, convites, aceites, proxy, suspensão, sair | Sessão e autorização, limites de login, proxy |
 | 4 | [04-modulos-clinicos.md](04-modulos-clinicos.md) | Plataforma (contas, marca, armazenamento, monitoramento, métricas), prontuário, LGPD, exportação, alimentos, plano alimentar | Armazenamento e URL assinada, monitoramento de backup/disco, LGPD |
 | 5 | [05-agenda-portal-conteudo.md](05-agenda-portal-conteudo.md) | Agenda, página pública, motor de notificações, canais (e-mail, WhatsApp, push), portal PWA, conteúdos, interface V2, manual guiado | Notificações, contexto `publico`, portal, audiência do conteúdo |
-| 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 17 filas, segurança HTTP, backup e restauração |
+| 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 22 filas, segurança HTTP, backup e restauração |
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
 | 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Plano 10A): receita, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
@@ -177,8 +177,6 @@ flowchart LR
 [10.6 Erros](10-ia.md#106-erros-e-novas-tentativas-d4-rn-105) ·
 [10.7 Privacidade](10-ia.md#107-privacidade) ·
 [10.8 Como estender](10-ia.md#108-como-estender) ·
-[10.9 Divergências](10-ia.md#109-divergências-conhecidas)
-
 ### Onde cada assunto mora
 
 Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem um resumo de uma ou duas frases e um link.
@@ -193,7 +191,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Suspensão do tenant | [§3.14](03-autenticacao-e-acesso.md#314-suspensão-de-conta-rn-15-us-004) | §5.3.8 (lembretes) |
 | Armazenamento, cota e URL assinada | [§4.1.3](04-modulos-clinicos.md#413-armazenamento-com-cota-e-url-assinada-rn-18-regra-9-do-claudemd) | §6.3.6, §6.3.7 |
 | Monitor de backup e disco | [§4.1.4](04-modulos-clinicos.md#414-monitoramento-de-backup-e-disco-rnf-05-rnf-13) | §6.5.6 |
-| Filas do worker (20) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10, §9.8 |
+| Filas do worker (22) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10, §9.8 |
 | Documentos assinados (receita, link, verificação) | [cap. 9](09-documentos-assinados.md) | §1.6, §1.7, §2.5, §2.7, §2.9, §6.2.3, §6.3, §7.4 |
 | Backup e restauração | [§6.5](06-worker-seguranca-operacao.md#65-backup-e-restauração-rnf-05-regra-10) | §1.8 |
 | CI, imagem e deploy | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) | §1.8 (diagrama), §6.8 |
@@ -203,7 +201,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Segredo vazado (troca de variável) | [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado) | §6.10 |
 | Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
 | Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
-| IA de laudos (provedor, cota, privacidade, liberação) | [cap. 10](10-ia.md) | `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
+| IA de laudos (provedor, cota, privacidade, liberação) | [cap. 10](10-ia.md) | §2.5.10, §6.2.3, §6.3.8, §7.4, §8.4; `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
 
 ---
 
@@ -268,7 +266,16 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Código de verificação | 12 caracteres Crockford (`XXXX-XXXX-XXXX`) impressos com o QR no PDF; a verificação pública em `/v/<código>` não mostra nada do paciente | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
 | Digitalizada | Assinatura à mão: a nutricionista envia fotos das páginas assinadas com o código do 2FA e o worker monta um PDF novo (opção E da D1 da spec de documentos) | [§9.4.2](09-documentos-assinados.md#942-assinatura-digitalizada-rn-157-d4-d24) |
 | Link do documento | `/documento/<token>`: entrega a quem não tem o app, com código de 6 dígitos por e-mail e sessão de 15 min | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
-| Interruptor "Documentos" | `tenants.documentos_liberados`, ligado pelo admin só depois da liberação para uso real (Plano 10A, D20) | [§9.1](09-documentos-assinados.md#91-visão-geral) |
+| Interruptor "Documentos" | `tenants.documentos_liberados`, ligado pelo admin só depois da liberação para uso real (Plano 10A, D20). Desde a `0100`, só muda fora de `withTenant` | [§9.1](09-documentos-assinados.md#91-visão-geral) |
+| Leitura de laudo com IA | A IA lê o laudo anexado ao exame e devolve os valores como **sugestão**; nada entra no prontuário sem a nutricionista marcar e salvar (F3-01, Plano 11) | [cap. 10](10-ia.md) |
+| Tarefa de IA / sugestão | Uma linha de `ia_tarefas` por pedido; a sugestão (`resultado`) fica guardada até ser aplicada, descartada, cancelada ou vencer (7 dias) e depois é esvaziada | [§10.4](10-ia.md#104-banco) |
+| Interruptor "IA" | `tenants.ia_liberada`, ligado pela admin na coluna "IA" só depois da liberação para uso real (A-06); em produção, recusado com textos provisórios (D22) | [§10.1](10-ia.md#101-visão) |
+| Aditivo de IA | Complemento do DPA aceito pela nutricionista ao ativar a IA; linha `ia-aditivo-<versão>` em `consents` (A-D20) | [§10.2](10-ia.md#102-peças) |
+| Aviso de IA / ciência do paciente | Aviso de privacidade sobre IA entregue a cada paciente (por e-mail ou em mãos); sem a ciência registrada a IA fica bloqueada para ele (US-104). Por e-mail, vale quando o Resend aceita o envio (A-D21) | [§10.7](10-ia.md#107-privacidade) |
+| "Não usar IA" | Recusa do paciente, marcada pela nutricionista (`patients.ia_recusada_em`, US-103) | [§10.7](10-ia.md#107-privacidade) |
+| Cota de IA / teto da plataforma | Limite mensal em US$ por consultório (`ia_cota_mensal_usd`, padrão 15) e teto mensal da plataforma inteira (`IA_TETO_GLOBAL_MENSAL_USD`); o custo é reservado antes do envio e acertado depois | [§10.5](10-ia.md#105-cota-e-custo) |
+| ZDR | *Zero data retention*: o provedor não guarda o laudo depois da resposta; pré-condição para dado real (A-D4) | [§10.7](10-ia.md#107-privacidade) |
+| Sandbox / fake (IA) | Provedores sem rede: `sandbox` (resposta fixa, dev e E2E) e `fake` (programável, testes). Os dois são recusados em produção | [§10.2](10-ia.md#102-peças) |
 
 ### Isolamento e banco
 
@@ -308,6 +315,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Worker | Processo pg-boss (mesma imagem, `APP_ROLE=worker`) que executa e-mail, lembretes, PDF, ZIP, fotos e varreduras | [§6.2](06-worker-seguranca-operacao.md#62-worker-pg-boss) |
 | Payload selado | Payload de job cifrado com AES-256-GCM (`ENCRYPTION_KEY`) para não guardar dado sensível na fila | [§6.2.5](06-worker-seguranca-operacao.md#625-payload-cifrado-aes-256-gcm) |
 | `workSemDetalhe` | Registro de job que limpa o erro antes de o pg-boss gravá-lo (regra 3) | `src/worker/sem-detalhe.ts:38` |
+| Portão do envio | Transação do worker logo antes de chamar a IA: trava paciente, exame e tenant, reconfere a RN-100 e marca `enviado_em`/`saiu_em`; só depois do commit o laudo sai, uma vez | [§10.3](10-ia.md#103-fluxo) |
 | Heartbeat | Batida do worker em `system_heartbeat`, lida pelo `/api/health` | [§6.2.6](06-worker-seguranca-operacao.md#626-heartbeat), [§6.4.3](06-worker-seguranca-operacao.md#643-apihealth) |
 | Easypanel | Painel sobre Docker Swarm que roda os serviços. Configuração muda só por ele (regra 6) | [§1.8](01-visao-geral-e-arquitetura.md#18-infraestrutura) |
 | GHCR | GitHub Container Registry, onde o deploy publica a imagem | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) |
@@ -319,6 +327,8 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | M1–M6 | Módulos do MVP (plataforma, prontuário, plano alimentar, agenda, portal, conteúdo) | Spec §2.1 |
 | US-xxx | Histórias de usuário (46). A dezena indica o módulo: US-00x M1, US-01x M2, US-02x M3, US-03x M4, US-04x M5, US-05x M6 | `…-mvp-historias.md` |
 | US-14x, RN-14x/15x, RNF-14x, P-Bx | Histórias, regras, requisitos e pendências da spec de documentos assinados (faixa 140–159; subprojeto B) | `2026-10-03-nutridebby-documentos-assinados-design.md` |
+| US-10x a US-12x, RN-1xx, RNF-100–110, INT-07, R-1xx, CS-10x, PM-n | Histórias, regras, requisitos, integração, riscos, critérios e pontos menores da spec da IA (faixa 100–129; subprojeto A) | `2026-10-03-nutridebby-ia-nutricionista-design.md` |
+| A-Dn | Decisões da spec da IA (A-D1 a A-D22; o prefixo "A-" evita colisão com o Dx dos planos) | Spec da IA §16 |
 | RN-xx | Regras de negócio (RN-01 a RN-18) | Spec §8 |
 | RNF-xx | Requisitos não funcionais (RNF-01 a RNF-13) | Spec §5 |
 | INT-xx | Integrações (INT-01 WhatsApp a INT-06 Turnstile) | Spec §6 |
@@ -331,7 +341,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | F3-xx, F4-01 | Itens pós-MVP (Fase 3 e Fase 4) | Backlog, "Pós-MVP" |
 | Tarefa N | Tarefa numerada dentro de um plano | Cada plano, seção "Tasks" |
 | S-, B-, W-, F-, L-, T-, X- | Códigos dos débitos do Plano 06, dados na triagem da preparação do Plano 07 (ex.: B-5) | Backlog, "P06-12" |
-| R1–R11 | Decisões da varredura prévia do Plano 07 contra a `main` | Índice dos planos, "Registro do processo — Plano 07" |
+| R1–R11 | Decisões da varredura prévia do Plano 07 contra a `main`. No Plano 11, R1–R10 são as decisões do pre-flight (resumo na spec da IA §17.3) | Índice dos planos, "Registro do processo — Plano 07"; spec da IA §17.3 |
 | N7, M8, G7, PF-F3, T8-R2a… | Rótulos de achados das revisões, citados em comentários do código. Procure o rótulo no plano ou no backlog do período | Planos e backlog |
 | Regra n | Regra obrigatória n do `CLAUDE.md` do projeto (1 a 10) | [§7.9](07-testes-qualidade-e-processo.md#79-as-10-regras-do-claudemd-com-o-porquê) |
 
@@ -339,7 +349,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA em 07/10/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -354,7 +364,8 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 [cap. 6](06-worker-seguranca-operacao.md#divergências-encontradas) ·
 [cap. 7](07-testes-qualidade-e-processo.md#713-divergências-encontradas) ·
 [cap. 8](08-sustentacao.md#divergências-encontradas) ·
-[cap. 9](09-documentos-assinados.md#divergências-encontradas)
+[cap. 9](09-documentos-assinados.md#divergências-encontradas) ·
+[cap. 10](10-ia.md#109-divergências-conhecidas)
 
 ### Arquitetura, stack, infraestrutura e CI
 
@@ -362,7 +373,7 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 |---|---|---|---|---|---|
 | 1 | Spec §9.1 | UI com shadcn/ui, react-hook-form, Recharts, lucide-react | Nenhum no `package.json`; gráficos em SVG no servidor, componentes próprios em `src/components/ui/` | Doc | 1 #1, 4 #3 |
 | 2 | Spec §9.2 | `@sentry/cli` em dev; `web-push` como dependência de dev | `@sentry/cli` não existe (sem source maps); `web-push` está em `dependencies` | Doc | 1 #2, 7 #5 |
-| 3 | Spec §9.7 | "o worker espera a versão do schema" | Nenhuma espera: `src/worker/index.ts` sobe direto; os webhooks de app e worker saem em sequência (`deploy.yml:64-65`). A proteção real é expand/contract | Comp. | 1 #3, 7 #1 |
+| 3 | Spec §9.7 | "o worker espera a versão do schema" | **Resolvida no Plano 09 (P09-02 a):** `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`, função `app_versao_do_schema()`, 0094) antes de registrar os consumidores ([§6.2.1](06-worker-seguranca-operacao.md#621-processo-e-ciclo-de-vida)) | — | 1 #3, 7 #1 |
 | 4 | Spec §9.7 | Imagem com tag = SHA; etapas do PR em sequência | Tags `:<sha>` e `:latest` (serviços usam `:latest`), poda para 2 versões; 4 jobs paralelos, com orçamento de imagem de 260 MB | Doc | 1 #4, 7 #2, 7 #3 |
 | 5 | Spec §9.6 | Lista de variáveis | Faltam `TRUSTED_PROXIES` (obrigatória em produção, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE`, `PORT` | Doc | 1 #5 |
 | 6 | `.env.example` | `R2_*` e `BACKUP_PASSPHRASE` | Nenhum código lê; no host viram `RCLONE_CONFIG_*` do `backup.env` | Doc | 1 #6 |
@@ -457,5 +468,17 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 55 | Portal e painel (fuso do consultório) | — | `/documento/[token]` formata as datas em `America/Sao_Paulo` | Comp. | 9 #3 |
 | 56 | D20 do Plano 10A | Liberação dos documentos pelo admin | Sem registro durável (só log) | Pend. | 9 #4 |
 
-**Para decidir com o dono** (tipo Comp.): #3, #10, #18, #28, #32, #35, #36, #39, #40 e #55. As de tipo Doc entram na
+### IA de laudos (Plano 11)
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 57 | Spec da IA US-103/US-104 | Com a IA bloqueada, nada a fazer com o aviso | "Enviar aviso por e-mail" e "Registrar entrega em mãos" continuam na Privacidade (P11-20 a) | Comp. | 10 |
+| 58 | Spec da IA RN-111 | Só "ponto/vírgula + 3 dígitos" é ambíguo | "0,125" e "0.125" também caem em "Confira o valor" (P11-20 b) | Comp. | 10 |
+| 59 | Spec da IA US-104 ("O e-mail do aviso não sai") | Toda desistência do job desfaz o "aguardando" | Job que expira por tempo no pg-boss não passa pelo `aoDesistir`; falha ao decifrar em consultório suspenso repete em vez de desistir (P11-20 c, e) | Comp. | 10 |
+| 60 | Spec da IA US-101 | "Aditivo desatualizado" com o link do aceite | O aviso aparece sem o link (P11-21) | Pend. | 10 |
+| 61 | Spec da IA §5.11 (NGS1.07) | Trilha da ativação e da desativação | Só o log (D21); tabela de eventos do consultório na fase F3 da SBIS (P11-21) | Reg. | 10 |
+| 62 | `cota.ts`, comentário do topo | Acerto e estorno "só descem" | `acertar` pode subir (custo real acima do teto estimado) | Doc | 10 |
+| 63 | Spec da IA §5.4 | PDF sem metadados nem anotações | JPEG 2000, imagem inline e bytes depois do 1º EOI do JPEG embutido passam sem limpeza; Widget sem `/AP` sai inteiro (P11-21) | Pend. | 10 |
+
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58 e #59. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
