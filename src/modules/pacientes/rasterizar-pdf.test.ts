@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { watch, type FSWatcher } from 'node:fs';
 import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -190,7 +191,39 @@ describe('rasterização do PDF enviado pelo paciente (D23 = a, R-170, RNF-162)'
     });
   }, 60_000);
 
-  it('RNF-162: laudo digitalizado de 10 páginas — pico do worker + pico do filho dentro do orçamento (D-R1 ★)', async () => {
+  it('R-D4: o PDF chega ao filho por arquivo — lido uma vez pela função de quem chama, apagado pelo filho antes da 1ª página; erro dela volta como está', async () => {
+    await comTmpProprio(async (base) => {
+      const pdf = await pdfDeTeste({ paginas: 2 });
+      let leituras = 0;
+      let vigia: FSWatcher | undefined;
+      const criados: string[] = [];
+      const r = await rasterizarPdf(
+        async () => {
+          leituras++;
+          const dirs = await readdir(base);
+          expect(dirs).toHaveLength(1);
+          expect(await readdir(path.join(base, dirs[0]))).toEqual([]); // o diretório do job já existe, vazio
+          vigia = watch(path.join(base, dirs[0]), (_evento, nome) => void (nome && criados.push(String(nome))));
+          return pdf;
+        },
+        OPCOES,
+        async () => {
+          const [dir] = await readdir(base);
+          expect(await readdir(path.join(base, dir))).toEqual([]); // nem o PDF nem a página ficam no diretório
+        },
+      ).finally(() => vigia?.close());
+      expect(r.paginas).toBe(2);
+      expect(leituras).toBe(1);
+      expect(criados).toContain('entrada.pdf');
+      expect(await readdir(base)).toEqual([]);
+
+      const erro = new Error('EIO');
+      await expect(rasterizarPdf(async () => { throw erro; }, OPCOES, async () => {})).rejects.toBe(erro);
+      expect(await readdir(base)).toEqual([]);
+    });
+  }, 60_000);
+
+  it('RNF-162: laudo digitalizado de 10 páginas — pico do worker + pico do filho dentro do orçamento (D-R1 revista pela R-D4)', async () => {
     const pdf = await pdfDeFotos(10);
     const r = await medir(pdf);
     console.info(`RNF-162: PDF de ${Math.round(pdf.length / MB)} MB → worker +${Math.round(r.pai / MB)} MB, filho ${Math.round((r.picoBytes ?? 0) / MB)} MB`);

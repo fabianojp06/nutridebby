@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PDFiumModule } from '@hyzyla/pdfium';
 
@@ -7,14 +7,16 @@ import { PDFiumModule } from '@hyzyla/pdfium';
  * (conteúdo não confiável) com o PDFium em WebAssembly. A compilação do @hyzyla/pdfium não tem o V8: nenhum JavaScript do PDF
  * roda; o processo nasce sem variáveis de ambiente (rasterizar-pdf.ts; a única exceção é o limiar do mmap do glibc, R-D2). Só os
  * pixels de cada página saem, uma por vez, num arquivo do diretório temporário do job (criado pelo pai, 0700; nome gerado aqui,
- * nunca com texto do PDF) — pela IPC vão só os metadados (R-D2: a serialização de ~11 MB por página estourava o RNF-162). O
+ * nunca com texto do PDF) — pela IPC vão só os metadados (R-D2: a serialização de ~11 MB por página estourava o RNF-162). O PDF
+ * também chega por arquivo nesse diretório (R-D4: `entrada.pdf`, gravado pelo pai), lido direto para a memória do WASM — sem
+ * cópia no JavaScript — e apagado logo depois. O
  * filho espera o "proxima" do pai antes de desenhar a seguinte (RNF-162). Antes de desenhar uma página, confere o tamanho DECLARADO
  * de cada imagem dela (também dentro de Form XObjects e as inline) sem decodificar: acima de `maxPixelsImagem`, recusa — a
  * decodificação, na memória do WASM, ficaria fora do heap. O pai mede a memória residente deste processo e o mata acima do
  * teto. Carregado direto pelo Node (sem tsx: tipos apagados, sem import local e sem alias). Nunca sai sozinho: o pai encerra
  * depois do "fim" ou da "recusa". Só o worker chega aqui (guarda em exames-enviados-guardas.test.ts).
  */
-type Entrada = { tipo: 'entrada'; pdf: Uint8Array; dir: string; limitePaginas: number; ladoMax: number; maxPixelsImagem: number };
+type Entrada = { tipo: 'entrada'; tamanhoPdf: number; dir: string; limitePaginas: number; ladoMax: number; maxPixelsImagem: number };
 export type MensagemDoProcesso =
   | { tipo: 'recusa'; motivo: 'paginas' | 'conversao'; erro?: string }
   | { tipo: 'pagina'; indice: number; total: number; largura: number; altura: number; caminho: string }
@@ -85,6 +87,32 @@ function picoDesteProcesso(): number | null {
   }
 }
 
+/** R-D4: o mesmo nome que rasterizar-pdf.ts grava (fixo no código; aqui não há import local). */
+const NOME_PDF_DE_ENTRADA = 'entrada.pdf';
+const BLOCO_LEITURA = 1024 * 1024;
+
+/**
+ * R-D4: lê o PDF gravado pelo pai direto para `destino` (a memória do WASM) e o apaga. Sem seguir link simbólico, só arquivo
+ * comum, sem outro nome (hard link) e do tamanho que o pai informou — senão, recusa.
+ */
+function lerPdfDeEntrada(dir: string, destino: Uint8Array): void {
+  const caminho = path.join(dir, NOME_PDF_DE_ENTRADA);
+  const fd = openSync(caminho, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.nlink !== 1 || st.size !== destino.length) throw new RecusaError('conversao');
+    let lidos = 0;
+    while (lidos < destino.length) {
+      const n = readSync(fd, destino, lidos, Math.min(BLOCO_LEITURA, destino.length - lidos), lidos);
+      if (n <= 0) throw new RecusaError('conversao');
+      lidos += n;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  unlinkSync(caminho);
+}
+
 const lerU32 = (mod: Pdfium, ptr: number) => new DataView(mod.HEAPU8.buffer).getUint32(ptr, true);
 
 /** Tamanho declarado de cada imagem (sem decodificar), descendo nos formulários; objetos demais ou fundo demais = recusa. */
@@ -137,13 +165,13 @@ async function rasterizar(e: Entrada): Promise<void> {
   const mod = await (PDFiumModule as unknown as () => Promise<Pdfium>)();
   // o mesmo que o PDFiumLibrary.init() do pacote faz (sem isolate do V8: a compilação não tem JavaScript)
   mod._FPDF_InitLibraryWithConfig({ version: 2, m_pIsolate: null, m_pUserFontPaths: null, m_v8EmbedderSlot: 0, m_pPlatform: null });
-  const ptrPdf = mod.wasmExports.malloc(e.pdf.length);
+  const tamanhoPdf = e.tamanhoPdf;
+  if (!Number.isSafeInteger(tamanhoPdf) || tamanhoPdf < 1) throw new RecusaError('conversao');
+  const ptrPdf = mod.wasmExports.malloc(tamanhoPdf);
   const ptrTamanho = mod.wasmExports.malloc(8);
   if (!ptrPdf || !ptrTamanho) throw new RecusaError('conversao');
-  mod.HEAPU8.set(e.pdf, ptrPdf);
-  const tamanhoPdf = e.pdf.length;
-  e.pdf = new Uint8Array(0);
-  (globalThis as { gc?: () => void }).gc?.();
+  // depois dos malloc: o HEAPU8 pode ter trocado de buffer se a memória do WASM cresceu
+  lerPdfDeEntrada(e.dir, mod.HEAPU8.subarray(ptrPdf, ptrPdf + tamanhoPdf));
   // ilegível, truncado ou com senha: o paciente vê o mesmo texto (§6.2)
   const doc = mod._FPDF_LoadMemDocument(ptrPdf, tamanhoPdf, 0);
   if (!doc) throw new RecusaError('conversao');
@@ -177,7 +205,7 @@ async function rasterizar(e: Entrada): Promise<void> {
 }
 
 async function principal(): Promise<void> {
-  // revisão do plano (D-R1): o filho conta na mesma cgroup de 512 MB do worker e o vigia de 20 ms não segura um pico — num
+  // revisão do plano (D-R1): o filho conta na mesma cgroup do worker (1 GiB, R-D4) e o vigia de 20 ms não segura um pico — num
   // estouro, o kernel mata ESTE processo, não o worker (subir o próprio oom_score_adj não pede privilégio)
   try {
     writeFileSync('/proc/self/oom_score_adj', '1000');

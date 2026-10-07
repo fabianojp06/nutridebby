@@ -1,6 +1,6 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { constants, readFileSync } from 'node:fs';
-import { mkdtemp, open, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, open, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,10 +11,11 @@ import type { MensagemDoProcesso } from './rasterizar-pdf-processo';
 export const HEAP_MAX_RASTER_MB = 64;
 export const TEMPO_MAX_RASTER_MS = 120_000;
 /**
- * D-R1 (aprovada pelo dono em 07/10/2026): medido 66–69 MB só do Node com o WASM e 153–156 MB com uma página A4 a 2000 px.
- * Nunca subir por conta própria.
+ * D-R1 revista pela R-D4 (dono, 07/10/2026): 256 MiB. Medido 66–69 MB só do Node com o WASM, 153–156 MB com uma página A4 a
+ * 2000 px e ~195 MiB com uma página que traz uma foto de 12 MP (o PDFium decodifica o JPEG embutido); o teto de 200 MB deixava
+ * o laudo escaneado pelo celular no fio. Nunca subir por conta própria.
  */
-export const TETO_RSS_RASTER_BYTES = 200 * 1024 * 1024;
+export const TETO_RSS_RASTER_BYTES = 256 * 1024 * 1024;
 const VIGIA_MS = 20;
 /** R-D2: quanto esperar o filho morto (SIGKILL) sair antes de apagar o diretório temporário do job. */
 const ESPERA_SAIDA_MS = 5_000;
@@ -68,20 +69,47 @@ async function lerPaginaDoFilho(caminho: string, bytes: number): Promise<Buffer 
   }
 }
 
+/** R-D4: nome do arquivo do PDF no diretório do job — fixo no código, o mesmo em rasterizar-pdf-processo.ts (nunca texto do usuário). */
+const NOME_PDF_DE_ENTRADA = 'entrada.pdf';
+
+/**
+ * R-D4: grava o PDF no diretório do job (só o dono lê, nunca sobrescreve) e devolve só o tamanho — numa função à parte para
+ * que o Buffer lido por `ler` não fique preso a nenhum escopo da rasterização depois de gravado.
+ */
+async function gravarPdfDeEntrada(dir: string, pdf: Buffer | (() => Promise<Buffer>)): Promise<number> {
+  const conteudo = typeof pdf === 'function' ? await pdf() : pdf;
+  try {
+    await writeFile(path.join(dir, NOME_PDF_DE_ENTRADA), conteudo, { mode: 0o600, flag: 'wx' });
+  } catch (e) {
+    registrarRecusa(e);
+    throw new RasterizacaoError('conversao');
+  }
+  return conteudo.length;
+}
+
 const ladoValido = (n: unknown, ladoMax: number): n is number => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= ladoMax;
 
 /**
  * Plano 12 (D23 = a, R-170, RNF-162, D1 do plano): rasteriza o PDF do paciente no processo filho rasterizar-pdf-processo.ts
  * (sem variáveis de ambiente, heap limitado, memória residente vigiada de 20 em 20 ms e prazo) e entrega UMA página por vez a
  * `aoReceber`, que converte e solta os pixels; só então pede a próxima. Estouro do teto, erro, saída sem resposta ou prazo
- * vencido → RasterizacaoError('conversao') e o filho é morto (SIGKILL) — o worker de 512 MB segue com as outras filas. Mais de
- * `limitePaginas` → ('paginas'), antes de desenhar. O erro de `aoReceber` volta como está. Só o worker importa (guarda).
+ * vencido → RasterizacaoError('conversao') e o filho é morto (SIGKILL) — o worker (container de 1 GiB, R-D4) segue com as
+ * outras filas. Mais de `limitePaginas` → ('paginas'), antes de desenhar. O erro de `aoReceber` volta como está. Só o worker
+ * importa (guarda).
  *
  * R-D2 (dono, 07/10/2026): os pixels de cada página chegam por arquivo, não pela IPC — o diretório temporário é do job
  * (`mkdtemp`, 0700), o nome de cada arquivo é gerado pelo código (o pai calcula o caminho esperado e recusa outro), cada arquivo
  * é lido e apagado antes de `aoReceber` e o diretório inteiro sai no fim, também em erro, prazo vencido ou morte do filho.
+ *
+ * R-D4 (dono, 07/10/2026): o PDF também chega ao filho por arquivo (`entrada.pdf` no mesmo diretório; o filho o lê direto para
+ * a memória do WASM e o apaga), não pela IPC. `pdf` pode ser a função que lê o original: aí o Buffer só existe até ser gravado
+ * e o worker o solta antes de o filho começar (com um Buffer, quem chamou ainda o segura). Erro de `pdf()` volta como está.
  */
-export async function rasterizarPdf(pdf: Buffer, o: Opcoes, aoReceber: (p: PaginaRaster) => Promise<void>): Promise<{ paginas: number; picoBytes: number | null }> {
+export async function rasterizarPdf(
+  pdf: Buffer | (() => Promise<Buffer>),
+  o: Opcoes,
+  aoReceber: (p: PaginaRaster) => Promise<void>,
+): Promise<{ paginas: number; picoBytes: number | null }> {
   let dir: string;
   try {
     dir = await mkdtemp(path.join(tmpdir(), 'nutri-raster-'));
@@ -90,7 +118,8 @@ export async function rasterizarPdf(pdf: Buffer, o: Opcoes, aoReceber: (p: Pagin
     throw new RasterizacaoError('conversao');
   }
   try {
-    return await noProcessoFilho(pdf, o, dir, aoReceber);
+    const tamanho = await gravarPdfDeEntrada(dir, pdf);
+    return await noProcessoFilho(tamanho, o, dir, aoReceber);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch((e: unknown) =>
       logger.warn({ etapa: 'rasterizar', erro: codigoDe(e) }, 'diretório temporário da rasterização não foi apagado'),
@@ -98,7 +127,7 @@ export async function rasterizarPdf(pdf: Buffer, o: Opcoes, aoReceber: (p: Pagin
   }
 }
 
-function noProcessoFilho(pdf: Buffer, o: Opcoes, dir: string, aoReceber: (p: PaginaRaster) => Promise<void>): Promise<{ paginas: number; picoBytes: number | null }> {
+function noProcessoFilho(tamanhoPdf: number, o: Opcoes, dir: string, aoReceber: (p: PaginaRaster) => Promise<void>): Promise<{ paginas: number; picoBytes: number | null }> {
   return new Promise((resolve, reject) => {
     let filho: ChildProcess;
     try {
@@ -108,7 +137,6 @@ function noProcessoFilho(pdf: Buffer, o: Opcoes, dir: string, aoReceber: (p: Pag
         // nenhuma variável (nem credencial) do worker chega ao processo que abre o PDF do paciente; a única exceção (R-D2, não é
         // credencial) fixa o limiar do mmap do glibc: os blocos grandes voltam ao sistema no free, e o teto de RSS não estoura
         env: { MALLOC_MMAP_THRESHOLD_: '131072' } as unknown as NodeJS.ProcessEnv,
-        serialization: 'advanced', // o Uint8Array do PDF pela IPC
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'], // nada do filho vai para o log: pode citar o conteúdo
       });
     } catch (e) {
@@ -179,7 +207,7 @@ function noProcessoFilho(pdf: Buffer, o: Opcoes, dir: string, aoReceber: (p: Pag
     });
     filho.on('error', (e) => falhar('conversao', e));
     filho.once('exit', () => falhar('conversao', 'saiu_sem_resposta'));
-    filho.send({ tipo: 'entrada', pdf, dir, limitePaginas: o.limitePaginas, ladoMax: o.ladoMax, maxPixelsImagem: o.maxPixelsImagem });
+    filho.send({ tipo: 'entrada', tamanhoPdf, dir, limitePaginas: o.limitePaginas, ladoMax: o.ladoMax, maxPixelsImagem: o.maxPixelsImagem });
     filho.send('proxima');
   });
 }

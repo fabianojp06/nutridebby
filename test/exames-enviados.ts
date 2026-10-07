@@ -158,10 +158,11 @@ export async function pdfComImagemDeclarada(largura: number, altura: number): Pr
 }
 
 /**
- * D-R1 (aprovada pelo dono em 07/10/2026): orçamento do RNF-162 — pico do worker + pico do processo filho. A spec dizia
- * 150 MB, mas só o filho passa disso com uma página A4 a 2000 px (medido: 153–156 MB).
+ * D-R1 revista pela R-D4 (dono, 07/10/2026): orçamento do RNF-162 — pico do worker + pico do processo filho — de 400 MiB (o
+ * container do worker tem 1 GiB no Easypanel e base de ~160 MiB). A spec dizia 150 MB e a D-R1, 250 MB; o PDF de fotos de
+ * 12 MP perto de 20 MiB passava disso (medido na T6: 287–336 MiB antes de o PDF ir ao filho por arquivo).
  */
-export const ORCAMENTO_RNF162_BYTES = 250 * 1024 * 1024;
+export const ORCAMENTO_RNF162_BYTES = 400 * 1024 * 1024;
 
 /** Foto de celular para medir memória: ruído que quase não comprime, JPEG de `largura` × `altura`. */
 export async function fotoDeRuido(largura: number, altura: number, qualidade = 90): Promise<Buffer> {
