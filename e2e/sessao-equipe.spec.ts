@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { contraste } from '@/lib/tema/contraste';
 
 // P12-14 (RNF-06, decisão do dono 07/10/2026): sessão da equipe — aviso 2 min antes do fim por falta de uso, "Continuar
 // conectada", saída automática para /entrar?motivo=inatividade. Com os prazos encurtados do servidor do E2E
@@ -89,7 +90,13 @@ test('uso real na tela (tecla e rolagem) renova sem o aviso aparecer', async ({ 
   await page.context().close();
 });
 
-test('axe sem violações no aviso, no modo claro e no escuro', async ({ browser, baseURL }) => {
+const hex = (cor: string) => {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cor);
+  expect(m, cor).not.toBeNull();
+  return `#${m!.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+};
+
+test('axe sem violações no aviso e foco visível no "Continuar conectada" (≥ 3:1 contra o diálogo), no modo claro e no escuro', async ({ browser, baseURL }) => {
   const page = await entrarComPrazosCurtos(browser, '10.9.16.70', baseURL!);
   for (const esquema of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: esquema }); // a conta do E2E fica em "Igual ao aparelho" (padrão do seed)
@@ -100,7 +107,28 @@ test('axe sem violações no aviso, no modo claro e no escuro', async ({ browser
     expect(r.passes.length, 'o axe rodou regras no aviso').toBeGreaterThan(0);
     const contrasteIncerto = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
     expect([...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...contrasteIncerto], esquema).toEqual([]);
-    await aviso.getByRole('button', { name: 'Continuar conectada' }).click();
+    // WCAG 2.4.7/1.4.11 (o axe não confere foco): o contorno fica do lado de fora do botão (outline-offset), sobre o
+    // cartão do diálogo — o fundo que conta é o do primeiro ancestral pintado
+    const continuar = aviso.getByRole('button', { name: 'Continuar conectada' });
+    await page.keyboard.press('Tab'); // modalidade de teclado: o focus() programático acende o :focus-visible
+    await continuar.focus();
+    const f = await continuar.evaluate((el) => {
+      let e = el.parentElement;
+      while (e && /rgba\(\d+, \d+, \d+, 0\)|transparent/.test(getComputedStyle(e).backgroundColor)) e = e.parentElement;
+      const s = getComputedStyle(el);
+      return {
+        focoVisivel: el.matches(':focus-visible'),
+        estilo: s.outlineStyle,
+        largura: parseFloat(s.outlineWidth),
+        cor: s.outlineColor,
+        fundo: e ? getComputedStyle(e).backgroundColor : 'rgb(255, 255, 255)',
+      };
+    });
+    expect(f.focoVisivel, esquema).toBe(true);
+    expect(f.estilo, esquema).toBe('solid');
+    expect(f.largura, esquema).toBeGreaterThanOrEqual(2);
+    expect(contraste(hex(f.cor), hex(f.fundo)), `${esquema}: ${f.cor} sobre ${f.fundo}`).toBeGreaterThanOrEqual(3);
+    await continuar.click();
     await expect(aviso).toBeHidden();
   }
   await page.context().close();

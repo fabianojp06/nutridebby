@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Botao } from '@/components/ui/botao';
 import { CANAL_SESSAO, lerEstado, lerMensagem, motivoLocal, proximoPasso, relogioDe, type MensagemSessao, type Relogio } from '@/lib/sessao-relogio';
 import { MSG_AVISO_INATIVIDADE, ROTULO_CONTINUAR, type MotivoDoFim } from '@/lib/session-rules';
 
@@ -195,14 +196,11 @@ export function VigiaDeSessao() {
           {MSG_AVISO_INATIVIDADE}
         </h2>
         <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            autoFocus
-            onClick={() => continuar.current()}
-            className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
-          >
+          {/* foco do :focus-visible global (--nd-foco, ≥ 3:1 contra o cartão nos dois modos e no admin): um outline-current
+              seria o branco do texto, desenhado do lado de fora, sobre o cartão branco (revisão final do Plano 12) */}
+          <Botao type="button" autoFocus onClick={() => continuar.current()}>
             {ROTULO_CONTINUAR}
-          </button>
+          </Botao>
         </div>
       </dialog>
       <form ref={formulario} method="post" action="/sair" hidden>

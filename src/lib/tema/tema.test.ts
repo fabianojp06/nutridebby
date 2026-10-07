@@ -53,6 +53,16 @@ describe('tokens do visual V2 (D24, RNF-10)', () => {
     const apagam = fontes.filter((f) => /\boutline-(none|hidden|0)\b/.test(readFileSync(join('src', f), 'utf8')));
     expect(apagam).toEqual([]);
   });
+  it('botão na cor do consultório (bg-destaque text-white) não usa outline-current: o contorno fica fora, sobre o cartão branco', () => {
+    // revisão final do Plano 12: o "Continuar conectada" do aviso de sessão tinha foco branco sobre o diálogo branco
+    // (modo claro, e sempre no admin). O foco global (--nd-foco) tem ≥ 3:1 contra o cartão nos dois modos.
+    const fontes = (readdirSync('src', { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    const classes = fontes.flatMap((f) =>
+      [...readFileSync(join('src', f), 'utf8').matchAll(/(?:className=|['"`])([^'"`]*\bbg-destaque\b[^'"`]*)/g)].map((m) => `${f}: ${m[1]}`),
+    );
+    expect(classes.length).toBeGreaterThan(0);
+    expect(classes.filter((c) => /\boutline-current\b/.test(c))).toEqual([]);
+  });
 });
 
 /** PRNG com semente: o teste de propriedade é reproduzível. */
