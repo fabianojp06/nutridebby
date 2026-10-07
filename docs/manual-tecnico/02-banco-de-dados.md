@@ -491,8 +491,8 @@ Todas seguem o mesmo molde:
 não dá privilégio a mais (desvio consciente da spec v0.3; [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções)).
 
 Gatilhos de defesa do Plano 11 (sem `SECURITY DEFINER`, recusam com 42501): `app_ia_tarefas_sem_apagar` (0099),
-`app_patients_ia_quem` (0099, refeita na 0100: a sessão `nutri` não registra ciência por e-mail nem troca versão, data
-ou canal de quem a tem), `app_ia_tarefas_imutavel` (0100) e `app_tenants_interruptores_da_admin` (0100). Testes em
+`app_patients_ia_quem` (0099, refeita na 0100: a sessão `nutri` não grava o canal `email` em INSERT nem muda versão, data
+ou canal mantendo `email`; trocar para `em_maos` — nova entrega em mãos, `registrarEntregaEmMaos` — continua permitido), `app_ia_tarefas_imutavel` (0100) e `app_tenants_interruptores_da_admin` (0100). Testes em
 `src/db/ia-schema.test.ts`, com os ramos que liberam (worker gravando a ciência, nutricionista gravando a recusa, worker
 apagando tarefa de paciente anonimizado).
 
@@ -502,20 +502,20 @@ Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` p
 
 ## 2.7 Guardas no CI
 
-As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da verdade do código. Os testes comparam cada lista com o catálogo do banco (`pg_policies`, `pg_trigger`) nos dois sentidos possíveis e também com nomes que não existem mais (`findStaleExceptions`, `src/db/rls-guard.ts:83`). Rodam no `pnpm test` do CI (`.github/workflows/ci.yml:42`). O porquê de conferir a expressão (e não só o nome) e de "negar por padrão" está em [§7.4.1](07-testes-qualidade-e-processo.md#741-guardas-de-banco-catálogo-do-postgres).
+As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da verdade do código. Os testes comparam cada lista com o catálogo do banco (`pg_policies`, `pg_trigger`) nos dois sentidos possíveis e também com nomes que não existem mais (`findStaleExceptions`, `src/db/rls-guard.ts:85`). Rodam no `pnpm test` do CI (`.github/workflows/ci.yml:42`). O porquê de conferir a expressão (e não só o nome) e de "negar por padrão" está em [§7.4.1](07-testes-qualidade-e-processo.md#741-guardas-de-banco-catálogo-do-postgres).
 
 | Lista | Conteúdo hoje | Guarda | Teste |
 |---|---|---|---|
 | `RLS_EXCEPTIONS` (`rls-guard.ts:9`) | `user`, `consents`, `invites`, `document_verifications` (Plano 10A) | `findRlsViolations` (`:57`): toda tabela com `tenant_id` fora da lista tem RLS habilitada, forçada e `tenant_isolation`; com `patient_id` (ou `patients`), também `patient_isolation` | `src/db/rls-guard.test.ts:26-57` |
 | `PATIENT_POLICY_EXCEPTIONS` (`:20`) | `stored_files` (política própria `paciente_arquivos`) | idem | idem |
-| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11) | `findStaffOnlyViolations` (`:116`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:59-75` |
-| `PUBLICO_LIBERADO` (`:131`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:142`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:75-115` |
-| `PACIENTE_ESCREVE` (`:181`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A) | `findPacienteEscritaViolations` (`:203`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:119-188` |
-| `CONTEUDO_POR_AUDIENCIA` (`:227`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:255`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:188+` |
-| `ESCRITA_POR_AUDIENCIA` (`:249`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
+| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11) | `findStaffOnlyViolations` (`:118`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:59-76` |
+| `PUBLICO_LIBERADO` (`:136`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:147`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:77-118` |
+| `PACIENTE_ESCREVE` (`:183`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A) | `findPacienteEscritaViolations` (`:205`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:119-189` |
+| `CONTEUDO_POR_AUDIENCIA` (`:234`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:262`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:190+` |
+| `ESCRITA_POR_AUDIENCIA` (`:256`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
 | `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites`, `document_access_codes` (Plano 10A) | `findAuditViolations` (`:19`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-46` |
 
-A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:113`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
+A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:118`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
 
 Outros testes de isolamento:
 
@@ -545,7 +545,7 @@ Decisão do Plano 02 ("API de auditoria"): **escrita** auditada por gatilho, sem
 | `ip` | `app_current_ip()` |
 | `criado_em` | `clock_timestamp()` (ações na mesma transação ficam em ordem) |
 
-Proteções: `REVOKE UPDATE, DELETE` (append-only, `0002`); `patient_isolation` (`0007:52`); `paciente_sem_leitura` (`0085`). O `INSERT` é liberado a `publico` e `paciente` porque o gatilho e o `auditRead` rodam com o papel de quem age (`PUBLICO_LIBERADO` e `PACIENTE_ESCREVE`, motivos em `src/db/rls-guard.ts:136`, `:182`). Os IPs do `audit_log` ficam mesmo após a anonimização, como registro de responsabilização (spec RNF-08, "Plano 05").
+Proteções: `REVOKE UPDATE, DELETE` (append-only, `0002`); `patient_isolation` (`0007:52`); `paciente_sem_leitura` (`0085`). O `INSERT` é liberado a `publico` e `paciente` porque o gatilho e o `auditRead` rodam com o papel de quem age (`PUBLICO_LIBERADO` e `PACIENTE_ESCREVE`, motivos em `src/db/rls-guard.ts:136`, `:183`). Os IPs do `audit_log` ficam mesmo após a anonimização, como registro de responsabilização (spec RNF-08, "Plano 05").
 
 ### 2.8.2 Gatilho `audit_row_change`
 
@@ -623,7 +623,7 @@ Estas tabelas não têm RLS. A proteção é o código: acesso só pelos arquivo
 | `admin_actions` (Plano 09) | Sem `tenant_id`; trilha da admin, só inclusão | `plataforma/reiniciar-2fa.ts`, `contas.ts`, `metricas.ts` | `drizzle/0095_admin_actions.sql`, `0096` |
 | `backup_runs` | Escrita do script do host; app só lê | Script de backup; `monitoramento.ts` | `drizzle/0014_backup_runs_somente_leitura.sql`; CLAUDE.md regra 10 |
 | `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook; desde o Plano 10A também a verificação pública, o link do documento e o código do 2FA ao assinar | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:28`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
-| `system_heartbeat` | Batimento do worker | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts` | `drizzle/0001_plataforma.sql:13-16` |
+| `system_heartbeat` | Batimento do worker; marcas dos alertas | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts`, `src/modules/ia/alertas.ts` (`avisarComMarca`: marcas `alerta_ia_credencial` e `alerta_ia_teto`, Plano 11; roda no worker e também no app, pelo teto em `pedirLeituraExame`, `tarefas.ts:117`) | `drizzle/0001_plataforma.sql:13-16` |
 | Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:80-81` |
 
 Limite conhecido (P06-12): a negação de escrita da sessão de paciente não alcança estas tabelas (spec §4.1, "Escrita do paciente negada por padrão").
@@ -675,7 +675,7 @@ Segue as regras 1, 2, 7, 8 e 9 do CLAUDE.md. Exemplo: tabela `minha_tabela` com 
    | Portal do paciente grava | `SELECT app_allow_paciente_escrita('minha_tabela', 'insert', …);` | Entrada em `PACIENTE_ESCREVE`; avaliar política RESTRICTIVE e/ou gatilho `paciente_colunas` para conferir **o que** é gravado (0080, 0085) |
    | Conteúdo sem `patient_id` lido pela audiência | Política RESTRICTIVE `paciente_conteudo_visivel` `FOR SELECT` herdando de `contents` por `EXISTS` (ligando `c.id` e `c.tenant_id`) | Entrada em `CONTEUDO_POR_AUDIENCIA` |
    | `patient_id` mas não é dado de saúde | Sem `app_enable_audit` | Entrada justificada em `AUDIT_EXCEPTIONS` |
-   | Escrita do paciente só em conteúdo que ele vê pela audiência | Política RESTRICTIVE de `INSERT` (como `paciente_conteudo_visto`, `paciente_conteudo_favorito`) | Entrada em `PACIENTE_ESCREVE` **e** em `ESCRITA_POR_AUDIENCIA` (`rls-guard.ts:249`) |
+   | Escrita do paciente só em conteúdo que ele vê pela audiência | Política RESTRICTIVE de `INSERT` (como `paciente_conteudo_visto`, `paciente_conteudo_favorito`) | Entrada em `PACIENTE_ESCREVE` **e** em `ESCRITA_POR_AUDIENCIA` (`rls-guard.ts:256`) |
    | `patient_id` sem a política `patient_isolation` padrão (política própria) | Política própria no lugar de `app_enable_patient_rls` (caso de `stored_files`: `paciente_arquivos`) | Entrada justificada em `PATIENT_POLICY_EXCEPTIONS` (`rls-guard.ts:18`) |
    | Titular na coluna `id` (como `patients`) | `app_enable_patient_rls('t', 'id')` e `app_enable_audit('t', 'e', 'id')` | — |
 
@@ -711,5 +711,5 @@ flowchart TD
 | 4 | §4.1, item "Tabelas sem `tenant_id`": lista `users`, `consents` e `invites` | As três têm `tenant_id` e estão em `RLS_EXCEPTIONS` (o item "Escrita do paciente negada por padrão" da mesma seção já diz isso) | `drizzle/0003_auth.sql:57`, `drizzle/0018_convite_paciente.sql:4-5`; `src/db/rls-guard.ts:9-15` |
 | 5 | §7 não lista `system_heartbeat`; §4.1 não a cita entre as tabelas fora da RLS | A tabela existe (`name`, `beat_at`) e é usada pelo worker e pelo `/api/health` | `drizzle/0001_plataforma.sql:13-16`; `src/worker/heartbeat.ts` |
 | 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:80-84` |
-| 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:113-122` |
+| 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:118-127` |
 | 8 | `CLAUDE.md`, regra 1: lista das tabelas fora da RLS (`tenants`, `backup_runs`, `public_rate_limits`, `ia_gasto_plataforma`) | `admin_actions` (Plano 09, sem `tenant_id`, só inclusão) também fica fora da RLS e não aparece nessa lista; a regra a cita só no trecho de `reiniciar-2fa.ts`. As escritas de IA nela (`contas.ts`, `metricas.ts`) seguem a mesma proteção (fora de `withTenant`, só a admin) | `drizzle/0095_admin_actions.sql`; `src/modules/plataforma/contas.ts` (`definirIaLiberada`), `metricas.ts` (`ajustarCotaIa`) |

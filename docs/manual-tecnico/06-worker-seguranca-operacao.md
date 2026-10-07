@@ -126,7 +126,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | Fila | Gatilho | O que faz | retry / atraso / expira / apaga | Payload |
 |---|---|---|---|---|
 | `heartbeat` | cron `* * * * *` (`index.ts:58`) | Grava `system_heartbeat(name='worker')` (`recordHeartbeat`) | 0 / — / 60 / — | `{}` |
-| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). Desde o Plano 11 (`includeMetadata`): `aposEnviar` grava a ciência do aviso de IA quando o Resend aceita o envio (`registrarCienciaPorEmail`, D5/A-D21) e `aoDesistir` — tenant suspenso ou última tentativa que falha no envio ou no pós-envio — desfaz o "aguardando" daquele aviso (`desfazerAvisoPendente`); a falha do próprio `aoDesistir` vai ao log só com o nome | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
+| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). Desde o Plano 11 (`includeMetadata`): `aposEnviar` grava a ciência do aviso de IA quando o Resend aceita o envio (`registrarCienciaPorEmail`, D5/A-D21) e `aoDesistir` — tenant suspenso ou última tentativa que falha no envio ou no pós-envio — desfaz o "aguardando" daquele aviso (`desfazerAvisoPendente`); na última tentativa, a falha do `aoDesistir` vai ao log só com o nome (`falha ao desistir do e-mail`); com o consultório suspenso, ela sobe para o pg-boss, que tenta de novo (P11-20 e) | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
 | `notificacoes` | cron `* * * * *` (`index.ts:85`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:199`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:36`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:178`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
 | `agenda-tenant` | Produtor na suspensão/reativação (`src/modules/plataforma/suspensao.ts:11`) | Suspenso: pendentes viram `ignorada`/`tenant_suspenso`; reativado: lembretes de consultas futuras voltam (`ignorarPendentesDoTenant`, `reagendarTenantReativado`) | 3 / 60↗ / 300 / 86 400 | `{ tenantId, evento }` |
 | `whatsapp-evento` | Produtor na rota do webhook (`src/modules/notificacoes/whatsapp/webhook.ts:91`) | Conexão, status de entrega e resposta "1"/"2"; idempotente (`processarEventoWhatsapp`) | 3 / 30↗ / 60 / 86 400 | `{ selado }` |
@@ -442,8 +442,12 @@ Camadas, de dentro para fora:
   `alerta de monitoramento sem destinatário` (`src/worker/index.ts`, `src/modules/plataforma/monitoramento.ts:91`).
   Da IA (Plano 11; só ids, tipo, status e motivo): `IA de laudos` (na subida), `leitura de laudo pela IA não concluída`,
   `provedor de IA recusou ou falhou`, `laudo recusado no preparo para a IA`, `varredura das tarefas de IA`,
-  `falha na varredura das tarefas de IA`, `falha no aviso de 80% da IA`; do app: `IA ativada pela nutricionista`,
-  `IA desativada pela nutricionista`, `IA liberada/bloqueada pelo admin`, `limite de IA ajustado`.
+  `falha na varredura das tarefas de IA`, `falha no aviso de 80% da IA`, `leitura de laudo pela IA` (info de cada leitura
+  concluída: tokens, custo, duração, status e motivo; `src/modules/ia/leitura-job.ts:227`),
+  `aviso de IA não enviado: o paciente volta a "não informado"` (`aoDesistir` do job `email`, `src/worker/index.ts:91`;
+  conta os avisos desfeitos), `falha ao desistir do e-mail` (`src/email/job.ts:46`); do app: `IA ativada pela nutricionista`,
+  `IA desativada pela nutricionista`, `IA liberada/bloqueada pelo admin`, `limite de IA ajustado`,
+  `falha ao avisar os admins do teto da IA` (`src/modules/ia/tarefas.ts:118`).
 
 ### 6.4.2 `request_id` (D2 do Plano 08)
 

@@ -491,10 +491,15 @@ O termo do paciente é aceito **por consultório**: cada nutricionista é contro
 **Aditivo de IA (Plano 11, A-D20).** Terceiro tipo de aceite em `consents`: `ia-aditivo-<versão>` (`IA_ADITIVO_TERMO`,
 `src/modules/ia/textos-legais.ts`), da nutricionista, **com** o `tenant_id` do consultório (o DPA usa `tenant_id` nulo),
 gravado por `registrarAceiteAditivoIa` (`dpa.ts:50`) quando ela marca "Li e aceito o aditivo de inteligência artificial
-(versão {versão})" e clica em "Ativar a IA no consultório" (Configurações). Marca extra: `tenants.ia_ativada_em` (a data
-da primeira ativação fica, `coalesce`) e `tenants.ia_aditivo_versao`. Diferente do DPA, versão nova do aditivo **não**
-redireciona o painel: só os botões de IA mostram "Para continuar usando a IA, aceite a versão atual do aditivo de
-inteligência artificial." (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
+(versão {versão})" e clica em "Ativar a IA no consultório" (Configurações). Marca extra: `tenants.ia_ativada_em` e
+`tenants.ia_aditivo_versao`. `ia_ativada_em` é a data da ativação **em vigor**: o `coalesce` de `registrarAceiteAditivoIa`
+só a preserva enquanto a IA continua ativa (aceite de versão nova do aditivo, clique repetido; `dpa.ts:57-60`);
+`desativarIa` a zera (`src/modules/ia/ativacao.ts:48`) e a reativação grava a data nova. A data do primeiro aceite de cada
+versão fica em `consents.aceito_em` (`onConflictDoNothing`). Diferente do DPA, versão nova do aditivo **não**
+redireciona o painel: a seção de IA em Configurações mostra "Para continuar usando a IA, aceite a versão atual do aditivo
+de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual" (`ia-secao.tsx:33-38`), e cada exame com
+laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:22`)
+(`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 
 **Como publicar uma versão nova** (texto do advogado, P08-06): trocar `DPA_VERSAO` ou `TERMO_PACIENTE_VERSAO` e os parágrafos. Na próxima requisição, toda nutricionista vai para `/painel/dpa` e todo paciente para `/p/termo`. Não precisa de migration.
 
