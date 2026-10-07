@@ -21,11 +21,11 @@
 - **Regra 3 / RNF-11 / C-05 / RNF-166:** nada de dado de saúde (nome do exame, observação, motivo de recusa, nome do paciente, caminho de arquivo) em log, Sentry, fila, push ou e-mail. Os jobs levam só `{ tenantId, envioId }`; logs só com ids, motivo de uma lista fechada e contagens. Push ao paciente: **um texto só**, "Há uma atualização para você no app." (sem "exame"); e-mail à nutricionista: "Você tem exames novos enviados por pacientes para revisar." (+ a frase dos 30 dias), sem nome nem arquivo.
 - **Regra 8 (auditoria):** `app_enable_audit('exam_submissions', 'exames_enviados')` e `app_enable_audit('exam_submission_files', 'exames_enviados')`; `ENTIDADE_ROTULO.exames_enviados = 'Exames enviados pelo paciente'`. `auditRead` (entidade `exames_enviados`) ao **abrir** um envio no painel e, no portal, na **lista** e no **download** do próprio PDF (Plano 06, D22: leitura do titular é auditada). A **fila** do painel e os contadores não chamam (só listam, como a lista de pacientes). O worker grava com ator nulo ("Sistema"). Nenhuma migration deste plano desliga o gatilho de auditoria (NGS1.07.01).
 - **Regra 9 (arquivos):** gravar e apagar só por `salvarArquivo`/`salvarArquivos`/`apagarArquivo` (`src/modules/plataforma/armazenamento.ts`); tipo pelo conteúdo (`detectarTipo`); o registro que aponta para o arquivo é gravado no `registrar` e apagado no `naMesmaTransacao` (as linhas de `exam_submission_files` saem pela FK `ON DELETE CASCADE` na mesma transação do `DELETE` de `stored_files`); servir só por `signFileUrl` (5 min); nunca montar caminho com texto do usuário. Tipos novos com dono: `exame_original` (o que o paciente enviou; só enquanto `processando`) e `exame_pagina` (imagens de página para a revisão; temporárias); o PDF limpo usa `exame` (vira o laudo, sem cópia). `salvarArquivos` é **só** do envio do paciente (DEP-09 reduzida, PM-8).
-- **Worker e arquivo não confiável (R-170, RNF-162, RNF-169):** todo envio passa pelo worker (D23 = a); o PDF do paciente só é aberto pelo PDFium num **processo filho** (`fork`, sem variáveis de ambiente, heap de 64 MB, teto de memória residente vigiado de 20 em 20 ms, prazo de 120 s, uma página por vez); imagens dentro do PDF acima de 20 MP declarados são recusadas antes de decodificar; nada do original é guardado nem chega ao navegador ou à F3-01. `@hyzyla/pdfium`, `heic-decode`, `@react-pdf/renderer`, `rasterizar-pdf*.ts` e `exames-enviados-job.tsx` ficam **fora do grafo do Next** (guardas de grafo). Fila `exame-envio` com **um job por vez** (padrão do `boss.work`).
-- **Boas práticas SBIS NGS1 (spec §6.5):** nada do paciente entra no prontuário sem a ação da nutricionista, com quem e quando (`revisado_por`, `revisado_em`) e a origem do exame (`exam_submissions.exam_id`, selo "Enviado pelo paciente") (ECF.17.01); o registro do envio não é apagado na revisão — só os **arquivos** saem; a linha só sai no pedido de exclusão atendido e na anonimização (gatilho `exam_submissions_sem_apagar`) (NGS1.12.03); cada papel só faz a sua transição, conferida no banco (gatilho `exam_submissions_regras` + políticas `RESTRICTIVE`) (NGS1.03.01, NGS1.03.04); trilha de escrita e de leitura (NGS1.07.02 a 07.04); datas consistentes — coleta não futura, não anterior a 10 anos nem ao nascimento (ECF.17.05).
+- **Worker e arquivo não confiável (R-170, RNF-162, RNF-169):** todo envio passa pelo worker (D23 = a); o PDF do paciente só é aberto pelo PDFium num **processo filho** (`fork`, sem variáveis de ambiente, heap de 64 MB, teto de memória residente vigiado de 20 em 20 ms — provisório 200 MB, D-R1 ★ —, `oom_score_adj = 1000`, prazo de 120 s, uma página por vez); imagens dentro do PDF acima de 20 MP declarados são recusadas antes de decodificar; nada do original é guardado nem chega ao navegador ou à F3-01. `@hyzyla/pdfium`, `heic-decode`, `@react-pdf/renderer`, `rasterizar-pdf*.ts` e `exames-enviados-job.tsx` ficam **fora do grafo do Next** (guardas de grafo). Fila `exame-envio` com **um job por vez** (padrão do `boss.work`).
+- **Boas práticas SBIS NGS1 (spec §6.5):** nada do paciente entra no prontuário sem a ação da nutricionista, com quem e quando (`revisado_por`, `revisado_em`) e a origem do exame (`exam_submissions.exam_id`, selo "Enviado pelo paciente") (ECF.17.01); o registro do envio não é apagado na revisão — só os **arquivos** saem; a linha só sai no pedido de exclusão atendido e na anonimização (gatilho `exam_submissions_sem_apagar`) (NGS1.12.03); cada papel só faz a sua transição, conferida no banco (gatilhos `exam_submissions_nasce` e `exam_submissions_regras` + políticas `RESTRICTIVE`; a revisão sai em nome de quem revisa) (NGS1.03.01, NGS1.03.04); trilha de escrita e de leitura (NGS1.07.02 a 07.04); datas consistentes — coleta não futura, não anterior a 10 anos nem ao nascimento (ECF.17.05).
 - Textos de interface em pt-BR, **com o texto exato da spec v0.3** quando existir (US-160 a US-165, §6.2); os textos novos estão listados em "Desvios conscientes" e vão à revisão de interface.
 - Visual V2 (Plano 08): só os tokens do tema (`bg-cartao`, `text-suave`, `border-borda`, `text-link`, `text-erro`…), nunca cor fixa em `src/app/painel` e `src/modules/*/ui` (guarda `src/app/painel/cores.test.ts`); componentes `Botao`/`BotaoLink`, `Aviso`, `Selo`, `ConfirmarBotao`; acessibilidade (RNF-10, RNF-167): `<label htmlFor>`, `aria-invalid` + `aria-describedby`, erros com `role="alert"`, sucesso com `role="status"`, alvo de toque ≥ 44 px (`min-h-11`), situação do envio em texto (não só cor); toda tela nova do painel em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts`, guarda `src/app/painel/rotas-axe.test.ts`) e a do portal na lista do axe (`e2e/acessibilidade.spec.ts`).
-- Custo: nenhuma despesa nova de serviço (sem IA nova; a leitura de um exame aceito é a F3-01, já aceita). O volume guardado cresce (C-02, D14 = a, aceito pelo dono); a imagem Docker tem orçamento de **260 MB** comprimidos (CI, job `image`) e estava em 258 MB no Plano 11 — a T3 poda a dependência nova e, se ainda passar, **para e pergunta ao dono** (não apaga outra coisa às cegas).
+- Custo: nenhuma despesa nova de serviço (sem IA nova; a leitura de um exame aceito é a F3-01, já aceita). O volume guardado cresce (C-02, D14 = a, aceito pelo dono); a imagem Docker tem orçamento de **260 MB** comprimidos (CI, job `image`) e estava em 258 MB no Plano 11 — a dependência nova soma ≈ 2,1 MB comprimidos mesmo podada (o `pdfium.wasm` sozinho tem 2,03 MB), então a imagem deve ficar em 259–261 MB: subir o orçamento é a D-R2 ★, decidida **antes da T3**; sem ela, a T3 para e pergunta ao dono se passar de 260 MB (não apaga outra coisa às cegas).
 - Regras do servidor (`/home/deploy/servidor/CLAUDE.md`): nada de mexer em produção, Easypanel, serviços, firewall ou banco de produção neste plano; nunca exibir segredos. Merge = deploy, só com OK explícito do dono e snapshot no hPanel antes. Subagentes nunca consultam o banco de produção. O `nutri-backup.sh` só roda dentro de `test/backup.test.ts` (regra 10).
 - Política de revisão por entrega (índice, revista em 02/10/2026; modo misto aprovado pelo dono): revisor por tarefa (cada tarefa diz **Revisão: completa (agente …)** ou **Revisão: leve (revisor-interface)**) → revisão final do branch (workflow) com uma onda de correções → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor vai para o backlog) → re-revisão só do diff das correções → `/security-review` com o checklist reforçado (arquivo não confiável vindo do paciente, rasterização, cota, transições no banco). Se sobrar Critical/Important confirmado, parar e avisar o dono. Lembrar o dono, a cada sessão, de que o **backup no host (P02-11)** segue pendente.
 
@@ -37,19 +37,22 @@ As marcadas com ★ **ainda são do dono**. As outras são técnicas, tomadas aq
 
 | # | Tema | Decisão (aplicada no plano) | Consequência |
 |---|---|---|---|
-| D1 | Rasterização (DEP-10, PM-6, R-175) | **`@hyzyla/pdfium` 2.1.13** (PDFium — o motor de PDF do Chrome — em WebAssembly; a compilação não tem o V8, então nenhum JavaScript do PDF roda; ≈ 4 MB de WASM; MIT + BSD-3-Clause/Apache-2.0, sem AGPL). O `sharp` 0.35.4 pré-compilado **não abre PDF** (`sharp.format.pdf.input.buffer === false`, conferido em 07/10/2026). Roda num **processo filho** (`fork`) e não numa thread: a memória do WASM fica fora do teto do heap de uma thread, e só um processo à parte pode ser medido (`/proc/<pid>/status`) e morto (`SIGKILL`) sem derrubar o worker de 512 MB. Teto do filho: 120 MB de memória residente (vigia de 20 em 20 ms), heap de 64 MB, prazo de 120 s, uma página por vez; imagem dentro do PDF acima de 20 MP declarados recusada **antes** de decodificar (`FPDFImageObj_GetImagePixelSize`, também dentro de Form XObjects e nas imagens inline). **Plano B** (só se a T3 reprovar a medida): `pdfjs-dist` 6.4.299 (Apache-2.0) + `@napi-rs/canvas` 1.0.10 (MIT), no mesmo processo filho — ≈ 70 MB descompactados a mais na imagem, que já está no limite; a troca volta ao dono | T3 mede primeiro; a guarda `exames-enviados-guardas.test.ts` prende o pacote ao processo filho |
+| D1 | Rasterização (DEP-10, PM-6, R-175) | **`@hyzyla/pdfium` 2.1.13** (PDFium — o motor de PDF do Chrome — em WebAssembly; a compilação não tem o V8, então nenhum JavaScript do PDF roda; ≈ 4 MB de WASM descompactado, ≈ 2,1 MB comprimido na imagem — D-R2 ★; MIT + BSD-3-Clause/Apache-2.0, sem AGPL). O `sharp` 0.35.4 pré-compilado **não abre PDF** (`sharp.format.pdf.input.buffer === false`, conferido em 07/10/2026). Roda num **processo filho** (`fork`) e não numa thread: a memória do WASM fica fora do teto do heap de uma thread, e só um processo à parte pode ser medido (`/proc/<pid>/status`) e morto (`SIGKILL`) sem derrubar o worker de 512 MB. Teto do filho: **provisório 200 MB** de memória residente (vigia de 20 em 20 ms; a revisão do plano mediu 66–69 MB só do Node com o WASM e 153–156 MB com uma página A4 a 2000 px, então os 120 MB da primeira versão matariam todo PDF — orçamento final na D-R1 ★), `oom_score_adj = 1000` no filho (num estouro da cgroup de 512 MB, o kernel mata o filho e não o worker), uma cópia dos pixels a menos (sem `HEAPU8.slice`), heap de 64 MB, prazo de 120 s, uma página por vez; imagem dentro do PDF acima de 20 MP declarados recusada **antes** de decodificar (`FPDFImageObj_GetImagePixelSize`, também dentro de Form XObjects e nas imagens inline). **Plano B** (só se a T3 reprovar a medida): `pdfjs-dist` 6.4.299 (Apache-2.0) + `@napi-rs/canvas` 1.0.10 (MIT), no mesmo processo filho — ≈ 70 MB descompactados a mais na imagem, que já está no limite; a troca volta ao dono | T3 mede primeiro; a guarda `exames-enviados-guardas.test.ts` prende o pacote ao processo filho |
 | D2 | Qualidade do JPEG (PM-9) | `paraJpegSemMetadados(img, ladoMax, qualidade = 80)` ganha o parâmetro; o laudo usa **85** e 2000 px; o diário e a capa continuam em 80 | T2 |
 | D3 | DEP-09 (PM-8) | Confirmada a versão reduzida: só `salvarArquivos` (lote do paciente, uma reserva pela soma, tudo ou nada); o resto no molde do diário e do 10A (`apagarArquivosDoEnvio`, um `apagarArquivo` por arquivo) | T2; regra 9 do CLAUDE.md atualizada (T2) |
 | D4 ★ | Onde "Exames" fica no portal (PM-10) | Recomendação da spec aplicada: **não vira aba**; `/p/exames` marca "Perfil" (`tambem`), link "Meus exames" em Perfil e botão "Enviar exame" no Início, os dois só com o recebimento ligado (D18). Se o dono preferir aba, é uma troca em `ITENS_DO_PORTAL` | T10; confirmar com o dono na revisão do plano |
-| D5 | Gatilho de transição (PM-14) | **Sim**: `exam_submissions_regras` (colunas fixas; transições permitidas; quem faz cada uma: `aceito`/`recusado` só `nutri`, `cancelado` só `paciente`, `recebido`/`falhou`/`expirado` só `worker`; a sessão de paciente só muda `status` e `updated_at`) e `exam_submissions_sem_apagar` (DELETE só no contexto `worker` com o titular bloqueado ou anonimizado) | T1; `IMUTAVEIS` e `SEM_DELETE` no isolamento |
+| D5 | Gatilho de transição (PM-14) | **Sim**: `exam_submissions_regras` (colunas fixas; transições permitidas; quem faz cada uma: `aceito`/`recusado` só `nutri`, `cancelado` só `paciente`, `recebido`/`falhou`/`expirado` só `worker`; a sessão de paciente só muda `status` e `updated_at`) e `exam_submissions_sem_apagar` (DELETE só no contexto `worker` com o titular bloqueado ou anonimizado); revisão do plano: `exam_submissions_nasce` (todo envio nasce `processando`, para qualquer papel — ninguém fabrica a origem "Enviado pelo paciente") e a revisão gravada em nome de quem revisa (`revisado_por = app_current_user()`) | T1; `IMUTAVEIS` e `SEM_DELETE` no isolamento; as fábricas e os helpers de teste passam pelas transições |
 | D6 ★ | Lembrete dos 30 dias (PM-12) | Como a spec: a frase sai **junto** do próximo e-mail de envio novo; lembrete próprio (sem envio novo) fica no backlog (P12-13) se a Debby quiser | T6 |
 | D7 | Texto de cota (PM-13) | O da spec no envio ("…Avise sua nutricionista."); uniformizar o do diário fica no backlog | T4, T6 |
 | D8 ★ | Backup (PM-11) | `--exclude '/*/exame_pagina/**'` **e** `--exclude '/*/exame_original/**'` no `rclone sync` (as duas são temporárias; o original pode ter EXIF/GPS e vive minutos); regra 10: o dono reinstala o script no host quando ligar o backup (P02-11 ainda pendente) | T13 + runbook |
 | D9 ★ | "Aceitar e ler" (R-174) | O botão aparece como a spec manda (IA ativa + paciente apto); a medida da leitura em laudos rasterizados a 2000 px entra no **passo 4 do runbook do Plano 11** (avaliação com laudos fictícios), antes de a admin liberar a IA para dado real — hoje `ia_liberada` é `false` em produção, então nada sai | Runbook, passo 5 |
-| D10 | Aviso à nutricionista (RN-168) | `avisarExamesRecebidos` roda **no `registrar` do PDF limpo** — a mesma transação que marca o envio `recebido`, com a linha do tenant já travada pela reserva de cota; confere e grava `tenants.exames_aviso_em` (no máximo 1 a cada 6 h) | T6 |
+| D10 | Aviso à nutricionista (RN-168) | `avisarExamesRecebidos` roda **no `registrar` do PDF limpo** — a mesma transação que marca o envio `recebido`, com a linha do tenant já travada pela reserva de cota em **FOR NO KEY UPDATE** — e o aviso relê no mesmo modo (`for('no key update')`, revisão do plano: `FOR UPDATE` conflita com o KEY SHARE que toda FK `tenant_id` pede, inclusive a do `audit_log`, e fecharia deadlock com qualquer escrita auditada do consultório, o erro corrigido no Plano 11 em `src/modules/ia/cota.ts`); confere e grava `tenants.exames_aviso_em` (no máximo 1 a cada 6 h) | T6 (com teste de concorrência) |
 | D11 | Menu do painel | "Exames recebidos" é o 5º item (depois de "Diários") **só** com o recebimento ligado ou com envio aguardando; o rótulo leva o contador ("Exames recebidos (3)"); o layout conta e as ações da revisão chamam `revalidatePath('/painel', 'layout')` | T11 |
 | D12 | Processamento interrompido | Como o diário: `processando` parado > 30 min sem job vivo → `falhou` (`interrompido`), sem reprocessar; uma nova tentativa do job apaga as páginas de uma tentativa anterior antes de refazê-las (`refazer: true`) | T6, T8 |
 | D13 | Ordem e paralelismo | **T1 → [T2 ‖ T3] → T4 → [T5 ‖ T6 ‖ T7 ‖ T9 ‖ T12] → T8 → [T10 ‖ T11] → T13** (detalhe em "Dependências", abaixo) | — |
+| D-R1 ★ | Memória da rasterização e RNF-162 (revisão do plano) | **Medido** na revisão (Node 24.21, `@hyzyla/pdfium` 2.1.13, o código do filho da T3, PDF de 2 páginas só com texto): só o Node com o WASM = 66–69 MB; uma página A4 a 2000 px leva o filho a 153–156 MB (1600 px: 140–143 MB; 1200 px: 126 MB). O teto de 120 MB e o RNF-162 da spec (worker + filho ≤ 150 MB) **não cabem**, e baixar o lado não resolve. **Proposta**, aplicada no plano como provisória: teto do filho **200 MB** e o RNF-162 revisto para "pico do worker + pico do filho ≤ **250 MB**" (`ORCAMENTO_RNF162_BYTES`; o worker tem 512 MB e roda um job por vez); a T3 corta uma cópia dos pixels e põe `oom_score_adj = 1000` no filho. Alternativas, se o dono quiser menos memória: tons de cinza (1 byte por pixel) ou desenhar em faixas — o piso de ~66 MB do Node com o WASM fica | Decidir **antes da T3**; a T3 e a T6 medem de novo e registram os números; se o dono aprovar, a T13 muda o RNF-162 na spec |
+| D-R2 ★ | Orçamento da imagem Docker (revisão do plano) | Medido no tarball: o `pdfium.wasm` sozinho tem 2,03 MB comprimidos; a poda tira ≈ 2,8 MB e sobram ≈ 2,1 MB. Com 257–258 MB no Plano 11 (o CI arredonda para cima) e o `src` novo, a imagem fica em 259–261 MB — sem folga ou estourando os 260 MB. **Proposta:** subir o limite do job `image` para **265 MB** (sem custo) | Decidir **antes da T3**; com o OK, a T3 troca o 260 do `ci.yml` e o manual técnico 07 registra; sem ele, a T3 para se o CI passar de 260 MB |
+| D-R3 ★ | Textos da US-018 com os exames enviados (revisão do plano; LGPD art. 6º, VI, e art. 9º, II) | A exclusão atendida passa a apagar os envios não aceitos (T12); o e-mail ao titular e a aba Privacidade do painel dizem o que sai. **Proposta** (T12, Step 4): acrescentar "os exames enviados pelo app que ainda não tinham sido aceitos" ao e-mail e "os exames enviados pelo app que ainda não foram aceitos" à aba Privacidade, com a tabela de textos da spec do MVP | Confirmar na revisão do plano; a redação final com o advogado (P12-14); o passo 7 do runbook só com o texto já no código |
 
 ### Desvios conscientes da spec v0.3
 
@@ -60,12 +63,14 @@ As marcadas com ★ **ainda são do dono**. As outras são técnicas, tomadas aq
 5. **Expiração contada de `created_at`** (a spec não tem `recebido_em`): o processamento leva minutos, e a data do envio é a que o paciente vê.
 6. **Corrida com envio `expirado`/`falhou`** no aceite ou na recusa mostra "Este envio já foi revisado." (a spec só define o texto do cancelado e do já revisado).
 7. **Textos novos** (não estão na spec; vão à revisão de interface): "Informe a data da coleta", "Use no máximo 120 caracteres.", "Use no máximo 500 caracteres.", "Nenhum exame enviado ainda.", "Meus exames", "Enviar exame" (título da seção; o botão do Início é da spec), "Meus exames enviados" (já citado na US-160 como nome da lista), "Data da coleta", "Nome do exame (opcional)", "Observação (opcional)", "PDF ou fotos do exame", "Enviar", "Enviado em {data} · Coleta em {data}", "Baixar PDF", "Cancelar envio" (da spec), "Envio não encontrado.", "Escolha o motivo.", "Envio recusado.", "Nenhum exame aguardando revisão.", "hoje" (no lugar de "há 0 dias"), "Voltar para Exames recebidos", "Página {i} de {n} do exame enviado" (texto alternativo), "Observação do paciente:", "Título", "Data", "Motivo", "Escreva o motivo", "Confirmar recusa", "Exames enviados pelos pacientes" (seção de Configurações), "Salvar", "Configuração salva.", a coluna do admin "Exames do app" com "Enviados no mês: {n}" e "Aguardando revisão: {n}"; no painel, a legenda da fila "Exames enviados pelos pacientes aguardando revisão", as colunas "Paciente", "Exame", "Enviado em", "Coleta" e "Aguardando", "Páginas do exame", "Revisão", "Aceitar"/"Recusar" (abrem os formulários), "{paciente} · enviado em {data} · coleta em {data}"; o e-mail: assunto "Exames enviados por pacientes" e botão "Ver exames recebidos"; e o guia "Exames recebidos" do manual guiado (T13; rascunho até a Debby aprovar, como o P08-08).
+8. **RNF-162 com fotos HEIC** (revisão do plano): o HEIC é decodificado no processo do worker (`heic-decode` aloca largura × altura × 4 bytes; 24 MP ≈ 96 MB, mais a cópia do sharp), fora do processo filho, e o CI não tem HEIC real (o decodificador é simulado, como no diário). O pico do RNF-162 com "5 fotos HEIC somando 30 MB" **não é garantido** acima de ~15 MP (R3). A T6 mede o job inteiro com fotos JPEG de 12 MP e um PDF de fotos de 12 MP (o caminho depois do decodificador é o mesmo); o HEIC real fica no runbook (passo 3). Se estourar, a decisão vai ao dono junto da D-R1 ★: levar a decodificação das fotos ao processo filho ou um teto de pixels próprio para o HEIC do exame.
+9. **Prazo da rasterização é do PDF inteiro** (120 s), não por página (R-170 da spec fala em "tempo por página"): com no máximo 10 páginas e uma por vez, o prazo total é o teto de qualquer página; o vigia de memória é por amostra (20 ms).
 
 ## Review Focus
 
 1. **PDF hostil do paciente.** PDF com JavaScript (`/OpenAction`), link (`/URI`) e anexo embutido; PDF de 300 KB cujo conteúdo descomprime para 256 MB ("bomba"); imagem embutida que declara 6000 × 6000 px; PDF sem páginas; PDF truncado; página com tamanho zero. Esperado: o PDF limpo tem só imagens (nenhum `/JavaScript`, `/URI`, `/EmbeddedFile`, `/OpenAction`, nem o texto do original); a bomba e a imagem gigante viram `falhou` (`conversao`) sem derrubar o worker (o filho morre no teto de memória); arquivos apagados e cota devolvida. Testes nas Tarefas 3 e 6.
-2. **Corridas entre os papéis.** O paciente cancela enquanto a nutricionista confere; duas abas aceitam o mesmo envio; recusa e cancelamento juntos; o paciente tenta cancelar um envio `processando`; a varredura expira um envio no instante do aceite; o job roda duas vezes. Esperado: um vencedor só, as mensagens da US-163 ("Este envio foi cancelado pelo paciente.", "Este envio já foi revisado."), nenhum exame duplicado, nenhum arquivo perdido apontado nem órfão contando na cota. Testes nas Tarefas 1 (gatilho), 7 e 8.
-3. **Fotos reais de celular.** HEIC de 48 MP; JPEG girado (orientação 6) com GPS; PNG com transparência; 5 fotos de 6 MB (30 MB exatos) e 4 de 9 MB (36 MB); uma foto de 0 byte no meio; JPEG de cabeçalho que declara 50 MP. Esperado: páginas em pé, sem EXIF, ≤ 2000 px; recusa com a mensagem única da US-160 para o que passa dos limites; HEIC grande → `falhou`. Testes nas Tarefas 4 e 6.
+2. **Corridas entre os papéis.** O paciente cancela enquanto a nutricionista confere; duas abas aceitam o mesmo envio; recusa e cancelamento juntos; o paciente tenta cancelar um envio `processando`; a varredura expira um envio no instante do aceite; o job roda duas vezes. Esperado: um vencedor só, as mensagens da US-163 ("Este envio foi cancelado pelo paciente.", "Este envio já foi revisado."), nenhum exame duplicado, nenhum arquivo perdido apontado nem órfão contando na cota. Testes: o gatilho na Tarefa 1; as corridas da US-163 em sequência (o estado que cada uma deixa) na 7; com duas conexões de verdade, a expiração × aceite (Tarefa 8) e o aviso × escrita auditada do consultório (Tarefa 6) — revisão do plano; o job em dobro (R8) fica só monitorado.
+3. **Fotos reais de celular.** HEIC de 48 MP; JPEG girado (orientação 6) com GPS; PNG com transparência; 5 fotos de 6 MB (30 MB exatos) e 4 de 9 MB (36 MB); uma foto de 0 byte no meio; JPEG de cabeçalho que declara 50 MP. Esperado: páginas em pé, sem EXIF, ≤ 2000 px; recusa com a mensagem única da US-160 para o que passa dos limites; HEIC grande → `falhou`. Testes nas Tarefas 4, 5 (o arquivo de 0 byte, revisão do plano) e 6.
 4. **O titular muda por baixo do envio.** Pedido de exclusão atendido durante o processamento; paciente arquivado com envio aguardando (a nutricionista ainda aceita); anonimização com envio aceito, recebido e falhou. Esperado: o worker não grava nada para o bloqueado; os envios não aceitos e os arquivos saem na exclusão atendida; tudo sai na anonimização; o aceite de arquivado funciona; o de bloqueado dá `MSG_BLOQUEADO`. Testes nas Tarefas 6, 7 e 12.
 5. **Cota no limite.** 10 MB livres e 3 fotos de 6 MB; cota que acaba entre o envio e o processamento; cancelamento, recusa, expiração e falha devolvendo o espaço. Esperado: nada gravado no envio (uma reserva só); `falhou` (`cota`) no worker com tudo apagado; `tenants.armazenamento_bytes` volta exatamente ao valor de antes em cada caminho. Testes nas Tarefas 2, 4, 6, 7 e 8.
 
@@ -88,7 +93,7 @@ src/modules/pacientes/
   exames-enviados-arquivos.ts (+test)                       # T2 (apagarArquivosDoEnvio)
   rasterizar-pdf.ts (+test) · rasterizar-pdf-processo.ts    # T3 (só worker)
   exames-enviados-guardas.test.ts                           # T3
-  exames-enviados-job.tsx (+ exames-enviados-job.test.ts)   # T6 (só worker)
+  exames-enviados-job.tsx (+ exames-enviados-job.test.ts, exames-enviados-memoria.test.ts)   # T6 (só worker)
   exames-enviados-aviso.ts (+test)                          # T6
   exames-enviados.ts (+test)                                # T7 (lado da equipe)
   exames-enviados-ia.ts (+test)                             # T11 (mensagem da IA pela URL, lista fechada)
@@ -109,7 +114,7 @@ src/app/painel/pacientes/[id]/exames/page.tsx · e2e/painel-rotas.ts · e2e/pain
 src/app/painel/configuracoes/{page.tsx, actions.ts, exames-secao.tsx} · src/app/admin/page.tsx                              # T9
 e2e/exames-enviados.spec.ts · src/modules/ajuda/conteudo.ts · scripts/backup/nutri-backup.sh · test/backup.test.ts          # T13
 docs/manual-tecnico/11-exames-enviados.md · README.md · docs/operacao/exames-enviados.md · índice · backlog · spec          # T13
-CLAUDE.md                                                                                       # T1 (regras 2, 8), T2 (regra 9), T13 (regra 10)
+CLAUDE.md                                                                                       # T1 (regras 2, 8), T2 (regra 9), T13 (regra 9: a rasterização; regra 10)
 ```
 
 ### Dependências entre tarefas (worktrees em paralelo)
@@ -118,7 +123,7 @@ CLAUDE.md                                                                       
 |---|---|---|---|
 | T1 Banco | — | — | tudo usa o schema |
 | T2 Lote, limpeza e JPEG | T1 | T3 | arquivos diferentes (`armazenamento.ts`, `jpeg.ts`, `diario-foto-job.ts` × `package.json`, `Dockerfile`) |
-| T3 Rasterização | T1 (só a pasta) | T2 | é a única que mexe no `package.json`/lockfile |
+| T3 Rasterização | T1 (só a pasta) | T2 | é a única que mexe no `package.json`/lockfile; **não** mexe no `CLAUDE.md` (revisão do plano: a T2 também acrescenta texto no fim da regra 9 — a frase da rasterização fica para a T13) |
 | T4 Envio do paciente (módulo) | T1, T2 | — | usa `salvarArquivos` e as constantes |
 | T5 Rotas do portal | T4 | T6, T7, T9 | só `src/app/api/p/exames` |
 | T6 Job do worker + e-mail | T2, T3, T4 | T5, T7, T9 | `exames-enviados-job.tsx`, `src/email/*`, `worker/index.ts` |
@@ -165,6 +170,7 @@ export function meusEnvios(ctx, o?): Promise<MeuEnvio[]>; export function pdfDoM
 // src/modules/pacientes/exames-enviados-job.tsx (T6; só worker)
 export type DadosEnvio = { tenantId: string; envioId: string };
 export function renderizarPdfLimpo(paginas: readonly Buffer[]): Promise<Buffer>;
+export function converterOriginais(originais: readonly { ext: string; ler: () => Promise<Buffer> }[], deps?: Pick<DepsProcessar, 'abrirHeic' | 'rasterizar' | 'renderizar'>): Promise<{ jpegs: Buffer[]; pdf: Buffer | null }>; // revisão do plano
 export function processarEnvio(data: DadosEnvio, deps: DepsProcessar): Promise<'recebido' | 'falhou' | 'ignorado'>;
 // src/modules/pacientes/exames-enviados-aviso.ts (T6)
 export function avisarExamesRecebidos(tx: Tx, o: { tenantId: string; agora: Date; appUrl: string }): Promise<boolean>;
@@ -188,7 +194,7 @@ export function metricasDeExamesEnviadosPorTenant(db?): Promise<Map<string, { en
 export function apagarEnviosDoTitular(ctx: TenantContext, patientId: string, deps?: { db?: Db; dataDir?: string; todos?: boolean }): Promise<number>;
 // test/exames-enviados.ts (T1)
 export const JPEG_MINIMO: Buffer; export function ligarExames(db, tenantId: string): Promise<void>;
-export function envioNoBanco(db, ctx, patientId: string, o?): Promise<string>; export function arquivoDeEnvio(db, ctx, patientId: string, tipo: 'exame' | 'exame_original' | 'exame_pagina', dataDir: string, conteudo?: Buffer): Promise<string>;
+export function envioNoBanco(db, ctx, patientId: string, o?): Promise<string>; export function esperarNaTrava(db, trecho: string): Promise<void>; export function arquivoDeEnvio(db, ctx, patientId: string, tipo: 'exame' | 'exame_original' | 'exame_pagina', dataDir: string, conteudo?: Buffer): Promise<string>;
 export function envioRecebido(db, ctx, patientId: string, dataDir: string, o?: { paginas?: number; nome?: string | null; dataColeta?: string; criadoEm?: Date }): Promise<{ id: string; pdf: string; paginas: string[] }>;
 export function jpegQueDeclara(largura: number, altura: number): Promise<Buffer>; export function jpegDe(bytes: number): Promise<Buffer>;
 ```
@@ -225,9 +231,9 @@ export function jpegQueDeclara(largura: number, altura: number): Promise<Buffer>
 - Consumes: `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_audit`, `app_allow_paciente_escrita`, `app_current_role()`, `app_current_user()`, `app_current_patient()` (0007/0017/0051/0070); `exams_tenant_paciente_id_unique` (0098); `tenants`, `patients`, `exams`, `storedFiles`; `salvarArquivo`; `PDF_MINIMO` (`test/ia.ts`).
 - Produces:
   - `@/db/schema`: `examSubmissions`, `examSubmissionFiles`, `ExamSubmissionRow`, `ExamSubmissionFileRow`; `tenants.examesPacienteAtivadoEm`, `tenants.examesAvisoEm`.
-  - Banco: gatilhos `exam_submissions_regras` e `exam_submissions_sem_apagar`; políticas `paciente_envio_insert`, `paciente_envio_update`, `paciente_envio_arquivo`; `paciente_arquivo_insert` e `paciente_arquivos` refeitas; função `admin_metricas_exames_enviados()`.
+  - Banco: gatilhos `exam_submissions_nasce` (revisão do plano), `exam_submissions_regras` e `exam_submissions_sem_apagar`; políticas `paciente_envio_insert`, `paciente_envio_update`, `paciente_envio_arquivo`; `paciente_arquivo_insert` e `paciente_arquivos` refeitas; função `admin_metricas_exames_enviados()`.
   - `TipoDeArquivo` com `'exame_original' | 'exame_pagina'`; `TipoNotificacao` com `'exame_revisado' | 'exame_expirado'`; `ENTIDADE_ROTULO.exames_enviados`.
-  - `test/exames-enviados.ts`: `JPEG_MINIMO`, `ligarExames`, `envioNoBanco`, `arquivoDeEnvio`, `envioRecebido`, `jpegQueDeclara`, `jpegDe`.
+  - `test/exames-enviados.ts`: `JPEG_MINIMO`, `ligarExames`, `envioNoBanco` (pelas transições legais), `arquivoDeEnvio`, `envioRecebido`, `jpegQueDeclara`, `jpegDe`, `esperarNaTrava` (corridas com duas conexões, T6 e T8).
 
 - [ ] **Step 1: Criar os helpers de teste**
 
@@ -236,12 +242,13 @@ Criar `test/exames-enviados.ts`:
 ```ts
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
 import { examSubmissionFiles, examSubmissions, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { PDF_MINIMO } from './ia';
+import { ctxPaciente } from './pacientes';
 
 /** JPEG mínimo que passa no detectarTipo (não decodifica: só para arquivos que o teste não converte). */
 export const JPEG_MINIMO = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 1)]);
@@ -251,17 +258,45 @@ export async function ligarExames(db: Db, tenantId: string): Promise<void> {
   await db.update(tenants).set({ examesPacienteAtivadoEm: new Date() }).where(eq(tenants.id, tenantId));
 }
 
-/** Envio gravado direto por `ctx` (equipe: fora das políticas do paciente), na situação pedida. */
+/**
+ * Envio na situação pedida, pelo CAMINHO LEGAL (revisão do plano: o gatilho exam_submissions_nasce só deixa nascer
+ * "processando", para qualquer papel): nasce por `ctx` (a equipe, fora das políticas do paciente) e avança com o papel de cada
+ * transição — worker (recebido, com `arquivoPath`; falhou; expirado), nutricionista (aceito/recusado, em nome de `revisadoPor`,
+ * padrão `ctx.actorUserId`; o ponteiro do PDF limpo sai, como no aceite e na recusa de verdade) e paciente (cancelado, com o
+ * ponteiro mantido até a limpeza). Também exercita o gatilho exam_submissions_regras. `createdAt`/`updatedAt` valem do início.
+ */
 export async function envioNoBanco(db: Db, ctx: TenantContext, patientId: string, o: Partial<typeof examSubmissions.$inferInsert> = {}): Promise<string> {
+  const { status = 'recebido', arquivoPath, examId, revisadoPor, revisadoEm, motivoRecusa, motivoRecusaTexto, motivoFalha, updatedAt, ...nasce } = o;
+  const quando = updatedAt ? { updatedAt } : {};
   const [e] = await withTenant(
     ctx,
     (tx) =>
       tx
         .insert(examSubmissions)
-        .values({ tenantId: ctx.tenantId, patientId, enviadoPor: randomUUID(), status: 'recebido', dataColeta: '2026-09-28', nome: 'Hemograma', ...o })
+        .values({ tenantId: ctx.tenantId, patientId, enviadoPor: randomUUID(), dataColeta: '2026-09-28', nome: 'Hemograma', ...nasce, ...quando, status: 'processando' })
         .returning({ id: examSubmissions.id }),
     db,
   );
+  const mudar = (c: TenantContext, set: Partial<typeof examSubmissions.$inferInsert>) =>
+    withTenant(c, (tx) => tx.update(examSubmissions).set({ ...set, ...quando }).where(eq(examSubmissions.id, e.id)), db);
+  const worker: TenantContext = { tenantId: ctx.tenantId, role: 'worker' };
+  if (status === 'processando') return e.id;
+  if (status === 'falhou') {
+    await mudar(worker, { status: 'falhou', motivoFalha: motivoFalha ?? null });
+    return e.id;
+  }
+  await mudar(worker, { status: 'recebido', arquivoPath: arquivoPath ?? null });
+  if (status === 'aceito' || status === 'recusado') {
+    const quem = revisadoPor ?? ctx.actorUserId ?? randomUUID();
+    await mudar(
+      { tenantId: ctx.tenantId, role: 'nutri', actorUserId: quem },
+      { status, examId: examId ?? null, revisadoPor: quem, revisadoEm: revisadoEm ?? new Date(), motivoRecusa: motivoRecusa ?? null, motivoRecusaTexto: motivoRecusaTexto ?? null, arquivoPath: null },
+    );
+  } else if (status === 'cancelado') {
+    await mudar(ctxPaciente(ctx.tenantId, patientId), { status: 'cancelado' });
+  } else if (status === 'expirado') {
+    await mudar(worker, { status: 'expirado', arquivoPath: null });
+  }
   return e.id;
 }
 
@@ -325,6 +360,21 @@ export async function jpegDe(bytes: number): Promise<Buffer> {
   const base = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
   return Buffer.concat([base, Buffer.alloc(Math.max(0, bytes - base.length), 0)]);
 }
+
+/**
+ * Corridas com duas conexões (revisão do plano): espera outra conexão (mesmo role: o pg_stat_activity mostra o comando) ficar
+ * parada numa trava cujo comando contém `trecho`.
+ */
+export async function esperarNaTrava(db: Db, trecho: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    const r = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query ilike ${`%${trecho}%`}`,
+    );
+    if (r.rows[0].n > 0) return;
+    await new Promise((ok) => setTimeout(ok, 25));
+  }
+  throw new Error(`ninguém parou na trava (${trecho})`);
+}
 ```
 
 - [ ] **Step 2: Escrever o teste do banco (falha: as tabelas não existem)**
@@ -340,7 +390,7 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../test/pacientes';
-import { arquivoDeEnvio, envioNoBanco } from '../../test/exames-enviados';
+import { arquivoDeEnvio, envioNoBanco, envioRecebido } from '../../test/exames-enviados';
 import { auditLog, examSubmissionFiles, examSubmissions, exams, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { excluirExame } from '@/modules/pacientes/exames';
@@ -401,6 +451,12 @@ describe('Plano 12 — banco dos exames enviados (spec C v0.3 §13, §6.5)', () 
     expect(await mudar(comoPaciente, id, { status: 'cancelado' })).toHaveLength(0); // já não é "recebido": a política esconde
     const processando = await envioNoBanco(app.db, T.ctx, p.id, { status: 'processando' });
     expect(await mudar(comoPaciente, processando, { status: 'cancelado' })).toHaveLength(0);
+    // revisão do plano: o envio "recebido" de verdade tem o PDF limpo apontado; o cancelamento o mantém até a limpeza do worker
+    const comPdf = await envioRecebido(app.db, T.ctx, p.id, dataDir, { paginas: 0 });
+    expect(await mudar(comoPaciente, comPdf.id, { status: 'cancelado', updatedAt: new Date() })).toHaveLength(1);
+    const [cancelado] = await withTenant(T.ctx, (tx) => tx.select().from(examSubmissions).where(eq(examSubmissions.id, comPdf.id)), app.db);
+    expect(cancelado).toMatchObject({ status: 'cancelado', arquivoPath: comPdf.pdf });
+    expect(await mudar(comoWorker(T.tenantId), comPdf.id, { arquivoPath: null })).toHaveLength(1); // o job de limpeza solta o ponteiro
   });
 
   it('PM-14 / NGS1.03: cada papel só faz a sua transição; transição pulada, final reaberta e coluna fixa são recusadas', async () => {
@@ -422,19 +478,38 @@ describe('Plano 12 — banco dos exames enviados (spec C v0.3 §13, §6.5)', () 
     expect(await falhaCom(mudar(T.ctx, rec, { patientId: outro.id }))).toBe('42501');
   });
 
-  it('CHECKs: PDF limpo só em "recebido" e só do tipo exame; motivo só na recusa; "outro" exige texto; falha com motivo; nome ≤ 120', async () => {
+  it('§6.5 itens 1 e 3 (revisão do plano): todo envio nasce "processando", para qualquer papel; a revisão sai em nome de quem revisa', async () => {
+    const { T, p } = await cenario();
+    const pdf = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir);
+    const base = { tenantId: T.tenantId, patientId: p.id, enviadoPor: randomUUID(), dataColeta: '2026-09-28' };
+    const inserir = (ctx: TenantContext, v: Partial<typeof examSubmissions.$inferInsert>) => withTenant(ctx, (tx) => tx.insert(examSubmissions).values({ ...base, ...v }), app.db);
+    const revisao = { revisadoPor: T.nutriId, revisadoEm: new Date() };
+    for (const ctx of [T.ctx, comoWorker(T.tenantId)]) {
+      expect(await falhaCom(inserir(ctx, { status: 'recebido' }))).toBe('42501');
+      expect(await falhaCom(inserir(ctx, { status: 'aceito', ...revisao }))).toBe('42501'); // não fabrica "Enviado pelo paciente"
+      expect(await falhaCom(inserir(ctx, { status: 'processando', arquivoPath: pdf }))).toBe('42501');
+      expect(await falhaCom(inserir(ctx, { status: 'processando', revisadoPor: T.nutriId }))).toBe('42501');
+    }
+    const rec = await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido' });
+    expect(await falhaCom(mudar(T.ctx, rec, { status: 'aceito', revisadoPor: randomUUID(), revisadoEm: new Date() }))).toBe('42501');
+    expect(await mudar(T.ctx, rec, { status: 'aceito', ...revisao })).toHaveLength(1);
+  });
+
+  it('CHECKs: PDF limpo só em "recebido"/"cancelado" e só do tipo exame; motivo só na recusa; "outro" exige texto; falha com motivo; nome ≤ 120', async () => {
     const { T, p } = await cenario();
     const pdf = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir);
     const pagina = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame_pagina', dataDir);
     const revisao = { revisadoPor: T.nutriId, revisadoEm: new Date() };
-    expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'processando', arquivoPath: pdf }))).toBe('23514');
     expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido', arquivoPath: pagina }))).toBe('23514');
     expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recusado', motivoRecusa: 'outro', ...revisao }))).toBe('23514');
     expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recusado', motivoRecusa: 'ilegivel', motivoRecusaTexto: 'x', ...revisao }))).toBe('23514');
-    expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recusado', motivoRecusa: 'ilegivel' }))).toBe('23514'); // sem quem e quando
+    expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recusado', ...revisao }))).toBe('23514'); // recusa sem motivo
     expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'falhou' }))).toBe('23514');
     expect(await falhaCom(envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido', nome: 'x'.repeat(121) }))).toBe('23514');
-    await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido', arquivoPath: pdf });
+    // o ponteiro do PDF limpo não fica em "aceito" nem em "expirado": a revisão e a expiração o soltam no mesmo UPDATE
+    const rec = await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido', arquivoPath: pdf });
+    expect(await falhaCom(mudar(comoWorker(T.tenantId), rec, { status: 'expirado' }))).toBe('23514');
+    expect(await falhaCom(mudar(T.ctx, rec, { status: 'aceito', ...revisao }))).toBe('23514');
   });
 
   it('excluir o exame aceito deixa o envio com exam_id nulo (ON DELETE SET NULL (exam_id)); exame de outro paciente não serve', async () => {
@@ -549,7 +624,7 @@ export const examSubmissions = pgTable(
     nome: text('nome'),
     /** Dado de saúde (texto do paciente). */
     observacao: text('observacao'),
-    /** O PDF limpo (tipo `exame`), só em `recebido`; no aceite o ponteiro passa ao exame (um dono só). */
+    /** O PDF limpo (tipo `exame`), em `recebido` e, até a limpeza do worker, em `cancelado` (RN-166); no aceite o ponteiro passa ao exame (um dono só). */
     arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
     motivoRecusa: text('motivo_recusa'),
     motivoRecusaTexto: text('motivo_recusa_texto'),
@@ -568,7 +643,10 @@ export const examSubmissions = pgTable(
     check('exam_submissions_status_valido', sql`${t.status} in ('processando', 'recebido', 'aceito', 'recusado', 'cancelado', 'expirado', 'falhou')`),
     check('exam_submissions_nome_tamanho', sql`${t.nome} is null or char_length(${t.nome}) between 1 and 120`),
     check('exam_submissions_observacao_tamanho', sql`${t.observacao} is null or char_length(${t.observacao}) between 1 and 500`),
-    check('exam_submissions_arquivo_so_recebido', sql`${t.arquivoPath} is null or (${t.status} = 'recebido' and ${t.arquivoPath} like ${t.tenantId}::text || '/exame/%')`),
+    // Revisão do plano (07/10): também em "cancelado" — a sessão de paciente só muda status/updated_at (gatilho), então o ponteiro
+    // sobrevive ao cancelamento até o job exame-envio-limpar soltá-lo no naMesmaTransacao do apagarArquivo (RN-166); o gatilho
+    // continua impedindo ponteiro NOVO fora de processando → recebido
+    check('exam_submissions_arquivo_valido', sql`${t.arquivoPath} is null or (${t.status} in ('recebido', 'cancelado') and ${t.arquivoPath} like ${t.tenantId}::text || '/exame/%')`),
     check(
       'exam_submissions_recusa',
       sql`(${t.status} = 'recusado') = (${t.motivoRecusa} is not null) and (${t.motivoRecusa} is null or ${t.motivoRecusa} in ('ilegivel', 'nao_e_exame', 'outra_pessoa', 'repetido', 'outro'))`,
@@ -740,8 +818,11 @@ CREATE POLICY paciente_arquivos ON stored_files AS RESTRICTIVE FOR ALL
 -- no aceite (os dois podem ir a nulo a qualquer hora: limpeza e o SET NULL da FK); a revisão só é gravada no aceite ou na
 -- recusa; a falha, só na falha; a sessão de paciente só muda a situação (e updated_at). Sem contexto (migrations, seed) as
 -- transições continuam conferidas. Recusa com 42501, como a RLS.
+-- search_path fixo (revisão do plano, molde de app_audit_row_change, 0007): uma tabela temporária `patients` não desvia as
+-- conferências.
 CREATE OR REPLACE FUNCTION app_exam_submissions_regras() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
 DECLARE
   r text := coalesce(app_current_role(), '');
 BEGIN
@@ -759,6 +840,12 @@ BEGIN
                         OR (NEW.status = 'cancelado' AND r = 'paciente')) THEN
       RAISE EXCEPTION 'este papel não faz esta transição do envio de exame' USING ERRCODE = '42501';
     END IF;
+  END IF;
+  -- Revisão do plano (§6.5 item 1, ECF.17.01): a revisão sai em nome de quem está agindo — "quem aceitou" não fica a critério
+  -- do código
+  IF r <> '' AND NEW.status IN ('aceito', 'recusado') AND NEW.status IS DISTINCT FROM OLD.status
+     AND NEW.revisado_por IS DISTINCT FROM app_current_user() THEN
+    RAISE EXCEPTION 'a revisão do envio de exame é gravada em nome de quem revisa' USING ERRCODE = '42501';
   END IF;
   IF NEW.arquivo_path IS NOT NULL AND NEW.arquivo_path IS DISTINCT FROM OLD.arquivo_path
      AND NOT (OLD.status = 'processando' AND NEW.status = 'recebido') THEN
@@ -783,14 +870,33 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER exam_submissions_regras BEFORE UPDATE ON exam_submissions FOR EACH ROW EXECUTE FUNCTION app_exam_submissions_regras();
 --> statement-breakpoint
+-- Revisão do plano (07/10; §6.5 itens 1 e 3): o envio NASCE "processando", sem PDF limpo, exame, revisão nem falha, para
+-- QUALQUER papel — sem isto a equipe ou o worker criariam um envio já "aceito" e fabricariam a origem "Enviado pelo paciente"
+-- (ECF.17.01) sem passar pelo processamento. Sem contexto (migrations, o owner dos testes) fica livre, como as transições.
+CREATE OR REPLACE FUNCTION app_exam_submissions_nasce() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+BEGIN
+  IF coalesce(app_current_role(), '') <> ''
+     AND (NEW.status IS DISTINCT FROM 'processando' OR NEW.arquivo_path IS NOT NULL OR NEW.exam_id IS NOT NULL
+          OR NEW.revisado_por IS NOT NULL OR NEW.revisado_em IS NOT NULL OR NEW.motivo_recusa IS NOT NULL
+          OR NEW.motivo_recusa_texto IS NOT NULL OR NEW.motivo_falha IS NOT NULL) THEN
+    RAISE EXCEPTION 'o envio de exame nasce em processamento' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER exam_submissions_nasce BEFORE INSERT ON exam_submissions FOR EACH ROW EXECUTE FUNCTION app_exam_submissions_nasce();
+--> statement-breakpoint
 -- §6.5 item 2 (NGS1.12.03): o registro do envio não é apagado na revisão (só os arquivos saem). A linha só sai no pedido de
 -- exclusão atendido e na anonimização (lgpd.ts, contexto worker). O papel worker também roda no processo web (agendamento
 -- público, webhook do WhatsApp, link de documento): por isso o gatilho exige o titular bloqueado ou anonimizado.
 CREATE OR REPLACE FUNCTION app_exam_submissions_sem_apagar() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
 BEGIN
   IF app_current_role() IS DISTINCT FROM 'worker'
-     OR NOT EXISTS (SELECT 1 FROM patients p WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
+     OR NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
                        AND (p.status = 'bloqueado' OR p.anonimizado_em IS NOT NULL)) THEN
     RAISE EXCEPTION 'envios de exame só são apagados no pedido de exclusão atendido ou na anonimização' USING ERRCODE = '42501';
   END IF;
@@ -867,17 +973,18 @@ Em `test/isolamento.test.ts`:
 
 ```ts
 // em FABRICAS, depois de ia_uso:
-  // Plano 12: "recebido" para a sessão de paciente conseguir cancelar a própria linha (UPDATE_DO_PACIENTE); o gatilho
+  // Plano 12: nasce "processando" (gatilho exam_submissions_nasce, revisão do plano); o beforeAll leva as linhas a "recebido" pelo
+  // worker (a transição legal) para a sessão de paciente conseguir cancelar a própria linha (UPDATE_DO_PACIENTE); o gatilho
   // exam_submissions_regras recusa mudar tenant/paciente (IMUTAVEIS) e o exam_submissions_sem_apagar recusa o DELETE (SEM_DELETE)
   exam_submissions: (t, p) =>
     sql`insert into exam_submissions (tenant_id, patient_id, enviado_por, status, data_coleta)
-        values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'recebido', '2026-01-01')`,
+        values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'processando', '2026-01-01')`,
   // a linha de arquivo precisa do original (stored_files) e do envio: cria os dois no mesmo comando (COM_MAE)
   exam_submission_files: (t, p) =>
     sql`with a as (insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id)
                    values (${t}, 'exame_original', ${t}::text || '/exame_original/' || gen_random_uuid()::text || '.jpg', 1, 'image/jpeg', ${p}) returning caminho),
              s as (insert into exam_submissions (tenant_id, patient_id, enviado_por, status, data_coleta)
-                   values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'recebido', '2026-01-01') returning id)
+                   values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'processando', '2026-01-01') returning id)
         insert into exam_submission_files (tenant_id, patient_id, submission_id, arquivo_path, papel, ordem)
         select ${t}, ${p}, s.id, a.caminho, 'original', 1 from a, s`,
 ```
@@ -891,6 +998,10 @@ const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'documen
 //                and not exists (select 1 from exam_submissions e where e.tenant_id = patients.tenant_id and e.patient_id = patients.id)
 // COM_MAE ganha 'exam_submission_files'
 const UPDATE_DO_PACIENTE: Record<string, SQL> = { data_exports: sql`status = 'falhou'`, exam_submissions: sql`status = 'cancelado'` };
+// no beforeAll, logo depois do laço das fábricas (revisão do plano: o envio nasce "processando"; o worker o leva a "recebido",
+// a transição legal, para a sessão de paciente ter o que cancelar e o que tentar mover):
+for (const tenantId of [A, B])
+  await withTenant({ tenantId, role: 'worker' }, (tx) => tx.execute(sql`update exam_submissions set status = 'recebido' where status = 'processando'`), app.db);
 ```
 
 (Atualizar os comentários de `SEM_DELETE`, `IMUTAVEIS` e `UPDATE_DO_PACIENTE` com "Plano 12: exam_submissions — gatilhos `exam_submissions_sem_apagar` e `exam_submissions_regras` (0102); o paciente só cancela o próprio recebido".)
@@ -908,7 +1019,7 @@ Em `src/db/paciente-escrita.test.ts`, trocar o caso (c) por:
 
 - [ ] **Step 8: CLAUDE.md (regras 2 e 8)**
 
-Na regra 2, no fim: "Plano 12: `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`) em `PACIENTE_ESCREVE`, com as políticas `RESTRICTIVE` `paciente_envio_insert`, `paciente_envio_update` e `paciente_envio_arquivo` (0102); `stored_files` aceita da sessão de paciente os tipos `diario_foto_original` e `exame_original`; `exam_submissions` tem o gatilho de transições `exam_submissions_regras` (cada papel só faz a sua) e o `exam_submissions_sem_apagar` (DELETE só pelo worker com o titular bloqueado ou anonimizado) e entra em `IMUTAVEIS` e `SEM_DELETE` de `test/isolamento.test.ts`."
+Na regra 2, no fim: "Plano 12: `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`) em `PACIENTE_ESCREVE`, com as políticas `RESTRICTIVE` `paciente_envio_insert`, `paciente_envio_update` e `paciente_envio_arquivo` (0102); `stored_files` aceita da sessão de paciente os tipos `diario_foto_original` e `exame_original`; `exam_submissions` tem o gatilho `exam_submissions_nasce` (todo envio nasce `processando`, para qualquer papel), o de transições `exam_submissions_regras` (cada papel só faz a sua; a revisão em nome de quem revisa) e o `exam_submissions_sem_apagar` (DELETE só pelo worker com o titular bloqueado ou anonimizado) e entra em `IMUTAVEIS` e `SEM_DELETE` de `test/isolamento.test.ts`."
 
 Na regra 8, no fim: "Plano 12: `exam_submissions` e `exam_submission_files` têm o gatilho (entidade `exames_enviados`, "Exames enviados pelo paciente"); `auditRead` ao abrir o envio no painel (`abrirEnvio`) e, no portal, na lista e no download do próprio PDF (`meusEnvios`, `pdfDoMeuEnvio`); a fila "Exames recebidos" e os contadores não chamam (só listam, como a lista de pacientes)."
 
@@ -1427,8 +1538,10 @@ const PODE_SAIR: Record<Papel, (status: string, refazer: boolean) => boolean> = 
 /**
  * Regra 9 / DEP-09 reduzida (spec §4.1): cada arquivo do envio sai no SEU apagarArquivo; a linha de exam_submission_files sai
  * junto (FK ON DELETE CASCADE, mesma transação) e o PDF limpo solta o ponteiro `arquivo_path` no naMesmaTransacao — só se o
- * envio, travado ali, ainda permite (situação relida). Ordem de travas: envio → tenant (a de salvarArquivo é paciente → envio →
- * tenant). Um arquivo que falha não para os outros: a varredura (exames-enviados-varredura.ts) tenta de novo. `papel`: só os
+ * envio, travado ali, ainda permite (situação relida). Ordem de travas: envio → tenant, sem o paciente na frente porque aqui nada
+ * se grava com FK para `patients` (só o ponteiro do envio, o DELETE em cascata das linhas de arquivo — auditado, FK só para
+ * `tenants` — e a devolução da cota); quem grava filha de `patients` trava o paciente antes (revisão do plano: a expiração da
+ * T8). A de salvarArquivo é paciente → envio → tenant. Um arquivo que falha não para os outros: a varredura (exames-enviados-varredura.ts) tenta de novo. `papel`: só os
  * originais (fim do processamento) ou só as páginas. Devolve quantos arquivos saíram. Log só com ids (RNF-11).
  */
 export async function apagarArquivosDoEnvio(
@@ -1618,7 +1731,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 **Files:**
 - Create: `src/modules/pacientes/rasterizar-pdf-processo.ts`, `src/modules/pacientes/rasterizar-pdf.ts` (+ `rasterizar-pdf.test.ts`), `src/modules/pacientes/exames-enviados-guardas.test.ts`
-- Modify: `package.json` + `pnpm-lock.yaml` (`@hyzyla/pdfium` 2.1.13), `Dockerfile` (poda), `.github/workflows/ci.yml` (job `image`: a rasterização roda na imagem podada), `test/exames-enviados.ts` (PDFs de teste), `CLAUDE.md` (regra 9)
+- Modify: `package.json` + `pnpm-lock.yaml` (`@hyzyla/pdfium` 2.1.13), `Dockerfile` (poda), `.github/workflows/ci.yml` (job `image`: a rasterização roda na imagem podada), `test/exames-enviados.ts` (PDFs de teste, `fotoDeRuido`, `ORCAMENTO_RNF162_BYTES`) — o `CLAUDE.md` (regra 9) fica para a T13 (revisão do plano: a T2, em paralelo, edita a mesma regra)
 
 **Interfaces:**
 - Consumes: `logger`; `jpegQueDeclara` (T1); `pdfDeTeste` (`test/ia.ts`).
@@ -1658,11 +1771,22 @@ export async function pdfComImagemDeclarada(largura: number, altura: number): Pr
   return Buffer.from(await doc.save());
 }
 
-/** Laudo "digitalizado": `paginas` páginas, cada uma com a sua foto JPEG de 1600 × 1200 que quase não comprime. */
-export async function pdfDeFotos(paginas: number): Promise<Buffer> {
-  const raw = Buffer.alloc(1600 * 1200 * 3);
+/**
+ * D-R1 ★ (revisão do plano): orçamento PROVISÓRIO do RNF-162 — pico do worker + pico do processo filho. A spec diz 150 MB, mas
+ * só o filho passa disso com uma página A4 a 2000 px (medido: 153–156 MB). O dono decide o número antes da T3.
+ */
+export const ORCAMENTO_RNF162_BYTES = 250 * 1024 * 1024;
+
+/** Foto de celular para medir memória: ruído que quase não comprime, JPEG de `largura` × `altura`. */
+export async function fotoDeRuido(largura: number, altura: number, qualidade = 90): Promise<Buffer> {
+  const raw = Buffer.alloc(largura * altura * 3);
   for (let i = 0; i < raw.length; i++) raw[i] = (i * 2654435761) >>> 24;
-  const foto = await sharp(raw, { raw: { width: 1600, height: 1200, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
+  return sharp(raw, { raw: { width: largura, height: altura, channels: 3 } }).jpeg({ quality: qualidade }).toBuffer();
+}
+
+/** Laudo "digitalizado": `paginas` páginas, cada uma com a sua foto JPEG (padrão 1600 × 1200) que quase não comprime. */
+export async function pdfDeFotos(paginas: number, o: { largura?: number; altura?: number; qualidade?: number } = {}): Promise<Buffer> {
+  const foto = await fotoDeRuido(o.largura ?? 1600, o.altura ?? 1200, o.qualidade ?? 90);
   const doc = await PDFDocument.create();
   for (let i = 0; i < paginas; i++) {
     const img = await doc.embedJpg(foto); // um objeto de imagem por página, como um app de "scanner" grava
@@ -1686,7 +1810,7 @@ import { promisify } from 'node:util';
 import { createDeflate } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
-import { pdfComConteudoAtivo, pdfComImagemDeclarada, pdfDeFotos } from '../../../test/exames-enviados';
+import { ORCAMENTO_RNF162_BYTES, pdfComConteudoAtivo, pdfComImagemDeclarada, pdfDeFotos } from '../../../test/exames-enviados';
 import { pdfDeTeste } from '../../../test/ia';
 import { RasterizacaoError, rasterizarPdf, TETO_RSS_RASTER_BYTES, type PaginaRaster } from './rasterizar-pdf';
 
@@ -1828,12 +1952,12 @@ describe('rasterização do PDF enviado pelo paciente (D23 = a, R-170, RNF-162)'
     await expect(rasterizarPdf(await pdfDeTeste({ paginas: 2 }), OPCOES, async () => { throw erro; })).rejects.toBe(erro);
   }, 60_000);
 
-  it('RNF-162: laudo digitalizado de 10 páginas — pico do worker + pico do filho abaixo de 150 MB', async () => {
+  it('RNF-162: laudo digitalizado de 10 páginas — pico do worker + pico do filho dentro do orçamento (D-R1 ★)', async () => {
     const pdf = await pdfDeFotos(10);
     const r = await medir(pdf);
     console.info(`RNF-162: PDF de ${Math.round(pdf.length / MB)} MB → worker +${Math.round(r.pai / MB)} MB, filho ${Math.round((r.picoBytes ?? 0) / MB)} MB`);
     expect(r.paginas).toBe(10);
-    expect(r.pai + (r.picoBytes ?? 0)).toBeLessThan(150 * MB);
+    expect(r.pai + (r.picoBytes ?? 0)).toBeLessThan(ORCAMENTO_RNF162_BYTES); // o job inteiro é medido na T6
   }, 240_000);
 });
 ```
@@ -1846,7 +1970,7 @@ Expected: FAIL (`./rasterizar-pdf` não existe).
 Criar `src/modules/pacientes/rasterizar-pdf-processo.ts`:
 
 ```ts
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { PDFiumModule } from '@hyzyla/pdfium';
 
 /**
@@ -1950,8 +2074,11 @@ function conferirImagens(mod: Pdfium, contar: () => number, pegar: (i: number) =
   }
 }
 
-/** A página inteira, maior lado = `ladoMax`, fundo branco, RGBA. */
-function desenhar(mod: Pdfium, pagina: number, ladoMax: number): { largura: number; altura: number; rgba: Uint8Array } {
+/**
+ * A página inteira, maior lado = `ladoMax`, fundo branco, RGBA — entregue a `usar` direto do heap do WASM: sem o `slice` (a
+ * serialização da IPC já copia), o bitmap só é liberado depois do envio (revisão do plano, D-R1: uma cópia de ~11 MB a menos).
+ */
+async function desenhar(mod: Pdfium, pagina: number, ladoMax: number, usar: (d: { largura: number; altura: number; rgba: Uint8Array }) => Promise<void>): Promise<void> {
   const w = mod._FPDF_GetPageWidth(pagina);
   const h = mod._FPDF_GetPageHeight(pagina);
   if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) throw new RecusaError('conversao');
@@ -1967,7 +2094,8 @@ function desenhar(mod: Pdfium, pagina: number, ladoMax: number): { largura: numb
     if (!bitmap) throw new RecusaError('conversao');
     mod._FPDFBitmap_FillRect(bitmap, 0, 0, largura, altura, 0xffffffff);
     mod._FPDF_RenderPageBitmap(bitmap, pagina, 0, 0, largura, altura, 0, FLAGS);
-    return { largura, altura, rgba: mod.HEAPU8.slice(ptr, ptr + bytes) };
+    // nada aloca no WASM entre aqui e o send (que serializa na hora): o HEAPU8 não muda de buffer
+    await usar({ largura, altura, rgba: mod.HEAPU8.subarray(ptr, ptr + bytes) });
   } finally {
     if (bitmap) mod._FPDFBitmap_Destroy(bitmap);
     mod.wasmExports.free(ptr);
@@ -1995,8 +2123,7 @@ async function rasterizar(e: Entrada): Promise<void> {
       if (!pagina) throw new RecusaError('conversao');
       try {
         conferirImagens(mod, () => mod._FPDFPage_CountObjects(pagina), (j) => mod._FPDFPage_GetObject(pagina, j), ptrTamanho, e.maxPixelsImagem, { n: 0 }, 0);
-        const d = desenhar(mod, pagina, e.ladoMax);
-        await enviar({ tipo: 'pagina', indice: i, total, largura: d.largura, altura: d.altura, rgba: d.rgba });
+        await desenhar(mod, pagina, e.ladoMax, (d) => enviar({ tipo: 'pagina', indice: i, total, largura: d.largura, altura: d.altura, rgba: d.rgba }));
       } finally {
         mod._FPDF_ClosePage(pagina);
       }
@@ -2010,6 +2137,13 @@ async function rasterizar(e: Entrada): Promise<void> {
 }
 
 async function principal(): Promise<void> {
+  // revisão do plano (D-R1): o filho conta na mesma cgroup de 512 MB do worker e o vigia de 20 ms não segura um pico — num
+  // estouro, o kernel mata ESTE processo, não o worker (subir o próprio oom_score_adj não pede privilégio)
+  try {
+    writeFileSync('/proc/self/oom_score_adj', '1000');
+  } catch {
+    // fora do Linux (dev local): sem ajuste
+  }
   const e = (await receber()) as Entrada;
   try {
     await rasterizar(e);
@@ -2035,7 +2169,11 @@ import type { MensagemDoProcesso } from './rasterizar-pdf-processo';
 /** RNF-162 / D1: heap do processo filho, prazo da rasterização inteira e teto de memória residente (o filho é morto acima). */
 export const HEAP_MAX_RASTER_MB = 64;
 export const TEMPO_MAX_RASTER_MS = 120_000;
-export const TETO_RSS_RASTER_BYTES = 120 * 1024 * 1024;
+/**
+ * PROVISÓRIO (D-R1 ★, revisão do plano): medido 66–69 MB só do Node com o WASM e 153–156 MB com uma página A4 a 2000 px; o
+ * dono decide o orçamento antes da T3 e o Step 6 mede de novo. Nunca subir por conta própria.
+ */
+export const TETO_RSS_RASTER_BYTES = 200 * 1024 * 1024;
 const VIGIA_MS = 20;
 
 export class RasterizacaoError extends Error {
@@ -2132,7 +2270,7 @@ export function rasterizarPdf(pdf: Buffer, o: Opcoes, aoReceber: (p: PaginaRaste
 Run: `pnpm vitest run src/modules/pacientes/rasterizar-pdf.test.ts`
 Expected: PASS; o `console.info` do RNF-162 mostra o pico do worker e o do filho (registrar os números no PR e no manual técnico, T13).
 
-**Se o teste do RNF-162 ou o da bomba reprovar** (pico acima de 150 MB, worker afetado ou o PDFium não abrir os PDFs de teste): **parar e avisar o controlador** com os números — não aumentar `TETO_RSS_RASTER_BYTES` nem o limite de 150 MB por conta própria. As saídas previstas (decisão do controlador com o dono): baixar `ENVIO_LADO_MAX` para 1600 px ou `MAX_PIXELS_IMAGEM_PDF` para 12 MP e medir de novo; ou o plano B da D1 (`pdfjs-dist` 6.4.299 + `@napi-rs/canvas` 1.0.10 no mesmo processo filho, com a imagem maior).
+**Se o teste do RNF-162 ou o da bomba reprovar** (pico acima de `ORCAMENTO_RNF162_BYTES`, filho morto no teto num PDF comum, worker afetado ou o PDFium não abrir os PDFs de teste): **parar e avisar o controlador** com os números — não aumentar `TETO_RSS_RASTER_BYTES` nem o orçamento por conta própria (D-R1 ★). Saídas (decisão do controlador com o dono), sabendo pela medida da revisão do plano que **baixar o lado não basta** (1600 px: 140–143 MB; 1200 px: 126 MB; o piso do Node com o WASM é 66–69 MB): desenhar em tons de cinza (`FPDFBitmap_Gray`, 1 byte por pixel: o bitmap de 2000 px cai de ~11 MB para ~2,8 MB) ou em faixas; escrever os pixels num arquivo temporário em vez da IPC; subir o orçamento; ou o plano B da D1 (`pdfjs-dist` 6.4.299 + `@napi-rs/canvas` 1.0.10 no mesmo processo filho, com a imagem maior).
 
 - [ ] **Step 7: Guarda estática (RNF-169)**
 
@@ -2185,7 +2323,7 @@ No `Dockerfile`, no `RUN set -eu; …` da poda (estágio `build`), acrescentar d
     done
 ```
 
-e ampliar o comentário acima do `RUN`: "Plano 12: do `@hyzyla/pdfium` só ficam o `index.esm.js` (que carrega o WASM pelo caminho) e o `pdfium.wasm`; saem as cópias em base64, os bundles de navegador, de CDN e de worker, o CJS e as declarações (~5 MB comprimidos)."
+e ampliar o comentário acima do `RUN`: "Plano 12: do `@hyzyla/pdfium` só ficam o `index.esm.js` (que carrega o WASM pelo caminho) e o `pdfium.wasm`; saem as cópias em base64, os bundles de navegador, de CDN e de worker, o CJS e as declarações (≈ 2,8 MB comprimidos; ficam ≈ 2,1 MB comprimidos, quase todo o `pdfium.wasm`)." (Revisão do plano: os números são do tarball 2.1.13 com `gzip -6`.)
 
 Em `.github/workflows/ci.yml`, no job `image`, depois do passo "O worker carrega o pdf-lib e o SDK da IA na imagem podada (Plano 11)":
 
@@ -2205,11 +2343,11 @@ Em `.github/workflows/ci.yml`, no job `image`, depois do passo "O worker carrega
             console.log('rasterização ok na imagem');"
 ```
 
-Se houver Docker na máquina: `docker build -t nutridebby:plano12 . && docker save nutridebby:plano12 | gzip -6 | wc -c` — o resultado em MB (arredondado para cima) tem de ficar **≤ 260**. Sem Docker, o job `image` do CI confere no PR. **Se passar de 260 MB: parar e avisar o dono** (subir o orçamento não custa nada, mas é decisão dele; não apagar outra parte da imagem às cegas).
+Se houver Docker na máquina: `docker build -t nutridebby:plano12 . && docker save nutridebby:plano12 | gzip -6 | wc -c` — o resultado em MB (arredondado para cima) tem de ficar **≤ 260** (ou ≤ 265, se o dono aprovou a D-R2 ★ — nesse caso, trocar o limite do passo do orçamento no job `image` do `ci.yml` e citar a decisão no comentário). Sem Docker, o job `image` do CI confere no PR. **Se passar do limite: parar e avisar o dono** (subir o orçamento não custa nada, mas é decisão dele; não apagar outra parte da imagem às cegas).
 
-- [ ] **Step 9: CLAUDE.md (regra 9) e commit**
+- [ ] **Step 9: Commit**
 
-No fim da regra 9, acrescentar: "A rasterização do PDF do paciente (`src/modules/pacientes/rasterizar-pdf.ts` e o processo filho `rasterizar-pdf-processo.ts`, único importador de `@hyzyla/pdfium`) e o job do envio (`exames-enviados-job.tsx`) só no worker (guarda em `exames-enviados-guardas.test.ts`); o original do paciente nunca chega ao navegador nem à F3-01."
+(Revisão do plano: a frase da regra 9 sobre a rasterização foi para a T13, Step 3 — a T2, que roda em paralelo, também edita o fim da regra 9.)
 
 Run: `pnpm typecheck && pnpm lint`
 Expected: sem erros.
@@ -2217,7 +2355,7 @@ Expected: sem erros.
 ```bash
 git add package.json pnpm-lock.yaml Dockerfile .github/workflows/ci.yml test/exames-enviados.ts \
   src/modules/pacientes/rasterizar-pdf-processo.ts src/modules/pacientes/rasterizar-pdf.ts src/modules/pacientes/rasterizar-pdf.test.ts \
-  src/modules/pacientes/exames-enviados-guardas.test.ts CLAUDE.md
+  src/modules/pacientes/exames-enviados-guardas.test.ts
 git commit -m "feat(exames-enviados): rasterização do PDF do paciente (PDFium em WASM) num processo filho com teto de memória (P12-03)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2536,6 +2674,10 @@ const caracteres = (s: string) => [...s].length; // code points, como o CHECK (c
  * RN-160 / RN-162, conferidas com o paciente TRAVADO (FOR UPDATE; ele pode ter sido arquivado ou bloqueado no meio) e de
  * novo no `antesDaReserva` da transação que grava: recebimento ligado (D18), paciente ativo e não anonimizado, no máximo 10
  * envios aguardando e 5 no dia (fuso do tenant). Os cancelados contam no dia (o limite é de envios, não de pendências).
+ * O recebimento ligado é lido SEM trava (revisão do plano; janela aceita pela D18 = a — desligar só esconde a opção e os envios
+ * já gravados seguem): um envio que chega no instante em que a nutricionista desliga ainda passa. Travar o tenant não serve:
+ * KEY SHARE não conflita com o NO KEY UPDATE de quem desliga, e FOR SHARE fecharia deadlock entre dois envios do mesmo
+ * consultório na reserva de cota.
  */
 async function conferirAntesDeGravar(tx: Tx, tenantId: string, patientId: string, fuso: string, agora: Date): Promise<void> {
   const [t] = await tx.select({ ligado: tenants.examesPacienteAtivadoEm }).from(tenants).where(eq(tenants.id, tenantId));
@@ -2824,6 +2966,9 @@ describe('POST /api/p/exames (US-160, RN-161)', () => {
     const futura = await enviar({ dataColeta: '2999-01-01', arquivos: [new Blob([await jpegDe(2000)])] }, { cookie: A.cookie });
     expect(futura.status).toBe(400);
     expect(await futura.json()).toEqual({ erros: { dataColeta: MSG_ENVIO.dataFutura } });
+    const comVazio = await enviar({ arquivos: [new Blob([await jpegDe(2000)]), new Blob([])] }, { cookie: A.cookie }); // foto de 0 byte no meio
+    expect(comVazio.status).toBe(400);
+    expect(await comVazio.json()).toEqual({ erros: { arquivos: MSG_ENVIO.arquivos } });
     expect(await envios(A.T, A.paciente.id)).toEqual([]);
   });
 
@@ -2977,7 +3122,12 @@ async function receber(req: Request, acesso: Extract<ApiPaciente, { ok: true }>)
     return resposta(400, { erros: { geral: MSG_ENVIO.formulario } });
   }
   const arquivos: Buffer[] = [];
-  for (const a of form.getAll('arquivos')) if (a instanceof Blob && a.size > 0) arquivos.push(Buffer.from(await a.arrayBuffer()));
+  for (const a of form.getAll('arquivos')) {
+    // Review Focus 3 (revisão do plano): um arquivo vazio no meio é recusado com a mensagem única, nunca descartado em silêncio
+    // (sem arquivo escolhido, o navegador manda uma parte vazia: a mesma recusa)
+    if (!(a instanceof Blob) || a.size === 0) return resposta(400, { erros: { arquivos: MSG_ENVIO.arquivos } });
+    arquivos.push(Buffer.from(await a.arrayBuffer()));
+  }
   try {
     const { id } = await enviarExame(acesso.ctx, acesso.tenant, { dataColeta: form.get('dataColeta'), nome: form.get('nome'), observacao: form.get('observacao'), arquivos });
     return resposta(200, { ok: true, id, mensagem: MSG_ENVIO.enviado });
@@ -3031,7 +3181,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 **Revisão: completa (agente revisor-rls)** — o worker trata o arquivo não confiável do paciente, grava com as travas na ordem, falha sem perder cota, e o e-mail não leva dado de saúde (C-05, RNF-166).
 
 **Files:**
-- Create: `src/modules/pacientes/exames-enviados-job.tsx` (+ `exames-enviados-job.test.ts`), `src/modules/pacientes/exames-enviados-aviso.ts`
+- Create: `src/modules/pacientes/exames-enviados-job.tsx` (+ `exames-enviados-job.test.ts`, `exames-enviados-memoria.test.ts` — revisão do plano), `src/modules/pacientes/exames-enviados-aviso.ts`
 - Modify: `src/email/types.ts` (tipo `exames_recebidos`), `src/email/templates.tsx` (o e-mail), `src/worker/index.ts` (fila `exame-envio`)
 
 **Interfaces:**
@@ -3048,20 +3198,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { arquivoDeEnvio, envioNoBanco, jpegDe, ligarExames, pdfComConteudoAtivo } from '../../../test/exames-enviados';
+import { arquivoDeEnvio, envioNoBanco, esperarNaTrava, jpegDe, ligarExames, pdfComConteudoAtivo } from '../../../test/exames-enviados';
 import { pdfDeTeste } from '../../../test/ia';
 import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
-import { examSubmissionFiles, examSubmissions, patients, storedFiles, tenants, user } from '@/db/schema';
+import { examSubmissionFiles, examSubmissions, exams, patients, storedFiles, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import { stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import type { AbrirHeic } from '@/modules/portal/diario-foto-job';
 import { enviarExame } from '@/modules/portal/exames-enviados';
+import { avisarExamesRecebidos } from './exames-enviados-aviso';
 import { MSG_REVISAO } from './exames-enviados-constantes';
 import { processarEnvio, renderizarPdfLimpo, type DepsProcessar } from './exames-enviados-job';
 import { RasterizacaoError } from './rasterizar-pdf';
@@ -3252,6 +3403,39 @@ describe('job exame-envio (RN-163, D23 = a)', () => {
   }, 60_000);
 });
 
+describe('aviso × escrita auditada do mesmo consultório (revisão do plano, D10)', () => {
+  it('o aviso relê o tenant em NO KEY UPDATE: uma escrita auditada que já pegou KEY SHARE e espera devolver cota não fecha ciclo', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    let aReservou!: () => void;
+    const reservou = new Promise<void>((ok) => (aReservou = ok));
+    // A = a transação do "recebido": a reserva de cota já segura o tenant (NO KEY UPDATE); só depois vem o aviso
+    const a = withTenant(
+      { tenantId: T.tenantId, role: 'worker' },
+      async (tx) => {
+        await tx.update(tenants).set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + 1` }).where(eq(tenants.id, T.tenantId));
+        aReservou();
+        await esperarNaTrava(app.db, 'armazenamento_bytes'); // B parou esperando o tenant
+        return avisarExamesRecebidos(tx, { tenantId: T.tenantId, agora: new Date(), appUrl: APP_URL });
+      },
+      app.db,
+    );
+    // B = molde de apagarArquivo: escrita auditada (KEY SHARE no tenant pela FK do audit_log) e depois a devolução da cota
+    const b = (async () => {
+      await reservou;
+      await withTenant(
+        T.ctx,
+        async (tx) => {
+          await tx.insert(exams).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-28', titulo: 'Hemograma' });
+          await tx.update(tenants).set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} - 1` }).where(eq(tenants.id, T.tenantId));
+        },
+        app.db,
+      );
+    })();
+    await expect(Promise.all([a, b])).resolves.toEqual([true, undefined]); // com FOR UPDATE: 40P01 numa das duas
+  }, 30_000);
+});
+
 describe('PDF limpo e e-mail (RNF-166)', () => {
   it('renderizarPdfLimpo: uma página por imagem, na ordem, sem metadado do paciente', async () => {
     const j = await sharp({ create: { width: 100, height: 140, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
@@ -3313,12 +3497,13 @@ import { AVISO_EXAMES_INTERVALO_MS, ENVIO_LEMBRETE_DIAS } from './exames-enviado
 
 /**
  * RN-168 (D16 = a) e US-165: e-mail genérico às nutricionistas do tenant quando um envio chega a "recebido" — no máximo 1 a
- * cada 6 h por tenant (`tenants.exames_aviso_em`, conferido e gravado com a linha do tenant travada; na transação do "recebido"
- * ela já está travada pela reserva de cota, D10). Leva a frase dos 30 dias quando há envio aguardando há mais que isso (PM-12:
+ * cada 6 h por tenant (`tenants.exames_aviso_em`, conferido e gravado com a linha do tenant em FOR NO KEY UPDATE; na transação
+ * do "recebido" ela já está nesse modo pela reserva de cota, D10). Nunca FOR UPDATE (revisão do plano): conflita com o KEY
+ * SHARE de toda FK tenant_id (o audit_log de qualquer escrita auditada) e fecha deadlock — o molde é src/modules/ia/cota.ts. Leva a frase dos 30 dias quando há envio aguardando há mais que isso (PM-12:
  * o lembrete só sai junto de um aviso). Nada do paciente, do exame ou do arquivo (C-05). Devolve se avisou.
  */
 export async function avisarExamesRecebidos(tx: Tx, o: { tenantId: string; agora: Date; appUrl: string }): Promise<boolean> {
-  const [t] = await tx.select({ ultimo: tenants.examesAvisoEm }).from(tenants).where(eq(tenants.id, o.tenantId)).for('update');
+  const [t] = await tx.select({ ultimo: tenants.examesAvisoEm }).from(tenants).where(eq(tenants.id, o.tenantId)).for('no key update');
   if (!t || (t.ultimo && o.agora.getTime() - t.ultimo.getTime() < AVISO_EXAMES_INTERVALO_MS)) return false;
   await tx.update(tenants).set({ examesAvisoEm: o.agora }).where(eq(tenants.id, o.tenantId));
   const [antigo] = await tx
@@ -3379,6 +3564,30 @@ export async function renderizarPdfLimpo(paginas: readonly Buffer[]): Promise<Bu
       ))}
     </Document>,
   );
+}
+
+/**
+ * RN-163, a conversão SEM banco (revisão do plano: é o que a medida do RNF-162 do job inteiro mede, num Node novo): cada
+ * original vira JPEG de página — a foto pelo pipeline do diário, o PDF rasterizado no processo filho, uma página por vez — e o
+ * PDF limpo é montado com eles. Um original por vez (`ler` só quando chega a vez dele); `pdf` nulo se nada virou página.
+ */
+export async function converterOriginais(
+  originais: readonly { ext: string; ler: () => Promise<Buffer> }[],
+  deps: Pick<DepsProcessar, 'abrirHeic' | 'rasterizar' | 'renderizar'> = {},
+): Promise<{ jpegs: Buffer[]; pdf: Buffer | null }> {
+  const jpegs: Buffer[] = [];
+  for (const o of originais) {
+    const buf = await o.ler();
+    if (o.ext === 'pdf') {
+      await (deps.rasterizar ?? rasterizarPdf)(buf, { limitePaginas: ENVIO_MAX_PAGINAS, ladoMax: ENVIO_LADO_MAX, maxPixelsImagem: MAX_PIXELS_IMAGEM_PDF }, async (p) => {
+        // uma página por vez (RNF-162): os pixels saem da memória assim que viram JPEG
+        jpegs.push(await paraJpegSemMetadados(sharp(p.rgba, { raw: { width: p.largura, height: p.altura, channels: 4 } }), ENVIO_LADO_MAX, ENVIO_QUALIDADE_JPEG));
+      });
+    } else {
+      jpegs.push(await fotoParaJpeg(buf, o.ext, { ladoMax: ENVIO_LADO_MAX, qualidade: ENVIO_QUALIDADE_JPEG, abrirHeic: deps.abrirHeic }));
+    }
+  }
+  return { jpegs, pdf: jpegs.length ? await (deps.renderizar ?? renderizarPdfLimpo)(jpegs) : null };
 }
 
 class TitularComExclusaoError extends Error {}
@@ -3442,21 +3651,11 @@ export async function processarEnvio(data: DadosEnvio, deps: DepsProcessar): Pro
   };
   if (linhas.some((l) => l.papel === 'pagina')) await apagarArquivosDoEnvio(ctx, e.id, { ...arquivos, papel: 'pagina', refazer: true });
   try {
-    const jpegs: Buffer[] = [];
-    for (const o of originais) {
-      const buf = await readFile(resolverCaminho(deps.dataDir, o.arquivoPath));
-      const ext = o.arquivoPath.slice(o.arquivoPath.lastIndexOf('.') + 1);
-      if (ext === 'pdf') {
-        await (deps.rasterizar ?? rasterizarPdf)(buf, { limitePaginas: ENVIO_MAX_PAGINAS, ladoMax: ENVIO_LADO_MAX, maxPixelsImagem: MAX_PIXELS_IMAGEM_PDF }, async (p) => {
-          // uma página por vez (RNF-162): os pixels saem da memória assim que viram JPEG
-          jpegs.push(await paraJpegSemMetadados(sharp(p.rgba, { raw: { width: p.largura, height: p.altura, channels: 4 } }), ENVIO_LADO_MAX, ENVIO_QUALIDADE_JPEG));
-        });
-      } else {
-        jpegs.push(await fotoParaJpeg(buf, ext, { ladoMax: ENVIO_LADO_MAX, qualidade: ENVIO_QUALIDADE_JPEG, abrirHeic: deps.abrirHeic }));
-      }
-    }
-    if (!jpegs.length) return falhar('conversao');
-    const pdf = await (deps.renderizar ?? renderizarPdfLimpo)(jpegs);
+    const { jpegs, pdf } = await converterOriginais(
+      originais.map((o) => ({ ext: o.arquivoPath.slice(o.arquivoPath.lastIndexOf('.') + 1), ler: () => readFile(resolverCaminho(deps.dataDir, o.arquivoPath)) })),
+      deps,
+    );
+    if (!pdf) return falhar('conversao');
     for (let i = 0; i < jpegs.length; i++) {
       await salvarArquivo(
         ctx,
@@ -3509,6 +3708,78 @@ export async function processarEnvio(data: DadosEnvio, deps: DepsProcessar): Pro
 }
 ```
 
+- [ ] **Step 4b: A medida do RNF-162 do job inteiro (revisão do plano)**
+
+A medida da T3 só cobre a rasterização com um `aoReceber` vazio; aqui entra o pico do job: o JPEG do sharp, as páginas
+acumuladas em `jpegs[]` e o PDF limpo do `@react-pdf`, com imagens do tamanho de uma foto de celular. Criar
+`src/modules/pacientes/exames-enviados-memoria.test.ts`:
+
+```ts
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { describe, expect, it } from 'vitest';
+import { fotoDeRuido, ORCAMENTO_RNF162_BYTES, pdfDeFotos } from '../../../test/exames-enviados';
+
+const execFileP = promisify(execFile);
+const MB = 1024 * 1024;
+const RAIZ = fileURLToPath(new URL('../../..', import.meta.url));
+/** Num Node novo: converterOriginais (o job sem banco) — pico do worker (VmHWM zerado antes) e o maior pico do filho. */
+const MEDIR = `
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+const { rasterizarPdf } = await import('./src/modules/pacientes/rasterizar-pdf.ts');
+const { converterOriginais } = await import('./src/modules/pacientes/exames-enviados-job.tsx');
+const dir = process.argv[1];
+const pico = () => Number(/VmHWM:\\s+(\\d+) kB/.exec(readFileSync('/proc/self/status', 'utf8'))[1]) * 1024;
+let filho = 0;
+const rasterizar = async (...a) => { const r = await rasterizarPdf(...a); filho = Math.max(filho, r.picoBytes ?? 0); return r; };
+const originais = readdirSync(dir).sort().map((f) => ({ ext: path.extname(f).slice(1), ler: async () => readFileSync(path.join(dir, f)) }));
+globalThis.gc();
+writeFileSync('/proc/self/clear_refs', '5');
+const antes = process.memoryUsage().rss;
+const r = await converterOriginais(originais, { rasterizar });
+console.log(JSON.stringify({ pai: pico() - antes, filho, paginas: r.jpegs.length, pdf: r.pdf?.length ?? 0 }));
+`;
+async function medir(arquivos: { nome: string; conteudo: Buffer }[]): Promise<{ pai: number; filho: number; paginas: number }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'envio-memoria-'));
+  try {
+    for (const a of arquivos) await writeFile(path.join(dir, a.nome), a.conteudo);
+    const { stdout } = await execFileP(process.execPath, ['--expose-gc', '--import', 'tsx', '--input-type=module', '-e', MEDIR, dir], { cwd: RAIZ, timeout: 300_000 });
+    return JSON.parse(stdout);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+const mb = (n: number) => Math.round(n / MB);
+
+describe('RNF-162 do job inteiro (revisão do plano; orçamento da D-R1 ★)', () => {
+  it('PDF de 10 páginas com fotos de 12 MP (perto de 20 MB)', async () => {
+    const pdf = await pdfDeFotos(10, { largura: 4000, altura: 3000, qualidade: 50 });
+    const r = await medir([{ nome: 'laudo.pdf', conteudo: pdf }]);
+    console.info(`RNF-162 (job, PDF de ${mb(pdf.length)} MB): worker +${mb(r.pai)} MB, filho ${mb(r.filho)} MB`);
+    expect(r.paginas).toBe(10);
+    expect(r.pai + r.filho).toBeLessThan(ORCAMENTO_RNF162_BYTES);
+  }, 300_000);
+
+  it('5 fotos de 12 MP (perto de 30 MB): o caminho do HEIC depois do decodificador é o mesmo (Desvio 8)', async () => {
+    const foto = await fotoDeRuido(4000, 3000, 75);
+    const r = await medir([1, 2, 3, 4, 5].map((i) => ({ nome: `foto-${i}.jpg`, conteudo: foto })));
+    console.info(`RNF-162 (job, 5 fotos de ${mb(foto.length)} MB): worker +${mb(r.pai)} MB`);
+    expect(r.paginas).toBe(5);
+    expect(r.pai).toBeLessThan(ORCAMENTO_RNF162_BYTES);
+  }, 300_000);
+});
+```
+
+(Ajustar a `qualidade` para os arquivos ficarem perto de 20 MB e de 6 MB por foto — o teste imprime os tamanhos; anotar os
+números no PR e no capítulo 11.) **Se reprovar: parar e avisar o controlador** com os números (D-R1 ★, Desvio 8): levar a
+decodificação das fotos ao processo filho, ou baixar `MAX_PIXELS_IMAGEM_PDF` e o teto de pixels das fotos do exame para
+valores medidos. Não mudar os números por conta própria.
+
 - [ ] **Step 5: Registrar a fila no worker**
 
 Em `src/worker/index.ts`, importar `import { processarEnvio, type DadosEnvio } from '@/modules/pacientes/exames-enviados-job';` e, depois do bloco da fila `ia`/`expirar-ia`:
@@ -3523,11 +3794,11 @@ Em `src/worker/index.ts`, importar `import { processarEnvio, type DadosEnvio } f
 
 - [ ] **Step 6: Rodar e commitar**
 
-Run: `pnpm vitest run src/modules/pacientes/exames-enviados-job.test.ts src/modules/pacientes/exames-enviados-guardas.test.ts src/email src/modules/pacientes/exportacao.test.ts && pnpm typecheck && pnpm lint`
+Run: `pnpm vitest run src/modules/pacientes/exames-enviados-job.test.ts src/modules/pacientes/exames-enviados-memoria.test.ts src/modules/pacientes/exames-enviados-guardas.test.ts src/email src/modules/pacientes/exportacao.test.ts && pnpm typecheck && pnpm lint`
 Expected: PASS (a guarda de grafo agora protege o `exames-enviados-job.tsx`; a do `exportacao.test.ts` continua: o `@react-pdf` segue fora do grafo do Next).
 
 ```bash
-git add src/modules/pacientes/exames-enviados-job.tsx src/modules/pacientes/exames-enviados-job.test.ts src/modules/pacientes/exames-enviados-aviso.ts \
+git add src/modules/pacientes/exames-enviados-job.tsx src/modules/pacientes/exames-enviados-job.test.ts src/modules/pacientes/exames-enviados-memoria.test.ts src/modules/pacientes/exames-enviados-aviso.ts \
   src/email/types.ts src/email/templates.tsx src/worker/index.ts
 git commit -m "feat(exames-enviados): job do worker — páginas e PDF limpo só com imagens, falhas com a cota devolvida e aviso agrupado (P12-06)
 
@@ -3751,6 +4022,16 @@ describe('revisão do exame enviado (US-162 a US-164, RN-164, RN-165, §6.5)', (
     expect(await abrirEnvio(outro.ctx, novo.id, app.db)).toBeNull();
     expect(await abrirEnvio(T.ctx, 'nao-e-uuid', app.db)).toBeNull();
   });
+
+  it('revisão do plano (LGPD art. 16): titular bloqueado sai da fila e dos contadores, e o envio não abre (nem audita)', async () => {
+    const { T, p } = await cenario();
+    const e = await envioRecebido(app.db, T.ctx, p.id, dataDir);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), app.db);
+    expect((await filaDeEnvios(T.ctx, app.db)).map((f) => f.id)).not.toContain(e.id);
+    expect(await contarEnviosRecebidos(T.ctx, app.db)).toBe(0);
+    expect(await contarEnviosDoPaciente(T.ctx, p.id, app.db)).toBe(0);
+    expect(await abrirEnvio(T.ctx, e.id, app.db)).toBeNull();
+  });
 });
 ```
 
@@ -3762,7 +4043,7 @@ Expected: FAIL (`./exames-enviados` não existe).
 Criar `src/modules/pacientes/exames-enviados.ts`:
 
 ```ts
-import { and, asc, count, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, count, eq, isNotNull, isNull, ne } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { examSubmissionFiles, examSubmissions, exams, patients, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -3787,6 +4068,13 @@ export class RevisaoError extends Error {
 
 export type EnvioNaFila = { id: string; patientId: string; paciente: string; enviadoEm: Date; dataColeta: string; nome: string | null };
 
+/**
+ * Revisão do plano (LGPD art. 16, minimização): entre o atendimento da exclusão e o job exclusao-atendida (ou por até um dia, se
+ * o job falhar de vez), os envios do titular bloqueado ou anonimizado não aparecem na fila, nos contadores nem abrem.
+ */
+const doTitular = and(eq(patients.tenantId, examSubmissions.tenantId), eq(patients.id, examSubmissions.patientId));
+const titularVisivel = and(ne(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm));
+
 /** US-162: a fila "Exames recebidos" — todos os pacientes, os mais antigos primeiro. Só lista: sem auditRead (como a lista de pacientes). */
 export async function filaDeEnvios(ctx: TenantContext, db: Db = getDb()): Promise<EnvioNaFila[]> {
   return withTenant(
@@ -3795,8 +4083,8 @@ export async function filaDeEnvios(ctx: TenantContext, db: Db = getDb()): Promis
       tx
         .select({ id: examSubmissions.id, patientId: examSubmissions.patientId, paciente: patients.nome, enviadoEm: examSubmissions.createdAt, dataColeta: examSubmissions.dataColeta, nome: examSubmissions.nome })
         .from(examSubmissions)
-        .innerJoin(patients, and(eq(patients.tenantId, examSubmissions.tenantId), eq(patients.id, examSubmissions.patientId)))
-        .where(eq(examSubmissions.status, 'recebido'))
+        .innerJoin(patients, doTitular)
+        .where(and(eq(examSubmissions.status, 'recebido'), titularVisivel))
         .orderBy(asc(examSubmissions.createdAt)),
     db,
   );
@@ -3804,14 +4092,18 @@ export async function filaDeEnvios(ctx: TenantContext, db: Db = getDb()): Promis
 
 /** US-162: o contador do menu ("Exames recebidos (3)"); só conta, sem auditoria. */
 export async function contarEnviosRecebidos(ctx: TenantContext, db: Db = getDb()): Promise<number> {
-  const [{ n }] = await withTenant(ctx, (tx) => tx.select({ n: count() }).from(examSubmissions).where(eq(examSubmissions.status, 'recebido')), db);
+  const [{ n }] = await withTenant(ctx, (tx) => tx.select({ n: count() }).from(examSubmissions).innerJoin(patients, doTitular).where(and(eq(examSubmissions.status, 'recebido'), titularVisivel)), db);
   return n;
 }
 
 /** US-162 "No prontuário": "Exames enviados pelo paciente ({n})" — os que aguardam a revisão. */
 export async function contarEnviosDoPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<number> {
   if (!idValido(patientId)) return 0;
-  const [{ n }] = await withTenant(ctx, (tx) => tx.select({ n: count() }).from(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), eq(examSubmissions.status, 'recebido'))), db);
+  const [{ n }] = await withTenant(
+    ctx,
+    (tx) => tx.select({ n: count() }).from(examSubmissions).innerJoin(patients, doTitular).where(and(eq(examSubmissions.patientId, patientId), eq(examSubmissions.status, 'recebido'), titularVisivel)),
+    db,
+  );
   return n;
 }
 
@@ -3849,6 +4141,7 @@ export async function abrirEnvio(ctx: TenantContext, id: string, db: Db = getDb(
       const [e] = await tx.select().from(examSubmissions).where(eq(examSubmissions.id, id));
       if (!e) return null;
       const [p] = await tx.select().from(patients).where(eq(patients.id, e.patientId));
+      if (!p || p.status === 'bloqueado' || p.anonimizadoEm) return null; // revisão do plano: titular com exclusão atendida
       const paginas = await tx
         .select({ c: examSubmissionFiles.arquivoPath })
         .from(examSubmissionFiles)
@@ -4003,9 +4296,9 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { arquivoDeEnvio, envioNoBanco, envioRecebido } from '../../../test/exames-enviados';
+import { arquivoDeEnvio, envioNoBanco, envioRecebido, esperarNaTrava } from '../../../test/exames-enviados';
 import { closeDb } from '@/db/client';
-import { examSubmissionFiles, examSubmissions, notifications, tenants } from '@/db/schema';
+import { examSubmissionFiles, examSubmissions, exams, notifications, patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
@@ -4089,6 +4382,42 @@ describe('limpeza e varredura dos envios (RN-163, RN-166, RN-167)', () => {
     expect((await linhas(rec.id)).map((l) => l.papel)).toEqual(['pagina']);
     expect(await varrer()).toEqual({ interrompidos: 0, expirados: 0, arquivos: 0 });
   });
+
+  it('revisão do plano: PDF limpo (`exame`) que nenhum exame nem envio aponta, com mais de 1 h, sai; o do exame e o do envio ficam', async () => {
+    const { T, p, ler } = await cenario();
+    const solto = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir);
+    const doExame = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir);
+    await withTenant(T.ctx, (tx) => tx.insert(exams).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-28', titulo: 'Hemograma', arquivoPath: doExame }), app.db);
+    const rec = await envioRecebido(app.db, T.ctx, p.id, dataDir, { paginas: 0 });
+    const r = await varrerEnvios({ db: app.db, dataDir, boss: semJobs }, new Date(Date.now() + 2 * 3600_000), { tenantId: T.tenantId });
+    expect(r.arquivos).toBe(1);
+    expect(existsSync(resolverCaminho(dataDir, solto))).toBe(false);
+    for (const c of [doExame, rec.pdf]) expect(existsSync(resolverCaminho(dataDir, c))).toBe(true);
+    expect((await ler(rec.id)).arquivoPath).toBe(rec.pdf);
+  });
+
+  it('revisão do plano: expiração e aceite ao mesmo tempo não fecham ciclo — a expiração trava o paciente antes do envio', async () => {
+    const { T, p, ler } = await cenario();
+    const velho = await envioRecebido(app.db, T.ctx, p.id, dataDir, { criadoEm: atras(91 * DIA) });
+    let travouPaciente!: () => void;
+    const travou = new Promise<void>((ok) => (travouPaciente = ok));
+    // a nutricionista (molde de travarEnvioRecebido): paciente FOR UPDATE; espera a varredura parar numa trava; então o envio
+    const nutri = withTenant(
+      T.ctx,
+      async (tx) => {
+        await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, p.id)).for('update');
+        travouPaciente();
+        await esperarNaTrava(app.db, 'patients'); // com a correção, a varredura espera o paciente SEM segurar o envio
+        return tx.select({ status: examSubmissions.status }).from(examSubmissions).where(eq(examSubmissions.id, velho.id)).for('update');
+      },
+      app.db,
+    );
+    await travou;
+    const varredura = varrerEnvios({ db: app.db, dataDir, boss: semJobs }, AGORA, { tenantId: T.tenantId });
+    expect(await nutri).toEqual([{ status: 'recebido' }]); // sem 40P01
+    expect((await varredura).expirados).toBe(1);
+    expect((await ler(velho.id)).status).toBe('expirado');
+  }, 30_000);
 });
 ```
 
@@ -4103,7 +4432,7 @@ Criar `src/modules/pacientes/exames-enviados-varredura.ts`:
 import { and, eq, inArray, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
-import { examSubmissionFiles, examSubmissions, storedFiles } from '@/db/schema';
+import { examSubmissionFiles, examSubmissions, patients, storedFiles } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
@@ -4131,7 +4460,8 @@ export function limparEnvio(data: { tenantId: string; envioId: string }, deps: {
  * 2. "recebido" há 90 dias → "expirado" (D15 = b): o PDF limpo sai no apagarArquivo cujo naMesmaTransacao marca o envio e
  *    grava o push neutro; as páginas logo depois. O lembrete dos 30 dias vai no e-mail de envio novo (PM-12).
  * 3. Sobras: arquivo de envio que já não está vivo (cancelado cujo job de limpeza falhou, páginas de aceito ou recusado,
- *    original de um "recebido") e, por defesa, arquivo de envio sem linha que aponte para ele, com mais de 1 h.
+ *    original de um "recebido") e, por defesa, arquivo de envio sem linha que aponte para ele, com mais de 1 h — inclusive o PDF
+ *    limpo (`exame`) que nenhum exame nem envio aponta (revisão do plano).
  * Um tenant com erro não para os outros; log só com contagens e ids (RNF-11). `o.tenantId`: só os testes.
  */
 export async function varrerEnvios(
@@ -4177,6 +4507,10 @@ export async function varrerEnvios(
       );
       for (const v of vencidos) {
         const expirar = async (tx: Tx): Promise<boolean> => {
+          // revisão do plano: paciente → envio → tenant, a ordem do aceite e da recusa (travarEnvioRecebido) e do
+          // travarParaGravar — o INSERT do push (notifications → patients) pede KEY SHARE no paciente; sem esta trava, a expiração
+          // seguraria o envio e esperaria o paciente travado pelo aceite, que espera o envio (40P01). Não recusa o bloqueado.
+          await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, v.patientId)).for('update');
           const u = await tx
             .update(examSubmissions)
             .set({ status: 'expirado', arquivoPath: null, updatedAt: agora })
@@ -4217,20 +4551,26 @@ export async function varrerEnvios(
       );
       for (const s of originaisDeRecebido) r.arquivos += await apagarArquivosDoEnvio(ctx, s.id, { ...arquivos, papel: 'original' });
 
-      const semLinha = sql`not exists (select 1 from exam_submission_files f where f.tenant_id = ${storedFiles.tenantId} and f.arquivo_path = ${storedFiles.caminho})`;
+      // revisão do plano: também o PDF limpo (`exame`) que nenhum exame nem envio aponta — o ponteiro do envio cancelado agora
+      // sobrevive até a limpeza, e um `exame` solto não pode ficar contando na cota
+      const semDono = sql`((${storedFiles.tipo} in ('exame_original', 'exame_pagina')
+          and not exists (select 1 from exam_submission_files f where f.tenant_id = ${storedFiles.tenantId} and f.arquivo_path = ${storedFiles.caminho}))
+        or (${storedFiles.tipo} = 'exame'
+          and not exists (select 1 from exams x where x.tenant_id = ${storedFiles.tenantId} and x.arquivo_path = ${storedFiles.caminho})
+          and not exists (select 1 from exam_submissions s where s.tenant_id = ${storedFiles.tenantId} and s.arquivo_path = ${storedFiles.caminho})))`;
       const orfaos = await withTenant(
         ctx,
         (tx) =>
           tx
             .select({ caminho: storedFiles.caminho })
             .from(storedFiles)
-            .where(and(inArray(storedFiles.tipo, ['exame_original', 'exame_pagina']), lt(storedFiles.createdAt, new Date(agora.getTime() - ORFAO_MIN_MS)), semLinha)),
+            .where(and(inArray(storedFiles.tipo, ['exame_original', 'exame_pagina', 'exame']), lt(storedFiles.createdAt, new Date(agora.getTime() - ORFAO_MIN_MS)), semDono)),
         deps.db,
       );
       for (const f of orfaos) {
         const ok = await apagarArquivo(ctx, { caminho: f.caminho }, {
           ...arquivos,
-          naMesmaTransacao: async (tx) => (await tx.select({ c: storedFiles.caminho }).from(storedFiles).where(and(eq(storedFiles.caminho, f.caminho), semLinha))).length > 0,
+          naMesmaTransacao: async (tx) => (await tx.select({ c: storedFiles.caminho }).from(storedFiles).where(and(eq(storedFiles.caminho, f.caminho), semDono))).length > 0,
         });
         if (ok) r.arquivos++;
       }
@@ -4642,10 +4982,12 @@ export function EnvioForm({ hoje }: { hoje: string }) {
     e.preventDefault();
     const form = e.currentTarget;
     const dados = new FormData(form);
-    const arquivos = dados.getAll('arquivos').filter((a): a is File => a instanceof File && a.size > 0);
+    const itens = dados.getAll('arquivos');
+    const arquivos = itens.filter((a): a is File => a instanceof File && a.size > 0);
     setOk(null);
     setLink(null);
-    if (!arquivosValidos(arquivos)) return setErros({ arquivos: MSG_ENVIO.arquivos });
+    // revisão do plano: um arquivo vazio no meio é recusado (como na rota), não descartado em silêncio
+    if (arquivos.length !== itens.length || !arquivosValidos(arquivos)) return setErros({ arquivos: MSG_ENVIO.arquivos });
     setEnviando(true);
     setErros({});
     try {
@@ -4694,8 +5036,9 @@ export function EnvioForm({ hoje }: { hoje: string }) {
       </div>
       <div className="space-y-1">
         <label htmlFor="arquivos" className="block font-medium">PDF ou fotos do exame</label>
-        <input id="arquivos" name="arquivos" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" className="block min-h-11 w-full max-w-full" {...descrito('arquivos', 'arquivos-dica')} />
-        <p id="arquivos-dica" className="text-sm text-suave">{MSG_ENVIO.arquivos}</p>
+        {/* revisão do plano: a dica e o erro têm o mesmo texto — com erro, só o erro (o leitor de tela não repete a frase) */}
+        <input id="arquivos" name="arquivos" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" className="block min-h-11 w-full max-w-full" {...descrito('arquivos', erros.arquivos ? undefined : 'arquivos-dica')} />
+        {!erros.arquivos && <p id="arquivos-dica" className="text-sm text-suave">{MSG_ENVIO.arquivos}</p>}
         {erro('arquivos')}
       </div>
       {erros.geral && (
@@ -4938,9 +5281,9 @@ describe('ações da revisão do envio (US-163, US-164)', () => {
 
   it('erros da revisão voltam à tela (corridas, título, motivo); recusa vai à fila com "Envio recusado."', async () => {
     aceitar.mockRejectedValueOnce(new RevisaoError({ geral: 'Este envio foi cancelado pelo paciente.' }));
-    expect(await aceitarEnvioAction(ENVIO, {}, fd({ titulo: 'X', data: '2026-09-28' }))).toEqual({ erros: { geral: 'Este envio foi cancelado pelo paciente.' } });
+    expect(await aceitarEnvioAction(ENVIO, {}, fd({ titulo: 'X', data: '2026-09-28' }))).toEqual({ erros: { geral: 'Este envio foi cancelado pelo paciente.' }, valores: { titulo: 'X', data: '2026-09-28' } });
     recusar.mockRejectedValueOnce(new RevisaoError({ texto: 'Escreva o motivo para o paciente' }));
-    expect(await recusarEnvioAction(ENVIO, {}, fd({ motivo: 'outro', texto: '' }))).toEqual({ erros: { texto: 'Escreva o motivo para o paciente' } });
+    expect(await recusarEnvioAction(ENVIO, {}, fd({ motivo: 'outro', texto: '' }))).toEqual({ erros: { texto: 'Escreva o motivo para o paciente' }, valores: { motivo: 'outro', texto: '' } });
     await expect(recusarEnvioAction(ENVIO, {}, fd({ motivo: 'ilegivel' }))).rejects.toMatchObject({ url: '/painel/exames-recebidos?recusado=1' });
     expect(recusar).toHaveBeenLastCalledWith(sessao.ctx, ENVIO, { motivo: 'ilegivel', texto: null });
   });
@@ -5001,7 +5344,18 @@ import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { aceitarEnvio, recusarEnvio, RevisaoError } from '@/modules/pacientes/exames-enviados';
 import { chaveDaMensagemIa } from '@/modules/pacientes/exames-enviados-ia';
 
-export type RevisaoState = { erros?: Partial<Record<'titulo' | 'data' | 'motivo' | 'texto' | 'geral', string>> };
+export type RevisaoState = {
+  erros?: Partial<Record<'titulo' | 'data' | 'motivo' | 'texto' | 'geral', string>>;
+  /**
+   * Revisão do plano: o que foi digitado volta com o erro — o React 19 chama form.reset() no fim de toda action, mesmo quando
+   * ela devolve { erros } (molde de agenda/consultas/[id]/cancelar-form.tsx e agenda/consulta-form.tsx).
+   */
+  valores?: { titulo?: string; data?: string; motivo?: string; texto?: string };
+};
+const campo = (fd: FormData, k: string) => {
+  const v = fd.get(k);
+  return typeof v === 'string' ? v : '';
+};
 
 /**
  * US-163: "Salvar no prontuário" e "Aceitar e ler valores com IA" (o mesmo formulário: título e data valem para os dois). O
@@ -5014,8 +5368,9 @@ export async function aceitarEnvioAction(id: string, _prev: RevisaoState, fd: Fo
   try {
     aceito = await aceitarEnvio(ctx, tenant, id, { titulo: fd.get('titulo'), data: fd.get('data') });
   } catch (e) {
-    if (e instanceof RevisaoError) return { erros: e.erros };
-    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message } };
+    const valores = { titulo: campo(fd, 'titulo'), data: campo(fd, 'data') };
+    if (e instanceof RevisaoError) return { erros: e.erros, valores };
+    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message }, valores };
     throw e;
   }
   let iaMsg: string | null = null;
@@ -5037,8 +5392,9 @@ export async function recusarEnvioAction(id: string, _prev: RevisaoState, fd: Fo
   try {
     await recusarEnvio(ctx, id, { motivo: fd.get('motivo'), texto: fd.get('texto') });
   } catch (e) {
-    if (e instanceof RevisaoError) return { erros: e.erros };
-    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message } };
+    const valores = { motivo: campo(fd, 'motivo'), texto: campo(fd, 'texto') };
+    if (e instanceof RevisaoError) return { erros: e.erros, valores };
+    if (e instanceof PacienteBloqueadoError) return { erros: { geral: e.message }, valores };
     throw e;
   }
   revalidatePath('/painel', 'layout');
@@ -5058,6 +5414,7 @@ import { aceitarEnvioAction, type RevisaoState } from './actions';
 export function AceitarForm({ id, tituloInicial, dataInicial, hoje, comIa }: { id: string; tituloInicial: string; dataInicial: string; hoje: string; comIa: boolean }) {
   const [state, action, pendente] = useActionState<RevisaoState, FormData>(aceitarEnvioAction.bind(null, id), {});
   const e = state.erros ?? {};
+  const v = state.valores; // o reset do React 19 volta ao defaultValue: com erro, ao que foi digitado
   const campo = (c: 'titulo' | 'data') => (e[c] ? { 'aria-invalid': true, 'aria-describedby': `aceitar-${c}-erro` } : {});
   return (
     <details open={!!state.erros} className="rounded-2xl border border-borda bg-cartao p-4">
@@ -5065,12 +5422,12 @@ export function AceitarForm({ id, tituloInicial, dataInicial, hoje, comIa }: { i
       <form action={action} className="mt-3 space-y-3">
         <div className="space-y-1">
           <label htmlFor="aceitar-titulo" className="block font-medium">Título</label>
-          <input id="aceitar-titulo" name="titulo" defaultValue={tituloInicial} maxLength={120} required className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...campo('titulo')} />
+          <input id="aceitar-titulo" name="titulo" defaultValue={v?.titulo ?? tituloInicial} maxLength={120} required className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...campo('titulo')} />
           {e.titulo && <p id="aceitar-titulo-erro" role="alert" className="text-sm text-erro">{e.titulo}</p>}
         </div>
         <div className="space-y-1">
           <label htmlFor="aceitar-data" className="block font-medium">Data</label>
-          <input id="aceitar-data" name="data" type="date" defaultValue={dataInicial} max={hoje} required className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...campo('data')} />
+          <input id="aceitar-data" name="data" type="date" defaultValue={v?.data ?? dataInicial} max={hoje} required className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...campo('data')} />
           {e.data && <p id="aceitar-data-erro" role="alert" className="text-sm text-erro">{e.data}</p>}
         </div>
         {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
@@ -5109,7 +5466,8 @@ export function RecusarForm({ id }: { id: string }) {
           <legend className="font-medium">Motivo</legend>
           {MOTIVOS_RECUSA.map((m) => (
             <div key={m} className="flex min-h-11 items-center gap-3">
-              <input id={`motivo-${m}`} type="radio" name="motivo" value={m} className="h-5 w-5" />
+              {/* revisão do plano: com erro, o rádio volta marcado (o reset do React 19 restaura o defaultChecked) */}
+              <input id={`motivo-${m}`} type="radio" name="motivo" value={m} defaultChecked={state.valores?.motivo === m} className="h-5 w-5" />
               <label htmlFor={`motivo-${m}`}>{ROTULO_MOTIVO_RECUSA[m]}</label>
             </div>
           ))}
@@ -5120,6 +5478,7 @@ export function RecusarForm({ id }: { id: string }) {
           <textarea
             id="recusar-texto"
             name="texto"
+            defaultValue={state.valores?.texto}
             maxLength={MOTIVO_RECUSA_TEXTO_MAX}
             rows={3}
             className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
@@ -5421,7 +5780,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 **Files:**
 - Create: `src/modules/pacientes/exames-enviados-lgpd.test.ts`
-- Modify: `src/modules/pacientes/lgpd.ts` (`apagarEnviosDoTitular`, `concluirExclusaoAtendida`, `anexosDoPaciente`, `anonimizarVencidos`), `src/modules/pacientes/exportacao-job.ts` (`examesEnviados`, `envios/` no ZIP), `src/modules/pacientes/exportacao.test.ts` (as duas comparações do `dados.json` ganham `examesEnviados: []`)
+- Modify: `src/modules/pacientes/lgpd.ts` (`apagarEnviosDoTitular`, `concluirExclusaoAtendida`, `anexosDoPaciente`, `anonimizarVencidos`), `src/modules/pacientes/exportacao-job.ts` (`examesEnviados`, `envios/` no ZIP), `src/modules/pacientes/exportacao.test.ts` (as duas comparações do `dados.json` ganham `examesEnviados: []`); revisão do plano (D-R3 ★, Step 4): `src/email/templates.tsx` e `src/email/render.test.ts` (e-mail `exclusao_atendida`), `src/app/painel/pacientes/[id]/privacidade/page.tsx` e `e2e/pacientes.spec.ts` (aba Privacidade), `docs/superpowers/specs/2026-09-27-nutridebby-mvp-historias.md` (tabela de textos)
 
 **Interfaces:**
 - Consumes: T1, T2 (`ROTULO_MOTIVO_RECUSA`, `MotivoRecusa`); `apagarArquivo`, `montarDados`, `concluirExclusaoAtendida`, `anonimizarVencidos`.
@@ -5484,7 +5843,10 @@ describe('LGPD e os exames enviados (spec C v0.3 §13.3)', () => {
     expect(dados.examesEnviados.map((e) => [e.situacao, e.motivoRecusa])).toEqual(
       expect.arrayContaining([['recebido', null], ['processando', null], ['recusado', 'Faltou a página 2'], ['aceito', null]]),
     );
-    expect(dados.examesEnviados.find((e) => e.situacao === 'recusado')).toMatchObject({ observacao: 'pedido na consulta', dataColeta: '2026-09-28' });
+    expect(dados.examesEnviados.find((e) => e.situacao === 'recusado')).toMatchObject({ observacao: 'pedido na consulta', dataColeta: '2026-09-28', exame: null });
+    // revisão do plano (art. 19, II): o aceito diz em qual exame virou e quando foi revisto; o que aguarda, não
+    expect(dados.examesEnviados.find((e) => e.situacao === 'aceito')).toMatchObject({ exame: { data: '2026-09-01', titulo: 'Glicemia' }, revisadoEm: expect.any(String) });
+    expect(dados.examesEnviados.find((e) => e.situacao === 'recebido')).toMatchObject({ exame: null, revisadoEm: null });
     const doEnvio = laudos.filter((l) => l.nome.startsWith('envios/'));
     expect(doEnvio).toEqual([expect.objectContaining({ tipo: 'envio', caminho: t.recebido.pdf, nome: expect.stringMatching(/^envios\/2026-09-28-\d{2}\.pdf$/) })]);
     for (const c of [...t.recebido.paginas, t.arquivos[3]]) expect(laudos.some((l) => l.caminho === c)).toBe(false);
@@ -5628,7 +5990,19 @@ Em `src/modules/pacientes/exportacao-job.ts`:
    * `pdf` = o PDF limpo no ZIP (`envios/…`), só dos que aguardam revisão (o dos aceitos já sai em `laudos/`, como exame).
    * Nunca as imagens de página nem os originais.
    */
-  examesEnviados: { enviadoEm: string; dataColeta: string; nome: string | null; observacao: string | null; situacao: string; motivoRecusa: string | null; pdf: string | null }[];
+  examesEnviados: {
+    enviadoEm: string;
+    dataColeta: string;
+    nome: string | null;
+    observacao: string | null;
+    situacao: string;
+    motivoRecusa: string | null;
+    /** Revisão do plano (LGPD art. 19, II — origem do dado): quando a nutricionista aceitou ou recusou. */
+    revisadoEm: string | null;
+    /** Revisão do plano: o exame em que o envio aceito se transformou (o mesmo de `exames[]`); null se não aceito ou excluído. */
+    exame: { data: string; titulo: string } | null;
+    pdf: string | null;
+  }[];
 ```
 
 3. `type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento' | 'envio'; … }` (comentário: "ou PDF limpo de exame enviado aguardando revisão (`indice` em `examesEnviados`, Plano 12)");
@@ -5644,15 +6018,20 @@ Em `src/modules/pacientes/exportacao-job.ts`:
 no objeto `dados`, depois de `ia: …`:
 
 ```ts
-    examesEnviados: ee.map((e) => ({
-      enviadoEm: e.createdAt.toISOString(),
-      dataColeta: e.dataColeta,
-      nome: e.nome,
-      observacao: e.observacao,
-      situacao: e.status,
-      motivoRecusa: e.motivoRecusa === 'outro' ? e.motivoRecusaTexto : e.motivoRecusa ? ROTULO_MOTIVO_RECUSA[e.motivoRecusa as MotivoRecusa] : null,
-      pdf: null,
-    })),
+    examesEnviados: ee.map((e) => {
+      const exame = e.examId ? ex.find((x) => x.id === e.examId) : undefined;
+      return {
+        enviadoEm: e.createdAt.toISOString(),
+        dataColeta: e.dataColeta,
+        nome: e.nome,
+        observacao: e.observacao,
+        situacao: e.status,
+        motivoRecusa: e.motivoRecusa === 'outro' ? e.motivoRecusaTexto : e.motivoRecusa ? ROTULO_MOTIVO_RECUSA[e.motivoRecusa as MotivoRecusa] : null,
+        revisadoEm: e.revisadoEm?.toISOString() ?? null,
+        exame: exame ? { data: exame.data, titulo: exame.titulo } : null,
+        pdf: null,
+      };
+    }),
 ```
 
 e o retorno vira `return { dados, laudos: [...laudos, ...fotos, ...envios, ...pdfsDeDocumentos] };`;
@@ -5660,13 +6039,30 @@ e o retorno vira `return { dados, laudos: [...laudos, ...fotos, ...envios, ...pd
 
 Em `src/modules/pacientes/exportacao.test.ts`, nas duas comparações completas do `dados.json` (as que terminam em `laudosForaDoZip: false`), acrescentar `examesEnviados: [],` depois de `ia: [],`.
 
-- [ ] **Step 4: Rodar e commitar**
+- [ ] **Step 4: Os textos da US-018 dizem que os envios saem (revisão do plano; D-R3 ★)**
 
-Run: `pnpm vitest run src/modules/pacientes/exames-enviados-lgpd.test.ts src/modules/pacientes/lgpd.test.ts src/modules/pacientes/exportacao.test.ts && pnpm typecheck && pnpm lint`
+A exclusão atendida passa a apagar os envios não aceitos — inclusive os "recebido" que a nutricionista nem abriu —, e os dois
+textos que dizem o que é apagado precisam dizer isso (LGPD art. 6º, VI, e art. 9º, II; precedente do Plano 06 em
+`src/email/render.test.ts`: "o que o atendimento apaga e encerra também está no aviso ao titular"). Texto **proposto**; se o
+dono mudar a redação na revisão do plano ou o advogado depois (P12-14), troca-se aqui e na spec do MVP:
+
+1. `src/email/templates.tsx`, caso `exclusao_atendida`: "Foram apagados agora: as fotos do diário alimentar, **os exames
+   enviados pelo app que ainda não tinham sido aceitos,** as autorizações de mensagens por WhatsApp, …" (o resto igual).
+2. `src/email/render.test.ts`, no teste de `exclusao_atendida`: acrescentar `'os exames enviados pelo app que ainda não tinham sido aceitos'` à lista do Plano 06.
+3. `src/app/painel/pacientes/[id]/privacidade/page.tsx` (aba Privacidade, onde a nutricionista decide atender): "Na hora são
+   apagadas as fotos do diário, **os exames enviados pelo app que ainda não foram aceitos,** as autorizações de WhatsApp, …";
+   em `e2e/pacientes.spec.ts` (linha do `getByText(/Na hora são apagadas…/)`), o mesmo trecho na expressão.
+4. `docs/superpowers/specs/2026-09-27-nutridebby-mvp-historias.md`, tabela de textos: as linhas "Painel: titular e LGPD
+   (US-046, US-018)" (aba Privacidade) e "E-mails ao paciente" (`exclusao_atendida`) com os mesmos trechos (regra 4).
+
+- [ ] **Step 5: Rodar e commitar**
+
+Run: `pnpm vitest run src/modules/pacientes/exames-enviados-lgpd.test.ts src/modules/pacientes/lgpd.test.ts src/modules/pacientes/exportacao.test.ts src/email/render.test.ts && pnpm typecheck && pnpm lint`
 Expected: PASS, sem erros.
 
 ```bash
-git add src/modules/pacientes/lgpd.ts src/modules/pacientes/exportacao-job.ts src/modules/pacientes/exportacao.test.ts src/modules/pacientes/exames-enviados-lgpd.test.ts
+git add src/modules/pacientes/lgpd.ts src/modules/pacientes/exportacao-job.ts src/modules/pacientes/exportacao.test.ts src/modules/pacientes/exames-enviados-lgpd.test.ts \
+  src/email/templates.tsx src/email/render.test.ts "src/app/painel/pacientes/[id]/privacidade/page.tsx" e2e/pacientes.spec.ts docs/superpowers/specs/2026-09-27-nutridebby-mvp-historias.md
 git commit -m "feat(exames-enviados): LGPD — exportação, exclusão atendida e anonimização com os envios do paciente (P12-12)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -5679,7 +6075,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 **Files:**
 - Create: `e2e/exames-enviados.spec.ts`, `docs/manual-tecnico/11-exames-enviados.md`, `docs/operacao/exames-enviados.md`
-- Modify: `src/modules/ajuda/conteudo.ts` (+ `conteudo.test.ts` se conferir a lista de guias), `scripts/backup/nutri-backup.sh`, `test/backup.test.ts`, `CLAUDE.md` (regra 10), `docs/manual-tecnico/README.md`, `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-03-nutridebby-paciente-exames-ia-design.md` (status da parte F3-04)
+- Modify: `src/modules/ajuda/conteudo.ts` (+ `conteudo.test.ts` se conferir a lista de guias), `scripts/backup/nutri-backup.sh`, `test/backup.test.ts`, `CLAUDE.md` (regra 9 — a frase da rasterização, que saiu da T3 na revisão do plano — e regra 10), `docs/manual-tecnico/README.md`, `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-03-nutridebby-paciente-exames-ia-design.md` (status da parte F3-04)
 
 **Interfaces:**
 - Consumes: tudo das Tarefas 1–12.
@@ -5846,13 +6242,15 @@ Expected: PASS (o script roda só aqui, contra o remoto local — regra 10).
 
 Em `CLAUDE.md`, regra 10, acrescentar: "Plano 12: o `rclone sync` exclui também `exame_pagina/` e `exame_original/` (temporários do envio de exame) — mudou o script, o dono reinstala no host (P02-11)."
 
+Em `CLAUDE.md`, no fim da regra 9 (depois da frase de `salvarArquivos` da T2; revisão do plano: era da T3, que roda em paralelo com a T2), acrescentar: "A rasterização do PDF do paciente (`src/modules/pacientes/rasterizar-pdf.ts` e o processo filho `rasterizar-pdf-processo.ts`, único importador de `@hyzyla/pdfium`) e o job do envio (`exames-enviados-job.tsx`) só no worker (guarda em `exames-enviados-guardas.test.ts`); o original do paciente nunca chega ao navegador nem à F3-01."
+
 - [ ] **Step 4: Manual técnico, runbook, índice, backlog e spec**
 
-Criar `docs/manual-tecnico/11-exames-enviados.md` ("11. Exames enviados pelo paciente (Plano 12, F3-04)"), conferido contra o código do branch, com: 11.1 Visão (o fluxo de §4.1 da spec com os nomes reais: `POST /api/p/exames` → `enviarExame` → fila `exame-envio` → `processarEnvio` → fila "Exames recebidos" → `aceitarEnvio`/`recusarEnvio`; cancelamento → `exame-envio-limpar`; `varrerEnvios`); 11.2 Peças (tabela dos arquivos, quais só o worker importa); 11.3 Banco (`exam_submissions`, `exam_submission_files`, colunas de `tenants`, tipos de `stored_files`, as políticas do paciente, os gatilhos `exam_submissions_regras` e `exam_submissions_sem_apagar` com a tabela de transições, `admin_metricas_exames_enviados()`); 11.4 Arquivos e cota (`salvarArquivos`, `apagarArquivosDoEnvio`, um dono só no aceite, ordem de travas); 11.5 Rasterização (PDFium em WASM, processo filho, teto de 120 MB, prazo de 120 s, 20 MP por imagem, a medida do RNF-162 da T3 com os números, licenças, a poda na imagem e o tamanho final da imagem); 11.6 Privacidade (push e e-mail neutros, auditoria de leitura, LGPD §13.3); 11.7 Como estender (outro tipo de arquivo; outro motor de rasterização = só o processo filho); 11.8 Divergências conhecidas (os Desvios 1–7 e os Minors que ficarem no backlog). No `docs/manual-tecnico/README.md`, acrescentar o capítulo 11 ao índice e atualizar "Conferido contra"/"Escopo" com o Plano 12 e as migrations `0101`–`0102`.
+Criar `docs/manual-tecnico/11-exames-enviados.md` ("11. Exames enviados pelo paciente (Plano 12, F3-04)"), conferido contra o código do branch, com: 11.1 Visão (o fluxo de §4.1 da spec com os nomes reais: `POST /api/p/exames` → `enviarExame` → fila `exame-envio` → `processarEnvio` → fila "Exames recebidos" → `aceitarEnvio`/`recusarEnvio`; cancelamento → `exame-envio-limpar`; `varrerEnvios`); 11.2 Peças (tabela dos arquivos, quais só o worker importa); 11.3 Banco (`exam_submissions`, `exam_submission_files`, colunas de `tenants`, tipos de `stored_files`, as políticas do paciente, os gatilhos `exam_submissions_regras` e `exam_submissions_sem_apagar` com a tabela de transições, `admin_metricas_exames_enviados()`); 11.4 Arquivos e cota (`salvarArquivos`, `apagarArquivosDoEnvio`, um dono só no aceite, ordem de travas); 11.5 Rasterização (PDFium em WASM, processo filho, o teto e o orçamento decididos na D-R1 ★, `oom_score_adj`, prazo de 120 s, 20 MP por imagem, as medidas do RNF-162 da T3 e da T6 com os números, licenças, a poda na imagem e o tamanho final da imagem); 11.6 Privacidade (push e e-mail neutros, auditoria de leitura, LGPD §13.3); 11.7 Como estender (outro tipo de arquivo; outro motor de rasterização = só o processo filho); 11.8 Divergências conhecidas (os Desvios 1–9, os "Pontos menores" do fim deste plano que ficarem no backlog e, até o dono decidir o texto, o envio aceito cujo exame foi excluído depois: o paciente continua vendo "Recebido no seu prontuário"). No `docs/manual-tecnico/README.md`, acrescentar o capítulo 11 ao índice e atualizar "Conferido contra"/"Escopo" com o Plano 12 e as migrations `0101`–`0102`.
 
 Criar `docs/operacao/exames-enviados.md` com o **Runbook do dono** (seção abaixo, copiada sem mudança).
 
-No índice dos planos: a linha do Plano 12 passa a apontar para a spec **v0.3** e para este plano, situação "Em execução". No backlog: trocar "Spec C v0.2" por "Spec C v0.3" na linha P12-00 e acrescentar as linhas P12-01 a P12-13 (uma por tarefa) e P12-14 (liberação para uso real, dono — runbook). Na spec C, no cabeçalho, "Status" da parte F3-04: "plano de implementação escrito (Plano 12)".
+No índice dos planos: a linha do Plano 12 passa a apontar para a spec **v0.3** e para este plano, situação "Em execução". No backlog: trocar "Spec C v0.2" por "Spec C v0.3" na linha P12-00 e acrescentar as linhas P12-01 a P12-13 (uma por tarefa) e P12-14 (liberação para uso real, dono — runbook: inclui o texto da D-R3 com o advogado, o Termo com o canal de envio e a decisão sobre o texto livre dos envios não aceitos, R9). Os "Pontos menores" do fim deste plano entram no backlog como Minors do Plano 12. Na spec C, no cabeçalho, "Status" da parte F3-04: "plano de implementação escrito (Plano 12)".
 
 - [ ] **Step 5: Verificação completa**
 
@@ -5877,19 +6275,19 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 Nenhum passo é do código; cada um tem dono. A função nasce **desligada** em todo consultório (D18 = a): nada muda para os pacientes até a nutricionista ligar.
 
-1. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. Conferir no PR o job `image` do CI: a imagem comprimida tem de ficar em **≤ 260 MB**; se passar, a T3 parou e pediu a decisão (subir o orçamento não custa nada).
+1. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. Conferir no PR o job `image` do CI: a imagem comprimida tem de ficar dentro do orçamento (**260 MB**, ou 265 MB se o dono aprovou a D-R2 ★ antes da T3); se passar, a T3 parou e pediu a decisão (subir o orçamento não custa nada).
 2. **Backup no host (P02-11) — continua pendente.** Os envios ficam só em `/data` da VPS até o backup ser ligado. Quando ligar, instalar o `nutri-backup.sh` desta versão (com o `--exclude` das pastas `exame_pagina/` e `exame_original/`, D8 ★) — regra 10: o script mudou, reinstalar no host. **Não ligar o recebimento para pacientes reais antes do backup.**
 3. **Teste no consultório (Debby, com dado fictício).** Em Configurações, marcar "Receber exames enviados pelos pacientes pelo app" e salvar. Com uma conta de paciente de teste no celular dela: enviar 1 PDF de laudo **fictício** (2 a 3 páginas) e 3 fotos **reais de um papel qualquer** (uma HEIC do iPhone, se tiver), conferir "Processando…" → "Aguardando sua nutricionista", o e-mail genérico, a fila com o contador, as páginas legíveis, aceitar um, recusar outro com "Outro motivo" e cancelar um terceiro pelo app. Anotar o tempo de "Processando…" (RNF-161: até 60 s) e se as páginas estão legíveis em 2000 px / qualidade 85 (PM-9). **HEIC de 24 MP ou mais:** conferir no log do worker se houve "falhou" por memória (ver Riscos).
 4. **Onde fica no portal (D4 ★, PM-10).** Confirmar com a Debby que "Meus exames" em Perfil + "Enviar exame" no Início bastam; se quiserem aba própria, é uma troca em `ITENS_DO_PORTAL` (outra entrega).
 5. **Leitura por IA de envios (D9 ★, R-174).** Hoje a IA segue bloqueada para dado real (Plano 11, `ia_liberada = false`). Antes de a admin liberar a IA, o passo 4 do runbook do Plano 11 (avaliação com laudos fictícios) deve incluir laudos **rasterizados** (2000 px, só imagem): se a precisão cair, subir `ENVIO_LADO_MAX` (até 2576 px, o teto da IA) e medir a memória de novo (T3).
-6. **Textos a confirmar com o dono/advogado.** O e-mail "Seu pedido de exclusão de dados foi atendido" diz o que foi apagado e não cita os exames enviados pelo app (que também saem): decidir se o texto muda (backlog P12-14). O lembrete dos 30 dias só sai junto de um envio novo (D6 ★, PM-12): a Debby diz se precisa de lembrete próprio.
-7. **Ligar para pacientes reais.** Com 1–6 feitos, a Debby avisa os pacientes de que podem enviar exames pelo app. Acompanhar a coluna "Exames do app" no admin e, na primeira semana, os avisos "PDF do paciente recusado na rasterização" e "exame enviado não processado" no log do worker (só ids e motivo).
+6. **Textos a confirmar com o dono/advogado (P12-14).** (a) A T12 já põe os exames enviados não aceitos no e-mail "Seu pedido de exclusão de dados foi atendido" e na aba Privacidade do painel (texto proposto, D-R3 ★): o advogado confirma a redação; se mudar, troca-se no código e na spec do MVP **antes** do passo 7. (b) O Termo de Uso e Privacidade (E-09/P08-06) passa a falar do canal de envio de exames: revisão pela nutricionista antes de entrar no prontuário, expiração com apagamento em 90 dias, apagamento na recusa e no cancelamento; o advogado confirma a base do art. 11, II, "f" (tutela da saúde) e o dado de terceiro que transita até a recusa "Exame de outra pessoa" (R-165). (c) A decisão sobre o texto livre dos envios não aceitos (R9). (d) O lembrete dos 30 dias só sai junto de um envio novo (D6 ★, PM-12): a Debby diz se precisa de lembrete próprio.
+7. **Ligar para pacientes reais.** Com 1–6 feitos — o passo 6 (a) com o texto **já alterado no código**, não só decidido — a Debby avisa os pacientes de que podem enviar exames pelo app. Acompanhar a coluna "Exames do app" no admin e, na primeira semana, os avisos "PDF do paciente recusado na rasterização" e "exame enviado não processado" no log do worker (só ids e motivo).
 
 ## Checagem final (antes do PR)
 
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` verdes; `pnpm test:e2e` com `exames-enviados.spec.ts`, `acessibilidade.spec.ts` e `acessibilidade-painel.spec.ts` verdes.
 - [ ] Guardas: `src/db/rls-guard.test.ts`, `src/db/audit-guard.test.ts`, `test/isolamento.test.ts`, `src/app/api/mesma-origem-rotas.test.ts`, `src/app/formularios-post.test.ts`, `src/app/painel/acoes-de-paciente.test.ts`, `src/app/painel/rotas-axe.test.ts`, `src/app/painel/cores.test.ts`, `src/modules/pacientes/exames-enviados-guardas.test.ts`, `src/modules/ia/guardas.test.ts`, `src/modules/pacientes/exportacao.test.ts` (grafo) e `src/modules/notificacoes/push.test.ts` (grafo).
-- [ ] As medidas da T3 (RNF-162: worker + filho < 150 MB; bomba contida) registradas no PR e no capítulo 11; o tamanho da imagem do job `image` (≤ 260 MB).
+- [ ] As medidas da T3 e da T6 (RNF-162 dentro do orçamento da D-R1 ★, o job inteiro com fotos de 12 MP; bomba contida) registradas no PR e no capítulo 11; o tamanho da imagem do job `image` (≤ 260 MB).
 - [ ] `git grep -n "exame_original\|exame_pagina"` só em: schema, migrations, `armazenamento.ts`, `exames-enviados-*.ts`, `portal/exames-enviados.ts`, `lgpd.ts`, `rls-guard.ts`, testes, backup, CLAUDE.md e docs.
 - [ ] Nenhum texto de push, e-mail ou log com nome de paciente, nome de exame, observação, motivo de recusa ou caminho de arquivo (RNF-166; revisar `logger.` nos arquivos novos).
 - [ ] CLAUDE.md (regras 2, 8, 9 e 10), manual técnico (cap. 11 + README), runbook em `docs/operacao/`, índice, backlog e o status da spec C atualizados.
@@ -5899,18 +6297,60 @@ Nenhum passo é do código; cada um tem dono. A função nasce **desligada** em 
 
 | # | Risco / pendência | Onde está tratado | O que falta |
 |---|---|---|---|
-| R1 | A rasterização (PDFium em WASM) estoura a memória ou não abre os PDFs reais; a bomba de descompressão não é contida pelo vigia de 20 ms | T3 mede antes de tudo (RNF-162 e bomba); o processo filho é morto acima de 120 MB | Se reprovar, decisão do controlador com o dono: `ENVIO_LADO_MAX`/`MAX_PIXELS_IMAGEM_PDF` menores ou o plano B (pdfjs-dist + @napi-rs/canvas), com imagem maior |
-| R2 | Orçamento da imagem Docker (258 de 260 MB no Plano 11) | T3 poda o pacote (fica ≈ 4 MB de WASM) e o CI confere | Se passar, o dono decide subir o orçamento (sem custo) |
-| R3 | HEIC grande no worker: o `heic-decode` aloca largura × altura × 4 bytes (24 MP ≈ 96 MB, mais a cópia do sharp) — o pico do RNF-162 (150 MB) não é garantido para HEIC acima de ~15 MP; o limite de 40 MP vem do diário | Não há HEIC real nos testes do CI (o decodificador é simulado, como no diário) | Runbook passo 3 (HEIC real do iPhone); se precisar, um teto próprio de pixels para o HEIC do exame (backlog) |
+| R1 | A rasterização (PDFium em WASM) estoura a memória ou não abre os PDFs reais; a bomba de descompressão não é contida pelo vigia de 20 ms | A revisão do plano já mediu o filho (153–156 MB a 2000 px; 66–69 MB só do Node com o WASM): teto provisório de 200 MB, `oom_score_adj = 1000` e uma cópia a menos (D-R1 ★); a T3 e a T6 medem de novo (RNF-162, job inteiro e bomba) | Orçamento decidido pelo dono antes da T3 (D-R1 ★); se reprovar, tons de cinza, faixas, pixels em arquivo temporário ou o plano B (pdfjs-dist + @napi-rs/canvas), com imagem maior — baixar o lado sozinho não resolve |
+| R2 | Orçamento da imagem Docker (258 de 260 MB no Plano 11) | T3 poda o pacote (tira ≈ 2,8 MB comprimidos; ficam ≈ 2,1 MB, quase todo o `pdfium.wasm`, indispensável) e o CI confere | A imagem deve ficar em 259–261 MB: o dono decide subir o orçamento (D-R2 ★, proposta 265 MB, sem custo) **antes da T3** |
+| R3 | HEIC grande no worker: o `heic-decode` aloca largura × altura × 4 bytes (24 MP ≈ 96 MB, mais a cópia do sharp) — o pico do RNF-162 (orçamento da D-R1 ★; a spec dizia 150 MB) não é garantido para HEIC acima de ~15 MP; o limite de 40 MP vem do diário | Não há HEIC real nos testes do CI (o decodificador é simulado, como no diário); Desvio 8; a T6 mede o job inteiro com fotos de 12 MP (revisão do plano) | Runbook passo 3 (HEIC real do iPhone); se estourar, decisão com a D-R1 ★: decodificar as fotos no processo filho ou um teto próprio de pixels para o HEIC do exame |
 | R4 | Leitura por IA de PDF só com imagens pode perder precisão (R-174) | D9: a IA continua bloqueada para dado real | Runbook passo 5 (avaliação com laudos rasterizados antes da liberação) |
 | R5 | O contador do menu não se atualiza sozinho na navegação pelo cliente (o layout do Next não refaz) | D11: as ações da revisão revalidam o layout | Se a Debby sentir falta, contador por consulta periódica (backlog) |
-| R6 | O e-mail da exclusão atendida não cita os exames enviados apagados | Runbook passo 6 | Decisão de texto com o dono/advogado (P12-14) |
+| R6 | O e-mail da exclusão atendida e a aba Privacidade não citavam os exames enviados apagados; o Termo não fala do canal de envio | T12, Step 4 (texto proposto, D-R3 ★); runbook passo 6 | Redação final e o Termo (base do art. 11, II, "f"; revisão, 90 dias, apagamento) com o advogado (P12-14) **antes** do passo 7 |
 | R7 | O backup ainda não está ligado (P02-11): até lá, os envios só existem em `/data` | Runbook passo 2 | Ligar o backup antes do uso real |
 | R8 | Duas execuções simultâneas do mesmo job (o pg-boss relança um job expirado com o anterior ainda rodando) podem disputar as páginas (`refazer`) | `expireInSeconds: 300` acima do pior caso; um job por vez; o "recebido" é gravado com o envio travado e o perdedor vira "ignorado" | Monitorar o log nas primeiras semanas |
+| R9 | Texto livre dos envios não aceitos (recusado — inclusive "Exame de outra pessoa" —, cancelado, expirado, falhou): o arquivo sai, mas `nome`, `observacao` (dado de saúde) e `motivo_recusa_texto` ficam até o pedido de exclusão ou a anonimização, e o gatilho torna `nome`/`observacao` imutáveis (revisão do plano; LGPD art. 6º, III, art. 15, I, e art. 16) | §6.5 item 2 da spec (NGS1.12.03, boa prática, não obrigação legal); spec §15 R-176 | Decisão do dono com o advogado (P12-14): se minimizar, o gatilho deixa `nome`/`observacao` irem a nulo na entrada em recusado/cancelado/expirado/falhou (ou numa varredura), mantendo situação, datas e ator |
 
 ## Autoconferência do plano (writing-plans)
 
 - **Cobertura da spec:** a tabela "Cobertura da spec v0.3" acima liga cada US, RN e RNF da parte F3-04 a uma tarefa; §13.3 na T12; C-02/PM-11 na T13 e no runbook; admin na T1 e T9. Itens da F3-02 ficam de fora (Plano 15).
 - **Sem lacunas de código:** cada passo de código traz o código; os passos "modificar" dizem o arquivo, o lugar e o trecho exato.
-- **Nomes consistentes:** os contratos do topo são os usados nas tarefas (`salvarArquivos`, `apagarArquivosDoEnvio`, `rasterizarPdf`, `processarEnvio`, `enviarExame`, `meusEnvios`, `pdfDoMeuEnvio`, `cancelarMeuEnvio`, `filaDeEnvios`, `abrirEnvio`, `aceitarEnvio`, `recusarEnvio`, `avisarEnvioAtualizado`, `avisarExamesRecebidos`, `limparEnvio`, `varrerEnvios`, `definirRecebimentoDeExames`, `metricasDeExamesEnviadosPorTenant`, `apagarEnviosDoTitular`); os nomes do código existente foram conferidos na `main` (`salvarArquivo`, `apagarArquivo`, `resolverCaminho`, `detectarTipo`, `paraJpegSemMetadados`, `lerCorpoLimitado`, `mesmaOrigem`, `requireApiPaciente`, `requirePaciente`, `requireNutri`, `carregarPacienteParaEscrita`, `pacienteDaSessao`, `auditRead`, `avisarNutri`, `dispararEnvio`, `telaDoPortal`, `pedirLeituraExame`, `estadoIaDoTenant`, `motivoDoPaciente`, `configIA`, `listarTenantsParaVarredura`, `app_allow_paciente_escrita`, `app_enable_audit`, `exams_tenant_paciente_id_unique`).
+- **Nomes consistentes:** os contratos do topo são os usados nas tarefas (`salvarArquivos`, `apagarArquivosDoEnvio`, `rasterizarPdf`, `processarEnvio`, `enviarExame`, `meusEnvios`, `pdfDoMeuEnvio`, `cancelarMeuEnvio`, `filaDeEnvios`, `abrirEnvio`, `aceitarEnvio`, `recusarEnvio`, `avisarEnvioAtualizado`, `avisarExamesRecebidos`, `converterOriginais` (revisão do plano), `limparEnvio`, `varrerEnvios`, `definirRecebimentoDeExames`, `metricasDeExamesEnviadosPorTenant`, `apagarEnviosDoTitular`); os nomes do código existente foram conferidos na `main` (`salvarArquivo`, `apagarArquivo`, `resolverCaminho`, `detectarTipo`, `paraJpegSemMetadados`, `lerCorpoLimitado`, `mesmaOrigem`, `requireApiPaciente`, `requirePaciente`, `requireNutri`, `carregarPacienteParaEscrita`, `pacienteDaSessao`, `auditRead`, `avisarNutri`, `dispararEnvio`, `telaDoPortal`, `pedirLeituraExame`, `estadoIaDoTenant`, `motivoDoPaciente`, `configIA`, `listarTenantsParaVarredura`, `app_allow_paciente_escrita`, `app_enable_audit`, `exams_tenant_paciente_id_unique`).
 - **Review Focus:** cada linha tem os testes nas tarefas indicadas.
+
+## Correções da revisão do plano (07/10/2026)
+
+Revisão do plano por lentes (banco, normas, execução) com verificação adversarial; cada achado conferido no código da `main` antes de aplicar.
+
+| # | Gravidade | Achado | O que foi feito |
+|---|---|---|---|
+| 1 | Critical | CHECK `exam_submissions_arquivo_so_recebido` impedia o paciente de cancelar envio real (o PDF limpo fica apontado e a sessão de paciente não pode zerar o ponteiro) | **Aplicado:** CHECK `exam_submissions_arquivo_valido` aceita `recebido` ou `cancelado` (T1); teste "paciente cancela envio recebido COM `arquivo_path`" (T1); a varredura também solta o `exame` sem dono (T8, com teste); spec §13.1 corrigida |
+| 2 | Important | `avisarExamesRecebidos` com `FOR UPDATE` no tenant fecha deadlock com qualquer escrita auditada do consultório | **Aplicado:** `for('no key update')` (molde de `ia/cota.ts`), D10 e o comentário corrigidos, teste com duas conexões (T6) |
+| 3 | Important | A expiração travava o envio antes do paciente (ordem inversa do aceite e da recusa) e inseria em `notifications` (KEY SHARE no paciente) | **Aplicado:** `expirar` trava o paciente primeiro (T8), teste de corrida expiração × aceite; comentário de ordem de travas de `apagarArquivosDoEnvio` explica por que ali não precisa (T2) |
+| 4 | Minor | Gatilhos de `exam_submissions` sem `SET search_path` e com `patients` sem schema | **Aplicado** na 0102 (as três funções, `public.patients`); a 0099 vai para "Pontos menores" |
+| 5 | Minor | `exames_paciente_ativado_em` lido sem trava em `conferirAntesDeGravar` | **Aplicado como documentação:** janela aceita (D18 = a) registrada no comentário; KEY SHARE não conflita com quem desliga e FOR SHARE fecharia deadlock entre dois envios |
+| 6 | Minor | A sessão de paciente grava `created_at` livremente (limite diário, 90 dias) | **Descartado no texto, para "Pontos menores":** impor o relógio do banco quebraria os testes que injetam a data; a sessão de paciente só grava por `enviarExame` |
+| 7 | Important | A exclusão atendida apaga os envios não aceitos, mas o e-mail ao titular e a aba Privacidade não dizem | **Aplicado:** T12, Step 4 (texto proposto, D-R3 ★, com spec do MVP, `render.test.ts` e o E2E da aba), runbook passos 6 e 7 e R6. Parte do achado estava errada: o passo 7 já esperava o 6 — agora exige o texto **já no código** |
+| 8 | Important | Só a sessão de paciente tinha o INSERT restrito: a equipe ou o worker podiam criar envio já `aceito` (origem "Enviado pelo paciente" fabricada) e `revisado_por` vinha da aplicação | **Aplicado:** gatilho `exam_submissions_nasce` (todo envio nasce `processando`, qualquer papel) e `revisado_por = app_current_user()` no `exam_submissions_regras` (0102); `envioNoBanco` e as fábricas do isolamento passam pelas transições legais; teste novo na T1; D5, Global Constraints, CLAUDE.md (regra 2) e spec §6.5 |
+| 9 | Minor | Fila, contadores e `abrirEnvio` mostravam envios de titular bloqueado ou anonimizado | **Aplicado** na T7 (`titularVisivel`), com teste |
+| 10 | Minor | Texto livre dos envios não aceitos fica até a exclusão ou a anonimização, e o gatilho o torna imutável | **Aplicado como pendência:** R9 no plano, R-176 na spec §15, runbook passo 6 (c) — decisão do dono com o advogado |
+| 11 | Minor | O Termo não fala do canal de envio nem a spec registra a base legal da F3-04 | **Aplicado** no runbook passo 6 (b), R6 e P12-14 (advogado); a frase de ajuda em `/p/exames` vai para "Pontos menores" (precisa de texto aprovado, regra 4) |
+| 12 | Minor | Envio aceito cujo exame foi excluído continua "Recebido no seu prontuário" | **Para "Pontos menores"** (texto é do dono) e registrado nas divergências do capítulo 11 (T13) |
+| 13 | Minor | A exportação não liga o envio aceito ao exame nem traz a data da revisão (LGPD art. 19, II) | **Aplicado:** `revisadoEm` e `exame: { data, titulo }` em `examesEnviados` (T12), com teste |
+| 14 | Critical | Mesmo defeito do achado 1, pela lente de execução (os testes de T2, T4, T7, T8 e o E2E quebrariam) | **Aplicado** junto do 1 |
+| 15 | Critical | Teto de 120 MB do filho abaixo do que o PDFium em WASM gasta numa página (medido: 153–156 MB a 2000 px) | **Aplicado:** decisão D-R1 ★ (antes da T3), teto provisório de 200 MB, uma cópia dos pixels a menos, `oom_score_adj = 1000` no filho, `ORCAMENTO_RNF162_BYTES` (proposta 250 MB), Step 6, D1, R1 e checagem final |
+| 16 | Important | Os testes não provavam o RNF-162 (só a rasterização, fotos pequenas, sem HEIC) | **Aplicado:** `converterOriginais` (o job sem banco) e `exames-enviados-memoria.test.ts` com PDF de fotos de 12 MP e 5 fotos de 12 MP (T6, Step 4b); Desvio 8 (HEIC no processo do worker) e R3 |
+| 17 | Important | Formulários de aceite e recusa perdiam o que foi digitado no reset do React 19 (o E2E de "Outro motivo" quebraria) | **Aplicado:** `RevisaoState.valores`, `defaultValue`/`defaultChecked` vindos do estado (molde de `cancelar-form.tsx`), teste das actions ajustado (T11) |
+| 18 | Important | Conta do orçamento da imagem Docker errada (a poda tira ≈ 2,8 MB e sobram ≈ 2,1 MB; a imagem fica em 259–261 MB) | **Aplicado:** números corrigidos (D1, Step 8, R2, Global Constraints) e decisão D-R2 ★ (proposta 265 MB) antes da T3 |
+| 19 | Minor | T2 e T3, em paralelo, editam o fim da regra 9 do CLAUDE.md | **Aplicado:** a frase da rasterização saiu da T3 e foi para a T13 (tabela de dependências, arquivos e commit da T3) |
+| 20 | Minor | Rota e formulário descartavam em silêncio o arquivo de 0 byte | **Aplicado:** recusa com `MSG_ENVIO.arquivos` (T5, com teste; T10) e Review Focus 3 |
+| 21 | Minor | Teste "só pixels saem do processo filho" é tautológico; R-170 pede prazo por página | **Prazo por página:** registrado como Desvio 9. **Teste:** para "Pontos menores" |
+| 22 | Minor | O Review Focus 2 prometia corridas testadas, mas os testes eram sequenciais | **Aplicado:** dois testes com duas conexões (T6, T8; helper `esperarNaTrava`) e o texto do Review Focus ajustado (o job em dobro segue só monitorado, R8) |
+| 23 | Minor | Acessibilidade de `/p/exames`: dica e erro iguais no `aria-describedby`, ordem das fotos invisível, axe só com a tela vazia | **Aplicado em parte:** com erro, só o erro é descrito (T10). Lista ordenada dos arquivos e seed do E2E com envios para o axe: "Pontos menores" |
+
+## Pontos menores (backlog do Plano 12)
+
+Achados Minor da revisão do plano que não valeram o texto nesta versão; entram no backlog na T13.
+
+- **`created_at` da sessão de paciente** (achado 6): a política `paciente_envio_insert` não confere `created_at`/`updated_at`. Impor o relógio do banco quebraria os testes que injetam a data (limite diário, expiração); a sessão de paciente só grava por `enviarExame`, que usa o relógio do servidor. Quando os testes deixarem de injetar a data, o gatilho `exam_submissions_nasce` pode impor `created_at` perto de `now()` para o papel `paciente`.
+- **`search_path` da 0099** (achado 4): `app_ia_tarefas_sem_apagar` tem o mesmo desenho sem `SET search_path = public, pg_temp`; levar a correção numa migration futura.
+- **Aceito com exame excluído** (achado 12): o paciente segue vendo "Recebido no seu prontuário". Texto próprio na US-161 quando `status = 'aceito'` e `exam_id` nulo (decisão do dono, regra 4); até lá, divergência no capítulo 11.
+- **Frase de ajuda em `/p/exames`** (achado 11): revisão pela nutricionista, 90 dias, apagamento na recusa e no cancelamento — com texto aprovado na spec (regra 4), depois do advogado.
+- **Teste tautológico da R-170** (achado 21): `Object.keys(r.paginas[0])` confere o objeto que o próprio pai monta. Trocar por uma asserção real (por exemplo, um filho falso que manda uma mensagem fora de `pagina`/`fim`/`recusa` e o pai recusa) ou renomear o teste.
+- **Acessibilidade de `/p/exames`** (achado 23): mostrar a lista dos arquivos escolhidos, na ordem, com a contagem (texto novo, regra 4); no seed do E2E, um envio "recebido" e um "recusado" para o paciente do axe, para conferir as situações, as mensagens e o botão "Cancelar envio" (RNF-167).
