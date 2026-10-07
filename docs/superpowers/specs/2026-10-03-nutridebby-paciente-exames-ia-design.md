@@ -2,14 +2,17 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 0.2 (rascunho para revisão do dono) |
-| Data | 2026-10-03 |
-| Status | **Em revisão** — depende das decisões da §18 e das dependências da §1.3 |
+| Versão | 0.3 (parte **F3-04** revista para o Plano 12; a parte F3-02 continua como na 0.2) |
+| Data | 2026-10-03 (v0.1 e v0.2) · 2026-10-07 (v0.3) |
+| Status | **F3-04: decisões do dono tomadas (07/10/2026) e dependências conferidas no código** da `main` 1a78217 (Planos 01–11 em produção) — pronta para o plano de implementação (**Plano 12**). **F3-02: rascunho da v0.2, não revisto nesta versão**; depende das decisões D1–D12, D19, D21, D22, D24 e D25 e das confirmações externas (D2) e será revista no **Plano 15** |
 | Revisão 0.2 | Revisão do workflow aplicada: resposta da IA Nutri **montada pelo sistema** a partir das fontes citadas, sem prosa livre do modelo (§7.4, RN-172, RN-175, D21); reserva de cota e limites numa função `SECURITY DEFINER` fechada, `ia_uso` continua STAFF_ONLY (RN-178, RN-179, RNF-164); histórico append-only de aceites e revogações em `ia_nutri_consentimentos` no lugar de `consents` (RN-171); mensagem de risco não lida sobrevive à revogação (D22); extensão de `armazenamento.ts` para lote e substituição atômica (DEP-09); todo envio rasterizado no worker e mostrado como imagens (D23, R-170); pushes neutros (INT-03); D3 reescrita com custo por paciente, quem paga e teto global; canal da dúvida encaminhada vira decisão (D24); suplemento que está no plano vira decisão (D25). Pontos menores na §17 |
-| Itens do backlog | F3-04 (paciente envia exames; a nutricionista recebe, revisa e aceita) · F3-02 ("IA Nutri" para o paciente) |
-| Quando | Só **depois do go-live** do MVP (Plano 08) e **depois** do Plano 06 (portal do paciente). A parte F3-02 também espera a base de IA do Subprojeto A estar em produção |
-| Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (v1.8), [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md) e [`2026-10-03-nutridebby-ia-nutricionista-design.md`](2026-10-03-nutridebby-ia-nutricionista-design.md) (Subprojeto A, v0.1). IDs RN-xx, RNF-xx, INT-xx, US-0xx e P-xx são do MVP; US-1xx, RN-1xx, RNF-1xx, INT-07 e "A-Dn" (decisão n do Subprojeto A) são do Subprojeto A |
-| Numeração nova | US-160 a US-179 · RN-160 a RN-189 · RNF-160 a RNF-169 · CS-160 a CS-165 · R-160 a R-179 · DEP-01 a DEP-09 · D1 a D25 (decisões deste documento) |
+| Revisão 0.3 | **Preparação do Plano 12 (07/10/2026), só na parte F3-04.** Decisões do dono D13 (b), D14 (a), D15 (b), D16 (a), D17 (a), D18 (a), D20 (a) e D23 (a), aprovadas como recomendadas (§18, "Decisões do dono de 07/10/2026"). Dependências conferidas no código e no manual técnico, com situação e arquivo (§1.3; DEP-10 nova: rasterização de PDF). Ajustes pelo código (§6.6): rotas do portal em `/api/p/…` e tela `/p/exames`; tipos de arquivo próprios do envio (`exame_original`, `exame_pagina`), porque a política `paciente_arquivo_insert` (0080) só deixa o paciente gravar um tipo; cancelamento pelo paciente sem apagar arquivo na sessão dele (a sessão de paciente não tem `DELETE` em `stored_files`): o worker apaga; DEP-09 reduzida a `salvarArquivos` (só o envio do paciente, tudo ou nada), com o resto no molde do diário e do Plano 10A (um `apagarArquivo` por arquivo, ponteiro no `naMesmaTransacao`, varredura); envio preso em `processando` vira `falhou` sem reprocessar (molde do diário); `exam_id` com FK composta `ON DELETE SET NULL (exam_id)` (alvo `exams_tenant_paciente_id_unique`, 0098); o envio aceito solta o PDF limpo para o exame (um dono só); "Aceitar e ler valores com IA" = aceite + `pedirLeituraExame` em seguida; leitura do titular auditada (P06 D22); push com a regra real do código (C-05); migrations a partir da `0101`; boas práticas SBIS NGS1 (§6.5). Pontos novos na §17 (PM-8 a PM-14) |
+| Itens do backlog | F3-04 (paciente envia exames; a nutricionista recebe, revisa e aceita) — **Plano 12** · F3-02 ("IA Nutri" para o paciente) — **Plano 15** |
+| Quando | **F3-04:** Plano 12, depois dos Planos 06 (portal do paciente) e 11 (base de IA e leitura de laudos, F3-01), ambos em produção. **F3-02:** Plano 15, depois das confirmações externas (D2) e das decisões da F3-02 |
+| Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (v1.13), [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md), [`2026-10-03-nutridebby-ia-nutricionista-design.md`](2026-10-03-nutridebby-ia-nutricionista-design.md) (Subprojeto A, v0.4, entregue no Plano 11) e o manual técnico ([`docs/manual-tecnico/`](../../manual-tecnico/README.md)). IDs RN-xx, RNF-xx, INT-xx, US-0xx e P-xx são do MVP; US-1xx, RN-1xx, RNF-1xx, INT-07 e "A-Dn" (decisão n do Subprojeto A) são do Subprojeto A |
+| Numeração nova | US-160 a US-179 · RN-160 a RN-189 · RNF-160 a RNF-169 · CS-160 a CS-165 · R-160 a R-179 · DEP-01 a DEP-10 · PM-1 a PM-14 · D1 a D25 (decisões deste documento) |
+
+> **Nota da v0.3 (parte F3-02).** O que é só da IA Nutri do paciente — §1 item 2, CS-162 a CS-165, §2.1 F3-02a a F3-02e, §4.2, §5, §7, §8, US-170 a US-177, RN-170 a RN-185, RNF-160, RNF-164, RNF-165, RNF-168, as tabelas `ia_nutri_*`, as colunas `ia_nutri_*` de `tenants`, §14 e as decisões D1–D12, D19, D21, D22, D24 e D25 — **não foi revisto nesta versão** e **será revisto no Plano 15**, contra o código da época (a base de IA do Plano 11 já está em produção: `ia_uso` e `reservar` em `src/modules/ia/cota.ts`, `estadoIaDoTenant` em `src/modules/ia/modo.ts`, `motivoDoPaciente` em `src/modules/ia/ciencia-paciente.ts`, fila `ia`, interruptor `ia_liberada` da admin). Onde um item mistura as duas partes (C-05, RNF-163, RNF-166, RNF-167, §12, §13), só o que é da F3-04 foi ajustado.
 
 ---
 
@@ -38,26 +41,31 @@ Duas funções novas no portal do paciente (PWA, módulo M5):
 | # | Premissa / restrição | Origem |
 |---|---|---|
 | C-01 | Implementação só depois do go-live; nada deste documento entra nos Planos 06–08 | Dono, 03/10/2026 |
-| C-02 | **Nenhum custo extra sem aceite explícito do dono.** O custo por uso da IA foi aceito só para a F3-01; o custo da IA Nutri do paciente é a **decisão D3**. A F3-04 não tem custo de IA (a leitura de um exame aceito é a F3-01, já aceita), mas **aumenta o volume guardado**: os arquivos entram no backup do host para o R2 (`backup_runs.tipo = 'arquivos'`). Estimativa: 40 pacientes × 1 envio/mês × ≈ 3 MB (PDF limpo; as imagens de página são apagadas na revisão, D23) ≈ 120 MB/mês ≈ **1,5 GB/ano por consultório**, limitado pela cota de 5 GB do tenant. Isso cabe na faixa gratuita do R2 (10 GB-mês de armazenamento, **a confirmar na conta**) só enquanto a soma dos backups de todos os tenants couber nela; acima dela o R2 cobra por GB-mês (preço a confirmar na conta) — custo que o dono aceita ou limita na **D14** | Dono |
+| C-02 | **Nenhum custo extra sem aceite explícito do dono.** O custo por uso da IA foi aceito só para a F3-01; o custo da IA Nutri do paciente é a **decisão D3** (Plano 15). A F3-04 não tem custo de IA (a leitura de um exame aceito é a F3-01, já aceita e com cota própria), mas **aumenta o volume guardado**: os arquivos entram no backup do host para o R2 (`backup_runs.tipo = 'arquivos'`). Estimativa: 40 pacientes × 1 envio/mês × ≈ 3 MB (PDF limpo; as imagens de página são apagadas na revisão, D23) ≈ 120 MB/mês ≈ **1,5 GB/ano por consultório**, limitado pela cota de 5 GB do tenant. **D14 = (a), aprovada pelo dono em 07/10/2026:** limites por paciente (RN-162) e o custo do R2 acima da faixa gratuita (10 GB-mês, a confirmar na conta) aceito. **Situação real (07/10/2026):** o backup do host ainda **não está ligado** (P02-11, passo 6 do dono: `nutri-backup.timer` desabilitado, [`08-sustentacao.md`](../../manual-tecnico/08-sustentacao.md)); até lá os envios ficam só em `/data` da VPS, como os demais arquivos. As imagens de página são temporárias: o plano propõe ao dono excluí-las do `rclone sync` (PM-11) | Dono |
 | C-03 | Somente adultos (RN-17) — compatível com a política do provedor para produtos voltados ao consumidor | MVP D-11 |
 | C-04 | Mesma VPS, mesmo `nutri_worker` (512 MB, RNF-03); a chave do provedor de IA fica **só no worker** (Subprojeto A, RNF-103) | MVP RNF-03, Subprojeto A |
-| C-05 | Dado de saúde nunca vai para log, Sentry, push ou e-mail (CLAUDE.md, regra 3): avisos à nutricionista são **genéricos** ("Você tem exames novos enviados por pacientes para revisar"), sem nome de paciente, nome de exame, valor, texto da conversa ou motivo de recusa. O **push ao paciente é neutro** (decisão do dono de 02/10/2026, INT-03 do MVP: a tela de bloqueio revela com quem a pessoa se consulta): um texto só, "Há uma atualização para você no app.", sem "exame", "nutricionista", "dúvida" nem "IA"; o detalhe aparece só dentro do PWA | CLAUDE.md, RNF-11, MVP INT-03 |
+| C-05 | Dado de saúde nunca vai para log, Sentry, push ou e-mail (CLAUDE.md, regra 3): avisos à nutricionista são **genéricos** ("Você tem exames novos enviados por pacientes para revisar"), sem nome de paciente, nome de exame, valor, texto da conversa ou motivo de recusa. **Push ao paciente na F3-04:** um texto só, "Há uma atualização para você no app.", sem "exame"; o detalhe aparece só dentro do PWA. **Correção da v0.3:** a regra do código (Plano 05, D19; `AVISOS_DO_PORTAL` em `src/modules/notificacoes/mensagens.ts:110`) é "sem dado de saúde e sem o nome da nutricionista" — os pushes em produção dizem "Sua nutricionista comentou seu diário" e "Você tem um novo documento.". O texto da F3-04 é **mais restrito de propósito** (a palavra "exame" na tela de bloqueio já revela dado de saúde), no espírito do `documento_novo`; a proibição de "nutricionista", "dúvida" e "IA" é da F3-02 e será revista no Plano 15 | CLAUDE.md, RNF-11, MVP INT-03 |
 
-### 1.3 Dependências (declaradas; **não** redesenhadas aqui)
+### 1.3 Dependências (conferidas no código em 07/10/2026; **não** redesenhadas aqui)
 
-| ID | Depende de | O que este documento usa | Situação |
+Situação conferida na `main` 1a78217 (Planos 01–11 em produção) e no manual técnico. "Arquivo" aponta o código que a F3-04 usa ou imita.
+
+| ID | Depende de | O que este documento usa | Situação (07/10/2026) e arquivo |
 |---|---|---|---|
-| DEP-01 | **Plano 06 — portal do paciente (M5: US-040 a US-046)** | PWA instalado, sessão de paciente (`withTenant` com `role = 'paciente'`), navegação do portal, Perfil > Privacidade, push (US-040, INT-03, P06-02) | ⬜ a fazer |
-| DEP-02 | **P06-00** (pré-requisitos de segurança antes de existir sessão de paciente, P-16) — em especial **(d) `stored_files` restrita por paciente** | O paciente grava e baixa **só os próprios** arquivos de exame | ⬜ a fazer |
-| DEP-03 | **P06-04** (diário com foto): envio de arquivo pela sessão de paciente com cota do tenant e **conversão HEIC → JPEG sem EXIF/GPS no worker** (RN-07) | O mesmo mecanismo (envio pela sessão de paciente, conversão no worker sem EXIF/GPS) trata as fotos de laudo (RN-163), com **parâmetros próprios de laudo**: maior lado ≤ 2000 px e qualidade 85 (a RN-07 do diário usa 1600 px e 80; o laudo precisa de letra pequena legível). Se o P06-04 mudar o mecanismo, este documento segue o que ele entregar | ⬜ a fazer |
-| DEP-04 | **US-046 / P06-08** (exportação e exclusão pelo titular) e **US-018** (exportação, bloqueio e anonimização) | `dados.json`, ZIP e as rotinas de `lgpd.ts` ganham os envios e as conversas (§13.3) | ⬜ a fazer |
-| DEP-05 | **Plano 05 — motor de notificações** (`notifications`, e-mail, push) e `src/modules/agenda/aviso-nutri.ts` (e-mail da nutricionista) | Avisos ao paciente (exame recusado, dúvida respondida) e à nutricionista (exame recebido, dúvida nova, sinal de risco) | ✅ em produção (Plano 05) |
-| DEP-06 | **Subprojeto A — base de IA (BIA)** | Provedor (`ProvedorIA`, INT-07), retenção zero (A-D4), região (A-D5), transferência internacional (A-D6), pseudonimização (§5.4 de A, **ampliada** aqui com o nome das usuárias do tenant e do consultório — §7.3; a mesma lacuna existe em A e deve ser corrigida lá), cota por tenant (`ia_uso` STAFF_ONLY, RN-104 — a reserva da IA Nutri é feita por função própria, RN-179), interruptor `IA_DESLIGADA`, logs sem conteúdo (§5.7 de A), avaliação antes de liberar (RN-127), auditoria **só pelo gatilho** (RN-101 de A v0.2: sem ação `enviar_ia`; o `criar` aparece como 'Enviou à IA' e o `alterar` do worker, com ator nulo, não é exibido — rótulo por entidade e filtro feitos no plano de A) | Especificado (v0.2), não implementado |
-| DEP-07 | **Subprojeto A — F3-01** (US-110 a US-112) | Botão "Ler valores com IA" no exame **depois de aceito**. A F3-04 funciona **sem** a F3-01: o botão só aparece se a IA estiver ativa no consultório | Especificado (v0.1) |
-| DEP-08 | **Plano 07 — biblioteca** (US-052, US-054) | Só se D9 = (b): textos de orientação e receitas visíveis ao paciente entram no contexto da IA Nutri | ⬜ a fazer |
-| DEP-09 | **Extensão de `src/modules/plataforma/armazenamento.ts`** (código, feita no plano deste subprojeto) | Hoje `salvarArquivo` grava **um** arquivo por chamada, cada uma na sua transação, e `apagarArquivo` abre outra. Este documento precisa de: (1) **`salvarArquivos`** — vários conteúdos, **uma** reserva de cota pela soma, `antesDaReserva` e `registrar` únicos (o envio e suas imagens nascem juntos ou nada é gravado); (2) **`substituirArquivos`** — grava os arquivos novos e apaga os antigos **na mesma transação** (registrar do novo + `naMesmaTransacao` do antigo), com a cota acertada pela diferença; (3) **`apagarArquivos`** — vários arquivos com um `naMesmaTransacao` só (aceite, recusa, cancelamento e expiração apagam o PDF limpo e/ou as imagens de página junto com a mudança do envio). Ambas mantêm a ordem de travas documentada (dono/paciente → tenant → `registrar`) e o conteúdo gravado em disco antes da transação (temporário renomeado dentro dela, removido se o commit falhar), como hoje. O plano atualiza a regra 9 do `CLAUDE.md` com as duas funções | ⬜ a fazer |
+| DEP-01 | **Plano 06 — portal do paciente** (M5: US-040 a US-046) | PWA, sessão de paciente, navegação do portal, Perfil > Privacidade, push | ✅ **em produção** (PR #8, 03/10/2026). Sessão por `requirePaciente`/`requireApiPaciente` (`src/lib/paciente-session.ts:160`; contexto `withTenant` com `role = 'paciente'`, vínculo ativo e termo aceito); telas em `src/app/p/(portal)/`; abas em `src/app/p/navegacao.ts` (7 colunas; o comentário pede decidir de novo a barra quando "Exames" chegar — PM-10); APIs do portal em **`/api/p/…`** (não `/api/portal/…`, como dizia a v0.2); push pelo motor (`notifications`, canal `push`) com inscrição em `src/modules/portal/push-inscricao.ts` |
+| DEP-02 | **P06-00 (d)** — `stored_files` restrita por paciente (P-16) | O paciente grava e baixa **só os próprios** arquivos | ✅ **em produção**. `stored_files.patient_id` e CHECK `stored_files_dono` (`drizzle/0071`, `0072`); política `paciente_arquivos` (0072, refeita na 0085 e na `0090`: o paciente não vê `documento_base` nem `documento_digitalizado`); `paciente_arquivo_insert` (`drizzle/0080_paciente_restricoes.sql:30`) deixa a sessão de paciente gravar **só** `diario_foto_original`. **Falta para a F3-04:** ampliar a `paciente_arquivo_insert` para o tipo novo `exame_original` e tirar `exame_original`/`exame_pagina` da `paciente_arquivos` (§13.2) |
+| DEP-03 | **P06-04** (diário com foto): envio pela sessão de paciente com cota do tenant e **conversão HEIC → JPEG sem EXIF/GPS no worker** (RN-07) | O mesmo mecanismo trata as fotos de laudo (RN-163), com parâmetros próprios: maior lado ≤ 2000 px e qualidade 85 | ✅ **em produção**. Rota `src/app/api/p/diario/route.ts` (multipart; 2 envios por processo, 1 por conta, prazo de 60 s para o corpo); `registrarNoDiario` (`src/modules/portal/diario.ts`) grava o original por `salvarArquivo` e enfileira o job **no `registrar`** (`boss.send(…, { db: fromDrizzle(tx, sql) })`); job `diario-foto` (`src/modules/portal/diario-foto-job.ts`: `heic-decode` + `sharp`, 40 MP conferidos pelo cabeçalho antes de decodificar, JPEG por `salvarArquivo` com **`substitui`** — cota pela diferença — e o original por `apagarArquivo`, **duas transações** e job idempotente); varredura `expirar-diario-foto` a cada 15 min (`expirarFotosPendentes`: parado > 30 min e sem job vivo → `falhou`, **sem reconverter**); filas em `src/jobs/queues.ts`. **Diferença:** `paraJpegSemMetadados` (`src/lib/jpeg.ts`) tem **qualidade fixa 80** — a qualidade 85 do laudo pede um parâmetro novo (PM-9) |
+| DEP-04 | **US-046 / P06-08** e **US-018** (exportação, bloqueio, anonimização) | `dados.json`, ZIP e as rotinas de `lgpd.ts` ganham os envios (§13.3) | ✅ **em produção**. `src/modules/pacientes/lgpd.ts`: `atenderPedidoExclusao` (transação do bloqueio), `concluirExclusaoAtendida` (job `exclusao-atendida`, que apaga as fotos do diário antes do e-mail — molde para os envios), `anexosDoPaciente` (`:295`, arquivos apagados na anonimização), `anonimizarVencidos`; `src/modules/pacientes/exportacao-job.ts` (`montarDados`: laudos em `laudos/`, fotos em `diario/`, PDFs assinados em `documentos/`, teto de memória com `laudosForaDoZip`; escopo `titular` × `equipe`) |
+| DEP-05 | **Plano 05 — motor de notificações** e `src/modules/agenda/aviso-nutri.ts` | Aviso ao paciente (exame revisado ou expirado) e à nutricionista (exames recebidos) | ✅ **em produção**. `avisarNutri(tx, tenantId, montar)` e `emailsDaNutri` (`aviso-nutri.ts:15-24`, já na lista de exceções da tabela `user`); push do portal = linha em `notifications` (canal `push`) + `dispararEnvio` na transação do evento (molde: `avisarComentario` em `src/modules/portal/avisos.ts:21`); texto e tela do toque em `AVISOS_DO_PORTAL` (`src/modules/notificacoes/mensagens.ts:110`); tipos em `src/modules/notificacoes/tipos.ts` e no CHECK `notifications_tipo_valido` (última troca na `0089`) |
+| DEP-06 | **Subprojeto A — base de IA** | Só pela DEP-07 (a F3-04 não chama o provedor) | ✅ **em produção** (Plano 11, PR #23, 07/10/2026; spec A v0.4). Nasce desligada para dado real: só com `IA_PROVEDOR` e `tenants.ia_liberada` (só a admin liga, gatilho `tenants_interruptores_da_admin`, 0100) |
+| DEP-07 | **Subprojeto A — F3-01** (US-110 a US-112) | "Aceitar e ler valores com IA" depois do aceite | ✅ **em produção**. `pedirLeituraExame(ctx, tenant, patientId, examId, { ia: configIA(getEnv()) })` (`src/modules/ia/tarefas.ts:59`): transação própria (paciente → exame → tenant → cota), aceita PDF/JPEG/PNG até 20 MB (`IA_ARQUIVO_MAX_BYTES`) e até 15 páginas (`LIMITE_PAGINAS`), recusa com `PedidoIaError` (mensagens `MSG_IA`); o botão aparece com `estadoIaDoTenant(...) === 'ativa'` (`src/modules/ia/modo.ts:26`) e o PDF é lido numa thread com heap limitado (`preparar-pdf-thread.ts`, pdf-lib). A F3-04 funciona **sem** a F3-01 |
+| DEP-08 | **Plano 07 — biblioteca** | Só F3-02 (D9 = b) | Não se aplica à F3-04 (Plano 15) |
+| DEP-09 | **Extensão de `src/modules/plataforma/armazenamento.ts`** | O envio do paciente e seus arquivos nascem juntos ou nada é gravado | ⬜ **a fazer, reduzida na v0.3.** Hoje: `salvarArquivo` grava **um** arquivo por chamada (com `antesDaReserva`, `registrar` e, desde o Plano 06, `substitui` — cota pela diferença) e `apagarArquivo` apaga um, com `naMesmaTransacao`. **Fica:** `salvarArquivos` — vários conteúdos com **uma** reserva pela soma e `antesDaReserva`/`registrar` únicos, só para o envio do paciente: a sessão de paciente não tem `DELETE` em `stored_files` nem no envio (`paciente_sem_delete`), então não consegue desfazer um envio gravado pela metade. **Sai:** `substituirArquivos` e `apagarArquivos` — o worker e a revisão seguem o molde já em produção (um `salvarArquivo`/`apagarArquivo` por arquivo, ponteiro no `registrar`/`naMesmaTransacao`, job idempotente e varredura), como o diário (`diario-foto-job.ts`) e o Plano 10A (`receberDigitalizada` em `src/modules/documentos/digitalizada.ts`, `soltarArquivosDoPreparo` em `arquivos-do-preparo.ts:28`, `limparArquivosOrfaosDeDocumentos` em `documento-pdf-job.ts:137`). Isso cumpre a regra 9 do `CLAUDE.md` (o ponteiro sai na transação do arquivo); o plano atualiza a regra com `salvarArquivos` (PM-8) |
+| DEP-10 | **Rasterização de PDF no worker** (nova na v0.3) | Cada página do PDF do paciente vira JPEG (D23 = a) | ⬜ **não existe no repositório.** `pdf-lib` 1.17.1 lê e regrava PDF, mas não desenha página; o `sharp` 0.35.4 dos binários pré-compilados não abre PDF (a conferir no plano). Montar o **PDF limpo** a partir de imagens já existe: `renderizarDigitalizada` (`src/modules/documentos/digitalizada-job.tsx`, `@react-pdf/renderer` 4.9.0, só no worker). A biblioteca nova é escolha do plano (PM-6, R-175): licença compatível com SaaS fechado (pdf.js é Apache-2.0; MuPDF é AGPL-3.0), memória medida (RNF-162) e execução numa thread com heap e tempo limitados, como `preparar-pdf-thread.ts` |
 
-**Ordem sugerida:** F3-04 pode ser entregue logo depois do Plano 06, antes ou junto do Subprojeto A. A F3-02 só depois do Subprojeto A em produção, das decisões D1, D2, D3, D21 e D24 e das confirmações externas (D2).
+**Migrations:** a próxima livre é a **`0101`** (a última em produção é a `0100_ia_defesas_banco.sql`). O plano numera a partir dela (tabelas e colunas, depois a migration custom `rls_…`, como 0098/0099).
+
+**Ordem:** a F3-04 (Plano 12) não depende da F3-02. A F3-02 (Plano 15) espera as decisões D1, D2, D3, D21 e D24 e as confirmações externas (D2).
 
 ---
 
@@ -67,8 +75,8 @@ Duas funções novas no portal do paciente (PWA, módulo M5):
 
 | ID | Bloco | Conteúdo |
 |---|---|---|
-| F3-04a | **Envio pelo paciente** | Tela "Enviar exame" no PWA: data da coleta, nome do exame (opcional), observação curta (opcional), 1 PDF ou até 5 fotos (D13); **todo envio passa pelo worker** — fotos convertidas, PDF rasterizado — e vira um PDF limpo (só imagens) + imagens de página para a revisão (D23); cota do tenant e limite por paciente (D14); lista "Meus exames enviados" com a situação; cancelar envio ainda não revisado |
-| F3-04b | **Revisão pela nutricionista** | Fila "Exames recebidos" (todos os pacientes, mais antigos primeiro) e contador no prontuário; ver as páginas do envio como imagens no painel (URL assinada de 5 min, D23); **Aceitar** (cria o exame do prontuário com o mesmo arquivo) ou **"Aceitar e ler valores com IA"** (F3-01); **Recusar** com motivo; aviso de exame recebido (D16); envio parado expira (D15) |
+| F3-04a | **Envio pelo paciente** | Tela "Meus exames" (`/p/exames`, PWA): data da coleta, nome do exame (opcional), observação curta (opcional), 1 PDF ou até 5 fotos (D13 = b); **todo envio passa pelo worker** — fotos convertidas, PDF rasterizado — e vira um PDF limpo (só imagens) + imagens de página para a revisão (D23 = a); cota do tenant e limites por paciente (D14 = a); lista "Meus exames enviados" com a situação; baixar o próprio PDF limpo enquanto aguarda a revisão (D17 = a); cancelar envio ainda não revisado |
+| F3-04b | **Revisão pela nutricionista** | Recebimento ligado em Configurações (D18 = a, nasce desligado); fila "Exames recebidos" (`/painel/exames-recebidos`, todos os pacientes, mais antigos primeiro) e contador no prontuário; ver as páginas do envio como imagens no painel (URL assinada de 5 min, D23 = a); **Aceitar** (cria o exame do prontuário com o PDF limpo) ou **"Aceitar e ler valores com IA"** (F3-01, em produção desde o Plano 11); **Recusar** com motivo, arquivo apagado na hora (D20 = a); aviso por e-mail agrupado (D16 = a); envio parado expira em 90 dias (D15 = b) |
 | F3-02a | **Ativação e consentimento** | Interruptor do consultório + liberação por paciente (D6); consentimento específico e em destaque do paciente, versionado, revogável a qualquer momento |
 | F3-02b | **Conversa** | Perguntas curtas sobre o próprio plano publicado e as orientações publicadas (D9); resposta **montada pelo sistema** com os trechos do plano que o modelo apontou (D21); aviso de IA no início de cada sessão; "Ajudou / Não ajudou" |
 | F3-02c | **Guardrails** | Filtro determinístico de sinais de risco **antes** do modelo; classificação obrigatória na resposta; textos fixos para tudo o que não é "dúvida sobre o plano"; **nenhuma frase do modelo chega ao paciente** (D21); fontes conferidas; regra de suplemento do plano (D25); sem ferramentas; defesa contra *prompt injection* |
@@ -96,33 +104,48 @@ Chat livre nutricionista ↔ paciente (o chat da Fase 3 segue fora; se D24 = (a)
 ### 4.1 Envio de exame (F3-04)
 
 ```
-Paciente (PWA) "Enviar exame"
-   │ Route Handler POST /api/portal/exames-enviados (multipart; sessão de paciente, withTenant role=paciente)
-   │  valida campos, tipo pelo conteúdo e tamanho; confere limites (RN-161/162)
-   │  salvarArquivos (DEP-09): todos os arquivos com UMA reserva de cota (RN-18);
-   │     antesDaReserva = trava do paciente + limites; registrar = INSERT exam_submissions ('processando')
-   │     + exam_submission_files (papel 'original') — tudo ou nada
-   │  enfileira job `exame-envio` {tenantId, envioId}
+Paciente (PWA) /p/exames → "Enviar exame"
+   │ Route Handler POST /api/p/exames (multipart; mesmaOrigem; requireApiPaciente → withTenant role=paciente;
+   │  fora do src/proxy.ts). Vaga: no máximo 2 envios por processo e 1 por conta, com prazo para o corpo chegar
+   │  (molde de src/app/api/p/diario/route.ts)
+   │  valida campos, tipo pelo conteúdo (detectarTipo), tamanhos e o cabeçalho de cada JPEG/PNG (≤ 40 MP,
+   │  sharp().metadata(), como a digitalizada do Plano 10A); confere pré-condições e limites (RN-160 a RN-162)
+   │  salvarArquivos (DEP-09, na sessão do paciente): todos os originais (tipo `exame_original`) com UMA reserva de cota
+   │     antesDaReserva = trava do paciente + pré-condições + limites
+   │     registrar = INSERT exam_submissions ('processando') + exam_submission_files (papel 'original')
+   │                 + boss.send('exame-envio', {tenantId, envioId}, { db: fromDrizzle(tx, sql) })   — tudo ou nada
    ▼
-nutri_worker  fila `exame-envio` (1 por vez; mesmo padrão do diário, DEP-03)
-   1. withTenant(worker): fotos HEIC/PNG/JPEG → JPEG sem EXIF/GPS (maior lado ≤ 2000 px, qualidade 85);
-      PDF → cada página RASTERIZADA em JPEG (mesmos parâmetros; uma página por vez; até 10 páginas; tempo máximo)
-   2. gera o PDF LIMPO só com essas imagens, na ordem (@react-pdf/renderer, só no worker — CLAUDE.md regra 9)
-   3. substituirArquivos (DEP-09), numa transação: grava o PDF limpo e as imagens de página, apaga os originais;
-      registrar = UPDATE do envio → 'recebido' (arquivo_path = PDF limpo) + exam_submission_files (papel 'pagina')
-   4. aviso à nutricionista (D16), sem dado de saúde
+nutri_worker  fila `exame-envio` (src/jobs/queues.ts; 1 por vez; job idempotente, molde de diario-foto-job.ts)
+   1. withTenant(worker): fotos HEIC/PNG/JPEG → JPEG sem EXIF/GPS (heic-decode + sharp; 40 MP pelo cabeçalho; orientação
+      aplicada; maior lado ≤ 2000 px, qualidade 85); PDF → cada página RASTERIZADA em JPEG (mesmos parâmetros; uma página
+      por vez; até 10 páginas; numa thread com heap e tempo limitados, molde de preparar-pdf-thread.ts; biblioteca: DEP-10)
+   2. monta o PDF LIMPO só com essas imagens, na ordem (@react-pdf/renderer, como renderizarDigitalizada; só no worker)
+   3. grava cada imagem de página (tipo `exame_pagina`; registrar = linha papel 'pagina') e depois o PDF limpo (tipo
+      `exame`; registrar = envio → 'recebido' com arquivo_path), cada um no seu salvarArquivo
+   4. apaga cada original no seu apagarArquivo (a linha papel 'original' sai junto, FK ON DELETE CASCADE)
+   5. aviso à nutricionista (D16 = a): e-mail genérico, no máximo 1 a cada 6 h por tenant
    ▼
-Painel "Exames recebidos" → abrir (auditRead; páginas como <img> por signFileUrl, D23)
-   → Aceitar ──► INSERT exams (arquivo_path = PDF limpo) + envio 'aceito' + apagarArquivos(imagens de página), uma transação
-   → Aceitar e ler valores com IA ──► idem + tarefa F3-01 (US-110)
-   → Recusar ──► apagarArquivos(PDF limpo + páginas; naMesmaTransacao = envio 'recusado')
+Painel /painel/exames-recebidos → abrir o envio (auditRead; páginas como <img> por signFileUrl, D23 = a)
+   → Aceitar ──► transação: trava paciente → envio → INSERT exams (arquivo_path = PDF limpo, valores = [])
+                 + envio 'aceito' (exam_id, revisado_por/em; arquivo_path → nulo: o exame passa a ser o único dono)
+                 depois: cada imagem de página no seu apagarArquivo
+   → Aceitar e ler valores com IA ──► o mesmo e, em seguida, pedirLeituraExame (src/modules/ia/tarefas.ts, US-110)
+   → Recusar ──► apagarArquivo(PDF limpo; naMesmaTransacao = envio 'recusado' com o motivo) + páginas, cada uma no seu
+Paciente "Cancelar envio" ──► UPDATE do próprio envio 'recebido' → 'cancelado' + job `exame-envio-limpar` na mesma
+                 transação; o worker apaga o PDF limpo e as páginas (a sessão de paciente não apaga stored_files)
+Varredura (fila `expirar-exame-envio`, de 15 em 15 min): 'processando' parado > 30 min sem job vivo → 'falhou';
+                 'recebido' há 90 dias → 'expirado' (D15 = b); arquivo de envio que não está mais vivo → apagado
 ```
 
-**Por que tudo passa pelo worker (D23):** `/api/arquivos` serve PDF como download (`content-disposition: attachment` e CSP `default-src 'none'; sandbox`, `src/app/api/arquivos/route.ts`), então a nutricionista não "vê ao lado" um PDF; e um PDF enviado pelo **paciente** é conteúdo não confiável (JavaScript, links, anexos embutidos, falhas de leitor) que antes não existia, porque só a equipe enviava arquivos. Rasterizar no worker neutraliza o original: o que fica guardado, o que a nutricionista vê e o que vai à F3-01 são **só imagens** (R-170). As imagens de página servem à revisão e são apagadas quando o envio é revisado, cancelado ou expira; o PDF limpo é o que vira laudo.
+**Por que tudo passa pelo worker (D23 = a, aprovada em 07/10/2026):** `/api/arquivos` serve PDF como download (`content-disposition: attachment` e CSP `default-src 'none'; sandbox`, `src/app/api/arquivos/route.ts:44`) e imagem `inline`; então a nutricionista não "vê ao lado" um PDF, mas vê imagens. E um PDF enviado pelo **paciente** é conteúdo não confiável (JavaScript, links, anexos embutidos, falhas de leitor) que antes não existia, porque só a equipe enviava arquivos. Rasterizar no worker neutraliza o original: o que fica guardado, o que a nutricionista vê e o que vai à F3-01 são **só imagens** (R-170). As imagens de página servem à revisão e saem quando o envio é revisado, cancelado ou expira; o PDF limpo é o que vira laudo.
 
-**Por que Route Handler:** o envio de exame da equipe já é Route Handler (`src/app/api/painel/pacientes/[id]/exames/route.ts`, com limite de corpo próprio); Server Action tem limite de corpo padrão de 1 MB (`bodySizeLimit`, não alterado no `next.config`), que não comporta 30 MB. As rotas `/api/` ficam fora do `src/proxy.ts`.
+**Por que Route Handler:** o envio de exame da equipe (`src/app/api/painel/pacientes/[id]/exames/route.ts`) e o do diário do paciente (`src/app/api/p/diario/route.ts`) já são Route Handlers com limite de corpo próprio (`lerCorpoLimitado`, `src/lib/corpo.ts`); Server Action tem limite de corpo padrão de 1 MB, que não comporta 30 MB. As rotas `/api/` ficam fora do `src/proxy.ts`.
 
-O PDF limpo aceito **não é copiado**: a linha de `stored_files` passa a ser apontada também por `exams.arquivo_path` (mesmo padrão da US-015), sem gastar cota em dobro.
+**Por que um `apagarArquivo` por arquivo (DEP-09 reduzida):** a regra 9 pede que o ponteiro saia na transação do arquivo, não que todos os arquivos saiam numa transação só. O aceite muda a situação numa transação e as imagens de página saem logo depois, cada uma com a linha dela; se o processo cair no meio, a varredura apaga as que sobraram (molde de `soltarArquivosDoPreparo` + `limparArquivosOrfaosDeDocumentos`, Plano 10A). Só o envio do paciente precisa de uma reserva única (`salvarArquivos`): a sessão de paciente não consegue desfazer um envio gravado pela metade.
+
+**O PDF limpo aceito não é copiado:** o exame passa a apontar para a mesma linha de `stored_files` (tipo `exame`, como os laudos da US-015) e o envio solta o ponteiro dele no aceite. Assim há um dono só: `excluirExame` (`src/modules/pacientes/exames.ts:109`), `anexosDoPaciente` e a exportação tratam o arquivo como laudo, sem gastar cota em dobro.
+
+**Módulos novos:** `src/modules/pacientes/exames-enviados.ts` (fila, abertura, aceite, recusa — lado da equipe), o lado do paciente (envio, lista, download, cancelamento; em `src/modules/portal/`, como o diário, se o plano preferir) e `exames-enviados-job.ts` (só worker: conversão, rasterização, PDF limpo, limpeza e varredura). As telas chamam só o módulo.
 
 ### 4.2 IA Nutri (F3-02)
 
@@ -203,14 +226,14 @@ Se o dono escolher outro provedor (A-D1), a política dele precisa ser conferida
 
 | Campo | Regra |
 |---|---|
-| Data da coleta | Obrigatória; não pode ser futura (fuso do tenant); não pode ser anterior a 10 anos ("Confira a data da coleta") |
+| Data da coleta | Obrigatória; não pode ser futura (fuso do tenant, `hojeNoFuso`) — "A data não pode ser no futuro"; não pode ser anterior a 10 anos **nem à data de nascimento do paciente** (ECF.17.05, §6.5) — "Confira a data da coleta" |
 | Nome do exame | Opcional, até 120 caracteres (ex.: "Hemograma"); vazio → o envio aparece como "Exame enviado em {data}" |
 | Observação | Opcional, até 500 caracteres, com a dica "Ex.: exame pedido na consulta de setembro." |
-| Arquivo(s) | Conforme **D13** (recomendação: 1 PDF de até 20 MB e até 10 páginas **ou** até 5 fotos JPEG, PNG ou HEIC de até 10 MB cada, **somando até 30 MB**). Tipo pelo conteúdo (`detectarTipo`), nunca pela extensão; SVG, ZIP e WebP recusados |
+| Arquivo(s) | **D13 = (b), aprovada em 07/10/2026:** 1 PDF de até 20 MB (`EXAME_MAX_BYTES`, o mesmo da US-015) e até 10 páginas **ou** 1 a 5 fotos JPEG, PNG ou HEIC de até 10 MB cada (o mesmo teto da foto do diário, `FOTO_DIARIO_MAX_BYTES`), **somando até 30 MB**. Tipo pelo conteúdo (`detectarTipo`, `src/lib/file-type.ts`), nunca pela extensão; SVG, ZIP e WebP recusados. JPEG e PNG acima de 40 megapixels recusados na rota pelo cabeçalho (como a digitalizada, RN-157); o HEIC é conferido no worker (o cabeçalho só é lido pelo `heic-decode`, como no diário) |
 
 ### 6.2 Situações do envio
 
-`processando` (arquivo sendo convertido no worker — fotos **e** PDF, D23) → `recebido` (aguardando a nutricionista) → `aceito` | `recusado` | `cancelado` (pelo paciente) | `expirado` (D15) | `falhou` (conversão falhou ou PDF com mais de 10 páginas: os arquivos são apagados e o envio fica na lista com o texto abaixo, sem arquivo e sem ação).
+`processando` (arquivo sendo convertido no worker — fotos **e** PDF, D23 = a) → `recebido` (aguardando a nutricionista) → `aceito` | `recusado` | `cancelado` (pelo paciente) | `expirado` (D15 = b) | `falhou` (conversão falhou, PDF com mais de 10 páginas, cota do consultório esgotada no worker ou processamento interrompido: os arquivos são apagados e o envio fica na lista com o texto abaixo, sem arquivo e sem ação).
 
 | Situação | O paciente vê |
 |---|---|
@@ -220,18 +243,53 @@ Se o dono escolher outro provedor (A-D1), a política dele precisa ser conferida
 | `recusado` | "Não aceito: {motivo}" |
 | `cancelado` | (some da lista) |
 | `expirado` | "Não revisado a tempo. Se ainda for útil, envie de novo." |
-| `falhou` | "Não conseguimos processar o arquivo. Tente enviar de novo." (PDF com mais de 10 páginas: "O PDF tem mais de 10 páginas. Envie só as páginas com os resultados.") |
+| `falhou` | "Não conseguimos processar o arquivo. Tente enviar de novo." (PDF com mais de 10 páginas: "O PDF tem mais de 10 páginas. Envie só as páginas com os resultados."; cota esgotada no worker: "Não foi possível enviar agora: o espaço de arquivos do consultório acabou. Avise sua nutricionista.") |
 
 ### 6.3 Revisão pela nutricionista
 
-- **Fila "Exames recebidos"** no menu do painel, com contador; ordem: mais antigos primeiro; cada linha mostra paciente, data do envio, data da coleta, nome e "há {n} dias". No prontuário do paciente, a aba Exames mostra "Exames enviados pelo paciente ({n})".
-- **Abrir** um envio mostra **as páginas como imagens** ao lado das ações (cada imagem por URL assinada de 5 min, `signFileUrl`; a rota já serve imagem `inline`), a observação e as ações; o PDF limpo pode ser baixado. A abertura chama `auditRead` (entidade "Exames enviados pelo paciente").
-- **Aceitar:** formulário com "Título" (preenchido com o nome do envio ou "Exame") e "Data" (preenchida com a data da coleta), ambos editáveis com as regras da US-015; cria a linha de `exams` com o `arquivo_path` do **PDF limpo** e `valores = []`, marca o envio `aceito` com `exam_id`, `revisado_por`, `revisado_em` e apaga as imagens de página (`apagarArquivos`, DEP-09) — tudo numa transação, com o paciente travado (mesma ordem de travas de `criarExame`).
-- **"Aceitar e ler valores com IA":** só aparece com a IA ativa no consultório (Subprojeto A, US-101) e o paciente sem recusa de IA (A-D9). Faz o mesmo que "Aceitar" e, na mesma ação, pede a leitura (US-110). A conferência dos valores segue a US-111.
-- **Recusar:** motivo obrigatório entre "Arquivo ilegível", "Não é um exame", "Exame de outra pessoa", "Exame repetido", "Outro motivo" (este com texto livre de até 300 caracteres). O PDF limpo e as imagens de página são apagados na mesma transação (D20); o envio fica `recusado` com o motivo.
-- O paciente arquivado, bloqueado ou anonimizado não envia (o portal já está fechado para ele, RN-08); envios `recebido` de um paciente que foi arquivado continuam na fila e podem ser aceitos ou recusados.
+- **Ligar o recebimento (D18 = a, aprovada):** Configurações do painel (`src/app/painel/configuracoes/`), "Receber exames enviados pelos pacientes pelo app"; a coluna `tenants.exames_paciente_ativado_em` nasce **nula para todos** na migration (como `agendamento_publico_ativo`, migration 0067). Desligar esconde "Enviar exame" do portal; os envios já recebidos continuam na fila.
+- **Fila "Exames recebidos"** (`/painel/exames-recebidos`, item do menu do painel com contador, molde de `/painel/diarios` em `src/app/painel/navegacao.ts`); ordem: mais antigos primeiro; cada linha mostra paciente, data do envio, data da coleta, nome e "há {n} dias". No prontuário (`/painel/pacientes/[id]/exames`), a aba Exames mostra "Exames enviados pelo paciente ({n})".
+- **Abrir** um envio mostra **as páginas como imagens** ao lado das ações (cada imagem por URL assinada de 5 min, `signFileUrl`; a rota serve imagem `inline`), a observação e as ações; o PDF limpo pode ser baixado. A abertura chama `auditRead` (entidade `exames_enviados`, "Exames enviados pelo paciente").
+- **Aceitar:** formulário com "Título" (preenchido com o nome do envio ou "Exame") e "Data" (preenchida com a data da coleta), ambos editáveis com as regras da US-015 (título de 1 a 120, data válida e não futura — as mesmas mensagens `MSG_EXAME`); cria a linha de `exams` com o `arquivo_path` do **PDF limpo** e `valores = []`, marca o envio `aceito` com `exam_id`, `revisado_por`, `revisado_em` e solta o ponteiro do envio — tudo numa transação, com o paciente travado primeiro (`carregarPacienteParaEscrita`, mesma ordem de travas de `criarExame`); as imagens de página saem logo depois (§4.1).
+- **"Aceitar e ler valores com IA":** só aparece com a IA ativa no consultório (`estadoIaDoTenant(tenant, modo) === 'ativa'`: IA liberada pela admin, ativada pela nutricionista, aditivo em dia) e o paciente apto (`motivoDoPaciente(p) === null`: ativo, sem "Não usar IA", com a ciência do aviso de IA, US-104). Faz o aceite e, **em seguida**, chama `pedirLeituraExame` (transação própria do Plano 11). Se o pedido for recusado (cota, limite, ciência…), o exame continua salvo e a tela mostra "Exame salvo no prontuário." com a mensagem da US-110 (`MSG_IA`). A conferência dos valores segue a US-111.
+- **Recusar (D20 = a, aprovada):** motivo obrigatório entre "Arquivo ilegível", "Não é um exame", "Exame de outra pessoa", "Exame repetido", "Outro motivo" (este com texto livre de até 300 caracteres). O PDF limpo sai no `apagarArquivo` cujo `naMesmaTransacao` marca o envio `recusado` com o motivo; as imagens de página saem logo depois.
+- Paciente **arquivado**: `carregarPacienteParaEscrita` aceita, então os envios `recebido` dele continuam na fila e podem ser aceitos ou recusados (ele não envia mais: o portal fecha, RN-08). Paciente **bloqueado ou anonimizado**: os envios não aceitos já foram apagados (§13.3); uma corrida dá "Paciente bloqueado…" (`MSG_BLOQUEADO`).
 
----
+### 6.4 Onde fica no portal
+
+O portal tem 7 abas e o comentário de `src/app/p/navegacao.ts` pede decidir de novo a barra quando "Exames" chegar. **Recomendação da v0.3 (a confirmar no plano, PM-10):** seguir o molde de "Documentos" (US-146, Plano 10A) — `/p/exames` **não vira aba**, marca a aba "Perfil" (`tambem: ['/p/documentos', '/p/exames']`), com o item "Meus exames" em Perfil e o botão "Enviar exame" no Início quando o consultório recebe exames.
+
+### 6.5 Integridade e trilha (boas práticas SBIS NGS1)
+
+O NutriDebby mira a certificação SBIS (PEP Consultório Individual, NGS1). O envio de exame cria registros que podem virar prontuário; ele já nasce nas práticas abaixo, sem escopo novo:
+
+1. **Nada do paciente entra no prontuário sem a ação da nutricionista**, e fica registrado quem aceitou e quando (`revisado_por`, `revisado_em`); o exame aceito guarda a origem (`exam_submissions.exam_id`) e a aba Exames mostra o selo "Enviado pelo paciente" (ECF.17.01).
+2. **O registro do envio não é apagado na revisão:** aceitar, recusar, cancelar, expirar e falhar mudam a situação e só os **arquivos** saem (minimização, D20 = a); a linha só sai no pedido de exclusão atendido e na anonimização (LGPD, dado fora do prontuário) (NGS1.12.03, no limite do que a LGPD pede).
+3. **Cada papel só faz a sua transição, no banco** (NGS1.03.01, NGS1.03.04): políticas `RESTRICTIVE` da sessão de paciente (só `INSERT` de envio `processando` do próprio paciente, sem colunas da revisão, e `UPDATE` só `recebido → cancelado`); `aceito`/`recusado` só pela equipe; `recebido`, `falhou` e `expirado` só pelo `worker`. Recomendado: um gatilho de transição no molde de `app_ia_tarefas_imutavel` e `app_documento_imutavel` (0100, 0091), para que nem o código da equipe pule etapas (PM-14).
+4. **Trilha** (NGS1.07.02 a 07.04): gatilho `audit_row_change` em `exam_submissions` e `exam_submission_files` (entidade `exames_enviados`); `auditRead` ao abrir o envio no painel e na lista e no download do próprio paciente (Plano 06, D22: leitura do titular é auditada); a fila do painel, que só lista, sem `auditRead` (como a lista de pacientes). O envio pelo paciente aparece com ele como ator; as mudanças do worker, com ator nulo ("Sistema").
+5. **Nenhuma migration do Plano 12 desliga o gatilho de auditoria** (NGS1.07.01); migration de dados em tabela auditada usa `set_config('app.tenant_id', …)` por tenant.
+6. **Datas consistentes** (ECF.17.05): coleta não futura, não anterior a 10 anos nem ao nascimento do paciente; o aceite segue a US-015 (data não futura).
+7. **O original do paciente nunca vira prontuário:** o que fica guardado é o PDF limpo gerado pelo sistema (R-170).
+
+### 6.6 O que a v0.3 mudou em relação à v0.2 (pelo código)
+
+| # | v0.2 | v0.3 | Motivo (código) |
+|---|---|---|---|
+| 1 | `POST /api/portal/exames-enviados` | `POST /api/p/exames`, `GET /api/p/exames/{id}/pdf`; tela `/p/exames`; painel `/painel/exames-recebidos` | APIs do portal em `/api/p/…` (`src/app/api/p/`); fila da equipe no molde de `/painel/diarios` |
+| 2 | Envios com o tipo `exame` ("sem tipo novo") | Originais `exame_original`, imagens de página `exame_pagina`, PDF limpo `exame` | `paciente_arquivo_insert` (`drizzle/0080:30`) libera um tipo só ao paciente; com `exame`, a sessão de paciente poderia gravar arquivo com o tipo do laudo. Tipos próprios também permitem esconder do paciente (`paciente_arquivos`) e tirar as páginas do backup (PM-11) |
+| 3 | Cancelamento apaga os arquivos na transação do paciente | O paciente marca `cancelado` e enfileira a limpeza; o worker apaga | A sessão de paciente não tem `DELETE` em `stored_files` (`PACIENTE_ESCREVE` só `insert`, `src/db/rls-guard.ts`) |
+| 4 | DEP-09 com `salvarArquivos`, `substituirArquivos` e `apagarArquivos` | Só `salvarArquivos`; o resto no molde existente | §4.1; `substitui` já existe em `salvarArquivo` (Plano 06) e o 10A já solta vários arquivos com ponteiro por arquivo |
+| 5 | Aceite apaga as páginas na mesma transação | Páginas saem logo depois, cada uma no seu `apagarArquivo`, e a varredura limpa sobras | Idem (regra 9 cumprida arquivo a arquivo) |
+| 6 | Envio preso > 30 min é reprocessado uma vez | Vira `falhou` sem reprocessar | Molde de `expirarFotosPendentes`: "se a queda foi falta de memória com esta foto, cada varredura derrubaria o worker outra vez" (`diario-foto-job.ts:211`) |
+| 7 | `exam_id` sem FK | FK composta (`tenant_id`, `patient_id`, `exam_id`) → `exams` `ON DELETE SET NULL (exam_id)` | Alvo `exams_tenant_paciente_id_unique` criado na 0098; mesmo desenho de `ia_tarefas` (0099) |
+| 8 | PDF limpo apontado pelo envio e pelo exame | No aceite o envio solta o ponteiro; o exame é o único dono | `excluirExame` e `anexosDoPaciente` contam um dono por arquivo |
+| 9 | "Aceitar e ler" na mesma ação | Aceite (transação 1) e `pedirLeituraExame` (transação 2) em seguida; recusa da IA não desfaz o aceite | `pedirLeituraExame` abre a própria transação e trava paciente → exame → tenant (`tarefas.ts:59`) |
+| 10 | Leitura do paciente "segue a regra do Plano 06" | `auditRead` na lista e no download (entidade `exames_enviados`) | Plano 06, D22 (manual técnico §5, tabela das telas do portal) |
+| 11 | Push "sem 'exame', 'nutricionista', 'dúvida' nem 'IA' (mesma regra do Plano 05)" | Texto da F3-04 mais restrito que o do código, de propósito | C-05; `AVISOS_DO_PORTAL` usa "Sua nutricionista…" |
+| 12 | Qualidade 85 "como o diário" | Pede parâmetro novo | `paraJpegSemMetadados` tem qualidade fixa 80 (`src/lib/jpeg.ts`) — PM-9 |
+| 13 | Rasterização "escolha técnica do plano" | DEP-10: não há biblioteca no repositório | `pdf-lib` não desenha; o `sharp` não abre PDF (a conferir) |
+| 14 | `tentativas_processamento` em `exam_submissions` | Removida | Sem reprocessamento (item 6); as tentativas são do pg-boss (`retryLimit`) |
+| 15 | Data da coleta: não futura e até 10 anos | Também não anterior ao nascimento | ECF.17.05 (§6.5) |
 
 ## 7. IA Nutri do paciente (F3-02)
 
@@ -333,14 +391,16 @@ Com o limite recomendado de 100 perguntas por paciente por mês (D4), o pior cas
 
 ### E13 — Exames enviados pelo paciente (F3-04)
 
+Textos de interface com o texto exato abaixo (regra 4 do `CLAUDE.md`). v0.3: decisões D13–D18, D20 e D23 aprovadas (07/10/2026); rotas e nomes conferidos no código (§6.6).
+
 #### US-160 — Paciente envia um exame · **M**
 
 **Como** paciente, **quero** enviar meu exame pelo app, **para** que minha nutricionista o veja antes da consulta.
 
 ```gherkin
 Cenário: Enviar um PDF
-  Dado que o consultório recebe exames pelo app (D18)
-  Quando abro "Exames" > "Enviar exame", informo a data da coleta 28/09/2026, o nome "Hemograma" e anexo um PDF de 3 MB
+  Dado que o consultório recebe exames pelo app (D18 = a: a nutricionista ligou em Configurações)
+  Quando abro "Meus exames" > "Enviar exame", informo a data da coleta 28/09/2026, o nome "Hemograma" e anexo um PDF de 3 MB
   E toco em "Enviar"
   Então vejo "Exame enviado. Sua nutricionista vai revisar."
   E o envio aparece em "Meus exames enviados" como "Processando…"
@@ -348,7 +408,7 @@ Cenário: Enviar um PDF
   E o envio passa a "Aguardando sua nutricionista"
   E o prontuário NÃO ganha exame novo até a nutricionista aceitar
 
-Cenário: Enviar fotos (D13)
+Cenário: Enviar fotos (D13 = b)
   Quando anexo 3 fotos HEIC de 6 MB do mesmo laudo, na ordem das páginas
   Então o envio aparece como "Processando…"
   E o worker converte as fotos para JPEG sem EXIF/GPS (maior lado ≤ 2000 px), junta as 3 num PDF na ordem e apaga as originais
@@ -364,7 +424,7 @@ Cenário: PDF longo
   Então o envio fica "O PDF tem mais de 10 páginas. Envie só as páginas com os resultados." e os arquivos são apagados (a cota é devolvida)
 
 Cenário: Arquivo inválido
-  Quando anexo um .docx, uma foto de 15 MB, um PDF de 25 MB ou 4 fotos de 9 MB (36 MB no total)
+  Quando anexo um .docx, uma foto de 15 MB, um PDF de 25 MB, 4 fotos de 9 MB (36 MB no total) ou uma foto JPEG de 50 megapixels
   Então vejo "Envie 1 PDF de até 20 MB ou até 5 fotos (JPEG, PNG ou HEIC) de até 10 MB cada, somando até 30 MB."
 
 Cenário: PDF e fotos juntos, ou mais de 5 fotos
@@ -373,25 +433,36 @@ Cenário: PDF e fotos juntos, ou mais de 5 fotos
 Cenário: Data inválida
   Quando informo uma data futura
   Então vejo "A data não pode ser no futuro"
-  Quando informo uma data de mais de 10 anos atrás
+  Quando informo uma data de mais de 10 anos atrás ou anterior à minha data de nascimento
   Então vejo "Confira a data da coleta"
 
-Cenário: Limite por paciente (D14)
-  Dado que já tenho 10 envios aguardando a nutricionista
+Cenário: Limites por paciente (D14 = a)
+  Dado que já tenho 10 envios processando ou aguardando a nutricionista
   Então vejo "Você já tem 10 exames aguardando sua nutricionista. Aguarde a revisão antes de enviar outros."
+  Dado que já enviei 5 exames hoje
+  Então vejo "Você já enviou 5 exames hoje. Tente amanhã."
 
 Cenário: Espaço do consultório esgotado (RN-18)
   Dado que o tenant tem 10 MB livres na cota de 5 GB
   Quando envio 3 fotos de 6 MB
   Então vejo "Não foi possível enviar agora: o espaço de arquivos do consultório acabou. Avise sua nutricionista."
-  E nada é gravado: nem o envio nem nenhuma das fotos (uma reserva só, DEP-09)
+  E nada é gravado: nem o envio nem nenhuma das fotos (uma reserva só, salvarArquivos, DEP-09)
+
+Cenário: Espaço esgotado durante o processamento
+  Dado que o consultório ficou sem espaço entre o envio e o processamento
+  Então o envio fica "Não foi possível enviar agora: o espaço de arquivos do consultório acabou. Avise sua nutricionista." e os arquivos são apagados
+
+Cenário: Muitos envios ao mesmo tempo
+  Dado que outro envio da minha conta ainda está chegando, ou o servidor já recebe 2 envios
+  Então vejo "Tente novamente em alguns instantes."
 
 Cenário: Recebimento desligado
   Dado que o consultório não recebe exames pelo app
   Então a opção "Enviar exame" não aparece no portal
+  E um envio direto à API é recusado
 
 Cenário: Falha na conversão
-  Dado que uma foto está corrompida
+  Dado que uma foto está corrompida, ou é um HEIC acima de 40 megapixels
   Então o envio fica "Não conseguimos processar o arquivo. Tente enviar de novo." e os arquivos são apagados (a cota é devolvida)
 ```
 
@@ -401,13 +472,19 @@ Cenário: Falha na conversão
 Cenário: Lista
   Quando abro "Meus exames enviados"
   Então vejo cada envio com a data do envio, a data da coleta, o nome e a situação (§6.2)
-  E posso baixar o meu próprio arquivo (PDF limpo, URL assinada de 5 min) só enquanto o envio está "Aguardando sua nutricionista" (D17)
-  E depois de "Recebido no seu prontuário" não vejo o arquivo nem os valores lançados pela nutricionista (US-044, D17)
+  E posso baixar o meu próprio arquivo (PDF limpo, URL assinada de 5 min) só enquanto o envio está "Aguardando sua nutricionista" (D17 = a)
+  E depois de "Recebido no seu prontuário" não vejo o arquivo nem os valores lançados pela nutricionista (US-044, D17 = a)
+  E a lista e o download ficam no "Histórico de acessos" como leitura minha (Plano 06, D22)
 
 Cenário: Cancelar envio não revisado
   Dado um envio "Aguardando sua nutricionista"
   Quando toco em "Cancelar envio" e confirmo "Cancelar este envio? O arquivo será apagado."
-  Então o envio some da lista, o arquivo é apagado e a cota é devolvida
+  Então o envio some da lista
+  E o arquivo é apagado pelo sistema em seguida e a cota é devolvida
+
+Cenário: Ainda processando
+  Dado um envio "Processando…"
+  Então "Cancelar envio" mostra "Aguarde o processamento terminar."
 
 Cenário: Não cancela depois de revisado
   Dado um envio "Recebido no seu prontuário"
@@ -415,15 +492,15 @@ Cenário: Não cancela depois de revisado
 
 Cenário: Isolamento
   Dado o paciente B do mesmo consultório
-  Então B não vê, não abre e não cancela os envios de A (nem pela API: 0 linhas / 404)
+  Então B não vê, não abre, não baixa e não cancela os envios de A (nem pela API: 0 linhas / 404)
 ```
 
 #### US-162 — Nutricionista recebe aviso e vê a fila · **M**
 
 ```gherkin
-Cenário: Aviso (D16)
+Cenário: Aviso (D16 = a)
   Dado que 3 pacientes enviaram exames entre 08:00 e 09:00
-  Então recebo no máximo 1 e-mail nesse intervalo de 6 h com "Você tem exames novos enviados por pacientes para revisar." e o link para a fila
+  Então cada nutricionista do consultório recebe no máximo 1 e-mail nesse intervalo de 6 h com "Você tem exames novos enviados por pacientes para revisar." e o link para a fila
   E o e-mail não traz nome de paciente, nome de exame nem arquivo
 
 Cenário: Fila
@@ -445,19 +522,24 @@ Cenário: Aceitar
   Quando abro o envio, confiro as páginas (imagens) ao lado e clico em "Aceitar"
   Então vejo o formulário com "Título" = "Hemograma" e "Data" = 28/09/2026, editáveis
   Quando clico em "Salvar no prontuário"
-  Então o exame aparece na aba Exames de A com o PDF limpo do envio (sem cópia e sem gastar cota de novo)
-  E as imagens de página do envio são apagadas na mesma transação
-  E o envio fica "Recebido no seu prontuário" para A
+  Então o exame aparece na aba Exames de A com o PDF limpo do envio e o selo "Enviado pelo paciente" (sem cópia e sem gastar cota de novo)
+  E as imagens de página do envio são apagadas logo em seguida
+  E o envio fica "Recebido no seu prontuário" para A, que recebe o push neutro "Há uma atualização para você no app." (C-05)
   E vejo "Exame salvo no prontuário."
   E o "Histórico de acessos" registra a criação do exame e a alteração do envio
 
 Cenário: Aceitar e ler com IA (F3-01)
-  Dado que a IA está ativa no consultório e A não recusou IA
+  Dado que a IA está ativa no consultório e A está apto (ativo, informado sobre o uso de IA e sem "Não usar IA")
   Quando clico em "Aceitar e ler valores com IA"
   Então o exame é salvo como acima e a leitura começa (US-110: "Lendo o laudo… isso leva até 1 minuto.")
 
+Cenário: Aceitar e ler, com a IA recusando o pedido
+  Dado que o limite de uso da IA deste mês acabou
+  Quando clico em "Aceitar e ler valores com IA"
+  Então o exame é salvo e vejo "Exame salvo no prontuário." e "O limite de uso da IA deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite."
+
 Cenário: IA indisponível
-  Dado a IA desligada no consultório
+  Dado a IA desligada ou não liberada no consultório, ou A sem ciência do uso de IA ou com "Não usar IA"
   Então só "Aceitar" aparece
 
 Cenário: Corrida com o cancelamento
@@ -473,9 +555,9 @@ Cenário: Corrida entre duas abas
 #### US-164 — Nutricionista recusa o exame · **M**
 
 ```gherkin
-Cenário: Recusar
+Cenário: Recusar (D20 = a)
   Quando clico em "Recusar", escolho "Arquivo ilegível" e confirmo
-  Então o arquivo é apagado na mesma transação e a cota é devolvida
+  Então o PDF limpo é apagado na mesma transação que marca o envio "recusado", as imagens de página logo depois, e a cota é devolvida
   E A vê no app "Não aceito: Arquivo ilegível" e recebe o push neutro "Há uma atualização para você no app." (C-05)
 
 Cenário: Outro motivo
@@ -488,16 +570,17 @@ Cenário: Exame de outra pessoa
   Então o arquivo é apagado (dado de terceiro, minimização) e A vê "Não aceito: Exame de outra pessoa"
 ```
 
-#### US-165 — Envio parado expira · **S** (se D15 = expirar)
+#### US-165 — Envio parado expira · **S** (D15 = b)
 
 ```gherkin
 Cenário: Lembrete à nutricionista
   Dado um envio "recebido" há 30 dias
-  Então o e-mail do aviso (D16) acrescenta "Há exames enviados por pacientes aguardando revisão há mais de 30 dias."
+  Quando sai o próximo e-mail de aviso de exames novos (D16)
+  Então ele acrescenta "Há exames enviados por pacientes aguardando revisão há mais de 30 dias."
 
 Cenário: Expirar
   Dado um envio "recebido" há 90 dias
-  Quando a varredura diária roda
+  Quando a varredura roda
   Então o arquivo é apagado, a cota é devolvida e o envio fica "Não revisado a tempo. Se ainda for útil, envie de novo."
   E A recebe o push neutro "Há uma atualização para você no app."
 ```
@@ -748,16 +831,16 @@ Cenário: Aceitar de novo a mesma versão
 
 | ID | Regra |
 |---|---|
-| RN-160 | **Envio de exame — pré-condições:** sessão de paciente com vínculo `ativo` (RN-08), tenant ativo (RN-15) e `tenants.exames_paciente_ativado_em` preenchido (D18). Conferidas no Route Handler e de novo na transação que grava (o paciente pode ter sido arquivado no meio) |
-| RN-161 | **Arquivos por envio (D13):** 1 PDF de até 20 MB (`EXAME_MAX_BYTES`) e até 10 páginas **ou** 1 a 5 imagens JPEG, PNG ou HEIC de até 10 MB cada; **total do envio ≤ 30 MB**; tipo pelo conteúdo (`detectarTipo`); misto ou acima disso → erro da US-160 (o número de páginas é conferido no worker → `falhou`). Recebido por **Route Handler** (multipart, limite de corpo de 30 MB + margem, como o de `src/app/api/painel/pacientes/[id]/exames/route.ts`), não por Server Action |
-| RN-162 | **Limites por paciente (D14):** no máximo 10 envios em `processando`/`recebido`; no máximo 5 envios por dia (fuso do tenant): "Você já enviou 5 exames hoje. Tente amanhã."; conferidos com o paciente travado, na transação que grava |
-| RN-163 | **Processamento (todo envio, D23):** os originais são gravados com `salvarArquivos` (DEP-09: tipo `exame`, uma reserva de cota pela soma, `registrar` = envio `processando` + `exam_submission_files` papel `original`; tudo ou nada). O job `exame-envio` converte cada foto e **rasteriza cada página de PDF** em JPEG (sem EXIF/GPS, orientação aplicada, maior lado ≤ 2000 px, qualidade 85 — parâmetros próprios de laudo, diferentes da RN-07 do diário), gera **um PDF limpo** só com essas imagens, na ordem (só no worker), e chama `substituirArquivos` (DEP-09): grava o PDF limpo e as imagens de página, apaga os originais e, no mesmo `registrar`, passa o envio a `recebido` com o `arquivo_path` do PDF limpo e as linhas papel `pagina` — uma transação. Falha ou PDF com mais de 10 páginas → `falhou`, originais apagados (`apagarArquivos`). Envio em `processando` há mais de 30 min (worker reiniciado) é reprocessado uma vez; na segunda, `falhou` |
-| RN-164 | **Aceite:** só envio `recebido`; transação: trava o paciente (`carregarPacienteParaEscrita`) → trava o envio (`FOR UPDATE`) → confere `recebido` → `INSERT exams` (título 1–120, data válida e não futura, `valores = []`, `arquivo_path` do envio) → `UPDATE` do envio para `aceito` (`exam_id`, `revisado_por`, `revisado_em`) → imagens de página apagadas (`apagarArquivos`, DEP-09). Envio já revisado → "Este envio já foi revisado."; cancelado → "Este envio foi cancelado pelo paciente." |
-| RN-165 | **Recusa:** só envio `recebido`; motivo ∈ {`ilegivel`, `nao_e_exame`, `outra_pessoa`, `repetido`, `outro`}; `outro` exige texto de 1 a 300 caracteres; o PDF limpo e as imagens de página saem por `apagarArquivos` (DEP-09) com `naMesmaTransacao` que marca o envio `recusado` (D20) |
-| RN-166 | **Cancelamento pelo paciente:** só `recebido`; PDF limpo e imagens de página apagados por `apagarArquivos` com `naMesmaTransacao` que marca `cancelado`. Um envio `processando` não pode ser cancelado ("Aguarde o processamento terminar."); um envio `falhou` já não tem arquivo e fica na lista só com o texto da §6.2 |
-| RN-167 | **Expiração (D15):** varredura diária; `recebido` há 90 dias → PDF limpo e imagens de página apagados (`apagarArquivos`), `expirado`, push neutro ao paciente; o e-mail de aviso (D16) lembra os pendentes há mais de 30 dias |
-| RN-168 | **Aviso à nutricionista (D16):** ao chegar um envio `recebido`, e-mail genérico (C-05) para as nutricionistas do tenant (`aviso-nutri.ts`), **no máximo 1 a cada 6 h** por tenant (`tenants.exames_aviso_em`); o contador do painel é sempre atual |
-| RN-169 | **O que o paciente vê:** só os próprios envios (RLS por paciente) e a situação; o PDF limpo (URL assinada de 5 min) **só enquanto o envio está `recebido`** — depois de aceito ele é laudo do prontuário e a US-044 continua (o paciente não vê exames); nunca os valores do exame (D17). A leitura dos próprios envios pelo paciente segue a regra de auditoria que o Plano 06 adotar para leituras do titular |
+| RN-160 | **Envio de exame — pré-condições:** sessão de paciente por `requireApiPaciente` (vínculo ativo e termo aceito, RN-08; tenant ativo, RN-15), paciente `ativo` e não anonimizado, e `tenants.exames_paciente_ativado_em` preenchido (D18 = a, nasce nulo). Conferidas na rota e de novo no `antesDaReserva`, com o paciente travado (`FOR UPDATE`) — ele pode ter sido arquivado ou bloqueado no meio |
+| RN-161 | **Arquivos por envio (D13 = b):** 1 PDF de até 20 MB (`EXAME_MAX_BYTES`) e até 10 páginas **ou** 1 a 5 imagens JPEG, PNG ou HEIC de até 10 MB cada; **total do envio ≤ 30 MB**; tipo pelo conteúdo (`detectarTipo`); JPEG/PNG acima de 40 MP recusados pelo cabeçalho na rota; misto ou acima disso → erro da US-160 (o número de páginas e o cabeçalho do HEIC são conferidos no worker → `falhou`). Recebido por **Route Handler** `POST /api/p/exames` (multipart, `lerCorpoLimitado` com 30 MB + margem e prazo para o corpo; no máximo 2 envios por processo e 1 por conta → 429 "Tente novamente em alguns instantes."), não por Server Action |
+| RN-162 | **Limites por paciente (D14 = a):** no máximo 10 envios em `processando`/`recebido`; no máximo 5 envios por dia (fuso do tenant): "Você já enviou 5 exames hoje. Tente amanhã."; contados com o paciente travado, no `antesDaReserva` da transação que grava |
+| RN-163 | **Processamento (todo envio, D23 = a):** os originais são gravados por `salvarArquivos` (DEP-09: tipo `exame_original`, uma reserva de cota pela soma; `registrar` = envio `processando` + linhas papel `original` + job `exame-envio` na mesma transação; tudo ou nada). O job (`exames-enviados-job.ts`, só worker, idempotente) converte cada foto e **rasteriza cada página de PDF** em JPEG (sem EXIF/GPS, orientação aplicada, 40 MP pelo cabeçalho, maior lado ≤ 2000 px, qualidade 85 — parâmetros de laudo, diferentes da RN-07 do diário), monta **um PDF limpo** só com essas imagens, na ordem, e grava: cada imagem de página (tipo `exame_pagina`, linha papel `pagina` no `registrar`) e por último o PDF limpo (tipo `exame`; `registrar` = envio `recebido` com o `arquivo_path`); depois apaga cada original no seu `apagarArquivo`. Uma nova tentativa que encontra o envio `recebido` com originais só os apaga (como a foto "pronta" do diário). Falha de conversão, PDF com mais de 10 páginas ou cota esgotada no worker → `falhou` (`motivo_falha` = `conversao`, `paginas` ou `cota`) e todos os arquivos do envio apagados. Envio em `processando` há mais de 30 min sem job vivo (worker caiu na última tentativa) → `falhou` (`interrompido`) pela varredura, **sem reprocessar** (molde de `expirarFotosPendentes`). Paciente bloqueado ou anonimizado no meio → envio ignorado (os arquivos saem pela rotina da §13.3) |
+| RN-164 | **Aceite:** só envio `recebido`; transação: trava o paciente (`carregarPacienteParaEscrita`) → trava o envio (`FOR UPDATE`) → confere `recebido` → `INSERT exams` (título 1–120, data válida e não futura, `valores = []`, `arquivo_path` do envio) → `UPDATE` do envio para `aceito` (`exam_id`, `revisado_por`, `revisado_em`, `arquivo_path` nulo) → push neutro ao paciente (`exame_revisado`). Depois do commit, cada imagem de página sai no seu `apagarArquivo` (sobra → varredura). Envio já revisado → "Este envio já foi revisado."; cancelado → "Este envio foi cancelado pelo paciente." "Aceitar e ler valores com IA" chama `pedirLeituraExame` depois do commit; a recusa dele não desfaz o aceite |
+| RN-165 | **Recusa (D20 = a):** só envio `recebido`; motivo ∈ {`ilegivel`, `nao_e_exame`, `outra_pessoa`, `repetido`, `outro`}; `outro` exige texto de 1 a 300 caracteres; o PDF limpo sai por `apagarArquivo` com `naMesmaTransacao` que trava o envio, confere `recebido` e o marca `recusado` (`revisado_por`, `revisado_em`, motivo) com o push neutro (`exame_revisado`); as imagens de página saem logo depois |
+| RN-166 | **Cancelamento pelo paciente:** só `recebido`; a sessão de paciente faz `UPDATE` do próprio envio para `cancelado` (única transição que a política dela permite) e enfileira o job `exame-envio-limpar` na mesma transação; o worker apaga o PDF limpo (ponteiro no `naMesmaTransacao`) e as imagens de página. Um envio `processando` não pode ser cancelado ("Aguarde o processamento terminar."); um envio `falhou` já não tem arquivo e fica na lista só com o texto da §6.2 |
+| RN-167 | **Expiração (D15 = b):** varredura (fila `expirar-exame-envio`); `recebido` há 90 dias → `expirado`, PDF limpo e imagens de página apagados (`apagarArquivo`, ponteiro no `naMesmaTransacao`), push neutro ao paciente (`exame_expirado`); o e-mail de aviso (D16) lembra os pendentes há mais de 30 dias quando sai (PM-12). A mesma varredura apaga arquivo de envio que não está mais em `processando`/`recebido` (sobra de queda no meio) |
+| RN-168 | **Aviso à nutricionista (D16 = a):** quando um envio chega a `recebido`, e-mail genérico (C-05) para as nutricionistas do tenant por `avisarNutri` (`aviso-nutri.ts`), **no máximo 1 a cada 6 h** por tenant (`tenants.exames_aviso_em`, conferido e gravado com a linha do tenant travada); o contador do painel é sempre atual |
+| RN-169 | **O que o paciente vê (D17 = a):** só os próprios envios (RLS por paciente) e a situação; o PDF limpo (`GET /api/p/exames/{id}/pdf` → 303 para a URL assinada de 5 min) **só enquanto o envio está `recebido`** — depois de aceito ele é laudo do prontuário e a US-044 continua (o paciente não vê exames); nunca os valores do exame nem as imagens de página. A lista e o download chamam `auditRead` (entidade `exames_enviados`; Plano 06, D22: leitura do titular é auditada) |
 | RN-170 | **IA Nutri — pré-condições para cada pergunta:** pré-condições da RN-100 do Subprojeto A (IA da plataforma, tenant, aditivo de IA, A-D4/A-D6 resolvidas, paciente `ativo`, ciência do uso de IA, sem recusa de IA); `IA_NUTRI_DESLIGADA` ≠ 1; `tenants.ia_nutri_pausada_em` nulo (pausa do admin, RN-185); `tenants.ia_nutri_ativada_em`; participação do paciente com `liberada_em` (D6) e o último evento de `ia_nutri_consentimentos` = aceite na **versão vigente**; plano publicado existente; limites (RN-178) e cota (RN-179). Conferidas no app (dentro de `app_ia_nutri_perguntar`) e de novo no worker |
 | RN-171 | **Consentimento:** específico, em tela própria e separado do Termo de Uso (LGPD art. 11, I; art. 8º, § 4º); caixa desmarcada; versão em `IA_NUTRI_TERMO_VERSAO`. **Prova em `ia_nutri_consentimentos`** (tabela própria, **append-only**: uma linha por evento `aceite` ou `revogacao`, com versão, data, conta e IP; ninguém altera nem apaga, exceto a anonimização, que tira IP e conta). Não usa `consents`: a UNIQUE `consents_titular_termo_unique` (conta, versão, tenant, paciente, `NULLS NOT DISTINCT`) impediria o reaceite da mesma versão depois de uma revogação e `consents` não tem coluna de revogação. O estado atual (aceita/revogada, versão) é o último evento. Nova versão exige novo aceite. Revogar é tão fácil quanto aceitar (Perfil > Privacidade). Cabe ao controlador provar o consentimento e a revogação (art. 8º, §§ 2º e 5º) |
 | RN-172 | **Escopo e forma da resposta (D21 = a):** o modelo só **classifica** a pergunta e **aponta** índices do contexto (§7.3); o texto que o paciente lê é **montado pelo sistema**: frase fixa do `tipo_resposta` (`quantidade` → "No seu plano está assim:"; `substituicao` → "No seu plano, as opções de substituição são:"; `horario` → "No seu plano, o horário é:"; `refeicao` → "No seu plano, essa refeição tem:"; `orientacao` → "Sua nutricionista escreveu esta orientação:") seguida dos trechos citados lidos do banco, verbatim, cada um com "Fonte: {refeição ou atendimento} — {parte}". Nenhuma frase do modelo é exibida; portanto a IA não cria orientação, não estima quantidade, não compara com outras dietas e não comenta peso, medidas, exames ou sintomas |
@@ -782,15 +865,15 @@ Cenário: Aceitar de novo a mesma versão
 | ID | Requisito | Meta verificável |
 |---|---|---|
 | RNF-160 | Tempo da IA Nutri | Da pergunta à resposta na tela: p95 ≤ 15 s com a fila vazia; texto fixo do filtro de risco ≤ 1 s (não depende do provedor) |
-| RNF-161 | Tempo do envio | Envio de PDF de 20 MB em 4G: resposta do Route Handler ≤ 3 s depois do upload; `processando` → `recebido` p95 ≤ 60 s para 5 fotos somando 30 MB e para um PDF de 10 páginas |
-| RNF-162 | Memória | Job `exame-envio` um por vez, uma página/foto por vez, pico ≤ 150 MB com 5 fotos HEIC somando 30 MB e com um PDF de 20 MB e 10 páginas (teste); rasterização com tempo máximo por página; job `ia-paciente` ≤ 20 MB |
-| RNF-163 | Isolamento | `exam_submissions`, `exam_submission_files`, `ia_nutri_participacoes`, `ia_nutri_mensagens` e `ia_nutri_consentimentos` com RLS forçada, política por paciente e em `FABRICAS` de `test/isolamento.test.ts`; teste de sessão de paciente tentando ler, alterar, aceitar e apagar envio e mensagem de outro paciente (0 linhas / 404); nenhuma liberada ao `publico` |
+| RNF-161 | Tempo do envio | Envio de PDF de 20 MB em 4G: resposta do Route Handler ≤ 3 s depois do upload; `processando` → `recebido` p95 ≤ 60 s para 5 fotos somando 30 MB e para um PDF de 10 páginas. O prazo para o corpo chegar é proporcional ao tamanho (o diário dá 60 s para 10 MB; 30 MB pedem ≈ 180 s a ≈ 1,4 Mbit/s) — o plano mede e fixa |
+| RNF-162 | Memória | **Worker:** job `exame-envio` um por vez, uma página/foto por vez, pico ≤ 150 MB com 5 fotos HEIC somando 30 MB e com um PDF de 20 MB e 10 páginas (teste); rasterização numa thread com heap e tempo limitados (molde de `preparar-pdf-thread.ts`), estouro → `falhou` sem derrubar o worker de 512 MB. **App:** no máximo 2 envios por processo e 1 por conta (cada envio segura ≈ 3 cópias do corpo, ≈ 90 MB com 30 MB), como `/api/p/diario`; F3-02: job `ia-paciente` ≤ 20 MB (Plano 15) |
+| RNF-163 | Isolamento | **F3-04:** `exam_submissions` e `exam_submission_files` com RLS forçada (`app_enable_tenant_rls` + `app_enable_patient_rls`), em `FABRICAS` de `test/isolamento.test.ts` (a fábrica das linhas de arquivo cria o envio no mesmo comando) e nenhuma em `PUBLICO_LIBERADO`; `PACIENTE_ESCREVE` com `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`), cada uma com a política `RESTRICTIVE` da §13.1 (`app_allow_paciente_escrita`); `stored_files` continua só `insert` para o paciente, agora também do tipo `exame_original`. Teste de sessão de paciente tentando ler, baixar, alterar, aceitar e cancelar envio de outro paciente (0 linhas / 404) e tentando aceitar/recusar o próprio, gravar `exam_id`, `revisado_*` ou `arquivo_path`, ou gravar arquivo de outro tipo. **F3-02:** tabelas `ia_nutri_*` (Plano 15) |
 | RNF-164 | Escrita do paciente | Testes que provam que a sessão de paciente **não**: muda `status` de envio para `aceito`/`recusado` nem grava `exam_id`; escreve mensagem com autor `ia`, `nutri` ou `sistema` (só a função da RN-179 grava a mensagem `sistema` do risco); altera `liberada_em`/`bloqueada_em`; **lê ou escreve `ia_uso`** (continua STAFF_ONLY); grava pergunta sem passar por `app_ia_nutri_perguntar` (INSERT direto em `ia_nutri_mensagens` com autor `paciente` negado pela política); apaga ou altera linha de `ia_nutri_consentimentos` (só INSERT da própria linha); burla "uma por vez" ou os limites com chamadas concorrentes (teste com 5 chamadas simultâneas: 1 `ok`, 4 `em_andamento`). Por política `RESTRICTIVE` por comando e pela função `SECURITY DEFINER` |
 | RNF-165 | Logs | Teste com o provedor `fake` e textos-marcadores (`MARCADOR-SAUDE-123`) em pergunta, contexto e resposta; falha se aparecerem no log, na fila (`pgboss.job.data`), no Sentry, no push ou no e-mail (amplia RNF-104 de A) |
-| RNF-166 | Avisos sem dado de saúde | Teste de snapshot dos textos de push e e-mail desta especificação: nenhum leva nome de paciente, nome de exame, motivo de recusa, texto da conversa ou categoria; **todo push ao paciente** é o texto neutro único e não contém "exame", "nutricionista", "dúvida" nem "IA" (mesma regra do Plano 05, INT-03) |
+| RNF-166 | Avisos sem dado de saúde | Teste de snapshot dos textos de push e e-mail desta especificação: nenhum leva nome de paciente, nome de exame, motivo de recusa, texto da conversa ou categoria. **F3-04:** os pushes `exame_revisado` e `exame_expirado` são o texto neutro "Há uma atualização para você no app." e não contêm "exame" (C-05); o e-mail `exames_recebidos` não leva nome nem arquivo. **F3-02:** regra dos pushes da IA Nutri revista no Plano 15 |
 | RNF-167 | Acessibilidade | Telas do PWA sem violações axe A/AA (RNF-10); conversa com `aria-live="polite"` para a resposta; botões com nome acessível ("Enviar para minha nutricionista"); situação do envio em texto, não só cor |
 | RNF-168 | Ambientes | Dev, CI e E2E com `IA_PROVEDOR=sandbox` (respostas fixas por hash da pergunta, inclusive uma com fonte inexistente, uma com campo de texto fora do schema e uma citando trecho com suplemento) e `fake` (Subprojeto A, RNF-107) |
-| RNF-169 | Guarda estática | Nenhuma rota importa `exames-enviados-job.ts` nem a biblioteca de rasterização de PDF (PDF só no worker, como `exportacao.test.ts`); `src/modules/ia/nutri-paciente/` não importa o SDK do provedor |
+| RNF-169 | Guarda estática | Nenhuma rota importa `exames-enviados-job.ts`, `heic-decode`, `@react-pdf/renderer` nem a biblioteca de rasterização de PDF (só no worker, guarda de grafo como a de `exportacao.test.ts` e `src/modules/ia/guardas.test.ts`); F3-02: `src/modules/ia/nutri-paciente/` não importa o SDK do provedor (Plano 15) |
 
 ---
 
@@ -799,9 +882,9 @@ Cenário: Aceitar de novo a mesma versão
 | Integração | Uso aqui |
 |---|---|
 | **INT-07** — Provedor de IA (Subprojeto A) | Só na F3-02: Messages API, saída estruturada com schema fixo, **sem ferramentas**, cache de prompt nas instruções e no contexto do plano; mesmas regras de retenção, região, erros e custo de A. `IA_MODELO_PACIENTE` conforme D5 |
-| **INT-03** — Web Push | Avisos ao paciente (exame revisado, exame expirado, dúvida tratada): sempre o texto **neutro** "Há uma atualização para você no app.", sem "exame", "nutricionista", "dúvida" nem "IA" (decisão do dono de 02/10/2026 no MVP: a tela de bloqueio revela com quem a pessoa se consulta); o toque abre o PWA, onde aparece o detalhe |
-| **INT-02** — E-mail (Resend) | À nutricionista: exames novos (no máximo 1 a cada 6 h), sinal de risco (D10, no máximo 1 a cada 15 min por tenant, sem nome nem texto), aviso de 80% da cota da IA Nutri. Ao paciente, só se D16/D10 pedirem (recomendação: push no PWA; sem e-mail ao paciente) |
-| Motor de notificações (Plano 05) | Novos tipos em `notifications.tipo`: `exame_revisado`, `exame_expirado`, `duvida_tratada` (canal `push`; o tipo é interno, o texto é o neutro) |
+| **INT-03** — Web Push | **F3-04:** exame revisado (aceito ou recusado) e exame expirado — sempre o texto **neutro** "Há uma atualização para você no app.", sem "exame" (C-05); o toque abre `/p/exames` (com `?v=<tenant>`, como os demais avisos do portal), onde aparece o detalhe. Só paciente ativo com conta e push ativo, pelo motor (linha em `notifications` + `dispararEnvio` na transação do evento). **F3-02:** dúvida tratada (Plano 15) |
+| **INT-02** — E-mail (Resend) | À nutricionista, por `avisarNutri`: exames novos (tipo novo `exames_recebidos` em `EmailMessage`; no máximo 1 a cada 6 h por tenant, com a frase dos 30 dias quando houver pendente antigo). Nenhum e-mail ao paciente na F3-04. **F3-02:** sinal de risco e aviso de 80% da cota da IA Nutri (Plano 15) |
+| Motor de notificações (Plano 05) | **F3-04:** novos tipos `exame_revisado` e `exame_expirado` em `notifications.tipo` (CHECK `notifications_tipo_valido`, `TipoNotificacao`/`ROTULO_TIPO` em `src/modules/notificacoes/tipos.ts`, `AVISOS_DO_PORTAL` em `mensagens.ts`; canal `push`; o tipo é interno, o texto é o neutro). **F3-02:** `duvida_tratada` (Plano 15) |
 
 ---
 
@@ -813,8 +896,8 @@ Convenções do MVP (§7): 🔒 = `tenant_id` + RLS forçada. Toda tabela nova c
 
 | Tabela | Campos-chave | Restrições / segurança |
 |---|---|---|
-| 🔒 `exam_submissions` | `patient_id` (NOT NULL), `enviado_por` (user do paciente), `status` (`processando`/`recebido`/`aceito`/`recusado`/`cancelado`/`expirado`/`falhou`), `data_coleta date`, `nome` (≤ 120, nulo), `observacao` (≤ 500, nulo; dado de saúde), `arquivo_path` (PDF limpo; FK → `stored_files.caminho` `ON DELETE SET NULL`; nulo em `processando` e depois de apagado), `motivo_recusa` (código da RN-165), `motivo_recusa_texto` (≤ 300), `motivo_falha` (`conversao`/`paginas`), `exam_id` (**sem FK**: o serviço confere o paciente, como `meal_plans.energy_calc_id`), `revisado_por`, `revisado_em`, `tentativas_processamento`, `created_at`, `updated_at` | FK composta (`tenant_id`, `patient_id`) → `patients`; CHECKs: `arquivo_path` do tenant (como `exams_arquivo_do_tenant`), `motivo_recusa` só em `recusado`, `motivo_recusa_texto` só com `outro`, `exam_id` só em `aceito`; índice (`tenant_id`, `status`, `created_at`) para a fila e (`tenant_id`, `patient_id`, `created_at DESC`); `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_audit('exam_submissions', 'exames_enviados')`; restrição de escrita do paciente (RNF-164); em `FABRICAS` |
-| 🔒 `exam_submission_files` | `patient_id`, `submission_id`, `arquivo_path` (FK → `stored_files.caminho` `ON DELETE CASCADE`), `papel` (`original`/`pagina`), `ordem` (1–10) | `original` só enquanto o envio está `processando`; `pagina` (imagens para a revisão, D23) só enquanto está `recebido` — apagadas no aceite, recusa, cancelamento e expiração; FK composta (`tenant_id`, `patient_id`, `submission_id`) → `exam_submissions` `ON DELETE CASCADE`; UNIQUE (`submission_id`, `papel`, `ordem`); RLS por paciente; o paciente não lê as linhas `pagina` (só baixa o PDF limpo, RN-169); auditoria do gatilho (entidade `exames_enviados`); em `FABRICAS` (cria a mãe no mesmo comando) |
+| 🔒 `exam_submissions` | `patient_id` (NOT NULL), `enviado_por` (conta do paciente, sem FK, como `data_exports.solicitado_por`), `status` (`processando`/`recebido`/`aceito`/`recusado`/`cancelado`/`expirado`/`falhou`), `data_coleta date`, `nome` (≤ 120, nulo), `observacao` (≤ 500, nulo; dado de saúde), `arquivo_path` (PDF limpo; FK → `stored_files.caminho` `ON DELETE SET NULL`; preenchido só em `recebido`), `motivo_recusa` (código da RN-165), `motivo_recusa_texto` (≤ 300), `motivo_falha` (`conversao`/`paginas`/`cota`/`interrompido`), `exam_id`, `revisado_por`, `revisado_em`, `created_at`, `updated_at` | FK composta (`tenant_id`, `patient_id`) → `patients`; **`exam_id` com FK composta (`tenant_id`, `patient_id`, `exam_id`) → `exams` (`exams_tenant_paciente_id_unique`, 0098) `ON DELETE SET NULL (exam_id)`**, como `ia_tarefas` (0099); UNIQUE (`tenant_id`, `patient_id`, `id`) (alvo da FK das linhas de arquivo); CHECKs: `arquivo_path` do tenant e só em `recebido`; `motivo_recusa` só em `recusado`; `motivo_recusa_texto` só com `outro`; `exam_id` só em `aceito` (nulo permitido: exame excluído depois); `revisado_*` só em `aceito`/`recusado`; `motivo_falha` só em `falhou`; índice (`tenant_id`, `status`, `created_at`) para a fila e (`tenant_id`, `patient_id`, `created_at DESC`); `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_audit('exam_submissions', 'exames_enviados')`; `app_allow_paciente_escrita` para `insert` e `update` com políticas `RESTRICTIVE` (INSERT só `processando` do próprio paciente, `enviado_por` da sessão e sem colunas da revisão; UPDATE só `recebido → cancelado`, sem mudar outra coluna); gatilho de transição recomendado (§6.5, PM-14); em `FABRICAS` |
+| 🔒 `exam_submission_files` | `patient_id`, `submission_id`, `arquivo_path` (FK → `stored_files.caminho` `ON DELETE CASCADE`), `papel` (`original`/`pagina`), `ordem` (1–10) | `original` (tipo `exame_original`) só enquanto o envio está `processando`; `pagina` (tipo `exame_pagina`, imagens para a revisão, D23) só enquanto está `processando`/`recebido`; CHECK do prefixo `<tenant>/exame_original/` ou `<tenant>/exame_pagina/` coerente com o papel; FK composta (`tenant_id`, `patient_id`, `submission_id`) → `exam_submissions` `ON DELETE CASCADE`; UNIQUE (`submission_id`, `papel`, `ordem`); RLS por paciente; o paciente só **insere** linha `original` do próprio envio `processando` e **não lê** as linhas `pagina` (política `RESTRICTIVE`); auditoria do gatilho (entidade `exames_enviados`); em `FABRICAS` (cria a mãe no mesmo comando) |
 | 🔒 `ia_nutri_participacoes` | `patient_id` (UNIQUE por tenant), `liberada_em`, `liberada_por`, `bloqueada_em` | **Sem contadores** (os limites são contados em `ia_nutri_mensagens` pela função da RN-179) e **sem colunas de consentimento** (o estado vem do último evento de `ia_nutri_consentimentos`); FK composta → `patients`; RLS por paciente (o paciente lê a própria linha e **não escreve**: só a nutricionista libera/bloqueia, RNF-164); `app_enable_audit('ia_nutri_participacoes', 'ia_nutri')`; em `FABRICAS` |
 | 🔒 `ia_nutri_mensagens` | `patient_id`, `sessao_inicio` (timestamptz da sessão), `autor` (`paciente`/`ia`/`sistema`/`nutri`), `texto` (≤ 2000; nulo depois da retenção; na resposta da IA, o texto **montado** pelo sistema, RN-172), `tipo_resposta` (RN-172, nulo), `responde_a` (mensagem do paciente, nulo), `status` (`na_fila`/`processando`/`respondida`/`falhou`), `categoria` (RN-174/§7.4, nulo para paciente/nutri), `fontes jsonb` (índices citados, sem texto), `motivo_tecnico` (RN-175/RN-180), `risco` (`emergencia`/`transtorno_alimentar`/`modelo`, nulo), `encaminhada_em`, `aberta_pela_nutri_em` (D22), `resolvida_em`, `resolvida_por`, `resolucao` (`vista`/`respondida`/`encerrada`, D24), `avaliacao` (`ajudou`/`nao_ajudou`, nulo), `modelo`, `prompt_versao`, `reserva_micro_usd`, `expira_em`, `created_at` | FK composta → `patients`; FK composta (`tenant_id`, `patient_id`, `responde_a`) → própria tabela; CHECKs: autor `paciente` com texto 1–500, `ia` ≤ 2000 (trechos do plano), `nutri` 1–2000 (só se D24 = a); `encaminhada_em` só em mensagem do paciente; índice parcial (`tenant_id`, `encaminhada_em`) WHERE `encaminhada_em IS NOT NULL AND resolvida_em IS NULL` (fila) e (`tenant_id`, `patient_id`, `created_at DESC`); índice único parcial (`tenant_id`, `patient_id`) WHERE `status in ('na_fila','processando')` (uma pergunta por vez, RN-178); índice (`tenant_id`, `patient_id`, `autor`, `created_at`) para a contagem dos limites; RLS por paciente; a sessão do paciente só grava pergunta pela função da RN-179 e só altera `avaliacao` e `encaminhada_em` das próprias mensagens (RNF-164); **projeção fechada** na API do paciente: `created_at`, `autor`, `texto`, `avaliacao`, situação da dúvida e o rótulo da categoria — nunca `fontes` internas, `motivo_tecnico`, `modelo`, `prompt_versao` ou `reserva_micro_usd` (a RLS é por linha; quem limita as colunas é o módulo); `app_enable_audit('ia_nutri_mensagens', 'ia_nutri')`; em `FABRICAS` |
 | 🔒 `ia_nutri_consentimentos` | `patient_id`, `user_id` (conta do paciente; nulo depois da anonimização), `evento` (`aceite`/`revogacao`), `versao`, `ip` (nulo depois da anonimização), `created_at` | **Append-only:** política permite à sessão do paciente só `INSERT` da própria linha (`patient_id` e `user_id` do contexto) e a ninguém `UPDATE`/`DELETE`; a anonimização usa função própria no padrão de `app_anonimizar_aceites` (migration 0065: tira IP e conta, mantém evento, versão e data); FK composta → `patients`; índice (`tenant_id`, `patient_id`, `created_at DESC`); `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_audit('ia_nutri_consentimentos', 'ia_nutri')`; em `FABRICAS`. Substitui o uso de `consents` (RN-171) |
@@ -823,26 +906,28 @@ Convenções do MVP (§7): 🔒 = `tenant_id` + RLS forçada. Toda tabela nova c
 
 | Onde | Mudança |
 |---|---|
-| `tenants` | `exames_paciente_ativado_em` (D18), `exames_aviso_em` (último e-mail de exames novos), `ia_nutri_ativada_em`, `ia_nutri_pausada_em` (pausa do admin, RN-185; o admin já escreve em `tenants`, como na suspensão), `ia_nutri_cota_mensal_usd numeric(7,2)` (D3; CHECK 0–1000), `ia_nutri_aviso_mes`, `ia_nutri_risco_aviso_em` (D10) |
+| `tenants` | **F3-04:** `exames_paciente_ativado_em` (D18 = a; nula para todos na migration; a nutricionista liga e desliga em Configurações — não é interruptor da admin, fora do gatilho `tenants_interruptores_da_admin`), `exames_aviso_em` (último e-mail de exames novos). **F3-02 (Plano 15):** `ia_nutri_ativada_em`, `ia_nutri_pausada_em`, `ia_nutri_cota_mensal_usd`, `ia_nutri_aviso_mes`, `ia_nutri_risco_aviso_em` |
+| `email` (`src/email/types.ts`) | **F3-04:** tipo novo `exames_recebidos` (para, link da fila, `pendentesAntigos: boolean`), sem nome de paciente nem de exame |
 | `consents` | **Sem mudança**: o consentimento da IA Nutri fica em `ia_nutri_consentimentos` (RN-171), dentro da RLS; a lista de acesso de `consents` no `CLAUDE.md` (regra 1) não muda |
-| `ia_uso` (Subprojeto A) | Novo `tipo = 'conversa_paciente'`; `tarefa_id` guarda o id da mensagem (já é sem FK); continua `app_enable_staff_only` + `STAFF_ONLY` — só `app_ia_nutri_perguntar` (reserva) e o worker (acerto) escrevem as linhas da IA Nutri |
-| `notifications` | Novos tipos `exame_revisado`, `exame_expirado`, `duvida_tratada` (CHECK e `tipos.ts`) |
-| `audit_log` / `audit.ts` | `ENTIDADE_ROTULO.exames_enviados` = "Exames enviados pelo paciente"; `ENTIDADE_ROTULO.ia_nutri` = "IA Nutri (conversa com o paciente)" |
-| `admin_tenant_metrics()` | Colunas `exames_enviados_mes`, `exames_pendentes`, `ia_nutri_perguntas_mes`, `ia_nutri_custo_mes_usd`, `ia_nutri_cota_usd` (só contagens e somas) |
-| `stored_files.tipo` | Sem tipo novo: envios usam `exame` (o arquivo aceito vira o laudo do exame sem cópia). A restrição por paciente vem do P06-00 (DEP-02) |
+| `src/jobs/queues.ts` | **F3-04:** filas `exame-envio` (um por vez; poucas tentativas e prazo curto, como `diario-foto`), `exame-envio-limpar` e `expirar-exame-envio` (agendada de 15 em 15 min, como `expirar-diario-foto`) |
+| `ia_uso` (Subprojeto A) | (F3-02, Plano 15) Novo `tipo = 'conversa_paciente'`; `tarefa_id` guarda o id da mensagem (já é sem FK); continua `app_enable_staff_only` + `STAFF_ONLY` — só `app_ia_nutri_perguntar` (reserva) e o worker (acerto) escrevem as linhas da IA Nutri |
+| `notifications` | **F3-04:** novos tipos `exame_revisado`, `exame_expirado` (CHECK `notifications_tipo_valido`, `tipos.ts`, `AVISOS_DO_PORTAL`). **F3-02:** `duvida_tratada` (Plano 15) |
+| `audit_log` / `audit.ts` | `ENTIDADE_ROTULO.exames_enviados` = "Exames enviados pelo paciente" (`src/modules/plataforma/audit.ts`); F3-02: `ia_nutri` = "IA Nutri (conversa com o paciente)" (Plano 15) |
+| `admin_tenant_metrics()` | **F3-04:** colunas `exames_enviados_mes`, `exames_pendentes` (só contagens; função da 0059). **F3-02:** `ia_nutri_*` (Plano 15) |
+| `stored_files.tipo` | **Dois tipos novos, com dono (paciente):** `exame_original` (o que o paciente enviou; só enquanto `processando`) e `exame_pagina` (imagens de página para a revisão; temporárias). O PDF limpo usa `exame` (vira o laudo sem cópia). Mudam: CHECK `stored_files_tipo_valido` e `stored_files_dono`, `TipoDeArquivo` e `TIPOS_DO_PACIENTE` (`armazenamento.ts`), a política `paciente_arquivo_insert` (0080: passa a aceitar `diario_foto_original` **ou** `exame_original`) e a `paciente_arquivos` (0090: o paciente também não vê `exame_original` nem `exame_pagina`), e o comentário de `PACIENTE_ESCREVE.stored_files` (`rls-guard.ts:188`). Manual técnico §4 ("Tipo novo de arquivo"): conferir `anexosDoPaciente`, exportação e o `--exclude` do backup (PM-11) |
 
 ### 13.3 LGPD e rotinas existentes
 
-- **Exportação (`exportacao-job.ts`, US-018/US-046):** `dados.json` ganha `examesEnviados` (enviado em, data da coleta, nome, observação, situação, motivo de recusa) e `iaNutri` (participação: liberada em; histórico de `ia_nutri_consentimentos`: evento, versão, data; mensagens: data, autor, texto, avaliação, **categoria e marca de risco com rótulo legível** — direito de acesso, LGPD art. 18, II — sem `fontes` internas, `motivo_tecnico` e custo). O PDF limpo dos envios `recebido` vai para `envios/` no ZIP (nome sem texto do usuário: data + posição), como os laudos.
-- **Pedido de exclusão atendido (`lgpd.ts`):** envios não aceitos e seus arquivos apagados na hora (não são prontuário); mensagens (salvo a de risco não aberta, D22) e participação da IA Nutri apagadas; histórico de `ia_nutri_consentimentos` mantido como prova; envios aceitos já são exames e seguem o prontuário.
-- **Anonimização:** linhas restantes de `exam_submissions` (sem arquivo), de `ia_nutri_mensagens` e de `ia_nutri_participacoes` apagadas; `ia_nutri_consentimentos` sem IP e sem conta (função no padrão de `app_anonimizar_aceites`).
-- **Acesso fora de `withTenant`:** os e-mails à nutricionista usam `src/modules/agenda/aviso-nutri.ts` (já na lista de exceções da tabela `user`); **um arquivo novo lê `user`**: `src/modules/ia/nutri-paciente/contexto.ts` (só os nomes das usuárias do tenant, para a máscara da §7.3) — entra em `RLS_EXCEPTIONS`/lista da regra 1 do `CLAUDE.md`.
+- **Exportação (`exportacao-job.ts`, US-018/US-046):** `dados.json` ganha `examesEnviados` (enviado em, data da coleta, nome, observação, situação, motivo de recusa; nunca as imagens de página nem os originais). O PDF limpo dos envios `recebido` vai para `envios/` no ZIP (nome sem texto do usuário: data + posição), no mesmo teto de memória dos laudos (`laudosForaDoZip`); o dos aceitos já sai em `laudos/` como exame. F3-02: `iaNutri` (Plano 15).
+- **Pedido de exclusão atendido (`lgpd.ts`):** na transação de `atenderPedidoExclusao`, nada muda nos envios (o paciente bloqueado já não envia: RN-160); no job `exclusao-atendida` (`concluirExclusaoAtendida`), **antes do e-mail**, os envios não aceitos têm os arquivos apagados (cada um no seu `apagarArquivo`, molde de `apagarFotosDoDiario`) e as linhas apagadas (não são prontuário). Envios aceitos já são exames e seguem o prontuário. Um job `exame-envio` que encontra o titular bloqueado não processa (RN-163).
+- **Anonimização (`anonimizarVencidos`):** linhas restantes de `exam_submissions` (sem arquivo) apagadas; `anexosDoPaciente` passa a incluir os arquivos de envio (defesa, caso algum tenha sobrado).
+- **Acesso fora de `withTenant`:** só o e-mail à nutricionista, por `src/modules/agenda/aviso-nutri.ts` (já na lista de exceções da tabela `user`). A F3-04 não acrescenta arquivo à regra 1 do `CLAUDE.md`. (F3-02: `src/modules/ia/nutri-paciente/contexto.ts`, Plano 15.)
 
 ---
 
 ## 14. Variáveis de ambiente
 
-Somente os nomes (valores no Easypanel; regra 6 do CLAUDE.md): `IA_NUTRI_DESLIGADA` (`1` = desliga só a IA Nutri do paciente; app e worker; **segunda barreira** — mudar exige redeploy confirmado pelo dono; a parada imediata é a pausa no banco, `tenants.ia_nutri_pausada_em`, RN-185) · `IA_NUTRI_TETO_GLOBAL_MENSAL_USD` (app e worker; teto da IA Nutri somando todos os tenants, D3) · `IA_MODELO_PACIENTE` (worker; conforme D5) · `IA_NUTRI_TERMO_VERSAO` (constante no código, não variável — listada aqui só para lembrar que muda com o texto do advogado). As demais (`IA_PROVEDOR`, `ANTHROPIC_API_KEY`, `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD`, `IA_DESLIGADA`) são as do Subprojeto A.
+**F3-04:** nenhuma variável nova (os limites são constantes no código, como `EXAME_MAX_BYTES` e `FOTO_DIARIO_MAX_BYTES`; o recebimento é ligado por consultório no banco, D18). **F3-02 (Plano 15):** somente os nomes (valores no Easypanel; regra 6 do CLAUDE.md): `IA_NUTRI_DESLIGADA` (`1` = desliga só a IA Nutri do paciente; app e worker; **segunda barreira** — mudar exige redeploy confirmado pelo dono; a parada imediata é a pausa no banco, `tenants.ia_nutri_pausada_em`, RN-185) · `IA_NUTRI_TETO_GLOBAL_MENSAL_USD` (app e worker; teto da IA Nutri somando todos os tenants, D3) · `IA_MODELO_PACIENTE` (worker; conforme D5) · `IA_NUTRI_TERMO_VERSAO` (constante no código, não variável — listada aqui só para lembrar que muda com o texto do advogado). As demais (`IA_PROVEDOR`, `ANTHROPIC_API_KEY`, `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD`, `IA_DESLIGADA`) são as do Subprojeto A.
 
 ---
 
@@ -860,8 +945,11 @@ Somente os nomes (valores no Easypanel; regra 6 do CLAUDE.md): `IA_NUTRI_DESLIGA
 | R-167 | Conversa considerada parte do prontuário (guarda de 20 anos) | A confirmar | D8 com o advogado e o CRN |
 | R-168 | Custo acima do previsto se muitos pacientes usarem | Risco financeiro | Limite por paciente (D4) e uma pergunta por vez, conferidos em função fechada (RN-179); cota separada e teto próprio da IA Nutri (D3); teto global (A); mensagens de risco sem custo; resposta montada reduz a saída a ≈ 150 tokens |
 | R-169 | Vigência e texto final da Res. CFN nº 856/2026 (prorrogação para 23/01/2027 a confirmar no DOU; o número da resolução de prorrogação também). Uma implantação antes de 23/01/2027 cai sob o Código da **Res. CFN nº 599/2018**, cuja regra sobre IA ou ferramentas automatizadas está **a confirmar** | A confirmar | Conferir no DOU antes da implementação, junto com R-107 de A; ler a Res. CFN nº 599/2018 e levar a dúvida ao CRN na D2 se a implantação for antes da vigência da 856/2026 |
-| R-170 | **Arquivo malicioso enviado pelo paciente** (PDF com JavaScript, links, anexos embutidos ou que explora falha de leitor; imagem malformada) — vetor novo: antes só a equipe enviava arquivos | Segurança | Tipo pelo conteúdo; **todo envio rasterizado no worker** (D23): o original nunca chega ao navegador da nutricionista nem à F3-01, e o que fica guardado é um PDF só com imagens; limite de 10 páginas e de tempo por página; biblioteca de rasterização só no worker, atualizada, com guarda estática (RNF-169); teste com PDF com JavaScript, link e anexo (US-160) |
+| R-170 | **Arquivo malicioso enviado pelo paciente** (PDF com JavaScript, links, anexos embutidos ou que explora falha de leitor; imagem malformada ou "bomba de pixels") — vetor novo: antes só a equipe enviava arquivos | Segurança | Tipo pelo conteúdo; 40 MP pelo cabeçalho; **todo envio rasterizado no worker** (D23 = a): o original nunca chega ao navegador da nutricionista nem à F3-01, e o que fica guardado é um PDF só com imagens; limite de 10 páginas e de tempo por página; rasterização numa thread com heap limitado; biblioteca só no worker, atualizada, com guarda estática (RNF-169, DEP-10); teste com PDF com JavaScript, link e anexo (US-160) |
 | R-171 | Paciente em crise escreve e logo desativa a IA Nutri: o alerta some antes de a nutricionista ler | Risco clínico | D22: a mensagem de risco não aberta sobrevive à revogação até ela abrir (base: proteção da vida, LGPD art. 11, II, "e", a confirmar com o advogado); o consentimento avisa |
+| R-173 | Memória do `nutri_app` com envios de até 30 MB (≈ 3 cópias do corpo por envio) numa VPS dividida com o CRM de produção | Desempenho | 2 envios por processo e 1 por conta, corpo com prazo (molde do diário); medir no plano (RNF-162) |
+| R-174 | A F3-01 lê o PDF limpo (só imagens, sem camada de texto): a precisão pode ser menor que a de um PDF original com texto | Qualidade | Antes de mostrar "Aceitar e ler valores com IA" para envios, medir no conjunto de avaliação do Plano 11 (`src/modules/ia/avaliacao/`) laudos rasterizados a 2000 px; se cair, subir o maior lado (a IA aceita até 2576 px, `LADO_MAX_IMAGEM`) |
+| R-175 | Biblioteca de rasterização de PDF: dependência nova no worker (talvez nativa), com licença e falhas de segurança próprias | Segurança / licença | DEP-10, PM-6: licença compatível com SaaS fechado (evitar AGPL), versão fixada, thread com heap limitado, guarda estática |
 | R-172 | A fila de dúvidas com resposta escrita (D24 = a) ser telenutrição assíncrona (Res. CFN nº 760/2023: TCLE e cadastro no e-Nutricionista) e parte do prontuário | A confirmar | D24 = (b) por padrão; (a) só depois da consulta ao CRN (D2) e da D8 |
 
 ---
@@ -900,12 +988,38 @@ Achados da revisão 0.2 não aplicados (ou aplicados só em parte), e o que fico
 | PM-3 | A máscara de nomes do Subprojeto A §5.4 tem a mesma lacuna (nome da nutricionista e do consultório não são mascarados no texto livre) | Corrigida aqui (§7.3); falta levar a mesma correção à spec do Subprojeto A |
 | PM-4 | Meta de "Ajudou" (CS-164) definida sem o dono | Marcada como **proposta**; o dono confirma no plano de implementação |
 | PM-5 | Teto de 10 mensagens de risco por dia que abrem item na fila (RN-178) | Anti-abuso novo desta versão; a Debby confere se o número serve |
-| PM-6 | Biblioteca de rasterização de PDF no worker (`nutri_worker` com 512 MB) | Escolha técnica do plano (medir pico de memória no RNF-162 antes de escolher) |
+| PM-6 | Biblioteca de rasterização de PDF no worker (`nutri_worker` com 512 MB) | Escolha técnica do Plano 12 (DEP-10): não há nenhuma no repositório; medir o pico de memória (RNF-162) e conferir a licença antes de escolher |
 | PM-7 | Repasse do custo da IA Nutri ao consultório | Decisão comercial fora desta spec, antes do 2º tenant (D3) |
+| PM-8 | DEP-09 reduzida a `salvarArquivos` (v0.3) | A revisão do Plano 12 confirma; a regra 9 do `CLAUDE.md` ganha `salvarArquivos` e os tipos `exame_original`/`exame_pagina` |
+| PM-9 | `paraJpegSemMetadados` (`src/lib/jpeg.ts`) tem qualidade fixa 80; o laudo pede 85 | Plano 12: parâmetro de qualidade (o diário e a capa continuam em 80) ou aceitar 80 se a legibilidade medida bastar |
+| PM-10 | Onde "Exames" fica no portal (7 abas; `src/app/p/navegacao.ts` pede decidir de novo a barra) | Recomendação da §6.4 (molde de "Documentos", marca "Perfil"); confirmar com o dono no plano |
+| PM-11 | Imagens de página no backup do R2 | São temporárias e o PDF limpo tem o mesmo conteúdo: propor ao dono `--exclude '/*/exame_pagina/**'` no `rclone sync` (`scripts/backup/nutri-backup.sh:118`); regra 10: mudou o script, o dono reinstala no host (o backup ainda não está ligado, C-02) |
+| PM-12 | O lembrete dos 30 dias (US-165) só sai junto de um aviso de envio novo | Se a Debby quiser lembrete próprio (sem envio novo), decidir no plano |
+| PM-13 | Texto de cota do paciente ("…Avise sua nutricionista.") difere do `MSG_COTA_ESGOTADA` que o diário mostra ao paciente ("Espaço de armazenamento esgotado. Fale com o suporte.") | Mantido o texto da spec na F3-04; uniformizar o do diário fica no backlog |
+| PM-14 | Gatilho de transição de `exam_submissions` (§6.5, item 3) | Recomendado (barato, mesma família da 0091/0100); o plano decide |
 
 ---
 
-## 18. Decisões pendentes do dono
+## 18. Decisões do dono
+
+### Decisões do dono (07/10/2026) — parte F3-04
+
+Aprovadas como recomendadas na preparação do Plano 12 ("vamos para o plano 12"):
+
+| ID | Decisão | Efeito no texto (v0.3) |
+|---|---|---|
+| D13 | **(b)** 1 PDF de até 20 MB e 10 páginas **ou** até 5 fotos de até 10 MB cada, somando até 30 MB, juntadas num PDF limpo | §6.1, RN-161, US-160 |
+| D14 | **(a)** 10 envios aguardando revisão e 5 por dia; custo do R2 acima da faixa gratuita aceito | C-02, RN-162, US-160 |
+| D15 | **(b)** envio não revisado expira em 90 dias, arquivo apagado e paciente avisado; lembrete aos 30 dias | RN-167, US-165 (deixa de ser condicional) |
+| D16 | **(a)** e-mail genérico agrupado (no máximo 1 a cada 6 h) + contador no painel | RN-168, US-162 |
+| D17 | **(a)** o paciente vê a situação e o próprio arquivo **até a revisão**; depois de aceito, nada (US-044 continua) | RN-169, US-161 |
+| D18 | **(a)** recebimento desligado até a nutricionista ligar em Configurações | §6.3, RN-160, §13.2 |
+| D20 | **(a)** exame recusado tem o arquivo apagado na hora | RN-165, US-164 |
+| D23 | **(a)** o worker rasteriza todo envio (inclusive PDF) e guarda um PDF limpo + imagens de página; o painel mostra as páginas | §4.1, RN-163, DEP-10, R-170 |
+
+### Decisões pendentes (parte F3-02 — Plano 15)
+
+D1–D12, D19, D21, D22, D24 e D25 continuam como na v0.2 e serão revistas no Plano 15. A tabela abaixo mantém todas as decisões para referência; as da F3-04 levam a marca **Aprovada (07/10/2026)**.
 
 | ID | Pergunta | Opções | Recomendação |
 |---|---|---|---|
@@ -921,16 +1035,16 @@ Achados da revisão 0.2 não aplicados (ou aplicados só em parte), e o que fico
 | D10 | Ao detectar sinal de risco, avisar a nutricionista? | (a) sim: dúvida no topo da fila + e-mail genérico na hora (no máximo 1 a cada 15 min); (b) só a fila, sem e-mail; (c) não avisar | **(a)**, avisado no consentimento; o e-mail não leva nome nem texto |
 | D11 | Textos sensíveis (consentimento, aviso de IA, emergência, transtorno alimentar, recusas, frases fixas da resposta montada) | (a) Debby e advogado revisam os textos propostos nas US-171 a US-175 e na RN-172 antes de ligar; (b) usar os textos propostos como estão | **(a)**, com revisão de um psicólogo para os textos de risco, se possível |
 | D12 | A IA prepara um rascunho para a nutricionista responder as dúvidas encaminhadas? | (a) sim (custo de mais uma chamada por dúvida); (b) não, ela escreve | **(b)** nesta entrega (YAGNI e custo); só faz sentido se D24 = (a); vira **(a)** obrigatoriamente se D1 = (c) |
-| D13 | Arquivos por envio de exame | (a) 1 arquivo (PDF, JPEG, PNG ou HEIC); (b) 1 PDF de até 20 MB e 10 páginas **ou** até 5 fotos de até 10 MB cada, somando até 30 MB, juntadas num PDF limpo pelo worker | **(b)**: laudo fotografado tem várias páginas; a nutricionista recebe um arquivo só |
-| D14 | Limites de envio por paciente (e o volume que entra no backup do R2, C-02) | (a) 10 envios aguardando revisão e 5 por dia; (b) só a cota de 5 GB do consultório | **(a)**: um paciente não esgota o espaço do consultório; o dono aceita o custo do R2 acima da faixa gratuita (≈ 1,5 GB/ano por consultório, preço a confirmar na conta) ou pede limite menor |
-| D15 | Envio não revisado expira? | (a) nunca; (b) expira em 90 dias, arquivo apagado e paciente avisado (lembrete à nutricionista aos 30 dias) | **(b)**: minimização (dado de saúde parado fora do prontuário) |
-| D16 | Como avisar a nutricionista de exame recebido? | (a) e-mail genérico agrupado (no máximo 1 a cada 6 h) + contador no painel; (b) só o contador; (c) e-mail a cada envio | **(a)** |
-| D17 | O que o paciente vê do exame que enviou? | (a) só a situação do envio e o próprio arquivo **até a revisão**; depois de aceito, nada (US-044 continua: o paciente não vê exames); (b) (a) + o arquivo também depois de aceito (desvio consciente da US-044); (c) (b) + a tabela de valores | **(a)**; a devolutiva ao paciente é o parecer (F3-05) |
-| D18 | Recebimento de exames pelo app já vem ligado? | (a) desligado até a nutricionista ligar em Configurações; (b) ligado para todos | **(a)**, como a página pública de agendamento (v1.8) |
+| D13 | Arquivos por envio de exame | (a) 1 arquivo (PDF, JPEG, PNG ou HEIC); (b) 1 PDF de até 20 MB e 10 páginas **ou** até 5 fotos de até 10 MB cada, somando até 30 MB, juntadas num PDF limpo pelo worker | **(b)**: laudo fotografado tem várias páginas; a nutricionista recebe um arquivo só · **Aprovada (07/10/2026): (b)** |
+| D14 | Limites de envio por paciente (e o volume que entra no backup do R2, C-02) | (a) 10 envios aguardando revisão e 5 por dia; (b) só a cota de 5 GB do consultório | **(a)**: um paciente não esgota o espaço do consultório; o dono aceita o custo do R2 acima da faixa gratuita (≈ 1,5 GB/ano por consultório, preço a confirmar na conta) ou pede limite menor · **Aprovada (07/10/2026): (a)** |
+| D15 | Envio não revisado expira? | (a) nunca; (b) expira em 90 dias, arquivo apagado e paciente avisado (lembrete à nutricionista aos 30 dias) | **(b)**: minimização (dado de saúde parado fora do prontuário) · **Aprovada (07/10/2026): (b)** |
+| D16 | Como avisar a nutricionista de exame recebido? | (a) e-mail genérico agrupado (no máximo 1 a cada 6 h) + contador no painel; (b) só o contador; (c) e-mail a cada envio | **(a)** · **Aprovada (07/10/2026): (a)** |
+| D17 | O que o paciente vê do exame que enviou? | (a) só a situação do envio e o próprio arquivo **até a revisão**; depois de aceito, nada (US-044 continua: o paciente não vê exames); (b) (a) + o arquivo também depois de aceito (desvio consciente da US-044); (c) (b) + a tabela de valores | **(a)**; a devolutiva ao paciente é o parecer (F3-05) · **Aprovada (07/10/2026): (a)** |
+| D18 | Recebimento de exames pelo app já vem ligado? | (a) desligado até a nutricionista ligar em Configurações; (b) ligado para todos | **(a)**, como a página pública de agendamento (v1.8) · **Aprovada (07/10/2026): (a)** |
 | D19 | Quando o paciente revoga o consentimento da IA Nutri, o que apagar da resposta da nutricionista? | (a) tudo, inclusive as respostas da nutricionista na fila; (b) as mensagens dele e da IA, mantendo as respostas da nutricionista (comunicação profissional) | **(a)** se D8 tratar a conversa como fora do prontuário; **(b)** se o advogado disser que a resposta dela é prontuário. Só se aplica se D24 = (a); a mensagem de risco não aberta é a D22 |
-| D20 | Exame recusado: quando apagar o arquivo? | (a) na hora; (b) manter 30 dias (o paciente pode rever) | **(a)**: minimização; o paciente pode enviar de novo |
+| D20 | Exame recusado: quando apagar o arquivo? | (a) na hora; (b) manter 30 dias (o paciente pode rever) | **(a)**: minimização; o paciente pode enviar de novo · **Aprovada (07/10/2026): (a)** |
 | D21 | **Como a resposta da IA chega ao paciente?** (§7.4, RN-172, RN-175) | (a) **montada pelo sistema**: o modelo só devolve categoria, tipo de resposta (lista fechada) e índices; o paciente lê uma frase fixa + os trechos do plano lidos do banco, verbatim, sem prosa do modelo; (b) prosa livre do modelo + **2ª chamada classificadora independente** sobre a saída (≈ US$ 0,006 a mais por pergunta no Sonnet; ≈ US$ 23–36 por 1.000 perguntas) + validação de números e termos; (c) prosa livre só com a validação de números e termos (versão 0.1) | **(a)**: é a única que garante a RN-172 por construção (nada novo, nem sem número, nem por extenso, chega ao paciente) e a mais barata; perde naturalidade. (c) **não é recomendada**: deixa passar orientação nova sem número ("pode pular o jantar"), o cenário NEDA |
 | D22 | **Na revogação, o que acontece com a mensagem de sinal de risco que a nutricionista ainda não abriu?** (§7.6, R-171) | (a) fica na fila, com texto, e o selo "Sinal de risco — o paciente desativou a IA Nutri", até ela abrir; depois é apagada; o consentimento avisa; (b) o texto é apagado, mas fica na fila o item mínimo "Houve sinal de risco em {data} — o paciente desativou a IA Nutri", sem texto; (c) tudo apagado na hora (versão 0.1) | **(a)**, com base na proteção da vida (LGPD art. 11, II, "e") **a confirmar com o advogado**; (b) se o advogado preferir minimizar. (c) não: o alerta some antes de chegar à profissional |
-| D23 | **Como a nutricionista vê o envio e como o PDF do paciente é tratado?** (§4.1, R-170) | (a) o worker **rasteriza todo envio** (inclusive PDF) e guarda um PDF limpo (só imagens) + imagens de página; o painel mostra as páginas inline; (b) manter o PDF original, só para download (sem "ao lado"), e aceitar o PDF do paciente como está | **(a)**: neutraliza PDF malicioso, que é vetor novo, e permite conferir ao lado; custa CPU no worker e o limite de 10 páginas |
+| D23 | **Como a nutricionista vê o envio e como o PDF do paciente é tratado?** (§4.1, R-170) | (a) o worker **rasteriza todo envio** (inclusive PDF) e guarda um PDF limpo (só imagens) + imagens de página; o painel mostra as páginas inline; (b) manter o PDF original, só para download (sem "ao lado"), e aceitar o PDF do paciente como está | **(a)**: neutraliza PDF malicioso, que é vetor novo, e permite conferir ao lado; custa CPU no worker e o limite de 10 páginas · **Aprovada (07/10/2026): (a)** |
 | D24 | **Como a dúvida encaminhada chega à nutricionista e volta ao paciente?** (§7.5, R-172) | (a) fila com **resposta escrita** no app (até 2000 caracteres, uma por dúvida) e push; (b) **só sinaliza**: fila e prontuário mostram a dúvida, ela marca "vista" e trata na consulta ou pelo canal que já usa; o paciente recebe um texto fixo; (c) sem encaminhamento, só o texto "fale com sua nutricionista" | **(b)** nesta entrega: não cria canal de mensagens nem carga nova para ela e evita a dúvida regulatória; **(a)** só depois da consulta ao CRN (D2) — resposta escrita por TIC pode ser telenutrição assíncrona (Res. CFN nº 760/2023: TCLE e cadastro no e-Nutricionista) — e da D8 (prontuário). Se D1 = (c), a D24 tem de ser (a) |
 | D25 | **A IA pode mostrar um suplemento ou "em jejum" que a nutricionista colocou no plano?** (RN-176) | (a) bloquear sempre: qualquer trecho com termo da lista vira o texto fixo de suplemento; (b) mostrar o trecho quando o termo está **verbatim na fonte citada** (texto que ela publicou); pergunta sobre suplemento fora do plano sempre recebe o texto fixo | **(b)**: com a resposta montada (D21 = a), o paciente só lê o que ela prescreveu; (a) faz a IA "recusar" o próprio plano e derruba o CS-164 |
