@@ -1,7 +1,7 @@
 import { and, asc, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, consultations, dataExports, diaryEntries, exams, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
+import { appointments, consultations, dataExports, diaryEntries, exams, iaTarefas, mealPlans, notifications, patients, privacyRequests, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
@@ -10,6 +10,7 @@ import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento'
 import { recordAudit } from '@/modules/plataforma/audit';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
+import { cancelarTarefas } from '@/modules/ia/cancelar';
 import { anonimizarDocumentosDoPaciente, pdfsDeDocumentosRestantes } from '@/modules/documentos/lgpd-documentos';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
 import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
@@ -158,6 +159,12 @@ export async function atenderPedidoExclusao(
       await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
       await apagarUsoDeConteudo(tx, p.id); // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08)
       await apagarAcessosDoTitular(tx, p.id); // D13: acessos ao portal (CS-02) são dado de uso, não obrigatório (RNF-08)
+      // Plano 11 (spec §5.3): leituras de IA na fila canceladas (reserva estornada) e sugestões esvaziadas na hora; as que
+      // estão em processamento falham no worker (RN-100 de novo: paciente bloqueado). Ordem de travas da cota (cota.ts):
+      // paciente (já travado acima) → tenant → tarefas → ia_uso → plataforma — o tenant antes de cancelarTarefas, como o
+      // contrato dela pede
+      await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('update');
+      await cancelarTarefas(tx, { patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',
@@ -414,6 +421,9 @@ export async function anonimizarVencidos(
             if (r.length) await apagarUsoDeConteudo(tx, id);
             // D13: acessos ao portal gravados depois do bloqueio também saem
             if (r.length) await apagarAcessosDoTitular(tx, id);
+            // Plano 11 (§5.3, RNF-110): a única exclusão de ia_tarefas — no contexto worker (gatilho ia_tarefas_sem_apagar).
+            // O registro técnico sem titular continua em ia_uso; o que foi aplicado já está em exams.valores (prontuário).
+            if (r.length) await tx.delete(iaTarefas).where(eq(iaTarefas.patientId, id));
             if (r.length) await anonimizarAgenda(tx, id, now);
             // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
             // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)

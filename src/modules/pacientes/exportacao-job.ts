@@ -16,6 +16,7 @@ import {
   energyCalcs,
   exams,
   foods,
+  iaTarefas,
   mealItems,
   mealPlans,
   meals,
@@ -44,6 +45,7 @@ import {
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
+import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { respostaParaCampo } from './anamnese-tipos';
 import { hojeNoFuso } from './datas';
@@ -102,7 +104,8 @@ export type DadosExportacao = {
     temLaudo: boolean;
     /** Caminho do laudo dentro do ZIP (`laudos/…`); null se não há laudo ou se ele ficou de fora. */
     laudo: string | null;
-    valores: { nome: string; valor: number; unidade: string | null; referencia: string | null }[];
+    /** Plano 11: `iaTarefaId` = a linha veio de uma sugestão da IA conferida (liga com `ia[].id`). */
+    valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string }[];
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
@@ -141,6 +144,12 @@ export type DadosExportacao = {
   conteudos: ConteudosDoTitular;
   /** Plano 10A (US-150 base): receitas; o titular recebe só as emitidas (D15 = (b): com a justificativa de uso). */
   documentos: DocumentoExportado[];
+  /**
+   * Plano 11 (spec §5.3; LGPD art. 18, VII, e art. 37): pedidos à IA — id (liga com `exames[].valores[].iaTarefaId`), tipo,
+   * situação, datas, se o laudo saiu ao provedor (`enviadoEm` = `saiu_em`) e para quem. Nunca a sugestão (ia_tarefas é
+   * staff_only: inclusão explícita).
+   */
+  ia: { id: string; tipo: string; status: string; criadoEm: string; encerradoEm: string | null; enviadoEm: string | null; provedor: string | null }[];
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
@@ -283,6 +292,11 @@ export async function montarDados(
   const planos = await planosParaExportacao(tx, ids.map((x) => x.id), escopo); // a exportação já registra "exportar"
   const conteudos = await conteudosDoTitular(tx, patientId);
   const docs = await documentosParaExportacao(tx, patientId, escopo);
+  const tarefasIa = await tx
+    .select({ id: iaTarefas.id, tipo: iaTarefas.tipo, status: iaTarefas.status, criadoEm: iaTarefas.criadoEm, encerradoEm: iaTarefas.encerradoEm, saiuEm: iaTarefas.saiuEm })
+    .from(iaTarefas)
+    .where(eq(iaTarefas.patientId, patientId))
+    .orderBy(asc(iaTarefas.criadoEm));
   const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
@@ -381,6 +395,16 @@ export async function montarDados(
     diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri })),
     conteudos,
     documentos: docs.documentos,
+    // Em produção o único provedor é a Anthropic (sandbox e fake são recusados — T2)
+    ia: tarefasIa.map((t) => ({
+      id: t.id,
+      tipo: t.tipo,
+      status: t.status,
+      criadoEm: t.criadoEm.toISOString(),
+      encerradoEm: t.encerradoEm?.toISOString() ?? null,
+      enviadoEm: t.saiuEm?.toISOString() ?? null,
+      provedor: t.saiuEm ? PROVEDOR_IA_DESCRICAO : null,
+    })),
     laudosForaDoZip: false,
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
