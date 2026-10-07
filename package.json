@@ -24,7 +24,9 @@
     "e2e:seed": "tsx --env-file-if-exists=.env.local scripts/e2e-seed.ts",
     "seed:taco": "tsx scripts/seeds/gerar-taco.ts",
     "seed:medidas": "tsx scripts/seeds/gerar-medidas.ts",
-    "icones": "tsx scripts/gerar-icones.ts"
+    "icones": "tsx scripts/gerar-icones.ts",
+    "ia:laudos": "tsx scripts/ia-laudos-ficticios.ts",
+    "ia:avaliar": "tsx --env-file-if-exists=.env.avaliacao scripts/ia-avaliar.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
