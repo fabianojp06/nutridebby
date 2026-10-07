@@ -425,6 +425,7 @@ O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2
 | P11-17 | Guardas finais (RNF-104), E2E com o sandbox, manual guiado, manual técnico (cap. 10) e runbook | RNF-104, §9 | P11-16 | Dev | M | ⬜ |
 | P11-18 | Liberação para uso real (dono): conta no Console e workspaces, pedido de ZDR, advogado (textos e transferência), avaliação com a chave de dev e escolha do modelo (D12 ★), sinônimos com a Debby (D15 ★), variáveis no Easypanel, "Liberar" no admin (D14 ★) | Runbook do Plano 11 | P11-17, P02-11 | Você | M | ⬜ |
 | P11-19 | Ciência do aviso de IA por e-mail: confirmar a entrega pelo webhook de devolução do Resend (hoje a ciência vale quando o Resend aceita o envio — decisão do dono de 07/10/2026; a suficiência do aceite está na pauta do advogado, runbook do Plano 11, passo 3) | US-104, D5 | P11-17 | Dev | S | ⬜ |
+| P11-20 | Minors da re-revisão do code review do PR #23: (a) com a IA bloqueada pela admin, "Enviar por e-mail" e "Entregar em mãos" do aviso continuam visíveis na Privacidade; (b) "0,125" e "0.125" caem em "Confira o valor" (zero à esquerda não é milhar); (c) job do aviso que expira por tempo no pg-boss não passa pelo `aoDesistir` e fica "aguardando o envio"; (d) `src/app/admin/page.tsx` divide micro-dólares por `1_000_000` em vez de usar o helper de `constantes.ts`; (e) falha ao decifrar o e-mail de consultório suspenso faz o job repetir em vez de desistir | US-104, RN-111, D19 | P11-14, P11-12 | Dev | S | ⬜ |
 
 ### Plano 10A — Receita (base de documentos e assinatura digitalizada)
 
