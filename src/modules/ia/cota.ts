@@ -9,8 +9,13 @@ import type { UsoTokens } from './provedor';
 
 /**
  * RN-104 / D3 (spec v0.3 §5.5): cota em micro-dólares. ORDEM DE TRAVAS (evita deadlock): paciente → exame → tenant
- * (`FOR UPDATE`) → linha de ia_uso → linha do mês em ia_gasto_plataforma. Acerto e estorno só descem (não travam o
- * tenant). O aviso de 80% roda numa transação própria, depois do acerto (trava o tenant de novo).
+ * (`FOR NO KEY UPDATE`) → linhas de ia_tarefas → linha de ia_uso → linha do mês em ia_gasto_plataforma. Acerto e estorno
+ * só descem (não travam o tenant). O aviso de 80% roda numa transação própria, depois do acerto (trava o tenant de novo).
+ * O tenant é travado com NO KEY UPDATE, nunca com FOR UPDATE: toda escrita auditada (gatilho → audit_log) e toda linha
+ * nova com FK para tenants pedem FOR KEY SHARE no tenant, que conflita com FOR UPDATE — o worker que já travou a tarefa
+ * e grava a auditoria esperaria quem travou o tenant e espera a tarefa (ciclo, 40P01; revisão final, travas.test.ts).
+ * NO KEY UPDATE segue serializando com o UPDATE de tenants (desativarIa, a admin, a suspensão), com outro pedido e com o
+ * FOR SHARE do portão do envio e do passo 6.
  */
 export const MICRO = 1_000_000;
 export const usdParaMicro = (usd: number) => Math.round(usd * MICRO);
@@ -52,7 +57,7 @@ async function somarNaPlataforma(tx: Tx, mes: string, delta: number, teto: numbe
 }
 
 async function travarTenant(tx: Tx, tenantId: string) {
-  const [t] = await tx.select({ cota: tenants.iaCotaMensalUsd, fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, tenantId)).for('update');
+  const [t] = await tx.select({ cota: tenants.iaCotaMensalUsd, fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, tenantId)).for('no key update');
   if (!t) throw new Error('tenant não encontrado');
   return t;
 }

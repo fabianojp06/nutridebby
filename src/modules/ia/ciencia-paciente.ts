@@ -95,7 +95,7 @@ export async function definirRecusaIa(ctx: TenantContext, patientId: string, rec
       const p = await carregarPacienteParaEscrita(tx, patientId);
       await tx.update(patients).set({ iaRecusadaEm: recusar ? agora : null, updatedAt: agora }).where(eq(patients.id, p.id));
       if (recusar) {
-        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('update');
+        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
         await cancelarTarefas(tx, { patientId: p.id, agora, por: ctx.actorUserId ?? null });
       }
     },

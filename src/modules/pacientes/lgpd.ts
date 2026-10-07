@@ -163,7 +163,7 @@ export async function atenderPedidoExclusao(
       // estão em processamento falham no worker (RN-100 de novo: paciente bloqueado). Ordem de travas da cota (cota.ts):
       // paciente (já travado acima) → tenant → tarefas → ia_uso → plataforma — o tenant antes de cancelarTarefas, como o
       // contrato dela pede
-      await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('update');
+      await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
       await cancelarTarefas(tx, { patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
       await recordAudit(tx, {
         acao: 'bloquear',

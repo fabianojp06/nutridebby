@@ -117,7 +117,7 @@ export async function excluirExame(ctx: TenantContext, patientId: string, id: st
     // esvaziada ANTES do DELETE (o SET NULL deixaria o resultado guardado sem uso). Tenant travado antes do contador da
     // plataforma (ordem da cota; apagarArquivo trava o tenant de novo depois). A tarefa em processamento não passa do portão
     // do envio ou falha no worker (exame_indisponivel).
-    await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('update');
+    await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
     await cancelarTarefas(tx, { patientId, examId: id, agora: new Date(), por: ctx.actorUserId ?? null });
     exameApagado = (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
     return exameApagado;

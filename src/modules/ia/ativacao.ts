@@ -30,7 +30,7 @@ export async function ativarIa(a: { userId: string; tenantId: string; ip: string
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
   const aceiteNovo = await db.transaction(async (tx) => {
-    const [t] = await tx.select({ liberada: tenants.iaLiberada, status: tenants.status }).from(tenants).where(eq(tenants.id, a.tenantId)).for('update');
+    const [t] = await tx.select({ liberada: tenants.iaLiberada, status: tenants.status }).from(tenants).where(eq(tenants.id, a.tenantId)).for('no key update');
     if (!t?.liberada || t.status !== 'ativa') throw new AtivacaoIaError(MSG_ATIVACAO.naoLiberada);
     return registrarAceiteAditivoIa(tx, { ...a, now: agora });
   });

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { and, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
 import { exams, iaTarefas, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -227,31 +227,36 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   return fim.status;
 }
 
-/** A varredura de UM tenant (dentro do withTenant do worker). Separada para o teste não varrer os tenants de outros arquivos. */
+/**
+ * A varredura de UM tenant (dentro do withTenant do worker). Separada para o teste não varrer os tenants de outros arquivos.
+ * Trava de uma vez, por id, todas as tarefas que vai mudar (paradas, esquecidas e prontas vencidas) ANTES de qualquer
+ * estorno: a ordem de cancelarTarefas (tarefas → ia_uso → plataforma). Travar as vencidas só depois do estorno fecharia
+ * um ciclo com quem cancela (já travou a pronta e vai estornar na linha do mês da plataforma) — revisão final, Minor 11.
+ */
 export async function expirarTarefasDoTenant(tx: Tx, agora: Date): Promise<{ interrompidas: number; expiradas: number }> {
+  const parada = and(eq(iaTarefas.status, 'processando'), lt(iaTarefas.iniciadoEm, new Date(agora.getTime() - PROCESSANDO_MAX_MS)));
+  const esquecida = and(eq(iaTarefas.status, 'na_fila'), lt(iaTarefas.criadoEm, new Date(agora.getTime() - NA_FILA_MAX_MS)));
+  const vencida = and(eq(iaTarefas.status, 'pronta'), isNotNull(iaTarefas.expiraEm), lt(iaTarefas.expiraEm, agora));
+  const alvo = await tx
+    .select({ id: iaTarefas.id, status: iaTarefas.status, enviadoEm: iaTarefas.enviadoEm })
+    .from(iaTarefas)
+    .where(or(parada, esquecida, vencida))
+    .orderBy(asc(iaTarefas.id))
+    .for('update');
   let interrompidas = 0;
-  const paradas = await tx
-    .select({ id: iaTarefas.id, enviadoEm: iaTarefas.enviadoEm })
-    .from(iaTarefas)
-    .where(and(eq(iaTarefas.status, 'processando'), lt(iaTarefas.iniciadoEm, new Date(agora.getTime() - PROCESSANDO_MAX_MS))))
-    .for('update');
-  const esquecidas = await tx
-    .select({ id: iaTarefas.id, enviadoEm: iaTarefas.enviadoEm })
-    .from(iaTarefas)
-    .where(and(eq(iaTarefas.status, 'na_fila'), lt(iaTarefas.criadoEm, new Date(agora.getTime() - NA_FILA_MAX_MS))))
-    .for('update');
-  for (const x of [...paradas, ...esquecidas]) {
+  let expiradas = 0;
+  for (const x of alvo) {
+    if (x.status === 'pronta') {
+      await tx.update(iaTarefas).set({ status: 'expirada', resultado: null, parametros: null, updatedAt: agora }).where(eq(iaTarefas.id, x.id));
+      expiradas++;
+      continue;
+    }
     await tx.update(iaTarefas).set({ status: 'falhou', erro: 'interrompida', resultado: null, parametros: null, concluidoEm: agora, updatedAt: agora }).where(eq(iaTarefas.id, x.id));
     if (x.enviadoEm) await marcarIncerto(tx, x.id, agora);
     else await estornar(tx, x.id, agora);
     interrompidas++;
   }
-  const vencidas = await tx
-    .update(iaTarefas)
-    .set({ status: 'expirada', resultado: null, parametros: null, updatedAt: agora })
-    .where(and(eq(iaTarefas.status, 'pronta'), isNotNull(iaTarefas.expiraEm), lt(iaTarefas.expiraEm, agora)))
-    .returning({ id: iaTarefas.id });
-  return { interrompidas, expiradas: vencidas.length };
+  return { interrompidas, expiradas };
 }
 
 /**

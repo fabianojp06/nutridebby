@@ -85,7 +85,7 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
           .select({ status: tenants.status, iaLiberada: tenants.iaLiberada, iaAtivadaEm: tenants.iaAtivadaEm, iaAditivoVersao: tenants.iaAditivoVersao })
           .from(tenants)
           .where(eq(tenants.id, ctx.tenantId))
-          .for('update');
+          .for('no key update');
         const estadoTravado = tn ? estadoIaDoTenant(tn, deps.ia.modo) : 'suspensa';
         if (estadoTravado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estadoTravado));
         await conferirLimites(tx, ctx.actorUserId!, agora);
