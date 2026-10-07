@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { avisoDaVersao } from '@/modules/ia/textos-legais';
+import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import type { EmailMessage, RenderedEmail } from './types';
 
 // Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
@@ -406,6 +407,13 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const aviso = avisoDaVersao(msg.versao);
       return simples(aviso.titulo, [`Olá, ${msg.nome}!`, `Este aviso é do consultório ${msg.consultorio}.`, ...aviso.paragrafos]);
     }
+    case 'exames_recebidos':
+      // RN-168 / C-05: genérico — nem paciente, nem exame, nem arquivo
+      return simples(
+        'Exames enviados por pacientes',
+        [MSG_REVISAO.avisoEmail, ...(msg.pendentesAntigos ? [MSG_REVISAO.lembrete30] : [])],
+        { href: msg.link, rotulo: 'Ver exames recebidos' },
+      );
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

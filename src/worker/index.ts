@@ -30,6 +30,7 @@ import {
   expirarExportacoesVencidas,
   gerarExportacao,
 } from '@/modules/pacientes/exportacao-job';
+import { processarEnvio, type DadosEnvio } from '@/modules/pacientes/exames-enviados-job';
 import { anonimizarVencidos, concluirExclusaoAtendida, type DadosExclusaoAtendida } from '@/modules/pacientes/lgpd';
 import { limparTmpOrfaos } from '@/modules/plataforma/armazenamento';
 import {
@@ -250,6 +251,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await boss.schedule('expirar-ia', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-ia', async () => {
     await expirarTarefasIA(getDb(), new Date());
+  });
+  // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
+  // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).
+  await work('exame-envio', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosEnvio>[]) => {
+    await processarEnvio(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('limpar-tmp', async () => {
