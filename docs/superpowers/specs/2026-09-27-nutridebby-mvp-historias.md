@@ -115,9 +115,26 @@ Cenário: Recuperação protegida pelo Turnstile (INT-06)
   E em ambos os casos nenhum link é enviado e nada é gravado
 
 Cenário: Expiração da sessão
-  Dado que sou nutricionista sem atividade há 12 h
+  Dado que sou nutricionista sem atividade há 30 min (Plano 12, P12-14, decisão do dono 07/10/2026; antes, 12 h)
   Quando faço qualquer requisição
   Então sou redirecionada para o login
+
+Cenário: Aviso de inatividade (Plano 12, P12-14)
+  Dado que estou no painel (ou no admin) sem usar a tela há 28 min, em qualquer aba
+  Então vejo o aviso "Sua sessão vai encerrar em 2 minutos por falta de uso." com o botão "Continuar conectada"
+  E Esc não fecha o aviso sem eu decidir
+  Quando clico em "Continuar conectada", a sessão é renovada e o aviso fecha em todas as abas
+  Quando não faço nada, a sessão é encerrada e vou para /entrar com "Sua sessão foi encerrada por falta de uso. Entre de novo."
+
+Cenário: Limite de 8 horas (Plano 12, P12-14)
+  Dado que entrei (com o 2FA, se ativo) há 8 h, mesmo usando o sistema o tempo todo
+  Quando a sessão chega ao limite
+  Então vou para /entrar com "Sua sessão chegou ao limite de 8 horas. Entre de novo." e preciso entrar de novo, com o 2FA
+
+Cenário: Fechar o navegador encerra o login da equipe (Plano 12, P12-14)
+  Dado que entrei como nutricionista ou admin
+  Quando fecho o navegador e abro de novo
+  Então preciso entrar de novo (o paciente continua conectado no app por 30 dias)
 
 Cenário: Sair
   Dado que estou logado em qualquer área (painel, administração, portal do paciente, "Segurança da conta", aceite do DPA ou "Conta temporariamente indisponível")

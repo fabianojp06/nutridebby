@@ -4,9 +4,11 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { session, tenants } from '@/db/schema';
 import { criarEEntrar } from '../../test/sessao';
-import { requireApiUser } from './api-auth';
+import { lerSessaoApi, requireApiUser } from './api-auth';
 import { getAuth } from './auth';
 import { STAFF_IDLE_MS } from './session-rules';
+
+const MIN = 60_000;
 
 const db = getDb();
 const auth = getAuth();
@@ -57,13 +59,36 @@ describe('requireApiUser', () => {
     }
   });
 
-  it('atividade de API desliza a sessão da equipe para agora + 12 h (T7-R2b)', async () => {
+  it('atividade de API desliza a sessão da equipe para agora + 30 min (T7-R2b, P12-14) e devolve os valores gravados', async () => {
     const n = await criarEEntrar(db, auth, { appRole: 'nutri' });
-    await envelhecer(n.id, 11 * H, 1 * H);
+    await envelhecer(n.id, 20 * MIN, 10 * MIN);
     const r = await requireApiUser(req(n.cookie), ['nutri']);
     expect(r.ok).toBe(true);
     const s = await lerSessao(n.id);
     expect(Math.abs(new Date(s.updatedAt).getTime() - Date.now())).toBeLessThan(60_000);
     expect(Math.abs(new Date(s.expiresAt).getTime() - (Date.now() + STAFF_IDLE_MS))).toBeLessThan(60_000);
+    if (r.ok) expect(new Date(r.data.session.expiresAt).getTime()).toBe(new Date(s.expiresAt).getTime());
+  });
+
+  it('equipe sem uso há 31 min (sessão aberta antes da regra, expiresAt de 12 h) → 401 e nada é renovado (P12-14)', async () => {
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri' });
+    await envelhecer(n.id, 31 * MIN, 11 * H);
+    const antes = await lerSessao(n.id);
+    const r = await requireApiUser(req(n.cookie), ['nutri']);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.response.status).toBe(401);
+    expect(await lerSessao(n.id)).toEqual(antes);
+  });
+
+  it('lerSessaoApi confere igual, mas não renova (perguntar não é uso, P12-14)', async () => {
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri' });
+    await envelhecer(n.id, 20 * MIN, 10 * MIN);
+    const antes = await lerSessao(n.id);
+    expect((await lerSessaoApi(req(n.cookie), ['nutri'])).ok).toBe(true);
+    expect(await lerSessao(n.id)).toEqual(antes);
+    await envelhecer(n.id, 31 * MIN, 11 * H);
+    const r = await lerSessaoApi(req(n.cookie), ['nutri']);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.response.status).toBe(401);
   });
 });

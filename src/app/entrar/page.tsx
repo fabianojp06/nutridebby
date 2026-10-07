@@ -5,13 +5,21 @@ import { esquecerComprasDoAparelho } from '@/app/p/(portal)/compras/marcacao';
 import { esquecerPlanoGuardado } from '@/app/sw-regras';
 import { authClient } from '@/lib/auth-client';
 import { safeReturnPath } from '@/lib/safe-return';
+import { ehMotivoDoFim, MSG_FIM_DA_SESSAO } from '@/lib/session-rules';
+
+/** P12-14: o motivo da saída automática da equipe (inatividade, limite de 8 h) vence o aviso genérico de sessão expirada. */
+function avisoInicial(params: URLSearchParams): string {
+  const motivo = params.get('motivo');
+  if (ehMotivoDoFim(motivo)) return MSG_FIM_DA_SESSAO[motivo];
+  return params.get('expirada') ? 'Sua sessão expirou. Entre de novo.' : '';
+}
 
 function Form() {
   const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [erro, setErro] = useState(params.get('expirada') ? 'Sua sessão expirou. Entre de novo.' : '');
+  const [erro, setErro] = useState(() => avisoInicial(params));
   const [enviando, setEnviando] = useState(false);
   // D6 / Review Focus 4: aqui chegam a sessão vencida e o "Sair", e por aqui outra pessoa entra no mesmo aparelho —
   // o plano guardado offline e as marcações da lista de compras saem antes de qualquer login

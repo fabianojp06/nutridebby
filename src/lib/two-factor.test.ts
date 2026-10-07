@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { TOTP } from 'otpauth';
 import { makeDb } from '../../test/db';
-import { account, twoFactor, user } from '@/db/schema';
+import { account, session, twoFactor, user } from '@/db/schema';
 import { createAuth } from './auth';
 import { hashPassword } from './password.server';
 
@@ -22,6 +22,10 @@ const call = (path: string, body: unknown, ip = '10.1.0.1') =>
   }));
 const cookiesOf = (res: Response) =>
   res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+/** P12-14: o `Set-Cookie` do token de sessão — o da equipe vale só até fechar o navegador (sem Max-Age/Expires). */
+const cookieDeSessao = (res: Response) => res.headers.getSetCookie().find((c) => c.startsWith('nd.session_token=') && !/Max-Age=0/.test(c));
+const sessoesDaConta = () =>
+  app.db.select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt }).from(session).innerJoin(user, eq(user.id, session.userId)).where(eq(user.email, email));
 
 beforeAll(async () => {
   const id = randomUUID();
@@ -42,11 +46,21 @@ describe('2FA TOTP (US-003)', () => {
   });
 
   it('confirmar com código correto ativa o 2FA', async () => {
+    // P12-14: o login foi há 3 h (o limite de 8 h conta dele, não da troca de sessão que a ativação faz)
+    const login = new Date(Date.now() - 3 * 60 * 60_000);
+    await app.db.update(session).set({ createdAt: login }).where(eq(session.id, (await sessoesDaConta())[0].id));
     const code = new TOTP({ secret, digits: 6, period: 30 }).generate();
     const res = await call('/two-factor/verify-totp', { code });
     expect(res.status).toBe(200);
     const [u] = await app.db.select({ on: user.twoFactorEnabled }).from(user).where(eq(user.email, email));
     expect(u.on).toBe(true);
+    // a sessão nova (o Better Auth troca a sessão ao ativar) herda o createdAt e continua só até fechar o navegador
+    const sessoes = await sessoesDaConta();
+    expect(sessoes).toHaveLength(1);
+    expect(new Date(sessoes[0].createdAt).getTime()).toBe(login.getTime());
+    expect(Math.abs(new Date(sessoes[0].expiresAt).getTime() - (Date.now() + 30 * 60_000))).toBeLessThan(60_000);
+    expect(cookieDeSessao(res)).toBeDefined();
+    expect(cookieDeSessao(res)).not.toMatch(/Max-Age|Expires/i);
   });
 
   it('o segredo não fica em texto puro no banco', async () => {
@@ -64,6 +78,9 @@ describe('2FA TOTP (US-003)', () => {
   it('o código no login (sem sessão) continua passando pelo verify-totp da web', async () => {
     const res = await call('/two-factor/verify-totp', { code: new TOTP({ secret, digits: 6, period: 30 }).generate() }, '10.1.0.3');
     expect(res.status).toBe(200);
+    // P12-14: depois do 2FA, o cookie da sessão definitiva também é de sessão do navegador (o dont_remember do login segue)
+    expect(cookieDeSessao(res)).toBeDefined();
+    expect(cookieDeSessao(res)).not.toMatch(/Max-Age|Expires/i);
     cookie = cookiesOf(res);
     expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).not.toBeNull();
   });

@@ -1,4 +1,5 @@
 import { BotaoSair } from '@/components/botao-sair';
+import { VigiaDeSessao } from '@/components/vigia-sessao';
 
 /**
  * Cabeçalho comum das páginas da administração, com o botão "Sair". Não decide acesso: cada página continua
@@ -14,6 +15,8 @@ export default function AdminLayout({ children }: LayoutProps<'/admin'>) {
         </div>
       </header>
       {children}
+      {/* P12-14: aviso de inatividade e saída automática (30 min sem uso, 8 h de limite) */}
+      <VigiaDeSessao />
     </>
   );
 }

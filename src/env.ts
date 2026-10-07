@@ -160,9 +160,22 @@ const appSchema = serverSchema
     // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
     CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
     IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto,
+    // P12-14: só teste — encurta os prazos da sessão da equipe (inatividade em ms) para quem traz o cookie nd_sessao_teste
+    // (E2E do aviso de inatividade). Recusada em produção (abaixo), como o IA_PROVEDOR sandbox/fake.
+    SESSAO_TESTE_MS: opcional(
+      z.coerce
+        .number({ message: 'SESSAO_TESTE_MS deve ser um número (ms)' })
+        .int({ message: 'SESSAO_TESTE_MS deve ser um número inteiro (ms)' })
+        .min(6_000, { message: 'SESSAO_TESTE_MS deve ser de 6000 a 1800000 ms' })
+        .max(1_800_000, { message: 'SESSAO_TESTE_MS deve ser de 6000 a 1800000 ms' })
+        .optional(),
+    ),
   })
   .superRefine((e, ctx) => {
     conferirIaEmProducao(e, ctx);
+    if (e.SESSAO_TESTE_MS !== undefined && emProducao(e)) {
+      ctx.addIssue({ code: 'custom', path: ['SESSAO_TESTE_MS'], message: 'SESSAO_TESTE_MS só fora de produção (encurta a sessão; é só do E2E)' });
+    }
     // Chaves de teste da Cloudflare aprovam qualquer token: só em localhost (dev, CI, E2E com `next start`)
     if (emProducao(e)) {
       if (/^[123]x00000000/.test(e.TURNSTILE_SITE_KEY)) {

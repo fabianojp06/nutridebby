@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
 import { METADADOS_DO_PAINEL } from '@/app/manifesto-painel';
+import { VigiaDeSessao } from '@/components/vigia-sessao';
 import { requireNutri } from '@/lib/tenant-session';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { getTenantBrand } from '@/modules/plataforma/marca';
@@ -27,6 +28,8 @@ export default async function PainelLayout({ children }: LayoutProps<'/painel'>)
     <div data-tema={tema} style={cores} className="min-h-dvh bg-fundo font-sans text-texto">
       <CabecalhoPainel marca={marca} nome={data.user.name} email={data.user.email} tema={tema} completo={completo} progresso={progresso} />
       {children}
+      {/* P12-14: aviso de inatividade e saída automática (30 min sem uso, 8 h de limite) */}
+      <VigiaDeSessao />
     </div>
   );
 }

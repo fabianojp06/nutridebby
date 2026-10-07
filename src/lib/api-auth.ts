@@ -2,7 +2,8 @@ import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
 import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
-import { logger } from './logger';
+import { logger, nomeDoErro } from './logger';
+import { prazosDaRequisicao } from './sessao-prazos';
 import type { SessionData } from './session';
 import { evaluateSession, MSG_SESSAO_EXPIRADA, type AppRole } from './session-rules';
 
@@ -15,10 +16,26 @@ export const recusaApi = (status: number, erro: string, extra: Record<string, st
   response: Response.json({ erro, ...extra }, { status, headers: { 'cache-control': 'no-store' } }),
 });
 
-/** Route Handlers: mesma regra de requireUser (papel, 12 h, 2FA do admin, RN-15), respondendo 401/403. */
+/**
+ * Route Handlers: mesma regra de requireUser (papel, 30 min sem uso e 8 h da equipe, 2FA do admin, RN-15), respondendo
+ * 401/403. A sessão aceita desliza (a requisição autenticada conta como uso); `data.session` volta com os valores gravados.
+ */
 export async function requireApiUser(req: Request, allowed: readonly AppRole[]): Promise<ApiAuth> {
+  return autenticarApi(req, allowed, true);
+}
+
+/**
+ * P12-14: a mesma conferência de requireApiUser, SEM renovar a sessão — só para `GET /api/sessao/ativa`, em que a tela
+ * pergunta quanto falta antes de avisar ou de sair (perguntar não pode contar como uso).
+ */
+export async function lerSessaoApi(req: Request, allowed: readonly AppRole[]): Promise<ApiAuth> {
+  return autenticarApi(req, allowed, false);
+}
+
+async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar: boolean): Promise<ApiAuth> {
   const data = await getAuth().api.getSession({ headers: req.headers, query: { disableRefresh: true } });
   const now = new Date();
+  const prazos = prazosDaRequisicao(req.headers);
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
   const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
   const decision = evaluateSession({
@@ -28,14 +45,18 @@ export async function requireApiUser(req: Request, allowed: readonly AppRole[]):
     now,
     path: new URL(req.url).pathname,
     tenantStatus: statusDe(tenant),
+    prazos,
   });
   switch (decision) {
     case 'ok':
-      // T7-R2b: atividade de API também conta para a janela de 12 h da equipe (uploads, Tarefas 8/10)
+      if (!deslizar) return { ok: true, data: data!, tenant };
+      // T7-R2b: atividade de API também conta para a janela da equipe (uploads, Tarefas 8/10; 30 min desde o P12-14)
       try {
-        await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now);
+        const gravada = await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now, prazos);
+        if (gravada) Object.assign(data!.session, gravada);
       } catch (err) {
-        logger.warn({ err: err instanceof Error ? err.message : String(err), userId: data!.user.id }, 'falha ao renovar a sessão');
+        // só o nome do erro (RNF-11), como em session.ts: a mensagem do erro de banco traz o SQL e os parâmetros
+        logger.warn({ erro: nomeDoErro(err), userId: data!.user.id }, 'falha ao renovar a sessão');
       }
       return { ok: true, data: data!, tenant };
     case 'login':

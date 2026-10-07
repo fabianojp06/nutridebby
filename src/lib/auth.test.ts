@@ -374,3 +374,49 @@ describe('logger do Better Auth (RNF-11, CLAUDE.md regra 3)', () => {
     }
   });
 });
+
+describe('cookie de sessão: a equipe sai ao fechar o navegador; o paciente fica 30 dias (P12-14, RNF-06)', () => {
+  /** O `Set-Cookie` de um cookie pelo nome (sem o prefixo `__Secure-` dos testes em http). */
+  const setCookie = (res: Response, nome: string) => res.headers.getSetCookie().find((c) => c.startsWith(`${nome}=`));
+  async function contaCom(appRole: 'admin' | 'nutri' | 'paciente') {
+    const id = randomUUID();
+    const e = `${appRole}-ck-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'X', email: e, emailVerified: true, appRole });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    return e;
+  }
+
+  it.each(['nutri', 'admin'] as const)('%s: cookie de sessão sem Max-Age nem Expires, com o dont_remember (mesmo pedindo "lembrar")', async (papel) => {
+    const e = await contaCom(papel);
+    for (const [i, extra] of [{}, { rememberMe: true }].entries()) {
+      const res = await post('/sign-in/email', { email: e, password: senha, ...extra }, `10.6.${papel === 'nutri' ? 1 : 2}.${i}`);
+      expect(res.status).toBe(200);
+      const sessao = setCookie(res, 'nd.session_token')!;
+      expect(sessao).toBeDefined();
+      expect(sessao).not.toMatch(/Max-Age|Expires/i);
+      expect(setCookie(res, 'nd.dont_remember')).not.toMatch(/Max-Age|Expires/i);
+      expect(setCookie(res, 'nd.dont_remember')).toBeDefined();
+    }
+  });
+
+  it('paciente: o login continua com Max-Age de 30 dias e sem dont_remember', async () => {
+    const e = await contaCom('paciente');
+    const res = await post('/sign-in/email', { email: e, password: senha }, '10.6.3.1');
+    expect(res.status).toBe(200);
+    expect(setCookie(res, 'nd.session_token')).toMatch(/Max-Age=2592000/);
+    expect(setCookie(res, 'nd.dont_remember')).toBeUndefined();
+  });
+
+  it('a sessão da equipe nasce com expiresAt = agora + 30 min, a do paciente com 30 dias', async () => {
+    const n = await contaCom('nutri');
+    const p = await contaCom('paciente');
+    await post('/sign-in/email', { email: n, password: senha }, '10.6.4.1');
+    await post('/sign-in/email', { email: p, password: senha }, '10.6.4.2');
+    const expira = async (mail: string) => {
+      const [s] = await app.db.select({ e: session.expiresAt }).from(session).innerJoin(user, eq(user.id, session.userId)).where(eq(user.email, mail));
+      return new Date(s.e).getTime() - Date.now();
+    };
+    expect(Math.abs((await expira(n)) - 30 * 60_000)).toBeLessThan(60_000);
+    expect(Math.abs((await expira(p)) - 30 * 24 * 60 * 60_000)).toBeLessThan(60_000);
+  });
+});
