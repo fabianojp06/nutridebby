@@ -6930,4 +6930,11 @@ Revisão por workflow (lentes banco/LGPD/normas e cobertura/segurança, verifica
 
 ## Resultado da entrega
 
-(A preencher no fechamento do plano: números da avaliação do passo 4 do runbook, modelo escolhido, pico de memória medido na T5, revisões e o que foi para o backlog.)
+Fechamento em 07/10/2026 (detalhe na [spec da IA v0.4, §17](../specs/2026-10-03-nutridebby-ia-nutricionista-design.md#17-resultado-do-plano-11-v04-07102026)).
+
+- **Merge:** PR #23, `2efa27b`, em 07/10/2026 — em produção; migrations `0098`–`0100` (a `0100` nasceu na revisão final). A IA fica desligada para dado real até o runbook (P11-18).
+- **Testes:** `pnpm test` com 282 arquivos e 2558 testes; E2E `ia-laudos` e `conferencia-ia` com o sandbox; job `image` com 258 MB (limite 260).
+- **Avaliação (passo 4 do runbook):** ainda não rodada com a API real (depende da conta do passo 1); modelo segue no padrão provisório `claude-opus-5-5` (D12 ★). Registrar aqui os números e o modelo escolhido quando rodar.
+- **Memória (T5, D17):** PDF de ≈ 20 MB → pico de ≈ 64 MB de RSS acima do de antes do preparo; `IA_ARQUIVO_MAX_BYTES` ficou em 20 MB.
+- **Revisões:** pre-flight com R1–R10; revisão por tarefa (13 completas, 4 leves) com até duas rodadas de correção; revisão final em cinco lentes com uma onda de correções (5 Important e os Minors de segurança 1–8; `0100`); `/code-review high` uma vez no PR (itens 0–8, `537f4d3`), com a decisão do dono A-D21 (ciência quando o e-mail é enviado, pergunta ao advogado no passo 3); re-revisão do diff sem Critical/Important.
+- **Backlog:** P11-18 (liberação, dono), P11-19 (webhook de devolução do Resend), P11-20 (Minors da re-revisão do code review), P11-21 (Minors do plano e da revisão final).

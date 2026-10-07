@@ -2,16 +2,17 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 0.3 (decisões do Plano 11 tomadas; reconciliada com o código de 06/10/2026) |
-| Data | 2026-10-03 (v0.2) · 2026-10-06 (v0.3) |
-| Status | **Aprovada para o Plano 11** (E10 e E11). A E12 aguarda as decisões do Plano 14 (A-D3, A-D8, A-D11, A-D12, A-D13, A-D17, A-D18) |
+| Versão | 0.4 (fechamento do Plano 11: entregue e em produção; reconciliada com o código de 07/10/2026) |
+| Data | 2026-10-03 (v0.2) · 2026-10-06 (v0.3) · 2026-10-07 (v0.4) |
+| Status | **E10 e E11 entregues no Plano 11** (PR #23, mesclado e em produção desde 07/10/2026, migrations `0098`–`0100`; §17). A IA nasce **desligada para dado real**: ela só aparece com `IA_PROVEDOR` definida (passo 6 do runbook) e só lê laudo de consultório com `tenants.ia_liberada`, que a `0098` cria falso para todos e só a admin liga (passo 7; P11-18). A E12 aguarda as decisões do Plano 14 (A-D3, A-D8, A-D11, A-D12, A-D13, A-D17, A-D18) e ganhou o escopo dos modelos sugeridos pela IA (A-D22, US-123) |
 | Revisão 0.2 | Revisão do workflow aplicada: ciência de **todo** paciente antes da IA (RN-100, US-104, A-D19); art. 37 da Res. CFN nº 856/2026 com a redação literal (A-D13); caminho pela UE da Res. CD/ANPD nº 32/2026 (A-D1, A-D5, A-D6); função `lerValorLaudo` no lugar de `lerDecimal` (RN-111); reserva pelo `count_tokens` e teto por tarefa com `limite_custo` (RN-104); seções "Exames" e "Pontos para avaliar" do resumo sem interpretação (A-D17); refatoração transacional do editor e dos exames (RN-114, RN-122); auditoria pelo gatilho com rótulo próprio (RN-101); aditivo de IA separado do DPA (A-D20). Pontos menores não aplicados na §15 |
 | Revisão 0.3 | Decisões do dono de 06/10/2026 (A-D1, A-D2, A-D4, A-D5, A-D6, A-D7, A-D9, A-D10, A-D14, A-D15, A-D16, A-D19, A-D20; tabela "Decisões do dono (06/10/2026)", §16); reconciliação com os Planos 06–10A e 09 (portal e gatilho de colunas de `patients`, `admin_actions`, filtro do Sentry, erro de job sem detalhe, espera do schema, guarda de origem, formulários POST); fatiamento em Plano 11 e Plano 14 (§2.3); boas práticas SBIS NGS1 (§5.11); erros da API conferidos na documentação de 06/10/2026 (RN-105, INT-07) |
 | Revisão 0.3.1 | Revisão do Plano 11 (workflow, 06/10/2026): **sem `count_tokens`** (o laudo sai ao provedor uma vez só; teto da reserva pelas páginas contadas, RN-104); **portão do envio** com travas antes da chamada (RN-100 reconferida, `enviado_em`/`saiu_em`, §5.6); "Pediu leitura à IA" no pedido e "Laudo enviado à IA" na saída (RN-101); exportação do titular diz se o laudo saiu e para quem (§5.3); fila `ia` com 300 s; resultado não gravado se a IA foi desligada ou o exame excluído durante a chamada; excluir o exame cancela as tarefas dele; `DELETE` em `ia_tarefas` só com o paciente anonimizado; a tag `motivo` do Sentry só com formato de código (§5.7); §5.4 e §5.10 corrigidas |
+| Revisão 0.4 | Fechamento do Plano 11 (07/10/2026): o que foi entregue e o status de cada história (§17); decisões e desvios da execução — decisões do pre-flight (R1–R10), revisão final do branch (travas do tenant em `FOR NO KEY UPDATE`, PDF sem anotações nem EXIF do JPEG embutido, ciência e recusa na exportação, acompanhamento até 60 min, migration `0100` com três gatilhos de defesa) e `/code-review high` do PR #23 (itens 0–8: ciência quando o e-mail é **enviado** com a pergunta ao advogado, pedido recusado com sugestão vigente, seção "Uso de IA" visível depois do bloqueio, `censor` do pino, vírgula ambígua, desistência do e-mail do aviso, trava do tenant em `cancelarTarefas`); decisões do dono de 07/10/2026 **A-D21** (ciência ao envio) e **A-D22** (modelos de plano alimentar e de anamnese sugeridos pela IA, escopo do Plano 14, US-123); backlog P11-18 a P11-20 |
 | Itens do backlog | F3-01 (leitura de laudos com IA) · F3-03 ("IA Nutri" para a nutricionista) · base de IA compartilhada por F3-02 e F3-04 (F3-05 sem IA: D7 = (a) da spec de documentos assinados, 05/10/2026). **Plano 11 = base + F3-01; Plano 14 = F3-03; Plano 12 = F3-04; Plano 15 = F3-02** |
 | Quando | Plano 11, depois dos Planos 09 e 10A (em produção em 06/10/2026). O roteiro de adequação SBIS põe a fase F3 (integridade do prontuário) antes dos Planos 11–13; o dono decidiu preparar o Plano 11 agora (06/10/2026), e por isso ele já nasce com as práticas da §5.11 |
-| Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (v1.12), [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md), [`2026-10-03-nutridebby-documentos-assinados-design.md`](2026-10-03-nutridebby-documentos-assinados-design.md) (v0.4, Plano 10A) e a análise SBIS (`.superpowers/sdd/2026-10-06-sbis/sbis-analise-lacunas.md`, fora do git). IDs RN-xx, RNF-xx, INT-xx, US-0xx e P-xx citados aqui são daqueles documentos |
-| Numeração nova | US-100 a US-129 · RN-100 a RN-129 · RNF-100 a RNF-110 · INT-07 · R-100 a R-113 · A-D1 a A-D20 (decisões deste documento; o prefixo "A-" evita colisão com as decisões dos planos do MVP, como "Plano 05, D10", e segue a forma que a spec do Subprojeto C já usa para citar estas: "A-D4", "A-D6") |
+| Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (v1.13), [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md), [`2026-10-03-nutridebby-documentos-assinados-design.md`](2026-10-03-nutridebby-documentos-assinados-design.md) (v0.4, Plano 10A) e a análise SBIS (`.superpowers/sdd/2026-10-06-sbis/sbis-analise-lacunas.md`, fora do git). IDs RN-xx, RNF-xx, INT-xx, US-0xx e P-xx citados aqui são daqueles documentos |
+| Numeração nova | US-100 a US-129 · RN-100 a RN-129 · RNF-100 a RNF-110 · INT-07 · R-100 a R-113 · A-D1 a A-D22 (decisões deste documento; o prefixo "A-" evita colisão com as decisões dos planos do MVP, como "Plano 05, D10", e segue a forma que a spec do Subprojeto C já usa para citar estas: "A-D4", "A-D6") |
 
 ---
 
@@ -59,6 +60,7 @@ As duas funções se apoiam numa **base de IA** única (provedor, contrato, priv
 | F3-01 | **Leitura de laudos** (Plano 11) | "Ler valores com IA" num exame já salvo com arquivo (US-015); tabela de sugestões editável, com marcação por linha; salvar as linhas marcadas em `exams.valores`; data da coleta sugerida; auditoria |
 | F3-03a | **Resumo do histórico** (Plano 14) | Resumo em seções do prontuário do paciente, com a tabela de dados usados (calculada pelo sistema) ao lado |
 | F3-03b | **Rascunho de plano alimentar** (Plano 14) | Formulário de metas → a IA escolhe alimentos e quantidades por ferramentas de busca e de cálculo do próprio sistema → prévia com totais (RN-02) → "Usar como rascunho" |
+| F3-03c | **Modelos sugeridos pela IA** (Plano 14; decisão do dono de 07/10/2026, A-D22) | Em Configurações, um pacote de modelos de plano alimentar e de anamnese por área de atendimento, gerado pela IA com os alimentos da tabela do consultório e totais calculados pelo sistema; chega como rascunho e só é usado em paciente depois de aprovado (US-123). Sem dado de paciente |
 
 ### 2.2 Fora (YAGNI ou outra especificação)
 
@@ -77,7 +79,8 @@ IA para o paciente (F3-02) · envio de exames pelo paciente (F3-04) · parecer n
 | Variáveis | `IA_PROVEDOR`, `ANTHROPIC_API_KEY`, `IA_MODELO_LEITURA`, `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD`, `IA_DESLIGADA` (e `IA_AVALIACAO*`, só no script de avaliação) | `IA_MODELO_ASSISTENTE`, `IA_TETO_RASCUNHO_USD` |
 | Motivos de falha (RN-112) | `provedor_indisponivel`, `resultado_incerto`, `recusa`, `resposta_invalida`, `documento_nao_reconhecido`, `nada_encontrado`, `interrompida`, `cota`, `teto_plataforma`, `ia_desligada`, `credencial_invalida`, `paciente_indisponivel`, `paciente_nao_informado`, `arquivo_invalido`, `laudo_longo`, `pdf_com_senha`, `exame_indisponivel` | `limite_voltas`, `limite_custo` |
 | Critérios de sucesso | CS-100, CS-101, CS-102 (só a leitura), CS-103 | CS-102 (resumo e rascunho), CS-104 |
-| Decisões | A-D1, A-D2, A-D4, A-D5, A-D6, A-D7, A-D9, A-D10, A-D14, A-D15, A-D16, A-D19, A-D20 (tomadas em 06/10/2026) | A-D3, A-D8, A-D11, A-D12, A-D13, A-D17, A-D18 (abertas) |
+| Decisões | A-D1, A-D2, A-D4, A-D5, A-D6, A-D7, A-D9, A-D10, A-D14, A-D15, A-D16, A-D19, A-D20 (tomadas em 06/10/2026); A-D21 (07/10/2026, ciência ao envio do e-mail) | A-D3, A-D8, A-D11, A-D12, A-D13, A-D17, A-D18 (abertas); A-D22 (escopo decidido em 07/10/2026: modelos sugeridos, US-123) |
+| Modelos sugeridos (A-D22) | — | US-123: pacote por área em Configurações, rascunho "Sugestão da IA — revise" e "Aprovar modelo" antes do uso; sem dado de paciente (não depende da ZDR nem do aviso ao paciente; depende da conta da Anthropic e da cota). Desenho no brainstorm do Plano 14 |
 
 Um documento só: as histórias, regras e linhas do Plano 14 levam "(Plano 14)" no título. A E12 deve ser conferida de novo contra o código no início do Plano 14 (editor, `rascunho.ts`, Plano 10A).
 
@@ -200,7 +203,7 @@ No Plano 11 só sai do sistema o **arquivo do laudo** (A-D7 = (a)), sem metadado
 
 - **Medida:** custo real em **micro-dólares** (inteiro), calculado de `usage` (tokens de entrada, de cache lido e gravado, de saída) × `PRECOS_IA` × multiplicador de região (`us` = 1,1). Cada tarefa tem **uma** linha em `ia_uso` (sem dado de saúde), que nasce como reserva e termina confirmada, incerta ou estornada.
 - **Cota mensal por tenant** em US$ (`tenants.ia_cota_mensal_usd`, padrão **US$ 15,00**, A-D10 = (a)), ajustada pelo admin. Mês civil no fuso do tenant (como RN-09). Bloqueio em 100%.
-- **Reserva em duas etapas (RN-104):** (1) o **app** reserva, na transação que cria a tarefa e com a linha do tenant travada, um **teto por tarefa** calculado sem chamar o provedor e sem abrir o arquivo (o app não tem o SDK nem o `pdf-lib`, RNF-103): PDF = o limite de páginas (15, A-D14) × teto por página; foto = teto de uma imagem; mais instruções e `max_tokens`. **Ordem de travas:** paciente (`carregarPacienteParaEscrita`) → exame → linha de `tenants` (`FOR UPDATE`) → linha do mês em `ia_gasto_plataforma`, a mesma ordem de `salvarArquivo` e `apagarArquivo` para as duas primeiras. Se uso do mês + nova reserva passar da cota, a tarefa não é criada. (2) o **worker**, no portão do envio (§5.6), recalcula o teto com as páginas que já contou no preparo (páginas × 8.700 + 3.000 de entrada, mais `max_tokens` × saída; foto = teto de uma imagem) e **reduz** a reserva a esse valor — nunca a amplia, porque o laudo de até 15 páginas cabe no teto do app. Sem `count_tokens` (revisão 0.3.1). O teto por página é estimativa: a avaliação mede o custo máximo real contra ele (RN-127); se o real passar, o acerto registra o custo real. No fim, a reserva vira o custo real (acerto); falha antes de o pedido sair estorna; **resultado incerto** (tempo esgotado depois do envio) fica com o valor reservado (o provedor pode ter cobrado).
+- **Reserva em duas etapas (RN-104):** (1) o **app** reserva, na transação que cria a tarefa e com a linha do tenant travada, um **teto por tarefa** calculado sem chamar o provedor e sem abrir o arquivo (o app não tem o SDK nem o `pdf-lib`, RNF-103): PDF = o limite de páginas (15, A-D14) × teto por página; foto = teto de uma imagem; mais instruções e `max_tokens`. **Ordem de travas:** paciente (`carregarPacienteParaEscrita`) → exame → linha de `tenants` (`FOR NO KEY UPDATE`; revisão final do Plano 11: o `FOR UPDATE` conflitava com o `FOR KEY SHARE` que toda escrita auditada e toda FK para `tenants` pedem, e fechava ciclo de espera com o worker) → linha do mês em `ia_gasto_plataforma`, a mesma ordem de `salvarArquivo` e `apagarArquivo` para as duas primeiras. Quem cancela tarefas (`cancelarTarefas`) trava o próprio tenant antes das tarefas (code review do PR #23): paciente → tenant → tarefas (por id) → `ia_uso` → plataforma; a varredura `expirar-ia` trava de uma vez, por id, as tarefas que vai mexer antes de qualquer estorno. Se uso do mês + nova reserva passar da cota, a tarefa não é criada. (2) o **worker**, no portão do envio (§5.6), recalcula o teto com as páginas que já contou no preparo (páginas × 8.700 + 3.000 de entrada, mais `max_tokens` × saída; foto = teto de uma imagem) e **reduz** a reserva a esse valor — nunca a amplia, porque o laudo de até 15 páginas cabe no teto do app. Sem `count_tokens` (revisão 0.3.1). O teto por página é estimativa: a avaliação mede o custo máximo real contra ele (RN-127); se o real passar, o acerto registra o custo real. No fim, a reserva vira o custo real (acerto); falha antes de o pedido sair estorna; **resultado incerto** (tempo esgotado depois do envio) fica com o valor reservado (o provedor pode ter cobrado).
 - **Aviso em 80%:** faixa no painel + e-mail à nutricionista **uma vez por mês**, no molde de `avisarSeChegou80` da cota de WhatsApp (`src/modules/notificacoes/whatsapp/cota.ts`): marca do mês em `tenants.ia_aviso_mes` com `UPDATE … WHERE ia_aviso_mes IS DISTINCT FROM <mês> RETURNING`, envio por `avisarNutri` (`src/modules/agenda/aviso-nutri.ts`) com o tipo de e-mail novo `cota_ia`; numa transação própria, depois do acerto. **100%:** novas tarefas recusadas até o mês seguinte ou até o admin ampliar; o resto do sistema segue normal.
 - **Teto global da plataforma** (`IA_TETO_GLOBAL_MENSAL_USD`, **US$ 50** no piloto): soma de todos os tenants no mês civil de Brasília, numa tabela de contador **sem `tenant_id`** (`ia_gasto_plataforma`), atualizada na mesma transação da reserva, do acerto e do estorno. Atingido, ninguém cria tarefa e os admins recebem e-mail uma vez no mês. O valor vale **para o piloto** e é revisto **a cada tenant ativado**. O **limite de gasto do workspace de produção** no Console (A-D16 = (a)) é a segunda barreira.
 - A nutricionista vê só **"Uso da IA neste mês: {p}% do limite"** (ela não paga nesta fase); o admin vê US$.
@@ -224,7 +227,7 @@ No Plano 11 só sai do sistema o **arquivo do laudo** (A-D7 = (a)), sem metadado
 - **Pode ir para log (pino) e Sentry:** `tarefa_id`, `tenant_id`, tipo, modelo, versão das instruções, tokens, custo, duração, código de erro curto (motivo da RN-112 ou tipo do erro do provedor), status HTTP e `request-id` do provedor.
 - **Nunca:** conteúdo do pedido ou da resposta, nomes de marcadores, valores, trechos do laudo, texto de erro do provedor, a chave da API. Erros do SDK são reduzidos a `{tipo, status}` (classe `ErroProvedor`) antes de sair de `provedor-anthropic.ts`.
 - O filtro do Sentry já é por lista do que pode sair (`src/lib/sentry-filtro.ts`): `extra` sai, `contexts` e `tags` só pelas listas. Uma tag nova só entra em `TAGS_PERMITIDAS` com valor de lista fechada. A tag `motivo` (já existente: `err.code` do Node/Postgres ou motivo da RN-112) passa a exigir **formato de código** (`^[A-Za-z0-9_]{1,60}$`): **não é lista fechada**, porque os códigos de `err.code` não têm lista finita — lacuna registrada; texto livre com espaço ou hífen não passa. O erro de job chega ao pg-boss já limpo (`erroSemDetalhe`).
-- Defesa extra: `apiKey`, `x-api-key`, `parametros` e `resultado` entram nas `REDACT_KEYS` do pino (`src/lib/logger.ts`).
+- Defesa extra: `apiKey`, `x-api-key`, `parametros` e `resultado` entram nas `REDACT_KEYS` do pino (`src/lib/logger.ts`; `x-api-key` com caminho entre colchetes, a única forma que o fast-redact aceita para chave com hífen). Como `resultado` e `parametros` também são nomes de campos legítimos (o status da notificação), o `censor` deixa passar nessas duas chaves só um texto com formato de código (`^[a-z][a-z0-9_]{0,39}$`, como `enviada`); objeto, lista, número e texto livre — a forma do conteúdo de `ia_tarefas` — saem como `[removido]` (code review do PR #23).
 - O registro de uso (`ia_uso`) não tem `patient_id` e não guarda conteúdo: é registro técnico, fora da auditoria.
 
 ### 5.8 Defesa contra instruções escondidas (*prompt injection*)
@@ -421,6 +424,11 @@ Cenário: Versão nova do aviso
 
 Cenário: Auditoria
   Então o registro da ciência aparece no "Histórico de acessos" como alteração do cadastro (gatilho de patients)
+
+Cenário: Quando a seção "Uso de IA" aparece (code review do PR #23)
+  Dado a IA da plataforma configurada (IA_PROVEDOR presente)
+  Então a seção aparece se a admin liberou a IA do consultório, ou se o consultório já ativou a IA alguma vez (ia_aditivo_versao nunca volta a nulo), ou se o paciente já tem ciência, aviso pendente ou recusa
+  E o bloqueio da admin e o interruptor de emergência não escondem o "Não usar IA com os dados deste paciente"
 ```
 
 **Fora do Plano 11 (canal reservado):** "Aceite pelo portal conta como ciência" — o termo do paciente ainda não tem o parágrafo de IA e a sessão de paciente não grava colunas novas de `patients` (gatilho `paciente_colunas`, 0085). Ver §5.3.
@@ -445,6 +453,12 @@ Cenário: Exame sem arquivo
 Cenário: Leitura já em andamento
   Quando clico de novo antes de terminar
   Então vejo "A leitura deste laudo já está em andamento."
+
+Cenário: Sugestão ainda não conferida (code review do PR #23)
+  Dado que o exame já tem uma sugestão pronta e não vencida
+  Quando o pedido chega ao servidor (por exemplo, de outra aba)
+  Então vejo "Este exame já tem uma sugestão da IA. Confira ou descarte a sugestão antes de pedir outra leitura."
+  E nada é reservado nem enviado (sugestão vencida antes da varredura, ou descartada, não barra)
 
 Cenário: Laudo longo
   Dado um PDF com mais de 15 páginas (A-D14 = (b))
@@ -667,6 +681,23 @@ Cenário: Limite de voltas ou de custo
   Então vejo "A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor."
 ```
 
+#### US-123 — Modelos de plano alimentar e de anamnese sugeridos pela IA · **S** (Plano 14; escopo decidido pelo dono em 07/10/2026, A-D22)
+
+**Como** nutricionista, **quero** receber modelos prontos de plano alimentar e de anamnese para as áreas em que atendo, **para** começar o consultório com uma base revisada por mim em vez de montar cada modelo do zero.
+
+**Escopo decidido (07/10/2026, texto do dono):** "modelos de plano alimentar e de anamnese sugeridos pela IA em Configurações — pacote por área: ao ativar, a nutricionista marca as áreas em que atende e a IA gera modelos dessas áreas com os alimentos da tabela dela (totais calculados pelo sistema); os modelos chegam como rascunho 'Sugestão da IA — revise' e só podem ser usados em paciente depois de 'Aprovar modelo'; sem dado de paciente (não depende da ZDR nem do aviso ao paciente; depende da conta da Anthropic e da cota)".
+
+Regras já decididas (as telas, os textos finais e o modelo de dados saem do brainstorm do Plano 14; nada abaixo é tela desenhada):
+
+| # | Regra | Como se liga ao que existe |
+|---|---|---|
+| 1 | Fica em **Configurações** do consultório; é um **pacote por área**: ao ativar, a nutricionista marca as áreas em que atende e a IA gera modelos só dessas áreas | Os modelos entram onde os modelos já moram: modelos de plano (`/painel/planos/modelos`, `src/modules/plano-alimentar/modelos.ts`) e modelos de anamnese (`/painel/anamnese/modelos`, `anamnesis_templates`) |
+| 2 | Os modelos de plano usam **só os alimentos da tabela da nutricionista** (TACO e alimentos próprios do consultório); os **totais são calculados pelo sistema** | RN-02 e o mesmo cálculo do editor (`calculo.ts`), como na RN-121: nenhum número de kcal ou grama dito pelo modelo é exibido sem ser recalculado |
+| 3 | Cada modelo chega como **rascunho** com a marca "Sugestão da IA — revise" e **só pode ser usado em paciente depois de "Aprovar modelo"** | Conferência humana obrigatória (Res. CFN nº 856/2026, arts. 34 e 35; §5.10), como a RN-110 e a RN-114 |
+| 4 | **Sem dado de paciente:** nada do prontuário vai ao provedor | Por isso **não depende** da ZDR (A-D4) nem do aviso ao paciente (US-104, A-D19); **depende** da conta da Anthropic (A-D16) e da cota do consultório e do teto da plataforma (§5.5) |
+
+Pontos para o brainstorm do Plano 14 (perguntas, não decisões): (a) a lista de áreas e quantos modelos por área (com a Debby); (b) se a geração entra na mesma cota mensal do consultório (A-D11) e qual o teto por pacote; (c) se exige a liberação da admin (`ia_liberada`) e o aditivo de IA — o aditivo `0.1-provisorio` só descreve a leitura de laudos, e uma finalidade nova pede versão nova do aditivo (A-D20); (d) onde guardar a tarefa: `ia_tarefas` tem `patient_id` obrigatório e RLS por paciente, então uma geração sem paciente pede tabela própria ou mudança de desenho, com a guarda de RLS e a matriz de isolamento; (e) validação da saída (alimento inexistente ou quantidade fora de 0,1–5000 g descartados, como na US-121) e o que acontece com o modelo aprovado quando a nutricionista apaga um alimento próprio usado nele; (f) se o plano criado a partir de um modelo sugerido leva o selo do art. 37 (A-D13) ao ser publicado; (g) o que fica registrado (quem aprovou e quando).
+
 ---
 
 ## 8. Regras de negócio
@@ -697,7 +728,7 @@ Cenário: Limite de voltas ou de custo
 
 | ID | Requisito | Meta verificável |
 |---|---|---|
-| RNF-100 | Tempo | Leitura de laudo de até 5 páginas: p95 ≤ 60 s do pedido à sugestão (fila vazia). O painel consulta o estado a cada 3 s (`GET` só de estado, sem auditoria, como o PDF do plano). (Plano 14) resumo p95 ≤ 60 s; rascunho p95 ≤ 180 s |
+| RNF-100 | Tempo | Leitura de laudo de até 5 páginas: p95 ≤ 60 s do pedido à sugestão (fila vazia). O painel consulta o estado a cada 3 s nas primeiras 60 consultas e depois a cada 15 s, até 60 min (`ACOMPANHAR_IA_MAX_MS`: 30 min na fila + 15 min processando + 15 min até a varredura; revisão final do Plano 11), uma consulta por vez (`GET` só de estado, sem auditoria, como o PDF do plano). (Plano 14) resumo p95 ≤ 60 s; rascunho p95 ≤ 180 s |
 | RNF-101 | Memória | Preparo do laudo + base64 + resposta medidos com PDF de 20 MB (`EXAME_MAX_BYTES`, `exames-constantes.ts`; 20 MB viram ~27 MB em base64, abaixo dos 32 MB da API); um job por vez na fila `ia`, somando com as outras filas (A-03). O teste registra o pico; acima do limite do teste, o plano reduz `IA_ARQUIVO_MAX_BYTES` (tamanho máximo aceito para a IA) |
 | RNF-102 | Isolamento | `ia_tarefas` e `ia_uso` com RLS forçada; `ia_tarefas` com política por paciente; as duas em `STAFF_ONLY` (`src/db/rls-guard.ts`) e em `FABRICAS` de `test/isolamento.test.ts`; nenhuma liberada ao contexto `publico` nem à escrita do paciente. Nenhuma guarda pega a `staff_only` esquecida nos dois lugares (migration e `STAFF_ONLY`): a revisão confere |
 | RNF-103 | Chave e SDK | `ANTHROPIC_API_KEY` só no worker (o schema do app não a declara); `@anthropic-ai/sdk` importado só por `src/modules/ia/provedor-anthropic.ts`, e `pdf-lib` só por `preparar-arquivo.ts` e pelo gerador da avaliação; nenhum deles é alcançado pelo grafo do Next (teste com `grafoDeImports`, como o do web-push) |
@@ -735,10 +766,10 @@ Convenções do MVP (§7): 🔒 = `tenant_id` + RLS forçada. Toda tabela nova c
 
 | Tabela | Campos-chave | Restrições / segurança |
 |---|---|---|
-| 🔒 `ia_tarefas` (nova) | `patient_id` (NOT NULL), `tipo` (`leitura_exame`; o Plano 14 amplia), `status` (`na_fila`/`processando`/`pronta`/`falhou`/`aplicada`/`descartada`/`expirada`/`cancelada`), `exam_id` (nulo), `pedido_por` (user), `parametros jsonb` (Plano 14), `resultado jsonb` (sugestão; dado de saúde), `erro` (código da RN-112, ≤ 60), `modelo`, `prompt_versao`, `tentativas`, `reserva_micro_usd`, `custo_micro_usd`, `criado_em`, `iniciado_em`, `enviado_em`, `saiu_em` (primeira saída do laudo ao provedor; nunca volta a nulo), `concluido_em`, `expira_em`, `encerrado_em`, `encerrado_por` (quem aplicou, descartou ou cancelou), `linhas_aplicadas`, `exame_data_anterior` | FK composta (`tenant_id`, `patient_id`) → `patients`; FK composta (`tenant_id`, `patient_id`, `exam_id`) → `exams` **`ON DELETE SET NULL (exam_id)`** (PostgreSQL 15+; na migration custom), que exige a **UNIQUE nova `exams_tenant_paciente_id_unique`**; CHECK `exam_id` nulo ou `tipo = 'leitura_exame'`; CHECK `resultado` só em `pronta`; CHECK `parametros`/`resultado` nulos fora de `na_fila`/`processando`/`pronta`; CHECK `erro` presente só em `falhou`; CHECK `linhas_aplicadas` só em `aplicada`; índice único parcial (`tenant_id`, `patient_id`, `tipo`, `exam_id`) WHERE `status in ('na_fila','processando')`; `app_enable_patient_rls`, `app_enable_staff_only` (+ `STAFF_ONLY`), `app_enable_audit('ia_tarefas', 'ia')`; gatilho `ia_tarefas_sem_apagar` (DELETE só no contexto `worker` e com o paciente anonimizado); em `FABRICAS` |
+| 🔒 `ia_tarefas` (nova) | `patient_id` (NOT NULL), `tipo` (`leitura_exame`; o Plano 14 amplia), `status` (`na_fila`/`processando`/`pronta`/`falhou`/`aplicada`/`descartada`/`expirada`/`cancelada`), `exam_id` (nulo), `pedido_por` (user), `parametros jsonb` (Plano 14), `resultado jsonb` (sugestão; dado de saúde), `erro` (código da RN-112, ≤ 60), `modelo`, `prompt_versao`, `tentativas`, `reserva_micro_usd`, `custo_micro_usd`, `criado_em`, `iniciado_em`, `enviado_em`, `saiu_em` (primeira saída do laudo ao provedor; nunca volta a nulo), `concluido_em`, `expira_em`, `encerrado_em`, `encerrado_por` (quem aplicou, descartou ou cancelou), `linhas_aplicadas`, `exame_data_anterior` | FK composta (`tenant_id`, `patient_id`) → `patients`; FK composta (`tenant_id`, `patient_id`, `exam_id`) → `exams` **`ON DELETE SET NULL (exam_id)`** (PostgreSQL 15+; na migration custom), que exige a **UNIQUE nova `exams_tenant_paciente_id_unique`**; CHECK `exam_id` nulo ou `tipo = 'leitura_exame'`; CHECK `resultado` só em `pronta`; CHECK `parametros`/`resultado` nulos fora de `na_fila`/`processando`/`pronta`; CHECK `erro` presente só em `falhou`; CHECK `linhas_aplicadas` só em `aplicada`; índice único parcial (`tenant_id`, `patient_id`, `tipo`, `exam_id`) WHERE `status in ('na_fila','processando')`; `app_enable_patient_rls`, `app_enable_staff_only` (+ `STAFF_ONLY`), `app_enable_audit('ia_tarefas', 'ia')`; gatilho `ia_tarefas_sem_apagar` (DELETE só no contexto `worker` e com o paciente anonimizado); gatilho `ia_tarefas_imutavel` (0100, revisão final: tenant, paciente, tipo, `pedido_por`, modelo, `prompt_versao` e `criado_em` fixos; `exam_id` só vai a nulo; `saiu_em` gravado nunca muda); em `FABRICAS`, `SEM_DELETE` e `IMUTAVEIS` |
 | 🔒 `ia_uso` (nova) | `tarefa_id` (sem FK: sobrevive à exclusão da tarefa), `tipo`, `modelo`, `prompt_versao`, `inference_geo`, `tokens_entrada`, `tokens_cache_leitura`, `tokens_cache_gravacao`, `tokens_saida`, `custo_micro_usd` (bigint), `situacao` (`reservado`/`confirmado`/`incerto`/`estornado`), `mes` (texto `aaaa-mm` no fuso do tenant), `recusa_categoria` (nulo), `request_id` (nulo), `criado_em` | **Sem `patient_id`** e sem conteúdo (registro técnico, fora da auditoria); uma linha por tarefa (UNIQUE `tenant_id`, `tarefa_id`); `app_enable_staff_only` (+ `STAFF_ONLY`); `REVOKE DELETE, TRUNCATE`; índice (`tenant_id`, `mes`); em `FABRICAS`; lido pelo admin só via `admin_metricas_ia()` |
 | `ia_gasto_plataforma` (nova, sem `tenant_id`) | `mes` (PK, `aaaa-mm` em Brasília), `custo_micro_usd` | Contador do teto global (§5.5), sem dado de tenant nem de saúde; fora da RLS por não ter `tenant_id` (como `backup_runs`); só `src/modules/ia/cota.ts` grava; `REVOKE DELETE, TRUNCATE` |
-| `tenants` (colunas novas) | `ia_liberada` (bool, padrão false; admin — liberação para uso real, A-06), `ia_ativada_em` (nutricionista), `ia_aditivo_versao` (A-D20), `ia_cota_mensal_usd numeric(7,2)` (padrão `15.00`), `ia_aviso_mes` (`aaaa-mm` do e-mail de 80%) | CHECK cota 0–1000 |
+| `tenants` (colunas novas) | `ia_liberada` (bool, padrão false; admin — liberação para uso real, A-06), `ia_ativada_em` (nutricionista), `ia_aditivo_versao` (A-D20), `ia_cota_mensal_usd numeric(7,2)` (padrão `15.00`), `ia_aviso_mes` (`aaaa-mm` do e-mail de 80%) | CHECK cota 0–1000; gatilho `tenants_interruptores_da_admin` (0100, revisão final): `ia_liberada`, `ia_cota_mensal_usd` e `documentos_liberados` só mudam fora de `withTenant` (a admin roda sem `app.role`) |
 | `patients` (colunas novas) | `ia_recusada_em timestamptz` (A-D9); `ia_aviso_versao text`, `ia_aviso_em timestamptz`, `ia_aviso_canal` (`email`/`em_maos`/`portal`; o Plano 11 só grava os dois primeiros) — ciência do paciente (US-104, A-D19); `ia_aviso_enviado_em` (e-mail enfileirado, aguardando o envio; desfeito se o job do e-mail desistir) | Alteração auditada pelo gatilho existente; CHECK: os três campos de ciência nulos ou preenchidos juntos; CHECK do canal. O gatilho `paciente_colunas` (0085) já protege as colunas novas: a sessão de paciente não as altera (a lista `livres` não muda); um teste confere. Defesa em profundidade: gatilho `patients_ia_quem` (0099) — ciência e recusa só pela nutricionista (em mãos, recusa) ou pelo worker (e-mail); o contexto `publico` não cria paciente "informado"; na 0100 (revisão final), a sessão `nutri` também não troca versão, data ou canal de quem tem ciência por e-mail |
 | `exams` | UNIQUE nova `exams_tenant_paciente_id_unique` (`tenant_id`, `patient_id`, `id`); `valores[].iaTarefaId` (opcional; origem da linha) | — |
 | `admin_actions` (migration) | Coluna `alvo_tenant_id uuid` (FK para `tenants`); ações `liberar_ia`, `bloquear_ia` e `ajustar_cota_ia` no CHECK `admin_actions_acao_valida` | CHECK `admin_actions_alvo_coerente` refeito: 2FA (`reiniciar_2fa`) exige usuário-alvo; as ações de IA exigem `alvo_tenant_id` e usuário **e** papel nulos; `codigo_2fa_recusado` fica sem alvo. Continua só de inclusão (0096). `documentos_liberados` em `admin_actions`: backlog (PM-15) |
@@ -749,7 +780,7 @@ Convenções do MVP (§7): 🔒 = `tenant_id` + RLS forçada. Toda tabela nova c
 
 **Acesso fora de `withTenant`:** o e-mail de 80% usa `avisarNutri` (`src/modules/agenda/aviso-nutri.ts`); os de credencial inválida e de teto global, os e-mails dos admins de `src/modules/plataforma/monitoramento.ts` (`avisarAdmins`). A descrição desses dois arquivos na regra 1 do CLAUDE.md ganha "e da IA (Plano 11)". O e-mail do aviso de IA ao paciente (US-104) usa `patients.email`, lido dentro do `withTenant`. A tabela `ia_gasto_plataforma` entra na lista de tabelas fora da RLS da regra 1.
 
-**LGPD (US-018 e anonimização):** `exportacao-job.ts` inclui a seção `ia` (tipo, situação, `criado_em`, `encerrado_em`) — `ia_tarefas` é staff_only, então entra **só por inclusão explícita**; `lgpd.ts` cancela as tarefas na fila e esvazia as prontas no pedido de exclusão atendido e apaga as linhas na anonimização (no contexto `worker`).
+**LGPD (US-018 e anonimização):** `exportacao-job.ts` inclui a seção `ia` (id, tipo, situação, `criado_em`, `encerrado_em`, `enviadoEm` = `saiu_em` e o provedor, §5.3) e, em `paciente`, `avisoIa`, `avisoIaEnviadoEm` e `recusouIaEm` — `ia_tarefas` é staff_only, então entra **só por inclusão explícita**; `lgpd.ts` cancela as tarefas na fila e esvazia as prontas no pedido de exclusão atendido e apaga as linhas na anonimização (no contexto `worker`).
 
 ---
 
@@ -861,6 +892,13 @@ O dono aprovou as recomendações em 06/10/2026 ("Plano 11 (IA e laudos)", "Apro
 | A-D20 | **(a)** aditivo de IA separado, aceito na ativação | US-101, §5.3 |
 | A-D3, A-D8, A-D11, A-D12, A-D13, A-D17, A-D18 | **Plano 14** (abertas; as recomendações da v0.2 continuam, §16.2) | E12 |
 
+### 16.1.1 Decisões do dono (07/10/2026)
+
+| ID | Decisão (07/10/2026) | Onde aparece |
+|---|---|---|
+| A-D21 | **Ciência por e-mail ao envio:** a ciência do paciente fica registrada quando o provedor de e-mail (Resend) **aceita o envio**, sem confirmação de entrega; os textos da tela dizem "quando o e-mail for enviado". A suficiência vai ao advogado ("o aceite do envio basta como ciência ou é preciso confirmação de entrega?", runbook do Plano 11, passo 3) e a confirmação pelo webhook de devolução do Resend fica no backlog (P11-19). Decidida no `/code-review high` do PR #23 (item 0) | US-104, §17 |
+| A-D22 | **Modelos de plano alimentar e de anamnese sugeridos pela IA** em Configurações, por área de atendimento, como rascunho "Sugestão da IA — revise" e "Aprovar modelo" antes do uso, sem dado de paciente. **Escopo decidido**; o desenho é do brainstorm do Plano 14 | §2.1 (F3-03c), §2.3, US-123 |
+
 ### 16.2 Decisões abertas (Plano 14)
 
 | ID | Pergunta | Opções | Recomendação |
@@ -876,3 +914,62 @@ O dono aprovou as recomendações em 06/10/2026 ("Plano 11 (IA e laudos)", "Apro
 ### 16.3 Registro das opções da v0.2 (decisões tomadas)
 
 As opções e recomendações da v0.2 para A-D1, A-D2, A-D4, A-D5, A-D6, A-D7, A-D9, A-D10, A-D14, A-D15, A-D16, A-D19 e A-D20 ficam no histórico do git (commit da v0.2); a decisão de cada uma está na §16.1.
+
+---
+
+## 17. Resultado do Plano 11 (v0.4, 07/10/2026)
+
+### 17.1 Entrega
+
+| Item | Valor |
+|---|---|
+| PR | #23 (`plano-11-ia-laudos`), merge `2efa27b` em 07/10/2026 (09h22 BRT), **em produção** |
+| Plano | [`2026-10-06-nutridebby-11-ia-laudos.md`](../plans/2026-10-06-nutridebby-11-ia-laudos.md): 17 tarefas (13 com revisão completa, 4 leves), decisões D1–D22 |
+| Banco | `0098_ia` (tabelas e colunas), `0099_rls_ia` (RLS, auditoria, `ia_tarefas_sem_apagar`, `patients_ia_quem`, `admin_metricas_ia()`), `0100_ia_defesas_banco` (revisão final: `patients_ia_quem` refeita, `ia_tarefas_imutavel`, `tenants_interruptores_da_admin`) |
+| Testes | `pnpm test` com 282 arquivos e 2558 testes; E2E `ia-laudos` e `conferencia-ia` com `IA_PROVEDOR=sandbox` (o CI nunca chama a API real); job `image` do PR com 258 MB (limite 260), depois da poda do `pdf-lib` e do SDK no Dockerfile |
+| Uso real | **Desligado até o runbook.** Sem `IA_PROVEDOR` a IA some inteira (passo 6 do runbook) e, sem `ia_liberada` (falso para todos na `0098`; só a admin liga, passo 7), nenhum laudo sai. Liberação pelo runbook do dono (`docs/operacao/ia.md`; P11-18): conta e workspaces no Console, ZDR, advogado, avaliação com laudos fictícios, sinônimos com a Debby, variáveis no Easypanel, "Liberar" no admin. Em produção, "Liberar" é recusado enquanto o aviso e o aditivo forem `0.1-provisorio` (D22) |
+| Avaliação (CS-100, CS-102) | Ferramenta pronta (`pnpm ia:laudos`, `pnpm ia:avaliar`), **ainda não rodada** com a API real (depende da conta do passo 1 do runbook); o modelo segue no padrão provisório `claude-opus-5-5` (D12 ★) |
+| Memória (RNF-101) | PDF de ≈ 20 MB → pico de ≈ 64 MB de RSS acima do de antes do preparo (T5); `IA_ARQUIVO_MAX_BYTES` ficou em 20 MB |
+
+### 17.2 Situação das histórias
+
+"Entregue" = no código e em produção; o uso com dado real depende da liberação (A-06, P11-18).
+
+| História | Situação | Diferenças e pendências |
+|---|---|---|
+| US-100 Admin libera e define a cota | Entregue | Coluna "IA" na lista de contas: "IA: liberada" ou "IA: bloqueada" (com " · ativada pela nutricionista"), "Uso de IA no mês: US$ {gasto} de US$ {cota}", "Tarefas de IA no mês: {n}", "Liberar"/"Bloquear" com confirmação e "Limite de IA (US$/mês)". Em produção, com textos provisórios: "Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar." (D22). Os interruptores só mudam fora de `withTenant` (gatilho da `0100`). A coluna divide os micro-dólares por `1_000_000` em vez de usar o helper (P11-20 d) |
+| US-101 Ativar a IA | Entregue | Botões "Ativar a IA no consultório" e, com aditivo antigo, "Aceitar a versão atual"; "IA ativada." pelo parâmetro `?ia=ativada`; a data da primeira ativação é mantida na reativação (revisão final). Com aditivo desatualizado, os botões do exame mostram o aviso **sem** o link do aceite (backlog do plano). Em `emergencia` ou `nao_liberada` com a IA já ativada, não há "Desativar a IA" |
+| US-102 Aviso e bloqueio pela cota | Entregue | Como na spec; e-mail `cota_ia` uma vez por mês; e-mail `alerta_ia` aos admins (teto: 1 por mês; credencial: 1 por hora) |
+| US-103 Não usar IA | Entregue | A seção "Uso de IA" continua visível depois do bloqueio da admin e da emergência (code review, item 2). Com a IA bloqueada, "Enviar aviso por e-mail" e "Registrar entrega em mãos" continuam aparecendo (P11-20 a) |
+| US-104 Ciência do paciente | Entregue, com a **A-D21** | Ciência gravada quando o Resend aceita o envio; "Aviso enviado. A IA fica liberada para este paciente quando o e-mail for enviado." e "Aviso pedido em {data}; aguardando o envio do e-mail."; se o job do e-mail desiste (consultório suspenso ou última tentativa), o "aguardando" deste envio é desfeito. Em aberto: webhook de devolução (P11-19); job que expira por tempo no pg-boss sem passar pelo `aoDesistir` (P11-20 c); falha ao decifrar o e-mail de consultório suspenso repete o job em vez de desistir (P11-20 e) |
+| US-110 Pedir a leitura | Entregue | Cenário novo: pedido com sugestão pronta e vigente do mesmo exame recusado ("Este exame já tem uma sugestão da IA. Confira ou descarte a sugestão antes de pedir outra leitura."; code review, item 1). Acompanhamento a cada 3 s (60 vezes) e depois a cada 15 s até 60 min (revisão final) |
+| US-111 Conferir e salvar | Entregue | Vírgula seguida de exatamente 3 dígitos, sem ponto antes, também é ambígua ("250,000", "1,500"; code review, item 4); "0,125" e "0.125" caem em "Confira o valor" (zero à esquerda não é milhar; P11-20 b) |
+| US-112 Leitura que não deu certo | Entregue | Como na spec |
+
+### 17.3 Decisões e desvios da execução
+
+**Pre-flight (R1–R10, `rulings-preflight.md` do ledger, fora do git).** R1–R4, R6, R8, R9 e R10 só ajustaram testes, `git add` e a ordem das tarefas, sem efeito no produto. Duas mudaram o código entregue: **R5** — as ações de Configurações ficaram em `src/app/painel/configuracoes/actions.ts` (e não em `actions-ia.ts`), para entrar na guarda `acoes-de-paciente.test.ts`, que só varre arquivos `actions.ts`; **R7** — com a admin bloqueando (`nao_liberada`), a sugestão já pronta continua visível e aplicável até vencer (D19) e o pedido novo não aparece; cada exame com laudo mostra "A IA ainda não foi liberada para o seu consultório." (esconder o aviso fica com o dono).
+
+**Tarefas.** T4: `authToken: null` no cliente do SDK (sem isso ele leria `ANTHROPIC_AUTH_TOKEN` do ambiente); o SDK 0.131 também lê `ANTHROPIC_CUSTOM_HEADERS`, que acrescentaria cabeçalhos a cada chamada (inclusive um `anthropic-beta`) e não pode ser desligada por opção — **nunca definir essa variável no worker**. T5: o PDF é aberto numa `worker_thread` com heap de 64 MB e fluxo descomprimido ≤ 16 MB; imagem ≤ 40 M px. T6: filtro de links mais estrito que o do plano (só remove). T13: a conferência é toda controlada e envia à mão (`method="post"` + `startTransition`), porque o React 19 limpava os campos depois de um erro; região `aria-live` em cada exame. T14: "IA ativada." pelo parâmetro da página. T16: a avaliação para pelo custo real somado ao teto da próxima chamada. T17: `x-api-key` nas `REDACT_KEYS`; o item da IA entrou nas perguntas do guia `prontuario` sem subir a versão; o guia `configuracoes` subiu para a versão 3.
+
+**Revisão final do branch (5 lentes, uma onda de correções).**
+
+| Achado | Correção |
+|---|---|
+| Deadlock: `tenants FOR UPDATE` × `FOR KEY SHARE` das FKs e da auditoria (Important) | As seis travas do tenant da IA em `FOR NO KEY UPDATE`; `cancelarTarefas` e `expirarTarefasDoTenant` travam as tarefas por id antes de qualquer estorno (§5.5); teste concorrente `travas.test.ts` |
+| PDF regravado levava anotações (nota, anexo, campos) e EXIF/GPS do JPEG embutido (Important) | Só o desenho das anotações que desenham; JPEG embutido sem APP1–APP13, APP15 e COM; DCT encadeado → `arquivo_invalido` (§5.4) |
+| Exportação sem a ciência e a recusa (Important) | `paciente.avisoIa`, `avisoIaEnviadoEm`, `recusouIaEm` (§5.3) |
+| Acompanhamento parava aos 3 min (Important) | `acompanhar-leitura.ts`: 3 s × 60, depois 15 s até 60 min (RNF-100) |
+| Imagem acima de 260 MB (Important) | Poda do `pdf-lib` e do SDK no Dockerfile e teste de fumaça sem rede no job `image`; 258 MB no PR |
+| Minors de segurança 1–8 | Migration `0100` (três gatilhos, §11); `definirIaLiberada` usa o ambiente quando quem chama não informa `producao` (D22); `coalesce(ia_ativada_em, agora)`; recusa do preparo no log só com o nome do erro |
+| Minor 9 (trilha durável da ativação) | **Não mudado:** a D21 do plano manda a trilha para a fase F3 da SBIS; `admin_actions` não serve (o ator é a nutricionista) |
+
+**`/code-review high` do PR #23 (itens 0–8, commit `537f4d3`; re-revisão do diff sem Critical/Important).** (0) A-D21, com os textos novos e a pergunta ao advogado; (1) pedido barrado com sugestão vigente; (2) seção "Uso de IA" visível depois do bloqueio (`usoDeIaVisivel`); (3) `censor` do pino só deixa passar código em `resultado`/`parametros` (§5.7); (4) vírgula ambígua (RN-111); (5) `processEmailJob` ganhou `ultimaTentativa` e `aoDesistir`, e o aviso desfaz o "aguardando" deste envio (`desfazerAvisoPendente`); (6) comentário do passo 6 do job alinhado à D19 (sem mudança de comportamento: suspensão e bloqueio só impedem pedidos e envios); (7) `cancelarTarefas` trava o tenant (as três cópias da trava saíram dos chamadores); (8) `MICRO`/`usdParaMicro` em `constantes.ts`.
+
+### 17.4 Em aberto
+
+- **P11-18 (dono):** liberação para uso real pelo runbook, inclusive a escolha do modelo (D12 ★) com a avaliação, os textos finais (D13 ★) e a revisão dos sinônimos pela Debby (D15 ★).
+- **P11-19:** confirmar a entrega do aviso pelo webhook de devolução do Resend (depende da resposta do advogado à pergunta da A-D21).
+- **P11-20:** Minors da re-revisão do code review (itens a–e, §17.2).
+- **P11-21:** Minors do plano e da revisão final que não entraram no PR (`limitInputPixels` de 100 M para PNG no worker; aviso de aditivo desatualizado sem link; trilha durável da ativação, D21/SBIS F3; bytes depois do primeiro EOI do JPEG embutido; variante rara de espera entre `excluirExame` e a varredura; Widget sem `/AP` sai inteiro; JPEG 2000 e imagem inline sem limpeza; acompanhamento que para aos 60 min sem atualizar a tela; R7).
+- **Plano 14:** E12 (US-120 a US-122) e US-123 (A-D22).
