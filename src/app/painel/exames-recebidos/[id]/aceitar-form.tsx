@@ -11,7 +11,8 @@ export function AceitarForm({ id, tituloInicial, dataInicial, hoje, comIa }: { i
   const campo = (c: 'titulo' | 'data') => (e[c] ? { 'aria-invalid': true, 'aria-describedby': `aceitar-${c}-erro` } : {});
   return (
     <details open={!!state.erros} className="rounded-2xl border border-borda bg-cartao p-4">
-      <summary className="inline-flex min-h-11 cursor-pointer items-center font-semibold">Aceitar</summary>
+      {/* revisão da T11: summary sem inline-flex, para o navegador manter o marcador do <details> (molde de ajuda-seguranca.tsx) */}
+      <summary className="min-h-11 cursor-pointer py-2 font-semibold">Aceitar</summary>
       <form action={action} className="mt-3 space-y-3">
         <div className="space-y-1">
           <label htmlFor="aceitar-titulo" className="block font-medium">Título</label>
