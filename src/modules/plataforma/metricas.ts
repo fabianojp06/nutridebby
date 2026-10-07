@@ -134,3 +134,11 @@ export async function metricasDeIaPorTenant(db: Db = getDb()): Promise<Map<strin
   const r = await db.execute<{ tenant_id: string; tarefas_mes: string; custo_mes_micro_usd: string }>(sql`select * from admin_metricas_ia()`);
   return new Map(r.rows.map((x) => [x.tenant_id, { tarefasMes: Number(x.tarefas_mes), custoMesMicroUsd: Number(x.custo_mes_micro_usd) }]));
 }
+
+export type MetricasExamesTenant = { enviadosMes: number; pendentes: number };
+
+/** Plano 12 (§3): envios de exame do mês e aguardando revisão, só contagens (função SECURITY DEFINER, 0102). */
+export async function metricasDeExamesEnviadosPorTenant(db: Db = getDb()): Promise<Map<string, MetricasExamesTenant>> {
+  const r = await db.execute<{ tenant_id: string; enviados_mes: string; pendentes: string }>(sql`select * from admin_metricas_exames_enviados()`);
+  return new Map(r.rows.map((x) => [x.tenant_id, { enviadosMes: Number(x.enviados_mes), pendentes: Number(x.pendentes) }]));
+}

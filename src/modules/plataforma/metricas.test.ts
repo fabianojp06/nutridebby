@@ -3,12 +3,13 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoTenant } from '../../../test/pacientes';
+import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { envioNoBanco } from '../../../test/exames-enviados';
 import { adminActions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
-import { ajustarCotaIa, ajustarCotaWhatsapp, CotaWhatsappError, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant, MSG_COTA_IA, MSG_METRICAS, salvarMetricasBase } from './metricas';
+import { ajustarCotaIa, ajustarCotaWhatsapp, CotaWhatsappError, metricasDeExamesEnviadosPorTenant, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant, MSG_COTA_IA, MSG_METRICAS, salvarMetricasBase } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -166,5 +167,15 @@ describe('Plano 11 (US-100) — limite de IA do consultório', () => {
   it('metricasDeIaPorTenant lê só a função SECURITY DEFINER (contagens e somas)', async () => {
     const T = await novoTenant(app.db);
     expect((await metricasDeIaPorTenant(app.db)).get(T.tenantId)).toEqual({ tarefasMes: 0, custoMesMicroUsd: 0 });
+  });
+});
+
+describe('metricasDeExamesEnviadosPorTenant (§3: só contagens, Plano 12)', () => {
+  it('enviados no mês e aguardando revisão, pela função SECURITY DEFINER', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido' });
+    await envioNoBanco(app.db, T.ctx, p.id, { status: 'aceito', revisadoPor: T.nutriId, revisadoEm: new Date() });
+    expect((await metricasDeExamesEnviadosPorTenant(app.db)).get(T.tenantId)).toEqual({ enviadosMes: 2, pendentes: 1 });
   });
 });
