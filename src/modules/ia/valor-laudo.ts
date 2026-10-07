@@ -1,7 +1,8 @@
 /**
  * RN-111 (spec v0.3): o número de um valor impresso no laudo, sem chute. Diferente do lerDecimal (src/lib/numero.ts), que
  * lê "250.000" como 250: aqui um ponto seguido de exatamente 3 dígitos, sem vírgula, é AMBÍGUO (milhar ou decimal) e a
- * linha fica bloqueada até a nutricionista editar. Sem imports: a tabela de conferência (navegador) e o servidor (D10)
+ * linha fica bloqueada até a nutricionista editar. Do mesmo jeito, uma vírgula seguida de exatamente 3 dígitos, sem ponto
+ * ("250,000", "1,500"), é ambígua: milhar no padrão americano ou decimal (code review do PR #23). Sem imports: a tabela de conferência (navegador) e o servidor (D10)
  * usam a mesma regra.
  */
 export type ValorLido = { tipo: 'numero'; valor: number } | { tipo: 'ambiguo' } | { tipo: 'nao_numerico' };
@@ -21,6 +22,7 @@ export function lerValorLaudo(texto: string): ValorLido {
     if (partes.length !== 2) return NAO;
     const [inteira, decimal] = partes;
     if (!/^\d+$/.test(decimal) || !(/^\d+$/.test(inteira) || /^\d{1,3}(\.\d{3})+$/.test(inteira))) return NAO;
+    if (!inteira.includes('.') && decimal.length === 3) return { tipo: 'ambiguo' };
     normalizado = `${inteira.replace(/\./g, '')}.${decimal}`;
   } else {
     const partes = s.split('.');

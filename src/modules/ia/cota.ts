@@ -5,6 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { urlDoApp } from '@/lib/url-do-app';
 import { avisarNutri } from '@/modules/agenda/aviso-nutri';
 import { partesNoFuso } from '@/modules/agenda/fuso';
+import { usdParaMicro } from './constantes';
 import type { UsoTokens } from './provedor';
 
 /**
@@ -17,8 +18,6 @@ import type { UsoTokens } from './provedor';
  * NO KEY UPDATE segue serializando com o UPDATE de tenants (desativarIa, a admin, a suspensão), com outro pedido e com o
  * FOR SHARE do portão do envio e do passo 6.
  */
-export const MICRO = 1_000_000;
-export const usdParaMicro = (usd: number) => Math.round(usd * MICRO);
 /** O teto global conta o mês civil de Brasília (um contador só para a plataforma). */
 export const FUSO_DA_PLATAFORMA = 'America/Sao_Paulo';
 export const mesNoFuso = (agora: Date, fuso: string) => partesNoFuso(agora, fuso).data.slice(0, 7);

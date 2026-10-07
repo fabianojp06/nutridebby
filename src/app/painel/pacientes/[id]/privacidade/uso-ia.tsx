@@ -19,7 +19,7 @@ export function UsoDeIa({ paciente, fuso, enviado }: { paciente: PatientRow; fus
       <h2 id="uso-ia" className="text-lg font-semibold">Uso de IA</h2>
       {enviado && <Aviso tipo="ok">{MSG_IA.avisoEnviado}</Aviso>}
       {c.tipo === 'informado' && <p>{MSG_IA.informado(formatarDataNoFuso(c.em, fuso), c.canal === 'email' ? 'e-mail' : 'em mãos', c.versao)}</p>}
-      {c.tipo === 'aguardando_email' && <p>{MSG_IA.aguardandoEntrega(formatarDataNoFuso(c.enviadoEm, fuso))}</p>}
+      {c.tipo === 'aguardando_email' && <p>{MSG_IA.aguardandoEnvio(formatarDataNoFuso(c.enviadoEm, fuso))}</p>}
       {c.tipo === 'nao_informado' && <p>{MSG_IA.naoInformado}</p>}
       {!somenteLeitura && c.tipo !== 'informado' && (
         <div className="space-y-2">

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
@@ -79,6 +79,14 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
           .from(iaTarefas)
           .where(and(eq(iaTarefas.examId, e.id), inArray(iaTarefas.status, [...EM_ANDAMENTO])));
         if (jaLendo) throw new PedidoIaError(MSG_IA.emAndamento);
+        // code review do PR #23: uma sugestão pronta e não vencida do mesmo exame barra o pedido (o laudo sairia de novo,
+        // com custo em dobro, e a sugestão anterior sumiria da tela); a nutricionista descarta antes. O exame travado acima
+        // serializa com a gravação da pronta no worker (etapa 6, mesma trava).
+        const [jaPronta] = await tx
+          .select({ id: iaTarefas.id })
+          .from(iaTarefas)
+          .where(and(eq(iaTarefas.examId, e.id), eq(iaTarefas.status, 'pronta'), or(isNull(iaTarefas.expiraEm), gt(iaTarefas.expiraEm, agora))));
+        if (jaPronta) throw new PedidoIaError(MSG_IA.jaTemSugestao);
         // D16: decide com a linha travada do tenant de `ctx`, não com a cópia da action (desativar, bloqueio, suspensão ou
         // aditivo trocado entre a leitura e a trava não deixam tarefa, reserva nem "Pediu leitura à IA" — US-101, D19)
         const [tn] = await tx

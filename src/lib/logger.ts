@@ -20,6 +20,19 @@ const REDACT_KEYS = [
   'resultado',
 ] as const;
 
+/**
+ * Code review do PR #23: "resultado" e "parametros" também são nomes de campos legítimos (o status da notificação em
+ * notificacoes/enviar.ts). Nelas, só passa um valor com cara de código (minúsculas, dígitos e _, como "enviada" ou
+ * "paciente_inativo"); objeto, lista, número e texto livre — a forma do conteúdo de ia_tarefas — saem como "[removido]".
+ */
+const SO_CODIGO = new Set<string>(['parametros', 'resultado']);
+const CODIGO = /^[a-z][a-z0-9_]{0,39}$/;
+
+function censurar(valor: unknown, caminho: string[]): unknown {
+  const chave = caminho[caminho.length - 1];
+  return SO_CODIGO.has(chave) && typeof valor === 'string' && CODIGO.test(valor) ? valor : '[removido]';
+}
+
 /** Segmento de path do fast-redact: chave com hífen (x-api-key) só vale com colchetes. */
 function segmento(key: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `["${key}"]`;
@@ -41,7 +54,7 @@ export function createLogger(destination?: pino.DestinationStream): pino.Logger 
       base: { app: 'nutridebby' },
       redact: {
         paths: redactPaths(),
-        censor: '[removido]',
+        censor: censurar,
       },
     },
     destination,

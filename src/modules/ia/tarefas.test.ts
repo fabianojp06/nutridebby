@@ -81,6 +81,20 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
     expect(await mensagem(pedirLeituraExame(T.ctx, tenant, p.id, examId, deps()))).toBe(MSG_IA.emAndamento);
   });
 
+  it('code review do PR #23 (item 1): com sugestão "pronta" não vencida do mesmo exame, recusa o novo pedido sem reserva nem fila; vencida ou descartada, aceita', async () => {
+    const { T, p, examId, tenant } = await cenario();
+    const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, examId, { status: 'pronta', expiraEm: new Date(agora.getTime() + 86_400_000) });
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, p.id, examId, deps()))).toBe(MSG_IA.jaTemSugestao);
+    const linhas = await withTenant(T.ctx, (tx) => tx.select({ id: iaTarefas.id }).from(iaTarefas), app.db);
+    expect(linhas).toEqual([{ id: pronta }]);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(iaUso), app.db)).toEqual([]);
+    // a nutricionista descarta; uma pronta vencida (expira_em ≤ agora, antes da varredura) também não barra
+    await withTenant(T.ctx, (tx) => tx.update(iaTarefas).set({ status: 'descartada', resultado: null }).where(eq(iaTarefas.id, pronta)), app.db);
+    await tarefaNoBanco(app.db, T.ctx, p.id, examId, { status: 'pronta', expiraEm: agora });
+    const nova = await pedirLeituraExame(T.ctx, tenant, p.id, examId, deps());
+    expect(await estadoDaTarefa(T.ctx, nova, app.db)).toEqual({ status: 'na_fila', erro: null });
+  });
+
   it('RN-103: 2 em andamento no consultório ou 30 pedidos da usuária na hora → "Muitos pedidos…"', async () => {
     const { T, p, tenant } = await cenario();
     const e1 = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir });

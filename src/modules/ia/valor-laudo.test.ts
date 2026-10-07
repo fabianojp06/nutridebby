@@ -4,6 +4,13 @@ import { lerValorLaudo } from './valor-laudo';
 describe('lerValorLaudo (RN-111) — o número sai do sistema, nunca do modelo', () => {
   it.each([
     ['250.000', { tipo: 'ambiguo' }],
+    // code review do PR #23 (item 4): vírgula + exatamente 3 dígitos, sem ponto, é milhar no padrão americano ou decimal
+    ['250,000', { tipo: 'ambiguo' }],
+    ['1,500', { tipo: 'ambiguo' }],
+    ['-1,500', { tipo: 'ambiguo' }],
+    ['1.250,000', { tipo: 'numero', valor: 1250 }],
+    ['1,50', { tipo: 'numero', valor: 1.5 }],
+    ['1,5000', { tipo: 'numero', valor: 1.5 }],
     ['7.500', { tipo: 'ambiguo' }],
     ['1.234,5', { tipo: 'numero', valor: 1234.5 }],
     ['0,85', { tipo: 'numero', valor: 0.85 }],

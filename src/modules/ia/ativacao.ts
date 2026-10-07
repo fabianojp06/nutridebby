@@ -46,7 +46,7 @@ export async function desativarIa(ctx: TenantContext, deps: { db?: Db; agora?: D
     ctx,
     async (tx) => {
       await tx.update(tenants).set({ iaAtivadaEm: null, updatedAt: agora }).where(eq(tenants.id, ctx.tenantId)); // trava o tenant primeiro (ordem da cota)
-      return cancelarTarefas(tx, { agora, por: ctx.actorUserId ?? null });
+      return cancelarTarefas(tx, { tenantId: ctx.tenantId, agora, por: ctx.actorUserId ?? null });
     },
     deps.db ?? getDb(),
   );

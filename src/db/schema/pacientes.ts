@@ -35,7 +35,7 @@ export const patients = pgTable(
     iaAvisoVersao: text('ia_aviso_versao'),
     iaAvisoEm: timestamp('ia_aviso_em', { withTimezone: true }),
     iaAvisoCanal: text('ia_aviso_canal'),
-    /** D5: e-mail do aviso enfileirado, aguardando a entrega (a ciência só é gravada no pós-envio do worker). */
+    /** D5: e-mail do aviso enfileirado, aguardando o envio (a ciência só é gravada no pós-envio do worker, quando o provedor aceita o envio). */
     iaAvisoEnviadoEm: timestamp('ia_aviso_enviado_em', { withTimezone: true }),
     status: text('status').notNull().default('ativo'),
     bloqueadoEm: timestamp('bloqueado_em', { withTimezone: true }),

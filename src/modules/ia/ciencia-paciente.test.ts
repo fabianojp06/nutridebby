@@ -9,7 +9,7 @@ import { iaTarefas, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
-import { definirRecusaIa, enviarAvisoPorEmail, motivoDoPaciente, registrarCienciaPorEmail, registrarEntregaEmMaos, situacaoDaCiencia } from './ciencia-paciente';
+import { definirRecusaIa, desfazerAvisoPendente, usoDeIaVisivel, enviarAvisoPorEmail, motivoDoPaciente, registrarCienciaPorEmail, registrarEntregaEmMaos, situacaoDaCiencia } from './ciencia-paciente';
 import { AVISO_IA_VERSAO } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -43,7 +43,7 @@ describe('US-104 — ciência do paciente sobre o uso de IA (A-D19)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
     await enviarAvisoPorEmail(T.ctx, T.tenant, p.id, { db: app.db, agora });
-    expect(await emailsNaFila('aviso_ia', p.email)).toEqual([{ tipo: 'aviso_ia', para: p.email, nome: 'Ana', consultorio: T.tenant.nomeExibicao, versao: AVISO_IA_VERSAO, patientId: p.id }]);
+    expect(await emailsNaFila('aviso_ia', p.email)).toEqual([{ tipo: 'aviso_ia', para: p.email, nome: 'Ana', consultorio: T.tenant.nomeExibicao, versao: AVISO_IA_VERSAO, patientId: p.id, enviadoEm: agora.toISOString() }]);
     const aguardando = await lerPaciente(T, p.id);
     expect(situacaoDaCiencia(aguardando)).toEqual({ tipo: 'aguardando_email', enviadoEm: agora });
     expect(motivoDoPaciente(aguardando)).toBe('paciente_nao_informado');
@@ -62,6 +62,26 @@ describe('US-104 — ciência do paciente sobre o uso de IA (A-D19)', () => {
     expect(situacaoDaCiencia(await lerPaciente(T, p.id))).toMatchObject({ tipo: 'aguardando_email' });
   });
 
+  it('code review do PR #23 (item 5): o job do aviso desistiu (conta suspensa, tentativas esgotadas) → o "aguardando" é desfeito; um reenvio mais novo não é tocado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    await enviarAvisoPorEmail(T.ctx, T.tenant, p.id, { db: app.db, agora });
+    const depois = new Date(agora.getTime() + 60_000);
+    await enviarAvisoPorEmail(T.ctx, T.tenant, p.id, { db: app.db, agora: depois }); // a nutricionista reenviou
+    expect(await desfazerAvisoPendente(app.db, T.tenantId, p.id, agora.toISOString())).toBe(false); // o job antigo não apaga o novo
+    expect(situacaoDaCiencia(await lerPaciente(T, p.id))).toEqual({ tipo: 'aguardando_email', enviadoEm: depois });
+    expect(await desfazerAvisoPendente(app.db, T.tenantId, p.id, depois.toISOString())).toBe(true);
+    const x = await lerPaciente(T, p.id);
+    expect(situacaoDaCiencia(x)).toEqual({ tipo: 'nao_informado' });
+    expect(x.iaAvisoEnviadoEm).toBeNull();
+    expect(await desfazerAvisoPendente(app.db, T.tenantId, p.id, 'não é data')).toBe(false);
+    // já informado (o pós-envio gravou): nada a desfazer
+    await enviarAvisoPorEmail(T.ctx, T.tenant, p.id, { db: app.db, agora });
+    await registrarCienciaPorEmail(app.db, T.tenantId, p.id, AVISO_IA_VERSAO, p.email, depois);
+    expect(await desfazerAvisoPendente(app.db, T.tenantId, p.id, agora.toISOString())).toBe(false);
+    expect(situacaoDaCiencia(await lerPaciente(T, p.id))).toMatchObject({ tipo: 'informado', canal: 'email' });
+  });
+
   it('versão abaixo da mínima volta a "não informado"; canal portal ainda não conta (spec §5.3)', () => {
     const base = { iaAvisoEnviadoEm: null, iaAvisoEm: agora };
     expect(situacaoDaCiencia({ ...base, iaAvisoVersao: '0.0', iaAvisoCanal: 'em_maos' })).toEqual({ tipo: 'nao_informado' });
@@ -74,6 +94,25 @@ describe('US-104 — ciência do paciente sobre o uso de IA (A-D19)', () => {
     await expect(registrarEntregaEmMaos(T.ctx, p.id, { db: app.db, agora })).rejects.toBeInstanceOf(PacienteBloqueadoError);
     await expect(enviarAvisoPorEmail(T.ctx, T.tenant, p.id, { db: app.db, agora })).rejects.toBeInstanceOf(PacienteBloqueadoError);
     expect(await registrarCienciaPorEmail(app.db, T.tenantId, p.id, AVISO_IA_VERSAO, p.email, agora)).toBe(false);
+  });
+});
+
+describe('code review do PR #23 (item 2): a seção "Uso de IA" da aba Privacidade', () => {
+  const tenant = { iaLiberada: true, iaAditivoVersao: null };
+  const paciente = { iaAvisoVersao: null, iaAvisoEnviadoEm: null, iaRecusadaEm: null };
+  it('aparece com a IA liberada; some sem IA_PROVEDOR (a IA não existe) ou num consultório que nunca teve a IA liberada', () => {
+    expect(usoDeIaVisivel('fake', tenant, paciente)).toBe(true);
+    expect(usoDeIaVisivel('ausente', tenant, paciente)).toBe(false);
+    expect(usoDeIaVisivel('anthropic', { iaLiberada: false, iaAditivoVersao: null }, paciente)).toBe(false);
+  });
+  it('bloqueada pela admin ou em emergência depois de ativada alguma vez, ou com histórico do paciente: continua (D19 — a recusa precisa ser registrável)', () => {
+    const bloqueada = { iaLiberada: false, iaAditivoVersao: '0.1-provisorio' };
+    expect(usoDeIaVisivel('anthropic', bloqueada, paciente)).toBe(true);
+    expect(usoDeIaVisivel('emergencia', bloqueada, paciente)).toBe(true);
+    const nunca = { iaLiberada: false, iaAditivoVersao: null };
+    expect(usoDeIaVisivel('anthropic', nunca, { ...paciente, iaAvisoVersao: '0.1-provisorio' })).toBe(true);
+    expect(usoDeIaVisivel('anthropic', nunca, { ...paciente, iaAvisoEnviadoEm: agora })).toBe(true);
+    expect(usoDeIaVisivel('anthropic', nunca, { ...paciente, iaRecusadaEm: agora })).toBe(true);
   });
 });
 

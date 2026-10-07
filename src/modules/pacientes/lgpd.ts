@@ -1,7 +1,7 @@
 import { and, asc, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, consultations, dataExports, diaryEntries, exams, iaTarefas, mealPlans, notifications, patients, privacyRequests, pushSubscriptions, tenants } from '@/db/schema';
+import { appointments, consultations, dataExports, diaryEntries, exams, iaTarefas, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
@@ -161,10 +161,8 @@ export async function atenderPedidoExclusao(
       await apagarAcessosDoTitular(tx, p.id); // D13: acessos ao portal (CS-02) são dado de uso, não obrigatório (RNF-08)
       // Plano 11 (spec §5.3): leituras de IA na fila canceladas (reserva estornada) e sugestões esvaziadas na hora; as que
       // estão em processamento falham no worker (RN-100 de novo: paciente bloqueado). Ordem de travas da cota (cota.ts):
-      // paciente (já travado acima) → tenant → tarefas → ia_uso → plataforma — o tenant antes de cancelarTarefas, como o
-      // contrato dela pede
-      await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
-      await cancelarTarefas(tx, { patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
+      // paciente (já travado acima) → tenant (travado por cancelarTarefas) → tarefas → ia_uso → plataforma
+      await cancelarTarefas(tx, { tenantId: ctx.tenantId, patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',

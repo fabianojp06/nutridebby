@@ -36,8 +36,8 @@ describe('ações da IA na aba Exames', () => {
   });
 
   it('aplicar: erro de conferência volta para a tela, por linha', async () => {
-    aplicar.mockRejectedValueOnce(new ConferenciaError({ 'valor-1': 'Confira o valor: o ponto pode ser de milhar ou decimal. Edite o valor.' }));
-    expect(await aplicarSugestaoAction(P, TAREFA, {}, new FormData())).toEqual({ erros: { 'valor-1': 'Confira o valor: o ponto pode ser de milhar ou decimal. Edite o valor.' } });
+    aplicar.mockRejectedValueOnce(new ConferenciaError({ 'valor-1': 'Confira o valor: o ponto ou a vírgula pode ser de milhar ou decimal. Edite o valor.' }));
+    expect(await aplicarSugestaoAction(P, TAREFA, {}, new FormData())).toEqual({ erros: { 'valor-1': 'Confira o valor: o ponto ou a vírgula pode ser de milhar ou decimal. Edite o valor.' } });
   });
 
   it('pedir: mensagem pronta do PedidoIaError', async () => {

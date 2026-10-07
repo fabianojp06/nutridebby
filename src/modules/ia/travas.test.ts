@@ -5,9 +5,10 @@ import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { pacienteInformado, tarefaNoBanco } from '../../../test/ia';
 import { closeDb, type Tx } from '@/db/client';
-import { iaGastoPlataforma, iaTarefas } from '@/db/schema';
+import { iaGastoPlataforma, iaTarefas, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { cancelarTarefas } from './cancelar';
 import { definirRecusaIa } from './ciencia-paciente';
 import { FUSO_DA_PLATAFORMA, mesNoFuso, reservar } from './cota';
 import { expirarTarefasDoTenant } from './leitura-job';
@@ -86,6 +87,25 @@ describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
     // o worker confirmou "processando" antes: o cancelamento não a pega (o portão do envio recusa depois — paciente recusou)
     const [t] = await withTenant(T.ctx, (tx) => tx.select({ status: iaTarefas.status }).from(iaTarefas).where(eq(iaTarefas.id, id)), app.db);
     expect(t.status).toBe('processando');
+  });
+
+  it('code review do PR #23 (item 7): cancelarTarefas trava o próprio tenant — espera o portão do envio (tenant FOR SHARE) antes de mexer nas tarefas', async () => {
+    const T = await novoTenant(app.db);
+    const p = await pacienteInformado(app.db, T.ctx);
+    const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'pronta', expiraEm: new Date(agora.getTime() + 86_400_000), resultado: { versao: 1, dataColeta: null, linhas: [], descartadas: 0 } });
+    const portao = await parada(
+      { tenantId: T.tenantId, role: 'worker' },
+      (tx) => tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, T.tenantId)).for('share'),
+      async () => undefined,
+    );
+    const cancela = withTenant(T.ctx, (tx) => cancelarTarefas(tx, { tenantId: T.tenantId, patientId: p.id, agora }), app.db);
+    await esperarBloqueadoPor(portao.pid);
+    portao.soltar();
+    const r = await Promise.allSettled([portao.fim, cancela]);
+    expect(r.map((x) => (x.status === 'rejected' ? codigo(x.reason) : 'ok'))).toEqual(['ok', 'ok']);
+    expect(r[1].status === 'fulfilled' && r[1].value).toBe(1);
+    const [t] = await withTenant(T.ctx, (tx) => tx.select({ status: iaTarefas.status }).from(iaTarefas).where(eq(iaTarefas.id, pronta)), app.db);
+    expect(t.status).toBe('cancelada');
   });
 
   it('varredura × cancelamento: a varredura trava todas as tarefas antes do contador da plataforma (sem ciclo tarefa ↔ plataforma)', async () => {

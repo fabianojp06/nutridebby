@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { getEnv } from '@/env';
+import { usoDeIaVisivel } from '@/modules/ia/ciencia-paciente';
 import { configIA } from '@/modules/ia/modo';
 import { formatarData } from '@/modules/pacientes/datas';
 import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
@@ -26,7 +27,8 @@ export default async function PrivacidadePage({
   const busca = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const recentes = await exportacoesRecentes(ctx, paciente.id);
-  const iaVisivel = tenant.iaLiberada && configIA(getEnv()).modo !== 'ausente';
+  // code review do PR #23 / D19: com a IA bloqueada pela admin depois de ativada, a recusa continua registrável
+  const iaVisivel = usoDeIaVisivel(configIA(getEnv()).modo, tenant, paciente);
   return (
     <div className="max-w-3xl space-y-8">
       <section aria-labelledby="arquivamento" className="space-y-2">

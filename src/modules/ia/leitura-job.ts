@@ -185,10 +185,15 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   // exame (excluído → sem linha, e exam_id nulo pelo SET NULL). Resultado que chega depois de qualquer mudança não é
   // gravado. Com as MESMAS travas do portão, na ordem da spec (§5.5): paciente FOR SHARE → exame FOR SHARE → tenant FOR
   // SHARE → tarefa FOR UPDATE → (acertar) ia_uso → plataforma. Sem elas, uma mudança ainda sem commit (definirRecusaIa,
-  // excluirExame e a exclusão atendida travam o paciente; desativarIa, o bloqueio da admin e a suspensão, o tenant) não é
-  // vista aqui, e o cancelarTarefas dela, que ainda vê "processando", pula a linha: ficaria uma "pronta" com o resultado
-  // (revisão da T11). Com elas, ou este passo espera o commit e vê a mudança, ou a mudança espera e o cancelarTarefas dela
-  // encontra a "pronta" já gravada e a esvazia.
+  // excluirExame e a exclusão atendida travam o paciente; desativarIa, o tenant) não é vista aqui, e o cancelarTarefas
+  // dela, que ainda vê "processando", pula a linha: ficaria uma "pronta" com o resultado (revisão da T11). Com elas, ou
+  // este passo espera o commit e vê a mudança, ou a mudança espera e o cancelarTarefas dela encontra a "pronta" já gravada
+  // e a esvazia. O bloqueio da admin (definirIaLiberada(false)) e a suspensão do consultório também gravam o tenant, mas
+  // NÃO chamam cancelarTarefas: pela D19 (spec §5.6), só impedem novos pedidos e envios — se o commit deles vier antes,
+  // este passo vê a mudança e termina com `ia_desligada`; se vier depois, a "pronta" gravada aqui segue aplicável até
+  // vencer, como as que já estavam prontas antes do bloqueio (a admin não toca ia_tarefas, regra 1). A suspensão também
+  // não as esvazia: a spec só esvazia na desativação, no "Não usar IA" e nas exclusões; com o consultório suspenso
+  // ninguém entra no painel, e a varredura vence a sugestão em 7 dias.
   const custo = custoMicroUsd(pedido.modelo, pedido.geo, r.uso);
   const v = r.tipo === 'ok' ? validarRespostaLeitura(r.texto, arquivo.tipo === 'pdf' ? arquivo.paginas : 1) : null;
   const fim = await withTenant(

@@ -264,8 +264,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
         await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, P.p.id)).for('update');
         await tx.update(patients).set({ iaRecusadaEm: agora }).where(eq(patients.id, P.p.id));
-        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, P.T.tenantId)).for('update');
-        await cancelarTarefas(tx, { patientId: P.p.id, agora });
+        await cancelarTarefas(tx, { tenantId: P.T.tenantId, patientId: P.p.id, agora });
       },
       'paciente_indisponivel',
     ],
@@ -273,7 +272,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       'a desativação da IA',
       async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
         await tx.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, P.T.tenantId));
-        await cancelarTarefas(tx, { agora });
+        await cancelarTarefas(tx, { tenantId: P.T.tenantId, agora });
       },
       'ia_desligada',
     ],
@@ -281,8 +280,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       'a exclusão do exame',
       async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
         await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, P.p.id)).for('update');
-        await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, P.T.tenantId)).for('update');
-        await cancelarTarefas(tx, { patientId: P.p.id, examId: P.examId, agora });
+        await cancelarTarefas(tx, { tenantId: P.T.tenantId, patientId: P.p.id, examId: P.examId, agora });
       },
       'exame_indisponivel',
       // o DELETE (e o SET NULL na tarefa) vem depois: o passo (6) pegaria a tarefa antes e gravaria a "pronta", órfã

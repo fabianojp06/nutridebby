@@ -424,6 +424,7 @@ O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2
 | P11-16 | Laudos fictícios e avaliação de custo e acerto (à mão, fora do CI) | RN-127, A-D2, CS-100 | P11-15 | Dev | M | ⬜ |
 | P11-17 | Guardas finais (RNF-104), E2E com o sandbox, manual guiado, manual técnico (cap. 10) e runbook | RNF-104, §9 | P11-16 | Dev | M | ⬜ |
 | P11-18 | Liberação para uso real (dono): conta no Console e workspaces, pedido de ZDR, advogado (textos e transferência), avaliação com a chave de dev e escolha do modelo (D12 ★), sinônimos com a Debby (D15 ★), variáveis no Easypanel, "Liberar" no admin (D14 ★) | Runbook do Plano 11 | P11-17, P02-11 | Você | M | ⬜ |
+| P11-19 | Ciência do aviso de IA por e-mail: confirmar a entrega pelo webhook de devolução do Resend (hoje a ciência vale quando o Resend aceita o envio — decisão do dono de 07/10/2026; a suficiência do aceite está na pauta do advogado, runbook do Plano 11, passo 3) | US-104, D5 | P11-17 | Dev | S | ⬜ |
 
 ### Plano 10A — Receita (base de documentos e assinatura digitalizada)
 

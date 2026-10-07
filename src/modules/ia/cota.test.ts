@@ -119,7 +119,7 @@ describe('cota da IA (RN-104, US-102) e teto da plataforma (D3)', () => {
     await withTenant(T.ctx, (tx) => reservar(tx, { ...reserva(T, 500_000, agora), tarefaId: naFila }), app.db);
     const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'pronta', resultado: { versao: 1, dataColeta: null, linhas: [], descartadas: 0 } });
     const processando = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'processando' });
-    expect(await withTenant(T.ctx, (tx) => cancelarTarefas(tx, { patientId: p.id, agora, por: T.nutriId }), app.db)).toBe(2);
+    expect(await withTenant(T.ctx, (tx) => cancelarTarefas(tx, { tenantId: T.tenantId, patientId: p.id, agora, por: T.nutriId }), app.db)).toBe(2);
     const ts = await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas), app.db);
     expect(ts.find((t) => t.id === naFila)).toMatchObject({ status: 'cancelada', resultado: null, encerradoPor: T.nutriId });
     expect(ts.find((t) => t.id === pronta)).toMatchObject({ status: 'cancelada', resultado: null });

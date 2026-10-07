@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { exams, tenants, type ExamRow } from '@/db/schema';
+import { exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
@@ -114,11 +114,10 @@ export async function excluirExame(ctx: TenantContext, patientId: string, id: st
   const apagarExame = async (tx: Tx) => {
     await carregarPacienteParaEscrita(tx, patientId); // paciente primeiro, depois tenant (ordem de travas do armazenamento)
     // Plano 11 (D20, spec §5.3 minimização): leituras de IA do exame na fila canceladas (reserva estornada) e sugestão pronta
-    // esvaziada ANTES do DELETE (o SET NULL deixaria o resultado guardado sem uso). Tenant travado antes do contador da
-    // plataforma (ordem da cota; apagarArquivo trava o tenant de novo depois). A tarefa em processamento não passa do portão
-    // do envio ou falha no worker (exame_indisponivel).
-    await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
-    await cancelarTarefas(tx, { patientId, examId: id, agora: new Date(), por: ctx.actorUserId ?? null });
+    // esvaziada ANTES do DELETE (o SET NULL deixaria o resultado guardado sem uso). cancelarTarefas trava o tenant antes do
+    // contador da plataforma (ordem da cota; apagarArquivo trava o tenant de novo depois). A tarefa em processamento não
+    // passa do portão do envio ou falha no worker (exame_indisponivel).
+    await cancelarTarefas(tx, { tenantId: ctx.tenantId, patientId, examId: id, agora: new Date(), por: ctx.actorUserId ?? null });
     exameApagado = (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
     return exameApagado;
   };

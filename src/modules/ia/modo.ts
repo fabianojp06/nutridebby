@@ -1,5 +1,5 @@
 import type { TenantRow } from '@/db/schema';
-import { MODELOS_IA, type GeoIA, type ModeloIA } from './constantes';
+import { MODELOS_IA, usdParaMicro, type GeoIA, type ModeloIA } from './constantes';
 import { IA_ADITIVO_VERSAO_MIN, versaoAtende } from './textos-legais';
 
 export { MODELOS_IA };
@@ -17,7 +17,7 @@ export type AmbienteIA = {
 
 export function configIA(e: AmbienteIA): ConfigIA {
   const modo: ModoIA = !e.IA_PROVEDOR ? 'ausente' : e.IA_DESLIGADA === '1' ? 'emergencia' : e.IA_PROVEDOR;
-  return { modo, modelo: e.IA_MODELO_LEITURA, geo: e.IA_INFERENCE_GEO, tetoGlobalMicroUsd: Math.round(e.IA_TETO_GLOBAL_MENSAL_USD * 1_000_000) };
+  return { modo, modelo: e.IA_MODELO_LEITURA, geo: e.IA_INFERENCE_GEO, tetoGlobalMicroUsd: usdParaMicro(e.IA_TETO_GLOBAL_MENSAL_USD) };
 }
 
 export type EstadoIaTenant = 'ausente' | 'emergencia' | 'suspensa' | 'nao_liberada' | 'nao_ativada' | 'aditivo_desatualizado' | 'ativa';

@@ -28,6 +28,9 @@ export const PROVEDOR_IA_DESCRICAO = 'Anthropic (Claude), Estados Unidos';
 export const PRAZO_SUGESTAO_DIAS = 7;
 /** A-D10 = (a). */
 export const COTA_PADRAO_USD = 15;
+/** RN-104 / D3: os valores em US$ viram micro-dólares inteiros (cota, teto da plataforma, custo). */
+export const MICRO = 1_000_000;
+export const usdParaMicro = (usd: number) => Math.round(usd * MICRO);
 /** RN-111. */
 export const MAX_LINHAS_SUGESTAO = 150;
 /** US-015 / RN-114. */
@@ -55,6 +58,7 @@ export const MSG_IA = {
   indisponivel: INDISPONIVEL,
   lendo: 'Lendo o laudo… isso leva até 1 minuto.',
   emAndamento: 'A leitura deste laudo já está em andamento.',
+  jaTemSugestao: 'Este exame já tem uma sugestão da IA. Confira ou descarte a sugestão antes de pedir outra leitura.',
   muitosPedidos: 'Muitos pedidos à IA em pouco tempo. Tente de novo em alguns minutos.',
   cotaAcabou: 'O limite de uso da IA deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite.',
   aviso80: 'Você já usou 80% do limite de IA deste mês.',
@@ -65,12 +69,13 @@ export const MSG_IA = {
   iaAtivada: 'IA ativada.',
   usoDoMes: (p: number) => `Uso da IA neste mês: ${p}% do limite`,
   naoInformado: 'Este paciente ainda não foi informado sobre o uso de IA.',
-  avisoEnviado: 'Aviso enviado. A IA fica liberada para este paciente quando o e-mail for entregue.',
-  aguardandoEntrega: (data: string) => `Aviso enviado em ${data}; aguardando a entrega.`,
+  // decisão do dono (07/10/2026): a ciência vale quando o provedor de e-mail aceita o envio (não há confirmação de entrega)
+  avisoEnviado: 'Aviso enviado. A IA fica liberada para este paciente quando o e-mail for enviado.',
+  aguardandoEnvio: (data: string) => `Aviso pedido em ${data}; aguardando o envio do e-mail.`,
   informado: (data: string, canal: string, versao: string) => `Informado em ${data} (${canal}, versão ${versao}).`,
   valoresSalvos: 'Valores salvos.',
   naoNumerico: 'Valor não numérico: edite ou deixe desmarcado',
-  ambiguo: 'Confira o valor: o ponto pode ser de milhar ou decimal. Edite o valor.',
+  ambiguo: 'Confira o valor: o ponto ou a vírgula pode ser de milhar ou decimal. Edite o valor.',
   jaLancado: 'Já lançado neste exame',
   nomeAjustado: 'Nome ajustado para a série existente — confira',
   dataColeta: (data: string) => `A data da coleta no laudo é ${data}.`,

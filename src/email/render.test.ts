@@ -232,7 +232,7 @@ describe('Plano 11 — e-mails da IA', () => {
   });
 
   it('aviso_ia: o aviso da versão, com o consultório; sem dado de saúde nem id do paciente', () => {
-    const r = renderEmail({ tipo: 'aviso_ia', para: 'p@x.dev', nome: 'Ana', consultorio: 'Consultório Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001' });
+    const r = renderEmail({ tipo: 'aviso_ia', para: 'p@x.dev', nome: 'Ana', consultorio: 'Consultório Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001', enviadoEm: '2026-10-06T15:00:00.000Z' });
     expect(r.subject).toBe('Aviso sobre o uso de inteligência artificial');
     expect(r.text).toContain('Consultório Debby');
     expect(r.text).toContain('Anthropic');

@@ -66,9 +66,10 @@ export type EmailMessage =
   | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
   /**
    * Plano 11 (US-104, D5): o aviso de IA ao paciente. `patientId` só serve ao passo pós-envio do worker (registrar a
-   * ciência); o job inteiro vai cifrado e o texto do e-mail nunca o mostra. Sem dado de saúde.
+   * ciência) e `enviadoEm` (ISO, o mesmo de `patients.ia_aviso_enviado_em`) a desfazer o "aguardando" deste envio se o job
+   * desistir; o job inteiro vai cifrado e o texto do e-mail nunca os mostra. Sem dado de saúde.
    */
-  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string };
+  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };
