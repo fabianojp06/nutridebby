@@ -34,7 +34,13 @@ console.table(
   r.porModelo.map((m) => ({
     modelo: m.modelo, laudos: m.laudos, precisao: `${(m.precisao * 100).toFixed(1)}%`, inventados: m.inventados, documentosErrados: m.documentosErrados,
     injecaoVazou: m.injecaoVazou, rn123: m.violacoesRn123, recusas: JSON.stringify(m.recusas), invalidas: m.invalidas, erros: JSON.stringify(m.errosDoProvedor),
-    custoMedio: usd(m.custoMedioMicroUsd), custoMaximo: usd(m.custoMaximoMicroUsd), reservaPdf: usd(m.reservaPdfMicroUsd), tempoMedio: `${m.tempoMedioMs} ms`, tempoMaximo: `${m.tempoMaximoMs} ms`,
+    custoMedio: usd(m.custoMedioMicroUsd), custoMaximo: usd(m.custoMaximoMicroUsd), acimaDoTeto: m.acimaDoTetoDasPaginas, custoSobreTeto: m.maiorRazaoCustoTeto,
+    entradaPorPagina: m.maiorEntradaPorPaginaPdf, entradaImagem: m.maiorEntradaPorImagem, entradaAcima: m.entradaAcimaDaEstimativa, entradaSobreEstimativa: m.maiorRazaoEntradaEstimativa,
+    reservaPdf: usd(m.reservaPdfMicroUsd), reservaImagem: usd(m.reservaImagemMicroUsd), tempoMedio: `${m.tempoMedioMs} ms`, tempoMaximo: `${m.tempoMaximoMs} ms`,
   })),
+);
+console.info(
+  `Estimativa sem count_tokens (D2): ${r.estimativa.tokensPorPagina} tokens/página de PDF, ${r.estimativa.tokensPorImagem} por imagem, ${r.estimativa.tokensInstrucoes} de instruções. ` +
+    'acimaDoTeto/custoSobreTeto > 1 ou entradaAcima > 0: a estimativa não segurou — rever TOKENS_POR_PAGINA_TETO antes de liberar.',
 );
 console.info(`Gasto real: ${usd(r.gastoRealMicroUsd)} (máximo reservado ${usd(r.gastoMaximoMicroUsd)} de ${usd(r.tetoMicroUsd)})${r.parouPeloTeto ? ' — PAROU PELO TETO' : ''}. Relatório: ${arquivo}`);

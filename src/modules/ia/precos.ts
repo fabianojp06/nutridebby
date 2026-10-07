@@ -33,10 +33,14 @@ export function custoMaximoMicroUsd(modelo: ModeloIA, geo: GeoIA, tokensEntrada:
   return Math.ceil((tokensEntrada * p.entrada + maxTokens * p.saida) * MULTIPLICADOR_GEO[geo]);
 }
 
+/** RN-104: a estimativa dos tokens de entrada pelas páginas (ou pela imagem) + instruções — a avaliação mede o real contra ela. */
+export function tokensEntradaTeto(arquivo: { tipo: 'pdf'; paginas: number } | { tipo: 'imagem' }): number {
+  return (arquivo.tipo === 'pdf' ? arquivo.paginas * TOKENS_POR_PAGINA_TETO : TOKENS_POR_IMAGEM_TETO) + TOKENS_INSTRUCOES_TETO;
+}
+
 /** RN-104 (worker, portão do envio, e avaliação): o teto pelas páginas contadas no preparo — sem count_tokens (D2/D4). */
 export function custoMaximoDoArquivo(modelo: ModeloIA, geo: GeoIA, arquivo: { tipo: 'pdf'; paginas: number } | { tipo: 'imagem' }): number {
-  const entrada = (arquivo.tipo === 'pdf' ? arquivo.paginas * TOKENS_POR_PAGINA_TETO : TOKENS_POR_IMAGEM_TETO) + TOKENS_INSTRUCOES_TETO;
-  return custoMaximoMicroUsd(modelo, geo, entrada, MAX_TOKENS_LEITURA);
+  return custoMaximoMicroUsd(modelo, geo, tokensEntradaTeto(arquivo), MAX_TOKENS_LEITURA);
 }
 
 /** RN-104 (app): o teto da tarefa sem abrir o arquivo (D2) — o PDF pelo limite de páginas. */
