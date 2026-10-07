@@ -394,11 +394,38 @@ O dono aprovou em 05/10/2026 fases pequenas para o resto do produto ([índice](2
 | P09-06 | Status do sistema | Plano 09 | — | Dev | M | ⬜ (fora deste PR) |
 | P10A-00 | Plano 10A — Receita (F3-06): base de documentos assinados + receita com assinatura **digitalizada**, entrega, recebimento, verificação, cancelar e LGPD — **concluído em 06/10/2026** (PR #19, em produção; migrations 0089–0093; spec de documentos assinados **v0.4** e spec do MVP v1.12 no fechamento) — plano aprovado pelo dono em 05/10/2026 — [`2026-10-05-nutridebby-10a-receita.md`](2026-10-05-nutridebby-10a-receita.md); spec de documentos assinados v0.4 | US-140, US-142–147, US-149, US-150 base | P09-00 (ordem), P-B1 (uso real) | Dev | M | ✅ |
 | P10B-00 | Plano 10B — Assinatura gov.br e ICP-Brasil (F3-06, parte do certificado) — **plano aprovado pelo dono (05/10/2026)** — [`2026-10-05-nutridebby-10b-assinatura-digital.md`](2026-10-05-nutridebby-10b-assinatura-digital.md) | US-144, RN-144, RN-145, P-B2 | P10A-00, PDFs reais (dono) | Dev + Você | M | ⬜ |
-| P11-00 | Plano 11 — Base de IA + leitura de laudos (F3-01) | Spec A v0.2 | P10A-00 | Dev | M | ⬜ |
+| P11-00 | Plano 11 — Base de IA + leitura de laudos (F3-01) — **Plano 11 escrito (06/10/2026)** — [`2026-10-06-nutridebby-11-ia-laudos.md`](2026-10-06-nutridebby-11-ia-laudos.md); spec da IA v0.3 | Spec A v0.3 | P10A-00 | Dev | M | ⬜ |
 | P12-00 | Plano 12 — Paciente envia exames (F3-04) | Spec C v0.2 | P11-00 | Dev | M | ⬜ |
 | P13-00 | Plano 13 — Parecer nutricional (F3-05): US-141, US-148, US-150 (parte do parecer); D2 | Spec B v0.3.1 | P10A-00, P12-00, P-B1 | Dev | M | ⬜ |
-| P14-00 | Plano 14 — IA da nutricionista (F3-03) | Spec A v0.2 | P11-00 | Dev | M | ⬜ |
+| P14-00 | Plano 14 — IA da nutricionista (F3-03) | Spec A v0.3 (E12) | P11-00 | Dev | M | ⬜ |
 | P15-00 | Plano 15 — IA Nutri do paciente (F3-02) | Spec C v0.2 | P14-00 | Dev | M | ⬜ |
+
+### Plano 11 — Base de IA + leitura de laudos
+
+**Plano 11 escrito em 06/10/2026** ([`2026-10-06-nutridebby-11-ia-laudos.md`](2026-10-06-nutridebby-11-ia-laudos.md)), a partir da spec da IA **v0.3** (decisões do dono de 06/10/2026). 17 tarefas: 13 com revisão completa e 4 leves. Migrations `0098`–`0099`. Testes e CI só com o provedor falso e o sandbox; a avaliação com a API real (`pnpm ia:avaliar`, teto de US$ 10, laudos fictícios) roda à mão, com a chave do workspace de dev. **Dado real só depois de:** ZDR concedida, parecer do advogado, avaliação aprovada, textos finais e backup no host — e a admin liberar o consultório (runbook do plano). Antes da execução: `/code-review high` do plano.
+
+| ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
+|---|---|---|---|---|---|---|
+| P11-01 | Banco: `ia_tarefas`, `ia_uso`, `ia_gasto_plataforma`, colunas de `tenants`/`patients`, UNIQUE de `exams`, `admin_actions` estendida, RLS, auditoria, sem DELETE, `admin_metricas_ia()` | §11, §5.11 | — | Dev | M | ⬜ |
+| P11-02 | Variáveis, constantes, textos provisórios (aviso e aditivo) e estado da IA no consultório | §12, A-D19, A-D20 | P11-01 | Dev | M | ⬜ |
+| P11-03 | Interface do provedor, provedor falso e sandbox | §5.1, RNF-107 | P11-02 | Dev | M | ⬜ |
+| P11-04 | Provedor Anthropic (único importador do SDK) e guardas de ZDR e de grafo | INT-07, RNF-103, RNF-105 | P11-03 | Dev | M | ⬜ |
+| P11-05 | Preparo do laudo no worker (PDF sem metadados, 15 páginas, senha, foto sem EXIF, memória) | A-D7, A-D14, RN-110, RNF-101 | P11-04 | Dev | M | ⬜ |
+| P11-06 | Instruções, formato da resposta, `lerValorLaudo` e correspondência de nomes | RN-111, RN-113, RN-123, §5.8 | P11-03 | Dev | M | ⬜ |
+| P11-07 | Preços, cota com reserva e acerto, teto da plataforma, cancelamento e alertas | RN-104, US-102, A-D10 | P11-05, P11-06 | Dev | M | ⬜ |
+| P11-08 | Liberação pela admin (com trilha), ativação com o aditivo e a IA no histórico de acessos | US-100, US-101, RN-101 | P11-07 | Dev | M | ⬜ |
+| P11-09 | Ciência do paciente (e-mail no pós-envio, em mãos) e "Não usar IA" | US-103, US-104, A-D9, A-D19 | P11-07 | Dev | M | ⬜ |
+| P11-10 | Pedir a leitura (RN-100, limites, reserva, fila, "Pediu leitura à IA") e estado sem auditoria | US-110, RN-100, RN-103 | P11-08, P11-09 | Dev | M | ⬜ |
+| P11-11 | Job da leitura no worker (RN-100 de novo, portão do envio com travas, saída marcada, RN-105, acerto, varreduras) | §5.6, RN-105, RN-106 | P11-10 | Dev | M | ⬜ |
+| P11-12 | Conferir, salvar só o marcado (origem por linha, quem e quando) e descartar | US-111, RN-114, §5.11 | P11-11 | Dev | M | ⬜ |
+| P11-13 | Telas da aba Exames (botão, estado, conferência, marca da origem) | US-110 a US-112, RNF-106 | P11-12 | Dev | M | ⬜ |
+| P11-14 | Telas de Configurações (ativar), Privacidade (Uso de IA) e Admin (coluna IA) | US-100, US-101, US-103, US-104 | P11-12 | Dev | M | ⬜ |
+| P11-15 | LGPD: exclusão, anonimização e exportação com a IA | §5.3 | P11-13, P11-14 | Dev | M | ⬜ |
+| P11-16 | Laudos fictícios e avaliação de custo e acerto (à mão, fora do CI) | RN-127, A-D2, CS-100 | P11-15 | Dev | M | ⬜ |
+| P11-17 | Guardas finais (RNF-104), E2E com o sandbox, manual guiado, manual técnico (cap. 10) e runbook | RNF-104, §9 | P11-16 | Dev | M | ⬜ |
+| P11-18 | Liberação para uso real (dono): conta no Console e workspaces, pedido de ZDR, advogado (textos e transferência), avaliação com a chave de dev e escolha do modelo (D12 ★), sinônimos com a Debby (D15 ★), variáveis no Easypanel, "Liberar" no admin (D14 ★) | Runbook do Plano 11 | P11-17, P02-11 | Você | M | ⬜ |
+| P11-19 | Ciência do aviso de IA por e-mail: confirmar a entrega pelo webhook de devolução do Resend (hoje a ciência vale quando o Resend aceita o envio — decisão do dono de 07/10/2026; a suficiência do aceite está na pauta do advogado, runbook do Plano 11, passo 3) | US-104, D5 | P11-17 | Dev | S | ⬜ |
+| P11-20 | Minors da re-revisão do code review do PR #23: (a) com a IA bloqueada pela admin, "Enviar por e-mail" e "Entregar em mãos" do aviso continuam visíveis na Privacidade; (b) "0,125" e "0.125" caem em "Confira o valor" (zero à esquerda não é milhar); (c) job do aviso que expira por tempo no pg-boss não passa pelo `aoDesistir` e fica "aguardando o envio"; (d) `src/app/admin/page.tsx` divide micro-dólares por `1_000_000` em vez de usar o helper de `constantes.ts`; (e) falha ao decifrar o e-mail de consultório suspenso faz o job repetir em vez de desistir | US-104, RN-111, D19 | P11-14, P11-12 | Dev | S | ⬜ |
 
 ### Plano 10A — Receita (base de documentos e assinatura digitalizada)
 
@@ -465,6 +492,8 @@ Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming
 | F4-01 | Loja de produtos do ramo (suplementos, livros, e-books, consultas avulsas…) — **projeto à parte** (roadmap de 05/10/2026; nada a construir agora; integração a definir quando for retomada) | §10 Fase 4 | Fase 2 (Asaas), F3-06 | Dev | pós-MVP | ⬜ |
 
 ## Resumo
+
+**Atualização em 2026-10-06 (2):** **Plano 11 escrito** (Base de IA + leitura de laudos; spec da IA v0.3 com as decisões do dono de 06/10/2026): P11-01 a P11-17 (código) e P11-18 (liberação para uso real, dono), fora da contagem do MVP.
 
 **Atualização em 2026-10-06:** **Plano 10A concluído** (PR #19, em produção desde 06/10/2026, migrations 0089–0093; P10A-00 a P10A-16 ✅); fechamento com a spec de documentos assinados v0.4, a spec do MVP v1.12 e o manual técnico (cap. 9); Minors em P10A-18 a P10A-21; a liberação para uso real (interruptor "Documentos") segue o checklist do go-live.
 

@@ -32,6 +32,8 @@ const CONTEXTOS_PERMITIDOS = new Set(['runtime', 'os', 'trace']);
 const NOME_DE_CLASSE = /^[A-Za-z][A-Za-z0-9_]{0,59}$/;
 /** Parênteses: o `routePath` do onRequestError traz os grupos de rota (`/p/(portal)/plano/page`). Sem espaço, sem `?`/`=`/`@`. */
 const VALOR_DE_TAG = /^[\w:./[\]()-]{1,100}$/;
+/** Plano 11 (spec da IA §5.7): `motivo` só com cara de código (ECONNREFUSED, 23505, resultado_incerto) — sem hífen nem espaço. */
+const VALOR_DE_MOTIVO = /^[A-Za-z0-9_]{1,60}$/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 const REMOVIDO = '[removido]';
@@ -128,7 +130,10 @@ export function filtrarEvento<E extends EventoSentry>(e: E): E {
   }
   if (out.breadcrumbs) out.breadcrumbs = out.breadcrumbs.map(filtrarBreadcrumb).filter((b): b is Breadcrumb => b !== null);
   if (out.tags) {
-    out.tags = Object.fromEntries(Object.entries(out.tags).filter(([k, v]) => TAGS_PERMITIDAS.has(k) && typeof v === 'string' && VALOR_DE_TAG.test(v)));
+    out.tags = Object.fromEntries(Object.entries(out.tags).filter(
+        ([k, v]) => TAGS_PERMITIDAS.has(k) && typeof v === 'string' && VALOR_DE_TAG.test(v) && (k !== 'motivo' || VALOR_DE_MOTIVO.test(v)),
+      ),
+    );
   }
   if (out.contexts) out.contexts = Object.fromEntries(Object.entries(out.contexts).filter(([k]) => CONTEXTOS_PERMITIDOS.has(k)));
   if (typeof out.transaction === 'string') out.transaction = transacaoSegura(out.transaction);

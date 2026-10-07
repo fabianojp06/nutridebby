@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Queryable } from '@/db/client';
 import { consents, tenants } from '@/db/schema';
+import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 
 /** Texto provisório até o P08-06 (P-02/E-09). Mudar a versão obriga novo aceite (requireNutri). */
 export const DPA_VERSAO = '0.1-provisorio';
@@ -37,4 +38,26 @@ export async function registrarAceiteDpa(
     .returning({ id: consents.id });
   if (!inserido.length) return;
   await q.update(tenants).set({ dpaAceitoEm: now, dpaVersao: DPA_VERSAO, updatedAt: now }).where(eq(tenants.id, a.tenantId));
+}
+
+/**
+ * Plano 11 (A-D20 = (a)): aceite do aditivo de IA, separado do DPA (mudar o DPA travaria o painel de todos os tenants).
+ * Prova em consents (termo `ia-aditivo-<versão>`, a usuária, o CONSULTÓRIO, data e IP) + marca no tenant, na mesma
+ * transação de quem chama. Diferente do DPA, a marca do tenant muda mesmo se o aceite da versão já existia: reativar a IA
+ * depois de desativar não pede um aceite novo da mesma versão.
+ * Devolve se o aceite é novo (`true`) ou se a linha da versão já existia (reativação): quem chama registra no log.
+ */
+export async function registrarAceiteAditivoIa(q: Queryable, a: { userId: string; tenantId: string; ip: string | null; now?: Date }): Promise<boolean> {
+  const now = a.now ?? new Date();
+  const inserido = await q
+    .insert(consents)
+    .values({ userId: a.userId, tenantId: a.tenantId, termoVersao: IA_ADITIVO_TERMO, aceitoEm: now, ip: a.ip })
+    .onConflictDoNothing()
+    .returning({ id: consents.id });
+  // Minor 8 da revisão final: com a IA já ativa (aceite de versão nova do aditivo, clique repetido), a data da ativação fica
+  await q
+    .update(tenants)
+    .set({ iaAtivadaEm: sql`coalesce(${tenants.iaAtivadaEm}, ${now.toISOString()}::timestamptz)`, iaAditivoVersao: IA_ADITIVO_VERSAO, updatedAt: now })
+    .where(eq(tenants.id, a.tenantId));
+  return inserido.length > 0;
 }

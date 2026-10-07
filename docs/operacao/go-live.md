@@ -50,6 +50,18 @@ Nada disto bloqueia o deploy: `documentos_liberados` nasce desligado e nada apar
 - [ ] Teste manual completo pela digitalizada, em produção, com pacientes de teste: receita (rascunho → preparar → fotos assinadas + código do 2FA), paciente **com** app (cartão no Início, "Abrir PDF", "Confirmo que recebi este documento"), paciente **sem** app (link + código por e-mail), verificação pelo QR no celular (`/v/<código>`, sem nada do paciente), a situação da entrega no painel e "Cancelar documento" (a verificação passa a "cancelado") — **dono + Debby**
 - O Plano 10B acrescenta aqui a parte do gov.br e do certificado ICP-Brasil.
 
+## Plano 11 — IA (liberação para uso real)
+Nada disto bloqueia o deploy: sem `IA_PROVEDOR` a IA fica escondida, e com ela ligada nenhum consultório usa a IA até o admin clicar "Liberar". Bloqueia **liberar a IA** para um consultório com paciente real (A-06, D14). Passos e porquês: [`docs/operacao/ia.md`](ia.md). **Nada de dado real antes do passo 7.**
+- [ ] 1. Console da Anthropic com a conta e o cartão da **empresa**: workspaces `nutridebby-dev` e `nutridebby-producao`, limite de gasto mensal em cada um (sugestão: US$ 10 e US$ 50), em produção `allowed_inference_geos = ["us"]` e `default_inference_geo = "us"`, uma chave por workspace (a chave nunca circula; só o nome `ANTHROPIC_API_KEY`) — **dono**
+- [ ] 2. Retenção zero (ZDR) concedida por escrito para a organização (Messages API, PDF e imagem inline, saída estruturada, região `us`); negada ou cobrada → **parar** e decidir com o custo à vista (A-01) — **dono**
+- [ ] 3. Parecer do advogado (art. 33, texto final do aviso ao paciente e do aditivo, suficiência do canal "e-mail ou em mãos com registro"); textos finais publicados numa versão nova de `AVISOS_IA` e `IA_ADITIVO_PARAGRAFOS`, com as constantes `*_MIN` subidas (PR curto, com revisão) — **dono + advogado + Dev**
+- [ ] 4. Avaliação com os laudos fictícios (`pnpm ia:laudos` e `pnpm ia:avaliar`, na máquina do dono, chave do workspace **dev** conferida no Console, custo < US$ 10): precisão ≥ 95%, zero inventado, injeção sem vazar, nenhuma violação da RN-123, custo médio ≤ US$ 0,20; modelo escolhido (D12) e resultado registrado no PR do plano — **dono**
+- [ ] 5. Lista de sinônimos (`SINONIMOS`) e textos de tela revistos pela Debby; depois do passo 7, 5 laudos reais cronometrados (CS-101 ≤ 2 min) — **Debby**
+- [ ] 6. Variáveis no Easypanel (snapshot no hPanel antes; reinício só com o OK do dono): app e worker com `IA_PROVEDOR=anthropic`, `IA_MODELO_LEITURA`, `IA_INFERENCE_GEO=us`, `IA_TETO_GLOBAL_MENSAL_USD=50`; **só no worker** `ANTHROPIC_API_KEY` (workspace de produção); no log do worker, a linha "IA de laudos" com `ia: anthropic` e `chave: presente` — **dono**
+- [ ] 7. Com os passos 1–6 feitos **e** o backup no host (P02-11) funcionando: Admin → coluna "IA" do consultório → "Liberar" (em produção o botão recusa enquanto o aviso ou o aditivo forem provisórios, D22); limite de IA ajustado se preciso (padrão US$ 15); a nutricionista ativa em Configurações e informa cada paciente (Privacidade → Uso de IA) — **dono + Debby**
+- Emergência: `IA_DESLIGADA=1` no Easypanel (app e worker) esconde a IA de todos; "Bloquear" no admin desliga um consultório.
+- Todo mês: soma de `ia_uso` do mês (coluna "Uso de IA no mês" do admin) × relatório de custo do Console por geo; diferença > 5% abre investigação (RNF-108).
+
 ## Assinatura
 - Dono: ____________________ Data: ___/___/______ — "Conferi os itens acima e autorizo o go-live."
 - Debby (fluxo e fórmulas): ____________________ Data: ___/___/______

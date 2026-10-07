@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { avisoDaVersao } from '@/modules/ia/textos-legais';
 import type { EmailMessage, RenderedEmail } from './types';
 
 // Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
@@ -384,6 +385,27 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         'Na próxima entrada, ative de novo em Conta > Segurança (para a administração, a ativação é obrigatória).',
         'Se você não pediu isso, fale com o suporte agora.',
       ]);
+    case 'cota_ia':
+      return simples(
+        'Você já usou 80% do limite de IA deste mês',
+        [
+          'Você já usou 80% do limite de IA deste mês.',
+          'Quando chegar a 100%, a leitura de laudos com IA fica indisponível até o dia 1º ou até o suporte ampliar o limite. Lançar os valores à mão continua igual.',
+        ],
+        { href: msg.link, rotulo: 'Ver o uso da IA' },
+      );
+    case 'alerta_ia':
+      return simples(
+        'IA do NutriDebby: atenção',
+        msg.motivo === 'credencial'
+          ? ['O provedor de IA recusou a credencial do worker (chave ausente, inválida ou sem pagamento). As leituras de laudo estão falhando.', 'Confira a variável ANTHROPIC_API_KEY do worker no Easypanel e o faturamento no Console do provedor.']
+          : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
+        { href: msg.painelUrl, rotulo: 'Abrir o painel do admin' },
+      );
+    case 'aviso_ia': {
+      const aviso = avisoDaVersao(msg.versao);
+      return simples(aviso.titulo, [`Olá, ${msg.nome}!`, `Este aviso é do consultório ${msg.consultorio}.`, ...aviso.paragrafos]);
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

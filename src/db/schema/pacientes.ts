@@ -29,6 +29,14 @@ export const patients = pgTable(
     whatsappOptinEm: timestamp('whatsapp_optin_em', { withTimezone: true }),
     whatsappOptinOrigem: text('whatsapp_optin_origem'),
     whatsappOptoutEm: timestamp('whatsapp_optout_em', { withTimezone: true }),
+    /** Plano 11 (A-D9): "Não usar IA com os dados deste paciente". */
+    iaRecusadaEm: timestamp('ia_recusada_em', { withTimezone: true }),
+    /** Plano 11 (A-D19): ciência do aviso de IA — versão, data e canal juntos (o canal `portal` fica reservado, spec §5.3). */
+    iaAvisoVersao: text('ia_aviso_versao'),
+    iaAvisoEm: timestamp('ia_aviso_em', { withTimezone: true }),
+    iaAvisoCanal: text('ia_aviso_canal'),
+    /** D5: e-mail do aviso enfileirado, aguardando o envio (a ciência só é gravada no pós-envio do worker, quando o provedor aceita o envio). */
+    iaAvisoEnviadoEm: timestamp('ia_aviso_enviado_em', { withTimezone: true }),
     status: text('status').notNull().default('ativo'),
     bloqueadoEm: timestamp('bloqueado_em', { withTimezone: true }),
     anonimizarApos: date('anonimizar_apos', { mode: 'string' }),
@@ -52,6 +60,9 @@ export const patients = pgTable(
       'patients_nascimento_e_sexo',
       sql`${t.origem} = 'agendamento_publico' or ${t.anonimizadoEm} is not null or (${t.dataNascimento} is not null and ${t.sexo} is not null)`,
     ),
+    check('patients_ia_aviso_junto', sql`(${t.iaAvisoVersao} is null) = (${t.iaAvisoEm} is null) and (${t.iaAvisoVersao} is null) = (${t.iaAvisoCanal} is null)`),
+    check('patients_ia_aviso_canal_valido', sql`${t.iaAvisoCanal} is null or ${t.iaAvisoCanal} in ('email', 'em_maos', 'portal')`),
+    check('patients_ia_aviso_versao_tamanho', sql`${t.iaAvisoVersao} is null or char_length(${t.iaAvisoVersao}) <= 40`),
   ],
 );
 
@@ -266,7 +277,10 @@ export const exams = pgTable(
     data: date('data', { mode: 'string' }).notNull(),
     titulo: text('titulo').notNull(),
     arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
-    valores: jsonb('valores').$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null }[]>().notNull().default([]),
+    valores: jsonb('valores')
+      .$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string }[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -275,6 +289,8 @@ export const exams = pgTable(
     check('exams_titulo_tamanho', sql`char_length(${t.titulo}) between 1 and 120`),
     check('exams_arquivo_do_tenant', sql`${t.arquivoPath} is null or ${t.arquivoPath} like ${t.tenantId}::text || '/%'`),
     index('exams_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+    // Plano 11: alvo da FK composta ia_tarefas → exams (mesmo tenant e mesmo paciente), como consultations_tenant_paciente_id_unique
+    unique('exams_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
   ],
 );
 

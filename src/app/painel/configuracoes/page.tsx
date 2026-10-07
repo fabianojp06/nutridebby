@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
+import { IaSecao } from './ia-secao';
 import { TemaForm } from './tema-form';
 
 export const dynamic = 'force-dynamic';
@@ -16,8 +17,9 @@ const CARTOES = [
 ];
 
 /** D20: hub de Configurações. */
-export default async function ConfiguracoesPage() {
-  const { data } = await requireNutri('/painel/configuracoes');
+export default async function ConfiguracoesPage({ searchParams }: PageProps<'/painel/configuracoes'>) {
+  const { data, tenant, ctx } = await requireNutri('/painel/configuracoes');
+  const { ia } = await searchParams;
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
@@ -35,6 +37,7 @@ export default async function ConfiguracoesPage() {
         <h2 id="tema" className="sr-only">Tema</h2>
         <TemaForm tema={ehTema(data.user.tema) ? data.user.tema : 'sistema'} />
       </section>
+      <IaSecao tenant={tenant} ctx={ctx} ativada={ia === 'ativada'} />
     </main>
   );
 }

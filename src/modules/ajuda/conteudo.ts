@@ -109,7 +109,8 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'prontuario',
-    // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`
+    // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
+    // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
     versao: 1,
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
@@ -117,7 +118,7 @@ export const GUIAS: readonly Guia[] = [
       resumo: 'Tudo do paciente em abas: anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
         { titulo: 'Passo a passo', itens: ['Comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
-        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.'] },
+        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.'] },
       ],
     },
     passos: [
@@ -190,7 +191,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 2,
+    versao: 3,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
@@ -203,6 +204,15 @@ export const GUIAS: readonly Guia[] = [
             'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas, junto com o CRN.',
             'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
             'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
+          ],
+        },
+        {
+          titulo: 'Inteligência artificial (IA)',
+          itens: [
+            'A leitura de laudos com IA só aparece depois que o suporte libera o seu consultório; para ativar, você aceita o aditivo de inteligência artificial.',
+            'A IA só sugere: você confere cada valor antes de salvar. Nada entra no prontuário sem você marcar e salvar.',
+            'Antes de usar a IA com um paciente, informe-o (aba Privacidade do paciente, "Uso de IA"). Quem pedir para não usar IA fica de fora.',
+            'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
           ],
         },
       ],

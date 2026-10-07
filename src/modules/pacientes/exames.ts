@@ -4,6 +4,7 @@ import { exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { cancelarTarefas } from '@/modules/ia/cancelar';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
@@ -12,7 +13,8 @@ import { EXAME_MAX_BYTES, MSG_EXAME } from './exames-constantes';
 
 export { EXAME_MAX_BYTES, MSG_EXAME };
 
-export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null };
+/** `iaTarefaId` (Plano 11, §5.11): a linha veio da leitura por IA dessa tarefa. A digitação manual (lerValores) nunca o grava. */
+export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string };
 
 export class ExameError extends Error {
   override name = 'ExameError';
@@ -111,6 +113,11 @@ export async function excluirExame(ctx: TenantContext, patientId: string, id: st
   let exameApagado = false;
   const apagarExame = async (tx: Tx) => {
     await carregarPacienteParaEscrita(tx, patientId); // paciente primeiro, depois tenant (ordem de travas do armazenamento)
+    // Plano 11 (D20, spec §5.3 minimização): leituras de IA do exame na fila canceladas (reserva estornada) e sugestão pronta
+    // esvaziada ANTES do DELETE (o SET NULL deixaria o resultado guardado sem uso). cancelarTarefas trava o tenant antes do
+    // contador da plataforma (ordem da cota; apagarArquivo trava o tenant de novo depois). A tarefa em processamento não
+    // passa do portão do envio ou falha no worker (exame_indisponivel).
+    await cancelarTarefas(tx, { tenantId: ctx.tenantId, patientId, examId: id, agora: new Date(), por: ctx.actorUserId ?? null });
     exameApagado = (await tx.delete(exams).where(doExame).returning({ id: exams.id })).length > 0;
     return exameApagado;
   };

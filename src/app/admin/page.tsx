@@ -4,11 +4,12 @@ import { requireUser } from '@/lib/session';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
 import { textoTaxa } from '@/modules/agenda/presenca';
-import { metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
+import { metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
-import { definirDocumentosAction, reativarAction, reenviarConviteAction, suspenderAction } from './actions';
+import { definirDocumentosAction, definirIaAction, reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { CotaForm } from './cota-form';
+import { IaCotaForm } from './ia-cota-form';
 import { MetricasForm } from './metricas-form';
 import { PainelInfra } from './painel-infra';
 import { Reiniciar2faForm } from './reiniciar-2fa-form';
@@ -23,6 +24,7 @@ const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   conta_suspensa: { texto: MSG.contaSuspensa, erro: true },
   suspensa: { texto: 'Conta suspensa. A nutricionista e os pacientes veem "Conta temporariamente indisponível".' },
   reativada: { texto: 'Conta reativada.' },
+  ia_provisoria: { texto: 'Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar.', erro: true },
   nao_encontrada: { texto: MSG_CONTA_NAO_ENCONTRADA, erro: true },
 };
 
@@ -40,7 +42,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
   const { aviso } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const [contas, metricas, sucesso] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant()]);
+  const [contas, metricas, sucesso, iaMetricas] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant()]);
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -79,6 +81,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
             <th scope="col">Armazenamento</th>
             <th scope="col">Métricas de sucesso</th>
             <th scope="col">Documentos</th>
+            <th scope="col">IA</th>
             <th scope="col">Ações</th>
           </tr>
         </thead>
@@ -116,6 +119,24 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
                     {c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` os documentos de ${c.nomeExibicao}`}</span>
                   </ConfirmarBotao>
                 </form>
+              </td>
+              {/* US-100 (A-06): só contagens e valores; liberar só com ZDR, advogado, avaliação e textos finais */}
+              <td className="space-y-1">
+                <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
+                <p>{`Uso de IA no mês: US$ ${((iaMetricas.get(c.tenantId)?.custoMesMicroUsd ?? 0) / 1_000_000).toFixed(2).replace('.', ',')} de US$ ${c.iaCotaMensalUsd.toFixed(2).replace('.', ',')}`}</p>
+                <p>{`Tarefas de IA no mês: ${iaMetricas.get(c.tenantId)?.tarefasMes ?? 0}`}</p>
+                <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
+                  <ConfirmarBotao
+                    mensagem={
+                      c.iaLiberada
+                        ? `Bloquear a IA de ${c.nomeExibicao}? Novas leituras deixam de ser aceitas; o que está na fila falha sem envio.`
+                        : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção zero concedida, o parecer do advogado, a avaliação aprovada, os textos finais publicados e o backup no host (runbook do Plano 11).`
+                    }
+                  >
+                    {c.iaLiberada ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` a IA de ${c.nomeExibicao}`}</span>
+                  </ConfirmarBotao>
+                </form>
+                <IaCotaForm tenantId={c.tenantId} cota={c.iaCotaMensalUsd} conta={c.nomeExibicao} />
               </td>
               <td className="space-y-1">
                 {c.convite !== 'aceito' && c.email && (

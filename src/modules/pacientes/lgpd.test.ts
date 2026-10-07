@@ -9,13 +9,15 @@ import { consultaDireta } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
+import { tarefaNoBanco } from '../../../test/ia';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
+import { reservar } from '@/modules/ia/cota';
 import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -241,6 +243,29 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps);
     expect((await ler(T.ctx, p.id)).status).toBe('bloqueado');
   });
+
+  it('Plano 11 (spec §5.3): exclusão atendida cancela a leitura na fila (estorno) e esvazia a sugestão pronta, na hora', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const naFila = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'na_fila', reservaMicroUsd: 500_000 });
+    // reserva num "mês da plataforma" só deste teste (o contador global é compartilhado entre os arquivos)
+    const mesDoTeste = new Date('2087-10-15T15:00:00Z');
+    await withTenant(T.ctx, (tx) => reservar(tx, { tenantId: T.tenantId, tarefaId: naFila, tipo: 'leitura_exame', modelo: 'claude-opus-5-5', promptVersao: 't', microUsd: 500_000, agora: mesDoTeste, tetoGlobalMicroUsd: 50_000_000 }), app.db);
+    const resultado = { versao: 1 as const, dataColeta: null, linhas: [], descartadas: 0 };
+    const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'pronta', resultado });
+    const doOutro = await tarefaNoBanco(app.db, T.ctx, outro.id, null, { status: 'pronta', resultado });
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', { db: app.db, now });
+    const ts = await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.patientId, p.id)), app.db);
+    expect(ts.map((t) => [t.id, t.status, t.resultado])).toEqual(expect.arrayContaining([[naFila, 'cancelada', null], [pronta, 'cancelada', null]]));
+    expect(ts.find((t) => t.id === naFila)).toMatchObject({ encerradoPor: T.nutriId });
+    expect(ts.find((t) => t.id === naFila)?.encerradoEm?.toISOString()).toBe(now.toISOString());
+    const [u] = await withTenant(T.ctx, (tx) => tx.select().from(iaUso).where(eq(iaUso.tarefaId, naFila)), app.db);
+    expect(u.situacao).toBe('estornado');
+    // só as do titular
+    const [b] = await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, doOutro)), app.db);
+    expect(b).toMatchObject({ status: 'pronta', resultado });
+  });
 });
 
 describe('fim do prazo de guarda (job diário de retenção)', () => {
@@ -375,6 +400,21 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     await expect(atenderPedidoExclusao(A.ctx, A.tenant, pB.id, 'Ana Souza', deps)).rejects.toThrow();
     expect((await ler(B.ctx, pB.id)).status).toBe('ativo');
     await expect(atenderPedidoExclusao(B.ctx, B.tenant, pB.id, '', deps)).rejects.toBeInstanceOf(LgpdError);
+  });
+
+  it('Plano 11: a anonimização apaga as linhas de ia_tarefas do paciente (o registro técnico fica em ia_uso)', async () => {
+    // paciente bloqueado com anonimizar_apos no passado + uma tarefa "aplicada" e a linha de ia_uso dela
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', bloqueadoEm: now, anonimizarApos: '2020-01-01' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const id = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'aplicada', linhasAplicadas: 1, encerradoEm: now });
+    const doOutro = await tarefaNoBanco(app.db, T.ctx, outro.id, null, { status: 'aplicada', linhasAplicadas: 1, encerradoEm: now });
+    await withTenant(T.ctx, (tx) => tx.insert(iaUso).values({ tenantId: T.tenantId, tarefaId: id, tipo: 'leitura_exame', modelo: 'claude-opus-5-5', promptVersao: 't', custoMicroUsd: 10, situacao: 'confirmado', mes: '2026-10' }), app.db);
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.patientId, p.id)), app.db)).toEqual([]);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(iaUso).where(eq(iaUso.tarefaId, id)), app.db)).toHaveLength(1);
+    expect(await withTenant(T.ctx, (tx) => tx.select({ id: iaTarefas.id }).from(iaTarefas).where(eq(iaTarefas.patientId, outro.id)), app.db)).toEqual([{ id: doOutro }]);
   });
 });
 

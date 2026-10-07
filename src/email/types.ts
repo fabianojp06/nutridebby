@@ -59,7 +59,17 @@ export type EmailMessage =
   /** US-036: 80% (ou mais) da cota de WhatsApp do mês, uma vez por mês; `link` = /painel/whatsapp. */
   | { tipo: 'cota_whatsapp'; para: string; usadas: number; cota: number; link: string }
   /** P09-02 (b): o admin (ou o comando no servidor) reiniciou o 2FA da conta; sem link (aviso de segurança). */
-  | { tipo: 'aviso_2fa_reiniciado'; para: string };
+  | { tipo: 'aviso_2fa_reiniciado'; para: string }
+  /** Plano 11 (US-102): 80% da cota de IA do mês, uma vez por mês; `link` = /painel/configuracoes. Sem valores em US$. */
+  | { tipo: 'cota_ia'; para: string; link: string }
+  /** Plano 11 (RN-105): aos admins — credencial do provedor inválida (1 por hora) ou teto/limite de gasto atingido (1 por mês). */
+  | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
+  /**
+   * Plano 11 (US-104, D5): o aviso de IA ao paciente. `patientId` só serve ao passo pós-envio do worker (registrar a
+   * ciência) e `enviadoEm` (ISO, o mesmo de `patients.ia_aviso_enviado_em`) a desfazer o "aguardando" deste envio se o job
+   * desistir; o job inteiro vai cifrado e o texto do e-mail nunca os mostra. Sem dado de saúde.
+   */
+  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

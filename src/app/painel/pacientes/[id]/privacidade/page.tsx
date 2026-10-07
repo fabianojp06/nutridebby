@@ -1,5 +1,8 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { getEnv } from '@/env';
+import { usoDeIaVisivel } from '@/modules/ia/ciencia-paciente';
+import { configIA } from '@/modules/ia/modo';
 import { formatarData } from '@/modules/pacientes/datas';
 import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
 import { PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
@@ -12,15 +15,20 @@ import {
   exportarAction,
 } from './actions';
 import { ExclusaoForm } from './exclusao-form';
+import { UsoDeIa } from './uso-ia';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PrivacidadePage({
   params,
+  searchParams,
 }: PageProps<'/painel/pacientes/[id]/privacidade'>) {
   const { id } = await params;
+  const busca = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const recentes = await exportacoesRecentes(ctx, paciente.id);
+  // code review do PR #23 / D19: com a IA bloqueada pela admin depois de ativada, a recusa continua registrável
+  const iaVisivel = usoDeIaVisivel(configIA(getEnv()).modo, tenant, paciente);
   return (
     <div className="max-w-3xl space-y-8">
       <section aria-labelledby="arquivamento" className="space-y-2">
@@ -80,6 +88,8 @@ export default async function PrivacidadePage({
           </ul>
         )}
       </section>
+
+      {iaVisivel && <UsoDeIa paciente={paciente} fuso={tenant.fuso} enviado={busca.ia === 'enviado'} />}
 
       <section aria-labelledby="exclusao" className="space-y-2">
         <h2 id="exclusao" className="text-lg font-semibold">

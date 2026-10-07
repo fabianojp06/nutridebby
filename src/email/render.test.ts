@@ -216,3 +216,26 @@ describe('aviso_2fa_reiniciado (P09-02 b)', () => {
     expect(r.html).not.toContain('href=');
   });
 });
+
+describe('Plano 11 — e-mails da IA', () => {
+  it('cota_ia: aviso de 80% sem valores em US$ e com o link de Configurações', () => {
+    const r = renderEmail({ tipo: 'cota_ia', para: 'd@x.dev', link: 'https://x.dev/painel/configuracoes' });
+    expect(r.subject).toBe('Você já usou 80% do limite de IA deste mês');
+    expect(r.text).toContain('https://x.dev/painel/configuracoes');
+    expect(r.text).not.toMatch(/US\$/);
+  });
+  it('alerta_ia: credencial cita só o NOME da variável; teto não cita valores', () => {
+    const c = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'credencial', painelUrl: 'https://x.dev/admin' });
+    expect(c.text).toContain('ANTHROPIC_API_KEY');
+    expect(c.text).not.toMatch(/sk-ant-/);
+    expect(renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'teto', painelUrl: 'https://x.dev/admin' }).text).toContain('teto mensal');
+  });
+
+  it('aviso_ia: o aviso da versão, com o consultório; sem dado de saúde nem id do paciente', () => {
+    const r = renderEmail({ tipo: 'aviso_ia', para: 'p@x.dev', nome: 'Ana', consultorio: 'Consultório Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001', enviadoEm: '2026-10-06T15:00:00.000Z' });
+    expect(r.subject).toBe('Aviso sobre o uso de inteligência artificial');
+    expect(r.text).toContain('Consultório Debby');
+    expect(r.text).toContain('Anthropic');
+    expect(r.text).not.toContain('00000000-0000-4000-8000-000000000001');
+  });
+});

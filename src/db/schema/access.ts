@@ -47,7 +47,11 @@ export const consents = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').references(() => user.id),
-    /** Termo do paciente: o tenant do vínculo aceito. DPA da nutricionista: nulo. */
+    /**
+     * Termo do paciente: o tenant do vínculo aceito. DPA da nutricionista: nulo. Aditivo de IA (Plano 11, A-D20): `tenant_id`
+     * do consultório **e** `user_id` da nutricionista, termo `ia-aditivo-<versão>` — linha com `tenant_id` não é, por si,
+     * aceite de paciente; o termo diz qual é.
+     */
     tenantId: uuid('tenant_id').references(() => tenants.id),
     /** D13: termo aceito na página pública, antes de existir conta (com `tenant_id`). */
     patientId: uuid('patient_id'),

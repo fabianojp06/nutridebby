@@ -115,15 +115,34 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   document_access_codes: (t, p) =>
     sql`with d as (insert into signed_documents (tenant_id, patient_id, status, codigo, anonimizado_em) values (${t}, ${p}, 'assinado', upper(substr(translate(md5(random()::text), 'ilou', '0123'), 1, 12)), now()) returning id)
         insert into document_access_codes (tenant_id, patient_id, documento_id, codigo_hash, expira_em) select ${t}, ${p}, d.id, 'h', now() + interval '10 minutes' from d`,
+  // Plano 11 (revisão T1): sem a linha-mãe — exam_id é anulável (SET NULL ao excluir o exame, coberto em ia-schema.test.ts),
+  // então a recusa vem da política de ia_tarefas, não da de exams (COM_MAE); "falhou" para não cair no índice único parcial
+  // de leitura em andamento (na_fila/processando)
+  ia_tarefas: (t, p) =>
+    sql`insert into ia_tarefas (tenant_id, patient_id, tipo, status, exam_id, pedido_por, modelo, prompt_versao, reserva_micro_usd, erro)
+        values (${t}, ${p}, 'leitura_exame', 'falhou', null, coalesce(app_current_user(), gen_random_uuid()), 'claude-opus-5-5', 'iso', 0, 'interrompida')`,
+  ia_uso: (t) =>
+    sql`insert into ia_uso (tenant_id, tarefa_id, tipo, modelo, prompt_versao, custo_micro_usd, situacao, mes) values (${t}, gen_random_uuid(), 'leitura_exame', 'claude-opus-5-5', 'iso', 1, 'confirmado', '2026-10')`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
+/**
+ * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
+ * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
+ */
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso']);
+/**
+ * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
+ * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
+ */
+const DELETE_REVOGADO = new Set(['ia_uso']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
  * (mensagem própria, não "row-level security"); em signed_documents, só o rascunho é apagado.
  */
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes']);
+// Plano 11 (revisão final, Minor 2): ia_tarefas_imutavel (0100) recusa mudar tenant_id/patient_id com 42501 antes da RLS.
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas']);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
@@ -132,7 +151,8 @@ const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'documen
 const SO_APAGA: Record<string, SQL> = {
   signed_documents: sql`status = 'rascunho'`,
   patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
-                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)`,
+                and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
+                and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
@@ -223,6 +243,32 @@ const violaRls = (e: unknown) => {
   const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
   return c.code === '42501' && /row-level security/.test(c.message ?? '');
 };
+/**
+ * Fábricas que criam a linha-mãe no mesmo comando (CTE): nos testes negativos de escrita, a RLS da MÃE recusa primeiro e o
+ * INSERT na tabela nem roda. Revisão T1 (Plano 11): tabela nova não entra aqui — a fábrica grava só a própria tabela (ou a mãe
+ * fica de fora, como em ia_tarefas com exam_id nulo), para que a recusa venha da política DELA.
+ */
+const COM_MAE = new Set([
+  'consultation_notes',
+  'patient_tag_links',
+  'meals',
+  'meal_items',
+  'notifications',
+  'recipes',
+  'recipe_ingredients',
+  'content_audience',
+  'content_views',
+  'content_favorites',
+  'signed_document_notes',
+  'signed_document_receipts',
+  'document_access_codes',
+]);
+/** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
+const violaRlsDe = (t: string) => (e: unknown) => {
+  if (!violaRls(e)) return false;
+  const msg = (((e as { cause?: unknown }).cause ?? e) as { message?: string }).message ?? '';
+  return COM_MAE.has(t) || msg.includes(`for table "${t}"`);
+};
 /** Recusa da RLS ou do gatilho paciente_colunas (B-4, 0085): o mesmo código 42501. */
 const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
 /** O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou. */
@@ -244,7 +290,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     for (const t of tabelas) {
       const antesA = await contarTenant(t, A);
       const comoB = (q: SQL) => withTenant({ tenantId: B, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
-      await expect(comoB(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
+      await expect(comoB(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRlsDe(t));
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para tentar mover
         await expect(comoB(sql`update ${sql.identifier(t)} set tenant_id = ${A}`), t).rejects.toSatisfy(IMUTAVEIS.has(t) ? negado : violaRls);
@@ -260,7 +306,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const antesP1 = await contarPaciente(t, col, A, P1);
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       // a RLS (42501) é conferida antes da PK/UNIQUE e da FK: em patients o INSERT com id = P1 cai na política
-      await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRls);
+      await expect(comoP2(FABRICAS[t](A, P1)), t).rejects.toSatisfy(violaRlsDe(t));
       if (!SO_INSERE.has(t)) {
         expect(await contarPaciente(t, col, A, P2), t).toBeGreaterThan(0);
         const mover = sql`update ${sql.identifier(t)} set ${sql.identifier(col)} = ${P1}`;
@@ -279,7 +325,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const col = await colunaTitular(t);
       if (!col || soEquipe.has(t) || (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('insert')) continue;
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
-      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
+      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRlsDe(t));
     }
   });
 
@@ -292,7 +338,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       const comoP2 = (q: SQL) => withTenant({ tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() }, (tx) => tx.execute(q), app.db);
       const vistas = await comoP2(sql`select 1 from ${sql.identifier(t)}`);
       expect(vistas.rows.length, t).toBe(0);
-      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
+      await expect(comoP2(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRlsDe(t));
     }
   });
 
@@ -306,11 +352,12 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
         expect(vistas.length, t).toBeGreaterThan(0);
         for (const row of vistas) expect(row.tenant_id, t).toBe(A); // nem o publico atravessa tenants
       } else expect(vistas.length, t).toBe(0);
-      if (pode.includes('insert')) await expect(comoPublico(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRls);
-      else await expect(comoPublico(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRls);
+      if (pode.includes('insert')) await expect(comoPublico(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRlsDe(t));
+      else await expect(comoPublico(FABRICAS[t](A, P2)), t).rejects.toSatisfy(violaRlsDe(t));
       if (SO_INSERE.has(t)) continue; // UPDATE/DELETE já negados por permissão
       if (!pode.includes('update')) expect((await comoPublico(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
-      if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
+      if (DELETE_REVOGADO.has(t)) await expect(comoPublico(sql`delete from ${sql.identifier(t)}`), t).rejects.toSatisfy(negado);
+      else if (!pode.includes('delete')) expect((await comoPublico(sql`delete from ${sql.identifier(t)}`)).rowCount, t).toBe(0);
     }
     expect((await comoPublico(sql`select 1 from consultation_notes`)).rows).toEqual([]);
     expect((await comoPublico(sql`select 1 from anamneses`)).rows).toEqual([]);
@@ -323,7 +370,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       // R4: a TACO (foods com tenant_id nulo, taco_leitura) é dado público de referência, legível por qualquer sessão
       const vistas = await withConta(outra, (tx) => tx.execute(sql`select 1 from ${sql.identifier(t)} where tenant_id is not null`), app.db);
       expect(vistas.rows.length, t).toBe(0);
-      await expect(withConta(outra, (tx) => tx.execute(FABRICAS[t](A, P1)), app.db), t).rejects.toSatisfy(violaRls);
+      await expect(withConta(outra, (tx) => tx.execute(FABRICAS[t](A, P1)), app.db), t).rejects.toSatisfy(violaRlsDe(t));
     }
   });
 
@@ -346,6 +393,13 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
           // UPDATE e DELETE sem filtro: só podem afetar as linhas próprias que a RLS mostrou
           const alteradas = await tx.execute(sql`update ${id} set tenant_id = tenant_id`);
           expect(alteradas.rowCount, t).toBe(proprias.length);
+          if (SEM_DELETE.has(t)) {
+            await expect(tx.execute(sql`savepoint sem_delete`)).resolves.toBeDefined();
+            await expect(tx.execute(sql`delete from ${id}`), t).rejects.toSatisfy(negado);
+            await tx.execute(sql`rollback to savepoint sem_delete`);
+            sobrouDeB = proprias.length;
+            return;
+          }
           const apagaveis = SO_APAGA[t] ? (await tx.execute(sql`select 1 from ${id} where ${SO_APAGA[t]}`)).rows.length : proprias.length;
           // o filtro de SO_APAGA nunca pode ficar vazio: com 0 apagáveis o DELETE não provaria nada (revisão T1)
           if (SO_APAGA[t]) expect(apagaveis, t).toBeGreaterThan(0);
@@ -358,7 +412,7 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       if (!SO_INSERE.has(t)) {
         expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: A não foi tocado
         // o DELETE de B de fato aconteceu; o que sobra é só o que o filtro de SO_APAGA deixa (em patients, os de B com documento emitido ou recibo)
-        expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] ? sobrouDeB : 0);
+        expect(await contarTenant(t, B), t).toBe(SO_APAGA[t] || SEM_DELETE.has(t) ? sobrouDeB : 0);
       }
       if (t === 'patients') {
         // o paciente sem documento de B foi apagado; o de A, que também casa com o filtro, segue lá

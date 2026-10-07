@@ -16,6 +16,10 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
+import { desfazerAvisoPendente, registrarCienciaPorEmail } from '@/modules/ia/ciencia-paciente';
+import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
+import { configIA } from '@/modules/ia/modo';
+import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -70,11 +74,22 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   });
 
   const transport = transportFromEnv(env);
-  await work<EmailJobData>('email', async ([job]) => {
+  await work('email', { includeMetadata: true }, async ([job]: JobWithMetadata<EmailJobData>[]) => {
     await processEmailJob(job.data, job.id, {
       transport,
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
+      // D5 (Plano 11): a ciência do aviso de IA só é gravada depois do envio aceito
+      aposEnviar: async (msg, tenantId) => {
+        if (msg.tipo === 'aviso_ia' && tenantId) await registrarCienciaPorEmail(getDb(), tenantId, msg.patientId, msg.versao, msg.para, new Date());
+      },
+      // code review do PR #23: conta suspensa ou tentativas esgotadas → o "aguardando" do aviso de IA é desfeito
+      ultimaTentativa: job.retryCount >= job.retryLimit,
+      aoDesistir: async (msg, tenantId) => {
+        if (msg.tipo !== 'aviso_ia' || !tenantId) return;
+        const desfeito = await desfazerAvisoPendente(getDb(), tenantId, msg.patientId, msg.enviadoEm);
+        logger.warn({ jobId: job.id, tenantId, desfeito }, 'aviso de IA não enviado: o paciente volta a "não informado"');
+      },
     });
   });
 
@@ -217,6 +232,24 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await work('expirar-documento-pdf', async () => {
     await expirarPdfsDeDocumentoPendentes(getDb(), new Date());
     await limparArquivosOrfaosDeDocumentos(getDb(), new Date(), env.DATA_DIR);
+  });
+  // Plano 11 (spec da IA §5.6): leitura de laudo. Um job por vez (padrão do boss.work). O modo e o modelo vêm do ambiente;
+  // a chave só existe aqui (RNF-103). O log diz só o modo, nunca a chave. A fila expira em 300 s (T10), acima do pior caso
+  // do handler (preparo + uma chamada de 120 s); se expirar mesmo assim, a execução antiga não passa do portão do envio.
+  const ia = configIA(env);
+  const { provedor: provedorIA } = provedorIADoAmbiente(env);
+  logger.info({ ia: ia.modo, modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
+  await work('ia', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobIA>[]) => {
+    await processarTarefaIA(job.data, {
+      db: getDb(), dataDir: env.DATA_DIR, modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd,
+      appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
+      // pg-boss 12: o sinal é abortado quando o job expira (resolveWithinSeconds) ou no encerramento do worker
+      abortado: () => job.signal.aborted,
+    });
+  });
+  await boss.schedule('expirar-ia', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('expirar-ia', async () => {
+    await expirarTarefasIA(getDb(), new Date());
   });
   await boss.schedule('limpar-tmp', '0 4 * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('limpar-tmp', async () => {

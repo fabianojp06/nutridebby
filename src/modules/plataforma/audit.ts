@@ -1,4 +1,4 @@
-import { count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { count, desc, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { auditLog, user } from '@/db/schema';
@@ -64,6 +64,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   documentos: 'Documentos assinados',
   perfil_profissional: 'Perfil profissional',
   tentativa_assinatura: 'Tentativa de assinatura com código recusado',
+  ia: 'Inteligência artificial',
 };
 
 export type AccessHistoryItem = {
@@ -76,6 +77,21 @@ export type AccessHistoryItem = {
   /** null = ação do sistema (job do worker) */
   ator: { nome: string; papel: string } | null;
 };
+/**
+ * RN-101: o PEDIDO é o `criar` do gatilho de ia_tarefas (com o ator da sessão); a SAÍDA do laudo ao provedor é o
+ * `exportar` que o worker grava no portão do envio (ator nulo = "Sistema"). Tarefa que termina antes de enviar (laudo
+ * longo, PDF com senha, exame excluído, recusa do paciente) não tem a linha de saída. Sem ação nova no audit_log.
+ */
+export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade'>): string {
+  if (i.entidade === 'ia' && i.acao === 'criar') return 'Pediu leitura à IA';
+  if (i.entidade === 'ia' && i.acao === 'exportar') return 'Laudo enviado à IA';
+  return ACAO_ROTULO[i.acao];
+}
+
+/** RN-101: as mudanças de situação feitas pelo worker (ator nulo) na entidade `ia` ficam no audit_log, mas fora da tela. */
+const visivelNoHistorico = (patientId: string) =>
+  sql`${auditLog.patientId} = ${patientId} and not (${auditLog.entidade} = 'ia' and ${auditLog.acao} = 'alterar' and ${auditLog.actorUserId} is null)`;
+
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
 export async function listAccessHistory(
@@ -89,13 +105,13 @@ export async function listAccessHistory(
   // versão/variante RFC 9562 e recusaria ids válidos no banco (histórico vazio sem aviso).
   if (!z.guid().safeParse(patientId).success) return { itens: [], pagina: 1, totalPaginas: 1, total: 0 };
   const r = await withTenant(ctx, async (tx) => {
-    const [{ n }] = await tx.select({ n: count() }).from(auditLog).where(eq(auditLog.patientId, patientId));
+    const [{ n }] = await tx.select({ n: count() }).from(auditLog).where(visivelNoHistorico(patientId));
     const totalPaginas = Math.max(1, Math.ceil(n / HISTORICO_POR_PAGINA));
     const atual = Math.min(Math.max(1, Math.trunc(pagina) || 1), totalPaginas);
     const linhas = await tx
       .select()
       .from(auditLog)
-      .where(eq(auditLog.patientId, patientId))
+      .where(visivelNoHistorico(patientId))
       .orderBy(desc(auditLog.criadoEm), desc(auditLog.id))
       .limit(HISTORICO_POR_PAGINA)
       .offset((atual - 1) * HISTORICO_POR_PAGINA);

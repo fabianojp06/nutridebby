@@ -1,21 +1,83 @@
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { Aviso } from '@/components/ui/aviso';
+import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
-import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { motivoDoPaciente } from '@/modules/ia/ciencia-paciente';
+import { abrirSugestao } from '@/modules/ia/conferencia';
+import { MSG_IA } from '@/modules/ia/constantes';
+import { situacaoDaCotaIa } from '@/modules/ia/cota';
+import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
+import { marcasDeIa, tarefasDosExames } from '@/modules/ia/tarefas';
+import { formatarData, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../prontuario';
-import { excluirExameAction } from './actions';
+import { descartarSugestaoAction, excluirExameAction } from './actions';
+import { ConferenciaIa } from './conferencia-ia';
 import { ExameForm } from './exame-form';
+import { IaDoExame, iaNoExame } from './ia-exame';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ExamesPage({ params }: PageProps<'/painel/pacientes/[id]/exames'>) {
+export default async function ExamesPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/exames'>) {
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarExames(ctx, paciente.id);
   const bloqueado = paciente.status === 'bloqueado';
+  const busca = await searchParams;
+  const ia = configIA(getEnv());
+  const estadoIa = estadoIaDoTenant(tenant, ia.modo);
+  const agora = new Date();
+  // R7/D19: a sugestão já pronta segue visível e aplicável até vencer mesmo com a IA bloqueada depois; o pedido novo não.
+  const mostrarIa = !bloqueado && estadoIa !== 'ausente' && estadoIa !== 'suspensa';
+  // D8: a marca "IA · conferido em {data}" vale mesmo com a IA desligada depois (a origem fica na linha do exame)
+  const temOrigemIa = lista.some((e) => e.valores.some((v) => v.iaTarefaId));
+  const [situacoes, marcas, cota] = await Promise.all([
+    mostrarIa ? tarefasDosExames(ctx, paciente.id) : new Map(),
+    temOrigemIa ? marcasDeIa(ctx, paciente.id) : new Map<string, Date>(),
+    mostrarIa && estadoIa === 'ativa' ? situacaoDaCotaIa(ctx, tenant, agora) : null,
+  ]);
+  const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente), recusou: !!paciente.iaRecusadaEm, cota });
+  const conferir = typeof busca.conferir === 'string' && mostrarIa ? await abrirSugestao(ctx, paciente.id, busca.conferir) : null;
+  const pediuConferir = typeof busca.conferir === 'string';
   return (
     <div className="space-y-8">
+      {busca.ia === 'salvo' && <Aviso tipo="ok">{MSG_IA.valoresSalvos}</Aviso>}
+      {cota?.nivel === 'aviso' && <Aviso tipo="aviso">{MSG_IA.aviso80}</Aviso>}
+      {pediuConferir && !conferir && <Aviso tipo="aviso">{MSG_IA.indisponivelSugestao}</Aviso>}
+      {conferir && (
+        <section id="conferencia" aria-labelledby="conferencia-titulo" className="space-y-3 rounded-2xl border border-borda bg-cartao p-3">
+          <h2 id="conferencia-titulo" className="text-lg font-semibold">{`Valores encontrados · ${conferir.exame.titulo} · ${formatarData(conferir.exame.data)}`}</h2>
+          <Aviso tipo="aviso" papel="status">{MSG_IA.faixaLeitura}</Aviso>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <ConferenciaIa
+              key={conferir.tarefaId}
+              patientId={paciente.id}
+              tarefaId={conferir.tarefaId}
+              descartadas={conferir.descartadas}
+              dataColeta={conferir.dataColeta && conferir.dataColeta !== conferir.exame.data ? { iso: conferir.dataColeta, texto: formatarData(conferir.dataColeta) } : null}
+              linhas={conferir.linhas.map((l) => ({
+                indice: l.indice, nomeSugerido: l.nomeSugerido, nomeAjustado: l.nomeAjustado, valorTexto: l.valorTexto,
+                valorInicial: l.valor.tipo === 'numero' ? formatarDecimal(l.valor.valor, casasDecimais(l.valor.valor)) : l.valorTexto,
+                unidade: l.unidade ?? '', referencia: l.referencia ?? '', pagina: l.pagina, jaLancado: l.jaLancado,
+              }))}
+            />
+            {conferir.exame.arquivoPath && (
+              <div className="space-y-2">
+                {conferir.exame.mime?.startsWith('image/') ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min (signFileUrl), não passa pelo otimizador
+                  <img src={signFileUrl(conferir.exame.arquivoPath)} alt={`Laudo do exame ${conferir.exame.titulo}`} className="max-h-[80vh] w-full rounded border border-borda object-contain" />
+                ) : (
+                  <a href={signFileUrl(conferir.exame.arquivoPath)} target="_blank" rel="noreferrer" className="text-link underline">Abrir o laudo</a>
+                )}
+              </div>
+            )}
+          </div>
+          <form action={descartarSugestaoAction.bind(null, paciente.id, conferir.tarefaId)}>
+            <ConfirmarBotao mensagem="Descartar a sugestão da IA? O exame não muda.">Descartar sugestão</ConfirmarBotao>
+          </form>
+        </section>
+      )}
       {!bloqueado && (
         <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
           <h2 id="novo-exame" className="text-lg font-semibold">Novo exame</h2>
@@ -29,16 +91,19 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
           <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
-              <span className="flex gap-4">
+              <div className="flex gap-4">
                 {e.arquivoPath && (
                   <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
+                )}
+                {e.arquivoPath && mostrarIa && (
+                  <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} ia={iaExame} agora={agora} />
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
                     <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
                   </form>
                 )}
-              </span>
+              </div>
             </div>
             {e.valores.length > 0 && (
               <table className="w-full text-left">
@@ -54,7 +119,12 @@ export default async function ExamesPage({ params }: PageProps<'/painel/paciente
                   {e.valores.map((v, i) => (
                     <tr key={`${i}-${v.nome}`} className="border-t border-linha">
                       <td>{v.nome}</td>
-                      <td>{`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}</td>
+                      <td>
+                        {`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}
+                        {v.iaTarefaId && (
+                          <span className="ml-2 text-sm text-suave">{marcas.get(v.iaTarefaId) ? `IA · conferido em ${formatarDataNoFuso(marcas.get(v.iaTarefaId)!, tenant.fuso)}` : 'IA · conferido'}</span>
+                        )}
+                      </td>
                       <td>{v.referencia ?? '—'}</td>
                     </tr>
                   ))}

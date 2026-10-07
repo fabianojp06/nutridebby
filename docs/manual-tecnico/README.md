@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026 |
-| Escopo | Planos 01–08 e 10A, spec do MVP v1.12 e spec de documentos assinados v0.4, migrations `0000`–`0093` (94 arquivos em `drizzle/`) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 (Plano 11) contra o branch `plano-11-ia-laudos` (Tarefas 1–17), em 07/10/2026 |
+| Escopo | Planos 01–08, 10A e 11, spec do MVP v1.12, spec de documentos assinados v0.4 e spec da IA v0.3, migrations `0000`–`0100` (101 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -61,6 +61,8 @@ flowchart LR
   C6 --> C8["8 Sustentação<br/>rotina e serviços externos"]
   C4 --> C9["9 Documentos assinados<br/>e receita (Plano 10A)"]
   C5 --> C9
+  C4 --> C10["10 Inteligência artificial<br/>leitura de laudos (Plano 11)"]
+  C6 --> C10
 ```
 
 | Cap. | Arquivo | Assunto | Dono de |
@@ -74,6 +76,7 @@ flowchart LR
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
 | 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Plano 10A): receita, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
+| 10 | [10-ia.md](10-ia.md) | Módulo `ia` (Plano 11): leitura de laudos com IA, provedor e sandbox, preparo do laudo no worker, portão do envio, cota e custo, erros e novas tentativas, privacidade (o que sai, ZDR, nada em log), como estender, divergências conhecidas | Tabelas `ia_tarefas`/`ia_uso`/`ia_gasto_plataforma`, fila `ia`, cota de IA; runbook em [`docs/operacao/ia.md`](../operacao/ia.md) |
 
 ### Seções principais
 
@@ -166,6 +169,16 @@ flowchart LR
 [9.8 Filas](09-documentos-assinados.md#98-filas-e-varreduras) ·
 [9.10 Operação](09-documentos-assinados.md#910-operação)
 
+**10. Inteligência artificial** — [10.1 Visão](10-ia.md#101-visão) ·
+[10.2 Peças](10-ia.md#102-peças) ·
+[10.3 Fluxo](10-ia.md#103-fluxo) ·
+[10.4 Banco](10-ia.md#104-banco) ·
+[10.5 Cota e custo](10-ia.md#105-cota-e-custo) ·
+[10.6 Erros](10-ia.md#106-erros-e-novas-tentativas-d4-rn-105) ·
+[10.7 Privacidade](10-ia.md#107-privacidade) ·
+[10.8 Como estender](10-ia.md#108-como-estender) ·
+[10.9 Divergências](10-ia.md#109-divergências-conhecidas)
+
 ### Onde cada assunto mora
 
 Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem um resumo de uma ou duas frases e um link.
@@ -190,6 +203,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Segredo vazado (troca de variável) | [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado) | §6.10 |
 | Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
 | Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
+| IA de laudos (provedor, cota, privacidade, liberação) | [cap. 10](10-ia.md) | `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
 
 ---
 

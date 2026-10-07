@@ -3,10 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoPaciente } from '../../../test/pacientes';
-import { auditLog, tenants, user } from '@/db/schema';
+import { tarefaNoBanco } from '../../../test/ia';
+import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { auditLog, iaTarefas, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { auditRead, HISTORICO_POR_PAGINA, listAccessHistory, recordAudit } from './audit';
+import { auditRead, ENTIDADE_ROTULO, HISTORICO_POR_PAGINA, listAccessHistory, recordAudit, rotuloDaAcao } from './audit';
 
 const app = makeDb(inject('appDatabaseUrl'));
 let A: string;
@@ -126,5 +127,24 @@ describe('listAccessHistory ("Histórico de acessos", 50 por página, mais recen
 
   it('outro tenant não vê o histórico', async () => {
     expect((await listAccessHistory({ tenantId: B, role: 'nutri', actorUserId: randomUUID() }, P3, 1, app.db)).total).toBe(0);
+  });
+});
+
+describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
+  it('"Pediu leitura à IA" (criar) e "Laudo enviado à IA" (exportar do worker, "Sistema"); o alterar do worker não aparece nem conta; o da nutricionista aparece', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    const id = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'na_fila' }); // criar, com ator
+    await withTenant(worker, (tx) => tx.update(iaTarefas).set({ status: 'processando' }).where(eq(iaTarefas.id, id)), app.db); // alterar, sem ator
+    await withTenant(worker, (tx) => recordAudit(tx, { acao: 'exportar', entidade: 'ia', entidadeId: id, patientId: p.id }), app.db); // saída (portão do envio, T11)
+    await withTenant(T.ctx, (tx) => tx.update(iaTarefas).set({ status: 'falhou', erro: 'interrompida' }).where(eq(iaTarefas.id, id)), app.db); // alterar, com ator
+    const h = await listAccessHistory(T.ctx, p.id, 1, app.db);
+    const daIa = h.itens.filter((i) => i.entidade === 'ia');
+    expect(daIa.map((i) => rotuloDaAcao(i))).toEqual(['Alterou', 'Laudo enviado à IA', 'Pediu leitura à IA']);
+    expect(daIa[1].ator).toBeNull(); // "Sistema" na tela
+    expect(h.total).toBe(h.itens.length); // a contagem também ignora o alterar do worker
+    expect(ENTIDADE_ROTULO.ia).toBe('Inteligência artificial');
+    expect(rotuloDaAcao({ acao: 'ler', entidade: 'ia' })).toBe('Visualizou');
   });
 });

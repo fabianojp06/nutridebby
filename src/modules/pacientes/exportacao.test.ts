@@ -9,6 +9,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultaDireta } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
+import { tarefaNoBanco } from '../../../test/ia';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
@@ -20,6 +21,7 @@ import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
 import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
+import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
 import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -614,6 +616,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
+          avisoIa: null,
+          avisoIaEnviadoEm: null,
+          recusouIaEm: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
@@ -629,11 +634,47 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         diario: [],
         conteudos: { vistos: [], favoritos: [] },
         documentos: [],
+        ia: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',
     );
     expect(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('Plano 11: dados.json traz a seção "ia" com id, tipo, situação, datas, se o laudo saiu e para quem — nunca a sugestão; as linhas de exame mostram a origem', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'aplicada', linhasAplicadas: 1, encerradoEm: now, criadoEm: now, saiuEm: now });
+    const naoSaiu = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'falhou', erro: 'laudo_longo', criadoEm: now });
+    const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'pronta', criadoEm: now, resultado: { versao: 1, dataColeta: null, linhas: [{ nome: 'Glicose secreta', valorTexto: '92', unidade: 'mg/dL', referencia: null, pagina: 1 }], descartadas: 0 } });
+    await withTenant(T.ctx, (tx) => tx.insert(exams).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-01', titulo: 'Hemograma', valores: [{ nome: 'Glicemia de jejum', valor: 92, unidade: 'mg/dL', referencia: null, iaTarefaId: id }] }), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.ia, escopo).toEqual(
+        expect.arrayContaining([
+          { id, tipo: 'leitura_exame', status: 'aplicada', criadoEm: now.toISOString(), encerradoEm: now.toISOString(), enviadoEm: now.toISOString(), provedor: PROVEDOR_IA_DESCRICAO },
+          { id: pronta, tipo: 'leitura_exame', status: 'pronta', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null },
+          { id: naoSaiu, tipo: 'leitura_exame', status: 'falhou', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null },
+        ]),
+      );
+      expect(dados.ia, escopo).toHaveLength(3);
+      expect(JSON.stringify(dados.ia), escopo).not.toMatch(/Glicose secreta|resultado/);
+      expect(dados.exames[0].valores[0], escopo).toMatchObject({ iaTarefaId: id });
+    }
+    expect(pronta).toBeDefined();
+  });
+
+  it('Plano 11 (revisão final, LGPD art. 18, II): dados.json traz a ciência do aviso de IA, o envio do aviso pendente e o "Não usar IA"', async () => {
+    const T = await novoTenant(app.db);
+    const informado = await novoPaciente(app.db, T.ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: now, iaAvisoCanal: 'em_maos', iaRecusadaEm: now });
+    const semAviso = await novoPaciente(app.db, T.ctx, { iaAvisoEnviadoEm: now });
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const a = await withTenant(T.ctx, (tx) => montarDados(tx, informado.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(a.dados.paciente, escopo).toMatchObject({ avisoIa: { versao: '0.1-provisorio', em: now.toISOString(), canal: 'em_maos' }, avisoIaEnviadoEm: null, recusouIaEm: now.toISOString() });
+      const b = await withTenant(T.ctx, (tx) => montarDados(tx, semAviso.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(b.dados.paciente, escopo).toMatchObject({ avisoIa: null, avisoIaEnviadoEm: now.toISOString(), recusouIaEm: null });
+    }
   });
 
   it('apagar a conta de quem pediu a exportação não esbarra na auditoria (solicitado_por sem FK, como o ator do audit_log)', async () => {
@@ -950,6 +991,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
+          avisoIa: null,
+          avisoIaEnviadoEm: null,
+          recusouIaEm: null,
         },
         anamneses: [],
         antropometria: [
@@ -991,6 +1035,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         diario: [],
         conteudos: { vistos: [], favoritos: [] },
         documentos: [],
+        ia: [],
         laudosForaDoZip: false,
       },
       'Debby Silva',

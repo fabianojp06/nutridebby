@@ -1,5 +1,5 @@
 import type { TenantContext } from '@/db/tenant';
-import { ACAO_ROTULO, ENTIDADE_ROTULO, listAccessHistory, type AccessHistoryPage } from '../audit';
+import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao, type AccessHistoryPage } from '../audit';
 
 const PAPEL: Record<string, string> = { nutri: 'nutricionista', paciente: 'paciente', admin: 'administração' };
 
@@ -34,7 +34,7 @@ export function HistoricoAcessosTabela({ pagina, fuso, baseHref }: { pagina: Acc
               <tr key={i.id} className="border-t border-linha">
                 <td>{formatarDataHora(i.criadoEm, fuso)}</td>
                 <td>{i.ator ? `${i.ator.nome}${PAPEL[i.ator.papel] ? ` (${PAPEL[i.ator.papel]})` : ''}` : 'Sistema'}</td>
-                <td>{ACAO_ROTULO[i.acao]}</td>
+                <td>{rotuloDaAcao(i)}</td>
                 <td>{ENTIDADE_ROTULO[i.entidade] ?? i.entidade}</td>
                 <td>{i.ip ?? '—'}</td>
               </tr>

@@ -73,6 +73,8 @@ jobs:
       # Plano 05 (D1): WhatsApp pelo sandbox (Mailpit); o E2E assina os webhooks com o segredo
       WHATSAPP_SANDBOX: '1'
       EVOLUTION_WEBHOOK_SECRET: ci-webhook-secret-with-at-least-32-characters
+      # Plano 11 (RNF-107): IA de laudos pelo sandbox — respostas fixas, nenhuma chamada à API real
+      IA_PROVEDOR: sandbox
       CI: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -112,3 +114,18 @@ jobs:
           mb=$(( (bytes + 1024 * 1024 - 1) / 1024 / 1024 ))
           echo "Imagem comprimida: ${mb} MB (limite 260 MB)"
           test "$mb" -le 260 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 260 MB"; exit 1; }
+      - name: O worker carrega o pdf-lib e o SDK da IA na imagem podada (Plano 11)
+        # O Dockerfile apaga partes do pdf-lib e do @anthropic-ai/sdk que não rodam; aqui, o preparo do PDF (thread com o
+        # DecodeStream do pdf-lib) e o cliente do SDK sobem como no worker. Nenhuma chamada sai (sem rede para o provedor).
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint node -e NODE_ENV=production nutridebby:ci --import tsx --input-type=module -e "
+            const { PDFDocument } = await import('pdf-lib');
+            const d = await PDFDocument.create(); d.addPage();
+            const { prepararLaudo } = await import('./src/modules/ia/preparar-arquivo.ts');
+            const r = await prepararLaudo(Buffer.from(await d.save()));
+            if (r.tipo !== 'pdf' || r.paginas !== 1) throw new Error('preparo do PDF falhou na imagem');
+            const { default: Anthropic } = await import('@anthropic-ai/sdk');
+            if (typeof new Anthropic({ apiKey: 'ci' }).messages.create !== 'function') throw new Error('SDK da IA não carregou');
+            console.log('IA ok na imagem');"

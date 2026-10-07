@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { novoTenant } from '../../../test/pacientes';
 import { consents, tenants, user } from '@/db/schema';
-import { registrarAceiteDpa } from './dpa';
+import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { registrarAceiteAditivoIa, registrarAceiteDpa } from './dpa';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -69,4 +71,15 @@ describe('consents é prova de aceite (T6-R2c)', () => {
     const linhas = await app.db.select().from(consents).where(eq(consents.userId, userId));
     expect(linhas).toHaveLength(1);
   });
+});
+
+it('Plano 11 (A-D20): o aceite do aditivo de IA não mexe no DPA e grava o consultório no consents', async () => {
+  const T = await novoTenant(app.db);
+  expect(await registrarAceiteAditivoIa(app.db, { userId: T.nutriId, tenantId: T.tenantId, ip: null, now: new Date('2026-10-06T12:00:00Z') })).toBe(true);
+  // mesma versão de novo (reativação): não insere outra linha e avisa quem chama (log da ativação, D21)
+  expect(await registrarAceiteAditivoIa(app.db, { userId: T.nutriId, tenantId: T.tenantId, ip: null, now: new Date('2026-10-06T12:01:00Z') })).toBe(false);
+  const [t] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+  expect(t).toMatchObject({ dpaVersao: null, iaAditivoVersao: IA_ADITIVO_VERSAO });
+  const [c] = await app.db.select().from(consents).where(and(eq(consents.userId, T.nutriId), eq(consents.termoVersao, IA_ADITIVO_TERMO)));
+  expect(c).toMatchObject({ tenantId: T.tenantId, patientId: null });
 });
