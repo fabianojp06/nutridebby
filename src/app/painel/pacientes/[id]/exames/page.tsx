@@ -5,7 +5,7 @@ import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { motivoDoPaciente } from '@/modules/ia/ciencia-paciente';
 import { abrirSugestao } from '@/modules/ia/conferencia';
-import { MSG_FALHA, MSG_IA } from '@/modules/ia/constantes';
+import { MSG_IA } from '@/modules/ia/constantes';
 import { situacaoDaCotaIa } from '@/modules/ia/cota';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { marcasDeIa, tarefasDosExames } from '@/modules/ia/tarefas';
@@ -15,7 +15,7 @@ import { carregarProntuario } from '../prontuario';
 import { descartarSugestaoAction, excluirExameAction } from './actions';
 import { ConferenciaIa } from './conferencia-ia';
 import { ExameForm } from './exame-form';
-import { IaDoExame } from './ia-exame';
+import { IaDoExame, iaNoExame } from './ia-exame';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,16 +37,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
     temOrigemIa ? marcasDeIa(ctx, paciente.id) : new Map<string, Date>(),
     mostrarIa && estadoIa === 'ativa' ? situacaoDaCotaIa(ctx, tenant, agora) : null,
   ]);
-  const motivo = motivoDoPaciente(paciente);
-  const avisoIa =
-    estadoIa === 'emergencia' ? MSG_IA.indisponivel
-    : estadoIa === 'nao_liberada' ? MSG_IA.naoLiberada
-    : estadoIa === 'nao_ativada' ? MSG_IA.indisponivel
-    : estadoIa === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado
-    : motivo === 'paciente_nao_informado' ? MSG_IA.semCiencia
-    : motivo ? (paciente.iaRecusadaEm ? MSG_IA.recusou : MSG_FALHA.paciente_indisponivel)
-    : cota?.nivel === 'esgotada' ? MSG_IA.cotaAcabou
-    : null;
+  const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente), recusou: !!paciente.iaRecusadaEm, cota });
   const conferir = typeof busca.conferir === 'string' && mostrarIa ? await abrirSugestao(ctx, paciente.id, busca.conferir) : null;
   const pediuConferir = typeof busca.conferir === 'string';
   return (
@@ -60,6 +51,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
           <Aviso tipo="aviso" papel="status">{MSG_IA.faixaLeitura}</Aviso>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <ConferenciaIa
+              key={conferir.tarefaId}
               patientId={paciente.id}
               tarefaId={conferir.tarefaId}
               descartadas={conferir.descartadas}
@@ -99,19 +91,19 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
           <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
-              <span className="flex gap-4">
+              <div className="flex gap-4">
                 {e.arquivoPath && (
                   <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
                 )}
                 {e.arquivoPath && mostrarIa && (
-                  <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} aviso={avisoIa} agora={agora} />
+                  <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} ia={iaExame} agora={agora} />
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
                     <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
                   </form>
                 )}
-              </span>
+              </div>
             </div>
             {e.valores.length > 0 && (
               <table className="w-full text-left">
