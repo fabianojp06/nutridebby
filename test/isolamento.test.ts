@@ -141,7 +141,8 @@ const DELETE_REVOGADO = new Set(['ia_uso']);
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
  * (mensagem própria, não "row-level security"); em signed_documents, só o rascunho é apagado.
  */
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes']);
+// Plano 11 (revisão final, Minor 2): ia_tarefas_imutavel (0100) recusa mudar tenant_id/patient_id com 42501 antes da RLS.
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas']);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes

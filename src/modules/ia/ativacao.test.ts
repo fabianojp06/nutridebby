@@ -40,7 +40,14 @@ describe('US-101 — ativar e desativar a IA do consultório (A-D20)', () => {
     await desativarIa(T.ctx, { db: app.db, agora });
     await ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: '203.0.113.5' }, true, { db: app.db, agora: new Date(agora.getTime() + 1000) });
     expect(await app.db.select().from(consents).where(and(eq(consents.userId, T.nutriId), eq(consents.termoVersao, IA_ADITIVO_TERMO)))).toHaveLength(1);
-    expect((await tenantDe(T.tenantId)).iaAtivadaEm).not.toBeNull();
+    expect((await tenantDe(T.tenantId)).iaAtivadaEm).toEqual(new Date(agora.getTime() + 1000));
+  });
+
+  it('Minor 8 (revisão final): ativar de novo com a IA já ativa (versão nova do aditivo, clique repetido) mantém a data da ativação', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ iaLiberada: true, iaAtivadaEm: agora, iaAditivoVersao: '0.0-antigo' }).where(eq(tenants.id, T.tenantId));
+    await ativarIa({ userId: T.nutriId, tenantId: T.tenantId, ip: null }, true, { db: app.db, agora: new Date(agora.getTime() + 86_400_000) });
+    expect(await tenantDe(T.tenantId)).toMatchObject({ iaAtivadaEm: agora, iaAditivoVersao: IA_ADITIVO_VERSAO });
   });
 
   it('D21 (NGS1.07): toda ativação deixa trilha no log com a usuária — inclusive a reativação, que não grava consents novo', async () => {

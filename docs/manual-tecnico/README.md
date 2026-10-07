@@ -8,7 +8,7 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
 | Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 (Plano 11) contra o branch `plano-11-ia-laudos` (Tarefas 1–17), em 07/10/2026 |
-| Escopo | Planos 01–08, 10A e 11, spec do MVP v1.12, spec de documentos assinados v0.4 e spec da IA v0.3, migrations `0000`–`0099` (100 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0099`) |
+| Escopo | Planos 01–08, 10A e 11, spec do MVP v1.12, spec de documentos assinados v0.4 e spec da IA v0.3, migrations `0000`–`0100` (101 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---

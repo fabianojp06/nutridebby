@@ -701,6 +701,13 @@
       "when": 1791317463968,
       "tag": "0099_rls_ia",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1791339890752,
+      "tag": "0100_ia_defesas_banco",
+      "breakpoints": true
     }
   ]
 }

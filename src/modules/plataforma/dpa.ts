@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Queryable } from '@/db/client';
 import { consents, tenants } from '@/db/schema';
 import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
@@ -54,6 +54,10 @@ export async function registrarAceiteAditivoIa(q: Queryable, a: { userId: string
     .values({ userId: a.userId, tenantId: a.tenantId, termoVersao: IA_ADITIVO_TERMO, aceitoEm: now, ip: a.ip })
     .onConflictDoNothing()
     .returning({ id: consents.id });
-  await q.update(tenants).set({ iaAtivadaEm: now, iaAditivoVersao: IA_ADITIVO_VERSAO, updatedAt: now }).where(eq(tenants.id, a.tenantId));
+  // Minor 8 da revisão final: com a IA já ativa (aceite de versão nova do aditivo, clique repetido), a data da ativação fica
+  await q
+    .update(tenants)
+    .set({ iaAtivadaEm: sql`coalesce(${tenants.iaAtivadaEm}, ${now.toISOString()}::timestamptz)`, iaAditivoVersao: IA_ADITIVO_VERSAO, updatedAt: now })
+    .where(eq(tenants.id, a.tenantId));
   return inserido.length > 0;
 }

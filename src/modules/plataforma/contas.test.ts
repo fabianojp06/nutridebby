@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { makeDb, semPreChecagem } from '../../../test/db';
@@ -15,6 +15,13 @@ import { hashPassword } from '@/lib/password.server';
 import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
+
+// Minor 7 da revisão final: o ambiente "de produção" só quando o teste pede (o resto do arquivo usa o emProducao real)
+const ambiente = vi.hoisted(() => ({ producao: null as boolean | null }));
+vi.mock('@/env', async (orig) => {
+  const real = await orig<typeof import('@/env')>();
+  return { ...real, emProducao: (e: Parameters<typeof real.emProducao>[0]) => ambiente.producao ?? real.emProducao(e) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T12:00:00Z');
@@ -262,6 +269,18 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     await expect(definirIaLiberada(app.db, T.tenantId, true, admin, { producao: true })).rejects.toBeInstanceOf(IaProvisoriaError);
     await definirIaLiberada(app.db, T.tenantId, false, admin, { producao: true });
     expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
+  });
+
+  it('Minor 7 (revisão final): sem informar `producao`, vale o ambiente — em produção a guarda da D22 continua fechada', async () => {
+    const T = await novoTenant(app.db);
+    ambiente.producao = true;
+    try {
+      await expect(definirIaLiberada(app.db, T.tenantId, true, randomUUID())).rejects.toBeInstanceOf(IaProvisoriaError);
+    } finally {
+      ambiente.producao = null;
+    }
+    const [t] = await app.db.select({ l: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t.l).toBe(false);
   });
 
   it('listarContas mostra IA liberada, ativada e a cota', async () => {

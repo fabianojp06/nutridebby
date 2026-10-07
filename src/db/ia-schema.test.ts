@@ -89,6 +89,74 @@ describe('Plano 11 — banco da IA (spec v0.3 §11, §5.11)', () => {
     await novoPaciente(app.db, T.ctx, { iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos' }); // nutricionista, em mãos: passa
   });
 
+  it('Minor 1 (revisão final): com canal e-mail, a nutricionista não troca versão nem data da ciência; recusa e reenvio seguem livres; o worker grava a ciência por e-mail', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    const mudar = (ctx: Parameters<typeof withTenant>[0], set: Partial<typeof patients.$inferInsert>) =>
+      withTenant(ctx, (tx) => tx.update(patients).set(set).where(eq(patients.id, p.id)).returning({ id: patients.id }), app.db);
+    const em = new Date('2026-10-01T12:00:00Z');
+    // Minor 4: o ramo do worker (pós-envio do e-mail) passa
+    expect(await mudar(worker, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: em, iaAvisoCanal: 'email' })).toHaveLength(1);
+    expect(await falhaCom(mudar(T.ctx, { iaAvisoVersao: '9.9', iaAvisoEm: new Date() }))).toBe('42501');
+    expect(await falhaCom(mudar(T.ctx, { iaAvisoEm: new Date('2026-10-05T12:00:00Z') }))).toBe('42501');
+    // Minor 4: a nutricionista grava a recusa e o reenvio do aviso (versão, data e canal iguais)
+    expect(await mudar(T.ctx, { iaRecusadaEm: new Date() })).toHaveLength(1);
+    expect(await mudar(T.ctx, { iaRecusadaEm: null, iaAvisoEnviadoEm: new Date() })).toHaveLength(1);
+    // trocar para "em mãos" (nova ciência registrada pela nutricionista) continua valendo
+    expect(await mudar(T.ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos', iaAvisoEnviadoEm: null })).toHaveLength(1);
+  });
+
+  it('Minor 2 (revisão final): a tarefa não muda de consultório, de paciente, de exame, de quem pediu nem de modelo; saiu_em não volta a nulo', async () => {
+    const T = await novoTenant(app.db);
+    const outro = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const p2 = await novoPaciente(app.db, T.ctx);
+    const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir });
+    const outroExame = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir });
+    const saiu = new Date('2026-10-01T12:00:00Z');
+    const id = await tarefaNoBanco(app.db, T.ctx, p.id, examId, { status: 'falhou', erro: 'interrompida', saiuEm: saiu });
+    const mudar = (set: Partial<typeof iaTarefas.$inferInsert>) => withTenant(T.ctx, (tx) => tx.update(iaTarefas).set(set).where(eq(iaTarefas.id, id)), app.db);
+    expect(await falhaCom(mudar({ patientId: p2.id }))).toBe('42501');
+    expect(await falhaCom(mudar({ tenantId: outro.tenantId }))).toBe('42501');
+    expect(await falhaCom(mudar({ examId: outroExame }))).toBe('42501');
+    expect(await falhaCom(mudar({ pedidoPor: randomUUID() }))).toBe('42501');
+    expect(await falhaCom(mudar({ modelo: 'outro' }))).toBe('42501');
+    expect(await falhaCom(mudar({ saiuEm: null }))).toBe('42501');
+    expect(await falhaCom(mudar({ saiuEm: new Date() }))).toBe('42501');
+    expect(await falhaCom(withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.update(iaTarefas).set({ saiuEm: null }).where(eq(iaTarefas.id, id)), app.db))).toBe('42501');
+    // o que a execução muda segue livre, e o exame só vai a nulo
+    await mudar({ status: 'cancelada', erro: null, encerradoEm: new Date(), updatedAt: new Date() });
+    await mudar({ examId: null });
+    const [t] = await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, id)), app.db);
+    expect(t).toMatchObject({ patientId: p.id, examId: null, status: 'cancelada', saiuEm: saiu });
+  });
+
+  it('Minor 3 (revisão final): os interruptores da admin (IA, limite, documentos) não mudam de dentro de withTenant; fora dele, sim', async () => {
+    const T = await novoTenant(app.db);
+    const contextos = [T.ctx, { tenantId: T.tenantId, role: 'worker' as const }, { tenantId: T.tenantId, role: 'publico' as const }];
+    for (const ctx of contextos) {
+      for (const set of [{ iaLiberada: true }, { iaCotaMensalUsd: 999 }, { documentosLiberados: true }]) {
+        expect(await falhaCom(withTenant(ctx, (tx) => tx.update(tenants).set(set).where(eq(tenants.id, T.tenantId)), app.db)), `${ctx.role} ${Object.keys(set)[0]}`).toBe('42501');
+      }
+    }
+    // a nutricionista ainda ativa e desativa a IA (outras colunas) dentro do withTenant
+    await withTenant(T.ctx, (tx) => tx.update(tenants).set({ iaAtivadaEm: null, updatedAt: new Date() }).where(eq(tenants.id, T.tenantId)), app.db);
+    // a admin (sem app.role) liga
+    await app.db.update(tenants).set({ iaLiberada: true, iaCotaMensalUsd: 20, documentosLiberados: true }).where(eq(tenants.id, T.tenantId));
+    const [t] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t).toMatchObject({ iaLiberada: true, iaCotaMensalUsd: 20, documentosLiberados: true });
+  });
+
+  it('Minor 4 (revisão final): o worker apaga a tarefa do paciente anonimizado (único DELETE permitido)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), anonimizadoEm: new Date() });
+    const id = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'cancelada' });
+    expect(await falhaCom(withTenant(T.ctx, (tx) => tx.delete(iaTarefas).where(eq(iaTarefas.id, id)), app.db))).toBe('42501');
+    const r = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.delete(iaTarefas).where(eq(iaTarefas.id, id)).returning({ id: iaTarefas.id }), app.db);
+    expect(r).toEqual([{ id }]);
+  });
+
   it('a ciência é "tudo ou nada" e o canal é da lista', async () => {
     const T = await novoTenant(app.db);
     expect(await falhaCom(novoPaciente(app.db, T.ctx, { iaAvisoVersao: '0.1-provisorio' }))).toBe('23514');
