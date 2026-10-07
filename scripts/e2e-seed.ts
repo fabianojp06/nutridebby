@@ -54,6 +54,10 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
   // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)
   await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
+  // Plano 12 (R-D5): o feed de diários lista primeiro os não vistos e corta em 50 (feedDeDiarios); no banco de dev
+  // reaproveitado, os registros das execuções anteriores empurravam o recém-comentado ("Visto") para fora da lista
+  // (portal.spec, US-043). Os antigos entram como vistos; o limite do feed não muda.
+  await tx.execute(sql`update diary_entries set visto_pela_nutri_em = now() where visto_pela_nutri_em is null`);
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));

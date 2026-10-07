@@ -115,7 +115,9 @@ backup_arquivos() {
   inicio="$(date -u +%FT%TZ)"
   # G2: stderr do rclone fora do log (cita endpoint, bucket e caminhos com o UUID do tenant)
   # US-018: o ZIP de exportação vive 24 h e é refeito a partir do banco; fora do backup para não sobreviver 30 dias no histórico
-  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" --exclude '/*/exportacao/**' >/dev/null 2>&1; then
+  # Plano 12 (PM-11): as imagens de página e os originais do exame enviado pelo paciente são temporários (saem na revisão,
+  # minutos depois ou na falha); o PDF limpo, que vira laudo, vai normalmente.
+  if rclone sync "$NUTRI_DATA_DIR" "${REMOTO}data/atual" --backup-dir "${REMOTO}data/historico/${HOJE}" --exclude '/*/exportacao/**' --exclude '/*/exame_pagina/**' --exclude '/*/exame_original/**' >/dev/null 2>&1; then
     limite="$(date -d "$HOJE -${HISTORICO_DIAS} days" +%F)"
     podar_historico "$limite" || { ok=false; detalhe="retenção falhou"; }
     registrar arquivos "$ok" "" "$detalhe" "$inicio" || ok=false

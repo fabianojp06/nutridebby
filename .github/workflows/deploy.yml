@@ -17,6 +17,8 @@ jobs:
 
   publish:
     needs: ci
+    # Plano 12 (R-D1): commit só de documentação não reconstrói a imagem nem refaz o deploy (ci.yml, job mudancas)
+    if: needs.ci.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

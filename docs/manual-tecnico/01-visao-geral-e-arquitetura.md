@@ -134,8 +134,8 @@ com as extensões `citext`, `pg_trgm`, `unaccent` e `btree_gist` (`drizzle/0000_
 Mailpit no dev e no CI; k6 por imagem Docker e Lighthouse por `pnpm dlx` só na pilha de carga (spec §9.1).
 
 `pnpm-workspace.yaml` poda `@sentry/bundler-plugins` por `overrides` (só os caminhos de bundler do SDK o usam) para a
-imagem caber no orçamento de 260 MB do CI (spec §9.1, "Logs / erros"). No Plano 11, o estágio `build` do `Dockerfile`
-poda do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (258 MB no job `image` do PR #23; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)).
+imagem caber no orçamento do CI (260 MB até o Plano 11; **265 MB** desde o Plano 12, D-R2; spec §9.1, "Logs / erros"). No Plano 11, o estágio `build` do `Dockerfile`
+poda do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (258 MB no job `image` do PR #23); no Plano 12, do `@hyzyla/pdfium` só ficam o carregador e o `pdfium.wasm` (263 MB; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)).
 
 ---
 
@@ -564,7 +564,7 @@ flowchart LR
     Q[quality<br/>lint + typecheck]
     TE[test<br/>Vitest + Testcontainers + rclone]
     E2E[e2e<br/>Postgres 16 + Mailpit<br/>migrate, seed, build, Playwright]
-    IMG[image<br/>build local + orçamento 260 MB]
+    IMG[image<br/>build local + orçamento 265 MB]
   end
   M[Merge na main<br/>= deploy] --> D
   subgraph D["deploy.yml (push na main)"]
@@ -757,7 +757,7 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 5 | Spec §9.6 (lista de variáveis) | Faltam `TRUSTED_PROXIES` (**obrigatória em produção**, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE` e `PORT` | Quem montar um ambiente pela spec não sobe o app em produção |
 | 6 | `.env.example` lista `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `BACKUP_PASSPHRASE` | Nenhum código os lê; a spec §9.6 (nota do Plano 02) diz que ficam só no `backup.env` do host, como `RCLONE_CONFIG_*` | Pode levar alguém a cadastrá-los no Easypanel sem efeito |
 | 7 | Spec §4.2: URLs `app.<dominio>/…` e "O domínio definitivo ainda não foi escolhido" | Produção em `https://nutri.wsscloud.tech` (backlog, "Resumo"; Plano 08, D8) | Documental |
-| 8 | Spec RNF-03: `nutri_worker` com 512 MB | Serviço observado com 1 vCPU e 1 GiB (`docker service inspect`, 05/10/2026). A própria RNF-03 diz que os limites serão revistos depois do k6 | Configuração do Easypanel diferente da spec; registrar na revisão do RNF-03 |
+| 8 | Spec RNF-03: `nutri_worker` com 512 MB | Serviço observado com 1 vCPU e 1 GiB (`docker service inspect`, 05/10/2026). A própria RNF-03 diz que os limites serão revistos depois do k6 | **Resolvida no Plano 12 (R-D5):** o limite de 1 GiB do worker foi conferido de novo em 07/10/2026 (`MemoryBytes` 1073741824) e a RNF-03 da spec do MVP registra o valor; a revisão geral dos limites depois do k6 continua pendente |
 | 9 | Spec §4.1: "As rotas e a UI chamam só o módulo, nunca o banco direto" | `src/app/sair/route.ts:49` apaga a linha de `session` direto; `src/app/api/health/route.ts` lê `system_heartbeat` direto. Ambas as tabelas ficam fora da RLS. Outras páginas só passam `getDb()` para funções de módulo (`src/app/painel/actions.ts:15`, `src/app/admin/painel-infra.tsx:17`, páginas de convite) | Exceções pequenas e sem dado de tenant; manter a lista curta |
 | 10 | Infraestrutura real: serviço `nutri_app` | A mensagem de erro de `EVOLUTION_WEBHOOK_URL` (`src/env.ts:182`) e o comentário do `.env.example` dão como exemplo `http://nutridebby_app:3000/…` | O exemplo não funciona copiado: o nome do serviço na rede interna é `nutri_app` |
 | 11 | Spec §4 (diagrama): `nutri_evolution` na VPS | Não implantado em 05/10/2026 (`docker service ls`); o WhatsApp é opcional e o go-live pode sair sem ele (Plano 08, D16) | Estado operacional, não erro de código |

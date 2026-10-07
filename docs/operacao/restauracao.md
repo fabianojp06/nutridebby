@@ -20,8 +20,8 @@ O teste de restauração usa a imagem `postgres:16-alpine` (a mesma do `nutri_db
    é também o superusuário do banco descartável: o `db/globais.sql` grava as filiações dos roles com `GRANTED BY` esse
    role, e no PG 16 só o superusuário de instalação as recria.
 3. `NUTRI_RESTAURAR_DIA=<ontem> bash /usr/local/lib/nutri-backup/nutri-restauracao-teste.sh` → linha `restauracao: …` com `tabelas_sem_rls=0`, `migrations` maior que 0, `funcoes_definer_superusuario=0` e `roles=ok`, e por último a linha `restauracao ok` (só sai depois de todas as guardas; o script sai 1 se qualquer uma falhar; **nunca** usar `NUTRI_RESTAURAR_PERMITIR_DEFINER_SUPER` no host — é só do teste do CI).
-4. Arquivos: `rclone cryptcheck "$NUTRI_DATA_DIR" cripto:data/atual --exclude '/*/exportacao/**'` (só hashes; o mesmo
-   `--exclude` do backup — sem ele, um ZIP de exportação das últimas 24 h vira diferença falsa). Restaurar **um** arquivo
+4. Arquivos: `rclone cryptcheck "$NUTRI_DATA_DIR" cripto:data/atual --exclude '/*/exportacao/**' --exclude '/*/exame_pagina/**' --exclude '/*/exame_original/**'` (só hashes; os mesmos
+   `--exclude` do backup — sem eles, um ZIP de exportação das últimas 24 h ou as imagens temporárias de um exame enviado pelo paciente (Plano 12) viram diferença falsa). Restaurar **um** arquivo
    de `logo/` (minimização: nada de dado de saúde fora do servidor) numa pasta privada: `d=$(mktemp -d)` (modo 0700) e
    `rclone copy cripto:data/atual/<tenant>/logo/<arquivo> "$d"`; conferir o tamanho com `stored_files.bytes` (leitura do
    banco de produção → confirmação) e `rm -rf "$d"`.

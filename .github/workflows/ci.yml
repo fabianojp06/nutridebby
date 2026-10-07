@@ -3,6 +3,10 @@ name: ci
 on:
   pull_request:
   workflow_call:
+    outputs:
+      codigo:
+        description: "'true' quando a mudança não é só de documentação (o deploy só publica nesse caso)"
+        value: ${{ jobs.mudancas.outputs.codigo }}
 
 # Cancela execuções anteriores da mesma PR quando um novo commit chega, para
 # economizar minutos do Actions. Quando este workflow é chamado a partir do
@@ -16,6 +20,35 @@ permissions:
   contents: read
 
 jobs:
+  # Plano 12 (R-D1, dono, 07/10/2026): PR ou push na main só de documentação (docs/**, *.md, .claude/agents/**) não roda
+  # test, e2e nem image (economia de minutos do Actions), e o deploy não reconstrói a imagem. Sem ação de terceiros: git diff
+  # contra a base (PR: o ponto em que o branch saiu da main; push: o commit anterior). Na dúvida — base ausente ou fora do
+  # histórico (primeiro push, push forçado), diff vazio —, roda tudo. O quality roda sempre.
+  mudancas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      codigo: ${{ steps.filtro.outputs.codigo }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: filtro
+        shell: bash
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          codigo=true
+          if [[ -n "${BASE:-}" && ! "$BASE" =~ ^0+$ ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            arquivos="$(git diff --name-only "${BASE}...${HEAD}")"
+            if [[ -n "$arquivos" ]] && ! grep -qEv '^(docs/|\.claude/agents/)|\.md$' <<<"$arquivos"; then
+              codigo=false
+            fi
+          fi
+          echo "Mudança com código: ${codigo}"
+          echo "codigo=${codigo}" >> "$GITHUB_OUTPUT"
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -29,6 +62,8 @@ jobs:
       - run: pnpm typecheck
 
   test:
+    needs: mudancas
+    if: needs.mudancas.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -42,6 +77,8 @@ jobs:
       - run: pnpm test   # inclui a guarda de RLS (Testcontainers usa o Docker do runner)
 
   e2e:
+    needs: mudancas
+    if: needs.mudancas.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -92,6 +129,8 @@ jobs:
         with: { name: playwright-report, path: playwright-report }
 
   image:
+    needs: mudancas
+    if: needs.mudancas.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

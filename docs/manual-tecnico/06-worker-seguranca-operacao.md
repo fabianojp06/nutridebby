@@ -564,7 +564,7 @@ flowchart TB
   R1 -->|"domingo: copyto"| R2["cripto:db/semanal/"]
   SH --> B2["docker exec pg_dumpall --globals-only --no-role-passwords"]
   B2 -->|"rcat .novo → moveto"| R3["cripto:db/globais.sql"]
-  SH --> B3["rclone sync DATA_DIR<br/>--backup-dir historico/&lt;dia&gt;<br/>--exclude /*/exportacao/**"]
+  SH --> B3["rclone sync DATA_DIR<br/>--backup-dir historico/&lt;dia&gt;<br/>--exclude exportacao, exame_pagina, exame_original"]
   B3 --> R4["cripto:data/atual + data/historico/"]
   SH --> REG["psql: insert backup_runs<br/>(tipo banco | arquivos)"]
   REG --> W["worker: monitor-backup 07h"]
@@ -604,7 +604,10 @@ irrecuperável (`docs/operacao/restauracao.md:6-9`).
    envio derem certo; poda 7 diários e 4 semanais. Falha no dump apaga o arquivo parcial.
 3. **Arquivos** (`backup_arquivos`, linhas 113-137): `rclone sync` de `NUTRI_DATA_DIR` para `data/atual`, com
    `--backup-dir data/historico/<dia>`; poda o histórico com mais de 30 dias. O ZIP de exportação fica **fora**
-   (`--exclude '/*/exportacao/**'`): vive 24 h e é refeito do banco (US-018).
+   (`--exclude '/*/exportacao/**'`): vive 24 h e é refeito do banco (US-018). Plano 12 (PM-11, D8): também ficam fora
+   `--exclude '/*/exame_pagina/**'` e `--exclude '/*/exame_original/**'` — as imagens de página e os originais do exame
+   enviado pelo paciente são temporários (saem na revisão, minutos depois ou na falha; o original pode ter EXIF/GPS); o PDF
+   limpo (`exame/`), que vira laudo, vai normalmente. Mudou o script → o dono reinstala no host (regra 10, P02-11).
 4. Cada etapa grava uma linha em `backup_runs` (`tipo`, `ok`, `bytes`, `detalhe`, `iniciado_em`) via `psql` dentro do
    container (linhas 28-38). Detalhes possíveis: `pg_dump ou envio falhou`, `roles falhou`, `retenção falhou`,
    `rclone sync falhou`.
@@ -916,7 +919,10 @@ Spec × código (e runbooks). As marcadas como **registradas** já constam como 
    `notificacoes` em erro contínuo) não derruba o health se o `heartbeat` continuar rodando.
 3. **Limites do worker — nova (documentos).** RNF-03 diz `nutri_worker` 512 MB; `docs/operacao/carga.md:91-92` chama
    de "limites atuais" `nutri_worker` 1 vCPU/1 GiB, e `docker-compose.carga.yml:41-42` usa esse padrão. Não é
-   verificável no repositório qual vale no Easypanel; a spec diz que a RNF-03 será revista depois do k6.
+   verificável no repositório qual vale no Easypanel; a spec diz que a RNF-03 será revista depois do k6. **Plano 12
+   (R-D5):** o controlador conferiu em 07/10/2026 (`docker service inspect nutri_worker`: `MemoryBytes` 1073741824, 1 GiB)
+   e a RNF-03 da spec do MVP passou a registrar 1 GiB; o job `exame-envio` usa até 400 MiB somando o processo filho da
+   rasterização ([§11.5](11-exames-enviados.md#115-rasterização)).
 4. **`request_id` e `tenant_id` nos logs — registrada.** RNF-11 pede ambos nos logs; o código põe o `request_id` só
    na linha de erro e no Sentry, e não põe `tenant_id` na linha de erro nem como tag (a tag existe em
    `TAGS_PERMITIDAS`, mas nada a preenche). Backlog.
