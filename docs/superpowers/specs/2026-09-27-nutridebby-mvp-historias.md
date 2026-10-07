@@ -119,6 +119,11 @@ Cenário: Expiração da sessão
   Quando faço qualquer requisição
   Então sou redirecionada para o login
 
+Cenário: Tela que se atualiza sozinha não mantém a sessão (Plano 12, P12-14)
+  Dado que deixei aberto um documento em "Preparando o PDF…" (ou a leitura de um exame pela IA) e saí de perto
+  Quando passam 28 min sem eu usar a tela
+  Então o aviso de inatividade aparece mesmo com a tela consultando o servidor sozinha
+
 Cenário: Aviso de inatividade (Plano 12, P12-14)
   Dado que estou no painel (ou no admin) sem usar a tela há 28 min, em qualquer aba
   Então vejo o aviso "Sua sessão vai encerrar em 2 minutos por falta de uso." com o botão "Continuar conectada"

@@ -6,9 +6,12 @@ import { WhatsappIndisponivelError } from '@/modules/notificacoes/whatsapp/prove
 export const dynamic = 'force-dynamic';
 const SEM_CACHE = { 'cache-control': 'no-store' };
 
-/** Polling da tela de conexão (a cada 3 s enquanto o QR está na tela). Só estado e número: nada do provedor vaza. */
+/**
+ * Polling da tela de conexão (a cada 3 s enquanto o QR está na tela). Só estado e número: nada do provedor vaza.
+ * P12-14: polling não é uso — confere a sessão sem renovar.
+ */
 export async function GET(req: Request) {
-  const acesso = await requireApiNutri(req);
+  const acesso = await requireApiNutri(req, { renovar: false });
   if (!acesso.ok) return acesso.response;
   const provedor = provedorDoApp();
   try {

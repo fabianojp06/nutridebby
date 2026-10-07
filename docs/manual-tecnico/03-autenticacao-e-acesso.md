@@ -160,7 +160,8 @@ ver o login da nutricionista vivo 2 h depois e após reiniciar o computador, o d
 admin) sai depois de **30 min sem uso**, com **aviso 2 min antes**; a sessão tem **limite absoluto de 8 h** desde o
 login completo (depois do 2FA), mesmo com uso contínuo; e **fechar o navegador encerra o login**. Uso = qualquer
 requisição autenticada ao servidor **e** atividade real na tela (tecla, clique, rolagem, toque) em qualquer aba do painel
-ou do admin. O paciente **não muda** (30 dias, PWA).
+ou do admin — **menos as consultas automáticas da tela** (o polling de estado, ver "Consultas automáticas não são uso"
+abaixo). O paciente **não muda** (30 dias, PWA).
 
 ### Regras (`src/lib/session-rules.ts`)
 
@@ -228,6 +229,29 @@ O cookie de sessão da equipe é **cookie de sessão do navegador** (sem `Max-Ag
 - **Limite de 8 h**: não há aviso (não se renova); na hora, a saída com `motivo=limite`.
 - **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar conectada" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
 - **Voltar à aba** (`visibilitychange`, também depois de o computador dormir): a tela pergunta de novo.
+
+### Consultas automáticas não são uso (revisão da Tarefa 14)
+
+Telas que consultam o servidor sozinhas, sem ninguém mexer, não podem manter a sessão aberta (senão a nutricionista sai
+da mesa com o "Preparando o PDF…" na tela e a sessão só cai nas 8 h). Duas camadas:
+
+- **Cabeçalho** `x-nd-consulta: 1` (`CONSULTA_AUTOMATICA`, `src/lib/consulta-automatica.ts`, sem imports): toda consulta
+  com temporizador do painel e do admin manda o `init` pronto; `requireApiUser` (`src/lib/api-auth.ts`) confere a sessão
+  igual (401 depois de 30 min sem uso), mas não renova. Mandar o cabeçalho só encurta a própria sessão.
+- **Rotas só de estado** não renovam por conta própria (`requireApiNutri(req, { renovar: false })`), para valer também com
+  o JavaScript de uma aba aberta antes do deploy: `GET /api/painel/documentos/[id]/pdf?estado=1` (o download sem
+  `?estado=1` continua sendo uso), `GET /api/painel/ia/tarefas/[id]`, `GET /api/painel/planos/[id]/pdf` e
+  `GET /api/painel/whatsapp/estado`. Teste: `src/app/api/painel/consultas-sem-uso.test.ts` (20 min → 200 sem mexer na
+  sessão; 31 min → 401 sem renovar).
+- **Consultores e prazos**: "Preparando o PDF…"/"Montando o PDF digitalizado…" (`acompanhar-estado-pdf.ts`, 3 s, até 1 h —
+  o prazo da varredura que marca "falhou"; antes consultava para sempre), leitura da IA (`acompanhar-leitura.ts`, até
+  60 min), PDF do plano (`atualizar-enquanto.tsx`, 60 s) e QR do WhatsApp (`conectar.tsx`, 3 min).
+- **Guarda** `src/lib/consulta-automatica.test.ts`: varre `src/app/painel`, `src/app/admin`, `src/app/conta` e
+  `src/components` atrás de `setInterval`/`setTimeout` com `fetch`/`buscar` sem `CONSULTA_AUTOMATICA`. Exceções (uso
+  da pessoa, com o porquê em `USO_DA_PESSOA`): o salvamento automático do editor de plano, a espera de digitação da busca de
+  alimentos e o próprio `VigiaDeSessao`.
+- O `router.refresh()` que essas telas fazem **uma vez**, quando o estado muda, é uma navegação comum e renova a sessão
+  (no máximo uma vez por consulta acompanhada).
 
 ### Prazos de teste (`SESSAO_TESTE_MS`, só E2E)
 

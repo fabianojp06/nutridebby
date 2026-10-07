@@ -6,6 +6,7 @@ import { session, tenants } from '@/db/schema';
 import { criarEEntrar } from '../../test/sessao';
 import { lerSessaoApi, requireApiUser } from './api-auth';
 import { getAuth } from './auth';
+import { CABECALHO_CONSULTA } from './consulta-automatica';
 import { STAFF_IDLE_MS } from './session-rules';
 
 const MIN = 60_000;
@@ -13,8 +14,8 @@ const MIN = 60_000;
 const db = getDb();
 const auth = getAuth();
 afterAll(() => closeDb());
-const req = (cookie?: string) =>
-  new Request('http://localhost:3000/api/painel/marca/logo', { method: 'POST', headers: cookie ? { cookie } : {} });
+const req = (cookie?: string, extra: Record<string, string> = {}) =>
+  new Request('http://localhost:3000/api/painel/marca/logo', { method: 'POST', headers: { ...(cookie ? { cookie } : {}), ...extra } });
 
 const H = 60 * 60 * 1000;
 
@@ -90,5 +91,24 @@ describe('requireApiUser', () => {
     const r = await lerSessaoApi(req(n.cookie), ['nutri']);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.response.status).toBe(401);
+  });
+
+  it('consulta automática da tela (x-nd-consulta: 1) e renovar: false conferem igual, mas não renovam (revisão P12-14)', async () => {
+    const n = await criarEEntrar(db, auth, { appRole: 'nutri' });
+    await envelhecer(n.id, 20 * MIN, 10 * MIN);
+    const antes = await lerSessao(n.id);
+    expect((await requireApiUser(req(n.cookie, { [CABECALHO_CONSULTA]: '1' }), ['nutri'])).ok).toBe(true);
+    expect((await requireApiUser(req(n.cookie), ['nutri'], { renovar: false })).ok).toBe(true);
+    expect(await lerSessao(n.id)).toEqual(antes);
+    // outro valor do cabeçalho não muda nada: a requisição conta como uso
+    expect((await requireApiUser(req(n.cookie, { [CABECALHO_CONSULTA]: '0' }), ['nutri'])).ok).toBe(true);
+    expect(new Date((await lerSessao(n.id)).updatedAt).getTime()).toBeGreaterThan(new Date(antes.updatedAt).getTime());
+    // 31 min sem uso: o polling recebe 401 e a sessão continua como estava
+    await envelhecer(n.id, 31 * MIN, 11 * H);
+    const vencida = await lerSessao(n.id);
+    const r = await requireApiUser(req(n.cookie, { [CABECALHO_CONSULTA]: '1' }), ['nutri']);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.response.status).toBe(401);
+    expect(await lerSessao(n.id)).toEqual(vencida);
   });
 });

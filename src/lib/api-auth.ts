@@ -2,6 +2,7 @@ import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
 import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
+import { ehConsultaAutomatica } from './consulta-automatica';
 import { logger, nomeDoErro } from './logger';
 import { prazosDaRequisicao } from './sessao-prazos';
 import type { SessionData } from './session';
@@ -19,9 +20,12 @@ export const recusaApi = (status: number, erro: string, extra: Record<string, st
 /**
  * Route Handlers: mesma regra de requireUser (papel, 30 min sem uso e 8 h da equipe, 2FA do admin, RN-15), respondendo
  * 401/403. A sessão aceita desliza (a requisição autenticada conta como uso); `data.session` volta com os valores gravados.
+ * P12-14 (revisão): consulta automática da tela (cabeçalho `x-nd-consulta: 1`, src/lib/consulta-automatica.ts) e rota que
+ * só devolve estado (`renovar: false`) conferem a sessão igual, mas não contam como uso — sem ninguém na tela, o polling
+ * não pode manter a sessão aberta até as 8 h.
  */
-export async function requireApiUser(req: Request, allowed: readonly AppRole[]): Promise<ApiAuth> {
-  return autenticarApi(req, allowed, true);
+export async function requireApiUser(req: Request, allowed: readonly AppRole[], { renovar = true }: { renovar?: boolean } = {}): Promise<ApiAuth> {
+  return autenticarApi(req, allowed, renovar && !ehConsultaAutomatica(req.headers));
 }
 
 /**

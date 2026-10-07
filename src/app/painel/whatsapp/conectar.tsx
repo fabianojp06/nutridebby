@@ -2,9 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
+import { CONSULTA_AUTOMATICA } from '@/lib/consulta-automatica';
 import { conectarAction, type ConectarState } from './actions';
 
-/** QR + polling do estado a cada 3 s por até 3 min; conectado → recarrega a página. */
+/** QR + polling do estado a cada 3 s por até 3 min (sem contar como uso da sessão, P12-14); conectado → recarrega a página. */
 export function ConectarWhatsapp() {
   const [state, action, pendente] = useActionState<ConectarState>(conectarAction, {});
   const router = useRouter();
@@ -14,7 +15,7 @@ export function ConectarWhatsapp() {
     const fim = Date.now() + 3 * 60_000;
     const t = setInterval(async () => {
       if (Date.now() > fim) return clearInterval(t);
-      const r = await fetch('/api/painel/whatsapp/estado', { cache: 'no-store' }).catch(() => null);
+      const r = await fetch('/api/painel/whatsapp/estado', CONSULTA_AUTOMATICA).catch(() => null);
       const j = r?.ok ? ((await r.json()) as { estado: string }) : null;
       if (j?.estado === 'conectada') {
         clearInterval(t);

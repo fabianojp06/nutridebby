@@ -7,10 +7,11 @@ const SEM_CACHE = { 'cache-control': 'no-store' };
 
 /**
  * US-026: estado da geração do PDF, para o painel liberar o "Baixar PDF" sem recarregar a página inteira
- * (cada recarga audita a leitura do paciente e do plano). `?paciente=` precisa ser o paciente do plano.
+ * (cada recarga audita a leitura do paciente e do plano). `?paciente=` precisa ser o paciente do plano. P12-14: polling
+ * não é uso — confere a sessão sem renovar.
  */
 export async function GET(req: Request, { params }: RouteContext<'/api/painel/planos/[id]/pdf'>) {
-  const acesso = await requireApiNutri(req);
+  const acesso = await requireApiNutri(req, { renovar: false });
   if (!acesso.ok) return acesso.response;
   const paciente = new URL(req.url).searchParams.get('paciente') ?? '';
   const pdfStatus = await statusDoPdf(acesso.ctx, (await params).id, paciente);
