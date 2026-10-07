@@ -64,6 +64,14 @@ describe('filtrarEvento (RNF-11, regra 3)', () => {
     semSaude(e);
   });
 
+  it('tag motivo só com cara de código (Plano 11, spec da IA §5.7): SQLSTATE e motivo da RN-112 ficam; hífen, ponto ou barra saem', () => {
+    expect(filtrarEvento<EventoSentry>({ tags: { motivo: '23505' } }).tags).toEqual({ motivo: '23505' });
+    expect(filtrarEvento<EventoSentry>({ tags: { motivo: 'resultado_incerto' } }).tags).toEqual({ motivo: 'resultado_incerto' });
+    for (const motivo of ['Ana-Souza', 'glicose.92', 'a/b', 'x'.repeat(61)]) expect(filtrarEvento<EventoSentry>({ tags: { fila: 'ia', motivo } }).tags).toEqual({ fila: 'ia' });
+    // as outras tags seguem com o formato geral (o hífen continua valendo em rota)
+    expect(filtrarEvento<EventoSentry>({ tags: { rota: '/painel/pacientes/[id]/exames-x' } }).tags).toEqual({ rota: '/painel/pacientes/[id]/exames-x' });
+  });
+
   it('tag rota de uma página do portal (grupo de rota com parênteses) fica', () => {
     const e = filtrarEvento<EventoSentry>({ tags: { rota: '/p/(portal)/plano/page', tipo_rota: 'render' } });
     expect(e.tags).toEqual({ rota: '/p/(portal)/plano/page', tipo_rota: 'render' });

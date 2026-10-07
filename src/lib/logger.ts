@@ -13,10 +13,14 @@ const REDACT_KEYS = [
   'url',
   'cookie',
   'authorization',
+  // Plano 11 (spec da IA §5.7): defesa extra — a chave do provedor e o conteúdo de ia_tarefas nunca vão para o log
+  'apiKey',
+  'parametros',
+  'resultado',
 ] as const;
 
 /** Paths para o `redact` do pino: cada chave nos níveis 0, 1 e 2, mais casos fixos de headers. */
-function redactPaths(): string[] {
+export function redactPaths(): string[] {
   const paths = REDACT_KEYS.flatMap((key) => [key, `*.${key}`, `*.*.${key}`]);
   return [...paths, 'req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'];
 }

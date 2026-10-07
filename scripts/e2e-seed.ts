@@ -8,6 +8,7 @@ import { getEnv } from '@/env';
 import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { GUIAS } from '@/modules/ajuda/conteudo';
+import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
@@ -31,12 +32,14 @@ const db = getDb();
 const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', enderecoConsultorio: 'Rua E2E, 100', agendamentoPublicoAtivo: true };
 // Plano 10A: documentos assinados liberados pelo admin (D20) e o perfil profissional completo (carimbo da receita)
 const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Nutri E2E da Silva', contatoEmail: 'contato-e2e@nutridebby.test', contatoTelefoneE164: '+5511912345678' };
+// Plano 11: a IA liberada pela admin e ativada com o aditivo no consultório do E2E (o CI roda com IA_PROVEDOR=sandbox)
+const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15 };
 const [consultorio] = await db
   .insert(tenants)
-  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS })
+  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA })
   .onConflictDoUpdate({
     target: tenants.slug,
-    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS },
+    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA },
   })
   .returning({ id: tenants.id });
 
