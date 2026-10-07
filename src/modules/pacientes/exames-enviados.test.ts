@@ -7,7 +7,7 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { arquivoDeEnvio, envioNoBanco, envioRecebido, JPEG_MINIMO } from '../../../test/exames-enviados';
 import { closeDb, type Db } from '@/db/client';
-import { auditLog, examSubmissions, exams, notifications, patients, storedFiles, tenants } from '@/db/schema';
+import { auditLog, examSubmissionFiles, examSubmissions, exams, notifications, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
@@ -183,6 +183,28 @@ describe('revisão do exame enviado (US-162 a US-164, RN-164, RN-165, §6.5)', (
     const outro = await novoTenant(app.db);
     expect(await abrirEnvio(outro.ctx, novo.id, app.db)).toBeNull();
     expect(await abrirEnvio(T.ctx, 'nao-e-uuid', app.db)).toBeNull();
+  });
+
+  it('code review (P12-22 b): fora de "recebido" o envio abre só com a situação — sem PDF, páginas, observação nem auditRead', async () => {
+    const { T, p } = await cenario();
+    const lidas = () => withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.acao, 'ler'), eq(auditLog.entidade, 'exames_enviados'))), app.db);
+    // cada envio com o PDF limpo (onde a situação ainda o aponta) e uma imagem de página que a limpeza ainda não apagou
+    const criar = async (status: 'processando' | 'falhou' | 'cancelado' | 'aceito' | 'recusado' | 'expirado' | 'recebido') => {
+      const temPdf = status === 'recebido' || status === 'cancelado';
+      const pdf = temPdf ? await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir) : null;
+      const id = await envioNoBanco(app.db, T.ctx, p.id, { status, arquivoPath: pdf, observacao: 'jejum de 12 h', ...(status === 'recusado' ? { motivoRecusa: 'ilegivel' } : {}), ...(status === 'falhou' ? { motivoFalha: 'conversao' } : {}) });
+      const pagina = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame_pagina', dataDir);
+      await withTenant(T.ctx, (tx) => tx.insert(examSubmissionFiles).values({ tenantId: T.tenantId, patientId: p.id, submissionId: id, arquivoPath: pagina, papel: 'pagina', ordem: 1 }), app.db);
+      return { id, pdf, pagina };
+    };
+    for (const status of ['processando', 'falhou', 'cancelado', 'aceito', 'recusado', 'expirado'] as const) {
+      const e = await criar(status);
+      expect(await abrirEnvio(T.ctx, e.id, app.db), status).toMatchObject({ id: e.id, status, pdf: null, paginas: [], observacao: null });
+    }
+    expect(await lidas()).toEqual([]); // nada do conteúdo saiu: sem "Visualizou"
+    const recebido = await criar('recebido');
+    expect(await abrirEnvio(T.ctx, recebido.id, app.db)).toMatchObject({ status: 'recebido', pdf: recebido.pdf, paginas: [recebido.pagina], observacao: 'jejum de 12 h' });
+    expect((await lidas()).map((l) => l.entidadeId)).toEqual([recebido.id]);
   });
 
   it('revisão do plano (LGPD art. 16): titular bloqueado sai da fila e dos contadores, e o envio não abre (nem audita)', async () => {

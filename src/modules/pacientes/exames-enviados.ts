@@ -80,14 +80,21 @@ export type EnvioAberto = {
   enviadoEm: Date;
   dataColeta: string;
   nome: string | null;
+  /** A observação do paciente (só em "recebido"). */
   observacao: string | null;
   /** O PDF limpo (só em "recebido"). */
   pdf: string | null;
-  /** As imagens de página, na ordem (D23 = a: a nutricionista confere como imagens). */
+  /** As imagens de página, na ordem (D23 = a: a nutricionista confere como imagens; só em "recebido"). */
   paginas: string[];
 };
 
-/** US-162: abre um envio no painel — "Visualizou — Exames enviados pelo paciente" (auditRead na mesma transação). */
+/**
+ * US-162: abre um envio no painel. Só o envio "recebido" (o que aguarda a revisão) devolve o conteúdo — observação, PDF limpo
+ * e imagens de página — e registra "Visualizou — Exames enviados pelo paciente" (auditRead na mesma transação). Nas outras
+ * situações (code review do PR #25, P12-22 b) o envio abre só com a situação, como na fila e sem auditRead: o PDF e as páginas
+ * de um envio cancelado, recusado, expirado ou com falha esperam a limpeza e não são mais da nutricionista (RN-165, RN-166,
+ * LGPD art. 6º III); o do aceito já está no exame.
+ */
 export async function abrirEnvio(ctx: TenantContext, id: string, db: Db = getDb()): Promise<EnvioAberto | null> {
   if (!idValido(id)) return null;
   return withTenant(
@@ -97,13 +104,16 @@ export async function abrirEnvio(ctx: TenantContext, id: string, db: Db = getDb(
       if (!e) return null;
       const [p] = await tx.select().from(patients).where(eq(patients.id, e.patientId));
       if (!p || p.status === 'bloqueado' || p.anonimizadoEm) return null; // revisão do plano: titular com exclusão atendida
+      const status = e.status as StatusEnvio;
+      const cabecalho = { id: e.id, paciente: p, status, enviadoEm: e.createdAt, dataColeta: e.dataColeta, nome: e.nome };
+      if (status !== 'recebido') return { ...cabecalho, observacao: null, pdf: null, paginas: [] };
       const paginas = await tx
         .select({ c: examSubmissionFiles.arquivoPath })
         .from(examSubmissionFiles)
         .where(and(eq(examSubmissionFiles.submissionId, id), eq(examSubmissionFiles.papel, 'pagina')))
         .orderBy(asc(examSubmissionFiles.ordem));
       await auditRead(tx, { entidade: 'exames_enviados', entidadeId: id, patientId: e.patientId });
-      return { id: e.id, paciente: p, status: e.status as StatusEnvio, enviadoEm: e.createdAt, dataColeta: e.dataColeta, nome: e.nome, observacao: e.observacao, pdf: e.arquivoPath, paginas: paginas.map((x) => x.c) };
+      return { ...cabecalho, observacao: e.observacao, pdf: e.arquivoPath, paginas: paginas.map((x) => x.c) };
     },
     db,
   );
