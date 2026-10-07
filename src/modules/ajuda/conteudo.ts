@@ -155,6 +155,34 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    id: 'exames-recebidos',
+    versao: 1,
+    padrao: /^\/painel\/exames-recebidos(\/.*)?$/,
+    titulo: 'Exames recebidos',
+    ajuda: {
+      resumo: 'Os exames que os pacientes enviaram pelo app ficam aqui até você conferir. Nada entra no prontuário sem você aceitar.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Abrir um envio e conferir as páginas, como imagens.',
+            'Aceitar: o exame entra na aba Exames do paciente, com o selo "Enviado pelo paciente". Com a IA ativa, dá para aceitar e já pedir a leitura dos valores.',
+            'Recusar com um motivo: o arquivo é apagado na hora e o paciente vê o motivo no app.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O recebimento é ligado em Configurações, em "Exames enviados pelos pacientes".',
+            'Você recebe no máximo um e-mail a cada 6 horas avisando que há exames novos, sem nome de paciente nem de exame.',
+            'Envios não revisados em 90 dias expiram: o arquivo é apagado e o paciente é avisado.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'fila-exames', titulo: 'Exames dos pacientes', texto: 'Os mais antigos ficam no topo. Abra um envio para conferir as páginas e aceitar ou recusar.' }],
+  },
+  {
     id: 'diarios',
     versao: 1,
     padrao: /^\/painel\/diarios(\/.*)?$/,
