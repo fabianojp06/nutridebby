@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { startTransition, useActionState, useState, type FormEvent } from 'react';
 import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { MSG_IA } from '@/modules/ia/constantes';
@@ -23,9 +23,13 @@ type Campos = { nome: string; valor: string; unidade: string; referencia: string
 /**
  * US-111: tabela de conferência. Caixas DESMARCADAS; a linha só pode ser marcada com um valor numérico sem ambiguidade (a
  * mesma regra do servidor, lerValorLaudo — D10). Texto da IA mostrado como texto (React escapa; sem link).
- * Tudo controlado (revisão da T13): o React 19 reseta os campos não controlados depois de cada action, mesmo quando ela
- * devolve `{ erros }`; sem isso, um erro ("Desmarque {n} linhas.", data, linha) desmarcaria tudo e voltaria nome, unidade
- * e referência ao que a IA leu, e a correção da nutricionista se perderia.
+ * Revisão da T13: um erro ("Desmarque {n} linhas.", data, linha) não pode desmarcar nada nem voltar nome, unidade e
+ * referência ao que a IA leu. Com `<form action={…}>` o React 19 chama `form.reset()` no fim de cada action, mesmo quando
+ * ela devolve `{ erros }`; o reset devolve cada caixa ao `defaultChecked` (false), também nas controladas (o React só grava
+ * o `defaultChecked` ao criar o input e só restaura o controlado em evento change), e o DOM diverge do estado: a tela
+ * mostra tudo desmarcado e o próximo envio sai sem as linhas. Por isso o envio é à mão (onSubmit + startTransition), que
+ * não pede o reset, e os campos continuam controlados. `method="post"`: antes da hidratação nada vai para a URL.
+ * Prova no navegador: e2e/conferencia-ia.spec.ts.
  */
 export function ConferenciaIa(p: {
   patientId: string;
@@ -48,9 +52,14 @@ export function ConferenciaIa(p: {
       else n.delete(i);
       return n;
     });
+  const enviar = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(() => action(fd));
+  };
   const erros = state.erros ?? {};
   return (
-    <form action={action} className="space-y-3" noValidate>
+    <form method="post" onSubmit={enviar} className="space-y-3" noValidate>
       {erros.geral && <Aviso tipo="erro">{erros.geral}</Aviso>}
       {p.descartadas > 0 && <p className="text-sm text-suave">{MSG_IA.descartadas(p.descartadas)}</p>}
       <table className="w-full text-left">

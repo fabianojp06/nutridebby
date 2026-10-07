@@ -5,7 +5,8 @@ import { MSG_FALHA, MSG_IA } from '@/modules/ia/constantes';
 import type { SituacaoDoExame } from '@/modules/ia/tarefas';
 
 // Revisão da T13: a região viva que anuncia o fim da leitura, o silêncio antes de ativar a IA (US-101) e os campos
-// controlados da conferência (o reset do React 19 depois de uma action com erro). Só a montagem; as ações não rodam.
+// controlados da conferência e o envio sem o reset do React 19 (depois de uma action com erro). Só a montagem; as ações
+// não rodam.
 vi.mock('./estado-ia', () => ({ EstadoIa: () => null }));
 vi.mock('./pedir-leitura-form', () => ({ PedirLeituraForm: ({ titulo }: { titulo: string }) => createElement('button', null, `Ler valores com IA do exame ${titulo}`) }));
 vi.mock('./actions', () => ({ aplicarSugestaoAction: vi.fn() }));
@@ -81,6 +82,12 @@ describe('tabela de conferência: nada se perde depois de um erro (revisão da T
     hooks.soInicial = true;
     const arvore = (ConferenciaIa as (p: typeof props) => ReactNode)(props);
     hooks.soInicial = false;
+    // rodada 2: `<form action={…}>` faz o React chamar form.reset(), que desmarca até as caixas controladas no DOM (prova
+    // no navegador: e2e/conferencia-ia.spec.ts); o envio é à mão, com method="post" para antes da hidratação
+    const form = elementos(arvore).find((e) => e.type === 'form') as ReactElement<Record<string, unknown>>;
+    expect(form.props).not.toHaveProperty('action');
+    expect(form.props.method).toBe('post');
+    expect(typeof form.props.onSubmit).toBe('function');
     const campos = elementos(arvore).filter((e) => e.type === 'input') as ReactElement<Record<string, unknown>>[];
     expect(campos.map((c) => c.props.name)).toEqual(['sel', 'nome-0', 'valor-0', 'unidade-0', 'referencia-0', 'sel', 'nome-1', 'valor-1', 'unidade-1', 'referencia-1', 'usarData']);
     for (const c of campos) {
