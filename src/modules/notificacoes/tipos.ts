@@ -6,7 +6,7 @@ export type Canal = (typeof CANAIS)[number];
 export type TipoLembrete = 'lembrete_24h' | 'lembrete_2h';
 export type TipoNotificacao =
   | TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar'
-  | 'push_teste' | 'comentario_diario' | 'plano_novo' | 'conteudo_novo' | 'documento_novo' | 'documento_atualizado';
+  | 'push_teste' | 'comentario_diario' | 'plano_novo' | 'conteudo_novo' | 'documento_novo' | 'documento_atualizado' | 'exame_revisado' | 'exame_expirado';
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
   | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
@@ -29,6 +29,8 @@ export const ROTULO_TIPO: Record<TipoNotificacao, string> = {
   conteudo_novo: 'Conteúdo novo',
   documento_novo: 'Documento novo',
   documento_atualizado: 'Documento atualizado',
+  exame_revisado: 'Exame revisado',
+  exame_expirado: 'Exame expirado',
 };
 export const ROTULO_CANAL: Record<Canal, string> = { email: 'E-mail', whatsapp: 'WhatsApp', push: 'Notificação no app' };
 export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {

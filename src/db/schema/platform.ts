@@ -46,6 +46,10 @@ export const tenants = pgTable(
     iaCotaMensalUsd: numeric('ia_cota_mensal_usd', { precision: 7, scale: 2, mode: 'number' }).notNull().default(15),
     /** US-102: AAAA-MM do último e-mail de 80% (um por mês). */
     iaAvisoMes: text('ia_aviso_mes'),
+    /** Plano 12 (D18 = a): a nutricionista ligou o recebimento de exames pelo app. Nulo = desligado (nasce nulo para todos). */
+    examesPacienteAtivadoEm: timestamp('exames_paciente_ativado_em', { withTimezone: true }),
+    /** RN-168: último e-mail "exames novos" à nutricionista (no máximo 1 a cada 6 h). */
+    examesAvisoEm: timestamp('exames_aviso_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -118,7 +122,7 @@ export const storedFiles = pgTable(
   (t) => [
     check(
       'stored_files_tipo_valido',
-      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado')`,
+      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado','exame_original','exame_pagina')`,
     ),
     check('stored_files_bytes_positivo', sql`${t.bytes} > 0`),
     // logo/capa nunca têm dono; o resto sempre (orientacao_pdf é do Plano 07: do consultório).

@@ -121,9 +121,10 @@ describe('0080: o banco confere o que a sessão de paciente grava (defesa em pro
     expect(daEquipe.rows).toEqual([{ status: 'pendente' }]);
   });
 
-  it('(c) stored_files: o paciente só grava a foto original do diário, nem como dono de laudo, PDF ou ZIP', async () => {
+  it('(c) stored_files: o paciente só grava a foto original do diário e o original do exame enviado (Plano 12) — nem laudo, PDF, ZIP ou página de exame', async () => {
     const { T, p2, comoP2 } = await cenario();
-    for (const tipo of ['exame', 'plano_pdf', 'diario_foto', 'exportacao']) await expect(comoP2(arquivo(T.tenantId, p2.id, tipo)), tipo).rejects.toSatisfy(violaRls);
+    for (const tipo of ['exame', 'plano_pdf', 'diario_foto', 'exportacao', 'exame_pagina']) await expect(comoP2(arquivo(T.tenantId, p2.id, tipo)), tipo).rejects.toSatisfy(violaRls);
     expect((await comoP2(arquivo(T.tenantId, p2.id, 'diario_foto_original'))).rows).toHaveLength(1);
+    expect((await comoP2(arquivo(T.tenantId, p2.id, 'exame_original'))).rows).toHaveLength(1);
   });
 });

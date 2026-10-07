@@ -185,7 +185,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   appointments: { comandos: ['insert', 'update'], motivo: 'agendar, confirmar, cancelar e remarcar pelo link, pelo WhatsApp e pelo portal (US-032, US-033, US-035)' },
   notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
-  stored_files: { comandos: ['insert'], motivo: 'foto do diário (US-042): salvarArquivo com a sessão do paciente — só o tipo diario_foto_original (0080)' },
+  stored_files: { comandos: ['insert'], motivo: 'foto do diário (US-042) e original do exame enviado (US-160, Plano 12): salvarArquivo/salvarArquivos com a sessão do paciente — só os tipos diario_foto_original e exame_original (0080, 0102)' },
   access_events: { comandos: ['insert'], motivo: 'CS-02: o paciente registra o acesso do dia (D9)' },
   push_subscriptions: { comandos: ['insert', 'delete'], motivo: 'INT-03 / P06-02: ativar e cancelar notificações no aparelho' },
   diary_entries: { comandos: ['insert'], motivo: 'US-042: o paciente registra a refeição (não edita nem apaga, D11); sem foto convertida, comentário nem "visto" (0080)' },
@@ -195,6 +195,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   content_favorites: { comandos: ['insert', 'delete'], motivo: 'US-055: favoritar e desfavoritar; só conteúdo que ele vê (0083)' },
   signed_document_receipts: { comandos: ['insert'], motivo: 'D4 da spec de documentos: o paciente registra que abriu e confirma o recebimento do próprio documento emitido, uma vez por evento (paciente_recibo_proprio, 0090)' },
   document_access_codes: { comandos: ['insert', 'update'], motivo: 'RN-158 / D3 b: o paciente sem login pede e confere o código do próprio documento (src/modules/documentos/link-documento.ts, contexto de paciente sem conta, N7)' },
+  exam_submissions: { comandos: ['insert', 'update'], motivo: 'US-160/US-161 (Plano 12): o paciente cria o envio "processando" e cancela o próprio "recebido" — políticas paciente_envio_insert/paciente_envio_update e o gatilho exam_submissions_regras (0102)' },
+  exam_submission_files: { comandos: ['insert'], motivo: 'US-160 (Plano 12): o paciente registra os originais do próprio envio "processando" (paciente_envio_arquivo, 0102); não lê as páginas' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

@@ -123,14 +123,29 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         values (${t}, ${p}, 'leitura_exame', 'falhou', null, coalesce(app_current_user(), gen_random_uuid()), 'claude-opus-5-5', 'iso', 0, 'interrompida')`,
   ia_uso: (t) =>
     sql`insert into ia_uso (tenant_id, tarefa_id, tipo, modelo, prompt_versao, custo_micro_usd, situacao, mes) values (${t}, gen_random_uuid(), 'leitura_exame', 'claude-opus-5-5', 'iso', 1, 'confirmado', '2026-10')`,
+  // Plano 12: nasce "processando" (gatilho exam_submissions_nasce, revisão do plano); o beforeAll leva as linhas a "recebido" pelo
+  // worker (a transição legal) para a sessão de paciente conseguir cancelar a própria linha (UPDATE_DO_PACIENTE); o gatilho
+  // exam_submissions_regras recusa mudar tenant/paciente (IMUTAVEIS) e o exam_submissions_sem_apagar recusa o DELETE (SEM_DELETE)
+  exam_submissions: (t, p) =>
+    sql`insert into exam_submissions (tenant_id, patient_id, enviado_por, status, data_coleta)
+        values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'processando', '2026-01-01')`,
+  // a linha de arquivo precisa do original (stored_files) e do envio: cria os dois no mesmo comando (COM_MAE)
+  exam_submission_files: (t, p) =>
+    sql`with a as (insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id)
+                   values (${t}, 'exame_original', ${t}::text || '/exame_original/' || gen_random_uuid()::text || '.jpg', 1, 'image/jpeg', ${p}) returning caminho),
+             s as (insert into exam_submissions (tenant_id, patient_id, enviado_por, status, data_coleta)
+                   values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'processando', '2026-01-01') returning id)
+        insert into exam_submission_files (tenant_id, patient_id, submission_id, arquivo_path, papel, ordem)
+        select ${t}, ${p}, s.id, a.caminho, 'original', 1 from a, s`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
+ * Plano 12: exam_submissions — gatilho exam_submissions_sem_apagar (0102): só o worker apaga, com o titular bloqueado ou anonimizado.
  */
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso']);
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
@@ -142,7 +157,8 @@ const DELETE_REVOGADO = new Set(['ia_uso']);
  * (mensagem própria, não "row-level security"); em signed_documents, só o rascunho é apagado.
  */
 // Plano 11 (revisão final, Minor 2): ia_tarefas_imutavel (0100) recusa mudar tenant_id/patient_id com 42501 antes da RLS.
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas']);
+// Plano 12: exam_submissions — gatilho exam_submissions_regras (0102): tenant e paciente são colunas fixas (42501 antes da RLS).
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions']);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
@@ -152,7 +168,8 @@ const SO_APAGA: Record<string, SQL> = {
   signed_documents: sql`status = 'rascunho'`,
   patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
                 and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
-                and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)`,
+                and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)
+                and not exists (select 1 from exam_submissions e where e.tenant_id = patients.tenant_id and e.patient_id = patients.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
@@ -211,6 +228,10 @@ beforeAll(async () => {
       for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
   }
+  // Plano 12 (revisão do plano): o envio nasce "processando"; o worker o leva a "recebido", a transição legal, para a sessão de
+  // paciente ter o que cancelar e o que tentar mover
+  for (const tenantId of [A, B])
+    await withTenant({ tenantId, role: 'worker' }, (tx) => tx.execute(sql`update exam_submissions set status = 'recebido' where status = 'processando'`), app.db);
   SEM_DOCUMENTO = { [A]: randomUUID(), [B]: randomUUID() };
   for (const tenantId of [A, B]) {
     await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS.patients(tenantId, SEM_DOCUMENTO[tenantId])), app.db);
@@ -262,6 +283,7 @@ const COM_MAE = new Set([
   'signed_document_notes',
   'signed_document_receipts',
   'document_access_codes',
+  'exam_submission_files',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
@@ -271,8 +293,11 @@ const violaRlsDe = (t: string) => (e: unknown) => {
 };
 /** Recusa da RLS ou do gatilho paciente_colunas (B-4, 0085): o mesmo código 42501. */
 const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { code?: string }).code === '42501';
-/** O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou. */
-const UPDATE_DO_PACIENTE: Record<string, SQL> = { data_exports: sql`status = 'falhou'` };
+/**
+ * O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou.
+ * Plano 12: exam_submissions — gatilho exam_submissions_regras (0102); o paciente só cancela o próprio recebido.
+ */
+const UPDATE_DO_PACIENTE: Record<string, SQL> = { data_exports: sql`status = 'falhou'`, exam_submissions: sql`status = 'cancelado'` };
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
   Number(

@@ -9,3 +9,4 @@ export * from './agenda';
 export * from './portal';
 export * from './documentos';
 export * from './ia';
+export * from './exames-enviados';
