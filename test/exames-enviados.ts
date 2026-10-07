@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { eq, sql } from 'drizzle-orm';
+import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
 import type { Db } from '@/db/client';
 import { examSubmissionFiles, examSubmissions, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -132,4 +133,50 @@ export async function esperarNaTrava(db: Db, trecho: string): Promise<void> {
     await new Promise((ok) => setTimeout(ok, 25));
   }
   throw new Error(`ninguém parou na trava (${trecho})`);
+}
+
+/** R-170: PDF com JavaScript na abertura, link (URI) e arquivo anexado — nada disso pode chegar ao PDF limpo. */
+export async function pdfComConteudoAtivo(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const fonte = await doc.embedFont(StandardFonts.Helvetica);
+  const p = doc.addPage([595, 842]);
+  p.drawText('Glicose de jejum 92 mg/dL', { x: 50, y: 780, size: 14, font: fonte });
+  doc.catalog.set(PDFName.of('OpenAction'), doc.context.register(doc.context.obj({ Type: 'Action', S: 'JavaScript', JS: PDFString.of('app.alert("x")') })));
+  const link = doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [50, 700, 300, 720], A: { S: 'URI', URI: PDFString.of('https://exemplo.invalid/') } }));
+  p.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+  await doc.attach(Buffer.from('conteudo escondido'), 'anexo.txt', { mimeType: 'text/plain' });
+  return Buffer.from(await doc.save());
+}
+
+/** Uma página com uma imagem cujo cabeçalho declara `largura` × `altura` (o pdf-lib não decodifica a imagem). */
+export async function pdfComImagemDeclarada(largura: number, altura: number): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  // cópia num ArrayBuffer próprio: o JpegEmbedder do pdf-lib lê o `.buffer` desde o byte 0, e o Buffer pequeno vem do pool
+  const img = await doc.embedJpg(new Uint8Array(await jpegQueDeclara(largura, altura)));
+  doc.addPage([595, 842]).drawImage(img, { x: 0, y: 0, width: 595, height: 842 });
+  return Buffer.from(await doc.save());
+}
+
+/**
+ * D-R1 (aprovada pelo dono em 07/10/2026): orçamento do RNF-162 — pico do worker + pico do processo filho. A spec dizia
+ * 150 MB, mas só o filho passa disso com uma página A4 a 2000 px (medido: 153–156 MB).
+ */
+export const ORCAMENTO_RNF162_BYTES = 250 * 1024 * 1024;
+
+/** Foto de celular para medir memória: ruído que quase não comprime, JPEG de `largura` × `altura`. */
+export async function fotoDeRuido(largura: number, altura: number, qualidade = 90): Promise<Buffer> {
+  const raw = Buffer.alloc(largura * altura * 3);
+  for (let i = 0; i < raw.length; i++) raw[i] = (i * 2654435761) >>> 24;
+  return sharp(raw, { raw: { width: largura, height: altura, channels: 3 } }).jpeg({ quality: qualidade }).toBuffer();
+}
+
+/** Laudo "digitalizado": `paginas` páginas, cada uma com a sua foto JPEG (padrão 1600 × 1200) que quase não comprime. */
+export async function pdfDeFotos(paginas: number, o: { largura?: number; altura?: number; qualidade?: number } = {}): Promise<Buffer> {
+  const foto = await fotoDeRuido(o.largura ?? 1600, o.altura ?? 1200, o.qualidade ?? 90);
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < paginas; i++) {
+    const img = await doc.embedJpg(foto); // um objeto de imagem por página, como um app de "scanner" grava
+    doc.addPage([595, 842]).drawImage(img, { x: 20, y: 20, width: 555, height: 416 });
+  }
+  return Buffer.from(await doc.save());
 }
