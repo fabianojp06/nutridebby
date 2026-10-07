@@ -8,7 +8,7 @@ import { WhatsappForm } from './whatsapp-form';
 
 export const dynamic = 'force-dynamic';
 
-/** D20: "Perfil" — "Meus documentos" (US-146, só com o D20 do Plano 10A ligado), Notificações (push e WhatsApp), Privacidade (US-046) e "Trocar de nutricionista" (2+ vínculos). */
+/** D20: "Perfil" — "Meus documentos" (US-146, só com o D20 do Plano 10A ligado), "Meus exames" (Plano 12, PM-10: só com o recebimento ligado, D18), Notificações (push e WhatsApp), Privacidade (US-046) e "Trocar de nutricionista" (2+ vínculos). */
 export default async function Perfil() {
   const { ctx, data, tenant, vinculo, vinculos } = await requirePaciente('/p/perfil');
   const whatsapp = await situacaoDoWhatsapp(ctx);
@@ -20,6 +20,13 @@ export default async function Perfil() {
         <p>
           <Link href="/p/documentos" className="inline-flex min-h-11 items-center underline">
             Meus documentos
+          </Link>
+        </p>
+      )}
+      {tenant.examesPacienteAtivadoEm && (
+        <p>
+          <Link href="/p/exames" className="inline-flex min-h-11 items-center underline">
+            Meus exames
           </Link>
         </p>
       )}
