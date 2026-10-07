@@ -1122,7 +1122,11 @@ disposição (360 px, barra de abas) não virou bento.
 `documentos`, `prontuario`, `agenda`, `horarios`, `diarios`, `conteudos`, `alimentos`, `modelos`, `configuracoes`, `whatsapp`
 e `seguranca`). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
-(`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`.
+(`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
+`configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
+seção da tela tem `data-guia="ia-secao"`, mas nenhum passo aponta para ela, porque ela só aparece com a IA configurada); no `prontuario`, a pergunta comum
+sobre "Ler valores com IA" entrou **sem** subir a versão (o recurso depende da liberação pela admin e os passos do tour não
+mudaram; comentário no arquivo). Nenhuma tela nova do painel: a IA mora em telas que já tinham guia.
 
 | Campo | Papel |
 |---|---|

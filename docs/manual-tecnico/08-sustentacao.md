@@ -14,7 +14,7 @@ problema" e a "ação" de cada item.
 
 | Item | Valor |
 |---|---|
-| Conferido contra | `main` em `bbf2adf` (merge do PR #18), em 05/10/2026, mais leitura da VPS só com os comandos livres da regra 2 do servidor |
+| Conferido contra | `main` em `bbf2adf` (merge do PR #18), em 05/10/2026, mais leitura da VPS só com os comandos livres da regra 2 do servidor; as linhas do Plano 10A contra `3991c7d` e as do Plano 11 (IA: S9, M12, T12, item 19 do catálogo, lacunas 25 e 26) contra `2efa27b` (PR #23), em 07/10/2026, só pelo código |
 | Checklist curto | [`docs/operacao/sustentacao.md`](../operacao/sustentacao.md) (caixas por periodicidade, apontando para este capítulo) |
 | Registro | Issue mensal no GitHub, rótulo `sustentacao` ([§8.5.2](#852-onde-registrar-issue-mensal-no-github)) |
 
@@ -26,8 +26,9 @@ Convenções:
 - Segredos aparecem só pelo **nome**. Nenhum comando deste capítulo imprime valor de variável.
 - **O Claude nunca lê o banco de produção**, nem com comando de leitura (regra 5 do projeto). Onde o dado só existe
   lá (tamanho de tabela, `pgboss.job`, `stored_files`), o item é do dono (regra 3 do servidor).
-- O Plano 10A (receita, PR #19, sem merge) traz filas e varreduras de documento novas. Elas entram na tabela de
-  [§8.2.1](#821-crons-e-a-linha-de-log-que-prova-que-rodaram) quando o PR for para a `main`.
+- Os Planos 10A (receita, PR #19) e 11 (IA, PR #23) estão na `main`: as filas e varreduras deles já estão em
+  [§8.2.1](#821-crons-e-a-linha-de-log-que-prova-que-rodaram). Os itens que dependem da liberação para uso real (S8,
+  S9, M12, T12) ficam "depois da liberação".
 
 ---
 
@@ -63,6 +64,7 @@ Quatro peças de vigilância previstas ainda não existem em produção. Enquant
 | Sentry (E-07) | **Desligado**: `SENTRY_DSN` ausente no `nutri_app` e no `nutri_worker` (só os nomes conferidos por `docker service inspect`) | Erro de job e de requisição só aparece no log, que é curto ([§8.2.3](#823-alcance-dos-logs)) | `iniciarSentry`, `src/lib/sentry.ts:115-120` |
 | Monitor externo (P08-02) | **A configurar** pelo dono | Queda da VPS inteira não avisa ninguém: os alertas internos caem junto | [§6.4.3](06-worker-seguranca-operacao.md#643-apihealth) |
 | WhatsApp (E-04) | **Desligado**: sem `EVOLUTION_*`, sem `nutri_evolution`; log `canal de WhatsApp` = `desligado` | Itens de WhatsApp da rotina ficam "quando ligar" | `src/env.ts`; [§5.4.2](05-agenda-portal-conteudo.md#542-whatsapp-pela-evolution-api-int-01-p05-d1d5) |
+| IA de laudos (Plano 11, P11-18) | **Desligada para uso real** até o runbook `docs/operacao/ia.md`: o código está em produção desde 07/10/2026, mas a IA só aparece com `IA_PROVEDOR` (passo 6) e só lê laudo de consultório liberado pela admin (passo 7). A linha `IA de laudos` do log do worker diz o modo e se a chave está `presente` (nunca o valor) | Itens S9, M12 e T12 ficam "depois da liberação"; antes dela, o T3 só confere que nenhuma `ANTHROPIC_*` além da chave apareceu no worker | `configIA`, `src/modules/ia/modo.ts`; [cap. 10](10-ia.md) |
 
 Fotografia da VPS nessa data (só leitura): `nutri_app`, `nutri_worker` e `nutri_db` em 1/1; disco `/` com 387 G e 15%
 usado; 31 GiB de RAM, ~26 GiB livres; app e worker limitados a 1 vCPU / 1 GiB e o banco a 1 GiB; `/srv/nutri/data` com
@@ -91,6 +93,7 @@ A tabela completa das filas (payload, tentativas, redes de segurança) está em
 | `notificacoes` | todo minuto | `src/worker/index.ts:85` | Seção "Lembretes" da consulta (`src/app/painel/agenda/consultas/[id]/page.tsx:76-87`) | Lembrete com hora passada ainda pendente, ou "falhou" |
 | `expirar-diario-foto`, `expirar-plano-pdf` | a cada 15 min | `src/worker/index.ts:190`, `:194` | Foto do diário "processando" vira falha depois de 30 min (`FOTO_PENDENTE_MAX_MS`, `src/modules/portal/diario-foto-job.ts:203`); PDF do plano "gerando" vira "falhou" depois de 1 h (`PDF_PENDENTE_MAX_MS`, `src/modules/plano-alimentar/plano-pdf-job.ts:114`) | Foto "processando" há mais de 45 min; PDF "gerando" há mais de 1 h 15 (prazo + uma passada da varredura) |
 | `expirar-documento-pdf` (Plano 10A) | a cada 15 min | `src/worker/index.ts:210` | Receita "Preparando o PDF" ou "Montando o PDF digitalizado…" vira falha depois de 1 h (`PDF_DOCUMENTO_PENDENTE_MAX_MS`, `src/modules/documentos/documento-pdf-job.ts:101`); só loga quando falha (`falha ao expirar PDFs de documento pendentes`, `falha ao limpar arquivos órfãos de documentos`) | Uma dessas linhas no log; a nutricionista vendo "Preparando o PDF…" por mais de 1 h 15 |
+| `expirar-ia` (Plano 11) | a cada 15 min | `src/worker/index.ts:250` | Leitura "processando" há mais de 15 min ou "na fila" há mais de 30 min vira `interrompida`; sugestão vencida (7 dias) vira `expirada`; loga `varredura das tarefas de IA` (contagens) só quando mexeu, e `falha na varredura das tarefas de IA` (tenant e nome do erro) quando falha | A linha de falha no log; a nutricionista vendo "Lendo o laudo…" por mais de 1 h |
 | `monitor-disco` | hh:00 | `src/worker/index.ts:128` | `/admin`, "Disco da VPS: N% usado" (`src/app/admin/painel-infra.tsx:26`) | ≥ 70% (`DISCO_LIMITE`, `src/modules/plataforma/monitoramento.ts:11`) |
 | `retencao-lgpd` | 04h00 / 07h00 | `src/worker/index.ts:140` | Log `retenção LGPD concluída` e `exportações vencidas apagadas` | Linha ausente no dia |
 | `limpar-tmp` | 04h00 / 07h00 | `src/worker/index.ts:198` | `find /srv/nutri/data -regextype posix-extended -regex '.*\.[0-9]+\.tmp' -mtime +1 \| wc -l` = 0 | > 0 em dias seguidos |
@@ -144,12 +147,15 @@ dado de paciente, regra 3). O §6.4.1 ainda diz que o log do Swarm não tem rota
 | Nenhum admin cadastrado | Qualquer dos dois | Ninguém; só o log `alerta de monitoramento sem destinatário` | — | `monitoramento.ts:91` |
 | `whatsapp_desconectado` (e-mail) | Sessão do WhatsApp cai | Nutricionista | 1 a cada 6 h | `src/modules/notificacoes/whatsapp/conexao.ts:165` |
 | `cota_whatsapp` (e-mail) | 80% da cota mensal | Nutricionista | 1 por mês | `src/modules/notificacoes/whatsapp/cota.ts:72` |
+| `cota_ia` (e-mail, Plano 11) | Uso de IA do mês chega a 80% da cota do consultório | Nutricionista | 1 por mês (marca `tenants.ia_aviso_mes`) | `avisarSeChegou80Ia`, `src/modules/ia/cota.ts` |
+| `alerta_ia` (e-mail, Plano 11) | Credencial do provedor recusada ou ausente no worker; teto mensal da plataforma ou limite do workspace no Console atingido | Todos os admins | Credencial: 1 por hora; teto: 1 por mês (marcas `alerta_ia_credencial` e `alerta_ia_teto` em `system_heartbeat`) | `src/modules/ia/alertas.ts` |
 | Cota de armazenamento 80% / esgotada | `nivelDeUso` | Só **na tela** "Seu dia" da nutricionista (`src/app/painel/page.tsx:52-55`); o admin vê a coluna "Armazenamento" em `/admin` | — | `src/modules/plataforma/armazenamento.ts:12-14` |
 | "Pedidos do titular" com prazo | Pedido de exclusão ou de dados aberto | Só **na tela** "Seu dia" (`src/app/painel/page.tsx:156-166`) | — | `PRAZO_RESPOSTA_DIAS = 15`, `src/modules/pacientes/lgpd.ts:23` |
 | Erros | Exceção no app, no worker ou no navegador | Sentry (quando ligado), com tetos ([§6.4.4](06-worker-seguranca-operacao.md#644-sentry-d1-do-plano-08)) | Job: mesma `fila\|motivo` 1×/h, 50/dia (`src/lib/sentry.ts:43-48`) | `src/lib/sentry.ts` |
 | Site fora | Monitor externo em `/api/health` e `/entrar` | E-mail e celular do dono | 5 min | A configurar (P08-02) |
 
-Todos os e-mails acima saem pela fila `email` do worker, pelo Resend. Resend fora, ou cota do dia estourada, silencia
+Todos os e-mails acima saem pela fila `email` do worker, pelo Resend (inclusive o aviso de IA ao paciente, cuja ciência
+só é gravada quando o Resend aceita o envio, A-D21). Resend fora, ou cota do dia estourada, silencia
 os alertas também ([§8.4.2](#842-pontos-únicos-e-dependências-cruzadas)).
 
 ---
@@ -196,7 +202,8 @@ destes itens ([§8.5.2](#852-onde-registrar-issue-mensal-no-github)).
 | S5 | Deploys fora de hora | `docker service ps nutri_worker --format '{{.CurrentState}}'` e o horário do merge (`git fetch -q && git log --first-parent origin/main --format='%ci %s' -5`) | Deploy entre 03h e 07h30 BRT | Conferir D3 do dia seguinte | Claude |
 | S7 | Produção roda a última imagem da `main` | Digest de `docker service inspect nutri_app nutri_worker --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'` comparado com o do último push no GHCR (GitHub → Packages, ou a última execução do `deploy.yml`) | Digest diferente depois de um merge (webhook aceito, mas o pull falhou: token do GHCR vencido, GHCR fora) | Dono confere o deploy no Easypanel e o token (T2) | Claude → Dono |
 | S8 | Receitas presas (Plano 10A; só depois de o admin ligar "Documentos" para algum consultório) | `docker service logs nutri_worker --since 7d --raw \| grep -cE 'PDF do documento não gerado\|PDF da digitalização não montado\|digitalização recusada'` (só contagem; as linhas levam só ids e o motivo fixo, regra 3) e a Debby | Contagem que cresce; receita em "Preparando o PDF…" ou "Montando o PDF digitalizado…" por mais de 1 h; "digitalização recusada" repetida com o mesmo motivo | Motivo `cota` → M4 (armazenamento); `foto`/`pixels` → orientar a Debby (fotos menores, uma por página); erro repetido → incidente. Lembrete: a Debby precisa do 2FA ativo para assinar | Claude → Dono / Debby |
-| S6 | Status dos provedores | Páginas de status de [§8.4.1](#841-catálogo) (ou as notificações por e-mail delas, [§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 5) | Incidente aberto que afete Resend, Cloudflare, Hostinger ou GitHub | Registrar; se afetou usuário, §6.9 | Dono |
+| S9 | Leituras de laudo com IA (Plano 11; só depois da liberação de algum consultório) | `docker service logs nutri_worker --since 7d --raw \| grep -c 'leitura de laudo pela IA não concluída'` e o mesmo para `provedor de IA recusou ou falhou` e `laudo recusado no preparo para a IA` (só contagens; as linhas levam só ids, motivo, tipo e status, regra 3); a caixa dos admins (`alerta_ia`) | Contagem que cresce; motivo `credencial_invalida` (chave), `teto_plataforma` (teto ou limite do Console), `resultado_incerto` ou `provedor_indisponivel` repetidos; `alerta_ia` recebido | Credencial: o dono confere a chave no Console e no `nutri_worker` (§6.9.1). Teto: M12. Provedor fora: página de status da Anthropic (S6); a IA nunca é o caminho único (lançar à mão continua). Emergência: `IA_DESLIGADA=1` (dono) | Claude → Dono |
+| S6 | Status dos provedores | Páginas de status de [§8.4.1](#841-catálogo) (ou as notificações por e-mail delas, [§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 5) | Incidente aberto que afete Resend, Cloudflare, Hostinger, GitHub ou, depois da liberação da IA, a Anthropic | Registrar; se afetou usuário, §6.9 | Dono |
 
 ### 8.3.3 Mensal
 
@@ -215,6 +222,7 @@ Uns 45 minutos, no primeiro dia útil do mês. Abre a issue do mês nova e fecha
 | M9 | Segredos no repositório | Painel do GitGuardian e o check do último PR | Incidente aberto que não seja falso positivo conhecido (backlog: `oembed.ts` e a senha fictícia do `scripts/e2e-seed.ts`) | Segredo real: [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado) | Dono |
 | M10 | Pendências que bloqueiam a vigilância | Backlog: P02-11 (backup), E-07 (Sentry), P08-02 (monitor externo) | Ainda abertas | Lembrar o dono na issue do mês; nada de paciente real sem o backup (go-live, "Bloqueia") | Claude |
 | M11 | Avisos de segurança das dependências | `pnpm audit --prod --audit-level high` no ambiente de **dev** (nunca no host de produção); alertas do Dependabot no GitHub, quando ligados ([§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 14) | Aviso alto ou crítico | Em `next`, `react`, `better-auth`, `pg-boss`, `drizzle-orm` ou no Node 24: **incidente**, PR de correção em até 72 h ([§8.5.3](#853-quando-uma-verificação-falha)). Nos outros: PR na semana. Anotar o número de avisos na issue | Claude → Dono |
+| M12 | IA: custo, cota, teto e retenção zero (Plano 11; depois da liberação) | (a) `/admin`, coluna "IA": "Uso de IA no mês: US$ … de US$ …" de cada consultório somado × relatório de custo do Console da Anthropic (workspace de produção, por região) do mesmo mês; (b) consultório perto de 100% da cota; (c) soma do mês perto do teto da plataforma (`IA_TETO_GLOBAL_MENSAL_USD`, 50 no piloto) e do limite de gasto do workspace no Console; (d) a ZDR continua concedida para a organização (resposta por escrito guardada; nenhum aviso de mudança da Anthropic) e o workspace de produção segue restrito a `us` | Diferença > 5% entre o admin e o Console (RNF-108); consultório em 100% antes do fim do mês; soma > 80% do teto; ZDR revogada ou em dúvida; região fora de `us` | Diferença: investigar (tarefas `resultado_incerto` contam a reserva; preço novo sem `PRECOS_IA_DATA` atualizado → PR). Cota/teto: o dono decide ampliar (o teto é revisto a cada consultório ativado). **ZDR em dúvida: `IA_DESLIGADA=1` e "Bloquear" até resolver (A-D4)** | Dono |
 
 ### 8.3.4 Trimestral
 
@@ -223,8 +231,8 @@ Em janeiro, abril, julho e outubro, na issue mensal do mês.
 | # | O que verificar | Como | Sinal de problema | Ação | Quem |
 |---|---|---|---|---|---|
 | T1 | Quem tem acesso | (a) `/admin` (admins e contas de nutricionista, suspensas ou não); GitHub → *Collaborators*; usuários do Easypanel; membros da Cloudflare, do Resend e do Sentry. (b) **Conta do hPanel com 2FA** (controla console root, snapshot, DNS e domínio: o ponto único de [§8.4.2](#842-pontos-únicos-e-dependências-cruzadas) item 3). (c) 2FA das contas do dono no GitHub, na Cloudflare, no Resend e no Easypanel; senha forte no Easypanel. (d) SSH: `authorized_keys` de cada usuário, sudoers e a configuração **efetiva** do sshd: `sudo sshd -T \| grep -iE '^(passwordauthentication\|permitrootlogin)'` (esperado `no` e `no` ou `prohibit-password`). (e) Easypanel publicado na porta 3000 em modo host (`docker service inspect easypanel` → `PublishMode: host`): porta publicada pelo Docker passa por cima do UFW, então o painel fica aberto na internet | Conta que não devia existir; conta sem 2FA; `passwordauthentication yes`; 3000 aberta sem necessidade | Dono remove ou suspende (US-004), liga o 2FA e decide se a 3000 precisa ficar aberta. Mexer no SSH ou no firewall: só com OK do dono e snapshot (regras 3 e 5 do servidor) | Dono |
-| T2 | Tokens com validade | Token do GHCR cadastrado no Easypanel (escopo `read:packages`); chave do R2 (escopo só no bucket); token do MCP do GitHub (E-01); PATs do GitHub (*Developer settings*); segredos `EASYPANEL_DEPLOY_HOOK_*` do repositório (data de criação em *Settings → Secrets*) | Vence nos próximos 90 dias; PAT sem uso ou sem validade | Dono gera o novo e troca no lugar certo; anota a nova data na issue | Dono |
-| T3 | Variáveis presentes em produção | `docker service inspect nutri_app --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println (index (split . "=") 0)}}{{end}}'` (e `nutri_worker`): **só os nomes** | Faltou uma obrigatória; `VAPID_PUBLIC_KEY` ausente de um dos dois; `SENTRY_DSN` ainda ausente | Dono corrige no Easypanel. Tabela das variáveis: [§1.9](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente) | Claude |
+| T2 | Tokens com validade | Token do GHCR cadastrado no Easypanel (escopo `read:packages`); chave do R2 (escopo só no bucket); token do MCP do GitHub (E-01); PATs do GitHub (*Developer settings*); segredos `EASYPANEL_DEPLOY_HOOK_*` do repositório (data de criação em *Settings → Secrets*); desde o Plano 11, as chaves da Anthropic dos workspaces de dev e de produção (Console → *API keys*: data de criação e último uso) | Vence nos próximos 90 dias; PAT sem uso ou sem validade | Dono gera o novo e troca no lugar certo; anota a nova data na issue | Dono |
+| T3 | Variáveis presentes em produção | `docker service inspect nutri_app --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println (index (split . "=") 0)}}{{end}}'` (e `nutri_worker`): **só os nomes** | Faltou uma obrigatória; `VAPID_PUBLIC_KEY` ausente de um dos dois; `SENTRY_DSN` ainda ausente; `ANTHROPIC_API_KEY` no `nutri_app` (é só do worker); qualquer outra `ANTHROPIC_*` no `nutri_worker` (o SDK leria `ANTHROPIC_CUSTOM_HEADERS`); `IA_*` diferentes entre app e worker | Dono corrige no Easypanel. Tabela das variáveis: [§1.9](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente) | Claude |
 | T4 | Gerenciador de senhas | Conferir que cada nome da lista de §6.10 está lá e abre (sem mostrar a ninguém). Que a chave do backup **funciona** é o T11 | Faltando | Dono completa; sem eles o backup não recupera o serviço (`docs/operacao/restauracao.md`) | Dono |
 | T5 | Volta atrás possível | GitHub → Packages: duas versões da imagem (`:latest` e a anterior); hPanel: política de snapshot | Só uma versão; snapshot velho | Ver poda no `deploy.yml:53-57`; roteiro em [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás) | Dono / Claude |
 | T6 | Tamanho do banco | Tamanho do banco e das maiores tabelas (`audit_log`, `notifications`, `pgboss.job`, `session`) por `docker exec` no `nutri_db` | Tabela sem expurgo crescendo mais que o resto ([§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 10) | Item no backlog para uma varredura. **É banco de produção:** só o dono | Dono |
@@ -233,6 +241,7 @@ Em janeiro, abril, julho e outubro, na issue mensal do mês.
 | T9 | Este capítulo | Lacunas de [§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) resolvidas; itens novos (filas do Plano 10A, WhatsApp, Sentry); limiar do M7 diante da validade menor do Let's Encrypt | Texto desatualizado | PR curto de docs (merge fora da janela de 03h–07h30 BRT) | Claude |
 | T10 | Easypanel e Traefik | Versão em uso: `docker service inspect easypanel easypanel-traefik --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'` (05/10/2026: `easypanel/easypanel:latest`, `traefik:3.6.7`), comparada com o changelog do Easypanel e os avisos de segurança do Traefik | Versão com aviso de segurança; atualização pendente há mais de um trimestre | A atualização é **só pelo painel**, feita pelo dono, com snapshot. O Claude nunca reinicia o Easypanel (regra 4 do servidor) | Claude → Dono |
 | T11 | Chave do backup no gerenciador de senhas | **Fora da VPS** (máquina do dono): config temporária do rclone numa pasta 0700, montada só com valores do gerenciador (`rclone obscure` da passphrase e do salt; chave do R2); `rclone lsl cripto:db/diario`; apagar a config. Opcional: comparar o `sha256sum` de `AUTH_SECRET` e `ENCRYPTION_KEY` do gerenciador com o do Easypanel, sem exibir o valor | Nomes `nutri-AAAA-MM-DD.dump` não aparecem decifrados (passphrase, salt ou chave do R2 errados); hash diferente | Corrigir o gerenciador **já**: perdida a VPS, é a única chave. Registrar "chave do gerenciador ok" na issue. Passo em `docs/operacao/restauracao.md`, "Teste da chave fora da VPS". Só depois do P02-11 | Dono |
+| T12 | IA: preços, modelos e textos (Plano 11; depois da liberação) | Página de preços da Anthropic × `PRECOS_IA` e `PRECOS_IA_DATA` (`src/modules/ia/precos.ts`); avisos de descontinuação dos modelos de `MODELOS_IA`; versão do aviso e do aditivo de IA em vigor (`textos-legais.ts`) × o texto aprovado pelo advogado | Preço diferente do da tabela; modelo em uso com data de fim; texto em vigor diferente do aprovado | Preço: PR com a tabela e a data novas (o custo da tela e da cota sai dela). Modelo: nova avaliação com os laudos fictícios antes de trocar (RN-127). Texto: versão nova, sobe o `*_MIN` (novo aceite) | Claude → Dono |
 
 ### 8.3.5 Anual
 
@@ -279,9 +288,11 @@ no repositório.
 | 16 | UptimeRobot | Monitor externo de `/api/health` e `/entrar` (D3 do Plano 08) | https://status.uptimerobot.com | Termos do Free para uso comercial (alternativa: HetrixTools) | Sem efeito; perde o alarme. **A configurar** (P08-02) | Dono | Grátis |
 | 17 | Evolution API (WhatsApp) | Lembretes por WhatsApp, autohospedada (`nutri_evolution`) | Sem página (VPS); WhatsApp: https://metastatus.com | Cota por consultório (padrão 500/mês); risco de bloqueio do número | **Degradação**: lembrete só por e-mail e push. **Não implantada** (E-04) | Número da Debby | — (na VPS) |
 | 18 | Monarx (agente da Hostinger) | Antimalware instalado no host pela Hostinger (`/etc/apt/sources.list.d/monarx.list`) | Sem página; alertas no hPanel | — | Sem efeito no app; os alertas dele vão para o hPanel, que ninguém confere ([§8.6](#86-lacunas-o-que-hoje-não-é-vigiado) item 19) | Hostinger / dono | Incluso na VPS |
+| 19 | Anthropic (Console e Messages API) | Leitura de laudos com IA (Plano 11, INT-07 da spec da IA): só o worker chama, uma vez por pedido ([cap. 10](10-ia.md)) | https://status.claude.com | Custo por uso (US$ por milhão de tokens, `PRECOS_IA`); cota por consultório (padrão US$ 15/mês) e teto da plataforma (US$ 50/mês no piloto); limite de gasto por workspace no Console; ZDR por organização, pedida ao comercial; chave por workspace (dev e produção) | **Degradação** só da leitura de laudos: a tarefa falha com texto claro, a reserva é estornada e lançar à mão continua; os admins recebem `alerta_ia` em credencial recusada e teto atingido | Empresa (conta e cartão da empresa, A-D16) | Por uso, dentro da cota e do teto |
 
-Futuros, nada na `main`: Anthropic (IA Nutri e exames, specs de 03/10/2026; status em https://status.claude.com, custo
-por token), gov.br/ITI (Plano 10B) e Asaas/Efí (viabilidade da loja). Mailpit só existe em dev e no CI.
+A Anthropic (item 19) está na `main` desde o Plano 11 (07/10/2026), mas só é chamada depois da liberação para uso real
+(runbook `docs/operacao/ia.md`). Futuros, nada na `main`: gov.br/ITI (Plano 10B) e Asaas/Efí (viabilidade da loja).
+Mailpit só existe em dev e no CI.
 
 ### 8.4.2 Pontos únicos e dependências cruzadas
 
@@ -300,9 +311,9 @@ por token), gov.br/ITI (Plano 10B) e Asaas/Efí (viabilidade da loja). Mailpit s
 
 | Quando | O quê | Onde conferir | Item |
 |---|---|---|---|
-| Todo mês | Assinatura da VPS (cartão); cotas do Resend, R2, GHCR, Actions, Sentry | hPanel; painel de cada um | M5, M6 |
+| Todo mês | Assinatura da VPS (cartão); cotas do Resend, R2, GHCR, Actions, Sentry; depois da liberação da IA, custo da Anthropic × coluna "IA" do admin | hPanel; painel de cada um; Console da Anthropic | M5, M6, M12 |
 | ~29/11/2026 | Renovação do certificado (vence 29/12/2026) | `openssl s_client … -enddate` | M7 |
-| A cada trimestre | Validade do token do GHCR no Easypanel, da chave do R2 e dos PATs do GitHub | Easypanel; GitHub → *Developer settings*; Cloudflare | T2 |
+| A cada trimestre | Validade do token do GHCR no Easypanel, da chave do R2, dos PATs do GitHub e das chaves da Anthropic; preços e modelos da IA | Easypanel; GitHub → *Developer settings*; Cloudflare; Console da Anthropic | T2, T12 |
 | A partir de 2027 | Let's Encrypt encurta a validade dos certificados (64 e depois 45 dias): rever o limiar do M7 e o "renova ~30 dias antes" | Anúncios do Let's Encrypt | T9 |
 | Julho de 2027 | Renovação do domínio (vence 26/09/2027) | hPanel → Domínios | A1 |
 | Abril de 2028 | Fim de suporte do Node 24 | Calendário do Node.js | T8 |
@@ -414,6 +425,8 @@ flowchart TB
 | 22 | Nada confere que produção roda a última imagem | Webhook aceito com pull falhando deixa a versão velha no ar, sem aviso | S7 semanal (digest do serviço × último push no GHCR) | Claude → Dono |
 | 23 | Liberação dos documentos sem registro (Plano 10A, D20) | Ligar ou desligar "Documentos" de um consultório só deixa a linha `documentos assinados liberados/bloqueados pelo admin` no log, que dura ~1 dia; desligar depois do uso real tira do consultório "Cancelar documento" e a entrega | Registrar na issue do mês quem ligou e quando; backlog P10A-18 (auditoria da plataforma) | Dono; código |
 | 24 | `APP_URL` impresso nas receitas (Plano 10A) | O QR e o rodapé de toda receita apontam para `https://nutri.wsscloud.tech/v/<código>`; perder ou trocar o domínio quebra a verificação de receitas já entregues | Renovar o domínio com folga (A1); numa troca, manter `/v/*` respondendo no domínio antigo | Dono |
+| 25 | Ativação e desativação da IA pela nutricionista só no log (Plano 11, D21) | `IA ativada pela nutricionista` / `IA desativada pela nutricionista` duram ~1 dia no log; o aceite do aditivo fica em `consents`, mas a desativação não tem registro durável. (A liberação e o limite pela admin ficam em `admin_actions`.) | Registrar na issue do mês as ativações e desativações que a Debby relatar; backlog P11-21 (trilha do consultório, fase F3 da SBIS) | Dono; código |
+| 26 | Custo da IA conferido só à mão | `ia_uso` × fatura do Console é conferido no M12; nada alerta uma divergência entre um mês e outro | M12 mensal; o limite de gasto do workspace no Console é a barreira automática | Dono |
 
 ---
 
