@@ -616,6 +616,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
+          avisoIa: null,
+          avisoIaEnviadoEm: null,
+          recusouIaEm: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
@@ -660,6 +663,18 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       expect(dados.exames[0].valores[0], escopo).toMatchObject({ iaTarefaId: id });
     }
     expect(pronta).toBeDefined();
+  });
+
+  it('Plano 11 (revisão final, LGPD art. 18, II): dados.json traz a ciência do aviso de IA, o envio do aviso pendente e o "Não usar IA"', async () => {
+    const T = await novoTenant(app.db);
+    const informado = await novoPaciente(app.db, T.ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: now, iaAvisoCanal: 'em_maos', iaRecusadaEm: now });
+    const semAviso = await novoPaciente(app.db, T.ctx, { iaAvisoEnviadoEm: now });
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const a = await withTenant(T.ctx, (tx) => montarDados(tx, informado.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(a.dados.paciente, escopo).toMatchObject({ avisoIa: { versao: '0.1-provisorio', em: now.toISOString(), canal: 'em_maos' }, avisoIaEnviadoEm: null, recusouIaEm: now.toISOString() });
+      const b = await withTenant(T.ctx, (tx) => montarDados(tx, semAviso.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(b.dados.paciente, escopo).toMatchObject({ avisoIa: null, avisoIaEnviadoEm: now.toISOString(), recusouIaEm: null });
+    }
   });
 
   it('apagar a conta de quem pediu a exportação não esbarra na auditoria (solicitado_por sem FK, como o ator do audit_log)', async () => {
@@ -976,6 +991,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
+          avisoIa: null,
+          avisoIaEnviadoEm: null,
+          recusouIaEm: null,
         },
         anamneses: [],
         antropometria: [

@@ -72,6 +72,13 @@ export type DadosExportacao = {
     telefone: string | null;
     status: string;
     cadastradoEm: string;
+    /**
+     * Plano 11 (revisão final; LGPD art. 18, II e art. 19, II): a ciência do aviso de IA (US-104) e o "Não usar IA"
+     * (US-103), para o titular confrontar com a data em que o laudo saiu (seção `ia`, `enviadoEm`).
+     */
+    avisoIa: { versao: string; em: string; canal: string } | null;
+    avisoIaEnviadoEm: string | null;
+    recusouIaEm: string | null;
   };
   anamneses: {
     data: string;
@@ -327,6 +334,9 @@ export async function montarDados(
       telefone: p.telefoneE164 ? formatarTelefone(p.telefoneE164) : null,
       status: p.status,
       cadastradoEm: p.createdAt.toISOString(),
+      avisoIa: p.iaAvisoVersao && p.iaAvisoEm && p.iaAvisoCanal ? { versao: p.iaAvisoVersao, em: p.iaAvisoEm.toISOString(), canal: p.iaAvisoCanal } : null,
+      avisoIaEnviadoEm: p.iaAvisoEnviadoEm?.toISOString() ?? null,
+      recusouIaEm: p.iaRecusadaEm?.toISOString() ?? null,
     },
     anamneses: as.map((a) => ({
       data: a.data,
