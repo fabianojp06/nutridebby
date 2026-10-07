@@ -120,6 +120,15 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
       for (const dado of ['Ana', 'Souza', 'Debby', 'Silva']) expect(corpo, dado).not.toContain(dado);
     }
   });
+  it('Plano 12 (C-05): exame revisado e expirado — o mesmo texto neutro, sem "exame"; o toque abre /p/exames do consultório', () => {
+    const semConsulta = (tipo: string): ContextoEnvio => ({ ...ctx(tipo), consulta: null });
+    for (const tipo of ['exame_revisado', 'exame_expirado']) {
+      const p = pushDaNotificacao(semConsulta(tipo), deps)!;
+      expect(p).toEqual({ titulo: 'NutriDebby', corpo: 'Há uma atualização para você no app.', url: `https://app.exemplo.com/p/exames?v=${tenant.id}` });
+      expect(p.corpo.toLowerCase()).not.toContain('exame');
+      for (const dado of ['Ana', 'Souza', 'Debby', 'Silva']) expect(p.corpo, dado).not.toContain(dado);
+    }
+  });
   it('nada do paciente, da nutricionista nem da consulta além do horário (nome, endereço, modalidade, link da chamada)', () => {
     for (const c of [ctx('lembrete_24h'), ctx('lembrete_2h'), ctx('consulta_marcada'), ctx('consulta_cancelada'), online(ctx('lembrete_24h'))]) {
       const p = pushDaNotificacao(c, deps)!;

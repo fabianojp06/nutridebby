@@ -117,6 +117,9 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   documento_novo: { corpo: 'Você tem um novo documento.', tela: '/p/documentos' },
   // US-149 / D11: o cancelamento, também neutro (nem o tipo do documento, nem o motivo)
   documento_atualizado: { corpo: 'Um documento seu foi atualizado.', tela: '/p/documentos' },
+  // Plano 12 (C-05): neutro de propósito, mais que os outros — nem "exame" (a palavra na tela de bloqueio já diz dado de saúde)
+  exame_revisado: { corpo: 'Há uma atualização para você no app.', tela: '/p/exames' },
+  exame_expirado: { corpo: 'Há uma atualização para você no app.', tela: '/p/exames' },
 };
 
 /**
