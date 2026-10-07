@@ -1,0 +1,90 @@
+import { and, eq, notInArray } from 'drizzle-orm';
+import { getDb, type Db, type Tx } from '@/db/client';
+import { examSubmissionFiles, examSubmissions } from '@/db/schema';
+import { withTenant, type TenantContext } from '@/db/tenant';
+import { logger } from '@/lib/logger';
+import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+
+type Papel = 'original' | 'pagina';
+
+/**
+ * Quando cada arquivo do envio deixa de ser preciso (D23, RN-163 a RN-167): o original, depois do processamento; a página,
+ * depois da revisão (ou do cancelamento, da expiração, da falha). `refazer`: uma nova tentativa do job refaz as páginas de
+ * uma tentativa anterior que caiu no meio (o envio ainda está "processando").
+ */
+const PODE_SAIR: Record<Papel, (status: string, refazer: boolean) => boolean> = {
+  original: (s) => s !== 'processando',
+  pagina: (s, refazer) => (refazer ? s === 'processando' : s !== 'processando' && s !== 'recebido'),
+};
+
+/**
+ * Regra 9 / DEP-09 reduzida (spec §4.1): cada arquivo do envio sai no SEU apagarArquivo; a linha de exam_submission_files sai
+ * junto (FK ON DELETE CASCADE, mesma transação) e o PDF limpo solta o ponteiro `arquivo_path` no naMesmaTransacao — só se o
+ * envio, travado ali, ainda permite (situação relida). Ordem de travas: envio → tenant, sem o paciente na frente porque aqui nada
+ * se grava com FK para `patients` (só o ponteiro do envio, o DELETE em cascata das linhas de arquivo — auditado, FK só para
+ * `tenants` — e a devolução da cota); quem grava filha de `patients` trava o paciente antes (revisão do plano: a expiração da
+ * T8). A de salvarArquivo é paciente → envio → tenant. Um arquivo que falha não para os outros: a varredura (exames-enviados-varredura.ts) tenta de novo. `papel`: só os
+ * originais (fim do processamento) ou só as páginas. Devolve quantos arquivos saíram. Log só com ids (RNF-11).
+ */
+export async function apagarArquivosDoEnvio(
+  ctx: TenantContext,
+  envioId: string,
+  deps: { db?: Db; dataDir?: string; papel?: Papel; refazer?: boolean } = {},
+): Promise<number> {
+  const db = deps.db ?? getDb();
+  const refazer = !!deps.refazer;
+  const lido = await withTenant(
+    ctx,
+    async (tx) => {
+      const [e] = await tx.select({ status: examSubmissions.status, pdf: examSubmissions.arquivoPath }).from(examSubmissions).where(eq(examSubmissions.id, envioId));
+      if (!e) return null;
+      const arquivos = await tx
+        .select({ caminho: examSubmissionFiles.arquivoPath, papel: examSubmissionFiles.papel })
+        .from(examSubmissionFiles)
+        .where(and(eq(examSubmissionFiles.submissionId, envioId), deps.papel ? eq(examSubmissionFiles.papel, deps.papel) : undefined));
+      return { ...e, arquivos };
+    },
+    db,
+  );
+  if (!lido) return 0;
+  const situacaoTravada = async (tx: Tx) => (await tx.select({ status: examSubmissions.status }).from(examSubmissions).where(eq(examSubmissions.id, envioId)).for('update'))[0]?.status;
+  let n = 0;
+  let falhas = 0;
+  for (const a of lido.arquivos) {
+    const papel = a.papel as Papel;
+    if (!PODE_SAIR[papel](lido.status, refazer)) continue;
+    const ok = await apagarArquivo(ctx, { caminho: a.caminho }, {
+      db,
+      dataDir: deps.dataDir,
+      naMesmaTransacao: async (tx) => {
+        const s = await situacaoTravada(tx);
+        return s !== undefined && PODE_SAIR[papel](s, refazer);
+      },
+    }).catch(() => {
+      falhas++;
+      return false;
+    });
+    if (ok) n++;
+  }
+  if (!deps.papel && lido.pdf && lido.status !== 'recebido' && lido.status !== 'processando') {
+    const pdf = lido.pdf;
+    const ok = await apagarArquivo(ctx, { caminho: pdf }, {
+      db,
+      dataDir: deps.dataDir,
+      naMesmaTransacao: async (tx) =>
+        (
+          await tx
+            .update(examSubmissions)
+            .set({ arquivoPath: null, updatedAt: new Date() })
+            .where(and(eq(examSubmissions.id, envioId), eq(examSubmissions.arquivoPath, pdf), notInArray(examSubmissions.status, ['processando', 'recebido'])))
+            .returning({ id: examSubmissions.id })
+        ).length > 0,
+    }).catch(() => {
+      falhas++;
+      return false;
+    });
+    if (ok) n++;
+  }
+  if (falhas) logger.warn({ tenantId: ctx.tenantId, envioId, falhas, motivo: 'arquivo_do_envio' }, 'arquivo do envio não apagado (a varredura tenta de novo)');
+  return n;
+}

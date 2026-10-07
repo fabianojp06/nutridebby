@@ -157,6 +157,75 @@ export async function salvarArquivo(
 }
 
 /**
+ * Plano 12 (DEP-09 reduzida, PM-8): vários arquivos com UMA reserva de cota (a soma) e um `registrar` só — tudo ou nada.
+ * Só o envio de exame pelo paciente usa: a sessão de paciente não tem DELETE em stored_files e não conseguiria desfazer um
+ * envio gravado pela metade. Tudo é conferido antes de gravar (tipo pelo conteúdo de cada um); o conteúdo vai ao disco antes
+ * da transação (como salvarArquivo); a mesma ordem de travas: dono (`antesDaReserva`) → tenant (cota) → `registrar`.
+ */
+export async function salvarArquivos(
+  ctx: TenantContext,
+  input: {
+    tipo: TipoDeArquivo;
+    conteudos: readonly Buffer[];
+    permitidos: readonly TipoArquivo['ext'][];
+    patientId?: string;
+    antesDaReserva?: (tx: Tx) => Promise<void>;
+    registrar?: (tx: Tx, arquivos: ArquivoSalvo[]) => Promise<void>;
+  },
+  deps: Deps = {},
+): Promise<ArquivoSalvo[]> {
+  const db = deps.db ?? getDb();
+  const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
+  if (TIPOS_DO_PACIENTE.includes(input.tipo) !== Boolean(input.patientId)) {
+    throw new Error(`salvarArquivos: patientId ${input.patientId ? 'proibido' : 'obrigatório'} para o tipo ${input.tipo}`);
+  }
+  if (!input.conteudos.length) throw new TipoNaoPermitidoError();
+  const itens = input.conteudos.map((conteudo) => {
+    const real = conteudo.length ? detectarTipo(conteudo) : null;
+    if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext)) throw new TipoNaoPermitidoError();
+    const id = randomUUID();
+    const caminho = `${ctx.tenantId}/${input.tipo}/${id}.${real.ext}`;
+    const destino = resolverCaminho(dataDir, caminho);
+    return { id, caminho, destino, tmp: `${destino}.${process.pid}.tmp`, conteudo, bytes: conteudo.length, mime: real.mime };
+  });
+  const total = itens.reduce((s, i) => s + i.bytes, 0);
+  const gravados: string[] = [];
+  try {
+    for (const i of itens) {
+      await mkdir(path.dirname(i.destino), { recursive: true, mode: 0o750 });
+      await writeFile(i.tmp, i.conteudo, { mode: 0o640, flag: 'wx' });
+    }
+    return await withTenant(
+      ctx,
+      async (tx) => {
+        if (input.antesDaReserva) await input.antesDaReserva(tx);
+        const reserva = await tx
+          .update(tenants)
+          .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${total}` })
+          .where(and(eq(tenants.id, ctx.tenantId), sql`${tenants.armazenamentoBytes} + ${total} <= ${COTA_BYTES}`))
+          .returning({ id: tenants.id });
+        if (!reserva.length) throw new CotaEsgotadaError();
+        await tx.insert(storedFiles).values(
+          itens.map((i) => ({ id: i.id, tenantId: ctx.tenantId, tipo: input.tipo, caminho: i.caminho, bytes: i.bytes, mime: i.mime, criadoPor: ctx.actorUserId ?? null, patientId: input.patientId ?? null })),
+        );
+        const arquivos = itens.map((i) => ({ id: i.id, caminho: i.caminho, bytes: i.bytes, mime: i.mime }));
+        if (input.registrar) await input.registrar(tx, arquivos);
+        for (const i of itens) {
+          await rename(i.tmp, i.destino);
+          gravados.push(i.destino);
+        }
+        return arquivos;
+      },
+      db,
+    );
+  } catch (err) {
+    for (const i of itens) await rm(i.tmp, { force: true }).catch(() => undefined);
+    for (const d of gravados) await rm(d, { force: true }).catch(() => undefined); // o commit falhou depois da gravação
+    throw err;
+  }
+}
+
+/**
  * Apaga o registro e devolve o espaço; por padrão o arquivo sai do disco depois do commit (falha no `rm`
  * só vira aviso de arquivo órfão). Ordem de travas: `naMesmaTransacao` (paciente/dono) → tenant (cota), igual a `salvarArquivo`.
  * `removerAntesDoCommit`: o `rm` roda na transação e, se falhar, nada é apagado.
