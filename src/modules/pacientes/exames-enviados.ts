@@ -130,6 +130,11 @@ async function travarEnvioRecebido(tx: Tx, id: string, patientId: string): Promi
   return e;
 }
 
+/** Interna da recusa: o PDF da linha travada não é o lido antes da trava (desfaz a transação; a recusa recomeça). */
+class PdfDoEnvioMudou extends Error {
+  override name = 'PdfDoEnvioMudou';
+}
+
 const soltarPaginas = (ctx: TenantContext, id: string, deps: { db: Db; dataDir?: string }) =>
   apagarArquivosDoEnvio(ctx, id, deps).catch((err: unknown) =>
     logger.warn({ tenantId: ctx.tenantId, envioId: id, err: err instanceof Error ? err.name : 'erro' }, 'páginas do envio revisado não apagadas (a varredura tenta de novo)'),
@@ -196,17 +201,29 @@ export async function recusarEnvio(ctx: TenantContext, id: string, entrada: { mo
   if (!motivo) throw new RevisaoError({ motivo: MSG_REVISAO.escolhaMotivo });
   const texto = motivo === 'outro' ? normalizarTexto(entrada.texto) : '';
   if (motivo === 'outro' && (!texto || [...texto].length > MOTIVO_RECUSA_TEXTO_MAX)) throw new RevisaoError({ texto: MSG_REVISAO.motivoObrigatorio });
-  const lido = await lerEnvio(ctx, id, db);
-  const marcar = async (tx: Tx): Promise<boolean> => {
-    await travarEnvioRecebido(tx, id, lido.patientId);
-    await tx
-      .update(examSubmissions)
-      .set({ status: 'recusado', motivoRecusa: motivo, motivoRecusaTexto: motivo === 'outro' ? texto : null, revisadoPor: revisor, revisadoEm: agora, arquivoPath: null, updatedAt: agora })
-      .where(eq(examSubmissions.id, id));
-    await avisarEnvioAtualizado(tx, { tenantId: ctx.tenantId, patientId: lido.patientId, tipo: 'exame_revisado' }, agora);
-    return true;
-  };
-  if (lido.arquivoPath) await apagarArquivo(ctx, { caminho: lido.arquivoPath }, { db, dataDir: deps.dataDir, naMesmaTransacao: marcar });
-  else await withTenant(ctx, marcar, db);
+  // Regra 9 (um dono só): o ponteiro só é zerado com a linha travada apontando para o MESMO PDF que o apagarArquivo desta
+  // transação apaga. Se mudou desde a leitura sem trava (o worker gravou "processando → recebido" no intervalo), nada é gravado
+  // e a recusa recomeça uma vez da leitura; a segunda divergência vira "já revisado".
+  for (let tentativa = 1; ; tentativa++) {
+    const lido = await lerEnvio(ctx, id, db);
+    const marcar = async (tx: Tx): Promise<boolean> => {
+      const e = await travarEnvioRecebido(tx, id, lido.patientId);
+      if (e.arquivoPath !== lido.arquivoPath) throw new PdfDoEnvioMudou();
+      await tx
+        .update(examSubmissions)
+        .set({ status: 'recusado', motivoRecusa: motivo, motivoRecusaTexto: motivo === 'outro' ? texto : null, revisadoPor: revisor, revisadoEm: agora, arquivoPath: null, updatedAt: agora })
+        .where(eq(examSubmissions.id, id));
+      await avisarEnvioAtualizado(tx, { tenantId: ctx.tenantId, patientId: lido.patientId, tipo: 'exame_revisado' }, agora);
+      return true;
+    };
+    try {
+      if (lido.arquivoPath) await apagarArquivo(ctx, { caminho: lido.arquivoPath }, { db, dataDir: deps.dataDir, naMesmaTransacao: marcar });
+      else await withTenant(ctx, marcar, db);
+      break;
+    } catch (err) {
+      if (!(err instanceof PdfDoEnvioMudou)) throw err;
+      if (tentativa >= 2) throw new RevisaoError({ geral: MSG_REVISAO.jaRevisado });
+    }
+  }
   await soltarPaginas(ctx, id, { db, dataDir: deps.dataDir });
 }

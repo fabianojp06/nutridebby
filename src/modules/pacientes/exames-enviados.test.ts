@@ -5,9 +5,9 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { envioNoBanco, envioRecebido, JPEG_MINIMO } from '../../../test/exames-enviados';
-import { closeDb } from '@/db/client';
-import { auditLog, examSubmissions, exams, notifications, patients, tenants } from '@/db/schema';
+import { arquivoDeEnvio, envioNoBanco, envioRecebido, JPEG_MINIMO } from '../../../test/exames-enviados';
+import { closeDb, type Db } from '@/db/client';
+import { auditLog, examSubmissions, exams, notifications, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
@@ -44,6 +44,19 @@ async function cenario() {
   return { T, p, bytes, ler, pushes };
 }
 const aceitar = { titulo: 'Hemograma', data: '2026-09-28' };
+/** O mesmo Db, mas `entre` roda logo depois do commit da 1ª transação: injeta um commit de outra conexão no intervalo. */
+function depoisDaPrimeiraTransacao(db: Db, entre: () => Promise<void>): Db {
+  let primeira = true;
+  const transaction: Db['transaction'] = async (...args) => {
+    const r = await db.transaction(...args);
+    if (primeira) {
+      primeira = false;
+      await entre();
+    }
+    return r;
+  };
+  return new Proxy(db, { get: (alvo, prop, rec) => (prop === 'transaction' ? transaction : Reflect.get(alvo, prop, rec)) });
+}
 
 describe('revisão do exame enviado (US-162 a US-164, RN-164, RN-165, §6.5)', () => {
   it('US-163 "Aceitar": exame com o PDF limpo (sem cópia), envio "aceito" com quem e quando, páginas apagadas, push neutro e trilha', async () => {
@@ -121,6 +134,24 @@ describe('revisão do exame enviado (US-162 a US-164, RN-164, RN-165, §6.5)', (
     for (const c of [e.pdf, ...e.paginas]) expect(existsSync(resolverCaminho(dataDir, c))).toBe(false);
     expect(await bytes()).toBe(inicial);
     expect(await pushes()).toEqual([{ tipo: 'exame_revisado', canal: 'push' }]);
+  });
+
+  it('US-164 corrida (regra 9, um dono só): o worker grava o PDF limpo entre a leitura e a trava da recusa → a recusa apaga o PDF da linha travada, nada órfão', async () => {
+    const { T, p, bytes, ler } = await cenario();
+    const inicial = await bytes();
+    const id = await envioNoBanco(app.db, T.ctx, p.id, { status: 'processando' });
+    let pdf = '';
+    // o commit "processando → recebido" do worker cai logo depois da 1ª transação da recusa (a leitura sem trava do envio)
+    const db = depoisDaPrimeiraTransacao(app.db, async () => {
+      pdf = await arquivoDeEnvio(app.db, T.ctx, p.id, 'exame', dataDir);
+      await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.update(examSubmissions).set({ status: 'recebido', arquivoPath: pdf }).where(eq(examSubmissions.id, id)), app.db);
+    });
+    await recusarEnvio(T.ctx, id, { motivo: 'ilegivel', texto: '' }, { db, dataDir });
+    expect(pdf).not.toBe('');
+    expect(await ler(id)).toMatchObject({ status: 'recusado', motivoRecusa: 'ilegivel', arquivoPath: null });
+    expect(existsSync(resolverCaminho(dataDir, pdf))).toBe(false);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, pdf)), app.db)).toEqual([]);
+    expect(await bytes()).toBe(inicial);
   });
 
   it('US-164 "Outro motivo": texto obrigatório de 1 a 300 — "Escreva o motivo para o paciente"; motivo fora da lista → "Escolha o motivo."', async () => {
