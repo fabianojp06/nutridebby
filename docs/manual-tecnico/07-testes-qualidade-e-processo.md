@@ -56,7 +56,7 @@ os valores entre parênteses "10A" abaixo.
 | Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
 | Telas do painel no axe | 43 `page.tsx` em `src/app/painel` + `/conta/seguranca`; 10A: 45 + `/conta/seguranca` | `ROTAS_DO_PAINEL`, `e2e/painel-rotas.ts`; guarda `src/app/painel/rotas-axe.test.ts:8` |
 | Telas do portal no axe | 10 rotas fixas + telas avulsas | `ROTAS`, `e2e/acessibilidade.spec.ts:50` |
-| Imagem Docker | 255 MB comprimida (limite 260 MB) | Job `image`, `.github/workflows/ci.yml:106`; valor do Plano 08 |
+| Imagem Docker | 256 MB comprimida na `main` 7ada357 (limite 260 MB); o Plano 11 soma ~7 MB (`pdf-lib`, `@anthropic-ai/sdk`) e o Dockerfile poda ~5 MB deles — o valor do branch sai do job `image` do PR | Job `image`, `.github/workflows/ci.yml:106`; run 37483326880 |
 | Commits na `main` | 414, desde 27/09/2026; 10A: 470 | `git log --oneline \| wc -l` |
 
 ---
@@ -461,7 +461,7 @@ Comentários com `eslint-disable` existem e explicam o motivo na mesma linha (ex
 | `quality` | 15 min | `pnpm install --frozen-lockfile`, `lint`, `typecheck` | Node 24, cache do pnpm |
 | `test` | 15 min | instala `rclone`, `pnpm test` | Inclui todas as guardas; Testcontainers usa o Docker do runner |
 | `e2e` | 20 min | serviços `postgres:16-alpine` e `axllent/mailpit:v1.27`; `playwright install chromium`, `db:migrate`, `e2e:seed`, `build`, `test:e2e` | `NODE_ENV=production`, `CI=true`, `WHATSAPP_SANDBOX=1`, `EMAIL_TRANSPORT=mailpit`; relatório do Playwright como artefato na falha |
-| `image` | 20 min | `docker build` (cache do GHA) e o orçamento | A imagem comprimida tem de caber em **260 MB** (`set -euo pipefail`, MB arredondado para cima) |
+| `image` | 20 min | `docker build` (cache do GHA), o orçamento e o teste de fumaça da IA | A imagem comprimida tem de caber em **260 MB** (`set -euo pipefail`, MB arredondado para cima); depois, `node --import tsx` na imagem, sem rede, prepara um PDF (thread do `pdf-lib`) e cria o cliente do SDK — confere a poda do Dockerfile |
 
 Variáveis do job `e2e` (só nomes): `NODE_ENV`, `APP_URL`, `DATABASE_URL`, `DATABASE_URL_MIGRATOR`, `AUTH_SECRET`,
 `ENCRYPTION_KEY`, `TRUSTED_PROXIES`, `EMAIL_FROM`, `EMAIL_TRANSPORT`, `MAILPIT_URL`, `FILE_URL_SECRET`, `DATA_DIR`,
@@ -473,7 +473,9 @@ Quando o `ci.yml` é chamado pelo deploy, o cancelamento fica desligado: o deplo
 
 **Por que 260 MB.** O GHCR gratuito tem 500 MB e o deploy mantém duas versões (a nova e a que está rodando).
 O `@sentry/node` v11 trazia ~6 MB de plugins de bundler sem uso; o `pnpm-workspace.yaml` poda o
-`@sentry/bundler-plugins` por `overrides` (decisão do dono no Plano 08, Tarefa 2).
+`@sentry/bundler-plugins` por `overrides` (decisão do dono no Plano 08, Tarefa 2). No Plano 11, o estágio `build` do
+Dockerfile apaga do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (bundles de navegador e ES, fontes TS,
+declarações de tipo e source maps, ~5 MB comprimidos); se a versão mudar o caminho, o build para.
 
 ### `deploy.yml` (push na `main`)
 

@@ -21,6 +21,17 @@ ENV APP_URL=http://build.invalid \
     TURNSTILE_SITE_KEY=build-only \
     TURNSTILE_SECRET_KEY=build-only
 RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
+# Plano 11 (revisão final; orçamento de 260 MB do job image): o pdf-lib e o SDK da Anthropic só rodam no worker — o
+# pdf-lib pelo `main` (cjs/) e o SDK pelo `exports` (.mjs/.js na raiz). Saem os bundles de navegador e ES do pdf-lib
+# (dist/, es/), os fontes TS (src/, ts3.4/), as declarações de tipo e os source maps (~5 MB comprimidos). Se o caminho
+# mudar (versão nova), o `find` falha e o build para. O job image confere que o worker ainda os carrega na imagem.
+RUN set -eu; \
+    for d in node_modules/.pnpm/pdf-lib@*/node_modules/pdf-lib; do \
+      rm -rf "$d/dist" "$d/es" "$d/src" "$d/ts3.4"; find "$d" \( -name '*.map' -o -name '*.d.ts' \) -delete; \
+    done; \
+    for d in node_modules/.pnpm/@anthropic-ai+sdk@*/node_modules/@anthropic-ai/sdk; do \
+      rm -rf "$d/src"; find "$d" \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.mts' \) -delete; \
+    done
 
 FROM base AS runner
 ENV NODE_ENV=production PORT=3000
