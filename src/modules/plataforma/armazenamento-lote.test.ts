@@ -84,4 +84,20 @@ describe('salvarArquivos (DEP-09 reduzida: o lote do envio do paciente, tudo ou 
     await expect(salvarArquivos(ctx, { tipo: 'exame_original', conteudos: [JPEG_MINIMO], permitidos: ['jpg'], patientId: outro.id }, { db: app.db, dataDir })).rejects.toThrow();
     expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.patientId, p.id)), app.db)).toEqual([]);
   });
+
+  it('as invariantes da regra 9 são as do salvarArquivo (núcleo comum): SVG nunca, .tmp que limparTmpOrfaos varre, disco antes da reserva', async () => {
+    const { T, p, ctx } = await cenario();
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    await expect(salvarArquivos(ctx, { tipo: 'exame_original', conteudos: [JPEG_MINIMO, svg], permitidos: ['jpg', 'svg'], patientId: p.id }, { db: app.db, dataDir })).rejects.toBeInstanceOf(TipoNaoPermitidoError);
+    const antes = await bytes(T.tenantId);
+    let naReserva: { arquivos: string[]; bytes: number } | undefined;
+    const r = await salvarArquivos(ctx, {
+      tipo: 'exame_original', conteudos: [JPEG_MINIMO, PDF_MINIMO], permitidos: ['jpg', 'pdf'], patientId: p.id,
+      antesDaReserva: async () => void (naReserva = { arquivos: noDisco(T.tenantId), bytes: await bytes(T.tenantId) }),
+    }, { db: app.db, dataDir });
+    expect(naReserva!.arquivos).toHaveLength(2);
+    expect(naReserva!.arquivos.every((f) => /\.\d+\.tmp$/.test(f))).toBe(true);
+    expect(naReserva!.bytes).toBe(antes);
+    expect(noDisco(T.tenantId).sort()).toEqual(r.map((a) => path.basename(a.caminho)).sort());
+  });
 });

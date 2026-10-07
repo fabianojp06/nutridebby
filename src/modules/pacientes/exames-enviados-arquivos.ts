@@ -2,8 +2,8 @@ import { and, eq, notInArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { examSubmissionFiles, examSubmissions } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { logger } from '@/lib/logger';
-import { apagarArquivo } from '@/modules/plataforma/armazenamento';
+import { logger, nomeDoErro } from '@/lib/logger';
+import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento';
 
 type Papel = 'original' | 'pagina';
 
@@ -15,6 +15,16 @@ type Papel = 'original' | 'pagina';
 const PODE_SAIR: Record<Papel, (status: string, refazer: boolean) => boolean> = {
   original: (s) => s !== 'processando',
   pagina: (s, refazer) => (refazer ? s === 'processando' : s !== 'processando' && s !== 'recebido'),
+};
+
+/**
+ * Para o aviso de falha (revisão da T2): o código do erro (SQLSTATE, ENOENT…) ou, sem código, o nome da classe — nunca a
+ * mensagem, que leva caminho, SQL ou parâmetros (RNF-11). Distingue um erro determinístico (42501, TypeError), que a
+ * varredura vai repetir, de um passageiro (40P01, 55P03).
+ */
+const codigoDoErro = (err: unknown): string => {
+  const motivo = motivoDoErro(err);
+  return motivo !== 'erro' ? motivo : nomeDoErro(err);
 };
 
 /**
@@ -49,7 +59,11 @@ export async function apagarArquivosDoEnvio(
   if (!lido) return 0;
   const situacaoTravada = async (tx: Tx) => (await tx.select({ status: examSubmissions.status }).from(examSubmissions).where(eq(examSubmissions.id, envioId)).for('update'))[0]?.status;
   let n = 0;
-  let falhas = 0;
+  const codigos: string[] = [];
+  const falhou = (err: unknown) => {
+    codigos.push(codigoDoErro(err));
+    return false;
+  };
   for (const a of lido.arquivos) {
     const papel = a.papel as Papel;
     if (!PODE_SAIR[papel](lido.status, refazer)) continue;
@@ -60,10 +74,7 @@ export async function apagarArquivosDoEnvio(
         const s = await situacaoTravada(tx);
         return s !== undefined && PODE_SAIR[papel](s, refazer);
       },
-    }).catch(() => {
-      falhas++;
-      return false;
-    });
+    }).catch(falhou);
     if (ok) n++;
   }
   if (!deps.papel && lido.pdf && lido.status !== 'recebido' && lido.status !== 'processando') {
@@ -79,12 +90,13 @@ export async function apagarArquivosDoEnvio(
             .where(and(eq(examSubmissions.id, envioId), eq(examSubmissions.arquivoPath, pdf), notInArray(examSubmissions.status, ['processando', 'recebido'])))
             .returning({ id: examSubmissions.id })
         ).length > 0,
-    }).catch(() => {
-      falhas++;
-      return false;
-    });
+    }).catch(falhou);
     if (ok) n++;
   }
-  if (falhas) logger.warn({ tenantId: ctx.tenantId, envioId, falhas, motivo: 'arquivo_do_envio' }, 'arquivo do envio não apagado (a varredura tenta de novo)');
+  if (codigos.length)
+    logger.warn(
+      { tenantId: ctx.tenantId, envioId, falhas: codigos.length, codigos: [...new Set(codigos)], motivo: 'arquivo_do_envio' },
+      'arquivo do envio não apagado (a varredura tenta de novo)',
+    );
   return n;
 }

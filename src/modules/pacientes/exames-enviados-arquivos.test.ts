@@ -1,15 +1,23 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { arquivoDeEnvio, envioNoBanco, envioRecebido } from '../../../test/exames-enviados';
 import { examSubmissionFiles, examSubmissions, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { resolverCaminho } from '@/modules/plataforma/armazenamento';
+import { logger } from '@/lib/logger';
+import { apagarArquivo, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { apagarArquivosDoEnvio } from './exames-enviados-arquivos';
+
+// O apagarArquivo de verdade, embrulhado só para um caso forçar a falha de um arquivo
+vi.mock('@/modules/plataforma/armazenamento', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/armazenamento')>();
+  return { ...real, apagarArquivo: vi.fn(real.apagarArquivo) };
+});
+afterEach(() => vi.restoreAllMocks());
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-envio-arq-'));
@@ -77,5 +85,23 @@ describe('apagarArquivosDoEnvio (regra 9: um apagarArquivo por arquivo, ponteiro
     await withTenant(T.ctx, (tx) => tx.update(examSubmissions).set({ status: 'aceito', arquivoPath: null, revisadoPor: T.nutriId, revisadoEm: new Date() }).where(eq(examSubmissions.id, e.id)), app.db);
     expect(await apagarArquivosDoEnvio(T.ctx, e.id, deps)).toBe(3);
     expect(existsSync(resolverCaminho(dataDir, e.pdf))).toBe(true);
+  });
+
+  it('um arquivo que falha não para os outros; o aviso leva o código de cada falha, nunca a mensagem (RNF-11)', async () => {
+    const { T, p } = await cenario();
+    const e = await envioRecebido(app.db, T.ctx, p.id, dataDir, { paginas: 3 });
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.update(examSubmissions).set({ status: 'cancelado' }).where(eq(examSubmissions.id, e.id)), app.db);
+    const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    vi.mocked(apagarArquivo)
+      .mockRejectedValueOnce(Object.assign(new Error(`permission denied ${e.paginas[0]}`), { code: '42501' }))
+      .mockRejectedValueOnce(new TypeError(`sem código ${e.paginas[1]}`));
+    expect(await apagarArquivosDoEnvio(worker(T.tenantId), e.id, deps)).toBe(2); // a 3ª página e o PDF limpo
+    expect(aviso).toHaveBeenCalledTimes(1);
+    const [campos, msg] = aviso.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(campos).toEqual({ tenantId: T.tenantId, envioId: e.id, falhas: 2, codigos: ['42501', 'TypeError'], motivo: 'arquivo_do_envio' });
+    for (const c of e.paginas) expect(JSON.stringify([campos, msg])).not.toContain(c);
+    expect(await linhas(T.ctx, e.id)).toHaveLength(2); // as duas que falharam ficam para a varredura
+    expect(await apagarArquivosDoEnvio(worker(T.tenantId), e.id, deps)).toBe(2);
+    expect(aviso).toHaveBeenCalledTimes(1);
   });
 });
