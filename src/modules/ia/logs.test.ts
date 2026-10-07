@@ -68,8 +68,10 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
     expect(filtrarEvento({ tags: { fila: 'ia', motivo: MARCADOR } }).tags).toEqual({ fila: 'ia' });
   });
 
-  it('o pino tira apiKey, parametros e resultado de qualquer objeto logado', async () => {
+  it('o pino tira apiKey, x-api-key, parametros e resultado de qualquer objeto logado', async () => {
     const { redactPaths } = await import('@/lib/logger');
     for (const chave of ['apiKey', 'parametros', 'resultado']) expect(redactPaths()).toContain(chave);
+    // chave com hífen: o fast-redact só aceita com colchetes (o comportamento é provado em src/lib/logger.test.ts)
+    expect(redactPaths()).toEqual(expect.arrayContaining(['["x-api-key"]', '*["x-api-key"]', '*.*["x-api-key"]']));
   });
 });

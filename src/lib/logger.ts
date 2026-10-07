@@ -15,13 +15,22 @@ const REDACT_KEYS = [
   'authorization',
   // Plano 11 (spec da IA §5.7): defesa extra — a chave do provedor e o conteúdo de ia_tarefas nunca vão para o log
   'apiKey',
+  'x-api-key',
   'parametros',
   'resultado',
 ] as const;
 
+/** Segmento de path do fast-redact: chave com hífen (x-api-key) só vale com colchetes. */
+function segmento(key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `["${key}"]`;
+}
+
 /** Paths para o `redact` do pino: cada chave nos níveis 0, 1 e 2, mais casos fixos de headers. */
 export function redactPaths(): string[] {
-  const paths = REDACT_KEYS.flatMap((key) => [key, `*.${key}`, `*.*.${key}`]);
+  const paths = REDACT_KEYS.flatMap((key) => {
+    const s = segmento(key);
+    return [s.startsWith('.') ? key : s, `*${s}`, `*.*${s}`];
+  });
   return [...paths, 'req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'];
 }
 
