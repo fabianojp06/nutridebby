@@ -6355,3 +6355,13 @@ Achados Minor da revisão do plano que não valeram o texto nesta versão; entra
 - **Frase de ajuda em `/p/exames`** (achado 11): revisão pela nutricionista, 90 dias, apagamento na recusa e no cancelamento — com texto aprovado na spec (regra 4), depois do advogado.
 - **Teste tautológico da R-170** (achado 21): `Object.keys(r.paginas[0])` confere o objeto que o próprio pai monta. Trocar por uma asserção real (por exemplo, um filho falso que manda uma mensagem fora de `pagina`/`fim`/`recusa` e o pai recusa) ou renomear o teste.
 - **Acessibilidade de `/p/exames`** (achado 23): mostrar a lista dos arquivos escolhidos, na ordem, com a contagem (texto novo, regra 4); no seed do E2E, um envio "recebido" e um "recusado" para o paciente do axe, para conferir as situações, as mensagens e o botão "Cancelar envio" (RNF-167).
+
+## Resultado da entrega
+
+- **Em produção desde 08/10/2026** — PR #25 (merge `3b59c38`), deploy conferido (migrations 0101–0103 aplicadas, app e worker no ar, `/api/health` 200). O envio de exames entra **desligado** em cada consultório (D18); o uso com pacientes reais depende do P12-15 (textos e advogado).
+- **14 tarefas** no modo misto: T1–T13 do plano e a **T14** (sessão da equipe por inatividade, R-D3: 30 min sem uso, aviso 2 min antes, limite de 8 h, cookie da equipe sem `Max-Age`), acrescentada pelo dono durante a execução.
+- **Decisões do dono durante a execução** (ledger `rulings-dono.md`): R-D1 (CI não roda test/e2e/image em mudança só de documentação — economia de minutos do Actions), R-D2 (páginas do PDF por arquivo temporário), R-D3 (T14), R-D4 (PDF ao processo filho por arquivo; tetos de memória 256 MiB no filho e 400 MiB no job, container de 1 GiB), R-D5 (alinhamento da documentação).
+- **Revisões:** revisão por tarefa (achados corrigidos na T2, T7, T10, T11 e T14), revisão final do branch (5 lentes + verificação: 1 Important — foco do "Continuar conectada"), `/code-review high` (1 achado nota 100 — arquivos do envio só em `recebido` — e o ciclo de travas com o SET NULL da FK, nota 75, ambos corrigidos com teste), re-revisão limpa e `/security-review` sem vulnerabilidades (117 arquivos lidos por inteiro).
+- **Números:** 2.757 testes, E2E do caminho completo; memória do pior caso 270–310 MiB de 400 (filho ≤ 177 de 256); imagem Docker 260 MB (limite 265).
+- **Abertos no backlog:** P12-15 (liberação para uso real), P12-16 a P12-24 (pontos menores das revisões).
+
