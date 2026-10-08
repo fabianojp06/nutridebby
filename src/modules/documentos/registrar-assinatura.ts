@@ -2,12 +2,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
 import { signedDocuments, type TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
-import type { TipoAssinatura } from './constantes';
+import type { TipoAssinatura, TipoDocumento } from './constantes';
 import { entregarDocumento } from './entrega';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { CopiaProfissional } from './perfil-profissional';
-import type { ConteudoReceita } from './prescricao';
-import { registrarVerificacao } from './verificacao';
+import type { ConteudoDocumento } from './parecer';
+import { mudarSituacao, registrarVerificacao } from './verificacao';
 
 /**
  * D23 (Plano 10A): a parte da assinatura que a rota (envio) e o WORKER (digitalizada) compartilham. Este arquivo não
@@ -45,9 +45,11 @@ export const fotosLidas = (fotos: readonly string[]) => sql`${signedDocuments.di
 /**
  * Minor 9 da revisão de segurança: a habilitação em Fitoterapia é conferida ao salvar e ao preparar (T5) e de novo AO
  * ASSINAR — retirada entre o preparo e o envio, o fitoterápico formulado não é assinado. Quem chama passa o tenant lido
- * na sessão do envio (a digitalizada no envio das fotos; o 10B no envio do PDF assinado).
+ * na sessão do envio (a digitalizada no envio das fotos; o 10B no envio do PDF assinado). Plano 13: só a receita tem
+ * itens; o parecer (e o conteúdo '{}' de um anonimizado) passa direto.
  */
-export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegistro'>, conteudo: ConteudoReceita): void {
+export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegistro'>, conteudo: ConteudoDocumento): void {
+  if (conteudo.tipo !== 'receita') return;
   if (!tenant.fitoterapiaRegistro && conteudo.itens.some((i) => i.tipo === 'fitoterapico')) throw new RecusaAssinaturaError('sem_habilitacao', 'habilitacao_retirada');
 }
 
@@ -69,12 +71,28 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
       digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: a.agora,
     })
     .where(and(eq(signedDocuments.id, a.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, a.versao.codigo), daVersao))
-    .returning({ id: signedDocuments.id });
+    .returning({ id: signedDocuments.id, tipo: signedDocuments.tipo, retificaId: signedDocuments.retificaId });
   if (!r.length) throw new TransicaoInvalidaError(); // outra versão no meio (ou já assinado): o salvarArquivo desfaz tudo
   await registrarVerificacao(tx, {
-    codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: 'receita', assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
+    codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: r[0].tipo as TipoDocumento, assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
     emissorCrn: a.copia.crn, assinanteNome: a.tipo === 'digitalizada' ? null : a.assinanteNome, assinaturaTipo: a.tipo, pdfSha256: a.sha256,
   });
+  // RN-146 (Plano 13): a versão nova assinada substitui a original NA MESMA TRANSAÇÃO — só se ela ainda está "assinado"
+  // (senão a assinatura inteira volta: o salvarArquivo desfaz tudo). O gatilho só deixa com esta já "assinado" (0105). A
+  // original já está travada desde o antesDaReserva (travarDocumentoAntesDaCota com `original: true`: paciente → original →
+  // versão nova → tenant).
+  // Q13-3 ★: o paciente recebe só o e-mail de documento novo da entrega abaixo, sem um "documento atualizado".
+  // O `!s.length` é defesa em profundidade: pelos caminhos legais a original não sai de "assinado" com esta retificação em
+  // andamento (o cancelamento recusa e só esta pode substituí-la — gatilhos da 0105), então não há teste que o alcance.
+  if (r[0].retificaId) {
+    const s = await tx
+      .update(signedDocuments)
+      .set({ status: 'substituido', substituidoEm: a.agora, updatedAt: a.agora })
+      .where(and(eq(signedDocuments.id, r[0].retificaId), eq(signedDocuments.status, 'assinado')))
+      .returning({ id: signedDocuments.id });
+    if (!s.length) throw new TransicaoInvalidaError();
+    await mudarSituacao(tx, r[0].retificaId, 'substituido', a.agora);
+  }
   // RN-152/RN-153: a entrega na mesma transação; `entregue_em` só quando houve entrega de fato (Minor da revisão de
   // cobertura): arquivado → 'nenhuma' e a lista não mostra "Enviado em …" (só "Entregue pessoalmente", se marcado)
   const via = await entregarDocumento(tx, { tenantId: a.tenantId, patientId: a.patientId, documentoId: a.documentoId, agora: a.agora, appUrl: a.appUrl });

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { requirePaciente } from '@/lib/paciente-session';
-import { linhaDaAssinatura } from '@/modules/documentos/constantes';
+import { linhaDaAssinatura, rotuloDaVersao, TIPO_DOCUMENTO_COM_ARTIGO } from '@/modules/documentos/constantes';
 import { documentosDoPaciente, MSG_PORTAL_DOC } from '@/modules/documentos/portal';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { confirmarRecebimentoAction } from './actions';
@@ -23,7 +23,7 @@ export default async function MeusDocumentos() {
       <ul className="space-y-4">
         {lista.map((d) => (
           <li key={d.id} className="space-y-2 rounded-2xl border border-borda bg-cartao p-4">
-            <h2 className="font-semibold">{`${d.titulo} · ${data(d.data)}`}</h2>
+            <h2 className="font-semibold">{`${d.titulo} · ${data(d.data)}${d.versao > 1 ? ` · ${rotuloDaVersao(d.versao)}` : ''}`}</h2>
             <p className="text-sm text-suave">{linhaDaAssinatura(d.assinaturaTipo)}</p>
             {d.status === 'substituido' && <p>{MSG_PORTAL_DOC.substituido}</p>}
             {d.status === 'cancelado' && (
@@ -33,7 +33,7 @@ export default async function MeusDocumentos() {
             )}
             {/* texto da spec ("Abrir PDF"); o complemento só para leitor de tela distingue os links da lista */}
             <a href={`/api/p/documentos/${d.id}/pdf`} className="inline-flex min-h-11 items-center underline">
-              Abrir PDF<span className="sr-only">{` da ${d.titulo.toLowerCase()} de ${data(d.data)}`}</span>
+              Abrir PDF<span className="sr-only">{` ${TIPO_DOCUMENTO_COM_ARTIGO[d.tipo]} de ${data(d.data)}`}</span>
             </a>
             {d.status === 'assinado' &&
               (d.recebidoEm ? (

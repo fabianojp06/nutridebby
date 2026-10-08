@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
+import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
 import { codigoAleatorio, tenantLivreEnquantoEsperaODocumento } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
@@ -173,5 +174,64 @@ describe('PDF preparado (US-143)', () => {
     expect(d).toEqual({ status: 'assinado', base_pdf_path: null, pdf_path: assinado });
     const arquivos = (await withTenant(T.ctx, (tx) => tx.execute(sql`select caminho from stored_files`), app.db)).rows;
     expect(arquivos).toEqual([{ caminho: assinado }]);
+  });
+});
+
+const IA_ID = randomUUID();
+const parecer = {
+  versao: 1, tipo: 'parecer', avaliacao: 'Marcadores compatíveis com baixa reserva de ferro.', conduta: '', encaminhamentos: 'Sugiro avaliação médica.',
+  exames: [
+    { id: randomUUID(), data: '2026-09-01', titulo: 'Hemograma', valores: [{ nome: 'Hemoglobina', valor: 13.5, unidade: 'g/dL', referencia: '12 a 16', iaTarefaId: IA_ID }] },
+    { id: randomUUID(), data: '2026-08-20', titulo: 'Perfil lipídico', valores: [], enviadoPeloPaciente: true },
+  ],
+  copia: conteudo.copia,
+};
+
+describe('PDF do parecer (US-141, RN-148, D5)', () => {
+  it('título, exames com a tabela ou "(laudo no prontuário, sem valores lançados)", avaliação, encaminhamentos e a ressalva; sem conduta vazia, sem a origem da IA (Q13-2 ★)', async () => {
+    const pdf = await renderizarDocumento({ conteudo: parecer as never, codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', data: '01/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby' });
+    const t = textoDoPdf(pdf);
+    for (const trecho of ['Parecer nutricional', 'Paciente: Ana Souza', 'Data de emissão: 01/10/2026', 'Exames considerados', 'Hemograma', '01/09/2026',
+      'Hemoglobina · 13,5 · g/dL · 12 a 16', '(laudo no prontuário, sem valores lançados)', 'Avaliação nutricional', 'Marcadores compatíveis com baixa reserva de ferro.',
+      'Encaminhamentos', 'Sugiro avaliação médica.', 'Este parecer trata do estado nutricional', 'não constitui diagnóstico de doença',
+      'Assinatura digital', 'Código de verificação: ABCD-EFGH-JKMN'])
+      expect(t, trecho).toContain(trecho); // trechos curtos: uma linha quebrada pelo react-pdf perde o espaço no textoDoPdf
+    expect(t).not.toContain('Conduta e orientações');
+    expect(t).not.toContain(IA_ID); // a origem fica só na cópia (Q13-2 ★)
+    expect(t).not.toContain('Receita');
+  });
+
+  it('versão nova (copia.retificacao): "Versão 2" e o código da versão anterior abaixo do título (Q13-5 ★, NGS1.01.01)', async () => {
+    const pdf = await renderizarDocumento({
+      conteudo: { ...parecer, copia: { ...conteudo.copia, retificacao: { versao: 2, substitui: 'ABCDEFGHJKMN' } } } as never,
+      codigo: 'NMKJHGFEDCBA', urlVerificacao: 'https://x/v/NMKJHGFEDCBA', data: '02/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby',
+    });
+    const t = textoDoPdf(pdf);
+    expect(t).toContain('Versão 2');
+    expect(t).toContain('substitui o documento ABCD-EFGH-JKMN');
+  });
+
+  it('exame grande (50 linhas longas, MAX_LINHAS de exames.ts) quebra entre páginas sem perder linha nem invadir o rodapé (revisão do plano)', async () => {
+    const valores = Array.from({ length: 50 }, (_, i) => ({ nome: `Marcador ${i + 1} ${'x'.repeat(60)}`, valor: i + 1, unidade: 'mg/dL', referencia: `${'y'.repeat(70)} ${i + 1}` }));
+    const grande = { ...parecer, exames: [{ id: randomUUID(), data: '2026-09-01', titulo: 'Painel extenso', valores }] };
+    const pdf = await renderizarDocumento({ conteudo: grande as never, codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', data: '01/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby' });
+    expect(paginasDoPdf(pdf)).toBeGreaterThanOrEqual(2);
+    const t = textoDoPdf(pdf);
+    expect(t).toContain('Marcador 1 ');
+    expect(t).toContain('Marcador 50');
+    expect(t).toContain('Código de verificação: ABCD-EFGH-JKMN');
+  });
+
+  it('o job gera o PDF do parecer em preparo e leva a "Aguardando assinatura"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = randomUUID();
+    await withTenant(T.ctx, (tx) => tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, status, codigo, conteudo, declaracao_em, pdf_status, pdf_pedido_em)
+      values (${id}, ${T.tenantId}, ${p.id}, 'parecer', 'preparando', ${codigoAleatorio()}, ${JSON.stringify(parecer)}::jsonb, now(), 'pendente', now())`), app.db);
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));
+    expect(await gerarPdfDoDocumento({ tenantId: T.tenantId, documentoId: id }, { db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('pronto');
+    const [d] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select status, base_pdf_path from signed_documents where id = ${id}`), app.db)).rows as { status: string; base_pdf_path: string }[];
+    expect(d.status).toBe('aguardando_assinatura');
+    expect(textoDoPdf(await readFile(path.join(dataDir, d.base_pdf_path)))).toContain('Parecer nutricional');
   });
 });

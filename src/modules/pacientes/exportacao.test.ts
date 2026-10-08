@@ -843,7 +843,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
 
     // a equipe recebe também o rascunho, com a justificativa (D15)
     const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
-    expect(equipe.dados.documentos.map((x) => [x.situacao, x.justificativaDeUso])).toEqual([['Assinado', null], ['Rascunho', 'J do rascunho']]);
+    expect(equipe.dados.documentos.map((x) => [x.situacao, 'justificativaDeUso' in x ? x.justificativaDeUso : undefined])).toEqual([['Assinado', null], ['Rascunho', 'J do rascunho']]);
     expect(equipe.laudos.filter((l) => l.tipo === 'documento').map((l) => l.caminho)).toEqual([d.pdfPath]);
   });
 

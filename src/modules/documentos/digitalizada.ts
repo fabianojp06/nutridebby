@@ -14,7 +14,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { envioEmCurso, MAX_PIXELS_FOTO } from './constantes';
 import { DocumentoNaoEncontradoError, MSG_RECUSA, RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
-import type { ConteudoReceita } from './prescricao';
+import type { ConteudoDocumento } from './parecer';
 import { exigirHabilitacaoAtual, type AcessoAssinatura, type DepsAssinar } from './registrar-assinatura';
 
 export const MAX_FOTOS = 5;
@@ -56,7 +56,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     if (d.status !== 'aguardando_assinatura' || !d.codigo || envioEmCurso(d, agora)) throw new TransicaoInvalidaError();
     const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId));
     if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new PacienteBloqueadoError();
-    return { patientId: d.patientId, codigo: d.codigo, conteudo: d.conteudo as ConteudoReceita };
+    return { patientId: d.patientId, codigo: d.codigo, conteudo: d.conteudo as ConteudoDocumento };
   }, db);
   exigirHabilitacaoAtual(a.tenant, lida.conteudo);
   const r = await (deps.confirmar2fa ?? ((e) => confirmarCodigo2fa(e, { db })))({ userId: a.user.id, codigo: codigo2fa, headers: deps.headers });
@@ -92,7 +92,8 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     for (const img of imagens) {
       await salvarArquivo(a.ctx, {
         tipo: 'documento_digitalizado', conteudo: img, permitidos: ['jpg', 'png'], patientId: lida.patientId,
-        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, docId), // documento → tenant (I2 do PR #19)
+        // paciente → versão nova → tenant (P13-16 a): a original não muda com as fotos
+        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, { id: docId, patientId: lida.patientId }, { original: false, recusa: () => new PacienteBloqueadoError() }),
         registrar: async (tx, arq) => {
           const ok = await tx
             .update(signedDocuments)

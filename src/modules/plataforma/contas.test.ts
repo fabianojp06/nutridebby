@@ -12,7 +12,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
-import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite } from './contas';
+import { ContaError, CONTAS_POR_PAGINA, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
 
@@ -217,7 +217,7 @@ describe('listarContas', () => {
   it('mostra o estado do convite: pendente, expirado e aceito', async () => {
     const x = s();
     const r = await criarContaNutri({ nomeExibicao: 'Lista', email: `lista-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `lista-${x}` }, deps);
-    const achar = async (quando: Date) => (await listarContas(app.db, quando)).find((c) => c.tenantId === r.tenantId)!;
+    const achar = async (quando: Date) => (await listarContas(app.db, quando, { busca: `lista-${x}` })).contas.find((c) => c.tenantId === r.tenantId)!;
     expect(await achar(now)).toMatchObject({ convite: 'pendente', email: `lista-${x}@exemplo.com`, status: 'ativa', slug: `lista-${x}` });
     expect((await achar(new Date('2026-10-05T00:00:00Z'))).convite).toBe('expirado');
     await app.db.insert(account).values({ id: randomUUID(), userId: r.userId, accountId: r.userId, providerId: 'credential', password: 'x' });
@@ -228,10 +228,67 @@ describe('listarContas', () => {
   it('traz a base do CS-03 e o início do uso (D15) como número e "AAAA-MM-DD"', async () => {
     const x = s();
     const r = await criarContaNutri({ nomeExibicao: 'Métricas', email: `met-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `met-${x}` }, deps);
-    const achar = async () => (await listarContas(app.db, now)).find((c) => c.tenantId === r.tenantId)!;
+    const achar = async () => (await listarContas(app.db, now, { busca: `met-${x}` })).contas.find((c) => c.tenantId === r.tenantId)!;
     expect(await achar()).toMatchObject({ taxaFaltasBase: null, goLiveEm: null });
     await app.db.update(tenants).set({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' }).where(eq(tenants.id, r.tenantId));
     expect(await achar()).toMatchObject({ taxaFaltasBase: 18.5, goLiveEm: '2026-10-01' });
+  });
+});
+
+describe('P09-07: páginas e busca da lista de consultórios', () => {
+  /** Cinco consultórios com o mesmo marcador no nome e no slug e `created_at` em segundos seguidos; devolve os ids do mais novo ao mais antigo. */
+  async function cinco() {
+    const marca = `p097${s()}`;
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const [t] = await app.db.insert(tenants).values({ slug: `${marca}-${i}`, nomeExibicao: `Consultório ${marca} ${i}`, createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)) }).returning({ id: tenants.id });
+      ids.push(t.id);
+    }
+    return { marca, ids: ids.reverse() };
+  }
+  const ids = (p: { contas: { tenantId: string }[] }) => p.contas.map((c) => c.tenantId);
+
+  it('cursor: "Próxima" até o fim e "Anterior" de volta, sem repetir nem pular (created_at desc, id desc), com duas nutricionistas no mesmo consultório', async () => {
+    const { marca, ids: t } = await cinco();
+    // revisão do plano: nada impede duas usuárias 'nutri' no mesmo consultório (o seed do E2E cria três); uma linha por consultório
+    for (const n of [1, 2]) await app.db.insert(user).values({ name: `Nutri ${n}`, email: `${marca}-${n}@teste.local`, appRole: 'nutri', tenantId: t[2] });
+    expect(ids(await listarContas(app.db, now, { busca: `${marca}-2@teste.local` }))).toEqual([t[2]]);
+    const p1 = await listarContas(app.db, now, { busca: marca, limite: 2 });
+    expect(ids(p1)).toEqual(t.slice(0, 2));
+    expect(p1).toMatchObject({ anterior: null, proxima: t[1] });
+    const p2 = await listarContas(app.db, now, { busca: marca, depois: p1.proxima, limite: 2 });
+    expect(ids(p2)).toEqual(t.slice(2, 4));
+    expect(p2).toMatchObject({ anterior: t[2], proxima: t[3] });
+    const p3 = await listarContas(app.db, now, { busca: marca, depois: p2.proxima, limite: 2 });
+    expect(ids(p3)).toEqual([t[4]]);
+    expect(p3).toMatchObject({ anterior: t[4], proxima: null });
+    const volta = await listarContas(app.db, now, { busca: marca, antes: p3.anterior, limite: 2 });
+    expect(ids(volta)).toEqual(t.slice(2, 4));
+    expect(volta).toMatchObject({ anterior: t[2], proxima: t[3] });
+    const inicio = await listarContas(app.db, now, { busca: marca, antes: volta.anterior, limite: 2 });
+    expect(ids(inicio)).toEqual(t.slice(0, 2));
+    expect(inicio).toMatchObject({ anterior: null, proxima: t[1] });
+  });
+
+  it('busca por nome, endereço (slug) ou e-mail, sem diferenciar maiúsculas; % e _ são literais; até 100 caracteres; só espaços = sem busca', async () => {
+    const { marca, ids: t } = await cinco();
+    // a parte ASCII em maiúsculas (o lower() do Postgres em collation C não troca o Ó)
+    expect(ids(await listarContas(app.db, now, { busca: `consultório ${marca.toUpperCase()} 3` }))).toEqual([t[1]]);
+    expect(ids(await listarContas(app.db, now, { busca: `${marca}-0` }))).toEqual([t[4]]);
+    const N = await novoTenant(app.db);
+    const [u] = await app.db.select({ email: user.email }).from(user).where(eq(user.tenantId, N.tenantId));
+    expect(ids(await listarContas(app.db, now, { busca: u.email.toUpperCase() }))).toEqual([N.tenantId]);
+    expect((await listarContas(app.db, now, { busca: `${marca}%` })).contas).toEqual([]);
+    expect((await listarContas(app.db, now, { busca: `${marca}_0` })).contas).toEqual([]);
+    expect((await listarContas(app.db, now, { busca: `${marca}${'x'.repeat(200)}` })).busca).toHaveLength(100);
+    expect((await listarContas(app.db, now, { busca: '   ' })).busca).toBe('');
+  });
+
+  it('cursor que não é uuid ou de consultório inexistente = primeira página; a página nunca passa de 50', async () => {
+    const { marca, ids: t } = await cinco();
+    expect(ids(await listarContas(app.db, now, { busca: marca, depois: "x' or 1=1 --", limite: 2 }))).toEqual(t.slice(0, 2));
+    expect(ids(await listarContas(app.db, now, { busca: marca, depois: randomUUID(), limite: 2 }))).toEqual(t.slice(0, 2));
+    expect((await listarContas(app.db, now)).contas.length).toBeLessThanOrEqual(CONTAS_POR_PAGINA);
   });
 });
 
@@ -239,7 +296,7 @@ describe('definirDocumentosLiberados (D20, Plano 10A)', () => {
   it('nasce bloqueado; o admin libera e bloqueia de novo; a lista mostra; conta inexistente → ContaNaoEncontradaError', async () => {
     const x = s();
     const r = await criarContaNutri({ nomeExibicao: 'Documentos', email: `doc-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `doc-${x}` }, deps);
-    const achar = async () => (await listarContas(app.db, now)).find((c) => c.tenantId === r.tenantId)!;
+    const achar = async () => (await listarContas(app.db, now, { busca: `doc-${x}` })).contas.find((c) => c.tenantId === r.tenantId)!;
     expect((await achar()).documentosLiberados).toBe(false);
     await definirDocumentosLiberados(app.db, r.tenantId, true, randomUUID());
     expect((await achar()).documentosLiberados).toBe(true);
@@ -286,6 +343,7 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
   it('listarContas mostra IA liberada, ativada e a cota', async () => {
     const T = await novoTenant(app.db);
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID());
-    expect((await listarContas(app.db)).find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
+    const [t] = await app.db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
   });
 });

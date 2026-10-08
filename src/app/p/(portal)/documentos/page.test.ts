@@ -18,7 +18,9 @@ const { documentosDoPaciente } = await import('@/modules/documentos/portal');
 
 const doc = (o: Partial<DocumentoNoPortal>): DocumentoNoPortal => ({
   id: '00000000-0000-4000-8000-0000000000d1',
+  tipo: 'receita',
   titulo: 'Receita',
+  versao: 1,
   data: new Date('2026-10-05T02:00:00Z'), // 04/10 em São Paulo
   status: 'assinado',
   assinaturaTipo: 'digitalizada',
@@ -47,6 +49,17 @@ describe('/p/documentos (US-146)', () => {
     expect(html).toContain('href="/api/p/documentos/00000000-0000-4000-8000-0000000000d1/pdf"');
     expect(html).toContain('Abrir PDF<span class="sr-only"> da receita de 04/10/2026</span>');
     expect(html).toContain('Confirmo que recebi este documento');
+  });
+
+  it('Plano 13: o parecer e a versão ("Parecer nutricional · 04/10/2026 · Versão 2") e o leitor de tela com o artigo certo', async () => {
+    lista.splice(0, lista.length, doc({ tipo: 'parecer', titulo: 'Parecer nutricional', versao: 2 }));
+    const html = await render();
+    expect(html).toContain('Parecer nutricional · 04/10/2026 · Versão 2');
+    expect(html).toContain('Abrir PDF<span class="sr-only"> do parecer nutricional de 04/10/2026</span>');
+    lista.splice(0, lista.length, doc({}));
+    const receita = await render();
+    expect(receita).toContain('Receita · 04/10/2026<'); // versão 1: sem "Versão"
+    expect(receita).toContain('Abrir PDF<span class="sr-only"> da receita de 04/10/2026</span>');
   });
 
   it('confirmado: "Recebimento confirmado em dd/mm/aaaa." e o botão some; cancelado e substituído mostram o aviso e nunca o botão', async () => {

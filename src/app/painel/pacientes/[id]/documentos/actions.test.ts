@@ -5,6 +5,7 @@ import { tenants } from '@/db/schema';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
 import { criarReceita, lerDocumento } from '@/modules/documentos/documentos';
+import { criarExame } from '@/modules/pacientes/exames';
 import { documentoNoBanco } from '../../../../../../test/documentos';
 import { nutriComDpa } from '../../../../../../test/nutri';
 import { novoPaciente } from '../../../../../../test/pacientes';
@@ -25,7 +26,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, cancelarAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, reenviarLinkAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, cancelarAction, criarParecerAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, reenviarLinkAction, retificarAction, salvarParecerAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -139,5 +140,61 @@ describe('"Preparar para assinatura" prepara o que está na tela (revisão da T6
     const id = await criarReceita(N.ctx, p.id, { db });
     expect(await prepararAction(p.id, id, {}, formulario({ itens: [vitD('50')], justificativa: 'Exposição solar baixa' }))).toEqual({ erros: { declaracao: 'Confirme a declaração para continuar.' } });
     expect((await lerDocumento(N.ctx, p.id, id, db))?.status).toBe('rascunho');
+  });
+});
+
+describe('parecer nutricional pelas ações (US-141)', () => {
+  const editor = (o: { exameIds: string[]; avaliacao: string; declaracao?: boolean }) => {
+    const f = new FormData();
+    f.set('conteudo', JSON.stringify({ exameIds: o.exameIds, avaliacao: o.avaliacao }));
+    if (o.declaracao) f.set('declaracao', 'on');
+    return f;
+  };
+  const exame = (ctx: Parameters<typeof criarExame>[0], patientId: string) =>
+    criarExame(ctx, { fuso: 'America/Sao_Paulo' }, patientId, { titulo: 'Hemograma', data: '2026-09-01', valores: [{ nome: 'Hemoglobina', valor: '13,5', unidade: 'g/dL', referencia: '12 a 16' }], arquivo: null }, { db, now: new Date('2026-10-01T15:00:00Z') });
+
+  it('"Novo parecer nutricional" abre o rascunho; o erro de exame alheio e o do preparo voltam ao campo; com exame e avaliação, prepara', async () => {
+    const { N, p } = await consultorio();
+    const destino = await criarParecerAction(p.id).catch((e: Error) => e.message);
+    expect(destino).toMatch(new RegExp(`^redirect /painel/pacientes/${p.id}/documentos/[0-9a-f-]{36}$`));
+    const id = String(destino).split('/').at(-1)!;
+    const outro = await novoPaciente(db, N.ctx);
+    expect(await salvarParecerAction(p.id, id, {}, editor({ exameIds: [await exame(N.ctx, outro.id)], avaliacao: 'x' }))).toEqual({ erros: { exames: 'Um dos exames selecionados foi excluído. Revise a seleção.' } });
+    expect(await prepararParecerAction(p.id, id, {}, editor({ exameIds: [], avaliacao: 'x', declaracao: true }))).toEqual({ erros: { exames: 'Selecione ao menos um exame.' } });
+    revalidatePath.mockClear();
+    expect(await prepararParecerAction(p.id, id, {}, editor({ exameIds: [await exame(N.ctx, p.id)], avaliacao: 'Baixa reserva de ferro.', declaracao: true }))).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.status).toBe('preparando');
+  });
+
+  it('paciente bloqueado: "Novo parecer nutricional" volta para a lista com ?bloqueado=1', async () => {
+    const { N } = await consultorio();
+    const b = await novoPaciente(db, N.ctx, { status: 'bloqueado' });
+    await expect(criarParecerAction(b.id)).rejects.toThrow(`redirect /painel/pacientes/${b.id}/documentos?bloqueado=1`);
+  });
+});
+
+describe('retificar pelas ações (US-148, US-149)', () => {
+  it('"Retificar" abre a versão nova (ou a que já existe); "Cancelar documento" com ela em andamento devolve o texto da US-149; preparar sem motivo, o erro do campo', async () => {
+    const { N, p } = await consultorio();
+    const v1 = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    const destino = await retificarAction(p.id, v1.id, {}).catch((e: Error) => e.message);
+    expect(destino).toMatch(new RegExp(`^redirect /painel/pacientes/${p.id}/documentos/[0-9a-f-]{36}$`));
+    await expect(retificarAction(p.id, v1.id, {})).rejects.toThrow(String(destino)); // uma por vez: a mesma
+    const motivo = new FormData();
+    motivo.set('motivo', 'Dose errada');
+    expect(await cancelarAction(p.id, v1.id, {}, motivo)).toEqual({ erros: { geral: 'Há uma retificação em andamento (versão 2). Conclua ou apague a retificação antes de cancelar.' } });
+    const v2 = String(destino).split('/').at(-1)!;
+    const f = formulario({ itens: [vitD('50')], justificativa: 'Exposição solar baixa', declaracao: true });
+    expect(await prepararAction(p.id, v2, {}, f)).toEqual({ erros: { motivoRetificacao: 'Escreva o motivo da retificação (até 500 caracteres).' } });
+    f.set('motivoRetificacao', 'Dose corrigida');
+    expect(await prepararAction(p.id, v2, {}, f)).toEqual({ ok: true });
+    expect(await lerDocumento(N.ctx, p.id, v2, db)).toMatchObject({ status: 'preparando', versao: 2, motivoRetificacao: 'Dose corrigida' });
+  });
+
+  it('"Retificar" de um documento que não é a versão em vigor: o motivo, sem redirecionar', async () => {
+    const { N, p } = await consultorio();
+    const cancelado = await documentoNoBanco(db, N.ctx, p.id, { status: 'cancelado' });
+    expect(await retificarAction(p.id, cancelado.id, {})).toEqual(MUDOU);
   });
 });

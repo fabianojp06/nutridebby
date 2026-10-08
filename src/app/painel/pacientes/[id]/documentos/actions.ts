@@ -2,13 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
+import type { TenantContext } from '@/db/tenant';
 import { requireNutri } from '@/lib/tenant-session';
 import { cancelarDocumento } from '@/modules/documentos/cancelamento';
-import { apagarRascunho, criarReceita, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoReceita, voltarAEditar } from '@/modules/documentos/documentos';
+import { apagarRascunho, criarParecer, criarReceita, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoParecer, salvarRascunhoReceita, voltarAEditar } from '@/modules/documentos/documentos';
 import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
 import { PerfilIncompletoError } from '@/modules/documentos/perfil-profissional';
 import { marcarEntreguePessoalmente } from '@/modules/documentos/recebimento';
+import { retificarDocumento } from '@/modules/documentos/retificacao';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
 export type EstadoForm = { erros?: Record<string, string>; ok?: boolean; perfilIncompleto?: boolean };
@@ -30,11 +32,12 @@ function comoEstado(e: unknown): EstadoForm {
   throw e;
 }
 
-export async function criarReceitaAction(patientId: string): Promise<void> {
+/** US-142 / US-141: "Nova receita" e "Novo parecer nutricional" abrem o rascunho; bloqueado volta à lista com o aviso. */
+async function criarDocumentoAction(patientId: string, criar: (ctx: TenantContext, patientId: string) => Promise<string>): Promise<void> {
   const { ctx } = await acesso(caminho(patientId));
   let id: string;
   try {
-    id = await criarReceita(ctx, patientId);
+    id = await criar(ctx, patientId);
   } catch (e) {
     if (e instanceof PacienteNaoEncontradoError) notFound();
     if (e instanceof PacienteBloqueadoError) redirect(`${caminho(patientId)}?bloqueado=1`);
@@ -43,10 +46,19 @@ export async function criarReceitaAction(patientId: string): Promise<void> {
   redirect(caminho(patientId, id));
 }
 
-/** O editor manda os itens e as orientações num campo só (JSON), e a justificativa à parte (D15 da spec). */
-function lerEditor(f: FormData): { conteudo: unknown; justificativa: unknown } | null {
+export async function criarReceitaAction(patientId: string): Promise<void> {
+  await criarDocumentoAction(patientId, (ctx, p) => criarReceita(ctx, p));
+}
+
+export async function criarParecerAction(patientId: string): Promise<void> {
+  await criarDocumentoAction(patientId, (ctx, p) => criarParecer(ctx, p));
+}
+
+/** O editor manda os itens e as orientações num campo só (JSON), a justificativa à parte (D15 da spec) e, numa retificação, o motivo (Q13-1 ★). */
+function lerEditor(f: FormData): { conteudo: unknown; justificativa: unknown; motivoRetificacao: unknown } | null {
   try {
-    return { conteudo: JSON.parse(String(f.get('conteudo') ?? '{}')), justificativa: f.get('justificativa') };
+    // ausente (versão 1: o campo não existe) = undefined, para o módulo não tocar no motivo
+    return { conteudo: JSON.parse(String(f.get('conteudo') ?? '{}')), justificativa: f.get('justificativa'), motivoRetificacao: f.has('motivoRetificacao') ? f.get('motivoRetificacao') : undefined };
   } catch {
     return null;
   }
@@ -94,6 +106,35 @@ export async function prepararAction(patientId: string, docId: string, _prev: Es
   if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
     await salvarRascunhoReceita(ctx, tenant, patientId, docId, editor);
+    await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
+}
+
+/** US-141 "Rascunho salvo." do parecer: o editor manda a seleção e os textos num campo só (JSON), como o da receita. */
+export async function salvarParecerAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
+  try {
+    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
+}
+
+/** US-141 + US-143: "Preparar para assinatura" do parecer grava o que está na tela (a cópia dos exames é refeita) e prepara. */
+export async function prepararParecerAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
+  const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
+  try {
+    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
     await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
   } catch (e) {
     return comoEstado(e);
@@ -161,4 +202,18 @@ export async function cancelarAction(patientId: string, docId: string, _prev: Es
   }
   revalidatePath(caminho(patientId), 'layout');
   return { ok: true };
+}
+
+/** US-148: "Retificar" abre a versão nova — ou a retificação que já está em andamento (uma por vez). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- o estado anterior do useActionState (AcaoDocumento) não é usado
+export async function retificarAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  let id: string;
+  try {
+    id = await retificarDocumento(ctx, patientId, docId);
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  redirect(caminho(patientId, id));
 }

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
@@ -5,20 +6,25 @@ import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_RECEITA, envioEmCurso, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS } from '@/modules/documentos/constantes';
+import { DECLARACAO_PARECER, DECLARACAO_RECEITA, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
+import { linhaDoValor, MSG_PARECER, rotuloDoExame } from '@/modules/documentos/parecer';
+import { situacaoDosExames } from '@/modules/documentos/parecer-exames';
 import { descreverItem } from '@/modules/documentos/prescricao';
+import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
-import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
+import { apagarRascunhoAction, pedirNovoPdfAction, retificarAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
+import { AvisoDoExame } from './aviso-exame';
 import { Cancelar } from './cancelar';
 import { Entrega } from './entrega';
 import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
+import { ParecerForm } from './parecer-form';
 import { ReceitaForm } from './receita-form';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +41,15 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const habilitada = !!tenant.fitoterapiaRegistro;
   // RN-140 (c): o emitido anonimizado tem conteudo '{}' e nenhum PDF — a página mostra só a situação (correção do /code-review high do PR #18)
   const anonimizado = !!d.anonimizadoEm;
+  // Plano 13: o conteúdo é da receita ou do parecer; o anonimizado tem conteudo '{}' (sem tipo)
+  const receita = d.conteudo.tipo === 'receita' ? d.conteudo : null;
+  const parecer = d.conteudo.tipo === 'parecer' ? d.conteudo : null;
+  // US-141: a seleção do editor pela lista do prontuário (listarExames grava "Visualizou · Exames", regra 8)
+  const examesParaEscolher = parecer && d.status === 'rascunho' && !bloqueado
+    ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0, linhas: x.valores.map(linhaDoValor) }))
+    : [];
+  // RN-148 v0.5: o aviso de exame mudado/excluído só onde a nutricionista ainda age (aguardando → voltar a editar; assinado → retificar)
+  const situacao = parecer && !anonimizado && (d.status === 'aguardando_assinatura' || d.status === 'assinado') ? await situacaoDosExames(ctx, paciente.id, parecer.exames) : {};
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…"), com o mesmo prazo
   // de 1 h do servidor; esquecido além dele, a página já pede as fotos de novo (Minor 7 da Etapa 3)
   const agora = new Date();
@@ -64,28 +79,40 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
     </>
   );
   const entregaAntes = d.status === 'cancelado' && !anonimizado ? situacaoDaEntrega(d, tenant.fuso) : '';
+  // Q13-1 ★: o campo do motivo só numa retificação (null = versão 1, sem o campo)
+  const motivo = d.retificaId ? (d.motivoRetificacao ?? '') : null;
   return (
     <section aria-labelledby="documento" className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 id="documento" className="text-lg font-semibold">Receita</h2>
+        <h2 id="documento" className="text-lg font-semibold">{TIPO_DOCUMENTO_ROTULO[d.tipo]}</h2>
         <Selo>{ROTULO_STATUS[d.status]}</Selo>
         {d.codigo && d.status !== 'rascunho' && <span className="text-sm text-suave">{`Código de verificação: ${formatarCodigo(d.codigo)}`}</span>}
       </div>
+      {/* Q13-5 ★ / NGS1.01.01: a versão nova diz qual ela substitui; o motivo (Q13-1 ★) fica só no prontuário */}
+      {d.versoes.anterior?.codigo && <p className="text-sm text-suave">{linhaDaVersao(d.versao, formatarCodigo(d.versoes.anterior.codigo))}</p>}
+      {d.status !== 'rascunho' && d.motivoRetificacao && <p className="text-sm text-suave">{`Motivo da retificação (só no prontuário): ${d.motivoRetificacao}`}</p>}
 
       {anonimizado && <Aviso tipo="aviso">Documento anonimizado.</Aviso>}
 
-      {d.status === 'rascunho' && !bloqueado && (
+      {d.status === 'rascunho' && !bloqueado && receita && (
         <>
           {/* o preparo é um botão do mesmo formulário: envia o que está na tela (revisão da T6) */}
-          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={d.conteudo} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} />
+          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} motivo={motivo} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
 
-      {d.status !== 'rascunho' && !anonimizado && (
+      {d.status === 'rascunho' && !bloqueado && parecer && (
+        <>
+          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={DECLARACAO_PARECER} motivo={motivo} />
+          <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
+        </>
+      )}
+
+      {d.status !== 'rascunho' && !anonimizado && receita && (
         <Cartao id="itens-receita" titulo="Itens da receita">
           <ol className="list-decimal space-y-2 pl-5">
-            {(d.conteudo.itens ?? []).map((it, i) => {
+            {receita.itens.map((it, i) => {
               const x = descreverItem(it);
               return (
                 <li key={i}>
@@ -95,9 +122,44 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
               );
             })}
           </ol>
-          {d.conteudo.orientacoes && <p className="mt-3">{d.conteudo.orientacoes}</p>}
+          {receita.orientacoes && <p className="mt-3">{receita.orientacoes}</p>}
           {d.justificativa && <p className="mt-3 text-sm text-suave">{`Justificativa de uso (fica no prontuário, não vai na receita): ${d.justificativa}`}</p>}
         </Cartao>
+      )}
+
+      {d.status !== 'rascunho' && !anonimizado && parecer && (
+        <>
+          <Cartao id="exames-parecer" titulo="Exames considerados">
+            <ul className="space-y-3">
+              {parecer.exames.map((x) => (
+                <li key={x.id} className="space-y-1">
+                  <p className="font-semibold">{rotuloDoExame(x)}</p>
+                  {x.valores.length === 0 ? (
+                    <p className="text-sm">{`(${MSG_PARECER.semValores})`}</p>
+                  ) : (
+                    <ul className="text-sm">{x.valores.map((v, i) => <li key={i}>{linhaDoValor(v)}</li>)}</ul>
+                  )}
+                  <AvisoDoExame situacao={situacao[x.id]} exame={x} />
+                </li>
+              ))}
+            </ul>
+          </Cartao>
+          <Cartao id="avaliacao-parecer" titulo="Avaliação nutricional">
+            <p className="whitespace-pre-line">{parecer.avaliacao}</p>
+            {parecer.conduta && (
+              <>
+                <h3 className="mt-3 font-semibold">Conduta e orientações</h3>
+                <p className="whitespace-pre-line">{parecer.conduta}</p>
+              </>
+            )}
+            {parecer.encaminhamentos && (
+              <>
+                <h3 className="mt-3 font-semibold">Encaminhamentos</h3>
+                <p className="whitespace-pre-line">{parecer.encaminhamentos}</p>
+              </>
+            )}
+          </Cartao>
+        </>
       )}
 
       {d.status === 'preparando' && (
@@ -143,6 +205,12 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {emitido}
           {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
           {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
+          {/* US-148: só a versão em vigor; com uma retificação em andamento, o botão abre a mesma (uma por vez) */}
+          {!bloqueado && (
+            <div className="mt-4" data-guia="retificar-documento">
+              <AcaoDocumento acao={retificarAction.bind(null, paciente.id, d.id)} rotulo="Retificar" secundario />
+            </div>
+          )}
           {/* US-149 / RN-147: só de "assinado", com o paciente não bloqueado (o bloqueado é só leitura) */}
           {!bloqueado && <Cancelar patientId={paciente.id} docId={d.id} confirmacao={MSG_CANCELAMENTO.confirmacao} />}
         </Cartao>
@@ -161,6 +229,18 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
               <p>{entregaAntes}</p>
             </section>
           )}
+        </Cartao>
+      )}
+
+      {d.status === 'substituido' && (
+        <Cartao id="documento-substituido" titulo="Documento substituído">
+          {d.substituidoEm && d.versoes.seguinte && <p>{`Substituído em ${dataHora(d.substituidoEm, tenant.fuso).split(' às ')[0]} pela versão ${d.versoes.seguinte.versao}.`}</p>}
+          {d.versoes.seguinte && (
+            <Link href={`/painel/pacientes/${paciente.id}/documentos/${d.versoes.seguinte.id}`} className="inline-flex min-h-11 items-center text-link underline">
+              {`Abrir a versão ${d.versoes.seguinte.versao}`}
+            </Link>
+          )}
+          {emitido}
         </Cartao>
       )}
     </section>

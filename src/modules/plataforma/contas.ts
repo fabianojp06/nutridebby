@@ -136,23 +136,64 @@ export type ContaResumo = {
   iaCotaMensalUsd: number;
 };
 
-/** Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. */
-export async function listarContas(db: Db = getDb(), now: Date = new Date()): Promise<ContaResumo[]> {
-  const r = await db.execute<{
-    tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
-    created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
-    taxa_faltas_base: string | null; go_live_em: string | null; documentos_liberados: boolean;
-    ia_liberada: boolean; ia_ativada: boolean; ia_cota_mensal_usd: string;
-  }>(sql`
+/** P09-07: 50 consultórios por página; a busca vai até 100 caracteres. */
+export const CONTAS_POR_PAGINA = 50;
+export const BUSCA_CONTAS_MAX = 100;
+/** `depois`/`antes`: o id do último/primeiro consultório da página vista ("Próxima"/"Anterior"); `limite` só nos testes. */
+export type FiltroContas = { busca?: unknown; depois?: unknown; antes?: unknown; limite?: number };
+export type PaginaDeContas = { contas: ContaResumo[]; anterior: string | null; proxima: string | null; busca: string };
+
+type LinhaConta = {
+  tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
+  created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
+  taxa_faltas_base: string | null; go_live_em: string | null; documentos_liberados: boolean;
+  ia_liberada: boolean; ia_ativada: boolean; ia_cota_mensal_usd: string;
+};
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const cursor = (v: unknown): string | null => (typeof v === 'string' && UUID_RE.test(v) ? v : null);
+
+/**
+ * Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. P09-07 (Plano 13): por páginas de
+ * 50, com cursor = o id de um consultório (a comparação `(created_at, id)` usa a linha dele no banco, sem perder os
+ * microssegundos do `created_at` no JavaScript) e busca por nome de exibição, slug ou e-mail da nutricionista, sem
+ * diferenciar maiúsculas — por `position()`, então `%` e `_` são literais (sem LIKE). Cursor inválido ou de consultório
+ * que não existe = primeira página.
+ */
+export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: FiltroContas = {}): Promise<PaginaDeContas> {
+  const busca = typeof f.busca === 'string' ? f.busca.trim().slice(0, BUSCA_CONTAS_MAX) : '';
+  const antes = cursor(f.antes);
+  const depois = antes ? null : cursor(f.depois);
+  const limite = f.limite ?? CONTAS_POR_PAGINA;
+  // o e-mail de QUALQUER nutricionista do consultório entra na busca (exists), sem repetir o consultório
+  const filtroBusca = busca
+    ? sql`and (position(lower(${busca}) in lower(t.nome_exibicao || ' ' || t.slug)) > 0
+           or exists (select 1 from "user" ub where ub.tenant_id = t.id and ub.app_role = 'nutri' and position(lower(${busca}) in lower(ub.email::text)) > 0))`
+    : sql``;
+  const filtroCursor = depois
+    ? sql`and (t.created_at, t.id) < (select c.created_at, c.id from tenants c where c.id = ${depois}::uuid)`
+    : antes
+      ? sql`and (t.created_at, t.id) > (select c.created_at, c.id from tenants c where c.id = ${antes}::uuid)`
+      : sql``;
+  const ordem = antes ? sql`order by t.created_at asc, t.id asc` : sql`order by t.created_at desc, t.id desc`;
+  const r = await db.execute<LinhaConta>(sql`
     select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
            t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
            t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd,
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
-      left join "user" u on u.tenant_id = t.id and u.app_role = 'nutri'
-     order by t.created_at desc`);
-  return r.rows.map((row) => {
+      -- uma linha por consultório (revisão do plano): com duas usuárias 'nutri' no mesmo tenant, o join simples repetiria o
+      -- consultório, o limit contaria linhas e o cursor (created_at, id) pularia as outras linhas dele na "Próxima"
+      left join lateral (select u1.id, u1.email from "user" u1 where u1.tenant_id = t.id and u1.app_role = 'nutri'
+                          order by u1.created_at, u1.id limit 1) u on true
+     where true ${filtroBusca} ${filtroCursor}
+     ${ordem}
+     limit ${limite + 1}`);
+  if ((depois || antes) && !r.rows.length) return listarContas(db, now, { busca, limite: f.limite });
+  const temMais = r.rows.length > limite;
+  const linhas = r.rows.slice(0, limite);
+  if (antes) linhas.reverse();
+  const contas = linhas.map((row): ContaResumo => {
     const expira = row.convite_expira ? new Date(row.convite_expira) : null;
     const convite = row.tem_senha ? 'aceito' : !expira ? 'sem_convite' : expira.getTime() > now.getTime() ? 'pendente' : 'expirado';
     return {
@@ -163,6 +204,15 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date()): Pr
       iaLiberada: row.ia_liberada, iaAtivada: row.ia_ativada, iaCotaMensalUsd: Number(row.ia_cota_mensal_usd),
     };
   });
+  const primeira = contas[0]?.tenantId ?? null;
+  const ultima = contas.at(-1)?.tenantId ?? null;
+  return {
+    contas,
+    busca,
+    // voltando ("Anterior"), há sempre a página de onde se veio; indo, há anterior se chegou por um cursor
+    anterior: antes ? (temMais ? primeira : null) : depois ? primeira : null,
+    proxima: antes ? ultima : temMais ? ultima : null,
+  };
 }
 
 /** D20 (Plano 10A): o admin libera os documentos assinados do consultório só depois da liberação para uso real. */

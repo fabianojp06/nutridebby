@@ -5,7 +5,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../test/db';
-import { codigoAleatorio, documentoNoBanco } from '../../test/documentos';
+import { codigoAleatorio, documentoNoBanco, retificacaoAssinadaNoBanco } from '../../test/documentos';
 import { novoPaciente, novoTenant } from '../../test/pacientes';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { withTenant, type TenantContext } from './tenant';
@@ -134,7 +134,7 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     expect((await linha(T.ctx, d.id)).status).toBe('cancelado');
   });
 
-  it('substituído (D2 ★, testado por SQL): assinado → substituido só com substituido_em; depois só solta o base e as fotos', async () => {
+  it('substituído (RN-146, testado por SQL): assinado → substituido só com substituido_em e a retificação assinada; depois só solta o base e as fotos', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'preparando' });
@@ -150,6 +150,9 @@ describe('app_documento_imutavel (RN-140, RN-141, CS-141)', () => {
     await expect(q(sql`update signed_documents set status = 'substituido' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda')); // sem substituido_em
     await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now(), conteudo = '{"x":1}' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda'));
     await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now(), cancelado_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento assinado não muda'));
+    // Plano 13 (0105, RN-146): a substituição só passa com uma retificação desta já assinada
+    await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('substituição só com a retificação assinada'));
+    await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: d.id, versao: 1 }, { substituir: false });
     await q(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}`);
 
     await expect(q(sql`update signed_documents set conteudo = '{"x":1}' where id = ${d.id}`)).rejects.toSatisfy(negadoPor('documento emitido não muda'));

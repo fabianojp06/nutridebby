@@ -2,11 +2,12 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import QRCode from 'qrcode';
 import { paraWinAnsi as w } from '@/modules/pacientes/prontuario-pdf';
 import { formatarCodigo } from './codigo';
-import { AREA_ASSINATURA as A } from './constantes';
+import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER, TIPO_DOCUMENTO_ROTULO } from './constantes';
+import { CABECALHO_VALORES, linhaDoValor, MSG_PARECER, rotuloDoExame, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
 
-/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). */
-export type DadosPdfDocumento = { conteudo: ConteudoReceita; codigo: string; urlVerificacao: string; data: string; cor: string; logo: Buffer | null; nomeConsultorio: string };
+/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). Plano 13: a receita e o parecer. */
+export type DadosPdfDocumento = { conteudo: ConteudoDocumento; codigo: string; urlVerificacao: string; data: string; cor: string; logo: Buffer | null; nomeConsultorio: string };
 
 const ALTURA_RODAPE = 150; // o quadro (y1 62 → y2 132) + a faixa do código; o conteúdo nunca passa por baixo
 const s = StyleSheet.create({
@@ -16,36 +17,96 @@ const s = StyleSheet.create({
   titulo: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 6 },
   item: { marginTop: 8 },
   itemTitulo: { fontFamily: 'Helvetica-Bold' },
+  secao: { marginTop: 12, fontFamily: 'Helvetica-Bold' },
+  cabecalho: { fontSize: 8, color: '#666666' },
+  ressalva: { marginTop: 14, fontSize: 9, fontFamily: 'Helvetica-Oblique' },
   carimbo: { marginTop: 18, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#999999' },
   quadro: { position: 'absolute', left: A.x1, bottom: A.y1, width: A.x2 - A.x1, height: A.y2 - A.y1, borderWidth: 1, borderColor: '#999999', borderStyle: 'dashed' },
   rodape: { position: 'absolute', left: 36, right: 36, bottom: 16, flexDirection: 'row', alignItems: 'center' },
 });
 
-function Receita({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
+function CorpoReceita({ c }: { c: ConteudoReceita }) {
+  return (
+    <>
+      {c.itens.map((it, i) => {
+        const x = descreverItem(it);
+        return (
+          <View key={i} style={s.item} wrap={false}>
+            <Text style={s.itemTitulo}>{w(`${i + 1}. ${x.titulo}`)}</Text>
+            {x.linhas.map((l) => <Text key={l}>{w(l)}</Text>)}
+          </View>
+        );
+      })}
+      {c.orientacoes ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+    </>
+  );
+}
+
+/**
+ * US-141 v0.5 (PDF proposto): "Exames considerados" com a cópia congelada (RN-148) — por exame, "{título} — dd/mm/aaaa" e a
+ * tabela, ou "(laudo no prontuário, sem valores lançados)"; a origem dos valores NÃO sai aqui (Q13-2 ★); depois a avaliação,
+ * a conduta e os encaminhamentos (se houver) e a ressalva fixa da D5.
+ */
+function CorpoParecer({ c }: { c: ConteudoParecer }) {
+  return (
+    <>
+      <Text style={s.secao}>Exames considerados</Text>
+      {/* Revisão do plano: um exame tem até 50 linhas (exames.ts, MAX_LINHAS) e passa da altura útil (842 − 36 − ALTURA_RODAPE).
+          wrap={false} no exame inteiro faria o react-pdf desenhar o bloco numa página só, por cima do quadro "Assinatura digital"
+          e do rodapé. Como no plano-pdf.tsx: o título não fica sozinho no fim da página (minPresenceAhead) e só cada linha é
+          indivisível. */}
+      {c.exames.map((e) => (
+        <View key={e.id} style={s.item}>
+          <Text style={s.itemTitulo} minPresenceAhead={28}>{w(rotuloDoExame(e))}</Text>
+          {e.valores.length === 0 ? (
+            <Text wrap={false}>{w(`(${MSG_PARECER.semValores})`)}</Text>
+          ) : (
+            <>
+              <Text style={s.cabecalho} minPresenceAhead={14}>{w(CABECALHO_VALORES)}</Text>
+              {e.valores.map((v, i) => <Text key={i} wrap={false}>{w(linhaDoValor(v))}</Text>)}
+            </>
+          )}
+        </View>
+      ))}
+      <Text style={s.secao}>Avaliação nutricional</Text>
+      <Text>{w(c.avaliacao)}</Text>
+      {c.conduta ? (
+        <>
+          <Text style={s.secao}>Conduta e orientações</Text>
+          <Text>{w(c.conduta)}</Text>
+        </>
+      ) : null}
+      {c.encaminhamentos ? (
+        <>
+          <Text style={s.secao}>Encaminhamentos</Text>
+          <Text>{w(c.encaminhamentos)}</Text>
+        </>
+      ) : null}
+      <Text style={s.ressalva}>{w(RESSALVA_PARECER)}</Text>
+    </>
+  );
+}
+
+function Documento({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
   const c = d.conteudo;
   const p = c.copia!.profissional;
+  const titulo = TIPO_DOCUMENTO_ROTULO[c.tipo];
+  const retificacao = c.copia!.retificacao;
   const carimbo = [p.nomeCompleto, 'Nutricionista', p.crn, p.email, p.telefone].join(' · ');
   return (
-    <Document title="Receita" author={p.nomeCompleto} creator="NutriDebby" producer="NutriDebby">
+    <Document title={titulo} author={p.nomeCompleto} creator="NutriDebby" producer="NutriDebby">
       <Page size="A4" style={s.pagina}>
         <View style={[s.topo, { borderBottomColor: d.cor }]}>
           <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 12 }}>{w(d.nomeConsultorio)}</Text>
           {/* eslint-disable-next-line jsx-a11y/alt-text -- o Image do @react-pdf não é <img> */}
           {d.logo && <Image style={s.logo} src={{ data: d.logo, format: 'png' }} />}
         </View>
-        <Text style={s.titulo}>Receita</Text>
+        <Text style={s.titulo}>{w(titulo)}</Text>
+        {/* Q13-5 ★ / NGS1.01.01: a versão nova diz qual documento ela substitui */}
+        {retificacao ? <Text>{w(linhaDaVersao(retificacao.versao, formatarCodigo(retificacao.substitui)))}</Text> : null}
         <Text>{w(`Paciente: ${c.copia!.paciente.nome}`)}</Text>
         <Text>{`Data de emissão: ${d.data}`}</Text>
-        {c.itens.map((it, i) => {
-          const x = descreverItem(it);
-          return (
-            <View key={i} style={s.item} wrap={false}>
-              <Text style={s.itemTitulo}>{w(`${i + 1}. ${x.titulo}`)}</Text>
-              {x.linhas.map((l) => <Text key={l}>{w(l)}</Text>)}
-            </View>
-          );
-        })}
-        {c.orientacoes ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+        {c.tipo === 'parecer' ? <CorpoParecer c={c} /> : <CorpoReceita c={c} />}
         <View style={s.carimbo} wrap={false}>
           <Text>{w(carimbo)}</Text>
           {p.endereco ? <Text>{w(p.endereco)}</Text> : null}
@@ -66,5 +127,5 @@ function Receita({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
 
 export async function renderizarDocumento(d: DadosPdfDocumento): Promise<Buffer> {
   const qr = await QRCode.toBuffer(d.urlVerificacao, { errorCorrectionLevel: 'M', margin: 1, width: 240 });
-  return renderToBuffer(<Receita d={d} qr={qr} />);
+  return renderToBuffer(<Documento d={d} qr={qr} />);
 }

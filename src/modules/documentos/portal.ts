@@ -4,7 +4,7 @@ import { patients, signedDocumentReceipts, signedDocuments, tenants } from '@/db
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
-import type { TipoAssinatura } from './constantes';
+import { TIPO_DOCUMENTO_ROTULO, type TipoAssinatura, type TipoDocumento } from './constantes';
 import { registrarRecibo } from './recebimento';
 
 /** US-146 (texto exato da spec v0.3). */
@@ -15,9 +15,12 @@ export const MSG_PORTAL_DOC = {
   confirmar: 'Confirmo que recebi este documento',
 } as const;
 
+/** US-146 v0.5: título pelo tipo e a versão (Q13-5 ★); nunca exames, valores, avaliação, itens ou orientações (D17 do 10A). */
 export type DocumentoNoPortal = {
   id: string;
-  titulo: 'Receita';
+  tipo: TipoDocumento;
+  titulo: string;
+  versao: number;
   data: Date;
   status: 'assinado' | 'substituido' | 'cancelado';
   assinaturaTipo: TipoAssinatura;
@@ -48,7 +51,10 @@ export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb())
     async (tx) => {
       if (!(await ativo(tx, ctx))) return [];
       const ds = await tx
-        .select({ id: signedDocuments.id, status: signedDocuments.status, assinadoEm: signedDocuments.assinadoEm, assinaturaTipo: signedDocuments.assinaturaTipo })
+        .select({
+          id: signedDocuments.id, tipo: signedDocuments.tipo, versao: signedDocuments.versao, status: signedDocuments.status,
+          assinadoEm: signedDocuments.assinadoEm, assinaturaTipo: signedDocuments.assinaturaTipo,
+        })
         .from(signedDocuments)
         .where(and(eq(signedDocuments.patientId, ctx.patientId!), isNull(signedDocuments.anonimizadoEm)))
         .orderBy(desc(signedDocuments.assinadoEm));
@@ -60,7 +66,9 @@ export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb())
         : [];
       return ds.map((d) => ({
         id: d.id,
-        titulo: 'Receita' as const,
+        tipo: d.tipo as TipoDocumento,
+        titulo: TIPO_DOCUMENTO_ROTULO[d.tipo as TipoDocumento],
+        versao: d.versao,
         data: d.assinadoEm!,
         status: d.status as DocumentoNoPortal['status'],
         assinaturaTipo: d.assinaturaTipo as TipoAssinatura,

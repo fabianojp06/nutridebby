@@ -14,14 +14,14 @@ const restricao = (nome: string) => (e: unknown) => causa(e).constraint === nome
 const negadoRls = (e: unknown) => causa(e).code === '42501';
 
 describe('tabelas de documentos assinados (§10 da spec v0.3)', () => {
-  it('CHECKs: código só fora do rascunho e no formato Crockford; emitido sem PDF recusado; tipo só receita no Plano 10A', async () => {
+  it('CHECKs: código só fora do rascunho e no formato Crockford; emitido sem PDF recusado; tipo só receita e parecer (Plano 13)', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const q = (s: ReturnType<typeof sql>) => withTenant(T.ctx, (tx) => tx.execute(s), app.db);
     await expect(q(sql`insert into signed_documents (tenant_id, patient_id, codigo) values (${T.tenantId}, ${p.id}, 'ABCDEFGHJKMN')`)).rejects.toSatisfy(restricao('signed_documents_codigo_so_fora_do_rascunho'));
     await expect(q(sql`insert into signed_documents (tenant_id, patient_id, status, codigo) values (${T.tenantId}, ${p.id}, 'preparando', 'ABCDEFGHIJKL')`)).rejects.toSatisfy(restricao('signed_documents_codigo_formato'));
     await expect(q(sql`insert into signed_documents (tenant_id, patient_id, status, codigo) values (${T.tenantId}, ${p.id}, 'assinado', 'ABCDEFGHJKMN')`)).rejects.toSatisfy(restricao('signed_documents_emitido_com_pdf'));
-    await expect(q(sql`insert into signed_documents (tenant_id, patient_id, tipo) values (${T.tenantId}, ${p.id}, 'parecer')`)).rejects.toSatisfy(restricao('signed_documents_tipo_valido'));
+    await expect(q(sql`insert into signed_documents (tenant_id, patient_id, tipo) values (${T.tenantId}, ${p.id}, 'atestado')`)).rejects.toSatisfy(restricao('signed_documents_tipo_valido'));
     // Plano 10A: só a digitalizada existe; o Plano 10B amplia o CHECK para 'govbr' e 'icp'
     await expect(q(sql`insert into signed_documents (tenant_id, patient_id, assinatura_tipo) values (${T.tenantId}, ${p.id}, 'govbr')`)).rejects.toSatisfy(restricao('signed_documents_assinatura_tipo_valida'));
   });
