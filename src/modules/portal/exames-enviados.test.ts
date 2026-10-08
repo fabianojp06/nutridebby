@@ -14,7 +14,7 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { MSG_ENVIO } from '@/modules/pacientes/exames-enviados-constantes';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
-import { cancelarMeuEnvio, classificarArquivos, enviarExame, EnvioError, meusEnvios, pdfDoMeuEnvio } from './exames-enviados';
+import { cancelarMeuEnvio, classificarArquivos, enviarExame, EnvioError, meusEnvios, pdfDoMeuEnvio, temEnvioVisivel } from './exames-enviados';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-envio-pac-'));
@@ -217,5 +217,25 @@ describe('envio de exame pelo paciente (US-160, US-161, RN-160 a RN-162, RN-166,
     const outro = await novoPaciente(app.db, T.ctx);
     const doOutro = await envioRecebido(app.db, T.ctx, outro.id, dataDir);
     expect((await erroDe(cancelarMeuEnvio(ctx, doOutro.id, { db: app.db, soConferir: true }))).status).toBe(404);
+  });
+});
+
+describe('temEnvioVisivel (Plano 16, RN-192)', () => {
+  it('false sem envio ou só com cancelado; true com qualquer outro; nunca enxerga o envio de outro paciente', async () => {
+    const T = await novoTenant(app.db);
+    const [p, outro] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    expect(await temEnvioVisivel(ctx, app.db)).toBe(false);
+    await envioNoBanco(app.db, T.ctx, outro.id, { status: 'recebido' });
+    expect(await temEnvioVisivel(ctx, app.db)).toBe(false);
+    await envioNoBanco(app.db, T.ctx, p.id, { status: 'cancelado' });
+    expect(await temEnvioVisivel(ctx, app.db)).toBe(false);
+    await envioNoBanco(app.db, T.ctx, p.id, { status: 'recusado', motivoRecusa: 'ilegivel', revisadoPor: T.nutriId });
+    expect(await temEnvioVisivel(ctx, app.db)).toBe(true);
+  });
+
+  it('só em sessão de paciente', async () => {
+    const T = await novoTenant(app.db);
+    await expect(temEnvioVisivel(T.ctx, app.db)).rejects.toThrow(/sessão de paciente/);
   });
 });

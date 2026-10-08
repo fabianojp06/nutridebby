@@ -263,3 +263,17 @@ export async function cancelarMeuEnvio(
     deps.db ?? getDb(),
   );
 }
+
+/**
+ * Plano 16 (RN-192): o paciente da sessão tem envio não cancelado? Decide se a seção "Exames" aparece com o recebimento
+ * desligado. Só a existência — nenhum dado do envio sai daqui —, sem auditRead (como as contagens do painel).
+ */
+export async function temEnvioVisivel(ctx: TenantContext, db: Db = getDb()): Promise<boolean> {
+  const patientId = pacienteDaSessao(ctx, 'temEnvioVisivel');
+  const r = await withTenant(
+    ctx,
+    (tx) => tx.select({ id: examSubmissions.id }).from(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado'))).limit(1),
+    db,
+  );
+  return r.length > 0;
+}
