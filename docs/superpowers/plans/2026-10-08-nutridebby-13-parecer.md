@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Escrito em 08/10/2026** a partir da `main` @ `3b59c38` (Planos 01–12 em produção, migrations `0000`–`0103`) + `22aea8d` (spec de documentos assinados **v0.5**, só a parte do Plano 13), no worktree `nutridebby-plano13`, branch `plano-13-parecer`, pedido e aprovado pelo dono em 08/10/2026 ("siga" para o Plano 13; **D2 = (a)**: o parecer tem o mesmo nível de assinatura da receita enquanto o CRN-3 não responder, revisável para (b)). Relatório da preparação (fora do git): `.superpowers/sdd/2026-10-08-plano13-preparacao/spec.md`. Nenhuma linha de código de produto foi escrita; nada foi rodado em banco; nenhum banco de produção foi tocado. Os nomes de função, tabela, gatilho, rota e helper usados aqui foram conferidos no código da `main` (os que este plano cria estão em "Contratos entre tarefas"). **Correção de numeração:** a tarefa pedia migrations "a partir da 0103", mas a `0103_sessao_equipe_30min` já existe (Plano 12, P12-14): este plano usa **`0104`** (gerada) e **`0105`** (custom), como a spec v0.5 já registra. As perguntas Q13-1 a Q13-5 da spec ainda são do dono: o plano aplica as **recomendações** da spec (marcadas ★ em "Decisões do plano") e diz o que muda se o dono decidir diferente. Próximo passo: revisão do plano pelo dono (Q13-1 a Q13-5) e execução.
+> **Escrito em 08/10/2026** a partir da `main` @ `3b59c38` (Planos 01–12 em produção, migrations `0000`–`0103`) + `22aea8d` (spec de documentos assinados **v0.5**, só a parte do Plano 13), no worktree `nutridebby-plano13`, branch `plano-13-parecer`, pedido e aprovado pelo dono em 08/10/2026 ("siga" para o Plano 13; **D2 = (a)**: o parecer tem o mesmo nível de assinatura da receita enquanto o CRN-3 não responder, revisável para (b)). Relatório da preparação (fora do git): `.superpowers/sdd/2026-10-08-plano13-preparacao/spec.md`. Nenhuma linha de código de produto foi escrita; nada foi rodado em banco; nenhum banco de produção foi tocado. Os nomes de função, tabela, gatilho, rota e helper usados aqui foram conferidos no código da `main` (os que este plano cria estão em "Contratos entre tarefas"). **Correção de numeração:** a tarefa pedia migrations "a partir da 0103", mas a `0103_sessao_equipe_30min` já existe (Plano 12, P12-14): este plano usa **`0104`** (gerada) e **`0105`** (custom), como a spec v0.5 já registra. As perguntas Q13-1 a Q13-5 da spec ainda são do dono: o plano aplica as **recomendações** da spec (marcadas ★ em "Decisões do plano") e diz o que muda se o dono decidir diferente. Próximo passo: revisão do plano pelo dono (Q13-1 a Q13-6, seção "Decisões do dono") e execução. **Revisto em 08/10/2026** pela revisão do plano (lentes banco, normas e execução): as correções estão aplicadas nas tarefas e listadas em "Correções da revisão do plano (08/10/2026)", no fim.
 
 **Goal:** A nutricionista redige, prepara, assina (digitalizada, como a receita — D2 = (a)) e entrega o **parecer nutricional** sobre os exames lançados, com a cópia dos valores congelada no preparo e o aviso quando o exame muda depois; qualquer documento assinado (receita ou parecer) pode ser **retificado** por uma versão nova, com motivo, que substitui a anterior na assinatura; o portal, o link de uso único, a verificação pública e as rotinas da LGPD passam a conhecer o parecer e as versões; e o `/admin` ganha paginação e busca (P09-07).
 
@@ -38,18 +38,30 @@ As marcadas com ★ **ainda são do dono** (perguntas Q13 da spec v0.5): o plano
 | # | Tema | Decisão (aplicada no plano) | Se o dono decidir diferente |
 |---|---|---|---|
 | D2 | Nível de assinatura do parecer | **(a)** — decidida pelo dono em 08/10/2026: digitalizada com 2FA em todo envio (10A), gov.br/ICP pelo 10B; **sem** `assinatura_tipo = 'plataforma'` nem a variante `preparando → assinado` | Revisão para (b) com a resposta do CRN-3 = plano próprio (backlog "Pontos menores" da spec) |
-| Q13-1 ★ | Motivo da retificação | **(a)**: "Motivo da retificação" obrigatório (1–500) para **preparar** a versão nova; guardado em `signed_document_notes.motivo_retificacao` (só a equipe, como o motivo de cancelamento); na exportação da **equipe**, fora da do **titular**; exigido também no banco (gatilho, T1) | (b): T1 sem a coluna e sem a regra no gatilho; T6, T7 e T9 sem o campo; NGS1.12.01 fica parcial (registrar na spec) |
-| Q13-2 ★ | Origem dos valores (IA conferida, enviado pelo paciente) | **(a)**: só na cópia guardada (`iaTarefaId` por linha, `enviadoPeloPaciente` por exame) e na exportação (`lidoComIa`, `enviadoPeloPaciente`); **nunca** no PDF | (b): a T4 acrescenta a nota por linha no PDF (texto a definir com a Debby) |
-| Q13-3 ★ | E-mails na substituição | **(a)**: só o "Você tem um novo documento" da versão nova (o da entrega do 10A); nenhum `documento_atualizado` | (b): a T7 enfileira também o `documento_atualizado` da original, na mesma transação |
+| Q13-1 ★ | Motivo da retificação | **(a)**: "Motivo da retificação" obrigatório (1–500) para **preparar** a versão nova; guardado em `signed_document_notes.motivo_retificacao` (só a equipe, como o motivo de cancelamento); na exportação da **equipe**, fora da do **titular** — **confirmar com o advogado (E-09), junto com o motivo de cancelamento da D15** (runbook, passo 5; `go-live.md`, P-B3/E-09, T12); exigido também no banco (gatilho, T1: a versão nova só nasce em rascunho e só vai ao preparo com o motivo) | Se o advogado disser que o titular tem acesso: tirar a condição `escopo === 'equipe'` da T6 (uma linha) e o `not.toHaveProperty` do teste. (b): T1 sem a coluna e sem a regra no gatilho; T6, T7 e T9 sem o campo; NGS1.12.01 fica parcial (registrar na spec) |
+| Q13-2 ★ | Origem dos valores (IA conferida, enviado pelo paciente) | **(a)**: só na cópia guardada (`iaTarefaId` por linha, `enviadoPeloPaciente` por exame) e na exportação (`lidoComIa`, `enviadoPeloPaciente`); **nunca** no PDF. **Atenção (revisão do plano):** com a (a), valores lidos pela IA do Plano 11 chegam ao paciente no PDF sem indicação de IA — isso quebra a premissa da §5.10 da spec da IA ("A leitura de laudo não gera material entregue ao paciente") e difere do selo escolhido para o plano alimentar (A-D13). A pergunta do art. 37 da Res. CFN 856/2026 vai ao CRN-3 (runbook, passo 5; P-B1, T12), com resposta antes de 23/01/2027 (vigência prorrogada, ato a conferir no DOU, P-B11); risco R10 | (b): a T4 acrescenta a nota por linha no PDF (texto a definir com a Debby) — também o caminho se o CRN-3 responder que o art. 37 se aplica |
+| Q13-3 ★ | E-mails na substituição | **(a)**: só o "Você tem um novo documento" da versão nova (o da entrega do 10A); nenhum `documento_atualizado` | (b): a T7 enfileira também o `documento_atualizado` da original, na mesma transação. **Para pesar na resposta (D11, "avisar o paciente… na substituição"):** com a (a), o e-mail não diz que a versão anterior deixou de valer; o paciente só sabe pelo portal ("Substituído por uma versão mais nova.") e pela verificação pública — pesa mais na receita (quem levou a versão 1 impressa à farmácia) |
 | Q13-4 ★ | Coluna `exam_ids` | **(a) não**: os ids ficam na cópia (`conteudo.exames[].id`) | (b): coluna `uuid[]` na 0104, limpa na `app_anonimizar_documentos` e na lista `mudou <@ …` do gatilho (0105) |
 | Q13-5 ★ | Versão visível ao paciente | **(a)**: "Versão 2" no portal e no link; "Versão {n} — substitui o documento {código}" no PDF e no painel | (b): a T5 tira a versão do portal e do link (o PDF continua com ela, NGS1.01.01) |
 | D-P1 | Ordem de travas da retificação | paciente → **original** → versão nova → tenant: `retificarDocumento` trava a original; `travarDocumentoAntesDaCota` trava a original **antes** da versão nova (todo `salvarArquivo` de uma retificação); `cancelarDocumento` trava paciente → documento (já era) | — |
 | D-P2 | `situacaoDosExames` sem `auditRead` | Devolve só `igual`/`mudou`/`excluido` por id da cópia (nenhum valor sai); a página do documento já audita `documentos` | Se a revisão de normas pedir, `auditRead(tx, { entidade: 'exames', entidadeId: null, patientId })` na mesma transação (uma linha) |
-| D-P3 | Regras novas no banco, além das da spec | Além das duas da spec (INSERT da versão nova; substituir só com retificação assinada): **cancelar** recusado com retificação em andamento (RN-147 no banco) e **preparar** uma retificação só com o motivo na nota (Q13-1); o INSERT trava a original com `FOR SHARE` (fecha a corrida com um cancelamento por outro caminho) | — |
+| D-P3 | Regras novas no banco, além das da spec | Além das duas da spec (INSERT da versão nova; substituir só com retificação assinada): **cancelar** recusado com retificação em andamento (RN-147 no banco) e **preparar** uma retificação só com o motivo na nota (Q13-1); a versão nova (com `retifica_id`) só é **inserida em rascunho** — sem isso, um INSERT direto já "preparando"/"assinado" pularia o motivo e deixaria duas versões "assinado" em vigor (revisão do plano); o INSERT trava a original com `FOR SHARE` (fecha a corrida com um cancelamento por outro caminho) | — |
 | D-P4 | Rascunho do parecer incompleto | Como a receita (0 itens no rascunho): o rascunho aceita 0 exames e avaliação vazia; "Selecione ao menos um exame." e "Escreva a avaliação nutricional (até 5000 caracteres)." saem no **preparo**; os máximos (20 exames, 5000/5000/1000 caracteres) valem também no salvar | — |
 | D-P5 | Métricas do `/admin` (P09-07) | **Filtro do mapa já pronto**: as quatro funções `admin_metricas_*` continuam sem parâmetro (sem migration); a página só desenha as linhas da página. O problema medido era o HTML (1,8 MB) e o desenho de ~220 linhas | Se a medida da T11 no dev passar de 1 s só nas funções, parâmetro de ids numa migration própria (backlog) |
 | D-P6 | Paginação do `/admin` | Cursor = id do consultório (`?depois=<id>` / `?antes=<id>`), comparação `(created_at, id)` com a linha do cursor no banco (sem perder os microssegundos do `created_at` no JavaScript), 50 por página; busca por `position(lower(busca) in lower(nome · slug · e-mail))` — `%` e `_` são literais | — |
 | D-P7 | Ordem e paralelismo | **[T1 ‖ T2] → T3 → [T4 ‖ T6 ‖ T8] → T5 (depois da T4) → T7 (depois da T4 e da T5) → T9 (depois da T7 e da T8) → T10 → T11 → T12**; a T11 (P09-07) não depende de nada e pode correr num worktree próprio desde o início, mas entra no branch **por último** antes do fechamento | — |
+| D-P8 | Janela do expand/contract no deploy (manual técnico, cap. 01/06) | O `nutri_worker` novo pode subir antes de a 0104 terminar: a leitura de `signed_document_notes` (`select()` sem colunas em `lerDocumentoNaTransacao`, `documentos.ts:203`, e `motivoRetificacao` na exportação, T6) dá `42703` até a migration acabar. **Aceita**: a 0104 é curta (uma coluna anulável e três CHECKs), os jobs da exportação e do PDF têm retry do pg-boss e o interruptor `documentos_liberados` decide quem usa; nenhuma migration muda (risco R11) | Se o dono preferir zero erro: a leitura da nota com colunas explícitas até o deploy seguinte (backlog) |
+
+### Decisões do dono
+
+Só o dono decide estas; o plano segue a recomendação (★) até a resposta. A interpretação de norma é do CRN-3 (P-B1) e a de direito de acesso, do advogado (P-B3/E-09) — o dono decide depois de ouvi-los.
+
+- ★ **Q13-1** — motivo da retificação obrigatório (a) e fora da exportação do titular; a exclusão do titular vai ao advogado (E-09) junto com o motivo de cancelamento da D15.
+- ★ **Q13-2** — origem dos valores só na cópia e na exportação (a), nunca no PDF; ou nota por linha no PDF (b). A (a) depende da resposta do CRN-3 sobre o art. 37 da Res. CFN 856/2026 (valores lidos por IA e conferidos pela nutricionista no parecer entregue ao paciente), antes de 23/01/2027.
+- ★ **Q13-3** — um e-mail só, o da versão nova (a), sabendo que ele não diz que a anterior foi substituída; ou também o `documento_atualizado` da original (b).
+- ★ **Q13-4** — sem coluna `exam_ids` (a) ou com ela (b).
+- ★ **Q13-5** — "Versão {n}" visível ao paciente no portal e no link (a) ou só no PDF (b).
+- ★ **Q13-6 (nova, revisão do plano)** — o parecer **não tem interruptor próprio**: aparece em todo consultório que já estiver com `documentos_liberados` ligado no dia do merge. O plano só deixa a dependência explícita (runbook, passo 2: conferir no `/admin` antes do merge; risco R9). Decidir se basta essa conferência (recomendação: sim, enquanto houver um consultório só) ou se o parecer ganha um interruptor próprio (plano à parte: coluna em `tenants`, migration e tela do `/admin`).
 
 ### Desvios conscientes da spec v0.5
 
@@ -63,6 +75,7 @@ As marcadas com ★ **ainda são do dono** (perguntas Q13 da spec v0.5): o plano
 8. **`/admin`:** depois de uma ação (suspender, liberar…), o redirecionamento continua indo para `/admin?aviso=…` (primeira página, sem busca) — como hoje; guardar a página e a busca fica no backlog se o dono sentir falta.
 9. **Textos novos ou propostos** (vão à revisão de interface e à Debby): "Novo parecer nutricional" (da spec), "Exames considerados" (da spec, título do campo e da seção do PDF), "Nenhum exame lançado. Lance os exames na aba Exames." (novo), "Avaliação nutricional" / "Conduta e orientações (opcional)" / "Encaminhamentos (opcional)" (rótulos da spec + "(opcional)" como na receita), "Marcador · Valor · Unidade · Referência" (cabeçalho da tabela do PDF, novo), "Os valores deste exame mudaram depois do parecer." (spec), "O exame {título — data} foi excluído depois do parecer." e "Um dos exames selecionados foi excluído. Revise a seleção." (propostos na spec), "Retificar" (spec), "Motivo da retificação" + dica "Fica só no prontuário." (Q13-1, como o do cancelamento), "Escreva o motivo da retificação (até 500 caracteres)." (Q13-1), "Motivo da retificação (só no prontuário): {motivo}" (novo, como o do cancelamento), "Versão {n} — substitui o documento {código}" (proposto na spec), "Versão {n}" (proposto na spec), cartão "Documento substituído", "Substituído em {data} pela versão {n}." e "Abrir a versão {n}" (novos), "Há uma retificação em andamento (versão N). Conclua ou apague a retificação antes de cancelar." (spec); no `/admin`: "Buscar por nome, endereço ou e-mail", "Buscar", "Limpar busca", "Anterior", "Próxima" (spec), "Nenhuma conta encontrada." (novos); no manual guiado, o guia `documentos` v2 (T10).
 10. **Seleção dos exames no editor:** a lista vem de `listarExames` (com `auditRead`); um id da cópia que não está mais na lista (exame excluído) aparece como aviso "Um dos exames selecionados foi excluído. Revise a seleção." acima da lista e **não** fica marcado (a nutricionista não consegue manter um exame que não existe); o servidor recusa com a mesma mensagem se o exame sumir entre a tela e o salvar.
+11. **Isolamento da retificação fora de `test/isolamento.test.ts`** (revisão do plano): a spec v0.5 ("Migrations propostas") diz que `IMUTAVEIS` "ganha os casos novos do gatilho"; o plano deixa o teste de isolamento como está (as fábricas inserem versão 1 sem `retifica_id`) e cobre os casos entre consultórios e entre pacientes em `src/db/documentos-versoes.test.ts` (T1): INSERT com `retifica_id` de um documento de outro paciente ou de outro consultório → "retificação fora da regra" (o gatilho procura a original no mesmo tenant e paciente), e o consultório B levando a "substituido" um documento de A não acha a linha (RLS: 0 linhas, a original continua "assinado"). A frase da spec já foi corrigida junto com esta revisão do plano (seção "Migrations propostas"); a T12 a cita na revisão 0.6.
 
 ## Review Focus
 
@@ -81,7 +94,8 @@ drizzle/
   0104_parecer (gerada: CHECK de tipo em signed_documents e document_verifications; motivo_retificacao)   # T1
   0105_parecer_regras (custom: app_documento_versao + gatilho; app_documento_imutavel, app_notas_imutaveis e
                        app_anonimizar_documentos refeitas)                                             # T1
-src/db/schema/documentos.ts · src/db/documentos-versoes.test.ts (novo) · src/db/documentos-imutaveis.test.ts      # T1
+src/db/schema/documentos.ts · src/db/documentos-versoes.test.ts (novo) · src/db/documentos-imutaveis.test.ts
+  · src/db/documentos-schema.test.ts                                                                               # T1
 test/documentos.ts (documentoNoBanco, outroDocumento, retificacaoAssinadaNoBanco, CONTEUDO_PARECER_TESTE)         # T1
 CLAUDE.md (regra 8)                                                                                               # T1 (e T12)
 src/modules/documentos/
@@ -92,18 +106,22 @@ src/modules/documentos/
   documento-pdf.tsx · documento-pdf-job.ts · digitalizada.ts · digitalizada-job.tsx (+ tests)                     # T4 (só worker)
   registrar-assinatura.ts                                                                                         # T4 (habilitação), T5 (tipo), T7 (substituir)
   verificacao.ts · portal.ts · link-documento.ts (+ tests)                                                        # T5
-  lgpd-documentos.ts (+ lgpd-documentos.test.ts)                                                                  # T6
+  lgpd-documentos.ts (+ lgpd-documentos.test.ts) · src/modules/pacientes/exportacao.test.ts (estreitar o tipo)    # T6
   retificacao.ts (+ retificacao.test.ts) · arquivos-do-preparo.ts · cancelamento.ts (+ cancelamento.test.ts)      # T7
 src/app/painel/pacientes/[id]/documentos/
   page.tsx · actions.ts (+ actions.test.ts)                                                                       # T8, T9
-  [docId]/page.tsx (+ page.test.ts) · parecer-form.tsx (novo) · avisos-exames.tsx (novo)                          # T3 (tipos), T8
-  [docId]/receita-form.tsx · motivo-retificacao.tsx (novo) · substituido.tsx (novo)                              # T9
+  [docId]/page.tsx (+ page.test.ts) · parecer-form.tsx (novo) · aviso-exame.tsx (novo)                            # T3 (tipos), T8
+  [docId]/receita-form.tsx (+ receita-form.test.ts) · motivo-retificacao.tsx (novo); o cartão "Documento
+    substituído" fica dentro de [docId]/page.tsx                                                                  # T9
+src/app/painel/configuracoes/perfil/page.tsx · perfil/documentos-form.tsx (texto do carimbo)                      # T8
+src/modules/documentos/documentos.test.ts · entrega.test.ts (fixtures com `versao`)                                # T3
 src/app/p/(portal)/documentos/page.tsx (+ page.test.ts) · src/app/documento/[token]/page.tsx                      # T5
-src/modules/ajuda/conteudo.ts (+ conteudo.test.ts) · e2e/documentos.ts · e2e/parecer.spec.ts (novo)              # T10
+src/modules/ajuda/conteudo.ts (+ conteudo.test.ts) · e2e/documentos.ts · e2e/parecer.spec.ts (novo)
+  · scripts/e2e-seed.ts (limite da verificação do IP sem login)                                                    # T10
 src/modules/plataforma/contas.ts (+ contas.test.ts) · src/app/admin/page.tsx · src/app/formularios-post.test.ts
   · e2e/plataforma.spec.ts                                                                                         # T11
 docs/manual-tecnico/09-documentos-assinados.md · 11-exames-enviados.md · README.md · docs/operacao/go-live.md
-  · índice · backlog · spec                                                                                        # T12
+  · índice · backlog · spec · spec da IA da nutricionista (§5.10)                                                 # T12
 ```
 
 ### Dependências entre tarefas (worktrees em paralelo)
@@ -129,8 +147,9 @@ docs/manual-tecnico/09-documentos-assinados.md · 11-exames-enviados.md · READM
 // test/documentos.ts (T1)
 export const CONTEUDO_PARECER_TESTE: Record<string, unknown>;
 export function documentoNoBanco(db, ctx, patientId, o?: { status?; conteudo?; assinaturaTipo?; tipo?: 'receita' | 'parecer'; versao?: number; retificaId?: string }): Promise<{ id: string; codigo: string | null; pdfPath: string | null }>;
-export function outroDocumento(c: Consultorio, db, o?: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number } });
-export function retificacaoAssinadaNoBanco(db, ctx, patientId, original: { id: string; versao: number }, o?: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown> }): Promise<{ id: string; codigo: string; pdfPath: string }>;
+export function outroDocumento(c: Consultorio, db, o?: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number }; motivo?: string });
+export function retificacaoAssinadaNoBanco(db, ctx, patientId, original: { id: string; versao: number }, o?: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown>; substituir?: boolean }): Promise<{ id: string; codigo: string; pdfPath: string }>;
+// documentoNoBanco com `retificaId` só em rascunho (o gatilho da 0105 recusa a versão nova inserida fora do rascunho)
 // banco (T1): gatilho documento_versao (app_documento_versao); mensagens dos gatilhos citadas nos testes:
 //   'versão sem retificação', 'retificação fora da regra', 'substituição só com a retificação assinada',
 //   'cancelamento com retificação em andamento', 'retificação sem motivo', 'motivo de retificação só numa retificação'
@@ -211,7 +230,7 @@ export function listarContas(db?: Db, now?: Date, f?: FiltroContas): Promise<Pag
 **Files:**
 - Modify: `src/db/schema/documentos.ts` (CHECKs de `tipo`, coluna `motivoRetificacao`, CHECK de tamanho das notas)
 - Create: `drizzle/0104_parecer.sql` (gerada), `drizzle/0105_parecer_regras.sql` (custom), `src/db/documentos-versoes.test.ts`
-- Modify: `test/documentos.ts` (`documentoNoBanco`, `outroDocumento`, `retificacaoAssinadaNoBanco`, `CONTEUDO_PARECER_TESTE`), `src/db/documentos-imutaveis.test.ts` (o caso do substituído passa a criar a retificação assinada), `CLAUDE.md` (regra 8)
+- Modify: `test/documentos.ts` (`documentoNoBanco`, `outroDocumento`, `retificacaoAssinadaNoBanco`, `CONTEUDO_PARECER_TESTE`), `src/db/documentos-imutaveis.test.ts` (o caso do substituído passa a criar a retificação assinada), `src/db/documentos-schema.test.ts` (o caso do tipo inválido deixa de usar `'parecer'`), `CLAUDE.md` (regra 8)
 
 **Interfaces:**
 - Consumes: `app_documento_imutavel` (0093), `app_notas_imutaveis` e `app_anonimizar_documentos` (0091), `app_current_role()`, `app_current_tenant()`, o índice `signed_documents_retificacao_aberta` e a FK `signed_documents_retifica_fk` (0089), `codigoAleatorio` e `novoPaciente`.
@@ -228,8 +247,9 @@ export const CONTEUDO_PARECER_TESTE = { versao: 1, tipo: 'parecer', exames: [], 
 /**
  * Documento gravado direto no banco (sem o fluxo), no estado pedido. Emitido = com o stored_files do PDF assinado (FK NO
  * ACTION), SHA-256 e assinatura digitalizada (a única do 10A; o 10B passa `assinaturaTipo: 'govbr'` nos testes dele).
- * O gatilho de imutabilidade (0091) não olha INSERT; o `documento_versao` (0105, Plano 13) confere só a coerência da
- * versão: sem `retificaId`, versão 1; com ele, a original "assinado" do mesmo tipo e paciente e a versão seguinte.
+ * O gatilho de imutabilidade (0091) não olha INSERT; o `documento_versao` (0105, Plano 13) confere a versão: sem
+ * `retificaId`, versão 1 (em qualquer estado, como a fábrica do isolamento); com ele, só em RASCUNHO, da original "assinado"
+ * do mesmo tipo e paciente e com a versão seguinte — a retificação emitida passa por `retificacaoAssinadaNoBanco`.
  */
 export async function documentoNoBanco(
   db: Db,
@@ -258,12 +278,13 @@ export async function documentoNoBanco(
 ```ts
 /**
  * Um documento em "Aguardando assinatura" com o base no disco (como depois da T7 do 10A). Plano 13: `paciente` (a
- * retificação é do mesmo paciente da original), `tipo` e `retifica` (a versão nova de uma original "assinado").
+ * retificação é do mesmo paciente da original), `tipo` e `retifica` (a versão nova de uma original "assinado"). Com
+ * `retifica`, o caminho que os gatilhos da 0105 aceitam: INSERT em rascunho, a nota com o motivo e o UPDATE para o preparo.
  */
 export async function outroDocumento(
   c: Consultorio,
   db: Db,
-  o: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number } } = {},
+  o: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number }; motivo?: string } = {},
 ) {
   const BASE_DOC = o.base ?? pdfDeTeste();
   const p = o.paciente ?? (await novoPaciente(db, c.T.ctx));
@@ -277,8 +298,16 @@ export async function outroDocumento(
   const codigo = codigoAleatorio();
   await withTenant(c.T.ctx, async (tx) => {
     await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${c.T.tenantId}, 'documento_base', ${base}, ${BASE_DOC.length}, 'application/pdf', ${p.id})`);
-    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, declaracao_em)
-      values (${id}, ${c.T.tenantId}, ${p.id}, ${tipo}, ${o.retifica ? o.retifica.versao + 1 : 1}, ${o.retifica?.id ?? null}, 'preparando', ${codigo}, ${JSON.stringify(conteudo)}::jsonb, now())`);
+    if (!o.retifica) {
+      await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, status, codigo, conteudo, declaracao_em)
+        values (${id}, ${c.T.tenantId}, ${p.id}, ${tipo}, 'preparando', ${codigo}, ${JSON.stringify(conteudo)}::jsonb, now())`);
+      return;
+    }
+    // 0105: a versão nova só nasce em rascunho e só vai ao preparo com o motivo na nota (Q13-1)
+    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, conteudo)
+      values (${id}, ${c.T.tenantId}, ${p.id}, ${tipo}, ${o.retifica.versao + 1}, ${o.retifica.id}, ${JSON.stringify(conteudo)}::jsonb)`);
+    await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, motivo_retificacao) values (${c.T.tenantId}, ${p.id}, ${id}, ${o.motivo ?? 'Retificação de teste'})`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${id}`);
   }, db);
   await withTenant({ tenantId: c.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${sha256(BASE_DOC)}, base_pdf_bytes = ${BASE_DOC.length}, area_assinatura = ${JSON.stringify(AREA_ASSINATURA)}::jsonb where id = ${id}`), db);
   return { ...c, p, id, base, codigo, baseSha256: sha256(BASE_DOC) };
@@ -288,13 +317,14 @@ export async function outroDocumento(
  * Plano 13: a versão seguinte de `original` ASSINADA, direto no banco pelo caminho que os gatilhos aceitam — rascunho com a
  * nota (o motivo, Q13-1), preparo, base pelo worker, assinatura e a original "substituido" (o gatilho só deixa com a
  * retificação já assinada). Sem verificação pública nem arquivo no disco (os testes de LGPD e do portal não precisam).
+ * `substituir: false` para antes da substituição (os testes do gatilho fazem o UPDATE da original eles mesmos).
  */
 export async function retificacaoAssinadaNoBanco(
   db: Db,
   ctx: TenantContext,
   patientId: string,
   original: { id: string; versao: number },
-  o: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown> } = {},
+  o: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown>; substituir?: boolean } = {},
 ): Promise<{ id: string; codigo: string; pdfPath: string }> {
   const v = await documentoNoBanco(db, ctx, patientId, { tipo: o.tipo, conteudo: o.conteudo, retificaId: original.id, versao: original.versao + 1 });
   const codigo = codigoAleatorio();
@@ -309,7 +339,7 @@ export async function retificacaoAssinadaNoBanco(
   await withTenant(ctx, async (tx) => {
     await tx.execute(sql`update signed_documents set status = 'assinado', pdf_path = ${pdf}, pdf_sha256 = ${'a'.repeat(64)}, assinado_em = now(), assinatura_tipo = 'digitalizada' where id = ${v.id}`);
     await tx.execute(sql`update signed_documents set base_pdf_path = null where id = ${v.id}`); // o base "sai" (regra 9); a linha de stored_files fica órfã, como depois de um soltar que falhou
-    await tx.execute(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${original.id}`);
+    if (o.substituir !== false) await tx.execute(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${original.id}`);
   }, db);
   return { id: v.id, codigo, pdfPath: pdf };
 }
@@ -356,7 +386,7 @@ describe('0104: o tipo "parecer" (spec v0.5, §10)', () => {
 });
 
 describe('0105: app_documento_versao — o INSERT da versão nova (RN-146)', () => {
-  it('sem retifica_id, só a versão 1; com retifica_id, só da original "assinado" do mesmo tipo e paciente, com a versão seguinte', async () => {
+  it('sem retifica_id, só a versão 1; com retifica_id, só em rascunho, da original "assinado" do mesmo tipo e paciente, com a versão seguinte', async () => {
     const { T, p } = await cenario();
     await expect(documentoNoBanco(app.db, T.ctx, p.id, { versao: 2 })).rejects.toSatisfy(negadoPor('versão sem retificação'));
     const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
@@ -368,7 +398,21 @@ describe('0105: app_documento_versao — o INSERT da versão nova (RN-146)', () 
     await expect(documentoNoBanco(app.db, T.ctx, p.id, { retificaId: cancelado.id, versao: 2 })).rejects.toSatisfy(negadoPor('retificação fora da regra'));
     const outro = await novoPaciente(app.db, T.ctx);
     await expect(documentoNoBanco(app.db, T.ctx, outro.id, { retificaId: v1.id, versao: 2 })).rejects.toSatisfy(negadoPor('retificação fora da regra'));
+    // revisão do plano: a versão nova só nasce em rascunho (sem isso, pularia o motivo e ficariam duas "assinado" em vigor)
+    for (const status of ['preparando', 'assinado'] as const)
+      await expect(documentoNoBanco(app.db, T.ctx, p.id, { status, retificaId: v1.id, versao: 2 })).rejects.toSatisfy(negadoPor('retificação fora da regra'));
     expect((await documentoNoBanco(app.db, T.ctx, p.id, { retificaId: v1.id, versao: 2 })).id).toBeTruthy();
+  });
+
+  it('outro consultório (desvio 11 do plano): B não retifica nem substitui um documento de A', async () => {
+    const { T, p } = await cenario();
+    const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
+    const B = await novoTenant(app.db);
+    const pb = await novoPaciente(app.db, B.ctx);
+    await expect(documentoNoBanco(app.db, B.ctx, pb.id, { retificaId: v1.id, versao: 2 })).rejects.toSatisfy(negadoPor('retificação fora da regra'));
+    const r = await withTenant(B.ctx, (tx) => tx.execute(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${v1.id}`), app.db);
+    expect(r.rowCount).toBe(0); // RLS: B não vê a linha
+    expect((await withTenant(T.ctx, (tx) => tx.execute(sql`select status from signed_documents where id = ${v1.id}`), app.db)).rows).toEqual([{ status: 'assinado' }]);
   });
 
   it('a original anonimizada não é retificada', async () => {
@@ -396,7 +440,8 @@ describe('0105: app_documento_imutavel — substituir, cancelar e preparar com a
     const v2 = await documentoNoBanco(app.db, T.ctx, p.id, { retificaId: v1.id, versao: 2 });
     await expect(q(substituir)).rejects.toSatisfy(negadoPor('substituição só com a retificação assinada'));
     await q(sql`delete from signed_documents where id = ${v2.id}`);
-    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', retificaId: v1.id, versao: 2 });
+    // a retificação assinada pelo caminho dos gatilhos (rascunho → nota com o motivo → preparo → worker → assinado)
+    await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: v1.id, versao: 1 }, { substituir: false });
     await q(substituir);
   });
 
@@ -418,6 +463,8 @@ describe('0105: app_documento_imutavel — substituir, cancelar e preparar com a
     const preparar = sql`update signed_documents set status = 'preparando', codigo = ${codigoAleatorio()}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${v2.id}`;
     await expect(q(preparar)).rejects.toSatisfy(negadoPor('retificação sem motivo'));
     await q(sql`update signed_document_notes set motivo_retificacao = '   ' where documento_id = ${v2.id}`);
+    await expect(q(preparar)).rejects.toSatisfy(negadoPor('retificação sem motivo'));
+    await q(sql`update signed_document_notes set motivo_retificacao = ${'\n\t \r\n'} where documento_id = ${v2.id}`); // só quebras e tabulações
     await expect(q(preparar)).rejects.toSatisfy(negadoPor('retificação sem motivo'));
     await q(sql`update signed_document_notes set motivo_retificacao = 'Ferritina lançada depois do parecer' where documento_id = ${v2.id}`);
     await q(preparar);
@@ -506,10 +553,13 @@ Run: `pnpm drizzle-kit generate --custom --name parecer_regras` e preencher `dri
 -- CLAUDE.md): não edita as migrations 0089/0091/0093. Rodar com DATABASE_URL_MIGRATOR (regra 7). Sem migração de dados e
 -- sem DISABLE TRIGGER (SBIS NGS1.07.01); o gatilho de auditoria (regra 8, 0090) não muda.
 
--- 1. RN-146: o INSERT da versão nova. Sem retifica_id, só a versão 1. Com retifica_id: a original do mesmo tenant e
--- paciente, do MESMO tipo, ainda "assinado" (a versão em vigor) e não anonimizada, e a versão seguinte à dela. Não exige
--- status 'rascunho': a fábrica do teste de isolamento (D19 do 10A) e os helpers inserem emitidos direto (desvio 9 da spec
--- v0.5). FOR SHARE: um cancelamento ou uma substituição concorrentes da original esperam este INSERT (e vice-versa).
+-- 1. RN-146: o INSERT da versão nova. Sem retifica_id, só a versão 1, em qualquer estado (a fábrica do teste de
+-- isolamento, D19 do 10A, e os helpers inserem emitidos direto; nenhuma usa retifica_id). Com retifica_id: só em RASCUNHO
+-- (o motivo, regra (a) abaixo, e as colunas do preparo e da assinatura passam pelo ramo de rascunho do
+-- app_documento_imutavel; um INSERT direto já "preparando"/"assinado" pularia o motivo e deixaria duas versões "assinado"
+-- em vigor), da original do mesmo tenant e paciente, do MESMO tipo, ainda "assinado" (a versão em vigor) e não
+-- anonimizada, e com a versão seguinte à dela. FOR SHARE: um cancelamento ou uma substituição concorrentes da original
+-- esperam este INSERT (e vice-versa).
 CREATE OR REPLACE FUNCTION app_documento_versao() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
@@ -522,6 +572,9 @@ BEGIN
       RAISE EXCEPTION 'versão sem retificação (RN-146)' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
+  END IF;
+  IF NEW.status <> 'rascunho' THEN
+    RAISE EXCEPTION 'retificação fora da regra (RN-146): a versão nova nasce em rascunho' USING ERRCODE = '42501';
   END IF;
   SELECT tipo, status, versao, anonimizado_em INTO o
     FROM signed_documents
@@ -593,10 +646,10 @@ BEGIN
     IF NEW.status = 'preparando' AND (NEW.declaracao_em IS NULL OR NEW.pdf_status IS DISTINCT FROM 'pendente') THEN
       RAISE EXCEPTION 'preparo fora da regra (RN-141): declaração e PDF pendente' USING ERRCODE = '42501';
     END IF;
-    -- (a) Plano 13: a retificação vai ao preparo só com o motivo (1–500, não só espaços) na nota dela
+    -- (a) Plano 13: a retificação vai ao preparo só com o motivo (1–500, não só espaços, tabulações ou quebras de linha)
     IF NEW.status = 'preparando' AND NEW.retifica_id IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM signed_document_notes nt
-          WHERE nt.documento_id = NEW.id AND char_length(btrim(coalesce(nt.motivo_retificacao, ''))) BETWEEN 1 AND 500) THEN
+          WHERE nt.documento_id = NEW.id AND char_length(btrim(coalesce(nt.motivo_retificacao, ''), E' \t\r\n')) BETWEEN 1 AND 500) THEN
       RAISE EXCEPTION 'retificação sem motivo (RN-146, SBIS NGS1.12.01)' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
@@ -755,32 +808,36 @@ O `CREATE OR REPLACE` mantém o `REVOKE`/`GRANT` da 0091 na `app_anonimizar_docu
 
 - [ ] **Step 5: O caso do "substituído" do 10A**
 
-Em `src/db/documentos-imutaveis.test.ts`, no teste `'substituído (D2 ★, testado por SQL): …'`, logo antes da linha que aceita a substituição (`await q(sql\`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}\`);`), acrescentar a retificação assinada (Plano 13: o gatilho só deixa substituir com ela):
+Em `src/db/documentos-imutaveis.test.ts`, acrescentar `retificacaoAssinadaNoBanco` ao import de `../../test/documentos` e, no teste `'substituído (D2 ★, testado por SQL): …'`, logo antes da linha que aceita a substituição (`await q(sql\`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}\`);`), acrescentar a retificação assinada (Plano 13: o gatilho só deixa substituir com ela; e a versão nova só nasce em rascunho, então ela passa pelo caminho dos gatilhos, sem substituir — o UPDATE seguinte do teste substitui):
 
 ```ts
     // Plano 13 (0105, RN-146): a substituição só passa com uma retificação desta já assinada
     await expect(q(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${d.id}`)).rejects.toSatisfy(negadoPor('substituição só com a retificação assinada'));
-    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', retificaId: d.id, versao: 2 });
+    await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: d.id, versao: 1 }, { substituir: false });
 ```
 
 e renomear o teste para `'substituído (RN-146, testado por SQL): assinado → substituido só com substituido_em e a retificação assinada; depois só solta o base e as fotos'`.
 
+Em `src/db/documentos-schema.test.ts`, no teste `'CHECKs: … tipo só receita no Plano 10A'`, o INSERT com tipo `'parecer'` passa a ser aceito pela 0104: trocar `'parecer'` por `'atestado'` nessa linha e renomear o teste para `'CHECKs: código só fora do rascunho e no formato Crockford; emitido sem PDF recusado; tipo só receita e parecer (Plano 13)'`.
+
 - [ ] **Step 6: Rodar os testes de banco**
 
 Run: `pnpm vitest run src/db/documentos-versoes.test.ts src/db/documentos-imutaveis.test.ts src/db/documentos-schema.test.ts src/db/rls-guard.test.ts src/db/audit-guard.test.ts test/isolamento.test.ts`
-Expected: PASS (o isolamento não muda: a fábrica de `signed_documents` insere versão 1 sem `retifica_id`; as notas, sem motivo).
+Expected: PASS. O `test/isolamento.test.ts` não muda (desvio 11): as fábricas inserem versão 1 sem `retifica_id` (livre no gatilho novo) e as notas sem motivo; os casos da retificação entre consultórios e entre pacientes ficam em `documentos-versoes.test.ts`.
+
+Deploy (D-P8): a 0104 só acrescenta uma coluna anulável e troca CHECKs; o `nutri_worker` novo que subir antes de ela terminar recebe `42703` na leitura da nota e na exportação até o fim da migration — aceito (retry do pg-boss); registrar no PR.
 
 - [ ] **Step 7: CLAUDE.md, regra 8**
 
-No fim da regra 8, depois da frase das listas de documentos assinados, acrescentar:
+Na frase das listas de documentos assinados ("devolvem só tipo, data, situação, tipo de assinatura e recibos"), acrescentar "e versão" (T3 e T5 devolvem `versao`; testes das chaves) e, no fim da regra 8, depois dessa frase, acrescentar:
 
-"Retificação (Plano 13, 0105): o INSERT de uma versão nova passa pelo gatilho `app_documento_versao` (só da versão em vigor, mesmo tipo, versão seguinte); a ida a `substituido` só com a retificação já assinada, o cancelamento só sem retificação em andamento e o preparo de uma retificação só com `motivo_retificacao` (coluna de `signed_document_notes`, STAFF_ONLY, limpa pela `app_anonimizar_documentos`); a ordem de travas é paciente → original → versão nova → tenant (`travarDocumentoAntesDaCota`)."
+"Retificação (Plano 13, 0105): o INSERT de uma versão nova passa pelo gatilho `app_documento_versao` (só em rascunho, só da versão em vigor, mesmo tipo, versão seguinte); a ida a `substituido` só com a retificação já assinada, o cancelamento só sem retificação em andamento e o preparo de uma retificação só com `motivo_retificacao` (coluna de `signed_document_notes`, STAFF_ONLY, limpa pela `app_anonimizar_documentos`); a ordem de travas é paciente → original → versão nova → tenant (`travarDocumentoAntesDaCota`)."
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add src/db/schema/documentos.ts drizzle/0104_parecer.sql drizzle/0105_parecer_regras.sql drizzle/meta src/db/documentos-versoes.test.ts \
-  src/db/documentos-imutaveis.test.ts test/documentos.ts CLAUDE.md
+  src/db/documentos-imutaveis.test.ts src/db/documentos-schema.test.ts test/documentos.ts CLAUDE.md
 git commit -m "feat(documentos): parecer e retificação no banco — tipo, motivo, versão nova conferida, substituir/cancelar/preparar (P13-01)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -993,7 +1050,8 @@ export type ConteudoDocumento = ConteudoReceita | ConteudoParecer;
 const texto = (max: number, msg: string) =>
   z.string().optional().transform((s) => (s ?? '').replace(/\r\n?/g, '\n').trim()).pipe(z.string().max(max, msg));
 const rascunho = z.object({
-  exameIds: z.array(z.uuid({ message: MSG_PARECER.exameExcluido }), { message: MSG_PARECER.exameExcluido }).max(PARECER_MAX_EXAMES, MSG_PARECER.examesDemais).default([]),
+  // G5: z.guid() aceita o mesmo formato do tipo uuid do Postgres (z.uuid() exige a versão RFC), como src/app/admin/actions.ts:19
+  exameIds: z.array(z.guid({ message: MSG_PARECER.exameExcluido }), { message: MSG_PARECER.exameExcluido }).max(PARECER_MAX_EXAMES, MSG_PARECER.examesDemais).default([]),
   avaliacao: texto(AVALIACAO_MAX, MSG_PARECER.avaliacao),
   conduta: texto(CONDUTA_MAX, MSG_PARECER.conduta),
   encaminhamentos: texto(ENCAMINHAMENTOS_MAX, MSG_PARECER.encaminhamentos),
@@ -1060,7 +1118,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 **Files:**
 - Create: `src/modules/documentos/parecer-exames.ts`, `src/modules/documentos/parecer-documentos.test.ts`
-- Modify: `src/modules/documentos/documentos.ts`, `src/modules/documentos/documentos.test.ts` (chaves da lista com `versao`), `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx` (só o estreitamento do tipo: a página da receita continua igual)
+- Modify: `src/modules/documentos/documentos.ts`, `src/modules/documentos/documentos.test.ts` (chaves da lista com `versao`; fixture `base` com `versao: 1`), `src/modules/documentos/entrega.test.ts` (fixture com `versao: 1`), `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx` (só o estreitamento do tipo: a página da receita continua igual)
 
 **Interfaces:**
 - Consumes: `exams`, `examSubmissions` (`@/db/schema`), `carregarPacienteParaEscrita`, `idValido`; da T2: `validarRascunhoParecer`, `validarParecerParaPreparar`, `mesmoExame`, `ConteudoParecer`, `ConteudoDocumento`, `ExameCopiado`, `MSG_PARECER`, `DECLARACAO_POR_TIPO`, `TipoDocumento`.
@@ -1411,6 +1469,8 @@ e, em `lerDocumentoNaTransacao`, `conteudo: d.conteudo as ConteudoDocumento,`.
 
 8. Em `src/modules/documentos/documentos.test.ts`, no teste `'cria o rascunho, salva itens …'`, trocar a lista de chaves esperada por `['assinadoEm', 'assinaturaTipo', 'codigo', 'createdAt', 'entregueEm', 'id', 'pdfStatus', 'recibos', 'status', 'tipo', 'versao']` e o comentário: "D17 / regra 8: a lista não audita porque não devolve conteúdo — só estas chaves (Plano 13: + versão)".
 
+9. Os fixtures que montam `ItemLista` à mão ganham `versao: 1` (sem isso o `pnpm typecheck` do Step 5 falha: o `tsconfig.json` inclui os testes): `src/modules/documentos/documentos.test.ts:196` (`const base: ItemLista = { id: 'x', tipo: 'receita', versao: 1, status: 'rascunho', … }`) e `src/modules/documentos/entrega.test.ts:84` (`const base = { id: randomUUID(), tipo: 'receita' as const, versao: 1, status: 'assinado' as const, … }`, passado a `situacaoDaEntrega`, que recebe `ItemLista`).
+
 - [ ] **Step 4: A página da receita com o tipo estreitado**
 
 Em `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx` (sem mudar nada que a tela mostra para a receita — o parecer ganha tela na T8):
@@ -1437,7 +1497,7 @@ Expected: PASS (o resto do módulo ainda lê o conteúdo como `ConteudoReceita` 
 
 ```bash
 git add src/modules/documentos/parecer-exames.ts src/modules/documentos/parecer-documentos.test.ts src/modules/documentos/documentos.ts \
-  src/modules/documentos/documentos.test.ts "src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx"
+  src/modules/documentos/documentos.test.ts src/modules/documentos/entrega.test.ts "src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx"
 git commit -m "feat(documentos): parecer nutricional — rascunho com a cópia dos exames, preparo por tipo e situação dos exames (P13-03)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1460,7 +1520,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 - [ ] **Step 1: Os testes que falham**
 
-Em `src/modules/documentos/documento-pdf-job.test.ts`, acrescentar `import { textoDoPdf } from '../../../test/pdf';` e:
+Em `src/modules/documentos/documento-pdf-job.test.ts`, acrescentar `import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';` e:
 
 ```ts
 const IA_ID = randomUUID();
@@ -1495,6 +1555,17 @@ describe('PDF do parecer (US-141, RN-148, D5)', () => {
     const t = textoDoPdf(pdf);
     expect(t).toContain('Versão 2');
     expect(t).toContain('substitui o documento ABCD-EFGH-JKMN');
+  });
+
+  it('exame grande (50 linhas longas, MAX_LINHAS de exames.ts) quebra entre páginas sem perder linha nem invadir o rodapé (revisão do plano)', async () => {
+    const valores = Array.from({ length: 50 }, (_, i) => ({ nome: `Marcador ${i + 1} ${'x'.repeat(60)}`, valor: i + 1, unidade: 'mg/dL', referencia: `${'y'.repeat(70)} ${i + 1}` }));
+    const grande = { ...parecer, exames: [{ id: randomUUID(), data: '2026-09-01', titulo: 'Painel extenso', valores }] };
+    const pdf = await renderizarDocumento({ conteudo: grande as never, codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', data: '01/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby' });
+    expect(paginasDoPdf(pdf)).toBeGreaterThanOrEqual(2);
+    const t = textoDoPdf(pdf);
+    expect(t).toContain('Marcador 1 ');
+    expect(t).toContain('Marcador 50');
+    expect(t).toContain('Código de verificação: ABCD-EFGH-JKMN');
   });
 
   it('o job gera o PDF do parecer em preparo e leva a "Aguardando assinatura"', async () => {
@@ -1600,15 +1671,19 @@ function CorpoParecer({ c }: { c: ConteudoParecer }) {
   return (
     <>
       <Text style={s.secao}>Exames considerados</Text>
+      {/* Revisão do plano: um exame tem até 50 linhas (exames.ts, MAX_LINHAS) e passa da altura útil (842 − 36 − ALTURA_RODAPE).
+          wrap={false} no exame inteiro faria o react-pdf desenhar o bloco numa página só, por cima do quadro "Assinatura digital"
+          e do rodapé. Como no plano-pdf.tsx: o título não fica sozinho no fim da página (minPresenceAhead) e só cada linha é
+          indivisível. */}
       {c.exames.map((e) => (
-        <View key={e.id} style={s.item} wrap={false}>
-          <Text style={s.itemTitulo}>{w(rotuloDoExame(e))}</Text>
+        <View key={e.id} style={s.item}>
+          <Text style={s.itemTitulo} minPresenceAhead={28}>{w(rotuloDoExame(e))}</Text>
           {e.valores.length === 0 ? (
-            <Text>{w(`(${MSG_PARECER.semValores})`)}</Text>
+            <Text wrap={false}>{w(`(${MSG_PARECER.semValores})`)}</Text>
           ) : (
             <>
-              <Text style={s.cabecalho}>{w(CABECALHO_VALORES)}</Text>
-              {e.valores.map((v, i) => <Text key={i}>{w(linhaDoValor(v))}</Text>)}
+              <Text style={s.cabecalho} minPresenceAhead={14}>{w(CABECALHO_VALORES)}</Text>
+              {e.valores.map((v, i) => <Text key={i} wrap={false}>{w(linhaDoValor(v))}</Text>)}
             </>
           )}
         </View>
@@ -1911,7 +1986,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 **Revisão: completa (agente normas-cfn-lgpd)** — US-150 v0.5: o que a equipe e o titular recebem (D15, Q13-1 ★, Q13-2 ★), anonimização das versões (RN-140 c).
 
 **Files:**
-- Modify: `src/modules/documentos/lgpd-documentos.ts`
+- Modify: `src/modules/documentos/lgpd-documentos.ts`, `src/modules/pacientes/exportacao.test.ts` (estreitar o tipo na linha 846)
 - Test: `src/modules/documentos/lgpd-documentos.test.ts`
 
 **Interfaces:**
@@ -2109,10 +2184,15 @@ export async function documentosParaExportacao(
 Run: `pnpm vitest run src/modules/documentos/lgpd-documentos.test.ts src/modules/pacientes/exportacao.test.ts src/modules/pacientes/lgpd.test.ts && pnpm typecheck`
 Expected: PASS (`exportacao-job.ts` repassa `docs.documentos` como estão; se algum teste da exportação conferir as chaves do documento exportado, acrescentar `versao`, `retificaCodigo` e — na equipe — `motivoDaRetificacao`).
 
+Antes de rodar, estreitar os três acessos dos testes existentes: com a união `ReceitaExportada | ParecerExportado`, `.itens` e `.justificativaDeUso` sem estreitar dão TS2339 no `pnpm typecheck` (o `tsconfig.json` inclui os testes):
+- `src/modules/documentos/lgpd-documentos.test.ts:35`: `expect(equipe.documentos.find((d) => d.situacao === 'Rascunho')).toMatchObject({ justificativaDeUso: 'J rascunho' });`
+- `src/modules/documentos/lgpd-documentos.test.ts:49`: `expect(titular.documentos[0]).toMatchObject({ itens: [expect.objectContaining({ titulo: expect.stringContaining('Vitamina D3') })] });`
+- `src/modules/pacientes/exportacao.test.ts:846`: `equipe.dados.documentos.map((x) => [x.situacao, 'justificativaDeUso' in x ? x.justificativaDeUso : undefined])`.
+
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/modules/documentos/lgpd-documentos.ts src/modules/documentos/lgpd-documentos.test.ts
+git add src/modules/documentos/lgpd-documentos.ts src/modules/documentos/lgpd-documentos.test.ts src/modules/pacientes/exportacao.test.ts
 git commit -m "feat(documentos): exportação do parecer e das versões; anonimização com retificações (P13-06)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2515,7 +2595,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 **Files:**
 - Create: `src/app/painel/pacientes/[id]/documentos/[docId]/parecer-form.tsx`, `src/app/painel/pacientes/[id]/documentos/[docId]/aviso-exame.tsx`
-- Modify: `src/app/painel/pacientes/[id]/documentos/page.tsx` (botão "Novo parecer nutricional"), `src/app/painel/pacientes/[id]/documentos/actions.ts` (+ `actions.test.ts`), `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx` (+ `page.test.ts`)
+- Modify: `src/app/painel/pacientes/[id]/documentos/page.tsx` (botão "Novo parecer nutricional"), `src/app/painel/pacientes/[id]/documentos/actions.ts` (+ `actions.test.ts`), `src/app/painel/pacientes/[id]/documentos/[docId]/page.tsx` (+ `page.test.ts`), `src/app/painel/configuracoes/perfil/page.tsx` e `src/app/painel/configuracoes/perfil/documentos-form.tsx` (o carimbo também sai no parecer)
 
 **Interfaces:**
 - Consumes: da T3 `criarParecer`, `salvarRascunhoParecer`, `prepararParaAssinatura`, `situacaoDosExames`, `SituacaoExame`; da T2 `ConteudoParecer`, `MSG_PARECER`, `PARECER_MAX_EXAMES`, `AVALIACAO_MAX`, `CONDUTA_MAX`, `ENCAMINHAMENTOS_MAX`, `rotuloDoExame`, `linhaDoValor`, `DECLARACAO_PARECER`; `listarExames` (`@/modules/pacientes/exames`, com `auditRead`); `Preparar` (`./preparar`).
@@ -2716,6 +2796,10 @@ Em `src/app/painel/pacientes/[id]/documentos/page.tsx`, importar `criarParecerAc
 
 (o link da lista já usa `TIPO_DOCUMENTO_ROTULO[d.tipo]`: "Parecer nutricional de dd/mm/aaaa".)
 
+Revisão do plano: os textos do perfil dizem que os dados saem só "no carimbo das receitas (Resolução CFN nº 656/2020)", mas a T4 põe o mesmo carimbo no parecer, cuja base é outra. Trocar (rascunho para a Debby, desvio 9):
+- `src/app/painel/configuracoes/perfil/page.tsx:21`: "O nome completo, o CRN e o contato saem no carimbo das receitas (Resolução CFN nº 656/2020) e dos pareceres (Resolução CFN nº 760/2023, art. 10, I). O CRN e o endereço ficam no formulário acima."
+- `src/app/painel/configuracoes/perfil/documentos-form.tsx:15`, dica do "Nome completo": "Sai no carimbo das receitas e dos pareceres, como no seu registro no CRN."
+
 - [ ] **Step 4: O editor do parecer**
 
 Criar `src/app/painel/pacientes/[id]/documentos/[docId]/parecer-form.tsx`:
@@ -2913,7 +2997,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add "src/app/painel/pacientes/[id]/documentos"
+git add "src/app/painel/pacientes/[id]/documentos" src/app/painel/configuracoes/perfil/page.tsx src/app/painel/configuracoes/perfil/documentos-form.tsx
 git commit -m "feat(documentos): parecer nutricional no painel — novo, editor com os exames, leitura e avisos de exame (P13-08)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3092,7 +3176,7 @@ export function MotivoRetificacao({ valor, aoMudar, erro }: { valor: string; aoM
 }
 ```
 
-Nos dois editores, a prop nova `motivo: string | null` (`null` = não é retificação; o campo não aparece):
+Nos dois editores, a prop nova **opcional** `motivo?: string | null`, com padrão `null` na desestruturação (`motivo = null`; `null` = não é retificação, o campo não aparece). Opcional para o `receita-form.test.ts` (que monta o `ReceitaForm` sem `motivo`) continuar compilando no `pnpm typecheck`:
 
 - `receita-form.tsx`: `import { MotivoRetificacao } from './motivo-retificacao';`; na assinatura, `motivo` depois de `declaracao`; `const [motivoRet, setMotivoRet] = useState(motivo ?? '');`; logo no começo do `editor` (antes de `<h3>Itens da receita</h3>`): `{motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={erroDe('motivoRetificacao')} />}` (o `erroDe` marca a chave em `mostradas`, então ela não se repete no aviso geral).
 - `parecer-form.tsx`: o mesmo import, a mesma prop e o mesmo estado; o campo logo depois da abertura do `<form>` (antes do `fieldset` dos exames), com `erro={e.motivoRetificacao}`, e `'motivoRetificacao'` na lista de chaves conhecidas do cálculo de `sobras`.
@@ -3161,7 +3245,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 **Revisão: leve (revisor-interface)** — textos do manual guiado (rascunho até a Debby, como o P08-08), E2E e axe do editor do parecer e do cartão do substituído.
 
 **Files:**
-- Modify: `src/modules/ajuda/conteudo.ts` (+ `conteudo.test.ts`), `e2e/documentos.ts` (`assinarDigitalizada` extraída de `emitirReceita`)
+- Modify: `src/modules/ajuda/conteudo.ts` (+ `conteudo.test.ts`; guias `documentos` e `configuracoes`), `e2e/documentos.ts` (`assinarDigitalizada` extraída de `emitirReceita`), `scripts/e2e-seed.ts` (limite da verificação do IP sem login)
 - Create: `e2e/parecer.spec.ts`
 
 **Interfaces:**
@@ -3222,6 +3306,8 @@ Em `src/modules/ajuda/conteudo.test.ts`, acrescentar:
   });
 ```
 
+No guia `configuracoes` (revisão do plano: o carimbo também sai no parecer, T8): `versao: 3` → `versao: 4`; na seção "Dados para documentos" (`conteudo.ts:232`), "…que saem no carimbo das receitas, junto com o CRN." → "…que saem no carimbo das receitas e dos pareceres, junto com o CRN."; no passo `dados-documentos` (`:251`), "…do carimbo das receitas." → "…do carimbo das receitas e dos pareceres." (rascunho para a Debby).
+
 Run: `pnpm vitest run src/modules/ajuda`
 Expected: PASS (as guardas do arquivo conferem que cada alvo existe como `data-guia` e que cada nome entre aspas existe numa tela — "Novo parecer nutricional" e "Retificar" vêm da T8 e da T9).
 
@@ -3260,7 +3346,7 @@ e `emitirReceita` termina com `await expect(page.getByRole('link', { name: 'Baix
 
 - [ ] **Step 3: O E2E do parecer e da retificação**
 
-Conferir que o bloco de IPs `10.9.15.x` não é usado por outro spec (`git grep -n "10\.9\.15\." e2e`) e criar `e2e/parecer.spec.ts`:
+Bloco de IPs `10.9.18.x` (revisão do plano: o `10.9.15.x` já é do `ia-laudos.spec.ts`, .81–.85, e o `10.9.16.x` do `exames-enviados.spec.ts`; em 08/10/2026 `git grep -ohE "10\.9\.[0-9]+\." e2e scripts | sort -u` vai até `10.9.17.` — conferir de novo antes de criar). Em `scripts/e2e-seed.ts`, na lista do `liberarLimite` da verificação (linha 98, hoje `'10.9.14.77'` a `'10.9.14.80'`), acrescentar `'10.9.18.3'` (o visitante sem login consulta a `/v` duas vezes) e o `parecer.spec` no comentário da linha 97. Criar `e2e/parecer.spec.ts`:
 
 ```ts
 import { expect, test } from '@playwright/test';
@@ -3269,11 +3355,11 @@ import { pacienteNoPortal } from './portal';
 
 // Plano 13 (US-141, US-146, US-147, US-148): o parecer de ponta a ponta pela digitalizada (D2 = (a)) e a retificação que
 // substitui a versão 1. Conta própria com o 2FA ativo (E2E_DOCS do seed). IPs (bloco só deste spec): nutricionista
-// 10.9.15.1, paciente .2, sem login .3.
+// 10.9.18.1, paciente .2, sem login .3 (zerado no seed, como os da documentos.spec).
 test('parecer: exame → rascunho → preparar → digitalizada → portal → verificação; retificar → a versão 2 substitui a 1', async ({ browser }) => {
   test.setTimeout(300_000);
-  const page = await entrarComoDocs(browser, '10.9.15.1');
-  const paciente = await pacienteNoPortal(browser, page, '10.9.15.2');
+  const page = await entrarComoDocs(browser, '10.9.18.1');
+  const paciente = await pacienteNoPortal(browser, page, '10.9.18.2');
 
   // o exame lançado na aba Exames (US-015)
   await page.goto(`${paciente.prontuario}/exames`);
@@ -3309,7 +3395,7 @@ test('parecer: exame → rascunho → preparar → digitalizada → portal → v
   await expect(p.getByRole('link', { name: /^Abrir PDF do parecer nutricional/ })).toBeVisible();
 
   // US-147 v0.5: "Tipo: Parecer nutricional", nada do paciente nem dos exames
-  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.15.3' } })).newPage();
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.18.3' } })).newPage();
   await anonimo.goto(`/v/${v1.replace(/-/g, '')}`);
   await expect(anonimo.getByRole('heading', { name: 'Documento válido' })).toBeVisible();
   await expect(anonimo.getByText('Parecer nutricional')).toBeVisible();
@@ -3349,7 +3435,7 @@ Expected: PASS (o `documentos.spec.ts` da receita continua passando com o `assin
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/modules/ajuda/conteudo.ts src/modules/ajuda/conteudo.test.ts e2e/documentos.ts e2e/parecer.spec.ts
+git add src/modules/ajuda/conteudo.ts src/modules/ajuda/conteudo.test.ts e2e/documentos.ts e2e/parecer.spec.ts scripts/e2e-seed.ts
 git commit -m "test(documentos): E2E do parecer e da retificação; docs: guia documentos v2 no manual guiado (P13-10)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3390,8 +3476,11 @@ describe('P09-07: páginas e busca da lista de consultórios', () => {
   }
   const ids = (p: { contas: { tenantId: string }[] }) => p.contas.map((c) => c.tenantId);
 
-  it('cursor: "Próxima" até o fim e "Anterior" de volta, sem repetir nem pular (created_at desc, id desc)', async () => {
+  it('cursor: "Próxima" até o fim e "Anterior" de volta, sem repetir nem pular (created_at desc, id desc), com duas nutricionistas no mesmo consultório', async () => {
     const { marca, ids: t } = await cinco();
+    // revisão do plano: nada impede duas usuárias 'nutri' no mesmo consultório (o seed do E2E cria três); uma linha por consultório
+    for (const n of [1, 2]) await app.db.insert(user).values({ name: `Nutri ${n}`, email: `${marca}-${n}@teste.local`, appRole: 'nutri', tenantId: t[2] });
+    expect(ids(await listarContas(app.db, now, { busca: `${marca}-2@teste.local` }))).toEqual([t[2]]);
     const p1 = await listarContas(app.db, now, { busca: marca, limite: 2 });
     expect(ids(p1)).toEqual(t.slice(0, 2));
     expect(p1).toMatchObject({ anterior: null, proxima: t[1] });
@@ -3470,8 +3559,10 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: 
   const antes = cursor(f.antes);
   const depois = antes ? null : cursor(f.depois);
   const limite = f.limite ?? CONTAS_POR_PAGINA;
+  // o e-mail de QUALQUER nutricionista do consultório entra na busca (exists), sem repetir o consultório
   const filtroBusca = busca
-    ? sql`and position(lower(${busca}) in lower(t.nome_exibicao || ' ' || t.slug || ' ' || coalesce(u.email, ''))) > 0`
+    ? sql`and (position(lower(${busca}) in lower(t.nome_exibicao || ' ' || t.slug)) > 0
+           or exists (select 1 from "user" ub where ub.tenant_id = t.id and ub.app_role = 'nutri' and position(lower(${busca}) in lower(ub.email::text)) > 0))`
     : sql``;
   const filtroCursor = depois
     ? sql`and (t.created_at, t.id) < (select c.created_at, c.id from tenants c where c.id = ${depois}::uuid)`
@@ -3486,7 +3577,10 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: 
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
-      left join "user" u on u.tenant_id = t.id and u.app_role = 'nutri'
+      -- uma linha por consultório (revisão do plano): com duas usuárias 'nutri' no mesmo tenant, o join simples repetiria o
+      -- consultório, o limit contaria linhas e o cursor (created_at, id) pularia as outras linhas dele na "Próxima"
+      left join lateral (select u1.id, u1.email from "user" u1 where u1.tenant_id = t.id and u1.app_role = 'nutri'
+                          order by u1.created_at, u1.id limit 1) u on true
      where true ${filtroBusca} ${filtroCursor}
      ${ordem}
      limit ${limite + 1}`);
@@ -3611,7 +3705,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 **Revisão: leve (revisor-interface)** e **`guardiao-manual`** (`.claude/agents/guardiao-manual.md`) no capítulo 09, no README e no cabeçalho do capítulo 11.
 
 **Files:**
-- Modify: `docs/manual-tecnico/09-documentos-assinados.md`, `docs/manual-tecnico/11-exames-enviados.md` (cabeçalho), `docs/manual-tecnico/README.md`, `docs/operacao/go-live.md` (seção do Plano 13), `CLAUDE.md` (regra 9, se a revisão final pedir), `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md` (status e nota "v0.6")
+- Modify: `docs/manual-tecnico/09-documentos-assinados.md`, `docs/manual-tecnico/11-exames-enviados.md` (cabeçalho), `docs/manual-tecnico/README.md`, `docs/operacao/go-live.md` (seção do Plano 13), `CLAUDE.md` (regra 9, se a revisão final pedir), `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md` (status e nota "v0.6"), `docs/superpowers/specs/2026-10-03-nutridebby-ia-nutricionista-design.md` (§5.10)
 
 **Interfaces:**
 - Consumes: tudo das Tarefas 1–11.
@@ -3619,11 +3713,15 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 - [ ] **Step 1: Manual técnico**
 
-Conferido contra o código do branch: no capítulo 09, uma seção "9.x Parecer nutricional e retificação (Plano 13)" com: o fluxo (`criarParecer` → `salvarRascunhoParecer`/`copiarExames` → `prepararParaAssinatura` → `documento-pdf.tsx` → digitalizada → `registrarAssinatura`), o `ConteudoParecer` e a cópia (o que entra e o que nunca entra — o laudo), `situacaoDosExames` (sem `auditRead`, D-P2), a retificação (`retificarDocumento`, `retificacaoEmAndamento`, o motivo em `signed_document_notes.motivo_retificacao`, a substituição em `registrarAssinatura`), a ordem de travas (paciente → original → versão nova → tenant, `travarDocumentoAntesDaCota`), os gatilhos da 0105 (`app_documento_versao` e as três regras novas de `app_documento_imutavel`, com a tabela de transições atualizada), a exportação (`versao`, `retificaCodigo`, `motivoDaRetificacao` só na equipe, `exames`/`avaliacao`/`conduta`/`encaminhamentos`), o portal/link/verificação pelo tipo, as decisões Q13-1 a Q13-5 como o dono as tomou e os desvios 1–10 deste plano; na seção de divergências, os "Pontos menores" que ficarem. No capítulo 11, trocar "(Tarefas 1–14 integradas; ainda sem merge na `main`)" por "(em produção desde o merge do PR #25, `3b59c38`)" (desvio 11 da spec v0.5). No README, "Conferido contra"/"Escopo" com o Plano 13 e as migrations `0104`–`0105`, e a P09-07 citada no capítulo do admin (o que mudou em `listarContas`).
+Conferido contra o código do branch: no capítulo 09, uma seção "9.x Parecer nutricional e retificação (Plano 13)" com: o fluxo (`criarParecer` → `salvarRascunhoParecer`/`copiarExames` → `prepararParaAssinatura` → `documento-pdf.tsx` → digitalizada → `registrarAssinatura`), o `ConteudoParecer` e a cópia (o que entra e o que nunca entra — o laudo), `situacaoDosExames` (sem `auditRead`, D-P2), a retificação (`retificarDocumento`, `retificacaoEmAndamento`, o motivo em `signed_document_notes.motivo_retificacao`, a substituição em `registrarAssinatura`), a ordem de travas (paciente → original → versão nova → tenant, `travarDocumentoAntesDaCota`), os gatilhos da 0105 (`app_documento_versao` e as três regras novas de `app_documento_imutavel`, com a tabela de transições atualizada), a exportação (`versao`, `retificaCodigo`, `motivoDaRetificacao` só na equipe, `exames`/`avaliacao`/`conduta`/`encaminhamentos`), o portal/link/verificação pelo tipo, as decisões Q13-1 a Q13-6 como o dono as tomou e os desvios 1–11 deste plano; na seção de divergências, os "Pontos menores" que ficarem. No capítulo 11, trocar "(Tarefas 1–14 integradas; ainda sem merge na `main`)" por "(em produção desde o merge do PR #25, `3b59c38`)" (desvio 11 da spec v0.5). No README, "Conferido contra"/"Escopo" com o Plano 13 e as migrations `0104`–`0105`, e a P09-07 citada no capítulo do admin (o que mudou em `listarContas`, inclusive uma linha por consultório com o e-mail da primeira nutricionista e a busca em todas). No cap. 09, registrar também a janela do expand/contract da 0104 (D-P8) e que a versão nova só nasce em rascunho (0105).
 
 - [ ] **Step 2: Runbook, índice, backlog e spec**
 
-Em `docs/operacao/go-live.md`, uma seção "## Plano 13 — parecer nutricional e retificação" com o **Runbook do dono** abaixo (copiado sem mudança). No índice, a linha do Plano 13 passa a apontar para a spec **v0.5** e para este plano, situação "Em execução". No backlog: P13-00 com o link deste plano; as linhas P13-01 a P13-12 (uma por tarefa); P13-13 (liberação do parecer para uso real — dono, runbook); P09-07 marcada como feita na T11 (✅ quando o PR entrar); os "Pontos menores" do fim deste plano como Minors do Plano 13. Na spec, no cabeçalho, uma linha "Revisão 0.6" curta (o que a execução mudou, conferido no código: as respostas do dono a Q13-1..5, os desvios deste plano que valerem) e "Status" da parte do Plano 13: "em execução (plano `2026-10-08-nutridebby-13-parecer.md`)" — o fechamento do PR muda para "em produção".
+Em `docs/operacao/go-live.md`, uma seção "## Plano 13 — parecer nutricional e retificação" com o **Runbook do dono** abaixo (copiado sem mudança). No índice, a linha do Plano 13 passa a apontar para a spec **v0.5** e para este plano, situação "Em execução". No backlog: P13-00 com o link deste plano; as linhas P13-01 a P13-12 (uma por tarefa); P13-13 (liberação do parecer para uso real — dono, runbook); P09-07 marcada como feita na T11 (✅ quando o PR entrar); os "Pontos menores" do fim deste plano como Minors do Plano 13. Na spec, no cabeçalho, uma linha "Revisão 0.6" curta (o que a execução mudou, conferido no código: as respostas do dono a Q13-1..5, os desvios deste plano que valerem) e "Status" da parte do Plano 13: "em execução (plano `2026-10-08-nutridebby-13-parecer.md`)" — o fechamento do PR muda para "em produção". A revisão 0.6 cita o desvio 11 (isolamento, frase de "Migrations propostas" já corrigida) e a Q13-6.
+
+Revisão do plano (normas), na mesma etapa:
+- **Spec da IA, §5.10:** depois de "A leitura de laudo não gera material entregue ao paciente", acrescentar: "Desde o Plano 13, os valores lidos pela IA e conferidos pela nutricionista chegam ao paciente no PDF do parecer nutricional (cópia congelada, Q13-2); se isso é "material produzido com suporte de IA" (art. 37) está em consulta ao CRN-3 (P-B1), com resposta antes da vigência (23/01/2027)." Ajustar a frase da vigência que diz que ela "não bloqueia o Plano 11" para dizer que ela pode pedir a nota de origem no parecer (Q13-2 (b)).
+- **`docs/operacao/go-live.md`:** no item do CRN-3 (P-B1, linha 44), acrescentar "a pergunta do art. 37 da Res. CFN 856/2026 sobre o parecer com valores lidos por IA (Q13-2)" e "a declaração e a ressalva do parecer (D5)"; no item do termo e DPA (P-B3/E-09, linha 46), acrescentar "o motivo da retificação fora da exportação do titular, junto com o motivo de cancelamento da D15 (Q13-1)"; na seção do Plano 13, o runbook abaixo (com a conferência do interruptor no passo 2).
 
 - [ ] **Step 3: Verificação completa**
 
@@ -3634,7 +3732,8 @@ Expected: tudo verde.
 
 ```bash
 git add docs/manual-tecnico docs/operacao/go-live.md CLAUDE.md docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md \
-  docs/superpowers/plans/2026-09-27-nutridebby-backlog.md docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md
+  docs/superpowers/plans/2026-09-27-nutridebby-backlog.md docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md \
+  docs/superpowers/specs/2026-10-03-nutridebby-ia-nutricionista-design.md
 git commit -m "docs: manual técnico (cap. 09 e 11), runbook, índice, backlog e spec do Plano 13 (P13-12)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3645,13 +3744,13 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 ## Runbook do dono (Plano 13 — parecer nutricional e retificação)
 
-Nenhum passo é do código; cada um tem dono. O parecer **segue o interruptor** `documentos_liberados` do Plano 10A: em produção ele continua **desligado** em todo consultório, e nada do Plano 13 aparece para a nutricionista nem para os pacientes até o admin liberar (o que depende do checklist do 10A em `docs/operacao/go-live.md`).
+Nenhum passo é do código; cada um tem dono. O parecer **segue o interruptor** `documentos_liberados` do Plano 10A e **não tem interruptor próprio** (Q13-6 ★): o runbook parte de que ele está **desligado** em todo consultório no dia do merge — o passo 2 confere. A liberação da receita (checklist do 10A em `docs/operacao/go-live.md`) não espera o Plano 13; se ela vier antes do merge, o parecer entra no ar no deploy, para quem já estiver liberado.
 
-1. **Antes da execução.** Responder Q13-1 a Q13-5 (seção "Decisões do plano"): o plano aplica as recomendações da spec; uma resposta diferente muda as tarefas indicadas.
-2. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. Conferir no PR o job `image` do CI (orçamento de 265 MB; o plano não traz dependência nova). As migrations `0104`/`0105` rodam no deploy com `DATABASE_URL_MIGRATOR`.
+1. **Antes da execução.** Responder Q13-1 a Q13-6 (seção "Decisões do dono"): o plano aplica as recomendações da spec; uma resposta diferente muda as tarefas indicadas.
+2. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. Conferir no PR o job `image` do CI (orçamento de 265 MB; o plano não traz dependência nova). As migrations `0104`/`0105` rodam no deploy com `DATABASE_URL_MIGRATOR` (durante a 0104, o worker pode registrar `42703` por alguns segundos; os jobs repetem — D-P8). **Conferir no `/admin` que nenhum consultório está com "Documentos: Liberados".** Se algum estiver, só fazer o merge depois dos passos 4 (Debby) e 5 (CRN-3 e advogado): o parecer apareceria na hora, com a declaração e a ressalva ainda em rascunho (risco R9).
 3. **Backup no host (P02-11) — continua pendente.** Os PDFs dos pareceres ficam só em `/data` da VPS até o backup ser ligado. Não liberar documentos para dado real antes do backup.
-4. **Textos para a Debby (rascunho, como o P08-08).** A declaração e a ressalva do parecer (D5), os textos propostos (desvio 9: exame excluído, versão, substituído, motivo da retificação) e o guia `documentos` v2 do manual guiado. Mudou algum texto: troca-se no código e na spec antes da liberação.
-5. **Consulta ao CRN-3 (P-B1).** Junto das perguntas da receita, a D2: se o CRN-3 confirmar que a assinatura na plataforma com 2FA e código verificador (opção A) atende o parecer (Res. CFN 760/2023, art. 10, II), a D2 pode ir para (b) — plano próprio (variante `preparando → assinado`, `assinatura_tipo = 'plataforma'`, textos da variante A).
+4. **Textos para a Debby (rascunho, como o P08-08).** A declaração e a ressalva do parecer (D5), os textos propostos (desvio 9: exame excluído, versão, substituído, motivo da retificação) o guia `documentos` v2 do manual guiado e o carimbo "das receitas e dos pareceres" no perfil (T8) e no guia `configuracoes` (T10). Mudou algum texto: troca-se no código e na spec antes da liberação.
+5. **Consulta ao CRN-3 (P-B1) e ao advogado (P-B3/E-09).** Ao CRN-3, junto das perguntas da receita: (i) a D2 — se o CRN-3 confirmar que a assinatura na plataforma com 2FA e código verificador (opção A) atende o parecer (Res. CFN 760/2023, art. 10, II), a D2 pode ir para (b), plano próprio (variante `preparando → assinado`, `assinatura_tipo = 'plataforma'`, textos da variante A); (ii) a declaração e a ressalva do parecer (D5), já revistas pela Debby no passo 4, se a consulta da receita já tiver sido enviada sem elas; (iii) o art. 37 da Res. CFN 856/2026: um parecer com valores de exame transcritos por IA e conferidos pela nutricionista é "material produzido com suporte de IA"? A resposta é necessária antes de 23/01/2027 (vigência; ato de prorrogação a conferir no DOU, P-B11) e decide a Q13-2 (se sim, a nota de origem no PDF, Q13-2 (b)). Ao advogado, junto do motivo de cancelamento da D15: o motivo da retificação fora da exportação do titular (Q13-1); se o titular tiver direito a ele, tirar a condição `escopo === 'equipe'` (T6).
 6. **Teste no consultório (Debby, com dado fictício, depois da liberação de documentos do 10A).** Lançar um exame fictício (com valores e outro só com laudo), criar um parecer, preparar, assinar pela digitalizada, conferir o PDF ("Exames considerados", a ressalva, o código), o portal ("Parecer nutricional · …"), a verificação pública ("Tipo: Parecer nutricional"); acrescentar uma linha ao exame pela leitura com IA (se a IA estiver liberada) ou excluir o exame e ver o aviso; retificar com o motivo e assinar a versão 2; conferir a versão 1 "Substituído" no portal e na verificação, e um e-mail só ao paciente (Q13-3).
 7. **Uso real.** Com 1–6 feitos, o parecer está disponível para a Debby junto com a receita (mesmo interruptor). Acompanhar, na primeira semana, os avisos "PDF do documento não gerado" e "PDF da digitalização não montado" no log do worker (só ids e motivo).
 
@@ -3669,7 +3768,7 @@ Nenhum passo é do código; cada um tem dono. O parecer **segue o interruptor** 
 
 | # | Risco / pendência | Onde está tratado | O que falta |
 |---|---|---|---|
-| R1 | Q13-1 a Q13-5 ainda são do dono; uma resposta diferente da recomendação muda T1, T5, T6, T7 e T9 | "Decisões do plano" (coluna "Se o dono decidir diferente") | Respostas antes da execução (runbook passo 1) |
+| R1 | Q13-1 a Q13-6 ainda são do dono; uma resposta diferente da recomendação muda T1, T5, T6, T7 e T9 | "Decisões do plano" (coluna "Se o dono decidir diferente") | Respostas antes da execução (runbook passo 1) |
 | R2 | A 0105 reescreve `app_documento_imutavel` inteira (CS-141): um erro de cópia da 0093 abre uma transição | Teste de imutabilidade do 10A inteiro roda de novo (T1, Step 6) + os casos novos; checagem final (diff linha a linha) | Revisão completa da T1 com atenção ao diff |
 | R3 | Deadlock entre assinar a versão nova e cancelar/retificar a original | D-P1 (ordem única), teste com duas conexões (T7), gatilho com `FOR SHARE` no INSERT (T1) | Monitorar `40P01` no log nas primeiras semanas |
 | R4 | O parecer depende da liberação dos documentos (D20 do 10A), que depende do CRN-3, do termo/DPA e do backup | Runbook passos 3–7 | P-B1, P-B3, P02-11 (dono) |
@@ -3677,6 +3776,9 @@ Nenhum passo é do código; cada um tem dono. O parecer **segue o interruptor** 
 | R6 | E2E do `/admin` com mais de 50 consultórios no banco do E2E: depois de uma ação, a linha pode não estar na primeira página (desvio 8) | Testes do E2E abrem `/admin?busca=…`; o banco do E2E é novo a cada execução | Se acontecer, guardar a busca no redirecionamento das ações (backlog) |
 | R7 | As métricas do `/admin` continuam calculadas para todos os consultórios (D-P5) | Medida no dev na T11 (Step 5) | Parâmetro de ids nas funções `admin_metricas_*` se passar de 1 s |
 | R8 | O Plano 10B, se entrar antes, também numera a partir da 0104 e mexe em `registrar-assinatura.ts`/`arquivos-do-preparo.ts` | Global Constraints (renumerar no rebase) | Rebase cuidadoso de quem entrar depois |
+| R9 | O parecer não tem interruptor próprio: se a receita for liberada antes do merge, o deploy põe o parecer e a retificação no ar com a declaração, a ressalva (D5) e os textos do desvio 9 em rascunho, e os passos 4 e 5 do runbook são pulados sem ninguém notar | Runbook, passo 2 (conferir no `/admin` antes do merge); Q13-6 ★ | Dono: conferir no merge, ou decidir por um interruptor próprio (plano à parte) |
+| R10 | Q13-2 (a) quebra a premissa da §5.10 da spec da IA ("A leitura de laudo não gera material entregue ao paciente"): valores lidos pela IA chegam ao paciente no PDF do parecer sem indicação de IA; o art. 37 da Res. CFN 856/2026 vale a partir de 23/01/2027 | Runbook, passo 5 (pergunta ao CRN-3); T12 (§5.10 da spec da IA e P-B1 do `go-live.md`); Q13-2 (b) pronta como alternativa | Resposta do CRN-3 antes de 23/01/2027; com "sim", a nota de origem no PDF (Q13-2 (b)) |
+| R11 | Expand/contract: o `nutri_worker` novo pode subir antes de a 0104 terminar e dar `42703` na leitura da nota e na exportação | D-P8 (aceita: migration curta, retry do pg-boss) | Acompanhar o log do worker no deploy |
 
 ## Autoconferência do plano (writing-plans)
 
@@ -3685,9 +3787,40 @@ Nenhum passo é do código; cada um tem dono. O parecer **segue o interruptor** 
 - **Nomes consistentes:** os contratos do topo são os usados nas tarefas (`copiarExames`, `situacaoDosExames`, `criarParecer`, `salvarRascunhoParecer`, `retificarDocumento`, `retificacaoEmAndamento`, `lerMotivoRetificacao`, `assinarDigitalizada`, `listarContas`, `retificacaoAssinadaNoBanco`, `CONTEUDO_PARECER_TESTE`); os do código existente foram conferidos na `main` (`travarDocumento`, `travarDocumentoAntesDaCota`, `soltarArquivosDoPreparo`, `registrarAssinatura`, `registrarVerificacao`, `mudarSituacao`, `consultarVerificacao`, `documentosDoPaciente`, `novosNoPortal`, `confirmarRecebimentoNoPortal`, `estadoDoLink`, `documentosParaExportacao`, `anonimizarDocumentosDoPaciente`, `pdfsDeDocumentosRestantes`, `cancelarDocumento`, `receberDigitalizada`, `montarPdfDigitalizado`, `gerarPdfDoDocumento`, `renderizarDocumento`, `exigirHabilitacaoAtual`, `carregarPacienteParaEscrita`, `listarExames`, `criarExame`, `excluirExame`, `envioNoBanco`, `tenantLivreEnquantoEsperaODocumento`, `emailsNaFila`, `textoDoPdf`, `outroDocumento`, `documentoNoBanco`, `novoConsultorio`, `app_documento_imutavel`, `app_notas_imutaveis`, `app_anonimizar_documentos`, `signed_documents_retificacao_aberta`).
 - **Review Focus:** cada linha tem os testes nas tarefas indicadas.
 
+## Correções da revisão do plano (08/10/2026)
+
+Uma linha por achado da revisão do plano (lentes banco, normas e execução), conferido no código da `main` @ `3b59c38`:
+
+1. **[Important, banco]** A versão nova com `retifica_id` só nasce em **rascunho** (`app_documento_versao`, 0105): um INSERT direto já "preparando"/"assinado" pulava o motivo e deixava duas "assinado" em vigor; os testes passam por `retificacaoAssinadaNoBanco` (opção `substituir: false`) e `outroDocumento(…, { retifica })` insere em rascunho + nota com motivo + preparo; caso novo "inserida já preparando/assinado" (T1).
+2. **[Minor, banco]** Isolamento da retificação: desvio 11 (casos entre consultórios e entre pacientes em `documentos-versoes.test.ts`, teste novo "outro consultório"); frase da spec corrigida.
+3. **[Minor, banco]** Janela do expand/contract da 0104 aceita e registrada (D-P8, R11, runbook passo 2, T12).
+4. **[Minor, banco]** Motivo só com quebras de linha ou tabulações recusado no banco (`btrim(…, E' \t\r\n')`, regra (a)) e caso no teste (T1).
+5. **[Minor, banco]** `conteudo->>'tipo'` × coluna `tipo`: para "Pontos menores" (CHECK numa migration própria).
+6. **[Minor, banco]** Tipo da verificação × tipo do documento: para "Pontos menores".
+7. **[Important, normas]** Q13-2 (a) × §5.10 da spec da IA e art. 37 da Res. CFN 856/2026: atenção na Q13-2, pergunta ao CRN-3 no runbook (passo 5) e no P-B1 do `go-live.md` (T12), R10 e a §5.10 atualizada na T12.
+8. **[Important, normas]** Parecer sem interruptor próprio: conferência no `/admin` antes do merge (runbook passo 2), R9 e Q13-6 ★.
+9. **[Important, normas]** Motivo da retificação fora da exportação do titular vai ao advogado (E-09) junto com o da D15: Q13-1, runbook passo 5 e P-B3/E-09 do `go-live.md` (T12).
+10. **[Minor, normas]** Runbook passo 5 leva ao CRN-3 também a declaração e a ressalva do parecer (D5).
+11. **[Minor, normas]** Carimbo "das receitas e dos pareceres" (Res. CFN 656/2020 e 760/2023, art. 10, I) no perfil (T8) e no guia `configuracoes` v4 (T10), como rascunho para a Debby.
+12. **[Minor, normas]** Q13-3: registrado que o e-mail único não diz que a versão anterior foi substituída (D11).
+13. **[Important, execução]** `src/db/documentos-schema.test.ts:24` exigia a recusa de `'parecer'`: T1 troca por `'atestado'`, renomeia o teste e inclui o arquivo nos Files e no `git add`.
+14. **[Important, execução]** Fixtures de `ItemLista` sem `versao` quebravam o typecheck: T3 acrescenta `versao: 1` em `documentos.test.ts:196` e `entrega.test.ts:84` (arquivo nos Files e no `git add`).
+15. **[Important, execução]** União `DocumentoExportado` quebrava o typecheck de três testes: T6 estreita `lgpd-documentos.test.ts:35/:49` e `exportacao.test.ts:846` (arquivo nos Files e no `git add`).
+16. **[Important, execução]** `motivo` passa a ser prop opcional (padrão `null`) nos dois editores; o `receita-form.test.ts` continua compilando (T9).
+17. **[Important, execução]** PDF do parecer: `wrap={false}` só por linha e `minPresenceAhead` no título do exame (padrão do `plano-pdf.tsx`); teste com 50 linhas longas e ≥ 2 páginas (T4).
+18. **[Minor, execução]** `/admin`: uma linha por consultório (`left join lateral … limit 1`), busca no e-mail de qualquer nutricionista por `exists`, caso com duas nutricionistas no teste do cursor (T11).
+19. **[Minor, execução]** E2E do parecer no bloco `10.9.18.x` (o `10.9.15.x` é do `ia-laudos.spec`) e o IP sem login zerado no seed (T10).
+20. **[Minor, execução]** Isolamento × spec (mesmo achado do 2): resolvido pelo desvio 11.
+21. **[Minor, execução]** "Estrutura de arquivos" alinhada às tarefas (`aviso-exame.tsx`, sem `substituido.tsx`) e aos arquivos novos das correções.
+22. **[Minor, execução]** `z.guid()` no lugar de `z.uuid()` nos ids dos exames (G5, como `src/app/admin/actions.ts:19`) (T2).
+23. **[Minor, execução]** Regra 8 do CLAUDE.md: "e versão" na frase das listas e "só em rascunho" na frase da retificação (T1, Step 7).
+
 ## Pontos menores (backlog do Plano 13)
 
 - **Guardar a busca e a página do `/admin` depois de uma ação** (desvio 8): campo escondido com `busca`/`depois` nos formulários das ações e no `redirect`.
 - **Parâmetro de ids nas métricas do admin** (D-P5), se a medida da T11 pedir.
 - **"Citado em parecer" na aba Exames** (Q13-4 = (b)), se a Debby pedir.
-- **Nota de origem dos valores no PDF** (Q13-2 = (b)), se o CRN-3 ou a Res. CFN 856/2026, art. 37, pedirem.
+- **Nota de origem dos valores no PDF** (Q13-2 = (b)), se o CRN-3 ou a Res. CFN 856/2026, art. 37, pedirem — a pergunta vai no passo 5 do runbook (R10).
+- **`conteudo->>'tipo'` amarrado à coluna `tipo`** (revisão do plano, banco): `exigirHabilitacaoAtual` e o corpo do PDF decidem pelo `conteudo.tipo` (jsonb, gravável no rascunho), não pela coluna `signed_documents.tipo` (fixa pelo gatilho). Defesa: `CHECK (conteudo = '{}'::jsonb OR conteudo->>'tipo' = tipo)` numa migration própria; os dados atuais passam (só receitas com `tipo: 'receita'`), mas conferir antes os testes do 10A que gravam `conteudo` sem `tipo` (`documentos-imutaveis.test.ts`, linhas 59, 121, 151, 155 e 218 — os de documento emitido são recusados pelo gatilho antes do CHECK).
+- **Tipo da verificação amarrado ao tipo do documento** (revisão do plano, banco): o CHECK novo de `document_verifications.tipo` não o liga ao documento; a FK `document_verifications_documento_fk` (0092) é `(tenant_id, documento_id, codigo)`. Opcional: `UNIQUE (tenant_id, id, codigo, tipo)` em `signed_documents` e a FK com `tipo` (a coluna é fixa pelo gatilho). Hoje só `registrarVerificacao` grava, com o `tipo` lido da própria linha (T5).
+- **Leitura da nota com colunas explícitas** (D-P8), se o dono quiser zero `42703` na janela do deploy da 0104.
