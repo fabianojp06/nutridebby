@@ -141,8 +141,10 @@ describe('parecer nutricional — preparar e congelar (US-141, US-143, RN-148, R
     const outro = await novoPaciente(app.db, T.ctx);
     const e = await hemograma(T.ctx, p.id);
     const copia = [{ id: e, data: '2026-09-01', titulo: 'Hemograma', valores: [{ nome: 'Hemoglobina', valor: 13.5, unidade: 'g/dL', referencia: '12 a 16' }] }];
+    expect(await situacaoDosExames(T.ctx, p.id, copia, app.db)).toEqual({ [e]: 'igual' });
     expect(await situacaoDosExames(T.ctx, outro.id, copia, app.db)).toEqual({ [e]: 'excluido' });
-    const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where acao = 'ler' and entidade = 'exames' and patient_id = ${p.id}`), app.db);
+    // nenhuma leitura auditada no consultório, de nenhum dos dois pacientes nem de outra entidade (o tenant é novo)
+    const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where acao = 'ler' and tenant_id = ${T.tenantId}`), app.db);
     expect(audit.rows).toEqual([]);
   });
 });
