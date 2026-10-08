@@ -7,31 +7,44 @@ import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
 import { RESET_PREPARO } from './documentos';
-import { EMITIDOS, ROTULO_ASSINATURA, ROTULO_STATUS, type StatusDocumento, type TipoAssinatura } from './constantes';
+import { EMITIDOS, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO, type StatusDocumento, type TipoAssinatura, type TipoDocumento } from './constantes';
+import type { ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
 
-export type DocumentoExportado = {
-  tipo: 'Receita';
+type BaseExportada = {
+  tipo: string;
+  /** NGS1.01.01: a versão do documento e, numa retificação, o código (formatado) da versão que ela substitui. */
+  versao: number;
+  retificaCodigo: string | null;
   situacao: string;
   criadoEm: string;
   assinadoEm: string | null;
   codigo: string | null;
   sha256: string | null;
   assinatura: string | null;
-  itens: { titulo: string; linhas: string[] }[];
-  orientacoes: string;
-  justificativaDeUso: string | null;
   recebimento: { evento: string; via: string; em: string }[];
   /** Caminho do PDF assinado dentro do ZIP (`documentos/…`); null se não há PDF ou se ele ficou de fora. */
   pdf: string | null;
+  /** Q13-1 ★: só na exportação da EQUIPE (a chave nem existe na do titular, como o motivo de cancelamento, que nunca sai). */
+  motivoDaRetificacao?: string | null;
 };
+type ReceitaExportada = { itens: { titulo: string; linhas: string[] }[]; orientacoes: string; justificativaDeUso: string | null };
+/** Q13-2 ★: a origem dos valores (IA conferida, envio do paciente) sai aqui, nunca no PDF. Nada do laudo. */
+type ParecerExportado = {
+  exames: { titulo: string; data: string; enviadoPeloPaciente: boolean; valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; lidoComIa: boolean }[] }[];
+  avaliacao: string;
+  conduta: string;
+  encaminhamentos: string;
+};
+export type DocumentoExportado = BaseExportada & (ReceitaExportada | ParecerExportado);
 
 const emitido = (s: string) => EMITIDOS.includes(s as StatusDocumento);
 
 /**
- * US-150 base (D1 ★): equipe = todos, com a justificativa; titular = só os emitidos, com a justificativa (D15 = (b)) e o
- * recebimento; o motivo de cancelamento nunca sai. O worker roda como `worker` (a RLS do paciente não filtra): o filtro do
- * titular é explícito aqui, como planosParaExportacao. O PDF preparado nunca vai; o assinado vai em documentos/.
+ * US-150 base (D1 ★) + Plano 13: equipe = todos, com a justificativa e o motivo da retificação; titular = só os emitidos,
+ * com a justificativa (D15 = (b)) e o recebimento, sem motivo de retificação (Q13-1 ★); o motivo de cancelamento nunca
+ * sai. O worker roda como `worker` (a RLS do paciente não filtra): o filtro do titular é explícito aqui. Cada versão é um
+ * documento (v1 substituída e v2 vigente vão as duas). O PDF preparado nunca vai; o assinado vai em documentos/.
  */
 export async function documentosParaExportacao(
   tx: Tx,
@@ -45,31 +58,55 @@ export async function documentosParaExportacao(
     .orderBy(asc(signedDocuments.createdAt), asc(signedDocuments.id));
   const ids = ds.map((d) => d.id);
   const notas = ids.length
-    ? await tx.select({ d: signedDocumentNotes.documentoId, j: signedDocumentNotes.justificativaUso }).from(signedDocumentNotes).where(inArray(signedDocumentNotes.documentoId, ids))
+    ? await tx
+        .select({ d: signedDocumentNotes.documentoId, j: signedDocumentNotes.justificativaUso, m: signedDocumentNotes.motivoRetificacao })
+        .from(signedDocumentNotes)
+        .where(inArray(signedDocumentNotes.documentoId, ids))
     : [];
   const recibos = ids.length
     ? await tx.select().from(signedDocumentReceipts).where(inArray(signedDocumentReceipts.documentoId, ids)).orderBy(asc(signedDocumentReceipts.em))
     : [];
+  // a versão anterior é do mesmo paciente (FK composta de retifica_id) e sempre emitida (só se retifica a "assinado"): o
+  // código dela está na própria lista, também na do titular
+  const codigoDe = new Map(ds.map((d) => [d.id, d.codigo && d.status !== 'rascunho' ? formatarCodigo(d.codigo) : null]));
   const anexos: { indice: number; caminho: string; nome: string }[] = [];
   const documentos: DocumentoExportado[] = ds.map((d, i) => {
-    const c = d.conteudo as Partial<ConteudoReceita>;
     // nome sem texto do usuário (data + posição), como os laudos
     if (d.pdfPath && !d.anonimizadoEm)
       anexos.push({ indice: i, caminho: d.pdfPath, nome: `documentos/${(d.assinadoEm ?? d.createdAt).toISOString().slice(0, 10)}-${String(i + 1).padStart(2, '0')}.pdf` });
-    return {
-      tipo: 'Receita',
+    const nota = notas.find((n) => n.d === d.id);
+    const tipo = d.tipo as TipoDocumento;
+    const base: BaseExportada = {
+      tipo: TIPO_DOCUMENTO_ROTULO[tipo],
+      versao: d.versao,
+      retificaCodigo: d.retificaId ? (codigoDe.get(d.retificaId) ?? null) : null,
       situacao: ROTULO_STATUS[d.status as StatusDocumento],
       criadoEm: d.createdAt.toISOString(),
       assinadoEm: d.assinadoEm?.toISOString() ?? null,
-      codigo: d.codigo && d.status !== 'rascunho' ? formatarCodigo(d.codigo) : null,
+      codigo: codigoDe.get(d.id) ?? null,
       sha256: d.pdfSha256,
       assinatura: d.assinaturaTipo ? ROTULO_ASSINATURA[d.assinaturaTipo as TipoAssinatura] : null,
-      itens: (c.itens ?? []).map((item) => descreverItem(item)),
-      orientacoes: c.orientacoes ?? '',
-      justificativaDeUso: notas.find((n) => n.d === d.id)?.j ?? null,
       recebimento: recibos.filter((r) => r.documentoId === d.id).map((r) => ({ evento: r.evento, via: r.via, em: r.em.toISOString() })),
       pdf: null,
+      ...(escopo === 'equipe' ? { motivoDaRetificacao: nota?.m ?? null } : {}),
     };
+    if (tipo === 'parecer') {
+      const c = d.conteudo as Partial<ConteudoParecer>; // anonimizado: '{}'
+      return {
+        ...base,
+        exames: (c.exames ?? []).map((e) => ({
+          titulo: e.titulo,
+          data: e.data,
+          enviadoPeloPaciente: !!e.enviadoPeloPaciente,
+          valores: e.valores.map((v) => ({ nome: v.nome, valor: v.valor, unidade: v.unidade, referencia: v.referencia, lidoComIa: !!v.iaTarefaId })),
+        })),
+        avaliacao: c.avaliacao ?? '',
+        conduta: c.conduta ?? '',
+        encaminhamentos: c.encaminhamentos ?? '',
+      };
+    }
+    const c = d.conteudo as Partial<ConteudoReceita>;
+    return { ...base, itens: (c.itens ?? []).map((item) => descreverItem(item)), orientacoes: c.orientacoes ?? '', justificativaDeUso: nota?.j ?? null };
   });
   return { documentos, anexos };
 }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco, novoConsultorio, outroDocumento } from '../../../test/documentos';
+import { documentoNoBanco, novoConsultorio, outroDocumento, retificacaoAssinadaNoBanco } from '../../../test/documentos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
 import { limparArquivosOrfaosDeDocumentos } from './documento-pdf-job';
@@ -32,7 +32,7 @@ describe('LGPD dos documentos (US-150 base, D15 da spec)', () => {
     const equipe = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => documentosParaExportacao(tx, p.id, 'equipe'), app.db);
     expect(equipe.documentos.map((d) => d.situacao).sort()).toEqual(['Cancelado', 'Rascunho']);
     expect(JSON.stringify(equipe)).not.toContain('Dose errada');
-    expect(equipe.documentos.find((d) => d.situacao === 'Rascunho')?.justificativaDeUso).toBe('J rascunho');
+    expect(equipe.documentos.find((d) => d.situacao === 'Rascunho')).toMatchObject({ justificativaDeUso: 'J rascunho' });
     expect(equipe.documentos.find((d) => d.situacao === 'Rascunho')?.codigo, 'o rascunho não tem código').toBeNull();
     const titular = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => documentosParaExportacao(tx, p.id, 'titular'), app.db);
     expect(titular.documentos.map((d) => d.situacao)).toEqual(['Cancelado']);
@@ -46,7 +46,7 @@ describe('LGPD dos documentos (US-150 base, D15 da spec)', () => {
       recebimento: [expect.objectContaining({ evento: 'aberto', via: 'portal' })],
       pdf: null,
     });
-    expect(titular.documentos[0].itens).toEqual([expect.objectContaining({ titulo: expect.stringContaining('Vitamina D3') })]);
+    expect(titular.documentos[0]).toMatchObject({ itens: [expect.objectContaining({ titulo: expect.stringContaining('Vitamina D3') })] });
     expect(JSON.stringify(titular)).not.toContain('Dose errada');
     expect(titular.anexos).toHaveLength(1);
     expect(titular.anexos[0]).toMatchObject({ indice: 0, caminho: a.pdfPath });
@@ -113,5 +113,73 @@ describe('LGPD dos documentos (US-150 base, D15 da spec)', () => {
     expect(await limparArquivosOrfaosDeDocumentos(app.db, new Date(Date.now() + 2 * 3600_000), c.dataDir, { tenantId: c.T.tenantId })).toBeGreaterThanOrEqual(1);
     expect((await withTenant(c.T.ctx, (tx) => tx.execute(sql`select 1 from stored_files where caminho = ${x.base}`), app.db)).rows).toEqual([]);
     expect(await existe(path.join(c.dataDir, x.base))).toBe(false);
+  });
+});
+
+const parecer = {
+  versao: 1, tipo: 'parecer', avaliacao: 'Baixa reserva de ferro.', conduta: 'Aumentar fontes de ferro.', encaminhamentos: '',
+  exames: [{ id: randomUUID(), data: '2026-09-01', titulo: 'Hemograma', valores: [{ nome: 'Ferritina', valor: 12, unidade: 'ng/mL', referencia: null, iaTarefaId: randomUUID() }], enviadoPeloPaciente: true }],
+  copia: { profissional: {}, paciente: { nome: 'Ana Souza' } },
+};
+
+describe('LGPD do parecer e das versões (US-150 v0.5)', () => {
+  it('parecer: a cópia dos exames (com a origem — Q13-2 ★), avaliação, conduta e encaminhamentos no lugar dos itens; versão e código da anterior', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'parecer', conteudo: parecer });
+    const v2 = await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: v1.id, versao: 1 }, { tipo: 'parecer', conteudo: parecer, motivo: 'Ferritina lançada depois' });
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    const titular = await withTenant(worker, (tx) => documentosParaExportacao(tx, p.id, 'titular'), app.db);
+    const porVersao = (n: number) => titular.documentos.find((d) => d.versao === n)!;
+    expect(titular.documentos).toHaveLength(2); // a v1 substituída e a v2 vigente vão as duas
+    expect(porVersao(1)).toMatchObject({ tipo: 'Parecer nutricional', situacao: 'Substituído', versao: 1, retificaCodigo: null });
+    expect(porVersao(2)).toMatchObject({
+      tipo: 'Parecer nutricional', situacao: 'Assinado', versao: 2,
+      retificaCodigo: `${v1.codigo!.slice(0, 4)}-${v1.codigo!.slice(4, 8)}-${v1.codigo!.slice(8)}`,
+      avaliacao: 'Baixa reserva de ferro.', conduta: 'Aumentar fontes de ferro.', encaminhamentos: '',
+      exames: [{ titulo: 'Hemograma', data: '2026-09-01', enviadoPeloPaciente: true, valores: [{ nome: 'Ferritina', valor: 12, unidade: 'ng/mL', referencia: null, lidoComIa: true }] }],
+    });
+    expect(porVersao(2)).not.toHaveProperty('itens');
+    // Q13-1 ★: o motivo da retificação só na exportação da equipe; o titular nunca (nem a chave)
+    expect(porVersao(2)).not.toHaveProperty('motivoDaRetificacao');
+    expect(JSON.stringify(titular)).not.toContain('Ferritina lançada depois');
+    const equipe = await withTenant(worker, (tx) => documentosParaExportacao(tx, p.id, 'equipe'), app.db);
+    expect(equipe.documentos.find((d) => d.versao === 2)).toMatchObject({ motivoDaRetificacao: 'Ferritina lançada depois' });
+    expect(equipe.documentos.find((d) => d.versao === 1)).toMatchObject({ motivoDaRetificacao: null });
+    expect(v2.id).toBeTruthy();
+  });
+
+  it('receita continua com itens, orientações e justificativa, agora com versão (1) e retificaCodigo (nulo)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', conteudo });
+    const r = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => documentosParaExportacao(tx, p.id, 'titular'), app.db);
+    expect(r.documentos[0]).toMatchObject({ tipo: 'Receita', versao: 1, retificaCodigo: null, orientacoes: 'Com água.' });
+    expect(r.documentos[0]).not.toHaveProperty('exames');
+  });
+
+  it('anonimização com v1 substituída, v2 assinada e v3 em rascunho: v3 apagada, v1 e v2 limpas (com as notas e o motivo); nada sobra', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'lgpd-ret-'));
+    const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'parecer', conteudo: parecer });
+    const v2 = await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: v1.id, versao: 1 }, { tipo: 'parecer', conteudo: parecer });
+    const v3 = await documentoNoBanco(app.db, T.ctx, p.id, { tipo: 'parecer', conteudo: parecer, retificaId: v2.id, versao: 3 });
+    for (const pdf of [v1.pdfPath!, v2.pdfPath]) {
+      await mkdir(path.join(dataDir, path.dirname(pdf)), { recursive: true });
+      await writeFile(path.join(dataDir, pdf), '%PDF-1.3');
+    }
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    expect(await anonimizarDocumentosDoPaciente(worker, p.id, { db: app.db, dataDir })).toBe(3);
+    const docs = await withTenant(T.ctx, (tx) => tx.execute(sql`select id, status, conteudo, pdf_path from signed_documents where patient_id = ${p.id} order by versao`), app.db);
+    expect(docs.rows).toEqual([
+      { id: v1.id, status: 'substituido', conteudo: {}, pdf_path: null },
+      { id: v2.id, status: 'assinado', conteudo: {}, pdf_path: null },
+    ]);
+    expect(docs.rows.map((d) => (d as { id: string }).id)).not.toContain(v3.id);
+    const notas = await withTenant(T.ctx, (tx) => tx.execute(sql`select motivo_retificacao from signed_document_notes where documento_id = ${v2.id}`), app.db);
+    expect(notas.rows).toEqual([{ motivo_retificacao: null }]);
+    expect(await withTenant(worker, (tx) => pdfsDeDocumentosRestantes(tx, p.id), app.db)).toBe(0);
   });
 });
