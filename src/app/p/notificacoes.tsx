@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ehIos } from './instalacao';
 import { standalone } from './instalar';
 import { linkDaRecusa, recusaDoPortal, type RecusaDoPortal } from './recusa-api';
@@ -61,6 +61,11 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
   const [agiu, setAgiu] = useState(false);
   /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor (e o link do login ou da escolha) no lugar do "Tente de novo" genérico. */
   const [recusa, setRecusa] = useState<RecusaDoPortal | null>(null);
+  /** O resultado depois de agir: o botão sai do DOM e o foco viria ao <body>; vai para a frase que diz o que aconteceu. */
+  const aviso = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (agiu && (estado === 'ativo' || estado === 'negado')) aviso.current?.focus();
+  }, [agiu, estado]);
   useEffect(() => {
     let vivo = true;
     void (async () => {
@@ -94,17 +99,37 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
   // Plano 16 (RN-201): no mural, o cartão só aparece quando dá para ativar (ou a tentativa falhou); depois de agir nesta
   // tela, fica até a próxima abertura, com o resultado (ativo/negado) anunciado pela região viva de sempre
   if (cartao && !agiu && estado !== 'pode' && estado !== 'falhou') return null;
+  const conteudo = <PainelDeNotificacoes estado={estado} recusa={recusa} aoAtivar={ativar} aviso={aviso} />;
+  return cartao ? cartao(conteudo) : conteudo;
+}
+
+/**
+ * O que AtivarNotificacoes mostra em cada estado (exportado para o teste). Correção da revisão da T10 (RNF-191, como o
+ * ConfirmarNoMural): a região role="status" está SEMPRE montada e só o texto muda — o resultado de "Ativar notificações"
+ * entra numa região que já existia e é anunciado; o "falhou" continua em role="alert", com o botão para tentar de novo.
+ */
+export function PainelDeNotificacoes({
+  estado,
+  recusa,
+  aoAtivar,
+  aviso,
+}: {
+  estado: Exclude<Estado, 'carregando' | 'instale'>;
+  recusa: RecusaDoPortal | null;
+  aoAtivar: () => void;
+  aviso?: RefObject<HTMLParagraphElement | null>;
+}) {
   const link = linkDaRecusa(recusa);
-  const conteudo = (
+  return (
     <div className="space-y-2">
       {(estado === 'pode' || estado === 'falhou') && (
-        <button type="button" onClick={ativar} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">
+        <button type="button" onClick={aoAtivar} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">
           Ativar notificações
         </button>
       )}
-      {estado === 'falhou' && recusa ? (
+      {estado === 'falhou' && (
         <p role="alert">
-          {recusa.mensagem}
+          {recusa ? recusa.mensagem : TEXTO.falhou}
           {link && (
             <>
               {' '}
@@ -112,10 +137,8 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
             </>
           )}
         </p>
-      ) : (
-        TEXTO[estado] && <p role={estado === 'falhou' ? 'alert' : 'status'}>{TEXTO[estado]}</p>
       )}
+      <p ref={aviso} tabIndex={-1} role="status">{estado === 'falhou' ? '' : (TEXTO[estado] ?? '')}</p>
     </div>
   );
-  return cartao ? cartao(conteudo) : conteudo;
 }

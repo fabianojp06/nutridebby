@@ -73,10 +73,12 @@ function Corpo({ item, fuso }: { item: ItemDoMural; fuso: string }) {
  * comentário dela —, não só o lado ou a cor do balão (que lembraria um chat, R-190). O comentário da nutricionista tem
  * estilo próprio (borda de destaque), diferente do aviso automático.
  */
+// wrap-break-word (overflow-wrap, herdado pelo corpo e pelo rótulo do autor): o texto livre — comentário com um link longo
+// (RN-194), o diário, o título do conteúdo — quebra dentro do balão e nunca alarga a página a 320 px (RNF-191, CS-193)
 const ESTILO = {
-  voce: 'ml-8 space-y-2 rounded-2xl bg-p-clara p-3',
-  consultorio: 'mr-8 space-y-2 rounded-2xl border border-borda bg-cartao p-3',
-  nutricionista: 'mr-8 space-y-2 rounded-2xl border border-borda border-l-4 border-l-marca bg-cartao p-3',
+  voce: 'ml-8 space-y-2 rounded-2xl bg-p-clara p-3 wrap-break-word',
+  consultorio: 'mr-8 space-y-2 rounded-2xl border border-borda bg-cartao p-3 wrap-break-word',
+  nutricionista: 'mr-8 space-y-2 rounded-2xl border border-borda border-l-4 border-l-marca bg-cartao p-3 wrap-break-word',
 } as const;
 function Item({ item, fuso, guia }: { item: ItemDoMural; fuso: string; guia: boolean }) {
   const autor = item.tipo === 'comentario' ? MSG_MURAL.nutricionistaComentou(item.sobre) : MSG_MURAL.autor[item.autor];
@@ -111,14 +113,14 @@ export function MuralLista({ mural, fuso }: { mural: Mural; fuso: string }) {
           ))}
         </details>
       )}
-      {mural.vazio ? (
+      {/* decide pelo dia, não pelo mural todo: com itens só em "Dias anteriores" (toda manhã de quem já usa o app), Hoje
+          ainda diz o texto da spec (§4.3) em vez de ficar em branco */}
+      {mural.hoje.length === 0 ? (
         <p>{mural.semPlano ? MSG_MURAL.vazio : MSG_MURAL.nadaAgora}</p>
       ) : (
-        mural.hoje.length > 0 && (
-          <ol aria-label="Hoje" className="space-y-2">
-            {mural.hoje.map((i) => <Item key={i.chave} item={i} fuso={fuso} guia={i.chave === primeiraRefeicao} />)}
-          </ol>
-        )
+        <ol aria-label="Hoje" className="space-y-2">
+          {mural.hoje.map((i) => <Item key={i.chave} item={i} fuso={fuso} guia={i.chave === primeiraRefeicao} />)}
+        </ol>
       )}
     </>
   );

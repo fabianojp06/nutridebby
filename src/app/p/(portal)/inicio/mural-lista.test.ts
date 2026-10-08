@@ -56,4 +56,19 @@ describe('mural "Hoje" (US-191, RNF-191)', () => {
     expect(comPlano).toContain(MSG_MURAL.nadaAgora);
     expect(comPlano).not.toContain('publicar seu plano');
   });
+  it('só "Dias anteriores" com itens (toda manhã de quem já usa o app): Hoje ainda diz "Nada para agora…", nunca fica em branco (§4.3)', () => {
+    const html = renderToStaticMarkup(createElement(MuralLista, { mural: { ...MURAL, hoje: [] }, fuso: 'America/Sao_Paulo' }));
+    expect(html).toMatch(/<summary[^>]*>Dias anteriores<\/summary>/);
+    expect(html).toContain(MSG_MURAL.nadaAgora);
+    expect(html.indexOf('<details')).toBeLessThan(html.indexOf(MSG_MURAL.nadaAgora));
+    expect(html).not.toContain('aria-label="Hoje"');
+    const semPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { ...MURAL, hoje: [], semPlano: true }, fuso: 'America/Sao_Paulo' }));
+    expect(semPlano).toContain(MSG_MURAL.vazio);
+  });
+  it('texto livre quebra dentro do balão (RNF-191, CS-193): um link longo no comentário não alarga a página a 320 px', () => {
+    const html = renderToStaticMarkup(createElement(MuralLista, { mural: MURAL, fuso: 'America/Sao_Paulo' }));
+    const itens = html.match(/<li class="[^"]*"/g) ?? [];
+    expect(itens.length).toBe(6);
+    for (const li of itens) expect(li).toContain('wrap-break-word');
+  });
 });
