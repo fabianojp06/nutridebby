@@ -39,6 +39,11 @@ const dadosSchema = z.object({
 });
 
 export type CopiaProfissional = { nomeCompleto: string; crn: string; email: string; telefone: string; endereco: string | null; fitoterapia: boolean };
+/**
+ * RN-154: a cópia congelada no preparo, igual nos dois tipos. Plano 13: `retificacao` (a versão e o código da versão que
+ * esta substitui) entra no preparo de uma versão nova, para o PDF imprimir "Versão {n} — substitui o documento {código}".
+ */
+export type CopiaDoDocumento = { profissional: CopiaProfissional; paciente: { nome: string }; retificacao?: { versao: number; substitui: string } };
 
 export function perfilCompleto(t: Pick<TenantRow, 'nomeProfissional' | 'crn' | 'contatoEmail' | 'contatoTelefoneE164'>): boolean {
   return !!(t.nomeProfissional && t.crn && t.contatoEmail && t.contatoTelefoneE164);

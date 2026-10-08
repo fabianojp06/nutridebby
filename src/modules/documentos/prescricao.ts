@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DocumentoError } from './erros';
-import type { CopiaProfissional } from './perfil-profissional';
+import type { CopiaDoDocumento } from './perfil-profissional';
 
 /** US-142: rótulos exatos (também usados pelo formulário 'use client' — este arquivo não importa nada do servidor). */
 export const TIPOS_ITEM = {
@@ -117,7 +117,7 @@ export type ConteudoReceita = {
   itens: ItemPrescricao[];
   orientacoes: string;
   /** RN-154: a cópia congelada no preparo. */
-  copia?: { profissional: CopiaProfissional; paciente: { nome: string } };
+  copia?: CopiaDoDocumento;
   /** D5 da spec: o texto da declaração confirmada no preparo. */
   declaracao?: string;
 };
