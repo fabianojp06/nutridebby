@@ -7,8 +7,11 @@ import { AVALIACAO_MAX, CONDUTA_MAX, ENCAMINHAMENTOS_MAX, MSG_PARECER, PARECER_M
 import { prepararParecerAction, salvarParecerAction, type EstadoForm } from '../actions';
 import { Preparar } from './preparar';
 
-/** Um exame da lista do prontuário (listarExames, com auditRead), já com o rótulo "Hemograma — 01/09/2026". */
-export type ExameParaEscolher = { id: string; rotulo: string; semValores: boolean };
+/**
+ * Um exame da lista do prontuário (listarExames, com auditRead), já com o rótulo "Hemograma — 01/09/2026" e as linhas
+ * dos valores (linhaDoValor) — US-141, "Valores atualizados no rascunho": o editor mostra os valores de cada exame marcado.
+ */
+export type ExameParaEscolher = { id: string; rotulo: string; semValores: boolean; linhas: string[] };
 type Estado = EstadoForm & { intencao?: 'salvar' | 'preparar' };
 type Texto = { id: 'avaliacao' | 'conduta' | 'encaminhamentos'; rotulo: string; max: number };
 const TEXTOS: Texto[] = [
@@ -66,17 +69,27 @@ export function ParecerForm({ patientId, docId, conteudo, exames, declaracao }: 
         ) : (
           exames.map((x) => {
             const marcado = selecionados.includes(x.id);
+            // os valores do exame marcado, como o prontuário os tem agora (os que o rascunho copia ao salvar)
+            const valores = marcado && x.linhas.length > 0 ? `exame-${x.id}-valores` : undefined;
             return (
-              <div key={x.id} className="flex min-h-11 items-center gap-2">
-                <input
-                  id={`exame-${x.id}`}
-                  type="checkbox"
-                  checked={marcado}
-                  disabled={!marcado && selecionados.length >= PARECER_MAX_EXAMES}
-                  onChange={(ev) => setSelecionados((xs) => (ev.target.checked ? [...xs, x.id] : xs.filter((id) => id !== x.id)))}
-                  className="size-5"
-                />
-                <label htmlFor={`exame-${x.id}`}>{x.semValores ? `${x.rotulo} (${MSG_PARECER.semValores})` : x.rotulo}</label>
+              <div key={x.id}>
+                <div className="flex min-h-11 items-center gap-2">
+                  <input
+                    id={`exame-${x.id}`}
+                    type="checkbox"
+                    checked={marcado}
+                    disabled={!marcado && selecionados.length >= PARECER_MAX_EXAMES}
+                    onChange={(ev) => setSelecionados((xs) => (ev.target.checked ? [...xs, x.id] : xs.filter((id) => id !== x.id)))}
+                    aria-describedby={valores}
+                    className="size-5"
+                  />
+                  <label htmlFor={`exame-${x.id}`}>{x.semValores ? `${x.rotulo} (${MSG_PARECER.semValores})` : x.rotulo}</label>
+                </div>
+                {valores && (
+                  <ul id={valores} className="ml-7 text-sm">
+                    {x.linhas.map((l, i) => <li key={i}>{l}</li>)}
+                  </ul>
+                )}
               </div>
             );
           })

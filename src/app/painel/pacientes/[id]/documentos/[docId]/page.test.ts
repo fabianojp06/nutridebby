@@ -212,6 +212,18 @@ describe('página do documento: parecer nutricional (US-141, RN-148)', () => {
     expect(html).not.toContain('Justificativa de uso');
   });
 
+  it('rascunho: os valores de cada exame marcado aparecem no editor, pela lista do prontuário (US-141, "Valores atualizados no rascunho")', async () => {
+    const ferritina = { id: '00000000-0000-4000-8000-0000000000e3', data: '2026-08-10', titulo: 'Ferritina', valores: [{ nome: 'Ferritina', valor: 12, unidade: 'ng/mL', referencia: null }] };
+    // o Hemograma (marcado pela cópia) com o valor já atualizado no prontuário; a Ferritina não está marcada
+    const atual = { ...HEMOGRAMA, valores: [{ nome: 'Hemoglobina', valor: 11.2, unidade: 'g/dL', referencia: '12 a 16' }] };
+    const html = await pagina(parecer('rascunho'), { exames: [atual, ferritina, LIPIDICO] });
+    expect(html).toContain('Hemoglobina · 11,2 · g/dL · 12 a 16');
+    expect(html).not.toContain('Hemoglobina · 13,5');
+    expect(html).toContain(`aria-describedby="exame-${HEMOGRAMA.id}-valores"`);
+    expect(html).toContain('Ferritina — 10/08/2026');
+    expect(html).not.toContain('Ferritina · 12');
+  });
+
   it('rascunho com um exame da cópia que foi excluído: o aviso proposto, e o exame fora da seleção', async () => {
     const html = await pagina(parecer('rascunho'), { exames: [LIPIDICO] });
     expect(html).toContain('Um dos exames selecionados foi excluído. Revise a seleção.');

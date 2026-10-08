@@ -45,7 +45,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const parecer = d.conteudo.tipo === 'parecer' ? d.conteudo : null;
   // US-141: a seleção do editor pela lista do prontuário (listarExames grava "Visualizou · Exames", regra 8)
   const examesParaEscolher = parecer && d.status === 'rascunho' && !bloqueado
-    ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0 }))
+    ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0, linhas: x.valores.map(linhaDoValor) }))
     : [];
   // RN-148 v0.5: o aviso de exame mudado/excluído só onde a nutricionista ainda age (aguardando → voltar a editar; assinado → retificar)
   const situacao = parecer && !anonimizado && (d.status === 'aguardando_assinatura' || d.status === 'assinado') ? await situacaoDosExames(ctx, paciente.id, parecer.exames) : {};
