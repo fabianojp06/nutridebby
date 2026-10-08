@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { signFileUrl } from '@/lib/signed-url';
 import { quandoComFuso } from '@/modules/agenda/fuso';
-import { MSG_DIARIO } from '@/modules/portal/diario-constantes';
+import { MSG_DIARIO, ROTULO_RESPOSTA_NUTRI } from '@/modules/portal/diario-constantes';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { abrirRegistro } from '@/modules/portal/diario-nutri';
 import { ComentarioForm } from '../comentario-form';
@@ -19,7 +19,9 @@ export default async function RegistroDoDiarioPage({ params }: PageProps<'/paine
     <>
       <main className="max-w-2xl space-y-4 p-6">
         <p><Link href="/painel/diarios" className="text-link underline">Diários</Link></p>
-        <h1 className="font-titulo text-2xl font-semibold">{`${r.paciente} — ${r.refeicao}`}</h1>
+        <h1 className="font-titulo text-2xl font-semibold">{`${r.paciente} — ${r.refeicaoDoPlano ?? r.refeicao}`}</h1>
+        {r.resposta && <p className="font-medium">{ROTULO_RESPOSTA_NUTRI[r.resposta]}</p>}
+        {r.refeicaoDoPlano && <p className="text-sm text-suave">{`Refeição do plano: ${r.refeicaoDoPlano}`}</p>}
         <p>{quandoComFuso(r.dataHora, tenant.fuso)}</p>
         <p><Link href={`/painel/pacientes/${r.patientId}`} className="text-link underline">Abrir prontuário</Link></p>
         {r.texto && <p className="whitespace-pre-line">{r.texto}</p>}

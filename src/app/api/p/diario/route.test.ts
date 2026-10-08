@@ -9,6 +9,7 @@ import { COTA_BYTES, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenament
 import { MSG_DIARIO } from '@/modules/portal/diario-constantes';
 import { novoTenant } from '../../../../../test/pacientes';
 import { pacienteComConta } from '../../../../../test/portal';
+import { planoPublicado } from '../../../../../test/plano';
 import { entrar } from '../../../../../test/sessao';
 import { POST } from './route';
 
@@ -140,5 +141,25 @@ describe('POST /api/p/diario (US-042)', () => {
     expect((await registros(A.T, A.paciente.id)).map((e) => e.texto)).toEqual(['arroz']);
     // a vaga volta quando o envio termina
     expect((await enviar({ refeicao: 'Jantar', texto: 'sopa' }, { cookie: A.cookie })).status).toBe(200);
+  });
+});
+
+describe('Plano 16: respostas à refeição do plano (RN-197)', () => {
+  it('"Comi assim" pela rota: 200 e jaRegistrado no segundo envio; refeição de outro paciente → 404 sem gravar', async () => {
+    const { T, paciente, cookie } = await pacienteLogado();
+    const { refeicoes } = await planoPublicado(db, T, paciente.id);
+    const primeira = await enviar({ refeicaoId: refeicoes[0].id, resposta: 'como_no_plano' }, { cookie });
+    expect(primeira.status).toBe(200);
+    expect(await primeira.json()).toMatchObject({ ok: true, jaRegistrado: false });
+    const segunda = await enviar({ refeicaoId: refeicoes[0].id, resposta: 'como_no_plano' }, { cookie });
+    expect(await segunda.json()).toMatchObject({ ok: true, jaRegistrado: true });
+    expect(await registros(T, paciente.id)).toHaveLength(1);
+
+    const outro = await pacienteComConta(db, T);
+    const alheia = (await planoPublicado(db, T, outro.paciente.id)).refeicoes[0].id;
+    const r = await enviar({ refeicaoId: alheia, resposta: 'como_no_plano' }, { cookie });
+    expect(r.status).toBe(404);
+    expect(await r.json()).toEqual({ erros: { geral: MSG_DIARIO.refeicaoNaoEncontrada } });
+    expect(await registros(T, paciente.id)).toHaveLength(1);
   });
 });
