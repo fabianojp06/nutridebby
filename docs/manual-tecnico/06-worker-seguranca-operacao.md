@@ -785,6 +785,17 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
    ([§6.5.9](#659-restauração-de-desastre-resumo)); ela também perde o que foi gravado depois do dump, e o backup
    ainda não está instalado no host (§6.5.10).
 
+**Voltar atrás depois do Plano 16 (app do paciente no layout G).** A migration `0106_app_paciente_g` é só de expansão:
+a imagem anterior sobe contra o schema novo. Mas ela **não lê** `patients.peso_oculto_no_app_em` e volta a mostrar peso
+e IMC no app a todo paciente com "Não mostrar peso no app" ligado — o dano que a opção existe para evitar (US-195,
+[§5.5.14](05-agenda-portal-conteudo.md#5514-não-mostrar-peso-no-app-plano-16-us-195-rn-203-a-rn-206)). Antes de qualquer
+volta atrás, com o OK do dono: contar os pacientes com a opção ligada (pelo painel de cada nutricionista ou por uma
+função agregada, **nunca** SQL ad hoc no banco de produção) e avisar as nutricionistas — ou, de preferência, **corrigir
+para a frente** (passo 5). Na janela start-first de um deploy normal, a instância antiga ignora a opção por segundos
+(aceito). A imagem antiga também mostra cada "Comi assim" (sem texto nem foto) como um registro em branco no feed do
+diário e no registro aberto do painel, porque não conhece a coluna `resposta`. Runbook: `docs/operacao/app-paciente.md`,
+passo 7.
+
 ---
 
 ## 6.9 Rotina de incidentes
@@ -841,7 +852,7 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 - Se der tempo (troca planejada): antes da troca, cada conta com 2FA o desativa em `/conta/seguranca`; depois da troca,
   o admin é levado de novo à configuração (`setup-2fa`) e a nutricionista reativa se quiser.
 - Se não der (vazamento ativo): troque primeiro. Depois da troca, um admin que ainda entra reinicia o 2FA das contas
-  travadas em **/admin › Verificação em duas etapas** (P09-02: apaga a linha de `two_factor`, desliga o 2FA, revoga as
+  travadas em **/admin/seguranca › Verificação em duas etapas** (aba "Segurança" do admin desde o Plano 16, T17; P09-02: apaga a linha de `two_factor`, desliga o 2FA, revoga as
   sessões, registra em `admin_actions` e avisa a conta por e-mail). O painel pede o código atual do 2FA da própria
   admin (code review do PR #22: `confirmarCodigo2fa`, 5 tentativas em 15 min, o mesmo código não vale duas vezes em
   90 s; a recusa fica em `admin_actions` como `codigo_2fa_recusado`, sem conta-alvo) e recusa conta de paciente, que só

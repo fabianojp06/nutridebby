@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026 |
-| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) e 13 (parecer nutricional e retificação, F3-05), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) e spec C v0.3 (parte F3-04), migrations `0000`–`0105` (106 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`, o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge), em 08/10/2026 |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05) e 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente), migrations `0000`–`0106` (107 arquivos em `drizzle/`; a `0106` é do Plano 16, §5.5.12 e §5.5.14; o cap. 10 cobre `0098`–`0100`, o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -34,7 +34,7 @@ Não é manual de uso. O manual da nutricionista é o "manual guiado" dentro do 
    `.github/workflows/`).
 2. Spec do MVP: `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-mvp-historias.md`.
 3. Planos, índice e backlog: `docs/superpowers/plans/`.
-4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`, `sustentacao.md`, `ia.md`, `exames-enviados.md`).
+4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`, `sustentacao.md`, `ia.md`, `exames-enviados.md`, `app-paciente.md`).
 5. `CLAUDE.md` do projeto.
 
 Quando a spec e o código divergem, o manual descreve o código e registra a divergência no fim do capítulo. A lista
@@ -128,7 +128,7 @@ flowchart LR
 [5.2 Página pública](05-agenda-portal-conteudo.md#52-página-pública-nslug-rn-16-p05-d11d13) ·
 [5.3 Motor de notificações](05-agenda-portal-conteudo.md#53-motor-de-notificações-rn-05-p05-d6-d7) ·
 [5.4 Canais](05-agenda-portal-conteudo.md#54-canais) ·
-[5.5 Portal do paciente](05-agenda-portal-conteudo.md#55-portal-do-paciente-p-plano-06) ·
+[5.5 Portal do paciente](05-agenda-portal-conteudo.md#55-portal-do-paciente-p-plano-06-layout-g-no-plano-16) ([5.5.2 seções](05-agenda-portal-conteudo.md#552-rotas-e-seções), [5.5.11 mural de Hoje](05-agenda-portal-conteudo.md#5511-hoje-o-mural-plano-16-us-191-43), [5.5.12 respostas](05-agenda-portal-conteudo.md#5512-respostas-no-diário-plano-16-us-192-rn-197-rn-198), [5.5.13 Jornada](05-agenda-portal-conteudo.md#5513-jornada-plano-16-us-194-45), [5.5.14 peso oculto](05-agenda-portal-conteudo.md#5514-não-mostrar-peso-no-app-plano-16-us-195-rn-203-a-rn-206)) ·
 [5.6 Conteúdos](05-agenda-portal-conteudo.md#56-conteúdos-plano-07) ·
 [5.7 Interface do painel](05-agenda-portal-conteudo.md#57-interface-do-painel-plano-08) ·
 [5.8 Manual guiado](05-agenda-portal-conteudo.md#58-manual-guiado-p08-10-p08-d26-d27) ·
@@ -217,6 +217,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
 | Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
 | IA de laudos (provedor, cota, privacidade, liberação) | [cap. 10](10-ia.md) | §2.5.10, §6.2.3, §6.3.8, §7.4, §8.4; `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
+| Portal do paciente no layout G (seções, mural de Hoje, respostas, Jornada, peso oculto, guia do portal) | [§5.5](05-agenda-portal-conteudo.md#55-portal-do-paciente-p-plano-06-layout-g-no-plano-16), [§5.7.6](05-agenda-portal-conteudo.md#576-portal-tokens-faixa-e-fontes-p08-d18-layout-g-no-plano-16), [§5.8.4](05-agenda-portal-conteudo.md#584-manual-guiado-do-portal-plano-16-t14-us-199-rn-212-pm-g10) | §1.7, §1.10, §4 (exportação), §6.8.1 (voltar atrás), §7.4.5, cap. 11; `docs/operacao/app-paciente.md` (runbook) |
 | Exames enviados pelo paciente (envio, rasterização, revisão, memória) | [cap. 11](11-exames-enviados.md) | §6.4 (#3, limites do worker), §7.7 (orçamento da imagem e filtro de documentação); `docs/operacao/exames-enviados.md` (runbook) |
 
 ---
@@ -294,6 +295,11 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Cota de IA / teto da plataforma | Limite mensal em US$ por consultório (`ia_cota_mensal_usd`, padrão 15) e teto mensal da plataforma inteira (`IA_TETO_GLOBAL_MENSAL_USD`); o custo é reservado antes do envio e acertado depois | [§10.5](10-ia.md#105-cota-e-custo) |
 | ZDR | *Zero data retention*: o provedor não guarda o laudo depois da resposta; pré-condição para dado real (A-D4) | [§10.7](10-ia.md#107-privacidade) |
 | Sandbox / fake (IA) | Provedores sem rede: `sandbox` (resposta fixa, dev e E2E) e `fake` (programável, testes). Os dois são recusados em produção | [§10.2](10-ia.md#102-peças) |
+| Seção (portal) | Uma das cinco partes do app do paciente na faixa do topo — Hoje, Jornada, Plano, Exames (condicional), Eu; toda tela do portal marca uma (Plano 16) | [§5.5.2](05-agenda-portal-conteudo.md#552-rotas-e-seções) |
+| Mural (Hoje) | A lista de Hoje no app do paciente: refeição perto do horário, registros, comentários da nutricionista e avisos do consultório, composta na leitura (sem tabela, não é chat) | [§5.5.11](05-agenda-portal-conteudo.md#5511-hoje-o-mural-plano-16-us-191-43) |
+| Resposta à refeição | "Comi assim" / "Comi outra coisa": registro do diário com `resposta` e a cópia `refeicao_do_plano` ("{nome} · {HH:MM}") | [§5.5.12](05-agenda-portal-conteudo.md#5512-respostas-no-diário-plano-16-us-192-rn-197-rn-198) |
+| Jornada | Seção do app com a linha do tempo dos atendimentos, as medidas, as orientações e a próxima consulta; a mini-jornada é o resumo na faixa de Hoje | [§5.5.13](05-agenda-portal-conteudo.md#5513-jornada-plano-16-us-194-45) |
+| "Não mostrar peso no app" | Opção por paciente, ligada só pela equipe (`patients.peso_oculto_no_app_em`): peso e IMC não chegam ao aparelho; o prontuário e as exportações não mudam | [§5.5.14](05-agenda-portal-conteudo.md#5514-não-mostrar-peso-no-app-plano-16-us-195-rn-203-a-rn-206) |
 
 ### Isolamento e banco
 
@@ -367,7 +373,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -519,6 +525,21 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 72 | Spec B US-150 / Q13-1 | Motivo da retificação fora da exportação do titular | Aplicado; depende da resposta do advogado (E-09) | Pend. | 9 #8 |
 | 73 | Spec da IA §5.10 (art. 37) | A leitura de laudo não gera material entregue ao paciente | Desde o Plano 13, os valores lidos e conferidos chegam ao paciente no PDF do parecer, sem indicação de IA (Q13-2 (a)); consulta ao CRN-3 (P-B1) antes de 23/01/2027 | Pend. | 9 #9 |
 | 74 | Spec B US-149 | Cancelar com retificação em andamento é recusado | Recusado, mas a tela ainda oferece "Cancelar documento" e só recusa depois da confirmação (P13-15) | Comp. | 9 #10 |
+
+### App do paciente no layout G (Plano 16)
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 75 | Spec G RN-197 | Resposta repetida devolve o registro existente | Só o "Comi assim" sem texto nem foto; com conteúdo, vira registro comum (Desvio 1) | Reg. | 5 #7 |
+| 76 | Spec G §4.7 | Tokens `--nd-p-fundo`, `--nd-p-texto`… próprios do portal | Reaproveita `TOKENS` (claros iguais; escuros atuais) + `TOKENS_PORTAL` com `p-marco-texto` (Desvio 2) | Reg. | 5 #8 |
+| 77 | Spec G RN-06 / §4.3 | Sigla do fuso em toda hora | Hora da refeição do plano sem sigla (é hora de parede); itens, consulta e mini-jornada com (Desvio 3) | Reg. | 5 #9 |
+| 78 | Spec G RN-200 | `auditRead` do mural em três entidades | Mini-jornada em outra transação, com o próprio `auditRead` de `antropometria` (Desvio 4) | Reg. | 5 #10 |
+| 79 | Spec G §4.2 | "Foto da refeição" abre a câmera | Leva ao campo com `capture="environment"`; a câmera abre no toque (Desvio 6) | Reg. | 5 #11 |
+| 80 | Spec G RN-196 / §4.3 | Resumo da refeição legível | Nomes da TACO com vírgulas, até 4 (Desvio 8, R6) | Pend. | 5 #13 |
+| 81 | Spec G (textos) | Textos da spec | Textos novos fora da spec em constantes, em rascunho até a Debby (Desvio 10, G-D10) | Pend. | 5 #15 |
+| 82 | Spec G §4.5 | Gráfico com tracejado até a próxima consulta | `GraficoLinha` sem o traço (Desvio 11) | Pend. | 5 #16 |
+| 83 | Spec G RN-207 | Anel branco de 2 px em volta do foco | `:focus-visible` global e foco branco sobre a faixa (Desvio 15) | Pend. | 5 #18 |
+| 84 | Plano 16, Desvio 16 | Receita no `summary` da refeição | Receita dentro da refeição, como a spec G (3 toques fora da próxima, G-D14 = a) | Doc | 5 #19 |
 
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

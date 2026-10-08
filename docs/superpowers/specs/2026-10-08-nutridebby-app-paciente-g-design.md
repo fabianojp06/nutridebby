@@ -4,7 +4,7 @@
 |---|---|
 | Versão | 0.1 |
 | Data | 2026-10-08 |
-| Status | **Rascunho para revisão.** Pedido e aprovado pelo dono em 08/10/2026 ("concordo, pode seguir"), com as decisões G-D1 a G-D4 (§14). Conferido contra o código da `main` 19fcea5 (Planos 01–12 em produção). Pendências do dono marcadas com ★ (G-D5 a G-D17). **Acertada pela revisão do plano em 08/10/2026** (§16; detalhe no Plano 16, "Correções da revisão do plano") |
+| Status | **Implementado no Plano 16** (branch `plano-16-app-paciente`, Tarefas 1–17, 08/10/2026; o merge na `main` — o deploy — depende do OK do dono, e a data do merge entra aqui no PR de fechamento). Pedido e aprovado pelo dono em 08/10/2026 ("concordo, pode seguir"), com as decisões G-D1 a G-D4; as pendências G-D5 a G-D17 foram respondidas pelo dono em 08/10/2026 com as recomendações ("Aprovo todas (Recomendado)", §14). Fica aberta só a D6 ★ do plano (a opção de peso na exportação do titular, com o advogado, E-09). Conferido contra o código da `main` 19fcea5 (Planos 01–12 em produção); acertada pela revisão do plano em 08/10/2026 (§16) e no fechamento do Plano 16 (CHECK da §9, G-D16 na §4.5, dia da semana nos exemplos) |
 | Itens do backlog | Novo: **G-01** (app do paciente no layout G verde) e **G-02** ("Não mostrar peso no app", por paciente) |
 | Quando | **Plano 16**, executado **logo depois do Plano 13** (parecer) e **antes do Plano 14** (IA da nutricionista) — G-D2 |
 | Desenho aprovado | `.superpowers/sdd/2026-10-08-plano16-preparacao/desenho/`: `GV-Hoje.dc.html`, `GV-Jornada.dc.html`, `GV-Almoco.dc.html` (layout G verde). Referências: `D-Assuntos.dc.html` (lista por assunto, molde da seção "Eu"), `F-Medidas.dc.html` (tabela de medidas, molde de "Todas as medidas"), `F-Plano.dc.html` (refeições em sanfona, molde da seção "Plano") |
@@ -129,7 +129,7 @@ com `tambem` cobrindo as rotas que não são seção).
 
 | Seção | Rota da seção | Também marca a seção | Título na faixa |
 |---|---|---|---|
-| **Hoje** | `/p/inicio` | `/p/diario` (diário completo) | "Olá, {primeiro nome}" + data por extenso curta ("Quarta, 8 out") |
+| **Hoje** | `/p/inicio` | `/p/diario` (diário completo) | "Olá, {primeiro nome}" + data por extenso curta ("Quinta, 8 out") |
 | **Jornada** | `/p/jornada` (nova) | `/p/evolucao` ("Todas as medidas"), `/p/agenda`, `/p/agenda/nova`, `/p/agenda/<id>` | "Sua jornada desde {mês da primeira consulta}" (sem consulta: "Sua jornada") |
 | **Plano** | `/p/plano` | `/p/plano/refeicao/<id>` (nova), `/p/compras`, `/p/conteudos`, `/p/conteudos/<id>` | "Plano de hoje" |
 | **Exames** | `/p/exames` | — | "Meus exames" |
@@ -145,7 +145,7 @@ Fora do layout do portal (sem seções, com "Sair" no topo como hoje): `/p/escol
 ```
 ┌──────────────────────────────────────────────┐
 │ [logo] Acompanhamento com {consultório}      │  ← faixa (cor do consultório, RN-207), texto branco
-│ Olá, Marina                     Quarta, 8 out│  ← h1 da seção (em Hoje: saudação)
+│ Olá, Marina                     Quinta, 8 out│  ← h1 da seção (em Hoje: saudação)
 │ ┌──────────────────────────────────────────┐ │
 │ │ ╲__╲__•▪  −4,2 kg desde março        ›  │ │  ← mini-jornada (só em Hoje): link para Jornada
 │ │           Próximo marco: amanhã, 14:00   │ │
@@ -265,8 +265,9 @@ Peso nas consultas  [gráfico: um ponto por avaliação com peso; tracejado até
 ```
 
 O gráfico é o `GraficoLinha` atual (com a alternativa em texto/tabela que ele já tem), no visual novo. Com **menos de 2
-pesos**, ou com o peso oculto, o gráfico vira "Cintura nas consultas" se houver ≥ 2 cinturas (com o peso oculto, manter
-essa troca ou não ter gráfico de medida corporal em destaque é a G-D16 ★); senão, não aparece
+pesos** e o peso visível, o gráfico vira "Cintura nas consultas" se houver ≥ 2 cinturas; **com o peso oculto, nenhum
+gráfico de medida corporal em destaque** (G-D16 = a, respondida em 08/10/2026; a cintura continua nas consultas da
+linha do tempo); senão, não aparece
 (nenhuma mensagem sobre o peso faltar). O texto do desenho "Leve suas dúvidas anotadas." **não** entra: seria texto do
 sistema com voz de orientação; a linha mostra só a modalidade e o local/link, como "Minhas consultas".
 
@@ -773,7 +774,7 @@ Cenário: Como usar o app
 | RN-214 | **Transparência sem estigma.** Em Eu › Privacidade, texto fixo: "Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados)." (a v0.1 dizia "Todas estão na cópia", o que promete demais: notas privadas, o rascunho do plano e o motivo de cancelamento escrito pela nutricionista não saem — `exportacao-job.ts`; texto com a Debby, G-D10 ★, e no pacote do advogado, E-09). Nenhuma tela diz ao paciente, individualmente, que o peso está oculto — nem a ajuda "Como usar o app" e o tour, que não falam de peso |
 | RN-215 | **Recebimento de exames desligado.** A barra de ações não tem "Enviar exame"; o mural ainda mostra mudanças de situação de envios antigos (US-161 continua) |
 | RN-216 | **Textos de interface** em pt-BR; os textos novos desta spec ficam numa constante (`MSG_MURAL`, `MSG_JORNADA`, `MSG_G`) e entram na tabela "Textos de interface" das histórias do MVP no fechamento |
-| RN-217 | **Datas e horas** gravadas em UTC e exibidas no fuso do tenant, com a sigla quando o aparelho estiver noutro fuso (RN-06); datas por extenso curtas ("Quarta, 8 out", "22 de setembro") e `dd/mm/aaaa` nos dados tabulares (RNF-12) |
+| RN-217 | **Datas e horas** gravadas em UTC e exibidas no fuso do tenant, com a sigla quando o aparelho estiver noutro fuso (RN-06); datas por extenso curtas ("Quinta, 8 out", "22 de setembro") e `dd/mm/aaaa` nos dados tabulares (RNF-12) |
 | RN-218 | **Nome do paciente.** A saudação usa o primeiro nome de `patients.nome` (até o primeiro espaço); paciente anonimizado não chega ao portal (sem vínculo ativo) |
 | RN-219 | **Ordem de entrega.** O layout novo entra para **todos os pacientes** no deploy do Plano 16 (G-D11 ★), com o tour "O app mudou" |
 
@@ -813,7 +814,7 @@ do Plano 13 (C-196), rodada com `DATABASE_URL_MIGRATOR` (CLAUDE.md, regra 7):
 |---|---|---|
 | `diary_entries` | `resposta text null` | CHECK `diary_entries_resposta_valida`: `resposta is null or resposta in ('como_no_plano', 'outra_coisa')` |
 | `diary_entries` | `refeicao_do_plano text null` | CHECK `char_length between 1 and 80`; obrigatório quando `resposta` não é nulo (`(resposta is null) = (refeicao_do_plano is null)`) |
-| `diary_entries` | CHECK `diary_entries_tem_conteudo` refeito | `texto is not null or foto_status <> 'sem_foto' or resposta = 'como_no_plano'`; e `resposta = 'outra_coisa'` exige texto ou foto (`resposta is distinct from 'outra_coisa' or texto is not null or foto_status <> 'sem_foto'`) |
+| `diary_entries` | CHECK `diary_entries_tem_conteudo` refeito | `texto is not null or foto_status <> 'sem_foto' or resposta is not distinct from 'como_no_plano'` (não `=`: com `resposta` nula, `resposta = 'como_no_plano'` dá `null`, e um CHECK com `null` passa — aceitaria registro vazio; acertado no fechamento do Plano 16, como está na migration `0106`); e `resposta = 'outra_coisa'` exige texto ou foto (`resposta is distinct from 'outra_coisa' or texto is not null or foto_status <> 'sem_foto'`) |
 | `patients` | `peso_oculto_no_app_em timestamptz null` | Sem CHECK. Fica **fora** de `livres` no gatilho `paciente_colunas` (sem mudar a função: ela já recusa toda coluna fora da lista; o plano acrescenta o teste) |
 
 - **RLS:** nada novo — as duas tabelas já têm `tenant_isolation`, `patient_isolation` e as políticas da sessão de
@@ -954,6 +955,28 @@ nos dois escopos até o parecer do advogado, E-09).
 
 > As pendências ★ que sobram para o dono são **G-D5 a G-D17** e a D6 do plano. Nenhuma bloqueia a
 > escrita do plano: o plano parte das recomendações e marca os pontos que mudam se a resposta for outra.
+
+### Respostas do dono de 08/10/2026 (G-D5 a G-D17)
+
+O dono aprovou o desenho G verde e o Plano 16 com **todas as recomendações** ("Aprovo todas (Recomendado)"):
+
+| ID | Resposta | Onde está no código |
+|---|---|---|
+| G-D5 | (c) "Desfazer" por 10 s no aparelho; fechar a tela envia | `PRAZO_DESFAZER_MS`, `ComiAssim` |
+| G-D6 | (a) peso e IMC | `SERIES_DO_PESO` (`peso-oculto.ts`) |
+| G-D7 | (a) escurecer só a cor da faixa, o mínimo necessário | `corDaFaixa` (`marca-tema.ts`) |
+| G-D8 | (a) Conteúdos dentro de Plano + item no mural | `SECOES_DO_PORTAL` (`tambem` de Plano) |
+| G-D9 | (a) Exames some sem recebimento e sem envio | `secoesDoPortal`, `temEnvioVisivel` |
+| G-D10 | (a) a Debby revisa os textos antes do deploy | runbook `docs/operacao/app-paciente.md`, passo 2 |
+| G-D11 | (a) para todos no deploy, com o tour | `GuiaDoPortal`, `AVISO_PORTAL` |
+| G-D12 | (a) meta aceita, revista depois de 4 semanas | runbook, passo 6 |
+| G-D13 | (a) a seção das telas de detalhe dita pelo "Voltar para {seção}" | `CabecalhoDetalhe` |
+| G-D14 | (a) três linhas da §4.10 com 3 toques | `e2e/nada-some.spec.ts` |
+| G-D15 | (a) ≥ 3 em cada uma das 4 semanas; medir só no consultório da Debby, com o pedido registrado, até o DPA definitivo | função agregada no backlog (P16-18), runbook passo 6 |
+| G-D16 | (a) com o peso oculto, nenhum gráfico de medida corporal em destaque | `montarJornada` (`jornada-regras.ts`) |
+| G-D17 | (a) boas-vindas para quem entra pela primeira vez | `AVISO_PORTAL.boasVindas`, `jaUsavaOApp` |
+
+A **D6 ★ do plano** continua com o advogado (E-09): a opção de peso vai na exportação dos dois escopos até o parecer.
 
 ---
 

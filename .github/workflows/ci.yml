@@ -80,7 +80,7 @@ jobs:
     needs: mudancas
     if: needs.mudancas.outputs.codigo == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine

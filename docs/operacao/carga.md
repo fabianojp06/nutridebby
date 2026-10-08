@@ -81,6 +81,7 @@ Os números do k6 saem do `test/carga/resumo.json` (passo 6), antes do passo 10:
 - Lighthouse: LCP `/p/inicio`: · LCP `/p/plano`:
 - B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (`http_req_duration{nome:/api/p/push}`): · respostas 204/409/429 (`http_reqs{nome:/api/p/push,status:…}`):
 - S-7: p95 das páginas `/p/*` (`http_req_duration{tipo:pagina,area:p}`; acima de 800 ms → tarefa do `cache()` no `requirePaciente`):
+- Plano 16 (RNF-190, PM-G11): p95 de `/p/inicio` e de `/p/jornada` (`http_req_duration{nome:/p/inicio}`, `{nome:/p/jornada}`; meta 800 ms): · linhas de `audit_log` por abertura de Hoje (até quatro "Visualizou": plano, diário, exames enviados e antropometria da mini-jornada; contar no banco **da carga**, nunca no de produção):
 - Gargalo e ajuste proposto ao dono (limites no Easypanel, `shared_buffers`, pool):
 - Não coberto nesta rodada → backlog: `/painel/conteudos` com 200 conteúdos publicados e o decode de PNG grande na
   capa (Notas do Plano 07 para o P08-03; a semente cria 100 conteúdos e não sobe imagem) · outros:

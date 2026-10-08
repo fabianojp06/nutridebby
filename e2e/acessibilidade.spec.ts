@@ -4,7 +4,7 @@ import { contraste } from '@/lib/tema/contraste';
 import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
@@ -16,13 +16,18 @@ let nutri: Page;
 let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
 let docs: Page; // Plano 10A: a nutricionista dos documentos (E2E_DOCS, 2FA), um login só (o limite de login é por IP)
 let codigoDaReceita = ''; // Plano 10A: a receita assinada da paciente (XXXX-XXXX-XXXX)
+let refeicaoId = ''; // Plano 16: a refeição do plano, para o axe da refeição aberta
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado)
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.21', devices['Desktop Chrome']); // o painel, em tela de computador
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
-  await publicarPlanoSimples(nutri, paciente.prontuario);
+  // Plano 16 (revisão do plano, achado 21): o "Almoço" daqui a 30 min — o mural de Hoje tem a refeição (e o "Comi assim")
+  // qualquer que seja a hora do CI (com 12:00, só entre 10:30 e 23:59)
+  await publicarPlanoDoDia(nutri, paciente.prontuario);
+  await paciente.page.goto('/p/plano');
+  refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, 1); // R11: semana 1 (o portal.spec usa a 0)
   // duas avaliações: o axe de /p/evolucao audita também o gráfico (GraficoLinha) e a lista de diferenças
   await avaliar(nutri, paciente.prontuario, '2026-08-01', '80');
@@ -56,7 +61,7 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos', '/p/exames'];
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos', '/p/exames', '/p/ajuda'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -123,6 +128,100 @@ test('foco visível sobre a cor do consultório: contorno ≥ 3:1 contra o fundo
       }
     } finally {
       await nutri.emulateMedia({ colorScheme: 'light' });
+    }
+  }
+});
+
+// Plano 16 (T16): as telas e os estados novos do layout G que o laço das ROTAS não alcança
+test('axe na refeição aberta (claro e escuro) e no tour do portal (passo a passo, só teclado)', async () => {
+  await semViolacoes(paciente.page, `/p/plano/refeicao/${refeicaoId}`);
+  await paciente.page.emulateMedia({ colorScheme: 'dark' });
+  try {
+    expect(await violacoes(paciente.page), 'refeição aberta, aparelho escuro').toEqual([]);
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+  }
+  await paciente.page.goto('/p/inicio?tour=portal-novidades');
+  const dialogo = paciente.page.getByRole('dialog');
+  await expect(dialogo).toBeVisible();
+  await expect(dialogo.getByText('1 de 5')).toBeVisible();
+  expect(await violacoes(paciente.page)).toEqual([]);
+  for (let i = 2; i <= 5; i++) {
+    await dialogo.getByRole('button', { name: 'Próximo' }).focus();
+    await paciente.page.keyboard.press('Enter');
+    await expect(dialogo.getByText(`${i} de 5`)).toBeVisible();
+    if (i === 4) {
+      // "Atalhos" (alvo: a barra de ações, sticky no rodapé): a folha do tour não pode cobrir o alvo (folhaEvitaAlvo, T14)
+      const alvo = (await paciente.page.locator('[data-guia="acoes"]').boundingBox())!;
+      const folha = (await dialogo.locator('#tour-titulo').locator('xpath=..').boundingBox())!;
+      expect(folha.y + folha.height <= alvo.y || alvo.y + alvo.height <= folha.y, 'folha do tour sobre a barra de ações').toBe(true);
+    }
+  }
+  await dialogo.getByRole('button', { name: 'Concluir' }).focus();
+  await paciente.page.keyboard.press('Enter');
+  await expect(dialogo).toBeHidden();
+});
+
+test('foco visível sobre a faixa do portal: contorno branco ≥ 3:1 contra a cor da faixa, no claro e no escuro (RN-207)', async () => {
+  const hex = (cor: string) => `#${/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cor)!.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  for (const modo of ['light', 'dark'] as const) {
+    await paciente.page.emulateMedia({ colorScheme: modo });
+    try {
+      await paciente.page.goto('/p/inicio');
+      const alvos = paciente.page.locator('header[data-sobre-marca] a[href]');
+      expect(await alvos.count()).toBeGreaterThan(4);
+      await paciente.page.keyboard.press('Tab'); // modalidade de teclado: o focus() programático acende o :focus-visible
+      for (let k = 0; k < (await alvos.count()); k++) {
+        const r = await alvos.nth(k).evaluate((el) => {
+          (el as HTMLElement).focus();
+          const s = getComputedStyle(el);
+          return { visivel: el.matches(':focus-visible'), cor: s.outlineColor, largura: parseFloat(s.outlineWidth), faixa: getComputedStyle(el.closest('header')!).backgroundColor };
+        });
+        expect(r.visivel, `${modo} ${k}`).toBe(true);
+        expect(r.largura).toBeGreaterThanOrEqual(2);
+        expect(contraste(hex(r.cor), hex(r.faixa)), `${modo} ${k}`).toBeGreaterThanOrEqual(3);
+      }
+    } finally {
+      await paciente.page.emulateMedia({ colorScheme: 'light' });
+    }
+  }
+});
+
+test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G rola na horizontal; axe a 320 px em todas', async () => {
+  test.setTimeout(120_000);
+  await paciente.page.setViewportSize({ width: 320, height: 780 });
+  try {
+    // todas as telas do portal que esta paciente abre (termo, escolher e sem-acesso: testes próprios do arquivo)
+    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
+      await paciente.page.goto(url);
+      await paciente.page.waitForLoadState('networkidle');
+      expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
+      await paciente.page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
+    }
+  } finally {
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+  }
+});
+
+test('"Comi assim" só com o teclado (WCAG 2.1.1, 2.2.1, 2.4.3): o foco vai ao "Desfazer" (o prazo pausa) e, ao desfazer, volta ao botão; axe com o aviso aberto, claro e escuro', async () => {
+  test.setTimeout(60_000);
+  for (const modo of ['light', 'dark'] as const) {
+    await paciente.page.emulateMedia({ colorScheme: modo });
+    try {
+      await paciente.page.goto('/p/inicio');
+      const comi = paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first();
+      await comi.focus();
+      await paciente.page.keyboard.press('Enter');
+      const desfazer = paciente.page.getByRole('button', { name: 'Desfazer' });
+      await expect(desfazer).toBeFocused();
+      expect(await violacoes(paciente.page), `Hoje com o "Desfazer" aberto (${modo})`).toEqual([]);
+      await paciente.page.waitForTimeout(11_000); // com o foco no aviso, o prazo de 10 s não corre (nada é enviado)
+      await expect(desfazer).toBeVisible();
+      await paciente.page.keyboard.press('Enter');
+      await expect(paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first()).toBeFocused();
+    } finally {
+      await paciente.page.emulateMedia({ colorScheme: 'light' });
     }
   }
 });

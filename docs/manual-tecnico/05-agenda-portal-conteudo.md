@@ -22,10 +22,10 @@ Convenções do capítulo:
 |---|---|---|---|
 | Agenda | `src/modules/agenda/` | Fuso, regras e bloqueios, horários livres, consultas, cancelamento, link assinado, página pública, limites por IP, presença, Início do painel | P05 (e P08 para o Início) |
 | Notificações | `src/modules/notificacoes/` | Planejamento e envio (e-mail, WhatsApp, push), textos, cota, webhook do WhatsApp | P05 (P06 e P07 acrescentam tipos) |
-| Portal | `src/modules/portal/` + `src/lib/paciente-session.ts` | Vínculos da conta, acesso diário, plano, diário, evolução, lista de compras, pedidos do titular, inscrição de push, conteúdos do paciente | P06 (P07 para conteúdos) |
+| Portal | `src/modules/portal/` + `src/lib/paciente-session.ts` | Vínculos da conta, acesso diário, plano, diário (e as respostas à refeição do plano), evolução, lista de compras, pedidos do titular, inscrição de push, conteúdos do paciente, mural de Hoje, Jornada | P06 (P07 para conteúdos; P16 para o mural, as respostas e a Jornada) |
 | Conteúdo | `src/modules/conteudo/` | Vídeo, oEmbed, capa, markdown, receitas, audiência, aviso, métricas, LGPD do titular | P07 |
-| Ajuda | `src/modules/ajuda/conteudo.ts` | Texto dos tours e do manual (`GUIAS`) | P08 |
-| Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, componentes base | P08 |
+| Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts` | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
+| Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, cor da faixa do portal, componentes base | P08 (P16 para o portal) |
 
 A spec registra a divisão em dois módulos (`agenda` e `notificacoes`) porque o motor de envio também serve o convite do
 paciente (US-010) — desvio do §4.1 listado no Plano 05 ("Desvios conscientes da spec").
@@ -683,7 +683,7 @@ endereço da própria origem (`urlDaNotificacao`; senão `/p/inicio`).
 
 ---
 
-## 5.5 Portal do paciente (`/p`, Plano 06)
+## 5.5 Portal do paciente (`/p`, Plano 06; layout G no Plano 16)
 
 ### 5.5.1 Sessão, vínculos e termo
 
@@ -713,30 +713,69 @@ flowchart TD
 - Termo (P06 D25): `termoAceito` em `consents` (`src/modules/portal/termo.ts`); versão atual em `TERMO_PACIENTE`.
 - Escrita da sessão de paciente negada por padrão no banco (P06 D1; detalhes no capítulo de RLS).
 
-### 5.5.2 Rotas e abas
+### 5.5.2 Rotas e seções
 
-Abas em `ITENS_DO_PORTAL` (`src/app/p/navegacao.ts`): Início, Plano, Diário, Conteúdos, Evolução, Agenda, Perfil.
-"Conteúdos" entrou no lugar de "Compras" (P07 D3); `/p/compras` marca a aba "Plano". Sete colunas iguais com hífen
-automático; nunca rola na horizontal (E2E a 360 e 320 px; ratificado pelo dono em 04/10/2026).
+Plano 16 (layout G, spec `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md` §4.1): sai a barra de
+7 abas no rodapé (P06 D23) e entram **cinco seções** na faixa do topo, nesta ordem: Hoje, Jornada, Plano, Exames, Eu.
+Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo `tambem`.
+
+| Seção | Rota | Também marca (`tambem`) | Título (h1) |
+|---|---|---|---|
+| Hoje | `/p/inicio` | `/p/diario` | "Olá, {primeiro nome}" (`MSG_G.titulos.hoje`) |
+| Jornada | `/p/jornada` (nova) | `/p/evolucao`, `/p/agenda` | "Sua jornada" (ou "Sua jornada desde {mês}") |
+| Plano | `/p/plano` | `/p/compras`, `/p/conteudos` (G-D8 = a) | "Plano de hoje" |
+| Exames | `/p/exames` | — | "Meus exames" |
+| Eu | `/p/perfil` | `/p/documentos`, `/p/meus-dados`, `/p/ajuda` | "Eu" |
+
+- Fonte única: `SECOES_DO_PORTAL` (`src/app/p/navegacao.ts`). `secoesDoPortal({ exames })` tira "Exames" quando o
+  consultório não recebe exames pelo app **e** o paciente não tem envio não cancelado (RN-192, G-D9 = a;
+  `temEnvioVisivel`, só a existência, sem `auditRead`); a rota continua abrindo pelo endereço. `secaoDe(pathname)` e
+  `itemAtual(pathname)` dizem a seção de uma rota (também nas subpáginas e nas telas do `tambem`).
+- **Regra: toda página de `src/app/p/(portal)` marca exatamente uma seção.** O teste `src/app/p/navegacao.test.ts`
+  ("RN-191: toda página de /p/(portal) marca exatamente uma seção") lista os `page.tsx` e quebra quando uma rota nova
+  fica sem seção.
+- Moldura de **servidor** (D10): cada página de seção renderiza a `Faixa` (`src/components/portal/faixa.tsx`: `<header
+  data-sobre-marca data-guia="faixa">` com o nome do consultório, o título, os `children` e a `NavSecoes`) com o próprio
+  título; as telas de detalhe renderizam o `CabecalhoDetalhe` (`src/components/portal/cabecalho-detalhe.tsx`: `Voltar` +
+  h1 `#titulo-da-tela`, que recebe o foco no carregamento). A `NavSecoes` recebe `atual` da página (sem `usePathname`: a
+  navegação funciona sem JavaScript), marca a seção com `aria-current="page"` e pílula branca, em 5 (ou 4) colunas iguais.
+  `molduraDaSecao` (`src/app/p/moldura.ts`) devolve a marca e as seções. A cor da faixa é `--nd-faixa`, posta pelo
+  `src/app/p/(portal)/layout.tsx` com `corDaFaixa` (§5.7.6).
+- **"Voltar" é um link fixo** para o destino (Desvio 13), com o nome "Voltar para {destino}" (`MSG_G.voltarPara`): a seção
+  ("Hoje", "Jornada", "Plano", "Eu") ou a lista de que o detalhe faz parte ("Minhas consultas", "Conteúdos"). Nas telas de
+  detalhe nenhuma seção fica marcada na tela; a seção é dita pelo "Voltar para {seção}" (Desvio 14, G-D13 = a).
+- Barra **"Ações"** (`BarraDeAcoes`, `src/components/portal/barra-de-acoes.tsx`, `<nav aria-label="Ações"
+  data-guia="acoes">`), só em Hoje, fixa embaixo: "Foto da refeição" (`/p/diario?foto=1#registrar`; o campo já vem com
+  `capture="environment"`, mas a câmera só abre com o toque, Desvio 6), "Enviar exame" (`/p/exames#enviar`, só com o
+  recebimento ligado, RN-215) e "Agendar" (`/p/agenda/nova`, ou `/p/agenda` no teto de consultas futuras).
+- "Sair" (RN-211, D12) fica no fim de Eu; continua no topo de `/p/escolher`, `/p/sem-acesso` e `/p/termo`
+  (`CabecalhoSair`).
+- "Nada some" (CS-190, §4.10 da spec): toda função do portal de antes do layout G é alcançável a partir de Hoje em até 2
+  toques (3 em três linhas, Desvio 16, G-D14 = a). O dado do teste é a tabela `CAMINHOS` de `e2e/nada-some.spec.ts`.
 
 | Rota | Função de domínio | Auditoria |
 |---|---|---|
-| `/p/inicio` | resumo, "Ativar notificações", instalação | — |
+| `/p/inicio` (Hoje) | `muralDoPaciente` (`portal/mural.ts`), `miniJornadaDoPaciente` (`portal/jornada.ts`), `jaUsavaOApp` (`portal/acesso.ts`) | `auditRead` por entidade (§5.5.11); agenda, conteúdos e documentos sem |
+| `/p/jornada` (nova) | `jornadaDoPaciente` (`portal/jornada.ts`) | `auditRead` de `atendimentos` e `antropometria` (§5.5.13) |
 | `/p/plano` | `planoDoPaciente` (`portal/plano.ts`) | `auditRead` (P06 D22) |
+| `/p/plano/refeicao/<id>` (nova) | `planoDoPaciente` + `respostasDeHoje` (`portal/diario.ts`); 404 fora do plano publicado | `auditRead` (o plano e, com resposta, o diário) |
 | `/p/compras` | `listaDoPlano` (`portal/lista-compras.ts`) | `auditRead` |
-| `/p/diario` | `diarioDoPaciente`, `registrarNoDiario` (`portal/diario.ts`) | `auditRead`; escrita pelo gatilho |
-| `/p/evolucao` | `evolucaoParaPaciente` (`portal/evolucao.ts`) | `auditRead` |
+| `/p/diario` | `diarioDoPaciente`, `registrarNoDiario` (`portal/diario.ts`); aceita `?refeicao=<uuid>&resposta=outra_coisa&foto=1` | `auditRead`; escrita pelo gatilho |
+| `/p/evolucao` ("Todas as medidas") | `evolucaoParaPaciente` (`portal/evolucao.ts`) | `auditRead` |
 | `/p/agenda`, `/p/agenda/nova`, `/p/agenda/<id>` | `consultasDoPaciente`, `agendarComoPaciente`, ações de 5.1.6 | sem `auditRead` (P05 D10) |
 | `/p/conteudos`, `/p/conteudos/<id>` | `feedDeConteudos`, `conteudoDoPaciente` (`portal/conteudos.ts`) | sem `auditRead` (P07 D6) |
-| `/p/perfil` | `preferenciaWhatsapp`, push, privacidade, trocar de nutricionista | — |
+| `/p/exames` | envio e lista dos exames enviados ([cap. 11](11-exames-enviados.md)) | `auditRead` (cap. 11) |
+| `/p/perfil` (Eu) | conta ("Conectado como"), consultório, documentos, notificações, instalar, privacidade, "Como usar o app", trocar de nutricionista, "Sair" | — |
+| `/p/ajuda` (nova) | `GUIA_PORTAL` (`src/modules/ajuda/portal.ts`), "Ver o tour de novo" | — |
 | `/p/meus-dados/exportacoes/<id>` | destino do e-mail da exportação | — |
-| `/p/documentos` (Plano 10A; marca a aba "Perfil", com o cartão "Documentos" no Início e "Meus documentos" em Perfil) | `documentosDoPaciente`, `confirmarRecebimentoNoPortal` (`documentos/portal.ts`) | lista sem `auditRead` (Plano 10A, D17); o PDF com `auditRead` |
+| `/p/documentos` (Plano 10A; marca "Eu", com o item "Você tem {n} documentos novos" no mural e "Ver meus documentos" em Eu) | `documentosDoPaciente`, `confirmarRecebimentoNoPortal` (`documentos/portal.ts`) | lista sem `auditRead` (Plano 10A, D17); o PDF com `auditRead` |
 | `/p/escolher`, `/p/sem-acesso`, `/p/termo` | fora do layout do portal | — |
 
-APIs: `POST /api/p/acesso`, `POST /api/p/diario` (multipart), `POST`/`DELETE /api/p/push`, `GET /api/p/plano/pdf`,
-`GET /api/p/conteudos/<id>/pdf`, `GET /api/p/documentos/<id>/pdf` (Plano 10A: `auditRead` + recibo "aberto"),
-`GET /api/p/vinculo`, `GET /api/p/ping` (204, sem sessão). Os documentos não ficam na cópia offline (o service worker
-só guarda `/p/plano`; teste em `src/app/sw-regras.test.ts`).
+APIs: `POST /api/p/acesso`, `POST /api/p/diario` (multipart; desde o Plano 16, também `refeicaoId` e `resposta`,
+§5.5.12), `POST`/`DELETE /api/p/push`, `GET /api/p/plano/pdf`, `GET /api/p/conteudos/<id>/pdf`,
+`GET /api/p/documentos/<id>/pdf` (Plano 10A: `auditRead` + recibo "aberto"), `GET /api/p/vinculo`, `GET /api/p/ping`
+(204, sem sessão). O Plano 16 não criou rota de API. Os documentos não ficam na cópia offline (o service worker só guarda
+`/p/plano`; teste em `src/app/sw-regras.test.ts`, sem mudança no Plano 16).
 
 A leitura de dado de saúde pelo **próprio paciente** gera "Visualizou" com o ator = a conta do paciente (P06 D22).
 
@@ -779,6 +818,15 @@ A cópia **sai**:
 `renovarCopia` busca a cópia de novo (prazo de 10 s). Sem isso, o HTML guardado abriria offline sem estilo.
 
 Nada de `/api`, foto ou PDF fica no aparelho. Nada da biblioteca de conteúdos fica offline (P07 D16).
+
+**Refeição aberta offline (Plano 16, US-193, RN-208).** O service worker não mudou: sem rede, toda navegação em `/p/`
+cai na cópia de `/p/plano`. Cada refeição da sanfona de `/p/plano` é um `<details id="ref-<id>">` (aberto quando é a
+próxima). Aberta pelo endereço de uma refeição (`/p/plano/refeicao/<id>`, o "Ver a refeição" do mural), a cópia monta o
+`AbrirRefeicaoDaUrl` (`src/app/p/(portal)/plano/abrir-refeicao-da-url.tsx`), que lê o caminho, abre essa refeição e rola
+até ela. Os botões que gravam ("Comi assim" e os `LinkDeResposta` de "Comi outra coisa" e "Mandar foto do prato") ficam
+desabilitados sem rede (`useOnline`, `src/components/portal/online.ts`) com o aviso "Sem conexão. Registre quando
+voltar.". `/p/plano` **não** chama `respostasDeHoje`: a cópia guardada não leva o diário (a marca "No diário" fica no
+mural e na refeição aberta). E2E: `e2e/app-paciente.spec.ts` ("offline…").
 
 ### 5.5.5 Acesso diário (CS-02, P06 D9, P08 D13)
 
@@ -838,15 +886,21 @@ sequenceDiagram
 
 ### 5.5.8 Evolução, lista de compras, plano
 
-- Evolução (P06 D14): peso, IMC e circunferências; "% de gordura" só com `tenants.mostrar_perc_gordura_paciente`;
-  dobras, densidade e exames nunca (`evolucaoParaPaciente`).
+- "Todas as medidas" (`/p/evolucao`, P06 D14; título e tabela do Plano 16): peso, IMC e circunferências; "% de
+  gordura" só com `tenants.mostrar_perc_gordura_paciente`; dobras, densidade e exames nunca (`evolucaoParaPaciente`). Uma
+  tabela "Medidas por avaliação" (`TabelaMedidas`) e os gráficos com título visível. As "Orientações recebidas" saíram
+  daqui (Desvio 12): moram na Jornada (§5.5.13), que as lê e audita. Com "Não mostrar peso no app", peso e IMC saem no
+  módulo (§5.5.14).
 - Lista de compras (RN-13, P06 D15): itens principais do plano publicado × dias (1 a 14, padrão 7), agrupados pelo
   grupo do alimento (`listaDeCompras`). Arredonda a 1 casa antes de escolher g ou kg (`quantidadeTexto`: 999,99 g →
   "1,0 kg"). A marcação "comprado" fica no `localStorage` com a chave `nd-compras:<id do plano>`
   (`src/app/p/(portal)/compras/marcacao.ts`) e é apagada no "Sair", no login e na troca de dono.
 - "Meu plano" (`planoDoPaciente`): a RLS só entrega plano não rascunho (`paciente_sem_rascunho`); liga
   `liberarReceitasDoPlano` para o cartão "Sugestão de receita" (5.6.4). `versaoDaCopiaOffline` define a versão da cópia
-  offline.
+  offline. Plano 16 (US-193): a página vira uma sanfona de refeições (`RefeicaoDetalhe`; o `summary` sem `flex`, para não
+  perder o marcador), com "Cerca de {n} kcal" só com `mostrarCalorias`; refeições sem horário no fim (`proximaRefeicao`
+  ignora refeição sem horário). A sugestão de receita fica dentro da refeição: 2 toques para a próxima (que já vem aberta)
+  e pelo "Ver a refeição" do mural, 3 para as outras (Desvio 16, G-D14 = a).
 
 ### 5.5.9 Pedidos do titular (US-046, P06 D16, D17)
 
@@ -863,10 +917,161 @@ sequenceDiagram
 
 - Agenda (P06 D19): as mesmas funções do Plano 05; "Minhas consultas" mostra as próximas e as 10 últimas. A sigla do fuso
   aparece quando o fuso do aparelho difere do do tenant (`src/app/p/quando-local.tsx`, RN-06).
-- Perfil (P06 D20): "Receber lembretes por WhatsApp" (`preferenciaWhatsapp`, `src/modules/portal/perfil.ts`). Desmarcar
-  grava `whatsapp_optout_em`; marcar exige telefone e grava opt-in com origem `paciente`. O gatilho
-  `paciente_colunas` (migration `0085`) só deixa a sessão de paciente mudar essas colunas, `user_id` (aceite do convite)
-  e `updated_at`.
+- Eu (antes "Perfil"; seções por assunto no Plano 16: Conta com "Conectado como {e-mail}", Consultório com o logo
+  sobre fundo branco, Documentos, Notificações, Instalar o app, Privacidade, "Como usar o app" e "Sair"; "Trocar de
+  nutricionista" com 2+ vínculos). Privacidade abre com o texto da RN-214 ("Algumas informações do acompanhamento podem não
+  aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados
+  (Baixar meus dados)."), o mesmo para todo paciente. Notificações (P06 D20): "Receber lembretes por WhatsApp"
+  (`preferenciaWhatsapp`, `src/modules/portal/perfil.ts`). Desmarcar grava `whatsapp_optout_em`; marcar exige telefone
+  e grava opt-in com origem `paciente`. O gatilho `paciente_colunas` (migration `0085`) só deixa a sessão de paciente
+  mudar essas colunas, `user_id` (aceite do convite) e `updated_at`.
+
+### 5.5.11 Hoje: o mural (Plano 16, US-191, §4.3)
+
+Hoje é **leitura**: nenhuma tabela nova, nada gravado para o mural existir (spec §4.3, C-191). O mural não é chat
+(RN-193): não tem campo de texto (o E2E confere que o `main` de Hoje não tem `textarea` nem `input` de texto) e o rodapé
+fixo (`MSG_MURAL.rodape`) diz que os registros do diário ficam visíveis para a nutricionista, que o app não é canal de
+conversa nem tem prazo de resposta, e manda ligar 192 em emergência.
+
+```mermaid
+flowchart LR
+  H["Hoje (inicio/page.tsx)"] --> M["muralDoPaciente (mural.ts): 1 withTenant"]
+  H --> MJ["miniJornadaDoPaciente (jornada.ts): 1 withTenant"]
+  M --> F["FontesDoMural"] --> C["comporMural (mural-regras.ts, puro)"] --> L["MuralLista"]
+```
+
+- **Duas camadas.** `muralDoPaciente(ctx, tenant, agora)` (`src/modules/portal/mural.ts`) só busca as fontes, numa
+  transação com o contexto do paciente (a RLS entrega só as linhas dele): o plano publicado por `lerPlanoNaTransacao`
+  (`comMedidas: false`, sem liberar receitas), o diário da janela (com `paraRegistro`), os envios de exame não cancelados
+  (com `situacaoParaPaciente`), a próxima consulta dos próximos 7 dias (`listarConsultasNaTransacao`), os conteúdos novos
+  (`conteudosNovosNaTransacao`, `portal/conteudos.ts`) e a contagem de documentos novos (`novosNoPortalNaTransacao`,
+  `documentos/portal.ts`, que é também o corpo de `novosNoPortal`). `comporMural(fontes, agora, fuso)`
+  (`src/modules/portal/mural-regras.ts`, puro) decide os itens, a ordem, os textos e a autoria.
+- **Janela e limites** (RN-195, RN-196, RN-199): 7 dias (`JANELA_MURAL_DIAS`), até 40 itens (`MAX_ITENS_MURAL`, os mais
+  recentes), refeição do plano a partir de 90 min antes do horário (`ANTECEDENCIA_REFEICAO_MIN`; só refeições com
+  horário; a primeira do dia leva a saudação "Bom dia/Boa tarde/Boa noite, {nome}."), até 3 conteúdos
+  (`MAX_CONTEUDOS_NO_MURAL`), leitura do diário com teto de 100 linhas (`LIMITE_DIARIO_NO_MURAL`). Hoje em ordem
+  crescente; os dias anteriores num `<details>` "Dias anteriores", um `h3` por dia. A consulta e os documentos novos
+  entram em Hoje na hora da leitura, sem hora própria (D13); plano novo e conteúdo novo, na data da publicação. O resumo
+  da refeição usa os nomes do plano, até 4, com a primeira letra minúscula (Desvio 8, risco R6).
+- **Autoria visível** (RN-194, C-197, §11.1): todo item diz o autor **no texto**, não só pelo lado ou pela cor do balão —
+  "Você" (registro do paciente), "Aviso do app" (tudo o que o sistema compõe, em 3ª pessoa ou impessoal, sem elogio,
+  conselho ou ordem) ou "Sua nutricionista comentou seu registro ({refeição}, {dia} às {hora})" (o comentário dela,
+  verbatim, com borda de destaque). Nenhum texto do sistema fala pela nutricionista.
+- **Vazio:** sem plano publicado, "Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições
+  aparecem aqui." (`MSG_MURAL.vazio`); com plano e nada para hoje, "Nada para agora. Suas refeições aparecem aqui perto do
+  horário de cada uma." (`MSG_MURAL.nadaAgora`). A decisão é pelo dia, não pelo mural todo.
+- **Auditoria** (RN-200, regra 8): `auditRead` **uma vez por entidade** lida com dado de saúde — `plano_alimentar`
+  (dentro de `lerPlanoNaTransacao`, com o id do plano), `diario` e `exames_enviados` (só quando há linhas). Agenda,
+  conteúdos e a contagem de documentos não (P05 D10, P07 D6, 10A D17). A mini-jornada audita `antropometria` na própria
+  transação, só quando lê o peso (Desvio 4). Uma abertura de Hoje gera até quatro "Visualizou" (risco R5; medido na
+  carga e no runbook, PM-G11).
+- **Por que não há tabela de mensagens.** A spec escolheu um mural composto na hora (spec C, D24 = b): nada a moderar,
+  reter, exportar ou anonimizar além do que já existe, e nenhuma promessa de resposta. Item novo no mural = uma fonte nova
+  em `FontesDoMural` + um `case` em `comporMural` e em `MuralLista`, com o `auditRead` da entidade se for dado de saúde.
+- **Componentes:** `MuralLista` (`src/app/p/(portal)/inicio/mural-lista.tsx`, `<ol aria-label="Hoje">`; o primeiro item
+  de refeição leva `data-guia="respostas"`), `ConfirmarNoMural` (confirmar presença na consulta; `role="status"` sempre
+  montado), `CartoesDoAparelho` (ativar notificações e instalar, dispensáveis por 30 dias com a chave
+  `nd-cartao:<conta>:<cartão>`, apagadas no "Sair" e no `/entrar`, Desvio 9), `AtualizarAoVoltar` (`router.refresh()`
+  quando a aba volta a ficar visível), `GuiaDoPortal` (§5.8.4) e a faixa com a `MiniJornada`.
+- **Nada em log** (regra 3, RNF-196): nem texto do diário, nem nome de refeição, nem medida; nenhum push novo (RN-209).
+
+### 5.5.12 Respostas no diário (Plano 16, US-192, RN-197, RN-198)
+
+A resposta "Comi assim" / "Comi outra coisa" é um **registro do diário** com duas colunas novas em `diary_entries`
+(migration `drizzle/0106_app_paciente_g.sql`, só aditiva, sem dado nem `DISABLE TRIGGER`):
+
+| Coluna / CHECK | Regra |
+|---|---|
+| `resposta text` | `null` (registro comum) ou `'como_no_plano'`/`'outra_coisa'` (`diary_entries_resposta_valida`) |
+| `refeicao_do_plano text` | presente se e só se `resposta` presente, 1 a 80 caracteres (`diary_entries_refeicao_do_plano`) |
+| `diary_entries_outra_coisa_tem_conteudo` | "Comi outra coisa" exige texto ou foto |
+| `diary_entries_tem_conteudo` (recriado) | texto, foto ou `resposta is not distinct from 'como_no_plano'` |
+
+O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T1 em relação à §9 da spec, que escrevia
+`=`; a spec foi acertada no fechamento): com `resposta` nula, `resposta = 'como_no_plano'` dá `null`, um CHECK com `null`
+**passa**, e o banco aceitaria um registro sem texto, sem foto e sem resposta.
+
+- **Cópia, não referência.** `refeicao_do_plano` guarda o rótulo `"{nome} · {HH:MM}"` (`rotuloDaRefeicao`,
+  `src/modules/portal/diario-constantes.ts`), não o id da refeição: o registro não muda quando o plano é republicado
+  (§11). A coluna `refeicao` recebe o nome mapeado para a lista do diário (`refeicaoDoDiario`, senão "Outro").
+- **Gravação.** `POST /api/p/diario` com `refeicaoId` + `resposta` → `registrarNoDiario` (`src/modules/portal/diario.ts`).
+  Com o paciente travado (`travarPaciente`, a mesma trava do limite de 10 por dia), a refeição é lida do **plano publicado
+  do próprio paciente** pela RLS (`refeicaoDoPlanoPublicado`): id inválido ou fora dele → 404 "Refeição não encontrada no
+  seu plano.". A hora do registro é a do servidor. A escrita passa pela política `paciente_diario_insert` (0080, sem
+  mudança) e vira `audit_log` pelo gatilho (entidade `diario`).
+- **Idempotência (D3, Desvio 1).** Com o paciente travado: se já há resposta para o mesmo rótulo no dia (fuso do tenant),
+  "Comi assim" sem texto nem foto **devolve o registro existente** (`jaRegistrado: true`, mesmo no limite de 10) — toque
+  duplo, outra aba. Com texto ou foto depois de uma resposta, o registro entra como **registro comum** (`resposta` e
+  `refeicao_do_plano` nulos): o que o paciente escreveu nunca se perde e continua valendo "uma resposta por refeição do
+  plano por dia". `respostasDeHoje(ctx, fuso)` devolve os rótulos já respondidos (auditado, `diario`, quando há linhas);
+  o mural esconde o "Comi assim" de quem já respondeu.
+- **"Desfazer" só no aparelho (D4, G-D5 = c).** `ComiAssim` (`src/components/portal/comi-assim.tsx`) mostra "Registrado
+  no diário." com "Desfazer" por 10 s (`PRAZO_DESFAZER_MS`, `comi-assim-estado.ts`). O prazo pausa com foco ou ponteiro
+  no aviso (WCAG 2.2.1); pelo teclado o foco vai ao "Desfazer" e, ao desfazer, volta ao botão (no toque o foco não muda).
+  Ao fim do prazo, ao sair da tela (`pagehide`, ou `visibilitychange` para `hidden`) ou ao desmontar, envia por
+  `fetch(…, { keepalive: true })` (RN-198: o paciente já disse que comeu). "Desfazer" cancela **antes** de enviar: não há
+  DELETE no banco (P06 D11; o paciente não edita nem apaga). Trocar para "envia no toque" é `PRAZO_DESFAZER_MS = 0`. A
+  guarda `src/lib/consulta-automatica.test.ts` tem o arquivo em `USO_DA_PESSOA` (o envio vem do toque da pessoa).
+- **"Comi outra coisa" e "Mandar foto do prato"** levam ao formulário do diário com a refeição do plano
+  (`/p/diario?refeicao=<uuid>&resposta=outra_coisa`, `&foto=1`).
+- **Painel** (§4.9): o feed `/painel/diarios` e o registro aberto mostram "Comeu como no plano" / "Comeu outra coisa"
+  (`ROTULO_RESPOSTA_NUTRI`) e "Refeição do plano: {rótulo}".
+- **Exportação** (T15): `diario[]` ganha `resposta`, `respostaRotulo` ("Comi assim"/"Comi outra coisa") e
+  `refeicaoDoPlano`, nos dois escopos.
+- Risco aceito (R9): fechar o app pelo gerenciador de tarefas dentro dos 10 s pode perder o envio (o `pagehide` nem sempre
+  dispara no iOS); o paciente vê o registro faltando no mural e toca de novo.
+
+### 5.5.13 Jornada (Plano 16, US-194, §4.5)
+
+- **Módulo:** `jornadaDoPaciente(ctx, tenant, agora)` (`src/modules/portal/jornada.ts`) lê numa transação, com o contexto
+  do paciente, os atendimentos (data e `orientacoes_paciente` — nunca a nota privada, `staff_only`), as avaliações (sem
+  dobras nem densidade, P06 D14) e as consultas futuras; `auditRead` de `atendimentos` e de `antropometria` (só quando há
+  linhas); a agenda sem. `montarJornada` (`src/modules/portal/jornada-regras.ts`, puro mas **só servidor** — importa
+  `pacientes/evolucao`; os componentes de cliente recebem as strings prontas) monta o título ("Sua jornada desde {mês}",
+  com o ano quando a primeira consulta é de outro ano, Desvio 7), os marcos (a próxima consulta primeiro, depois os
+  passados por data decrescente) e o gráfico.
+- **Marcos:** cada atendimento mostra as medidas da avaliação **mais recente** ligada a ele e o quadro "Orientação da sua
+  nutricionista"; avaliação sem atendimento (ou não a mais recente do atendimento) vira o marco "Medidas de {data}" —
+  nenhuma avaliação some (revisão da T9). A linha do tempo é `<ol aria-label="Linha do tempo">`
+  (`src/app/p/(portal)/jornada/linha-do-tempo.tsx`); a próxima consulta tem "Ver a consulta".
+- **Gráfico:** "Peso nas consultas" com 2+ pesos; com o peso visível e menos de 2 pesos, "Cintura nas consultas" com 2+
+  cinturas; senão nenhum. **Com o peso oculto, nenhum gráfico de medida corporal em destaque** (G-D16 = a: a condição
+  `!e.pesoOculto && cinturas.length >= 2`). O `GraficoLinha` não tem o tracejado até a próxima consulta (Desvio 11).
+- **Mini-jornada** (RN-202): `miniJornadaDoPaciente` + `miniJornada`, outra transação curta de Hoje (D2). Com 2+ pesos:
+  "{diferença} desde {mês}" (ou "Sem mudança de peso desde {mês}") e, só para o leitor de tela, "{peso} kg na última
+  consulta" dentro do texto do link (sem `aria-label`, WCAG 2.5.3); senão "{n} consultas desde {mês}" ou "Sua jornada
+  começa na primeira consulta."; a segunda linha é o próximo marco. RN-206: número com sinal, sem cor, elogio ou meta. O
+  componente (`src/components/portal/mini-jornada.tsx`, cliente) usa `MSG_G.titulos.jornada`, não `MSG_JORNADA` (que
+  arrastaria o `pg` para o navegador).
+- Links: "Todas as medidas" (`/p/evolucao`), "Minhas consultas" (`/p/agenda`) e "Agendar consulta" (só com `podeAgendar`,
+  o mesmo teto de consultas futuras da agenda pública).
+
+### 5.5.14 "Não mostrar peso no app" (Plano 16, US-195, RN-203 a RN-206)
+
+- **Coluna:** `patients.peso_oculto_no_app_em timestamptz` (0106). Só a equipe liga, na aba Evolução do prontuário
+  (`PesoOcultoNoApp`, `src/app/painel/pacientes/[id]/evolucao/peso-oculto.tsx`; ação `pesoOcultoAction`; funciona sem
+  JavaScript; "Peso oculto no app desde dd/mm/aaaa"). A sessão de paciente leva 42501: o gatilho `paciente_colunas`
+  (0085) **não mudou** e a coluna fica fora das `livres`.
+- **Escrita:** `definirPesoOculto` (`src/modules/pacientes/peso-oculto.ts`), só `role: 'nutri'`; paciente bloqueado ou
+  anonimizado recusa (`carregarPacienteParaEscrita`). Ligar de novo mantém a data da primeira vez. Trilha (Desvio 5): o
+  gatilho de `patients` grava "alterar" sem dizer a coluna, por isso a decisão ganha linha própria por `recordAudit`
+  (entidade `peso_no_app`, `criar` = "Ligou", `excluir` = "Desligou" no "Histórico de acessos", com o rótulo "Peso oculto
+  no app").
+- **Filtro no módulo, nunca no componente** (CS-194): `evolucaoParaPaciente` lê pela leitura auditada de sempre e tira
+  peso e IMC com `semPeso` (`SERIES_DO_PESO = ['peso', 'imc']`, G-D6 = a) antes de devolver; `jornadaDoPaciente` e
+  `miniJornadaDoPaciente` nem leem `peso_kg`/`imc` (`pesoOcultoNaTransacao`). Nenhum componente do portal lê a coluna. O
+  `% de gordura` e as circunferências continuam. O app não diz ao paciente que o peso está oculto. Testes:
+  `src/modules/portal/peso-oculto-portal.test.ts` (nenhuma resposta do portal traz peso ou IMC; tela nova que mostre
+  medida corporal entra no objeto `respostas` desse teste) e `e2e/app-paciente.spec.ts` (nenhum documento nem RSC de `/p/`
+  traz o número; desligar devolve).
+- **O que não muda** (RN-204, spec §10): é apresentação, não restrição de acesso — o prontuário, os documentos assinados,
+  os textos livres da nutricionista (orientações e comentários aparecem como estão) e as exportações.
+- **Exportação (D6, T15):** `pesoOcultoNoAppEm` vai no `dados.json` **dos dois escopos** (equipe e titular), descrito como
+  "preferência de exibição no app definida pela nutricionista"; as avaliações com o peso continuam nas duas. Tirar da cópia
+  do titular só com o parecer do advogado (E-09) e a decisão do dono.
+- **Voltar atrás:** a imagem anterior ao Plano 16 não lê a coluna e volta a mostrar peso e IMC a quem tem a opção ligada
+  ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás); runbook `docs/operacao/app-paciente.md`, passo 7).
 
 ---
 
@@ -1106,11 +1311,42 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 - Botão `AlternarTema` (`src/app/painel/alternar-tema.tsx`): rótulo fixo "Modo escuro" com `aria-pressed`; em
   "sistema" vira o oposto do modo atual do aparelho (`proximoTema`). Funciona sem JavaScript (o formulário posta).
 
-### 5.7.6 Portal com os mesmos tokens (P08 D18)
+### 5.7.6 Portal: tokens, faixa e fontes (P08 D18; layout G no Plano 16)
 
-O portal usa os mesmos tokens e fontes e segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo
-(`src/app/p/layout.tsx`, `src/app/p/(portal)/layout.tsx`) e `themeColor` claro `#1d6b5a` e escuro `#0f1613`. A
-disposição (360 px, barra de abas) não virou bento.
+O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`src/app/p/layout.tsx`,
+`src/app/p/(portal)/layout.tsx`) e `themeColor` claro `#1d6b5a` e escuro `#0f1613`. O painel não mudou com o Plano 16
+(G-D3, C-193): tudo o que é do portal fica escopado em `[data-app='paciente']`.
+
+- **Tokens (D8, Desvio 2).** Fundo, texto, suave, cartão e borda do portal são os de `TOKENS` (os valores claros da spec
+  §4.7 são os mesmos; os escuros ficam os atuais, aprovados pelo `contraste()`). Só os que faltavam são novos:
+  `TOKENS_PORTAL` (`src/lib/tema/tokens.ts`) — `p-clara` (`#e2efe9` / `#1f3a31`, balão do paciente e quadro da
+  orientação), `p-marco` (`#f0b867` nos dois modos, chip e marco âmbar) e `p-marco-texto` (`#14211d` nos dois modos: no
+  escuro o `texto` é claro e reprovaria sobre o âmbar) —, com os pares de contraste em `PARES_PORTAL` (conferidos por
+  `src/lib/tema/tema.test.ts`). Classes: `bg-p-clara`, `bg-p-marco`, `text-p-marco-texto`, `bg-faixa`, `text-faixa`,
+  `bg-faixa-cartao`, `font-portal`, `font-portal-titulo`. A guarda `src/app/painel/cores.test.ts` varre `src/app/p` e
+  `src/components`: nada de cor da paleta do Tailwind (exceção com motivo em `EXCECOES`, como o `bg-white` do logo em Eu).
+- **Cor da faixa (RN-207, G-D7 = a).** `corDaFaixa(cor)` (`src/lib/tema/marca-tema.ts`) mistura a cor do consultório com
+  preto em passos de 2% (`misturar(cor, '#000000', i / 50)`, `i` de 0 a 50) até o branco dar **≥ 4,5:1 sobre a faixa e
+  sobre o cartão translúcido** da mini-jornada (a faixa misturada a 16% com o verde claro `#e2efe9`,
+  `OPACIDADE_CARTAO_FAIXA`, `VERDE_CLARO_PORTAL`); a cor padrão `#1d6b5a` já passa e não muda. Por quê: a cor aceita pelo
+  `perfilSchema` tem ≥ 4,5:1 com o branco, mas o cartão translúcido clareia o fundo (com `#767676`, 3,52:1). Calculada no
+  servidor e posta em `--nd-faixa` pelo `src/app/p/(portal)/layout.tsx`; vale só na faixa e nos cabeçalhos do portal —
+  botões e links continuam com `--nd-marca`. Sobre a faixa (`[data-sobre-marca]`) o foco é branco (`--nd-foco: #ffffff`),
+  conferido no E2E (contorno ≥ 3:1 contra a cor da faixa, claro e escuro). O anel duplo de 2 px da RN-207 não foi feito
+  (Desvio 15, backlog).
+- **Fontes (D9, RNF-193).** `src/app/p/fontes.ts`: Red Hat Display (títulos e números, pesos 700/800/900,
+  `--font-redhat`) e Atkinson Hyperlegible Next (texto, 400/700, `--font-atkinson`) por `next/font/google`, subconjunto
+  `latin`, `display: 'swap'`, aplicadas só em `src/app/p/layout.tsx`. São baixadas no build e servidas pelo próprio app
+  (CSP `font-src 'self'`; o navegador não fala com o Google — LGPD). O Google entrega as duas como fontes variáveis: um
+  `woff2` por família e subconjunto para todos os pesos. Orçamento: **160 KB** de `woff2` no primeiro carregamento de
+  `/p`. Medido na T2: 126 112 bytes (≈ 123,2 KB) no primeiro carregamento; as fontes novas somam ≈ 95,6 KB em
+  `.next/static/media` (menos de 0,1 MB na imagem comprimida). O `e2e/fontes-portal.spec.ts` (IP `10.9.19.6`, conta MULTI
+  em `/p/escolher`; o plano dizia `10.9.26.1`, a dispatch da T2 deu este) mede de novo a cada execução e imprime o total
+  (no fechamento, 08/10/2026: 123,2 KB em 4 arquivos).
+- **Disposição (§4.2).** Faixa no topo com as seções, `main` e, em Hoje, a barra "Ações" fixa embaixo; marcos de região
+  `header`, `nav "Seções"`, `main`, `nav "Ações"`. Alvos de toque ≥ 44 px (`min-h-11`); WCAG 2.1 AA a 360 e 320 px,
+  claro e escuro, sem rolagem horizontal com o texto em 200% (E2E `acessibilidade.spec.ts`); `prefers-reduced-motion`
+  sem animação; linguagem neutra sobre o corpo (RN-206).
 
 ---
 
@@ -1142,7 +1378,7 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 
 | Peça | Arquivo | Comportamento |
 |---|---|---|
-| Tour | `src/app/painel/guia/tour.tsx` | `<dialog>` modal nativo (`showModal`: foco preso, `Esc`, fundo inerte). "{i} de {n}", "Voltar", "Próximo", "Concluir", "Pular o tour". Passo sem alvo aparece centralizado. Respeita `prefers-reduced-motion`. Não executa ações |
+| Tour | `src/components/guia/tour.tsx` (desde o Plano 16, T14; antes em `src/app/painel/guia/`) | `<dialog>` modal nativo (`showModal`: foco preso, `Esc`, fundo inerte). "{i} de {n}", "Voltar", "Próximo", "Concluir", "Pular o tour". Passo sem alvo aparece centralizado. Respeita `prefers-reduced-motion`. Não executa ações |
 | Orquestração | `src/app/painel/guia/guia-do-painel.tsx` | Só o tour de boas-vindas abre sozinho, uma vez, no `/painel`, com o DPA aceito. Tours por tela não abrem sozinhos: aviso "Primeira vez aqui?" com "Ver como funciona" e "Dispensar". `?tour=boas-vindas` reabre |
 | Gaveta | `src/app/painel/guia/gaveta-ajuda.tsx` | "Ajuda: {tela}" num `<dialog>` à direita, com o resumo, "Ver o tour desta tela" e "Abrir o manual completo" |
 | Central | `src/app/painel/ajuda/page.tsx` | "Manual do NutriDebby" com índice "Nesta página". Funciona sem JavaScript e imprime. Chama `requireNutri` |
@@ -1157,6 +1393,29 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
   não está na lista pedida.
 - O seed do E2E marca todos os guias como concluídos nas contas do E2E; a conta do `manual.spec` começa zerada
   (spec §4.3).
+
+### 5.8.4 Manual guiado do portal (Plano 16, T14, US-199, RN-212, PM-G10)
+
+- **Conteúdo:** `GUIA_PORTAL` (`src/modules/ajuda/portal.ts`), fora de `GUIAS` (que é do painel e casa por rota do
+  painel): id `portal-novidades`, versão 1, título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
+  `faixa`, `mural`, `respostas`, `acoes` e `secao-eu` (`data-guia` na `Faixa`, no `main` de Hoje, no primeiro item de
+  refeição do mural, na `BarraDeAcoes` e no link de Eu da `NavSecoes`). O passo "Responder à refeição" tem texto que
+  independe do item (fora da janela de 90 min não há alvo). Ajuda, passos e aviso não falam de peso nem de IMC (teste em
+  `src/modules/ajuda/portal.test.ts`). Textos em rascunho até a Debby (G-D10).
+- **Aviso** (`AVISO_PORTAL`): só ele abre sozinho, uma vez por conta, em Hoje (`GuiaDoPortal`,
+  `src/app/p/(portal)/inicio/guia-do-portal.tsx`), e grava "visto" ao aparecer — "O app mudou. Quer ver onde ficou cada
+  coisa?" para quem já usava o app e "Boas-vindas ao app do seu acompanhamento. Quer ver como funciona?" para quem entra
+  pela primeira vez (G-D17 = a: `jaUsavaOApp(ctx, hoje)`, `src/modules/portal/acesso.ts`, que olha se há `access_events`
+  do paciente antes de hoje, pela RLS do paciente e sem `auditRead`). "Ver como funciona" abre o tour; "Agora não" grava
+  "dispensado".
+- **Tour:** o mesmo `Tour` do painel, agora em `src/components/guia/tour.tsx`, com duas props novas: `focoAoFechar`
+  (padrão o botão "Ajuda" do painel; no portal, o link de Eu) e `folhaEvitaAlvo` (padrão `false`; no portal, a folha sobe
+  para o topo quando o alvo encosta no rodapé, para não cobrir a barra de ações — conferido no E2E). Reabre por
+  `/p/inicio?tour=portal-novidades` ("Ver o tour de novo" em `/p/ajuda`, que Eu liga por "Como usar o app").
+- **Progresso e regra 1:** o mesmo `user.guia` da conta (vale em todos os aparelhos e consultórios, RN-210), gravado por
+  `marcarGuiaPortalAction` (`src/app/p/(portal)/ajuda/actions.ts`, `requirePaciente` na primeira linha) e lido por
+  `lerGuia`. `src/modules/plataforma/preferencias.ts` passou a ser chamado também pela **sessão de paciente**, sempre com
+  o `userId` de `requirePaciente`, nunca do formulário — a exceção da tabela `user` na regra 1 do `CLAUDE.md` diz isso.
 
 ---
 
@@ -1195,7 +1454,10 @@ O checklist de tela nova (painel e portal) está no [§7.4.5](07-testes-qualidad
 - Dado de saúde devolvido → `auditRead` na mesma transação (P06 D22).
 - Nada novo no cache offline: só "Meu plano" (P06 D6). Se precisar mudar isso, revise `sw-regras.ts` e as regras de
   limpeza.
-- Barra de abas: 7 colunas; acrescentar uma exige decisão (P07 D3 e comentário de `ITENS_DO_PORTAL`).
+- Seções (Plano 16): toda página nova de `src/app/p/(portal)` marca uma seção — ponha a rota no `tambem` da seção certa em
+  `SECOES_DO_PORTAL` (o teste `src/app/p/navegacao.test.ts` quebra se esquecer). Seção nova (sexta coluna) exige decisão
+  do dono. Tela de seção usa a `Faixa`; tela de detalhe, o `CabecalhoDetalhe` com "Voltar para {destino}". Medida
+  corporal nova no portal entra no objeto `respostas` de `src/modules/portal/peso-oculto-portal.test.ts` (§5.5.14).
 
 ### Novo conteúdo visível ao paciente
 
@@ -1273,3 +1535,32 @@ Plano × código:
    amarra o MAC ao SHA-256 do e-mail atual do paciente (`mac` em `src/modules/agenda/link-consulta.ts`; decisão do dono no
    fechamento do Plano 05). A spec de design não descreve o formato do token; só as histórias citam o link "caído com a
    correção do e-mail" (US-035).
+
+Plano 16 (app do paciente no layout G; spec G v0.1, `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md`)
+× código — os "Desvios conscientes" do plano (`docs/superpowers/plans/2026-10-08-nutridebby-16-app-paciente.md`). A spec
+G foi acertada nos Desvios 5, 13, 14 e 16 e no CHECK de `diary_entries_tem_conteudo` (§9); os outros ficam registrados aqui:
+
+7. **Resposta com conteúdo depois de outra resposta** (RN-197 diz "devolve esse registro"): só o "Comi assim" sem texto
+   nem foto é idempotente; com texto ou foto, o registro entra como registro comum (Desvio 1, D3; §5.5.12).
+8. **Tokens do portal** reaproveitam `TOKENS` em vez de redefinir `--nd-p-fundo`… com os mesmos valores claros; os escuros
+   ficam os atuais; acrescentado `p-marco-texto` (Desvio 2, D8; §5.7.6).
+9. **Horários das refeições sem a sigla do fuso**: "Próxima refeição às 12:30" é a hora do plano, não um instante; a sigla
+   (RN-06) vale para a hora dos itens, a consulta e a mini-jornada (Desvio 3).
+10. **Mini-jornada fora do mural**: a RN-200 põe o `auditRead` do mural em três entidades; a mini-jornada audita
+    `antropometria` na própria transação, e nem lê o peso quando ele está oculto (Desvio 4, D2).
+11. **"Foto da refeição" não abre a câmera sozinha**: o navegador exige o gesto; a barra leva ao campo com
+    `capture="environment"` (Desvio 6).
+12. **"Desde março" ganha o ano** quando a primeira consulta é de outro ano (Desvio 7).
+13. **Resumo da refeição com os nomes do plano** (nomes da TACO com vírgulas), só a primeira letra minúscula (Desvio 8,
+    risco R6; a Debby confere, G-D10).
+14. **Cartões dispensados apagados no "Sair" e no `/entrar`** (a RN-201 cita também a "troca de dono"; a chave já leva a
+    conta) (Desvio 9).
+15. **Textos novos fora da spec** (Desvio 10): todos em constantes (`MSG_MURAL`, `MSG_JORNADA`, `MSG_G`, `MSG_PESO_OCULTO`,
+    `MSG_COMI_ASSIM`, `AVISO_PORTAL`, guia `portal-novidades`), em rascunho até a Debby revisar (G-D10), e na tabela
+    "Textos de interface" do E5 da spec do MVP.
+16. **Gráfico da Jornada sem o tracejado até a próxima consulta** (Desvio 11): o `GraficoLinha` não tem esse traço.
+17. **"Orientações recebidas" saiu de `/p/evolucao`** (Desvio 12): mora na Jornada, que as lê e audita.
+18. **Foco sem o anel branco de 2 px da RN-207** (Desvio 15): o portal usa o `:focus-visible` global e, sobre a faixa, o
+    foco branco; o anel duplo ficou no backlog.
+19. **Sugestão de receita dentro da refeição** (Desvio 16, como a spec G diz; o texto do plano dizia "no `summary`"): 2
+    toques para a próxima refeição (aberta) e pelo "Ver a refeição" do mural, 3 para as outras (G-D14 = a).

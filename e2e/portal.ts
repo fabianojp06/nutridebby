@@ -54,6 +54,33 @@ export async function publicarPlanoSimples(nutri: Page, prontuario: string) {
   await nutri.getByRole('button', { name: 'Publicar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible();
 }
+/** HH:MM de daqui a 30 min em São Paulo (o fuso do consultório do E2E); perto da meia-noite, 23:59 (sempre hoje, já na janela de 90 min). */
+export function horarioDaquiAMeiaHora(agora = new Date()): string {
+  // en-CA com hora: "AAAA-MM-DD, HH:MM" (conferido no Node 24)
+  const f = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+  const [hoje, depois] = [f(agora), f(new Date(agora.getTime() + 30 * 60_000))];
+  return hoje.slice(0, 10) === depois.slice(0, 10) ? depois.slice(12, 17) : '23:59';
+}
+
+/** Como publicarPlanoSimples, com o "Almoço" no horário pedido (padrão: daqui a 30 min) — para o mural de Hoje (RN-196). */
+export async function publicarPlanoDoDia(nutri: Page, prontuario: string, horario = horarioDaquiAMeiaHora()) {
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  await nutri.getByRole('button', { name: 'Criar plano' }).click();
+  await expect(nutri.getByRole('heading', { name: /Plano alimentar — versão \d+/ })).toBeVisible();
+  await nutri.getByRole('button', { name: 'Adicionar refeição' }).click();
+  await nutri.getByLabel('Refeição', { exact: true }).fill('Almoço');
+  await nutri.getByLabel('Horário de Almoço').fill(horario);
+  await nutri.getByLabel('Adicionar alimento em Almoço').fill('chuchu cozido');
+  await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
+  await nutri.getByLabel('Gramas de Chuchu, cozido').fill('100');
+  await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 10_000 });
+  nutri.once('dialog', (d) => void d.accept());
+  await nutri.getByRole('button', { name: 'Publicar' }).click();
+  // na suíte inteira (workers em paralelo) a publicação passou dos 5 s padrão com o "Publicar" ainda desabilitado
+  await expect(nutri.getByRole('status').filter({ hasText: 'Plano publicado.' })).toBeVisible({ timeout: 15_000 });
+  return horario;
+}
+
 /** Avaliação pela aba Antropometria (mesmos passos de e2e/pacientes.spec.ts), com JP3 para gerar o % de gordura. */
 export async function avaliar(nutri: Page, prontuario: string, data: string, peso: string) {
   await nutri.goto(`${prontuario}/antropometria`);
@@ -80,7 +107,7 @@ let seqHora = 0;
 /**
  * A nutricionista marca uma consulta para o paciente numa quarta-feira a ~7 semanas daqui, num horário que não repete na
  * mesma execução. R11 (rodada 1 da revisão da T12): cada spec usa uma `semana` só sua — portal.spec 0, acessibilidade.spec
- * 1 — e a quarta é a primeira depois de hoje + 49 dias, mais 7 dias por `semana`: dois specs nunca caem no mesmo dia,
+ * 1, painel.ts 2 a 51, nada-some.spec −1 (Plano 16) — e a quarta é a primeira depois de hoje + 49 dias, mais 7 dias por `semana`: dois specs nunca caem no mesmo dia,
  * qualquer que seja o dia da execução (com "dias à frente" 50 e 54, o arredondamento para a quarta juntava os dois em
  * 3 de cada 7 dias). Dentro de um spec, a hora sai de um contador do módulo.
  */
