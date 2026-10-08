@@ -32,7 +32,7 @@ const EXCECOES: Record<string, { motivo: string; classes: string[] }> = {
 const PALETA = 'red|amber|emerald|zinc|gray|green|yellow|blue|slate|neutral|stone|orange|lime|teal|sky|indigo|violet|purple|pink|rose';
 const COR_FIXA = new RegExp(`(?<![\\w-])(?:dark:[\\w-]+|(?:text|bg|border|ring|outline|fill|stroke|divide|placeholder|decoration|from|via|to)-(?:${PALETA})-\\d{2,3}|bg-white|bg-black|text-black)(?![\\w-])`, 'g');
 const CLASSES = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
-const TOKENS_DE_BORDA = 'campo|borda|transparent|marca|destaque|erro|aviso|ok|linha|current|white';
+const TOKENS_DE_BORDA = 'campo|borda|transparent|marca|destaque|erro|aviso|ok|linha|current|white|p-marco-texto|p-marco|faixa';
 const BORDA_COM_COR = new RegExp(`(?<![\\w-])border-(?:${TOKENS_DE_BORDA})(?![\\w-])`);
 const DIVISOR_COM_COR = new RegExp(`(?<![\\w-])divide-(?:${TOKENS_DE_BORDA})(?![\\w-])`);
 // Sem cor, a borda usa currentColor (no Tailwind v4): no escuro vira linha quase branca. Vale para `border`, um lado ou

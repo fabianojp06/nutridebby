@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { atkinson, redHat } from './fontes';
 import { SairPortal } from './sair-portal';
 import { SwProvider } from './sw-provider';
 
@@ -15,7 +16,7 @@ export const viewport: Viewport = {
 /** Todas as páginas do portal do paciente (inclusive as dos próximos planos) ganham o botão "Sair", que limpa o aparelho. D18: o tema segue o aparelho (sem botão). */
 export default function PacienteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div data-tema="sistema" className="flex min-h-dvh flex-col bg-fundo font-sans text-texto">
+    <div data-tema="sistema" data-app="paciente" className={`${redHat.variable} ${atkinson.variable} flex min-h-dvh flex-col bg-fundo font-portal text-texto`}>
       <SwProvider>
         <header className="flex justify-end px-6 pt-4">
           <SairPortal />

@@ -2,9 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { COR_PADRAO } from '@/modules/plataforma/marca-constantes';
-import { contraste, misturar } from './contraste';
-import { corNoEscuro } from './marca-tema';
-import { PARES, TOKENS, type Token } from './tokens';
+import { contraste, luminancia, misturar } from './contraste';
+import { corDaFaixa, corNoEscuro, OPACIDADE_CARTAO_FAIXA, VERDE_CLARO_PORTAL } from './marca-tema';
+import { PARES, PARES_PORTAL, TOKENS, TOKENS_PORTAL, type Token } from './tokens';
 
 describe('tokens do visual V2 (D24, RNF-10)', () => {
   it.each(PARES.flatMap((p) => [0, 1].map((m) => [p.texto, p.fundo, m === 0 ? 'claro' : 'escuro', p.minimo, m] as const)))(
@@ -134,5 +134,66 @@ describe('foco sobre a cor do consultório (cabeçalho do painel, cartão de des
   it('o fundo além do conteúdo (efeito elástico) no painel escuro é o token fundo, nos dois blocos', () => {
     expect(css).toContain(`:root:has([data-tema='escuro']) { background: ${TOKENS.fundo[1]}; }`);
     expect(css).toContain(`:root:has([data-tema='sistema']) { background: ${TOKENS.fundo[1]}; }`);
+  });
+});
+
+describe('portal do paciente: tokens novos e a cor da faixa (Plano 16, §4.7, RNF-192)', () => {
+  const todos: Record<string, readonly [string, string]> = { ...TOKENS, ...TOKENS_PORTAL };
+  it.each(PARES_PORTAL.flatMap((p) => [0, 1].map((m) => [p.texto, p.fundo, m === 0 ? 'claro' : 'escuro', p.minimo, m] as const)))(
+    '%s sobre %s no modo %s: contraste ≥ %d',
+    (texto, fundo, _modo, minimo, m) => {
+      expect(contraste(todos[texto][m], todos[fundo][m])).toBeGreaterThanOrEqual(minimo);
+    },
+  );
+
+  it('o marco âmbar sozinho some contra o fundo claro (1,55:1): por isso leva contorno de 2 px no token do texto (WCAG 1.4.11)', () => {
+    expect(contraste(TOKENS_PORTAL['p-marco'][0], TOKENS.fundo[0])).toBeLessThan(3);
+    expect(contraste(TOKENS_PORTAL['p-marco-texto'][0], TOKENS.fundo[0])).toBeGreaterThanOrEqual(3);
+    expect(contraste(TOKENS.texto[1], TOKENS.fundo[1])).toBeGreaterThanOrEqual(3);
+  });
+
+  it('o globals.css declara os tokens do portal só em [data-app=paciente] (o painel não muda, C-193), claro e com o aparelho escuro', () => {
+    const css = readFileSync('src/app/globals.css', 'utf8');
+    const bloco = (inicio: string) => {
+      const i = css.indexOf(inicio);
+      expect(i, inicio).toBeGreaterThanOrEqual(0);
+      return css.slice(i, css.indexOf('}', i));
+    };
+    const claro = bloco("[data-app='paciente'] {");
+    const escuro = bloco("[data-app='paciente'][data-tema='sistema'] {");
+    for (const [nome, [c, e]] of Object.entries(TOKENS_PORTAL)) {
+      expect(claro, `${nome} claro`).toContain(`--nd-${nome}: ${c};`);
+      expect(escuro, `${nome} escuro`).toContain(`--nd-${nome}: ${e};`);
+    }
+    // o bloco escuro fica dentro do @media do aparelho escuro (o portal segue o aparelho, P08 D18): o @media que o abre vem
+    // depois do bloco claro e nada fecha entre ele e o bloco
+    const iEscuro = css.indexOf("[data-app='paciente'][data-tema='sistema'] {");
+    const iMedia = css.lastIndexOf('@media (prefers-color-scheme: dark) {', iEscuro);
+    expect(iMedia).toBeGreaterThan(css.indexOf("[data-app='paciente'] {"));
+    expect(css.slice(iMedia, iEscuro)).not.toContain('}');
+    expect(css).toContain(`--color-faixa-cartao: rgb(226 239 233 / ${OPACIDADE_CARTAO_FAIXA});`);
+    expect(VERDE_CLARO_PORTAL).toBe(TOKENS_PORTAL['p-clara'][0]);
+  });
+
+  it('corDaFaixa: a cor padrão não muda; a cor no limite (#767676, 4,54:1) escurece até o branco passar também no cartão translúcido', () => {
+    expect(corDaFaixa(COR_PADRAO)).toBe(COR_PADRAO);
+    // o problema que a spec mediu: branco sobre o cartão (verde claro a 16%) da cor no limite = 3,52:1
+    expect(contraste('#ffffff', misturar('#767676', VERDE_CLARO_PORTAL, OPACIDADE_CARTAO_FAIXA))).toBeLessThan(4.5);
+    const c = corDaFaixa('#767676');
+    expect(c).not.toBe('#767676');
+    expect(contraste('#ffffff', misturar(c, VERDE_CLARO_PORTAL, OPACIDADE_CARTAO_FAIXA))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  const rnd = mulberry32(2026);
+  const aceitas = Array.from({ length: 3000 }, () => `#${Math.floor(rnd() * 0xffffff).toString(16).padStart(6, '0')}`).filter((c) => contraste(c, '#ffffff') >= 4.5);
+  it('propriedade: para toda cor aceita pelo perfil (≥ 4,5 com o branco), o branco passa na faixa e no cartão, a pílula (cor da faixa sobre branco) passa, e a cor só escurece', () => {
+    expect(aceitas.length).toBeGreaterThan(500);
+    for (const c of [...aceitas, COR_PADRAO]) {
+      const f = corDaFaixa(c);
+      expect(contraste('#ffffff', f), `${c} → ${f}`).toBeGreaterThanOrEqual(4.5);
+      expect(contraste('#ffffff', misturar(f, VERDE_CLARO_PORTAL, OPACIDADE_CARTAO_FAIXA)), `${c} → ${f} (cartão)`).toBeGreaterThanOrEqual(4.5);
+      // no aparelho escuro o cartão usa o mesmo verde claro a 16% (a cor da faixa não muda com o modo): mesma conta
+      expect(luminancia(f)).toBeLessThanOrEqual(luminancia(c) + 1e-9);
+    }
   });
 });

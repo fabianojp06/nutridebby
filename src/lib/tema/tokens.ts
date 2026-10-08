@@ -41,3 +41,25 @@ export const PARES: readonly { texto: Token; fundo: Token; minimo: number }[] = 
   { texto: 'campo', fundo: 'cartao', minimo: 3 },
   { texto: 'campo', fundo: 'fundo', minimo: 3 },
 ];
+
+/**
+ * Plano 16 (§4.7, D8): tokens só do portal do paciente ([data-app='paciente']), [claro, escuro]. Fundo, texto, suave,
+ * cartão e borda do portal são os de TOKENS (os valores claros da spec são os mesmos). `p-marco-texto` é escuro nos dois
+ * modos: no escuro o token `texto` é claro e reprovaria sobre o âmbar.
+ */
+export const TOKENS_PORTAL = {
+  'p-clara': ['#e2efe9', '#1f3a31'],
+  'p-marco': ['#f0b867', '#f0b867'],
+  'p-marco-texto': ['#14211d', '#14211d'],
+} as const satisfies Record<string, readonly [string, string]>;
+
+export type TokenPortal = keyof typeof TOKENS_PORTAL;
+
+/** Pares do portal: balão do paciente (texto e hora sobre p-clara), chip/marco âmbar, contorno do marco contra o fundo (1.4.11). */
+export const PARES_PORTAL: readonly { texto: Token | TokenPortal; fundo: Token | TokenPortal; minimo: number }[] = [
+  { texto: 'texto', fundo: 'p-clara', minimo: 4.5 },
+  { texto: 'suave', fundo: 'p-clara', minimo: 4.5 },
+  { texto: 'link', fundo: 'p-clara', minimo: 4.5 },
+  { texto: 'p-marco-texto', fundo: 'p-marco', minimo: 4.5 },
+  { texto: 'texto', fundo: 'fundo', minimo: 3 },
+];
