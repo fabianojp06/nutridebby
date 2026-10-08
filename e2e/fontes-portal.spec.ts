@@ -9,12 +9,18 @@ const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' };
 test('fontes do portal: só do próprio app e até 160 KB de woff2 no primeiro carregamento (RNF-193)', async ({ browser }) => {
   const page = await entrarComo(browser, MULTI.email, MULTI.senha, '10.9.19.6');
   await expect(page).toHaveURL(/\/p\/escolher/);
-  const fontes: { url: string; bytes: number }[] = [];
-  page.on('response', async (r) => {
-    if (/\.woff2(\?|$)/.test(r.url())) fontes.push({ url: r.url(), bytes: (await r.body()).length });
+  // Espera a carga do redirecionamento do login terminar (senão o reload deixa respostas sem corpo) e desliga o cache
+  // do navegador: o reload mede o primeiro carregamento, não fontes já guardadas.
+  await page.waitForLoadState('networkidle');
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  const respostas: Promise<{ url: string; bytes: number }>[] = [];
+  page.on('response', (r) => {
+    if (/\.woff2(\?|$)/.test(r.url())) respostas.push(r.body().then((b) => ({ url: r.url(), bytes: b.length })));
   });
   await page.reload();
   await page.waitForLoadState('networkidle');
+  const fontes = await Promise.all(respostas);
   expect(fontes.length, 'o portal carrega as fontes').toBeGreaterThan(0);
   for (const f of fontes) expect(new URL(f.url).origin, f.url).toBe(new URL(page.url()).origin);
   const total = fontes.reduce((s, f) => s + f.bytes, 0);
