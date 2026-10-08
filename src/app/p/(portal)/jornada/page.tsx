@@ -1,21 +1,36 @@
 import Link from 'next/link';
 import { Faixa } from '@/components/portal/faixa';
-import { MSG_G } from '@/components/portal/textos';
 import { requirePaciente } from '@/lib/paciente-session';
+import { GraficoLinha } from '@/modules/pacientes/ui/grafico-linha';
+import { jornadaDoPaciente } from '@/modules/portal/jornada';
+import { MSG_JORNADA } from '@/modules/portal/jornada-regras';
 import { molduraDaSecao } from '../../moldura';
+import { LinhaDoTempo } from './linha-do-tempo';
 
 export const dynamic = 'force-dynamic';
 
-/** Plano 16 (RN-190): a seção Jornada. Esqueleto da T4 — a T12 traz o gráfico e a linha do tempo. */
+const BOTAO = 'inline-flex min-h-11 items-center rounded-full border border-borda bg-cartao px-4 font-semibold';
+
+/**
+ * Plano 16 (US-194, RN-190): a seção Jornada — o gráfico de peso nas consultas (ou de cintura, com o peso visível e menos
+ * de 2 pesos; com o peso oculto, sem gráfico — G-D16 a; nenhuma mensagem sobre o peso faltar) e a linha do tempo. "Todas
+ * as medidas" e "Minhas consultas" ficam a um toque (§4.10).
+ */
 export default async function Jornada() {
   const acesso = await requirePaciente('/p/jornada');
-  const moldura = await molduraDaSecao(acesso);
+  const { ctx, tenant } = acesso;
+  const [moldura, j] = await Promise.all([molduraDaSecao(acesso), jornadaDoPaciente(ctx, tenant, new Date())]);
   return (
     <>
-      <Faixa {...moldura} atual="/p/jornada" titulo={MSG_G.titulos.jornada} />
-      <main className="space-y-4 p-6">
-        <p><Link href="/p/evolucao" className="inline-flex min-h-11 items-center underline">Todas as medidas</Link></p>
-        <p><Link href="/p/agenda" className="inline-flex min-h-11 items-center underline">Minhas consultas</Link></p>
+      <Faixa {...moldura} atual="/p/jornada" titulo={j.titulo} />
+      <main className="space-y-6 p-4">
+        {j.grafico && <GraficoLinha id="grafico-jornada" titulo={j.grafico.rotulo} unidade={j.grafico.unidade} casas={j.grafico.casas} pontos={j.grafico.pontos} />}
+        <p className="flex flex-wrap gap-2">
+          <Link href="/p/evolucao" className={BOTAO}>{MSG_JORNADA.todasAsMedidas}</Link>
+          <Link href="/p/agenda" className={BOTAO}>{MSG_JORNADA.minhasConsultas}</Link>
+          {j.podeAgendar && <Link href="/p/agenda/nova" className={BOTAO}>{MSG_JORNADA.agendar}</Link>}
+        </p>
+        {j.vazia ? <p>{MSG_JORNADA.comeca}</p> : <LinhaDoTempo marcos={j.marcos} fuso={tenant.fuso} />}
       </main>
     </>
   );

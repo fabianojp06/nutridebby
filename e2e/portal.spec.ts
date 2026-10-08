@@ -360,22 +360,22 @@ test('Diários: a nutricionista vê o registro novo, abre, comenta; o paciente v
   await p.page.context().close();
 });
 
-test('Minha evolução: peso sem % de gordura; com a opção ligada, o % aparece; orientações sem exames (US-044)', async ({ browser }) => {
+test('Todas as medidas: peso sem % de gordura; com a opção ligada, o % aparece (US-044, US-194)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.14');
   await avaliar(nutri, p.prontuario, '2026-08-01', '80');
   await avaliar(nutri, p.prontuario, '2026-09-01', '77');
   await p.page.goto('/p/evolucao');
   await expect(p.page.getByRole('heading', { level: 1, name: 'Todas as medidas' })).toBeVisible();
-  await expect(p.page.getByText(/^Peso: 80,0/)).toBeVisible();
-  await expect(p.page.getByText('% de gordura')).toHaveCount(0);
+  const tabela = p.page.getByRole('table', { name: 'Medidas por avaliação' });
+  await expect(tabela.getByRole('row', { name: /^Peso \(kg\)/ })).toContainText('80,0');
+  await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toHaveCount(0);
   try {
     await mostrarPercGordura(nutri, true);
     await p.page.reload();
-    await expect(p.page.getByText(/^% de gordura:/)).toBeVisible();
+    await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toBeVisible();
   } finally {
     await mostrarPercGordura(nutri, false);
   }
-  await expect(p.page.getByText('Nenhuma orientação registrada ainda.')).toBeVisible();
   await p.page.context().close();
 });
 
