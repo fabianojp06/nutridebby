@@ -23,6 +23,19 @@ afterAll(async () => {
 
 // Valores que só podem vir do peso (81,37 e 78,62 kg com 170 cm → IMC 28,16 e 27,20) e as formas como a tela os escreveria
 const PESO_OU_IMC = /81[.,]37|81[.,]4|78[.,]62|78[.,]6|28[.,]16|28[.,]2|27[.,]2|\bkg\b|IMC|"peso"|"imc"|pesoKg/;
+// Os horários ISO das respostas ("…T15:03:27.214Z") saem antes da comparação: ":27.2" e ":28.2" casariam com o IMC sem vazamento nenhum.
+// Não serve um lookbehind de ":" no número: ele deixaria passar um número JSON como "valor":81.37.
+const HORARIO_ISO = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g;
+const semHorarios = (r: unknown) => JSON.stringify(r).replace(HORARIO_ISO, '');
+
+describe('guarda do CS-194', () => {
+  it('ignora horário ISO com ":27.2" ou ":28.2" e continua pegando o peso e o IMC escritos como número ou texto', () => {
+    expect(semHorarios({ quando: new Date('2026-10-08T15:03:27.214Z'), outro: new Date('2026-10-08T15:04:28.231Z') })).not.toMatch(PESO_OU_IMC);
+    for (const vazado of [{ valor: 81.37 }, { y: 27.2 }, { y: 28.16 }, { texto: 'IMC 27,2' }, { texto: '78,62 kg' }, { pesoKg: 1 }]) {
+      expect(semHorarios(vazado), JSON.stringify(vazado)).toMatch(PESO_OU_IMC);
+    }
+  });
+});
 
 describe('CS-194: com "Não mostrar peso no app", nenhum módulo do portal devolve peso ou IMC (RN-203)', () => {
   it('mural, jornada, mini-jornada, "Todas as medidas" e o plano (a cópia offline) — a cintura continua', async () => {
@@ -43,7 +56,9 @@ describe('CS-194: com "Não mostrar peso no app", nenhum módulo do portal devol
     );
     await definirPesoOculto(T.ctx, p.id, true, { db: app.db });
     const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    // segundo 27 e milissegundo 214: o horário ISO do mural ("…:27.214Z") traz ":27.2", que já confundiu a guarda com o IMC 27,2
     const agora = new Date();
+    agora.setUTCSeconds(27, 214);
     const respostas = {
       mural: await muralDoPaciente(ctx, tenant, agora, app.db),
       jornada: await jornadaDoPaciente(ctx, tenant, agora, app.db),
@@ -51,7 +66,7 @@ describe('CS-194: com "Não mostrar peso no app", nenhum módulo do portal devol
       medidas: await evolucaoParaPaciente(ctx, tenant, app.db),
       plano: await planoDoPaciente(ctx, tenant.fuso, { db: app.db }),
     };
-    for (const [nome, r] of Object.entries(respostas)) expect(JSON.stringify(r), nome).not.toMatch(PESO_OU_IMC);
+    for (const [nome, r] of Object.entries(respostas)) expect(semHorarios(r), nome).not.toMatch(PESO_OU_IMC);
     expect(JSON.stringify(respostas.jornada)).toContain('cintura 86 cm');
     expect(respostas.medidas.series.map((s) => s.id)).toEqual(['circ_cintura']);
 
