@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Escrito em 08/10/2026** a partir de `main` @ `19fcea5` + `a803091` (spec do app do paciente G v0.1; Planos 01–12 em produção, migrations `0000`–`0103`), com as decisões do dono de 08/10/2026 ("concordo, pode seguir": **G-D1** opção por paciente "Não mostrar peso no app", ligada pela nutricionista; **G-D2** executar **logo depois do Plano 13**, antes do Plano 14; **G-D3** o painel da nutricionista fica como está; **G-D4** layout G verde aprovado) e o relatório da preparação (fora do git: `.superpowers/sdd/2026-10-08-plano16-preparacao/spec.md`). As pendências **G-D5 a G-D12 ★** seguem as recomendações da spec e estão marcadas onde mudam o texto. Nenhuma linha de código de produto foi escrita; nada foi rodado em banco; nenhum banco de produção foi tocado. Os nomes de função, tabela, coluna, rota, componente e helper usados aqui foram conferidos no código da `main` (os que este plano cria estão em "Contratos entre tarefas"). O catálogo do `next/font/google` do `next` 16.3.6 instalado foi conferido em 08/10/2026: **Red Hat Display** (300–900, variável) e **Atkinson Hyperlegible Next** (200–800, variável) estão lá, com o subconjunto `latin` (DEP-G8 resolvida: não precisa de `next/font/local`). O **Plano 13 está em execução noutra worktree** e reserva as migrations **0104–0105**: as deste plano começam em **0106+** e **podem ser renumeradas** no rebase depois do merge do Plano 13 (C-196, PM-G1). Próximo passo: revisão do plano pelo dono e execução depois do merge do Plano 13.
+> **Escrito em 08/10/2026** a partir de `main` @ `19fcea5` + `a803091` (spec do app do paciente G v0.1; Planos 01–12 em produção, migrations `0000`–`0103`), com as decisões do dono de 08/10/2026 ("concordo, pode seguir": **G-D1** opção por paciente "Não mostrar peso no app", ligada pela nutricionista; **G-D2** executar **logo depois do Plano 13**, antes do Plano 14; **G-D3** o painel da nutricionista fica como está; **G-D4** layout G verde aprovado) e o relatório da preparação (fora do git: `.superpowers/sdd/2026-10-08-plano16-preparacao/spec.md`). As pendências **G-D5 a G-D12 ★** seguem as recomendações da spec e estão marcadas onde mudam o texto. Nenhuma linha de código de produto foi escrita; nada foi rodado em banco; nenhum banco de produção foi tocado. Os nomes de função, tabela, coluna, rota, componente e helper usados aqui foram conferidos no código da `main` (os que este plano cria estão em "Contratos entre tarefas"). O catálogo do `next/font/google` do `next` 16.3.6 instalado foi conferido em 08/10/2026: **Red Hat Display** (300–900, variável) e **Atkinson Hyperlegible Next** (200–800, variável) estão lá, com o subconjunto `latin` (DEP-G8 resolvida: não precisa de `next/font/local`). O **Plano 13 está em execução noutra worktree** e reserva as migrations **0104–0105**: as deste plano começam em **0106+** e **podem ser renumeradas** no rebase depois do merge do Plano 13 (C-196, PM-G1). Próximo passo: revisão do plano pelo dono e execução depois do merge do Plano 13. **Revisado em 08/10/2026** (lentes de cobertura, dados e normas): 41 achados aplicados no plano e na spec ou levados aos "Pontos menores", e as decisões novas G-D13 a G-D17 ★ e a D6 ★ revista — ver "Correções da revisão do plano (08/10/2026)".
 
 **Goal:** O portal do paciente (`/p`) troca as 7 abas iguais do rodapé pelo layout G verde — faixa do topo na cor do consultório com cinco seções (**Hoje · Jornada · Plano · Exames · Eu**), um **mural "Hoje"** montado pelo sistema a partir do que já existe (refeição que vem aí, diário, comentário da nutricionista, situação do exame, próxima consulta, conteúdo, plano e documento novos), **respostas por botão** ("Comi assim", "Comi outra coisa", foto) gravadas no **diário que já existe**, a **Jornada** (peso por consulta e linha do tempo com a orientação de cada atendimento), a **refeição aberta**, e a opção por paciente **"Não mostrar peso no app"**, que só a equipe liga e que tira peso e IMC de tudo o que chega ao aparelho — sem chat, sem tabela de mensagens, sem push novo, sem mudar URLs e sem mexer no visual do painel.
 
@@ -19,13 +19,13 @@
 - **CLAUDE.md regra 1:** toda consulta a `diary_entries`, `patients`, `meal_plans`, `meals`, `exam_submissions`, `appointments`, `consultations`, `anthropometry`, `contents`, `content_views`, `signed_documents` por `withTenant`; o admin não vê nada novo. **Muda o texto da exceção da tabela `user`** (T14): `src/modules/plataforma/preferencias.ts` passa a ser chamado também pela **sessão de paciente** (progresso do manual guiado da própria conta, `userId` vindo de `requirePaciente`, nunca do formulário).
 - **Regra 2:** nenhuma tabela nova; nenhuma entrada nova em `PACIENTE_ESCREVE`, `STAFF_ONLY`, `PUBLICO_LIBERADO` ou `CONTEUDO_POR_AUDIENCIA`. `paciente_diario_insert` (0080) continua valendo para as colunas novas (elas não apontam para arquivo; os CHECKs cobrem os valores). O gatilho `paciente_colunas` de `patients` (0085) **não muda**: `peso_oculto_no_app_em` fica fora de `livres` e a sessão de paciente leva 42501 (teste na T1). A fábrica de `diary_entries` de `test/isolamento.test.ts` passa a preencher as colunas novas.
 - **Regra 3 / RNF-11 / RNF-196:** nada do mural, da jornada ou das respostas em log, Sentry, push ou e-mail — nem texto do diário, nem nome de refeição, nem medida; erros logam só o tipo de item e o motivo. Nenhum push novo (RN-209).
-- **Regra 8 (auditoria):** `diary_entries` e `patients` já têm `audit_row_change` (entidades `diario` e `patients`): as respostas e a troca da opção de peso viram `audit_log` sozinhas; **nenhuma** migration deste plano desliga o gatilho (NGS1.07.01) — a migration só acrescenta colunas, sem dados. `auditRead` (com a conta do paciente como ator, P06 D22): no mural, **uma vez por entidade** lida com dado de saúde (`plano_alimentar` pelo `lerPlanoNaTransacao`, `diario`, `exames_enviados`); na Jornada, `atendimentos` e `antropometria`; na mini-jornada, `antropometria` só quando o peso é lido. Agenda, conteúdos e contagem de documentos **sem** `auditRead` (P05 D10, P07 D6, 10A D17).
+- **Regra 8 (auditoria):** `diary_entries` e `patients` já têm `audit_row_change` (entidades `diario` e `patients`): as respostas e a troca da opção de peso viram `audit_log` sozinhas; **nenhuma** migration deste plano desliga o gatilho (NGS1.07.01) — a migration só acrescenta colunas, sem dados. A decisão "Não mostrar peso no app" ganha, além do gatilho, uma linha própria por `recordAudit` (entidade `peso_no_app`, T8; Desvio 5). `auditRead` (com a conta do paciente como ator, P06 D22): no mural, **uma vez por entidade** lida com dado de saúde (`plano_alimentar` pelo `lerPlanoNaTransacao`, `diario`, `exames_enviados`); na Jornada, `atendimentos` e `antropometria`; na mini-jornada, `antropometria` só quando o peso é lido. Agenda, conteúdos e contagem de documentos **sem** `auditRead` (P05 D10, P07 D6, 10A D17).
 - **Regra 4 / RN-216:** textos de interface em pt-BR, com o **texto exato da spec** quando existir; os textos novos ficam nas constantes `MSG_MURAL` (`mural-regras.ts`), `MSG_JORNADA` (`jornada-regras.ts`), `MSG_G` (`src/components/portal/textos.ts`), `MSG_PESO_OCULTO` (`peso-oculto.ts`) e no guia `portal-novidades`; **todos em rascunho até a Debby revisar (G-D10 ★)** e entram na tabela "Textos de interface" do E5 no fechamento (T16).
 - **Painel como está (G-D3, C-193):** nada do visual, dos tokens ou do menu do painel muda. As únicas mudanças no painel são as da spec §4.9: a caixa "Não mostrar peso no app" na aba Evolução do prontuário (T8) e os rótulos das respostas no feed e no registro aberto do diário (T7). O `Tour` muda de pasta (T14) sem mudar de comportamento no painel.
 - **Visual do portal (RNF-191 a RNF-199):** tokens só por classe de tema (`bg-fundo`, `bg-cartao`, `text-suave`, `border-borda`, `bg-faixa`, `bg-p-clara`, `bg-p-marco`…), nunca cor da paleta do Tailwind (guarda `src/app/painel/cores.test.ts`, que já varre `src/app/p` e `src/components`); exceções só com motivo na lista `EXCECOES` da guarda. Alvo de toque ≥ 44 px (`min-h-11`); WCAG 2.1 AA (axe zero violação) a **360 e 320 px**, claro e escuro; sem rolagem horizontal a 320 px (1.4.10) com texto em 200%; marcos de região (`header`, `nav "Seções"`, `main`, `nav "Ações"`); mural como lista (`ol`) com autor e hora **no texto** de cada item; resultado das respostas em `role="status"` sempre montado; `prefers-reduced-motion` sem animação; nenhuma informação só por cor; linguagem neutra sobre o corpo (RN-206: sem verde/vermelho de "bom/ruim", sem seta de sucesso, sem "parabéns", sem meta).
 - **Imagem Docker e dependências:** orçamento de **265 MB** comprimidos (CI, job `image`, D-R2 do Plano 12); hoje em **260 MB**. **Nada de biblioteca nova sem medir.** As fontes entram por `next/font` (subconjunto `latin`; RNF-193: **≤ 160 KB de `woff2`** no primeiro carregamento do portal, medido na T2) e somam algumas centenas de KB à imagem: a T2 mede o `.next/static/media` e o PR registra o tamanho do job `image`; se passar de 265 MB, **parar e perguntar ao dono** (não apagar outra coisa às cegas).
 - **Custo:** nenhum (C-192): sem serviço externo, sem IA, sem push novo; as fontes são servidas pelo próprio app (CSP `font-src 'self'`, sem chamada ao Google em tempo de execução — LGPD).
-- **Boas práticas SBIS NGS1 (spec §11):** origem e autoria visíveis em todo item do mural ("Você", "Sua nutricionista", "Do consultório") com data e hora; nada escrito pelo sistema aparece como da profissional (RN-194, C-197); a resposta grava a refeição do plano como **cópia** (`refeicao_do_plano`), que não muda quando o plano é republicado; o paciente não edita nem apaga (P06 D11); a idempotência impede registro duplicado por toque duplo; hora do registro dada pelo **servidor**; controle de acesso no banco (RLS do paciente para a resposta; gatilho `paciente_colunas` para a opção de peso); trilha de leitura e escrita; offline só o plano.
+- **Boas práticas SBIS NGS1 (spec §11):** origem e autoria **visíveis** (texto na tela, não só o lado ou a cor do balão) em todo item do mural ("Você", "Sua nutricionista comentou seu registro (…)", "Aviso do app") com data e hora; nada escrito pelo sistema aparece como da profissional (RN-194, C-197); a resposta grava a refeição do plano como **cópia** (`refeicao_do_plano`), que não muda quando o plano é republicado; o paciente não edita nem apaga (P06 D11); a idempotência impede registro duplicado por toque duplo; hora do registro dada pelo **servidor**; controle de acesso no banco (RLS do paciente para a resposta; gatilho `paciente_colunas` para a opção de peso); trilha de leitura e escrita; offline só o plano.
 - Regras do servidor (`/home/deploy/servidor/CLAUDE.md`): nada de mexer em produção, Easypanel, serviços, firewall ou banco de produção neste plano; nunca exibir segredos. **Merge = deploy**, só com OK explícito do dono e snapshot no hPanel antes. Subagentes nunca consultam o banco de produção. O `nutri-backup.sh` só roda dentro de `test/backup.test.ts` (regra 10; este plano não o muda).
 - Política de revisão por entrega (índice, revista em 02/10/2026; modo misto aprovado pelo dono): revisor por tarefa (cada tarefa diz **Revisão: completa (agente …)** ou **Revisão: leve (revisor-interface)**) → revisão final do branch (workflow) com uma onda de correções → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor vai para o backlog) → re-revisão só do diff das correções → `/security-review` com o checklist reforçado (peso oculto que não pode vazar ao aparelho, resposta só à refeição do próprio plano, idempotência e limite com o paciente travado, autoria no mural, `user.guia` pela sessão de paciente). Se sobrar Critical/Important confirmado, parar e avisar o dono. Lembrar o dono, a cada sessão, de que o **backup no host (P02-11)** segue pendente.
 
@@ -41,8 +41,8 @@ As marcadas com ★ **ainda são do dono** (a spec já trazia a recomendação; 
 | D2 | Leitura do mural numa transação (RNF-190, PM-G5) | `muralDoPaciente` lê tudo num `withTenant`: o plano por `lerPlanoNaTransacao` (já existe, já audita), o diário e os envios por consulta direta (com `paraRegistro` e `situacaoParaPaciente`, que já existem), a próxima consulta por `listarConsultasNaTransacao` (já existe), e duas funções novas no molde de `contarDiariosNaoVistosNaTransacao`: `conteudosNovosNaTransacao` (`portal/conteudos.ts`) e `novosNoPortalNaTransacao` (`documentos/portal.ts`, que passa a ser o corpo de `novosNoPortal`). A **mini-jornada** da faixa fica fora do mural (`miniJornadaDoPaciente`, outra transação curta): Hoje = **duas** transações, cada uma com o seu `auditRead` | T6, T9, T10 |
 | D3 | Idempotência da resposta (RN-197) | Com o paciente travado: se já há resposta para a mesma `refeicao_do_plano` no dia, **"Comi assim" sem texto nem foto devolve o registro existente** (toque duplo, outra aba). Registro **com conteúdo** (texto ou foto) depois de uma resposta entra como **registro comum do diário** (`resposta` e `refeicao_do_plano` nulos, refeição mapeada) — nunca perde o que o paciente escreveu (R-192: "o paciente pode escrever outro registro explicando") e mantém "uma resposta por refeição por dia" | T7; Desvio 1 |
 | D4 ★ | "Desfazer" de 10 s (G-D5, recomendação **c**) | Só no aparelho: o toque em "Comi assim" mostra "Registrado no diário." com **"Desfazer"** por 10 s (`PRAZO_DESFAZER_MS`); o prazo pausa com foco ou ponteiro no aviso (WCAG 2.2.1); ao fim do prazo, ao sair da tela (`pagehide`) ou ao desmontar o componente, envia por `fetch(…, { keepalive: true })` para `POST /api/p/diario`. "Desfazer" cancela antes de enviar: **sem DELETE** no banco (P06 D11). Se o dono escolher **(a)**, o `ComiAssim` envia no toque (troca de uma constante: `PRAZO_DESFAZER_MS = 0`); **(b)** troca o aviso por um `ConfirmarBotao` | T10, T11; runbook passo 3 |
-| D5 ★ | O que "Não mostrar peso no app" esconde (G-D6, recomendação **a**) | **Peso e IMC** (`SERIES_DO_PESO = ['peso', 'imc']`, `peso-oculto.ts`); filtrados **no módulo** antes de montar a resposta (`evolucaoParaPaciente`, `jornadaDoPaciente`, `miniJornadaDoPaciente` nem leem `peso_kg`/`imc` quando a opção está ligada); o `% de gordura` e as circunferências continuam. Se o dono escolher **(b)**, acrescentar `'perc_gordura'` à constante; **(c)** é opção nova (backlog) | T8, T9, T15 |
-| D6 ★ | Exportação e a opção de peso (spec §10, "a confirmar no plano") | `pesoOcultoNoAppEm` vai no `dados.json` da **equipe** e **não** no do **titular** — mesma lógica das notas privadas (US-016: anotação clínica da profissional sobre o paciente, não dado fornecido por ele); as avaliações com o peso continuam nas duas (RN-204, LGPD art. 18, II). O `normas-cfn-lgpd` confirma na revisão da T15; se reprovar, a linha vai para o escopo do titular também (uma condição) | T15 |
+| D5 ★ | O que "Não mostrar peso no app" esconde (G-D6, recomendação **a**) | **Peso e IMC** (`SERIES_DO_PESO = ['peso', 'imc']`, `peso-oculto.ts`); filtrados **no módulo**, antes de montar a resposta: `evolucaoParaPaciente` lê as avaliações pela leitura auditada de sempre (`listarAntropometrias`) e tira peso e IMC com `semPeso` antes de devolver; `jornadaDoPaciente` e `miniJornadaDoPaciente` nem leem `peso_kg`/`imc` quando a opção está ligada (texto corrigido na revisão do plano; a opção e as medidas da evolução ficam em duas transações curtas, como antes — o valor nunca chega ao aparelho, CS-194); o `% de gordura` e as circunferências continuam. Se o dono escolher **(b)**, acrescentar `'perc_gordura'` à constante; **(c)** é opção nova (backlog) | T8, T9, T15 |
+| D6 ★ | Exportação e a opção de peso (spec §10; **revista na revisão do plano, 08/10/2026**) | `pesoOcultoNoAppEm` vai no `dados.json` **dos dois escopos** (equipe e titular), descrito como "preferência de exibição no app definida pela nutricionista"; as avaliações com o peso continuam nas duas (RN-204). Motivo: a opção é dado pessoal do titular (LGPD art. 5º, I; registra um juízo clínico, provavelmente dado referente à saúde, art. 5º, II) e o acesso (art. 18, II) e a "declaração clara e completa" (art. 19, II) não se limitam ao que ele forneceu; a analogia com as notas privadas da v0.1 não se sustenta (elas não saem em **nenhum** escopo, `exportacao-job.ts:119` e `:254`). Há tensão clínica real (R-193): **a pergunta vai ao advogado (E-09, pacote P12-23/P09-00)** — se ele aceitar tirar a opção da cópia do titular, a decisão é do dono depois do parecer, e a base vai no LEIA-ME da exportação (troca de uma condição no `montarDados`) | T15 |
 | D7 ★ | Cor da faixa (G-D7, recomendação **a**) | `corDaFaixa(cor)` (`src/lib/tema/marca-tema.ts`): mistura com preto em passos de 2% até o branco dar ≥ 4,5:1 sobre a faixa **e** sobre o cartão translúcido (verde claro `#e2efe9` a 16%); a cor padrão `#1d6b5a` não muda. Vale só na faixa e nos cabeçalhos do portal (`--nd-faixa`, calculada no layout); botões e links continuam com `--nd-marca` | T2, T4 |
 | D8 | Tokens do portal (§4.7) | Os valores **claros** da spec para fundo, texto, suave, cartão e borda são **os mesmos** de `TOKENS` (`src/lib/tema/tokens.ts`): o portal reaproveita os tokens existentes (e os valores escuros atuais, que passam no `contraste()`). Tokens **novos** só os que faltam: `p-clara`, `p-marco`, `p-marco-texto` (`TOKENS_PORTAL`), `faixa` e `faixa-cartao` — escopados em `[data-app='paciente']` | T2; Desvio 2 |
 | D9 | Fontes (DEP-G8, RNF-193) | `next/font/google` (as duas estão no catálogo do `next` 16.3.6), `subsets: ['latin']`, `display: 'swap'`, pesos 700/800/900 (Red Hat Display) e 400/700 (Atkinson Hyperlegible Next), declaradas em `src/app/p/fontes.ts` e aplicadas só no `src/app/p/layout.tsx`. A T2 mede os `woff2`: se passar de **160 KB**, trocar os pesos pela versão variável (`weight: 'variable'`) e medir de novo; se ainda passar, parar e perguntar ao dono | T2 |
@@ -50,11 +50,11 @@ As marcadas com ★ **ainda são do dono** (a spec já trazia a recomendação; 
 | D11 ★ | Seção "Exames" (G-D9, recomendação **a**) | Aparece com o recebimento ligado **ou** com envio não cancelado (`temEnvioVisivel`, só a existência, sem `auditRead`); a rota continua abrindo pelo endereço. "Enviar exame" na barra de ações só com o recebimento ligado (RN-215). Se o dono escolher **(b)**, a seção sempre aparece e a página mostra "Seu consultório ainda não recebe exames pelo app." | T3, T4 |
 | D12 | "Sair" (RN-211) | O `SairPortal` sai do `src/app/p/layout.tsx` (topo de toda página) e vai para o **fim de Eu**; continua no topo de `/p/escolher`, `/p/sem-acesso` e `/p/termo` (cabeçalho repetido nas três páginas). O comportamento (limpeza do aparelho, `/sair` com `Clear-Site-Data`) não muda; a limpeza ganha os cartões dispensados (RN-201) | T4, T10 |
 | D13 | Itens do mural sem hora própria no passado | A próxima consulta e a contagem de documentos novos entram em **Hoje** na hora da leitura (`agora`); plano novo e conteúdo novo, na data da publicação (podem cair em "Dias anteriores") | T5 |
-| D14 | Manual guiado do portal (PM-G10) | Guia num arquivo próprio, `src/modules/ajuda/portal.ts` (`GUIA_PORTAL`, fora de `GUIAS`, que é do painel e casa por rota do painel); o `Tour` muda de `src/app/painel/guia/tour.tsx` para `src/components/guia/tour.tsx` (mesmo código + a prop `focoAoFechar`, padrão o botão "Ajuda" do painel); ação própria `marcarGuiaPortalAction` com `requirePaciente` | T14 |
+| D14 | Manual guiado do portal (PM-G10) | Guia num arquivo próprio, `src/modules/ajuda/portal.ts` (`GUIA_PORTAL`, fora de `GUIAS`, que é do painel e casa por rota do painel); o `Tour` muda de `src/app/painel/guia/tour.tsx` para `src/components/guia/tour.tsx` (mesmo código + as props `focoAoFechar`, padrão o botão "Ajuda" do painel, e `folhaEvitaAlvo`, padrão `false`, achado 8 da revisão do plano); ação própria `marcarGuiaPortalAction` com `requirePaciente` | T14 |
 | D15 ★ | Conteúdos (G-D8, recomendação **a**) | "Conteúdos" dentro de **Plano** (link ao lado de "Lista de compras", `/p/conteudos` marca Plano) + item "Novo conteúdo" no mural. Se o dono escolher **(b)**, o link vai para Eu e o `tambem` muda de seção | T3, T11 |
 | D16 ★ | Como o layout entra (G-D11, recomendação **a**) | Para todos no deploy, com o aviso "O app mudou…" (uma vez por conta). Sem interruptor por consultório | T14; runbook |
 | D17 ★ | Textos (G-D10, recomendação **a**) | Todos os textos novos ficam nas constantes e vão à **Debby antes do deploy** (runbook passo 2); trocar texto é trocar a constante (e o teste que a cita) | Runbook |
-| D18 ★ | Meta do CS-191 (G-D12, recomendação **a**) | Aceita (≥ 50% dos pacientes ativos com plano publicado registram ≥ 3 respostas por semana nas 4 semanas depois do deploy); medida pelo runbook (consulta só de leitura, rodada **pelo controlador com o OK do dono**, nunca por subagente) — sem tela nova | Runbook passo 6 |
+| D18 ★ | Meta do CS-191 (G-D12, recomendação **a**) | Aceita (≥ 50% dos pacientes ativos com plano publicado registram ≥ 3 respostas por semana nas 4 semanas depois do deploy); medida por função agregada `SECURITY DEFINER` (molde da 0087, só contagens por tenant; item **P16-17** do backlog), chamada **pelo controlador com o OK do dono**, nunca por subagente nem por SQL ad hoc — sem tela nova. Definição corrigida na revisão do plano (≥ 3 em **cada** uma das 4 semanas) e quem pode ser medido antes do DPA definitivo: **G-D15 ★** | Runbook passos 6 e 7 |
 
 ### Desvios conscientes da spec v0.1
 
@@ -62,14 +62,76 @@ As marcadas com ★ **ainda são do dono** (a spec já trazia a recomendação; 
 2. **Tokens do portal:** reaproveitam `TOKENS` em vez de redefinir `--nd-p-fundo`, `--nd-p-texto`, `--nd-p-suave`, `--nd-p-cartao` e `--nd-p-borda` com os mesmos valores claros; os escuros ficam os atuais (`#a3b5ad`, `#17211d`, `#26332e` em vez de `#a9bab2`, `#17221d`, `#2b3a33`), que o teste de contraste já aprova (D8). Acrescentado `p-marco-texto` (`#14211d` nos dois modos): no escuro o token `texto` é claro e reprovaria sobre o âmbar.
 3. **Horários das refeições sem a sigla do fuso:** "Próxima refeição às 12:30" é a hora do plano (relógio de parede do dia do paciente), não um instante; a sigla (RN-06) vale para a hora dos itens, para a consulta e para a mini-jornada (`QuandoLocal`).
 4. **Mini-jornada fora do mural:** a spec põe o `auditRead` do mural em três entidades (RN-200); a mini-jornada lê o peso das avaliações e audita `antropometria` na própria transação (D2). Com o peso oculto, ela nem lê o peso (nenhum `auditRead` de antropometria nesse caso: só conta atendimentos).
-5. **Trilha da opção de peso:** o gatilho `audit_row_change` grava quem e quando (`alterar` em `patients`), não o "antes/depois" (§4.6 da spec): o estado fica na própria coluna (`peso_oculto_no_app_em`, data da última ligação). Suficiente para NGS1.07; o "antes/depois" seria mudança da função de auditoria (fora de escopo).
+5. **Trilha da opção de peso sem "antes/depois" de coluna** (corrigido na revisão do plano, 08/10/2026): o gatilho `audit_row_change` grava só "alterar" em `patients` (não diz a coluna) e a coluna volta a nulo ao desligar; por isso `definirPesoOculto` grava, na mesma transação do UPDATE, uma linha própria com `recordAudit` — entidade `peso_no_app`, `criar` = ligou, `excluir` = desligou, com o ator, a hora e o paciente (molde de `tentativa_assinatura`). O "Histórico de acessos" mostra "Ligou/Desligou — Peso oculto no app". Assim dá para reconstruir quando o peso esteve oculto e quem decidiu (R-193), sem mudar a função de auditoria nem criar tabela. A §4.6, a §10 e a §11.4 da spec foram acertadas (não prometem mais "antes/depois" de colunas).
 6. **"Foto da refeição" sem abrir a câmera sozinha:** a barra leva a `/p/diario?foto=1#registrar`, com o campo de foto já com `capture="environment"` (RNF-195); abrir a câmera exige um toque do paciente (o navegador não deixa abrir sem gesto).
 7. **Mês "desde março"** ganha o ano quando a primeira consulta é de outro ano ("desde março de 2025"): sem isso, um acompanhamento longo diria "desde março" do ano errado.
 8. **Resumo da refeição no mural:** os nomes dos itens principais vêm como estão no plano (nomes da TACO têm vírgula: "Arroz, integral, cozido"); só a primeira letra vai para minúscula. A Debby confere o resultado com planos reais (G-D10) — risco R6.
 9. **Cartões dispensados apagados no "Sair" e no `/entrar`** (RN-201 cita também a "troca de dono"): a chave já leva a conta (`nd-cartao:<conta>:<cartão>`), então outra conta no aparelho nunca herda a dispensa.
-10. **Textos novos não citados na spec** (vão à revisão de interface e à Debby): "Ver todo o diário", "Dias anteriores", "Ver no diário", "Ver meus exames", "Ver a consulta", "Ver o plano", "Abrir", "Ver documentos", "Mandar foto do prato", "Desfazer", "Registro desfeito.", "Registrado no diário.", "Refeição não encontrada no seu plano.", "Próxima, daqui a {tempo}", "No diário", "Cerca de {n} kcal", "Observação da sua nutricionista", "Sugestão de receita:", "Orientações do plano", "Como foi?", "Voltar para {seção}", "Plano de hoje", "Meus exames", "Eu", "Conta", "Consultório", "Instalar o app", "Como usar o app", "Agora não", "Ative as notificações para saber quando houver novidades.", "Instale o app na tela inicial.", "Peso no app do paciente", "Salvar", "Comeu como no plano", "Comeu outra coisa", "Refeição do plano:", e os passos do guia `portal-novidades`.
+10. **Textos novos não citados na spec** (vão à revisão de interface e à Debby): "Ver todo o diário", "Dias anteriores", "Ver no diário", "Ver meus exames", "Ver a consulta", "Ver o plano", "Abrir", "Ver documentos", "Mandar foto do prato", "Desfazer", "Registro desfeito.", "Registrado no diário.", "Refeição não encontrada no seu plano.", "Próxima, daqui a {tempo}", "No diário", "Cerca de {n} kcal", "Observação da sua nutricionista", "Sugestão de receita:", "Orientações do plano", "Como foi?", "Voltar para {seção}", "Plano de hoje", "Meus exames", "Eu", "Conta", "Consultório", "Instalar o app", "Como usar o app", "Agora não", "Ative as notificações para saber quando houver novidades.", "Instale o app na tela inicial.", "Peso no app do paciente", "Salvar", "Comeu como no plano", "Comeu outra coisa", "Refeição do plano:", "Ver meus documentos", "Novidade", "Linha do tempo", "Medidas por avaliação", "Medida", e os passos do guia `portal-novidades`; e os da revisão do plano (08/10/2026): "Você" e "Aviso do app" (autor visível), "Sua nutricionista comentou seu registro ({refeição}, {dia} às {hora})", "Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma.", "Para desfazer, use o botão Desfazer logo abaixo." (só leitor de tela), "Voltar para {destino}" (Desvio 13), o rodapé novo do mural e o texto novo de Privacidade (RN-193 e RN-214 acertadas na spec), "Ligou"/"Desligou — Peso oculto no app" (Histórico de acessos) e as perguntas comuns novas da ajuda do painel (`prontuario`, `diarios`).
 11. **Gráfico da Jornada sem o tracejado até o marco da próxima consulta** (desenho GV-Jornada): a spec manda usar o `GraficoLinha` atual (§4.5), que não tem esse traço; o marco da próxima consulta fica na linha do tempo, logo abaixo. Se a Debby sentir falta, é uma prop nova do `GraficoLinha` (backlog).
 12. **"Orientações recebidas" sai de `/p/evolucao`** e `evolucaoParaPaciente` deixa de ler as orientações: elas moram na Jornada (§4.10), que já as lê e audita; ler e auditar numa tela que não as mostra deixaria uma linha falsa na trilha.
+13. **"Voltar" é um link fixo para o destino, não o histórico** (US-190 dizia "Voltar me leva de volta à tela de onde vim"; correção da revisão do plano, 08/10/2026): o `Voltar` vai sempre ao `href` do cabeçalho de detalhe e o nome acessível é "Voltar para {destino}" — a seção ("Hoje", "Jornada", "Plano", "Eu") ou a lista de que o detalhe faz parte ("Minhas consultas", "Conteúdos"). Com `history.back()`, filtros e busca de Conteúdos, `?dias=` da Lista de compras, `?semana=` de Agendar e o redirect da consulta remarcada levariam a outro lugar que o nome promete, e o histórico podia ser de outro site ou do `/entrar`. O "voltar" do navegador e o gesto do aparelho continuam voltando pelo histórico. A spec (US-190 e §4.2) foi acertada.
+14. **Nas telas de detalhe nenhuma seção fica marcada na tela** (US-190 "Rotas antigas continuam" dizia "com a seção Hoje/Jornada/Plano marcada"): pela §4.2 as telas de detalhe não têm a nav "Seções"; a seção a que pertencem é dita pelo "Voltar para {seção}" do cabeçalho (o E2E "nada some" confere esse nome nas rotas de detalhe). A spec (US-190) foi acertada. Se o dono quiser a seção marcada de verdade, as telas de detalhe ganham a nav "Seções" compacta (G-D13 ★, backlog).
+15. **Foco sem o anel branco de 2 px da RN-207:** o portal usa o `:focus-visible` global (`outline: 3px solid var(--nd-foco)`, testado em contraste ≥ 3:1 nos dois modos) e, sobre a faixa, o foco branco da T4; o anel duplo (`box-shadow`) fica nos "Pontos menores".
+16. **Algumas linhas da §4.10 passam de 2 toques** e a §4.10 foi acertada: consulta que não é a próxima (Jornada → "Minhas consultas" → consulta → ação, 3 toques; a próxima tem "Ver a consulta" no mural e na Jornada) e o conteúdo aberto (Plano → Conteúdos → item, 3 toques; os novos aparecem no mural, 2). A sugestão de receita fica visível no `summary` de cada refeição (2 toques: Plano → receita), sem abrir a sanfona.
+
+### Correções da revisão do plano (08/10/2026)
+
+Revisão do plano (workflow com as lentes de cobertura, dados e normas), achados conferidos no código da `main` @ `19fcea5`. Uma linha por achado: o que mudou e onde. Os Minor sem valor agora foram para "Pontos menores"; as decisões que só o dono pode tomar estão em "Decisões do dono (★)", logo abaixo.
+
+1. **[Important · cobertura] E2E "Minha evolução" (US-044) quebraria** — T4 Step 6 troca o h1 para "Todas as medidas"; T12 reescreve o teste para a tabela (`row` "Peso (kg)" e "% de gordura") e põe `e2e/portal.spec.ts` nos Files e no commit.
+2. **[Important · cobertura] "Voltar" com `history.back()` levava a outro lugar que o nome dizia** — `Voltar` vira link de servidor fixo para o `href` (T4); Desvio 13; spec §4.2 e US-190 acertadas.
+3. **[Important · cobertura] "Comi assim" sem desfazer pelo teclado/leitor de tela** — `ComiAssim` (T11) leva o foco ao "Desfazer" quando a ativação veio pelo foco (pausa o prazo) e devolve ao botão ao desfazer; status com `sr-only` "Para desfazer…"; E2E só com teclado na T16.
+4. **[Important · cobertura] "Presença confirmada" sumia com o refresh** — `ConfirmarNoMural` (T10) fica montado em todo item de consulta, com `role="status"` sempre montado e o foco na confirmação.
+5. **[Important · cobertura] Cartão de notificações sumia sem confirmar** — com `cartao`, `AtivarNotificacoes` continua mostrando o resultado depois de agir (`agiu`) até a próxima abertura; "Agora não" e o Instalar no Android levam o foco a "Ver todo o diário" (`id="ver-todo-diario"`).
+6. **[Important · cobertura] Sanfona do Plano sem marcador** — `summary` sem `flex` (h3 `inline`, chip `inline-block`), teste que recusa `flex`/`grid` no `summary` (T11).
+7. **[Important · cobertura] Mini-jornada reprovava a WCAG 2.5.3** — sem `aria-label`; `MiniJornada.complemento` (último peso) e "Sua jornada:" em `sr-only` dentro do link (contrato, T9, T10 e testes); spec US-194 e RN-202 acertadas.
+8. **[Important · cobertura] Folha do tour cobria a barra de ações no celular** — `Tour` ganha `folhaEvitaAlvo` (a folha sobe para `max-sm:top-3` quando o alvo encosta no rodapé; o painel não muda), passada pelo `GuiaDoPortal`; E2E confere que folha e alvo não se sobrepõem no passo 4 (T14, T16).
+9. **[Important · cobertura] "Nada some" não cobria a §4.10 inteira** — CAMINHOS ganha confirmar/cancelar/remarcar (com `marcarParaPaciente`), Baixar PDF, a Jornada com as orientações e a refeição com a receita; testes próprios para "Conectado como {e-mail}" e "Trocar de nutricionista" (conta MULTI); 3 toques em três linhas (Desvio 16, G-D14 ★); spec §4.10, CS-190 e RNF-197(c) acertadas.
+10. **[Important · cobertura] US-190 pedia seção marcada nas telas de detalhe** — Desvio 14: a seção é dita pelo "Voltar para {seção}" (o E2E das rotas antigas confere esse nome); spec US-190 acertada; nav compacta = G-D13 ★.
+11. **[Minor · cobertura] "Mandar foto do prato" e "Comi outra coisa" ativos sem rede** — `LinkDeResposta` (T11, cliente com `useOnline`): sem rede, `aria-disabled` e "Sem conexão. Registre quando voltar.".
+12. **[Minor · cobertura] `useOnline` ignora o ping do `SeloOffline`** — Pontos menores.
+13. **[Minor · cobertura] "Próxima, daqui a…" congelado na cópia offline** — Pontos menores.
+14. **[Minor · cobertura] "O app mudou" também para quem nunca usou** — G-D17 ★ (com a G-D10); Pontos menores.
+15. **[Minor · cobertura] Passo "Responder à refeição" sem alvo fora da janela de 90 min** — texto do passo independe do item ("Quando uma refeição estiver perto do horário…") (T14).
+16. **[Minor · cobertura] RN-207 (anel branco de 2 px) sem Desvio** — Desvio 15; spec RN-207 anotada; o anel vai para Pontos menores.
+17. **[Minor · cobertura] Eu sem o logo do consultório (US-197)** — T13 mostra o logo (URL assinada, fundo branco, `alt`) ao lado do nome.
+18. **[Minor · cobertura] Telas de detalhe sem o nome do consultório (RN-210)** — Pontos menores.
+19. **[Minor · cobertura] "Salvar" da opção de peso sem retorno** — Pontos menores.
+20. **[Minor · cobertura] Ajuda do painel desatualizada** — T8 acrescenta perguntas comuns aos guias `prontuario` e `diarios` (`conteudo.ts`), sem subir a versão.
+21. **[Minor · cobertura] Axe a 320 px só em Hoje; mural dependia da hora do CI** — `acessibilidade.spec` passa a `publicarPlanoDoDia`, axe a 320 px em todas as rotas do portal e axe de Hoje com o "Desfazer" aberto nos dois modos (T16).
+22. **[Minor · cobertura] Ajustes de texto** — o `sr-only` repetido do comentário sai (autor visível, achado 31); "Voltar para Minhas consultas" segue "Voltar para {destino}" (Desvio 13); Desvio 10 completado.
+23. **[Important · dados] Trilha da opção de peso não registrava a decisão** — `definirPesoOculto` grava `recordAudit` (`peso_no_app`, criar/excluir) na mesma transação; `ENTIDADE_ROTULO` e "Ligou/Desligou" em `rotuloDaAcao`; teste da T8; Desvio 5 reescrito; spec §4.6, §10, §11.4, RN-205 e US-195 acertadas.
+24. **[Minor · dados] Cópia offline de `/p/plano` com "No diário"** — opção (a): `/p/plano` não chama `respostasDeHoje` (a marca fica no mural e na refeição aberta); teste da página confere; spec US-196 e §10 acertadas.
+25. **[Minor · dados] D6 com analogia errada (notas privadas)** — D6 reescrita sem a analogia (achado 33).
+26. **[Minor · dados] SQL do CS-191 ad hoc em tabelas com RLS e métrica errada** — runbook sem SQL; função agregada `SECURITY DEFINER` no molde da 0087 vira P16-17 (backlog); definição "≥ 3 em cada uma das 4 semanas"; G-D15 ★.
+27. **[Minor · dados] Voltar atrás mostra o peso de novo** — runbook passo 7 e manual §6.8.1 (T16 Step 6) com o aviso: listar e avisar com o OK do dono, ou corrigir para a frente.
+28. **[Minor · dados] D5 dizia que `evolucaoParaPaciente` nem lê o peso** — D5 corrigida (filtra no módulo; a jornada e a mini-jornada nem leem).
+29. **[Minor · dados] §11.3 dizia que o controle da resposta é do banco; chave da idempotência por texto** — spec §11.3 reescrita (RLS lê a refeição; vínculo e hora são do módulo); RN-197 registra a chave "{nome} · {HH:MM}" (aceito); gatilho de `data_hora` vai para Pontos menores.
+30. **[Important · normas] Rodapé "não envia mensagens" contrariava o que o app faz** — `MSG_MURAL.rodape` com o texto proposto (diário visível para ela, sem conversa nem prazo, contatos, 192), ajuda do portal, testes e E2E; spec §4.3, RN-193 e US-191 acertadas; texto com a Debby (G-D10 ★).
+31. **[Important · normas] Autoria só pela posição/cor do balão** — autor visível em todo item ("Você", "Aviso do app", rótulo do comentário) e estilo próprio do comentário dela (borda de destaque); teste confere fora do `sr-only` (T5, T10); spec §4.3 e RN-194.
+32. **[Important · normas] Privacidade prometia "Todas estão na cópia"** — texto novo ("Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados).") na T13 e no teste; spec RN-214 e US-197; Debby (G-D10 ★) e advogado (E-09).
+33. **[Important · normas] D6 tirava a opção de peso da cópia do titular** — D6 ★ revista: nos dois escopos ("preferência de exibição no app definida pela nutricionista") até o parecer do advogado (E-09); T15 (tipo, `montarDados`, teste, commit); spec §10.
+34. **[Important · normas] Ajuda "Como usar o app" falava de peso a todos** — texto neutro da Jornada; teste novo: ajuda, passos e aviso sem "peso"/"IMC" (T14).
+35. **[Important · normas] Mural vazio dizia que ela não publicou o plano** — `Mural.semPlano`; `MSG_MURAL.nadaAgora` com plano publicado; testes em `mural-regras` (05:00, 1ª refeição às 08:00) e `mural-lista`; spec §4.3 e US-191.
+36. **[Important · normas] Medida do CS-191 lia diário de todos os consultórios (operadora, art. 39)** — runbook: antes de medir, G-D15 ★ (só no consultório da Debby com o pedido registrado, ou cláusula de estatística agregada no DPA definitivo, E-09, ou métrica sem tabela de saúde); spec CS-191.
+37. **[Minor · normas] Trilha sem "antes/depois" (§4.6/§10)** — resolvido com o achado 23 (linha própria `peso_no_app`; spec sem a promessa de "antes/depois").
+38. **[Minor · normas] Comentário longe do registro, sem dizer qual** — "Sua nutricionista comentou seu registro ({refeição}, {dia} às {hora})" (`ItemDoMural.sobre`, teste em `mural-regras`); spec §4.3 e RN-194.
+39. **[Minor · normas] Resposta exportada só com o código interno** — `diario[].respostaRotulo` ("Comi assim"/"Comi outra coisa") nos dois escopos (T15); junta-se à P12-23 (e).
+40. **[Minor · normas] Origem da C-197 sem artigo e com a 760/2023** — spec C-197 e §15: SBIS ECF.17.01 + Res. CFN 599/2018, arts. 16 e 19; a 856/2026 (art. 37) não muda a regra (o mural não tem IA).
+41. **[Minor · normas] Cintura vira o gráfico principal com o peso oculto** — G-D16 ★ (com a Debby); o plano mantém a troca até a resposta; spec §4.5 anotada.
+
+### Decisões do dono (★) da revisão do plano
+
+As recomendações abaixo **não** foram aplicadas como decisão: o plano segue o que está escrito e marca o que muda se a resposta for outra.
+
+- **D6 ★ (revista) — opção de peso na exportação do titular:** o plano a inclui nos dois escopos até o parecer do advogado (E-09, pacote P12-23/P09-00); tirar da cópia do titular só com o parecer e a decisão do dono.
+- **G-D10 ★ (textos, ampliada):** a Debby revisa também o rodapé novo do mural, o texto novo de Privacidade, "Aviso do app"/"Você", o rótulo do comentário com o registro, "Nada para agora…", "Para desfazer…" e as perguntas novas da ajuda do painel.
+- **G-D13 ★ — seção nas telas de detalhe:** (a) o "Voltar para {seção}" diz a seção (aplicado, Desvio 14); (b) nav "Seções" compacta nas telas de detalhe.
+- **G-D14 ★ — três linhas da §4.10 com 3 toques:** (a) aceitar (aplicado, Desvio 16); (b) atalhos na Jornada e receita fora da sanfona.
+- **G-D15 ★ — CS-191:** definição (≥ 3 em cada semana × média) e quem pode ser medido antes do DPA definitivo (só o consultório da Debby com o pedido registrado × métrica sem tabela de saúde); a função agregada (P16-17) só depois da resposta.
+- **G-D16 ★ — cintura no lugar do peso no gráfico da Jornada com o peso oculto:** manter a troca (como está) ou nenhum gráfico de medida corporal em destaque — com a Debby.
+- **G-D17 ★ — aviso "O app mudou" para quem nunca usou o app:** boas-vindas próprias, o mesmo aviso com outra pergunta, ou manter (como está) — com a G-D10.
 
 ## Review Focus
 
@@ -196,7 +258,7 @@ export function daquiA(minutos: number): string;                         // "daq
 // src/modules/portal/mural-regras.ts (T5; puro)
 export const JANELA_MURAL_DIAS = 7, MAX_ITENS_MURAL = 40, ANTECEDENCIA_REFEICAO_MIN = 90, MAX_CONTEUDOS_NO_MURAL = 3, LIMITE_DIARIO_NO_MURAL = 100;
 export const MSG_MURAL: {...};
-export type FontesDoMural; export type ItemDoMural; export type Mural = { primeiroNome: string; hoje: ItemDoMural[]; anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[]; vazio: boolean };
+export type FontesDoMural; export type ItemDoMural; export type Mural = { primeiroNome: string; hoje: ItemDoMural[]; anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[]; vazio: boolean; /** sem plano publicado: o texto "Nada por aqui ainda…" só vale aqui */ semPlano: boolean };
 export function resumoDaRefeicao(itens: readonly { nome: string }[]): string;
 export function saudacao(minutosDoDia: number): 'Bom dia' | 'Boa tarde' | 'Boa noite';
 export function comporMural(f: FontesDoMural, agora: Date, fuso: string): Mural;
@@ -233,7 +295,7 @@ export function pesoOcultoNaTransacao(tx: Tx, patientId: string): Promise<boolea
 // src/modules/portal/jornada-regras.ts (T9; puro)
 export type AvaliacaoDaJornada; export type AtendimentoDaJornada; export type Medida = { id: string; texto: string };
 export type Marco; export type Jornada = { titulo: string; grafico: SerieEvolucao | null; marcos: Marco[]; vazia: boolean; podeAgendar: boolean };
-export type MiniJornada = { linha1: string; linha2: { semFuso: string; comFuso: string }; nomeAcessivel: { semFuso: string; comFuso: string }; pontos: number[]; podeAgendar: boolean };
+export type MiniJornada = { linha1: string; linha2: { semFuso: string; comFuso: string }; complemento: string | null; pontos: number[]; podeAgendar: boolean }; // complemento: texto só para leitor de tela depois da linha 1 (WCAG 2.5.3: sem aria-label)
 export const MSG_JORNADA: {...};
 export function medidasDaAvaliacao(a: AvaliacaoDaJornada, o: { percGordura: boolean }): Medida[];
 export function montarJornada(e: EntradaDaJornada, agora: Date, fuso: string): Jornada;
@@ -246,18 +308,19 @@ export function miniJornadaDoPaciente(ctx, tenant: TenantAgenda, agora: Date, db
 // RefeicaoDoPaciente ganha kcal: string | null (total da refeição, só com mostrarCalorias); PlanoDoPaciente ganha mostrarCalorias: boolean
 // src/components/portal/comi-assim.tsx (T11) + comi-assim-estado.ts (T11; puro)
 export const PRAZO_DESFAZER_MS: number; // 10_000 (G-D5 ★ = c); 0 = envia no toque (a)
-export const MSG_COMI_ASSIM: { desfazer: string; desfeito: string; semConexao: string };
+export const MSG_COMI_ASSIM: { desfazer: string; desfeito: string; semConexao: string; podeDesfazer: string };
 export type FaseComiAssim = 'pronto' | 'aguardando' | 'enviando' | 'feito' | 'desfeito' | 'erro';
 export function sobra(restanteMs: number, decorridoMs: number): number;
 export function mensagemDaFase(f: FaseComiAssim): string;
 export function mostraBotao(f: FaseComiAssim): boolean;
 export function ComiAssim(p: { refeicaoId: string }): JSX.Element;
 // src/components/portal/online.ts (T11): export function useOnline(): boolean
+// src/components/portal/link-de-resposta.tsx (T11): export function LinkDeResposta(p: { href: string; className: string; children: ReactNode }): JSX.Element // sem rede: aria-disabled
 // src/components/portal/cartoes-dispensados.ts (T10): export function dispensado(conta, cartao, agora?), dispensar(conta, cartao, agora?), esquecerCartoesDoAparelho()
 
 // src/modules/ajuda/portal.ts (T14)
 export const GUIA_PORTAL: Guia; export const AVISO_PORTAL: {...};
-// src/components/guia/tour.tsx (T14, movido) — Tour ganha focoAoFechar?: string
+// src/components/guia/tour.tsx (T14, movido) — Tour ganha focoAoFechar?: string e folhaEvitaAlvo?: boolean (padrão false: o painel não muda)
 // src/app/p/(portal)/ajuda/actions.ts (T14)
 export function marcarGuiaPortalAction(versao: number, estado: EstadoGuia): Promise<void>;
 ```
@@ -1248,25 +1311,20 @@ export function Faixa({ marca, titulo, subtitulo, secoes, atual, children }: { m
 Criar `src/components/portal/voltar.tsx`:
 
 ```tsx
-'use client';
 import Link from 'next/link';
 
 /**
- * Plano 16 (§4.2): "Voltar" das telas de detalhe — 44 × 44 px, nome acessível "Voltar para {seção}". Com histórico, volta à
- * tela de onde a pessoa veio (US-190); sem histórico (aberto pelo push, PWA recém-aberto) ou sem JavaScript, o link leva à
- * seção. Sem useRouter: o history.back() do navegador já é tratado pelo roteador do Next.
+ * Plano 16 (§4.2, Desvio 13): "Voltar" das telas de detalhe — 44 × 44 px, nome acessível "Voltar para {destino}". Link
+ * simples, de servidor, sem history.back(): o nome acessível diz exatamente para onde o toque leva. Com history.back(), as
+ * telas que mudam a URL (filtros e busca de Conteúdos, `?dias=` da Lista de compras, `?semana=` de Agendar, o redirect da
+ * consulta remarcada) e o histórico de outro site ou do /entrar levariam a outro lugar, e a tela de detalhe não tem a nav
+ * "Seções" para sair da cadeia. O "voltar" do navegador e o gesto do aparelho continuam voltando pelo histórico.
  */
 export function Voltar({ href, rotulo }: { href: string; rotulo: string }) {
   return (
     <Link
       href={href}
       aria-label={rotulo}
-      onClick={(e) => {
-        if (window.history.length > 1) {
-          e.preventDefault();
-          window.history.back();
-        }
-      }}
       className="inline-flex size-11 shrink-0 items-center justify-center rounded-full"
     >
       <svg aria-hidden="true" viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1590,7 +1648,7 @@ describe('marca do consultório no portal (US-005, RN-207)', () => {
 
 A barra de 7 abas (`navigation 'Portal'`) deixa de existir; a navegação é `navigation 'Seções'` (Hoje, Jornada, Plano, Exames, Eu), o "Sair" do portal fica no fim de Eu e o h1 de Hoje é "Olá, {primeiro nome}". Trocar (conferir com `git grep -n "name: 'Portal'\|Meu acompanhamento" e2e`):
 
-- `e2e/portal.spec.ts`: linha ~26 → `getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' })`; ~37 → `getByRole('heading', { level: 1, name: /^Olá, / })`; ~79 → `Seções`/`Plano`; ~94 → antes do clique em "Sair", `await p.page.goto('/p/perfil')`; ~229 → `Seções`/`Hoje`; ~242 → `Seções`/`Eu`; o teste "cor do consultório no portal" (~362–392) passa a conferir a **pílula** da seção atual: `const item = p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' })`, cor do texto `rgb(corDaFaixa(COR))` **nos dois modos** e o fundo da faixa `rgb(corDaFaixa(COR))` (`p.page.getByRole('banner')`, `backgroundColor`), com `import { corDaFaixa } from '@/lib/tema/marca-tema'` no lugar de `corNoEscuro`; o título do teste e o comentário dizem "faixa" no lugar de "barra de abas".
+- `e2e/portal.spec.ts`: linha ~26 → `getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' })`; ~37 → `getByRole('heading', { level: 1, name: /^Olá, / })`; ~79 → `Seções`/`Plano`; ~94 → antes do clique em "Sair", `await p.page.goto('/p/perfil')`; ~229 → `Seções`/`Hoje`; ~242 → `Seções`/`Eu`; o teste "cor do consultório no portal" (~362–392) passa a conferir a **pílula** da seção atual: `const item = p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' })`, cor do texto `rgb(corDaFaixa(COR))` **nos dois modos** e o fundo da faixa `rgb(corDaFaixa(COR))` (`p.page.getByRole('banner')`, `backgroundColor`), com `import { corDaFaixa } from '@/lib/tema/marca-tema'` no lugar de `corNoEscuro`; o título do teste e o comentário dizem "faixa" no lugar de "barra de abas"; o teste "Minha evolução: peso sem % de gordura… (US-044)" (~305–322): linha ~310 → `getByRole('heading', { level: 1, name: 'Todas as medidas' })` (o resto do teste a **T12** reescreve para a tabela; até lá a lista antiga continua na página e o teste passa).
 - `e2e/pacientes.spec.ts`: ~67, ~79 e ~88 → `getByRole('heading', { level: 1, name: /^Olá, / })`; ~81 → `await page.goto('/p/perfil')` antes do "Sair".
 - `e2e/exames-enviados.spec.ts`: ~42 → `await expect(p.page).toHaveURL(/\/p\/exames(#enviar)?$/)`; ~44 → `Seções`/`Exames`.
 - `e2e/acessibilidade.spec.ts`: ~265 e ~270 → `Seções`/`Plano` e `Seções`/`Eu`. O teste "alvo de toque ≥ 44 px" (~213) continua (o link "Próxima consulta" de Hoje só sai na T10, que ajusta este teste). O teste "celular (RNF-09)" (~170–211) troca a barra de abas pelas seções — o título e o trecho do meio passam a ser (o laço das `ROTAS` antes e o "T-4" depois ficam como estão):
@@ -1895,6 +1953,9 @@ describe('comporMural (RN-193 a RN-201)', () => {
       if (i.autor === 'nutricionista') expect(i.tipo).toBe('comentario');
       else expect(textoDe(i)).not.toMatch(/^Sua nutricionista|\bIA\b/);
     }
+    // o comentário diz a qual registro se refere (o texto dela continua verbatim)
+    expect(todos(comporMural(f, AGORA, SP)).find((i) => i.tipo === 'comentario')).toMatchObject({ sobre: 'Café da manhã, hoje às 08:00', texto: 'Boa!' });
+    expect(MSG_MURAL.nutricionistaComentou('Café da manhã, hoje às 08:00')).toBe('Sua nutricionista comentou seu registro (Café da manhã, hoje às 08:00)');
   });
 
   it('janela e ordem (RN-195): hoje em ordem crescente; dias anteriores por dia; no máximo 40 itens, os mais antigos saem; vazio', () => {
@@ -1917,7 +1978,10 @@ describe('comporMural (RN-193 a RN-201)', () => {
     // o último registro (e44) é de 06/10 20:00: nenhum de ontem nem de hoje
     expect(m.anteriores.map((d) => d.rotulo)).toEqual(['Qui, 1 out', 'Sex, 2 out', 'Sáb, 3 out', 'Dom, 4 out', 'Seg, 5 out', 'Ter, 6 out']);
     expect(m.hoje).toEqual([]);
-    expect(comporMural(vazio(), AGORA, SP)).toEqual({ primeiroNome: 'Marina', hoje: [], anteriores: [], vazio: true });
+    expect(comporMural(vazio(), AGORA, SP)).toEqual({ primeiroNome: 'Marina', hoje: [], anteriores: [], vazio: true, semPlano: true });
+    // plano publicado e nada para agora (05:00, primeira refeição às 08:00): vazio, mas NÃO "sem plano" (o texto não diz que ela não publicou)
+    const cedo = comporMural({ ...vazio(), plano: { publicadoEm: sp('2026-09-20T10:00'), refeicoes: [{ id: 'r-cafe', nome: 'Café da manhã', horario: '08:00', itens: [{ nome: 'Pão' }] }] } }, sp('2026-10-08T05:00'), SP);
+    expect(cedo).toMatchObject({ vazio: true, semPlano: false });
   });
 
   it('virada do dia (Review Focus 3): às 23:30, a refeição das 00:30 é a de hoje (já passou), nunca a "próxima" de amanhã; o registro de ontem às 23:59 fica em "Ontem"', () => {
@@ -1969,12 +2033,17 @@ export const MAX_CONTEUDOS_NO_MURAL = 3; // RN-199
 export const LIMITE_DIARIO_NO_MURAL = 100;
 
 export const MSG_MURAL = {
-  rodape: 'Este app não envia mensagens para sua nutricionista. Dúvidas? Anote para a consulta ou use os contatos do consultório.',
+  // correção da revisão do plano (normas, LGPD art. 6º, VI): o diário É visto por ela — o rodapé não pode dizer o contrário
+  rodape: 'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
   vazio: 'Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.',
+  /** Plano publicado e nada no mural (antes dos 90 min da 1ª refeição, ou refeições sem horário): nunca dizer que ela não publicou. */
+  nadaAgora: 'Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma.',
   verTodoDiario: 'Ver todo o diário',
   diasAnteriores: 'Dias anteriores',
-  autor: { voce: 'Você:', consultorio: 'Do consultório:', nutricionista: 'Sua nutricionista:' },
-  nutricionistaComentou: 'Sua nutricionista comentou',
+  /** Autor VISÍVEL de cada item (RN-194, §11.1): o lado do balão não basta. O comentário da nutricionista usa o rótulo próprio. */
+  autor: { voce: 'Você', consultorio: 'Aviso do app' },
+  /** RN-194: rótulo montado pelo sistema em 3ª pessoa; diz a qual registro o comentário se refere (o texto dela vem verbatim). */
+  nutricionistaComentou: (sobre: string) => `Sua nutricionista comentou seu registro (${sobre})`,
   saudacao: (s: string, nome: string) => (nome ? `${s}, ${nome}.` : `${s}.`),
   refeicaoAntes: (hora: string, nome: string, resumo: string) => `Próxima refeição às ${hora} — ${resumo ? `${nome}: ${resumo}` : nome}.`,
   refeicaoDepois: (nome: string, hora: string, resumo: string) => `${nome} das ${hora}${resumo ? `: ${resumo}` : ''}.`,
@@ -2026,14 +2095,14 @@ type Base = { chave: string; quando: Date; /** null: item sem hora própria (D13
 export type ItemDoMural =
   | (Base & { tipo: 'refeicao'; autor: 'consultorio'; texto: string; refeicaoId: string; respondida: boolean })
   | (Base & { tipo: 'registro'; autor: 'voce'; refeicao: string; resposta: RespostaDoDiario | null; texto: string | null; foto: FotoDoRegistro })
-  | (Base & { tipo: 'comentario'; autor: 'nutricionista'; texto: string })
+  | (Base & { tipo: 'comentario'; autor: 'nutricionista'; /** "Almoço · 12:30, hoje às 12:41" */ sobre: string; texto: string })
   | (Base & { tipo: 'exame'; autor: 'consultorio'; texto: string })
   | (Base & { tipo: 'consulta'; autor: 'consultorio'; consultaId: string; texto: Hora; podeConfirmar: boolean })
   | (Base & { tipo: 'plano'; autor: 'consultorio'; texto: string })
   | (Base & { tipo: 'conteudo'; autor: 'consultorio'; conteudoId: string; titulo: string; texto: string })
   | (Base & { tipo: 'documentos'; autor: 'consultorio'; texto: string });
 
-export type Mural = { primeiroNome: string; hoje: ItemDoMural[]; anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[]; vazio: boolean };
+export type Mural = { primeiroNome: string; hoje: ItemDoMural[]; anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[]; vazio: boolean; /** sem plano publicado: o texto "Nada por aqui ainda…" só vale aqui */ semPlano: boolean };
 
 const minuscula = (s: string) => s.charAt(0).toLocaleLowerCase('pt-BR') + s.slice(1);
 
@@ -2057,6 +2126,12 @@ export function comporMural(f: FontesDoMural, agora: Date, fuso: string): Mural 
   const inicioHoje = inicioDoDia(hoje, fuso);
   const inicioJanela = inicioDoDia(somarDias(hoje, -JANELA_MURAL_DIAS), fuso);
   const hora = (d: Date) => horaComFuso(d, fuso);
+  // o comentário diz a qual registro se refere (pode cair longe dele no mural): "Almoço · 12:30, hoje às 12:41"
+  const sobreORegistro = (e: FontesDoMural['diario'][number]) => {
+    const dia = partesNoFuso(e.dataHora, fuso).data;
+    const quando = dia === hoje ? 'hoje' : separadorDoDia(dia, hoje).toLocaleLowerCase('pt-BR');
+    return `${e.refeicaoDoPlano ?? e.refeicao}, ${quando} às ${hora(e.dataHora).semFuso}`;
+  };
   const itens: ItemDoMural[] = [];
 
   // RN-196 / RN-197: refeições de hoje com horário, a partir de 90 min antes; a resposta de hoje esconde o "Comi assim"
@@ -2085,7 +2160,7 @@ export function comporMural(f: FontesDoMural, agora: Date, fuso: string): Mural 
     if (e.dataHora >= inicioJanela)
       itens.push({ chave: `registro:${e.id}`, tipo: 'registro', autor: 'voce', quando: e.dataHora, hora: hora(e.dataHora), refeicao: e.refeicaoDoPlano ?? e.refeicao, resposta: e.resposta, texto: e.texto, foto: e.foto });
     if (e.comentario && e.comentadoEm && e.comentadoEm >= inicioJanela)
-      itens.push({ chave: `comentario:${e.id}`, tipo: 'comentario', autor: 'nutricionista', quando: e.comentadoEm, hora: hora(e.comentadoEm), texto: e.comentario });
+      itens.push({ chave: `comentario:${e.id}`, tipo: 'comentario', autor: 'nutricionista', quando: e.comentadoEm, hora: hora(e.comentadoEm), sobre: sobreORegistro(e), texto: e.comentario });
   }
 
   // RN-199: envio de hoje, ou mudança de situação nos últimos 7 dias (o processamento também conta como mudança)
@@ -2131,6 +2206,7 @@ export function comporMural(f: FontesDoMural, agora: Date, fuso: string): Mural 
     hoje: ordenados.filter((i) => i.quando >= inicioHoje),
     anteriores: [...porDia].map(([dia, lista]) => ({ dia, rotulo: separadorDoDia(dia, hoje), itens: lista })),
     vazio: ordenados.length === 0,
+    semPlano: f.plano === null,
   };
 }
 ```
@@ -2871,10 +2947,10 @@ MSG
 
 **Files:**
 - Create: `src/modules/pacientes/peso-oculto.ts` (+ `peso-oculto.test.ts`), `src/app/painel/pacientes/[id]/evolucao/actions.ts`, `src/app/painel/pacientes/[id]/evolucao/peso-oculto.tsx`
-- Modify: `src/modules/portal/evolucao.ts` (+ `evolucao.test.ts`), `src/app/painel/pacientes/[id]/evolucao/page.tsx`
+- Modify: `src/modules/portal/evolucao.ts` (+ `evolucao.test.ts`), `src/app/painel/pacientes/[id]/evolucao/page.tsx`, `src/modules/ajuda/conteudo.ts` (perguntas comuns de `prontuario` e `diarios`), `src/modules/plataforma/audit.ts` (+ `audit.test.ts`: `ENTIDADE_ROTULO.peso_no_app` e o rótulo "Ligou"/"Desligou" em `rotuloDaAcao`)
 
 **Interfaces:**
-- Consumes: T1 (`patients.pesoOcultoNoAppEm`); `carregarPacienteParaEscrita`, `PacienteBloqueadoError`, `PacienteNaoEncontradoError` (`src/modules/pacientes/base.ts`), `requireNutri`, `carregarProntuario` (`src/app/painel/pacientes/[id]/prontuario.ts`), `formatarDataNoFuso`, `Botao`.
+- Consumes: T1 (`patients.pesoOcultoNoAppEm`); `recordAudit` (`src/modules/plataforma/audit.ts`); `carregarPacienteParaEscrita`, `PacienteBloqueadoError`, `PacienteNaoEncontradoError` (`src/modules/pacientes/base.ts`), `requireNutri`, `carregarProntuario` (`src/app/painel/pacientes/[id]/prontuario.ts`), `formatarDataNoFuso`, `Botao`.
 - Produces: `SERIES_DO_PESO`, `MSG_PESO_OCULTO`, `semPeso`, `definirPesoOculto`, `pesoOcultoNaTransacao`; `pesoOcultoAction(patientId, formData)`; `evolucaoParaPaciente` sem peso nem IMC quando a opção está ligada.
 
 - [ ] **Step 1: Testes (falham)**
@@ -2898,7 +2974,7 @@ const opcao = (T: Awaited<ReturnType<typeof novoTenant>>, id: string) =>
   withTenant(T.ctx, (tx) => tx.select({ em: patients.pesoOcultoNoAppEm }).from(patients).where(eq(patients.id, id)), app.db).then((r) => r[0].em);
 
 describe('"Não mostrar peso no app" (Plano 16, G-D1, RN-203 a RN-205)', () => {
-  it('a nutricionista liga (com a data) e desliga; ligar de novo mantém a data; cada troca vira audit_log com o nome dela', async () => {
+  it('a nutricionista liga (com a data) e desliga; ligar de novo mantém a data; cada troca vira audit_log com o nome dela e com O QUE foi feito (peso_no_app criar/excluir)', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const em = new Date('2026-10-08T13:00:00Z');
@@ -2910,6 +2986,10 @@ describe('"Não mostrar peso no app" (Plano 16, G-D1, RN-203 a RN-205)', () => {
     expect(await opcao(T, p.id)).toBeNull();
     const trilha = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'patients'), eq(auditLog.entidadeId, p.id), eq(auditLog.acao, 'alterar'))), app.db);
     expect(trilha.map((l) => l.actorUserId)).toEqual([T.nutriId, T.nutriId]);
+    // correção da revisão do plano (spec §10, R-193): a linha genérica de patients não diz o que mudou e a coluna volta a
+    // nulo ao desligar — a decisão clínica tem linha própria, na mesma transação do UPDATE
+    const decisao = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'peso_no_app'), eq(auditLog.patientId, p.id))).orderBy(auditLog.criadoEm), app.db);
+    expect(decisao.map((l) => [l.acao, l.actorUserId, l.entidadeId])).toEqual([['criar', T.nutriId, p.id], ['excluir', T.nutriId, p.id]]);
   });
 
   it('só a equipe: a sessão de paciente é recusada antes do banco; bloqueado ou anonimizado é só leitura', async () => {
@@ -2962,6 +3042,7 @@ import { eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { recordAudit } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita } from './base';
 
 /**
@@ -2987,7 +3068,9 @@ export function semPeso<T extends { id: string }>(series: readonly T[]): T[] {
 
 /**
  * Liga ou desliga a opção (aba Evolução do prontuário). Bloqueado ou anonimizado: só leitura (carregarPacienteParaEscrita).
- * Ligar de novo mantém a data da primeira vez (nenhuma linha nova na trilha). A troca vira audit_log pelo gatilho de patients.
+ * Ligar de novo mantém a data da primeira vez (nenhuma linha nova na trilha). Trilha (spec §10, NGS1.07): o gatilho de
+ * patients grava "alterar" sem dizer a coluna, e a coluna volta a nulo ao desligar — por isso a decisão ganha linha própria
+ * (entidade `peso_no_app`, `criar` = ligou, `excluir` = desligou; molde de `tentativa_assinatura`), na mesma transação.
  */
 export async function definirPesoOculto(ctx: TenantContext, patientId: string, ocultar: boolean, deps: { db?: Db; agora?: Date } = {}): Promise<void> {
   if (ctx.role !== 'nutri') throw new Error('"Não mostrar peso no app" só pela equipe');
@@ -2998,6 +3081,7 @@ export async function definirPesoOculto(ctx: TenantContext, patientId: string, o
       const p = await carregarPacienteParaEscrita(tx, patientId);
       if (Boolean(p.pesoOcultoNoAppEm) === ocultar) return;
       await tx.update(patients).set({ pesoOcultoNoAppEm: ocultar ? agora : null, updatedAt: agora }).where(eq(patients.id, p.id));
+      await recordAudit(tx, { acao: ocultar ? 'criar' : 'excluir', entidade: 'peso_no_app', entidadeId: p.id, patientId: p.id });
     },
     deps.db ?? getDb(),
   );
@@ -3041,7 +3125,9 @@ export async function evolucaoParaPaciente(ctx: TenantContext, tenant: { mostrar
 }
 ```
 
-Run: `pnpm vitest run src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.test.ts` → PASS.
+Em `src/modules/plataforma/audit.ts`: `ENTIDADE_ROTULO` ganha `peso_no_app: 'Peso oculto no app'` e `rotuloDaAcao` ganha, ao lado das linhas da `ia`, `if (i.entidade === 'peso_no_app') return i.acao === 'criar' ? 'Ligou' : 'Desligou';` — o "Histórico de acessos" mostra "Ligou — Peso oculto no app" e "Desligou — Peso oculto no app" com o nome de quem fez. Em `audit.test.ts`, um caso: `expect(rotuloDaAcao({ acao: 'criar', entidade: 'peso_no_app' })).toBe('Ligou')` e o de `excluir`.
+
+Run: `pnpm vitest run src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.test.ts src/modules/plataforma/audit.test.ts` → PASS.
 
 - [ ] **Step 3: A caixa no prontuário (aba Evolução; §4.9)**
 
@@ -3100,12 +3186,14 @@ export function PesoOcultoNoApp({ paciente, fuso }: { paciente: PatientRow; fuso
 
 Em `src/app/painel/pacientes/[id]/evolucao/page.tsx`: guardar o `tenant` de `carregarProntuario` (`const { ctx, paciente, tenant } = await carregarProntuario(id);`), importar `PesoOcultoNoApp` de `./peso-oculto` e pôr `<PesoOcultoNoApp paciente={paciente} fuso={tenant.fuso} />` como **primeiro** filho do `<div className="space-y-10">`. O resto da aba não muda (G-D3).
 
+Ajuda do painel (correção da revisão do plano; `src/modules/ajuda/conteudo.ts`): no guia `prontuario`, "Perguntas comuns" ganha `'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário, os documentos e a cópia dos dados não mudam.'`; no guia `diarios`, a `ajuda` ganha a seção `{ titulo: 'Perguntas comuns', itens: ['Um registro pode chegar só com "Comeu como no plano" ou "Comeu outra coisa": é a resposta do paciente à refeição do plano, com a refeição e o horário.'] }`. Os passos não mudam: a versão dos dois guias fica como está (mesmo critério do Plano 11). Textos com a Debby (G-D10 ★).
+
 - [ ] **Step 4: Rodar as guardas do painel e commitar**
 
 ```bash
-pnpm vitest run src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.test.ts src/app/painel/acoes-de-paciente.test.ts src/app/painel/cores.test.ts src/app/formularios-post.test.ts src/app/painel/rotas-axe.test.ts
+pnpm vitest run src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.test.ts src/app/painel/acoes-de-paciente.test.ts src/app/painel/cores.test.ts src/app/formularios-post.test.ts src/app/painel/rotas-axe.test.ts src/modules/ajuda/conteudo.test.ts src/modules/plataforma/audit.test.ts
 pnpm typecheck && pnpm lint
-git add src/modules/pacientes/peso-oculto.ts src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.ts src/modules/portal/evolucao.test.ts "src/app/painel/pacientes/[id]/evolucao/"
+git add src/modules/pacientes/peso-oculto.ts src/modules/pacientes/peso-oculto.test.ts src/modules/portal/evolucao.ts src/modules/portal/evolucao.test.ts src/modules/plataforma/audit.ts src/modules/plataforma/audit.test.ts src/modules/ajuda/conteudo.ts "src/app/painel/pacientes/[id]/evolucao/"
 git commit -m "$(cat <<'MSG'
 feat(prontuario): "Não mostrar peso no app", por paciente (P16-08)
 
@@ -3195,26 +3283,24 @@ describe('Jornada (US-194, RN-202, RN-203, RN-206)', () => {
     expect(montarJornada({ atendimentos: [], avaliacoes: [], proxima: null, podeAgendar: true, percGordura: false }, AGORA, SP)).toEqual({ titulo: 'Sua jornada', grafico: null, marcos: [], vazia: true, podeAgendar: true });
   });
 
-  it('mini-jornada: variação com sinal e sem julgamento; nome acessível com a frase inteira; com e sem a sigla do fuso', () => {
+  it('mini-jornada: variação com sinal e sem julgamento; o complemento só para leitor de tela (o nome acessível contém o texto visível, WCAG 2.5.3); com e sem a sigla do fuso', () => {
     const m = miniJornada({ pesos: [{ data: '2026-03-18', valor: 82.8 }, { data: '2026-09-22', valor: 78.6 }], atendimentos: 3, primeiroAtendimento: '2026-03-18', proxima: { inicio: AMANHA_14H }, podeAgendar: true }, AGORA, SP);
     expect(m.linha1).toBe('−4,2 kg desde março');
     expect(m.linha2).toEqual({ semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' });
-    expect(m.nomeAcessivel.semFuso).toBe('Sua jornada: 78,6 kg na última consulta, 4,2 kg a menos desde março. Próxima consulta amanhã, 14:00.');
+    expect(m.complemento).toBe('78,6 kg na última consulta');
     expect(m.pontos).toEqual([82.8, 78.6]);
-    expect(miniJornada({ pesos: [{ data: '2026-03-18', valor: 80 }, { data: '2026-09-22', valor: 81.5 }], atendimentos: 2, primeiroAtendimento: '2026-03-18', proxima: null, podeAgendar: true }, AGORA, SP).nomeAcessivel.semFuso).toBe(
-      'Sua jornada: 81,5 kg na última consulta, 1,5 kg a mais desde março. Nenhuma consulta marcada.',
-    );
+    expect(miniJornada({ pesos: [{ data: '2026-03-18', valor: 80 }, { data: '2026-09-22', valor: 81.5 }], atendimentos: 2, primeiroAtendimento: '2026-03-18', proxima: null, podeAgendar: true }, AGORA, SP).complemento).toBe('81,5 kg na última consulta');
     expect(miniJornada({ pesos: [{ data: '2026-03-18', valor: 80 }, { data: '2026-09-22', valor: 80 }], atendimentos: 2, primeiroAtendimento: '2026-03-18', proxima: null, podeAgendar: true }, AGORA, SP).linha1).toBe('Sem mudança de peso desde março');
   });
 
   it('mini-jornada com o peso oculto (pesos vazios): número de consultas, nenhum valor; sem consulta: a jornada começa na primeira', () => {
     const oculto = miniJornada({ pesos: [], atendimentos: 3, primeiroAtendimento: '2026-03-18', proxima: { inicio: AMANHA_14H }, podeAgendar: true }, AGORA, SP);
     expect(oculto.linha1).toBe('3 consultas desde março');
-    expect(oculto.nomeAcessivel.semFuso).toBe('Sua jornada: 3 consultas desde março. Próxima consulta amanhã, 14:00.');
+    expect(oculto.complemento).toBeNull(); // nenhum peso, nem só para o leitor de tela
     expect(oculto.pontos).toEqual([]);
     const nova = miniJornada({ pesos: [], atendimentos: 0, primeiroAtendimento: null, proxima: null, podeAgendar: true }, AGORA, SP);
     expect(nova.linha1).toBe(MSG_JORNADA.comeca);
-    expect(nova.nomeAcessivel.semFuso).toBe('Sua jornada começa na primeira consulta. Nenhuma consulta marcada.');
+    expect(nova.complemento).toBeNull();
   });
 });
 ```
@@ -3270,7 +3356,7 @@ export type Marco =
   | { tipo: 'medidas'; data: string; titulo: string; medidas: Medida[] };
 export type Jornada = { titulo: string; grafico: SerieEvolucao | null; marcos: Marco[]; vazia: boolean; podeAgendar: boolean };
 export type EntradaDaJornada = { atendimentos: readonly AtendimentoDaJornada[]; avaliacoes: readonly AvaliacaoDaJornada[]; proxima: ProximaConsulta | null; podeAgendar: boolean; percGordura: boolean };
-export type MiniJornada = { linha1: string; linha2: Quando; nomeAcessivel: Quando; pontos: number[]; podeAgendar: boolean };
+export type MiniJornada = { linha1: string; linha2: Quando; complemento: string | null; pontos: number[]; podeAgendar: boolean };
 export type EntradaDaMini = { pesos: readonly Ponto[]; atendimentos: number; primeiroAtendimento: string | null; proxima: { inicio: Date } | null; podeAgendar: boolean };
 
 /** "78,6", "86", "27,2": as casas que a medida tem. */
@@ -3331,29 +3417,26 @@ export function montarJornada(e: EntradaDaJornada, agora: Date, fuso: string): J
   };
 }
 
-/** RN-202: a mini-jornada da faixa de Hoje. O gráfico pequeno (pontos) é decorativo; o link leva o nome acessível inteiro. */
+/** RN-202: a mini-jornada da faixa de Hoje. O gráfico pequeno (pontos) é decorativo; o complemento (último peso) vai só ao leitor de tela, DENTRO do texto do link (sem aria-label: WCAG 2.5.3, Rótulo no nome). */
 export function miniJornada(e: EntradaDaMini, agora: Date, fuso: string): MiniJornada {
   const hoje = partesNoFuso(agora, fuso).data;
   let linha1: string = MSG_JORNADA.comeca;
-  let resumo: string | null = null;
+  let complemento: string | null = null;
   if (e.pesos.length >= 2) {
     const [primeiro, ultimo] = [e.pesos[0], e.pesos[e.pesos.length - 1]];
     const mes = mesPorExtenso(primeiro.data, hoje);
     const diferenca = ultimo.valor - primeiro.valor;
     const modulo = arredondar(Math.abs(diferenca), 1);
     linha1 = modulo === 0 ? MSG_JORNADA.semMudanca(mes) : MSG_JORNADA.variacao(formatarDiferenca(diferenca, 1, 'kg'), mes);
-    resumo = `${g(ultimo.valor)} kg na última consulta, ${modulo === 0 ? 'sem mudança de peso' : `${formatarDecimal(modulo, 1)} kg a ${diferenca < 0 ? 'menos' : 'mais'}`} desde ${mes}`;
+    complemento = `${g(ultimo.valor)} kg na última consulta`;
   } else if (e.atendimentos > 0 && e.primeiroAtendimento) {
     linha1 = MSG_JORNADA.consultas(e.atendimentos, mesPorExtenso(e.primeiroAtendimento, hoje));
-    resumo = linha1;
   }
   const quando = e.proxima ? { semFuso: quandoRelativo(e.proxima.inicio, agora, fuso), comFuso: quandoRelativoComFuso(e.proxima.inicio, agora, fuso) } : null;
-  const inicio = resumo ? `Sua jornada: ${resumo}.` : MSG_JORNADA.comeca;
-  const fim = (q: string | undefined) => (q ? `Próxima consulta ${q}.` : MSG_JORNADA.semMarco);
   return {
     linha1,
     linha2: quando ? { semFuso: MSG_JORNADA.proximoMarco(quando.semFuso), comFuso: MSG_JORNADA.proximoMarco(quando.comFuso) } : { semFuso: MSG_JORNADA.semMarco, comFuso: MSG_JORNADA.semMarco },
-    nomeAcessivel: { semFuso: `${inicio} ${fim(quando?.semFuso)}`, comFuso: `${inicio} ${fim(quando?.comFuso)}` },
+    complemento,
     pontos: e.pesos.length >= 2 ? e.pesos.map((p) => p.valor) : [],
     podeAgendar: e.podeAgendar,
   };
@@ -3637,7 +3720,7 @@ Criar `src/app/p/(portal)/inicio/mural-lista.test.ts`:
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { Mural } from '@/modules/portal/mural-regras';
+import { MSG_MURAL, type Mural } from '@/modules/portal/mural-regras';
 
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/lib/signed-url', () => ({ signFileUrl: (c: string) => `/api/arquivos?c=${c}` }));
@@ -3649,24 +3732,27 @@ const hora = { semFuso: '09:00', comFuso: '09:00 (horário de Brasília)' };
 const MURAL: Mural = {
   primeiroNome: 'Marina',
   vazio: false,
+  semPlano: false,
   anteriores: [{ dia: '2026-10-07', rotulo: 'Ontem', itens: [{ chave: 'plano', tipo: 'plano', autor: 'consultorio', quando, hora, texto: 'Seu novo plano alimentar está disponível.' }] }],
   hoje: [
     { chave: 'refeicao:r1', tipo: 'refeicao', autor: 'consultorio', quando, hora: { semFuso: '12:30', comFuso: '12:30' }, texto: 'Próxima refeição às 12:30 — Almoço: arroz.', refeicaoId: 'r1', respondida: false },
     { chave: 'registro:e1', tipo: 'registro', autor: 'voce', quando, hora, refeicao: 'Almoço · 12:30', resposta: 'como_no_plano', texto: null, foto: { estado: 'sem_foto' } },
-    { chave: 'comentario:e1', tipo: 'comentario', autor: 'nutricionista', quando, hora, texto: 'Ótima combinação!' },
+    { chave: 'comentario:e1', tipo: 'comentario', autor: 'nutricionista', quando, hora, sobre: 'Almoço · 12:30, hoje às 12:41', texto: 'Ótima combinação!' },
     { chave: 'consulta:c1', tipo: 'consulta', autor: 'consultorio', quando, hora: null, consultaId: 'c1', texto: { semFuso: 'Sua próxima consulta: amanhã, 14:00 (online).', comFuso: 'x' }, podeConfirmar: true },
     { chave: 'conteudo:k1', tipo: 'conteudo', autor: 'consultorio', quando, hora, conteudoId: 'k1', titulo: 'Lanches', texto: 'Novo conteúdo: Lanches' },
   ],
 };
 
 describe('mural "Hoje" (US-191, RNF-191)', () => {
-  it('lista (ol) com o autor e a hora no texto de cada item; a voz da nutricionista só no comentário', () => {
+  it('lista (ol) com o autor VISÍVEL e a hora de cada item (RN-194, §11.1); a voz da nutricionista só no comentário, com o registro a que se refere', () => {
     const html = renderToStaticMarkup(createElement(MuralLista, { mural: MURAL, fuso: 'America/Sao_Paulo' }));
     expect(html).toContain('<ol');
-    expect(html).toContain('<span class="sr-only">Você: </span>');
-    expect(html).toContain('<span class="sr-only">Sua nutricionista: </span>');
-    expect((html.match(/<span class="sr-only">Do consultório: <\/span>/g) ?? []).length).toBe(4);
-    expect(html).toContain('Sua nutricionista comentou');
+    // o autor é texto visível (fora de sr-only), não só o lado ou a cor do balão
+    expect(html).not.toMatch(/<span class="sr-only">(Você|Aviso do app|Sua nutricionista)/);
+    expect(html).toContain('<span class="font-semibold text-texto">Você</span>');
+    expect((html.match(/<span class="font-semibold text-texto">Aviso do app<\/span>/g) ?? []).length).toBe(4);
+    expect(html).toContain('<span class="font-semibold text-texto">Sua nutricionista comentou seu registro (Almoço · 12:30, hoje às 12:41)</span>');
+    expect(html).toMatch(/<li class="[^"]*border-l-4 border-l-marca[^"]*"/); // o comentário dela tem estilo próprio, diferente do aviso automático
     expect(html).toContain('Comi assim'); // o balão do paciente diz a resposta
     expect(html).toMatch(/<button[^>]*>Comi assim<\/button>/); // e a refeição ainda não respondida tem o botão
     expect(html).toContain('href="/p/plano/refeicao/r1"');
@@ -3682,9 +3768,12 @@ describe('mural "Hoje" (US-191, RNF-191)', () => {
     expect(html).toContain('>Ontem</h3>');
     expect(html).not.toMatch(/<textarea|<input[^>]*type="text"/);
   });
-  it('vazio: o texto da spec', () => {
-    const html = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
-    expect(html).toContain('Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.');
+  it('vazio: sem plano, o texto da spec; com plano e nada para agora, o texto neutro (nunca diz que ela não publicou)', () => {
+    const semPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: true, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
+    expect(semPlano).toContain('Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.');
+    const comPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: false, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
+    expect(comPlano).toContain(MSG_MURAL.nadaAgora);
+    expect(comPlano).not.toContain('publicar seu plano');
   });
 });
 ```
@@ -3694,6 +3783,7 @@ Criar `src/app/p/(portal)/inicio/page.test.ts`:
 ```ts
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { MSG_MURAL } from '@/modules/portal/mural-regras';
 
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/env', () => ({ getEnv: () => ({ VAPID_PUBLIC_KEY: undefined }) }));
@@ -3701,12 +3791,12 @@ vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, data: { user: { id: 'u1', email: 'marina@ex.com' } }, vinculo: { patientId: 'p1' }, tenant: { fuso: 'America/Sao_Paulo', examesPacienteAtivadoEm: null } }),
 }));
 vi.mock('@/app/p/moldura', () => ({ molduraDaSecao: async () => ({ marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }) }));
-vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, hoje: [], anteriores: [] }) }));
+vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: true, hoje: [], anteriores: [] }) }));
 vi.mock('@/modules/portal/jornada', () => ({
   miniJornadaDoPaciente: async () => ({
     linha1: '−4,2 kg desde março',
     linha2: { semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' },
-    nomeAcessivel: { semFuso: 'Sua jornada: 78,6 kg na última consulta, 4,2 kg a menos desde março. Próxima consulta amanhã, 14:00.', comFuso: 'Sua jornada: 78,6 kg na última consulta, 4,2 kg a menos desde março. Próxima consulta amanhã, 14:00 (horário de Brasília).' },
+    complemento: '78,6 kg na última consulta',
     pontos: [82.8, 78.6],
     podeAgendar: true,
   }),
@@ -3715,13 +3805,15 @@ vi.mock('../agenda/actions', () => ({ confirmarAction: async () => ({}) }));
 const { default: Hoje } = await import('./page');
 
 describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
-  it('faixa com "Olá, Marina", a mini-jornada (link para Jornada com o nome acessível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
+  it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
     const html = renderToStaticMarkup(await Hoje());
     expect(html).toMatch(/<h1[^>]*>Olá, Marina<\/h1>/);
+    // WCAG 2.5.3 (Rótulo no nome): sem aria-label no link — o texto visível faz parte do nome; o resto vai em sr-only
+    expect(html).not.toMatch(/<a[^>]*href="\/p\/jornada"[^>]*aria-label/);
+    expect(html).toContain('<span class="sr-only">Sua jornada: </span>−4,2 kg desde março<span class="sr-only"> (78,6 kg na última consulta)</span>');
     // no servidor (e sem JavaScript) o fuso do aparelho é desconhecido: a versão com a sigla (nunca ambígua, como QuandoLocal)
-    expect(html).toContain('aria-label="Sua jornada: 78,6 kg na última consulta, 4,2 kg a menos desde março. Próxima consulta amanhã, 14:00 (horário de Brasília)."');
-    expect(html).toContain('−4,2 kg desde março');
-    expect(html).toContain('Este app não envia mensagens para sua nutricionista. Dúvidas? Anote para a consulta ou use os contatos do consultório.');
+    expect(html).toContain('Próximo marco: consulta amanhã, 14:00 (horário de Brasília)');
+    expect(html).toContain(MSG_MURAL.rodape);
     expect(html).toContain('href="/p/diario"');
     expect(html).toContain('<nav aria-label="Ações"');
     expect(html).not.toContain('Enviar exame'); // recebimento desligado (RN-215)
@@ -3779,13 +3871,14 @@ export function esquecerCartoesDoAparelho(): void {
 
 Em `src/app/p/sair-portal.tsx`, no `limparAparelho`, logo depois de `esquecerComprasDoAparelho();`: `esquecerCartoesDoAparelho(); // RN-201: os cartões dispensados` (import de `@/components/portal/cartoes-dispensados`). Em `src/app/entrar/page.tsx`, no mesmo `useEffect` que chama `esquecerComprasDoAparelho()`, a mesma chamada.
 
-Em `src/app/p/notificacoes.tsx`, `AtivarNotificacoes` ganha a prop opcional `cartao?: (conteudo: ReactNode) => ReactNode` (import de `type ReactNode`): com ela, só renderiza nos estados em que há o que fazer, dentro do cartão:
+Em `src/app/p/notificacoes.tsx`, `AtivarNotificacoes` ganha a prop opcional `cartao?: (conteudo: ReactNode) => ReactNode` (import de `type ReactNode`): com ela, só **abre** nos estados em que há o que fazer, dentro do cartão — e, depois que a pessoa agiu nesta tela, o cartão **continua** mostrando o resultado ("Notificações ativadas neste aparelho." com o `role="status"` de hoje, ou o texto do "negado") até a próxima abertura (correção da revisão do plano: sem isso, o cartão some junto com a confirmação e o foco cai no `<body>`). Um `const [agiu, setAgiu] = useState(false)`, com `setAgiu(true)` no começo do handler do botão "Ativar notificações" (antes do primeiro `setEstado`):
 
 ```tsx
 export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublica: string | null; dono: string; cartao?: (conteudo: ReactNode) => ReactNode }) {
   // …o corpo de antes até o `if (estado === 'carregando' || estado === 'instale') return null;`
-  // Plano 16 (RN-201): no mural, o cartão só aparece quando dá para ativar (ou a tentativa falhou)
-  if (cartao && estado !== 'pode' && estado !== 'falhou') return null;
+  // Plano 16 (RN-201): no mural, o cartão só aparece quando dá para ativar (ou a tentativa falhou); depois de agir nesta
+  // tela, fica até a próxima abertura, com o resultado (ativo/negado) anunciado pela região viva de hoje
+  if (cartao && !agiu && estado !== 'pode' && estado !== 'falhou') return null;
   const link = linkDaRecusa(recusa);
   const conteudo = (
     <div className="space-y-2">{/* …o JSX de antes, sem mudança */}</div>
@@ -3794,7 +3887,7 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
 }
 ```
 
-Em `src/app/p/instalar.tsx`, `Instalar` ganha a mesma prop: os dois `return` com JSX passam a guardar o JSX numa constante e devolvem `cartao ? cartao(jsx) : jsx`; o `return null` do fim continua (nada a fazer = nenhum cartão).
+Em `src/app/p/instalar.tsx`, `Instalar` ganha a mesma prop: os dois `return` com JSX passam a guardar o JSX numa constante e devolvem `cartao ? cartao(jsx) : jsx`; o `return null` do fim continua (nada a fazer = nenhum cartão). Se o Android some com o botão depois de "Instalar app" (evento `appinstalled` ou a escolha do prompt), o cartão some também: antes de sumir, o foco vai para o link "Ver todo o diário" (`id="ver-todo-diario"`, Step 4), como no "Agora não".
 
 Criar `src/app/p/(portal)/inicio/cartoes-do-aparelho.tsx`:
 
@@ -3831,6 +3924,8 @@ export function CartoesDoAparelho({ conta, dono, chavePublica }: { conta: string
             onClick={() => {
               dispensar(conta, c);
               setFechados((f) => new Set(f).add(c));
+              // o botão sai do DOM com o cartão: o foco vai ao próximo ponto estável do mural, nunca ao <body>
+              document.getElementById('ver-todo-diario')?.focus();
             }}
             className="min-h-11 px-2 text-link underline"
           >
@@ -3853,24 +3948,35 @@ Criar `src/app/p/(portal)/inicio/confirmar-no-mural.tsx`:
 ```tsx
 'use client';
 import { useRouter } from 'next/navigation';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { useOnline } from '@/components/portal/online';
 import { confirmarAction, type AgendaState } from '../agenda/actions';
 
-/** US-191 "Consulta próxima": a mesma ação da tela da consulta (Plano 05); depois, o mural é buscado de novo. */
-export function ConfirmarNoMural({ id }: { id: string }) {
+/**
+ * US-191 "Consulta próxima": a mesma ação da tela da consulta (Plano 05); depois, o mural é buscado de novo. Correção da
+ * revisão do plano (RNF-191, memória "mensagem de sucesso desmontada", Plano 11 T14): o componente fica montado em todo item
+ * de consulta (o refresh devolve podeConfirmar = false e o botão some, mas o estado e a região viva continuam); a região
+ * role="status" está SEMPRE montada e só o texto muda; o foco, que estava no botão que saiu, vai para a confirmação.
+ */
+export function ConfirmarNoMural({ id, podeConfirmar }: { id: string; podeConfirmar: boolean }) {
   const router = useRouter();
   const online = useOnline();
+  const aviso = useRef<HTMLParagraphElement>(null);
   const [estado, confirmar, confirmando] = useActionState<AgendaState>(async () => {
     const r = await confirmarAction(id);
     if (r.ok) router.refresh();
     return r;
   }, {});
+  useEffect(() => {
+    if (estado.ok) aviso.current?.focus();
+  }, [estado.ok]);
   return (
     <form action={confirmar} className="space-y-1">
-      <button disabled={confirmando || !online} className="min-h-11 rounded-full bg-destaque px-4 font-semibold text-white disabled:opacity-60">Confirmar presença</button>
+      {podeConfirmar && !estado.ok && (
+        <button disabled={confirmando || !online} className="min-h-11 rounded-full bg-destaque px-4 font-semibold text-white disabled:opacity-60">Confirmar presença</button>
+      )}
       {estado.erro && <p role="alert" className="text-sm text-erro">{estado.erro}</p>}
-      {estado.ok && <p role="status" className="text-sm">{estado.ok}</p>}
+      <p ref={aviso} tabIndex={-1} role="status" className="text-sm">{estado.ok ?? ''}</p>
     </form>
   );
 }
@@ -3904,6 +4010,7 @@ Criar `src/components/portal/mini-jornada.tsx`:
 import Link from 'next/link';
 import { useSyncExternalStore } from 'react';
 import { precisaDaSigla } from '@/app/p/quando-local';
+import { MSG_JORNADA } from '@/modules/portal/jornada-regras';
 
 type Texto = { semFuso: string; comFuso: string };
 const semAssinatura = () => () => {};
@@ -3926,14 +4033,19 @@ function Tracinho({ pontos }: { pontos: number[] }) {
  * de "bom" ou "ruim" (RN-206). Texto branco sobre o cartão translúcido (≥ 4,5:1 por corDaFaixa). Com o aparelho noutro
  * fuso, a hora leva a sigla (RN-06, como QuandoLocal).
  */
-export function MiniJornada({ linha1, linha2, nomeAcessivel, pontos, fuso }: { linha1: string; linha2: Texto; nomeAcessivel: Texto; pontos: number[]; fuso: string }) {
+export function MiniJornada({ linha1, linha2, complemento, pontos, fuso }: { linha1: string; linha2: Texto; complemento: string | null; pontos: number[]; fuso: string }) {
   const aparelho = useSyncExternalStore(semAssinatura, fusoDoAparelho, () => '');
   const v = (t: Texto) => (precisaDaSigla(aparelho, fuso) ? t.comFuso : t.semFuso);
+  // WCAG 2.5.3 (Rótulo no nome, nível A): sem aria-label — quem usa comando de voz diz o que vê ("−4,2 kg desde março").
   return (
-    <Link href="/p/jornada" aria-label={v(nomeAcessivel)} className="mt-3 flex min-h-11 items-center gap-3 rounded-2xl bg-faixa-cartao p-3 text-white">
+    <Link href="/p/jornada" className="mt-3 flex min-h-11 items-center gap-3 rounded-2xl bg-faixa-cartao p-3 text-white">
       {pontos.length >= 2 && <Tracinho pontos={pontos} />}
       <span className="min-w-0 flex-1">
-        <span className="block font-portal-titulo text-lg font-extrabold">{linha1}</span>
+        <span className="block font-portal-titulo text-lg font-extrabold">
+          {!linha1.startsWith(MSG_JORNADA.titulo) && <span className="sr-only">{`${MSG_JORNADA.titulo}: `}</span>}
+          {linha1}
+          {complemento && <span className="sr-only">{` (${complemento})`}</span>}
+        </span>
         <span className="block text-sm">{v(linha2)}</span>
       </span>
       <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -3984,7 +4096,8 @@ function Acoes({ item, guia }: { item: ItemDoMural; guia: boolean }) {
       return (
         <div className="flex flex-wrap items-start gap-2">
           {link(`/p/agenda/${item.consultaId}`, B.verConsulta)}
-          {item.podeConfirmar && <ConfirmarNoMural id={item.consultaId} />}
+          {/* sempre montado: depois do refresh (podeConfirmar = false) a confirmação continua na tela e anunciada */}
+          <ConfirmarNoMural id={item.consultaId} podeConfirmar={item.podeConfirmar} />
         </div>
       );
     case 'plano':
@@ -4018,14 +4131,23 @@ function Corpo({ item, fuso }: { item: ItemDoMural; fuso: string }) {
   }
 }
 
-/** RNF-191: autor e hora no TEXTO (sr-only "Você:", "Do consultório:", "Sua nutricionista:"), não só no estilo do balão. */
+/**
+ * RNF-191, RN-194, §11.1 (correção da revisão do plano): autor VISÍVEL em todo item — "Você", "Aviso do app" ou o rótulo do
+ * comentário dela —, não só o lado ou a cor do balão (que lembraria um chat, R-190). O comentário da nutricionista tem
+ * estilo próprio (borda de destaque), diferente do aviso automático.
+ */
+const ESTILO = {
+  voce: 'ml-8 space-y-2 rounded-2xl bg-p-clara p-3',
+  consultorio: 'mr-8 space-y-2 rounded-2xl border border-borda bg-cartao p-3',
+  nutricionista: 'mr-8 space-y-2 rounded-2xl border border-borda border-l-4 border-l-marca bg-cartao p-3',
+} as const;
 function Item({ item, fuso, guia }: { item: ItemDoMural; fuso: string; guia: boolean }) {
+  const autor = item.tipo === 'comentario' ? MSG_MURAL.nutricionistaComentou(item.sobre) : MSG_MURAL.autor[item.autor];
   return (
-    <li className={item.autor === 'voce' ? 'ml-8 space-y-2 rounded-2xl bg-p-clara p-3' : 'mr-8 space-y-2 rounded-2xl border border-borda bg-cartao p-3'}>
+    <li className={ESTILO[item.autor]}>
       <p className="text-sm text-suave">
-        <span className="sr-only">{`${MSG_MURAL.autor[item.autor]} `}</span>
-        {item.autor === 'nutricionista' && <span className="font-semibold text-texto">{MSG_MURAL.nutricionistaComentou}</span>}
-        {item.autor === 'nutricionista' && item.hora && ' · '}
+        <span className="font-semibold text-texto">{autor}</span>
+        {item.hora && ' · '}
         {item.hora && <QuandoLocal semFuso={item.hora.semFuso} comFuso={item.hora.comFuso} fuso={fuso} />}
       </p>
       <Corpo item={item} fuso={fuso} />
@@ -4053,7 +4175,7 @@ export function MuralLista({ mural, fuso }: { mural: Mural; fuso: string }) {
         </details>
       )}
       {mural.vazio ? (
-        <p>{MSG_MURAL.vazio}</p>
+        <p>{mural.semPlano ? MSG_MURAL.vazio : MSG_MURAL.nadaAgora}</p>
       ) : (
         mural.hoje.length > 0 && (
           <ol aria-label="Hoje" className="space-y-2">
@@ -4103,12 +4225,12 @@ export default async function Hoje() {
   return (
     <>
       <Faixa {...moldura} atual="/p/inicio" titulo={MSG_G.titulos.hoje(mural.primeiroNome)} subtitulo={dataDaFaixa(hojeNoFuso(tenant.fuso, agora))}>
-        <MiniJornada linha1={mini.linha1} linha2={mini.linha2} nomeAcessivel={mini.nomeAcessivel} pontos={mini.pontos} fuso={tenant.fuso} />
+        <MiniJornada linha1={mini.linha1} linha2={mini.linha2} complemento={mini.complemento} pontos={mini.pontos} fuso={tenant.fuso} />
       </Faixa>
       <main data-guia="mural" className="flex-1 space-y-4 p-4">
         <CartoesDoAparelho conta={data.user.id} dono={vinculo.patientId} chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} />
         <p>
-          <Link href="/p/diario" className="inline-flex min-h-11 items-center font-semibold text-link underline">{MSG_MURAL.verTodoDiario}</Link>
+          <Link id="ver-todo-diario" href="/p/diario" className="inline-flex min-h-11 items-center font-semibold text-link underline">{MSG_MURAL.verTodoDiario}</Link>
         </p>
         <MuralLista mural={mural} fuso={tenant.fuso} />
         <p className="text-sm text-suave">{MSG_MURAL.rodape}</p>
@@ -4156,7 +4278,7 @@ MSG
 **Revisão: leve (revisor-interface)** — sanfona e refeição aberta (molde F-Plano/GV-Almoço), o aviso "Desfazer" (WCAG 2.2.1, `role="status"`), botões desabilitados sem rede, formulário do diário com a refeição já escolhida, câmera, offline (a cópia do plano com tudo dentro).
 
 **Files:**
-- Create: `src/components/portal/comi-assim-estado.ts` (+ `comi-assim-estado.test.ts`), `src/components/portal/comi-assim.tsx`, `src/components/portal/online.ts`, `src/app/p/(portal)/plano/refeicao-detalhe.tsx`, `src/app/p/(portal)/plano/abrir-refeicao-da-url.tsx`, `src/app/p/(portal)/plano/refeicao/[id]/page.tsx` (+ `page.test.ts`)
+- Create: `src/components/portal/comi-assim-estado.ts` (+ `comi-assim-estado.test.ts`), `src/components/portal/comi-assim.tsx`, `src/components/portal/online.ts`, `src/components/portal/link-de-resposta.tsx`, `src/app/p/(portal)/plano/refeicao-detalhe.tsx`, `src/app/p/(portal)/plano/abrir-refeicao-da-url.tsx`, `src/app/p/(portal)/plano/refeicao/[id]/page.tsx` (+ `page.test.ts`)
 - Modify: `src/modules/portal/plano.ts` (+ `plano.test.ts`), `src/app/p/(portal)/plano/page.tsx` (+ `page.test.ts`), `src/app/p/(portal)/diario/page.tsx`, `src/app/p/(portal)/diario/diario-form.tsx` (+ `diario-form.test.ts`), `e2e/portal.spec.ts` (o item do plano em colunas)
 
 **Interfaces:**
@@ -4182,7 +4304,7 @@ describe('"Comi assim" com "Desfazer" (G-D5 ★ = c, RN-198)', () => {
     expect(mensagemDaFase('aguardando')).toBe('Registrado no diário.');
     expect(mensagemDaFase('feito')).toBe('Registrado no diário.');
     expect(mensagemDaFase('desfeito')).toBe(MSG_COMI_ASSIM.desfeito);
-    expect(MSG_COMI_ASSIM).toEqual({ desfazer: 'Desfazer', desfeito: 'Registro desfeito.', semConexao: 'Sem conexão. Registre quando voltar.' });
+    expect(MSG_COMI_ASSIM).toEqual({ desfazer: 'Desfazer', desfeito: 'Registro desfeito.', semConexao: 'Sem conexão. Registre quando voltar.', podeDesfazer: 'Para desfazer, use o botão Desfazer logo abaixo.' });
     expect(['pronto', 'aguardando', 'enviando', 'feito', 'desfeito', 'erro'].filter((f) => mostraBotao(f as never))).toEqual(['pronto', 'desfeito', 'erro']);
   });
 });
@@ -4254,23 +4376,26 @@ describe('/p/plano/refeicao/[id] (US-193, RN-213)', () => {
 });
 ```
 
-Trocar o teste de `src/app/p/(portal)/plano/page.test.ts` (o `<summary>` das substituições sai: as trocas ficam escritas, "ou {nome}, {quantidade}"; o mock de `planoDoPaciente` ganha `mostrarCalorias: false` e `kcal: null` na refeição; mocks novos para a moldura e as respostas de hoje):
+Trocar o teste de `src/app/p/(portal)/plano/page.test.ts` (o `<summary>` das substituições sai: as trocas ficam escritas, "ou {nome}, {quantidade}"; o mock de `planoDoPaciente` ganha `mostrarCalorias: false` e `kcal: null` na refeição; mock novo para a moldura; `respostasDeHoje` **não** é chamada — a cópia offline não leva dado do diário):
 
 ```ts
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/app/p/moldura', () => ({
   molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
 }));
-vi.mock('@/modules/portal/diario', () => ({ respostasDeHoje: async () => new Set(['Almoço · 12:00']) }));
+const respostas = vi.hoisted(() => vi.fn(async () => new Set<string>()));
+vi.mock('@/modules/portal/diario', () => ({ respostasDeHoje: respostas }));
 // …o mock de planoDoPaciente de antes, com `mostrarCalorias: false` no plano e `kcal: null` na refeição
 
 describe('/p/plano em sanfona (US-196, F-Plano)', () => {
-  it('cada refeição é um <details> com o h3 "{nome} · {HH:MM}"; as trocas escritas; a respondida hoje diz "No diário" e não tem "Comi assim"', async () => {
+  it('cada refeição é um <details> com o h3 "{nome} · {HH:MM}" e o summary sem flex/grid (marcador visível); as trocas escritas; nada do diário na cópia offline', async () => {
     const html = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
     expect(html).toMatch(/<details id="ref-r1"[^>]*><summary[^>]*><h3[^>]*>Almoço · 12:00<\/h3>/);
+    expect(html).not.toMatch(/<summary[^>]*class="[^"]*\b(flex|grid|inline-flex)\b/);
     expect(html).toContain('ou batata, 150 g');
-    expect(html).toContain('No diário');
-    expect(html).not.toMatch(/<button[^>]*>Comi assim<\/button>/);
+    expect(html).not.toContain('No diário'); // §4.8/§10: a cópia offline não guarda o que o paciente comeu hoje
+    expect(respostas).not.toHaveBeenCalled();
+    expect(html).toMatch(/<button[^>]*>Comi assim<\/button>/);
     expect(html).toContain('href="/p/conteudos"'); // G-D8 ★ = a: Conteúdos dentro de Plano
     expect(html).toContain('href="/p/compras"');
   });
@@ -4352,7 +4477,7 @@ import { MSG_DIARIO } from '@/modules/portal/diario-constantes';
 // `: number`: com o tipo literal, o `PRAZO_DESFAZER_MS === 0` do componente não compila (TS2367)
 export const PRAZO_DESFAZER_MS: number = 10_000;
 
-export const MSG_COMI_ASSIM = { desfazer: 'Desfazer', desfeito: 'Registro desfeito.', semConexao: 'Sem conexão. Registre quando voltar.' } as const;
+export const MSG_COMI_ASSIM = { desfazer: 'Desfazer', desfeito: 'Registro desfeito.', semConexao: 'Sem conexão. Registre quando voltar.', podeDesfazer: 'Para desfazer, use o botão Desfazer logo abaixo.' } as const;
 
 export type FaseComiAssim = 'pronto' | 'aguardando' | 'enviando' | 'feito' | 'desfeito' | 'erro';
 
@@ -4396,7 +4521,7 @@ Criar `src/components/portal/comi-assim.tsx`:
 ```tsx
 'use client';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { recusaDoPortal } from '@/app/p/recusa-api';
 import { MSG_DIARIO, ROTULO_RESPOSTA } from '@/modules/portal/diario-constantes';
 import { mensagemDaFase, mostraBotao, MSG_COMI_ASSIM, PRAZO_DESFAZER_MS, sobra, type FaseComiAssim } from './comi-assim-estado';
@@ -4416,6 +4541,16 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
   const pendente = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prazo = useRef({ restante: PRAZO_DESFAZER_MS, desde: 0 });
+  // Correção da revisão do plano: quem chegou pelo foco (teclado, leitor de tela) não pode perder o foco no <body> quando o
+  // botão sai do DOM — o foco vai ao "Desfazer" (o que já pausa o prazo, WCAG 2.2.1) e, ao desfazer, volta ao "Comi assim".
+  const botao = useRef<HTMLButtonElement>(null);
+  const botaoDesfazer = useRef<HTMLButtonElement>(null);
+  const focoPara = useRef<'desfazer' | 'botao' | null>(null);
+  useEffect(() => {
+    if (focoPara.current === 'desfazer' && fase === 'aguardando') botaoDesfazer.current?.focus();
+    if (focoPara.current === 'botao' && mostraBotao(fase)) botao.current?.focus();
+    focoPara.current = null;
+  }, [fase]);
 
   const enviar = useCallback(
     async (keepalive: boolean) => {
@@ -4462,10 +4597,13 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
     };
   }, [enviar]);
 
-  const tocar = () => {
+  const tocar = (e: MouseEvent<HTMLButtonElement>) => {
+    // teclado/leitor de tela (detail 0) ou o botão já com o foco: o foco segue para o "Desfazer"; toque sem foco não rouba o foco
+    const peloFoco = e.detail === 0 || document.activeElement === e.currentTarget;
     pendente.current = true;
     setErro(null);
     if (PRAZO_DESFAZER_MS === 0) return void enviar(false);
+    focoPara.current = peloFoco ? 'desfazer' : null;
     setFase('aguardando');
     agendar(PRAZO_DESFAZER_MS);
   };
@@ -4473,6 +4611,7 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
     pendente.current = false;
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    focoPara.current = 'botao';
     setFase('desfeito');
   };
   const pausar = () => {
@@ -4489,6 +4628,7 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
     <div className="space-y-1">
       {mostraBotao(fase) && (
         <button
+          ref={botao}
           type="button"
           onClick={tocar}
           disabled={!online}
@@ -4502,9 +4642,12 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
         <p id={`sem-rede-${refeicaoId}`} className="text-sm text-suave">{MSG_COMI_ASSIM.semConexao}</p>
       )}
       <div onFocus={pausar} onBlur={retomar} onPointerEnter={pausar} onPointerLeave={retomar} className="flex flex-wrap items-center gap-2">
-        <p role="status" className="text-sm">{mensagemDaFase(fase)}</p>
+        <p role="status" className="text-sm">
+          {mensagemDaFase(fase)}
+          {fase === 'aguardando' && <span className="sr-only">{` ${MSG_COMI_ASSIM.podeDesfazer}`}</span>}
+        </p>
         {fase === 'aguardando' && (
-          <button type="button" onClick={desfazer} className="min-h-11 px-2 font-semibold text-link underline">
+          <button ref={botaoDesfazer} type="button" onClick={desfazer} className="min-h-11 px-2 font-semibold text-link underline">
             {MSG_COMI_ASSIM.desfazer}
           </button>
         )}
@@ -4522,6 +4665,7 @@ Criar `src/app/p/(portal)/plano/refeicao-detalhe.tsx`:
 ```tsx
 import Link from 'next/link';
 import { ComiAssim } from '@/components/portal/comi-assim';
+import { LinkDeResposta } from '@/components/portal/link-de-resposta';
 import { ROTULO_RESPOSTA } from '@/modules/portal/diario-constantes';
 import type { RefeicaoDoPaciente } from '@/modules/portal/plano';
 
@@ -4562,11 +4706,34 @@ export function RefeicaoDetalhe({ refeicao, respondida }: { refeicao: RefeicaoDo
         </p>
       )}
       <div className="flex flex-wrap items-start gap-2">
-        <Link href={`/p/diario?refeicao=${refeicao.id}&foto=1#registrar`} className={BOTAO}>Mandar foto do prato</Link>
+        <LinkDeResposta href={`/p/diario?refeicao=${refeicao.id}&foto=1#registrar`} className={BOTAO}>Mandar foto do prato</LinkDeResposta>
         {respondida ? <p className="inline-flex min-h-11 items-center text-sm">No diário</p> : <ComiAssim refeicaoId={refeicao.id} />}
-        <Link href={`/p/diario?refeicao=${refeicao.id}&resposta=outra_coisa#registrar`} className={BOTAO}>{ROTULO_RESPOSTA.outra_coisa}</Link>
+        <LinkDeResposta href={`/p/diario?refeicao=${refeicao.id}&resposta=outra_coisa#registrar`} className={BOTAO}>{ROTULO_RESPOSTA.outra_coisa}</LinkDeResposta>
       </div>
     </div>
+  );
+}
+```
+
+Criar `src/components/portal/link-de-resposta.tsx` (correção da revisão do plano: sem rede, "Mandar foto do prato" e "Comi outra coisa" também gravam — como links ativos, o toque abriria a cópia do plano de novo, no topo, sem explicação; RN-208):
+
+```tsx
+'use client';
+import Link from 'next/link';
+import { useId, type ReactNode } from 'react';
+import { MSG_COMI_ASSIM } from './comi-assim-estado';
+import { useOnline } from './online';
+
+/** As respostas que levam ao formulário do diário: sem rede, desabilitadas (aria-disabled, sem href) com o mesmo aviso do "Comi assim". */
+export function LinkDeResposta({ href, className, children }: { href: string; className: string; children: ReactNode }) {
+  const online = useOnline();
+  const aviso = useId();
+  if (online) return <Link href={href} className={className}>{children}</Link>;
+  return (
+    <span className="space-y-1">
+      <a role="link" aria-disabled="true" aria-describedby={aviso} className={`${className} opacity-60`}>{children}</a>
+      <span id={aviso} className="block text-sm text-suave">{MSG_COMI_ASSIM.semConexao}</span>
+    </span>
   );
 }
 ```
@@ -4594,11 +4761,10 @@ export function AbrirRefeicaoDaUrl() {
 }
 ```
 
-Trocar o `<main>` de `src/app/p/(portal)/plano/page.tsx` (a `Faixa` da T4 fica; imports novos: `RefeicaoDetalhe`, `AbrirRefeicaoDaUrl`, `respostasDeHoje` de `@/modules/portal/diario`, `rotuloDaRefeicao` de `@/modules/portal/diario-constantes`, `daquiA` de `@/modules/portal/datas-portal`, `partesNoFuso` de `@/modules/agenda/fuso`):
+Trocar o `<main>` de `src/app/p/(portal)/plano/page.tsx` (a `Faixa` da T4 fica; imports novos: `RefeicaoDetalhe`, `AbrirRefeicaoDaUrl`, `rotuloDaRefeicao` de `@/modules/portal/diario-constantes`, `daquiA` de `@/modules/portal/datas-portal`, `partesNoFuso` de `@/modules/agenda/fuso`). **Sem `respostasDeHoje` aqui** (correção da revisão do plano): `/p/plano` é a cópia offline guardada no aparelho, e a spec manda "offline só o plano (sem diário…)" (§4.8, §10, §11.7) — a marca "No diário" fica no mural e na refeição aberta (que não são guardadas); na sanfona o "Comi assim" aparece sempre e, se a refeição já tiver resposta hoje, o toque devolve o registro existente (D3, idempotente) e mostra "Registrado no diário.":
 
 ```tsx
   const agora = new Date();
-  const respondidas = plano ? await respostasDeHoje(ctx, tenant.fuso, { agora }) : new Set<string>();
   const minutosAgora = partesNoFuso(agora, tenant.fuso).minutos;
   const minutosAte = (horario: string) => {
     const [h, m] = horario.split(':').map(Number);
@@ -4630,17 +4796,16 @@ Trocar o `<main>` de `src/app/p/(portal)/plano/page.tsx` (a `Faixa` da T4 fica; 
             <ol className="space-y-3">
               {plano.refeicoes.map((r) => {
                 const proxima = r.id === plano.proximaRefeicaoId;
-                const respondida = respondidas.has(rotuloDaRefeicao(r.nome, r.horario));
                 return (
                   <li key={r.id}>
                     <details id={`ref-${r.id}`} open={proxima} className={proxima ? 'rounded-2xl border-2 border-p-marco bg-cartao ring-2 ring-p-marco-texto' : 'rounded-2xl border border-borda bg-cartao'}>
-                      <summary className="flex min-h-11 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 p-3">
-                        <h3 className="font-portal-titulo text-lg font-bold">{rotuloDaRefeicao(r.nome, r.horario)}</h3>
-                        {proxima && r.horario && <span className="rounded-full bg-p-marco px-2 text-sm font-semibold text-p-marco-texto">{`Próxima, ${daquiA(minutosAte(r.horario))}`}</span>}
-                        {respondida && <span className="text-sm text-suave">No diário</span>}
+                      {/* sem flex/grid no summary: ele perde o display: list-item e o marcador ▶/▼ que diz que a refeição abre (molde ajuda-seguranca.tsx); h3 direto no summary (o modelo de conteúdo admite um título) */}
+                      <summary className="min-h-11 cursor-pointer p-3">
+                        <h3 className="inline font-portal-titulo text-lg font-bold">{rotuloDaRefeicao(r.nome, r.horario)}</h3>
+                        {proxima && r.horario && <span className="ml-3 inline-block rounded-full bg-p-marco px-2 text-sm font-semibold text-p-marco-texto">{`Próxima, ${daquiA(minutosAte(r.horario))}`}</span>}
                       </summary>
                       <div className="px-3 pb-3">
-                        <RefeicaoDetalhe refeicao={r} respondida={respondida} />
+                        <RefeicaoDetalhe refeicao={r} respondida={false} />
                       </div>
                     </details>
                   </li>
@@ -4796,7 +4961,7 @@ MSG
 
 **Files:**
 - Create: `src/app/p/(portal)/jornada/linha-do-tempo.tsx`, `src/app/p/(portal)/jornada/page.test.ts`, `src/app/p/(portal)/evolucao/tabela-medidas.tsx`
-- Modify: `src/app/p/(portal)/jornada/page.tsx` (o esqueleto da T4), `src/app/p/(portal)/evolucao/page.tsx` (+ `page.test.ts`), `src/modules/portal/evolucao.ts` (+ `evolucao.test.ts`: as orientações saem — moram na Jornada)
+- Modify: `src/app/p/(portal)/jornada/page.tsx` (o esqueleto da T4), `src/app/p/(portal)/evolucao/page.tsx` (+ `page.test.ts`), `src/modules/portal/evolucao.ts` (+ `evolucao.test.ts`: as orientações saem — moram na Jornada), `e2e/portal.spec.ts` (o teste "Minha evolução…" de US-044 passa a conferir a tabela — Step 4)
 
 **Interfaces:**
 - Consumes: T9 (`jornadaDoPaciente`, `Jornada`, `Marco`, `MSG_JORNADA`), T8 (`evolucaoParaPaciente` sem peso quando oculto), T4 (`Faixa`, `CabecalhoDetalhe`, `molduraDaSecao`), T5 (`mesPorExtenso`); `GraficoLinha` (`src/modules/pacientes/ui/grafico-linha.tsx`), `QuandoLocal`, `formatarData`, `formatarDecimal`, `hojeNoFuso`.
@@ -5076,12 +5241,32 @@ export default async function TodasAsMedidas() {
 
 (Imports: `TabelaMedidas` de `./tabela-medidas`, `mesPorExtenso` de `@/modules/portal/datas-portal`, `hojeNoFuso` de `@/modules/pacientes/datas`; saem `formatarDecimal` e `formatarData` se não sobrar uso. O teste da página chama o default export: manter o nome que o `page.test.ts` importa ou trocar nos dois.)
 
+Reescrever em `e2e/portal.spec.ts` o teste "Minha evolução: peso sem % de gordura…" (~305–322; a lista "Peso: 80,0 (…) → …" e "Orientações recebidas" saem da página, Desvio 12). Novo título: `'Todas as medidas: peso sem % de gordura; com a opção ligada, o % aparece (US-044, US-194)'`; o meio passa a ser:
+
+```ts
+  await p.page.goto('/p/evolucao');
+  await expect(p.page.getByRole('heading', { level: 1, name: 'Todas as medidas' })).toBeVisible();
+  const tabela = p.page.getByRole('table', { name: 'Medidas por avaliação' });
+  await expect(tabela.getByRole('row', { name: /^Peso \(kg\)/ })).toContainText('80,0');
+  await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toHaveCount(0);
+  try {
+    await mostrarPercGordura(nutri, true);
+    await p.page.reload();
+    await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toBeVisible();
+  } finally {
+    await mostrarPercGordura(nutri, false);
+  }
+```
+
+(a conferência de "Nenhuma orientação registrada ainda." sai: as orientações moram na Jornada, coberta pelo `app-paciente.spec.ts` da T16).
+
 - [ ] **Step 5: Rodar e commitar**
 
 ```bash
 pnpm vitest run "src/app/p/(portal)/jornada" "src/app/p/(portal)/evolucao" src/modules/portal/evolucao.test.ts src/app/painel/cores.test.ts src/app/p/navegacao.test.ts
 pnpm typecheck && pnpm lint
-git add "src/app/p/(portal)/jornada" "src/app/p/(portal)/evolucao" src/modules/portal/evolucao.ts src/modules/portal/evolucao.test.ts
+pnpm test:e2e e2e/portal.spec.ts
+git add "src/app/p/(portal)/jornada" "src/app/p/(portal)/evolucao" src/modules/portal/evolucao.ts src/modules/portal/evolucao.test.ts e2e/portal.spec.ts
 git commit -m "$(cat <<'MSG'
 feat(portal): telas da Jornada e de Todas as medidas (P16-12)
 
@@ -5143,7 +5328,7 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
     const posicoes = ordem.map((t) => corpo.indexOf(t));
     expect(posicoes.every((p) => p >= 0), String(posicoes)).toBe(true);
     expect([...posicoes].sort((a, b) => a - b)).toEqual(posicoes);
-    expect(html).toContain('Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Todas estão na cópia dos seus dados.');
+    expect(html).toContain('Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados).');
     expect(html).not.toMatch(/peso/i); // RN-214: nenhuma tela diz que o peso está oculto
   });
   it('um vínculo só: sem "Trocar de nutricionista"; documentos não liberados: sem "Meus documentos"', async () => {
@@ -5222,7 +5407,12 @@ export default async function Eu() {
         </section>
         <section aria-labelledby="eu-consultorio" className={CARTAO}>
           <h2 id="eu-consultorio" className={H2}>Consultório</h2>
-          <p>{moldura.marca.nome}</p>
+          {/* US-197: "o consultório (logo, nome)" — o logo como na faixa (URL assinada de 5 min, fundo branco) */}
+          <p className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, sem otimização do Next */}
+            {moldura.marca.logoUrl && <img src={moldura.marca.logoUrl} alt={`Logo de ${moldura.marca.nome}`} className="h-10 w-auto rounded bg-white p-1" />}
+            <span>{moldura.marca.nome}</span>
+          </p>
           {vinculos.length > 1 && (
             <Link href="/p/escolher?volta=%2Fp%2Finicio" className={LINK}>Trocar de nutricionista</Link>
           )}
@@ -5255,8 +5445,9 @@ export default async function Eu() {
 Em `src/app/p/(portal)/perfil/privacidade.tsx`, logo no começo do que o componente devolve (antes dos botões), o texto fixo da RN-214 (G-D10 ★ — a Debby revisa):
 
 ```tsx
-      {/* RN-214 (Plano 16): transparência sem estigma — nunca diz ao paciente que o peso dele está oculto */}
-      <p className="text-sm">Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Todas estão na cópia dos seus dados.</p>
+      {/* RN-214 (Plano 16): transparência sem estigma — nunca diz ao paciente que o peso dele está oculto; e não promete
+          "todas" na cópia (notas privadas, rascunho do plano e anotações da nutricionista não saem — exportacao-job.ts) */}
+      <p className="text-sm">Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados).</p>
 ```
 
 - [ ] **Step 3: Exames e as telas de conta no visual G**
@@ -5288,7 +5479,7 @@ MSG
 
 **Files:**
 - Create: `src/modules/ajuda/portal.ts` (+ `portal.test.ts`), `src/app/p/(portal)/ajuda/page.tsx`, `src/app/p/(portal)/ajuda/actions.ts` (+ `actions.test.ts`), `src/app/p/(portal)/inicio/guia-do-portal.tsx`
-- Move: `src/app/painel/guia/tour.tsx` → `src/components/guia/tour.tsx` (`git mv`; mesmo código + a prop `focoAoFechar`)
+- Move: `src/app/painel/guia/tour.tsx` → `src/components/guia/tour.tsx` (`git mv`; mesmo código + as props `focoAoFechar` e `folhaEvitaAlvo`)
 - Modify: `src/app/painel/guia/guia-do-painel.tsx` (import do `Tour`; `aplicarMarca` passa a ser importado de `preferencias-tipos.ts` e reexportado), `src/modules/plataforma/preferencias-tipos.ts` (`aplicarMarca`, puro), `src/app/p/(portal)/inicio/page.tsx` (+ `page.test.ts`), `src/app/p/(portal)/perfil/page.tsx` (+ `page.test.ts`), `CLAUDE.md` (regra 1)
 
 **Interfaces:**
@@ -5327,6 +5518,9 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
   it('textos do aviso (US-199) e nenhum texto do tour fala pela nutricionista', () => {
     expect(AVISO_PORTAL).toMatchObject({ pergunta: 'O app mudou. Quer ver onde ficou cada coisa?', ver: 'Ver como funciona', agoraNao: 'Agora não' });
     for (const p of GUIA_PORTAL.passos) expect(p.texto).not.toMatch(/^Sua nutricionista/);
+  });
+  it('RN-203/RN-214: nem a ajuda nem o tour falam de peso ou IMC (o mesmo texto vai a quem tem o peso oculto)', () => {
+    expect(JSON.stringify({ ajuda: GUIA_PORTAL.ajuda, passos: GUIA_PORTAL.passos, aviso: AVISO_PORTAL })).not.toMatch(/peso|IMC/i);
   });
 });
 ```
@@ -5391,7 +5585,8 @@ export const GUIA_PORTAL: Guia = {
         titulo: 'Onde fica cada coisa',
         itens: [
           'Hoje: o que importa no dia — a próxima refeição, o que você registrou, os comentários da sua nutricionista e os avisos do consultório. O diário completo fica em "Ver todo o diário".',
-          'Jornada: o peso e as medidas de cada consulta, as orientações de cada atendimento, "Todas as medidas" e "Minhas consultas".',
+          // RN-203/RN-214: igual para todos e sem a palavra "peso" (quem tem o peso oculto não pode ler aqui que ele existe)
+          'Jornada: suas consultas, as medidas e as orientações de cada atendimento, "Todas as medidas" e "Minhas consultas".',
           'Plano: as refeições do dia, o PDF, a lista de compras e os conteúdos.',
           'Exames: enviar um exame e acompanhar os que você enviou (quando o consultório recebe exames pelo app).',
           'Eu: sua conta, documentos, notificações, privacidade, este manual e o Sair.',
@@ -5400,7 +5595,7 @@ export const GUIA_PORTAL: Guia = {
       {
         titulo: 'Perguntas comuns',
         itens: [
-          'Este app não envia mensagens para sua nutricionista. Dúvidas? Anote para a consulta ou use os contatos do consultório.',
+          'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta: dúvidas, anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
           '"Comi assim" registra a refeição no seu diário, sem escrever. Você tem 10 segundos para desfazer.',
           'Sem internet, o app mostra a última versão do seu plano.',
         ],
@@ -5410,7 +5605,8 @@ export const GUIA_PORTAL: Guia = {
   passos: [
     { alvo: 'faixa', titulo: 'Seu acompanhamento', texto: 'No topo ficam o nome do consultório e as partes do app. Em Hoje, um resumo da sua jornada leva à Jornada.' },
     { alvo: 'mural', titulo: 'Hoje', texto: 'Aqui aparecem a próxima refeição, o que você registrou, os comentários da sua nutricionista e os avisos do consultório.' },
-    { alvo: 'respostas', titulo: 'Responder à refeição', texto: 'Toque em "Comi assim" para registrar no diário sem escrever. Se comeu outra coisa, abra a refeição e toque em "Comi outra coisa".' },
+    // o alvo só existe com uma refeição na janela de 90 min: o texto não depende de haver uma na tela (sem alvo, o passo aparece centralizado)
+    { alvo: 'respostas', titulo: 'Responder à refeição', texto: 'Quando uma refeição estiver perto do horário, ela aparece em Hoje. Toque em "Comi assim" para registrar no diário sem escrever. Se comeu outra coisa, abra a refeição e toque em "Comi outra coisa".' },
     { alvo: 'acoes', titulo: 'Atalhos', texto: 'Aqui embaixo: foto da refeição, enviar exame e agendar consulta.' },
     { alvo: 'secao-eu', titulo: 'Eu', texto: 'Sua conta, documentos, notificações, privacidade, este passeio e o Sair ficam em Eu.' },
   ],
@@ -5445,7 +5641,7 @@ export async function marcarGuiaPortalAction(versao: number, estado: EstadoGuia)
 }
 ```
 
-Mover o `Tour`: `git mv src/app/painel/guia/tour.tsx src/components/guia/tour.tsx`; na assinatura, `focoAoFechar = '[data-guia="ajuda"]'` como prop opcional (`{ guia, aberto, aoFechar, aoMarcar, focoAoFechar = '[data-guia="ajuda"]' }: { …; focoAoFechar?: string }`), e a linha do foco perdido passa a `if (perdido) document.querySelector<HTMLElement>(focoAoFechar)?.focus();`. Em `src/app/painel/guia/guia-do-painel.tsx`: `import { Tour } from '@/components/guia/tour';`. Mover `aplicarMarca` (o corpo, sem mudança) para o fim de `src/modules/plataforma/preferencias-tipos.ts` e, em `guia-do-painel.tsx`, `import { aplicarMarca } from '@/modules/plataforma/preferencias-tipos'` + `export { aplicarMarca };` (o `guia-do-painel.test.ts` continua importando de lá). O painel não muda de comportamento (G-D3).
+Mover o `Tour`: `git mv src/app/painel/guia/tour.tsx src/components/guia/tour.tsx`; na assinatura, `focoAoFechar = '[data-guia="ajuda"]'` como prop opcional (`{ guia, aberto, aoFechar, aoMarcar, focoAoFechar = '[data-guia="ajuda"]' }: { …; focoAoFechar?: string }`), e a linha do foco perdido passa a `if (perdido) document.querySelector<HTMLElement>(focoAoFechar)?.focus();`. **Folha que não cobre o alvo** (correção da revisão do plano): abaixo de 640 px o cartão é uma folha presa embaixo (`max-sm:bottom-3`, ~240 px) e cobriria a barra de ações (`sticky bottom-0`, passo "Atalhos"); o `Tour` ganha a prop opcional `folhaEvitaAlvo = false` (o painel não muda, G-D3) e, com ela, quando `caixa && caixa.bottom > window.innerHeight - CARTAO_ALTURA - 24`, a folha troca `max-sm:bottom-3` por `max-sm:top-3`. O `GuiaDoPortal` passa `folhaEvitaAlvo`. Em `src/app/painel/guia/guia-do-painel.tsx`: `import { Tour } from '@/components/guia/tour';`. Mover `aplicarMarca` (o corpo, sem mudança) para o fim de `src/modules/plataforma/preferencias-tipos.ts` e, em `guia-do-painel.tsx`, `import { aplicarMarca } from '@/modules/plataforma/preferencias-tipos'` + `export { aplicarMarca };` (o `guia-do-painel.test.ts` continua importando de lá). O painel não muda de comportamento (G-D3).
 
 Criar `src/app/p/(portal)/inicio/guia-do-portal.tsx`:
 
@@ -5485,6 +5681,7 @@ export function GuiaDoPortal({ progresso: inicial, abrir }: { progresso: Progres
           guia={GUIA_PORTAL}
           aberto
           focoAoFechar='[data-guia="secao-eu"]'
+          folhaEvitaAlvo
           aoMarcar={marcar}
           aoFechar={() => {
             setAberto(false);
@@ -5603,7 +5800,7 @@ MSG
 
 ### Task 15: LGPD — exportação, anonimização e a prova do CS-194 nos módulos do portal (P16-15)
 
-**Revisão: completa (agente normas-cfn-lgpd)** — direito de acesso (LGPD art. 18, II): o titular continua recebendo o peso na cópia dos dados (RN-204); a resposta e a refeição do plano entram no `dados.json` dos dois escopos; `pesoOcultoNoAppEm` só no da equipe (D6 ★ — **confirmar aqui**); a anonimização trata `refeicao_do_plano` como o texto do diário; nenhum módulo do portal devolve peso ou IMC com a opção ligada (CS-194).
+**Revisão: completa (agente normas-cfn-lgpd)** — direito de acesso (LGPD art. 18, II): o titular continua recebendo o peso na cópia dos dados (RN-204); a resposta (com o rótulo que o paciente viu) e a refeição do plano entram no `dados.json` dos dois escopos; `pesoOcultoNoAppEm` também nos dois (D6 ★, revista: a questão vai ao advogado, E-09); a anonimização trata `refeicao_do_plano` como o texto do diário; nenhum módulo do portal devolve peso ou IMC com a opção ligada (CS-194).
 
 **Files:**
 - Create: `src/modules/portal/peso-oculto-portal.test.ts`
@@ -5611,14 +5808,14 @@ MSG
 
 **Interfaces:**
 - Consumes: T1 (colunas), T6 (`muralDoPaciente`), T7 (respostas), T8 (`definirPesoOculto`, `evolucaoParaPaciente`), T9 (`jornadaDoPaciente`, `miniJornadaDoPaciente`), T11 (`planoDoPaciente`); `montarDados`, `EscopoExportacao`, `anonimizarVencidos`.
-- Produces: `DadosExportacao.diario[].resposta`, `DadosExportacao.diario[].refeicaoDoPlano`, `DadosExportacao.paciente.pesoOcultoNoAppEm` (só `escopo = 'equipe'`).
+- Produces: `DadosExportacao.diario[].resposta`, `DadosExportacao.diario[].respostaRotulo`, `DadosExportacao.diario[].refeicaoDoPlano`, `DadosExportacao.paciente.pesoOcultoNoAppEm` (nos dois escopos, D6 ★ revista).
 
 - [ ] **Step 1: Testes (falham)**
 
 No fim do `describe` principal de `src/modules/pacientes/exportacao.test.ts`:
 
 ```ts
-  it('Plano 16 (§10, RN-204, D6 ★): resposta e refeição do plano no diário dos dois escopos; "Não mostrar peso no app" só no da equipe; o peso continua nos dois', async () => {
+  it('Plano 16 (§10, RN-204, D6 ★): resposta (código e rótulo) e refeição do plano no diário dos dois escopos; "Não mostrar peso no app" nos dois; o peso continua nos dois', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx, { pesoOcultoNoAppEm: now });
     await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, refeicao: 'Almoço', resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', dataHora: now }), app.db);
@@ -5626,11 +5823,12 @@ No fim do `describe` principal de `src/modules/pacientes/exportacao.test.ts`:
     const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
     const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
     for (const d of [equipe.dados, titular.dados]) {
-      expect(d.diario).toEqual([expect.objectContaining({ refeicao: 'Almoço', resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', texto: null })]);
+      // LGPD art. 19, II e art. 9º: o texto que o paciente viu, não só o código interno (mesmo problema do P12-23 e)
+      expect(d.diario).toEqual([expect.objectContaining({ refeicao: 'Almoço', resposta: 'como_no_plano', respostaRotulo: 'Comi assim', refeicaoDoPlano: 'Almoço · 12:30', texto: null })]);
       expect(d.antropometria.map((a) => a.pesoKg)).toEqual([81.37]); // RN-204: a opção não muda a exportação
+      // D6 ★ revista: dado pessoal do titular (art. 5º, I; art. 18, II) — nos dois escopos até o parecer do advogado (E-09)
+      expect(d.paciente.pesoOcultoNoAppEm).toBe(now.toISOString());
     }
-    expect(equipe.dados.paciente.pesoOcultoNoAppEm).toBe(now.toISOString());
-    expect(titular.dados.paciente).not.toHaveProperty('pesoOcultoNoAppEm'); // anotação clínica da equipe, como as notas privadas (US-016)
   });
 ```
 
@@ -5727,25 +5925,28 @@ Em `src/modules/pacientes/exportacao-job.ts`:
 
 ```ts
     /**
-     * Plano 16 (G-D1, D6 ★): "Não mostrar peso no app" — só no escopo da equipe. É anotação clínica da profissional sobre o
-     * paciente (como as notas privadas, US-016), não dado fornecido por ele; o peso das avaliações vai nos dois escopos (RN-204).
+     * Plano 16 (G-D1, D6 ★ revista na revisão do plano): preferência de exibição no app definida pela nutricionista ("Não
+     * mostrar peso no app", desde quando) — nos DOIS escopos: é dado pessoal do titular (LGPD art. 5º, I; art. 18, II). Tirar
+     * da cópia do titular só com o parecer do advogado (E-09) e a base no LEIA-ME. O peso das avaliações vai nos dois (RN-204).
      */
-    pesoOcultoNoAppEm?: string | null;
+    pesoOcultoNoAppEm: string | null;
 ```
 
-e, em `diario`, o tipo passa a `{ dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null; /** Plano 16 (RN-197): "como_no_plano" | "outra_coisa" | null. */ resposta: string | null; /** "{nome} · {HH:MM}" da refeição do plano (cópia). */ refeicaoDoPlano: string | null }[]` (o comentário do campo diz: "texto, refeição, a resposta à refeição do plano, comentário da nutricionista e a foto").
+e, em `diario`, o tipo passa a `{ dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null; /** Plano 16 (RN-197): "como_no_plano" | "outra_coisa" | null. */ resposta: string | null; /** o texto que o paciente viu: "Comi assim" | "Comi outra coisa" | null (LGPD art. 19, II). */ respostaRotulo: string | null; /** "{nome} · {HH:MM}" da refeição do plano (cópia). */ refeicaoDoPlano: string | null }[]` (o comentário do campo diz: "texto, refeição, a resposta à refeição do plano, comentário da nutricionista e a foto").
 
 2. No objeto `paciente` montado em `montarDados`, depois de `recusouIaEm`:
 
 ```ts
-      ...(escopo === 'equipe' ? { pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null } : {}),
+      pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null, // D6 ★ revista: nos dois escopos
 ```
 
 3. No `diario: di.map(…)`:
 
 ```ts
-    diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri, resposta: e.resposta, refeicaoDoPlano: e.refeicaoDoPlano })),
+    diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri, resposta: e.resposta, respostaRotulo: e.resposta ? ROTULO_RESPOSTA[e.resposta as RespostaDoDiario] : null, refeicaoDoPlano: e.refeicaoDoPlano })),
 ```
+
+(Import de `ROTULO_RESPOSTA` e `type RespostaDoDiario` de `@/modules/portal/diario-constantes`, que não importa nada de servidor.)
 
 O `prontuario.pdf` da exportação não tem seção do diário (conferido em 08/10/2026: o diário só vai no `dados.json` e as fotos em `diario/`): nada a mudar nele.
 
@@ -5759,7 +5960,8 @@ git commit -m "$(cat <<'MSG'
 feat(lgpd): respostas do diário e a opção de peso na exportação (P16-15)
 
 O dados.json leva a resposta e a refeição do plano de cada registro do
-diário nos dois escopos e "Não mostrar peso no app" só no da equipe (D6);
+diário nos dois escopos (com o rótulo que o paciente viu) e "Não mostrar
+peso no app" também nos dois (D6, revista: dado pessoal do titular);
 o peso das avaliações continua nos dois (RN-204). A anonimização trata a
 refeição do plano como o texto do diário. Teste do CS-194 sobre todos os
 módulos do portal.
@@ -5776,7 +5978,7 @@ MSG
 
 **Files:**
 - Create: `e2e/app-paciente.spec.ts`, `e2e/nada-some.spec.ts`, `docs/operacao/app-paciente.md`
-- Modify: `e2e/portal.ts` (helper `publicarPlanoDoDia`), `e2e/acessibilidade.spec.ts` (`ROTAS`, refeição aberta, tour, foco sobre a faixa, 320 px com texto em 200%), `test/carga/cenario.js`, `docs/manual-tecnico/05-agenda-portal-conteudo.md`, `docs/manual-tecnico/11-exames-enviados.md`, `docs/manual-tecnico/README.md`, `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md` (status), `docs/superpowers/specs/2026-09-27-nutridebby-mvp-historias.md` (tabela "Textos de interface" do E5)
+- Modify: `e2e/portal.ts` (helper `publicarPlanoDoDia`), `e2e/acessibilidade.spec.ts` (`ROTAS`, refeição aberta, tour, foco sobre a faixa, 320 px com texto em 200%), `test/carga/cenario.js`, `docs/manual-tecnico/05-agenda-portal-conteudo.md`, `docs/manual-tecnico/11-exames-enviados.md`, `docs/manual-tecnico/06-worker-seguranca-operacao.md` (§6.8.1, voltar atrás), `docs/manual-tecnico/README.md`, `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md`, `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md` (status), `docs/superpowers/specs/2026-09-27-nutridebby-mvp-historias.md` (tabela "Textos de interface" do E5)
 
 **Interfaces:**
 - Consumes: tudo das Tarefas 1–15; `pacienteNoPortal`, `avaliar`, `entradasDoPlano` (`e2e/portal.ts`), `entrarComo` (`e2e/helpers.ts`), `contraste`, `corDaFaixa`.
@@ -5845,11 +6047,11 @@ test('Hoje: a refeição que vem aí; "Comi assim" com "Desfazer"; depois do pra
   const item = p.page.getByRole('listitem').filter({ hasText: `Almoço` }).filter({ hasText: horario });
   await expect(item).toBeVisible();
   await expect(item).not.toContainText('Sua nutricionista'); // RN-194: o lembrete é do app do consultório
-  await expect(p.page.getByText('Este app não envia mensagens para sua nutricionista.', { exact: false })).toBeVisible();
+  await expect(p.page.getByText('Este app não é um canal de conversa', { exact: false })).toBeVisible();
   await expect(p.page.locator('main textarea, main input[type="text"]')).toHaveCount(0); // C-191
 
   await item.getByRole('button', { name: 'Comi assim' }).click();
-  await expect(item.getByRole('status')).toHaveText('Registrado no diário.');
+  await expect(item.getByRole('status')).toContainText('Registrado no diário.'); // + o sr-only "Para desfazer…"
   await item.getByRole('button', { name: 'Desfazer' }).click();
   await expect(item.getByRole('status')).toHaveText('Registro desfeito.');
   await p.page.goto('/p/diario');
@@ -5947,29 +6149,35 @@ Criar `e2e/nada-some.spec.ts`:
 ```ts
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { pacienteNoPortal, publicarPlanoDoDia } from './portal';
+import { marcarParaPaciente, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
-// Plano 16 (CS-190): toda função do portal de antes do layout G é alcançável em ≤ 2 toques a partir de Hoje (a tabela
-// "nada some" da §4.10 da spec é o dado deste teste). O consultório do E2E tem documentos liberados e o recebimento de
-// exames ligado (scripts/e2e-seed.ts). IPs: 10.9.26.10 (nutricionista) e 10.9.26.11 (paciente).
+// Plano 16 (CS-190): toda função do portal de antes do layout G é alcançável a partir de Hoje no número de toques da
+// tabela "nada some" da §4.10 da spec (o dado deste teste; ≤ 2, e 3 só nas linhas do Desvio 16). O consultório do E2E tem
+// documentos liberados e o recebimento de exames ligado (scripts/e2e-seed.ts). IPs: 10.9.26.10 (nutricionista),
+// 10.9.26.11 (paciente) e 10.9.26.12 (conta MULTI). O conteúdo de dentro das telas que dependem de dado que o E2E não cria
+// (a "Sugestão de receita" na refeição aberta, a "Orientação da sua nutricionista" na Jornada) é coberto pelos testes de
+// componente (T11 `RefeicaoDetalhe`, T12 `jornada/page.test.ts`); aqui o teste mede o caminho até a tela que os mostra.
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios
 type Toque = { nome: string; em?: 'Seções' | 'Ações'; papel?: 'link' | 'button' };
-type Caminho = { funcao: string; toques: [Toque] | [Toque, Toque]; destino?: RegExp; ve?: { papel: 'link' | 'button' | 'heading'; nome: string } };
+type Caminho = { funcao: string; toques: [Toque] | [Toque, Toque] | [Toque, Toque, Toque]; destino?: RegExp; ve?: { papel: 'link' | 'button' | 'heading'; nome: string } };
 
 const CAMINHOS: Caminho[] = [
   { funcao: 'Diário completo (histórico, foto, comentário)', toques: [{ nome: 'Ver todo o diário' }], destino: /\/p\/diario$/ },
   { funcao: 'Registrar refeição com foto', toques: [{ nome: 'Foto da refeição', em: 'Ações' }], destino: /\/p\/diario\?foto=1/ },
-  { funcao: 'Refeição aberta', toques: [{ nome: 'Ver a refeição' }], destino: /\/p\/plano\/refeicao\/[0-9a-f-]{36}$/ },
+  { funcao: 'Refeição aberta (e a sugestão de receita dela)', toques: [{ nome: 'Ver a refeição' }], destino: /\/p\/plano\/refeicao\/[0-9a-f-]{36}$/ },
   { funcao: 'Enviar exame', toques: [{ nome: 'Enviar exame', em: 'Ações' }], destino: /\/p\/exames(#enviar)?$/ },
   { funcao: 'Agendar consulta', toques: [{ nome: 'Agendar', em: 'Ações' }], destino: /\/p\/agenda(\/nova)?$/ },
-  { funcao: 'Jornada (peso por consulta, orientações)', toques: [{ nome: 'Jornada', em: 'Seções' }], destino: /\/p\/jornada$/ },
+  { funcao: 'Jornada (medidas por consulta, orientações recebidas)', toques: [{ nome: 'Jornada', em: 'Seções' }], destino: /\/p\/jornada$/ },
+  { funcao: 'Confirmar presença, cancelar, remarcar (próxima consulta)', toques: [{ nome: 'Jornada', em: 'Seções' }, { nome: 'Ver a consulta' }], destino: /\/p\/agenda\/[0-9a-f-]{36}$/, ve: { papel: 'button', nome: 'Confirmar presença' } },
   { funcao: 'Todas as medidas', toques: [{ nome: 'Jornada', em: 'Seções' }, { nome: 'Todas as medidas' }], destino: /\/p\/evolucao$/ },
   { funcao: 'Minhas consultas', toques: [{ nome: 'Jornada', em: 'Seções' }, { nome: 'Minhas consultas' }], destino: /\/p\/agenda$/ },
-  { funcao: 'Plano do dia, orientações e PDF', toques: [{ nome: 'Plano', em: 'Seções' }], destino: /\/p\/plano$/ },
+  { funcao: 'Plano do dia e orientações', toques: [{ nome: 'Plano', em: 'Seções' }], destino: /\/p\/plano$/ },
+  { funcao: 'Baixar PDF do plano', toques: [{ nome: 'Plano', em: 'Seções' }], ve: { papel: 'link', nome: 'Baixar PDF' } },
   { funcao: 'Lista de compras', toques: [{ nome: 'Plano', em: 'Seções' }, { nome: 'Lista de compras' }], destino: /\/p\/compras/ },
   { funcao: 'Conteúdos', toques: [{ nome: 'Plano', em: 'Seções' }, { nome: 'Conteúdos' }], destino: /\/p\/conteudos$/ },
   { funcao: 'Meus exames', toques: [{ nome: 'Exames', em: 'Seções' }], destino: /\/p\/exames$/ },
-  { funcao: 'Conectado como', toques: [{ nome: 'Eu', em: 'Seções' }], ve: { papel: 'heading', nome: 'Conta' } },
+  { funcao: 'Conectado como', toques: [{ nome: 'Eu', em: 'Seções' }], ve: { papel: 'heading', nome: 'Conta' } }, // e o e-mail: teste próprio abaixo
   { funcao: 'Meus documentos', toques: [{ nome: 'Eu', em: 'Seções' }, { nome: 'Ver meus documentos' }], destino: /\/p\/documentos$/ },
   { funcao: 'Notificações e WhatsApp', toques: [{ nome: 'Eu', em: 'Seções' }], ve: { papel: 'heading', nome: 'Notificações' } },
   { funcao: 'Privacidade (baixar, pedir exclusão)', toques: [{ nome: 'Eu', em: 'Seções' }], ve: { papel: 'button', nome: 'Baixar meus dados' } },
@@ -5985,6 +6193,7 @@ test.beforeAll(async ({ browser }) => {
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.26.11');
   await publicarPlanoDoDia(nutri, paciente.prontuario);
+  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 0); // a próxima consulta (Jornada › "Ver a consulta")
 });
 test.afterAll(async () => {
   await paciente?.page.context().close();
@@ -6005,33 +6214,54 @@ for (const c of CAMINHOS) {
   });
 }
 
-test('as rotas antigas continuam (C-195): os destinos do push e do e-mail abrem e marcam a seção certa (RN-191)', async () => {
+test('"Conectado como {e-mail}" em Eu (§4.10)', async () => {
+  await paciente.page.goto('/p/inicio');
+  await paciente.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu', exact: true }).click();
+  await expect(paciente.page.getByText(paciente.email)).toBeVisible();
+});
+
+test('"Trocar de nutricionista" (2+ vínculos) em Eu, a 1 toque de Hoje (§4.10)', async ({ browser }) => {
+  const page = await entrarComo(browser, MULTI.email, MULTI.senha, '10.9.26.12');
+  await expect(page).toHaveURL(/\/p\/escolher/);
+  await page.getByRole('main').getByRole('button').first().click(); // o primeiro consultório da lista (o "Sair" fica no cabeçalho, fora do main)
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Trocar de nutricionista' })).toBeVisible();
+  await page.context().close();
+});
+
+test('as rotas antigas continuam (C-195): os destinos do push e do e-mail abrem; seção marcada nas seções e "Voltar para {seção}" nos detalhes (Desvio 14)', async () => {
   const page = paciente.page;
-  const secoes: [string, string | null][] = [
-    ['/p/diario', null],
-    ['/p/plano', 'Plano'],
-    ['/p/conteudos', null],
-    ['/p/documentos', null],
-    ['/p/exames', 'Exames'],
-    ['/p/evolucao', null],
-    ['/p/agenda', null],
-    ['/p/perfil', 'Eu'],
+  // [rota, seção da nav marcada | null, nome do "Voltar" nas telas de detalhe]
+  const secoes: [string, string | null, string | null][] = [
+    ['/p/diario', null, 'Voltar para Hoje'],
+    ['/p/plano', 'Plano', null],
+    ['/p/conteudos', null, 'Voltar para Plano'],
+    ['/p/compras', null, 'Voltar para Plano'],
+    ['/p/documentos', null, 'Voltar para Eu'],
+    ['/p/exames', 'Exames', null],
+    ['/p/evolucao', null, 'Voltar para Jornada'],
+    ['/p/agenda', null, 'Voltar para Jornada'],
+    ['/p/perfil', 'Eu', null],
   ];
-  for (const [rota, secao] of secoes) {
+  for (const [rota, secao, voltar] of secoes) {
     await page.goto(rota);
     await expect(page, rota).toHaveURL(new RegExp(`${rota.replace(/\//g, '\\/')}$`));
     await expect(page.getByRole('heading', { level: 1 }), rota).toBeVisible();
     if (secao) await expect(page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: secao }), rota).toHaveAttribute('aria-current', 'page');
+    if (voltar) await expect(page.getByRole('banner').getByRole('link', { name: voltar, exact: true }), rota).toBeVisible();
   }
 });
 ```
+
+(A "Página da exportação" da §4.10 não sai de Hoje — chega pelo link do e-mail — e já tem E2E em `portal.spec.ts` e `acessibilidade.spec.ts`; o "Ativar notificações" do cartão do mural depende da permissão do navegador, e a mesma função fica em Eu › Notificações, linha "Notificações e WhatsApp".)
 
 - [ ] **Step 4: Acessibilidade das telas novas**
 
 Em `e2e/acessibilidade.spec.ts`:
 
 1. `ROTAS` ganha `'/p/jornada'` e `'/p/ajuda'` (as duas entram também no laço do modo escuro, que já percorre `ROTAS`).
-2. No `beforeAll`, depois do `publicarPlanoSimples`, guardar o id da refeição para o axe da refeição aberta: `await paciente.page.goto('/p/plano'); refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);` (com `let refeicaoId = '';` no topo).
+2. No `beforeAll`, o `publicarPlanoSimples` passa a `publicarPlanoDoDia` (import de `./portal`; correção da revisão do plano: com o "Almoço" às 12:00, o mural só tem a refeição entre 10:30 e 23:59 e o axe de Hoje com o "Comi assim" dependeria da hora do CI — conferir com `git grep -n "12:00" e2e/acessibilidade.spec.ts` que nenhum teste do arquivo depende desse horário) e, depois dele, guardar o id da refeição para o axe da refeição aberta: `await paciente.page.goto('/p/plano'); refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);` (com `let refeicaoId = '';` no topo).
 3. Acrescentar os testes:
 
 ```ts
@@ -6052,6 +6282,12 @@ test('axe na refeição aberta (claro e escuro) e no tour do portal (passo a pas
     await dialogo.getByRole('button', { name: 'Próximo' }).focus();
     await paciente.page.keyboard.press('Enter');
     await expect(dialogo.getByText(`${i} de 5`)).toBeVisible();
+    if (i === 4) {
+      // "Atalhos" (alvo: a barra de ações, sticky no rodapé): a folha do tour não pode cobrir o alvo (folhaEvitaAlvo, T14)
+      const alvo = (await paciente.page.locator('[data-guia="acoes"]').boundingBox())!;
+      const folha = (await dialogo.locator('#tour-titulo').locator('xpath=..').boundingBox())!;
+      expect(folha.y + folha.height <= alvo.y || alvo.y + alvo.height <= folha.y, 'folha do tour sobre a barra de ações').toBe(true);
+    }
   }
   await dialogo.getByRole('button', { name: 'Concluir' }).focus();
   await paciente.page.keyboard.press('Enter');
@@ -6083,16 +6319,40 @@ test('foco visível sobre a faixa do portal: contorno branco ≥ 3:1 contra a co
   }
 });
 
-test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G rola na horizontal; as seções continuam em colunas', async () => {
+test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G rola na horizontal; as seções continuam em colunas; axe a 320 px em todas', async () => {
   await paciente.page.setViewportSize({ width: 320, height: 780 });
   try {
-    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda']) {
+    // todas as telas do portal que esta paciente abre (termo, escolher e sem-acesso: testes próprios do arquivo)
+    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
       await paciente.page.goto(url);
+      expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
       await paciente.page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
   } finally {
     await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+  }
+});
+
+test('"Comi assim" só com o teclado (WCAG 2.1.1, 2.2.1, 2.4.3): o foco vai ao "Desfazer" (o prazo pausa) e, ao desfazer, volta ao botão; axe com o aviso aberto, claro e escuro', async () => {
+  test.setTimeout(60_000);
+  for (const modo of ['light', 'dark'] as const) {
+    await paciente.page.emulateMedia({ colorScheme: modo });
+    try {
+      await paciente.page.goto('/p/inicio');
+      const comi = paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first();
+      await comi.focus();
+      await paciente.page.keyboard.press('Enter');
+      const desfazer = paciente.page.getByRole('button', { name: 'Desfazer' });
+      await expect(desfazer).toBeFocused();
+      expect(await violacoes(paciente.page), `Hoje com o "Desfazer" aberto (${modo})`).toEqual([]);
+      await paciente.page.waitForTimeout(11_000); // com o foco no aviso, o prazo de 10 s não corre (nada é enviado)
+      await expect(desfazer).toBeVisible();
+      await paciente.page.keyboard.press('Enter');
+      await expect(paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first()).toBeFocused();
+    } finally {
+      await paciente.page.emulateMedia({ colorScheme: 'light' });
+    }
   }
 });
 ```
@@ -6105,7 +6365,8 @@ Em `test/carga/cenario.js`, `ROTAS` ganha `'/p/jornada'` e o laço do `paciente(
 
 - `docs/manual-tecnico/05-agenda-portal-conteudo.md`: §5.5.2 "Rotas e abas" vira "Rotas e seções" (a tabela da §4.1 da spec: seção, rota, o que marca, título; `SECOES_DO_PORTAL`, `secoesDoPortal`, `itemAtual`; a regra "toda página marca uma seção" e o teste); §5.5 ganha **5.5.11 "Hoje: o mural"** (`comporMural` × `muralDoPaciente`, fontes, janela de 7 dias, 40 itens, 90 min, autoria RN-194, `auditRead` por entidade, por que não há tabela de mensagens), **5.5.12 "Respostas no diário"** (colunas, CHECKs, `refeicao_do_plano` como cópia, idempotência D3, "Desfazer" no aparelho com `keepalive`, sem DELETE), **5.5.13 "Jornada"** (módulo, mini-jornada, gráfico peso/cintura) e **5.5.14 "Não mostrar peso no app"** (coluna, gatilho `paciente_colunas`, filtro no módulo, o que não muda, exportação D6); §5.5.4 (offline) acrescenta a refeição aberta dentro de `/p/plano` e o `AbrirRefeicaoDaUrl`; §5.7 (interface) acrescenta os tokens do portal, `corDaFaixa` com a conta da spec, as fontes e o número medido na T2; §5.8 (manual guiado) acrescenta o `portal-novidades` e a regra 1. O §5.5.8 deixa de falar das 7 abas.
 - `docs/manual-tecnico/11-exames-enviados.md`: "onde fica no portal" — a seção Exames (condicional, RN-192), o "Enviar exame" da barra de ações e o item do mural.
-- `docs/manual-tecnico/README.md`: o Plano 16 no índice dos capítulos e as divergências spec × código (Desvios 1 a 12 deste plano).
+- `docs/manual-tecnico/06-worker-seguranca-operacao.md` §6.8.1 (voltar atrás): o aviso do passo 7 do runbook — depois do Plano 16, a imagem anterior mostra peso e IMC a quem tem "Não mostrar peso no app" ligado; listar e avisar as nutricionistas (com o OK do dono) ou corrigir para a frente.
+- `docs/manual-tecnico/README.md`: o Plano 16 no índice dos capítulos e as divergências spec × código (Desvios 1 a 16 deste plano).
 - Spec G: status "**Implementado no Plano 16**" com a data do merge e as respostas do dono a G-D5…G-D12 (as recomendações, se ele não mudou nada); a spec do MVP (histórias, E5): a tabela "Textos de interface" ganha os textos de `MSG_MURAL`, `MSG_JORNADA`, `MSG_G`, `MSG_PESO_OCULTO`, `MSG_COMI_ASSIM`, `AVISO_PORTAL` e do guia.
 - Índice dos planos: a linha do **Plano 16** ("App do paciente no layout G verde", G-01 e G-02, spec G v0.1, status) entre o 13 e o 14, com o registro do processo da execução.
 - Backlog: G-01 e G-02 → P16-01 a P16-16 concluídos; os Minors da revisão e os "Pontos menores" abaixo.
@@ -6113,20 +6374,11 @@ Em `test/carga/cenario.js`, `ROTAS` ganha `'/p/jornada'` e o laço do `paciente(
 
 - [ ] **Step 7: O runbook**
 
-Criar `docs/operacao/app-paciente.md` com o conteúdo de "Runbook do dono" (abaixo), na forma de passos com caixa de seleção, e com a consulta de leitura do CS-191 (rodada só pelo controlador, com o OK do dono, no banco de produção — nunca por subagente):
+Criar `docs/operacao/app-paciente.md` com o conteúdo de "Runbook do dono" (abaixo), na forma de passos com caixa de seleção. **Sem SQL ad hoc em produção** (correção da revisão do plano): `diary_entries`, `meal_plans` e `patients` têm RLS forçada — com o `nutri_app` e sem `app.tenant_id` a consulta devolve 0 (lido como "meta não atingida"), e com superusuário leria dado de saúde de todos os consultórios fora do modelo da regra 1. O runbook registra a definição da medida e as duas condições antes de medir:
 
-```sql
--- CS-191 (G-D12 ★): pacientes ativos com plano publicado que registraram ≥ 3 respostas por semana ISO (fuso de cada tenant)
-with semanas as (
-  select d.tenant_id, d.patient_id, date_trunc('week', d.data_hora at time zone t.fuso) as semana, count(*) as n
-    from diary_entries d join tenants t on t.id = d.tenant_id
-   where (d.resposta is not null or d.foto_status <> 'sem_foto') and d.data_hora >= :deploy and d.data_hora < :deploy + interval '28 days'
-   group by 1, 2, 3
-)
-select count(distinct (s.tenant_id, s.patient_id)) filter (where s.n >= 3) as com_meta,
-       (select count(*) from patients p join meal_plans m on m.patient_id = p.id and m.status = 'publicado' where p.status = 'ativo') as base
-  from semanas s;
-```
+- **Definição do CS-191 (G-D12 ★, G-D15 ★):** paciente ativo, não anonimizado, com plano publicado no início da janela, que registrou **≥ 3 respostas** ("Comi assim", "Comi outra coisa" ou foto) **em cada uma das 4 semanas ISO** depois do deploy, no fuso do tenant (a v0.1 contava quem chegou a 3 em **qualquer** semana — `filter (where s.n >= 3)` — o que não é a meta). A alternativa "média ≥ 3 por semana nas 4 semanas" fica para o dono escolher na G-D15.
+- **Como medir:** por uma função agregada `SECURITY DEFINER` no molde de `drizzle/0087_metricas_sucesso_admin.sql` (`search_path` fixo, entra tenant a tenant com `set_config`, recusa rodar dentro de `withTenant`, devolve **só contagens** por tenant — `base` e `com_meta` —, nenhuma linha de saúde), chamada pelo admin ou pelo runbook. A função **não** entra neste plano: vira o item **P16-17** do backlog (migration + teste com duas semanas cheias e uma com 2 respostas), feito só depois da G-D15 ★.
+- **Quem pode ser medido (G-D15 ★, LGPD art. 39; DPA `0.1-provisorio`, `src/modules/plataforma/dpa.ts:14`: a operadora trata os dados "segundo as instruções da controladora … nem usado para outra finalidade"):** até o DPA definitivo (E-09) ter uma cláusula de estatística de uso agregada, sem dado de saúde no resultado, medir **só no consultório da Debby**, com o pedido dela registrado como instrução da controladora; ou trocar a métrica por uma que não leia tabela de saúde (por exemplo, abertura de Hoje em `access_events`, que já é a base do CS-02).
 
 - [ ] **Step 8: Verificação completa e commit**
 
@@ -6158,13 +6410,14 @@ MSG
 
 Nenhum passo é do código; cada um tem dono. O layout entra **para todos** os pacientes no deploy (G-D11 ★ = a).
 
-1. **Antes de executar o plano.** O Plano 13 já está na `main` (G-D2). O dono responde às pendências **G-D5 a G-D12 ★** (ou confirma as recomendações, que o plano já aplica): D4/G-D5 (desfazer de 10 s), D5/G-D6 (peso e IMC), D7/G-D7 (escurecer a cor só na faixa), D15/G-D8 (Conteúdos em Plano), D11/G-D9 (Exames some), D17/G-D10 (a Debby revisa os textos), D16/G-D11 (para todos), D18/G-D12 (meta do CS-191) — e a **D6 ★** (a opção de peso fora da exportação do titular), que o `normas-cfn-lgpd` confere na T15.
-2. **Textos (G-D10 ★).** A Debby lê, no ambiente de teste, o mural (refeição, comentário, exames, consulta, novidades, rodapé "Este app não envia mensagens…"), a refeição aberta, a Jornada, a ajuda da caixa "Não mostrar peso no app", o texto de Privacidade (RN-214) e os 5 passos do tour. Correção de texto = trocar a constante (e o teste que a cita) **antes** do merge; nenhum texto do sistema pode falar pela nutricionista (RN-194).
+1. **Antes de executar o plano.** O Plano 13 já está na `main` (G-D2). O dono responde às pendências **G-D5 a G-D12 ★** (ou confirma as recomendações, que o plano já aplica): D4/G-D5 (desfazer de 10 s), D5/G-D6 (peso e IMC), D7/G-D7 (escurecer a cor só na faixa), D15/G-D8 (Conteúdos em Plano), D11/G-D9 (Exames some), D17/G-D10 (a Debby revisa os textos), D16/G-D11 (para todos), D18/G-D12 (meta do CS-191) — e a **D6 ★** (revista: a opção de peso vai na exportação dos dois escopos até o parecer do advogado, E-09) e as novas **G-D13 a G-D17 ★** (em "Decisões do dono (★) da revisão do plano", no topo do plano).
+2. **Textos (G-D10 ★).** A Debby lê, no ambiente de teste, o mural (refeição, comentário, exames, consulta, novidades, rodapé "Seus registros do diário ficam visíveis para sua nutricionista…", que substitui o "Este app não envia mensagens…" da spec v0.1), a refeição aberta, a Jornada, a ajuda da caixa "Não mostrar peso no app", o texto de Privacidade (RN-214) e os 5 passos do tour. Correção de texto = trocar a constante (e o teste que a cita) **antes** do merge; nenhum texto do sistema pode falar pela nutricionista (RN-194).
 3. **Teste no consultório (Debby, com dado fictício).** Com uma conta de paciente de teste no celular dela: abrir Hoje perto de uma refeição do plano, "Comi assim" e "Desfazer", "Comi outra coisa" com texto, "Mandar foto do prato"; conferir no painel o feed do diário ("Comeu como no plano"); ligar "Não mostrar peso no app" e conferir que o app não mostra peso nem IMC em lugar nenhum; desligar. Conferir no modo escuro e com a fonte do celular no máximo.
 4. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR; conferir no PR o job `image` (≤ 265 MB) e o total de `woff2` (≤ 160 KB).
 5. **Depois do deploy.** O manifest do PWA não muda (`id`/`start_url` = `/p/inicio`): quem já instalou continua com o mesmo app; o service worker renova a cópia do plano pelo `x-nd-build`. Avisar os pacientes, se a Debby quiser, de que o app mudou (o próprio app mostra o aviso uma vez).
-6. **4 semanas depois (CS-191, CS-192, PM-G11).** O controlador, com o OK do dono, roda as consultas de leitura de `docs/operacao/app-paciente.md` (respostas por semana; acesso diário em `access_events` comparado às 4 semanas anteriores; crescimento de `audit_log`). Se o `audit_log` pesar, propor o agrupamento por dia (como `access_events`) num plano novo.
-7. **Backup no host (P02-11) — continua pendente.** Lembrete: nada do Plano 16 muda o backup, mas os dados reais dos pacientes só devem crescer com ele ligado.
+6. **4 semanas depois (CS-191, CS-192, PM-G11).** **Antes de medir** (correção da revisão do plano): a G-D15 ★ respondida (definição da meta e de quem pode ser medido) e a função agregada do P16-17 em produção — nunca SQL ad hoc nas tabelas de saúde, nunca medida entre consultórios sem a cláusula do DPA definitivo (E-09) ou o pedido registrado da nutricionista (LGPD art. 39). Depois, o controlador, com o OK do dono, chama a função (respostas por semana, só contagens) e lê o acesso diário pela `admin_metricas_sucesso` (CS-192) e o crescimento de `audit_log`. Se o `audit_log` pesar, propor o agrupamento por dia (como `access_events`) num plano novo.
+7. **Voltar atrás (imagem anterior) depois do Plano 16** (correção da revisão do plano): a coluna `peso_oculto_no_app_em` continua no banco (migration só aditiva), mas o portal antigo **não a lê** e volta a mostrar peso e IMC aos pacientes com "Não mostrar peso no app" ligado — o dano que a G-02 existe para evitar. Antes de qualquer volta atrás, com o OK do dono: contar (função agregada ou o painel de cada nutricionista, nunca SQL ad hoc) os pacientes com a opção ligada e avisar as nutricionistas, ou **preferir corrigir para a frente**. Na janela start-first do deploy, a instância antiga ignora a opção por segundos (aceito).
+8. **Backup no host (P02-11) — continua pendente.** Lembrete: nada do Plano 16 muda o backup, mas os dados reais dos pacientes só devem crescer com ele ligado.
 
 ## Checagem final (antes do PR)
 
@@ -6205,3 +6458,12 @@ Nenhum passo é do código; cada um tem dono. O layout entra **para todos** os p
 - **Imutabilidade do conteúdo do paciente no diário** (R8): gatilho que impede a equipe de mudar `texto`, `resposta` e `refeicao_do_plano` (só a LGPD remove a foto).
 - **Resposta sem a foto com a cota esgotada** (R7).
 - **"Próxima refeição" sem horário no plano antigo:** a correção de `proximaRefeicao` (T11) muda também o destaque de quem tinha refeição sem horário — conferir com a Debby se algum plano real dependia disso.
+- **`useOnline` com o ping do `SeloOffline`** (revisão do plano, achado 12): com a rede que não responde, o selo diz "Offline" e o "Comi assim" fica habilitado até o envio falhar em 10 s; pôr o estado do ping num store que o `useOnline` também leia.
+- **"Próxima, daqui a {tempo}" e a refeição aberta na cópia offline** (achado 13): calculados no servidor, ficam congelados na cópia de até 30 dias; calcular no cliente a partir dos horários ou esconder a contagem com o selo offline.
+- **Aviso "O app mudou" para quem nunca usou** (achado 14, G-D17 ★): boas-vindas para quem não tem `access_events` anteriores ao deploy.
+- **Anel branco de 2 px em volta do foco (RN-207, Desvio 15):** `box-shadow` escopado em `[data-app='paciente']`, conferido pelo teste de contraste.
+- **Nome do consultório nas telas de detalhe** (achado 18, RN-210): linha pequena (ou `sr-only`) no `CabecalhoDetalhe` quando `vinculos.length > 1`.
+- **"Salvar" de "Não mostrar peso no app" sem retorno** (achado 19): `useActionState` com "Preferência salva." num `role="status"` sempre montado.
+- **Gatilho que fixa `data_hora = now()` para o papel paciente em `diary_entries`** (achado 29, §11.3 da spec).
+- **P16-17 — função agregada do CS-191** (achado 26, G-D15 ★): `SECURITY DEFINER` no molde da `0087_metricas_sucesso_admin.sql`, só contagens por tenant, com teste (semanas cheias × uma semana com 2 respostas); só depois da G-D15.
+- **Nav "Seções" compacta nas telas de detalhe** (G-D13 ★ = b) e **atalhos da §4.10** (G-D14 ★ = b), se o dono escolher.

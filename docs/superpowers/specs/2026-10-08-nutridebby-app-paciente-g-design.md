@@ -4,7 +4,7 @@
 |---|---|
 | Versão | 0.1 |
 | Data | 2026-10-08 |
-| Status | **Rascunho para revisão.** Pedido e aprovado pelo dono em 08/10/2026 ("concordo, pode seguir"), com as decisões G-D1 a G-D4 (§14). Conferido contra o código da `main` 19fcea5 (Planos 01–12 em produção). Pendências do dono marcadas com ★ (G-D5 a G-D12) |
+| Status | **Rascunho para revisão.** Pedido e aprovado pelo dono em 08/10/2026 ("concordo, pode seguir"), com as decisões G-D1 a G-D4 (§14). Conferido contra o código da `main` 19fcea5 (Planos 01–12 em produção). Pendências do dono marcadas com ★ (G-D5 a G-D17). **Acertada pela revisão do plano em 08/10/2026** (§16; detalhe no Plano 16, "Correções da revisão do plano") |
 | Itens do backlog | Novo: **G-01** (app do paciente no layout G verde) e **G-02** ("Não mostrar peso no app", por paciente) |
 | Quando | **Plano 16**, executado **logo depois do Plano 13** (parecer) e **antes do Plano 14** (IA da nutricionista) — G-D2 |
 | Desenho aprovado | `.superpowers/sdd/2026-10-08-plano16-preparacao/desenho/`: `GV-Hoje.dc.html`, `GV-Jornada.dc.html`, `GV-Almoco.dc.html` (layout G verde). Referências: `D-Assuntos.dc.html` (lista por assunto, molde da seção "Eu"), `F-Medidas.dc.html` (tabela de medidas, molde de "Todas as medidas"), `F-Plano.dc.html` (refeições em sanfona, molde da seção "Plano") |
@@ -46,8 +46,8 @@ ficar sem caminho a partir da navegação.
 
 | ID | Critério | Como medir |
 |---|---|---|
-| CS-190 | Toda função do portal de hoje é alcançável em **≤ 2 toques** a partir de Hoje (sem digitar endereço) | Teste E2E "nada some" (RNF-197) sobre a tabela da §4.10 |
-| CS-191 | **≥ 50%** dos pacientes ativos com plano publicado registram ao menos **3 respostas por semana** ("Comi assim", "Comi outra coisa" ou foto) nas 4 semanas depois do deploy (**meta proposta**, G-D12 ★) | `diary_entries.resposta` não nulo ou foto, por paciente e semana ISO, no fuso do tenant |
+| CS-190 | Toda função do portal de hoje é alcançável a partir de Hoje, sem digitar endereço, no número de toques da tabela da §4.10: **≤ 2**, e **3** só nas três linhas marcadas lá (consulta que não é a próxima, receita de refeição que não é a próxima, conteúdo que não é novo — G-D14 ★) | Teste E2E "nada some" (RNF-197) sobre a tabela da §4.10 |
+| CS-191 | **≥ 50%** dos pacientes ativos com plano publicado registram ao menos **3 respostas em cada uma das 4 semanas** ("Comi assim", "Comi outra coisa" ou foto) depois do deploy (**meta proposta**, G-D12 ★; "cada semana" × "média" e quem pode ser medido antes do DPA definitivo: G-D15 ★) | Função agregada `SECURITY DEFINER` (molde da 0087: só contagens por tenant, nenhuma linha de saúde) sobre `diary_entries.resposta` não nulo ou foto, por paciente e semana ISO, no fuso do tenant — nunca SQL ad hoc em produção; entre consultórios só com a cláusula de estatística agregada no DPA definitivo (E-09) ou com o pedido registrado da nutricionista (LGPD art. 39) |
 | CS-192 | Acesso diário (CS-02 do MVP) **não cai** nas 4 semanas depois do deploy, comparado às 4 anteriores | `access_events` (5.5.5 do manual) |
 | CS-193 | **Zero** violação do axe e **zero** rolagem horizontal em todas as telas do portal a **360 px e 320 px**, nos modos claro e escuro | E2E de acessibilidade (RNF-191) |
 | CS-194 | Com "Não mostrar peso no app" ligado, **nenhum** valor de peso ou IMC chega ao aparelho do paciente (HTML, payload RSC, cópia offline) | Teste de integração que procura os valores na resposta (RNF-197) |
@@ -63,7 +63,7 @@ ficar sem caminho a partir da navegação.
 | C-194 | **Somente adultos** (RN-17): a linguagem sobre peso é para adultos, mas neutra (RN-206) | MVP D-11 |
 | C-195 | **URLs do portal preservadas.** `manifest.id` e `start_url` continuam `/p/inicio` (trocar o `id` criaria "outro app" nos aparelhos que já instalaram); os destinos de push (`AVISOS_DO_PORTAL`, `src/modules/notificacoes/mensagens.ts:110`), os links de e-mail e a cópia offline (`/p/plano`) continuam válidos | Código |
 | C-196 | **Plano 13 em paralelo.** Outra frente escreve o Plano 13 noutra worktree; as migrations do Plano 16 numeram a partir da **próxima livre depois do merge do Plano 13** (hoje a última em produção é a `0103_sessao_equipe_30min.sql`). Se o Plano 13 entregar o parecer no portal (US-148), ele entra em "Meus documentos" (Eu) como a receita | Código, índice dos planos |
-| C-197 | **Nenhum texto montado pelo sistema é atribuído à nutricionista.** Só o que ela escreveu (comentário do diário, orientação do atendimento, orientações e observações do plano) aparece como "Sua nutricionista …"; o resto é do "app do consultório" (RN-194). Evita que o paciente tome um lembrete automático por orientação profissional (Código de Ética do Nutricionista, Res. CFN nº 599/2018; Res. CFN nº 760/2023 sobre telenutrição) | Normas CFN |
+| C-197 | **Nenhum texto montado pelo sistema é atribuído à nutricionista.** Só o que ela escreveu (comentário do diário, orientação do atendimento, orientações e observações do plano) aparece como "Sua nutricionista …"; o resto é do "app do consultório" (RN-194). Evita que o paciente tome um lembrete automático por orientação profissional | Boa prática (SBIS ECF.17.01) e princípio geral da Res. CFN nº 599/2018 (Código de Ética), arts. 16 (responder pelas próprias ações) e 19 (manter o indivíduo informado) — a 599/2018 não tem regra expressa sobre texto automático atribuído ao profissional (conferido em 08/10/2026). A vigência da Res. CFN nº 856/2026 (art. 37, declarar ferramenta automatizada; 23/01/2027, prorrogação a confirmar no DOU, R-169 da spec C) não muda esta regra: o mural não tem IA |
 
 ### 1.3 Dependências (conferidas no código em 08/10/2026)
 
@@ -168,8 +168,11 @@ Fora do layout do portal (sem seções, com "Sair" no topo como hoje): `/p/escol
   em nenhuma largura (regra ratificada pelo dono em 04/10/2026 para a barra atual; a palavra que não cabe quebra com
   hífen, como em `nav-portal.tsx`).
 - **Telas de detalhe** (refeição aberta, consulta, conteúdo, documento, exportação, "Todas as medidas", "Minhas
-  consultas", diário completo, lista de compras): cabeçalho compacto na cor do consultório com botão "Voltar" (44 × 44
-  px, `aria-label="Voltar para {seção}"`) e o título; sem a nav "Seções" (a seção continua marcada para quem volta).
+  consultas", diário completo, lista de compras): cabeçalho compacto na cor do consultório com o link "Voltar" (44 × 44
+  px, `aria-label="Voltar para {destino}"` — a seção, ou a lista de que o detalhe faz parte, como "Minhas consultas") e o
+  título; sem a nav "Seções": a seção a que a tela pertence é dita pelo "Voltar para {seção}" (G-D13 ★). O "Voltar" é um
+  **link fixo para o destino**, não o histórico do navegador (o nome acessível tem de dizer para onde o toque leva; filtros,
+  busca, `?dias=`, `?semana=` e redirects mudam a URL); o "voltar" do navegador e o gesto do aparelho continuam valendo.
 - **Barra de ações** (`<nav aria-label="Ações">`, só em Hoje, fixa embaixo): "Foto da refeição" (abre o registro do
   diário com a câmera, RN-197), "Enviar exame" (→ `/p/exames#enviar`; some com o recebimento desligado, RN-215) e
   "Agendar" (→ `/p/agenda/nova`; no teto de consultas futuras, leva a "Minhas consultas", que já mostra o motivo).
@@ -188,7 +191,7 @@ os botões — testável sem banco. Nada é gravado para o mural existir; não h
 | Plano publicado: refeição **com horário** (`planoDoPaciente`) | "Próxima refeição às {HH:MM} — {nome}: {resumo}." antes do horário; "{nome} das {HH:MM}: {resumo}." depois | De **90 min antes** do horário até o fim do dia (RN-196) | App do consultório | "Ver a refeição", "Comi assim" (some depois da resposta) | `auditRead` entidade do plano (como `planoDoPaciente`) |
 | Primeira refeição do dia | Igual, com a saudação na frente: "Bom dia, {primeiro nome}." | Idem | App do consultório | Idem | Idem |
 | Diário do dia (`diary_entries` do paciente) | Balão do paciente: foto (JPEG convertido) e/ou texto, rótulo da resposta ("Comi assim" / "Comi outra coisa"), refeição | Na hora do registro | Você | — (o balão leva ao diário completo) | `auditRead` `diario` |
-| Comentário da nutricionista (`comentario_nutri`, `comentado_em`) | "Sua nutricionista comentou" + o texto dela, verbatim | Em `comentado_em`, se nos últimos 7 dias | **Sua nutricionista** | "Ver no diário" | Mesma leitura do diário |
+| Comentário da nutricionista (`comentario_nutri`, `comentado_em`) | "Sua nutricionista comentou seu registro ({refeição}, {dia} às {hora})" + o texto dela, verbatim | Em `comentado_em`, se nos últimos 7 dias | **Sua nutricionista** | "Ver no diário" | Mesma leitura do diário |
 | Envio de exame (`meusEnvios`) | "{nome do envio}: {situação}" (texto de `SITUACAO`, igual ao de `/p/exames`) | Envio de hoje, e mudança de situação nos últimos 7 dias (`revisado_em`/`updated_at`) | App do consultório (a recusa leva o motivo que a nutricionista escolheu ou escreveu, como hoje) | "Ver meus exames" | `auditRead` `exames_enviados` (como `meusEnvios`) |
 | Próxima consulta (`consultasDoPaciente`) | "Sua próxima consulta: {quando} ({modalidade})." | Consulta ativa nos próximos 7 dias | App do consultório | "Ver a consulta"; "Confirmar presença" se agendada, não confirmada e ainda alterável | Sem `auditRead` (P05 D10) |
 | Plano novo (`meal_plans.publicado_em`) | "Seu novo plano alimentar está disponível." | Publicado nos últimos 7 dias | App do consultório | "Ver o plano" | Mesma leitura do plano |
@@ -202,10 +205,21 @@ local) e, recolhido acima, **"Dias anteriores"** (`<details>`, últimos 7 dias, 
 renderizado no servidor; volta a ser buscado quando o app volta ao primeiro plano (`visibilitychange` →
 `router.refresh()`), sem anunciar nada ao leitor de tela.
 
-**Rodapé fixo do mural (RN-193):** "Este app não envia mensagens para sua nutricionista. Dúvidas? Anote para a
-consulta ou use os contatos do consultório." (texto ★ G-D10).
+**Rodapé fixo do mural (RN-193):** "Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar
+quando os ler. Este app não é um canal de conversa e não tem prazo de resposta. Dúvidas: anote para a consulta ou use os
+contatos do consultório. Em emergência, ligue 192." (texto ★ G-D10). A v0.1 dizia "Este app não envia mensagens para sua
+nutricionista", o que é falso: todo registro do diário, com o texto livre e a foto, vai ao feed dela (US-043), e ela
+comenta (LGPD art. 6º, VI — transparência; a urgência é boa prática, não exigência de norma).
 
-**Mural vazio:** "Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui."
+**Mural vazio:** sem plano publicado, "Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições
+aparecem aqui."; com plano publicado e nada para agora (antes dos 90 min da primeira refeição, ou refeições sem horário),
+"Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma." — o mural nunca diz que ela não publicou
+quando publicou.
+
+**Autor visível (RN-194, §11.1):** todo item mostra o autor em texto — "Você", "Aviso do app" (o que o sistema monta) ou,
+no comentário, "Sua nutricionista comentou seu registro ({refeição}, {dia} às {hora})" — com a hora; o lado e a cor do
+balão não bastam (lembrariam um chat, R-190), e o comentário dela tem estilo próprio (borda de destaque), diferente do
+aviso automático.
 
 ### 4.4 Respostas da refeição (diário existente)
 
@@ -251,7 +265,8 @@ Peso nas consultas  [gráfico: um ponto por avaliação com peso; tracejado até
 ```
 
 O gráfico é o `GraficoLinha` atual (com a alternativa em texto/tabela que ele já tem), no visual novo. Com **menos de 2
-pesos**, ou com o peso oculto, o gráfico vira "Cintura nas consultas" se houver ≥ 2 cinturas; senão, não aparece
+pesos**, ou com o peso oculto, o gráfico vira "Cintura nas consultas" se houver ≥ 2 cinturas (com o peso oculto, manter
+essa troca ou não ter gráfico de medida corporal em destaque é a G-D16 ★); senão, não aparece
 (nenhuma mensagem sobre o peso faltar). O texto do desenho "Leve suas dúvidas anotadas." **não** entra: seria texto do
 sistema com voz de orientação; a linha mostra só a modalidade e o local/link, como "Minhas consultas".
 
@@ -260,7 +275,8 @@ sistema com voz de orientação; a linha mostra só a modalidade e o local/link,
 ```
 Painel › paciente › aba Evolução: [ ] Não mostrar peso no app
    └─ action definirPesoOculto(patientId, ligado) → withTenant (equipe) → UPDATE patients SET peso_oculto_no_app_em = now() | null
-        └─ gatilho audit_row_change de patients: quem, quando, antes/depois
+        ├─ gatilho audit_row_change de patients: "alterar", quem e quando (sem dizer a coluna)
+        └─ recordAudit na mesma transação: entidade peso_no_app, "criar" (ligou) ou "excluir" (desligou), quem e quando
 Portal (qualquer leitura de medida para o paciente): evolucaoParaPaciente / jornadaDoPaciente / faixa
    └─ lê patients.peso_oculto_no_app_em do próprio paciente (RLS) e tira peso e IMC (G-D6) ANTES de montar a resposta
 ```
@@ -337,19 +353,19 @@ Nada mais no painel muda (G-D3).
 | Ativar notificações (push) | Início e Perfil | Cartão do aparelho no mural + Eu › Notificações | 0–1 |
 | "Conectado como {e-mail}" | Início e Perfil | Eu (topo) | 1 |
 | Plano do dia, refeições, quantidades, substituições, kcal (se liberadas), observação | Plano | Seção Plano (sanfona) + refeição aberta + mural | 1 |
-| Sugestão de receita da refeição | Plano | Refeição aberta e sanfona do Plano (mesmo link `?de=plano`) | 2 |
+| Sugestão de receita da refeição | Plano | Refeição aberta e sanfona do Plano (mesmo link `?de=plano`) | 2 (3 para refeição que não é a próxima: abrir a sanfona — G-D14 ★) |
 | Orientações do plano | Plano | Seção Plano (fim) | 1 |
 | Baixar PDF do plano | Plano | Seção Plano | 1 |
 | Lista de compras | Plano (link) | Seção Plano (link) | 2 |
 | Plano offline | `/p/plano` | `/p/plano` (sem mudança) | — |
 | Registrar refeição (texto, foto) | Diário | Barra de ações "Foto da refeição", respostas do mural e da refeição, e o formulário completo em "Ver todo o diário" (`/p/diario`, marca Hoje) | 1 |
 | Histórico do diário, situação da foto, comentário da nutricionista | Diário | Mural (hoje e 7 dias) + `/p/diario` (completo, 50 registros como hoje) pelo link "Ver todo o diário" no topo do mural | 1 |
-| Conteúdos (feed, filtros, busca, etiqueta, favoritos, conteúdo aberto, PDF) | aba Conteúdos | Seção Plano › "Conteúdos" (`/p/conteudos`, marca Plano) + item "Novo conteúdo" no mural (G-D8 ★) | 2 |
+| Conteúdos (feed, filtros, busca, etiqueta, favoritos, conteúdo aberto, PDF) | aba Conteúdos | Seção Plano › "Conteúdos" (`/p/conteudos`, marca Plano) + item "Novo conteúdo" no mural (G-D8 ★) | 2 (conteúdo aberto que não é novo: 3 — G-D14 ★) |
 | Evolução: medidas, diferenças, gráficos | aba Evolução | Jornada (gráfico e medidas por consulta) + "Todas as medidas" (`/p/evolucao`, tabela por consulta como F-Medidas + os gráficos de hoje) | 1–2 |
 | Orientações recebidas (por atendimento) | Evolução | Jornada (balão em cada consulta) | 1 |
 | Minhas consultas (próximas e anteriores), consulta aberta | aba Agenda | Jornada › "Minhas consultas" (`/p/agenda`, marca Jornada) + item do mural "Ver a consulta" | 2 |
 | Agendar consulta | Agenda | Barra de ações "Agendar" + Jornada | 1 |
-| Confirmar presença, cancelar, remarcar | Consulta aberta | Consulta aberta (sem mudança) + "Confirmar presença" no item do mural | 1–2 |
+| Confirmar presença, cancelar, remarcar | Consulta aberta | Consulta aberta (sem mudança) + "Confirmar presença" no item do mural | 1–2 (próxima consulta: mural ou Jornada › "Ver a consulta"); 3 para outra consulta futura (Jornada › "Minhas consultas" › consulta — G-D14 ★) |
 | Meus documentos (abrir PDF, confirmar recebimento) | Perfil (link) | Eu › Meus documentos (`/p/documentos`, marca Eu) | 2 |
 | Meus exames (enviar, lista, baixar, cancelar) | Perfil (link) | Seção Exames | 1 |
 | Lembretes por WhatsApp | Perfil | Eu › Notificações | 1 |
@@ -386,13 +402,14 @@ Cenário: Recebimento de exames desligado e nenhum envio (RN-192, G-D9)
 
 Cenário: Rotas antigas continuam (C-195)
   Quando toco num push "Sua nutricionista comentou seu diário"
-  Então abre "/p/diario" com a seção "Hoje" marcada
+  Então abre "/p/diario" com o cabeçalho de detalhe e o link "Voltar para Hoje"
   Quando abro "/p/agenda" ou "/p/evolucao"
-  Então a seção "Jornada" está marcada
+  Então o cabeçalho tem "Voltar para Jornada"
   Quando abro "/p/conteudos", "/p/compras" ou uma refeição
-  Então a seção "Plano" está marcada
+  Então o cabeçalho tem "Voltar para Plano"
   Quando abro "/p/documentos"
-  Então a seção "Eu" está marcada
+  Então o cabeçalho tem "Voltar para Eu"
+  # telas de detalhe não têm a nav "Seções" (§4.2): a seção é dita pelo "Voltar" (G-D13 ★); nas seções, aria-current
 
 Cenário: Tela estreita
   Dado um aparelho com 320 px de largura e o texto em 200%
@@ -402,7 +419,7 @@ Cenário: Tela estreita
 Cenário: Tela de detalhe
   Quando abro uma refeição
   Então vejo o cabeçalho com "Voltar" e o título da refeição, sem a lista de seções
-  E "Voltar" me leva de volta à tela de onde vim
+  E "Voltar para Plano" me leva à seção Plano (link fixo para o destino que o nome diz; o "voltar" do navegador continua voltando pelo histórico)
 ```
 
 #### US-191 — Ver o mural "Hoje" · **M**
@@ -449,11 +466,16 @@ Cenário: Conteúdo, documento e plano novos
 
 Cenário: Sem caixa de texto (C-191)
   Então o mural não tem campo para escrever mensagem
-  E vejo no rodapé "Este app não envia mensagens para sua nutricionista. Dúvidas? Anote para a consulta ou use os contatos do consultório."
+  E vejo no rodapé "Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192."
 
 Cenário: Sem plano
   Dado que minha nutricionista ainda não publicou o plano e não há outro item
   Então vejo "Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui."
+
+Cenário: Plano publicado e nada para agora
+  Dado que meu plano está publicado e a primeira refeição é às 08:00
+  Quando abro Hoje às 05:00 e não há outro item
+  Então vejo "Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma."
 
 Cenário: Fuso do aparelho diferente (RN-06)
   Dado que o consultório está em America/Sao_Paulo e meu aparelho em America/Manaus
@@ -590,7 +612,7 @@ Cenário: Minhas consultas
 
 Cenário: Mini-jornada na faixa
   Então em Hoje a faixa mostra "−4,2 kg desde março" e "Próximo marco: consulta amanhã, 14:00"
-  E o link tem o nome acessível "Sua jornada: 78,6 kg na última consulta, 4,2 kg a menos desde março. Próxima consulta amanhã, 14:00."
+  E o nome acessível do link contém o texto visível, sem aria-label (WCAG 2.5.3): "Sua jornada: −4,2 kg desde março (78,6 kg na última consulta) Próximo marco: consulta amanhã, 14:00" — "Sua jornada:" e o último peso só para o leitor de tela (sr-only)
   E não há cor de "bom" ou "ruim", elogio ou meta (RN-206)
 ```
 
@@ -603,7 +625,7 @@ Cenário: Ligar a opção
   Dado o prontuário da paciente Marina, aba Evolução
   Quando marco "Não mostrar peso no app"
   Então vejo "Peso oculto no app desde 08/10/2026"
-  E o histórico de acessos registra a alteração em "patients" com o meu nome
+  E o histórico de acessos registra "Ligou — Peso oculto no app" com o meu nome (linha própria, entidade peso_no_app), além da alteração em "patients"
 
 Cenário: Efeito no app (G-D6 = a, se aprovada)
   Dado que "Não mostrar peso no app" está ligado para Marina
@@ -627,6 +649,7 @@ Cenário: O que não muda (RN-204)
 Cenário: Desligar
   Quando desmarco "Não mostrar peso no app"
   Então o peso volta a aparecer no app no próximo carregamento
+  E o histórico de acessos registra "Desligou — Peso oculto no app" com o meu nome (dá para reconstruir quando o peso esteve oculto e quem decidiu, R-193)
 ```
 
 #### US-196 — Plano, lista de compras e conteúdos · **M**
@@ -636,7 +659,7 @@ Cenário: Desligar
 ```gherkin
 Cenário: Plano em sanfona
   Quando abro "Plano"
-  Então vejo as refeições pelo horário, cada uma recolhida com o horário, o nome e "Próxima, daqui a 1 h 25 min" ou "No diário" (já respondida hoje)
+  Então vejo as refeições pelo horário, cada uma recolhida com o horário, o nome e, na próxima, "Próxima, daqui a 1 h 25 min" (o "No diário" fica no mural e na refeição aberta: a página do Plano é a cópia offline e não leva dado do diário, §4.8)
   E a próxima refeição vem aberta e destacada (borda âmbar com contorno)
   E cada refeição aberta mostra itens, quantidades, trocas, observação, receita sugerida e os botões de resposta
   E vejo "Baixar PDF", "Lista de compras", "Conteúdos" e as orientações do plano no fim
@@ -667,7 +690,7 @@ Cenário: Eu
 Cenário: Privacidade sem mudança
   Quando abro "Privacidade"
   Então vejo "Baixar meus dados" e "Pedir exclusão dos meus dados" com a mesma confirmação de hoje
-  E o texto "Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Todas estão na cópia dos seus dados." (RN-214)
+  E o texto "Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados)." (RN-214)
 
 Cenário: Sair
   Quando toco em "Sair"
@@ -726,28 +749,28 @@ Cenário: Como usar o app
 | RN-190 | **Seções.** O portal tem as seções **Hoje** (`/p/inicio`), **Jornada** (`/p/jornada`), **Plano** (`/p/plano`), **Exames** (`/p/exames`) e **Eu** (`/p/perfil`), nessa ordem. Nenhuma rota atual muda de endereço (C-195); a única rota de seção nova é `/p/jornada`. Rotas novas de detalhe: `/p/plano/refeicao/<id>` e `/p/ajuda` |
 | RN-191 | **Seção marcada.** `itemAtual` marca a seção pela tabela da §4.1 (campo `tambem`); toda rota de `/p/(portal)` marca exatamente uma seção (teste) |
 | RN-192 | **Seção "Exames" (G-D9 ★).** Aparece quando `tenants.exames_paciente_ativado_em` não é nulo **ou** o paciente tem envio não cancelado; senão, some da navegação (a rota continua abrindo pelo endereço, como hoje, Plano 12) |
-| RN-193 | **O mural não é canal de mensagens** (spec C, D24 = b). Não tem caixa de texto, não grava nada além das respostas da RN-197 e das ações que já existem, não cria item visível à nutricionista como "mensagem" e não tem tabela própria. O rodapé fixo diz isso ao paciente |
-| RN-194 | **Autoria.** Só texto escrito pela nutricionista leva a voz dela: "Sua nutricionista comentou" (comentário do diário), "Orientação da sua nutricionista" (atendimento), a observação da refeição e as orientações do plano. Texto montado pelo sistema é do "app do consultório", em 3ª pessoa ou impessoal, sem elogio, conselho ou ordem ("Comece pela salada" só aparece se ela escreveu). Nenhum item diz "IA" (não há IA no mural) |
+| RN-193 | **O mural não é canal de mensagens** (spec C, D24 = b). Não tem caixa de texto, não grava nada além das respostas da RN-197 e das ações que já existem, não cria item visível à nutricionista como "mensagem" e não tem tabela própria. O rodapé fixo diz ao paciente que os registros do diário são visíveis para ela, que o app não é canal de conversa nem tem prazo de resposta, e onde levar dúvidas e urgências (§4.3) |
+| RN-194 | **Autoria.** Só texto escrito pela nutricionista leva a voz dela: "Sua nutricionista comentou seu registro (…)" (comentário do diário, com a refeição e a hora do registro a que se refere), "Orientação da sua nutricionista" (atendimento), a observação da refeição e as orientações do plano. Texto montado pelo sistema é do "app do consultório" (autor visível "Aviso do app"), em 3ª pessoa ou impessoal, sem elogio, conselho ou ordem ("Comece pela salada" só aparece se ela escreveu). Nenhum item diz "IA" (não há IA no mural) |
 | RN-195 | **Janela e ordem.** Hoje (dia no fuso do tenant) em ordem crescente de hora; "Dias anteriores" com os últimos 7 dias, recolhido; no máximo 40 itens (os mais antigos saem). Constantes `JANELA_MURAL_DIAS = 7`, `MAX_ITENS_MURAL = 40` |
 | RN-196 | **Refeição no mural.** Só refeição do plano **publicado** com horário. Aparece a partir de `horário − 90 min` (`ANTECEDENCIA_REFEICAO_MIN = 90`) e fica até o fim do dia; a primeira refeição do dia leva a saudação ("Bom dia" de 05:00 a 11:59, "Boa tarde" de 12:00 a 17:59, "Boa noite" no resto). Resumo = nomes dos itens principais (sem substituições), até 4, unidos por vírgula e "e"; sem quantidade no mural (a quantidade fica na refeição aberta) |
-| RN-197 | **Respostas.** "Comi assim" grava em `diary_entries` com `resposta = 'como_no_plano'`, sem texto nem foto; "Comi outra coisa" grava `resposta = 'outra_coisa'` com texto ou foto obrigatório (as regras do diário: 2000 caracteres, foto JPEG/PNG/HEIC até 10 MB); a foto pode levar qualquer das duas respostas ou nenhuma. `refeicao` = item de `REFEICOES_DO_DIARIO` igual ao nome da refeição do plano (sem acento e sem caixa) ou "Outro"; `refeicao_do_plano` = "{nome} · {HH:MM}". Conta no limite de 10 registros/dia. **Uma resposta por refeição do plano por dia:** com o paciente travado (`conferirLimite`), se já houver registro com `resposta` não nula e o mesmo `refeicao_do_plano` no dia, devolve esse registro (idempotente). A refeição tem de ser do plano publicado do paciente da sessão (lida pela RLS) |
+| RN-197 | **Respostas.** "Comi assim" grava em `diary_entries` com `resposta = 'como_no_plano'`, sem texto nem foto; "Comi outra coisa" grava `resposta = 'outra_coisa'` com texto ou foto obrigatório (as regras do diário: 2000 caracteres, foto JPEG/PNG/HEIC até 10 MB); a foto pode levar qualquer das duas respostas ou nenhuma. `refeicao` = item de `REFEICOES_DO_DIARIO` igual ao nome da refeição do plano (sem acento e sem caixa) ou "Outro"; `refeicao_do_plano` = "{nome} · {HH:MM}". Conta no limite de 10 registros/dia. **Uma resposta por refeição do plano por dia:** com o paciente travado (`conferirLimite`), se já houver registro com `resposta` não nula e o mesmo `refeicao_do_plano` no dia, devolve esse registro (idempotente). A chave é o texto "{nome} · {HH:MM}": duas refeições com o mesmo nome e o mesmo horário no mesmo plano contam como uma (não há unique em `meals (nome, horario)`; aceito — para o paciente é a mesma refeição). A refeição tem de ser do plano publicado do paciente da sessão (lida pela RLS) |
 | RN-198 | **Desfazer (G-D5 ★).** Se aprovada a (c): o "Comi assim" fica 10 s no aparelho com "Desfazer" antes de ir ao servidor; o prazo pausa enquanto o foco ou o toque está no aviso (WCAG 2.2.1); fechar a tela nesse prazo **envia** (o paciente já disse que comeu). Sem DELETE no banco (a sessão de paciente continua sem apagar diário, P06 D11) |
 | RN-199 | **Itens de outras fontes** seguem a tabela da §4.3: exame (envio de hoje e mudanças em 7 dias, textos de `SITUACAO`), consulta (ativa nos próximos 7 dias; "Confirmar presença" com as mesmas regras da tela da consulta), plano novo (7 dias), conteúdo novo (não visto, 7 dias, até 3), documento novo (só com `documentosLiberados`). O mural nunca mostra item que a tela de origem esconderia |
 | RN-200 | **Leitura e trilha.** `muralDoPaciente` lê tudo numa transação e chama `auditRead` **uma vez por entidade com dado de saúde lida** (plano, diário, exames enviados), com a conta do paciente como ator (P06 D22); agenda, conteúdos e contagem de documentos sem `auditRead` (P05 D10, P07 D6, 10A D17). Sem dado de saúde em log (RNF-196) |
 | RN-201 | **Cartões do aparelho.** "Ative as notificações…" só sem inscrição de push neste aparelho; "Instale o app…" só fora do modo instalado e onde o navegador permite (regras de `instalacao.ts`). "Agora não" esconde por 30 dias neste aparelho (`localStorage`, chave por conta; apagado no "Sair", no login e na troca de dono, como a lista de compras) |
-| RN-202 | **Mini-jornada (Hoje).** Com ≥ 2 pesos permitidos e o peso visível: "{±x,x} kg desde {mês da 1ª avaliação}" (vírgula decimal, sinal "−" ou "+", "Sem mudança de peso desde {mês}" se 0,0); senão, "{n} consulta(s) desde {mês}"; sem atendimento: "Sua jornada começa na primeira consulta." Segunda linha: "Próximo marco: consulta {quando}" ou "Nenhuma consulta marcada." O gráfico pequeno é decorativo (`aria-hidden`); o link tem nome acessível com a frase completa |
+| RN-202 | **Mini-jornada (Hoje).** Com ≥ 2 pesos permitidos e o peso visível: "{±x,x} kg desde {mês da 1ª avaliação}" (vírgula decimal, sinal "−" ou "+", "Sem mudança de peso desde {mês}" se 0,0); senão, "{n} consulta(s) desde {mês}"; sem atendimento: "Sua jornada começa na primeira consulta." Segunda linha: "Próximo marco: consulta {quando}" ou "Nenhuma consulta marcada." O gráfico pequeno é decorativo (`aria-hidden`); o link **não** tem `aria-label`: o nome acessível é o texto visível, completado por `sr-only` ("Sua jornada:" antes e o último peso depois, nunca com a RN-203) — WCAG 2.5.3 |
 | RN-203 | **"Não mostrar peso no app" (G-D1, G-D6 ★).** `patients.peso_oculto_no_app_em` não nulo ⇒ o portal não mostra **peso nem IMC** (recomendação da G-D6) em nenhum lugar: faixa, Jornada, "Todas as medidas", gráficos, diferenças. A filtragem é feita no servidor, nos módulos `evolucaoParaPaciente` e `jornadaDoPaciente`, antes de montar a resposta; nenhum componente recebe o valor para esconder |
 | RN-204 | **O que a opção não muda.** Prontuário, painel e exportações (inclusive a do titular, `escopo = 'titular'`: direito de acesso, LGPD art. 18, II); documentos assinados; textos livres da nutricionista (orientações, comentários, observações do plano) — ela é avisada no texto de ajuda. A opção não apaga nem altera dado |
-| RN-205 | **Quem liga.** Só a equipe (sessão de nutricionista do tenant, `withTenant`), na aba Evolução do prontuário; paciente bloqueado ou anonimizado: somente leitura. O paciente não vê a opção; a sessão de paciente não muda a coluna (gatilho `paciente_colunas`, 0085: a coluna fica fora de `livres`). A troca é auditada pelo gatilho de `patients` |
+| RN-205 | **Quem liga.** Só a equipe (sessão de nutricionista do tenant, `withTenant`), na aba Evolução do prontuário; paciente bloqueado ou anonimizado: somente leitura. O paciente não vê a opção; a sessão de paciente não muda a coluna (gatilho `paciente_colunas`, 0085: a coluna fica fora de `livres`). A troca é auditada pelo gatilho de `patients` ("alterar") **e** por uma linha própria gravada na mesma transação (`recordAudit`, entidade `peso_no_app`, `criar` = ligou, `excluir` = desligou), que o "Histórico de acessos" mostra como "Ligou/Desligou — Peso oculto no app" |
 | RN-206 | **Linguagem neutra sobre corpo.** Nenhuma tela do portal julga a variação de medida: sem verde/vermelho de "bom/ruim", sem seta de sucesso, sem "parabéns", sem meta ou peso ideal, sem comparação com outros. A diferença é número com sinal |
-| RN-207 | **Cor do consultório.** Faixa e cabeçalhos com `corDaFaixa(cor do consultório)`, texto branco, nos dois modos; nenhum texto em verde claro sobre a faixa; marcos âmbar com contorno de 2 px (`--nd-p-texto`) sobre fundo claro; foco visível de 3 px (`outline`) com anel branco de 2 px em volta, nos dois modos (como no desenho) |
+| RN-207 | **Cor do consultório.** Faixa e cabeçalhos com `corDaFaixa(cor do consultório)`, texto branco, nos dois modos; nenhum texto em verde claro sobre a faixa; marcos âmbar com contorno de 2 px (`--nd-p-texto`) sobre fundo claro; foco visível de 3 px (`outline`) com anel branco de 2 px em volta, nos dois modos (como no desenho) — **o Plano 16 entrega o foco de 3 px global (≥ 3:1, testado) sem o anel duplo** (Desvio 15 do plano; o anel fica no backlog) |
 | RN-208 | **Offline.** Só `/p/plano` fica no aparelho (sem mudança no service worker). A página do plano contém as refeições abertas; sem rede, toda navegação em `/p/` mostra essa cópia com o selo; botões que gravam ficam desabilitados com "Sem conexão. Registre quando voltar." |
 | RN-209 | **Push e e-mail sem mudança.** Mesmos tipos, textos e telas (`AVISOS_DO_PORTAL`); nenhum push novo (C-192) |
 | RN-210 | **Vários vínculos.** Tudo é do vínculo escolhido (cookie `nd_vinculo`): mural, jornada, plano, exames. A faixa diz o consultório; "Trocar de nutricionista" fica em Eu. O tour e os cartões dispensados são da **conta** |
 | RN-211 | **Sair** fica no fim de Eu nas páginas do portal e no topo de `/p/escolher`, `/p/sem-acesso` e `/p/termo`; o comportamento (`/sair` com `Clear-Site-Data`, `esquecerPlanoGuardado`) não muda |
 | RN-212 | **Manual guiado do portal.** Guia novo `portal-novidades` (v1, 5 passos) com o mesmo modelo do painel (`id`, `versao`, `padrao`, `ajuda`, `passos`; `<dialog>` modal nativo; "{i} de {n}"; não executa ações); progresso em `user.guia` da **conta do paciente** por `marcarGuia` com o `userId` vindo de `requirePaciente` (nunca do formulário); só o aviso "O app mudou…" abre sozinho, uma vez; `/p/ajuda` funciona sem JavaScript. Texto em rascunho até a revisão (G-D10) |
 | RN-213 | **Refeição aberta.** Mostra o que `planoDoPaciente` já devolve: itens principais com quantidade, substituições como "ou {nome}, {quantidade}", observação, receita sugerida; kcal só com `mostrarCalorias` ("Cerca de {total da refeição} kcal"). Refeição fora do plano publicado do paciente → 404 |
-| RN-214 | **Transparência sem estigma.** Em Eu › Privacidade, texto fixo: "Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Todas estão na cópia dos seus dados." Nenhuma tela diz ao paciente, individualmente, que o peso está oculto |
+| RN-214 | **Transparência sem estigma.** Em Eu › Privacidade, texto fixo: "Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados)." (a v0.1 dizia "Todas estão na cópia", o que promete demais: notas privadas, o rascunho do plano e o motivo de cancelamento escrito pela nutricionista não saem — `exportacao-job.ts`; texto com a Debby, G-D10 ★, e no pacote do advogado, E-09). Nenhuma tela diz ao paciente, individualmente, que o peso está oculto — nem a ajuda "Como usar o app" e o tour, que não falam de peso |
 | RN-215 | **Recebimento de exames desligado.** A barra de ações não tem "Enviar exame"; o mural ainda mostra mudanças de situação de envios antigos (US-161 continua) |
 | RN-216 | **Textos de interface** em pt-BR; os textos novos desta spec ficam numa constante (`MSG_MURAL`, `MSG_JORNADA`, `MSG_G`) e entram na tabela "Textos de interface" das histórias do MVP no fechamento |
 | RN-217 | **Datas e horas** gravadas em UTC e exibidas no fuso do tenant, com a sigla quando o aparelho estiver noutro fuso (RN-06); datas por extenso curtas ("Quarta, 8 out", "22 de setembro") e `dd/mm/aaaa` nos dados tabulares (RNF-12) |
@@ -761,13 +784,13 @@ Cenário: Como usar o app
 | ID | Categoria | Requisito |
 |---|---|---|
 | RNF-190 | Desempenho | Hoje e Jornada: página com p95 ≤ 800 ms (meta das páginas, RNF-01 v1.11) e LCP ≤ 2,5 s em "Slow 4G"; `muralDoPaciente` e `jornadaDoPaciente` em **uma** transação cada, sem N+1, só com índices existentes (`diary_entries_paciente_idx`, `exam_submissions_paciente_idx`, `consultations_paciente_data_idx`, `anthropometry_paciente_data_idx`, índice de `appointments`). A pilha de carga (P08-03) ganha o cenário "abrir Hoje" |
-| RNF-191 | Acessibilidade | WCAG 2.1 AA em todas as telas do portal: axe com zero violação a 360 e 320 px, claro e escuro; sem rolagem horizontal a 320 px (1.4.10); alvos ≥ 44 px; marcos de região (`header`, `nav "Seções"`, `main`, `nav "Ações"`); mural como lista (`ol`) com autor e hora no texto de cada item (não só no estilo do balão); resultado das respostas em `role="status"` sempre montado (molde de `privacidade.tsx`); foco vai para o título da tela de detalhe ao abrir; gráfico com alternativa em texto; zoom de texto de 200% sem perda; nenhuma informação só por cor (balão do paciente × do consultório também dito em texto oculto "Você:" / "Do consultório:") |
+| RNF-191 | Acessibilidade | WCAG 2.1 AA em todas as telas do portal: axe com zero violação a 360 e 320 px, claro e escuro; sem rolagem horizontal a 320 px (1.4.10); alvos ≥ 44 px; marcos de região (`header`, `nav "Seções"`, `main`, `nav "Ações"`); mural como lista (`ol`) com autor e hora no texto de cada item (não só no estilo do balão); resultado das respostas em `role="status"` sempre montado (molde de `privacidade.tsx`); foco vai para o título da tela de detalhe ao abrir; gráfico com alternativa em texto; zoom de texto de 200% sem perda; nenhuma informação só por cor (o autor de cada balão dito em texto **visível** — "Você", "Aviso do app", "Sua nutricionista comentou seu registro (…)" — §4.3) |
 | RNF-192 | Contraste | Teste unitário que confere, com `contraste()`, todos os pares de token da §4.7 nos dois modos (texto ≥ 4,5:1; componentes e marcos ≥ 3:1) e o teste de propriedade de `corDaFaixa` sobre a faixa de cores aceitas pelo `perfilSchema` |
 | RNF-193 | Fontes | Red Hat Display (700/800/900) e Atkinson Hyperlegible Next (400/700) por `next/font` (servidas pelo app, CSP `font-src 'self'`, sem chamada ao Google — LGPD), subconjunto `latin`, `display: swap`; orçamento ≤ 160 KB de `woff2` no primeiro carregamento do portal; carregadas só no layout de `/p` |
 | RNF-194 | Modo escuro | Segue o aparelho (`data-tema="sistema"`, P08 D18); `themeColor` claro `#1d6b5a` e escuro `#0f1613` sem mudança |
 | RNF-195 | Compatibilidade | Chrome Android 10+ e Safari iOS 16.4+ (RNF-09); `<details>`/`<dialog>` nativos; câmera por `<input type="file" accept="image/*" capture="environment">` (sem `getUserMedia`) |
 | RNF-196 | Privacidade em log | Nada do mural, da jornada ou das respostas em log/Sentry: nem texto do diário, nem nome de refeição, nem medida (RNF-11); erros logam só o tipo de item e o motivo |
-| RNF-197 | Testes | (a) unitários de `comporMural` (janela, ordem, horário, saudação, autoria, botões, idempotência), de `corDaFaixa` e dos tokens; (b) integração com Testcontainers: resposta grava no diário com RLS, paciente não responde a refeição alheia, limite/idempotência com duas conexões, gatilho recusa a coluna de peso pela sessão de paciente, CS-194 (procura os valores de peso e IMC no HTML e no payload RSC de Hoje, Jornada e "Todas as medidas"); (c) E2E "nada some": a partir de `/p/inicio`, cada linha da §4.10 é alcançada em ≤ 2 toques; (d) E2E de acessibilidade das telas novas; (e) `sw-regras.test.ts` continua passando sem mudança |
+| RNF-197 | Testes | (a) unitários de `comporMural` (janela, ordem, horário, saudação, autoria, botões, idempotência), de `corDaFaixa` e dos tokens; (b) integração com Testcontainers: resposta grava no diário com RLS, paciente não responde a refeição alheia, limite/idempotência com duas conexões, gatilho recusa a coluna de peso pela sessão de paciente, CS-194 (procura os valores de peso e IMC no HTML e no payload RSC de Hoje, Jornada e "Todas as medidas"); (c) E2E "nada some": a partir de `/p/inicio`, cada linha da §4.10 é alcançada no número de toques da tabela (≤ 2; 3 só nas linhas marcadas, G-D14 ★), as telas de detalhe têm o "Voltar para {seção}" certo e "Conectado como" mostra o e-mail; (d) E2E de acessibilidade das telas novas; (e) `sw-regras.test.ts` continua passando sem mudança |
 | RNF-198 | Movimento | `prefers-reduced-motion`: sem animação na sanfona, no tour e no "Registrado no diário." |
 | RNF-199 | Manutenção | Os componentes do portal ficam em `src/app/p/` e `src/components/portal/` (novos); nenhum componente do painel muda de visual por causa do portal (C-193) |
 
@@ -813,10 +836,10 @@ do Plano 13 (C-196), rodada com `DATABASE_URL_MIGRATOR` (CLAUDE.md, regra 7):
 | Tema | Tratamento |
 |---|---|
 | Finalidade e base legal | O mural e a Jornada só **reorganizam a exibição** de dados que o paciente já vê hoje no app (plano, diário, comentários, evolução, orientações, agenda, exames enviados, documentos), para a mesma finalidade (acompanhamento nutricional; tutela da saúde, LGPD art. 11, II, "f", e o termo aceito). Nenhum dado novo é coletado além das respostas "Comi assim/Comi outra coisa", que são registro do diário (mesma finalidade e mesmo tratamento do US-042) |
-| Minimização | O mural não guarda cópia de nada; a resposta guarda só o rótulo e o nome/horário da refeição. Nada novo vai para o aparelho além do que as telas atuais já mostram; a cópia offline continua só o plano |
+| Minimização | O mural não guarda cópia de nada; a resposta guarda só o rótulo e o nome/horário da refeição. Nada novo vai para o aparelho além do que as telas atuais já mostram; a cópia offline continua só o plano — a página `/p/plano` não leva a marca "No diário" das refeições respondidas (a marca fica no mural e na refeição aberta, que não são guardadas) |
 | Transparência | RN-214 em Privacidade; o termo do paciente não precisa de versão nova (nenhuma finalidade ou categoria nova) — **a confirmar com o advogado (E-09)** junto do pacote P12-23/P09-00 |
-| "Não mostrar peso no app" | É **apresentação**, não restrição de acesso: o titular continua com acesso integral pela exportação (art. 18, II) e pelo pedido à nutricionista. Escolha clínica da profissional, registrada com autor e data (trilha). Risco R-193 |
-| Direitos do titular | Exportação (`dados.json`) ganha `resposta` e `refeicaoDoPlano` em cada registro do diário (escopos `titular` e `equipe`); pedido de exclusão e anonimização tratam `refeicao_do_plano` como o `texto` do diário (mesma rotina de `lgpd.ts`); `peso_oculto_no_app_em` vai na exportação da equipe (preferência clínica) e não na do titular (não é dado dele) — a confirmar no plano com o `normas-cfn-lgpd` |
+| "Não mostrar peso no app" | É **apresentação**, não restrição de acesso: o titular continua com acesso integral pela exportação (art. 18, II) e pelo pedido à nutricionista. Escolha clínica da profissional, registrada com autor e data numa linha própria da trilha (`peso_no_app`, "Ligou"/"Desligou", RN-205) — o gatilho de `patients` sozinho não diz a coluna e a coluna volta a nulo ao desligar. Risco R-193 |
+| Direitos do titular | Exportação (`dados.json`) ganha `resposta` e `refeicaoDoPlano` em cada registro do diário (escopos `titular` e `equipe`); pedido de exclusão e anonimização tratam `refeicao_do_plano` como o `texto` do diário (mesma rotina de `lgpd.ts`); `peso_oculto_no_app_em` vai na exportação **dos dois escopos** como "preferência de exibição no app definida pela nutricionista" (revisto na revisão do plano: é dado pessoal do titular, art. 5º, I — provavelmente referente à saúde, art. 5º, II —, e o acesso do art. 18, II e a "declaração clara e completa" do art. 19, II não se limitam ao que ele forneceu; as notas privadas, citadas na v0.1 como precedente, não saem em **nenhum** escopo). A exclusão da cópia do titular só com o parecer do advogado (E-09, pacote P12-23/P09-00) e decisão do dono (D6 ★ do plano), com a base no LEIA-ME da exportação. A resposta vai também com o rótulo que o paciente viu ("Comi assim"/"Comi outra coisa", art. 19, II) |
 | Tela de bloqueio | Nenhum push novo; o mural só aparece dentro do app autenticado |
 | Aparelho compartilhado | "Sair" continua limpando tudo; cartões dispensados e tour não guardam dado de saúde |
 
@@ -828,16 +851,21 @@ O NutriDebby mira a certificação SBIS (PEP, NGS1). O layout novo não cria reg
 **exibição** e na **entrada** de dados do paciente; as práticas abaixo valem sem escopo extra:
 
 1. **Origem e autoria visíveis** (ECF.17.01, como no selo "Enviado pelo paciente" do Plano 12): todo item do mural diz
-   de quem é — "Você", "Sua nutricionista" ou o app do consultório — com data e hora; nada escrito pelo sistema aparece
+   de quem é, **em texto visível** (não só pelo lado ou pela cor do balão) — "Você", "Sua nutricionista comentou seu registro
+   (…)" ou "Aviso do app" — com data e hora; nada escrito pelo sistema aparece
    como se fosse da profissional (RN-194).
 2. **Registro íntegro e contextualizado:** a resposta grava a refeição do plano como cópia (`refeicao_do_plano`), que
    não muda quando o plano é republicado; o paciente não edita nem apaga (P06 D11); a idempotência impede registro
    duplicado por toque duplo (RN-197).
-3. **Controle de acesso no banco** (NGS1.03): a resposta passa pela RLS do paciente (só refeição do próprio plano
-   publicado, só o próprio diário); a opção de peso só pela equipe, com o gatilho `paciente_colunas` barrando a sessão de
-   paciente.
+3. **Controle de acesso** (NGS1.03): a refeição é lida pela RLS do paciente (só refeição do próprio plano publicado) e a
+   escrita só no próprio diário (`paciente_diario_insert`); o vínculo da resposta com o plano e a hora do registro são do
+   servidor (módulo `registrarNoDiario`), não do banco — a política 0080 não restringe `resposta`, `refeicao_do_plano` nem
+   `data_hora` (um gatilho que fixe `data_hora = now()` para o papel paciente fica no backlog); a opção de peso só pela
+   equipe, com o gatilho `paciente_colunas` barrando a sessão de paciente.
 4. **Trilha** (NGS1.07): leituras pelo paciente com `auditRead` (RN-200); escritas pelo gatilho `audit_row_change`
-   (respostas e a troca da opção de peso, com o ator); nenhuma migration desliga o gatilho (NGS1.07.01).
+   (respostas e a troca da opção de peso, com o ator) e, para a opção de peso, a linha própria `peso_no_app`
+   ("Ligou"/"Desligou", RN-205), que diz o que foi decidido — o gatilho não guarda "antes/depois" de colunas; nenhuma
+   migration desliga o gatilho (NGS1.07.01).
 5. **Datas consistentes** (ECF.17.05): hora do registro dada pelo servidor (`agora`), nunca pelo aparelho; exibição no
    fuso do tenant com a sigla quando o aparelho difere (RN-217).
 6. **Sessão e saída:** "Sair" sempre a um toque a partir de Eu, limpando o aparelho; sessão do paciente sem mudança
@@ -852,7 +880,7 @@ O NutriDebby mira a certificação SBIS (PEP, NGS1). O layout novo não cria reg
 
 | ID | Risco | Mitigação |
 |---|---|---|
-| R-190 | O paciente toma o mural por chat e espera resposta da nutricionista | Sem caixa de texto; rodapé fixo (RN-193); itens do sistema em voz impessoal (RN-194); texto revisado pela Debby (G-D10) |
+| R-190 | O paciente toma o mural por chat e espera resposta da nutricionista | Sem caixa de texto; rodapé fixo (RN-193: os registros são visíveis para ela, sem prazo de resposta); autor visível em todo item e o comentário dela com estilo próprio (RN-194); itens do sistema em voz impessoal; texto revisado pela Debby (G-D10) |
 | R-191 | Lembrete automático lido como orientação profissional (CFN) | RN-194; nada de conselho montado pelo sistema; só texto dela leva a voz dela |
 | R-192 | "Comi assim" por engano vira registro permanente | G-D5 (desfazer); idempotência; o paciente pode escrever outro registro explicando |
 | R-193 | Paciente com o peso oculto descobre o número na exportação ou num documento e se sente enganado | Texto genérico em Privacidade (RN-214); ajuda da opção avisa a nutricionista do que não muda (RN-204); decisão clínica dela |
@@ -910,7 +938,21 @@ O NutriDebby mira a certificação SBIS (PEP, NGS1). O layout novo não cria reg
 | G-D11 ★ | Como o layout entra | (a) **para todos no deploy**, com o tour "O app mudou"; (b) interruptor por consultório durante uma transição | **(a)**: poucos pacientes no piloto e o painel não muda; (b) duplica telas e testes |
 | G-D12 ★ | Meta do CS-191 (≥ 50% dos pacientes com plano registram ≥ 3 respostas/semana) | (a) **aceitar**; (b) outra meta | **(a)**, revista depois de 4 semanas |
 
-> As pendências ★ que sobram para o dono são **G-D5 a G-D12**. Nenhuma bloqueia a
+### Pendências ★ novas da revisão do plano (08/10/2026)
+
+| ID | Pergunta | Opções | Recomendação |
+|---|---|---|---|
+| G-D13 ★ | Nas telas de detalhe (diário, Minhas consultas, Todas as medidas, conteúdos, lista de compras, documentos) não há a nav "Seções": a US-190 pedia "a seção marcada" | (a) **aceitar** que o "Voltar para {seção}" do cabeçalho diga a seção (Desvio 14 do plano); (b) as telas de detalhe ganham a nav "Seções" compacta | **(a)**: tela de detalhe limpa, como o desenho; (b) vai para o backlog se a Debby sentir falta |
+| G-D14 ★ | Três linhas da §4.10 passam de 2 toques (consulta que não é a próxima, receita de refeição que não é a próxima, conteúdo que não é novo) | (a) **aceitar 3 toques** nessas linhas (§4.10 e CS-190 acertadas); (b) atalhos: "Ver a consulta" em cada consulta futura na Jornada e a receita fora da sanfona | **(a)**: as três têm o caminho curto para o caso comum (a próxima consulta, a próxima refeição, o conteúdo novo no mural) |
+| G-D15 ★ | CS-191: como contar e quem pode ser medido | Definição: (a) **≥ 3 em cada uma das 4 semanas**; (b) média ≥ 3/semana. Medida: (a) **só no consultório da Debby**, com o pedido dela registrado como instrução da controladora, até o DPA definitivo (E-09) ter a cláusula de estatística agregada; (b) trocar por métrica sem tabela de saúde (abertura de Hoje em `access_events`) | Definição **(a)**; medida **(a)**, pela função agregada do P16-17 |
+| G-D16 ★ | Com o peso oculto, o gráfico principal da Jornada vira "Cintura nas consultas" (§4.5) — a medida corporal toma o destaque do peso justamente para quem a nutricionista quis proteger | (a) **sem gráfico de medida corporal em destaque** com o peso oculto (a cintura continua nas consultas e em "Todas as medidas"); (b) manter a troca | Decisão do dono com a Debby (boa prática, não norma); o plano mantém (b) até a resposta (troca de uma condição em `montarJornada`) |
+| G-D17 ★ | Quem entra pela primeira vez depois do deploy também vê "O app mudou. Quer ver onde ficou cada coisa?" (a US-199 é para quem já usava) | (a) **texto de boas-vindas** para quem não tem `access_events` anteriores ao deploy; (b) o mesmo aviso com outra pergunta; (c) manter | **(a)**, com o texto da Debby (G-D10) |
+
+Além dessas, a revisão do plano mudou textos que já estavam na G-D10 ★ (rodapé do mural, Privacidade, autor visível,
+comentário com o registro, mural vazio com plano) e reabriu a **D6 ★ do plano** (a opção de peso na exportação do titular:
+nos dois escopos até o parecer do advogado, E-09).
+
+> As pendências ★ que sobram para o dono são **G-D5 a G-D17** e a D6 do plano. Nenhuma bloqueia a
 > escrita do plano: o plano parte das recomendações e marca os pontos que mudam se a resposta for outra.
 
 ---
@@ -922,5 +964,22 @@ O NutriDebby mira a certificação SBIS (PEP, NGS1). O layout novo não cria reg
 - Manual técnico: cap. 05 (§5.5 portal, §5.7 interface, §5.8 manual guiado) e cap. 11 (exames enviados).
 - WCAG 2.1 (W3C, 2018): 1.3.1, 1.4.1, 1.4.3, 1.4.10, 1.4.11, 1.4.12, 2.2.1, 2.4.3, 2.4.7, 2.5.3, 4.1.3.
 - LGPD (Lei nº 13.709/2018): arts. 6º (finalidade, necessidade, transparência), 11, II, "f", e 18, II.
-- Res. CFN nº 599/2018 (Código de Ética) e nº 760/2023 (telenutrição) — via spec C, §5.1.
+- Res. CFN nº 599/2018 (Código de Ética), arts. 16 e 19: https://cfn.org.br/wp-content/uploads/resolucoes/Res_599_2018.html (conferido em 08/10/2026); nº 760/2023 (telenutrição) — via spec C, §5.1; nº 856/2026, art. 37, só em fonte secundária (a conferir no DOU).
+- LGPD, arts. 5º, I e II; 6º, VI; 9º; 18, II; 19, II; 39 — publicação original em https://www2.camara.leg.br/legin/fed/lei/2018/lei-13709-14-agosto-2018-787077-publicacaooriginal-156212-pl.html (conferida em 08/10/2026).
 - SBIS — Manual de Certificação para S-RES, nível NGS1 (requisitos citados como nas specs anteriores: NGS1.03, NGS1.07, ECF.17.01, ECF.17.05).
+
+---
+
+## 16. Correções da revisão do plano (08/10/2026)
+
+A revisão do Plano 16 (lentes de cobertura, dados e normas) acertou esta spec sem mudar a versão do desenho. Em resumo:
+"Voltar" é link fixo para o destino e a seção das telas de detalhe é dita por ele (§4.2, US-190, G-D13 ★); a §4.10, o
+CS-190 e a RNF-197(c) aceitam 3 toques em três linhas (G-D14 ★); o rodapé do mural diz que o diário é visto pela
+nutricionista (RN-193); todo item do mural tem autor visível e o comentário diz a qual registro se refere (RN-194, §4.3);
+o mural vazio com plano publicado não diz que ela não publicou (§4.3, US-191); a mini-jornada não usa `aria-label`
+(WCAG 2.5.3, RN-202, US-194); a opção de peso ganha linha própria na trilha (`peso_no_app`, RN-205, US-195, §4.6, §10,
+§11.4); a exportação leva a opção nos dois escopos e o rótulo da resposta (§10); o texto de Privacidade não promete "todas"
+(RN-214, US-197); a página do Plano não leva "No diário" (§10, US-196); a §11.3 diz o que é do banco e o que é do módulo;
+a RN-197 registra a chave "{nome} · {HH:MM}"; a RN-207 registra o foco sem o anel duplo; a C-197 cita a origem conferida;
+o CS-191 tem a definição corrigida e a medida por função agregada (G-D15 ★); pendências novas G-D13 a G-D17 ★ (§14).
+Lista completa, com uma linha por achado: plano 16, seção "Correções da revisão do plano (08/10/2026)".
