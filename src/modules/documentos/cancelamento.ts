@@ -9,8 +9,10 @@ import { dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { telaDoPortal } from '@/modules/portal/link-portal';
+import { MSG_RETIFICACAO } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import { assinarLinkDocumento, urlDoLinkDocumento } from './link-documento';
+import { retificacaoEmAndamento } from './retificacao';
 import { mudarSituacao } from './verificacao';
 
 /** US-149 (texto exato da spec v0.3). */
@@ -22,7 +24,7 @@ export const MSG_CANCELAMENTO = {
 /**
  * RN-147: só de "assinado"; motivo 1–500 em signed_document_notes (STAFF_ONLY, nunca nas exportações); a verificação passa
  * a "cancelado" na mesma transação; e-mail neutro (D11 da spec) — com conta, o link do portal; sem conta, o link de uso
- * único (que mostra "não está mais disponível"). A retificação em andamento (Plano 13) entra aqui quando existir.
+ * único (que mostra "não está mais disponível"). Plano 13 (RN-147): com a original travada, uma retificação em andamento recusa (o gatilho também, 0105).
  */
 export async function cancelarDocumento(ctx: TenantContext, patientId: string, docId: string, motivo: unknown, deps: { db?: Db; appUrl?: string; agora?: Date } = {}): Promise<void> {
   const m = typeof motivo === 'string' ? motivo.trim() : '';
@@ -41,6 +43,8 @@ export async function cancelarDocumento(ctx: TenantContext, patientId: string, d
         .for('update');
       if (!d) throw new DocumentoNaoEncontradoError();
       if (d.status !== 'assinado') throw new TransicaoInvalidaError();
+      const aberta = await retificacaoEmAndamento(tx, docId);
+      if (aberta) throw new DocumentoError({ geral: MSG_RETIFICACAO.emAndamento(aberta.versao) });
       await tx.update(signedDocuments).set({ status: 'cancelado', canceladoEm: agora, updatedAt: agora }).where(eq(signedDocuments.id, docId));
       await tx
         .insert(signedDocumentNotes)

@@ -8,8 +8,10 @@ import { closeDb } from '@/db/client';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { cancelarDocumento, MSG_CANCELAMENTO } from './cancelamento';
+import { apagarRascunho } from './documentos';
 import { DocumentoError, TransicaoInvalidaError } from './erros';
 import { confirmarRecebimentoNoPortal } from './portal';
+import { retificarDocumento } from './retificacao';
 import { consultarVerificacao } from './verificacao';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -75,5 +77,20 @@ describe('cancelar documento (US-149, RN-147)', () => {
     const notas = (await withTenant(T.ctx, (tx) => tx.execute(sql`select motivo_cancelamento from signed_document_notes where documento_id = ${assinado.id}`), app.db)).rows;
     expect(notas).toEqual([{ motivo_cancelamento: 'x'.repeat(500) }]);
     expect(await emailsNaFila('documento_atualizado', p.email)).toHaveLength(1); // só o do cancelamento que valeu
+  });
+
+  it('Plano 13 (US-149, RN-147): com a "Versão 2" em andamento, "Há uma retificação em andamento (versão 2)…" e nada muda; apagada, cancela', async () => {
+    const T = await novoTenant(app.db, 'Consultório Debby');
+    await liberarDocumentos(app.db, T.tenantId);
+    const p = await novoPaciente(app.db, T.ctx);
+    const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
+    const v2 = await retificarDocumento(T.ctx, p.id, v1.id, { db: app.db });
+    await expect(cancelarDocumento(T.ctx, p.id, v1.id, 'Dose errada', { db: app.db, appUrl: 'https://x' })).rejects.toSatisfy(
+      (e) => e instanceof DocumentoError && e.erros.geral === 'Há uma retificação em andamento (versão 2). Conclua ou apague a retificação antes de cancelar.',
+    );
+    const [d] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select status from signed_documents where id = ${v1.id}`), app.db)).rows;
+    expect(d).toEqual({ status: 'assinado' });
+    await apagarRascunho(T.ctx, p.id, v2, { db: app.db });
+    await cancelarDocumento(T.ctx, p.id, v1.id, 'Dose errada', { db: app.db, appUrl: 'https://x' });
   });
 });

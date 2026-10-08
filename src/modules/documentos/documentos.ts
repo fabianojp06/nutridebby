@@ -11,22 +11,27 @@ import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenam
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
-import { DECLARACAO_POR_TIPO, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
+import { DECLARACAO_POR_TIPO, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, MSG_RETIFICACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { copiarExames } from './parecer-exames';
-import { copiaDoPerfil } from './perfil-profissional';
+import { copiaDoPerfil, type CopiaDoDocumento } from './perfil-profissional';
 import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
+import { lerMotivoRetificacao } from './retificacao';
 
 export type Recibo = { evento: EventoRecibo; via: ViaRecibo; em: Date };
 export type ItemLista = {
   id: string; tipo: TipoDocumento; versao: number; status: StatusDocumento; codigo: string | null; createdAt: Date; assinadoEm: Date | null;
   assinaturaTipo: TipoAssinatura | null; pdfStatus: string | null; entregueEm: Date | null; recibos: Recibo[];
 };
+export type VersaoVizinha = { id: string; versao: number };
 export type DocumentoLido = ItemLista & {
   conteudo: ConteudoDocumento; justificativa: string | null; motivoCancelamento: string | null; assinanteNome: string | null;
   basePdfPath: string | null; pdfPath: string | null; pdfSha256: string | null; digitalizacaoStatus: string | null; digitalizacaoEm: Date | null;
   anonimizadoEm: Date | null; canceladoEm: Date | null;
+  /** Plano 13 (US-148): a versão anterior (desta retificação) e a seguinte (a retificação desta, em andamento ou assinada). */
+  retificaId: string | null; motivoRetificacao: string | null; substituidoEm: Date | null;
+  versoes: { anterior: (VersaoVizinha & { codigo: string | null }) | null; seguinte: (VersaoVizinha & { status: StatusDocumento }) | null };
 };
 
 const CONTEUDO_VAZIO: ConteudoReceita = { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
@@ -58,17 +63,21 @@ export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?:
 
 /** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
 export async function salvarRascunhoReceita(
-  ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { conteudo: unknown; justificativa: unknown }, deps: { db?: Db } = {},
+  ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { conteudo: unknown; justificativa: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
 ): Promise<void> {
   const conteudo = validarRascunho(input.conteudo, { habilitada: !!tenant.fitoterapiaRegistro });
   const j = typeof input.justificativa === 'string' ? input.justificativa.trim() : '';
   if (j.length > 2000) throw new DocumentoError({ justificativa: 'Use no máximo 2000 caracteres.' });
+  const motivo = input.motivoRetificacao === undefined ? undefined : lerMotivoRetificacao(input.motivoRetificacao);
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
     if (d.tipo !== 'receita') throw new TransicaoInvalidaError(); // o editor da receita não grava num parecer
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
-    await tx.update(signedDocumentNotes).set({ justificativaUso: j || null, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
+    await tx
+      .update(signedDocumentNotes)
+      .set({ justificativaUso: j || null, ...(d.retificaId && motivo !== undefined ? { motivoRetificacao: motivo } : {}), updatedAt: new Date() })
+      .where(eq(signedDocumentNotes.documentoId, docId));
   }, deps.db ?? getDb());
 }
 
@@ -76,8 +85,11 @@ export async function salvarRascunhoReceita(
  * US-141 "Rascunho salvo." — valida (D-P4: incompleto vale no rascunho) e REFAZ a cópia dos exames escolhidos (RN-148):
  * linhas acrescentadas pela IA ou data trocada entram a cada salvamento. Ordem de travas: paciente → documento.
  */
-export async function salvarRascunhoParecer(ctx: TenantContext, patientId: string, docId: string, input: { conteudo: unknown }, deps: { db?: Db } = {}): Promise<void> {
+export async function salvarRascunhoParecer(
+  ctx: TenantContext, patientId: string, docId: string, input: { conteudo: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
+): Promise<void> {
   const r = validarRascunhoParecer(input.conteudo);
+  const motivo = input.motivoRetificacao === undefined ? undefined : lerMotivoRetificacao(input.motivoRetificacao);
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
@@ -85,6 +97,8 @@ export async function salvarRascunhoParecer(ctx: TenantContext, patientId: strin
     const exames = await copiarExames(tx, patientId, r.exameIds);
     const conteudo: ConteudoParecer = { versao: 1, tipo: 'parecer', exames, avaliacao: r.avaliacao, conduta: r.conduta, encaminhamentos: r.encaminhamentos };
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
+    if (d.retificaId && motivo !== undefined)
+      await tx.update(signedDocumentNotes).set({ motivoRetificacao: motivo, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
   }, deps.db ?? getDb());
 }
 
@@ -111,7 +125,17 @@ export async function prepararParaAssinatura(
   await withTenant(ctx, async (tx) => {
     const paciente = await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
-    const [nota] = await tx.select({ j: signedDocumentNotes.justificativaUso }).from(signedDocumentNotes).where(eq(signedDocumentNotes.documentoId, docId));
+    const [nota] = await tx
+      .select({ j: signedDocumentNotes.justificativaUso, m: signedDocumentNotes.motivoRetificacao })
+      .from(signedDocumentNotes)
+      .where(eq(signedDocumentNotes.documentoId, docId));
+    // US-148 / Q13-1 ★ (NGS1.12.01): a retificação vai ao preparo com o motivo; a cópia leva a versão e o código da anterior (RN-154)
+    let retificacao: CopiaDoDocumento['retificacao'];
+    if (d.retificaId) {
+      if (!nota?.m?.trim()) throw new DocumentoError({ motivoRetificacao: MSG_RETIFICACAO.motivo });
+      const [anterior] = await tx.select({ codigo: signedDocuments.codigo }).from(signedDocuments).where(eq(signedDocuments.id, d.retificaId));
+      retificacao = { versao: d.versao, substitui: anterior!.codigo! };
+    }
     const tipo = d.tipo as TipoDocumento;
     let conteudo: ConteudoDocumento;
     if (tipo === 'parecer') {
@@ -130,7 +154,7 @@ export async function prepararParaAssinatura(
         status: 'preparando',
         codigo: gerarCodigo(),
         declaracaoEm: agora,
-        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome } }, declaracao: DECLARACAO_POR_TIPO[tipo] },
+        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome }, ...(retificacao ? { retificacao } : {}) }, declaracao: DECLARACAO_POR_TIPO[tipo] },
         pdfStatus: 'pendente',
         pdfPedidoEm: agora,
         updatedAt: agora,
@@ -239,11 +263,22 @@ export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: 
   const [n] = await tx.select().from(signedDocumentNotes).where(eq(signedDocumentNotes.documentoId, id));
   const rs = await recibosDe(tx, [id]);
   if (o.auditar) await auditRead(tx, { entidade: 'documentos', entidadeId: id, patientId: d.patientId });
+  const [anterior] = d.retificaId
+    ? await tx.select({ id: signedDocuments.id, versao: signedDocuments.versao, codigo: signedDocuments.codigo }).from(signedDocuments).where(eq(signedDocuments.id, d.retificaId))
+    : [];
+  const [seguinte] = await tx
+    .select({ id: signedDocuments.id, versao: signedDocuments.versao, status: signedDocuments.status })
+    .from(signedDocuments)
+    .where(eq(signedDocuments.retificaId, id))
+    .orderBy(desc(signedDocuments.createdAt))
+    .limit(1);
   return {
     ...comoItem(d, rs.get(id) ?? []),
     conteudo: d.conteudo as ConteudoDocumento, justificativa: n?.justificativaUso ?? null, motivoCancelamento: n?.motivoCancelamento ?? null,
     assinanteNome: d.assinanteNome, basePdfPath: d.basePdfPath, pdfPath: d.pdfPath, pdfSha256: d.pdfSha256, digitalizacaoStatus: d.digitalizacaoStatus, digitalizacaoEm: d.digitalizacaoEm,
     anonimizadoEm: d.anonimizadoEm, canceladoEm: d.canceladoEm,
+    retificaId: d.retificaId, motivoRetificacao: n?.motivoRetificacao ?? null, substituidoEm: d.substituidoEm,
+    versoes: { anterior: anterior ?? null, seguinte: seguinte ? { ...seguinte, status: seguinte.status as StatusDocumento } : null },
   };
 }
 

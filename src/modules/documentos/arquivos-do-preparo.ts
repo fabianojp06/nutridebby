@@ -11,9 +11,13 @@ import type { StatusDocumento } from './constantes';
  * Ordem de travas de armazenamento.ts (dono → tenant → registro), com o documento como dono (code review do PR #19, I2):
  * todo salvarArquivo que grava em `signed_documents` no `registrar` chama isto no `antesDaReserva` (depois do paciente,
  * quando o trava). Sem isso, o salvarArquivo travaria tenant → documento e o soltarArquivosDoPreparo (abaixo), documento
- * → tenant: os dois ao mesmo tempo no mesmo documento terminam em deadlock (40P01).
+ * → tenant: os dois ao mesmo tempo no mesmo documento terminam em deadlock (40P01). Plano 13 (D-P1): numa retificação, a
+ * ORIGINAL é travada antes (a assinatura da versão nova a leva a "substituido"), na ordem do cancelamento e do retificar:
+ * paciente → original → versão nova → tenant. `retifica_id` é coluna fixa (gatilho), então lê-la sem trava é seguro.
  */
 export async function travarDocumentoAntesDaCota(tx: Tx, documentoId: string): Promise<void> {
+  const [d] = await tx.select({ retificaId: signedDocuments.retificaId }).from(signedDocuments).where(eq(signedDocuments.id, documentoId));
+  if (d?.retificaId) await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, d.retificaId)).for('update');
   await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, documentoId)).for('update');
 }
 
