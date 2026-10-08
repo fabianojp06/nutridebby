@@ -6406,6 +6406,42 @@ MSG
 )"
 ```
 
+### Task 17: Administração organizada — lista enxuta, página da conta e abas Servidor e Segurança (P16-17)
+
+Pedido do dono em 08/10/2026 ("organize a tela [/admin] porque está uma bagunça"); desenho escolhido: "Lista + página da conta". Hoje `src/app/admin/page.tsx` desenha uma tabela de 17 colunas com formulários dentro das células. **Nenhuma regra de negócio muda**: as mesmas actions (`src/app/admin/actions.ts`), as mesmas mensagens de confirmação (texto exato), os mesmos formulários (`CotaForm`, `IaCotaForm`, `MetricasForm`, `Reiniciar2faForm`) e a mesma fonte de dados (`listarContas`, `metricas*PorTenant`, `PainelInfra`). Só a organização e o visual.
+
+**Files:**
+- Modify: `src/app/admin/layout.tsx` (cabeçalho V2 + navegação com três abas: "Contas" `/admin`, "Servidor" `/admin/servidor`, "Segurança" `/admin/seguranca`; `aria-current="page"` na aba atual — componente cliente pequeno com `usePathname`, ou a página passa a aba; "Contas" também fica marcada em `/admin/contas/**`)
+- Modify: `src/app/admin/page.tsx` (lista)
+- Create: `src/app/admin/contas/[id]/page.tsx` (página da conta)
+- Create: `src/app/admin/servidor/page.tsx` (usa `PainelInfra`)
+- Create: `src/app/admin/seguranca/page.tsx` (seção "Verificação em duas etapas" com o texto atual e `Reiniciar2faForm`)
+- Modify: `src/app/admin/actions.ts` (só o destino dos `redirect`: as ações por conta voltam para `/admin/contas/<id>?aviso=…`; `criarContaAction` continua em `/admin?aviso=criada`; uuid inválido ou conta não encontrada → `/admin?aviso=nao_encontrada`)
+- Modify (se preciso): `src/modules/plataforma/contas.ts` — `contaPorId(tenantId)` que devolve o mesmo `ContaResumo` de `listarContas` (mesma consulta, filtrada por id; nunca tabela 🔒)
+- Test: `src/app/admin/sem-tabelas-tenant.test.ts` já varre `src/app/admin/**` recursivamente — deve continuar passando; testes de `contas.ts` para `contaPorId` (existe, não existe, uuid inválido)
+- Test: `e2e/plataforma.spec.ts` — ajustar os fluxos que clicavam na tabela (abrir a conta antes de Suspender/Reativar/Liberar/cotas/métricas) e somar: navegação pelas três abas; a página da conta mostra os blocos; `e2e/acessibilidade.spec.ts` — axe nas quatro telas do admin (claro e escuro, se o admin tiver tema)
+
+**Lista (`/admin`):**
+- Cabeçalho "Contas" + `BotaoLink` "Nova conta".
+- Linha de resumo (contagens da página de `listarContas`/métricas já carregadas, sem consulta nova a tabela 🔒): "N ativas · N suspensas · N convites pendentes", e à direita um resumo do servidor em uma linha ("Backup do banco: concluído em …" ou "FALHOU", "Disco da VPS: N% usado") com link "Ver servidor" — reaproveite as funções de `monitoramento.ts` que o `PainelInfra` usa; o texto de falha e de disco acima do limite continua em destaque (vermelho + texto, nunca só cor).
+- Busca e paginação do P09-07 exatamente como hoje (GET, `Limpar busca`, `Anterior`/`Próxima`).
+- Tabela com 6 colunas: "Conta" (nome, slug em cinza e e-mail embaixo), "Situação" (`Selo`: Ativa/Suspensa), "Convite" (o mesmo componente `Convite`), "Pacientes ativos", "Consultas no mês", e a ação `BotaoLink` "Abrir" com nome acessível único (`<span className="sr-only"> a conta {nome}</span>`). No celular (< 640 px) a tabela vira lista de cartões (mesmas informações), sem rolagem horizontal da página.
+- Avisos (`?aviso=`) da lista: só `criada` e `nao_encontrada`; os demais aparecem na página da conta. Use o componente `Aviso`.
+
+**Página da conta (`/admin/contas/[id]`):** `requireUser(['admin'], …)`; id inválido ou inexistente → `notFound()` (ou redirect para `/admin?aviso=nao_encontrada`, escolha um e teste). Link "Voltar para Contas". Título = nome de exibição; abaixo: slug, e-mail, CRN, `Selo` da situação e o convite. Blocos com `Cartao` (grade de 2 colunas no desktop, 1 no celular), nesta ordem:
+1. "Uso no mês": Consultas no mês; App na semana (CS-02, mesmo texto de hoje); Faltas no mês (`textoTaxa`); WhatsApp no mês; Armazenamento (`x de y (n arquivos)`); Exames do app ("Enviados no mês: n", "Aguardando revisão: n"); Uso de IA no mês (US$ x de US$ y) e Tarefas de IA no mês.
+2. "Liberações": Documentos assinados (Liberados/Bloqueados + botão com o MESMO `ConfirmarBotao` e mensagem de hoje) e IA (situação "liberada/bloqueada · ativada pela nutricionista" + botão com a mesma confirmação).
+3. "Limites": `CotaForm` (Cota de WhatsApp) e `IaCotaForm` (Cota de IA).
+4. "Métricas de sucesso": `MetricasForm`.
+5. "Conta": "Reenviar convite" (quando o convite não foi aceito e há e-mail) e Suspender/Reativar com as confirmações de hoje; o botão de suspender com a variante de perigo do `Botao` se existir.
+Comentários de decisão que hoje estão nas células (D15, D20, Plano 12 §3, US-100) vão junto para os blocos.
+
+**Visual:** componentes V2 (`Cartao`, `Selo`, `Botao`/`BotaoLink`, `Aviso`) e os tokens já usados no painel; alvos de toque ≥ 44 px; foco visível; textos em pt-BR iguais aos de hoje (nenhum texto de confirmação muda). Sem manual guiado no admin (não existe hoje; não criar).
+
+**Steps:** TDD para `contaPorId` e para os destinos dos `redirect` (teste das actions, se existir padrão; senão E2E); implemente as telas; rode `pnpm test src/app/admin src/modules/plataforma`, `pnpm typecheck`, `pnpm lint`, `pnpm build` e `pnpm test:e2e e2e/plataforma.spec.ts e2e/acessibilidade.spec.ts`. Commit: `feat(admin): lista enxuta, página da conta e abas Servidor e Segurança (P16-17)`.
+
+**Manuais:** a T16 (fechamento) inclui o /admin novo no manual técnico (capítulo da plataforma/admin) e no runbook, se citarem a tabela antiga.
+
 ## Runbook do dono (Plano 16 — app do paciente G)
 
 Nenhum passo é do código; cada um tem dono. O layout entra **para todos** os pacientes no deploy (G-D11 ★ = a).
