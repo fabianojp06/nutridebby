@@ -22,6 +22,10 @@ const EXCECOES: Record<string, { motivo: string; classes: string[] }> = {
     motivo: 'o logo do consultório fica sobre fundo branco e a seção atual é a pílula branca da faixa (texto na cor da faixa, ≥ 4,5:1 por corDaFaixa); nenhum token é branco nos dois modos',
     classes: ['bg-white'],
   },
+  'src/app/p/(portal)/perfil/page.tsx': {
+    motivo: 'o logo do consultório em Eu fica sobre fundo branco (um logo escuro sumiria no aparelho escuro), como na faixa',
+    classes: ['bg-white'],
+  },
   'src/components/portal/nav-secoes.tsx': {
     motivo: 'a seção atual é a pílula branca da faixa (texto na cor da faixa, ≥ 4,5:1 por corDaFaixa); nenhum token é branco nos dois modos',
     classes: ['bg-white'],

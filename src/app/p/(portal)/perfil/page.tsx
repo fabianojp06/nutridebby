@@ -1,62 +1,73 @@
 import Link from 'next/link';
+import { Faixa } from '@/components/portal/faixa';
+import { MSG_G } from '@/components/portal/textos';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
-import { Faixa } from '@/components/portal/faixa';
-import { MSG_G } from '@/components/portal/textos';
+import { molduraDaSecao } from '../../moldura';
 import { AtivarNotificacoes } from '../../notificacoes';
+import { SairPortal } from '../../sair-portal';
+import { InstalarNoEu } from './instalar-no-eu';
 import { Privacidade } from './privacidade';
 import { WhatsappForm } from './whatsapp-form';
-import { molduraDaSecao } from '../../moldura';
-import { SairPortal } from '../../sair-portal';
 
 export const dynamic = 'force-dynamic';
 
-/** D20: "Eu" (antes "Perfil"; Plano 16, RN-190) — "Meus documentos" (US-146, só com o D20 do Plano 10A ligado), "Meus exames" (Plano 12, PM-10: só com o recebimento ligado, D18), Notificações (push e WhatsApp), Privacidade (US-046), "Trocar de nutricionista" (2+ vínculos) e, por último, o "Sair" (RN-211). */
-export default async function Perfil() {
+const CARTAO = 'space-y-2 rounded-2xl border border-borda bg-cartao p-4';
+const H2 = 'font-portal-titulo text-lg font-bold';
+const LINK = 'inline-flex min-h-11 items-center font-semibold text-link underline';
+
+/**
+ * Plano 16 (US-197, G-01g, molde D-Assuntos): Eu — a conta, o consultório ("Trocar de nutricionista" com 2+ vínculos,
+ * RN-210), Meus documentos (US-146: só com os documentos liberados, D20 do 10A), Notificações (push e WhatsApp), Instalar
+ * o app, Privacidade (US-046 + RN-214), Como usar o app (T14) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
+ * é seção (G-D9).
+ */
+export default async function Eu() {
   const acesso = await requirePaciente('/p/perfil');
   const { ctx, data, tenant, vinculo, vinculos } = acesso;
-  const moldura = await molduraDaSecao(acesso);
-  const whatsapp = await situacaoDoWhatsapp(ctx);
+  const [moldura, whatsapp] = await Promise.all([molduraDaSecao(acesso), situacaoDoWhatsapp(ctx)]);
   return (
     <>
       <Faixa {...moldura} atual="/p/perfil" titulo={MSG_G.titulos.eu} />
-      <main className="space-y-8 p-6">
-        <p>{`Conectado como ${data.user.email}.`}</p>
+      <main className="space-y-4 p-4">
+        <section aria-labelledby="eu-conta" className={CARTAO}>
+          <h2 id="eu-conta" className={H2}>Conta</h2>
+          <p>{`Conectado como ${data.user.email}.`}</p>
+        </section>
+        <section aria-labelledby="eu-consultorio" className={CARTAO}>
+          <h2 id="eu-consultorio" className={H2}>Consultório</h2>
+          {/* US-197: "o consultório (logo, nome)" — o logo como na faixa (URL assinada de 5 min, fundo branco) */}
+          <p className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min, sem otimização do Next */}
+            {moldura.marca.logoUrl && <img src={moldura.marca.logoUrl} alt={`Logo de ${moldura.marca.nome}`} className="h-10 w-auto rounded bg-white p-1" />}
+            <span>{moldura.marca.nome}</span>
+          </p>
+          {vinculos.length > 1 && (
+            <Link href="/p/escolher?volta=%2Fp%2Finicio" className={LINK}>
+              Trocar de nutricionista
+            </Link>
+          )}
+        </section>
         {tenant.documentosLiberados && (
-          <p>
-            <Link href="/p/documentos" className="inline-flex min-h-11 items-center underline">
-              Meus documentos
+          <section aria-labelledby="eu-documentos" className={CARTAO}>
+            <h2 id="eu-documentos" className={H2}>Meus documentos</h2>
+            <Link href="/p/documentos" className={LINK}>
+              Ver meus documentos
             </Link>
-          </p>
+          </section>
         )}
-        {tenant.examesPacienteAtivadoEm && (
-          <p>
-            <Link href="/p/exames" className="inline-flex min-h-11 items-center underline">
-              Meus exames
-            </Link>
-          </p>
-        )}
-        <section aria-labelledby="notificacoes" className="space-y-3">
-          <h2 id="notificacoes" className="text-lg font-semibold">
-            Notificações
-          </h2>
+        <section aria-labelledby="notificacoes" className={CARTAO}>
+          <h2 id="notificacoes" className={H2}>Notificações</h2>
           <AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} dono={vinculo.patientId} />
           <WhatsappForm ativo={whatsapp.ativo} />
         </section>
-        <section aria-labelledby="privacidade" className="space-y-3">
-          <h2 id="privacidade" className="text-lg font-semibold">
-            Privacidade
-          </h2>
+        <InstalarNoEu />
+        <section aria-labelledby="privacidade" className={CARTAO}>
+          <h2 id="privacidade" className={H2}>Privacidade</h2>
           <Privacidade />
         </section>
-        {vinculos.length > 1 && (
-          <p>
-            <Link href="/p/escolher?volta=%2Fp%2Finicio" className="inline-flex min-h-11 items-center underline">
-              Trocar de nutricionista
-            </Link>
-          </p>
-        )}
+        {/* T14: a seção "Como usar o app" entra aqui, logo antes do Sair */}
         {/* RN-211: o "Sair" do portal fica no fim de "Eu". <div>, não <p>: o SairPortal é um <form>, e <form> dentro de <p>
             quebra a hidratação (o parser do HTML fecha o <p> antes do <form>) */}
         <div>

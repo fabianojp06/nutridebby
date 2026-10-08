@@ -11,9 +11,9 @@ import { molduraDaSecao } from '../../moldura';
 export const dynamic = 'force-dynamic';
 
 /**
- * US-160 / US-161 (PM-10 = molde de "Documentos"): "Meus exames" — não é aba; marca "Perfil" (`tambem`). O formulário só
- * com o recebimento ligado (D18 = a); a lista continua (os envios antigos). Fora da cópia offline (o service worker só
- * guarda /p/plano). A lista é auditada no módulo (D22).
+ * US-160 / US-161 (PM-10 = molde de "Documentos"): "Meus exames" — seção do Plano 16 (G-D9); a âncora `#enviar` da
+ * barra "Ações" cai no h2 de "Enviar exame". O formulário só com o recebimento ligado (D18 = a); a lista continua (os
+ * envios antigos). Fora da cópia offline (o service worker só guarda /p/plano). A lista é auditada no módulo (D22).
  */
 export default async function MeusExames() {
   const acesso = await requirePaciente('/p/exames');
@@ -27,12 +27,12 @@ export default async function MeusExames() {
       <main className="space-y-6 p-6">
         {tenant.examesPacienteAtivadoEm && (
           <section aria-labelledby="enviar" className="space-y-3 rounded-2xl border border-borda bg-cartao p-4">
-            <h2 id="enviar" className="text-lg font-semibold">Enviar exame</h2>
+            <h2 id="enviar" className="font-portal-titulo text-lg font-bold">Enviar exame</h2>
             <EnvioForm hoje={hojeNoFuso(tenant.fuso)} />
           </section>
         )}
         <section aria-labelledby="enviados" className="space-y-3">
-          <h2 id="enviados" className="text-lg font-semibold">Meus exames enviados</h2>
+          <h2 id="enviados" className="font-portal-titulo text-lg font-bold">Meus exames enviados</h2>
           {lista.length === 0 && <p>{MSG_ENVIO.nenhum}</p>}
           <ul className="space-y-4">
             {lista.map((e) => {
