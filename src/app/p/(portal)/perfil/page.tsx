@@ -57,10 +57,11 @@ export default async function Perfil() {
             </Link>
           </p>
         )}
-        {/* RN-211: o "Sair" do portal fica no fim de "Eu" */}
-        <p>
+        {/* RN-211: o "Sair" do portal fica no fim de "Eu". <div>, não <p>: o SairPortal é um <form>, e <form> dentro de <p>
+            quebra a hidratação (o parser do HTML fecha o <p> antes do <form>) */}
+        <div>
           <SairPortal />
-        </p>
+        </div>
       </main>
     </>
   );

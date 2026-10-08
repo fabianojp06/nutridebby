@@ -211,6 +211,35 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
   }
 });
 
+// Plano 16 (§4.2, revisão da T4): a barra "Ações" de Hoje fica fixa embaixo também com Hoje curta (mt-auto no flex-col do
+// (portal)/layout; o sticky bottom-0 só prende quando a página passa da tela). A 360 × 780 e numa janela alta, em que Hoje
+// sempre sobra, o fim da barra é o fim da janela.
+test('Hoje: a barra "Ações" fica fixa embaixo, com a página curta ou comprida (§4.2)', async () => {
+  try {
+    for (const altura of [780, 1600]) {
+      await paciente.page.setViewportSize({ width: 360, height: altura });
+      await paciente.page.goto('/p/inicio');
+      await paciente.page.waitForLoadState('networkidle');
+      const acoes = paciente.page.getByRole('navigation', { name: 'Ações' });
+      await expect(acoes).toBeVisible();
+      expect(await acoes.evaluate((nav) => Math.round(nav.getBoundingClientRect().bottom)), `360 × ${altura}`).toBe(altura);
+    }
+  } finally {
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+  }
+});
+
+// Revisão da T4: <form> dentro de <p> não existe no HTML — o parser fecha o <p> antes do <form>, o DOM fica diferente da
+// árvore do React e a hidratação falha (era o "Sair" no fim de Eu). Confere o HTML do servidor de todas as telas do portal.
+test('nenhuma tela do portal põe <form> dentro de <p> no HTML do servidor (hidratação)', async () => {
+  for (const url of ROTAS) {
+    const r = await paciente.page.request.get(url);
+    expect(r.status(), url).toBe(200);
+    const html = await r.text();
+    expect(html.match(/<p\b[^>]*>(?:(?!<\/p>)[\s\S])*?<form\b/)?.[0] ?? null, url).toBeNull();
+  }
+});
+
 test('alvo de toque ≥ 44 px (RNF-10): "Próxima consulta" no Início e as semanas do agendamento', async () => {
   const altura = async (l: ReturnType<Page['getByRole']>) => (await l.boundingBox())?.height ?? 0;
   await paciente.page.goto('/p/inicio');
