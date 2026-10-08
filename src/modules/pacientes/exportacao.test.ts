@@ -619,6 +619,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           avisoIa: null,
           avisoIaEnviadoEm: null,
           recusouIaEm: null,
+          pesoOcultoNoAppEm: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
@@ -995,6 +996,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           avisoIa: null,
           avisoIaEnviadoEm: null,
           recusouIaEm: null,
+          pesoOcultoNoAppEm: null,
         },
         anamneses: [],
         antropometria: [
@@ -1073,5 +1075,21 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }
     for (const pacote of ['@react-pdf/renderer', 'fflate']) expect(g.pacotes.get(pacote), `${pacote} importado (no grafo do Next) por`).toBeUndefined();
+  });
+
+  it('Plano 16 (§10, RN-204, D6 ★): resposta (código e rótulo) e refeição do plano no diário dos dois escopos; "Não mostrar peso no app" nos dois; o peso continua nos dois', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { pesoOcultoNoAppEm: now });
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, refeicao: 'Almoço', resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', dataHora: now }), app.db);
+    await withTenant(T.ctx, (tx) => tx.execute(sql`insert into anthropometry (tenant_id, patient_id, data, peso_kg, altura_cm) values (${T.tenantId}, ${p.id}, '2026-09-01', 81.37, 170)`), app.db);
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    for (const d of [equipe.dados, titular.dados]) {
+      // LGPD art. 19, II e art. 9º: o texto que o paciente viu, não só o código interno (mesmo problema do P12-23 e)
+      expect(d.diario).toEqual([expect.objectContaining({ refeicao: 'Almoço', resposta: 'como_no_plano', respostaRotulo: 'Comi assim', refeicaoDoPlano: 'Almoço · 12:30', texto: null })]);
+      expect(d.antropometria.map((a) => a.pesoKg)).toEqual([81.37]); // RN-204: a opção não muda a exportação
+      // D6 ★ revista: dado pessoal do titular (art. 5º, I; art. 18, II) — nos dois escopos até o parecer do advogado (E-09)
+      expect(d.paciente.pesoOcultoNoAppEm).toBe(now.toISOString());
+    }
   });
 });
