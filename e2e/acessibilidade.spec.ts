@@ -240,10 +240,11 @@ test('nenhuma tela do portal põe <form> dentro de <p> no HTML do servidor (hidr
   }
 });
 
-test('alvo de toque ≥ 44 px (RNF-10): "Próxima consulta" no Início e as semanas do agendamento', async () => {
+test('alvo de toque ≥ 44 px (RNF-10): a barra de ações e "Ver todo o diário" em Hoje e as semanas do agendamento', async () => {
   const altura = async (l: ReturnType<Page['getByRole']>) => (await l.boundingBox())?.height ?? 0;
   await paciente.page.goto('/p/inicio');
-  expect(await altura(paciente.page.locator('p', { hasText: 'Próxima consulta:' }).getByRole('link'))).toBeGreaterThanOrEqual(44);
+  for (const link of [paciente.page.getByRole('navigation', { name: 'Ações' }).getByRole('link').first(), paciente.page.getByRole('link', { name: 'Ver todo o diário' })])
+    expect(await altura(link)).toBeGreaterThanOrEqual(44);
   await paciente.page.goto('/p/agenda/nova');
   expect(await altura(paciente.page.getByRole('navigation', { name: 'Semana' }).getByRole('link', { name: 'Próxima semana' }))).toBeGreaterThanOrEqual(44);
 });

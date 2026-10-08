@@ -4,7 +4,7 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp, primeiroNome, primeiroNomeDoPaciente, situacaoDoWhatsapp } from './perfil';
+import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp, primeiroNome, situacaoDoWhatsapp } from './perfil';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -56,10 +56,5 @@ describe('primeiro nome para a saudação (Plano 16, RN-218)', () => {
     expect(primeiroNome('  Marina  Souza ')).toBe('Marina');
     expect(primeiroNome('Ana')).toBe('Ana');
     expect(primeiroNome('')).toBe('');
-  });
-  it('lê o nome do próprio prontuário pela sessão do paciente', async () => {
-    const T = await novoTenant(app.db);
-    const p = await novoPaciente(app.db, T.ctx, { nome: 'Marina Souza' });
-    expect(await primeiroNomeDoPaciente(ctxPaciente(T.tenantId, p.id), app.db)).toBe('Marina');
   });
 });

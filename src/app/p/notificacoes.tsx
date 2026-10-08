@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ehIos } from './instalacao';
 import { standalone } from './instalar';
 import { linkDaRecusa, recusaDoPortal, type RecusaDoPortal } from './recusa-api';
@@ -51,9 +51,14 @@ export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscri
   return p;
 }
 
-/** US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). */
-export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
+/**
+ * US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). Plano 16: `cartao`
+ * embrulha o conteúdo (o cartão de Hoje, RN-201).
+ */
+export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublica: string | null; dono: string; cartao?: (conteudo: ReactNode) => ReactNode }) {
   const [estado, setEstado] = useState<Estado>('carregando');
+  /** A pessoa tocou em "Ativar notificações" nesta tela: o cartão fica com o resultado até a próxima abertura. */
+  const [agiu, setAgiu] = useState(false);
   /** Recusa da sessão ao ativar (401/403 `{ erro }`): a mensagem do servidor (e o link do login ou da escolha) no lugar do "Tente de novo" genérico. */
   const [recusa, setRecusa] = useState<RecusaDoPortal | null>(null);
   useEffect(() => {
@@ -72,6 +77,7 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
     };
   }, [chavePublica, dono]);
   const ativar = async () => {
+    setAgiu(true);
     try {
       if ((await Notification.requestPermission()) !== 'granted') return setEstado('negado');
       const reg = await navigator.serviceWorker.ready;
@@ -85,8 +91,11 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
     }
   };
   if (estado === 'carregando' || estado === 'instale') return null;
+  // Plano 16 (RN-201): no mural, o cartão só aparece quando dá para ativar (ou a tentativa falhou); depois de agir nesta
+  // tela, fica até a próxima abertura, com o resultado (ativo/negado) anunciado pela região viva de sempre
+  if (cartao && !agiu && estado !== 'pode' && estado !== 'falhou') return null;
   const link = linkDaRecusa(recusa);
-  return (
+  const conteudo = (
     <div className="space-y-2">
       {(estado === 'pode' || estado === 'falhou') && (
         <button type="button" onClick={ativar} className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">
@@ -108,4 +117,5 @@ export function AtivarNotificacoes({ chavePublica, dono }: { chavePublica: strin
       )}
     </div>
   );
+  return cartao ? cartao(conteudo) : conteudo;
 }

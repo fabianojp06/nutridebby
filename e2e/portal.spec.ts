@@ -203,9 +203,11 @@ test('acesso do dia: abrir o portal registra o dia e renova o cookie de sessão 
   await p.page.context().close();
 });
 
-test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e a tela explica', async ({ browser }) => {
+test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e Eu explica', async ({ browser }) => {
   test.skip(!!process.env.VAPID_PUBLIC_KEY, 'o E2E com push de verdade precisa de um serviço de push real');
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.7');
+  // Plano 16 (RN-201): Hoje só mostra o cartão quando dá para ativar; a explicação fica em Eu › Notificações
+  await p.page.goto('/p/perfil');
   await expect(p.page.getByRole('status').filter({ hasText: 'Notificações no app ainda não estão disponíveis.' })).toBeVisible();
   await expect(p.page.getByRole('button', { name: 'Ativar notificações' })).toHaveCount(0);
   await p.page.context().close();

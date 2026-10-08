@@ -29,6 +29,9 @@ export function Instalar({ cartao }: { cartao?: (conteudo: ReactNode) => ReactNo
       <button
         onClick={async () => {
           await prompt.prompt();
+          // Plano 16 (RN-201): o botão (e, em Hoje, o cartão) sai do DOM — o foco vai ao "Ver todo o diário" do mural, como
+          // no "Agora não", nunca ao <body>; fora de Hoje o link não existe e nada muda
+          document.getElementById('ver-todo-diario')?.focus();
           promptUsado();
         }}
         className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white"

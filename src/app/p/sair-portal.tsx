@@ -1,5 +1,6 @@
 'use client';
 import type { FormEvent } from 'react';
+import { esquecerCartoesDoAparelho } from '@/components/portal/cartoes-dispensados';
 import { esquecerPlanoGuardado } from '../sw-regras';
 import { esquecerComprasDoAparelho } from './(portal)/compras/marcacao';
 
@@ -31,6 +32,7 @@ async function cancelarPushDoAparelho(): Promise<void> {
  */
 export async function limparAparelho(): Promise<void> {
   esquecerComprasDoAparelho(); // síncrono: as marcações "comprado" (nomes de alimentos do plano)
+  esquecerCartoesDoAparelho(); // RN-201: os cartões dispensados
   const tarefas = [esquecerPlanoGuardado(), cancelarPushDoAparelho().catch(() => undefined)];
   await Promise.race([Promise.all(tarefas), new Promise((r) => setTimeout(r, PRAZO_LIMPEZA_MS))]);
 }
