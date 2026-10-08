@@ -40,8 +40,8 @@ test('US-160 a US-163: o paciente envia um PDF, o worker processa, a nutricionis
   const p = await pacienteNoPortal(browser, nutri, '10.9.16.62');
   await p.page.goto('/p/inicio');
   await p.page.getByRole('link', { name: 'Enviar exame' }).click();
-  await expect(p.page).toHaveURL(/\/p\/exames$/);
-  await expect(p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' })).toHaveAttribute('aria-current', 'page');
+  await expect(p.page).toHaveURL(/\/p\/exames(#enviar)?$/);
+  await expect(p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Exames' })).toHaveAttribute('aria-current', 'page');
   await enviar(p.page, 'Hemograma E2E', await laudo(2));
   await situacao(p.page, 'Aguardando sua nutricionista');
   await expect(p.page.getByRole('link', { name: /Baixar PDF/ })).toBeVisible();

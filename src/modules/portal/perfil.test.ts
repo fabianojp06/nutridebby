@@ -4,7 +4,7 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp, situacaoDoWhatsapp } from './perfil';
+import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp, primeiroNome, primeiroNomeDoPaciente, situacaoDoWhatsapp } from './perfil';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -48,5 +48,18 @@ describe('Perfil > Notificações: WhatsApp (US-011)', () => {
     await preferenciaWhatsapp(ctxPaciente(T.tenantId, outro.id), false, { db: app.db });
     expect(await situacaoDoWhatsapp(ctxPaciente(T.tenantId, p.id), app.db)).toEqual({ ativo: true, temTelefone: true });
     await expect(preferenciaWhatsapp(T.ctx, false, { db: app.db })).rejects.toThrow('só roda em sessão de paciente');
+  });
+});
+
+describe('primeiro nome para a saudação (Plano 16, RN-218)', () => {
+  it('até o primeiro espaço, sem espaços nas pontas; vazio continua vazio', () => {
+    expect(primeiroNome('  Marina  Souza ')).toBe('Marina');
+    expect(primeiroNome('Ana')).toBe('Ana');
+    expect(primeiroNome('')).toBe('');
+  });
+  it('lê o nome do próprio prontuário pela sessão do paciente', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { nome: 'Marina Souza' });
+    expect(await primeiroNomeDoPaciente(ctxPaciente(T.tenantId, p.id), app.db)).toBe('Marina');
   });
 });

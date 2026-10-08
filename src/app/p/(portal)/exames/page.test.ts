@@ -14,6 +14,9 @@ vi.mock('@/modules/portal/exames-enviados', async (importOriginal) => ({
   meusEnvios: vi.fn(async () => lista),
 }));
 vi.mock('./actions', () => ({ cancelarEnvioAction: async () => ({}) }));
+vi.mock('@/app/p/moldura', () => ({
+  molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
+}));
 const { default: MeusExames } = await import('./page');
 
 const envio = (o: Partial<MeuEnvio>): MeuEnvio => ({

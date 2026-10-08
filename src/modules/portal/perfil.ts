@@ -48,3 +48,13 @@ export async function preferenciaWhatsapp(ctx: TenantContext, quer: boolean, o: 
     o.db ?? getDb(),
   );
 }
+
+/** Plano 16 (RN-218): a saudação usa o primeiro nome (até o primeiro espaço). */
+export const primeiroNome = (nome: string): string => nome.trim().split(/\s+/)[0] ?? '';
+
+/** O primeiro nome do prontuário do vínculo (RLS do paciente). Nome não é dado de saúde: sem auditRead (como a lista de pacientes). */
+export async function primeiroNomeDoPaciente(ctx: TenantContext, db: Db = getDb()): Promise<string> {
+  const patientId = pacienteDaSessao(ctx, 'primeiroNomeDoPaciente');
+  const [p] = await withTenant(ctx, (tx) => tx.select({ nome: patients.nome }).from(patients).where(eq(patients.id, patientId)), db);
+  return primeiroNome(p?.nome ?? '');
+}

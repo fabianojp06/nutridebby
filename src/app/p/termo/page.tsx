@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { requirePaciente, TERMO_PATH, voltaDoTermo } from '@/lib/paciente-session';
 import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
 import { termoAceito } from '@/modules/portal/termo';
+import { CabecalhoSair } from '@/components/portal/cabecalho-sair';
 import { TermoForm } from './termo-form';
 
 export const dynamic = 'force-dynamic';
@@ -16,13 +17,16 @@ export default async function NovoTermo({ searchParams }: PageProps<'/p/termo'>)
   const volta = voltaDoTermo(typeof pedida === 'string' ? pedida : null);
   if (await termoAceito(data.user.id, tenant.id)) redirect(volta);
   return (
-    <main className="mx-auto max-w-md space-y-4 p-6">
-      <h1 className="font-titulo text-2xl font-semibold">{TERMO_PACIENTE_TITULO}</h1>
-      <p className="text-sm text-suave">{`Acompanhamento com ${tenant.nomeExibicao}`}</p>
-      {TERMO_PACIENTE_PARAGRAFOS.map((t) => (
-        <p key={t}>{t}</p>
-      ))}
-      <TermoForm volta={volta} />
-    </main>
+    <>
+      <CabecalhoSair />
+      <main className="mx-auto max-w-md space-y-4 p-6">
+        <h1 className="font-portal-titulo text-2xl font-semibold">{TERMO_PACIENTE_TITULO}</h1>
+        <p className="text-sm text-suave">{`Acompanhamento com ${tenant.nomeExibicao}`}</p>
+        {TERMO_PACIENTE_PARAGRAFOS.map((t) => (
+          <p key={t}>{t}</p>
+        ))}
+        <TermoForm volta={volta} />
+      </main>
+    </>
   );
 }

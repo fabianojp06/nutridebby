@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, tenant: { fuso: 'America/Sao_Paulo' }, vinculo: { patientId: '00000000-0000-4000-8000-0000000000a1' } }),
 }));
+vi.mock('@/app/p/moldura', () => ({
+  molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
+}));
 vi.mock('@/modules/portal/plano', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/portal/plano')>()),
   planoDoPaciente: async () => ({

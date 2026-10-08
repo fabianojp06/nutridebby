@@ -18,7 +18,14 @@ const ARQUIVOS = PASTAS.flatMap((p) =>
 const EXCECOES: Record<string, { motivo: string; classes: string[] }> = {
   'src/app/painel/whatsapp/conectar.tsx': { motivo: 'o QR precisa de fundo branco para ser lido, também no modo escuro', classes: ['bg-white'] },
   'src/app/painel/cabecalho.tsx': { motivo: 'o logo do consultório fica sobre fundo branco (um logo escuro sem fundo sumiria no escuro)', classes: ['bg-white'] },
-  'src/app/p/(portal)/layout.tsx': { motivo: 'o logo do consultório no topo do portal fica sobre fundo branco (no aparelho escuro, um logo escuro sem fundo sumiria)', classes: ['bg-white'] },
+  'src/components/portal/faixa.tsx': {
+    motivo: 'o logo do consultório fica sobre fundo branco e a seção atual é a pílula branca da faixa (texto na cor da faixa, ≥ 4,5:1 por corDaFaixa); nenhum token é branco nos dois modos',
+    classes: ['bg-white'],
+  },
+  'src/components/portal/nav-secoes.tsx': {
+    motivo: 'a seção atual é a pílula branca da faixa (texto na cor da faixa, ≥ 4,5:1 por corDaFaixa); nenhum token é branco nos dois modos',
+    classes: ['bg-white'],
+  },
   'src/app/painel/page.tsx': {
     motivo: 'Início (T15): o botão "Abrir prontuário" é branco sobre o cartão de destaque, que tem a cor original da marca nos dois modos (bg-destaque); nenhum token é branco nos dois modos',
     classes: ['bg-white'],
@@ -75,12 +82,13 @@ describe('sem cor fixa nas telas da nutricionista (D24)', () => {
   });
 });
 
-describe('marca do consultório no portal (US-005, D18/D19)', () => {
-  it('a faixa do topo segue a variante clara no escuro (border-marca), não a cor original em style', () => {
-    const s = readFileSync('src/app/p/(portal)/layout.tsx', 'utf8');
-    expect(s).toMatch(/(?<![\w-])border-marca(?![\w-])/);
-    expect(s).not.toMatch(/borderBottom/);
-    expect(s).toMatch(/<img [^>]*className="[^"]*\bbg-white\b/);
+describe('marca do consultório no portal (US-005, RN-207)', () => {
+  it('a faixa usa a cor da faixa (bg-faixa = corDaFaixa, posta pelo layout em --nd-faixa), nunca a cor original em style', () => {
+    const faixa = readFileSync('src/components/portal/faixa.tsx', 'utf8');
+    expect(faixa).toMatch(/(?<![\w-])bg-faixa(?![\w-])/);
+    expect(faixa).toMatch(/<img [^>]*className="[^"]*\bbg-white\b/);
+    expect(faixa).not.toMatch(/backgroundColor/);
+    expect(readFileSync('src/app/p/(portal)/layout.tsx', 'utf8')).toMatch(/'--nd-faixa': corDaFaixa\(marca\.cor\)/);
   });
 });
 

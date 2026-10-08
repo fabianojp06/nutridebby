@@ -64,7 +64,7 @@ test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao porta
   await expect(page.getByLabel('Quero receber lembretes por WhatsApp')).toBeChecked(); // a nutricionista autorizou
   await continuar.click();
   await expect(page).toHaveURL(/\/p\/inicio$/);
-  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   await page.goto(link);
   await expect(page.locator('p[role="alert"]')).toContainText('Convite inválido ou já usado.');
   await ctx.close();
@@ -76,8 +76,9 @@ test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao porta
 test('o paciente sai pelo "Sair" do portal: cai em /entrar e /p/inicio deixa de abrir (US-002 "Sair")', async ({ browser }) => {
   const page = await entrarComo(browser, ANA.email, ANA.senha, '10.9.5.8');
   await expect(page).toHaveURL(/\/p\/inicio$/);
-  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   const antes = await page.context().cookies();
+  await page.goto('/p/perfil'); // Plano 16 (RN-211): o "Sair" do portal fica no fim de "Eu"
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(page).toHaveURL(/\/entrar$/);
   await page.goto('/p/inicio');
@@ -85,7 +86,7 @@ test('o paciente sai pelo "Sair" do portal: cai em /entrar e /p/inicio deixa de 
   await page.context().addCookies(antes); // sessão apagada no servidor: o cookie antigo não abre o portal
   await page.goto('/p/inicio');
   await expect(page).toHaveURL(/\/entrar/);
-  await expect(page.getByRole('heading', { name: 'Meu acompanhamento' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: /^Olá, / })).toHaveCount(0);
   await page.context().close();
 });
 

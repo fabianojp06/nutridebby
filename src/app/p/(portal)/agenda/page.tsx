@@ -3,6 +3,7 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
 import { formatarQuando, quandoComFuso } from '@/modules/agenda/fuso';
 import { consultasDoPaciente, type ConsultaDoPaciente } from '@/modules/portal/agenda';
+import { CabecalhoDetalhe } from '@/components/portal/cabecalho-detalhe';
 import { QuandoLocal } from '../../quando-local';
 
 export const dynamic = 'force-dynamic';
@@ -21,23 +22,25 @@ export default async function Agenda() {
     </li>
   );
   return (
-    <main className="space-y-6 p-6">
-      <h1 className="font-titulo text-2xl font-semibold">Minhas consultas</h1>
-      {podeAgendar ? (
-        <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded-xl bg-destaque px-4 font-semibold text-white">Agendar consulta</Link></p>
-      ) : (
-        <p>{MSG_AGENDA.limitePublico}</p> // T-1: no teto (RN-16) o botão levaria a uma recusa
-      )}
-      <section aria-labelledby="proximas">
-        <h2 id="proximas" className="text-lg font-semibold">Próximas</h2>
-        {proximas.length ? <ul>{proximas.map(linha)}</ul> : <p>Nenhuma consulta marcada.</p>}
-      </section>
-      {anteriores.length > 0 && (
-        <section aria-labelledby="anteriores">
-          <h2 id="anteriores" className="text-lg font-semibold">Anteriores</h2>
-          <ul>{anteriores.map(linha)}</ul>
+    <>
+      <CabecalhoDetalhe titulo="Minhas consultas" voltar={{ href: '/p/jornada', secao: 'Jornada' }} />
+      <main className="space-y-6 p-6">
+        {podeAgendar ? (
+          <p><Link href="/p/agenda/nova" className="inline-flex min-h-11 items-center rounded-xl bg-destaque px-4 font-semibold text-white">Agendar consulta</Link></p>
+        ) : (
+          <p>{MSG_AGENDA.limitePublico}</p> // T-1: no teto (RN-16) o botão levaria a uma recusa
+        )}
+        <section aria-labelledby="proximas">
+          <h2 id="proximas" className="text-lg font-semibold">Próximas</h2>
+          {proximas.length ? <ul>{proximas.map(linha)}</ul> : <p>Nenhuma consulta marcada.</p>}
         </section>
-      )}
-    </main>
+        {anteriores.length > 0 && (
+          <section aria-labelledby="anteriores">
+            <h2 id="anteriores" className="text-lg font-semibold">Anteriores</h2>
+            <ul>{anteriores.map(linha)}</ul>
+          </section>
+        )}
+      </main>
+    </>
   );
 }

@@ -168,7 +168,7 @@ test('axe sem violações no detalhe de uma orientação (markdown e "Baixar mat
   expect(r.headers()['content-type']).toMatch(/^application\/pdf/);
 });
 
-test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe em 7 colunas iguais (também a 320 px, com axe)', async () => {
+test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e as seções da faixa cabem em 5 colunas iguais (também a 320 px, com axe)', async () => {
   await paciente.page.setViewportSize({ width: 360, height: 780 });
   try {
     for (const url of ROTAS) {
@@ -178,23 +178,24 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
     await paciente.page.goto('/p/inicio');
-    for (const aba of ['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']) {
-      await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
-    }
-    // D3 (ratificado 04/10): 7 colunas iguais, palavra longa quebra com hífen — nada rola nem invade a vizinha, a 360 e a 320 px
+    const secoes = paciente.page.getByRole('navigation', { name: 'Seções' });
+    for (const s of ['Hoje', 'Jornada', 'Plano', 'Exames', 'Eu']) await expect(secoes.getByRole('link', { name: s, exact: true })).toBeVisible();
+    // Plano 16 (§4.2): 5 colunas iguais (o consultório do E2E recebe exames), palavra longa quebra com hífen — nada rola nem invade a vizinha
     for (const largura of [360, 320]) {
       await paciente.page.setViewportSize({ width: largura, height: 780 });
-      const barra = await paciente.page.getByRole('navigation', { name: 'Portal' }).evaluate((nav) => {
+      const barra = await secoes.evaluate((nav) => {
         const ul = nav.querySelector('ul')!;
         const lis = [...ul.querySelectorAll('li')].map((li) => li.getBoundingClientRect());
         const links = [...ul.querySelectorAll('a')];
         return {
           rola: ul.scrollWidth > ul.clientWidth || document.documentElement.scrollWidth > window.innerWidth,
+          colunas: lis.length,
           larguras: lis.map((r) => Math.round(r.width)),
           vazaDaColuna: links.filter((a) => a.scrollWidth > a.clientWidth).map((a) => a.textContent),
           alturaMin: Math.min(...links.map((a) => a.getBoundingClientRect().height)),
         };
       });
+      expect(barra.colunas, `${largura} px`).toBe(5);
       expect(barra.rola, `${largura} px`).toBe(false);
       expect(Math.max(...barra.larguras) - Math.min(...barra.larguras), `${largura} px: ${barra.larguras}`).toBeLessThanOrEqual(1);
       expect(barra.vazaDaColuna, `${largura} px`).toEqual([]);
@@ -262,12 +263,12 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
-  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Plano' }).click();
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Plano' }).click();
   await expect(page).toHaveURL(/\/p\/plano$/);
   await expect.poll(() => entradasDoPlano(page)).toBe(1);
 
   // troca pelo Perfil, sem sair: o consultório 3 pede o termo (axe)...
-  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' }).click();
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu' }).click();
   expect((await page.getByRole('link', { name: 'Trocar de nutricionista' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44); // RNF-10
   await page.getByRole('link', { name: 'Trocar de nutricionista' }).click();
   // achado 4 do /code-review: na escolha, a cópia do consultório 1 (ativo, escolhível) fica no aparelho
