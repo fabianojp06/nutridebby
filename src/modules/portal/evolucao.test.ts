@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
+import { definirPesoOculto } from '@/modules/pacientes/peso-oculto';
 import { evolucaoParaPaciente } from './evolucao';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -46,5 +47,16 @@ describe('Minha evolução (US-044, D14)', () => {
   it('só em sessão de paciente', async () => {
     const { T } = await comAvaliacoes();
     await expect(evolucaoParaPaciente(T.ctx, { mostrarPercGorduraPaciente: false }, app.db)).rejects.toThrow(/sessão de paciente/);
+  });
+
+  it('Plano 16 (RN-203, CS-194): com "Não mostrar peso no app", nem peso nem IMC saem do módulo — a cintura e as orientações continuam', async () => {
+    const { T, p } = await comAvaliacoes();
+    await definirPesoOculto(T.ctx, p.id, true, { db: app.db });
+    const e = await evolucaoParaPaciente(ctxPaciente(T.tenantId, p.id), { mostrarPercGorduraPaciente: true }, app.db);
+    expect(e.series.map((s) => s.id)).toEqual(['perc_gordura', 'circ_cintura']);
+    expect(e.diferencas.map((d) => d.rotulo)).toEqual(['% de gordura', 'Cintura']);
+    expect(e.orientacoes).toEqual([{ data: '2026-09-01', orientacoes: 'Caminhar 30 min' }]);
+    // os valores de peso (80 e 77) e de IMC (27,68 e 26,64 com 170 cm) não estão em lugar nenhum da resposta
+    expect(JSON.stringify(e)).not.toMatch(/"peso"|"imc"|27\.68|26\.64|"valor":80|"valor":77/);
   });
 });
