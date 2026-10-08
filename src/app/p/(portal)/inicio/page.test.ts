@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG_MURAL } from '@/modules/portal/mural-regras';
 
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
@@ -19,11 +19,21 @@ vi.mock('@/modules/portal/jornada', () => ({
   }),
 }));
 vi.mock('../agenda/actions', () => ({ confirmarAction: async () => ({}) }));
+const estado = vi.hoisted(() => ({ jaUsava: true, guia: {} as Record<string, unknown> }));
+vi.mock('@/modules/plataforma/preferencias', () => ({ lerGuia: async () => estado.guia }));
+vi.mock('@/modules/portal/acesso', () => ({ jaUsavaOApp: async () => estado.jaUsava }));
+vi.mock('../ajuda/actions', () => ({ marcarGuiaPortalAction: async () => {} }));
 const { default: Hoje } = await import('./page');
 
+const pagina = async (busca: Record<string, string> = {}) => renderToStaticMarkup(await Hoje({ searchParams: Promise.resolve(busca) } as never));
+
 describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
+  beforeEach(() => {
+    estado.jaUsava = true;
+    estado.guia = {};
+  });
   it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
-    const html = renderToStaticMarkup(await Hoje());
+    const html = await pagina();
     expect(html).toMatch(/<h1[^>]*>Olá, Marina<\/h1>/);
     // WCAG 2.5.3 (Rótulo no nome): sem aria-label no link — o texto visível faz parte do nome; o resto vai em sr-only
     expect(html).not.toMatch(/<a[^>]*href="\/p\/jornada"[^>]*aria-label/);
@@ -35,5 +45,30 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     expect(html).toContain('<nav aria-label="Ações"');
     expect(html).not.toContain('Enviar exame'); // recebimento desligado (RN-215)
     expect(html).not.toMatch(/<textarea|Meu acompanhamento/);
+    // US-199: na primeira abertura depois do deploy, o aviso (só ele abre sozinho; o tour, só pelo botão)
+    expect(html).toContain('O app mudou. Quer ver onde ficou cada coisa?');
+    expect(html).toMatch(/<button[^>]*>Ver como funciona<\/button>/);
+    expect(html).not.toContain('<dialog');
+  });
+
+  it('G-D17 = a: quem nunca abriu o app antes de hoje recebe as boas-vindas, não "O app mudou"', async () => {
+    estado.jaUsava = false;
+    const html = await pagina();
+    expect(html).toContain('Boas-vindas ao app do seu acompanhamento. Quer ver como funciona?');
+    expect(html).not.toContain('O app mudou');
+  });
+
+  it('RN-212: o aviso aparece uma vez por conta (visto, concluído ou dispensado na versão atual: sem aviso); ?tour= abre o tour', async () => {
+    for (const marca of ['visto', 'concluido', 'dispensado']) {
+      estado.guia = { 'portal-novidades': { v: 1, estado: marca } };
+      const html = await pagina();
+      expect(html, marca).not.toContain('Ver como funciona');
+      expect(html, marca).not.toContain('<dialog');
+    }
+    const html = await pagina({ tour: 'portal-novidades' });
+    expect(html).toContain('<dialog');
+    expect(html).toContain('1 de 5');
+    expect(html).not.toContain('Ver como funciona'); // o tour aberto não mostra o aviso por baixo
+    expect(await pagina({ tour: 'boas-vindas' })).not.toContain('<dialog'); // só o guia do portal
   });
 });

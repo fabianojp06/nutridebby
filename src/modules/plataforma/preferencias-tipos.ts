@@ -13,3 +13,11 @@ export type EstadoGuia = 'concluido' | 'dispensado' | 'visto';
 export type ProgressoGuia = Record<string, { v: number; estado: EstadoGuia }>;
 export const ID_GUIA = /^[a-z][a-z0-9-]{1,39}$/;
 export const ESTADOS_GUIA: readonly EstadoGuia[] = ['concluido', 'dispensado', 'visto'];
+
+/** A mesma regra do marcarGuia (T13), no estado local: versão menor não sobrescreve a maior; "visto" não rebaixa concluído/dispensado na mesma versão. */
+export function aplicarMarca(p: ProgressoGuia, id: string, versao: number, estado: EstadoGuia): ProgressoGuia {
+  const atual = p[id];
+  if (atual && atual.v > versao) return p;
+  if (estado === 'visto' && atual?.v === versao && (atual.estado === 'concluido' || atual.estado === 'dispensado')) return p;
+  return { ...p, [id]: { v: versao, estado } };
+}

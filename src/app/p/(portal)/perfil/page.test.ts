@@ -21,14 +21,15 @@ vi.mock('./instalar-no-eu', () => ({ InstalarNoEu: () => 'Instalar o app' }));
 const { default: Eu } = await import('./page');
 
 describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
-  it('na ordem da spec: conta, consultório e "Trocar de nutricionista", meus documentos, notificações, instalar, privacidade com a RN-214 e o Sair no fim', async () => {
+  it('na ordem da spec: conta, consultório e "Trocar de nutricionista", meus documentos, notificações, instalar, privacidade com a RN-214, "Como usar o app" e o Sair no fim', async () => {
     const html = renderToStaticMarkup(await Eu());
-    const ordem = ['Conectado como marina@ex.com.', 'Consultório Debby', 'Trocar de nutricionista', 'Meus documentos', 'Notificações', 'Instalar o app', 'Privacidade', '>Sair<'];
+    const ordem = ['Conectado como marina@ex.com.', 'Consultório Debby', 'Trocar de nutricionista', 'Meus documentos', 'Notificações', 'Instalar o app', 'Privacidade', 'Como usar o app', '>Sair<'];
     const corpo = html.slice(html.indexOf('<main')); // a faixa também diz o nome do consultório
     const posicoes = ordem.map((t) => corpo.indexOf(t));
     expect(posicoes.every((p) => p >= 0), String(posicoes)).toBe(true);
     expect([...posicoes].sort((a, b) => a - b)).toEqual(posicoes);
     expect(html).toContain('Algumas informações do acompanhamento podem não aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados (Baixar meus dados).');
+    expect(html).toMatch(/<a[^>]*href="\/p\/ajuda"[^>]*>Como usar o app<\/a>/);
     expect(html).not.toMatch(/peso/i); // RN-214: nenhuma tela diz que o peso está oculto
   });
   it('um vínculo só: sem "Trocar de nutricionista"; documentos não liberados: sem "Meus documentos"', async () => {

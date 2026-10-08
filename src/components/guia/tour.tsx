@@ -18,13 +18,31 @@ function posicao(c: DOMRect): CSSProperties | undefined {
  * ou com o alvo fora da tela (ex.: sem consulta hoje), aparece centralizado. A cada passo o foco vai ao título (o leitor
  * de tela anuncia). Esc = "Pular o tour" (grava "dispensado", D27). O alvo não é clicável durante o tour.
  */
-export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto: boolean; aoFechar: () => void; aoMarcar: (estado: 'concluido' | 'dispensado') => void }) {
+export function Tour({
+  guia,
+  aberto,
+  aoFechar,
+  aoMarcar,
+  focoAoFechar = '[data-guia="ajuda"]',
+  folhaEvitaAlvo = false,
+}: {
+  guia: Guia;
+  aberto: boolean;
+  aoFechar: () => void;
+  aoMarcar: (estado: 'concluido' | 'dispensado') => void;
+  /** Para onde vai o foco quando não há a quem devolvê-lo (padrão: o botão "Ajuda" do cabeçalho do painel). */
+  focoAoFechar?: string;
+  /** Plano 16: abaixo de 640 px, a folha sobe para o topo quando cobriria o alvo (a barra de ações do portal fica embaixo). O painel não usa (G-D3). */
+  folhaEvitaAlvo?: boolean;
+}) {
   const dialogo = useRef<HTMLDialogElement>(null);
   const titulo = useRef<HTMLHeadingElement>(null);
   const [i, setI] = useState(0);
   const [caixa, setCaixa] = useState<DOMRect | null>(null);
   const passo = guia.passos[Math.min(i, guia.passos.length - 1)];
   const ultimo = i >= guia.passos.length - 1;
+  // `caixa` só existe no cliente (medida no useLayoutEffect): o window daqui nunca roda no servidor
+  const folhaNoTopo = folhaEvitaAlvo && !!caixa && caixa.bottom > window.innerHeight - CARTAO_ALTURA - 24;
 
   // antes do efeito do passo (mesma fase, ordem de declaração): o showModal move o foco, e o foco do título vem depois
   useLayoutEffect(() => {
@@ -56,17 +74,18 @@ export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto:
   }, [aberto, passo, medir]);
 
   const fechar = (estado: 'concluido' | 'dispensado') => {
-    aoMarcar(estado); // o GuiaDoPainel atualiza o progresso local e grava na conta
+    aoMarcar(estado); // o GuiaDoPainel (ou o GuiaDoPortal) atualiza o progresso local e grava na conta
     setI(0);
     const d = dialogo.current;
     d?.close(); // antes de desmontar: o navegador devolve o foco a quem o tinha antes de abrir
     // aberto pelo "Ver como funciona" (o aviso sai do DOM) ou pelo ?tour= do menu da conta (o link fica no <details>
     // fechado): não há a quem devolver. O foco cairia no <body> (risco 5 do plano) ou ficaria preso no botão do diálogo
-    // fechado (o Chrome só corrige o foco de elemento escondido depois) — vai para o botão "Ajuda" do cabeçalho
+    // fechado (o Chrome só corrige o foco de elemento escondido depois) — vai para `focoAoFechar` (no painel, o botão
+    // "Ajuda" do cabeçalho; no portal, a seção Eu, onde mora o "Como usar o app")
     const ativo = document.activeElement;
     const perdido =
       !ativo || ativo === document.body || !!d?.contains(ativo) || (typeof ativo.checkVisibility === 'function' && !ativo.checkVisibility());
-    if (perdido) document.querySelector<HTMLElement>('[data-guia="ajuda"]')?.focus();
+    if (perdido) document.querySelector<HTMLElement>(focoAoFechar)?.focus();
     aoFechar();
   };
 
@@ -93,7 +112,7 @@ export function Tour({ guia, aberto, aoFechar, aoMarcar }: { guia: Guia; aberto:
       )}
       <div
         style={caixa ? posicao(caixa) : undefined}
-        className={`fixed w-[min(24rem,calc(100vw-1.5rem))] rounded-3xl border border-borda bg-cartao p-5 text-texto shadow-xl max-sm:inset-x-3 max-sm:bottom-3 ${caixa ? '' : 'sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2'}`}
+        className={`fixed w-[min(24rem,calc(100vw-1.5rem))] rounded-3xl border border-borda bg-cartao p-5 text-texto shadow-xl max-sm:inset-x-3 ${folhaNoTopo ? 'max-sm:top-3' : 'max-sm:bottom-3'} ${caixa ? '' : 'sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2'}`}
       >
         <p className="text-sm text-suave">{`${i + 1} de ${guia.passos.length}`}</p>
         <h2 id="tour-titulo" ref={titulo} tabIndex={-1} className="font-titulo text-xl font-semibold">{passo.titulo}</h2>

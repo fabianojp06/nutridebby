@@ -3,6 +3,7 @@ import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
+import { AVISO_PORTAL } from '@/modules/ajuda/portal';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
 import { molduraDaSecao } from '../../moldura';
 import { AtivarNotificacoes } from '../../notificacoes';
@@ -20,7 +21,7 @@ const LINK = 'inline-flex min-h-11 items-center font-semibold text-link underlin
 /**
  * Plano 16 (US-197, G-01g, molde D-Assuntos): Eu — a conta, o consultório ("Trocar de nutricionista" com 2+ vínculos,
  * RN-210), Meus documentos (US-146: só com os documentos liberados, D20 do 10A), Notificações (push e WhatsApp), Instalar
- * o app, Privacidade (US-046 + RN-214), Como usar o app (T14) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
+ * o app, Privacidade (US-046 + RN-214), Como usar o app (/p/ajuda, RN-212) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
  * é seção (G-D9).
  */
 export default async function Eu() {
@@ -67,7 +68,12 @@ export default async function Eu() {
           <h2 id="privacidade" className={H2}>Privacidade</h2>
           <Privacidade />
         </section>
-        {/* T14: a seção "Como usar o app" entra aqui, logo antes do Sair */}
+        {/* Plano 16 (US-199, RN-212): o manual do portal, que também reabre o tour */}
+        <p>
+          <Link href="/p/ajuda" className={LINK}>
+            {AVISO_PORTAL.comoUsar}
+          </Link>
+        </p>
         {/* RN-211: o "Sair" do portal fica no fim de "Eu". <div>, não <p>: o SairPortal é um <form>, e <form> dentro de <p>
             quebra a hidratação (o parser do HTML fecha o <p> antes do <form>) */}
         <div>

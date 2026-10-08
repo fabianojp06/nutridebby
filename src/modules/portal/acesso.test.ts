@@ -5,7 +5,7 @@ import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { accessEvents } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
-import { limparAcessosAntigos, registrarAcesso } from './acesso';
+import { jaUsavaOApp, limparAcessosAntigos, registrarAcesso } from './acesso';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -48,5 +48,27 @@ describe('retenção de access_events (D13)', () => {
     expect(await limparAcessosAntigos(app.db, agora)).toBeGreaterThanOrEqual(1);
     const dias = await withTenant(T.ctx, (tx) => tx.select({ dia: accessEvents.dia }).from(accessEvents).where(eq(accessEvents.patientId, p.id)), app.db);
     expect(dias.map((d) => d.dia).sort()).toEqual([somarDias(hoje, -400), somarDias(hoje, -399)]);
+  });
+});
+
+describe('jaUsavaOApp (Plano 16, G-D17 = a: boas-vindas ou "O app mudou")', () => {
+  it('acesso antes de hoje: true; só hoje: false; acesso de outro paciente não conta (RLS do paciente)', async () => {
+    const T = await novoTenant(app.db);
+    const [a, b] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
+    const hoje = '2026-10-08';
+    const ctxA = ctxPaciente(T.tenantId, a.id);
+    expect(await jaUsavaOApp(ctxA, hoje, app.db)).toBe(false); // nenhum acesso
+    await withTenant(T.ctx, (tx) => tx.insert(accessEvents).values({ tenantId: T.tenantId, patientId: a.id, dia: hoje }), app.db);
+    expect(await jaUsavaOApp(ctxA, hoje, app.db)).toBe(false); // só hoje: primeira vez no app
+    await withTenant(T.ctx, (tx) => tx.insert(accessEvents).values({ tenantId: T.tenantId, patientId: b.id, dia: somarDias(hoje, -1) }), app.db);
+    expect(await jaUsavaOApp(ctxA, hoje, app.db)).toBe(false); // o acesso de ontem é do outro paciente
+    expect(await jaUsavaOApp(ctxPaciente(T.tenantId, b.id), hoje, app.db)).toBe(true);
+    await withTenant(T.ctx, (tx) => tx.insert(accessEvents).values({ tenantId: T.tenantId, patientId: a.id, dia: somarDias(hoje, -1) }), app.db);
+    expect(await jaUsavaOApp(ctxA, hoje, app.db)).toBe(true); // ontem
+  });
+
+  it('só em sessão de paciente', async () => {
+    const T = await novoTenant(app.db);
+    await expect(jaUsavaOApp(T.ctx, '2026-10-08', app.db)).rejects.toThrow(/sessão de paciente/);
   });
 });
