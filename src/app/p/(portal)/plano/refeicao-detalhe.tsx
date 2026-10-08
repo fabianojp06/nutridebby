@@ -30,7 +30,7 @@ export function RefeicaoDetalhe({ refeicao, respondida }: { refeicao: RefeicaoDo
       {refeicao.observacao && (
         <div className="rounded-2xl bg-p-clara p-3">
           <p className="text-sm font-semibold">Observação da sua nutricionista</p>
-          <p className="whitespace-pre-line">{refeicao.observacao}</p>
+          <p className="whitespace-pre-line wrap-break-word">{refeicao.observacao}</p>
         </div>
       )}
       {refeicao.receita && (

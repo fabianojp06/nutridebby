@@ -38,7 +38,7 @@ export default async function Diario({ searchParams }: PageProps<'/p/diario'>) {
               <li key={r.id} className="space-y-2 rounded-xl border border-borda bg-cartao p-3">
                 <p className="font-medium">{`${r.refeicaoDoPlano ?? r.refeicao} · ${quandoComFuso(r.dataHora, tenant.fuso)}`}</p>
                 {r.resposta && <p className="text-sm font-medium">{ROTULO_RESPOSTA[r.resposta]}</p>}
-                {r.texto && <p className="whitespace-pre-line">{r.texto}</p>}
+                {r.texto && <p className="whitespace-pre-line wrap-break-word">{r.texto}</p>}
                 {r.foto.estado === 'pronta' && (
                   // Só foto_path (o JPEG convertido, sem EXIF); o original nunca é assinado
                   // eslint-disable-next-line @next/next/no-img-element -- URL assinada de 5 min (CLAUDE.md regra 9)
@@ -50,7 +50,7 @@ export default async function Diario({ searchParams }: PageProps<'/p/diario'>) {
                 {r.comentario && (
                   <div className="rounded bg-ok-fundo p-2">
                     <p className="text-sm font-medium">Comentário da nutricionista</p>
-                    <p className="whitespace-pre-line">{r.comentario}</p>
+                    <p className="whitespace-pre-line wrap-break-word">{r.comentario}</p>
                   </div>
                 )}
               </li>

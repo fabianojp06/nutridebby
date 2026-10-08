@@ -77,7 +77,7 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
             {plano.orientacoes && (
               <section aria-labelledby="orientacoes-plano" className="rounded-2xl bg-p-clara p-3">
                 <h2 id="orientacoes-plano" className="font-semibold">Orientações do plano</h2>
-                <p className="whitespace-pre-line">{plano.orientacoes}</p>
+                <p className="whitespace-pre-line wrap-break-word">{plano.orientacoes}</p>
               </section>
             )}
           </>

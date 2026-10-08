@@ -9,6 +9,7 @@ vi.mock('@/lib/paciente-session', () => ({
 vi.mock('@/app/p/moldura', () => ({
   molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
 }));
+const LINK = vi.hoisted(() => 'https://exemplo.com.br/receitas/lanche-integral-com-frutas-vermelhas-e-aveia-em-flocos-finos');
 const respostas = vi.hoisted(() => vi.fn(async () => new Set<string>()));
 vi.mock('@/modules/portal/diario', () => ({ respostasDeHoje: respostas }));
 vi.mock('@/modules/portal/plano', async (importOriginal) => ({
@@ -16,7 +17,7 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
   planoDoPaciente: async () => ({
     id: 'p1',
     titulo: 'Plano de outubro',
-    orientacoes: '',
+    orientacoes: `Leia ${LINK}`,
     totalKcal: null,
     mostrarCalorias: false,
     pdf: 'indisponivel',
@@ -26,7 +27,7 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
         id: 'r1',
         nome: 'Almoço',
         horario: '12:00',
-        observacao: '',
+        observacao: `Veja ${LINK}`,
         kcal: null,
         itens: [{ id: 'i1', nome: 'Arroz branco', quantidade: '100 g', kcal: null, substituicoes: [{ id: 's1', nome: 'Batata', quantidade: '150 g', kcal: null }] }],
       },
@@ -46,5 +47,13 @@ describe('/p/plano em sanfona (US-196, F-Plano)', () => {
     expect(html).toMatch(/<button[^>]*>Comi assim<\/button>/);
     expect(html).toContain('href="/p/conteudos"'); // G-D8 ★ = a: Conteúdos dentro de Plano
     expect(html).toContain('href="/p/compras"');
+  });
+
+  it('o texto livre da nutricionista (observação da refeição e orientações do plano) quebra: um link longo não faz a página rolar na horizontal a 320 px', async () => {
+    const html = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
+    for (const texto of [`Veja ${LINK}`, `Leia ${LINK}`]) {
+      const classe = new RegExp(`<p class="([^"]*)">${texto.replaceAll('.', '\\.')}</p>`).exec(html)?.[1].split(' ');
+      expect(classe, texto).toContain('wrap-break-word');
+    }
   });
 });

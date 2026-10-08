@@ -62,14 +62,20 @@ export function horarioDaquiAMeiaHora(agora = new Date()): string {
   return hoje.slice(0, 10) === depois.slice(0, 10) ? depois.slice(12, 17) : '23:59';
 }
 
-/** Como publicarPlanoSimples, com o "Almoço" no horário pedido (padrão: daqui a 30 min) — para o mural de Hoje (RN-196). */
-export async function publicarPlanoDoDia(nutri: Page, prontuario: string, horario = horarioDaquiAMeiaHora()) {
+/**
+ * Como publicarPlanoSimples, com o "Almoço" no horário pedido (padrão: daqui a 30 min) — para o mural de Hoje (RN-196).
+ * `textos`: a observação do Almoço e as orientações gerais (texto livre da nutricionista, ex.: um link longo para o teste de 320 px).
+ */
+export async function publicarPlanoDoDia(nutri: Page, prontuario: string, horario = horarioDaquiAMeiaHora(), textos: { observacao?: string; orientacoes?: string } = {}) {
   await nutri.goto(`${prontuario}/plano-alimentar`);
   await nutri.getByRole('button', { name: 'Criar plano' }).click();
   await expect(nutri.getByRole('heading', { name: /Plano alimentar — versão \d+/ })).toBeVisible();
   await nutri.getByRole('button', { name: 'Adicionar refeição' }).click();
   await nutri.getByLabel('Refeição', { exact: true }).fill('Almoço');
   await nutri.getByLabel('Horário de Almoço').fill(horario);
+  // antes do alimento: a última edição (as gramas) leva tudo no mesmo salvamento, e o "Salvo" abaixo cobre os textos
+  if (textos.observacao) await nutri.getByLabel('Observação').first().fill(textos.observacao);
+  if (textos.orientacoes) await nutri.getByLabel('Orientações gerais').fill(textos.orientacoes);
   await nutri.getByLabel('Adicionar alimento em Almoço').fill('chuchu cozido');
   await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
   await nutri.getByLabel('Gramas de Chuchu, cozido').fill('100');

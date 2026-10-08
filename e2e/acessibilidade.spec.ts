@@ -17,6 +17,8 @@ let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
 let docs: Page; // Plano 10A: a nutricionista dos documentos (E2E_DOCS, 2FA), um login só (o limite de login é por IP)
 let codigoDaReceita = ''; // Plano 10A: a receita assinada da paciente (XXXX-XXXX-XXXX)
 let refeicaoId = ''; // Plano 16: a refeição do plano, para o axe da refeição aberta
+// Plano 16 (revisão final): um link longo sem espaço, maior que 320 px, no texto livre das telas de detalhe
+const LINK_LONGO = 'https://exemplo.com.br/receitas/lanche-integral-com-frutas-vermelhas-e-aveia-em-flocos-finos';
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado)
@@ -25,7 +27,8 @@ test.beforeAll(async ({ browser }) => {
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
   // Plano 16 (revisão do plano, achado 21): o "Almoço" daqui a 30 min — o mural de Hoje tem a refeição (e o "Comi assim")
   // qualquer que seja a hora do CI (com 12:00, só entre 10:30 e 23:59)
-  await publicarPlanoDoDia(nutri, paciente.prontuario);
+  // texto livre com um link longo (observação, orientações, diário e comentário): a tela de 320 px não pode rolar na horizontal
+  await publicarPlanoDoDia(nutri, paciente.prontuario, undefined, { observacao: `Veja ${LINK_LONGO}`, orientacoes: `Leia ${LINK_LONGO}` });
   await paciente.page.goto('/p/plano');
   refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, 1); // R11: semana 1 (o portal.spec usa a 0)
@@ -35,9 +38,15 @@ test.beforeAll(async ({ browser }) => {
   // um registro no diário, para a lista não sair vazia
   await paciente.page.goto('/p/diario');
   await paciente.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
-  await paciente.page.getByLabel('O que você comeu?').fill('arroz e feijão');
+  await paciente.page.getByLabel('O que você comeu?').fill(`arroz e feijão ${LINK_LONGO}`);
   await paciente.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(paciente.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  // e o comentário da nutricionista nele (o mesmo caminho do portal.spec, US-043)
+  await nutri.goto('/painel/diarios');
+  await nutri.getByRole('listitem').filter({ hasText: paciente.nome }).getByRole('link').first().click();
+  await nutri.getByLabel('Comentar').fill(`Veja ${LINK_LONGO}`);
+  await nutri.getByRole('button', { name: 'Salvar comentário' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Comentário salvo.' })).toBeVisible();
   // Plano 10A (T16, RNF-144): uma receita emitida, para /p/documentos não sair vazia (assinar exige 2FA: a conta E2E_DOCS)
   docs = await entrarComoDocs(browser, '10.9.14.79', devices['Desktop Chrome']);
   codigoDaReceita = await emitirReceita(docs, paciente.prontuario);
@@ -196,6 +205,9 @@ test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G r
       await paciente.page.goto(url);
       await paciente.page.waitForLoadState('networkidle');
       expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
+      // o link longo do texto livre está mesmo na página (diário: registro e comentário; plano: orientações e a observação na sanfona; refeição: observação)
+      const comLink = { '/p/diario': 2, '/p/plano': 2, [`/p/plano/refeicao/${refeicaoId}`]: 1 }[url] ?? 0;
+      if (comLink) await expect(paciente.page.getByRole('main').getByText(LINK_LONGO, { exact: false })).toHaveCount(comLink);
       await paciente.page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
