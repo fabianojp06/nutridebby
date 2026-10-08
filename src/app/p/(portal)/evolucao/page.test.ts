@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { MSG_POUCOS_DADOS } from '@/modules/pacientes/evolucao';
+import { MSG_JORNADA } from '@/modules/portal/jornada-regras';
 
 // "Desde {mês}" depende do ano de hoje: o relógio fica fixo em 08/10/2026.
 vi.useFakeTimers({ toFake: ['Date'] });
@@ -26,6 +27,16 @@ describe('/p/evolucao — "Todas as medidas" (US-194, F-Medidas)', () => {
     };
     const html = await pagina();
     expect(html).toContain(MSG_POUCOS_DADOS);
+    expect(html).not.toContain('<table');
+  });
+
+  it('nenhuma série que o paciente possa ver (ex.: peso oculto e avaliações só de peso e altura): texto neutro, sem "Registre mais uma avaliação" (RN-214, §4.5)', async () => {
+    estado.evolucao = { avaliacoes: 2, series: [], diferencas: [] };
+    const html = await pagina();
+    expect(MSG_JORNADA.semMedidas).toBeTruthy();
+    expect(html).toContain(`<p>${MSG_JORNADA.semMedidas}</p>`);
+    expect(html).not.toContain(MSG_POUCOS_DADOS);
+    expect(html).not.toMatch(/peso|avalia/i);
     expect(html).not.toContain('<table');
   });
 

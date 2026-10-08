@@ -5,6 +5,7 @@ import { MSG_POUCOS_DADOS } from '@/modules/pacientes/evolucao';
 import { GraficoLinha } from '@/modules/pacientes/ui/grafico-linha';
 import { mesPorExtenso } from '@/modules/portal/datas-portal';
 import { evolucaoParaPaciente } from '@/modules/portal/evolucao';
+import { MSG_JORNADA } from '@/modules/portal/jornada-regras';
 import { TabelaMedidas } from './tabela-medidas';
 
 export const dynamic = 'force-dynamic';
@@ -21,8 +22,11 @@ export default async function TodasAsMedidas() {
     <>
       <CabecalhoDetalhe titulo="Todas as medidas" voltar={{ href: '/p/jornada', secao: 'Jornada' }} />
       <main className="space-y-8 p-4">
-        {/* menos de 2 avaliações, ou 2+ sem nenhuma medida repetida: nada a comparar */}
-        {e.diferencas.length === 0 ? (
+        {/* nenhuma medida que o paciente possa ver (ex.: peso oculto e avaliações só de peso): texto neutro, sem pedir outra
+            avaliação nem dizer que houve medição (RN-214, §4.5); menos de 2 avaliações, ou 2+ sem medida repetida: nada a comparar */}
+        {e.series.length === 0 ? (
+          <p>{MSG_JORNADA.semMedidas}</p>
+        ) : e.diferencas.length === 0 ? (
           <p>{MSG_POUCOS_DADOS}</p>
         ) : (
           <>

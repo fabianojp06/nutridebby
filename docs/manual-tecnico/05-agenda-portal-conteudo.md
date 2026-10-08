@@ -890,7 +890,10 @@ sequenceDiagram
   gordura" só com `tenants.mostrar_perc_gordura_paciente`; dobras, densidade e exames nunca (`evolucaoParaPaciente`). Uma
   tabela "Medidas por avaliação" (`TabelaMedidas`) e os gráficos com título visível. As "Orientações recebidas" saíram
   daqui (Desvio 12): moram na Jornada (§5.5.13), que as lê e audita. Com "Não mostrar peso no app", peso e IMC saem no
-  módulo (§5.5.14).
+  módulo (§5.5.14). Sem nenhuma série que o paciente possa ver (ex.: peso oculto e avaliações só de peso e altura), a
+  tela mostra o texto neutro "Nenhuma medida para mostrar." (`MSG_JORNADA.semMedidas`), não o "Registre mais uma
+  avaliação para ver a evolução" — que diria que houve medição (RN-214; revisão final do Plano 16). Com série mas nada a
+  comparar, continua o `MSG_POUCOS_DADOS`.
 - Lista de compras (RN-13, P06 D15): itens principais do plano publicado × dias (1 a 14, padrão 7), agrupados pelo
   grupo do alimento (`listaDeCompras`). Arredonda a 1 casa antes de escolher g ou kg (`quantidadeTexto`: 999,99 g →
   "1,0 kg"). A marcação "comprado" fica no `localStorage` com a chave `nd-compras:<id do plano>`
@@ -1033,7 +1036,9 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
   passados por data decrescente) e o gráfico.
 - **Marcos:** cada atendimento mostra as medidas da avaliação **mais recente** ligada a ele e o quadro "Orientação da sua
   nutricionista"; avaliação sem atendimento (ou não a mais recente do atendimento) vira o marco "Medidas de {data}" —
-  nenhuma avaliação some (revisão da T9). A linha do tempo é `<ol aria-label="Linha do tempo">`
+  nenhuma avaliação some (revisão da T9) — **só se tiver medida para mostrar**: com o peso oculto, uma avaliação só de
+  peso e altura daria um marco vazio, e o paciente perceberia o valor sumido (RN-214; revisão final do Plano 16). O
+  marco do atendimento fica mesmo sem medida (data e orientação próprias). A linha do tempo é `<ol aria-label="Linha do tempo">`
   (`src/app/p/(portal)/jornada/linha-do-tempo.tsx`); a próxima consulta tem "Ver a consulta".
 - **Gráfico:** "Peso nas consultas" com 2+ pesos; com o peso visível e menos de 2 pesos, "Cintura nas consultas" com 2+
   cinturas; senão nenhum. **Com o peso oculto, nenhum gráfico de medida corporal em destaque** (G-D16 = a: a condição

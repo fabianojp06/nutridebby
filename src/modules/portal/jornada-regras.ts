@@ -19,6 +19,8 @@ export const MSG_JORNADA = {
   proxima: 'próxima consulta',
   medidasDe: (data: string) => `Medidas de ${data}`,
   todasAsMedidas: 'Todas as medidas',
+  /** "Todas as medidas" sem nenhuma medida que o paciente possa ver (ex.: peso oculto e avaliações só de peso): texto neutro, nada sobre o peso (RN-214) */
+  semMedidas: 'Nenhuma medida para mostrar.',
   minhasConsultas: 'Minhas consultas',
   agendar: 'Agendar consulta',
   verConsulta: 'Ver a consulta',
@@ -89,10 +91,13 @@ export function montarJornada(e: EntradaDaJornada, agora: Date, fuso: string): J
       const avaliacao = porAtendimento.get(a.id);
       return { tipo: 'atendimento' as const, data: a.data, titulo: dataPorExtenso(a.data, hoje), primeira: a.id === primeira, medidas: avaliacao ? medidasDaAvaliacao(avaliacao, e) : [], orientacao: a.orientacao };
     }),
-    // avaliação sem atendimento (ou de atendimento que o paciente não vê, ou não a mais recente do atendimento) vira um marco próprio
+    // avaliação sem atendimento (ou de atendimento que o paciente não vê, ou não a mais recente do atendimento) vira um marco
+    // próprio — só se tiver o que mostrar: com o peso oculto, uma avaliação só de peso e altura daria um "Medidas de {data}"
+    // vazio, e o paciente perceberia que o valor sumiu (RN-214, §4.5). O marco do atendimento fica (data e orientação próprias).
     ...e.avaliacoes
       .filter((a) => !a.consultationId || porAtendimento.get(a.consultationId) !== a)
-      .map((a) => ({ tipo: 'medidas' as const, data: a.data, titulo: MSG_JORNADA.medidasDe(dataPorExtenso(a.data, hoje)), medidas: medidasDaAvaliacao(a, e) })),
+      .map((a) => ({ tipo: 'medidas' as const, data: a.data, titulo: MSG_JORNADA.medidasDe(dataPorExtenso(a.data, hoje)), medidas: medidasDaAvaliacao(a, e) }))
+      .filter((m) => m.medidas.length > 0),
   ].sort((a, b) => b.data.localeCompare(a.data));
   const proxima: Marco[] = e.proxima
     ? [{ tipo: 'proxima', consultaId: e.proxima.id, quando: { semFuso: quandoRelativo(e.proxima.inicio, agora, fuso), comFuso: quandoRelativoComFuso(e.proxima.inicio, agora, fuso) }, modalidade: MSG_JORNADA.modalidade[e.proxima.modalidade] }]

@@ -78,6 +78,20 @@ describe('Jornada (US-194, RN-202, RN-203, RN-206)', () => {
     expect(j.grafico).toBeNull();
   });
 
+  it('peso oculto e avaliações só de peso e altura pela aba Antropometria (sem atendimento, sem circunferência): nenhum marco "Medidas de …" vazio (RN-214, §4.5)', () => {
+    // como o banco devolve com o peso oculto: pesoKg e imc nulos, nenhuma circunferência
+    const soPeso = (id: string, data: string, consultationId: string | null): AvaliacaoDaJornada => ({ id, data, consultationId, pesoKg: null, imc: null, percGordura: null, circunferencias: {} });
+    const avaliacoes = [soPeso('a3', '2026-09-22', null), soPeso('a2', '2026-07-15', 'c2'), soPeso('a1', '2026-05-27', null)];
+    const j = montarJornada({ atendimentos: ATENDIMENTOS, avaliacoes, proxima: null, podeAgendar: true, percGordura: false, pesoOculto: true }, AGORA, SP);
+    expect(j.marcos.filter((m) => m.tipo === 'medidas')).toEqual([]);
+    expect(JSON.stringify(j)).not.toContain('Medidas de');
+    // os atendimentos ficam (data e orientação próprias), mesmo sem medida para mostrar
+    expect(j.marcos.map((m) => (m.tipo === 'proxima' ? 'próxima' : m.titulo))).toEqual(['22 de setembro', '15 de julho', '18 de março']);
+    expect(j.marcos[1]).toMatchObject({ tipo: 'atendimento', medidas: [] });
+    // só com avaliações assim e sem atendimento: a Jornada fica vazia, como antes da primeira consulta
+    expect(montarJornada({ atendimentos: [], avaliacoes, proxima: null, podeAgendar: true, percGordura: false, pesoOculto: true }, AGORA, SP).vazia).toBe(true);
+  });
+
   it('ainda sem consulta: "Sua jornada", vazia', () => {
     expect(montarJornada({ atendimentos: [], avaliacoes: [], proxima: null, podeAgendar: true, percGordura: false, pesoOculto: false }, AGORA, SP)).toEqual({ titulo: 'Sua jornada', grafico: null, marcos: [], vazia: true, podeAgendar: true });
   });

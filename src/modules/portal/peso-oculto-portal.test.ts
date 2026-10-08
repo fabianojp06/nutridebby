@@ -75,3 +75,26 @@ describe('CS-194: com "Não mostrar peso no app", nenhum módulo do portal devol
     expect(JSON.stringify(await jornadaDoPaciente(ctx, tenant, agora, app.db))).toContain('78,62 kg');
   });
 });
+
+describe('RN-214 (§4.5): com o peso oculto, nenhuma tela mostra que houve medição de peso', () => {
+  it('avaliações só de peso e altura pela aba Antropometria (sem atendimento, sem circunferência): a Jornada não tem marco "Medidas de …" e "Todas as medidas" não tem série', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.execute(sql`insert into anthropometry (tenant_id, patient_id, consultation_id, data, peso_kg, altura_cm) values
+          (${T.tenantId}, ${p.id}, null, '2026-05-27', 81.37, 170),
+          (${T.tenantId}, ${p.id}, null, '2026-09-22', 78.62, 170)`),
+      app.db,
+    );
+    await definirPesoOculto(T.ctx, p.id, true, { db: app.db });
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    const jornada = await jornadaDoPaciente(ctx, tenant, new Date(), app.db);
+    expect(jornada.marcos).toEqual([]);
+    expect(JSON.stringify(jornada)).not.toContain('Medidas de');
+    const medidas = await evolucaoParaPaciente(ctx, tenant, app.db);
+    expect(medidas.series).toEqual([]); // a página mostra o texto neutro (page.test.ts), não "Registre mais uma avaliação"
+  });
+});
