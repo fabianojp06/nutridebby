@@ -19,8 +19,18 @@ export async function planoPublicado(
   db: Db,
   T: TenantDeTeste,
   patientId: string,
-  o: { refeicoes?: RefeicaoDeTeste[]; mostrarCalorias?: boolean; orientacoes?: string } = {},
-): Promise<{ planId: string; refeicoes: { id: string; nome: string; horario: string }[] }> {
+  o: OpcoesDoPlano = {},
+): Promise<PlanoDeTeste> {
+  const plano = await planoEmRascunho(db, T, patientId, o);
+  await publicarPlano(T.ctx, patientId, plano.planId, { db });
+  return plano;
+}
+
+type OpcoesDoPlano = { refeicoes?: RefeicaoDeTeste[]; mostrarCalorias?: boolean; orientacoes?: string };
+type PlanoDeTeste = { planId: string; refeicoes: { id: string; nome: string; horario: string }[] };
+
+/** O rascunho salvo (ainda não publicado), com as refeições — o que `planoPublicado` publica em seguida. */
+export async function planoEmRascunho(db: Db, T: TenantDeTeste, patientId: string, o: OpcoesDoPlano = {}): Promise<PlanoDeTeste> {
   const refeicoes = o.refeicoes ?? [{ nome: 'Almoço', horario: '12:30' }];
   const { id } = await criarRascunho(T.ctx, patientId, { db });
   const [r] = await withTenant(T.ctx, (tx) => tx.select({ revisao: mealPlans.revisao }).from(mealPlans).where(eq(mealPlans.id, id)), db);
@@ -47,6 +57,5 @@ export async function planoPublicado(
     { revisao: r.revisao, envio: randomUUID(), titulo: 'Plano de teste', metaKcal: '', mostrarCalorias: o.mostrarCalorias ?? false, orientacoes: o.orientacoes ?? '', refeicoes: comIds },
     { db },
   );
-  await publicarPlano(T.ctx, patientId, id, { db });
   return { planId: id, refeicoes: comIds.map((x) => ({ id: x.id, nome: x.nome, horario: x.horario })) };
 }

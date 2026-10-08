@@ -5,9 +5,10 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { planoPublicado } from '../../../test/plano';
+import { planoEmRascunho, planoPublicado } from '../../../test/plano';
+import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { closeDb } from '@/db/client';
-import { auditLog, diaryEntries, meals, patients, storedFiles, tenants } from '@/db/schema';
+import { auditLog, diaryEntries, mealPlans, meals, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
@@ -171,11 +172,22 @@ describe('respostas à refeição do plano (Plano 16, RN-197, D3)', () => {
     expect(porId.get(depois.id)).toMatchObject({ resposta: null, refeicaoDoPlano: null, refeicao: 'Almoço', texto: 'e um suco' });
   });
 
-  it('refeição de outro paciente, do rascunho, id inválido ou resposta sem refeição: nada gravado', async () => {
-    const { T, ctx, linhas } = await comPlano();
+  it('refeição de outro paciente, do rascunho, do plano arquivado, id inválido ou resposta sem refeição: nada gravado', async () => {
+    const { T, p, ctx, linhas, ref } = await comPlano();
     const outro = await novoPaciente(app.db, T.ctx);
     const deOutro = (await planoPublicado(app.db, T, outro.id)).refeicoes[0].id;
     const naoEncontrada = { geral: MSG_DIARIO.refeicaoNaoEncontrada };
+    // rascunho do próprio paciente (a nova versão em edição): a RLS já o esconde da sessão do paciente
+    const rascunho = await planoEmRascunho(app.db, T, p.id, { refeicoes: [{ nome: 'Lanche da tarde', horario: '16:00' }] });
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: rascunho.refeicoes[0].id, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    // publicado o rascunho, o plano anterior vira arquivado: a RLS ainda o mostra ao paciente (status <> 'rascunho'),
+    // então só o filtro de plano PUBLICADO em refeicaoDoPlanoPublicado recusa o "Comi assim" numa refeição antiga
+    const almocoAntigo = ref('Almoço');
+    await publicarPlano(T.ctx, p.id, rascunho.planId, { db: app.db });
+    const [antigo] = await withTenant(T.ctx, (tx) => tx.select({ status: mealPlans.status }).from(mealPlans).innerJoin(meals, eq(meals.planId, mealPlans.id)).where(eq(meals.id, almocoAntigo)), app.db);
+    expect(antigo.status).toBe('arquivado');
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: almocoAntigo, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: 'Sanduíche', foto: null, refeicaoId: almocoAntigo, resposta: 'outra_coisa' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: deOutro, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: 'nao-e-uuid', resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Almoço', texto: '', foto: null, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual({ geral: MSG_DIARIO.formulario });
