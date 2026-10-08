@@ -13,7 +13,7 @@ import { buscarTenant, listarTenantsParaVarredura, tenantIsActive } from '@/modu
 import { soltarArquivosDoPreparo, travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { AREA_ASSINATURA, EMITIDOS } from './constantes';
 import { renderizarDocumento } from './documento-pdf';
-import type { ConteudoReceita } from './prescricao';
+import type { ConteudoDocumento } from './parecer';
 
 /** Só o worker importa este arquivo. */
 export type DepsJobDocumento = { db: Db; dataDir: string; appUrl: string; now?: Date; ultimaTentativa: boolean; renderizar?: typeof renderizarDocumento };
@@ -50,7 +50,7 @@ export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId:
     const logo = tenant.logoPath ? await readFile(resolverCaminho(deps.dataDir, tenant.logoPath)).catch(() => null) : null;
     // o Plano 10B (T1) acrescenta aqui o campo pré-criado, se o relatório do spike pedir
     const pdf = await (deps.renderizar ?? renderizarDocumento)({
-      conteudo: lido.conteudo as ConteudoReceita,
+      conteudo: lido.conteudo as ConteudoDocumento,
       codigo: lido.codigo,
       urlVerificacao: urlDoApp(deps.appUrl, `/v/${lido.codigo}`),
       data: formatarData(hojeNoFuso(tenant.fuso, lido.declaracaoEm ?? now)),

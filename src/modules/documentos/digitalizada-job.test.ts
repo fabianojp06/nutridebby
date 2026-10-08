@@ -123,4 +123,17 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
       assinanteNome: null, userId: x.T.nutriId, agora: new Date(), copia, base: x.base, versao: { codigo: 'ZZZZZZZZZZZZ', digitalizacao: [] }, appUrl: 'https://x',
     }), app.db)).rejects.toBeInstanceOf(TransicaoInvalidaError);
   });
+
+  it('D2 = (a): o parecer é assinado pela digitalizada como a receita (consultório sem habilitação em Fitoterapia)', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db, { tipo: 'parecer' });
+    const foto = await sharp({ create: { width: 800, height: 1100, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    await receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    expect(await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, { db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('pronto');
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, tipo, assinatura_tipo, pdf_path from signed_documents where id = ${x.id}`), app.db)).rows as Record<string, string>[];
+    expect(d).toEqual({ status: 'assinado', tipo: 'parecer', assinatura_tipo: 'digitalizada', pdf_path: expect.any(String) });
+    // R2 do pre-flight: o PDF assinado do parecer não abre como "Receita (digitalizada)" (o dicionário Info não é comprimido)
+    const pdf = await readFile(path.join(x.dataDir, d.pdf_path));
+    expect(pdf.toString('latin1')).not.toContain('Receita');
+    expect(pdf.toString('latin1')).toContain('Parecer nutricional');
+  });
 });

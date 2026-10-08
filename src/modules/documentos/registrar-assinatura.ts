@@ -6,7 +6,7 @@ import type { TipoAssinatura } from './constantes';
 import { entregarDocumento } from './entrega';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { CopiaProfissional } from './perfil-profissional';
-import type { ConteudoReceita } from './prescricao';
+import type { ConteudoDocumento } from './parecer';
 import { registrarVerificacao } from './verificacao';
 
 /**
@@ -45,9 +45,11 @@ export const fotosLidas = (fotos: readonly string[]) => sql`${signedDocuments.di
 /**
  * Minor 9 da revisão de segurança: a habilitação em Fitoterapia é conferida ao salvar e ao preparar (T5) e de novo AO
  * ASSINAR — retirada entre o preparo e o envio, o fitoterápico formulado não é assinado. Quem chama passa o tenant lido
- * na sessão do envio (a digitalizada no envio das fotos; o 10B no envio do PDF assinado).
+ * na sessão do envio (a digitalizada no envio das fotos; o 10B no envio do PDF assinado). Plano 13: só a receita tem
+ * itens; o parecer (e o conteúdo '{}' de um anonimizado) passa direto.
  */
-export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegistro'>, conteudo: ConteudoReceita): void {
+export function exigirHabilitacaoAtual(tenant: Pick<TenantRow, 'fitoterapiaRegistro'>, conteudo: ConteudoDocumento): void {
+  if (conteudo.tipo !== 'receita') return;
   if (!tenant.fitoterapiaRegistro && conteudo.itens.some((i) => i.tipo === 'fitoterapico')) throw new RecusaAssinaturaError('sem_habilitacao', 'habilitacao_retirada');
 }
 

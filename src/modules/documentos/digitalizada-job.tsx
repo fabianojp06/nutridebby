@@ -14,19 +14,21 @@ import { CotaEsgotadaError, resolverCaminho, salvarArquivo } from '@/modules/pla
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
 import { soltarArquivosDoPreparo, travarDocumentoAntesDaCota } from './arquivos-do-preparo';
 import { formatarCodigo } from './codigo';
-import { EMITIDOS, MAX_PIXELS_FOTO } from './constantes';
+import { EMITIDOS, MAX_PIXELS_FOTO, TIPO_DOCUMENTO_ROTULO, type TipoDocumento } from './constantes';
 import { TransicaoInvalidaError } from './erros';
-import type { ConteudoReceita } from './prescricao';
+import type { ConteudoDocumento } from './parecer';
 import { fotosLidas, registrarAssinatura } from './registrar-assinatura';
 
 /** A4 a 300 dpi no lado maior: legível na farmácia, sem levar a foto original. */
 const LADO_MAX_PAGINA = 3508;
 
 /** Só o worker importa este arquivo (guarda de grafo). Ele importa `registrar-assinatura.ts`, sem sessão (D23). */
-export async function renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string }): Promise<Buffer> {
+export async function renderizarDigitalizada(d: { paginas: { dados: Buffer; formato: 'jpg' }[]; codigo: string; urlVerificacao: string; titulo?: string }): Promise<Buffer> {
   const qr = await QRCode.toBuffer(d.urlVerificacao, { errorCorrectionLevel: 'M', margin: 1, width: 240 });
+  // R2 do pre-flight do Plano 13: o título do PDF assinado segue o tipo (o parecer não abre como "Receita")
+  const titulo = d.titulo ?? TIPO_DOCUMENTO_ROTULO.receita;
   return renderToBuffer(
-    <Document title="Receita (digitalizada)" creator="NutriDebby" producer="NutriDebby">
+    <Document title={`${titulo} (digitalizada)`} creator="NutriDebby" producer="NutriDebby">
       {d.paginas.map((p, i) => (
         <Page key={i} size="A4" style={{ padding: 24, paddingBottom: 72 }}>
           {/* eslint-disable-next-line jsx-a11y/alt-text -- o Image do @react-pdf não é <img> */}
@@ -87,9 +89,9 @@ export async function montarPdfDigitalizado(
     // uma por vez (não Promise.all): até 5 fotos de 40 MP decodificadas juntas pesariam no worker de todos
     const paginas: { dados: Buffer; formato: 'jpg' }[] = [];
     for (const c of fotos) paginas.push(await normalizarPagina(await readFile(resolverCaminho(deps.dataDir, c))));
-    const pdf = await (deps.renderizar ?? renderizarDigitalizada)({ paginas, codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${codigo}`) });
+    const pdf = await (deps.renderizar ?? renderizarDigitalizada)({ paginas, codigo, urlVerificacao: urlDoApp(deps.appUrl, `/v/${codigo}`), titulo: TIPO_DOCUMENTO_ROTULO[d.tipo as TipoDocumento] });
     const sha = createHash('sha256').update(pdf).digest('hex');
-    const copia = (d.conteudo as ConteudoReceita).copia!.profissional;
+    const copia = (d.conteudo as ConteudoDocumento).copia!.profissional;
     await salvarArquivo(ctx, {
       tipo: 'documento_assinado', conteudo: pdf, permitidos: ['pdf'], patientId: d.patientId, substitui: d.basePdfPath ?? undefined,
       antesDaReserva: async (tx) => {

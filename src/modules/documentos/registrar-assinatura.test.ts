@@ -102,3 +102,13 @@ describe('registrarAssinatura (RN-140 b, RN-143, RN-156)', () => {
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
   });
 });
+
+describe('exigirHabilitacaoAtual (Plano 13): só a receita tem fitoterápico', () => {
+  it('parecer e conteúdo anonimizado ({}) passam sem habilitação; a receita com fitoterápico continua recusada', () => {
+    const semHabilitacao = { fitoterapiaRegistro: null };
+    expect(() => exigirHabilitacaoAtual(semHabilitacao, { versao: 1, tipo: 'parecer', exames: [], avaliacao: 'x', conduta: '', encaminhamentos: '' })).not.toThrow();
+    expect(() => exigirHabilitacaoAtual(semHabilitacao, {} as never)).not.toThrow();
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Matricaria recutita L.', parte: 'Flores', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 ao dia', padronizacao: '', nomePopular: '', duracao: '' };
+    expect(() => exigirHabilitacaoAtual(semHabilitacao, { versao: 1, tipo: 'receita', itens: [fito as never], orientacoes: '' })).toThrow(RecusaAssinaturaError);
+  });
+});
