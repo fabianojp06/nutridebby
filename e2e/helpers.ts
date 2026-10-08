@@ -32,7 +32,7 @@ export async function entrarComoAdmin(browser: Browser, cred: { email: string; p
     await page.getByRole('button', { name: 'Confirmar' }).click();
     await page.getByRole('link', { name: 'Continuar' }).click();
   }
-  await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Contas' })).toBeVisible();
   return page;
 }
 

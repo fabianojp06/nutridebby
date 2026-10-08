@@ -10,6 +10,20 @@ const sufixo = Date.now().toString(36);
 const NUTRI = { nome: 'Debby Silva', email: `debby-${sufixo}@nutridebby.test`, slug: `debby-${sufixo}`, senha: `Debby${sufixo}2026` };
 let admin: Page;
 
+const EIXOS_AXE = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+async function semViolacoes(rotulo: string) {
+  const r = await new AxeBuilder({ page: admin }).withTags(EIXOS_AXE).analyze();
+  expect(r.violations.map((v) => v.id), rotulo).toEqual([]);
+}
+
+/** P16-17: as ações de uma conta ficam na página dela — a lista acha pelo endereço e o "Abrir" leva até lá. */
+async function abrirConta(slug: string, nome: string) {
+  await admin.goto(`/admin?busca=${slug}`);
+  await admin.getByRole('link', { name: `Abrir a conta ${nome}`, exact: true }).click();
+  await expect(admin).toHaveURL(/\/admin\/contas\/[0-9a-f-]{36}$/);
+  await expect(admin.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+}
+
 test.beforeAll(async ({ browser }) => {
   admin = await entrarComoAdmin(browser, ADMIN, '10.9.3.1');
 });
@@ -31,11 +45,16 @@ test('admin cria a conta; e-mail com maiúsculas e espaços é aceito; endereço
   await expect(admin.getByRole('status')).toHaveText('Conta criada. O convite foi enviado para o e-mail da nutricionista.');
   const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
   await expect(linha).toContainText('Pendente');
-  // M22: botões e campo de cota de cada linha com nome acessível próprio (texto visível igual)
-  await expect(linha.getByRole('button', { name: `Reenviar convite para ${NUTRI.nome}`, exact: true })).toBeVisible();
-  await expect(linha.getByRole('button', { name: `Suspender a conta ${NUTRI.nome}`, exact: true })).toBeVisible();
-  await expect(linha.getByLabel(`Cota mensal de WhatsApp de ${NUTRI.nome}`, { exact: true })).toBeVisible();
-  await expect(linha.getByRole('button', { name: `Salvar a cota de ${NUTRI.nome}`, exact: true })).toBeVisible();
+  await expect(linha).toContainText('Ativa');
+  // P16-17: a lista só tem o "Abrir" (nome acessível com o nome da conta); os botões e o campo de cota estão na página da conta
+  await linha.getByRole('link', { name: `Abrir a conta ${NUTRI.nome}`, exact: true }).click();
+  await expect(admin.getByRole('heading', { level: 1, name: NUTRI.nome })).toBeVisible();
+  await expect(admin.getByText('Convite: Pendente')).toBeVisible();
+  // M22: botões e campo de cota com nome acessível próprio (texto visível igual)
+  await expect(admin.getByRole('button', { name: `Reenviar convite para ${NUTRI.nome}`, exact: true })).toBeVisible();
+  await expect(admin.getByRole('button', { name: `Suspender a conta ${NUTRI.nome}`, exact: true })).toBeVisible();
+  await expect(admin.getByLabel(`Cota mensal de WhatsApp de ${NUTRI.nome}`, { exact: true })).toBeVisible();
+  await expect(admin.getByRole('button', { name: `Salvar a cota de ${NUTRI.nome}`, exact: true })).toBeVisible();
 
   await admin.goto('/admin/contas/nova');
   await admin.getByLabel('Nome de exibição').fill('Outra Pessoa');
@@ -57,8 +76,7 @@ test('P09-07: a busca acha o consultório pelo endereço e pelo e-mail; sem resu
   await expect(admin.getByRole('row', { name: new RegExp(NUTRI.slug) })).toBeVisible();
   await admin.goto('/admin?busca=%25%25nada-assim%25%25');
   await expect(admin.getByText('Nenhuma conta encontrada.')).toBeVisible();
-  const r = await new AxeBuilder({ page: admin }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-  expect(r.violations.map((v) => v.id)).toEqual([]);
+  await semViolacoes('/admin (busca sem resultado)');
 });
 
 test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link não vale de novo (US-002)', async ({ browser }) => {
@@ -100,10 +118,14 @@ test('suspender derruba a sessão aberta e bloqueia o login; reativar devolve o 
   await login();
   await expect(nutri).toHaveURL(/\/painel$/);
 
-  await admin.goto(`/admin?busca=${NUTRI.slug}`);
+  await abrirConta(NUTRI.slug, NUTRI.nome);
+  const pagina = admin.url();
   admin.once('dialog', (d) => d.accept());
-  await admin.getByRole('row', { name: new RegExp(NUTRI.slug) }).getByRole('button', { name: 'Suspender' }).click();
+  await admin.getByRole('button', { name: `Suspender a conta ${NUTRI.nome}`, exact: true }).click();
+  // P16-17: a ação volta para a página da conta, com o aviso
   await expect(admin.getByRole('status')).toContainText('Conta suspensa.');
+  expect(admin.url()).toBe(`${pagina}?aviso=suspensa`);
+  await expect(admin.getByText('Suspensa', { exact: true })).toBeVisible();
 
   await nutri.reload(); // a sessão foi revogada
   await expect(nutri).toHaveURL(/\/entrar\?expirada=1/);
@@ -112,8 +134,9 @@ test('suspender derruba a sessão aberta e bloqueia o login; reativar devolve o 
   await expect(nutri.getByRole('heading', { name: 'Conta temporariamente indisponível' })).toBeVisible();
 
   admin.once('dialog', (d) => d.accept());
-  await admin.getByRole('row', { name: new RegExp(NUTRI.slug) }).getByRole('button', { name: 'Reativar' }).click();
+  await admin.getByRole('button', { name: `Reativar a conta ${NUTRI.nome}`, exact: true }).click();
   await expect(admin.getByRole('status')).toHaveText('Conta reativada.');
+  expect(admin.url()).toBe(`${pagina}?aviso=reativada`);
   await login();
   await expect(nutri).toHaveURL(/\/painel$/);
   await ctx.close();
@@ -137,8 +160,9 @@ test('conta suspensa entre o aceite do convite e o login automático leva a /ind
   const link = primeiroLink(msg.texto, '/convite/');
 
   // Corrida: o admin suspende a conta depois do convite enviado, mas antes do primeiro acesso.
+  await abrirConta(slug, nome);
   admin.once('dialog', (d) => d.accept());
-  await admin.getByRole('row', { name: new RegExp(slug) }).getByRole('button', { name: 'Suspender' }).click();
+  await admin.getByRole('button', { name: `Suspender a conta ${nome}`, exact: true }).click();
   await expect(admin.getByRole('status')).toContainText('Conta suspensa.');
 
   const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.3.5' } });
@@ -195,8 +219,8 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
 });
 
 test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; valor fora da faixa é recusado (P08-07, D15)', async () => {
-  await admin.goto(`/admin?busca=${NUTRI.slug}`);
-  const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
+  await abrirConta(NUTRI.slug, NUTRI.nome);
+  const linha = admin.getByRole('region', { name: 'Métricas de sucesso', exact: true });
   const taxa = linha.getByLabel('Taxa de faltas antes do sistema (%)');
   await taxa.fill('120');
   await linha.getByRole('button', { name: `Salvar as métricas de ${NUTRI.nome}` }).click();
@@ -209,13 +233,14 @@ test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; va
   await admin.reload();
   await expect(taxa).toHaveValue('18,5');
   await expect(linha.getByLabel('Início do uso')).toHaveValue('2026-10-01');
-  // sem paciente com conta nem consulta iniciada no mês: as contagens ficam em "—"
-  await expect(admin.getByRole('columnheader', { name: 'App na semana' })).toBeVisible();
-  await expect(admin.getByRole('columnheader', { name: 'Faltas no mês' })).toBeVisible();
+  // sem paciente com conta nem consulta iniciada no mês: as contagens ficam em "—" (bloco "Uso no mês" da página da conta, P16-17)
+  const uso = admin.getByRole('region', { name: 'Uso no mês', exact: true });
+  await expect(uso.getByText('App na semana')).toBeVisible();
+  await expect(uso.getByText('Faltas no mês')).toBeVisible();
 });
 
 test('reiniciar o 2FA de outra conta pede o código da própria admin: errado é recusado; certo segue (code review do PR #22, item 1)', async () => {
-  await admin.goto('/admin');
+  await admin.goto('/admin/seguranca'); // P16-17: a aba "Segurança"
   admin.on('dialog', (d) => void d.accept());
   const email = admin.getByLabel('E-mail da conta');
   const codigo = admin.getByLabel('Seu código da verificação em duas etapas');
@@ -232,4 +257,69 @@ test('reiniciar o 2FA de outra conta pede o código da própria admin: errado é
   await botao.click();
   await expect(admin.getByRole('alert').filter({ hasText: 'duas etapas' })).toHaveText('Esta conta não tem a verificação em duas etapas ativa.');
   await expect(email).toHaveAttribute('aria-invalid', 'true');
+});
+
+test('P16-17: abas Contas, Servidor e Segurança; resumo na lista; a página da conta em blocos; axe nas quatro telas (a lista também no celular)', async () => {
+  const abas = admin.getByRole('navigation', { name: 'Administração' });
+  const aba = (nome: string) => abas.getByRole('link', { name: nome, exact: true });
+  await admin.goto('/admin');
+  await expect(aba('Contas')).toHaveAttribute('aria-current', 'page');
+  // o resumo conta todas as contas e traz o servidor numa linha
+  await expect(admin.getByText(/^\d+ ativas? · \d+ suspensas? · \d+ convites? pendentes?$/)).toBeVisible();
+  await expect(admin.getByText(/^Backup do banco: /)).toBeVisible();
+  await expect(admin.getByRole('link', { name: 'Ver servidor', exact: true })).toBeVisible();
+  await semViolacoes('/admin');
+
+  await aba('Servidor').click();
+  await expect(admin).toHaveURL(/\/admin\/servidor$/);
+  await expect(admin.getByRole('heading', { level: 1, name: 'Servidor' })).toBeVisible();
+  await expect(aba('Servidor')).toHaveAttribute('aria-current', 'page');
+  await expect(aba('Contas')).not.toHaveAttribute('aria-current', 'page');
+  const infra = admin.getByRole('region', { name: 'Backup e disco', exact: true });
+  await expect(infra.getByText(/^Backup do banco: /)).toBeVisible();
+  await expect(infra.getByText(/^Backup dos arquivos: /)).toBeVisible();
+  await expect(infra.getByText(/^Disco/)).toBeVisible();
+  await semViolacoes('/admin/servidor');
+
+  await aba('Segurança').click();
+  await expect(admin).toHaveURL(/\/admin\/seguranca$/);
+  await expect(admin.getByRole('heading', { level: 1, name: 'Segurança' })).toBeVisible();
+  await expect(aba('Segurança')).toHaveAttribute('aria-current', 'page');
+  await expect(admin.getByRole('region', { name: 'Verificação em duas etapas', exact: true }).getByLabel('E-mail da conta')).toBeVisible();
+  await semViolacoes('/admin/seguranca');
+
+  await abrirConta(NUTRI.slug, NUTRI.nome);
+  await expect(aba('Contas')).toHaveAttribute('aria-current', 'page'); // a página da conta é da aba "Contas"
+  for (const bloco of ['Uso no mês', 'Liberações', 'Limites', 'Métricas de sucesso', 'Conta']) {
+    await expect(admin.getByRole('region', { name: bloco, exact: true }), bloco).toBeVisible();
+  }
+  await expect(admin.getByRole('region', { name: 'Liberações', exact: true })).toContainText('Documentos assinados: Bloqueados');
+  await expect(admin.getByRole('region', { name: 'Liberações', exact: true })).toContainText('IA: bloqueada');
+  await expect(admin.getByLabel(`Limite de IA (US$/mês) de ${NUTRI.nome}`, { exact: true })).toBeVisible();
+  await semViolacoes('/admin/contas/[id]');
+  await admin.getByRole('link', { name: 'Voltar para Contas', exact: true }).click();
+  await expect(admin).toHaveURL(/\/admin$/);
+
+  // conta que não existe: volta para a lista com o aviso
+  await admin.goto('/admin/contas/00000000-0000-4000-8000-000000000000');
+  await expect(admin).toHaveURL(/\/admin\?aviso=nao_encontrada$/);
+  await expect(admin.locator('main').getByRole('alert')).toHaveText('Conta não encontrada.');
+
+  // celular: a lista vira cartões, sem rolagem horizontal da página
+  await admin.setViewportSize({ width: 360, height: 780 });
+  try {
+    await admin.goto(`/admin?busca=${NUTRI.slug}`);
+    await expect(admin.getByRole('table')).toBeHidden();
+    const cartoes = admin.getByRole('list', { name: 'Contas de nutricionista' });
+    await expect(cartoes.getByRole('listitem')).toHaveCount(1);
+    await expect(cartoes).toContainText('Pacientes ativos');
+    await expect(cartoes.getByRole('link', { name: `Abrir a conta ${NUTRI.nome}`, exact: true })).toBeVisible();
+    expect(await admin.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await semViolacoes('/admin (360 px)');
+    await cartoes.getByRole('link', { name: `Abrir a conta ${NUTRI.nome}`, exact: true }).click();
+    await expect(admin.getByRole('heading', { level: 1, name: NUTRI.nome })).toBeVisible();
+    expect(await admin.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  } finally {
+    await admin.setViewportSize({ width: 1280, height: 720 });
+  }
 });

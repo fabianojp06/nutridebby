@@ -12,7 +12,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
-import { ContaError, CONTAS_POR_PAGINA, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite } from './contas';
+import { ContaError, contaPorId, CONTAS_POR_PAGINA, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite, resumoDasContas } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
 
@@ -345,5 +345,55 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID());
     const [t] = await app.db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, T.tenantId));
     expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
+  });
+});
+
+describe('P16-17: página da conta e resumo da lista do admin', () => {
+  it('contaPorId devolve o mesmo ContaResumo da lista; conta que não existe ou id que não é uuid → null', async () => {
+    const x = s();
+    const r = await criarContaNutri({ nomeExibicao: 'Por id', email: `porid-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `porid-${x}` }, deps);
+    await app.db.update(tenants).set({ taxaFaltasBase: 12, goLiveEm: '2026-10-02', documentosLiberados: true }).where(eq(tenants.id, r.tenantId));
+    const daLista = (await listarContas(app.db, now, { busca: `porid-${x}` })).contas.find((c) => c.tenantId === r.tenantId);
+    const conta = await contaPorId(r.tenantId, app.db, now);
+    expect(conta).toEqual(daLista);
+    expect(conta).toMatchObject({ convite: 'pendente', email: `porid-${x}@exemplo.com`, crn: 'CRN-3 12345', documentosLiberados: true, taxaFaltasBase: 12 });
+    expect((await contaPorId(r.tenantId, app.db, new Date('2026-10-05T00:00:00Z')))!.convite).toBe('expirado');
+    expect(await contaPorId(randomUUID(), app.db, now)).toBeNull();
+    expect(await contaPorId("x' or 1=1 --", app.db, now)).toBeNull();
+    expect(await contaPorId(undefined, app.db, now)).toBeNull();
+  });
+
+  it('resumoDasContas conta ativas, suspensas e convites pendentes de todas as contas (não só da página nem da busca)', async () => {
+    // REPEATABLE READ: os outros arquivos de teste criam consultórios ao mesmo tempo; dentro da transação a foto não muda,
+    // e a diferença entre as duas leituras é só o que este teste criou (desfeito no fim)
+    const desfazer = new Error('desfazer');
+    await app.db
+      .transaction(
+        async (tx) => {
+          const antes = await resumoDasContas(tx, now);
+          const x = s();
+          /** Consultório ativo com uma nutricionista; `convite`: validade do convite não usado; `senha`: já aceitou. */
+          const consultorio = async (n: string, o: { status?: 'ativa' | 'suspensa'; convite?: Date; senha?: boolean; nutri?: boolean } = {}) => {
+            const [t] = await tx.insert(tenants).values({ slug: `r${n}-${x}`, nomeExibicao: `Resumo ${n}`, status: o.status ?? 'ativa' }).returning({ id: tenants.id });
+            if (o.nutri === false) return;
+            const [u] = await tx.insert(user).values({ name: `Nutri ${n}`, email: `r${n}-${x}@exemplo.com`, appRole: 'nutri', tenantId: t.id }).returning({ id: user.id });
+            if (o.convite) await tx.insert(invites).values({ userId: u.id, tipo: 'nutri', tokenHash: `r${n}-${x}-${randomUUID()}`, expiraEm: o.convite });
+            if (o.senha) await tx.insert(account).values({ id: randomUUID(), userId: u.id, accountId: u.id, providerId: 'credential', password: 'x' });
+          };
+          await consultorio('p', { convite: new Date('2026-10-04T12:00:00Z') }); // pendente
+          await consultorio('a', { convite: new Date('2026-10-04T12:00:00Z'), senha: true }); // aceito (convite não usado, mas já tem senha)
+          await consultorio('e', { convite: new Date('2026-09-30T12:00:00Z') }); // expirado
+          await consultorio('s', { status: 'suspensa', convite: new Date('2026-10-04T12:00:00Z') }); // suspensa com convite pendente
+          await consultorio('v', { nutri: false }); // ativa sem nutricionista (sem convite)
+          const depois = await resumoDasContas(tx, now);
+          expect({ ativas: depois.ativas - antes.ativas, suspensas: depois.suspensas - antes.suspensas, convitesPendentes: depois.convitesPendentes - antes.convitesPendentes })
+            .toEqual({ ativas: 4, suspensas: 1, convitesPendentes: 2 });
+          throw desfazer;
+        },
+        { isolationLevel: 'repeatable read' },
+      )
+      .catch((e: unknown) => {
+        if (e !== desfazer) throw e;
+      });
   });
 });

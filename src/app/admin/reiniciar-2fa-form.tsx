@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { classeDoBotao } from '@/components/ui/botao';
 import { reiniciar2faAction, type Reiniciar2faState } from './actions';
 
 const CONFIRMAR = 'Reiniciar a verificação em duas etapas desta conta? O app autenticador e os códigos de recuperação dela deixam de valer, as sessões abertas caem e a pessoa recebe um e-mail.';
@@ -18,17 +19,17 @@ export function Reiniciar2faForm() {
       <div className="space-y-1">
         <label htmlFor="email-2fa" className="block text-sm font-medium">E-mail da conta</label>
         <input id="email-2fa" name="email" type="email" autoComplete="off" required defaultValue={state.valor} {...erroEm('email')}
-          className="min-h-11 w-72 rounded border p-2" />
+          className="min-h-11 w-72 max-w-full rounded-xl border border-campo bg-cartao px-3" />
       </div>
       <div className="space-y-1">
         <label htmlFor="codigo-2fa-admin" className="block text-sm font-medium">Seu código da verificação em duas etapas</label>
         <input id="codigo-2fa-admin" name="codigo" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" maxLength={7} required {...erroEm('codigo')}
-          className="min-h-11 w-40 rounded border p-2" />
+          className="min-h-11 w-40 rounded-xl border border-campo bg-cartao px-3" />
       </div>
       <fieldset disabled={pendente} className="m-0 min-w-0 border-0 p-0">
-        <ConfirmarBotao mensagem={CONFIRMAR}>Reiniciar verificação em duas etapas</ConfirmarBotao>
+        <ConfirmarBotao mensagem={CONFIRMAR} className={classeDoBotao('secundario')}>Reiniciar verificação em duas etapas</ConfirmarBotao>
       </fieldset>
-      {state.erro && <p id="reiniciar-2fa-erro" role="alert" className="w-full text-red-700">{state.erro}</p>}
+      {state.erro && <p id="reiniciar-2fa-erro" role="alert" className="w-full text-erro">{state.erro}</p>}
       {state.ok && <p role="status" className="w-full">{state.ok}</p>}
     </form>
   );
