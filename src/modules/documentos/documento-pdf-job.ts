@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
-import { patients, signedDocuments, storedFiles } from '@/db/schema';
+import { signedDocuments, storedFiles } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
@@ -24,7 +24,7 @@ class TitularComExclusaoError extends Error {}
  * US-143: lê o documento em preparo (a cópia congelada, RN-154), gera o PDF com a marca, o carimbo, o quadro "Assinatura
  * digital" e o código/QR (RN-142), e grava o base (SHA-256 e bytes: o prefixo da RN-144 (2)) no `registrar` do
  * salvarArquivo, levando a "Aguardando assinatura". Idempotente (só com pdf_status pendente). Ordem de travas: paciente →
- * documento → tenant (code review do PR #19, I2: a mesma do soltarArquivosDoPreparo, documento → tenant).
+ * documento → tenant (travarDocumentoAntesDaCota: a mesma do soltarArquivosDoPreparo, documento → tenant).
  * Versão lida (correção do /code-review high do PR #18): o `registrar` e o `marcarFalhou` casam id + "preparando" +
  * "pendente" + o CÓDIGO lido — "Voltar a editar" + novo preparo noutra aba troca o código, e o job velho (o PDF com o
  * código e o conteúdo antigos) não grava o base na versão nova nem a marca como "falhou".
@@ -66,11 +66,8 @@ export async function gerarPdfDoDocumento(data: { tenantId: string; documentoId:
         conteudo: pdf,
         permitidos: ['pdf'],
         patientId: lido.patientId,
-        antesDaReserva: async (tx) => {
-          const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, lido.patientId)).for('update');
-          if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new TitularComExclusaoError();
-          await travarDocumentoAntesDaCota(tx, lido.id);
-        },
+        // paciente → versão nova → tenant (P13-16 a): a original não muda com o PDF base
+        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, lido, { original: false, recusa: () => new TitularComExclusaoError() }),
         registrar: async (tx, arq) => {
           const r = await tx
             .update(signedDocuments)

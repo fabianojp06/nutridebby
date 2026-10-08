@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import QRCode from 'qrcode';
 import sharp from 'sharp';
 import type { Db } from '@/db/client';
-import { patients, signedDocuments } from '@/db/schema';
+import { signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { paraJpegSemMetadados } from '@/lib/jpeg';
 import { logger } from '@/lib/logger';
@@ -94,11 +94,8 @@ export async function montarPdfDigitalizado(
     const copia = (d.conteudo as ConteudoDocumento).copia!.profissional;
     await salvarArquivo(ctx, {
       tipo: 'documento_assinado', conteudo: pdf, permitidos: ['pdf'], patientId: d.patientId, substitui: d.basePdfPath ?? undefined,
-      antesDaReserva: async (tx) => {
-        const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, d.patientId)).for('update');
-        if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw new JaFeitoError();
-        await travarDocumentoAntesDaCota(tx, d.id); // paciente → documento → tenant (I2 do PR #19)
-      },
+      // a assinatura: paciente → original (vai a "substituido" no registrarAssinatura) → versão nova → tenant
+      antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, d, { original: true, recusa: () => new JaFeitoError() }),
       registrar: async (tx, arq) => {
         await registrarAssinatura(tx, {
           documentoId: d.id, codigo, patientId: d.patientId, tenantId: data.tenantId, caminho: arq.caminho, sha256: sha, tipo: 'digitalizada',

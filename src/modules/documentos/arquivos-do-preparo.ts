@@ -1,24 +1,35 @@
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { signedDocuments } from '@/db/schema';
+import { patients, signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import type { StatusDocumento } from './constantes';
 
 /**
- * Ordem de travas de armazenamento.ts (dono → tenant → registro), com o documento como dono (code review do PR #19, I2):
- * todo salvarArquivo que grava em `signed_documents` no `registrar` chama isto no `antesDaReserva` (depois do paciente,
- * quando o trava). Sem isso, o salvarArquivo travaria tenant → documento e o soltarArquivosDoPreparo (abaixo), documento
- * → tenant: os dois ao mesmo tempo no mesmo documento terminam em deadlock (40P01). Plano 13 (D-P1): numa retificação, a
- * ORIGINAL é travada antes (a assinatura da versão nova a leva a "substituido"), na ordem do cancelamento e do retificar:
- * paciente → original → versão nova → tenant. `retifica_id` é coluna fixa (gatilho), então lê-la sem trava é seguro.
+ * Ordem única de travas dos documentos (code review do PR #19, I2; Plano 13, D-P1; code review do PR #27, P13-16 a):
+ * PACIENTE → ORIGINAL → VERSÃO NOVA → TENANT (a cota do salvarArquivo) → registro. Todo salvarArquivo que grava em
+ * `signed_documents` no `registrar` chama isto no `antesDaReserva`:
+ * - o paciente primeiro: o INSERT em stored_files pede FOR KEY SHARE nele (FK) e o cancelamento e a retificação da
+ *   original (carregarPacienteParaEscrita → original) o travam antes da original — travado depois, fecha ciclo (40P01);
+ *   reconferido aqui (bloqueado ou anonimizado → `recusa()`, o erro de quem chama);
+ * - a ORIGINAL só onde ela muda (`original: true`: a assinatura da versão nova a leva a "substituido") — no PDF base e nas
+ *   fotos da digitalizada ela não muda, e travá-la serializaria sem necessidade com o cancelamento e a retificação;
+ * - o documento antes do tenant: sem isso, o salvarArquivo travaria tenant → documento e o soltarArquivosDoPreparo
+ *   (abaixo), documento → tenant (deadlock no mesmo documento).
+ * FOR NO KEY UPDATE basta (nenhum dos três muda chave): ainda espera o FOR UPDATE do cancelamento e da retificação, mas não
+ * barra os INSERTs que só apontam para o paciente ou o documento (FOR KEY SHARE da FK). `patient_id` e `retifica_id` são
+ * colunas fixas (gatilho), então lê-las sem trava é seguro.
  */
-export async function travarDocumentoAntesDaCota(tx: Tx, documentoId: string): Promise<void> {
-  const [d] = await tx.select({ retificaId: signedDocuments.retificaId }).from(signedDocuments).where(eq(signedDocuments.id, documentoId));
-  if (d?.retificaId) await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, d.retificaId)).for('update');
-  await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, documentoId)).for('update');
+export async function travarDocumentoAntesDaCota(tx: Tx, doc: { id: string; patientId: string }, o: { original: boolean; recusa: () => Error }): Promise<void> {
+  const [p] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, doc.patientId)).for('no key update');
+  if (!p || p.status === 'bloqueado' || p.anonimizadoEm) throw o.recusa();
+  if (o.original) {
+    const [d] = await tx.select({ retificaId: signedDocuments.retificaId }).from(signedDocuments).where(eq(signedDocuments.id, doc.id));
+    if (d?.retificaId) await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, d.retificaId)).for('no key update');
+  }
+  await tx.select({ id: signedDocuments.id }).from(signedDocuments).where(eq(signedDocuments.id, doc.id)).for('no key update');
 }
 
 /**

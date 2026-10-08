@@ -79,7 +79,8 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
   });
   // RN-146 (Plano 13): a versão nova assinada substitui a original NA MESMA TRANSAÇÃO — só se ela ainda está "assinado"
   // (senão a assinatura inteira volta: o salvarArquivo desfaz tudo). O gatilho só deixa com esta já "assinado" (0105). A
-  // original já está travada desde o antesDaReserva (travarDocumentoAntesDaCota: original → versão nova → tenant).
+  // original já está travada desde o antesDaReserva (travarDocumentoAntesDaCota com `original: true`: paciente → original →
+  // versão nova → tenant).
   // Q13-3 ★: o paciente recebe só o e-mail de documento novo da entrega abaixo, sem um "documento atualizado".
   // O `!s.length` é defesa em profundidade: pelos caminhos legais a original não sai de "assinado" com esta retificação em
   // andamento (o cancelamento recusa e só esta pode substituí-la — gatilhos da 0105), então não há teste que o alcance.

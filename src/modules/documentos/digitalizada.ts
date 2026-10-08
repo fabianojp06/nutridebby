@@ -92,7 +92,8 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
     for (const img of imagens) {
       await salvarArquivo(a.ctx, {
         tipo: 'documento_digitalizado', conteudo: img, permitidos: ['jpg', 'png'], patientId: lida.patientId,
-        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, docId), // documento → tenant (I2 do PR #19)
+        // paciente → versão nova → tenant (P13-16 a): a original não muda com as fotos
+        antesDaReserva: (tx) => travarDocumentoAntesDaCota(tx, { id: docId, patientId: lida.patientId }, { original: false, recusa: () => new PacienteBloqueadoError() }),
         registrar: async (tx, arq) => {
           const ok = await tx
             .update(signedDocuments)

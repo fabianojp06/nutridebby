@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco, novoConsultorio, outroDocumento, tenantLivreEnquantoEsperaODocumento } from '../../../test/documentos';
+import { documentoNoBanco, esperarAtrasDe, novoConsultorio, outroDocumento, tenantLivreEnquantoEsperaODocumento } from '../../../test/documentos';
 import { emailsNaFila, novoPaciente } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { exams, tenants, type TenantRow } from '@/db/schema';
@@ -10,6 +10,8 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { criarExame } from '@/modules/pacientes/exames';
+import { cancelarDocumento } from './cancelamento';
+import { MSG_RETIFICACAO } from './constantes';
 import { receberDigitalizada } from './digitalizada';
 import { montarPdfDigitalizado } from './digitalizada-job';
 import { apagarRascunho, lerDocumento, prepararParaAssinatura, salvarRascunhoParecer, salvarRascunhoReceita } from './documentos';
@@ -138,4 +140,46 @@ describe('assinar a versão nova (US-148, RN-146, Q13-3 ★)', () => {
     const r = await tenantLivreEnquantoEsperaODocumento(app.db, c.T.ctx, v1.id, assinar);
     expect(r).toEqual({ tenantLivre: true, resultado: 'pronto' });
   });
+});
+
+describe('fotos da versão nova × cancelar/retificar a original (code review do PR #27, P13-16 a)', () => {
+  it.each(['cancelar', 'retificar'] as const)('%s a original enquanto as fotos da versão nova entram não fecha ciclo: paciente → original → versão nova → tenant', async (acao) => {
+    const c = await consultorio();
+    const p = await novoPaciente(app.db, c.T.ctx, { nome: 'Ana Souza' });
+    const v1 = await documentoNoBanco(app.db, c.T.ctx, p.id, { status: 'assinado' });
+    const v2 = await outroDocumento(c, app.db, { paciente: p, retifica: { id: v1.id, versao: 1 } });
+    const foto = await sharp({ create: { width: 800, height: 1100, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    // H segura a cota do tenant: o envio das fotos para na reserva já com as travas que pega antes dela (antes da correção,
+    // a original e a versão nova SEM o paciente — que o INSERT em stored_files pede pela FK, FOR KEY SHARE)
+    let segurou!: (pid: number) => void;
+    let soltar!: () => void;
+    const seguro = new Promise<number>((ok) => (segurou = ok));
+    const solto = new Promise<void>((ok) => (soltar = ok));
+    const h = withTenant(c.T.ctx, async (tx) => {
+      const [{ pid }] = (await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`)).rows;
+      await tx.execute(sql`select 1 from tenants where id = ${c.T.tenantId} for no key update`);
+      segurou(Number(pid));
+      await solto;
+    }, app.db);
+    const pid = await seguro;
+    const envio = receberDigitalizada(c.acesso, v2.id, [foto], '123456', { db: app.db, dataDir: c.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    envio.catch(() => undefined);
+    await esperarAtrasDe(app.db, pid, 1);
+    // o cancelamento/retificação trava o paciente e depois a original: antes da correção, para na original (presa pelo envio)
+    // segurando o paciente; depois, para no paciente (preso pelo envio) sem nada
+    const outra = acao === 'cancelar' ? cancelarDocumento(c.T.ctx, p.id, v1.id, 'Erro de digitação.', { db: app.db, appUrl: 'https://x' }) : retificarDocumento(c.T.ctx, p.id, v1.id, { db: app.db });
+    outra.catch(() => undefined);
+    await esperarAtrasDe(app.db, pid, 2);
+    soltar();
+    await h;
+    const [r1, r2] = await Promise.allSettled([envio, outra]);
+    expect(r1).toEqual({ status: 'fulfilled', value: undefined });
+    if (acao === 'cancelar') expect(r2.status === 'rejected' && r2.reason instanceof DocumentoError ? r2.reason.erros : r2).toEqual({ geral: MSG_RETIFICACAO.emAndamento(2) });
+    else expect(r2).toEqual({ status: 'fulfilled', value: v2.id });
+    const linhas = (await withTenant(c.T.ctx, (tx) => tx.execute(sql`select id, status, digitalizacao_status from signed_documents where id in (${v1.id}, ${v2.id}) order by versao`), app.db)).rows;
+    expect(linhas).toEqual([
+      { id: v1.id, status: 'assinado', digitalizacao_status: null },
+      { id: v2.id, status: 'aguardando_assinatura', digitalizacao_status: 'pendente' },
+    ]);
+  }, 30_000);
 });

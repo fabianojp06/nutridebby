@@ -208,3 +208,20 @@ export async function tenantLivreEnquantoEsperaODocumento<R>(db: Db, ctx: Tenant
   await dono;
   return { tenantLivre, resultado: await emCurso };
 }
+
+/**
+ * Ciclo de travas com três conexões (code review do PR #27, P13-16 a): espera `n` conexões paradas atrás de `pid` — direto
+ * ou atrás de outra que já espera por ele (a segunda da corrida para na primeira). Pelo pid, não pelo texto do comando: a
+ * espera não depende de qual comando a correção faz parar.
+ */
+export async function esperarAtrasDe(db: Db, pid: number, n: number): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    const r = await db.execute<{ n: number }>(sql`
+      with diretos as (select pid from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid)))
+      select count(*)::int as n from pg_stat_activity a
+      where a.pid in (select pid from diretos) or exists (select 1 from diretos d where d.pid = any(pg_blocking_pids(a.pid)))`);
+    if (Number(r.rows[0].n) >= n) return;
+    await new Promise((ok) => setTimeout(ok, 25));
+  }
+  throw new Error(`menos de ${n} conexões paradas atrás de ${pid}`);
+}
