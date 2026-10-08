@@ -1,6 +1,6 @@
 # 11. Exames enviados pelo paciente (Plano 12, F3-04)
 
-Conferido contra o branch `plano-12-exames-paciente` em 07/10/2026 (Tarefas 1–14 integradas; ainda sem merge na `main`),
+Conferido contra o branch `plano-12-exames-paciente` em 07/10/2026 (Tarefas 1–14; em produção desde 08/10/2026, PR #25, merge `3b59c38`),
 migrations `0101_exames_enviados` e `0102_rls_exames_enviados` (a `0103_sessao_equipe_30min` é da Tarefa 14, sessão da
 equipe, e não deste capítulo), spec `docs/superpowers/specs/2026-10-03-nutridebby-paciente-exames-ia-design.md` (v0.3, parte
 F3-04) e plano `docs/superpowers/plans/2026-10-07-nutridebby-12-exames-paciente.md` (decisões D1–D13, D-R1 a D-R3 e as do
@@ -17,8 +17,9 @@ pelo paciente"; com a IA ativa, dá para aceitar e já pedir a leitura da F3-01)
 vê. O paciente acompanha a situação em `/p/exames`, baixa o PDF limpo enquanto aguarda e pode cancelar.
 
 **Nasce desligado (D18 = a).** A nutricionista liga em Configurações, seção "Exames enviados pelos pacientes"
-(`tenants.exames_paciente_ativado_em`). Desligado, o portal não mostra "Enviar exame" nem "Meus exames" e a rota recusa com
-404; os envios que já estão na fila continuam revisáveis.
+(`tenants.exames_paciente_ativado_em`). Desligado, o portal não mostra "Enviar exame" nem "Meus exames" (Início e Perfil) e o envio
+(`POST /api/p/exames`, `src/app/api/p/exames/route.ts`) recusa com 404; a tela `/p/exames` continua abrindo pelo endereço e
+mostra só a lista, sem o formulário (`src/app/p/(portal)/exames/page.tsx`); os envios que já estão na fila continuam revisáveis.
 
 **Por que tudo passa pelo worker (D23 = a, R-170).** Um PDF vindo do **paciente** é conteúdo não confiável (JavaScript,
 links, anexos embutidos, falhas de leitor). O worker o **rasteriza** num processo filho e guarda só imagens: o que a
