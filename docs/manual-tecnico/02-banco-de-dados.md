@@ -201,8 +201,8 @@ Legenda da coluna "Proteção":
 | `content_audience` | T, P, A `conteudos` | 0082 |
 | `content_views` | T, P, PE `insert` (sem auditoria), X `paciente_conteudo_visto` | 0082, 0083 |
 | `content_favorites` | T, P, PE `insert`/`delete` (sem auditoria), X `paciente_conteudo_favorito` | 0082, 0083 |
-| `signed_documents` | T, P, A `documentos`, X `paciente_so_emitidos`, gatilho `documento_imutavel` | 0090, 0091, 0093 |
-| `signed_document_notes` | T, P, S, A `documentos`, gatilho `notas_imutaveis` | 0090, 0091 |
+| `signed_documents` | T, P, A `documentos`, X `paciente_so_emitidos`, gatilhos `documento_imutavel` e `documento_versao` | 0090, 0091, 0093, 0105 |
+| `signed_document_notes` | T, P, S, A `documentos`, gatilho `notas_imutaveis` | 0090, 0091, 0105 |
 | `signed_document_receipts` | T, P, PE `insert`, A `documentos`, X `paciente_recibo_proprio`, `recibo_fora_do_paciente`; `REVOKE UPDATE, DELETE` | 0090, 0092 |
 | `document_access_codes` | T, P, PE `insert`/`update` (sem auditoria), X `paciente_codigo_de_assinado`, gatilho `codigo_acesso_regras` | 0090, 0091, 0092 |
 | `ia_tarefas` | T, P, S, A `ia`, gatilhos `ia_tarefas_sem_apagar` (DELETE só do `worker` com o paciente anonimizado) e `ia_tarefas_imutavel` (colunas fixas) | 0099, 0100 |
@@ -323,8 +323,8 @@ Anti-sobreposição (Plano 05, D9): `EXCLUDE USING gist (tenant_id WITH =, tstzr
 
 | Tabela | Papel | Detalhe |
 |---|---|---|
-| `signed_documents` | O documento (receita): estados, conteúdo congelado, código, PDF preparado e final (FKs `NO ACTION` para `stored_files.caminho`, as primeiras do projeto), assinatura, entrega, cancelamento, anonimização, envio digitalizado | [§9.3.1](09-documentos-assinados.md#931-tabelas) |
-| `signed_document_notes` | Justificativa de uso e motivo de cancelamento (`staff_only`) | idem |
+| `signed_documents` | O documento (receita ou, desde o Plano 13, parecer nutricional; versões pela retificação): estados, conteúdo congelado, código, PDF preparado e final (FKs `NO ACTION` para `stored_files.caminho`, as primeiras do projeto), assinatura, entrega, cancelamento, anonimização, envio digitalizado | [§9.3.1](09-documentos-assinados.md#931-tabelas) |
+| `signed_document_notes` | Justificativa de uso, motivo de cancelamento e, desde o Plano 13, motivo da retificação (`staff_only`) | idem |
 | `signed_document_receipts` | Recebimento (`aberto`/`recebido`), só INSERT | idem |
 | `document_access_codes` | Código do link de uso único (só HMAC) e a sessão curta | idem |
 | `document_verifications` | Linha pública da verificação, **fora da RLS** (§2.9) | idem |
@@ -459,7 +459,8 @@ A RLS decide **onde** o paciente grava. Os gatilhos `BEFORE UPDATE` `paciente_co
 | `data_exports` | `app_paciente_colunas_exports()` | Só passar `status` de `pendente` para `falhou` (e `updated_at`) (`:39-50`) |
 
 Os documentos do Plano 10A têm gatilhos de colunas que valem para **todo** papel, não só o do paciente:
-`app_documento_imutavel` (`signed_documents`, 0091/0093), `app_notas_imutaveis` (`signed_document_notes`),
+`app_documento_imutavel` (`signed_documents`, 0091/0093/0105) e `app_documento_versao` (o INSERT da versão nova, 0105),
+`app_notas_imutaveis` (`signed_document_notes`, 0091/0105),
 `app_codigo_acesso_regras` (`document_access_codes`) e `app_verificacao_situacao` (`document_verifications`, 0092).
 Detalhe em [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções).
 

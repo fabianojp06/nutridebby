@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026 |
-| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05), 10A, 11 e 12 (parte F3-04 e a sessão da equipe), spec do MVP v1.13, spec de documentos assinados v0.4, spec da IA v0.4 e spec C v0.3 (parte F3-04), migrations `0000`–`0103` (104 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100` e o cap. 11, `0101`–`0102`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026 |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) e 13 (parecer nutricional e retificação, F3-05), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) e spec C v0.3 (parte F3-04), migrations `0000`–`0105` (106 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`, o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -77,7 +77,7 @@ flowchart LR
 | 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 22 filas, segurança HTTP, backup e restauração |
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
-| 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Plano 10A): receita, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
+| 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Planos 10A e 13): receita e parecer nutricional, retificação por versão nova, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
 | 10 | [10-ia.md](10-ia.md) | Módulo `ia` (Plano 11): leitura de laudos com IA, provedor e sandbox, preparo do laudo no worker, portão do envio, cota e custo, erros e novas tentativas, privacidade (o que sai, ZDR, nada em log), como estender, divergências conhecidas | Tabelas `ia_tarefas`/`ia_uso`/`ia_gasto_plataforma`, fila `ia`, cota de IA; runbook em [`docs/operacao/ia.md`](../operacao/ia.md) |
 | 11 | [11-exames-enviados.md](11-exames-enviados.md) | Envio de exames pelo paciente (Plano 12, F3-04): fluxo do portal ao worker, rasterização do PDF num processo filho (PDFium em WASM), PDF limpo só com imagens, fila "Exames recebidos", aceite e recusa, transições conferidas no banco, cota, varredura, privacidade e LGPD, como estender, divergências | Tabelas `exam_submissions`/`exam_submission_files`, filas `exame-envio`, `exame-envio-limpar` e `expirar-exame-envio`, orçamento de memória da rasterização (RNF-162); runbook em [`docs/operacao/exames-enviados.md`](../operacao/exames-enviados.md) |
 
@@ -170,7 +170,8 @@ flowchart LR
 [9.6 2FA ao assinar](09-documentos-assinados.md#96-código-do-2fa-no-momento-de-assinar-rn-145-d13) ·
 [9.7 Rotas](09-documentos-assinados.md#97-rotas) ·
 [9.8 Filas](09-documentos-assinados.md#98-filas-e-varreduras) ·
-[9.10 Operação](09-documentos-assinados.md#910-operação)
+[9.10 Operação](09-documentos-assinados.md#910-operação) ·
+[9.11 Parecer e retificação](09-documentos-assinados.md#911-parecer-nutricional-e-retificação-plano-13)
 
 **10. Inteligência artificial** — [10.1 Visão](10-ia.md#101-visão) ·
 [10.2 Peças](10-ia.md#102-peças) ·
@@ -206,7 +207,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Armazenamento, cota e URL assinada | [§4.1.3](04-modulos-clinicos.md#413-armazenamento-com-cota-e-url-assinada-rn-18-regra-9-do-claudemd) | §6.3.6, §6.3.7 |
 | Monitor de backup e disco | [§4.1.4](04-modulos-clinicos.md#414-monitoramento-de-backup-e-disco-rnf-05-rnf-13) | §6.5.6 |
 | Filas do worker (22) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10, §9.8 |
-| Documentos assinados (receita, link, verificação) | [cap. 9](09-documentos-assinados.md) | §1.6, §1.7, §2.5, §2.7, §2.9, §6.2.3, §6.3, §7.4 |
+| Documentos assinados (receita, parecer, retificação, link, verificação) | [cap. 9](09-documentos-assinados.md) | §1.6, §1.7, §2.5, §2.7, §2.9, §6.2.3, §6.3, §7.4 |
 | Backup e restauração | [§6.5](06-worker-seguranca-operacao.md#65-backup-e-restauração-rnf-05-regra-10) | §1.8 |
 | CI, imagem e deploy | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) | §1.8 (diagrama), §6.8 |
 | Matriz de isolamento | [§7.4.2](07-testes-qualidade-e-processo.md#742-a-matriz-de-isolamento-testisolamentotestts) | §2.7 |
@@ -277,7 +278,9 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Página pública | `/n/<slug>`: agendamento sem login, com Turnstile e código por e-mail (RN-16) | [§5.2](05-agenda-portal-conteudo.md#52-página-pública-nslug-rn-16-p05-d11d13) |
 | Evolution API | Serviço autohospedado que conecta o WhatsApp de cada consultório (INT-01, Plano 05) | [§5.4.2](05-agenda-portal-conteudo.md#542-whatsapp-pela-evolution-api-int-01-p05-d1d5) |
 | Manual guiado | Ajuda dentro do painel para a nutricionista (`src/modules/ajuda`, Plano 08) | [§5.8](05-agenda-portal-conteudo.md#58-manual-guiado-p08-10-p08-d26-d27) |
-| Documento assinado / receita | Documento com validade profissional emitido no prontuário (no 10A, só a receita de suplementos e fitoterápicos), imutável depois do preparo e verificável por código | [cap. 9](09-documentos-assinados.md) |
+| Documento assinado / receita | Documento com validade profissional emitido no prontuário (receita de suplementos e fitoterápicos, Plano 10A; parecer nutricional, Plano 13), imutável depois do preparo e verificável por código | [cap. 9](09-documentos-assinados.md) |
+| Parecer nutricional | Documento assinado sobre os exames lançados: cópia congelada dos exames escolhidos (nunca o laudo), avaliação, conduta e encaminhamentos, sem diagnóstico de doença (Plano 13, US-141) | [§9.11.2](09-documentos-assinados.md#9112-parecer-do-rascunho-à-assinatura) |
+| Retificação / versão | Correção de um documento assinado por uma versão nova (`versao + 1`, `retifica_id`) com motivo obrigatório; assinada, leva a anterior a "substituido" (Plano 13, US-148, RN-146) | [§9.11.3](09-documentos-assinados.md#9113-retificação-us-148-rn-146-rn-147) |
 | Código de verificação | 12 caracteres Crockford (`XXXX-XXXX-XXXX`) impressos com o QR no PDF; a verificação pública em `/v/<código>` não mostra nada do paciente | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
 | Digitalizada | Assinatura à mão: a nutricionista envia fotos das páginas assinadas com o código do 2FA e o worker monta um PDF novo (opção E da D1 da spec de documentos) | [§9.4.2](09-documentos-assinados.md#942-assinatura-digitalizada-rn-157-d4-d24) |
 | Link do documento | `/documento/<token>`: entrega a quem não tem o app, com código de 6 dígitos por e-mail e sessão de 15 min | [§9.5](09-documentos-assinados.md#95-link-de-uso-único-e-verificação-pública) |
@@ -506,5 +509,16 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 67 | Spec C R-170 | Tempo limitado por página | Prazo de 120 s do PDF inteiro, uma página por vez (Desvio 9) | Reg. | 11 |
 | 68 | Spec C US-161 | Aceito = "Recebido no seu prontuário" | Exame excluído depois do aceite: o paciente continua vendo "Recebido no seu prontuário" (P12-16 c) | Comp. | 11 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58, #59 e #68. As de tipo Doc entram na
+### Parecer nutricional e retificação (Plano 13)
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 69 | Plano 13, "Pontos menores" | O tipo do documento numa fonte só | `conteudo->>'tipo'` (jsonb) decide a habilitação e o PDF base; a coluna `tipo`, o título da digitalizada; sem CHECK que os amarre (P13-14) | Pend. | 9 #5 |
+| 70 | Plano 13, "Pontos menores" | O tipo da verificação é o do documento | A FK da verificação é `(tenant_id, documento_id, codigo)`, sem `tipo` (P13-14) | Pend. | 9 #6 |
+| 71 | Spec B RN-146 | Uma versão em vigor | A substituição da anterior na assinatura da versão nova depende de `registrarAssinatura`; o banco não a exige no fim da transação (P13-15) | Pend. | 9 #7 |
+| 72 | Spec B US-150 / Q13-1 | Motivo da retificação fora da exportação do titular | Aplicado; depende da resposta do advogado (E-09) | Pend. | 9 #8 |
+| 73 | Spec da IA §5.10 (art. 37) | A leitura de laudo não gera material entregue ao paciente | Desde o Plano 13, os valores lidos e conferidos chegam ao paciente no PDF do parecer, sem indicação de IA (Q13-2 (a)); consulta ao CRN-3 (P-B1) antes de 23/01/2027 | Pend. | 9 #9 |
+| 74 | Spec B US-149 | Cancelar com retificação em andamento é recusado | Recusado, mas a tela ainda oferece "Cancelar documento" e só recusa depois da confirmação (P13-15) | Comp. | 9 #10 |
+
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
