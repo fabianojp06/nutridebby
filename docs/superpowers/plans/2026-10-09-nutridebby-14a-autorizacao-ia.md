@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Escrito em 09/10/2026** a partir da `main` @ `8d91fd5` (Planos 01–13 em produção, migrations `0000`–`0105`) + a spec da IA **v0.5.1** (`5e2bf16`), no worktree `nutridebby-plano14`, branch `plano-14-ia-nutricionista`. O dono **aprovou em 08/10/2026** a divisão em 14A e 14B (spec §18.3), a autorização única com a lista dos três usos (A-D24, RV-1) e o link por e-mail **sem** o código de 6 dígitos (RN-107). **Base de código:** o Plano 16 (app do paciente G, branch `plano-16-app-paciente`, migration `0106_app_paciente_g`) entra na `main` **antes** deste plano; a Tarefa 1 começa pelo rebase sobre ele, e as migrations do 14A são **`0107`** (gerada), **`0108`** (custom) e **`0109`** (custom, na Tarefa 10). Nenhuma linha de código de produto foi escrita; nada rodou em banco; nenhum banco de produção foi tocado; nenhuma API de IA foi chamada. Os nomes de função, tabela, gatilho, rota e helper usados aqui foram conferidos no código da `main` e do branch do Plano 16 (os que este plano cria estão em "Contratos entre tarefas"). Próximo passo: revisão do plano pelo dono e execução no modo misto (workflow).
+> **Escrito em 09/10/2026** a partir da `main` @ `8d91fd5` (Planos 01–13 em produção, migrations `0000`–`0105`) + a spec da IA **v0.5.1** (`5e2bf16`), no worktree `nutridebby-plano14`, branch `plano-14-ia-nutricionista`. O dono **aprovou em 08/10/2026** a divisão em 14A e 14B (spec §18.3), a autorização única (A-D24, RV-1) e o link por e-mail **sem** o código de 6 dígitos (RN-107). Em **08/10/2026** aprovou também as recomendações do parecer **JUR-2026-013** (decisões F1–F9, registradas na spec, **§18.5**, e aplicadas neste plano): `bedrock-eu` como provedor preferido, com condições (F1); a versão 0.1 da autorização lista **só a leitura de laudos** — resumo e rascunho entram com a 14B, numa versão nova (F2); a redação dos textos é a do parecer (itens 4.1 e 4.2), com as versões `0.1-provisorio` e `0.2-provisorio` até o advogado da OAB validar; reforços do link (F4) e do termo em papel (F5); o risco de acesso por autoridade dos EUA no texto do `bedrock-eu` (F6); a regra P0 do `GetInferenceProfile` só com destinos UE/EEE (F7); a Res. CFN nº 858/2026 (F9). **Base de código:** o Plano 16 (app do paciente G, branch `plano-16-app-paciente`, migration `0106_app_paciente_g`) entra na `main` **antes** deste plano; a Tarefa 1 começa pelo rebase sobre ele, e as migrations do 14A são **`0107`** (gerada), **`0108`** (custom) e **`0109`** (custom, na Tarefa 10). Nenhuma linha de código de produto foi escrita; nada rodou em banco; nenhum banco de produção foi tocado; nenhuma API de IA foi chamada. Os nomes de função, tabela, gatilho, rota e helper usados aqui foram conferidos no código da `main` e do branch do Plano 16 (os que este plano cria estão em "Contratos entre tarefas"). Próximo passo: revisão do plano pelo dono e execução no modo misto (workflow).
 
 **Goal:** Antes de qualquer dado de paciente sair para a IA, o sistema passa a exigir a **autorização** (consentimento específico e em destaque, LGPD art. 33, VIII) do próprio paciente — dada no app (Eu › Privacidade), pelo link do e-mail (sem login) ou por termo em papel fotografado —, com retirada a qualquer momento e efeito imediato, prova só de inclusão, exportação e anonimização; e ganha um segundo provedor, o **AWS Bedrock na União Europeia** (`IA_PROVEDOR=bedrock-eu`), com o destino gravado em cada saída e mostrado ao titular.
 
@@ -10,7 +10,7 @@
 
 **Tech Stack:** Node 24 · pnpm · Next.js 16 (App Router, Server Actions, Route Handlers, `PageProps`/`RouteContext`) · React 19.2 · PostgreSQL 16 · Drizzle (drizzle-kit `generate` e `--custom`) · pg-boss 12 · Zod 4 · Vitest + Testcontainers · Playwright + `@axe-core/playwright` · `@anthropic-ai/sdk` 0.131 (já instalado) · **dependência nova: `@anthropic-ai/bedrock-sdk` 0.34.4** (só no worker; A-D26).
 
-**Spec:** [`../specs/2026-10-03-nutridebby-ia-nutricionista-design.md`](../specs/2026-10-03-nutridebby-ia-nutricionista-design.md) **v0.5.1, só a parte do 14A** (§18.3): §1.1 (CS-105), §1.2 (A-04, A-06), §2.1 (AUT, UE), §2.3 (coluna Plano 14, partes do 14A), §3, §4 (fluxo do paciente), §5.1 (A-D26 e "Desenho"), §5.2, §5.3 (transferência, autorização, retirada, aditivo `0.2-provisorio`, direitos do titular), §5.5 (prêmio de 10% e AWS Budgets), §5.6 (portão com a autorização e retirada), §5.11 itens 3 e 8, texto da autorização (`0.1-provisorio`), US-101 (aditivo), US-103/US-104 (substituídas), **US-105 a US-109, US-113**, US-110 (cenário "sem autorização vigente"), RN-100, RN-101 (só a parte da 14A), RN-107, RN-108, RN-109, RN-112 (`sem_autorizacao`), RN-127 (só a leitura com `bedrock-eu`), RN-128, RNF-102, RNF-103, RNF-105, RNF-107, RNF-110, RNF-111, INT-07 (região), **INT-08**, §11 (`ia_autorizacoes`, `ia_tarefas.destino`, `stored_files`, `patients`), §12, R-110 e R-114 a R-117, §16.1.2 (A-D6, A-D23 a A-D26, A-D4), §18.1 (C1, C3, C5–C9, C12), §18.4 (RV-1 a RV-3 e as revisões normativa e de banco aplicadas). **Fora (14B):** US-120 a US-123, RN-103 (índice novo), RN-115 a RN-117, RN-120 a RN-126, `ia_geracoes_modelos`, `carimbo_dados`, os tipos `resumo_historico`/`rascunho_plano` em `ia_tarefas`, `IA_MODELO_ASSISTENTE` e `IA_TETO_RASCUNHO_USD` — o texto da autorização já lista os três usos (congelado, RV-2). Plano anterior da base de IA: [`2026-10-06-nutridebby-11-ia-laudos.md`](2026-10-06-nutridebby-11-ia-laudos.md). App do paciente: spec [`../specs/2026-10-08-nutridebby-app-paciente-g-design.md`](../specs/2026-10-08-nutridebby-app-paciente-g-design.md) (Plano 16). Índice: [`2026-09-27-nutridebby-00-indice.md`](2026-09-27-nutridebby-00-indice.md). Backlog: [`2026-09-27-nutridebby-backlog.md`](2026-09-27-nutridebby-backlog.md). Manual técnico: [`../../manual-tecnico/10-ia.md`](../../manual-tecnico/10-ia.md). Runbook da IA: [`../../operacao/ia.md`](../../operacao/ia.md).
+**Spec:** [`../specs/2026-10-03-nutridebby-ia-nutricionista-design.md`](../specs/2026-10-03-nutridebby-ia-nutricionista-design.md) **v0.5.1, só a parte do 14A** (§18.3): §1.1 (CS-105), §1.2 (A-04, A-06), §2.1 (AUT, UE), §2.3 (coluna Plano 14, partes do 14A), §3, §4 (fluxo do paciente), §5.1 (A-D26 e "Desenho"), §5.2, §5.3 (transferência, autorização, retirada, aditivo `0.2-provisorio`, direitos do titular), §5.5 (prêmio de 10% e AWS Budgets), §5.6 (portão com a autorização e retirada), §5.11 itens 3 e 8, texto da autorização (`0.1-provisorio`), US-101 (aditivo), US-103/US-104 (substituídas), **US-105 a US-109, US-113**, US-110 (cenário "sem autorização vigente"), RN-100, RN-101 (só a parte da 14A), RN-107, RN-108, RN-109, RN-112 (`sem_autorizacao`), RN-127 (só a leitura com `bedrock-eu`), RN-128, RNF-102, RNF-103, RNF-105, RNF-107, RNF-110, RNF-111, INT-07 (região), **INT-08**, §11 (`ia_autorizacoes`, `ia_tarefas.destino`, `stored_files`, `patients`), §12, R-110 e R-114 a R-117, §16.1.2 (A-D6, A-D23 a A-D26, A-D4), §18.1 (C1, C3, C5–C9, C12), §18.4 (RV-1 a RV-3 e as revisões normativa e de banco aplicadas), **§18.5 (parecer JUR-2026-013, F1–F9)**. **Fora (14B):** US-120 a US-123, RN-103 (índice novo), RN-115 a RN-117, RN-120 a RN-126, `ia_geracoes_modelos`, `carimbo_dados`, os tipos `resumo_historico`/`rascunho_plano` em `ia_tarefas`, `IA_MODELO_ASSISTENTE` e `IA_TETO_RASCUNHO_USD` — pela F2 (§18.5), o texto da autorização 0.1 lista só a leitura de laudos (`AUTORIZACAO_IA_USOS = ['leitura_laudos']`); a 14B traz a versão nova com resumo e rascunho, sobe o mínimo e pede autorização nova de todos (RN-109). Plano anterior da base de IA: [`2026-10-06-nutridebby-11-ia-laudos.md`](2026-10-06-nutridebby-11-ia-laudos.md). App do paciente: spec [`../specs/2026-10-08-nutridebby-app-paciente-g-design.md`](../specs/2026-10-08-nutridebby-app-paciente-g-design.md) (Plano 16). Índice: [`2026-09-27-nutridebby-00-indice.md`](2026-09-27-nutridebby-00-indice.md). Backlog: [`2026-09-27-nutridebby-backlog.md`](2026-09-27-nutridebby-backlog.md). Manual técnico: [`../../manual-tecnico/10-ia.md`](../../manual-tecnico/10-ia.md). Runbook da IA: [`../../operacao/ia.md`](../../operacao/ia.md).
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@
 - **Regra 9 (arquivos):** o termo em papel só por `salvarArquivo` (tipo `ia_autorizacao_termo`, `permitidos` `pdf`, `jpg`, `png`, dono = paciente, conta na cota), com o paciente travado no `antesDaReserva` e a linha de `ia_autorizacoes` gravada no `registrar` (ordem paciente → tenant → linha); FK `arquivo_path → stored_files.caminho` **`NO ACTION`**; sai só na anonimização, num passo próprio (`apagarTermosDeAutorizacao`, antes de `anexosDoPaciente`), com o ponteiro anulado por `app_ia_autorizacao_soltar_termo` no `naMesmaTransacao` do `apagarArquivo`; **nunca** no pedido de exclusão; servido só por `signFileUrl` (5 min).
 - **RN-100 (todas as conferências):** IA da plataforma ligada (`IA_PROVEDOR` presente e `IA_DESLIGADA` ≠ 1), **retenção zero** (`IA_RETENCAO_ZERO=1`), tenant ativo com `ia_liberada`, `ia_ativada_em` e aditivo ≥ `0.2-provisorio`, paciente `ativo` e com **autorização vigente** (último `autorizou`/`retirou` = `autorizou`, versão ≥ `AUTORIZACAO_IA_VERSAO_MIN`, o uso da tarefa em `usos`, `destino` = o do provedor em uso). No app ao criar a tarefa, no worker (início, **portão do envio** com o paciente travado, gravação do resultado), em `aplicarSugestao` e na varredura `expirar-ia`.
 - **Testes nunca chamam provedor real** (`fake` e `sandbox`; `provedor-bedrock.ts` só contra `fetch` falso). A avaliação com o Bedrock real é passo **manual** do dono (`pnpm ia:avaliar` com `IA_AVALIACAO_PROVEDOR=bedrock-eu`, runbook), fora do CI.
-- Textos de interface em pt-BR, **com o texto exato da spec v0.5.1** quando existir (US-105 a US-109, US-113, RN-112, texto da autorização, aditivo `0.2-provisorio`); os textos novos estão em "Desvios conscientes" e vão à revisão de interface, à Debby e (os jurídicos) ao advogado. Os textos jurídicos são **provisórios** (`0.1-provisorio` e `0.2-provisorio`): em produção, "Liberar" continua recusado enquanto forem provisórios (D22 do Plano 11, agora pela autorização e pelo aditivo).
+- Textos de interface em pt-BR, **com o texto exato da spec v0.5.1** quando existir (US-105 a US-109, US-113, RN-112, texto da autorização e aditivo `0.2-provisorio` na redação do parecer JUR-2026-013, §18.5); os textos novos estão em "Desvios conscientes" e vão à revisão de interface, à Debby e (os jurídicos) ao advogado. Os textos jurídicos são **provisórios** (`0.1-provisorio` e `0.2-provisorio`): em produção, "Liberar" continua recusado enquanto forem provisórios (D22 do Plano 11, agora pela autorização e pelo aditivo).
 - Visual V2: só tokens do tema (`bg-cartao`, `text-suave`, `border-borda`, `text-link`, `text-erro`…), nunca cor fixa em `src/app/painel` e `src/modules/*/ui` (guarda `src/app/painel/cores.test.ts`); no portal, os componentes e tokens do Plano 16; acessibilidade (RNF-10): `<label htmlFor>`, `aria-invalid` + `aria-describedby`, erros com `role="alert"`, sucesso com `role="status"` numa região que já existe na tela, alvo de toque ≥ 44 px (`min-h-11`).
 - **Imagem Docker:** orçamento de **265 MB** comprimidos (job `image` do CI; hoje ≈ 260 MB). O `@anthropic-ai/bedrock-sdk` traz `@aws-sdk/client-bedrock-runtime`, `@aws-sdk/credential-providers` e pacotes `@smithy/*`: a T3 mede a imagem e poda o que não roda (fontes, mapas e declarações); **se passar de 265 MB depois da poda, a T3 para e pergunta ao dono** com a medida e as opções (subir o orçamento, ou trocar o SDK por assinatura SigV4 própria com `@smithy/signature-v4`).
 - Custo: nenhum serviço pago novo além do uso da IA já aceito (A-01). Conta AWS em nome do CNPJ é passo do dono (runbook).
@@ -57,6 +57,8 @@ Todas técnicas, tomadas aqui com base na spec v0.5.1 e no código. Nenhuma perg
 | D17 | Legado do Plano 11 (RN-128) | As colunas de ciência ficam; o gatilho `patients_ia_quem` é refeito numa migration **própria** (`0109`, T10) — refeito na `0108`, quebraria a ciência do Plano 11 que o código ainda usa até a T7; o e-mail `aviso_ia` que estiver na fila é descartado por `processEmailJob` sem enviar nem gravar; `aposEnviar`/`aoDesistir` saem do worker (só serviam ao aviso) |
 | D18 | Rótulos da auditoria | Só a entidade nova `ia_autorizacao` ("Autorização de IA"). Os rótulos por tipo de tarefa da RN-101 ("Pediu resumo à IA"…) são da 14B |
 | D19 | Ordem e paralelismo | Tabela "Dependências e paralelismo" no fim. Em resumo: **[T1 ‖ (T2 → T3)] → T4 → [T5 ‖ T9] → [T6 ‖ T7 ‖ T8] → T10 → T11 → T12** |
+| D20 | Usos da versão 0.1 (F2, §18.5) | `AUTORIZACAO_IA_USOS = ['leitura_laudos']` em `textos-legais.ts`: é o que o app, o link e o papel gravam em `usos`. `USOS_IA` (constantes) continua com os três, porque o CHECK da coluna já aceita os da 14B (sem migration nova na 14B); `vigentePara(s, uso)` faz o resto: autorização da 0.1 não vale para resumo nem rascunho |
+| D21 | Termo em papel (F5, §18.5) | Rodapé em **todas** as páginas impressas com "Código de referência: {código} — Página {x} de {y}" pela caixa de margem do `@page` (`@bottom-center`, `counter(page)`/`counter(pages)`, impressa por Chrome/Edge); "Recebi uma via deste termo." acima da data; a dica "Fotografe ou digitalize todas as páginas do termo, num arquivo só."; a confirmação "…e que o arquivo mostra todas as páginas e a assinatura."; e, fora da impressão, a recomendação de guardar o original em papel na pasta do paciente até a anonimização e entregar uma via. O arquivo continua guardado até a anonimização (US-113) |
 
 ### Desvios conscientes da spec v0.5.1
 
@@ -65,10 +67,10 @@ Todas técnicas, tomadas aqui com base na spec v0.5.1 e no código. Nenhuma perg
 3. **`em = registrado_em` em todo canal menos o papel** (a spec diz "nos canais `app` e `link`"): a retirada pela nutricionista e o pedido por e-mail também são atos do instante do registro.
 4. **Coerência canal × papel no gatilho de INSERT** (defesa a mais, não pedida): a sessão `nutri` só grava `papel`, `nutricionista` ou `pedido_email`, com `registrado_por` = a usuária da sessão; o `worker` não grava evento; a sessão de paciente fica com a política RESTRICTIVE (spec). Fecha a nutricionista "registrando" uma autorização do app em nome do paciente.
 5. **`email_hmac` obrigatório só em `autorizou` e `pedido_email` pelo link**; a retirada pelo link de retirada (D11) grava o HMAC do e-mail atual quando há e-mail.
-6. **"Nos dois casos, os seus dados saem do Brasil"** (texto da autorização): a tela, o e-mail e o termo mostram só a variante do provedor em uso (spec), então a frase vira **"Os seus dados saem do Brasil."** — vai ao advogado (runbook passo 6). O destino `teste` (dev, CI, E2E) ganha a variante "Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA." e o aditivo, "Provedor de teste, sem envio de dados a fornecedor." (nunca em produção: `sandbox`/`fake` são recusados lá).
+6. **Adaptações da redação do parecer JUR-2026-013** (registradas na §18.5; vão ao advogado, runbook passo 6): (a) sem os trechos `[14B]` (F2), "a: (1) ler os laudos…" vira "a ler os laudos dos seus exames e sugerir os valores para o seu prontuário."; (b) "Nos dois casos, os seus dados saem do Brasil" vira **"Os seus dados saem do Brasil."** (a tela, o e-mail e o termo mostram só a variante do provedor em uso); (c) "Versão 1.0, de {data}" vira "Versão provisória 0.1, de {data}, em revisão jurídica." e, no aditivo, "Versão provisória 0.2, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido." (a 1.0 só com o advogado); (d) no aditivo, a frase do "nenhum operador do serviço tem acesso ao conteúdo" e do registro de chamadas desligado só na variante `bedrock-eu`; (e) a forma de retirar segue a tabela de canais da spec (quatro variantes). O destino `teste` (dev, CI, E2E) ganha a variante "Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA." e o aditivo, "Provedor de teste, sem envio de dados a fornecedor." (nunca em produção: `sandbox`/`fake` são recusados lá).
 7. **Perfil profissional incompleto** bloqueia o pedido, o termo e o "Ler e decidir" (D10), com o texto novo "Complete seu perfil profissional (nome completo, CRN e e-mail de contato) em Configurações antes de pedir a autorização de IA." — o texto da autorização cita o nome, o CRN e o contato.
 8. **Bloco do app** (US-106 "Consultório sem IA"): aparece com a IA ativa no consultório **ou** com algum registro do paciente; o "Ler e decidir" só com a IA ativa (D10). Num consultório que ativou e depois desativou a IA, o paciente sem registro não vê o bloco (nada a decidir).
-9. **Textos novos** (vão à revisão de interface, à Debby e, os do e-mail, ao advogado junto com a autorização): corpo do e-mail do pedido ("{consultório} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde." / "Leia o texto completo pelo botão abaixo e decida. Autorizar é opcional: recusar não muda nada no seu atendimento." / "O link vale por 7 dias.") e o do e-mail de confirmação (resumo com a versão, os três usos e o destino, e "Você pode retirar a autorização quando quiser, sem custo, pelo botão abaixo. Retirar não muda nada no seu atendimento."); "Envie um arquivo JPEG, PNG ou PDF de até 20 MB." (termo); "Tente novamente em alguns minutos" (Turnstile fora, igual ao link de documentos); o perfil incompleto (item 7); o destino `teste` (item 6).
+9. **Textos novos** (vão à revisão de interface, à Debby e, os do e-mail, ao advogado junto com a autorização): corpo do e-mail do pedido ("{consultório} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde." / "Leia o texto completo pelo botão abaixo e decida. Autorizar é opcional: recusar não muda nada no seu atendimento." / "O link vale por 7 dias.") e o do e-mail de confirmação (resumo com a versão, o uso da versão 0.1 — "só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário" — e o destino, e "Você pode retirar a autorização quando quiser, sem custo, pelo botão abaixo. Retirar não muda nada no seu atendimento."); as frases do F4 (texto do parecer, item 3.4) entram como estão: "Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo." (página do link e e-mail do pedido) e "Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista." (e-mail de confirmação); os do termo (D21); "Envie um arquivo JPEG, PNG ou PDF de até 20 MB." (termo); "Tente novamente em alguns minutos" (Turnstile fora, igual ao link de documentos); o perfil incompleto (item 7); o destino `teste` (item 6).
 10. **Os campos legados `avisoIa`, `avisoIaEnviadoEm` e `recusouIaEm`** passam a sair na exportação **só quando preenchidos** (US-113; hoje saem sempre, com `null`).
 11. **Guia do portal** ganha um item em "Perguntas comuns" sem subir a `versao` (a autorização depende da IA ligada no consultório; subir a versão mostraria o aviso "O app mudou" a todos os pacientes por uma função desligada em produção) — mesmo critério da T17 do Plano 11. O guia `configuracoes` sobe para a versão 5 (texto mudado) e o `prontuario` para a 2 (item novo).
 
@@ -144,7 +146,7 @@ export const IA_TESTE: ConfigIA;                                                
 export function pacienteAutorizado(db: Db, ctx: TenantContext, extra?: Partial<typeof patients.$inferInsert>): Promise<PatientRow>; // T4
 
 // src/modules/ia/constantes.ts (T2; sem imports)
-export const USOS_IA: readonly ['leitura_laudos', 'resumo_historico', 'rascunho_plano']; export type UsoIA;
+export const USOS_IA: readonly ['leitura_laudos', 'resumo_historico', 'rascunho_plano']; export type UsoIA; // os que a coluna aceita; quem grava usa AUTORIZACAO_IA_USOS
 export const USO_DA_TAREFA: Record<TipoTarefa, UsoIA>;                                     // leitura_exame → leitura_laudos
 export const DESTINOS_IA: readonly ['anthropic-us', 'bedrock-eu', 'teste']; export type DestinoIA;
 export const DESTINO_ROTULO: Record<DestinoIA, string>; export const ROTULO_DESTINO_LEGADO: string; // "Anthropic (Claude), Estados Unidos"
@@ -154,9 +156,10 @@ export const MODELOS_BEDROCK_EU: readonly ModeloIA[]; export const REGIOES_BEDRO
 export const CANAIS_AUTORIZACAO; export type CanalAutorizacao; export const CANAL_ROTULO: Record<CanalAutorizacao, string>;
 export const EVENTOS_AUTORIZACAO; export type EventoAutorizacao;
 export const VALIDADE_PEDIDO_MS = 7 * 86_400_000; export const JANELA_EMAIL_TROCADO_MS = 30 * 86_400_000; export const TERMO_MAX_BYTES = 20 * 1024 * 1024;
-// MOTIVOS_FALHA ganha 'sem_autorizacao'; MSG_IA ganha semAutorizacao e retirou; MSG_AUTORIZACAO (textos da US-105 a US-109)
+// MOTIVOS_FALHA ganha 'sem_autorizacao'; MSG_IA ganha semAutorizacao e retirou; MSG_AUTORIZACAO (textos da US-105 a US-109, com autorizacaoPessoal/seNaoFoiVoce — F4 — e rodapeTermo/recebiVia/dicaArquivoTermo/guardarOriginal — F5)
 // src/modules/ia/textos-legais.ts (T2)
 export const AUTORIZACAO_IA_VERSAO = '0.1-provisorio', AUTORIZACAO_IA_VERSAO_MIN = '0.1-provisorio', AUTORIZACAO_IA_VERSAO_DATA = '2026-10-09';
+export const AUTORIZACAO_IA_USOS: readonly UsoIA[]; // ['leitura_laudos'] — F2 (§18.5): o que a versão 0.1 autoriza; a 14B sobe a versão
 export const IA_ADITIVO_VERSAO = '0.2-provisorio', IA_ADITIVO_VERSAO_MIN = '0.2-provisorio';
 export type Trecho = { texto: string; forte?: true }; export type Paragrafo = readonly Trecho[]; export type TextoLegal = { titulo: string; paragrafos: readonly Paragrafo[] };
 export type CanalDoTexto = 'app' | 'link' | 'papel_com_email' | 'papel_sem_email';
@@ -249,7 +252,8 @@ export function termosDeAutorizacaoRestantes(tx: Tx, patientId: string): Promise
 |---|---|
 | RN-107 (tabela, só inclusão, `registrado_em` no gatilho, vigência, quem grava, papel, link, pedido aberto, `AUDIT_EXCEPTIONS`, `auditRead` do termo) | T1 (banco), T4 (vigência), T5 (escrita, papel, pedido, termo), T6 (link) |
 | RN-108 (retirada com efeito imediato, job `ia-retirada`, varredura, aplicar) | T4 |
-| RN-109 (destino em código, rótulo, destino trocado = sem autorização, `ia_tarefas.destino`, usos congelados) | T1, T2, T4, T9 |
+| RN-109 (destino em código, rótulo, destino trocado = sem autorização, `ia_tarefas.destino`, usos da versão — só `leitura_laudos` na 0.1, F2) | T1, T2, T4, T9 |
+| §18.5 (parecer JUR-2026-013): F1 e F7 (runbook), F2 (D20), F3 (os oito requisitos, teste da T2), F4 (T2, T5, T6), F5 (D21, T7), F6 (T2), F9 (spec) | T2, T5, T6, T7, T12 |
 | RN-100 reescrita (retenção zero, aditivo 0.2, autorização vigente; app, portão, resultado, aplicar) | T2, T4 |
 | RN-112 (`sem_autorizacao`, texto novo de `paciente_indisponivel`) | T2, T4 |
 | RN-128 (colunas congeladas, e-mails `aviso_ia` descartados, exportação do legado) | T9 (exportação), T10 |
@@ -302,7 +306,7 @@ Em `test/ia.ts`, acrescentar ao import `iaAutorizacoes, storedFiles` de `@/db/sc
 /**
  * Plano 14A: um evento de autorização gravado pela sessão de paciente SEM conta (canal `link`, como o link do e-mail): o
  * único caminho de teste que a política paciente_autorizacao_propria e o gatilho ia_autorizacoes_regras (0108) aceitam
- * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, versão 0.1-provisorio, os três usos,
+ * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, versão 0.1-provisorio, os usos da 0.1 (só `leitura_laudos`, F2),
  * destino `teste` (o dos provedores sandbox/fake).
  */
 export async function autorizacaoNoBanco(
@@ -321,7 +325,7 @@ export async function autorizacaoNoBanco(
         .values({
           tenantId, patientId, evento, canal: 'link', emailHmac: o.emailHmac ?? 'hmac-de-teste',
           versao: autorizou ? (o.versao ?? '0.1-provisorio') : null,
-          usos: autorizou ? (o.usos ?? ['leitura_laudos', 'resumo_historico', 'rascunho_plano']) : null,
+          usos: autorizou ? (o.usos ?? ['leitura_laudos']) : null,
           destino: autorizou ? (o.destino ?? 'teste') : null,
         })
         .returning({ id: iaAutorizacoes.id }),
@@ -367,7 +371,7 @@ async function cenario(o: { bloqueado?: boolean } = {}) {
   const q = (s: SQL, ctx: TenantContext = T.ctx) => withTenant(ctx, (tx) => tx.execute(s), app.db);
   return { T, p, q };
 }
-const USOS = sql`array['leitura_laudos','resumo_historico','rascunho_plano']::text[]`;
+const USOS = sql`array['leitura_laudos']::text[]`; // os usos da versão 0.1 (F2); o CHECK já aceita os da 14B
 
 describe('0107/0108: ia_autorizacoes — o gatilho ia_autorizacoes_regras (RN-107)', () => {
   it('registrado_em é do gatilho; fora do papel, em = registrado_em (o em mandado no INSERT é trocado)', async () => {
@@ -870,7 +874,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 
 ---
 
-### Task 2: Configuração e textos — usos, destinos, texto da autorização `0.1-provisorio`, aditivo `0.2-provisorio`, `IA_RETENCAO_ZERO`, variáveis do Bedrock e D22 pela autorização (P14A-02)
+### Task 2: Configuração e textos — usos, destinos, texto da autorização `0.1-provisorio` e aditivo `0.2-provisorio` (redação do parecer JUR-2026-013), `IA_RETENCAO_ZERO`, variáveis do Bedrock e D22 pela autorização (P14A-02)
 
 **Revisão: completa (agente normas-cfn-lgpd)** — textos jurídicos (autorização com as variantes de destino e de canal, aditivo), retenção zero como condição, variáveis de ambiente que mudam o provedor; lente de segurança para `src/env.ts`.
 
@@ -889,62 +893,79 @@ Em `src/modules/ia/textos-legais.test.ts`, trocar o import e acrescentar os caso
 ```ts
 import { describe, expect, it } from 'vitest';
 import {
-  aditivoIa, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, AVISO_IA_VERSAO, AVISO_IA_VERSAO_MIN, avisoDaVersao, IA_ADITIVO_TERMO,
+  aditivoIa, AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, AVISO_IA_VERSAO, AVISO_IA_VERSAO_MIN, avisoDaVersao, IA_ADITIVO_TERMO,
   IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN, responsavelDoTenant, textoCorrido, textoDaAutorizacao, versaoAtende,
 } from './textos-legais';
 
 const RESP = { consultorio: 'Consultório Debby', nutricionista: 'Debora Silva', crn: 'CRN-3 12345', contato: 'contato@debby.test' };
 const corrido = (d: Parameters<typeof textoDaAutorizacao>[1]) => textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, d)!.paragrafos.map(textoCorrido);
 
-describe('Plano 14A — texto da autorização 0.1-provisorio (spec §7, A-D24, RN-109)', () => {
-  it('anthropic-us, canal app: o texto da spec, palavra por palavra (com "Os seus dados saem do Brasil.", desvio 6)', () => {
+describe('Plano 14A — texto da autorização 0.1-provisorio (redação do parecer JUR-2026-013, item 4.1; spec §18.5)', () => {
+  it('F2: a versão 0.1 lista só a leitura de laudos (os usos da 14B entram com a versão nova da 14B)', () => {
+    expect(AUTORIZACAO_IA_USOS).toEqual(['leitura_laudos']);
+    const texto = corrido({ ...RESP, destino: 'anthropic-us', canal: 'app' }).join(' ');
+    for (const da14B of ['resumir o seu histórico', 'rascunho do seu plano', 'No resumo e no rascunho', 'três tarefas']) expect(texto, da14B).not.toContain(da14B);
+  });
+
+  it('anthropic-us, canal app: a redação do parecer, palavra por palavra (com as adaptações a–c da §18.5)', () => {
     const t = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
     expect(t.titulo).toBe('Autorização para uso de inteligência artificial');
     expect(t.paragrafos.map(textoCorrido)).toEqual([
-      'Consultório Debby pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso. Ela é separada do termo de uso do app.',
-      'Quem é responsável. A responsável pelos seus dados é a sua nutricionista, Debora Silva (CRN-3 12345), contato: contato@debby.test. A plataforma NutriDebby (WEB SMART SISTEMAS+13 LTDA) trata os dados em nome dela e contrata o fornecedor da IA.',
-      'Para que serve. A IA ajuda a sua nutricionista em três tarefas: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você. Benefício: menos tempo digitando e preparando, mais tempo de consulta. Riscos: a IA pode errar (por isso a nutricionista confere tudo) e os seus dados saem do Brasil (veja abaixo).',
-      'O que é enviado. Na leitura de laudos, o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele; só os dados escondidos do arquivo, como autor e localização, são retirados. No resumo e no rascunho, as informações do seu prontuário necessárias para a tarefa (medidas, exames, anamnese, orientações, plano, diário e, se a nutricionista escolher, as anotações dela), sem o seu nome, e-mail, telefone, endereço e documentos, com a sua idade no lugar da data de nascimento.',
-      'Para onde vai. Os dados são enviados à Anthropic, empresa que fornece a IA (Claude), contratada pela plataforma NutriDebby. O processamento acontece nos Estados Unidos, um país que não tem decisão de adequação da Autoridade Nacional de Proteção de Dados (ANPD). Os seus dados saem do Brasil.',
-      'Por quanto tempo. O fornecedor usa os dados só para devolver a resposta, não os usa para treinar a IA e não os guarda depois da resposta. A exceção é quando a lei exigir ou quando os sistemas de segurança dele sinalizarem o conteúdo; nesse caso, ele pode guardá-lo por até 2 anos. A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.',
-      'Você decide. Autorizar é opcional. Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento: a nutricionista faz essas tarefas sem a IA. Você pode retirar a autorização quando quiser, sem custo, no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista. A partir da retirada, nenhum dado seu é enviado à IA; o que já está no prontuário continua lá.',
-      'Seus direitos. Você pode pedir à sua nutricionista acesso, correção, cópia e informações sobre o uso dos seus dados, e a eliminação do que não for obrigatório guardar (Lei nº 13.709/2018, art. 18). Se achar que os seus dados foram mal usados, pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD).',
-      'Registro. A sua autorização fica registrada com a data, a versão deste texto e o canal (app, link do e-mail ou termo assinado), e, no app e no link, com o endereço IP. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.',
-      'Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para essas três tarefas.',
-      'Versão provisória 0.1, em revisão jurídica.',
+      'Consultório Debby pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso, é separada do termo de uso do app e é pessoal: só você pode dar.',
+      'Quem é responsável. A responsável pelos seus dados é a sua nutricionista, Debora Silva, CRN-3 12345, contato: contato@debby.test. A plataforma NutriDebby (WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07) trata os dados em nome dela e contrata o fornecedor da IA.',
+      'Para que serve. A IA ajuda a sua nutricionista a ler os laudos dos seus exames e sugerir os valores para o seu prontuário. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você.',
+      'Benefícios e riscos. O benefício é a nutricionista gastar menos tempo digitando e preparando, e ter mais tempo para você. Os riscos são dois: a IA pode errar, e por isso a nutricionista confere tudo; e os seus dados saem do Brasil, como explicado abaixo.',
+      'O que é enviado. Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.',
+      'Para onde vai. Os dados são enviados à Anthropic, empresa dos Estados Unidos que fornece a IA (Claude), contratada pela plataforma NutriDebby. O processamento acontece nos Estados Unidos, um país que não tem decisão de adequação da Autoridade Nacional de Proteção de Dados (ANPD). Por isso, o envio só acontece com a sua autorização específica. Os seus dados saem do Brasil.',
+      'Por quanto tempo. O fornecedor usa os dados só para devolver a resposta, não os usa para treinar a IA e não os guarda depois da resposta. A exceção é quando a lei exigir ou quando os sistemas de segurança dele sinalizarem o conteúdo. Nesse caso, ele pode guardá-lo por até 2 anos. A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.',
+      'Você decide. Autorizar é opcional. Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento: a nutricionista faz essas tarefas sem a IA. Você pode retirar a autorização quando quiser, sem custo, no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista. A partir da retirada, nenhum dado seu é enviado à IA. O que já está no prontuário continua lá.',
+      'Seus direitos. Você pode pedir à sua nutricionista acesso, correção, cópia e informações sobre o uso dos seus dados, e a eliminação do que não for obrigatório guardar (Lei nº 13.709/2018, art. 18). Se achar que os seus dados foram mal usados, pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD), em gov.br/anpd.',
+      'Registro. A sua autorização fica registrada com a data, a versão deste texto, o destino e o canal (app, link do e-mail ou termo assinado). No app e no link, também com o endereço IP e o navegador. No link, também com uma marca protegida do e-mail usado. Ela vale só para este consultório. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.',
+      'Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para as tarefas descritas.',
+      'Versão provisória 0.1, de 09/10/2026, em revisão jurídica.',
     ]);
   });
 
-  it('bedrock-eu: muda só "Para onde vai" e "Por quanto tempo" (sem a exceção de 2 anos)', () => {
+  it('bedrock-eu (F1, F6): a UE com a adequação, o risco das autoridades dos EUA, a autorização como exigência do consultório (nunca "se baseia"); a exceção de retenção do Bedrock', () => {
     const eu = corrido({ ...RESP, destino: 'bedrock-eu', canal: 'app' });
     const us = corrido({ ...RESP, destino: 'anthropic-us', canal: 'app' });
-    expect(eu[4]).toBe(
-      'Para onde vai. Os dados são enviados à Amazon Web Services, que opera a IA Claude, contratada pela plataforma NutriDebby. O processamento acontece na União Europeia, reconhecida pela Autoridade Nacional de Proteção de Dados (ANPD) como de proteção adequada. A Amazon Web Services é uma empresa dos Estados Unidos. Os seus dados saem do Brasil.',
+    expect(eu[5]).toBe(
+      'Para onde vai. Os dados são enviados à Amazon Web Services, que opera a IA Claude e é contratada pela plataforma NutriDebby. O processamento acontece em países da União Europeia, que a Autoridade Nacional de Proteção de Dados (ANPD) reconhece como de proteção adequada. A Amazon Web Services é uma empresa dos Estados Unidos. As leis de lá permitem, em certas situações, que autoridades americanas peçam dados a empresas americanas, mesmo fora dos Estados Unidos. Como os seus dados não ficam guardados depois da resposta, esse risco é pequeno. Mesmo com a proteção reconhecida pela ANPD, a sua nutricionista só usa a IA se você autorizar. Os seus dados saem do Brasil.',
     );
-    expect(eu[5]).not.toContain('2 anos');
+    expect(eu[6]).toContain('A exceção é quando os sistemas de segurança dele detectarem conteúdo ilegal em imagens. Nesse caso, ele pode guardá-lo e comunicá-lo às autoridades.');
+    expect(eu[6]).not.toContain('2 anos');
+    expect(eu.join(' ')).not.toMatch(/se baseia|baseia-se|com base na sua autorização/);
     expect(eu.filter((p, i) => p !== us[i]).length).toBe(2);
   });
 
   it('a forma de retirar muda só no trecho do canal (as quatro variantes da spec)', () => {
-    const voceDecide = (canal: 'app' | 'link' | 'papel_com_email' | 'papel_sem_email') => corrido({ ...RESP, destino: 'anthropic-us', canal })[6];
+    const voceDecide = (canal: 'app' | 'link' | 'papel_com_email' | 'papel_sem_email') => corrido({ ...RESP, destino: 'anthropic-us', canal })[7];
     expect(voceDecide('link')).toContain('sem custo, pelo link "Retirar a autorização" do e-mail de confirmação, no app (Eu › Privacidade), se você usar o app, ou pedindo à sua nutricionista.');
     expect(voceDecide('papel_com_email')).toContain('sem custo, pelo link "Retirar a autorização" do e-mail de confirmação que você vai receber, no app (Eu › Privacidade), se você usar o app, ou pedindo à sua nutricionista.');
     expect(voceDecide('papel_sem_email')).toContain('sem custo, pedindo à sua nutricionista, pessoalmente ou pelo contato acima, ou no app (Eu › Privacidade), se você usar o app.');
   });
 
   it('com o endereço do aviso de privacidade, "Seus direitos" termina com ele; sem, a frase não aparece', () => {
-    expect(corrido({ ...RESP, destino: 'anthropic-us', canal: 'app', avisoPrivacidadeUrl: 'https://x.dev/privacidade' })[7]).toMatch(/Mais detalhes no aviso de privacidade: https:\/\/x\.dev\/privacidade\.$/);
-    expect(corrido({ ...RESP, destino: 'anthropic-us', canal: 'app' })[7]).not.toContain('Mais detalhes');
+    expect(corrido({ ...RESP, destino: 'anthropic-us', canal: 'app', avisoPrivacidadeUrl: 'https://x.dev/privacidade' })[8]).toMatch(/Mais detalhes no aviso de privacidade: https:\/\/x\.dev\/privacidade\.$/);
+    expect(corrido({ ...RESP, destino: 'anthropic-us', canal: 'app' })[8]).not.toContain('Mais detalhes');
+  });
+
+  it('F3 (os oito requisitos do parecer, item 3.3): usos com o que vai, destino/país/retenção, nada pré-marcado, recusa sem prejuízo, retirada, versão e data, art. 18 e ANPD', () => {
+    const texto = corrido({ ...RESP, destino: 'bedrock-eu', canal: 'link' }).join(' ');
+    for (const requisito of [
+      'ler os laudos dos seus exames', 'vai o laudo inteiro', 'países da União Europeia', 'não os guarda depois da resposta', 'Autorizar é opcional',
+      'nada muda no seu atendimento', 'Você pode retirar a autorização quando quiser', 'Versão provisória 0.1, de 09/10/2026', 'art. 18', 'gov.br/anpd',
+    ]) expect(texto, requisito).toContain(requisito);
   });
 
   it('em destaque (art. 33, VIII): o país, o "saem do Brasil" e o "nada muda" vão em negrito', () => {
     const t = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
     const fortes = t.paragrafos.flatMap((p) => p.filter((x) => x.forte).map((x) => x.texto));
-    for (const f of ['nos Estados Unidos', 'saem do Brasil', 'Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento:', 'Para onde vai.', 'Benefício:', 'Riscos:']) expect(fortes).toContain(f);
+    for (const f of ['nos Estados Unidos', 'saem do Brasil', 'Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento:', 'Para onde vai.', 'Benefícios e riscos.']) expect(fortes).toContain(f);
   });
 
   it('destino de teste (dev/CI/E2E) e versão desconhecida', () => {
-    expect(corrido({ ...RESP, destino: 'teste', canal: 'app' })[4]).toBe('Para onde vai. Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA.');
+    expect(corrido({ ...RESP, destino: 'teste', canal: 'app' })[5]).toBe('Para onde vai. Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA.');
     expect(textoDaAutorizacao('9.9', { ...RESP, destino: 'teste', canal: 'app' })).toBeNull();
     expect(versaoAtende(AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN)).toBe(true);
   });
@@ -956,25 +977,32 @@ describe('Plano 14A — texto da autorização 0.1-provisorio (spec §7, A-D24, 
   });
 });
 
-describe('Plano 14A — aditivo 0.2-provisorio (US-101, C1)', () => {
-  it('a versão sobe para 0.2 (a 0.1-provisorio não pediria aceite novo) e quem aceitou a 0.1 fica desatualizado', () => {
+describe('Plano 14A — aditivo 0.2-provisorio (redação do parecer JUR-2026-013, item 4.2; US-101, C1)', () => {
+  it('a versão sobe para 0.2 (a 0.1-provisorio não pediria aceite novo) e quem aceitou a 0.1 fica desatualizado; a final será 1.0', () => {
     expect(IA_ADITIVO_VERSAO).toBe('0.2-provisorio');
     expect(versaoAtende(IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN)).toBe(true);
     expect(versaoAtende('0.1-provisorio', IA_ADITIVO_VERSAO_MIN)).toBe(false);
+    expect(versaoAtende('1.0', IA_ADITIVO_VERSAO_MIN)).toBe(true);
     expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-0.2-provisorio');
   });
 
-  it('o suboperador e o país seguem o destino; a exceção de 2 anos só na Anthropic; os usos novos e o dever de colher a autorização', () => {
-    const us = aditivoIa('anthropic-us').paragrafos.map(textoCorrido);
-    const eu = aditivoIa('bedrock-eu').paragrafos.map(textoCorrido);
-    expect(us[2]).toBe('3. Suboperador e país. Anthropic (Claude), com processamento nos Estados Unidos. A operadora responde pelo suboperador perante a controladora, nos termos do DPA.');
-    expect(eu[2]).toBe('3. Suboperador e país. Amazon Web Services (Claude), com processamento na União Europeia. A operadora responde pelo suboperador perante a controladora, nos termos do DPA.');
-    expect(us[5]).toContain('salvo exigência legal ou conteúdo sinalizado pelos sistemas de segurança dele, que pode ser guardado por até 2 anos');
-    expect(eu[5]).not.toContain('2 anos');
-    expect(us[1]).toContain('(d) sugerir modelos de plano alimentar e de anamnese por área de atendimento');
-    expect(us[6]).toContain('(a) obter a autorização dele pela plataforma');
-    expect(us.at(-1)).toBe('Versão provisória 0.2, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.');
-    expect(us).toHaveLength(11);
+  it('fornecedor, mecanismo da transferência e retenção seguem o destino (F1: no Bedrock, a adequação; a autorização como exigência a mais); sem os usos da 14B (F2)', () => {
+    const us = aditivoIa('anthropic-us');
+    const eu = aditivoIa('bedrock-eu');
+    expect(eu.titulo).toBe('Aditivo de inteligência artificial ao contrato de tratamento de dados');
+    const pu = us.paragrafos.map(textoCorrido);
+    const pe = eu.paragrafos.map(textoCorrido);
+    expect(pe[2]).toBe('3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor segue a cláusula 7 do DPA, com aviso de 15 dias, e torna necessária uma nova autorização de todos os pacientes.');
+    expect(pe[3]).toBe('4. Transferência internacional. A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente. Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.');
+    expect(pu[3]).toContain('A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma.');
+    expect(pu[5]).toContain('exigência legal ou conteúdo sinalizado pelos sistemas de segurança dele, que pode ser guardado por até 2 anos');
+    expect(pe[5]).toContain('conteúdo ilegal em imagens detectado pelos sistemas de segurança dele');
+    expect(pe[5]).toContain('nenhum operador do serviço tem acesso ao conteúdo');
+    expect(pu[5]).not.toContain('Amazon Web Services');
+    expect(pu[6]).toContain('Guarda o original em papel na pasta do paciente e entrega a ele uma via');
+    expect(pu.join(' ')).not.toMatch(/resumir o histórico|rascunho de plano alimentar|Elaborado com apoio de IA/);
+    expect(pu.at(-1)).toBe('Versão provisória 0.2, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.');
+    expect(pu).toHaveLength(12);
   });
 });
 ```
@@ -1014,7 +1042,11 @@ Expected: FAIL (`textoDaAutorizacao`, `aditivoIa`, `estadoIaComPaciente` não ex
 Em `src/modules/ia/constantes.ts`, depois de `EM_ANDAMENTO`:
 
 ```ts
-/** Plano 14A (RN-107, A-D24): os usos que a autorização lista (congelados no texto, RV-2). */
+/**
+ * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): a
+ * versão 0.1 do texto autoriza só `leitura_laudos` (AUTORIZACAO_IA_USOS, em textos-legais.ts); resumo e rascunho entram
+ * com a 14B, numa versão nova do texto que pede autorização nova (RN-109).
+ */
 export const USOS_IA = ['leitura_laudos', 'resumo_historico', 'rascunho_plano'] as const;
 export type UsoIA = (typeof USOS_IA)[number];
 /** O uso que cada tipo de tarefa pede na RN-100 (a 14B acrescenta resumo e rascunho). */
@@ -1105,7 +1137,15 @@ export const MSG_AUTORIZACAO = {
   dataAssinatura: 'Data da assinatura',
   arquivoTermo: 'Foto ou PDF do termo assinado',
   codigoReferencia: (codigo: string) => `Código de referência: ${codigo}`,
-  confirmacaoPapel: (versao: string) => `Confirmo que o paciente assinou este termo, na versão ${versao}, e que o arquivo mostra a assinatura.`,
+  /** F5 (§18.5): o rodapé de todas as páginas do termo impresso (o número da página vem do CSS de impressão). */
+  rodapeTermo: (codigo: string) => `Código de referência: ${codigo} — Página`,
+  /** F5: a confirmação cobre todas as páginas. */
+  confirmacaoPapel: (versao: string) => `Confirmo que o paciente assinou este termo, na versão ${versao}, e que o arquivo mostra todas as páginas e a assinatura.`,
+  /** F5: a dica do campo do arquivo e a recomendação de guardar o original. */
+  dicaArquivoTermo: 'Fotografe ou digitalize todas as páginas do termo, num arquivo só.',
+  guardarOriginal: 'Guarde o original em papel na pasta do paciente até a anonimização dele e entregue ao paciente uma via.',
+  /** F5: a linha da via do paciente, no fim do termo, acima da assinatura. */
+  recebiVia: 'Recebi uma via deste termo.',
   salvar: 'Salvar',
   termoRegistrado: 'Termo registrado. Entregue ao paciente uma via do termo assinado.',
   faltouArquivo: 'Envie a foto ou o PDF do termo assinado.',
@@ -1129,6 +1169,10 @@ export const MSG_AUTORIZACAO = {
   textoMudou: 'O texto da autorização mudou. Leia e decida de novo.',
   // US-107 (link do e-mail)
   emailAssunto: (consultorio: string) => `${consultorio}: autorização para uso de inteligência artificial`,
+  /** F4 (§18.5): na página do link, abaixo do título, e no e-mail do pedido. */
+  autorizacaoPessoal: 'Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.',
+  /** F4: no e-mail de confirmação, acima do botão "Retirar a autorização". */
+  seNaoFoiVoce: 'Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista.',
   registradaLink: 'Autorização registrada. Você pode retirar quando quiser, pelo link do e-mail de confirmação, pelo app ou pedindo à sua nutricionista.',
   confirmacaoAssunto: 'Você autorizou o uso de inteligência artificial',
   retirarALink: 'Retirar a autorização',
@@ -1154,33 +1198,40 @@ export const MSG_AUTORIZACAO = {
 
 ```ts
 import type { TenantRow } from '@/db/schema';
-import type { DestinoIA } from './constantes';
+import type { DestinoIA, UsoIA } from './constantes';
 
 /**
- * Plano 11 (A-D20) e Plano 14A (A-D23 a A-D25, RN-107, RN-109): os textos legais da IA, PROVISÓRIOS até o advogado (E-09).
- * O interruptor da admin (tenants.ia_liberada, D22) impede o uso real antes da versão final. Versão final: nova entrada
- * aqui e o *_MIN sobe (quem aceitou ou autorizou a provisória volta a "aceite a versão atual" / "não vale mais").
- * Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109, RV-2).
+ * Plano 11 (A-D20) e Plano 14A (A-D23 a A-D25, RN-107, RN-109, §18.5): os textos legais da IA, na redação do parecer
+ * JUR-2026-013 (itens 4.1 e 4.2), PROVISÓRIOS até o advogado da OAB (B3). O interruptor da admin (tenants.ia_liberada,
+ * D22) impede o uso real antes da versão final, que será a **1.0** (a parte numérica sobe: força nova autorização e novo
+ * aceite de todos). Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109) — inclusive os
+ * usos da 14B (F2).
  */
 /** Legado (RN-128): o aviso de ciência do Plano 11 — sai na T10 do Plano 14A. */
 export const AVISO_IA_VERSAO = '0.1-provisorio';
 export const AVISO_IA_VERSAO_MIN = '0.1-provisorio';
-/** C1 / US-101: 0.2 — a 0.1-provisorio não serviria (versaoAtende só olha a parte numérica). */
+/** C1 / US-101: 0.2 — a 0.1-provisorio não serviria (versaoAtende só olha a parte numérica). A definitiva será a 1.0. */
 export const IA_ADITIVO_VERSAO = '0.2-provisorio';
 export const IA_ADITIVO_VERSAO_MIN = '0.2-provisorio';
 export const IA_ADITIVO_TERMO = `ia-aditivo-${IA_ADITIVO_VERSAO}`;
 export const AUTORIZACAO_IA_VERSAO = '0.1-provisorio';
 export const AUTORIZACAO_IA_VERSAO_MIN = '0.1-provisorio';
-/** US-108 "Data inválida": o termo em papel não pode ser de antes do início desta versão. */
+/** US-108 "Data inválida": o termo em papel não pode ser de antes do início desta versão (é também a data impressa no texto). */
 export const AUTORIZACAO_IA_VERSAO_DATA = '2026-10-09';
+/**
+ * F2 (parecer JUR-2026-013, §18.5): a versão 0.1 autoriza só a leitura de laudos. O resumo e o rascunho (14B) entram
+ * numa versão nova do texto, que sobe o mínimo e pede autorização nova de todos (RN-109).
+ */
+export const AUTORIZACAO_IA_USOS: readonly UsoIA[] = ['leitura_laudos'];
 
-/** Um trecho de parágrafo; `forte` = em destaque (art. 33, VIII: "em destaque"). */
+/** Um trecho de parágrafo; `forte` = em destaque (art. 33, VIII: "em destaque"). O destaque é apresentação, não redação. */
 export type Trecho = { texto: string; forte?: true };
 export type Paragrafo = readonly Trecho[];
 export type TextoLegal = { titulo: string; paragrafos: readonly Paragrafo[] };
 export const textoCorrido = (p: Paragrafo): string => p.map((t) => t.texto).join('');
 const n = (texto: string): Trecho => ({ texto });
 const b = (texto: string): Trecho => ({ texto, forte: true });
+const dataBr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 type TextoAviso = { titulo: string; paragrafos: readonly string[] };
 const AVISOS_IA: Record<string, TextoAviso> = {
@@ -1197,7 +1248,7 @@ export function responsavelDoTenant(t: Pick<TenantRow, 'nomeExibicao' | 'nomePro
   return { consultorio: t.nomeExibicao, nutricionista: t.nomeProfissional, crn: t.crn, contato: t.contatoEmail };
 }
 
-/** O trecho "{forma de retirar do canal}" (spec, tabela depois do texto): nem todo paciente tem app ou e-mail. */
+/** O trecho "{forma de retirar do canal}" (spec, tabela depois do texto; mantido pelo parecer): nem todo paciente tem app ou e-mail. */
 export type CanalDoTexto = 'app' | 'link' | 'papel_com_email' | 'papel_sem_email';
 const FORMA_DE_RETIRAR: Record<CanalDoTexto, string> = {
   app: 'no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista',
@@ -1205,51 +1256,62 @@ const FORMA_DE_RETIRAR: Record<CanalDoTexto, string> = {
   papel_com_email: 'pelo link "Retirar a autorização" do e-mail de confirmação que você vai receber, no app (Eu › Privacidade), se você usar o app, ou pedindo à sua nutricionista',
   papel_sem_email: 'pedindo à sua nutricionista, pessoalmente ou pelo contato acima, ou no app (Eu › Privacidade), se você usar o app',
 };
-/** RN-109: só a variante do provedor em uso (desvio 6: "Os seus dados saem do Brasil."; o destino de teste, nunca em produção). */
+/**
+ * RN-109: só a variante do provedor em uso. F1: no Bedrock, a autorização é exigência do consultório, não a base da
+ * transferência (a base é a adequação, art. 33, I) — o texto nunca diz que a transferência "se baseia" nela. F6: o risco
+ * de acesso por autoridade dos EUA. Adaptação (b) da §18.5: "Nos dois casos" vira "Os seus dados saem do Brasil." (só uma
+ * variante aparece). O destino de teste nunca vai a produção (sandbox/fake recusados lá).
+ */
 const PARA_ONDE_VAI: Record<DestinoIA, Paragrafo> = {
   'anthropic-us': [
     b('Para onde vai.'),
-    n(' Os dados são enviados à Anthropic, empresa que fornece a IA (Claude), contratada pela plataforma NutriDebby. O processamento acontece '),
+    n(' Os dados são enviados à Anthropic, empresa dos Estados Unidos que fornece a IA (Claude), contratada pela plataforma NutriDebby. O processamento acontece '),
     b('nos Estados Unidos'),
-    n(', um país que não tem decisão de adequação da Autoridade Nacional de Proteção de Dados (ANPD). Os seus dados '),
+    n(', um país que não tem decisão de adequação da Autoridade Nacional de Proteção de Dados (ANPD). Por isso, o envio só acontece com a sua autorização específica. Os seus dados '),
     b('saem do Brasil'),
     n('.'),
   ],
   'bedrock-eu': [
     b('Para onde vai.'),
-    n(' Os dados são enviados à Amazon Web Services, que opera a IA Claude, contratada pela plataforma NutriDebby. O processamento acontece '),
-    b('na União Europeia'),
-    n(', reconhecida pela Autoridade Nacional de Proteção de Dados (ANPD) como de proteção adequada. A Amazon Web Services é uma empresa dos Estados Unidos. Os seus dados '),
+    n(' Os dados são enviados à Amazon Web Services, que opera a IA Claude e é contratada pela plataforma NutriDebby. O processamento acontece '),
+    b('em países da União Europeia'),
+    n(', que a Autoridade Nacional de Proteção de Dados (ANPD) reconhece como de proteção adequada. A Amazon Web Services é uma empresa dos Estados Unidos. As leis de lá permitem, em certas situações, que autoridades americanas peçam dados a empresas americanas, mesmo fora dos Estados Unidos. Como os seus dados não ficam guardados depois da resposta, esse risco é pequeno. Mesmo com a proteção reconhecida pela ANPD, a sua nutricionista só usa a IA se você autorizar. Os seus dados '),
     b('saem do Brasil'),
     n('.'),
   ],
   teste: [b('Para onde vai.'), n(' Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA.')],
 };
 const EXCECAO_DE_RETENCAO: Partial<Record<DestinoIA, string>> = {
-  'anthropic-us': ' A exceção é quando a lei exigir ou quando os sistemas de segurança dele sinalizarem o conteúdo; nesse caso, ele pode guardá-lo por até 2 anos.',
+  'anthropic-us': ' A exceção é quando a lei exigir ou quando os sistemas de segurança dele sinalizarem o conteúdo. Nesse caso, ele pode guardá-lo por até 2 anos.',
+  'bedrock-eu': ' A exceção é quando os sistemas de segurança dele detectarem conteúdo ilegal em imagens. Nesse caso, ele pode guardá-lo e comunicá-lo às autoridades.',
 };
 
 type DadosDoTexto = Responsavel & { destino: DestinoIA; canal: CanalDoTexto; avisoPrivacidadeUrl?: string | null };
+/**
+ * Parecer JUR-2026-013, item 4.1, sem os trechos [14B] (F2), com as adaptações da §18.5: (a) "a: (1) ler…" vira "a ler…"
+ * (sobrou um uso só); (b) "Os seus dados saem do Brasil."; (c) "Versão 1.0, de {data}" vira "Versão provisória 0.1, de
+ * {data}, em revisão jurídica." até o advogado da OAB.
+ */
 const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
   '0.1-provisorio': (d) => ({
     titulo: 'Autorização para uso de inteligência artificial',
     paragrafos: [
-      [n(`${d.consultorio} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso. Ela é separada do termo de uso do app.`)],
+      [n(`${d.consultorio} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso, é separada do termo de uso do app e é pessoal: só você pode dar.`)],
       [
         b('Quem é responsável.'),
-        n(` A responsável pelos seus dados é a sua nutricionista, ${d.nutricionista} (${d.crn}), contato: ${d.contato}. A plataforma NutriDebby (WEB SMART SISTEMAS+13 LTDA) trata os dados em nome dela e contrata o fornecedor da IA.`),
+        n(` A responsável pelos seus dados é a sua nutricionista, ${d.nutricionista}, ${d.crn}, contato: ${d.contato}. A plataforma NutriDebby (WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07) trata os dados em nome dela e contrata o fornecedor da IA.`),
       ],
       [
         b('Para que serve.'),
-        n(' A IA ajuda a sua nutricionista em três tarefas: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você. '),
-        b('Benefício:'),
-        n(' menos tempo digitando e preparando, mais tempo de consulta. '),
-        b('Riscos:'),
-        n(' a IA pode errar (por isso a nutricionista confere tudo) e os seus dados saem do Brasil (veja abaixo).'),
+        n(' A IA ajuda a sua nutricionista a ler os laudos dos seus exames e sugerir os valores para o seu prontuário. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você.'),
+      ],
+      [
+        b('Benefícios e riscos.'),
+        n(' O benefício é a nutricionista gastar menos tempo digitando e preparando, e ter mais tempo para você. Os riscos são dois: a IA pode errar, e por isso a nutricionista confere tudo; e os seus dados saem do Brasil, como explicado abaixo.'),
       ],
       [
         b('O que é enviado.'),
-        n(' Na leitura de laudos, o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele; só os dados escondidos do arquivo, como autor e localização, são retirados. No resumo e no rascunho, as informações do seu prontuário necessárias para a tarefa (medidas, exames, anamnese, orientações, plano, diário e, se a nutricionista escolher, as anotações dela), sem o seu nome, e-mail, telefone, endereço e documentos, com a sua idade no lugar da data de nascimento.'),
+        n(' Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.'),
       ],
       PARA_ONDE_VAI[d.destino],
       [
@@ -1260,18 +1322,18 @@ const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
         b('Você decide.'),
         n(' Autorizar é opcional. '),
         b('Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento:'),
-        n(` a nutricionista faz essas tarefas sem a IA. Você pode retirar a autorização quando quiser, sem custo, ${FORMA_DE_RETIRAR[d.canal]}. A partir da retirada, nenhum dado seu é enviado à IA; o que já está no prontuário continua lá.`),
+        n(` a nutricionista faz essas tarefas sem a IA. Você pode retirar a autorização quando quiser, sem custo, ${FORMA_DE_RETIRAR[d.canal]}. A partir da retirada, nenhum dado seu é enviado à IA. O que já está no prontuário continua lá.`),
       ],
       [
         b('Seus direitos.'),
-        n(` Você pode pedir à sua nutricionista acesso, correção, cópia e informações sobre o uso dos seus dados, e a eliminação do que não for obrigatório guardar (Lei nº 13.709/2018, art. 18). Se achar que os seus dados foram mal usados, pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD).${d.avisoPrivacidadeUrl ? ` Mais detalhes no aviso de privacidade: ${d.avisoPrivacidadeUrl}.` : ''}`),
+        n(` Você pode pedir à sua nutricionista acesso, correção, cópia e informações sobre o uso dos seus dados, e a eliminação do que não for obrigatório guardar (Lei nº 13.709/2018, art. 18). Se achar que os seus dados foram mal usados, pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD), em gov.br/anpd.${d.avisoPrivacidadeUrl ? ` Mais detalhes no aviso de privacidade: ${d.avisoPrivacidadeUrl}.` : ''}`),
       ],
       [
         b('Registro.'),
-        n(' A sua autorização fica registrada com a data, a versão deste texto e o canal (app, link do e-mail ou termo assinado), e, no app e no link, com o endereço IP. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.'),
+        n(' A sua autorização fica registrada com a data, a versão deste texto, o destino e o canal (app, link do e-mail ou termo assinado). No app e no link, também com o endereço IP e o navegador. No link, também com uma marca protegida do e-mail usado. Ela vale só para este consultório. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.'),
       ],
-      [n('Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para essas três tarefas.')],
-      [n('Versão provisória 0.1, em revisão jurídica.')],
+      [n('Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para as tarefas descritas.')],
+      [n(`Versão provisória 0.1, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}, em revisão jurídica.`)],
     ],
   }),
 };
@@ -1281,28 +1343,43 @@ export function textoDaAutorizacao(versao: string, d: DadosDoTexto): TextoLegal 
   return AUTORIZACOES_IA[versao]?.(d) ?? null;
 }
 
-const SUBOPERADOR: Record<DestinoIA, string> = {
-  'anthropic-us': 'Anthropic (Claude), com processamento nos Estados Unidos.',
-  'bedrock-eu': 'Amazon Web Services (Claude), com processamento na União Europeia.',
-  teste: 'Provedor de teste, sem envio de dados a fornecedor.',
+const FORNECEDOR: Record<DestinoIA, string> = {
+  'anthropic-us': 'Anthropic (Claude), com processamento nos Estados Unidos',
+  'bedrock-eu': 'Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia',
+  teste: 'provedor de teste, sem envio de dados a fornecedor',
+};
+const MECANISMO: Record<DestinoIA, string> = {
+  'anthropic-us': 'A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma.',
+  'bedrock-eu': 'A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente.',
+  teste: 'Ambiente de teste: nenhum dado de paciente sai para fornecedor.',
+};
+const SALVO: Record<DestinoIA, string> = {
+  'anthropic-us': 'exigência legal ou conteúdo sinalizado pelos sistemas de segurança dele, que pode ser guardado por até 2 anos',
+  'bedrock-eu': 'conteúdo ilegal em imagens detectado pelos sistemas de segurança dele',
+  teste: 'nada (ambiente de teste)',
 };
 
-/** US-101 (Plano 14A): o aditivo 0.2-provisorio, com o parágrafo do suboperador e a retenção conforme o destino (RN-109). */
+/**
+ * US-101 (Plano 14A): o aditivo 0.2-provisorio na redação do parecer JUR-2026-013, item 4.2, sem os trechos [14B] (F2),
+ * com as variantes do destino (RN-109) e as adaptações da §18.5: (d) a frase do "nenhum operador" e do registro de chamadas
+ * só na variante do Bedrock; (e) "Versão 1.0" vira a frase da versão provisória.
+ */
 export function aditivoIa(destino: DestinoIA): TextoLegal {
-  const excecao = destino === 'anthropic-us' ? ', salvo exigência legal ou conteúdo sinalizado pelos sistemas de segurança dele, que pode ser guardado por até 2 anos,' : '';
+  const operador = destino === 'bedrock-eu' ? ' No Amazon Web Services, nenhum operador do serviço tem acesso ao conteúdo, e o registro de chamadas fica desligado na conta.' : '';
   return {
-    titulo: 'Aditivo de inteligência artificial',
+    titulo: 'Aditivo de inteligência artificial ao contrato de tratamento de dados',
     paragrafos: [
-      '1. Este aditivo complementa o contrato de tratamento de dados (DPA) entre a nutricionista titular da conta (controladora) e a WEB SMART SISTEMAS+13 LTDA (operadora), para o uso de inteligência artificial (IA) no consultório. Vale a partir do aceite e enquanto a IA estiver ativada.',
-      '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a controladora escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a controladora informa. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames, não prescreve e não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da controladora, que responde pela conduta profissional.',
-      `3. Suboperador e país. ${SUBOPERADOR[destino]} A operadora responde pelo suboperador perante a controladora, nos termos do DPA.`,
-      '4. Transferência internacional. Os dados de paciente só vão à IA com a autorização específica e em destaque de cada paciente (LGPD, art. 33, VIII), registrada na plataforma com a versão, os usos, o destino, a data e o canal.',
-      '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados; os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa, sem nome, e-mail, telefone, endereço e documentos do paciente, com idade em vez da data de nascimento e com os textos livres mascarados. Nos modelos, nenhum dado de paciente.',
-      `6. Retenção. A plataforma só usa a IA com dados de paciente enquanto houver retenção zero com o fornecedor: o fornecedor não guarda o conteúdo depois da resposta${excecao} e não o usa para treinar modelos. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`,
-      '7. Deveres da controladora. Antes de usar a IA com os dados de um paciente: (a) obter a autorização dele pela plataforma (no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e guardado na plataforma com a foto); (b) não pressionar: recusar ou retirar não muda nada no atendimento; (c) registrar a retirada quando o paciente pedir; (d) conferir cada sugestão antes de usá-la.',
-      '8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente, de paciente bloqueado ou anonimizado, nem quando o limite mensal de custo do consultório foi atingido.',
-      '9. Registro. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor.',
-      '10. Desativação e limite. A controladora pode desativar a IA a qualquer momento. A operadora pode suspendê-la por motivo de segurança, mudança do fornecedor ou de norma, avisando a controladora. O uso tem um limite mensal de custo por consultório, informado no painel.',
+      '1. Partes e objeto. Este aditivo complementa o contrato de tratamento de dados (DPA) entre a nutricionista titular da conta (CONTROLADORA) e WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07 (OPERADORA), para o uso de inteligência artificial (IA) no consultório. Vale a partir do aceite e enquanto a IA estiver ativada.',
+      '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário. Sem dados de paciente: sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames, não prescreve e não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.',
+      `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor segue a cláusula 7 do DPA, com aviso de 15 dias, e torna necessária uma nova autorização de todos os pacientes.`,
+      `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.`,
+      '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.',
+      `6. Retenção. A plataforma só usa a IA com dados de paciente enquanto houver retenção zero com o fornecedor: ele não guarda o conteúdo depois da resposta, salvo ${SALVO[destino]}, e não o usa para treinar modelos.${operador} A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`,
+      '7. Deveres da CONTROLADORA. Antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. A confidencialidade do fornecedor está garantida pelo contrato dele com a OPERADORA e por este aditivo.',
+      '8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, sem retenção zero confirmada, nem quando o limite mensal de custo do consultório foi atingido.',
+      '9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor.',
+      '10. Selo e transparência. A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',
+      '11. Desativação e limite. A CONTROLADORA pode desativar a IA a qualquer momento. A OPERADORA pode suspendê-la por motivo de segurança, mudança do fornecedor ou de norma, avisando a CONTROLADORA. O uso tem um limite mensal de custo por consultório, informado no painel.',
       'Versão provisória 0.2, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.',
     ].map((t) => [n(t)]),
   };
@@ -1381,19 +1458,22 @@ export function estadoIaComPaciente(t: Pick<TenantRow, 'status' | 'iaLiberada' |
 Criar `src/components/texto-legal.tsx` (componente de servidor, sem estado; o painel, o portal, o link e a impressão usam):
 
 ```tsx
+import type { ReactNode } from 'react';
 import type { TextoLegal } from '@/modules/ia/textos-legais';
 
 /**
  * Plano 14A: um texto legal com os trechos em destaque (art. 33, VIII: "em destaque") como <strong>. Texto puro, sem
  * HTML vindo de fora. `classeTitulo`: a fonte do título muda entre o painel (font-titulo) e o portal (font-portal-titulo).
+ * `aposTitulo`: o que vem logo abaixo do título (F4: "Esta autorização é pessoal…" na página do link).
  */
-export function TextoLegalView({ texto, id, nivel = 'h2', classeTitulo = 'font-titulo text-lg font-semibold' }: { texto: TextoLegal; id: string; nivel?: 'h1' | 'h2' | 'h3'; classeTitulo?: string }) {
+export function TextoLegalView({ texto, id, nivel = 'h2', classeTitulo = 'font-titulo text-lg font-semibold', aposTitulo }: { texto: TextoLegal; id: string; nivel?: 'h1' | 'h2' | 'h3'; classeTitulo?: string; aposTitulo?: ReactNode }) {
   const Titulo = nivel;
   return (
     <article aria-labelledby={id} className="space-y-3">
       <Titulo id={id} className={classeTitulo}>
         {texto.titulo}
       </Titulo>
+      {aposTitulo}
       {texto.paragrafos.map((p, i) => (
         <p key={i}>{p.map((t, j) => (t.forte ? <strong key={j}>{t.texto}</strong> : <span key={j}>{t.texto}</span>))}</p>
       ))}
@@ -1559,7 +1639,7 @@ export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: Tenant
   const { modo, destino } = configIA(getEnv());
   const estado = estadoIaDoTenant(tenant, modo);
   if (estado === 'ausente' || estado === 'suspensa' || !destino) return null;
-  const texto = aditivoIa(destino); // RN-109: o parágrafo do suboperador muda conforme o provedor em uso
+  const texto = aditivoIa(destino); // RN-109: fornecedor, mecanismo da transferência e retenção mudam conforme o provedor em uso (§18.5)
   const aditivo = (
     <details className="rounded-2xl border border-borda p-3">
       <summary className="cursor-pointer font-semibold">{`${texto.titulo} (versão ${IA_ADITIVO_VERSAO})`}</summary>
@@ -2168,7 +2248,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 Em `test/ia.ts`, depois de `pacienteInformado` (que fica até a T10, marcado como legado):
 
 ```ts
-/** Plano 14A: paciente com a autorização vigente (os três usos, versão atual, destino `teste` — o dos provedores fake e sandbox). */
+/** Plano 14A: paciente com a autorização vigente (os usos da versão atual — só `leitura_laudos`, F2 — destino `teste` — o dos provedores fake e sandbox). */
 export async function pacienteAutorizado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
   const p = await novoPaciente(db, ctx, extra);
   await autorizacaoNoBanco(db, ctx.tenantId, p.id);
@@ -2209,7 +2289,7 @@ afterAll(async () => {
 });
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
 const evento = (o: Partial<EventoDeDecisao> = {}): EventoDeDecisao => ({
-  id: 'e1', evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos', 'resumo_historico', 'rascunho_plano'], destino: 'teste', canal: 'link',
+  id: 'e1', evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos'], destino: 'teste', canal: 'link',
   em: new Date('2026-10-09T12:00:00Z'), registradoEm: new Date('2026-10-09T12:00:00Z'), ...o,
 });
 
@@ -2227,6 +2307,7 @@ describe('situacaoDaAutorizacao (RN-107, RN-109, D7) — sem banco', () => {
     const s = situacaoDaAutorizacao(evento({ usos: ['resumo_historico'] }), 'teste');
     expect(vigentePara(s, 'leitura_laudos')).toBe(false);
     expect(vigentePara(s, 'resumo_historico')).toBe(true);
+    expect(vigentePara(situacaoDaAutorizacao(evento(), 'teste'), 'resumo_historico')).toBe(false); // F2: a autorização da 0.1 não cobre os usos da 14B
     const ativo = { status: 'ativo', anonimizadoEm: null };
     expect(motivoDoPaciente(ativo, situacaoDaAutorizacao(evento(), 'teste'), 'leitura_laudos')).toBeNull();
     expect(motivoDoPaciente(ativo, { tipo: 'nunca' }, 'leitura_laudos')).toBe('sem_autorizacao');
@@ -2909,7 +2990,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 - Modify: `src/modules/ia/autorizacao.ts` (escrita e dados das telas), `src/email/types.ts`, `src/email/templates.tsx`, `src/email/render.test.ts`, `src/modules/plataforma/audit.ts` (`ENTIDADE_ROTULO.ia_autorizacao`)
 
 **Interfaces:**
-- Consumes: `autorizacaoDoPaciente`, `situacaoDaAutorizacao`, `ultimaDecisao`, `SituacaoAutorizacao` (T4); `MSG_AUTORIZACAO`, `USOS_IA`, `DESTINO_ROTULO`, `VALIDADE_PEDIDO_MS`, `JANELA_EMAIL_TROCADO_MS`, `TERMO_MAX_BYTES`, `AUTORIZACAO_IA_VERSAO`, `AUTORIZACAO_IA_VERSAO_DATA`, `responsavelDoTenant`, `estadoIaDoTenant`, `ConfigIA` (T2); fila `ia-retirada` (T4); `salvarArquivo`, `carregarPacienteParaEscrita`, `enqueueEmail`, `auditRead`, `inicioDoDia` (`src/modules/agenda/fuso.ts`), `normalizarEmailDoLink` (`src/modules/agenda/link-consulta.ts`), `encryptionKey` (`src/lib/crypto.ts`), `urlDoApp`.
+- Consumes: `autorizacaoDoPaciente`, `situacaoDaAutorizacao`, `ultimaDecisao`, `SituacaoAutorizacao` (T4); `MSG_AUTORIZACAO`, `AUTORIZACAO_IA_USOS`, `DESTINO_ROTULO`, `VALIDADE_PEDIDO_MS`, `JANELA_EMAIL_TROCADO_MS`, `TERMO_MAX_BYTES`, `AUTORIZACAO_IA_VERSAO`, `AUTORIZACAO_IA_VERSAO_DATA`, `responsavelDoTenant`, `estadoIaDoTenant`, `ConfigIA` (T2); fila `ia-retirada` (T4); `salvarArquivo`, `carregarPacienteParaEscrita`, `enqueueEmail`, `auditRead`, `inicioDoDia` (`src/modules/agenda/fuso.ts`), `normalizarEmailDoLink` (`src/modules/agenda/link-consulta.ts`), `encryptionKey` (`src/lib/crypto.ts`), `urlDoApp`.
 - Produces: o que está em "Contratos entre tarefas" para `autorizacao.ts` (T5) e `autorizacao-token.ts`, mais `enfileirarConfirmacao(tx, o)` (exportada para a T6), `PainelAutorizacao.temRegistro`, e os e-mails `autorizacao_ia` e `autorizacao_ia_confirmada`.
 
 - [ ] **Step 1: Os testes que falham — tokens**
@@ -3134,11 +3215,11 @@ async function cenario(o: { perfil?: boolean; ia?: boolean } = {}) {
 const erros = (pr: Promise<unknown>) => pr.then(() => null, (e: unknown) => (e instanceof AutorizacaoError ? e.erros : e));
 
 describe('US-106 — autorizar no app', () => {
-  it('grava canal app, a conta, o IP e o user-agent (até 300), versão, os três usos e o destino; manda a confirmação com o link de retirada', async () => {
+  it('grava canal app, a conta, o IP e o user-agent (até 300), versão, os usos da versão (só a leitura de laudos, F2) e o destino; manda a confirmação com o link de retirada', async () => {
     const { p, P, conta, deps, eventos } = await cenario();
     expect(await autorizarNoApp(P, deps({ ip: '203.0.113.9', userAgent: 'U'.repeat(400) }))).toBe('registrada');
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos', 'resumo_historico', 'rascunho_plano'] });
+    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos'] });
     expect(e.userAgent).toHaveLength(300);
     expect(e.em.getTime()).toBe(e.registradoEm.getTime());
     const [m] = await emailsNaFila('autorizacao_ia_confirmada', p.email!);
@@ -3219,7 +3300,7 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     const hoje = hojeNoFuso('America/Sao_Paulo');
     const id = await registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps());
     const [e] = await eventos();
-    expect(e).toMatchObject({ id, evento: 'autorizou', canal: 'papel', registradoPor: T.nutriId, ip: null, destino: 'teste' });
+    expect(e).toMatchObject({ id, evento: 'autorizou', canal: 'papel', registradoPor: T.nutriId, ip: null, destino: 'teste', usos: ['leitura_laudos'] }); // F2
     expect(e.em.getTime()).toBe(inicioDoDia(hoje, 'America/Sao_Paulo').getTime());
     const [f] = await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, e.arquivoPath!)), app.db);
     expect(f).toMatchObject({ tipo: 'ia_autorizacao_termo', patientId: p.id });
@@ -3323,11 +3404,11 @@ import { CotaEsgotadaError, MSG_COTA_ESGOTADA, salvarArquivo, TipoNaoPermitidoEr
 import { assinarLinkPedido, assinarLinkRetirada, codigoDeReferencia, emailHmac, urlDoLinkAutorizacao } from './autorizacao-token';
 import { cancelarTarefas } from './cancelar';
 import {
-  DESTINO_ROTULO, JANELA_EMAIL_TROCADO_MS, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA, TERMO_MAX_BYTES, USOS_IA, VALIDADE_PEDIDO_MS,
+  DESTINO_ROTULO, JANELA_EMAIL_TROCADO_MS, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA, TERMO_MAX_BYTES, VALIDADE_PEDIDO_MS,
   type CanalAutorizacao, type DestinoIA, type EventoAutorizacao, type MotivoFalha, type UsoIA,
 } from './constantes';
 import { estadoIaDoTenant, type ConfigIA, type ModoIA } from './modo';
-import { AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, responsavelDoTenant, versaoAtende } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, responsavelDoTenant, versaoAtende } from './textos-legais';
 ```
 
 e, no fim do arquivo:
@@ -3394,7 +3475,7 @@ export async function autorizarNoApp(ctx: TenantContext, deps: DepsAutorizacao):
       if ((await autorizacaoDoPaciente(tx, p.id, destino)).tipo === 'vigente') return 'ja_vigente';
       const [a] = await tx
         .insert(iaAutorizacoes)
-        .values({ tenantId: ctx.tenantId, patientId: p.id, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...USOS_IA], destino, canal: 'app', registradoPor: ctx.actorUserId!, ip: deps.ip ?? null, userAgent: userAgent(deps.userAgent) })
+        .values({ tenantId: ctx.tenantId, patientId: p.id, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS], destino, canal: 'app', registradoPor: ctx.actorUserId!, ip: deps.ip ?? null, userAgent: userAgent(deps.userAgent) })
         .returning({ id: iaAutorizacoes.id });
       await enfileirarConfirmacao(tx, { tenantId: ctx.tenantId, patientId: p.id, autorizacaoId: a.id, para: p.email, consultorio: t!.nomeExibicao, destino, appUrl: deps.appUrl });
       return 'registrada';
@@ -3509,7 +3590,7 @@ export async function registrarTermoEmPapel(
         registrar: async (tx, a) => {
           const [r] = await tx
             .insert(iaAutorizacoes)
-            .values({ tenantId: ctx.tenantId, patientId, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...USOS_IA], destino, canal: 'papel', em: inicioDoDia(data, t!.fuso), registradoPor: ctx.actorUserId!, arquivoPath: a.caminho })
+            .values({ tenantId: ctx.tenantId, patientId, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS], destino, canal: 'papel', em: inicioDoDia(data, t!.fuso), registradoPor: ctx.actorUserId!, arquivoPath: a.caminho })
             .returning({ id: iaAutorizacoes.id });
           id = r.id;
           await deps.depoisDaLinha?.(tx);
@@ -3635,18 +3716,21 @@ Em `src/email/templates.tsx`, `import { DESTINO_ROTULO, MSG_AUTORIZACAO } from '
         [
           `${msg.consultorio} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde.`,
           'Leia o texto completo pelo botão abaixo e decida. Autorizar é opcional: recusar não muda nada no seu atendimento.',
+          MSG_AUTORIZACAO.autorizacaoPessoal, // F4 (§18.5)
           'O link vale por 7 dias.',
         ],
         { href: msg.link, rotulo: MSG_AUTORIZACAO.lerEDecidir },
       );
     case 'autorizacao_ia_confirmada':
-      // US-107/US-108: o resumo do que foi autorizado e a retirada a qualquer momento (art. 8º, § 5º)
+      // US-107/US-108: o resumo do que foi autorizado e a retirada a qualquer momento (art. 8º, § 5º). F2: a versão 0.1
+      // autoriza só a leitura de laudos (o resumo e o rascunho entram com a 14B, numa versão nova). F4: "Se não foi você".
       return simples(
         MSG_AUTORIZACAO.confirmacaoAssunto,
         [
-          `Você autorizou ${msg.consultorio} a usar inteligência artificial com os seus dados de saúde (texto da versão ${msg.versao}), só para: ler os laudos dos seus exames, resumir o seu histórico e montar um rascunho do seu plano alimentar.`,
+          `Você autorizou ${msg.consultorio} a usar inteligência artificial com os seus dados de saúde (texto da versão ${msg.versao}), só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.`,
           ...(msg.destino === DESTINO_ROTULO.teste ? [] : [`Destino dos dados: ${msg.destino}. Os seus dados saem do Brasil.`]),
           'Você pode retirar a autorização quando quiser, sem custo, pelo botão abaixo. Retirar não muda nada no seu atendimento.',
+          MSG_AUTORIZACAO.seNaoFoiVoce,
         ],
         { href: msg.link, rotulo: MSG_AUTORIZACAO.retirarALink },
       );
@@ -3661,12 +3745,14 @@ Em `src/email/render.test.ts`:
     expect(r.html).toContain('href="https://app.test/autorizacao-ia/abc"');
     expect(r.text).toContain('Ler e decidir');
     expect(r.text).toContain('recusar não muda nada no seu atendimento');
+    expect(r.text).toContain('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.'); // F4
   });
 
-  it('autorizacao_ia_confirmada: os três usos, a versão, o destino e o botão "Retirar a autorização"', () => {
+  it('autorizacao_ia_confirmada: só a leitura de laudos (F2), a versão, o destino, o "Se não foi você" (F4) e o botão "Retirar a autorização"', () => {
     const r = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Amazon Web Services (Claude), União Europeia', versao: '0.1-provisorio', link: 'https://app.test/autorizacao-ia/xyz' });
     expect(r.subject).toBe('Você autorizou o uso de inteligência artificial');
-    for (const t of ['ler os laudos dos seus exames', 'resumir o seu histórico', 'rascunho do seu plano alimentar', '0.1-provisorio', 'União Europeia', 'saem do Brasil', 'Retirar a autorização']) expect(r.text).toContain(t);
+    for (const t of ['ler os laudos dos seus exames', '0.1-provisorio', 'União Europeia', 'saem do Brasil', 'Retirar a autorização', 'Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista.']) expect(r.text).toContain(t);
+    for (const t of ['resumir o seu histórico', 'rascunho']) expect(r.text).not.toContain(t);
     expect(r.html).toContain('href="https://app.test/autorizacao-ia/xyz"');
   });
 ```
@@ -3701,7 +3787,7 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 - Modify: `src/db/tenant.ts` (`SEM_CONTA_PERMITIDOS`), `src/modules/agenda/limite-ip.ts` (o tipo `'autorizacao-ia-ip'` em `chaveDoLimite`), `next.config.ts` (cabeçalhos)
 
 **Interfaces:**
-- Consumes: `lerLinkAutorizacao`, `emailHmac` (T5), `autorizacaoDoPaciente`, `enfileirarConfirmacao` (T4/T5), `textoDaAutorizacao`, `responsavelDoTenant`, `MSG_AUTORIZACAO`, `VALIDADE_PEDIDO_MS`, `USOS_IA`, `estadoIaDoTenant`, `ConfigIA` (T2), `TextoLegalView` (T2), fila `ia-retirada` (T4), `consumirLimite`/`chaveDoLimite`, `depsDaRequisicao`/`lerJson`/`comoResposta`/`SEM_CACHE` (`src/app/api/n/[slug]/resposta.ts`), `mesmaOrigem`, `TurnstileWidget`, `Botao`, `Aviso`.
+- Consumes: `lerLinkAutorizacao`, `emailHmac` (T5), `autorizacaoDoPaciente`, `enfileirarConfirmacao` (T4/T5), `textoDaAutorizacao`, `responsavelDoTenant`, `MSG_AUTORIZACAO`, `VALIDADE_PEDIDO_MS`, `AUTORIZACAO_IA_USOS`, `estadoIaDoTenant`, `ConfigIA` (T2), `TextoLegalView` (T2), fila `ia-retirada` (T4), `consumirLimite`/`chaveDoLimite`, `depsDaRequisicao`/`lerJson`/`comoResposta`/`SEM_CACHE` (`src/app/api/n/[slug]/resposta.ts`), `mesmaOrigem`, `TurnstileWidget`, `Botao`, `Aviso`.
 - Produces: `EstadoLinkIa`, `LinkIaError`, `DepsLinkIa`, `estadoDoLinkIa`, `autorizarPeloLink`, `retirarPeloLink`; as rotas `POST /api/autorizacao-ia/[token]/autorizar` e `/retirar`; a página `/autorizacao-ia/[token]`.
 
 - [ ] **Step 1: Os testes que falham — o módulo**
@@ -3755,7 +3841,7 @@ describe('US-107 — o estado do link (GET não grava nada)', () => {
     if (e.tipo !== 'decidir') throw new Error('estado');
     const texto = e.texto.paragrafos.map(textoCorrido).join(' ');
     expect(e.texto.titulo).toBe('Autorização para uso de inteligência artificial');
-    expect(texto).toContain('Debora Silva (CRN-3 12345)');
+    expect(texto).toContain('Debora Silva, CRN-3 12345');
     expect(texto).toContain('pelo link "Retirar a autorização" do e-mail de confirmação');
     expect(T.tenantId).toBeTruthy();
   });
@@ -3781,7 +3867,7 @@ describe('US-107 — autorizar pelo link (RNF-111 e)', () => {
     const t = pedido();
     await autorizarPeloLink(t, { turnstile: 'ok' }, deps());
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'autorizou', canal: 'link', registradoPor: null, ip: '203.0.113.50', userAgent: 'Navegador de teste', emailHmac: emailHmac(p.email!), destino: 'teste' });
+    expect(e).toMatchObject({ evento: 'autorizou', canal: 'link', registradoPor: null, ip: '203.0.113.50', userAgent: 'Navegador de teste', emailHmac: emailHmac(p.email!), destino: 'teste', usos: ['leitura_laudos'] }); // F2
     expect(await emailsNaFila('autorizacao_ia_confirmada', p.email!)).toHaveLength(1);
     expect(await estadoDoLinkIa(t, deps())).toMatchObject({ tipo: 'ja_autorizou' });
     await autorizarPeloLink(t, { turnstile: 'ok' }, deps()); // idempotente
@@ -3863,9 +3949,9 @@ import { getBoss } from '@/jobs/boss';
 import { chaveDoLimite, consumirLimite } from '@/modules/agenda/limite-ip';
 import { autorizacaoDoPaciente, enfileirarConfirmacao } from './autorizacao';
 import { emailHmac, lerLinkAutorizacao } from './autorizacao-token';
-import { MSG_AUTORIZACAO, USOS_IA, VALIDADE_PEDIDO_MS } from './constantes';
+import { MSG_AUTORIZACAO, VALIDADE_PEDIDO_MS } from './constantes';
 import { estadoIaDoTenant, type ConfigIA } from './modo';
-import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao, type TextoLegal } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao, type TextoLegal } from './textos-legais';
 
 /**
  * US-107 / US-109 (Plano 14A, RN-107): a autorização e a retirada pelo link do e-mail, SEM login — contexto de paciente
@@ -3983,7 +4069,7 @@ export async function autorizarPeloLink(token: unknown, input: { turnstile?: unk
       if (c.situacao.tipo === 'vigente') return;
       const [a] = await tx
         .insert(iaAutorizacoes)
-        .values({ tenantId: l.tenantId, patientId: c.p.id, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...USOS_IA], destino: u.destino, canal: 'link', emailHmac: emailHmac(c.p.email!), ip: deps.ip, userAgent: deps.userAgent?.slice(0, 300) ?? null })
+        .values({ tenantId: l.tenantId, patientId: c.p.id, evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS], destino: u.destino, canal: 'link', emailHmac: emailHmac(c.p.email!), ip: deps.ip, userAgent: deps.userAgent?.slice(0, 300) ?? null })
         .returning({ id: iaAutorizacoes.id });
       await enfileirarConfirmacao(tx, { tenantId: l.tenantId, patientId: c.p.id, autorizacaoId: a.id, para: c.p.email, consultorio: c.t.nomeExibicao, destino: u.destino, appUrl: deps.appUrl });
     },
@@ -4254,7 +4340,14 @@ export default async function AutorizacaoPeloLink({ params }: PageProps<'/autori
       {estado.tipo === 'decidir' ? (
         <>
           <p className="text-suave">{estado.consultorio}</p>
-          <TextoLegalView texto={estado.texto} id="autorizacao" nivel="h1" classeTitulo="font-titulo text-2xl font-semibold" />
+          {/* F4 (§18.5, parecer 4.1 "Acréscimos por canal"): abaixo do título — o link pode chegar a outra pessoa (e-mail compartilhado ou digitado errado) */}
+          <TextoLegalView
+            texto={estado.texto}
+            id="autorizacao"
+            nivel="h1"
+            classeTitulo="font-titulo text-2xl font-semibold"
+            aposTitulo={<p className="font-semibold">{MSG_AUTORIZACAO.autorizacaoPessoal}</p>}
+          />
           <DecisaoForm token={token} siteKey={env.TURNSTILE_SITE_KEY} modo="decidir" />
         </>
       ) : (
@@ -4695,7 +4788,9 @@ export function TermoPapelForm({ patientId, versao, codigo }: { patientId: strin
       </div>
       <div>
         <label htmlFor="arquivo" className="block font-medium">{MSG_AUTORIZACAO.arquivoTermo}</label>
-        <input id="arquivo" name="arquivo" type="file" accept="image/jpeg,image/png,application/pdf" className="min-h-11" {...campo('arquivo')} />
+        {/* F5 (§18.5): o arquivo mostra todas as páginas (o rodapé de cada uma traz o código e "Página x de y") */}
+        <p id="arquivo-dica" className="text-sm text-suave">{MSG_AUTORIZACAO.dicaArquivoTermo}</p>
+        <input id="arquivo" name="arquivo" type="file" accept="image/jpeg,image/png,application/pdf" className="min-h-11" aria-describedby={erros.arquivo ? 'arquivo-dica arquivo-erro' : 'arquivo-dica'} {...(erros.arquivo ? { 'aria-invalid': true as const } : {})} />
         {erro('arquivo')}
       </div>
       <div className="flex items-start gap-2">
@@ -4730,8 +4825,12 @@ export const dynamic = 'force-dynamic';
 
 /**
  * US-108: o termo impresso (o texto da versão atual com o destino em uso e a forma de retirar do papel, com ou sem e-mail),
- * o nome do paciente, o código de referência (RN-107) e os campos de data e assinatura; abaixo, fora da impressão, o envio
- * do termo assinado. Só com a IA ativa e o perfil completo (D10) e com o paciente ativo.
+ * o nome do paciente, o código de referência (RN-107), "Recebi uma via deste termo." e os campos de data e assinatura;
+ * abaixo, fora da impressão, o envio do termo assinado e a recomendação de guardar o original. Só com a IA ativa e o perfil
+ * completo (D10) e com o paciente ativo. F5 (§18.5, D21): todas as páginas impressas levam no rodapé o código de referência
+ * e "Página x de y" — caixa de margem do `@page` (`@bottom-center`, com `counter(page)`/`counter(pages)`), impressa pelo
+ * Chrome/Edge (o navegador do consultório; o runbook e o manual guiado dizem para imprimir por eles). O código é só
+ * [0-9A-Z-] (Crockford), então pode ir na string do CSS sem escape.
  */
 export default async function TermoIaPage({ params }: PageProps<'/painel/pacientes/[id]/privacidade/termo-ia'>) {
   const { id } = await params;
@@ -4746,18 +4845,22 @@ export default async function TermoIaPage({ params }: PageProps<'/painel/pacient
   if (motivo || !responsavel || !ia.destino) return <Aviso tipo="aviso">{motivo}</Aviso>;
   const texto = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...responsavel, destino: ia.destino, canal: paciente.email ? 'papel_com_email' : 'papel_sem_email' })!;
   const { codigoDeReferencia } = await painelDaAutorizacao(ctx, paciente, ia.destino);
+  const rodape = `@page { margin: 18mm 16mm 22mm; @bottom-center { content: "${MSG_AUTORIZACAO.rodapeTermo(codigoDeReferencia)} " counter(page) " de " counter(pages); font-size: 9pt; } }`;
   return (
     <div className="max-w-3xl space-y-6">
+      <style>{rodape}</style>
       <Imprimir />
       <div className="space-y-3 rounded-3xl border border-borda bg-cartao p-5 print:border-0 print:p-0">
         <TextoLegalView texto={texto} id="termo-ia" nivel="h2" />
         <p>{MSG_AUTORIZACAO.nomePaciente(paciente.nome)}</p>
         <p>{MSG_AUTORIZACAO.codigoReferencia(codigoDeReferencia)}</p>
+        <p className="pt-4">{MSG_AUTORIZACAO.recebiVia}</p>
         <p className="pt-4">{MSG_AUTORIZACAO.campoData}</p>
         <p className="pt-4">{MSG_AUTORIZACAO.campoAssinatura}</p>
       </div>
       <section aria-labelledby="guardar-termo" className="space-y-3 print:hidden">
         <h2 id="guardar-termo" className="text-lg font-semibold">{MSG_AUTORIZACAO.registrarPapel}</h2>
+        <p className="text-suave">{MSG_AUTORIZACAO.guardarOriginal}</p>
         <TermoPapelForm patientId={paciente.id} versao={AUTORIZACAO_IA_VERSAO} codigo={codigoDeReferencia} />
       </section>
     </div>
@@ -4939,7 +5042,7 @@ const { default: AutorizacaoIa } = await import('./page');
 describe('/p/perfil/ia — ler e decidir (US-106)', () => {
   it('o título, o consultório, o texto inteiro da versão atual com o destino em uso e a forma de retirar do app; "Autorizo…" e "Agora não"', async () => {
     const html = renderToStaticMarkup(await AutorizacaoIa());
-    for (const t of ['Autorização para uso de inteligência artificial', 'Consultório Debby', 'Debora Silva (CRN-3 12345)', 'Ambiente de teste', 'no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista', 'Versão provisória 0.1, em revisão jurídica.']) {
+    for (const t of ['Autorização para uso de inteligência artificial', 'Consultório Debby', 'Debora Silva, CRN-3 12345', 'Ambiente de teste', 'no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista', 'Versão provisória 0.1, de 09/10/2026, em revisão jurídica.']) {
       expect(html, t).toContain(t);
     }
     expect(html).toMatch(/<button[^>]*>Autorizo o envio para fora do Brasil<\/button>/);
@@ -5218,7 +5321,7 @@ Em `src/modules/pacientes/exportacao.test.ts`: trocar o import de `PROVEDOR_IA_D
     const p = await novoPaciente(app.db, T.ctx);
     const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(300, 0x20)]);
     const termo = await salvarArquivo(T.ctx, { tipo: 'ia_autorizacao_termo', conteudo: PDF, permitidos: ['pdf'], patientId: p.id }, { db: app.db, dataDir });
-    const USOS = sql`array['leitura_laudos','resumo_historico','rascunho_plano']::text[]`;
+    const USOS = sql`array['leitura_laudos']::text[]`; // os usos da versão 0.1 (F2)
     await withTenant(T.ctx, async (tx) => {
       await tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, canal, registrado_por, email_hmac) values (${T.tenantId}, ${p.id}, 'pedido_email', '0.1-provisorio', 'link', ${T.nutriId}, 'hmac-secreto')`);
       await tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, usos, destino, canal, registrado_por, arquivo_path, em) values (${T.tenantId}, ${p.id}, 'autorizou', '0.1-provisorio', ${USOS}, 'bedrock-eu', 'papel', ${T.nutriId}, ${termo.caminho}, '2026-10-01T03:00:00Z')`);
@@ -5228,7 +5331,7 @@ Em `src/modules/pacientes/exportacao.test.ts`: trocar o import de `PROVEDOR_IA_D
       const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
       expect(dados.paciente.autorizacoesIa, escopo).toEqual([
         { evento: 'pedido_email', versao: '0.1-provisorio', usos: null, destino: null, canal: 'link', em: expect.any(String), registradoEm: expect.any(String), ip: null, userAgent: null, termo: null },
-        { evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos', 'resumo_historico', 'rascunho_plano'], destino: { codigo: 'bedrock-eu', rotulo: 'Amazon Web Services (Claude), União Europeia' }, canal: 'papel', em: '2026-10-01T03:00:00.000Z', registradoEm: expect.any(String), ip: null, userAgent: null, termo: null },
+        { evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos'], destino: { codigo: 'bedrock-eu', rotulo: 'Amazon Web Services (Claude), União Europeia' }, canal: 'papel', em: '2026-10-01T03:00:00.000Z', registradoEm: expect.any(String), ip: null, userAgent: null, termo: null },
         { evento: 'retirou', versao: null, usos: null, destino: null, canal: 'app', em: expect.any(String), registradoEm: expect.any(String), ip: '203.0.113.7', userAgent: 'Mozilla/5.0', termo: null },
       ]);
       expect(JSON.stringify(dados), escopo).not.toContain('hmac-secreto');
@@ -5341,7 +5444,7 @@ const termoEmPapel = async (T: TenantDeTeste, patientId: string) => {
   const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(300, 0x20)]);
   const a = await salvarArquivo(T.ctx, { tipo: 'ia_autorizacao_termo', conteudo: PDF, permitidos: ['pdf'], patientId }, { db: app.db, dataDir });
   await withTenant(T.ctx, (tx) => tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, usos, destino, canal, registrado_por, arquivo_path, em)
-    values (${T.tenantId}, ${patientId}, 'autorizou', '0.1-provisorio', array['leitura_laudos','resumo_historico','rascunho_plano']::text[], 'teste', 'papel', ${T.nutriId}, ${a.caminho}, now())`), app.db);
+    values (${T.tenantId}, ${patientId}, 'autorizou', '0.1-provisorio', array['leitura_laudos']::text[], 'teste', 'papel', ${T.nutriId}, ${a.caminho}, now())`), app.db);
   return a.caminho;
 };
 const autorizacoesDe = (T: TenantDeTeste, patientId: string) =>
@@ -5651,7 +5754,7 @@ Em `src/modules/ajuda/conteudo.ts`, no guia `configuracoes`, `versao: 5, // Plan
 No guia `prontuario`, `versao: 2, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns)` (e o comentário do Plano 11 fica) e, em "Perguntas comuns", depois do item da IA:
 
 ```ts
-          'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir, assinar e guardar a foto).',
+          'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; guardar o original na pasta do paciente e entregar uma via a ele).',
 ```
 
 Em `src/modules/ajuda/conteudo.test.ts`, `TSX_FORA` ganha `'src/modules/ia'` (os rótulos da autorização vêm de `MSG_AUTORIZACAO`). Em `src/modules/ajuda/portal.ts`, em "Perguntas comuns" (sem subir a `versao`: desvio 11):
@@ -5719,6 +5822,7 @@ test('link por e-mail: pedido → página sem login → autorizo → confirmaç�
   await anonimo.goto(primeiroLink(pedido.texto, '/autorizacao-ia/'));
   await expect(anonimo.getByRole('heading', { name: 'Autorização para uso de inteligência artificial' })).toBeVisible();
   await expect(anonimo.getByText('Consultório E2E').first()).toBeVisible();
+  await expect(anonimo.getByText('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.')).toBeVisible(); // F4
   expect((await new AxeBuilder({ page: anonimo }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
   await anonimo.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
   await expect(anonimo.getByRole('status').filter({ hasText: /^Autorização registrada\. Você pode retirar quando quiser, pelo link do e-mail de confirmação/ })).toBeVisible();
@@ -5728,6 +5832,7 @@ test('link por e-mail: pedido → página sem login → autorizo → confirmaç�
   await expect(nutri.getByText(/— Pedido enviado por e-mail$/)).toBeVisible();
 
   const confirmacao = await esperarEmail(paciente.email, { assunto: 'Você autorizou o uso de inteligência artificial', depoisDe: antes });
+  expect(confirmacao.texto).toContain('Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista.'); // F4
   await anonimo.goto(primeiroLink(confirmacao.texto, '/autorizacao-ia/'));
   anonimo.once('dialog', (d) => d.accept());
   await anonimo.getByRole('button', { name: 'Retirar autorização' }).click();
@@ -5750,6 +5855,10 @@ test('termo em papel: imprimir, guardar a foto com o código de referência, "Ve
   await expect(nutri.getByText(`Nome do paciente: ${paciente.nome}`)).toBeVisible();
   await expect(nutri.getByText(/^Código de referência: [0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/).first()).toBeVisible();
   await expect(nutri.getByRole('button', { name: 'Imprimir termo' })).toBeVisible();
+  await expect(nutri.getByText('Recebi uma via deste termo.')).toBeVisible(); // F5
+  // F5: o rodapé de todas as páginas impressas (caixa de margem do @page) com o código e "Página x de y"
+  expect(await nutri.evaluate(() => [...document.querySelectorAll('style')].some((st) => /@bottom-center \{ content: "Código de referência: [0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4} — Página " counter\(page\) " de " counter\(pages\)/.test(st.textContent ?? '')))).toBe(true);
+  await expect(nutri.getByText('Guarde o original em papel na pasta do paciente até a anonimização dele e entregue ao paciente uma via.')).toBeVisible(); // F5
   expect(await violacoesNoPainel(nutri), 'página do termo').toEqual([]);
 
   await nutri.getByRole('button', { name: 'Salvar' }).click();
@@ -5759,7 +5868,7 @@ test('termo em papel: imprimir, guardar a foto com o código de referência, "Ve
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   await nutri.getByLabel('Data da assinatura').fill(hoje);
   await nutri.getByLabel('Foto ou PDF do termo assinado').setInputFiles({ name: 'termo.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
-  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 0\.1-provisorio/).check();
+  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 0\.1-provisorio, e que o arquivo mostra todas as páginas e a assinatura\.$/).check();
   await nutri.getByRole('button', { name: 'Salvar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Termo registrado. Entregue ao paciente uma via do termo assinado.' })).toBeVisible();
   await expect(nutri.getByText(/^Autorizou em .* \(termo em papel, versão 0\.1-provisorio\)\./)).toBeVisible();
@@ -5821,7 +5930,7 @@ O `guardiao-manual` lista as correções do manual do usuário (trecho atual exa
 
 - [ ] **Step 3: Runbook, índice, backlog e spec**
 
-Em `docs/operacao/ia.md`, uma seção "## Plano 14A — autorização do paciente e provedor na UE" com o **Runbook do dono** abaixo (copiado sem mudança) e a nota de que o passo 7 do runbook do Plano 11 ("informa cada paciente") foi substituído pela autorização. Em `docs/operacao/go-live.md`, na seção da IA, os itens novos para marcar (escolha do provedor, conta AWS, `GetInferenceProfile`, registro de invocações desligado, avaliação com `bedrock-eu`, `IA_RETENCAO_ZERO`, advogado com os textos 0.1/0.2 e os e-mails, perfil completo). No índice, a linha do Plano 14 vira duas: **14A** (este plano, "Em execução") e **14B** (IA Nutri, "A planejar", spec v0.5.1 §18.3). No backlog: P14A-00 com o link deste plano; P14A-01 a P14A-12 (uma por tarefa); P14A-13 (runbook do dono: provedor, retenção zero, advogado, avaliação, liberação); os "Pontos menores" do fim deste plano como Minors do 14A; P14-00 passa a "14B". Na spec, no cabeçalho, uma linha "Revisão 0.6" curta (o que a execução mudou, conferido no código: D1–D19 e os desvios 1–11 que valerem) e o "Status" do 14A: "em execução (plano `2026-10-09-nutridebby-14a-autorizacao-ia.md`)" — o fechamento do PR muda para "em produção".
+Em `docs/operacao/ia.md`, uma seção "## Plano 14A — autorização do paciente e provedor na UE" com o **Runbook do dono** abaixo (copiado sem mudança) e a nota de que o passo 7 do runbook do Plano 11 ("informa cada paciente") foi substituído pela autorização. Em `docs/operacao/go-live.md`, na seção da IA, os itens novos para marcar (escolha do provedor com as três condições do F1, conta AWS, `GetInferenceProfile` só com destinos UE/EEE — regra P0 do F7 —, registro de invocações desligado, avaliação com `bedrock-eu`, `IA_RETENCAO_ZERO`, advogado B1–B5 com os textos 0.1/0.2 e os e-mails, publicação da 1.0, consulta ao CRN-3 — F8 —, perfil completo). No índice, a linha do Plano 14 vira duas: **14A** (este plano, "Em execução") e **14B** (IA Nutri, "A planejar", spec v0.5.1 §18.3). No backlog: P14A-00 com o link deste plano; P14A-01 a P14A-12 (uma por tarefa); P14A-13 (runbook do dono: provedor, retenção zero, advogado, avaliação, liberação); os "Pontos menores" do fim deste plano como Minors do 14A; P14-00 passa a "14B". Na spec, no cabeçalho, uma linha "Revisão 0.6" curta (o que a execução mudou, conferido no código: D1–D21 e os desvios 1–11 que valerem; a §18.5 já registra o parecer JUR-2026-013) e o "Status" do 14A: "em execução (plano `2026-10-09-nutridebby-14a-autorizacao-ia.md`)" — o fechamento do PR muda para "em produção".
 
 - [ ] **Step 4: Verificação completa**
 
@@ -5846,13 +5955,14 @@ Claude-Session: https://claude.ai/code/session_011oVTntWHy84E7M5PG1J3Th"
 Nenhum passo é do código; cada um tem dono. A IA continua **desligada para dado real** depois do merge: sem `IA_PROVEDOR` em produção nada aparece, e sem `IA_RETENCAO_ZERO=1` nenhum dado de paciente sai. **Nada de dado real antes do passo 8.**
 
 1. **Antes do merge (merge = deploy).** O controlador, com o OK do dono (nunca um subagente), confere no banco de produção, só leitura: `select count(*) from patients where ia_aviso_versao is not null or ia_aviso_enviado_em is not null or ia_recusada_em is not null;` (esperado **0**: a seção "Uso de IA" nunca apareceu sem `IA_PROVEDOR`) e `select count(*) from tenants where ia_aditivo_versao is not null;` (esperado **0**: a IA nunca foi ativada; se houver, a nutricionista verá "aceite a versão atual" do aditivo 0.2). Snapshot da VPS no hPanel; OK explícito do dono no PR; o job `image` do CI dentro de **265 MB** (a T3 registra a medida). As migrations `0107`–`0109` rodam no deploy com `DATABASE_URL_MIGRATOR`.
-2. **Escolher o provedor de produção (R-115) — antes do primeiro pedido de autorização.** A autorização vale para o destino em que foi dada: trocar depois pede autorização nova de todos os pacientes. Recomendação da spec: `bedrock-eu` (UE, adequação da ANPD; a ZDR da Anthropic pode ser negada a conta pequena, R-101).
-3. **Se `bedrock-eu`: a conta AWS (A-D26, INT-08).** (a) Conta AWS em nome do CNPJ; aceitar o Customer Agreement e o AWS GDPR DPA; guardar os comprovantes. (b) Bedrock › Model access: habilitar o **Claude Sonnet 5.5** na região escolhida (uma de `IA_BEDROCK_REGIAO`: `eu-central-1`, `eu-west-1`, `eu-west-3`, `eu-north-1`, `eu-south-1`, `eu-south-2`). (c) Conferir na página "inference-profiles-support" o ID do perfil (`eu.anthropic.claude-sonnet-5-5`; se for outro, PR curto em `PERFIL_BEDROCK_EU`) e rodar `aws bedrock get-inference-profile --inference-profile-identifier eu.anthropic.claude-sonnet-5-5 --region <região>`: **todas** as regiões de destino listadas têm de ser da UE (Londres, `eu-west-2`, e Zurique, `eu-central-2`, não são); guardar a saída no registro da liberação. (d) Bedrock › Settings › **Model invocation logging: desligado** (print). (e) Dois usuários IAM só com `bedrock:InvokeModel` nos ARNs do perfil `eu.` e dos modelos de destino (sem S3, Batch nem logging): `nutridebby-ia-dev` (avaliação) e `nutridebby-ia-producao`; uma chave de acesso de **longo prazo** (começa com `AKIA`) por usuário; nunca colar a chave em chat, e-mail, issue ou arquivo do repositório. (f) **AWS Budgets**: alerta mensal (sugestão US$ 50, o `IA_TETO_GLOBAL_MENSAL_USD`). (g) Ler a página "abuse-detection" do Bedrock: se a AWS guardar conteúdo para detecção de abuso, levar ao advogado (passo 6) — muda o texto da autorização e do aditivo. (h) Conferir na página de preços do Bedrock o Sonnet 5.5 no perfil `eu.` (prêmio de 10% sobre o global): se for diferente de US$ 2/10 por milhão × 1,1, PR curto em `PRECOS_IA` com a data (R-117). **Se `anthropic`:** os passos 1 e 2 do runbook do Plano 11 (workspaces e ZDR).
+2. **Escolher o provedor de produção (R-115) — antes do primeiro pedido de autorização.** A autorização vale para o destino em que foi dada: trocar depois pede autorização nova de todos os pacientes. **Decisão do dono (F1, parecer JUR-2026-013, spec §18.5): `bedrock-eu`** (adequação da UE, sem acesso de operador, sem depender da ZDR da Anthropic), **condicionada** a três coisas, todas antes da liberação (passo 8): (i) o `GetInferenceProfile` do passo 3 (c) só com destinos em Estados da UE ou do EEE (F7); (ii) a avaliação do Sonnet 5.5 do passo 4 aprovada; (iii) aceitar o limite de 14 MB por laudo (R-116, D4). Se uma delas falhar, parar e voltar ao dono: não colher autorização nenhuma enquanto o provedor não estiver fechado. Com o Bedrock, a autorização do paciente é condição do produto (A-D25), **não** o mecanismo da transferência (a base é a adequação, art. 33, I): nenhum texto, tela, e-mail ou manual diz que a transferência "se baseia" nela.
+3. **Se `bedrock-eu`: a conta AWS (A-D26, INT-08).** (a) Conta AWS em nome do CNPJ; aceitar o Customer Agreement e o AWS GDPR DPA; guardar os comprovantes. (b) Bedrock › Model access: habilitar o **Claude Sonnet 5.5** na região escolhida (uma de `IA_BEDROCK_REGIAO`: `eu-central-1`, `eu-west-1`, `eu-west-3`, `eu-north-1`, `eu-south-1`, `eu-south-2`). (c) **Regra P0 da liberação (F7).** Conferir na página "inference-profiles-support" o ID do perfil (`eu.anthropic.claude-sonnet-5-5`; se for outro, PR curto em `PERFIL_BEDROCK_EU`) e rodar `aws bedrock get-inference-profile --inference-profile-identifier eu.anthropic.claude-sonnet-5-5 --region <região>`: a liberação **só** acontece se **todas** as regiões de destino listadas forem de Estados da UE ou do EEE. Se aparecer **Londres (`eu-west-2`) ou Zurique (`eu-central-2`)** — Reino Unido e Suíça não têm adequação da ANPD —, **não liberar** e **não colher autorização**: a saída é a chamada **na própria região**, sem perfil (se o modelo estiver sob demanda nela), ou, sem essa opção, o consentimento como mecanismo da transferência com os países nomeados no texto — as duas são plano à parte (mudam o provedor e o texto, versão nova). Não adianta bloquear só um destino por SCP: o pedido falha. Repetir a consulta a cada troca de modelo e antes de cada liberação de consultório; guardar a saída (data e lista de regiões) no registro da liberação. (d) Bedrock › Settings › **Model invocation logging: desligado** (print). (e) Dois usuários IAM só com `bedrock:InvokeModel` nos ARNs do perfil `eu.` e dos modelos de destino (sem S3, Batch nem logging): `nutridebby-ia-dev` (avaliação) e `nutridebby-ia-producao`; uma chave de acesso de **longo prazo** (começa com `AKIA`) por usuário; nunca colar a chave em chat, e-mail, issue ou arquivo do repositório. (f) **AWS Budgets**: alerta mensal (sugestão US$ 50, o `IA_TETO_GLOBAL_MENSAL_USD`). (g) Ler a página "abuse-detection" do Bedrock a cada liberação de modelo (Q9 do parecer): a exceção de conteúdo ilegal em imagens já está nos textos (autorização, "Por quanto tempo"; aditivo, item 6); se o modelo escolhido entrar na lista dos que guardam conteúdo por 30 dias, ele sai da lista permitida (`MODELOS_BEDROCK_EU`, PR curto) e volta ao dono. (h) Conferir na página de preços do Bedrock o Sonnet 5.5 no perfil `eu.` (prêmio de 10% sobre o global): se for diferente de US$ 2/10 por milhão × 1,1, PR curto em `PRECOS_IA` com a data (R-117). **Se `anthropic`:** os passos 1 e 2 do runbook do Plano 11 (workspaces e ZDR).
 4. **Avaliação manual com laudos fictícios (RN-127, CS-100, CS-102) — custo < US$ 10.** Na máquina do dono: `pnpm ia:laudos` e um `.env.avaliacao` local (fora do git) com `IA_AVALIACAO=1`, `IA_AVALIACAO_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO`, as chaves do usuário **de dev** e `IA_AVALIACAO_MODELOS=claude-sonnet-5-5`; depois `pnpm ia:avaliar`. Critérios: precisão ≥ 95%, zero inventado, injeção não vazou, nenhuma violação da RN-123, custo médio ≤ US$ 0,20. **Se o Bedrock recusar o pedido** (`pedido_invalido` em todos — o perfil não aceitou `output_config`/`effort` no InvokeModel, D1), parar e trazer o relatório: é decisão de plano (outro cliente ou outro formato de saída). Contar quantos laudos reais da Debby passariam de 14 MB (R-116). Registrar o resultado no PR do plano.
 5. **`IA_RETENCAO_ZERO=1`** — só com o passo 3 (d) e (g) conferidos (ou a ZDR da Anthropic concedida por escrito).
-6. **Advogado (OAB).** Levar: a spec v0.5.1 (§5.3, texto da autorização, US-101), o texto da autorização `0.1-provisorio` nas variantes do provedor escolhido e dos quatro canais (inclusive o desvio 6 deste plano: "Os seus dados saem do Brasil." no lugar de "Nos dois casos…"), o aditivo `0.2-provisorio`, os dois e-mails (desvio 9), a pergunta de autorizar usos ainda não disponíveis (resumo e rascunho, 14B), a alternativa "uma caixa por uso" (RV-1), R-114 (a adequação da UE alcança a AWS?), A2 (consentimento livre) e o que a detecção de abuso da AWS guarda. Com os textos finais: versão nova em `textos-legais.ts` e os `*_MIN` sobem (PR curto, com revisão; RN-109).
+6. **Advogado (OAB) — itens B1 a B5 do parecer JUR-2026-013.** O sistema usa a redação do parecer (itens 4.1 e 4.2, sem os trechos da 14B, F2) como **`0.1-provisorio`** (autorização) e **`0.2-provisorio`** (aditivo) até o advogado validar. Levar: o parecer; a spec (§5.3, texto da autorização, US-101, §18.5); a autorização nas variantes do provedor escolhido e dos quatro canais, com as adaptações (a)–(e) da §18.5 (desvio 6); o aditivo; os dois e-mails com as frases do F4 (desvio 9); e os pontos B1 (adequação da UE com fornecedor dos EUA, CLOUD Act como risco residual, entidade contratante da AWS), B2 (pacote único de usos e consentimento livre — com a 0.1 só de leitura, vale para a versão da 14B), B3 (revisão final dos dois textos), B4 (Anvisa, RDC 657/2022, para o resumo e o rascunho — só na 14B) e B5 (Customer Agreement e DPA da AWS: confidencialidade, subprocessadores, retenção, foro). **Publicação final:** os textos validados entram como **`1.0`** em `textos-legais.ts` (autorização e aditivo), e os `*_MIN` sobem para `1.0` (PR curto, com revisão; RN-109) — isso **força nova autorização de todos os pacientes e novo aceite do aditivo**; por isso o ideal é publicar a 1.0 **antes** de colher as primeiras autorizações (o D22 já recusa "Liberar" em produção enquanto algum texto for provisório).
+6a. **CRN-3 (F8 — ato do dono, contato externo).** Enviar, junto com a consulta P-B1, a pergunta pronta do parecer (item 3.6: Res. CFN 599/2018, art. 20, I; Res. CFN 594/2017, art. 3º, IV; Res. CFN 856/2026, arts. 22, 23 e 34 a 37, em vigor a partir de 23/01/2027 pela Res. CFN nº 858/2026). Se a resposta exigir termo de confidencialidade direto com o fornecedor (Q6), aditivo com cláusula de confidencialidade em favor da nutricionista (versão nova). Reler a Res. 856/2026 em dezembro de 2026 (Q7).
 7. **Variáveis no Easypanel (regra 6; o dono aplica).** App e worker: `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO`, `IA_MODELO_LEITURA=claude-sonnet-5-5`, `IA_RETENCAO_ZERO=1`, `IA_TETO_GLOBAL_MENSAL_USD=50`. **Só no worker:** `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (usuário de produção). **Nunca** `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_BEDROCK_BASE_URL` nem `ANTHROPIC_CUSTOM_HEADERS` (o worker não sobe com elas, D2). Snapshot no hPanel antes; reiniciar os serviços só com o OK do dono. Conferir no log do worker a linha "IA de laudos" com `provedor: bedrock-eu` e `chave: presente` (nunca a chave).
-8. **Debby e liberação.** O perfil profissional completo em Configurações (nome completo, CRN, e-mail de contato — o texto da autorização os cita; sem eles, o pedido não sai); os textos de tela e do manual guiado; um teste com paciente fictício (o pedido para uma caixa dela, o link, o termo em papel, a retirada pelo link e a pedido). Depois, e só com o backup no host (P02-11) funcionando: Admin → "Liberar" (recusado em produção enquanto a autorização ou o aditivo forem provisórios, D22) → a nutricionista aceita o aditivo 0.2 em Configurações → pede as autorizações. **Emergência:** `IA_DESLIGADA=1` no Easypanel (a retirada continua possível).
+8. **Debby e liberação.** O perfil profissional completo em Configurações (nome completo, CRN, e-mail de contato — o texto da autorização os cita; sem eles, o pedido não sai); os textos de tela e do manual guiado; um teste com paciente fictício (o pedido para uma caixa dela, o link, o termo em papel, a retirada pelo link e a pedido). Depois, e só com o backup no host (P02-11) funcionando, as três condições do F1 cumpridas (passo 2) e a saída do `GetInferenceProfile` só com UE/EEE no registro (passo 3 c): Admin → "Liberar" (recusado em produção enquanto a autorização ou o aditivo forem provisórios, D22) → a nutricionista aceita o aditivo 0.2 em Configurações → pede as autorizações. **Emergência:** `IA_DESLIGADA=1` no Easypanel (a retirada continua possível).
 9. **Todo mês:** a soma de `ia_uso` do mês (coluna "Uso de IA no mês" do admin) × o Cost Explorer da AWS filtrado pelo Bedrock; diferença > 5% abre investigação (RNF-108).
 
 ## Checagem final (antes do PR)
@@ -5873,7 +5983,10 @@ Nenhum passo é do código; cada um tem dono. A IA continua **desligada para dad
 | R1 | O SDK do Bedrock (com `@aws-sdk/client-bedrock-runtime` e `@aws-sdk/credential-providers`) passa a imagem de 265 MB | T3 Step 7 (poda e medida; para e pergunta) | Decisão do dono se passar: subir o orçamento ou assinatura SigV4 própria |
 | R2 | O perfil `eu.` no InvokeModel não aceitar `output_config`/`effort` (D1) | Runbook passo 4 (a avaliação detecta: `pedido_invalido`) | Se acontecer, plano curto (outro cliente ou saída por ferramenta) |
 | R3 | Troca de provedor depois de colher autorizações (R-115) | Runbook passo 2; RN-109 na tela ("O destino mudou…") e no portão | Dono escolhe antes do primeiro pedido |
-| R4 | Textos jurídicos provisórios (autorização 0.1, aditivo 0.2, e-mails, desvio 6) | D22 recusa "Liberar" em produção; runbook passo 6 | Advogado (OAB) |
+| R4 | Textos jurídicos provisórios (autorização 0.1 e aditivo 0.2 na redação do parecer JUR-2026-013, e-mails com as frases do F4, desvio 6) | D22 recusa "Liberar" em produção; runbook passo 6 (a final será 1.0 e pede nova autorização de todos) | Advogado (OAB), B1–B5 |
+| R12 | Perfil `eu.` com destino fora da UE/EEE (Londres, Zurique) — Q1 do parecer, alto se ocorrer | Runbook passo 3 (c), regra P0 (F7): não libera | Se ocorrer: chamada na região ou consentimento como mecanismo, com os países no texto (plano à parte) |
+| R13 | CRN-3 exigir termo de confidencialidade direto com o fornecedor (Q6) | Runbook passo 6a (F8) | Resposta do CRN-3 |
+| R14 | O rodapé "Página x de y" do termo depende das caixas de margem do `@page` (Chrome/Edge imprimem; outro navegador pode imprimir sem o número) | T7 (D21); manual guiado e runbook dizem para imprimir pelo Chrome ou Edge; a confirmação exige "todas as páginas" | Se a Debby imprimir por outro navegador: PDF do termo gerado no worker (plano à parte) |
 | R5 | Janela do deploy: worker novo antes da 0107 (`42P01` em `ia_autorizacoes`) ou worker antigo depois da 0109 (job `aviso_ia` falha no gatilho) | Em produção não há tarefa de IA (sem `IA_PROVEDOR`) nem aviso na fila (contagem do passo 1); o pg-boss repete; o worker novo descarta o legado | Acompanhar o log do worker no deploy |
 | R6 | Rebase sobre o Plano 16 (conflitos em `exportacao-job.ts`, `perfil/privacidade.tsx`, `isolamento.test.ts`, `conteudo.ts`) | T1 Step 0; T8 parte do branch do Plano 16 | Rebase cuidadoso |
 | R7 | Atrito: paciente sem autorização fica sem IA (R-110) | Três canais; a IA nunca é caminho único | PM-13 se a Debby pedir |
@@ -5888,10 +6001,12 @@ Nenhum passo é do código; cada um tem dono. A IA continua **desligada para dad
 - **Sem lacunas de código:** cada passo de código traz o código; os "modificar" dizem o arquivo, o lugar e o trecho; a 0108 e a 0109 trazem as funções inteiras. Os três pontos que dependem de helper com nome não conferido (o leitor de exame do `conferencia.test.ts`, o `mensagem` do `tarefas.test.ts` e o recurso de troca de variável do `getEnv` nos testes de action) dizem o que fazer se o nome for outro.
 - **Nomes consistentes:** os contratos do topo são os usados nas tarefas (`autorizacaoNoBanco`, `termoNoDisco`, `pacienteAutorizado`, `IA_TESTE`, `situacaoDaAutorizacao`, `vigentePara`, `ultimaDecisao`, `autorizacaoDoPaciente`, `motivoDoPaciente`, `situacaoIaDoPaciente`, `registrarRetiradaPelaNutri`, `processarRetiradaIa`, `autorizarNoApp`, `retirarNoApp`, `enviarPedidoPorEmail`, `registrarTermoEmPapel`, `caminhoDoTermo`, `enfileirarConfirmacao`, `painelDaAutorizacao`, `secaoIaVisivel`, `blocoIaDoApp`, `lerLinkAutorizacao`, `assinarLinkPedido`, `assinarLinkRetirada`, `emailHmac`, `codigoDeReferencia`, `estadoDoLinkIa`, `autorizarPeloLink`, `retirarPeloLink`, `provedorBedrock`, `classificarErroBedrock`, `apagarTermosDeAutorizacao`, `termosDeAutorizacaoRestantes`, `estadoIaComPaciente`, `textoDaAutorizacao`, `aditivoIa`, `responsavelDoTenant`, `textoCorrido`, `TextoLegalView`); os do código existente foram conferidos na `main` e no branch do Plano 16 (`carregarPacienteParaEscrita`, `cancelarTarefas`, `estornar`, `marcarIncerto`, `pedirLeituraExame`, `processarTarefaIA`, `expirarTarefasDoTenant`, `aplicarSugestao`, `salvarArquivo`, `apagarArquivo`, `anexosDoPaciente`, `anonimizarVencidos`, `montarDados`, `gerarExportacao`, `enqueueEmail`, `processEmailJob`, `consumirLimite`, `chaveDoLimite`, `depsDaRequisicao`, `lerJson`, `mesmaOrigem`, `requireApiNutri`, `requirePaciente`, `carregarProntuario`, `inicioDoDia`, `normalizarEmailDoLink`, `formatarCodigo`, `signFileUrl`, `auditRead`, `TurnstileWidget`, `molduraDaSecao`, `Faixa`).
 - **Review Focus:** cada linha tem os testes nas tarefas indicadas (1: T4; 2: T5/T6; 3: T2/T4/T9; 4: T5/T9; 5: T1/T5).
+- **Parecer JUR-2026-013 (spec §18.5), conferido tarefa a tarefa:** F2 — quem grava usa `AUTORIZACAO_IA_USOS` (T5 app e papel, T6 link), os helpers e fixtures gravam `['leitura_laudos']` (T1 `autorizacaoNoBanco` e `USOS` dos testes, T4 `evento`, T9 exportação) e nenhum teste espera os três usos (o único que cita resumo/rascunho é o que confere que eles **não** aparecem: T2 e o e-mail da T5; o `usos: ['resumo_historico']` da T4 é a autorização "sem a leitura de laudos" que o portão recusa); F3 — o teste dos oito requisitos (T2); F4 — `autorizacaoPessoal` na página do link (T6) e no e-mail do pedido, `seNaoFoiVoce` no de confirmação (T5), conferidos na T5 e no E2E (T11); F5 — D21 (T2 textos, T7 página e formulário, T11 E2E e manual guiado); F6 — o parágrafo "Para onde vai" do `bedrock-eu` (T2); F1/F7/F8 — runbook passos 2, 3 (c), 6 e 6a e riscos R12/R13; F9 — só na spec (o código não cita a resolução). Versões: autorização `0.1-provisorio` (data `09/10/2026`) e aditivo `0.2-provisorio` em todas as tarefas; a final é `1.0` (runbook passo 6).
 
 ## Pontos menores (backlog do Plano 14A)
 
-- **"Uma caixa por uso"** (RV-1), se o advogado preferir: o campo `usos` já comporta; muda o texto, as telas e o termo.
+- **"Uma caixa por uso"** (RV-1; P2 do parecer, F3), na versão da 14B, se o advogado preferir: o campo `usos` já comporta; muda o texto, as telas e o termo.
+- **Na entrega da 14B (F2, condições da 3.2 do parecer):** versão nova do texto com resumo e rascunho, `AUTORIZACAO_IA_USOS` com os três usos, `AUTORIZACAO_IA_VERSAO_MIN` sobe (nova autorização de todos), teste que compara os campos enviados com a lista do texto e revisão jurídica do texto (B4 junto).
 - **Lista "Pacientes sem autorização de IA"** no painel (PM-13), se a Debby pedir.
 - **Webhook de devolução do Resend** para avisar a nutricionista de pedido por e-mail devolvido (PM-18).
 - **Remover as colunas de ciência congeladas** (PM-17), migration destrutiva só com o OK do dono, depois de conferir que estão vazias.
