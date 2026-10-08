@@ -46,5 +46,13 @@ describe('/p/evolucao — "Todas as medidas" (US-194, F-Medidas)', () => {
     expect(html).toContain('<th scope="row">Peso (kg)</th><td>82,8</td><td>78,6</td><td>−4,2 kg</td>');
     expect(html).toContain('<th scope="row">Cintura (cm)</th><td>—</td><td>86,0</td><td>—</td>');
     expect(html).toContain('aria-label="Voltar para Jornada"');
+    // células com espaço entre si (o preflight zera o padding de th/td), sem quebra e com algarismos tabulares (F-Medidas)
+    const tabela = html.match(/<table class="([^"]*)"/)?.[1].replaceAll('&amp;', '&').split(' ') ?? [];
+    for (const c of ['[&_th]:px-2', '[&_td]:px-2', '[&_th]:py-2', '[&_td]:py-2', '[&_thead_th]:whitespace-nowrap', '[&_td]:whitespace-nowrap', 'tabular-nums', '[&_td]:text-right']) {
+      expect(tabela).toContain(c);
+    }
+    // cada gráfico com o título visível numa seção nomeada (só a série com 2+ pontos tem gráfico)
+    expect(html).toMatch(/<section aria-labelledby="serie-peso-h"[^>]*><h2 id="serie-peso-h"[^>]*>Peso \(kg\)<\/h2>/);
+    expect(html).not.toContain('serie-circ_cintura-h');
   });
 });

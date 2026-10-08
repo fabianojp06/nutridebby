@@ -23,13 +23,18 @@ describe('/p/jornada (US-194)', () => {
     };
     const html = renderToStaticMarkup(await Jornada());
     expect(html).toMatch(/<h1[^>]*>Sua jornada desde março<\/h1>/);
-    expect(html).toContain('Peso nas consultas');
+    // título visível do gráfico (§4.5, GV-Jornada): não só o <title> do SVG
+    expect(html).toMatch(/<h2[^>]*>Peso nas consultas<\/h2>/);
     expect(html).toContain('Ver os dados em tabela');
-    expect(html).toContain('amanhã, 14:00 (horário de Brasília)'); // sem JavaScript, com a sigla (QuandoLocal)
-    expect(html).toContain('próxima consulta');
+    // sem JavaScript, com a sigla (QuandoLocal); no marco, com a primeira letra maiúscula (§4.5, US-194)
+    expect(html).toMatch(/<h2[^>]*>Amanhã, 14:00 \(horário de Brasília\)(<!-- -->)? · próxima consulta<\/h2>/);
+    expect(html).not.toContain('amanhã, 14:00');
     expect(html).toContain('href="/p/agenda/c9"');
     expect(html).toContain('78,6 kg · cintura 86 cm');
     expect(html).toContain('Orientação da sua nutricionista');
+    // texto livre da nutricionista (link longo): quebra dentro do balão, a página não rola na horizontal
+    expect(html).toMatch(/<p class="[^"]*\bbreak-words\b[^"]*">Manter as frutas\.<\/p>/);
+    expect(html).toMatch(/<p class="[^"]*\bbreak-words\b[^"]*">78,6 kg · cintura 86 cm<\/p>/);
     expect(html).toContain('18 de março · primeira consulta');
     expect(html.indexOf('22 de setembro')).toBeLessThan(html.indexOf('18 de março'));
     for (const href of ['/p/evolucao', '/p/agenda', '/p/agenda/nova']) expect(html).toContain(`href="${href}"`);

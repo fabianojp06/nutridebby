@@ -7,6 +7,9 @@ import { QuandoLocal } from '../../quando-local';
  * (RN-207; 1,55:1 sozinho contra o fundo claro) e nunca é a única pista — o texto diz "próxima consulta". A orientação é a
  * dela, verbatim (RN-194). Sem texto do sistema com voz de orientação ("Leve suas dúvidas anotadas." não entra).
  */
+/** "amanhã, 14:00" → "Amanhã, 14:00": no começo do marco, com maiúscula (texto da §4.5 e da US-194); no meio da frase da faixa, não. */
+const inicial = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
 export function LinhaDoTempo({ marcos, fuso }: { marcos: Marco[]; fuso: string }) {
   return (
     <ol aria-label="Linha do tempo" className="space-y-5 border-l-2 border-borda pl-5">
@@ -19,7 +22,7 @@ export function LinhaDoTempo({ marcos, fuso }: { marcos: Marco[]; fuso: string }
           {m.tipo === 'proxima' ? (
             <>
               <h2 className="font-portal-titulo text-lg font-bold">
-                <QuandoLocal semFuso={m.quando.semFuso} comFuso={m.quando.comFuso} fuso={fuso} />
+                <QuandoLocal semFuso={inicial(m.quando.semFuso)} comFuso={inicial(m.quando.comFuso)} fuso={fuso} />
                 {` · ${MSG_JORNADA.proxima}`}
               </h2>
               <p>{m.modalidade}</p>
@@ -28,11 +31,12 @@ export function LinhaDoTempo({ marcos, fuso }: { marcos: Marco[]; fuso: string }
           ) : (
             <>
               <h2 className="font-portal-titulo text-lg font-bold">{m.tipo === 'atendimento' && m.primeira ? `${m.titulo} · ${MSG_JORNADA.primeira}` : m.titulo}</h2>
-              {m.medidas.length > 0 && <p>{m.medidas.map((x) => x.texto).join(' · ')}</p>}
+              {m.medidas.length > 0 && <p className="break-words">{m.medidas.map((x) => x.texto).join(' · ')}</p>}
               {m.tipo === 'atendimento' && m.orientacao && (
                 <div className="rounded-2xl bg-p-clara p-3">
                   <p className="text-sm font-semibold">{MSG_JORNADA.orientacao}</p>
-                  <p className="whitespace-pre-line">{m.orientacao}</p>
+                  {/* texto livre dela (até 5000 caracteres): um link longo quebra aqui, a página não rola na horizontal */}
+                  <p className="whitespace-pre-line break-words">{m.orientacao}</p>
                 </div>
               )}
             </>

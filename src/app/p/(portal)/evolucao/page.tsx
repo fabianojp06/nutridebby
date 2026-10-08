@@ -27,8 +27,12 @@ export default async function TodasAsMedidas() {
         ) : (
           <>
             <TabelaMedidas series={e.series} diferencas={e.diferencas} desde={mesPorExtenso(primeira, hojeNoFuso(tenant.fuso))} />
+            {/* cada gráfico com o título visível (o <title> do SVG não aparece no celular) */}
             {e.series.filter((s) => s.pontos.length >= 2).map((s) => (
-              <GraficoLinha key={s.id} id={`serie-${s.id}`} titulo={s.rotulo} unidade={s.unidade} casas={s.casas} pontos={s.pontos} />
+              <section key={s.id} aria-labelledby={`serie-${s.id}-h`} className="space-y-2">
+                <h2 id={`serie-${s.id}-h`} className="font-portal-titulo text-lg font-bold">{s.unidade ? `${s.rotulo} (${s.unidade})` : s.rotulo}</h2>
+                <GraficoLinha id={`serie-${s.id}`} titulo={s.rotulo} unidade={s.unidade} casas={s.casas} pontos={s.pontos} />
+              </section>
             ))}
           </>
         )}

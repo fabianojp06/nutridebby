@@ -24,7 +24,13 @@ export default async function Jornada() {
     <>
       <Faixa {...moldura} atual="/p/jornada" titulo={j.titulo} />
       <main className="space-y-6 p-4">
-        {j.grafico && <GraficoLinha id="grafico-jornada" titulo={j.grafico.rotulo} unidade={j.grafico.unidade} casas={j.grafico.casas} pontos={j.grafico.pontos} />}
+        {/* título visível (§4.5, GV-Jornada): o <title> do SVG não aparece no celular, e o gráfico pode ser de cintura (G-D16 a) */}
+        {j.grafico && (
+          <section aria-labelledby="grafico-jornada-h" className="space-y-2">
+            <h2 id="grafico-jornada-h" className="font-portal-titulo text-lg font-bold">{j.grafico.rotulo}</h2>
+            <GraficoLinha id="grafico-jornada" titulo={j.grafico.rotulo} unidade={j.grafico.unidade} casas={j.grafico.casas} pontos={j.grafico.pontos} />
+          </section>
+        )}
         <p className="flex flex-wrap gap-2">
           <Link href="/p/evolucao" className={BOTAO}>{MSG_JORNADA.todasAsMedidas}</Link>
           <Link href="/p/agenda" className={BOTAO}>{MSG_JORNADA.minhasConsultas}</Link>

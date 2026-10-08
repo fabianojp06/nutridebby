@@ -368,6 +368,7 @@ test('Todas as medidas: peso sem % de gordura; com a opção ligada, o % aparece
   await expect(p.page.getByRole('heading', { level: 1, name: 'Todas as medidas' })).toBeVisible();
   const tabela = p.page.getByRole('table', { name: 'Medidas por avaliação' });
   await expect(tabela.getByRole('row', { name: /^Peso \(kg\)/ })).toContainText('80,0');
+  await expect(p.page.getByRole('heading', { level: 2, name: 'Peso (kg)' })).toBeVisible(); // título visível do gráfico
   await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toHaveCount(0);
   try {
     await mostrarPercGordura(nutri, true);
