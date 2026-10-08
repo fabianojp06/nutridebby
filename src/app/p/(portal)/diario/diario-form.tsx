@@ -1,7 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { FOTO_DIARIO_MAX_BYTES, MSG_DIARIO, REFEICOES_DO_DIARIO, TEXTO_DIARIO_MAX } from '@/modules/portal/diario-constantes';
+import { FOTO_DIARIO_MAX_BYTES, MSG_DIARIO, REFEICOES_DO_DIARIO, ROTULO_RESPOSTA, TEXTO_DIARIO_MAX } from '@/modules/portal/diario-constantes';
 import { linkDaRecusa, recusaDoPortal } from '../../recusa-api';
 
 type Erros = Partial<Record<'refeicao' | 'texto' | 'foto' | 'geral', string>>;
@@ -9,8 +9,13 @@ type Erros = Partial<Record<'refeicao' | 'texto' | 'foto' | 'geral', string>>;
 /** true só no cliente depois da hidratação (no servidor e na hidratação, false) — sem setState em efeito. */
 const semInscricao = () => () => {};
 
-/** US-042: envia por fetch (multipart) e mostra a miniatura local na hora, antes de o worker converter a foto. */
-export function DiarioForm() {
+type Props = { refeicaoDoPlano?: { id: string; rotulo: string } | null; resposta?: 'outra_coisa' | null; foto?: boolean };
+
+/**
+ * US-042: envia por fetch (multipart) e mostra a miniatura local na hora, antes de o worker converter a foto.
+ * Plano 16 (US-192): com a refeição do plano, a refeição já vem escolhida e "Como foi?" grava a resposta.
+ */
+export function DiarioForm({ refeicaoDoPlano = null, resposta = null, foto: comCamera = false }: Props) {
   const router = useRouter();
   const [erros, setErros] = useState<Erros>({});
   const [ok, setOk] = useState<string | null>(null);
@@ -40,6 +45,11 @@ export function DiarioForm() {
     if (foto instanceof File && foto.size > FOTO_DIARIO_MAX_BYTES) {
       setOk(null); // o "Registro salvo." do envio anterior não fica na tela junto com o erro
       return setErros({ foto: MSG_DIARIO.foto });
+    }
+    // "Comi outra coisa" sem texto nem foto: o servidor também recusa
+    if (dados.get('resposta') === 'outra_coisa' && !String(dados.get('texto') ?? '').trim() && !(foto instanceof File && foto.size > 0)) {
+      setOk(null);
+      return setErros({ geral: MSG_DIARIO.vazio });
     }
     setEnviando(true);
     setErros({});
@@ -71,16 +81,32 @@ export function DiarioForm() {
   const campoErro = (id: keyof Erros) => (erros[id] ? { 'aria-invalid': true, 'aria-describedby': `${id}-erro` } : {});
   return (
     <form method="post" onSubmit={enviar} className="space-y-3" noValidate>
-      <div className="space-y-1">
-        <label htmlFor="refeicao" className="block font-medium">Refeição</label>
-        <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('refeicao')}>
-          <option value="" disabled>Escolha a refeição</option>
-          {REFEICOES_DO_DIARIO.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-        {erros.refeicao && <p id="refeicao-erro" role="alert" className="text-sm text-erro">{erros.refeicao}</p>}
-      </div>
+      {refeicaoDoPlano ? (
+        <>
+          <input type="hidden" name="refeicaoId" value={refeicaoDoPlano.id} />
+          <p className="font-medium">{`Refeição: ${refeicaoDoPlano.rotulo}`}</p>
+          <fieldset className="space-y-1">
+            <legend className="font-medium">Como foi?</legend>
+            {(['como_no_plano', 'outra_coisa'] as const).map((r) => (
+              <p key={r} className="flex min-h-11 items-center gap-2">
+                <input id={`resposta-${r}`} type="radio" name="resposta" value={r} defaultChecked={resposta === r} className="size-5" />
+                <label htmlFor={`resposta-${r}`}>{ROTULO_RESPOSTA[r]}</label>
+              </p>
+            ))}
+          </fieldset>
+        </>
+      ) : (
+        <div className="space-y-1">
+          <label htmlFor="refeicao" className="block font-medium">Refeição</label>
+          <select id="refeicao" name="refeicao" defaultValue="" className="min-h-11 w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('refeicao')}>
+            <option value="" disabled>Escolha a refeição</option>
+            {REFEICOES_DO_DIARIO.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+          {erros.refeicao && <p id="refeicao-erro" role="alert" className="text-sm text-erro">{erros.refeicao}</p>}
+        </div>
+      )}
       <div className="space-y-1">
         <label htmlFor="texto" className="block font-medium">O que você comeu?</label>
         <textarea id="texto" name="texto" maxLength={TEXTO_DIARIO_MAX} rows={3} className="w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('texto')} />
@@ -93,6 +119,7 @@ export function DiarioForm() {
           name="foto"
           type="file"
           accept="image/jpeg,image/png,image/heic,image/heif"
+          capture={comCamera ? 'environment' : undefined}
           onChange={(e) => {
             const f = e.target.files?.[0];
             setPrevia(f ? URL.createObjectURL(f) : null);

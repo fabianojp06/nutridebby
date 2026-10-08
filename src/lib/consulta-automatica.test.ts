@@ -15,6 +15,7 @@ const USO_DA_PESSOA: Record<string, string> = {
   'src/app/painel/planos/editor/use-salvamento.ts': 'salvamento automático: só envia uma edição feita pela pessoa (e a repete sem rede)',
   'src/app/painel/alimentos/busca-alimento.tsx': 'espera de digitação da busca: só consulta depois de a pessoa digitar',
   'src/components/vigia-sessao.tsx': 'o próprio relógio da sessão: o GET usa lerSessaoApi (não renova) e o POST é o uso real na tela',
+  'src/components/portal/comi-assim.tsx': 'o "Comi assim" só envia depois do toque da pessoa (o prazo de 10 s do Desfazer, RN-198)',
 };
 
 function arquivos(pasta: string): string[] {

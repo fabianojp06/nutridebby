@@ -65,7 +65,10 @@ test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu pla
   await publicarPlanoSimples(nutri, p.prontuario); // e2e/portal.ts
   await p.page.reload();
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
-  await expect(p.page.getByText('Chuchu, cozido — 100 g')).toBeVisible();
+  // Plano 16: o item em colunas (nome à esquerda, quantidade à direita), dentro da sanfona; o Almoço é a única refeição com
+  // horário, logo sempre a "próxima" e já aberta (clicar no título fecharia a sanfona)
+  await expect(p.page.getByText('Chuchu, cozido', { exact: true })).toBeVisible();
+  await expect(p.page.getByText('100 g', { exact: true })).toBeVisible();
   await expect(p.page.getByRole('link', { name: 'Baixar PDF' })).toBeVisible();
   await p.page.context().close();
 });

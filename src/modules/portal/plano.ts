@@ -5,7 +5,7 @@ import { mealPlans } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';
-import { kcalTexto, nutrientesDoItem, quantidadeDoItem, totalDoDia } from '@/modules/plano-alimentar/calculo';
+import { kcalTexto, nutrientesDoItem, quantidadeDoItem, totalDoDia, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
 import type { ItemPlano } from '@/modules/plano-alimentar/tipos';
 import { pacienteDaSessao } from './sessao';
@@ -19,20 +19,31 @@ export const MSG_PLANO_PACIENTE = {
 
 export type SubstituicaoDoPaciente = { id: string; nome: string; quantidade: string; kcal: string | null };
 export type ItemDoPaciente = SubstituicaoDoPaciente & { substituicoes: SubstituicaoDoPaciente[] };
-export type RefeicaoDoPaciente = { id: string; nome: string; horario: string; observacao: string; itens: ItemDoPaciente[]; receita?: { id: string; titulo: string } };
+export type RefeicaoDoPaciente = {
+  id: string;
+  nome: string;
+  horario: string;
+  observacao: string;
+  /** RN-213: "{total} kcal" dos itens principais da refeição; null quando o plano não mostra calorias. */
+  kcal: string | null;
+  itens: ItemDoPaciente[];
+  receita?: { id: string; titulo: string };
+};
 export type PlanoDoPaciente = {
   id: string;
   titulo: string;
   orientacoes: string;
   totalKcal: string | null;
+  /** O plano mostra calorias (a nutricionista escolhe no editor). */
+  mostrarCalorias: boolean;
   refeicoes: RefeicaoDoPaciente[];
   proximaRefeicaoId: string | null;
   pdf: 'pronto' | 'pendente' | 'indisponivel';
 };
 
-/** A primeira refeição a partir de agora (HH:MM no fuso do tenant); depois da última, a primeira do dia seguinte. */
+/** A primeira refeição COM HORÁRIO a partir de agora (HH:MM no fuso do tenant); depois da última, a primeira do dia seguinte. */
 export function proximaRefeicao(horarios: { id: string; horario: string }[], agoraHHMM: string): string | null {
-  const ordem = [...horarios].sort((a, b) => a.horario.localeCompare(b.horario));
+  const ordem = horarios.filter((r) => r.horario).sort((a, b) => a.horario.localeCompare(b.horario));
   return (ordem.find((r) => r.horario >= agoraHHMM) ?? ordem[0])?.id ?? null;
 }
 
@@ -62,12 +73,15 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
   if (!plano) return null;
   const mostrar = plano.mostrarCalorias;
   const refeicoes = [...plano.refeicoes]
-    .sort((a, b) => a.horario.localeCompare(b.horario))
+    // Plano 16: as refeições sem horário vão para o fim (antes, '' < '07:00' as punha no começo)
+    .sort((a, b) => (a.horario === '' ? 1 : 0) - (b.horario === '' ? 1 : 0) || a.horario.localeCompare(b.horario))
     .map((r) => ({
       id: r.id,
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      // RN-213: "Cerca de {total} kcal" na refeição aberta — o total dos itens principais (as substituições não somam)
+      kcal: mostrar ? `${kcalTexto(totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: i.quantidadeG, porCem: i.porCem, substituiItemId: i.substituiItemId }))).kcal)} kcal` : null,
       ...(r.receita?.disponivel ? { receita: { id: r.receita.id, titulo: r.receita.titulo } } : {}),
       itens: r.itens
         .filter((i) => i.substituiItemId === null)
@@ -87,6 +101,7 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
     titulo: plano.titulo,
     orientacoes: plano.orientacoes,
     totalKcal: mostrar ? `${kcalTexto(total.kcal)} kcal` : null,
+    mostrarCalorias: mostrar,
     refeicoes,
     proximaRefeicaoId: proximaRefeicao(refeicoes, partesNoFuso(o.agora ?? new Date(), fuso).hora),
     pdf: plano.pdfStatus === 'pronto' && plano.pdfPath ? 'pronto' : plano.pdfStatus === 'pendente' || plano.pdfStatus === null ? 'pendente' : 'indisponivel',

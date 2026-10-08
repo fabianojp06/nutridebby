@@ -2,18 +2,23 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 // Só a montagem da página: sessão e plano simulados.
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, tenant: { fuso: 'America/Sao_Paulo' }, vinculo: { patientId: '00000000-0000-4000-8000-0000000000a1' } }),
 }));
 vi.mock('@/app/p/moldura', () => ({
   molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
 }));
+const respostas = vi.hoisted(() => vi.fn(async () => new Set<string>()));
+vi.mock('@/modules/portal/diario', () => ({ respostasDeHoje: respostas }));
 vi.mock('@/modules/portal/plano', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/portal/plano')>()),
   planoDoPaciente: async () => ({
     id: 'p1',
     titulo: 'Plano de outubro',
+    orientacoes: '',
     totalKcal: null,
+    mostrarCalorias: false,
     pdf: 'indisponivel',
     proximaRefeicaoId: null,
     refeicoes: [
@@ -21,7 +26,8 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
         id: 'r1',
         nome: 'Almoço',
         horario: '12:00',
-        observacao: null,
+        observacao: '',
+        kcal: null,
         itens: [{ id: 'i1', nome: 'Arroz branco', quantidade: '100 g', kcal: null, substituicoes: [{ id: 's1', nome: 'Batata', quantidade: '150 g', kcal: null }] }],
       },
     ],
@@ -29,10 +35,16 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
 }));
 const { default: MeuPlano } = await import('./page');
 
-describe('/p/plano: substituições (WCAG 2.5.3)', () => {
-  it('o <summary> não tem aria-label: o nome acessível começa pelo texto visível e o "ver substituições" vai em sr-only', async () => {
+describe('/p/plano em sanfona (US-196, F-Plano)', () => {
+  it('cada refeição é um <details> com o h3 "{nome} · {HH:MM}" e o summary sem flex/grid (marcador visível); as trocas escritas; nada do diário na cópia offline', async () => {
     const html = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
-    expect(html).toContain('<summary class="min-h-11 cursor-pointer">Arroz branco — 100 g<span class="sr-only"> (ver substituições)</span></summary>');
-    expect(html).not.toContain('aria-label="Ver substituições');
+    expect(html).toMatch(/<details id="ref-r1"[^>]*><summary[^>]*><h3[^>]*>Almoço · 12:00<\/h3>/);
+    expect(html).not.toMatch(/<summary[^>]*class="[^"]*\b(flex|grid|inline-flex)\b/);
+    expect(html).toContain('ou batata, 150 g');
+    expect(html).not.toContain('No diário'); // §4.8/§10: a cópia offline não guarda o que o paciente comeu hoje
+    expect(respostas).not.toHaveBeenCalled();
+    expect(html).toMatch(/<button[^>]*>Comi assim<\/button>/);
+    expect(html).toContain('href="/p/conteudos"'); // G-D8 ★ = a: Conteúdos dentro de Plano
+    expect(html).toContain('href="/p/compras"');
   });
 });
