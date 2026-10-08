@@ -46,6 +46,24 @@ describe('Jornada (US-194, RN-202, RN-203, RN-206)', () => {
     expect(JSON.stringify(j)).not.toMatch(/kg|IMC/);
   });
 
+  it('duas avaliações no mesmo atendimento: o atendimento mostra a mais recente e a outra vira "Medidas de …"; nenhuma some (§4.5)', () => {
+    // como o banco devolve: data desc, created_at desc (a refeita, 78,6 kg, vem antes da gravada por engano, 87,6 kg)
+    const avaliacoes = [av('a3b', '2026-09-22', 'c3', 78.6, 86), av('a3a', '2026-09-22', 'c3', 87.6, 86), av('a2', '2026-07-15', 'c2', 79.7, 88), av('a1', '2026-03-18', 'c1', 82.8, 92)];
+    const j = montarJornada({ atendimentos: ATENDIMENTOS, avaliacoes, proxima: null, podeAgendar: true, percGordura: false, pesoOculto: false }, AGORA, SP);
+    expect(j.marcos.map((m) => (m.tipo === 'proxima' ? 'próxima' : m.titulo))).toEqual(['22 de setembro', 'Medidas de 22 de setembro', '15 de julho', '18 de março']);
+    expect(j.marcos[0]).toMatchObject({ tipo: 'atendimento', medidas: [{ id: 'peso', texto: '78,6 kg' }, { id: 'circ_cintura', texto: 'cintura 86 cm' }] });
+    expect(j.marcos[1]).toMatchObject({ tipo: 'medidas', medidas: [{ id: 'peso', texto: '87,6 kg' }, { id: 'circ_cintura', texto: 'cintura 86 cm' }] });
+    // toda avaliação está em um marco, e só em um: os pesos dos marcos são os do gráfico
+    const pesosDosMarcos = j.marcos.flatMap((m) => (m.tipo === 'proxima' ? [] : m.medidas.filter((x) => x.id === 'peso').map((x) => x.texto)));
+    expect(pesosDosMarcos).toHaveLength(avaliacoes.length);
+    expect([...pesosDosMarcos].sort()).toEqual(j.grafico!.pontos.map((p) => `${String(p.valor).replace('.', ',')} kg`).sort());
+    // a avaliação de data maior vence mesmo fora da ordem da entrada
+    const foraDeOrdem = [av('x1', '2026-09-20', 'c3', 80, 86), av('x2', '2026-09-22', 'c3', 79, 86)];
+    const k = montarJornada({ atendimentos: ATENDIMENTOS, avaliacoes: foraDeOrdem, proxima: null, podeAgendar: true, percGordura: false, pesoOculto: false }, AGORA, SP);
+    expect(k.marcos.find((m) => m.tipo === 'atendimento' && m.titulo === '22 de setembro')).toMatchObject({ medidas: [{ id: 'peso', texto: '79 kg' }, { id: 'circ_cintura', texto: 'cintura 86 cm' }] });
+    expect(k.marcos.filter((m) => m.tipo === 'medidas').map((m) => m.titulo)).toEqual(['Medidas de 20 de setembro']);
+  });
+
   it('peso visível com 1 peso e 2 cinturas: o gráfico vira "Cintura nas consultas" (§4.5)', () => {
     const avaliacoes = [av('a1', '2026-03-18', 'c1', 82.8, 92), av('a2', '2026-07-15', 'c2', null, 88)];
     const j = montarJornada({ atendimentos: ATENDIMENTOS, avaliacoes, proxima: null, podeAgendar: true, percGordura: false, pesoOculto: false }, AGORA, SP);

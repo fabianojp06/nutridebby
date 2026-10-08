@@ -75,15 +75,23 @@ export function montarJornada(e: EntradaDaJornada, agora: Date, fuso: string): J
   const atendimentosAsc = [...e.atendimentos].sort((a, b) => a.data.localeCompare(b.data));
   const primeira = atendimentosAsc[0]?.id ?? null;
   const ids = new Set(e.atendimentos.map((a) => a.id));
-  const porAtendimento = new Map(e.avaliacoes.flatMap((a) => (a.consultationId && ids.has(a.consultationId) ? [[a.consultationId, a] as const] : [])));
+  // §4.5: cada atendimento mostra a avaliação MAIS RECENTE ligada a ele (data maior; empate, a primeira da entrada, que vem
+  // por data desc, created_at desc). O banco aceita várias no mesmo atendimento (refeita para corrigir um número, ou duas
+  // medições): as outras viram marco "Medidas de …" — nenhuma avaliação some da linha do tempo, como no gráfico.
+  const porAtendimento = new Map<string, AvaliacaoDaJornada>();
+  for (const a of e.avaliacoes) {
+    if (!a.consultationId || !ids.has(a.consultationId)) continue;
+    const atual = porAtendimento.get(a.consultationId);
+    if (!atual || a.data > atual.data) porAtendimento.set(a.consultationId, a);
+  }
   const passados: Exclude<Marco, { tipo: 'proxima' }>[] = [
     ...e.atendimentos.map((a) => {
       const avaliacao = porAtendimento.get(a.id);
       return { tipo: 'atendimento' as const, data: a.data, titulo: dataPorExtenso(a.data, hoje), primeira: a.id === primeira, medidas: avaliacao ? medidasDaAvaliacao(avaliacao, e) : [], orientacao: a.orientacao };
     }),
-    // avaliação sem atendimento (ou de atendimento que o paciente não vê) vira um marco próprio
+    // avaliação sem atendimento (ou de atendimento que o paciente não vê, ou não a mais recente do atendimento) vira um marco próprio
     ...e.avaliacoes
-      .filter((a) => !a.consultationId || !ids.has(a.consultationId))
+      .filter((a) => !a.consultationId || porAtendimento.get(a.consultationId) !== a)
       .map((a) => ({ tipo: 'medidas' as const, data: a.data, titulo: MSG_JORNADA.medidasDe(dataPorExtenso(a.data, hoje)), medidas: medidasDaAvaliacao(a, e) })),
   ].sort((a, b) => b.data.localeCompare(a.data));
   const proxima: Marco[] = e.proxima
