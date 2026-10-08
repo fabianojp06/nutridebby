@@ -63,7 +63,7 @@ eles aparecem no deploy (runbook do Plano 13 em `docs/operacao/go-live.md`, pass
 | `parecer-exames.ts` (Plano 13) | `copiarExames` (a cópia dos exames do próprio paciente, na transação de quem chama) e `situacaoDosExames` (`igual`/`mudou`/`excluido`, sem `auditRead`, D-P2) | `documentos.ts`, página do documento |
 | `documentos.ts` | Ciclo do rascunho ao preparo: `criarReceita`, `criarParecer` (Plano 13), `salvarRascunhoReceita`, `salvarRascunhoParecer` (Plano 13), `apagarRascunho`, `prepararParaAssinatura` (por tipo; enfileira `documento-pdf`), `voltarAEditar`, `pedirNovoPdfDocumento`, `listarDocumentos` (sem `auditRead`), `lerDocumento` (com `auditRead`; com `versoes`, `motivoRetificacao`, `substituidoEm` desde o Plano 13), `estadoDoDocumento`, `caminhoDoPdfNoPainel` (com `auditRead`), `contarAguardandoAssinatura`, `RESET_PREPARO` | Painel, rotas |
 | `retificacao.ts` (Plano 13) | `retificarDocumento` (US-148), `retificacaoEmAndamento`, `lerMotivoRetificacao` (Q13-1) | Painel, `cancelamento.ts` |
-| `arquivos-do-preparo.ts` | `soltarArquivosDoPreparo` (apaga fotos e base um a um, cada ponteiro no `naMesmaTransacao` do próprio `apagarArquivo`) e `travarDocumentoAntesDaCota` (ordem de travas documento → tenant; numa retificação, original → versão nova → tenant, D-P1). Sem sessão | Painel, worker |
+| `arquivos-do-preparo.ts` | `soltarArquivosDoPreparo` (apaga fotos e base um a um, cada ponteiro no `naMesmaTransacao` do próprio `apagarArquivo`) e `travarDocumentoAntesDaCota` (ordem de travas paciente → documento → tenant; na assinatura de uma retificação, paciente → original → versão nova → tenant, D-P1 e P13-16 a). Sem sessão | Painel, worker |
 | `documento-pdf.tsx`* · `documento-pdf-job.ts`* | PDF preparado (`renderizarDocumento`: corpo da receita ou do parecer pelo `conteudo.tipo`, título `TIPO_DOCUMENTO_ROTULO`, linha da versão numa retificação) e o job `gerarPdfDoDocumento`; as varreduras `expirarPdfsDeDocumentoPendentes` e `limparArquivosOrfaosDeDocumentos` | Só o worker |
 | `digitalizada.ts` | `receberDigitalizada` (envio das fotos + 2FA, D24), `MSG_DIGITALIZADA` | Rota da digitalizada |
 | `digitalizada-job.tsx`* | `montarPdfDigitalizado` (normaliza as fotos, monta o PDF, assina; título do PDF "{tipo} (digitalizada)" pela coluna `tipo`, R2 do Plano 13) | Só o worker |
@@ -463,10 +463,13 @@ Ordem única, para não haver deadlock entre assinar a versão nova e cancelar o
 |---|---|
 | `retificarDocumento` | paciente → original (`FOR UPDATE`) → INSERT da versão nova (o gatilho lê a original `FOR SHARE`, já travada) |
 | `cancelarDocumento` | paciente → documento (era assim no 10A) → `retificacaoEmAndamento` |
-| Todo `salvarArquivo` de uma retificação (PDF base, fotos, PDF assinado) | `antesDaReserva`: paciente (nos jobs) → `travarDocumentoAntesDaCota`: original (se `retifica_id`) → versão nova → reserva da cota (tenant) → `registrar` (no PDF assinado, `registrarAssinatura` com o UPDATE da original já travada) |
+| Todo `salvarArquivo` de um documento (PDF base, fotos, PDF assinado) | `antesDaReserva` = `travarDocumentoAntesDaCota`: paciente (`FOR NO KEY UPDATE`, reconferido bloqueado/anonimizado) → original (só com `original: true`, no PDF assinado, se `retifica_id`) → versão nova (`FOR NO KEY UPDATE`) → reserva da cota (tenant) → `registrar` (no PDF assinado, `registrarAssinatura` com o UPDATE da original já travada) |
 
 O teste "ordem de travas (D-P1)" de `retificacao.test.ts` fica vermelho se `travarDocumentoAntesDaCota` deixar de travar
-a original (mutação conferida na T7). Risco R3 do plano: monitorar `40P01` no log nas primeiras semanas.
+a original (mutação conferida na T7). O paciente vem primeiro também no envio das fotos (code review do PR #27, P13-16 a):
+o INSERT em `stored_files` pede `FOR KEY SHARE` no paciente (FK), e travar a original sem ele fechava ciclo com o
+cancelamento e a retificação da original (`40P01`) — teste "fotos da versão nova × cancelar/retificar a original". No PDF
+base e nas fotos a original não muda e não é travada. Risco R3 do plano: monitorar `40P01` no log nas primeiras semanas.
 
 ### 9.11.6 Exportação e anonimização (US-150)
 
@@ -524,7 +527,7 @@ a original (mutação conferida na T7). Risco R3 do plano: monitorar `40P01` no 
 | 4 | Avisos de exame no cartão do conteúdo, abaixo de cada exame; "Voltar a editar" e "Retificar" nos cartões de sempre | `[docId]/page.tsx`, `aviso-exame.tsx` |
 | 5 | `copia.retificacao` (`{ versao, substitui }`) congelada no preparo | `prepararParaAssinatura` |
 | 6 | A retificação da receita copia a justificativa de uso para a nota da versão nova | `retificarDocumento` |
-| 7 | `travarDocumentoAntesDaCota` trava a original antes da versão nova (D-P1) | `arquivos-do-preparo.ts` |
+| 7 | `travarDocumentoAntesDaCota` trava o paciente e, na assinatura, a original antes da versão nova (D-P1, P13-16 a) | `arquivos-do-preparo.ts` |
 | 8 | `/admin`: depois de uma ação, o redirecionamento volta à primeira página, sem a busca | `src/app/admin/actions.ts` (backlog) |
 | 9 | Textos novos ou "(proposto)" da spec, rascunho até a Debby (lista no plano) | constantes, telas, guia `documentos` v2 |
 | 10 | Exame excluído na seleção do editor: aviso acima da lista e não marcado; o servidor recusa com a mesma mensagem | `parecer-form.tsx`, `copiarExames` |
