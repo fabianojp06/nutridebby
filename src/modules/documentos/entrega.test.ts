@@ -81,7 +81,7 @@ describe('entrega (US-145, RN-152, RN-153)', () => {
   });
 
   it('a situação da D4: aberto sem recebido; recebido pelo portal ou pelo link', () => {
-    const base = { id: randomUUID(), tipo: 'receita' as const, status: 'assinado' as const, codigo: 'X', createdAt: new Date(), assinadoEm: new Date(), assinaturaTipo: 'digitalizada' as const, pdfStatus: null, entregueEm: new Date('2026-10-05T15:00:00Z') };
+    const base = { id: randomUUID(), tipo: 'receita' as const, versao: 1, status: 'assinado' as const, codigo: 'X', createdAt: new Date(), assinadoEm: new Date(), assinaturaTipo: 'digitalizada' as const, pdfStatus: null, entregueEm: new Date('2026-10-05T15:00:00Z') };
     const em = new Date('2026-10-06T13:30:00Z');
     expect(situacaoDaEntrega({ ...base, recibos: [{ evento: 'aberto', via: 'link_email', em }] }, 'America/Sao_Paulo')).toBe('Aberto em 06/10/2026 · recebimento não confirmado');
     expect(situacaoDaEntrega({ ...base, recibos: [{ evento: 'aberto', via: 'portal', em }, { evento: 'recebido', via: 'portal', em }] }, 'America/Sao_Paulo')).toBe('Recebido pelo paciente em 06/10/2026 às 10:30');

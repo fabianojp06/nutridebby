@@ -44,8 +44,8 @@ describe('ciclo do documento (US-142, US-143)', () => {
     await salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD], orientacoes: 'Tomar com água.' }, justificativa: 'Exposição solar baixa' }, { db: app.db });
     const lista = await listarDocumentos(T.ctx, p.id, app.db);
     expect(lista).toMatchObject([{ id, status: 'rascunho', tipo: 'receita' }]);
-    // D17 / regra 8 do CLAUDE.md: a lista não audita porque não devolve conteúdo — só estas chaves (nada de itens, orientações ou justificativa)
-    expect(Object.keys(lista[0]).sort()).toEqual(['assinadoEm', 'assinaturaTipo', 'codigo', 'createdAt', 'entregueEm', 'id', 'pdfStatus', 'recibos', 'status', 'tipo']);
+    // D17 / regra 8 do CLAUDE.md: a lista não audita porque não devolve conteúdo — só estas chaves (Plano 13: + versão; nada de itens, orientações ou justificativa)
+    expect(Object.keys(lista[0]).sort()).toEqual(['assinadoEm', 'assinaturaTipo', 'codigo', 'createdAt', 'entregueEm', 'id', 'pdfStatus', 'recibos', 'status', 'tipo', 'versao']);
     const d = await lerDocumento(T.ctx, p.id, id, app.db);
     expect(d).toMatchObject({ status: 'rascunho', justificativa: 'Exposição solar baixa', conteudo: { itens: [{ tipo: 'suplemento' }], orientacoes: 'Tomar com água.' } });
     const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select acao from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
@@ -193,7 +193,7 @@ describe('ciclo do documento (US-142, US-143)', () => {
 });
 
 describe('situacaoNoPainel (linha da situação na lista)', () => {
-  const base: ItemLista = { id: 'x', tipo: 'receita', status: 'rascunho', codigo: null, createdAt: new Date('2026-10-01T12:00:00Z'), assinadoEm: null, assinaturaTipo: null, pdfStatus: null, entregueEm: null, recibos: [] };
+  const base: ItemLista = { id: 'x', tipo: 'receita', versao: 1, status: 'rascunho', codigo: null, createdAt: new Date('2026-10-01T12:00:00Z'), assinadoEm: null, assinaturaTipo: null, pdfStatus: null, entregueEm: null, recibos: [] };
   it('preparo com falha ou sem cota tem a mensagem própria; assinado mostra data e hora no fuso; o resto, nada', () => {
     const fuso = 'America/Sao_Paulo';
     expect(situacaoNoPainel(base, fuso)).toBe('');

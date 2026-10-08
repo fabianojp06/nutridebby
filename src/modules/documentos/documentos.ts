@@ -11,23 +11,26 @@ import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenam
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
-import { DECLARACAO_RECEITA, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type ViaRecibo } from './constantes';
+import { DECLARACAO_POR_TIPO, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
+import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
+import { copiarExames } from './parecer-exames';
 import { copiaDoPerfil } from './perfil-profissional';
 import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
 
 export type Recibo = { evento: EventoRecibo; via: ViaRecibo; em: Date };
 export type ItemLista = {
-  id: string; tipo: 'receita'; status: StatusDocumento; codigo: string | null; createdAt: Date; assinadoEm: Date | null;
+  id: string; tipo: TipoDocumento; versao: number; status: StatusDocumento; codigo: string | null; createdAt: Date; assinadoEm: Date | null;
   assinaturaTipo: TipoAssinatura | null; pdfStatus: string | null; entregueEm: Date | null; recibos: Recibo[];
 };
 export type DocumentoLido = ItemLista & {
-  conteudo: ConteudoReceita; justificativa: string | null; motivoCancelamento: string | null; assinanteNome: string | null;
+  conteudo: ConteudoDocumento; justificativa: string | null; motivoCancelamento: string | null; assinanteNome: string | null;
   basePdfPath: string | null; pdfPath: string | null; pdfSha256: string | null; digitalizacaoStatus: string | null; digitalizacaoEm: Date | null;
   anonimizadoEm: Date | null; canceladoEm: Date | null;
 };
 
 const CONTEUDO_VAZIO: ConteudoReceita = { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
+const PARECER_VAZIO: ConteudoParecer = { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
 
 /** Trava o documento do paciente (FOR UPDATE) num dos estados pedidos; outro estado → TransicaoInvalidaError. */
 async function travarDocumento(tx: Tx, patientId: string, docId: string, estados: readonly StatusDocumento[]) {
@@ -38,15 +41,20 @@ async function travarDocumento(tx: Tx, patientId: string, docId: string, estados
   return d;
 }
 
-/** US-142: "Nova receita" — o rascunho vazio e a nota (a justificativa fica fora do conteúdo, D15 da spec). */
-export async function criarReceita(ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> {
+/** US-142 / US-141: o rascunho vazio e a nota (justificativa, motivos: fora do conteúdo, D15 da spec). */
+async function criarDocumento(ctx: TenantContext, patientId: string, conteudo: ConteudoDocumento, db: Db): Promise<string> {
   return withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
-    const [d] = await tx.insert(signedDocuments).values({ tenantId: ctx.tenantId, patientId, tipo: 'receita', conteudo: CONTEUDO_VAZIO }).returning({ id: signedDocuments.id });
+    const [d] = await tx.insert(signedDocuments).values({ tenantId: ctx.tenantId, patientId, tipo: conteudo.tipo, conteudo }).returning({ id: signedDocuments.id });
     await tx.insert(signedDocumentNotes).values({ tenantId: ctx.tenantId, patientId, documentoId: d.id });
     return d.id;
-  }, deps.db ?? getDb());
+  }, db);
 }
+
+/** US-142: "Nova receita". */
+export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, CONTEUDO_VAZIO, deps.db ?? getDb());
+/** US-141: "Novo parecer nutricional". */
+export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, PARECER_VAZIO, deps.db ?? getDb());
 
 /** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
 export async function salvarRascunhoReceita(
@@ -57,9 +65,26 @@ export async function salvarRascunhoReceita(
   if (j.length > 2000) throw new DocumentoError({ justificativa: 'Use no máximo 2000 caracteres.' });
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
-    await travarDocumento(tx, patientId, docId, ['rascunho']);
+    const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    if (d.tipo !== 'receita') throw new TransicaoInvalidaError(); // o editor da receita não grava num parecer
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
     await tx.update(signedDocumentNotes).set({ justificativaUso: j || null, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
+  }, deps.db ?? getDb());
+}
+
+/**
+ * US-141 "Rascunho salvo." — valida (D-P4: incompleto vale no rascunho) e REFAZ a cópia dos exames escolhidos (RN-148):
+ * linhas acrescentadas pela IA ou data trocada entram a cada salvamento. Ordem de travas: paciente → documento.
+ */
+export async function salvarRascunhoParecer(ctx: TenantContext, patientId: string, docId: string, input: { conteudo: unknown }, deps: { db?: Db } = {}): Promise<void> {
+  const r = validarRascunhoParecer(input.conteudo);
+  await withTenant(ctx, async (tx) => {
+    await carregarPacienteParaEscrita(tx, patientId);
+    const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    if (d.tipo !== 'parecer') throw new TransicaoInvalidaError();
+    const exames = await copiarExames(tx, patientId, r.exameIds);
+    const conteudo: ConteudoParecer = { versao: 1, tipo: 'parecer', exames, avaliacao: r.avaliacao, conduta: r.conduta, encaminhamentos: r.encaminhamentos };
+    await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
   }, deps.db ?? getDb());
 }
 
@@ -72,8 +97,9 @@ export async function apagarRascunho(ctx: TenantContext, patientId: string, docI
 }
 
 /**
- * US-143: declaração (D5) + perfil completo + justificativa → congela a cópia (RN-154), gera o código (RN-142) e enfileira o
- * PDF na mesma transação (o job só existe se a transação confirmar).
+ * US-143 / US-141: declaração do tipo (D5) + perfil completo + (receita) justificativa ou (parecer) exames e avaliação →
+ * congela a cópia (RN-154; no parecer, a última cópia dos exames, RN-148), gera o código (RN-142) e enfileira o PDF na mesma
+ * transação (o job só existe se a transação confirmar).
  */
 export async function prepararParaAssinatura(
   ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { declaracao: unknown }, deps: { db?: Db; boss?: PgBoss; agora?: Date } = {},
@@ -86,15 +112,25 @@ export async function prepararParaAssinatura(
     const paciente = await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
     const [nota] = await tx.select({ j: signedDocumentNotes.justificativaUso }).from(signedDocumentNotes).where(eq(signedDocumentNotes.documentoId, docId));
-    const conteudo = d.conteudo as ConteudoReceita;
-    validarParaPreparar(conteudo, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
+    const tipo = d.tipo as TipoDocumento;
+    let conteudo: ConteudoDocumento;
+    if (tipo === 'parecer') {
+      const c = d.conteudo as ConteudoParecer;
+      validarParecerParaPreparar(c);
+      // RN-148: a cópia "por último, ao preparar" — o que a IA acrescentou depois do último salvar entra; excluído → erro
+      conteudo = { ...c, exames: await copiarExames(tx, patientId, c.exames.map((e) => e.id)) };
+    } else {
+      const c = d.conteudo as ConteudoReceita;
+      validarParaPreparar(c, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
+      conteudo = c;
+    }
     await tx
       .update(signedDocuments)
       .set({
         status: 'preparando',
         codigo: gerarCodigo(),
         declaracaoEm: agora,
-        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome } }, declaracao: DECLARACAO_RECEITA },
+        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome } }, declaracao: DECLARACAO_POR_TIPO[tipo] },
         pdfStatus: 'pendente',
         pdfPedidoEm: agora,
         updatedAt: agora,
@@ -175,7 +211,7 @@ async function recibosDe(tx: Tx, ids: string[]): Promise<Map<string, Recibo[]>> 
 }
 
 const comoItem = (d: typeof signedDocuments.$inferSelect, recibos: Recibo[]): ItemLista => ({
-  id: d.id, tipo: 'receita', status: d.status as StatusDocumento, codigo: d.codigo, createdAt: d.createdAt, assinadoEm: d.assinadoEm,
+  id: d.id, tipo: d.tipo as TipoDocumento, versao: d.versao, status: d.status as StatusDocumento, codigo: d.codigo, createdAt: d.createdAt, assinadoEm: d.assinadoEm,
   assinaturaTipo: d.assinaturaTipo as TipoAssinatura | null, pdfStatus: d.pdfStatus, entregueEm: d.entregueEm, recibos,
 });
 
@@ -205,7 +241,7 @@ export async function lerDocumentoNaTransacao(tx: Tx, id: string, o: { auditar: 
   if (o.auditar) await auditRead(tx, { entidade: 'documentos', entidadeId: id, patientId: d.patientId });
   return {
     ...comoItem(d, rs.get(id) ?? []),
-    conteudo: d.conteudo as ConteudoReceita, justificativa: n?.justificativaUso ?? null, motivoCancelamento: n?.motivoCancelamento ?? null,
+    conteudo: d.conteudo as ConteudoDocumento, justificativa: n?.justificativaUso ?? null, motivoCancelamento: n?.motivoCancelamento ?? null,
     assinanteNome: d.assinanteNome, basePdfPath: d.basePdfPath, pdfPath: d.pdfPath, pdfSha256: d.pdfSha256, digitalizacaoStatus: d.digitalizacaoStatus, digitalizacaoEm: d.digitalizacaoEm,
     anonimizadoEm: d.anonimizadoEm, canceladoEm: d.canceladoEm,
   };
