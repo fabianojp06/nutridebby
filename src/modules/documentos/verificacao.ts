@@ -3,14 +3,14 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { documentVerifications } from '@/db/schema';
 import { chaveDoLimite, consumirLimite } from '@/modules/agenda/limite-ip';
 import { normalizarCodigo } from './codigo';
-import { ROTULO_ASSINATURA, type SituacaoVerificacao, type TipoAssinatura } from './constantes';
+import { ROTULO_ASSINATURA, TIPO_DOCUMENTO_ROTULO, type SituacaoVerificacao, type TipoAssinatura, type TipoDocumento } from './constantes';
 
 /**
  * RN-156: ÚNICO arquivo que toca `document_verifications` (fora da RLS; guarda em verificacao.test.ts). Sem dado do
  * paciente nem de saúde. A linha nasce na assinatura e só a situação muda depois (privilégio por coluna, 0090).
  */
 export type NovaVerificacao = {
-  codigo: string; tenantId: string; documentoId: string; tipo: 'receita'; assinadoEm: Date; emissorNome: string; emissorCrn: string;
+  codigo: string; tenantId: string; documentoId: string; tipo: TipoDocumento; assinadoEm: Date; emissorNome: string; emissorCrn: string;
   assinanteNome: string | null; assinaturaTipo: TipoAssinatura; pdfSha256: string;
 };
 
@@ -33,9 +33,9 @@ export const MSG_VERIFICACAO = {
 } as const;
 export const LIMITE_VERIFICACAO_HORA = 30;
 
-/** D8: o que a página pública mostra — nada do paciente nem do conteúdo. */
+/** D8: o que a página pública mostra — nada do paciente nem do conteúdo (Plano 13: do parecer, só o tipo). */
 export type VerificacaoPublica = {
-  codigo: string; tipo: 'Receita'; situacao: SituacaoVerificacao; situacaoEm: Date; assinadoEm: Date; emissorNome: string; emissorCrn: string;
+  codigo: string; tipo: (typeof TIPO_DOCUMENTO_ROTULO)[TipoDocumento]; situacao: SituacaoVerificacao; situacaoEm: Date; assinadoEm: Date; emissorNome: string; emissorCrn: string;
   assinanteNome: string | null; assinatura: string; sha256: string;
 };
 export type ResultadoVerificacao = { tipo: 'limite' } | { tipo: 'nao_encontrado' } | { tipo: 'ok'; v: VerificacaoPublica };
@@ -56,7 +56,7 @@ export async function consultarVerificacao(codigoBruto: unknown, deps: { db?: Db
   const d = documentVerifications;
   const [v] = await db
     .select({
-      situacao: d.situacao, situacaoEm: d.situacaoEm, assinadoEm: d.assinadoEm, emissorNome: d.emissorNome, emissorCrn: d.emissorCrn,
+      tipo: d.tipo, situacao: d.situacao, situacaoEm: d.situacaoEm, assinadoEm: d.assinadoEm, emissorNome: d.emissorNome, emissorCrn: d.emissorCrn,
       assinanteNome: d.assinanteNome, assinaturaTipo: d.assinaturaTipo, pdfSha256: d.pdfSha256,
     })
     .from(d)
@@ -65,7 +65,7 @@ export async function consultarVerificacao(codigoBruto: unknown, deps: { db?: Db
   return {
     tipo: 'ok',
     v: {
-      codigo, tipo: 'Receita', situacao: v.situacao as SituacaoVerificacao, situacaoEm: v.situacaoEm, assinadoEm: v.assinadoEm, emissorNome: v.emissorNome,
+      codigo, tipo: TIPO_DOCUMENTO_ROTULO[v.tipo as TipoDocumento], situacao: v.situacao as SituacaoVerificacao, situacaoEm: v.situacaoEm, assinadoEm: v.assinadoEm, emissorNome: v.emissorNome,
       emissorCrn: v.emissorCrn, assinanteNome: v.assinanteNome, assinatura: ROTULO_ASSINATURA[v.assinaturaTipo as TipoAssinatura], sha256: v.pdfSha256,
     },
   };

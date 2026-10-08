@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
+import { documentoNoBanco, liberarDocumentos, retificacaoAssinadaNoBanco } from '../../../test/documentos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
 import { linhaDaAssinatura } from './constantes';
@@ -29,7 +29,7 @@ describe('documentos no portal (US-146)', () => {
     const lista = await documentosDoPaciente(ctx, app.db);
     expect(lista.map((d) => d.id).sort()).toEqual([a.id, c.id].sort());
     // D17 / regra 8 do CLAUDE.md: a lista não audita porque não devolve conteúdo — só estas chaves
-    expect(Object.keys(lista[0]).sort()).toEqual(['aberto', 'assinaturaTipo', 'data', 'id', 'recebidoEm', 'status', 'titulo']);
+    expect(Object.keys(lista[0]).sort()).toEqual(['aberto', 'assinaturaTipo', 'data', 'id', 'recebidoEm', 'status', 'tipo', 'titulo', 'versao']);
     expect(await novosNoPortal(ctx, app.db)).toBe(1); // o assinado ainda não aberto (o cancelado não conta)
     const audit = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where entidade = 'documentos' and acao = 'ler'`), app.db);
     expect(audit.rows).toEqual([]);
@@ -46,6 +46,21 @@ describe('documentos no portal (US-146)', () => {
     expect(await confirmarRecebimentoNoPortal(ctx, a.id, app.db)).toBeNull();
     const recibos = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from signed_document_receipts where documento_id = ${a.id}`), app.db);
     expect(recibos.rows).toEqual([]);
+  });
+
+  it('Plano 13 (US-146 v0.5): parecer com o título dele; a versão 1 substituída e a 2 vigente aparecem as duas, cada uma com a sua versão', async () => {
+    const T = await consultorioLiberado();
+    const p = await novoPaciente(app.db, T.ctx);
+    const v1 = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'parecer' });
+    const v2 = await retificacaoAssinadaNoBanco(app.db, T.ctx, p.id, { id: v1.id, versao: 1 }, { tipo: 'parecer' });
+    const lista = await documentosDoPaciente(ctxPaciente(T.tenantId, p.id), app.db);
+    expect(lista.map((d) => ({ id: d.id, tipo: d.tipo, titulo: d.titulo, versao: d.versao, status: d.status })).sort((a, b) => a.versao - b.versao)).toEqual([
+      { id: v1.id, tipo: 'parecer', titulo: 'Parecer nutricional', versao: 1, status: 'substituido' },
+      { id: v2.id, tipo: 'parecer', titulo: 'Parecer nutricional', versao: 2, status: 'assinado' },
+    ]);
+    // o substituído não conta como novo (só "assinado" não aberto) e não confirma recebimento
+    expect(await novosNoPortal(ctxPaciente(T.tenantId, p.id), app.db)).toBe(1);
+    expect(await confirmarRecebimentoNoPortal(ctxPaciente(T.tenantId, p.id), v1.id, app.db)).toBeNull();
   });
 
   it('RN-157: a digitalizada aparece como "Assinatura: Digitalizado" (o Plano 10B acrescenta o caso do gov.br)', async () => {

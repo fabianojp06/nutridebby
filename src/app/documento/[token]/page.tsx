@@ -3,6 +3,7 @@ import { cookies, headers } from 'next/headers';
 import { Aviso } from '@/components/ui/aviso';
 import { getEnv } from '@/env';
 import { clientIp, clientIpDoLimite } from '@/lib/ip';
+import { rotuloDaVersao } from '@/modules/documentos/constantes';
 import { estadoDoLink, MSG_LINK, NOME_COOKIE_LINK } from '@/modules/documentos/link-documento';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { CodigoForm } from './codigo-form';
@@ -26,7 +27,7 @@ export default async function DocumentoPeloLink({ params }: PageProps<'/document
       {estado.tipo === 'pedir_codigo' && <CodigoForm token={token} siteKey={env.TURNSTILE_SITE_KEY} />}
       {estado.tipo === 'aberto' && (
         <section aria-labelledby="documento" className="space-y-3 rounded-2xl border border-borda bg-cartao p-4">
-          <h2 id="documento" className="font-semibold">{`${estado.titulo} · ${formatarData(hojeNoFuso('America/Sao_Paulo', estado.data))}`}</h2>
+          <h2 id="documento" className="font-semibold">{`${estado.titulo} · ${formatarData(hojeNoFuso('America/Sao_Paulo', estado.data))}${estado.versao > 1 ? ` · ${rotuloDaVersao(estado.versao)}` : ''}`}</h2>
           <a href={`/api/documento/${token}/pdf`} className="inline-flex min-h-11 items-center text-link underline">
             Abrir PDF
           </a>

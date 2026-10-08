@@ -94,6 +94,11 @@ describe('registrarAssinatura (RN-140 b, RN-143, RN-156)', () => {
     expect(() => exigirHabilitacaoAtual({ fitoterapiaRegistro: null }, { versao: 1, tipo: 'receita', orientacoes: '', itens: [] })).not.toThrow();
   });
 
+  it('Plano 13: a verificação grava o tipo real do documento (parecer)', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db, { tipo: 'parecer' });
+    await assinarNoBanco(x, { codigo: x.codigo, baseSha256: x.baseSha256 });
+    expect((await app.db.execute(sql`select tipo from document_verifications where codigo = ${x.codigo}`)).rows).toEqual([{ tipo: 'parecer' }]);
+  });
   it('D23: registrar-assinatura.ts não puxa sessão, nem pelos imports dos imports (o worker da digitalizada o importa)', () => {
     const fonte = readFileSync('src/modules/documentos/registrar-assinatura.ts', 'utf8');
     expect(fonte).not.toMatch(/@\/lib\/auth|confirmar-2fa|tenant-session|from 'next\//);

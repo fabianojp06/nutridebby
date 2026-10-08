@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
+import { documentoNoBanco, liberarDocumentos, retificacaoAssinadaNoBanco } from '../../../test/documentos';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -17,11 +17,11 @@ let ip = 0;
 const deps = (agora = new Date()) => ({ db: app.db, agora, ip: `198.51.100.${++ip % 250}`, ipDoLimite: `198.51.100.${ip % 250}`, verificarTurnstile: async () => 'ok' as const, appUrl: 'https://x' });
 
 /** `liberado`: o interruptor do admin (D20); o novoTenant nasce desligado, como em produção. */
-async function cenario(o: { liberado?: boolean } = {}) {
+async function cenario(o: { liberado?: boolean; tipo?: 'receita' | 'parecer' } = {}) {
   const T = await novoTenant(app.db);
   if (o.liberado !== false) await liberarDocumentos(app.db, T.tenantId);
   const p = await novoPaciente(app.db, T.ctx);
-  const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
+  const d = await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: o.tipo });
   const token = assinarLinkDocumento({ tenantId: T.tenantId, patientId: p.id, documentoId: d.id, emitidoEm: new Date(), email: p.email });
   return { T, p, d, token };
 }
@@ -43,6 +43,15 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     // regra 8 / RNF-142: a abertura pelo link é uma leitura auditada, sem ator (D20 do Plano 05)
     const a = await withTenant(x.T.ctx, (tx) => tx.execute(sql`select actor_user_id, patient_id from audit_log where acao = 'ler' and entidade = 'documentos' and entidade_id = ${x.d.id}`), app.db);
     expect(a.rows).toEqual([{ actor_user_id: null, patient_id: x.p.id }]);
+  });
+
+  it('Plano 13: o parecer abre com o título dele e a versão; substituído por uma retificação, o link fica "não está mais disponível" (RN-158)', async () => {
+    const x = await cenario({ tipo: 'parecer' });
+    await pedirCodigoDocumento(x.token, { turnstile: 't' }, deps());
+    const { sessao } = await confirmarCodigoDocumento(x.token, { codigo: await ultimoCodigo(x.p.email) }, deps());
+    expect(await estadoDoLink(x.token, sessao, deps())).toMatchObject({ tipo: 'aberto', titulo: 'Parecer nutricional', versao: 1 });
+    await retificacaoAssinadaNoBanco(app.db, x.T.ctx, x.p.id, { id: x.d.id, versao: 1 }, { tipo: 'parecer' });
+    expect(await estadoDoLink(x.token, sessao, deps())).toEqual({ tipo: 'indisponivel' });
   });
 
   it('limites: 1 código por minuto e 5 por hora por documento; 5 erros invalidam o código', async () => {

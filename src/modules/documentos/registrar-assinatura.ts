@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
 import { signedDocuments, type TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
-import type { TipoAssinatura } from './constantes';
+import type { TipoAssinatura, TipoDocumento } from './constantes';
 import { entregarDocumento } from './entrega';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import type { CopiaProfissional } from './perfil-profissional';
@@ -71,10 +71,10 @@ export async function registrarAssinatura(tx: Tx, a: AssinaturaAceita): Promise<
       digitalizacaoStatus: null, digitalizacaoEm: null, updatedAt: a.agora,
     })
     .where(and(eq(signedDocuments.id, a.documentoId), eq(signedDocuments.status, 'aguardando_assinatura'), eq(signedDocuments.codigo, a.versao.codigo), daVersao))
-    .returning({ id: signedDocuments.id });
+    .returning({ id: signedDocuments.id, tipo: signedDocuments.tipo });
   if (!r.length) throw new TransicaoInvalidaError(); // outra versão no meio (ou já assinado): o salvarArquivo desfaz tudo
   await registrarVerificacao(tx, {
-    codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: 'receita', assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
+    codigo: a.codigo, tenantId: a.tenantId, documentoId: a.documentoId, tipo: r[0].tipo as TipoDocumento, assinadoEm: a.agora, emissorNome: a.copia.nomeCompleto,
     emissorCrn: a.copia.crn, assinanteNome: a.tipo === 'digitalizada' ? null : a.assinanteNome, assinaturaTipo: a.tipo, pdfSha256: a.sha256,
   });
   // RN-152/RN-153: a entrega na mesma transação; `entregue_em` só quando houve entrega de fato (Minor da revisão de
