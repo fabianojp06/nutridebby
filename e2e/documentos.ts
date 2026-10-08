@@ -13,6 +13,7 @@ export const DOCS = { email: 'docs-e2e@nutridebby.test', senha: 'Nutri2026segura
 const totp = new TOTP({ secret: Secret.fromUTF8(DOCS.totp), digits: 6, period: 30 });
 const PERIODO_MS = 30_000;
 const MSG_CODIGO_RECUSADO = 'Código inválido. Confira o horário do celular e tente de novo.'; // MSG_RECUSA.codigo_2fa
+const MSG_OUTRO_ENVIO = 'Outro envio está em andamento. Tente de novo em instantes.'; // 429 da rota /digitalizada (um envio por usuária)
 
 let passoUsado = -1;
 /**
@@ -50,10 +51,41 @@ export async function violacoesNoPainel(page: Page): Promise<string[]> {
 }
 
 /**
+ * O envio digitalizado (fotos + 2FA) do documento aberto em "Aguardando assinatura" — receita ou parecer (D2 = (a)).
+ * Devolve o código de verificação como a tela mostra (XXXX-XXXX-XXXX). `noFormulario` roda com o formulário das fotos aberto.
+ * Outra spec (outro processo do Playwright) pode assinar com a mesma conta no mesmo passo do TOTP: a recusa do código
+ * repetido espera o próximo passo e envia de novo (no máximo 3 vezes; o acerto zera o contador de erros). Ou no mesmo
+ * instante: o 429 "Outro envio está em andamento" (RNF-141, um envio por usuária, antes do 2FA) também espera o próximo
+ * passo e envia de novo (no máximo 5 vezes).
+ */
+export async function assinarDigitalizada(page: Page, opcoes: { noFormulario?: () => Promise<void> } = {}): Promise<string> {
+  await page.getByRole('button', { name: 'Enviar documento digitalizado (assinado à mão)' }).click();
+  // WCAG 2.4.3 (sugestão da T9 do Plano 10A): o botão sai do DOM; o foco vai ao aviso da spec, não cai no <body>
+  await expect(page.getByRole('note').filter({ hasText: 'O sistema não confere o conteúdo de documentos digitalizados.' })).toBeFocused();
+  await opcoes.noFormulario?.();
+  const foto = await paginaAssinada();
+  for (let recusas = 0, ocupados = 0; ; ) {
+    await page.getByLabel('Fotos das páginas (JPEG ou PNG, até 5)').setInputFiles(foto);
+    await page.getByLabel('Código da verificação em duas etapas').fill(await codigoParaAssinar());
+    const [resposta] = await Promise.all([
+      page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/digitalizada')),
+      page.getByRole('button', { name: 'Enviar', exact: true }).click(),
+    ]);
+    if (resposta.status() === 429 && ++ocupados < 5) {
+      await expect(page.getByRole('alert').filter({ hasText: MSG_OUTRO_ENVIO })).toBeVisible();
+      continue;
+    }
+    if (resposta.status() !== 422 || ((await resposta.json()) as { codigo?: string }).codigo !== 'codigo_2fa' || ++recusas === 3) break;
+    await expect(page.getByRole('alert').filter({ hasText: MSG_CODIGO_RECUSADO })).toBeVisible();
+  }
+  await expect(page.getByText('Assinado em', { exact: true })).toBeVisible({ timeout: 60_000 });
+  return (await page.getByText(/^Código de verificação: /).innerText()).replace('Código de verificação: ', '');
+}
+
+/**
  * US-142 a US-144: receita pela tela, do rascunho à assinatura digitalizada (a única do Plano 10A). Devolve o código de
  * verificação como a tela mostra (XXXX-XXXX-XXXX). `noFormulario` roda com o formulário das fotos aberto (o axe da spec).
- * Outra spec (outro processo do Playwright) pode assinar com a mesma conta no mesmo passo do TOTP: a recusa do código
- * repetido espera o próximo passo e envia de novo (no máximo 3 vezes; o acerto zera o contador de erros).
+ * O envio das fotos é o `assinarDigitalizada` (Plano 13: o parecer assina igual).
  */
 export async function emitirReceita(page: Page, prontuario: string, opcoes: { noFormulario?: () => Promise<void> } = {}): Promise<string> {
   await page.goto(`${prontuario}/documentos`);
@@ -71,22 +103,5 @@ export async function emitirReceita(page: Page, prontuario: string, opcoes: { no
   await page.getByLabel(/Declaro que os itens são suplementos/).check();
   await page.getByRole('button', { name: 'Preparar para assinatura' }).click();
   await expect(page.getByRole('link', { name: 'Baixar PDF para assinar' })).toBeVisible({ timeout: 60_000 });
-
-  await page.getByRole('button', { name: 'Enviar documento digitalizado (assinado à mão)' }).click();
-  // WCAG 2.4.3 (sugestão da T9): o botão sai do DOM; o foco vai ao aviso da spec, não cai no <body>
-  await expect(page.getByRole('note').filter({ hasText: 'O sistema não confere o conteúdo de documentos digitalizados.' })).toBeFocused();
-  await opcoes.noFormulario?.();
-  const foto = await paginaAssinada();
-  for (let tentativa = 1; ; tentativa++) {
-    await page.getByLabel('Fotos das páginas (JPEG ou PNG, até 5)').setInputFiles(foto);
-    await page.getByLabel('Código da verificação em duas etapas').fill(await codigoParaAssinar());
-    const [resposta] = await Promise.all([
-      page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/digitalizada')),
-      page.getByRole('button', { name: 'Enviar', exact: true }).click(),
-    ]);
-    if (resposta.status() !== 422 || ((await resposta.json()) as { codigo?: string }).codigo !== 'codigo_2fa' || tentativa === 3) break;
-    await expect(page.getByRole('alert').filter({ hasText: MSG_CODIGO_RECUSADO })).toBeVisible();
-  }
-  await expect(page.getByText('Assinado em', { exact: true })).toBeVisible({ timeout: 60_000 });
-  return (await page.getByText(/^Código de verificação: /).innerText()).replace('Código de verificação: ', '');
+  return assinarDigitalizada(page, opcoes);
 }

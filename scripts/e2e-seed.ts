@@ -94,8 +94,9 @@ await db.insert(twoFactor).values({
   secret: await symmetricEncrypt({ key: chave, data: E2E_DOCS.totp }),
   backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
 });
-// RN-156: as consultas da verificação pública do E2E (documentos.spec e acessibilidade.spec, 10.9.14.77 a .80) começam zeradas
-for (const ip of ['10.9.14.77', '10.9.14.78', '10.9.14.79', '10.9.14.80']) await liberarLimite(db, chaveDoLimite('verificacao-ip', ip));
+// RN-156: as consultas da verificação pública do E2E (documentos.spec e acessibilidade.spec, 10.9.14.77 a .80; parecer.spec, 10.9.17.48)
+// começam zeradas
+for (const ip of ['10.9.14.77', '10.9.14.78', '10.9.14.79', '10.9.14.80', '10.9.17.48']) await liberarLimite(db, chaveDoLimite('verificacao-ip', ip));
 
 // P08-10 (D27): as contas do E2E não esbarram no tour nem no aviso "Primeira vez aqui?"; a conta do manual.spec começa zerada
 const TUDO_VISTO = Object.fromEntries(GUIAS.map((g) => [g.id, { v: g.versao, estado: 'concluido' as const }]));

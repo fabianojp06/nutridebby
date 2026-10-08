@@ -76,6 +76,12 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(guiaDaRota(`/painel/exames-recebidos/${UUID}`)?.id).toBe('exames-recebidos');
   });
+  it('Plano 13: o guia de documentos cita o parecer e a retificação e subiu de versão (quem já viu o tour, vê de novo)', () => {
+    const g = GUIAS.find((x) => x.id === 'documentos')!;
+    expect(g.versao).toBe(2);
+    expect(g.passos.map((p) => p.alvo)).toEqual(expect.arrayContaining(['novo-parecer', 'editor-parecer', 'retificar-documento']));
+    expect(g.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Novo parecer nutricional"');
+  });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });
