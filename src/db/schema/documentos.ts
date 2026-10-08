@@ -53,7 +53,8 @@ export const signedDocuments = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check('signed_documents_tipo_valido', sql`${t.tipo} in ('receita')`),
+    // Plano 13 (spec v0.5, §10): o parecer nutricional (F3-05) ao lado da receita
+    check('signed_documents_tipo_valido', sql`${t.tipo} in ('receita','parecer')`),
     check('signed_documents_status_valido', sql`${t.status} in ('rascunho','preparando','aguardando_assinatura','assinado','substituido','cancelado')`),
     check('signed_documents_codigo_so_fora_do_rascunho', sql`(${t.codigo} is null) = (${t.status} = 'rascunho')`),
     check('signed_documents_codigo_formato', sql`${t.codigo} is null or ${t.codigo} ~ '^[0-9A-HJKMNP-TV-Z]{12}$'`),
@@ -94,10 +95,15 @@ export const signedDocumentNotes = pgTable(
     documentoId: uuid('documento_id').notNull().unique('signed_document_notes_documento_unique'),
     justificativaUso: text('justificativa_uso'),
     motivoCancelamento: text('motivo_cancelamento'),
+    /** Plano 13 (Q13-1, SBIS NGS1.12.01): por que a versão nova corrige a anterior. Só numa retificação; fixo do preparo em diante (0105). */
+    motivoRetificacao: text('motivo_retificacao'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check('signed_document_notes_tamanhos', sql`coalesce(char_length(${t.justificativaUso}), 0) <= 2000 and coalesce(char_length(${t.motivoCancelamento}), 0) <= 500`),
+    check(
+      'signed_document_notes_tamanhos',
+      sql`coalesce(char_length(${t.justificativaUso}), 0) <= 2000 and coalesce(char_length(${t.motivoCancelamento}), 0) <= 500 and coalesce(char_length(${t.motivoRetificacao}), 0) <= 500`,
+    ),
     foreignKey({ columns: [t.tenantId, t.patientId, t.documentoId], foreignColumns: [signedDocuments.tenantId, signedDocuments.patientId, signedDocuments.id], name: 'signed_document_notes_documento_fk' }).onDelete('cascade'),
   ],
 );
@@ -173,6 +179,8 @@ export const documentVerifications = pgTable(
     check('document_verifications_assinante', sql`(${t.assinaturaTipo} = 'digitalizada') = (${t.assinanteNome} is null)`),
     // Plano 10A: só a digitalizada; o Plano 10B amplia (mesma migration que amplia o de signed_documents)
     check('document_verifications_assinatura_tipo_valida', sql`${t.assinaturaTipo} in ('digitalizada')`),
+    // Plano 13 (spec v0.5, US-147): a verificação grava o tipo real do documento
+    check('document_verifications_tipo_valido', sql`${t.tipo} in ('receita','parecer')`),
     unique('document_verifications_documento_unique').on(t.documentoId),
   ],
 );

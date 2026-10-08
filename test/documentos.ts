@@ -5,7 +5,7 @@ import path from 'node:path';
 import { crc32 } from 'node:zlib';
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '@/db/client';
-import { tenants, type TenantRow } from '@/db/schema';
+import { tenants, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { AREA_ASSINATURA, type StatusDocumento, type TipoAssinatura } from '@/modules/documentos/constantes';
 import { novoPaciente, novoTenant } from './pacientes';
@@ -13,27 +13,34 @@ import { novoPaciente, novoTenant } from './pacientes';
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export const codigoAleatorio = () => Array.from({ length: 12 }, () => CROCKFORD[Math.floor(Math.random() * 32)]).join('');
 
+/** Plano 13: o conteúdo mínimo de um parecer (como o rascunho vazio de `criarParecer`). */
+export const CONTEUDO_PARECER_TESTE = { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
+
 /**
  * Documento gravado direto no banco (sem o fluxo), no estado pedido. Emitido = com o stored_files do PDF assinado (FK NO
  * ACTION), SHA-256 e assinatura digitalizada (a única do 10A; o 10B passa `assinaturaTipo: 'govbr'` nos testes dele).
- * O gatilho de imutabilidade (0091) não olha INSERT.
+ * O gatilho de imutabilidade (0091) não olha INSERT; o `documento_versao` (0105, Plano 13) confere a versão: sem
+ * `retificaId`, versão 1 (em qualquer estado, como a fábrica do isolamento); com ele, só em RASCUNHO, da original "assinado"
+ * do mesmo tipo e paciente e com a versão seguinte — a retificação emitida passa por `retificacaoAssinadaNoBanco`.
  */
 export async function documentoNoBanco(
   db: Db,
   ctx: TenantContext,
   patientId: string,
-  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura } = {},
+  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura; tipo?: 'receita' | 'parecer'; versao?: number; retificaId?: string } = {},
 ): Promise<{ id: string; codigo: string | null; pdfPath: string | null }> {
   const status = o.status ?? 'rascunho';
+  const tipo = o.tipo ?? 'receita';
   const emitido = ['assinado', 'substituido', 'cancelado'].includes(status);
   const codigo = status === 'rascunho' ? null : codigoAleatorio();
   const pdfPath = emitido ? `${ctx.tenantId}/documento_assinado/${randomUUID()}.pdf` : null;
+  const conteudo = o.conteudo ?? (tipo === 'parecer' ? CONTEUDO_PARECER_TESTE : { versao: 1, tipo: 'receita', itens: [], orientacoes: '' });
   const id = randomUUID();
   await withTenant(ctx, async (tx) => {
     if (pdfPath)
       await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${ctx.tenantId}, 'documento_assinado', ${pdfPath}, 100, 'application/pdf', ${patientId})`);
-    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em)
-      values (${id}, ${ctx.tenantId}, ${patientId}, ${status}, ${codigo}, ${JSON.stringify(o.conteudo ?? { versao: 1, tipo: 'receita', itens: [], orientacoes: '' })}::jsonb,
+    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em)
+      values (${id}, ${ctx.tenantId}, ${patientId}, ${tipo}, ${o.versao ?? 1}, ${o.retificaId ?? null}, ${status}, ${codigo}, ${JSON.stringify(conteudo)}::jsonb,
               ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'digitalizada') : null}, ${emitido && (o.assinaturaTipo ?? 'digitalizada') !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null})`);
   }, db);
   return { id, codigo, pdfPath };
@@ -81,22 +88,72 @@ export type Consultorio = Awaited<ReturnType<typeof novoConsultorio>>;
 const COPIA_TESTE = { nomeCompleto: 'Débora Silva Santos', crn: 'CRN-3 12345', email: 'd@x.com', telefone: '(11) 91234-5678', endereco: null, fitoterapia: false };
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
-/** Um documento em "Aguardando assinatura" com o base no disco (como depois da T7), num paciente novo do consultório. */
-export async function outroDocumento(c: Consultorio, db: Db, o: { base?: Buffer; conteudo?: Record<string, unknown> } = {}) {
+/**
+ * Um documento em "Aguardando assinatura" com o base no disco (como depois da T7 do 10A). Plano 13: `paciente` (a
+ * retificação é do mesmo paciente da original), `tipo` e `retifica` (a versão nova de uma original "assinado"). Com
+ * `retifica`, o caminho que os gatilhos da 0105 aceitam: INSERT em rascunho, a nota com o motivo e o UPDATE para o preparo.
+ */
+export async function outroDocumento(
+  c: Consultorio,
+  db: Db,
+  o: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number }; motivo?: string } = {},
+) {
   const BASE_DOC = o.base ?? pdfDeTeste();
-  const p = await novoPaciente(db, c.T.ctx);
+  const p = o.paciente ?? (await novoPaciente(db, c.T.ctx));
   const base = `${c.T.tenantId}/documento_base/${randomUUID()}.pdf`;
   await mkdir(path.join(c.dataDir, path.dirname(base)), { recursive: true });
   await writeFile(path.join(c.dataDir, base), BASE_DOC);
   const id = randomUUID();
-  const conteudo = o.conteudo ?? { versao: 1, tipo: 'receita', itens: [], orientacoes: '', copia: { profissional: COPIA_TESTE, paciente: { nome: 'Ana Souza' } } };
+  const tipo = o.tipo ?? 'receita';
+  const copia = { profissional: COPIA_TESTE, paciente: { nome: 'Ana Souza' } };
+  const conteudo = o.conteudo ?? (tipo === 'parecer' ? { ...CONTEUDO_PARECER_TESTE, avaliacao: 'Avaliação de teste.', copia } : { versao: 1, tipo: 'receita', itens: [], orientacoes: '', copia });
   const codigo = codigoAleatorio();
   await withTenant(c.T.ctx, async (tx) => {
     await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${c.T.tenantId}, 'documento_base', ${base}, ${BASE_DOC.length}, 'application/pdf', ${p.id})`);
-    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, status, codigo, conteudo, declaracao_em) values (${id}, ${c.T.tenantId}, ${p.id}, 'preparando', ${codigo}, ${JSON.stringify(conteudo)}::jsonb, now())`);
+    if (!o.retifica) {
+      await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, status, codigo, conteudo, declaracao_em)
+        values (${id}, ${c.T.tenantId}, ${p.id}, ${tipo}, 'preparando', ${codigo}, ${JSON.stringify(conteudo)}::jsonb, now())`);
+      return;
+    }
+    // 0105: a versão nova só nasce em rascunho e só vai ao preparo com o motivo na nota (Q13-1)
+    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, conteudo)
+      values (${id}, ${c.T.tenantId}, ${p.id}, ${tipo}, ${o.retifica.versao + 1}, ${o.retifica.id}, ${JSON.stringify(conteudo)}::jsonb)`);
+    await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, motivo_retificacao) values (${c.T.tenantId}, ${p.id}, ${id}, ${o.motivo ?? 'Retificação de teste'})`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${id}`);
   }, db);
   await withTenant({ tenantId: c.T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${sha256(BASE_DOC)}, base_pdf_bytes = ${BASE_DOC.length}, area_assinatura = ${JSON.stringify(AREA_ASSINATURA)}::jsonb where id = ${id}`), db);
   return { ...c, p, id, base, codigo, baseSha256: sha256(BASE_DOC) };
+}
+
+/**
+ * Plano 13: a versão seguinte de `original` ASSINADA, direto no banco pelo caminho que os gatilhos aceitam — rascunho com a
+ * nota (o motivo, Q13-1), preparo, base pelo worker, assinatura e a original "substituido" (o gatilho só deixa com a
+ * retificação já assinada). Sem verificação pública nem arquivo no disco (os testes de LGPD e do portal não precisam).
+ * `substituir: false` para antes da substituição (os testes do gatilho fazem o UPDATE da original eles mesmos).
+ */
+export async function retificacaoAssinadaNoBanco(
+  db: Db,
+  ctx: TenantContext,
+  patientId: string,
+  original: { id: string; versao: number },
+  o: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown>; substituir?: boolean } = {},
+): Promise<{ id: string; codigo: string; pdfPath: string }> {
+  const v = await documentoNoBanco(db, ctx, patientId, { tipo: o.tipo, conteudo: o.conteudo, retificaId: original.id, versao: original.versao + 1 });
+  const codigo = codigoAleatorio();
+  const arq = (tipo: string) => `${ctx.tenantId}/${tipo}/${randomUUID()}.pdf`;
+  const [base, pdf] = [arq('documento_base'), arq('documento_assinado')];
+  await withTenant(ctx, async (tx) => {
+    await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, motivo_retificacao) values (${ctx.tenantId}, ${patientId}, ${v.id}, ${o.motivo ?? 'Retificação de teste'})`);
+    await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${ctx.tenantId}, 'documento_base', ${base}, 10, 'application/pdf', ${patientId}), (${ctx.tenantId}, 'documento_assinado', ${pdf}, 10, 'application/pdf', ${patientId})`);
+    await tx.execute(sql`update signed_documents set status = 'preparando', codigo = ${codigo}, declaracao_em = now(), pdf_status = 'pendente', pdf_pedido_em = now() where id = ${v.id}`);
+  }, db);
+  await withTenant({ tenantId: ctx.tenantId, role: 'worker' }, (tx) => tx.execute(sql`update signed_documents set status = 'aguardando_assinatura', pdf_status = 'pronto', base_pdf_path = ${base}, base_pdf_sha256 = ${'b'.repeat(64)}, base_pdf_bytes = 10 where id = ${v.id}`), db);
+  await withTenant(ctx, async (tx) => {
+    await tx.execute(sql`update signed_documents set status = 'assinado', pdf_path = ${pdf}, pdf_sha256 = ${'a'.repeat(64)}, assinado_em = now(), assinatura_tipo = 'digitalizada' where id = ${v.id}`);
+    await tx.execute(sql`update signed_documents set base_pdf_path = null where id = ${v.id}`); // o base "sai" (regra 9); a linha de stored_files fica órfã, como depois de um soltar que falhou
+    if (o.substituir !== false) await tx.execute(sql`update signed_documents set status = 'substituido', substituido_em = now() where id = ${original.id}`);
+  }, db);
+  return { id: v.id, codigo, pdfPath: pdf };
 }
 
 /**
