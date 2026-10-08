@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
 const DOC = '00000000-0000-4000-8000-0000000000d1';
 // T9: cada caso pode trocar o paciente e o documento (o padrão é o emitido anonimizado da T6)
-const caso = vi.hoisted(() => ({ paciente: null as Record<string, unknown> | null, doc: null as Record<string, unknown> | null, twoFactorEnabled: true as boolean | null }));
+const caso = vi.hoisted(() => ({ paciente: null as Record<string, unknown> | null, doc: null as Record<string, unknown> | null, twoFactorEnabled: true as boolean | null, exames: [] as Record<string, unknown>[], situacao: {} as Record<string, string> }));
 vi.mock('../../prontuario', () => ({
   carregarProntuario: async () => ({
     ctx: {},
@@ -16,7 +16,7 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn() }));
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
@@ -26,6 +26,8 @@ vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
     assinanteNome: null, basePdfPath: null, pdfPath: null, pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, anonimizadoEm: new Date('2026-10-01T12:00:00Z'),
   }),
 }));
+vi.mock('@/modules/pacientes/exames', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/modules/pacientes/exames')>()), listarExames: async () => caso.exames }));
+vi.mock('@/modules/documentos/parecer-exames', () => ({ situacaoDosExames: async () => caso.situacao }));
 const { default: DocumentoPage } = await import('./page');
 
 describe('página do documento: documento anonimizado (RN-140 c)', () => {
@@ -173,5 +175,62 @@ describe('página do documento: digitalizada em "Aguardando assinatura" (RN-157,
     const html = await pagina('falhou');
     expect(html).toContain('Não foi possível montar o PDF. Envie as fotos de novo.');
     expect(html).toContain('Enviar documento digitalizado (assinado à mão)');
+  });
+});
+
+describe('página do documento: parecer nutricional (US-141, RN-148)', () => {
+  const HEMOGRAMA = { id: '00000000-0000-4000-8000-0000000000e1', data: '2026-09-01', titulo: 'Hemograma', valores: [{ nome: 'Hemoglobina', valor: 13.5, unidade: 'g/dL', referencia: '12 a 16' }] };
+  const LIPIDICO = { id: '00000000-0000-4000-8000-0000000000e2', data: '2026-08-20', titulo: 'Perfil lipídico', valores: [] };
+  const parecer = (status: string, extra: Record<string, unknown> = {}) => ({
+    id: DOC, tipo: 'parecer', versao: 1, status, codigo: status === 'rascunho' ? null : 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'),
+    assinadoEm: status === 'assinado' ? new Date('2026-09-02T12:00:00Z') : null, assinaturaTipo: status === 'assinado' ? 'digitalizada' : null, pdfStatus: 'pronto',
+    entregueEm: null, recibos: [], conteudo: { versao: 1, tipo: 'parecer', exames: [HEMOGRAMA], avaliacao: 'Baixa reserva de ferro.', conduta: '', encaminhamentos: 'Sugiro avaliação médica.' },
+    justificativa: null, motivoCancelamento: null, assinanteNome: null, basePdfPath: 'x', pdfPath: status === 'assinado' ? 'y' : null, pdfSha256: null,
+    digitalizacaoStatus: null, digitalizacaoEm: null, anonimizadoEm: null, canceladoEm: null, ...extra,
+  });
+  const pagina = async (d: Record<string, unknown>, o: { exames?: Record<string, unknown>[]; situacao?: Record<string, string> } = {}) => {
+    caso.twoFactorEnabled = true;
+    caso.paciente = { id: PACIENTE, status: 'ativo', anonimizadoEm: null, userId: null, email: 'ana@ex.com' };
+    caso.doc = d;
+    caso.exames = o.exames ?? [];
+    caso.situacao = o.situacao ?? {};
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
+  };
+
+  it('rascunho: o editor com os exames do prontuário (o só com laudo marcado), a avaliação e a declaração do parecer; nada da receita', async () => {
+    const html = await pagina(parecer('rascunho'), { exames: [HEMOGRAMA, LIPIDICO] });
+    expect(html).toContain('<h2 id="documento" class="text-lg font-semibold">Parecer nutricional</h2>');
+    expect(html).toContain('data-guia="editor-parecer"');
+    expect(html).toContain('Exames considerados');
+    expect(html).toContain('Hemograma — 01/09/2026');
+    expect(html).toContain('Perfil lipídico — 20/08/2026 (laudo no prontuário, sem valores lançados)');
+    expect(html).toContain('Avaliação nutricional');
+    expect(html).toContain('Conduta e orientações (opcional)');
+    expect(html).toContain('Encaminhamentos (opcional)');
+    expect(html).toContain('Declaro que este parecer não afirma diagnóstico de doença nem prescreve medicamento.');
+    expect(html).not.toContain('Itens da receita');
+    expect(html).not.toContain('Justificativa de uso');
+  });
+
+  it('rascunho com um exame da cópia que foi excluído: o aviso proposto, e o exame fora da seleção', async () => {
+    const html = await pagina(parecer('rascunho'), { exames: [LIPIDICO] });
+    expect(html).toContain('Um dos exames selecionados foi excluído. Revise a seleção.');
+    expect(html).not.toContain('Hemograma — 01/09/2026');
+  });
+
+  it('aguardando assinatura com o exame mudado: a cópia, "Os valores deste exame mudaram depois do parecer." e o "Voltar a editar"', async () => {
+    const html = await pagina(parecer('aguardando_assinatura'), { situacao: { [HEMOGRAMA.id]: 'mudou' } });
+    expect(html).toContain('Hemoglobina · 13,5 · g/dL · 12 a 16');
+    expect(html).toContain('Os valores deste exame mudaram depois do parecer.');
+    expect(html).toContain('Voltar a editar');
+  });
+
+  it('assinado com o exame excluído: "O exame Hemograma — 01/09/2026 foi excluído depois do parecer."; encaminhamentos sim, conduta vazia não', async () => {
+    const html = await pagina(parecer('assinado'), { situacao: { [HEMOGRAMA.id]: 'excluido' } });
+    expect(html).toContain('O exame Hemograma — 01/09/2026 foi excluído depois do parecer.');
+    expect(html).toContain('Baixa reserva de ferro.');
+    expect(html).toContain('Sugiro avaliação médica.');
+    expect(html).not.toContain('Conduta e orientações');
+    expect(html).not.toContain('Os valores deste exame mudaram');
   });
 });

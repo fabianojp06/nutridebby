@@ -8,7 +8,7 @@ import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { linhaDaAssinatura, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
-import { criarReceitaAction } from './actions';
+import { criarParecerAction, criarReceitaAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +24,15 @@ export default async function DocumentosPage({ params, searchParams }: PageProps
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="documentos" className="text-lg font-semibold">Documentos</h2>
         {!bloqueado && (
-          <form action={criarReceitaAction.bind(null, paciente.id)} data-guia="nova-receita">
-            <Botao>Nova receita</Botao>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            <form action={criarReceitaAction.bind(null, paciente.id)} data-guia="nova-receita">
+              <Botao>Nova receita</Botao>
+            </form>
+            {/* US-141 (Plano 13): o parecer na mesma aba, ao lado da receita */}
+            <form action={criarParecerAction.bind(null, paciente.id)} data-guia="novo-parecer">
+              <Botao variante="secundario">Novo parecer nutricional</Botao>
+            </form>
+          </div>
         )}
       </div>
       {busca.apagado && <Aviso tipo="ok" papel="status">Rascunho apagado.</Aviso>}

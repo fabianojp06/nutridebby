@@ -18,7 +18,7 @@ export default async function PerfilPage() {
       <PerfilForm tenant={tenant} />
       <section id="documentos" aria-labelledby="documentos-titulo" className="space-y-4">
         <h2 id="documentos-titulo" className="text-lg font-semibold">Dados para documentos</h2>
-        <p className="text-sm text-suave">O nome completo, o CRN e o contato saem no carimbo das receitas (Resolução CFN nº 656/2020). O CRN e o endereço ficam no formulário acima.</p>
+        <p className="text-sm text-suave">O nome completo, o CRN e o contato saem no carimbo das receitas (Resolução CFN nº 656/2020) e dos pareceres (Resolução CFN nº 760/2023, art. 10, I). O CRN e o endereço ficam no formulário acima.</p>
         <DocumentosForm dados={{ nomeProfissional: tenant.nomeProfissional ?? '', contatoEmail: tenant.contatoEmail ?? '', contatoTelefone: tenant.contatoTelefoneE164 ? formatarTelefone(tenant.contatoTelefoneE164) : '' }} />
         <FitoterapiaForm
           registro={tenant.fitoterapiaRegistro}

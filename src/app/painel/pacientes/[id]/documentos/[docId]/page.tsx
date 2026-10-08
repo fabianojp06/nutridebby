@@ -5,20 +5,25 @@ import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_RECEITA, envioEmCurso, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { DECLARACAO_PARECER, DECLARACAO_RECEITA, envioEmCurso, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
 import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
+import { linhaDoValor, MSG_PARECER, rotuloDoExame } from '@/modules/documentos/parecer';
+import { situacaoDosExames } from '@/modules/documentos/parecer-exames';
 import { descreverItem } from '@/modules/documentos/prescricao';
+import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
+import { AvisoDoExame } from './aviso-exame';
 import { Cancelar } from './cancelar';
 import { Entrega } from './entrega';
 import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
+import { ParecerForm } from './parecer-form';
 import { ReceitaForm } from './receita-form';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +42,13 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const anonimizado = !!d.anonimizadoEm;
   // Plano 13: o conteúdo é da receita ou do parecer; o anonimizado tem conteudo '{}' (sem tipo)
   const receita = d.conteudo.tipo === 'receita' ? d.conteudo : null;
+  const parecer = d.conteudo.tipo === 'parecer' ? d.conteudo : null;
+  // US-141: a seleção do editor pela lista do prontuário (listarExames grava "Visualizou · Exames", regra 8)
+  const examesParaEscolher = parecer && d.status === 'rascunho' && !bloqueado
+    ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0 }))
+    : [];
+  // RN-148 v0.5: o aviso de exame mudado/excluído só onde a nutricionista ainda age (aguardando → voltar a editar; assinado → retificar)
+  const situacao = parecer && !anonimizado && (d.status === 'aguardando_assinatura' || d.status === 'assinado') ? await situacaoDosExames(ctx, paciente.id, parecer.exames) : {};
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…"), com o mesmo prazo
   // de 1 h do servidor; esquecido além dele, a página já pede as fotos de novo (Minor 7 da Etapa 3)
   const agora = new Date();
@@ -84,6 +96,13 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
         </>
       )}
 
+      {d.status === 'rascunho' && !bloqueado && parecer && (
+        <>
+          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={DECLARACAO_PARECER} />
+          <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
+        </>
+      )}
+
       {d.status !== 'rascunho' && !anonimizado && receita && (
         <Cartao id="itens-receita" titulo="Itens da receita">
           <ol className="list-decimal space-y-2 pl-5">
@@ -100,6 +119,41 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {receita.orientacoes && <p className="mt-3">{receita.orientacoes}</p>}
           {d.justificativa && <p className="mt-3 text-sm text-suave">{`Justificativa de uso (fica no prontuário, não vai na receita): ${d.justificativa}`}</p>}
         </Cartao>
+      )}
+
+      {d.status !== 'rascunho' && !anonimizado && parecer && (
+        <>
+          <Cartao id="exames-parecer" titulo="Exames considerados">
+            <ul className="space-y-3">
+              {parecer.exames.map((x) => (
+                <li key={x.id} className="space-y-1">
+                  <p className="font-semibold">{rotuloDoExame(x)}</p>
+                  {x.valores.length === 0 ? (
+                    <p className="text-sm">{`(${MSG_PARECER.semValores})`}</p>
+                  ) : (
+                    <ul className="text-sm">{x.valores.map((v, i) => <li key={i}>{linhaDoValor(v)}</li>)}</ul>
+                  )}
+                  <AvisoDoExame situacao={situacao[x.id]} exame={x} />
+                </li>
+              ))}
+            </ul>
+          </Cartao>
+          <Cartao id="avaliacao-parecer" titulo="Avaliação nutricional">
+            <p className="whitespace-pre-line">{parecer.avaliacao}</p>
+            {parecer.conduta && (
+              <>
+                <h3 className="mt-3 font-semibold">Conduta e orientações</h3>
+                <p className="whitespace-pre-line">{parecer.conduta}</p>
+              </>
+            )}
+            {parecer.encaminhamentos && (
+              <>
+                <h3 className="mt-3 font-semibold">Encaminhamentos</h3>
+                <p className="whitespace-pre-line">{parecer.encaminhamentos}</p>
+              </>
+            )}
+          </Cartao>
+        </>
       )}
 
       {d.status === 'preparando' && (
