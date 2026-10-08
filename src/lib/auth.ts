@@ -20,8 +20,10 @@ import {
   capSessionExpiry,
   isRefreshDue,
   PATIENT_SESSION_MS,
+  PRAZOS_DA_EQUIPE,
   sessionExpiresAt,
   type AppRole,
+  type PrazosDaEquipe,
 } from './session-rules';
 
 const QUINZE_MIN = 15 * 60;
@@ -81,12 +83,12 @@ export function createAuth(
     },
     session: {
       // RNF-06: 30 dias é o padrão (paciente); para a equipe o hook de criação abaixo
-      // grava expiresAt = agora + 12 h.
+      // grava expiresAt = agora + 30 min (sem passar de 8 h do login, P12-14).
       expiresIn: PATIENT_SESSION_MS / 1000,
       // O Better Auth nunca desliza a sessão sozinho (nem em /api/auth/*): a renovação é só
       // de requireUser → slideSession, depois de conferir a inatividade. Assim, para a equipe,
-      // expiresAt ≤ última atividade avaliada + 12 h, e o Better Auth recusa a sessão ociosa
-      // em qualquer rota.
+      // expiresAt ≤ última atividade avaliada + 30 min (e ≤ createdAt + 8 h), e o Better Auth recusa
+      // a sessão ociosa ou vencida em qualquer rota.
       disableSessionRefresh: true,
     },
     databaseHooks: {
@@ -94,7 +96,7 @@ export function createAuth(
         create: {
           before: async (s, ctx) => {
             // Adapter do contexto do endpoint (respeita a transação em curso). Sem contexto ou
-            // sem usuário, capSessionExpiry aplica o limite menor (12 h).
+            // sem usuário, capSessionExpiry aplica o limite menor (30 min).
             const u = (await ctx?.context.internalAdapter.findUserById(s.userId)) as
               | { appRole?: string; tenantId?: string | null }
               | null
@@ -103,7 +105,12 @@ export function createAuth(
             if (u?.tenantId && (await getTenantStatus(db, u.tenantId)) === 'suspensa') {
               throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
             }
-            return { data: { ...s, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date()) } };
+            // P12-14: a sessão que SUBSTITUI a atual da mesma usuária (ativar ou desligar o 2FA, troca de senha com
+            // revogação) herda o createdAt dela — o limite de 8 h conta do login, não da troca
+            const atual = ctx?.context.session;
+            const createdAt =
+              atual && atual.user.id === s.userId && new Date(atual.session.createdAt) < s.createdAt ? new Date(atual.session.createdAt) : s.createdAt;
+            return { data: { ...s, createdAt, expiresAt: capSessionExpiry(s.expiresAt, u?.appRole, new Date(), createdAt) } };
           },
           // M8: login correndo com a suspensão. Se o `before` leu 'ativa' enquanto a suspensão
           // ainda não tinha COMMIT, o DELETE das sessões dela não enxerga esta (gravada depois).
@@ -154,6 +161,16 @@ export function createAuth(
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // P12-14 (RNF-06): o login da equipe vale só até fechar o navegador — cookie de sessão sem Max-Age/Expires e o
+        // `dont_remember` do Better Auth, que o 2FA (verify-totp/backup-code), a ativação do 2FA e a troca de senha
+        // respeitam ao regravar o cookie. Decidido aqui pelo papel guardado, nunca pelo que o navegador manda; o paciente
+        // (30 dias, PWA) segue com o padrão. E-mail desconhecido também vai sem "lembrar" (o login falha de qualquer jeito).
+        if (ctx.path === '/sign-in/email') {
+          const email = (ctx.body as { email?: unknown } | undefined)?.email;
+          const encontrado = typeof email === 'string' ? await ctx.context.internalAdapter.findUserByEmail(email.toLowerCase()) : null;
+          if ((encontrado?.user as { appRole?: string } | undefined)?.appRole === 'paciente') return;
+          return { context: { body: { ...(ctx.body as Record<string, unknown>), rememberMe: false } } };
+        }
         // INT-06: "Esqueci minha senha" pela web exige Turnstile válido antes de qualquer escrita.
         // Sem ctx.request = chamada interna (auth.api.*, ex.: admin:criar pelo terminal).
         if (ctx.path === '/request-password-reset') {
@@ -210,20 +227,25 @@ export function getAuth(): Auth {
 }
 
 /**
- * Desliza a sessão ativa (updatedAt = agora, expiresAt pelo papel) se já passou a cadência.
- * Usado por requireUser, que lê a sessão com disableRefresh: grava direto no banco porque
- * em Server Components (inclusive navegação RSC) o cookie não pode ser reescrito — e nem
- * precisa, pois ele só carrega o token. Nunca ressuscita sessão já expirada.
+ * Desliza a sessão ativa (updatedAt = agora, expiresAt pelo papel; na equipe, sem passar de createdAt + 8 h) se já passou
+ * a cadência (5 min na equipe, 15 no paciente). Usado por requireUser e requireApiUser, que leem a sessão com
+ * disableRefresh: grava direto no banco porque em Server Components (inclusive navegação RSC) o cookie não pode ser
+ * reescrito — e nem precisa, pois ele só carrega o token. Nunca ressuscita sessão já expirada. Devolve os valores
+ * gravados, ou `null` quando nada mudou.
  */
 export async function slideSession(
   db: Db,
-  session: { id: string; updatedAt: Date },
+  session: { id: string; updatedAt: Date; createdAt: Date },
   role: AppRole,
   now: Date = new Date(),
-): Promise<void> {
-  if (!isRefreshDue(session.updatedAt, now)) return;
-  await db
+  prazos: PrazosDaEquipe = PRAZOS_DA_EQUIPE,
+): Promise<{ updatedAt: Date; expiresAt: Date } | null> {
+  if (!isRefreshDue(session.updatedAt, now, role, prazos)) return null;
+  const expiresAt = sessionExpiresAt(role, now, { createdAt: session.createdAt, prazos });
+  const gravadas = await db
     .update(authSchema.session)
-    .set({ expiresAt: sessionExpiresAt(role, now), updatedAt: now })
-    .where(and(eq(authSchema.session.id, session.id), gt(authSchema.session.expiresAt, now)));
+    .set({ expiresAt, updatedAt: now })
+    .where(and(eq(authSchema.session.id, session.id), gt(authSchema.session.expiresAt, now)))
+    .returning({ id: authSchema.session.id });
+  return gravadas.length > 0 ? { updatedAt: now, expiresAt } : null;
 }

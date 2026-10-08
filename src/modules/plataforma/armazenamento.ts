@@ -15,11 +15,12 @@ export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o 
 
 export type TipoDeArquivo =
   | 'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao'
-  | 'documento_base' | 'documento_assinado' | 'documento_digitalizado';
+  | 'documento_base' | 'documento_assinado' | 'documento_digitalizado' | 'exame_original' | 'exame_pagina';
 
-/** D4: arquivos com dono (paciente). O resto é do consultório. */
+/** D4: arquivos com dono (paciente). O resto é do consultório. Plano 12: o original e as páginas do exame enviado. */
 export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = [
   'exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao', 'documento_base', 'documento_assinado', 'documento_digitalizado',
+  'exame_original', 'exame_pagina',
 ];
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 
@@ -62,7 +63,7 @@ export function resolverCaminho(dataDir: string, caminho: string): string {
  * (a Tarefa 10 converte o logo SVG em PNG antes). A cota é reservada na mesma transação do
  * registro: a linha do tenant fica travada até o commit, então uploads simultâneos não passam do limite.
  * ORDEM DE TRAVAS (evita deadlock): dono do arquivo (paciente, em `antesDaReserva`) → tenant (cota) → `registrar`.
- * É a mesma ordem de `apagarArquivo` (`naMesmaTransacao` → tenant).
+ * É a mesma ordem de `apagarArquivo` (`naMesmaTransacao` → tenant). O caminho de gravação é o de `gravarArquivos`.
  */
 export async function salvarArquivo(
   ctx: TenantContext,
@@ -87,70 +88,123 @@ export async function salvarArquivo(
   },
   deps: Deps = {},
 ): Promise<ArquivoSalvo> {
+  const { conteudo, registrar, substitui, ...resto } = input;
+  const [arquivo] = await gravarArquivos(
+    ctx,
+    'salvarArquivo',
+    {
+      ...resto,
+      conteudos: [conteudo],
+      // O tamanho do substituído vem do registro (no tenant, pela RLS), nunca de quem chama
+      liberados: substitui
+        ? async (tx) => (await tx.select({ bytes: storedFiles.bytes }).from(storedFiles).where(eq(storedFiles.caminho, substitui)))[0]?.bytes ?? 0
+        : undefined,
+      registrar: registrar && ((tx, [a]) => registrar(tx, a)),
+    },
+    deps,
+  );
+  return arquivo;
+}
+
+/**
+ * Plano 12 (DEP-09 reduzida, PM-8): vários arquivos com UMA reserva de cota (a soma) e um `registrar` só — tudo ou nada.
+ * Só o envio de exame pelo paciente usa: a sessão de paciente não tem DELETE em stored_files e não conseguiria desfazer um
+ * envio gravado pela metade. Tudo é conferido antes de gravar (tipo pelo conteúdo de cada um); o conteúdo vai ao disco antes
+ * da transação (como salvarArquivo); a mesma ordem de travas: dono (`antesDaReserva`) → tenant (cota) → `registrar`.
+ */
+export async function salvarArquivos(
+  ctx: TenantContext,
+  input: {
+    tipo: TipoDeArquivo;
+    conteudos: readonly Buffer[];
+    permitidos: readonly TipoArquivo['ext'][];
+    patientId?: string;
+    antesDaReserva?: (tx: Tx) => Promise<void>;
+    registrar?: (tx: Tx, arquivos: ArquivoSalvo[]) => Promise<void>;
+  },
+  deps: Deps = {},
+): Promise<ArquivoSalvo[]> {
+  return gravarArquivos(ctx, 'salvarArquivos', input, deps);
+}
+
+/**
+ * Regra 9 num lugar só (revisão da T2 do Plano 12): o caminho de gravação de `salvarArquivo` e de `salvarArquivos`.
+ * Dono obrigatório nos TIPOS_DO_PACIENTE (D4); tipo pelo conteúdo de CADA arquivo, conferido antes de gravar qualquer um,
+ * com SVG sempre recusado; caminho só com tenant, tipo e UUID (nunca texto do usuário); o `.tmp` no formato
+ * `<destino>.<pid>.tmp` que `limparTmpOrfaos` varre; conteúdo no disco ANTES da transação (a linha do tenant e o dono
+ * ficam travados só pelo `rename`, não pelo tempo de escrita de um arquivo grande); uma reserva de cota pela soma, num
+ * UPDATE condicional na linha do tenant; INSERT em stored_files, `registrar` e `rename` na mesma transação; no erro, sai
+ * todo `.tmp` e todo arquivo já renomeado (o commit falhou depois da gravação).
+ */
+async function gravarArquivos(
+  ctx: TenantContext,
+  quem: 'salvarArquivo' | 'salvarArquivos',
+  input: {
+    tipo: TipoDeArquivo;
+    conteudos: readonly Buffer[];
+    permitidos: readonly TipoArquivo['ext'][];
+    patientId?: string;
+    antesDaReserva?: (tx: Tx) => Promise<void>;
+    /** Bytes de um arquivo substituído (lidos do registro, na transação): a cota é conferida pela diferença. */
+    liberados?: (tx: Tx) => Promise<number>;
+    naoBarrarPelaCota?: boolean;
+    registrar?: (tx: Tx, arquivos: ArquivoSalvo[]) => Promise<void>;
+  },
+  deps: Deps,
+): Promise<ArquivoSalvo[]> {
   const db = deps.db ?? getDb();
   const dataDir = deps.dataDir ?? getEnv().DATA_DIR;
   if (TIPOS_DO_PACIENTE.includes(input.tipo) !== Boolean(input.patientId)) {
-    throw new Error(`salvarArquivo: patientId ${input.patientId ? 'proibido' : 'obrigatório'} para o tipo ${input.tipo}`);
+    throw new Error(`${quem}: patientId ${input.patientId ? 'proibido' : 'obrigatório'} para o tipo ${input.tipo}`);
   }
-  const real = detectarTipo(input.conteudo);
-  if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext))
-    throw new TipoNaoPermitidoError();
-  const id = randomUUID();
-  const caminho = `${ctx.tenantId}/${input.tipo}/${id}.${real.ext}`;
-  const destino = resolverCaminho(dataDir, caminho);
-  const tmp = `${destino}.${process.pid}.tmp`;
-  const bytes = input.conteudo.length;
-  let gravado = false;
+  if (!input.conteudos.length) throw new TipoNaoPermitidoError();
+  const itens = input.conteudos.map((conteudo) => {
+    const real = conteudo.length ? detectarTipo(conteudo) : null;
+    if (!real || real.ext === 'svg' || !input.permitidos.includes(real.ext)) throw new TipoNaoPermitidoError();
+    const id = randomUUID();
+    const caminho = `${ctx.tenantId}/${input.tipo}/${id}.${real.ext}`;
+    const destino = resolverCaminho(dataDir, caminho);
+    return { id, caminho, destino, tmp: `${destino}.${process.pid}.tmp`, conteudo, bytes: conteudo.length, mime: real.mime };
+  });
+  const total = itens.reduce((s, i) => s + i.bytes, 0);
+  const gravados: string[] = [];
   try {
-    // O conteúdo vai para o disco ANTES da transação: a linha do tenant (e o dono do arquivo) ficam
-    // travados só pelo `rename`, não pelo tempo de escrita de um arquivo grande
-    await mkdir(path.dirname(destino), { recursive: true, mode: 0o750 });
-    await writeFile(tmp, input.conteudo, { mode: 0o640, flag: 'wx' });
+    for (const i of itens) {
+      await mkdir(path.dirname(i.destino), { recursive: true, mode: 0o750 });
+      await writeFile(i.tmp, i.conteudo, { mode: 0o640, flag: 'wx' });
+    }
     return await withTenant(
       ctx,
       async (tx) => {
         if (input.antesDaReserva) await input.antesDaReserva(tx);
-        // O tamanho do substituído vem do registro (no tenant, pela RLS), nunca de quem chama
-        const [substituido] = input.substitui
-          ? await tx.select({ bytes: storedFiles.bytes }).from(storedFiles).where(eq(storedFiles.caminho, input.substitui))
-          : [];
-        const liberados = substituido?.bytes ?? 0;
+        const liberados = input.liberados ? await input.liberados(tx) : 0;
         const reserva = await tx
           .update(tenants)
-          .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${bytes}` })
+          .set({ armazenamentoBytes: sql`${tenants.armazenamentoBytes} + ${total}` })
           .where(
             and(
               eq(tenants.id, ctx.tenantId),
-              input.naoBarrarPelaCota
-                ? undefined
-                : sql`${tenants.armazenamentoBytes} + ${bytes} - ${liberados} <= ${COTA_BYTES}`,
+              input.naoBarrarPelaCota ? undefined : sql`${tenants.armazenamentoBytes} + ${total} - ${liberados} <= ${COTA_BYTES}`,
             ),
           )
           .returning({ id: tenants.id });
         if (!reserva.length) throw new CotaEsgotadaError();
-        await tx
-          .insert(storedFiles)
-          .values({
-            id,
-            tenantId: ctx.tenantId,
-            tipo: input.tipo,
-            caminho,
-            bytes,
-            mime: real.mime,
-            criadoPor: ctx.actorUserId ?? null,
-            patientId: input.patientId ?? null,
-          });
-        const arquivo = { id, caminho, bytes, mime: real.mime };
-        if (input.registrar) await input.registrar(tx, arquivo);
-        await rename(tmp, destino);
-        gravado = true;
-        return arquivo;
+        await tx.insert(storedFiles).values(
+          itens.map((i) => ({ id: i.id, tenantId: ctx.tenantId, tipo: input.tipo, caminho: i.caminho, bytes: i.bytes, mime: i.mime, criadoPor: ctx.actorUserId ?? null, patientId: input.patientId ?? null })),
+        );
+        const arquivos = itens.map((i) => ({ id: i.id, caminho: i.caminho, bytes: i.bytes, mime: i.mime }));
+        if (input.registrar) await input.registrar(tx, arquivos);
+        for (const i of itens) {
+          await rename(i.tmp, i.destino);
+          gravados.push(i.destino);
+        }
+        return arquivos;
       },
       db,
     );
   } catch (err) {
-    await rm(tmp, { force: true }).catch(() => undefined);
-    if (gravado) await rm(destino, { force: true }).catch(() => undefined); // o commit falhou depois da gravação
+    for (const i of itens) await rm(i.tmp, { force: true }).catch(() => undefined);
+    for (const d of gravados) await rm(d, { force: true }).catch(() => undefined); // o commit falhou depois da gravação
     throw err;
   }
 }
@@ -206,7 +260,7 @@ export const motivoDoErro = (err: unknown): string =>
   err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : 'erro';
 
 /**
- * Plano 03 (c): `salvarArquivo` grava `<destino>.<pid>.tmp` antes da transação; uma queda deixa o .tmp.
+ * Plano 03 (c): `salvarArquivo`/`salvarArquivos` (`gravarArquivos`) gravam `<destino>.<pid>.tmp` antes da transação; uma queda deixa o .tmp.
  * Uma pasta ilegível (ou que some no meio) e um .tmp que não sai não param a varredura dos outros tenants:
  * o log leva só o tenant e o motivo, nunca o caminho.
  */

@@ -63,8 +63,8 @@ públicas ou links assinados. No banco, o "papel" que vale para a RLS é outro c
 
 | Perfil | Como entra | Área | Contexto no banco | Regras principais | Onde está no código |
 |---|---|---|---|---|---|
-| **Admin da plataforma** | E-mail + senha + **2FA obrigatório** | `/admin` | **Nunca** usa `withTenant`: `admin` não está em `ROLES` (`src/db/tenant.ts:15`, recusa em `:47`). Métricas só por funções `SECURITY DEFINER` que devolvem contagens (`admin_tenant_metrics`, `drizzle/0012_metricas_admin.sql:7`; `admin_metricas_sucesso`, migration 0087) | Sem 2FA, toda página manda para `/conta/seguranca` (`evaluateSession`, `src/lib/session-rules.ts:57`). Sessão expira com 12 h sem atividade (`STAFF_IDLE_MS`, `:5`). Nunca lê dado de saúde (spec §3) | `src/app/admin/`, `requireUser(['admin'], …)` (`src/app/admin/page.tsx:39`); guarda `src/app/admin/sem-tabelas-tenant.test.ts` |
-| **Nutricionista** (dona do tenant) | Convite de 72 h criado pelo admin; 2FA opcional | `/painel` | `withTenant` com `role: 'nutri'`, `actorUserId` e `ip` obrigatórios (`src/db/tenant.ts:60`) | Precisa aceitar o DPA da versão atual antes de usar o painel (`requireNutri`, `src/lib/tenant-session.ts:22`); tenant suspenso vai para `/indisponivel` (RN-15); 12 h de inatividade | `src/lib/tenant-session.ts` (`requireNutri`, `requireApiNutri`) |
+| **Admin da plataforma** | E-mail + senha + **2FA obrigatório** | `/admin` | **Nunca** usa `withTenant`: `admin` não está em `ROLES` (`src/db/tenant.ts:15`, recusa em `:47`). Métricas só por funções `SECURITY DEFINER` que devolvem contagens (`admin_tenant_metrics`, `drizzle/0012_metricas_admin.sql:7`; `admin_metricas_sucesso`, migration 0087) | Sem 2FA, toda página manda para `/conta/seguranca` (`evaluateSession`, `src/lib/session-rules.ts:144`). Sessão: 30 min sem uso com aviso 2 min antes, limite de 8 h e fim ao fechar o navegador (`STAFF_IDLE_MS`, `STAFF_MAX_MS`, `:9-11`; P12-14, cap. 03 §3.6). Nunca lê dado de saúde (spec §3) | `src/app/admin/`, `requireUser(['admin'], …)` (`src/app/admin/page.tsx:39`); guarda `src/app/admin/sem-tabelas-tenant.test.ts` |
+| **Nutricionista** (dona do tenant) | Convite de 72 h criado pelo admin; 2FA opcional | `/painel` | `withTenant` com `role: 'nutri'`, `actorUserId` e `ip` obrigatórios (`src/db/tenant.ts:60`) | Precisa aceitar o DPA da versão atual antes de usar o painel (`requireNutri`, `src/lib/tenant-session.ts:22`); tenant suspenso vai para `/indisponivel` (RN-15); 30 min sem uso (aviso 2 min antes), limite de 8 h, fim ao fechar o navegador (P12-14) | `src/lib/tenant-session.ts` (`requireNutri`, `requireApiNutri`) |
 | **Paciente** | Convite de 7 dias da nutricionista (ou cadastro pela página pública) | `/p` (PWA) | `withTenant` com `role: 'paciente'` e `patientId`; para achar os vínculos, `withConta` (contexto `conta`, Plano 06, D2) | Pode ser paciente de vários consultórios; o vínculo escolhido fica no cookie `nd_vinculo`, reconferido a cada requisição (Plano 06, D3; `src/lib/paciente-session.ts:21`). Precisa aceitar a versão atual do termo naquele consultório (Plano 06, D25). Sessão de 30 dias (`PATIENT_SESSION_MS`, `src/lib/session-rules.ts:6`). Escrita negada por padrão no banco (Plano 06, D1) | `requirePaciente` (`src/lib/paciente-session.ts:111`), `requireApiPaciente` (`:165`) |
 | **Visitante** (sem conta) | Nenhum login | `/n/<slug>`, `/consulta/<token>`, `/convite/…`, `/definir-senha`, `/esqueci-senha` | Página pública: `role: 'publico'`, sem ator, negado por padrão no banco (Plano 05, D11). Link da consulta, resposta do WhatsApp e leitura do convite: `role: 'paciente'` com `semConta: true`, só nos três arquivos de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:34`) | Turnstile + código por e-mail na página pública (Plano 05, D12); link da consulta assinado por HMAC com validade até o início da consulta (Plano 05, D20) | `src/modules/agenda/agendamento-publico.ts`, `src/modules/agenda/acoes-link.ts`, `src/modules/pacientes/convite-paciente.ts` |
 
@@ -134,8 +134,8 @@ com as extensões `citext`, `pg_trgm`, `unaccent` e `btree_gist` (`drizzle/0000_
 Mailpit no dev e no CI; k6 por imagem Docker e Lighthouse por `pnpm dlx` só na pilha de carga (spec §9.1).
 
 `pnpm-workspace.yaml` poda `@sentry/bundler-plugins` por `overrides` (só os caminhos de bundler do SDK o usam) para a
-imagem caber no orçamento de 260 MB do CI (spec §9.1, "Logs / erros"). No Plano 11, o estágio `build` do `Dockerfile`
-poda do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (258 MB no job `image` do PR #23; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)).
+imagem caber no orçamento do CI (260 MB até o Plano 11; **265 MB** desde o Plano 12, D-R2; spec §9.1, "Logs / erros"). No Plano 11, o estágio `build` do `Dockerfile`
+poda do `pdf-lib` e do `@anthropic-ai/sdk` o que não roda no worker (258 MB no job `image` do PR #23); no Plano 12, do `@hyzyla/pdfium` só ficam o carregador e o `pdfium.wasm` (263 MB; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)).
 
 ---
 
@@ -309,7 +309,7 @@ sequenceDiagram
   X->>X: cookie presente? gera request_id e nonce da CSP
   X->>P: segue com cabeçalhos
   P->>S: requireNutri(path)
-  S->>S: sessão válida, 12 h, 2FA (admin), DPA aceito, tenant ativo
+  S->>S: sessão válida (30 min sem uso, 8 h), 2FA (admin), DPA aceito, tenant ativo
   S-->>P: ctx com tenantId, role nutri, actorUserId e ip
   P->>M: listarPacientes(ctx, ...)
   M->>D: BEGIN, set_config de app.tenant_id, app.role etc., SELECT
@@ -564,7 +564,7 @@ flowchart LR
     Q[quality<br/>lint + typecheck]
     TE[test<br/>Vitest + Testcontainers + rclone]
     E2E[e2e<br/>Postgres 16 + Mailpit<br/>migrate, seed, build, Playwright]
-    IMG[image<br/>build local + orçamento 260 MB]
+    IMG[image<br/>build local + orçamento 265 MB]
   end
   M[Merge na main<br/>= deploy] --> D
   subgraph D["deploy.yml (push na main)"]
@@ -757,7 +757,7 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 5 | Spec §9.6 (lista de variáveis) | Faltam `TRUSTED_PROXIES` (**obrigatória em produção**, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE` e `PORT` | Quem montar um ambiente pela spec não sobe o app em produção |
 | 6 | `.env.example` lista `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `BACKUP_PASSPHRASE` | Nenhum código os lê; a spec §9.6 (nota do Plano 02) diz que ficam só no `backup.env` do host, como `RCLONE_CONFIG_*` | Pode levar alguém a cadastrá-los no Easypanel sem efeito |
 | 7 | Spec §4.2: URLs `app.<dominio>/…` e "O domínio definitivo ainda não foi escolhido" | Produção em `https://nutri.wsscloud.tech` (backlog, "Resumo"; Plano 08, D8) | Documental |
-| 8 | Spec RNF-03: `nutri_worker` com 512 MB | Serviço observado com 1 vCPU e 1 GiB (`docker service inspect`, 05/10/2026). A própria RNF-03 diz que os limites serão revistos depois do k6 | Configuração do Easypanel diferente da spec; registrar na revisão do RNF-03 |
+| 8 | Spec RNF-03: `nutri_worker` com 512 MB | Serviço observado com 1 vCPU e 1 GiB (`docker service inspect`, 05/10/2026). A própria RNF-03 diz que os limites serão revistos depois do k6 | **Resolvida no Plano 12 (R-D5):** o limite de 1 GiB do worker foi conferido de novo em 07/10/2026 (`MemoryBytes` 1073741824) e a RNF-03 da spec do MVP registra o valor; a revisão geral dos limites depois do k6 continua pendente |
 | 9 | Spec §4.1: "As rotas e a UI chamam só o módulo, nunca o banco direto" | `src/app/sair/route.ts:49` apaga a linha de `session` direto; `src/app/api/health/route.ts` lê `system_heartbeat` direto. Ambas as tabelas ficam fora da RLS. Outras páginas só passam `getDb()` para funções de módulo (`src/app/painel/actions.ts:15`, `src/app/admin/painel-infra.tsx:17`, páginas de convite) | Exceções pequenas e sem dado de tenant; manter a lista curta |
 | 10 | Infraestrutura real: serviço `nutri_app` | A mensagem de erro de `EVOLUTION_WEBHOOK_URL` (`src/env.ts:182`) e o comentário do `.env.example` dão como exemplo `http://nutridebby_app:3000/…` | O exemplo não funciona copiado: o nome do serviço na rede interna é `nutri_app` |
 | 11 | Spec §4 (diagrama): `nutri_evolution` na VPS | Não implantado em 05/10/2026 (`docker service ls`); o WhatsApp é opcional e o go-live pode sair sem ele (Plano 08, D16) | Estado operacional, não erro de código |

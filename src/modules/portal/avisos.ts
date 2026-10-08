@@ -22,3 +22,13 @@ export async function avisarComentario(tx: Tx, o: { tenantId: string; patientId:
   await tx.insert(notifications).values({ tenantId: o.tenantId, patientId: o.patientId, canal: 'push', tipo: 'comentario_diario', agendadaPara: agora });
   await dispararEnvio(tx, o.tenantId);
 }
+
+/**
+ * Plano 12 (US-163/US-164/US-165, INT-03, C-05): exame enviado revisado (aceito ou recusado) ou expirado — o push neutro "Há
+ * uma atualização para você no app.", na transação do evento. O motor decide a entrega (paciente ativo, com conta e push
+ * ativo — senão "ignorada"); o detalhe aparece só dentro do PWA, em /p/exames.
+ */
+export async function avisarEnvioAtualizado(tx: Tx, o: { tenantId: string; patientId: string; tipo: 'exame_revisado' | 'exame_expirado' }, agora: Date): Promise<void> {
+  await tx.insert(notifications).values({ tenantId: o.tenantId, patientId: o.patientId, canal: 'push', tipo: o.tipo, agendadaPara: agora });
+  await dispararEnvio(tx, o.tenantId);
+}

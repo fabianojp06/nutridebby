@@ -708,6 +708,27 @@
       "when": 1791339890752,
       "tag": "0100_ia_defesas_banco",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1791389894268,
+      "tag": "0101_exames_enviados",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1791389900580,
+      "tag": "0102_rls_exames_enviados",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1791395804218,
+      "tag": "0103_sessao_equipe_30min",
+      "breakpoints": true
     }
   ]
 }

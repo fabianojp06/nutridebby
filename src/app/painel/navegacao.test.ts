@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { classeDoItem, iniciais, ITENS_DO_MENU, itemAtual } from './navegacao';
+import { classeDoItem, iniciais, ITEM_EXAMES, ITENS_DO_MENU, itemAtual, itensDoMenu, rotuloDoItem } from './navegacao';
 
 describe('menu do painel (D20)', () => {
   it('iniciais: duas primeiras palavras, maiúsculas', () => {
@@ -31,5 +31,13 @@ describe('menu do painel (D20)', () => {
     }
     expect(ativo).toContain('bg-destaque');
     expect(readFileSync('src/app/painel/menu-painel.tsx', 'utf8')).toMatch(/className=\{classeDoItem\(atual === i\.href\)\}/);
+  });
+  it('Plano 12 (D11): "Exames recebidos" entra depois de "Diários" só quando pedido, com o contador no rótulo; marca as subpáginas', () => {
+    expect(itensDoMenu({ exames: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Configurações']);
+    expect(itensDoMenu({ exames: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Conteúdos', 'Configurações']);
+    expect(rotuloDoItem(ITEM_EXAMES.rotulo, 3)).toBe('Exames recebidos (3)');
+    expect(rotuloDoItem(ITEM_EXAMES.rotulo, 0)).toBe('Exames recebidos');
+    expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
+    expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
   });
 });

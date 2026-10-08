@@ -1,6 +1,6 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { exams, type ExamRow } from '@/db/schema';
+import { examSubmissions, exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
@@ -113,6 +113,12 @@ export async function excluirExame(ctx: TenantContext, patientId: string, id: st
   let exameApagado = false;
   const apagarExame = async (tx: Tx) => {
     await carregarPacienteParaEscrita(tx, patientId); // paciente primeiro, depois tenant (ordem de travas do armazenamento)
+    // Plano 12 (code review do PR #25, P12-22 a): o DELETE abaixo dispara a ação de RI da FK exam_submissions_exame_fk
+    // (0102, ON DELETE SET NULL (exam_id)): um UPDATE implícito que trava a linha do envio aceito (FOR NO KEY UPDATE) — DEPOIS
+    // do tenant que cancelarTarefas e apagarArquivo travam. A limpeza das páginas desse envio (apagarArquivosDoEnvio) trava
+    // envio → tenant: o ciclo dava 40P01. O envio que aponta para o exame é travado aqui, antes do tenant, na ordem única
+    // paciente → envio → tenant (a de salvarArquivo, aceitarEnvio e recusarEnvio); a ação de RI encontra a trava já nossa.
+    await tx.select({ id: examSubmissions.id }).from(examSubmissions).where(eq(examSubmissions.examId, id)).orderBy(asc(examSubmissions.id)).for('no key update');
     // Plano 11 (D20, spec §5.3 minimização): leituras de IA do exame na fila canceladas (reserva estornada) e sugestão pronta
     // esvaziada ANTES do DELETE (o SET NULL deixaria o resultado guardado sem uso). cancelarTarefas trava o tenant antes do
     // contador da plataforma (ordem da cota; apagarArquivo trava o tenant de novo depois). A tarefa em processamento não

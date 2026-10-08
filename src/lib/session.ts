@@ -9,7 +9,8 @@ import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession, type Auth } from './auth';
 import { logger, nomeDoErro } from './logger';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
-import { caminhoOutroPapel, evaluateSession, SECURITY_PATH, SUSPENDED_PATH, type AppRole } from './session-rules';
+import { prazosDaRequisicao } from './sessao-prazos';
+import { caminhoOutroPapel, evaluateSession, fimDaSessao, SECURITY_PATH, SUSPENDED_PATH, type AppRole, type PrazosDaEquipe } from './session-rules';
 
 export type SessionData = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
 
@@ -22,7 +23,7 @@ const lerSessaoDaRequisicao = cache(async () => {
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
   // RN-15: 1 leitura por PK; a suspensão vale na próxima requisição, mesmo com sessão aberta
   const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
-  return { h, data, tenant };
+  return { h, data, tenant, prazos: prazosDaRequisicao(h) };
 });
 
 /**
@@ -30,10 +31,10 @@ const lerSessaoDaRequisicao = cache(async () => {
  * a página dentro de um render); recebê-lo em vez de reler a sessão mantém uma leitura só fora de um render (Server
  * Action, Route Handler), onde o cache do React não guarda nada.
  */
-const deslizarUmaVez = cache(async (data: SessionData) => {
+const deslizarUmaVez = cache(async (data: SessionData, prazos: PrazosDaEquipe) => {
   try {
     // Também em navegação RSC, em que o Better Auth não renova sozinho
-    await slideSession(getDb(), data.session, data.user.appRole as AppRole, new Date());
+    await slideSession(getDb(), data.session, data.user.appRole as AppRole, new Date(), prazos);
   } catch (err) {
     // A requisição já está autenticada; falhar a renovação não pode derrubar a página.
     // Só o nome do erro (RNF-11, regra 3): a mensagem do erro de banco traz o SQL e os parâmetros (id e token da sessão).
@@ -53,7 +54,7 @@ export async function requireUserComTenant(
   allowed: readonly AppRole[],
   path: string,
 ): Promise<{ data: SessionData; tenant: TenantRow | null }> {
-  const { h, data, tenant } = await lerSessaoDaRequisicao();
+  const { h, data, tenant, prazos } = await lerSessaoDaRequisicao();
   const auth = getAuth();
   const now = new Date();
   const decision = evaluateSession({
@@ -64,18 +65,23 @@ export async function requireUserComTenant(
     path,
     hasSessionCookie: getSessionCookie(h, { cookiePrefix: 'nd' }) !== null,
     tenantStatus: statusDe(tenant),
+    prazos,
   });
   // Página pedida (caminho + query, gravada pelo proxy); sem ela, o caminho fixo da página
   const volta = encodeURIComponent(safeReturnPath(h.get(CURRENT_PATH_HEADER)) ?? path);
   switch (decision) {
     case 'ok':
-      await deslizarUmaVez(data!);
+      await deslizarUmaVez(data!, prazos);
       return { data: data!, tenant };
     case 'login':
       redirect(`/entrar?volta=${volta}`);
-    case 'expired':
+    case 'expired': {
+      // P12-14: com a linha ainda lida (sessão aberta antes das regras novas, ou o relógio do banco à frente do
+      // expiresAt), /entrar diz o motivo; sem ela (o Better Auth já recusou pelo expiresAt), o aviso genérico
+      const motivo = data?.session ? fimDaSessao(data.session, now, prazos) : null;
       await auth.api.signOut({ headers: h });
-      redirect(`/entrar?expirada=1&volta=${volta}`);
+      redirect(motivo ? `/entrar?motivo=${motivo}&volta=${volta}` : `/entrar?expirada=1&volta=${volta}`);
+    }
     case 'setup-2fa':
       redirect(SECURITY_PATH);
     case 'suspended':

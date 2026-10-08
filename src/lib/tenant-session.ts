@@ -33,9 +33,10 @@ export type ApiNutri = ({ ok: true } & NutriAccess) | { ok: false; response: Res
 /**
  * F7: requireNutri para Route Handlers — mesma regra de sessão (requireApiUser: 401/403) e do
  * DPA da versão atual (403 com MSG_DPA_PENDENTE), devolvendo o tenant e o contexto com ator e IP.
+ * `renovar: false` (P12-14): rota que só devolve estado para o polling da tela — confere, mas não conta como uso.
  */
-export async function requireApiNutri(req: Request): Promise<ApiNutri> {
-  const auth = await requireApiUser(req, ['nutri']);
+export async function requireApiNutri(req: Request, opts: { renovar?: boolean } = {}): Promise<ApiNutri> {
+  const auth = await requireApiUser(req, ['nutri'], opts);
   if (!auth.ok) return auth;
   const tenantId = auth.data.user.tenantId;
   if (!tenantId || !auth.tenant) return recusaApi(403, 'Acesso negado');

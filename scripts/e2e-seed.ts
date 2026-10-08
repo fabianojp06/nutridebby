@@ -34,12 +34,14 @@ const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', ende
 const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Nutri E2E da Silva', contatoEmail: 'contato-e2e@nutridebby.test', contatoTelefoneE164: '+5511912345678' };
 // Plano 11: a IA liberada pela admin e ativada com o aditivo no consultório do E2E (o CI roda com IA_PROVEDOR=sandbox)
 const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15 };
+// Plano 12 (D18 = a): o recebimento de exames pelo app ligado no consultório do E2E (o axe passa por /p/exames com o formulário)
+const EXAMES_APP = { examesPacienteAtivadoEm: new Date(), examesAvisoEm: null };
 const [consultorio] = await db
   .insert(tenants)
-  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA })
+  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP })
   .onConflictDoUpdate({
     target: tenants.slug,
-    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA },
+    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP },
   })
   .returning({ id: tenants.id });
 
@@ -52,6 +54,10 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
   // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)
   await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
+  // Plano 12 (R-D5): o feed de diários lista primeiro os não vistos e corta em 50 (feedDeDiarios); no banco de dev
+  // reaproveitado, os registros das execuções anteriores empurravam o recém-comentado ("Visto") para fora da lista
+  // (portal.spec, US-043). Os antigos entram como vistos; o limite do feed não muda.
+  await tx.execute(sql`update diary_entries set visto_pela_nutri_em = now() where visto_pela_nutri_em is null`);
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));

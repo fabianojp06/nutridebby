@@ -142,6 +142,11 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     await rcat('data/historico/2026-08-01/velho.txt', 'x');
     mkdirSync(path.join(dados, 't1', 'exportacao'), { recursive: true });
     writeFileSync(path.join(dados, 't1', 'exportacao', 'e.zip'), 'zip');
+    // Plano 12 (PM-11, D8): as imagens de página e os originais do exame enviado pelo paciente são temporários
+    for (const pasta of ['exame_pagina', 'exame_original']) {
+      mkdirSync(path.join(dados, 't1', pasta), { recursive: true });
+      writeFileSync(path.join(dados, 't1', pasta, 'x.jpg'), 'temporario');
+    }
     expect(await rodar('2026-10-05')).toBe(0);
     expect(await lsf('data/atual/t1/logo/')).toEqual(['a.png']);
     expect((await cat('data/atual/t1/logo/a.png')).toString()).toBe('versao-2');
@@ -149,8 +154,10 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect((await cat('data/historico/2026-10-05/t1/logo/a.png')).toString()).toBe('versao-1');
     expect(await lsf('data/historico/')).not.toContain('2026-08-01/');
     expect(await lsf('db/semanal/')).not.toContain('nutri-2026-10-05.dump');
-    expect(await lsf('data/atual/t1/')).toEqual(['logo/']); // o ZIP de exportação não vai para o R2
+    expect(await lsf('data/atual/t1/')).toEqual(['logo/']); // nem o ZIP de exportação nem os temporários do envio vão para o R2
     expect(await lsf('data/historico/2026-10-05/t1/')).not.toContain('exportacao/');
+    expect(await lsf('data/historico/2026-10-05/t1/')).not.toContain('exame_pagina/');
+    expect(await lsf('data/historico/2026-10-05/t1/')).not.toContain('exame_original/');
   });
 
   it('falha no dump: registra ok=false, não deixa arquivo parcial, ainda copia /data e sai com erro', async () => {

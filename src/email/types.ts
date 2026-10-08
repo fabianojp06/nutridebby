@@ -69,7 +69,12 @@ export type EmailMessage =
    * ciência) e `enviadoEm` (ISO, o mesmo de `patients.ia_aviso_enviado_em`) a desfazer o "aguardando" deste envio se o job
    * desistir; o job inteiro vai cifrado e o texto do e-mail nunca os mostra. Sem dado de saúde.
    */
-  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string };
+  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string }
+  /**
+   * Plano 12 (RN-168, D16 = a): exames novos enviados por pacientes, às nutricionistas do tenant (no máximo 1 a cada 6 h);
+   * `pendentesAntigos` = há envio aguardando há mais de 30 dias (US-165). Sem nome de paciente, de exame nem arquivo (C-05).
+   */
+  | { tipo: 'exames_recebidos'; para: string; link: string; pendentesAntigos: boolean };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

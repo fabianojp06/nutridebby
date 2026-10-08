@@ -21,4 +21,9 @@ describe('navegação do portal (D23)', () => {
     expect(itemAtual('/p/perfil')).toBe('/p/perfil');
     expect(ITENS_DO_PORTAL).toHaveLength(7);
   });
+
+  it('Plano 12 (PM-10, D4): "Meus exames" não é aba — marca "Perfil"; a barra continua com 7 abas (R16)', () => {
+    expect(itemAtual('/p/exames')).toBe('/p/perfil');
+    expect(ITENS_DO_PORTAL).toHaveLength(7);
+  });
 });

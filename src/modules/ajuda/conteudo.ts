@@ -19,7 +19,7 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 1,
+    versao: 2, // Plano 12: o passo do menu passou a citar "Exames recebidos"
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -31,7 +31,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos e Configurações ficam sempre aqui no topo.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos e Configurações ficam sempre aqui no topo. Quando você liga o recebimento de exames pelo app, "Exames recebidos" aparece também, com o número dos que aguardam.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -153,6 +153,34 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'regras-horario', titulo: 'Regras', texto: 'Cada regra diz o dia, o horário e a duração das consultas.' },
       { alvo: 'bloqueios-horario', titulo: 'Bloqueios', texto: 'Férias e feriados: o período bloqueado some da agenda dos pacientes.' },
     ],
+  },
+  {
+    id: 'exames-recebidos',
+    versao: 1,
+    padrao: /^\/painel\/exames-recebidos(\/.*)?$/,
+    titulo: 'Exames recebidos',
+    ajuda: {
+      resumo: 'Os exames que os pacientes enviaram pelo app ficam aqui até você conferir. Nada entra no prontuário sem você aceitar.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Abrir um envio e conferir as páginas, como imagens.',
+            'Aceitar: o exame entra na aba Exames do paciente, com o selo "Enviado pelo paciente". Com a IA ativa, dá para aceitar e já pedir a leitura dos valores.',
+            'Recusar com um motivo: o arquivo é apagado na hora e o paciente vê o motivo no app.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O recebimento é ligado em Configurações, em "Exames enviados pelos pacientes".',
+            'Você recebe no máximo um e-mail a cada 6 horas avisando que há exames novos, sem nome de paciente nem de exame.',
+            'Envios não revisados em 90 dias expiram: o arquivo é apagado e o paciente é avisado.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'fila-exames', titulo: 'Exames dos pacientes', texto: 'Os mais antigos ficam no topo. Abra um envio para conferir as páginas e aceitar ou recusar.' }],
   },
   {
     id: 'diarios',

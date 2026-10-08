@@ -1,7 +1,21 @@
-import { and, asc, eq, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lt, max, ne, or, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, consultations, dataExports, diaryEntries, exams, iaTarefas, mealPlans, notifications, patients, privacyRequests, pushSubscriptions } from '@/db/schema';
+import {
+  appointments,
+  consultations,
+  dataExports,
+  diaryEntries,
+  examSubmissionFiles,
+  examSubmissions,
+  exams,
+  iaTarefas,
+  mealPlans,
+  notifications,
+  patients,
+  privacyRequests,
+  pushSubscriptions,
+} from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
@@ -223,6 +237,56 @@ export async function apagarFotosDoDiario(
   return n;
 }
 
+/**
+ * §13.3 (US-018): os envios de exame do titular bloqueado (pedido de exclusão atendido) ou anonimizado — cada arquivo (PDF
+ * limpo, originais e páginas) no seu apagarArquivo, com o `rm` antes do commit (como as fotos do diário; o ponteiro do PDF
+ * limpo sai no naMesmaTransacao, e as linhas de arquivo pela FK em cascata), e depois as linhas dos envios NÃO aceitos (não são
+ * prontuário). `todos`: também as dos aceitos (a anonimização as apaga dentro da própria transação). O gatilho
+ * exam_submissions_sem_apagar (0102) só deixa o worker apagar, e só com o titular bloqueado ou anonimizado. Idempotente.
+ */
+export async function apagarEnviosDoTitular(
+  ctx: TenantContext,
+  patientId: string,
+  deps: { db?: Db; dataDir?: string; todos?: boolean } = {},
+): Promise<number> {
+  const db = deps.db ?? getDb();
+  const caminhos = await withTenant(
+    ctx,
+    async (tx) => [
+      ...(
+        await tx
+          .select({ c: examSubmissions.arquivoPath })
+          .from(examSubmissions)
+          .where(and(eq(examSubmissions.patientId, patientId), isNotNull(examSubmissions.arquivoPath)))
+      ).map((x) => x.c!),
+      ...(await tx.select({ c: examSubmissionFiles.arquivoPath }).from(examSubmissionFiles).where(eq(examSubmissionFiles.patientId, patientId))).map((x) => x.c),
+    ],
+    db,
+  );
+  let n = 0;
+  for (const caminho of caminhos) {
+    const ok = await apagarArquivo(ctx, { caminho }, {
+      db,
+      dataDir: deps.dataDir,
+      removerAntesDoCommit: true,
+      naMesmaTransacao: async (tx) => {
+        await tx
+          .update(examSubmissions)
+          .set({ arquivoPath: null, updatedAt: new Date() })
+          .where(and(eq(examSubmissions.patientId, patientId), eq(examSubmissions.arquivoPath, caminho)));
+        return true;
+      },
+    });
+    if (ok) n++;
+  }
+  await withTenant(
+    ctx,
+    (tx) => tx.delete(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), deps.todos ? undefined : ne(examSubmissions.status, 'aceito'))),
+    db,
+  );
+  return n;
+}
+
 /** Job `exclusao-atendida` (F-13): só ids — o e-mail, o nome e a data saem do banco na hora do aviso. */
 export type DadosExclusaoAtendida = { tenantId: string; patientId: string };
 
@@ -231,7 +295,8 @@ export type DadosExclusaoAtendida = { tenantId: string; patientId: string };
  * "Foram apagados agora: as fotos do diário…" — então ele só sai depois que as fotos saíram do disco. Disco com erro:
  * o job tenta de novo (o erro devolvido ao pg-boss leva só o código, nunca o caminho — RNF-11, F-1). Na última
  * tentativa o aviso sai assim mesmo: o titular não fica sem a resposta ao pedido, e a varredura diária
- * (apagarFotosDosBloqueados) termina as fotos. Só para quem está bloqueado e ainda identificado.
+ * (apagarFotosDosBloqueados) termina as fotos. Plano 12 (§13.3): os envios de exame não aceitos saem do mesmo jeito
+ * (apagarEnviosDoTitular; rede de segurança: apagarEnviosDosBloqueados). Só para quem está bloqueado e ainda identificado.
  */
 export async function concluirExclusaoAtendida(
   data: DadosExclusaoAtendida,
@@ -256,6 +321,14 @@ export async function concluirExclusaoAtendida(
     const motivo = motivoDoErro(err);
     logger.error({ motivo, tenantId: data.tenantId, definitivo: deps.ultimaTentativa }, 'falha ao apagar fotos do diário antes do aviso da exclusão');
     if (!deps.ultimaTentativa) throw new Error(`falha ao apagar as fotos do diário (${motivo})`);
+  }
+  // Plano 12 (§13.3): os envios de exame não aceitos (arquivos e linhas) também saem antes do aviso
+  try {
+    await apagarEnviosDoTitular(ctx, data.patientId, { db, dataDir: deps.dataDir });
+  } catch (err) {
+    const motivo = motivoDoErro(err);
+    logger.error({ motivo, tenantId: data.tenantId, definitivo: deps.ultimaTentativa }, 'falha ao apagar os envios de exame antes do aviso da exclusão');
+    if (!deps.ultimaTentativa) throw new Error(`falha ao apagar os envios de exame (${motivo})`);
   }
   const tenant = await buscarTenant(db, data.tenantId);
   await enqueueEmail(
@@ -291,7 +364,7 @@ export async function pedidosDoTitularAbertosNaTransacao(tx: Tx): Promise<Pedido
   return r.map((x) => ({ ...x, tipo: x.tipo as 'exclusao' | 'exportacao' }));
 }
 
-/** Arquivos em /data ligados ao paciente: laudos, exportações, PDFs de plano e fotos do diário (e originais). */
+/** Arquivos em /data ligados ao paciente: laudos, exportações, PDFs de plano, fotos do diário (e originais) e arquivos de envio de exame. */
 export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<string[]> {
   const deExames = await tx
     .select({ c: exams.arquivoPath })
@@ -305,9 +378,17 @@ export async function anexosDoPaciente(tx: Tx, patientId: string): Promise<strin
     .select({ c: mealPlans.pdfPath })
     .from(mealPlans)
     .where(and(eq(mealPlans.patientId, patientId), isNotNull(mealPlans.pdfPath)));
+  // Plano 12 (§13.3, defesa): o PDF limpo de envio não aceito e os originais/páginas que tenham sobrado
+  const deEnvios = await tx
+    .select({ c: examSubmissions.arquivoPath })
+    .from(examSubmissions)
+    .where(and(eq(examSubmissions.patientId, patientId), isNotNull(examSubmissions.arquivoPath)));
+  const arquivosDeEnvios = await tx.select({ c: examSubmissionFiles.arquivoPath }).from(examSubmissionFiles).where(eq(examSubmissionFiles.patientId, patientId));
   return [
     ...[...deExames, ...deExportacoes, ...dePlanos].map((e) => e.c!),
     ...(await fotosDoDiario(tx, patientId)).map((f) => f.caminho),
+    ...deEnvios.map((e) => e.c!),
+    ...arquivosDeEnvios.map((e) => e.c),
   ];
 }
 
@@ -351,6 +432,7 @@ export async function anonimizarVencidos(
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
     const hoje = hojeNoFuso(t.fuso, now);
     await apagarFotosDosBloqueados(ctx, db, deps);
+    await apagarEnviosDosBloqueados(ctx, db, deps);
     let vencidos: { id: string }[];
     try {
       vencidos = await withTenant(
@@ -379,6 +461,8 @@ export async function anonimizarVencidos(
       try {
         // RN-140 (c) (Plano 10A): documentos assinados primeiro, pela função de anonimização (nunca por anexosDoPaciente)
         await anonimizarDocumentosDoPaciente(ctx, id, { db, dataDir: deps.dataDir });
+        // Plano 12 (§13.3): os envios de exame (arquivos e linhas dos não aceitos), cada arquivo no seu apagarArquivo
+        await apagarEnviosDoTitular(ctx, id, { db, dataDir: deps.dataDir });
         for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
           await apagarArquivo(
             ctx,
@@ -422,6 +506,9 @@ export async function anonimizarVencidos(
             // Plano 11 (§5.3, RNF-110): a única exclusão de ia_tarefas — no contexto worker (gatilho ia_tarefas_sem_apagar).
             // O registro técnico sem titular continua em ia_uso; o que foi aplicado já está em exams.valores (prontuário).
             if (r.length) await tx.delete(iaTarefas).where(eq(iaTarefas.patientId, id));
+            // Plano 12 (§13.3): as linhas de envio que sobraram (as dos aceitos: o exame já é o prontuário) — contexto worker,
+            // titular já anonimizado (gatilho exam_submissions_sem_apagar)
+            if (r.length) await tx.delete(examSubmissions).where(eq(examSubmissions.patientId, id));
             if (r.length) await anonimizarAgenda(tx, id, now);
             // P06-08 (D18): a conta de login perde a identificação se não tiver outro vínculo — conferido aqui, na
             // mesma transação, depois do UPDATE que a soltou deste prontuário (a função trava a conta)
@@ -478,5 +565,24 @@ async function apagarFotosDosBloqueados(ctx: TenantContext, db: Db, deps: { data
     } catch (err) {
       falhou(err);
     }
+  }
+}
+
+/** Rede de segurança (§13.3): bloqueado com envio não aceito (o job da exclusão falhou de vez) perde os envios; erro só no log. */
+async function apagarEnviosDosBloqueados(ctx: TenantContext, db: Db, deps: { dataDir?: string }): Promise<void> {
+  try {
+    const comEnvio = await withTenant(
+      ctx,
+      (tx) =>
+        tx
+          .selectDistinct({ id: patients.id })
+          .from(patients)
+          .innerJoin(examSubmissions, and(eq(examSubmissions.tenantId, patients.tenantId), eq(examSubmissions.patientId, patients.id)))
+          .where(and(eq(patients.status, 'bloqueado'), ne(examSubmissions.status, 'aceito'))),
+      db,
+    );
+    for (const { id } of comEnvio) await apagarEnviosDoTitular(ctx, id, { db, dataDir: deps.dataDir });
+  } catch (err) {
+    logger.error({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar envios de exame de paciente bloqueado');
   }
 }

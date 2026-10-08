@@ -78,6 +78,36 @@ describe('POST /sair (botão "Sair")', () => {
     expect(r.headers.get('location')).toBe('/entrar');
   });
 
+  describe('saída automática da equipe (P12-14): o motivo vai ao login', () => {
+    const comCorpo = (cookie: string, corpo: string, tipo = 'application/x-www-form-urlencoded') =>
+      new Request(`${ORIGEM}/sair`, { method: 'POST', headers: { origin: ORIGEM, cookie, 'content-type': tipo }, body: corpo });
+
+    it.each(['inatividade', 'limite'] as const)('motivo=%s: a mesma saída (sessão apagada, cookies, Clear-Site-Data) e /entrar?motivo=…', async (motivo) => {
+      const u = await criarEEntrar(db, auth, { appRole: 'nutri' });
+      const r = await POST(comCorpo(u.cookie, `motivo=${motivo}`));
+      expect(r.status).toBe(303);
+      expect(r.headers.get('location')).toBe(`/entrar?motivo=${motivo}`);
+      expect(await sessoesDe(u.id)).toHaveLength(0);
+      expect(cookiesApagados(r)).toHaveLength(1);
+      expect(r.headers.get('clear-site-data')).toBe('"cache", "storage"');
+    });
+
+    it('motivo fora da lista, corpo JSON ou sem corpo: /entrar sem motivo', async () => {
+      for (const [corpo, tipo] of [['motivo=https%3A%2F%2Fevil.example', undefined], ['motivo=expirada', undefined], ['{"motivo":"limite"}', 'application/json']] as const) {
+        const u = await criarEEntrar(db, auth, { appRole: 'nutri' });
+        const r = await POST(comCorpo(u.cookie, corpo, tipo));
+        expect(r.headers.get('location'), corpo).toBe('/entrar');
+        expect(await sessoesDe(u.id)).toHaveLength(0);
+      }
+    });
+
+    it('sem sessão (outra aba já saiu) também leva o motivo', async () => {
+      const r = await POST(comCorpo('', 'motivo=inatividade'));
+      expect(r.status).toBe(303);
+      expect(r.headers.get('location')).toBe('/entrar?motivo=inatividade');
+    });
+  });
+
   describe('CSRF: só vale para a origem do APP_URL', () => {
     it('Origin igual à origem do APP_URL: aceita', async () => {
       const u = await criarEEntrar(db, auth, { appRole: 'paciente' });

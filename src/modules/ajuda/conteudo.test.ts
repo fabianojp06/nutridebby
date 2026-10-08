@@ -69,6 +69,13 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(textos.filter((t) => /documento/i.test(t))).toEqual([]);
     expect(g.versao).toBe(1);
   });
+  it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
+    const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
+    expect(g.versao).toBe(2);
+    expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Exames recebidos" aparece também');
+    expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
+    expect(guiaDaRota(`/painel/exames-recebidos/${UUID}`)?.id).toBe('exames-recebidos');
+  });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });

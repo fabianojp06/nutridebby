@@ -27,9 +27,9 @@ export type DadosFotoDiario = { tenantId: string; entryId: string };
  * decodificador (o `dispose` do `decode.all`) e é chamado uma vez, com ou sem `decode()`.
  */
 export type ImagemHeic = { width: number; height: number; decode: () => Promise<{ data: Uint8ClampedArray }>; liberar?: () => void };
-type AbrirHeic = (buf: Buffer) => Promise<ImagemHeic>;
+export type AbrirHeic = (buf: Buffer) => Promise<ImagemHeic>;
 
-class FotoInvalidaError extends Error {}
+export class FotoInvalidaError extends Error {}
 /** Paciente bloqueado (pedido de exclusão atendido) ou anonimizado: a foto não é convertida e o original sai (US-018). */
 class TitularComExclusaoError extends Error {}
 
@@ -66,11 +66,14 @@ async function pixelsDoHeic(original: Buffer, abrirHeic: AbrirHeic): Promise<Sha
   }
 }
 
-/** Pixels → JPEG ≤ 1600 px no maior lado, qualidade 80, sem metadados (o sharp só copia EXIF/GPS com withMetadata). */
-async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Promise<Buffer> {
+/**
+ * Foto (JPEG, PNG ou HEIC) → JPEG ≤ `ladoMax` no maior lado, sem metadados e com a orientação aplicada; 40 MP conferidos pelo
+ * cabeçalho ANTES de decodificar. O diário usa 1600 px e 80; o exame enviado pelo paciente (Plano 12), 2000 px e 85.
+ */
+export async function fotoParaJpeg(original: Buffer, ext: string, o: { ladoMax: number; qualidade?: number; abrirHeic?: AbrirHeic }): Promise<Buffer> {
   let img: Sharp;
   if (ext === 'heic') {
-    img = await pixelsDoHeic(original, abrirHeic);
+    img = await pixelsDoHeic(original, o.abrirHeic ?? heicDeVerdade);
   } else {
     const meta = await sharp(original).metadata().catch(() => {
       throw new FotoInvalidaError('metadata');
@@ -78,7 +81,7 @@ async function paraJpeg(original: Buffer, ext: string, abrirHeic: AbrirHeic): Pr
     if (grandeDemais(meta.width, meta.height)) throw new FotoInvalidaError('pixels');
     img = sharp(original, { limitInputPixels: MAX_PIXELS }).rotate(); // aplica a orientação do EXIF antes de descartá-lo
   }
-  return paraJpegSemMetadados(img, LADO_MAX).catch(() => {
+  return paraJpegSemMetadados(img, o.ladoMax, o.qualidade).catch(() => {
     throw new FotoInvalidaError('conversao');
   });
 }
@@ -142,7 +145,7 @@ export async function converterFotoDoDiario(
   let convertida = false;
   try {
     const buf = await readFile(resolverCaminho(deps.dataDir, original));
-    const jpeg = await paraJpeg(buf, original.slice(original.lastIndexOf('.') + 1), deps.abrirHeic ?? heicDeVerdade);
+    const jpeg = await fotoParaJpeg(buf, original.slice(original.lastIndexOf('.') + 1), { ladoMax: LADO_MAX, abrirHeic: deps.abrirHeic });
     await salvarArquivo(
       ctx,
       {

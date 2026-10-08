@@ -7,6 +7,7 @@ import { getAuth } from '@/lib/auth';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { cookieDoVinculoApagado, cookieVinculoSeguro } from '@/lib/paciente-session';
 import { cookiesDeSessaoApagados } from '@/lib/sessao-cookies';
+import { ehMotivoDoFim, type MotivoDoFim } from '@/lib/session-rules';
 
 // Aonde o formulário do botão "Sair" leva: o login, ou a página de falha (sessão não apagada, cookie mantido).
 // Sem `export`: num Route Handler o Next só aceita como export os verbos e as opções de rota.
@@ -20,6 +21,16 @@ const redirecionar = (para: string, cookies: string[] = [], limparAparelho = fal
   if (limparAparelho) h.set('clear-site-data', '"cache", "storage"');
   return new Response(null, { status: 303, headers: h });
 };
+
+/**
+ * P12-14: a saída automática da equipe (aviso de inatividade sem resposta, ou o limite de 8 h) manda `motivo` no corpo do
+ * formulário, e o login diz por quê. Só os valores da lista; qualquer outro corpo (o botão "Sair" não manda nada) é ignorado.
+ */
+async function motivoDoPedido(req: Request): Promise<MotivoDoFim | null> {
+  if (!(req.headers.get('content-type') ?? '').startsWith('application/x-www-form-urlencoded')) return null;
+  const motivo = (await req.formData().catch(() => null))?.get('motivo');
+  return ehMotivoDoFim(motivo) ? motivo : null;
+}
 
 /**
  * CSRF: sair é um POST que muda estado e o cookie de sessão vai sozinho. Vale só o `Origin` igual à origem do
@@ -43,12 +54,13 @@ function origemPermitida(req: Request): boolean {
  */
 export async function POST(req: Request): Promise<Response> {
   if (!origemPermitida(req)) return new Response(null, { status: 403, headers: { 'cache-control': 'no-store' } });
+  const motivo = await motivoDoPedido(req);
   const auth = getAuth();
   try {
     const atual = await auth.api.getSession({ headers: req.headers, query: { disableRefresh: true } });
     if (atual) await getDb().delete(session).where(eq(session.token, atual.session.token));
     // sem `auth.api.signOut`: ele engole falha de banco e o `nextCookies` dele reescreve o `Set-Cookie` sem o `Max-Age=0`
-    return redirecionar(SAIR_DESTINO, [...(await cookiesDeSessaoApagados(auth)), cookieDoVinculoApagado(cookieVinculoSeguro())], true);
+    return redirecionar(motivo ? `${SAIR_DESTINO}?motivo=${motivo}` : SAIR_DESTINO, [...(await cookiesDeSessaoApagados(auth)), cookieDoVinculoApagado(cookieVinculoSeguro())], true);
   } catch (err) {
     // RNF-11: o DrizzleQueryError leva o SQL e os parâmetros (o token da sessão); só o motivo sanitizado vai para o log
     const limpo = sanitizarErroDeBanco(err);

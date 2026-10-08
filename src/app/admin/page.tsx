@@ -4,7 +4,7 @@ import { requireUser } from '@/lib/session';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
 import { textoTaxa } from '@/modules/agenda/presenca';
-import { metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
+import { metricasDeExamesEnviadosPorTenant, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 import { definirDocumentosAction, definirIaAction, reativarAction, reenviarConviteAction, suspenderAction } from './actions';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
@@ -42,7 +42,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
   const { aviso } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const [contas, metricas, sucesso, iaMetricas] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant()]);
+  const [contas, metricas, sucesso, iaMetricas, exames] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant(), metricasDeExamesEnviadosPorTenant()]);
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -81,6 +81,7 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
             <th scope="col">Armazenamento</th>
             <th scope="col">Métricas de sucesso</th>
             <th scope="col">Documentos</th>
+            <th scope="col">Exames do app</th>
             <th scope="col">IA</th>
             <th scope="col">Ações</th>
           </tr>
@@ -119,6 +120,11 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
                     {c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` os documentos de ${c.nomeExibicao}`}</span>
                   </ConfirmarBotao>
                 </form>
+              </td>
+              {/* Plano 12 (§3): só contagens — o admin nunca vê envio, arquivo ou paciente */}
+              <td className="space-y-1">
+                <p>{`Enviados no mês: ${exames.get(c.tenantId)?.enviadosMes ?? 0}`}</p>
+                <p>{`Aguardando revisão: ${exames.get(c.tenantId)?.pendentes ?? 0}`}</p>
               </td>
               {/* US-100 (A-06): só contagens e valores; liberar só com ZDR, advogado, avaliação e textos finais */}
               <td className="space-y-1">

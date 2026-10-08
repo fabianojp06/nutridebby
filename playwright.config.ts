@@ -19,6 +19,9 @@ export default defineConfig({
     {
       command: `node_modules/.bin/next start -p ${new URL(baseURL).port || 3000}`,
       url: `${baseURL}/entrar`,
+      // P12-14: prazos curtos da sessão da equipe (30 s) só para o contexto com o cookie nd_sessao_teste
+      // (e2e/sessao-equipe.spec.ts); as outras specs seguem com os 30 min. Recusada em produção (src/env.ts).
+      env: { SESSAO_TESTE_MS: '30000' },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

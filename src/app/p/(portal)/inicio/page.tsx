@@ -1,5 +1,6 @@
 import { getEnv } from '@/env';
 import Link from 'next/link';
+import { BotaoLink } from '@/components/ui/botao';
 import { requirePaciente } from '@/lib/paciente-session';
 import { formatarQuando, quandoComFuso } from '@/modules/agenda/fuso';
 import { novosNoPortal } from '@/modules/documentos/portal';
@@ -36,6 +37,12 @@ export default async function MeuAcompanhamento() {
             Ver documentos
           </Link>
         </section>
+      )}
+      {/* US-160 / PM-10: só com o recebimento ligado pela nutricionista (D18 = a) */}
+      {tenant.examesPacienteAtivadoEm && (
+        <p>
+          <BotaoLink href="/p/exames" variante="secundario">Enviar exame</BotaoLink>
+        </p>
       )}
       <Instalar />
       <AtivarNotificacoes chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} dono={vinculo.patientId} />

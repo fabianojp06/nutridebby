@@ -13,7 +13,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarNoDiario } from './diario';
 import { semDetalhe } from '@/worker/sem-detalhe';
-import { converterFotoDoDiario, expirarFotosPendentes, MAX_PIXELS } from './diario-foto-job';
+import { converterFotoDoDiario, expirarFotosPendentes, fotoParaJpeg, FotoInvalidaError, MAX_PIXELS } from './diario-foto-job';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -177,6 +177,19 @@ describe('conversão da foto do diário (RN-07)', () => {
     const quebrada = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 7)]);
     const q = await registro(quebrada);
     expect(await converterFotoDoDiario({ tenantId: q.T.tenantId, entryId: q.id }, deps)).toBe('falhou');
+  });
+
+  it('fotoParaJpeg (Plano 12): parâmetros do laudo — maior lado 2000 px, qualidade 85, em pé e sem EXIF; lixo → FotoInvalidaError', async () => {
+    const foto = await sharp({ create: { width: 4000, height: 3000, channels: 3, background: '#88aa44' } })
+      .jpeg()
+      .withMetadata({ orientation: 6, exif: { IFD0: { Copyright: 'marca-exif-gps' } } })
+      .toBuffer();
+    const jpeg = await fotoParaJpeg(foto, 'jpg', { ladoMax: 2000, qualidade: 85 });
+    const m = await sharp(jpeg).metadata();
+    expect([m.width, m.height]).toEqual([1500, 2000]); // a orientação 6 foi aplicada antes de tirar o EXIF
+    expect(m.exif).toBeUndefined();
+    expect(jpeg.includes('marca-exif-gps')).toBe(false);
+    await expect(fotoParaJpeg(Buffer.from('não é foto'), 'jpg', { ladoMax: 2000 })).rejects.toBeInstanceOf(FotoInvalidaError);
   });
 
   it('idempotente: rodar de novo depois de pronta não faz nada', async () => {

@@ -8,6 +8,16 @@ export const ITENS_DO_MENU = [
   { href: '/painel/configuracoes', rotulo: 'Configurações' },
 ] as const;
 
+/** Plano 12 (D11): "Exames recebidos" — 5º item, só com o recebimento ligado ou com envio aguardando (o layout decide). */
+export const ITEM_EXAMES = { href: '/painel/exames-recebidos', rotulo: 'Exames recebidos' } as const;
+
+export function itensDoMenu(o: { exames: boolean }): { href: string; rotulo: string }[] {
+  return o.exames ? [...ITENS_DO_MENU.slice(0, 4), ITEM_EXAMES, ...ITENS_DO_MENU.slice(4)] : [...ITENS_DO_MENU];
+}
+
+/** US-162: "Exames recebidos (3)"; sem pendentes, só o nome. */
+export const rotuloDoItem = (rotulo: string, contador: number): string => (contador > 0 ? `${rotulo} (${contador})` : rotulo);
+
 /** Telas que moram no hub "Configurações" (o item fica marcado nelas). */
 const DO_HUB = ['/painel/configuracoes', '/painel/whatsapp', '/painel/alimentos', '/painel/planos/modelos', '/painel/anamnese/modelos'];
 const dentro = (caminho: string, base: string) => caminho === base || caminho.startsWith(`${base}/`);
@@ -15,7 +25,7 @@ const dentro = (caminho: string, base: string) => caminho === base || caminho.st
 export function itemAtual(caminho: string): string | null {
   if (caminho === '/painel') return '/painel';
   if (DO_HUB.some((b) => dentro(caminho, b))) return '/painel/configuracoes';
-  return ITENS_DO_MENU.find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
+  return [...ITENS_DO_MENU, ITEM_EXAMES].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
 }
 
 /**

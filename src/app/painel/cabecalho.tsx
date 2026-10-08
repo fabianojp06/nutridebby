@@ -10,11 +10,11 @@ import { MenuPainel } from './menu-painel';
 import { iniciais } from './navegacao';
 
 /**
- * D19/D20: marca do consultório à esquerda (US-005), menu de 6 itens, tema e conta à direita. Com o DPA pendente
+ * D19/D20: marca do consultório à esquerda (US-005), menu de 6 itens (7 com "Exames recebidos", Plano 12, D11), tema e conta à direita. Com o DPA pendente
  * (`completo = false`), só a marca, o tema e o "Sair" — a nutricionista só pode aceitar o contrato ou sair. O botão "Ajuda",
  * a gaveta e o tour (D26) só com o DPA em dia; o Suspense é do useSearchParams do GuiaDoPainel (?tour=).
  */
-export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso }: { marca: MarcaTenant; nome: string; email: string; tema: Tema; completo: boolean; progresso: ProgressoGuia | null }) {
+export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso, exames }: { marca: MarcaTenant; nome: string; email: string; tema: Tema; completo: boolean; progresso: ProgressoGuia | null; exames: { mostrar: boolean; pendentes: number } }) {
   return (
     <header className="border-b border-borda bg-cartao print:hidden">
       <div className="mx-auto flex max-w-[1360px] flex-wrap items-center gap-3 px-4 py-3 md:px-6">
@@ -27,7 +27,7 @@ export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso 
           )}
           <span className="font-titulo text-lg font-semibold">{marca.nome}</span>
         </Link>
-        {completo && <MenuPainel />}
+        {completo && <MenuPainel exames={exames} />}
         <div className="ml-auto flex items-center gap-2">
           {completo && progresso && (
             <Suspense fallback={null}>

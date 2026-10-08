@@ -1,4 +1,5 @@
 import { expect, type Browser, type Page } from '@playwright/test';
+import { PDFDocument } from 'pdf-lib';
 import type { IdsDoPainel } from './painel-rotas';
 import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
@@ -37,7 +38,8 @@ function idDaUrl(page: Page, padrao: RegExp): string {
  * D25: cria um paciente e uma linha de cada tela com parâmetro — plano (publicarPlanoSimples), consulta
  * (marcarParaPaciente), avaliação, anamnese, atendimento, alimento próprio, modelo de anamnese, modelo de plano
  * ("Salvar como modelo" do editor), registro no diário (pelo portal, com o paciente), exportação ("Exportar dados" em
- * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07) e receita (Plano 10A, rascunho) — e devolve os ids.
+ * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07), receita (Plano 10A, rascunho) e exame enviado pelo
+ * paciente (Plano 12, na fila depois do worker) — e devolve os ids.
  * `ip`: o IP só do paciente (o limite de login é por IP).
  */
 export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string): Promise<IdsDoPainel> {
@@ -98,6 +100,14 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await paciente.page.getByLabel('O que você comeu?').fill(`arroz e feijão ${sufixo}`);
   await paciente.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(paciente.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  // exame enviado pelo paciente (Plano 12): o consultório do E2E recebe exames (seed); o worker processa e o envio entra na fila
+  const laudo = await PDFDocument.create();
+  laudo.addPage([595, 842]);
+  await paciente.page.goto('/p/exames');
+  await paciente.page.getByLabel('Data da coleta').fill('2026-09-28');
+  await paciente.page.getByLabel('PDF ou fotos do exame').setInputFiles({ name: 'laudo.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await laudo.save()) });
+  await paciente.page.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(paciente.page.getByRole('status').filter({ hasText: 'Exame enviado. Sua nutricionista vai revisar.' })).toBeVisible();
   await paciente.page.context().close();
 
   // exportação (a tela abre "em preparo" ou pronta, conforme o worker)
@@ -133,5 +143,14 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     diario: await idDoLink(nutri, '/painel/diarios', new RegExp(`/painel/diarios/(${UUID})$`)),
     conteudo,
     documento,
+    envio: await (async () => {
+      await expect
+        .poll(async () => {
+          await nutri.goto('/painel/exames-recebidos');
+          return nutri.locator('a[href^="/painel/exames-recebidos/"]').count();
+        }, { timeout: 60_000 })
+        .toBeGreaterThan(0);
+      return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
+    })(),
   };
 }

@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026 |
-| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05), 10A e 11, spec do MVP v1.13, spec de documentos assinados v0.4 e spec da IA v0.4, migrations `0000`–`0100` (101 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100`) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026 |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05), 10A, 11 e 12 (parte F3-04 e a sessão da equipe), spec do MVP v1.13, spec de documentos assinados v0.4, spec da IA v0.4 e spec C v0.3 (parte F3-04), migrations `0000`–`0103` (104 arquivos em `drizzle/`; o cap. 10 cobre `0098`–`0100` e o cap. 11, `0101`–`0102`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -34,7 +34,7 @@ Não é manual de uso. O manual da nutricionista é o "manual guiado" dentro do 
    `.github/workflows/`).
 2. Spec do MVP: `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-mvp-historias.md`.
 3. Planos, índice e backlog: `docs/superpowers/plans/`.
-4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`, `sustentacao.md`).
+4. Runbooks: `docs/operacao/` (`go-live.md`, `restauracao.md`, `carga.md`, `sustentacao.md`, `ia.md`, `exames-enviados.md`).
 5. `CLAUDE.md` do projeto.
 
 Quando a spec e o código divergem, o manual descreve o código e registra a divergência no fim do capítulo. A lista
@@ -63,6 +63,8 @@ flowchart LR
   C5 --> C9
   C4 --> C10["10 Inteligência artificial<br/>leitura de laudos (Plano 11)"]
   C6 --> C10
+  C5 --> C11["11 Exames enviados<br/>pelo paciente (Plano 12)"]
+  C6 --> C11
 ```
 
 | Cap. | Arquivo | Assunto | Dono de |
@@ -77,6 +79,7 @@ flowchart LR
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
 | 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Plano 10A): receita, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
 | 10 | [10-ia.md](10-ia.md) | Módulo `ia` (Plano 11): leitura de laudos com IA, provedor e sandbox, preparo do laudo no worker, portão do envio, cota e custo, erros e novas tentativas, privacidade (o que sai, ZDR, nada em log), como estender, divergências conhecidas | Tabelas `ia_tarefas`/`ia_uso`/`ia_gasto_plataforma`, fila `ia`, cota de IA; runbook em [`docs/operacao/ia.md`](../operacao/ia.md) |
+| 11 | [11-exames-enviados.md](11-exames-enviados.md) | Envio de exames pelo paciente (Plano 12, F3-04): fluxo do portal ao worker, rasterização do PDF num processo filho (PDFium em WASM), PDF limpo só com imagens, fila "Exames recebidos", aceite e recusa, transições conferidas no banco, cota, varredura, privacidade e LGPD, como estender, divergências | Tabelas `exam_submissions`/`exam_submission_files`, filas `exame-envio`, `exame-envio-limpar` e `expirar-exame-envio`, orçamento de memória da rasterização (RNF-162); runbook em [`docs/operacao/exames-enviados.md`](../operacao/exames-enviados.md) |
 
 ### Seções principais
 
@@ -177,6 +180,17 @@ flowchart LR
 [10.6 Erros](10-ia.md#106-erros-e-novas-tentativas-d4-rn-105) ·
 [10.7 Privacidade](10-ia.md#107-privacidade) ·
 [10.8 Como estender](10-ia.md#108-como-estender) ·
+[10.9 Divergências](10-ia.md#109-divergências-conhecidas)
+
+**11. Exames enviados pelo paciente** — [11.1 Visão](11-exames-enviados.md#111-visão) ·
+[11.2 Peças](11-exames-enviados.md#112-peças) ·
+[11.3 Banco](11-exames-enviados.md#113-banco) ·
+[11.4 Arquivos e cota](11-exames-enviados.md#114-arquivos-e-cota) ·
+[11.5 Rasterização](11-exames-enviados.md#115-rasterização) ·
+[11.6 Privacidade](11-exames-enviados.md#116-privacidade) ·
+[11.7 Como estender](11-exames-enviados.md#117-como-estender) ·
+[11.8 Divergências](11-exames-enviados.md#118-divergências-conhecidas)
+
 ### Onde cada assunto mora
 
 Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem um resumo de uma ou duas frases e um link.
@@ -202,6 +216,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
 | Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
 | IA de laudos (provedor, cota, privacidade, liberação) | [cap. 10](10-ia.md) | §2.5.10, §6.2.3, §6.3.8, §7.4, §8.4; `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
+| Exames enviados pelo paciente (envio, rasterização, revisão, memória) | [cap. 11](11-exames-enviados.md) | §6.4 (#3, limites do worker), §7.7 (orçamento da imagem e filtro de documentação); `docs/operacao/exames-enviados.md` (runbook) |
 
 ---
 
@@ -349,7 +364,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA em 07/10/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -365,7 +380,8 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 [cap. 7](07-testes-qualidade-e-processo.md#713-divergências-encontradas) ·
 [cap. 8](08-sustentacao.md#divergências-encontradas) ·
 [cap. 9](09-documentos-assinados.md#divergências-encontradas) ·
-[cap. 10](10-ia.md#109-divergências-conhecidas)
+[cap. 10](10-ia.md#109-divergências-conhecidas) ·
+[cap. 11](11-exames-enviados.md#118-divergências-conhecidas)
 
 ### Arquitetura, stack, infraestrutura e CI
 
@@ -374,11 +390,11 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 1 | Spec §9.1 | UI com shadcn/ui, react-hook-form, Recharts, lucide-react | Nenhum no `package.json`; gráficos em SVG no servidor, componentes próprios em `src/components/ui/` | Doc | 1 #1, 4 #3 |
 | 2 | Spec §9.2 | `@sentry/cli` em dev; `web-push` como dependência de dev | `@sentry/cli` não existe (sem source maps); `web-push` está em `dependencies` | Doc | 1 #2, 7 #5 |
 | 3 | Spec §9.7 | "o worker espera a versão do schema" | **Resolvida no Plano 09 (P09-02 a):** `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`, função `app_versao_do_schema()`, 0094) antes de registrar os consumidores ([§6.2.1](06-worker-seguranca-operacao.md#621-processo-e-ciclo-de-vida)) | — | 1 #3, 7 #1 |
-| 4 | Spec §9.7 | Imagem com tag = SHA; etapas do PR em sequência | Tags `:<sha>` e `:latest` (serviços usam `:latest`), poda para 2 versões; 4 jobs paralelos, com orçamento de imagem de 260 MB | Doc | 1 #4, 7 #2, 7 #3 |
+| 4 | Spec §9.7 | Imagem com tag = SHA; etapas do PR em sequência | Tags `:<sha>` e `:latest` (serviços usam `:latest`), poda para 2 versões; 4 jobs paralelos (desde o Plano 12, `test`, `e2e` e `image` pulados em mudança só de documentação, R-D1), com orçamento de imagem de 265 MB (260 até o Plano 11) MB | Doc | 1 #4, 7 #2, 7 #3 |
 | 5 | Spec §9.6 | Lista de variáveis | Faltam `TRUSTED_PROXIES` (obrigatória em produção, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE`, `PORT` | Doc | 1 #5 |
 | 6 | `.env.example` | `R2_*` e `BACKUP_PASSPHRASE` | Nenhum código lê; no host viram `RCLONE_CONFIG_*` do `backup.env` | Doc | 1 #6 |
 | 7 | Spec §4.2 | `app.<dominio>`, domínio a definir | `https://nutri.wsscloud.tech` | Doc | 1 #7 |
-| 8 | Spec RNF-03 | `nutri_worker` com 512 MB | Observado 1 vCPU / 1 GiB; `docs/operacao/carga.md` usa esse valor. Revisão do RNF-03 pendente após o k6 | Pend. | 1 #8, 6 #3 |
+| 8 | Spec RNF-03 | `nutri_worker` com 512 MB | Observado 1 vCPU / 1 GiB; `docs/operacao/carga.md` usa esse valor. **Plano 12 (R-D5):** 1 GiB conferido em 07/10/2026 e registrado na RNF-03 (spec do MVP) e na spec C (C-04, PM-6); a revisão geral dos limites depois do k6 continua pendente | Pend. | 1 #8, 6 #3 |
 | 9 | Spec §4.1 | Rotas e UI nunca chamam o banco direto | `src/app/sair/route.ts:49` (`session`) e `/api/health` (`system_heartbeat`), ambas fora da RLS | Doc | 1 #9 |
 | 10 | Mensagem de `src/env.ts:182` e `.env.example` | Exemplo `http://nutridebby_app:3000/…` | O serviço na rede interna é `nutri_app` | Comp. | 1 #10 |
 | 11 | Spec §4 | `nutri_evolution` na VPS | Não implantado em 05/10/2026; go-live pode sair sem WhatsApp (Plano 08, D16) | Pend. | 1 #11 |
@@ -480,5 +496,15 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 62 | `cota.ts`, comentário do topo | Acerto e estorno "só descem" | `acertar` pode subir (custo real acima do teto estimado) | Doc | 10 |
 | 63 | Spec da IA §5.4 | PDF sem metadados nem anotações | JPEG 2000, imagem inline e bytes depois do 1º EOI do JPEG embutido passam sem limpeza; Widget sem `/AP` sai inteiro (P11-21) | Pend. | 10 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58 e #59. As de tipo Doc entram na
+### Exames enviados pelo paciente (Plano 12)
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 64 | Spec C §13.2 | `paciente_arquivos` esconde do paciente `exame_original` e `exame_pagina` | Esconde só `exame_pagina`: a política de INSERT da linha do original precisa enxergá-lo (Desvio 1) | Reg. | 11 |
+| 65 | Spec C §13.2 | Métricas novas em `admin_tenant_metrics()` | Função própria `admin_metricas_exames_enviados()` (Desvio 2) | Reg. | 11 |
+| 66 | Spec C RNF-162 | Pico do job com 5 fotos HEIC dentro do orçamento | HEIC decodificado no processo do worker; sem HEIC real no CI; acima de ~15 MP não garantido (Desvio 8; runbook, passo 3) | Pend. | 11 |
+| 67 | Spec C R-170 | Tempo limitado por página | Prazo de 120 s do PDF inteiro, uma página por vez (Desvio 9) | Reg. | 11 |
+| 68 | Spec C US-161 | Aceito = "Recebido no seu prontuário" | Exame excluído depois do aceite: o paciente continua vendo "Recebido no seu prontuário" (P12-16 c) | Comp. | 11 |
+
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #57, #58, #59 e #68. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

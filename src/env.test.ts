@@ -342,3 +342,23 @@ describe('Plano 11 — variáveis da IA (spec v0.3 §12)', () => {
     expect(() => parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '-1' })).toThrow(/IA_TETO_GLOBAL_MENSAL_USD/);
   });
 });
+
+describe('P12-14 — SESSAO_TESTE_MS (só teste)', () => {
+  const prodApp = { ...base, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', TRUSTED_PROXIES: '10.0.0.0/8', TURNSTILE_SITE_KEY: 'chave-real', TURNSTILE_SECRET_KEY: 'segredo-real' };
+
+  it('ausente por padrão; em dev e no E2E (produção em localhost) vira número', () => {
+    expect(parseEnv(base).SESSAO_TESTE_MS).toBeUndefined();
+    expect(parseEnv({ ...base, SESSAO_TESTE_MS: '' }).SESSAO_TESTE_MS).toBeUndefined();
+    expect(parseEnv({ ...base, SESSAO_TESTE_MS: '30000' }).SESSAO_TESTE_MS).toBe(30_000);
+    expect(parseEnv({ ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', SESSAO_TESTE_MS: '30000' }).SESSAO_TESTE_MS).toBe(30_000);
+  });
+
+  it('recusada em produção: o app não sobe com a sessão encurtada', () => {
+    expect(parseEnv(prodApp).SESSAO_TESTE_MS).toBeUndefined();
+    expect(() => parseEnv({ ...prodApp, SESSAO_TESTE_MS: '30000' })).toThrow(/SESSAO_TESTE_MS só fora de produção/);
+  });
+
+  it('fora da faixa ou sem ser número é recusada', () => {
+    for (const v of ['abc', '5999', '1800001', '15000.5']) expect(() => parseEnv({ ...base, SESSAO_TESTE_MS: v }), v).toThrow(/SESSAO_TESTE_MS/);
+  });
+});

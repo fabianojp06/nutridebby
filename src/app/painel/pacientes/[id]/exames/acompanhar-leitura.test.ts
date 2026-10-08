@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CONSULTA_AUTOMATICA } from '@/lib/consulta-automatica';
 import { ACOMPANHAR_IA_MAX_MS } from '@/modules/ia/constantes';
 import { acompanharLeitura } from './acompanhar-leitura';
 
@@ -23,7 +24,7 @@ describe('acompanhar a leitura da IA no painel (RNF-100)', () => {
     const consultas = buscar.mock.calls.length;
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(buscar).toHaveBeenCalledTimes(consultas);
-    expect(buscar).toHaveBeenCalledWith('/api/painel/ia/tarefas/t1', { cache: 'no-store' });
+    expect(buscar).toHaveBeenCalledWith('/api/painel/ia/tarefas/t1', CONSULTA_AUTOMATICA); // polling não é uso (P12-14)
   });
 
   it('sem rede ou com erro, segue tentando; para no prazo em que a tarefa não pode mais estar em andamento', async () => {

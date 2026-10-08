@@ -39,8 +39,8 @@ O papel fica em `user.app_role`, com três valores aceitos pela restrição `use
 
 | Papel | `user.tenant_id` | Página inicial (`homeFor`, `session-rules.ts:15-17`) | 2FA | Sessão |
 |---|---|---|---|---|
-| `admin` | nulo | `/admin` | **obrigatório** | 12 h de inatividade |
-| `nutri` | o tenant dela | `/painel` | opcional | 12 h de inatividade |
+| `admin` | nulo | `/admin` | **obrigatório** | 30 min sem uso (aviso 2 min antes), no máximo 8 h; termina ao fechar o navegador |
+| `nutri` | o tenant dela | `/painel` | opcional | 30 min sem uso (aviso 2 min antes), no máximo 8 h; termina ao fechar o navegador |
 | `paciente` | **nulo** (o vínculo é o prontuário) | `/p/inicio` | não oferecido | 30 dias |
 
 Pontos que importam:
@@ -69,15 +69,15 @@ Pontos que importam:
 | `resetPasswordTokenExpiresIn` | `RESET_TOKEN_TTL_S` = 3600 s | 30, 74 | US-002: link de 1 h |
 | `revokeSessionsOnPasswordReset` | `true` | 75 | Trocar a senha derruba as outras sessões |
 | `sendResetPassword` | `deliverPasswordLink` | 77-80 | Ver 3.11 |
-| `session.expiresIn` | 30 dias (`PATIENT_SESSION_MS`) | 85 | Padrão; a equipe é cortada para 12 h no hook |
+| `session.expiresIn` | 30 dias (`PATIENT_SESSION_MS`) | 87 | Padrão; a equipe é cortada para 30 min (e para createdAt + 8 h) no hook |
 | `session.disableSessionRefresh` | `true` | 90 | O Better Auth nunca desliza a sessão; só `slideSession` desliza |
-| `databaseHooks.session.create.before` | bloqueia tenant suspenso e aplica `capSessionExpiry` | 95-107 | RN-15 e RNF-06 |
+| `databaseHooks.session.create.before` | bloqueia tenant suspenso, aplica `capSessionExpiry` e, na sessão que substitui a atual da mesma usuária, herda o `createdAt` | 97-114 | RN-15 e RNF-06 (P12-14: o limite de 8 h conta do login, não da troca de sessão que a ativação do 2FA faz) |
 | `databaseHooks.session.create.after` | rechecagem com `FOR SHARE` | 114-118 | Corrida login × suspensão (M8) |
 | `rateLimit` | `storage: 'database'`, 100/60 s geral, 5/15 min nas rotas sensíveis | 122-141 | RNF-06 |
 | `advanced.cookiePrefix` | `'nd'` | 151 | Cookies `nd.session_token` etc. (com `__Secure-` em https) |
 | `advanced.database.generateId` | `'uuid'` | 152 | PK uuid v4 (Plano 01, desvios) |
 | `advanced.ipAddress.trustedProxies` | `TRUSTED_PROXIES` | 153 | IP real atrás do Traefik |
-| `hooks.before` | Turnstile e política de senha | 155-171 | INT-06 e US-002 |
+| `hooks.before` | login da equipe sem "lembrar de mim", Turnstile, 2FA da web e política de senha | 163-205 | P12-14, INT-06, RN-145 e US-002 |
 | `plugins` | `twoFactor({ issuer: 'NutriDebby' })`, `nextCookies()` | 172 | 2FA e cookies em Server Actions |
 
 `TRUSTED_PROXIES` é obrigatória quando `NODE_ENV=production`; sem ela o processo não sobe (`src/env.ts:162-167`), porque o limite de tentativas viraria um balde só para todo mundo.
@@ -136,7 +136,7 @@ Onde a política roda:
 
 **Segredo do TOTP.** Fica na tabela `two_factor`, cifrado pelo Better Auth com `symmetricEncrypt` (XChaCha20-Poly1305, `node_modules/better-auth/dist/crypto/index.mjs`) e chave derivada de `AUTH_SECRET`. Desvio consciente do Plano 01 (tabela "Desvios conscientes"): a spec pedia AES-256-GCM com `ENCRYPTION_KEY`. TOTP padrão: 6 dígitos, 30 s.
 
-**Login com 2FA.** O endpoint `/sign-in/email` cria a sessão normalmente. O hook `after` do plugin apaga essa sessão e o cookie, grava um desafio de 10 min em `verification` e um cookie assinado `two_factor` (`node_modules/better-auth/dist/plugins/two-factor/index.mjs`, hook de `/sign-in/email`). O cliente vai para `/entrar/2fa` (`src/lib/auth-client.ts:11-16`). Depois do código certo, o Better Auth cria a sessão definitiva. Consequência: os `databaseHooks` de sessão (bloqueio de tenant suspenso, corte de 12 h) rodam **nas duas** criações.
+**Login com 2FA.** O endpoint `/sign-in/email` cria a sessão normalmente. O hook `after` do plugin apaga essa sessão e o cookie, grava um desafio de 10 min em `verification` e um cookie assinado `two_factor` (`node_modules/better-auth/dist/plugins/two-factor/index.mjs`, hook de `/sign-in/email`). O cliente vai para `/entrar/2fa` (`src/lib/auth-client.ts:11-16`). Depois do código certo, o Better Auth cria a sessão definitiva. Consequência: os `databaseHooks` de sessão (bloqueio de tenant suspenso, corte de 30 min) rodam **nas duas** criações. O `createdAt` da sessão definitiva é o do fim do 2FA: o limite de 8 h conta do login completo (P12-14). O hook do plugin apaga o cookie de sessão do `/sign-in/email` mas **mantém** o `dont_remember` (`deleteSessionCookie(ctx, true)`), e o `verify-totp`/`verify-backup-code` o lê: a sessão definitiva da equipe também fica sem `Max-Age` (3.6, "Fechar o navegador").
 
 A tela de 2FA sempre manda `trustDevice: false` (`src/app/entrar/2fa/page.tsx:19`). Nenhum aparelho fica "confiável"; o código é pedido em todo login.
 
@@ -155,22 +155,39 @@ sessão) e a ativação (2FA ainda desligado) seguem, e a chamada interna (`auth
 
 ## 3.6 Sessão, inatividade e renovação
 
+**P12-14 (RNF-06, decisão do dono 07/10/2026; boa prática SBIS NGS1 — bloqueio de sessão por inatividade).** Depois de
+ver o login da nutricionista vivo 2 h depois e após reiniciar o computador, o dono decidiu: a equipe (nutricionista e
+admin) sai depois de **30 min sem uso**, com **aviso 2 min antes**; a sessão tem **limite absoluto de 8 h** desde o
+login completo (depois do 2FA), mesmo com uso contínuo; e **fechar o navegador encerra o login**. Uso = qualquer
+requisição autenticada ao servidor **e** atividade real na tela (tecla, clique, rolagem, toque) em qualquer aba do painel
+ou do admin — **menos as consultas automáticas da tela** (o polling de estado, ver "Consultas automáticas não são uso"
+abaixo). O paciente **não muda** (30 dias, PWA).
+
 ### Regras (`src/lib/session-rules.ts`)
 
 | Constante | Valor | Linha |
 |---|---|---|
-| `STAFF_IDLE_MS` | 12 h | 5 |
-| `PATIENT_SESSION_MS` | 30 dias | 6 |
-| `SESSION_REFRESH_MS` | 15 min | 8 |
-| `SECURITY_PATH` | `/conta/seguranca` | 9 |
-| `SUSPENDED_PATH` | `/indisponivel` | 11 |
-| `MSG_SESSAO_EXPIRADA` | "Sessão expirada. Entre de novo." | 13 |
+| `STAFF_IDLE_MS` | 30 min | 9 |
+| `STAFF_WARNING_MS` | 2 min | 10 |
+| `STAFF_MAX_MS` | 8 h | 11 |
+| `STAFF_REFRESH_MS` | 5 min (cadência da renovação da equipe) | 13 |
+| `PATIENT_SESSION_MS` | 30 dias | 14 |
+| `PATIENT_REFRESH_MS` | 15 min (cadência do paciente, inalterada) | 16 |
+| `PRAZOS_DA_EQUIPE` | os quatro prazos da equipe numa estrutura (`inatividadeMs`, `avisoMs`, `cadenciaMs`, `limiteMs`) | 20 |
+| `MSG_FIM_DA_SESSAO` | "Sua sessão foi encerrada por falta de uso. Entre de novo." / "Sua sessão chegou ao limite de 8 horas. Entre de novo." | 41 |
+| `MSG_AVISO_INATIVIDADE`, `ROTULO_CONTINUAR` | "Sua sessão vai encerrar em 2 minutos por falta de uso." / "Continuar conectada" | 46-47 |
+| `SECURITY_PATH` | `/conta/seguranca` | 52 |
+| `SUSPENDED_PATH` | `/indisponivel` | 54 |
+| `MSG_SESSAO_EXPIRADA` | "Sessão expirada. Entre de novo." | 56 |
 
-- `capSessionExpiry` (linhas 28-32): no nascimento da sessão, tudo que não é `paciente` recebe no máximo agora + 12 h. Papel desconhecido conta como equipe ("na dúvida, vale o limite menor").
-- `sessionExpiresAt` (20-22): agora + 30 dias (paciente) ou + 12 h (equipe).
-- `isRefreshDue` (35-37): renova só se `updatedAt` tem 15 min ou mais. Evita uma escrita por requisição (RNF-06, nota do Plano 01 na spec).
+- `capSessionExpiry` (linha 98): no nascimento da sessão, tudo que não é `paciente` recebe no máximo agora + 30 min, sem passar de `createdAt` + 8 h. Papel desconhecido conta como equipe ("na dúvida, vale o limite menor").
+- `sessionExpiresAt` (87): agora + 30 dias (paciente) ou `min(agora + 30 min, createdAt + 8 h)` (equipe). Com o limite no `expiresAt`, o próprio Better Auth recusa a sessão de mais de 8 h em qualquer rota.
+- `isRefreshDue` (105): renova só se `updatedAt` tem 5 min (equipe) ou 15 min (paciente) ou mais. Evita uma escrita por requisição; os 5 min deixam a última atividade registrada no máximo 5 min atrás da real.
+- `fimDaSessao` (114): `limite` (mais de 8 h desde `createdAt`) ou `inatividade` (mais de 30 min desde `updatedAt`), ou `null`.
+- `estadoDaSessao` (129): o que a tela recebe — quanto falta, em ms relativos, para a inatividade (`min(updatedAt + 30 min, expiresAt)`) e para o limite, mais `avisoMs` e `cadenciaMs`. Relativo porque o relógio do aparelho pode estar errado. Nada de dado pessoal.
+- `prazosDeTeste(ms)` (31): só E2E — ver "Prazos de teste" abaixo.
 
-### `evaluateSession` (linhas 39-59)
+### `evaluateSession` (linha 144)
 
 Ordem das checagens. A primeira que casar decide.
 
@@ -178,23 +195,67 @@ Ordem das checagens. A primeira que casar decide.
 |---|---|---|
 | 1 | sem sessão ou sem usuário | `expired` se veio cookie, senão `login` |
 | 2 | papel fora de `allowed` | `forbidden` |
-| 3 | equipe e `now - session.updatedAt > 12 h` | `expired` |
+| 3 | equipe e `fimDaSessao` (mais de 8 h desde `createdAt` ou mais de 30 min desde `updatedAt`) | `expired` |
 | 4 | `tenantStatus === 'suspensa'` | `suspended` |
 | 5 | admin sem 2FA e fora de `/conta/seguranca` | `setup-2fa` |
 | 6 | — | `ok` |
 
-A checagem 3 é uma defesa a mais. O `expiresAt` já vale no máximo última atividade + 12 h, e o Better Auth recusa a sessão vencida em qualquer rota. Ela exige que a sessão seja lida com `disableRefresh: true` (comentário da linha 54).
+A checagem 3 é uma defesa a mais. O `expiresAt` já vale no máximo `min(última atividade + 30 min, createdAt + 8 h)`, e o Better Auth recusa a sessão vencida em qualquer rota. Ela exige que a sessão seja lida com `disableRefresh: true`, e vale também para as sessões abertas antes da regra (P12-14, item 6: a de 12 h acaba na próxima requisição se estiver ociosa há mais de 30 min ou com mais de 8 h). A migration **0103** (`drizzle/0103_sessao_equipe_30min.sql`, como a 0005 fez com as 12 h) corta o `expires_at` dessas sessões para `LEAST(updated_at + 30 min, created_at + 8 h)`, e `/api/auth/*` também as recusa nativamente.
 
 ### Como a sessão desliza
 
-`slideSession` (`auth.ts:205-216`) grava `updatedAt = agora` e o novo `expiresAt` direto no banco, com `WHERE expires_at > agora`. Sessão vencida nunca volta. Quem chama:
+`slideSession` (`auth.ts:236`) grava `updatedAt = agora` e o novo `expiresAt` (`sessionExpiresAt` com o `createdAt`: nunca passa das 8 h) direto no banco, com `WHERE expires_at > agora`, e devolve os valores gravados (ou `null`). Sessão vencida nunca volta. Quem chama:
 
-- `requireUserComTenant` → `deslizarUmaVez` (`session.ts:33-42`), memoizado por `cache` do React (uma escrita por render, mesmo com layout e página).
-- `requireApiUser` (`api-auth.ts`, `case 'ok'`): atividade de API também conta (T7-R2b; uploads).
+- `requireUserComTenant` → `deslizarUmaVez` (`session.ts:34`), memoizado por `cache` do React (uma escrita por render, mesmo com layout e página).
+- `requireApiUser` (`api-auth.ts:23`, `case 'ok'`): atividade de API também conta (T7-R2b; uploads); `data.session` volta com os valores gravados. `lerSessaoApi` (`api-auth.ts:31`) faz a mesma conferência **sem** renovar — só para o `GET /api/sessao/ativa`.
 
-Falha ao renovar só gera `logger.warn` com o nome do erro. A requisição segue, porque já foi autenticada.
+Falha ao renovar só gera `logger.warn` com o nome do erro (nos dois caminhos). A requisição segue, porque já foi autenticada.
 
 **Cookie do paciente.** O banco desliza, mas o cookie tinha `Max-Age` fixo desde o login. `POST /api/p/acesso` (`src/app/api/p/acesso/route.ts:13-23`), chamado uma vez quando o portal abre, reemite o mesmo valor do cookie com `Max-Age` de 30 dias (`cookieDeSessaoRenovado`, `src/lib/sessao-cookies.ts:42`). Plano 06, D9 (fecha o P06-11).
+
+### Fechar o navegador encerra o login da equipe (P12-14)
+
+O cookie de sessão da equipe é **cookie de sessão do navegador** (sem `Max-Age`/`Expires`). O `hooks.before` de `src/lib/auth.ts` (linha 168), no `/sign-in/email`, lê o papel guardado da conta pelo e-mail (`internalAdapter.findUserByEmail`) e, para tudo que não é `paciente` (inclusive e-mail desconhecido), troca o corpo para `rememberMe: false` — o que o navegador mande é ignorado. Com isso o Better Auth 1.7.6 (`node_modules/better-auth/dist/cookies/index.mjs`, `setSessionCookie`) grava o `nd.session_token` sem `maxAge` e o cookie assinado `nd.dont_remember` (também sem `maxAge`). Todo `setSessionCookie` seguinte que não recebe o valor explícito lê o `dont_remember`: o `verify-totp`/`verify-backup-code` do login com 2FA, a ativação do 2FA (que troca a sessão) e a troca de senha com revogação. O `nd.dont_remember` sai no "Sair" (`cookiesDeSessaoApagados`). O `createSession` do Better Auth dá 1 dia a uma sessão "sem lembrar"; o hook de criação corta para 30 min. O paciente segue com `Max-Age` de 30 dias e sem `dont_remember` (teste em `src/lib/auth.test.ts`, "cookie de sessão…"; o do 2FA em `two-factor.test.ts`). Navegador que restaura a sessão anterior ("Continuar de onde parei") pode manter cookies de sessão: os 30 min sem uso no servidor continuam valendo.
+
+### O relógio da tela: aviso e saída automática (P12-14)
+
+`VigiaDeSessao` (`src/components/vigia-sessao.tsx`, client component) fica no layout do painel e no do admin. A lógica pura (passos, leitura das respostas e das mensagens) está em `src/lib/sessao-relogio.ts` (testes em `sessao-relogio.test.ts`). O servidor é a autoridade: o relógio só antecipa o aviso.
+
+- **Rota `/api/sessao/ativa`** (`src/app/api/sessao/ativa/route.ts`, só `admin` e `nutri`; paciente → 403): `GET` devolve `estadoDaSessao` **sem renovar** (perguntar não é uso, `lerSessaoApi`); `POST` (com `mesmaOrigem` antes da sessão) é o uso na tela: `requireApiUser` renova (mesma cadência de 5 min) e devolve o estado. Sessão ociosa, acima de 8 h ou vencida → 401 e nada é renovado.
+- **Ao abrir** a tela, o `GET` dá o relógio (prazo da inatividade e do limite, em horas do aparelho).
+- **Uso real** (`keydown`, `pointerdown`, `touchstart`, `wheel`, `scroll`, na captura da `window`): `POST` se passou a cadência desde o último (desta aba ou de outra); senão, um `POST` no fim da cadência — o último uso nunca se perde. Com o aviso aberto, só o botão renova.
+- **2 min antes** do fim por inatividade, a tela pergunta (`GET`): se o servidor confirma, abre o aviso — `<dialog>` modal nativo com `role="alertdialog"`, foco no botão (`autoFocus`), fundo inerte, `onCancel` com `preventDefault` (Esc não fecha) e `onClose` que reabre se o navegador forçar o fechamento. Texto exato: "Sua sessão vai encerrar em 2 minutos por falta de uso." e o botão "Continuar conectada" (renova pelo `POST`).
+- **No fim**, a tela pergunta de novo e, com 401 (ou o prazo confirmado), envia um `<form method="post" action="/sair">` escondido com `motivo` — a mesma saída do botão "Sair" (sessão apagada, cookies, `Clear-Site-Data`). O `/sair` aceita `motivo` só da lista (`inatividade`, `limite`) e vai para `/entrar?motivo=…`; qualquer outro corpo vai para `/entrar`. `/entrar` mostra "Sua sessão foi encerrada por falta de uso. Entre de novo." ou "Sua sessão chegou ao limite de 8 horas. Entre de novo.".
+- **Limite de 8 h**: não há aviso (não se renova); na hora, a saída com `motivo=limite`.
+- **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar conectada" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
+- **Voltar à aba** (`visibilitychange`, também depois de o computador dormir): a tela pergunta de novo.
+
+### Consultas automáticas não são uso (revisão da Tarefa 14)
+
+Telas que consultam o servidor sozinhas, sem ninguém mexer, não podem manter a sessão aberta (senão a nutricionista sai
+da mesa com o "Preparando o PDF…" na tela e a sessão só cai nas 8 h). Duas camadas:
+
+- **Cabeçalho** `x-nd-consulta: 1` (`CONSULTA_AUTOMATICA`, `src/lib/consulta-automatica.ts`, sem imports): toda consulta
+  com temporizador do painel e do admin manda o `init` pronto; `requireApiUser` (`src/lib/api-auth.ts`) confere a sessão
+  igual (401 depois de 30 min sem uso), mas não renova. Mandar o cabeçalho só encurta a própria sessão.
+- **Rotas só de estado** não renovam por conta própria (`requireApiNutri(req, { renovar: false })`), para valer também com
+  o JavaScript de uma aba aberta antes do deploy: `GET /api/painel/documentos/[id]/pdf?estado=1` (o download sem
+  `?estado=1` continua sendo uso), `GET /api/painel/ia/tarefas/[id]`, `GET /api/painel/planos/[id]/pdf` e
+  `GET /api/painel/whatsapp/estado`. Teste: `src/app/api/painel/consultas-sem-uso.test.ts` (20 min → 200 sem mexer na
+  sessão; 31 min → 401 sem renovar).
+- **Consultores e prazos**: "Preparando o PDF…"/"Montando o PDF digitalizado…" (`acompanhar-estado-pdf.ts`, 3 s, até 1 h —
+  o prazo da varredura que marca "falhou"; antes consultava para sempre), leitura da IA (`acompanhar-leitura.ts`, até
+  60 min), PDF do plano (`atualizar-enquanto.tsx`, 60 s) e QR do WhatsApp (`conectar.tsx`, 3 min).
+- **Guarda** `src/lib/consulta-automatica.test.ts`: varre `src/app/painel`, `src/app/admin`, `src/app/conta` e
+  `src/components` atrás de `setInterval`/`setTimeout` com `fetch`/`buscar` sem `CONSULTA_AUTOMATICA`. Exceções (uso
+  da pessoa, com o porquê em `USO_DA_PESSOA`): o salvamento automático do editor de plano, a espera de digitação da busca de
+  alimentos e o próprio `VigiaDeSessao`.
+- O `router.refresh()` que essas telas fazem **uma vez**, quando o estado muda, é uma navegação comum e renova a sessão
+  (no máximo uma vez por consulta acompanhada).
+
+### Prazos de teste (`SESSAO_TESTE_MS`, só E2E)
+
+`src/lib/sessao-prazos.ts`: `prazosDaRequisicao(headers)` devolve os prazos de produção, salvo com a variável `SESSAO_TESTE_MS` **e** o cookie `nd_sessao_teste=1` no pedido — aí `prazosDeTeste(ms)`: inatividade = `ms`, aviso na metade, cadência 1/6, limite 16×. O E2E sobe o `next start` com `SESSAO_TESTE_MS=30000` (`playwright.config.ts`) e só `e2e/sessao-equipe.spec.ts` grava o cookie: as outras specs seguem com 30 min. `src/env.ts` recusa a variável em produção (`emProducao`: `NODE_ENV=production` fora de localhost — o E2E roda `next start` em localhost, o mesmo critério do `IA_PROVEDOR` sandbox/fake; teste em `src/env.test.ts`). O hook de criação da sessão não conhece o cookie (usa os 30 min); `evaluateSession` e `slideSession` usam os prazos da requisição.
 
 ### `requireUser` e `requireUserComTenant` (`src/lib/session.ts`)
 
@@ -204,14 +265,14 @@ Falha ao renovar só gera `logger.warn` com o nome do erro. A requisição segue
 |---|---|
 | `ok` | desliza e devolve `{ data, tenant }` |
 | `login` | `redirect('/entrar?volta=…')` |
-| `expired` | `auth.api.signOut` e `redirect('/entrar?expirada=1&volta=…')` |
+| `expired` | `auth.api.signOut` e `redirect('/entrar?motivo=inatividade|limite&volta=…')` quando a linha da sessão ainda foi lida (o motivo vem de `fimDaSessao`); `redirect('/entrar?expirada=1&volta=…')` quando o Better Auth já a recusou pelo `expiresAt` |
 | `setup-2fa` | `redirect('/conta/seguranca')` |
 | `suspended` | `redirect('/indisponivel')` |
 | `forbidden` | `redirect(homeFor(papel))`, a página inicial do próprio papel |
 
 O `volta` vem do cabeçalho `x-nd-caminho` (`CURRENT_PATH_HEADER`, `src/lib/safe-return.ts:32`), gravado pelo proxy com caminho + query. O proxy sempre sobrescreve o valor do cliente. Tudo passa por `safeReturnPath` (3.13).
 
-### `requireApiUser` (`src/lib/api-auth.ts:19`)
+### `requireApiUser` (`src/lib/api-auth.ts:23`)
 
 Mesma regra para Route Handlers, sem redirecionar:
 
@@ -420,7 +481,7 @@ sequenceDiagram
   N->>App: senha + aceite do DPA (aceitarConviteAction)
   App->>App: checa token sem trava, depois argon2id
   App->>DB: tx: FOR UPDATE user → confere se já há account credential (convites.ts:93-97; se houver, convite inválido) → UPDATE invites usado_em (:99-103) → grava account → emailVerified → consents(dpa) → tenants.dpa_versao
-  App->>App: signInEmail (hooks: tenant ativo? expira em 12 h)
+  App->>App: signInEmail (hooks: tenant ativo? equipe sem "lembrar"; expira em 30 min)
   App-->>N: redirect /painel
 ```
 
@@ -575,7 +636,7 @@ sequenceDiagram
   E->>BA: POST /sign-in/email
   BA->>BA: rate limit (5 / 15 min por IP + rota)
   BA->>DB: confere hash argon2id
-  BA->>DB: cria session (hook before: tenant suspenso? → CONTA_SUSPENSA; expiresAt ≤ agora + 12 h para equipe)
+  BA->>DB: cria session (hook before: tenant suspenso? → CONTA_SUSPENSA; expiresAt ≤ agora + 30 min para equipe; cookie sem Max-Age)
   BA->>DB: hook after: FOR SHARE em tenants (corrida com suspensão)
   alt 2FA ativo
     BA->>DB: apaga a sessão; grava desafio de 10 min
@@ -591,7 +652,7 @@ sequenceDiagram
   alt admin sem 2FA
     G-->>U: /conta/seguranca
   else ok
-    G->>DB: slideSession (se passaram 15 min)
+    G->>DB: slideSession (se passaram 5 min — equipe — ou 15 — paciente)
     G-->>U: página (ou homeFor do papel)
   end
 ```

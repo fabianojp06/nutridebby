@@ -25,12 +25,20 @@ RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 # pdf-lib pelo `main` (cjs/) e o SDK pelo `exports` (.mjs/.js na raiz). Saem os bundles de navegador e ES do pdf-lib
 # (dist/, es/), os fontes TS (src/, ts3.4/), as declarações de tipo e os source maps (~5 MB comprimidos). Se o caminho
 # mudar (versão nova), o `find` falha e o build para. O job image confere que o worker ainda os carrega na imagem.
+# Plano 12: do `@hyzyla/pdfium` só ficam o `index.esm.js` (que carrega o WASM pelo caminho) e o `pdfium.wasm`; saem as
+# cópias em base64, os bundles de navegador, de CDN e de worker, o CJS e as declarações (≈ 2,8 MB comprimidos; ficam
+# ≈ 2,1 MB comprimidos, quase todo o `pdfium.wasm`). Os `test -f` param o build se a versão nova mudar os nomes.
 RUN set -eu; \
     for d in node_modules/.pnpm/pdf-lib@*/node_modules/pdf-lib; do \
       rm -rf "$d/dist" "$d/es" "$d/src" "$d/ts3.4"; find "$d" \( -name '*.map' -o -name '*.d.ts' \) -delete; \
     done; \
     for d in node_modules/.pnpm/@anthropic-ai+sdk@*/node_modules/@anthropic-ai/sdk; do \
       rm -rf "$d/src"; find "$d" \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.mts' \) -delete; \
+    done; \
+    for d in node_modules/.pnpm/@hyzyla+pdfium@*/node_modules/@hyzyla/pdfium; do \
+      test -f "$d/dist/index.esm.js"; test -f "$d/dist/pdfium.wasm"; \
+      find "$d/dist" -type f ! -name 'index.esm.js' ! -name 'pdfium.wasm' -delete; \
+      find "$d/dist" -mindepth 1 -type d -empty -delete; \
     done
 
 FROM base AS runner

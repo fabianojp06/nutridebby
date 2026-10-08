@@ -65,6 +65,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   perfil_profissional: 'Perfil profissional',
   tentativa_assinatura: 'Tentativa de assinatura com código recusado',
   ia: 'Inteligência artificial',
+  exames_enviados: 'Exames enviados pelo paciente',
 };
 
 export type AccessHistoryItem = {

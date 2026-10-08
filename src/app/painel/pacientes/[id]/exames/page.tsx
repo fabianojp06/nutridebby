@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
+import { Selo } from '@/components/ui/selo';
 import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
@@ -11,6 +13,9 @@ import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { marcasDeIa, tarefasDosExames } from '@/modules/ia/tarefas';
 import { formatarData, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarExames } from '@/modules/pacientes/exames';
+import { contarEnviosDoPaciente, examesEnviadosPeloPaciente } from '@/modules/pacientes/exames-enviados';
+import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
+import { mensagemIaDaChave } from '@/modules/pacientes/exames-enviados-ia';
 import { carregarProntuario } from '../prontuario';
 import { descartarSugestaoAction, excluirExameAction } from './actions';
 import { ConferenciaIa } from './conferencia-ia';
@@ -32,16 +37,26 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const mostrarIa = !bloqueado && estadoIa !== 'ausente' && estadoIa !== 'suspensa';
   // D8: a marca "IA · conferido em {data}" vale mesmo com a IA desligada depois (a origem fica na linha do exame)
   const temOrigemIa = lista.some((e) => e.valores.some((v) => v.iaTarefaId));
-  const [situacoes, marcas, cota] = await Promise.all([
+  const [situacoes, marcas, cota, enviados, doPaciente] = await Promise.all([
     mostrarIa ? tarefasDosExames(ctx, paciente.id) : new Map(),
     temOrigemIa ? marcasDeIa(ctx, paciente.id) : new Map<string, Date>(),
     mostrarIa && estadoIa === 'ativa' ? situacaoDaCotaIa(ctx, tenant, agora) : null,
+    contarEnviosDoPaciente(ctx, paciente.id),
+    examesEnviadosPeloPaciente(ctx, paciente.id),
   ]);
+  const iaRecusou = mensagemIaDaChave(busca.iaMsg);
   const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente), recusou: !!paciente.iaRecusadaEm, cota });
   const conferir = typeof busca.conferir === 'string' && mostrarIa ? await abrirSugestao(ctx, paciente.id, busca.conferir) : null;
   const pediuConferir = typeof busca.conferir === 'string';
   return (
     <div className="space-y-8">
+      {busca.envio === 'salvo' && <Aviso tipo="ok">{MSG_REVISAO.salvo}</Aviso>}
+      {iaRecusou && <Aviso tipo="aviso">{iaRecusou}</Aviso>}
+      {enviados > 0 && (
+        <p>
+          <Link href="/painel/exames-recebidos" className="inline-flex min-h-11 items-center text-link underline">{MSG_REVISAO.noProntuario(enviados)}</Link>
+        </p>
+      )}
       {busca.ia === 'salvo' && <Aviso tipo="ok">{MSG_IA.valoresSalvos}</Aviso>}
       {cota?.nivel === 'aviso' && <Aviso tipo="aviso">{MSG_IA.aviso80}</Aviso>}
       {pediuConferir && !conferir && <Aviso tipo="aviso">{MSG_IA.indisponivelSugestao}</Aviso>}
@@ -90,7 +105,10 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
         {lista.map((e) => (
           <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+                {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
+              </div>
               <div className="flex gap-4">
                 {e.arquivoPath && (
                   <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>

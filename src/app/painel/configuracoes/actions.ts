@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { ativarIa, AtivacaoIaError, desativarIa } from '@/modules/ia/ativacao';
+import { definirRecebimentoDeExames } from '@/modules/plataforma/recebimento-exames';
 
 export type AtivarIaState = { erro?: string };
 
@@ -29,4 +30,12 @@ export async function desativarIaAction(): Promise<void> {
   const { ctx } = await requireNutri('/painel/configuracoes');
   await desativarIa(ctx);
   revalidatePath('/painel', 'layout');
+}
+
+/** D18 = a (Plano 12): liga/desliga o recebimento de exames pelo app. O consultório vem da sessão, nunca do formulário. */
+export async function definirRecebimentoAction(fd: FormData): Promise<void> {
+  const { ctx } = await requireNutri('/painel/configuracoes');
+  await definirRecebimentoDeExames(ctx, fd.get('receberExames') === 'on');
+  revalidatePath('/painel', 'layout'); // o menu ("Exames recebidos") depende do recebimento ligado
+  redirect('/painel/configuracoes?exames=salvo');
 }
