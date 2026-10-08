@@ -73,6 +73,58 @@ test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu pla
   await p.page.context().close();
 });
 
+// Revisão da T11 do Plano 16: no Chrome o botão ganha o foco no pointerdown, e o "Desfazer" pegava o foco (e pausava o prazo)
+// em todo toque — o registro não saía. IP 10.9.26.40 (bloco do Plano 16, livre depois dos da T16).
+test('"Comi assim" (US-192, RN-198, WCAG 2.2.1): no toque o prazo de 10 s corre sozinho; pelo teclado o foco vai ao "Desfazer" e pausa; a página escondida envia', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const p = await pacienteNoPortal(browser, nutri, '10.9.26.40', undefined, { hasTouch: true, isMobile: true, viewport: { width: 412, height: 839 } });
+  await publicarPlanoSimples(nutri, p.prontuario);
+  const posts: number[] = [];
+  p.page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/p/diario') posts.push(Date.now());
+  });
+  const comiAssim = p.page.getByRole('button', { name: 'Comi assim' });
+  const desfazer = p.page.getByRole('button', { name: 'Desfazer' });
+  const registrado = p.page.getByRole('status').filter({ hasText: 'Registrado no diário.' });
+
+  // 1. Toque: o foco não vai ao "Desfazer" e o POST sai em cerca de 10 s, sem outra interação
+  await p.page.goto('/p/plano');
+  const tocouEm = Date.now();
+  await comiAssim.tap();
+  await expect(registrado).toBeVisible();
+  await expect(desfazer).toBeVisible();
+  await expect(desfazer).not.toBeFocused();
+  await expect.poll(() => posts.length, { timeout: 15_000 }).toBe(1);
+  expect(posts[0] - tocouEm).toBeGreaterThanOrEqual(9_000);
+  await expect(desfazer).toHaveCount(0);
+  await expect(registrado).toBeVisible();
+
+  // 2. Teclado (Enter): o foco vai ao "Desfazer", o prazo pausa (nada sai em 12 s) e "Desfazer" devolve o foco ao botão
+  await p.page.goto('/p/plano');
+  await comiAssim.focus();
+  await p.page.keyboard.press('Enter');
+  await expect(desfazer).toBeFocused();
+  await p.page.waitForTimeout(12_000); // passa dos 10 s do prazo: com o foco no "Desfazer", o prazo está pausado
+  expect(posts).toHaveLength(1);
+  await p.page.keyboard.press('Enter');
+  await expect(p.page.getByRole('status').filter({ hasText: 'Registro desfeito.' })).toBeVisible();
+  await expect(comiAssim).toBeFocused();
+  expect(posts).toHaveLength(1);
+
+  // 3. A página escondida (tela inicial, outro app: só visibilitychange, sem pagehide) envia na hora o que está pendente
+  await p.page.goto('/p/plano');
+  await comiAssim.tap();
+  await expect(desfazer).toBeVisible();
+  const escondeuEm = Date.now();
+  await p.page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => posts.length, { timeout: 5_000 }).toBe(2);
+  expect(posts[1] - escondeuEm).toBeLessThan(5_000); // antes do fim do prazo de 10 s
+  await p.page.context().close();
+});
+
 test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.4');
   await publicarPlanoSimples(nutri, p.prontuario);

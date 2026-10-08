@@ -1,4 +1,4 @@
-import { expect, type Browser, type Page } from '@playwright/test';
+import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { esperarEmail, primeiroLink } from './mailpit';
 
 let seq = 0;
@@ -11,6 +11,7 @@ export async function pacienteNoPortal(
   nutri: Page,
   ip: string,
   aoAbrir?: (page: Page) => void,
+  opcoes: BrowserContextOptions = {}, // ex.: { hasTouch: true } para o toque do Chrome no celular (revisão da T11 do Plano 16)
 ): Promise<{ page: Page; nome: string; email: string; senha: string; prontuario: string }> {
   const sufixo = `${Date.now().toString(36)}${++seq}`;
   const nome = `Paula Portal ${sufixo}`;
@@ -25,7 +26,7 @@ export async function pacienteNoPortal(
   await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
   const prontuario = new URL(nutri.url()).pathname;
   const convite = await esperarEmail(email, { assunto: 'Convite de Consultório E2E no NutriDebby' });
-  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': ip } });
+  const ctx = await browser.newContext({ ...opcoes, extraHTTPHeaders: { 'x-forwarded-for': ip } });
   const page = await ctx.newPage();
   aoAbrir?.(page); // antes da primeira navegação (ex.: o vigia de CSP do csp.spec cobre o aceite do convite)
   await page.goto(primeiroLink(convite.texto, '/convite/paciente/'));

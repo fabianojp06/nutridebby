@@ -20,3 +20,16 @@ export function mensagemDaFase(f: FaseComiAssim): string {
 
 /** O botão "Comi assim" some depois da resposta (RN-197) e volta no "Desfazer" ou no erro. */
 export const mostraBotao = (f: FaseComiAssim): boolean => f === 'pronto' || f === 'desfeito' || f === 'erro';
+
+/**
+ * Revisão da T11: o foco vai ao "Desfazer" (e o prazo pausa, WCAG 2.2.1) só quando a ativação veio do teclado ou do leitor
+ * de tela — `detail` 0 (clique sem ponteiro) ou o botão com `:focus-visible`. No Chrome, o toque e o clique do mouse já dão
+ * o foco ao botão no pointerdown: medir o `activeElement` levava o foco ao "Desfazer" em todo toque, e o prazo nunca corria.
+ */
+export const focoVaiAoDesfazer = (detail: number, focoVisivel: boolean): boolean => detail === 0 || focoVisivel;
+
+/**
+ * RN-198 ("fechar a tela nesse prazo envia"): no celular, ir à tela inicial ou trocar de app só dispara o `visibilitychange`
+ * (o `pagehide` pode não vir antes de o sistema descartar a aba). A página escondida envia o que está pendente.
+ */
+export const saiuDaTela = (estado: DocumentVisibilityState): boolean => estado === 'hidden';

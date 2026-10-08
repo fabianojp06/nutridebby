@@ -3,15 +3,24 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { recusaDoPortal } from '@/app/p/recusa-api';
 import { MSG_DIARIO, ROTULO_RESPOSTA } from '@/modules/portal/diario-constantes';
-import { mensagemDaFase, mostraBotao, MSG_COMI_ASSIM, PRAZO_DESFAZER_MS, sobra, type FaseComiAssim } from './comi-assim-estado';
+import { focoVaiAoDesfazer, mensagemDaFase, mostraBotao, MSG_COMI_ASSIM, PRAZO_DESFAZER_MS, saiuDaTela, sobra, type FaseComiAssim } from './comi-assim-estado';
 import { useOnline } from './online';
 
 /**
  * Plano 16 (US-192, RN-197, RN-198): "Comi assim" grava no diário (POST /api/p/diario, refeicaoId + resposta). O toque
  * mostra "Registrado no diário." com "Desfazer" por 10 s; o prazo pausa com foco ou ponteiro no aviso (WCAG 2.2.1); ao fim
- * do prazo, ao sair da tela (pagehide) ou ao desmontar, envia com keepalive — o paciente já disse que comeu. "Desfazer"
+ * do prazo, ao sair da tela (pagehide, ou a página escondida: tela inicial, outro app) ou ao desmontar, envia com keepalive — o paciente já disse que comeu. "Desfazer"
  * cancela antes de enviar: sem DELETE no banco (P06 D11). Sem rede, desabilitado (RN-208).
  */
+/** `:focus-visible` (navegador sem suporte ao seletor: false — o toque não leva o foco). */
+function focoVisivel(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
 export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
   const router = useRouter();
   const online = useOnline();
@@ -69,16 +78,22 @@ export function ComiAssim({ refeicaoId }: { refeicaoId: string }) {
 
   useEffect(() => {
     const aoSair = () => void enviar(true);
+    const aoEsconder = () => {
+      if (saiuDaTela(document.visibilityState)) void enviar(true);
+    };
     window.addEventListener('pagehide', aoSair);
+    document.addEventListener('visibilitychange', aoEsconder);
     return () => {
       window.removeEventListener('pagehide', aoSair);
+      document.removeEventListener('visibilitychange', aoEsconder);
       void enviar(true); // saiu da tela pelo app (outra seção) dentro do prazo: envia
     };
   }, [enviar]);
 
   const tocar = (e: MouseEvent<HTMLButtonElement>) => {
-    // teclado/leitor de tela (detail 0) ou o botão já com o foco: o foco segue para o "Desfazer"; toque sem foco não rouba o foco
-    const peloFoco = e.detail === 0 || document.activeElement === e.currentTarget;
+    // teclado/leitor de tela (detail 0 ou :focus-visible): o foco segue para o "Desfazer"; toque e mouse não levam o foco (no
+    // Chrome o botão já tem o foco no pointerdown — o activeElement não distingue o toque) e o prazo de 10 s corre
+    const peloFoco = focoVaiAoDesfazer(e.detail, focoVisivel(e.currentTarget));
     pendente.current = true;
     setErro(null);
     if (PRAZO_DESFAZER_MS === 0) return void enviar(false);
