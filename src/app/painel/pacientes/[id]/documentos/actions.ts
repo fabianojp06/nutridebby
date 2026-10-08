@@ -10,6 +10,7 @@ import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
 import { PerfilIncompletoError } from '@/modules/documentos/perfil-profissional';
 import { marcarEntreguePessoalmente } from '@/modules/documentos/recebimento';
+import { retificarDocumento } from '@/modules/documentos/retificacao';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
 export type EstadoForm = { erros?: Record<string, string>; ok?: boolean; perfilIncompleto?: boolean };
@@ -53,10 +54,11 @@ export async function criarParecerAction(patientId: string): Promise<void> {
   await criarDocumentoAction(patientId, (ctx, p) => criarParecer(ctx, p));
 }
 
-/** O editor manda os itens e as orientações num campo só (JSON), e a justificativa à parte (D15 da spec). */
-function lerEditor(f: FormData): { conteudo: unknown; justificativa: unknown } | null {
+/** O editor manda os itens e as orientações num campo só (JSON), a justificativa à parte (D15 da spec) e, numa retificação, o motivo (Q13-1 ★). */
+function lerEditor(f: FormData): { conteudo: unknown; justificativa: unknown; motivoRetificacao: unknown } | null {
   try {
-    return { conteudo: JSON.parse(String(f.get('conteudo') ?? '{}')), justificativa: f.get('justificativa') };
+    // ausente (versão 1: o campo não existe) = undefined, para o módulo não tocar no motivo
+    return { conteudo: JSON.parse(String(f.get('conteudo') ?? '{}')), justificativa: f.get('justificativa'), motivoRetificacao: f.has('motivoRetificacao') ? f.get('motivoRetificacao') : undefined };
   } catch {
     return null;
   }
@@ -118,7 +120,7 @@ export async function salvarParecerAction(patientId: string, docId: string, _pre
   const editor = lerEditor(f);
   if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
-    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo });
+    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
   } catch (e) {
     return comoEstado(e);
   }
@@ -132,7 +134,7 @@ export async function prepararParecerAction(patientId: string, docId: string, _p
   const editor = lerEditor(f);
   if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
-    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo });
+    await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
     await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
   } catch (e) {
     return comoEstado(e);
@@ -200,4 +202,18 @@ export async function cancelarAction(patientId: string, docId: string, _prev: Es
   }
   revalidatePath(caminho(patientId), 'layout');
   return { ok: true };
+}
+
+/** US-148: "Retificar" abre a versão nova — ou a retificação que já está em andamento (uma por vez). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- o estado anterior do useActionState (AcaoDocumento) não é usado
+export async function retificarAction(patientId: string, docId: string, _prev: EstadoForm): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  let id: string;
+  try {
+    id = await retificarDocumento(ctx, patientId, docId);
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  redirect(caminho(patientId, id));
 }

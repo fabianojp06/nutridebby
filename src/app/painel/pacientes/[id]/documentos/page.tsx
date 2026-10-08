@@ -5,7 +5,7 @@ import { Botao } from '@/components/ui/botao';
 import { Selo } from '@/components/ui/selo';
 import { listarDocumentos, situacaoNoPainel } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
-import { linhaDaAssinatura, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { linhaDaAssinatura, ROTULO_STATUS, rotuloDaVersao, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
 import { criarParecerAction, criarReceitaAction } from './actions';
@@ -54,7 +54,7 @@ export default async function DocumentosPage({ params, searchParams }: PageProps
               <tr key={d.id} className="border-t border-linha">
                 <td>
                   <Link href={`/painel/pacientes/${paciente.id}/documentos/${d.id}`} className="inline-flex min-h-11 items-center text-link underline">
-                    {`${TIPO_DOCUMENTO_ROTULO[d.tipo]} de ${formatarData(hojeNoFuso(tenant.fuso, d.createdAt))}`}
+                    {`${TIPO_DOCUMENTO_ROTULO[d.tipo]} de ${formatarData(hojeNoFuso(tenant.fuso, d.createdAt))}${d.versao > 1 ? ` · ${rotuloDaVersao(d.versao)}` : ''}`}
                   </Link>
                 </td>
                 <td>{formatarData(hojeNoFuso(tenant.fuso, d.assinadoEm ?? d.createdAt))}</td>

@@ -16,14 +16,18 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn() }));
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn(), retificarAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
-  lerDocumento: async () => caso.doc ?? ({
-    id: DOC, tipo: 'receita', status: 'assinado', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: new Date('2026-09-02T12:00:00Z'),
-    assinaturaTipo: 'digitalizada', pdfStatus: 'pronto', entregueEm: null, recibos: [], conteudo: {}, justificativa: null, motivoCancelamento: null,
-    assinanteNome: null, basePdfPath: null, pdfPath: null, pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, anonimizadoEm: new Date('2026-10-01T12:00:00Z'),
+  // Plano 13 (T9): os campos da retificação (T7) que os casos do 10A e da T8 não têm — a página lê `d.versoes`
+  lerDocumento: async () => ({
+    retificaId: null, motivoRetificacao: null, substituidoEm: null, versoes: { anterior: null, seguinte: null },
+    ...(caso.doc ?? {
+      id: DOC, tipo: 'receita', status: 'assinado', codigo: 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: new Date('2026-09-02T12:00:00Z'),
+      assinaturaTipo: 'digitalizada', pdfStatus: 'pronto', entregueEm: null, recibos: [], conteudo: {}, justificativa: null, motivoCancelamento: null,
+      assinanteNome: null, basePdfPath: null, pdfPath: null, pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, anonimizadoEm: new Date('2026-10-01T12:00:00Z'),
+    }),
   }),
 }));
 vi.mock('@/modules/pacientes/exames', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/modules/pacientes/exames')>()), listarExames: async () => caso.exames }));
@@ -244,5 +248,50 @@ describe('página do documento: parecer nutricional (US-141, RN-148)', () => {
     expect(html).toContain('Sugiro avaliação médica.');
     expect(html).not.toContain('Conduta e orientações');
     expect(html).not.toContain('Os valores deste exame mudaram');
+  });
+});
+
+describe('página do documento: retificação (US-148, Q13-1 ★, Q13-5 ★)', () => {
+  const base = (status: string, extra: Record<string, unknown> = {}) => ({
+    id: DOC, tipo: 'receita', versao: 1, status, codigo: status === 'rascunho' ? null : 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'),
+    assinadoEm: ['assinado', 'substituido'].includes(status) ? new Date('2026-09-02T12:00:00Z') : null, assinaturaTipo: ['assinado', 'substituido'].includes(status) ? 'digitalizada' : null,
+    pdfStatus: null, entregueEm: null, recibos: [], conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: '' }, justificativa: null, motivoCancelamento: null,
+    assinanteNome: null, basePdfPath: null, pdfPath: 'x', pdfSha256: 'a'.repeat(64), digitalizacaoStatus: null, digitalizacaoEm: null, anonimizadoEm: null, canceladoEm: null,
+    retificaId: null, motivoRetificacao: null, substituidoEm: null, versoes: { anterior: null, seguinte: null }, ...extra,
+  });
+  const pagina = async (d: Record<string, unknown>, paciente: Record<string, unknown> = { status: 'ativo' }) => {
+    caso.twoFactorEnabled = true;
+    caso.paciente = { id: PACIENTE, anonimizadoEm: null, userId: null, email: 'ana@ex.com', ...paciente };
+    caso.doc = d;
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
+  };
+
+  it('assinado: o botão "Retificar" (não com o paciente bloqueado)', async () => {
+    const html = await pagina(base('assinado'));
+    expect(html).toContain('data-guia="retificar-documento"');
+    expect(html).toContain('>Retificar<');
+    expect(await pagina(base('assinado'), { status: 'bloqueado' })).not.toContain('>Retificar<');
+  });
+
+  it('rascunho da versão 2: "Versão 2 — substitui o documento ABCD-EFGH-JKMN" e o campo "Motivo da retificação" ("Fica só no prontuário.")', async () => {
+    const html = await pagina(base('rascunho', { versao: 2, retificaId: '00000000-0000-4000-8000-0000000000d0', versoes: { anterior: { id: '00000000-0000-4000-8000-0000000000d0', versao: 1, codigo: 'ABCDEFGHJKMN' }, seguinte: null } }));
+    expect(html).toContain('Versão 2 — substitui o documento ABCD-EFGH-JKMN');
+    expect(html).toContain('Motivo da retificação');
+    expect(html).toContain('name="motivoRetificacao"');
+    expect(await pagina(base('rascunho'))).not.toContain('Motivo da retificação'); // a versão 1 não tem o campo
+  });
+
+  it('versão 2 preparada: o motivo só no prontuário; substituído: o cartão, a data, o link para a versão 2 e sem "Retificar" nem "Cancelar documento"', async () => {
+    const preparada = await pagina(base('aguardando_assinatura', { versao: 2, retificaId: 'x', motivoRetificacao: 'Dose corrigida', pdfStatus: 'pronto', basePdfPath: 'b', pdfPath: null, versoes: { anterior: { id: 'x', versao: 1, codigo: 'ABCDEFGHJKMN' }, seguinte: null } }));
+    expect(preparada).toContain('Motivo da retificação (só no prontuário): Dose corrigida');
+    const V2 = '00000000-0000-4000-8000-0000000000d2';
+    const html = await pagina(base('substituido', { substituidoEm: new Date('2026-09-10T12:00:00Z'), versoes: { anterior: null, seguinte: { id: V2, versao: 2, status: 'assinado' } } }));
+    expect(html).toContain('Documento substituído');
+    expect(html).toContain('Substituído em 10/09/2026 pela versão 2.');
+    expect(html).toContain(`href="/painel/pacientes/${PACIENTE}/documentos/${V2}"`);
+    expect(html).toContain('Abrir a versão 2');
+    expect(html).toContain('Baixar PDF assinado');
+    expect(html).not.toContain('>Retificar<');
+    expect(html).not.toContain('Cancelar documento');
   });
 });

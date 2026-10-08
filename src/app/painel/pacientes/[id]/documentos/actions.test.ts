@@ -26,7 +26,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, cancelarAction, criarParecerAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, reenviarLinkAction, salvarParecerAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, cancelarAction, criarParecerAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, reenviarLinkAction, retificarAction, salvarParecerAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -171,5 +171,30 @@ describe('parecer nutricional pelas ações (US-141)', () => {
     const { N } = await consultorio();
     const b = await novoPaciente(db, N.ctx, { status: 'bloqueado' });
     await expect(criarParecerAction(b.id)).rejects.toThrow(`redirect /painel/pacientes/${b.id}/documentos?bloqueado=1`);
+  });
+});
+
+describe('retificar pelas ações (US-148, US-149)', () => {
+  it('"Retificar" abre a versão nova (ou a que já existe); "Cancelar documento" com ela em andamento devolve o texto da US-149; preparar sem motivo, o erro do campo', async () => {
+    const { N, p } = await consultorio();
+    const v1 = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    const destino = await retificarAction(p.id, v1.id, {}).catch((e: Error) => e.message);
+    expect(destino).toMatch(new RegExp(`^redirect /painel/pacientes/${p.id}/documentos/[0-9a-f-]{36}$`));
+    await expect(retificarAction(p.id, v1.id, {})).rejects.toThrow(String(destino)); // uma por vez: a mesma
+    const motivo = new FormData();
+    motivo.set('motivo', 'Dose errada');
+    expect(await cancelarAction(p.id, v1.id, {}, motivo)).toEqual({ erros: { geral: 'Há uma retificação em andamento (versão 2). Conclua ou apague a retificação antes de cancelar.' } });
+    const v2 = String(destino).split('/').at(-1)!;
+    const f = formulario({ itens: [vitD('50')], justificativa: 'Exposição solar baixa', declaracao: true });
+    expect(await prepararAction(p.id, v2, {}, f)).toEqual({ erros: { motivoRetificacao: 'Escreva o motivo da retificação (até 500 caracteres).' } });
+    f.set('motivoRetificacao', 'Dose corrigida');
+    expect(await prepararAction(p.id, v2, {}, f)).toEqual({ ok: true });
+    expect(await lerDocumento(N.ctx, p.id, v2, db)).toMatchObject({ status: 'preparando', versao: 2, motivoRetificacao: 'Dose corrigida' });
+  });
+
+  it('"Retificar" de um documento que não é a versão em vigor: o motivo, sem redirecionar', async () => {
+    const { N, p } = await consultorio();
+    const cancelado = await documentoNoBanco(db, N.ctx, p.id, { status: 'cancelado' });
+    expect(await retificarAction(p.id, cancelado.id, {})).toEqual(MUDOU);
   });
 });

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
@@ -5,7 +6,7 @@ import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_PARECER, DECLARACAO_RECEITA, envioEmCurso, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { DECLARACAO_PARECER, DECLARACAO_RECEITA, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
@@ -16,7 +17,7 @@ import { situacaoDosExames } from '@/modules/documentos/parecer-exames';
 import { descreverItem } from '@/modules/documentos/prescricao';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
-import { apagarRascunhoAction, pedirNovoPdfAction, voltarAEditarAction } from '../actions';
+import { apagarRascunhoAction, pedirNovoPdfAction, retificarAction, voltarAEditarAction } from '../actions';
 import { AcaoDocumento } from './acao-documento';
 import { AvisoDoExame } from './aviso-exame';
 import { Cancelar } from './cancelar';
@@ -78,6 +79,8 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
     </>
   );
   const entregaAntes = d.status === 'cancelado' && !anonimizado ? situacaoDaEntrega(d, tenant.fuso) : '';
+  // Q13-1 ★: o campo do motivo só numa retificação (null = versão 1, sem o campo)
+  const motivo = d.retificaId ? (d.motivoRetificacao ?? '') : null;
   return (
     <section aria-labelledby="documento" className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -85,20 +88,23 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
         <Selo>{ROTULO_STATUS[d.status]}</Selo>
         {d.codigo && d.status !== 'rascunho' && <span className="text-sm text-suave">{`Código de verificação: ${formatarCodigo(d.codigo)}`}</span>}
       </div>
+      {/* Q13-5 ★ / NGS1.01.01: a versão nova diz qual ela substitui; o motivo (Q13-1 ★) fica só no prontuário */}
+      {d.versoes.anterior?.codigo && <p className="text-sm text-suave">{linhaDaVersao(d.versao, formatarCodigo(d.versoes.anterior.codigo))}</p>}
+      {d.status !== 'rascunho' && d.motivoRetificacao && <p className="text-sm text-suave">{`Motivo da retificação (só no prontuário): ${d.motivoRetificacao}`}</p>}
 
       {anonimizado && <Aviso tipo="aviso">Documento anonimizado.</Aviso>}
 
       {d.status === 'rascunho' && !bloqueado && receita && (
         <>
           {/* o preparo é um botão do mesmo formulário: envia o que está na tela (revisão da T6) */}
-          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} />
+          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} motivo={motivo} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
 
       {d.status === 'rascunho' && !bloqueado && parecer && (
         <>
-          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={DECLARACAO_PARECER} />
+          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={DECLARACAO_PARECER} motivo={motivo} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
@@ -199,6 +205,12 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {emitido}
           {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
           {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
+          {/* US-148: só a versão em vigor; com uma retificação em andamento, o botão abre a mesma (uma por vez) */}
+          {!bloqueado && (
+            <div className="mt-4" data-guia="retificar-documento">
+              <AcaoDocumento acao={retificarAction.bind(null, paciente.id, d.id)} rotulo="Retificar" secundario />
+            </div>
+          )}
           {/* US-149 / RN-147: só de "assinado", com o paciente não bloqueado (o bloqueado é só leitura) */}
           {!bloqueado && <Cancelar patientId={paciente.id} docId={d.id} confirmacao={MSG_CANCELAMENTO.confirmacao} />}
         </Cartao>
@@ -217,6 +229,18 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
               <p>{entregaAntes}</p>
             </section>
           )}
+        </Cartao>
+      )}
+
+      {d.status === 'substituido' && (
+        <Cartao id="documento-substituido" titulo="Documento substituído">
+          {d.substituidoEm && d.versoes.seguinte && <p>{`Substituído em ${dataHora(d.substituidoEm, tenant.fuso).split(' às ')[0]} pela versão ${d.versoes.seguinte.versao}.`}</p>}
+          {d.versoes.seguinte && (
+            <Link href={`/painel/pacientes/${paciente.id}/documentos/${d.versoes.seguinte.id}`} className="inline-flex min-h-11 items-center text-link underline">
+              {`Abrir a versão ${d.versoes.seguinte.versao}`}
+            </Link>
+          )}
+          {emitido}
         </Cartao>
       )}
     </section>

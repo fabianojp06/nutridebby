@@ -5,6 +5,7 @@ import { useActionState, useState, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
 import { CATEGORIAS, MODOS_PREPARO, MSG_PRESCRICAO, TIPOS_ITEM, UNIDADES, VIAS, type ConteudoReceita } from '@/modules/documentos/prescricao';
 import { prepararAction, salvarRascunhoAction, type EstadoForm } from '../actions';
+import { MotivoRetificacao } from './motivo-retificacao';
 import { Preparar } from './preparar';
 
 type TipoItem = keyof typeof TIPOS_ITEM;
@@ -40,7 +41,7 @@ function doConteudo(c: ConteudoReceita): ItemForm[] {
  * tela (a ação grava e prepara), e os erros dos dois botões voltam aos campos. Tudo controlado: o React 19 reseta campos
  * não controlados depois de cada action, e a justificativa e a declaração voltariam ao valor salvo depois de um erro.
  */
-export function ReceitaForm({ patientId, docId, conteudo, justificativa: justificativaSalva, habilitada, declaracao }: { patientId: string; docId: string; conteudo: ConteudoReceita; justificativa: string; habilitada: boolean; declaracao: string }) {
+export function ReceitaForm({ patientId, docId, conteudo, justificativa: justificativaSalva, habilitada, declaracao, motivo = null }: { patientId: string; docId: string; conteudo: ConteudoReceita; justificativa: string; habilitada: boolean; declaracao: string; motivo?: string | null }) {
   const [s, action, pendente] = useActionState<Estado, FormData>(async (prev, f) => {
     // o botão que enviou vem no FormData (submitter); Enter num campo envia pelo primeiro, "Salvar rascunho"
     const intencao = f.get('intencao') === 'preparar' ? 'preparar' : 'salvar';
@@ -50,6 +51,8 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
   const [orientacoes, setOrientacoes] = useState(conteudo.orientacoes);
   const [justificativa, setJustificativa] = useState(justificativaSalva);
   const [declarada, setDeclarada] = useState(false);
+  // Q13-1 ★: null = não é retificação (o campo não aparece nem vai no formulário)
+  const [motivoRet, setMotivoRet] = useState(motivo ?? '');
   const [tipoNovo, setTipoNovo] = useState<TipoItem>('suplemento');
   const e = s.erros ?? {};
   const mudar = (i: number, chave: string, v: unknown) => setItens((xs) => xs.map((x, j) => (j === i ? { ...x, [chave]: v as string } : x)));
@@ -92,6 +95,7 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
   // o editor primeiro: as chaves que ele mostra ficam em `mostradas` antes de calcular as que sobraram
   const editor = (
     <>
+      {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={erroDe('motivoRetificacao')} />}
       <h3 className="font-semibold">Itens da receita</h3>
       {msg('itens', 'text-erro')}
       {itens.map((it, i) => {

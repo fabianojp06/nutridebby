@@ -5,6 +5,7 @@ import { useActionState, useState, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
 import { AVALIACAO_MAX, CONDUTA_MAX, ENCAMINHAMENTOS_MAX, MSG_PARECER, PARECER_MAX_EXAMES, type ConteudoParecer } from '@/modules/documentos/parecer';
 import { prepararParecerAction, salvarParecerAction, type EstadoForm } from '../actions';
+import { MotivoRetificacao } from './motivo-retificacao';
 import { Preparar } from './preparar';
 
 /**
@@ -20,14 +21,14 @@ const TEXTOS: Texto[] = [
   { id: 'encaminhamentos', rotulo: 'Encaminhamentos (opcional)', max: ENCAMINHAMENTOS_MAX },
 ];
 /** As chaves de erro que um campo do editor mostra; as que sobrarem vão para o aviso geral (nenhum erro some em silêncio). */
-const CAMPOS = new Set(['geral', 'exames', 'avaliacao', 'conduta', 'encaminhamentos', 'declaracao']);
+const CAMPOS = new Set(['geral', 'motivoRetificacao', 'exames', 'avaliacao', 'conduta', 'encaminhamentos', 'declaracao']);
 
 /**
  * US-141 + US-143: o editor e o preparo do parecer são UM formulário, como o da receita (revisão da T6 do 10A). Tudo
  * controlado (o React 19 reseta campos não controlados depois de cada action). A seleção vem da lista do prontuário; um
  * exame da cópia que não está mais nela (excluído) sai da seleção com o aviso proposto da spec v0.5 (desvio 10).
  */
-export function ParecerForm({ patientId, docId, conteudo, exames, declaracao }: { patientId: string; docId: string; conteudo: ConteudoParecer; exames: ExameParaEscolher[]; declaracao: string }) {
+export function ParecerForm({ patientId, docId, conteudo, exames, declaracao, motivo = null }: { patientId: string; docId: string; conteudo: ConteudoParecer; exames: ExameParaEscolher[]; declaracao: string; motivo?: string | null }) {
   const [s, action, pendente] = useActionState<Estado, FormData>(async (prev, f) => {
     // o botão que enviou vem no FormData (submitter); Enter num campo envia pelo primeiro, "Salvar rascunho"
     const intencao = f.get('intencao') === 'preparar' ? 'preparar' : 'salvar';
@@ -37,6 +38,8 @@ export function ParecerForm({ patientId, docId, conteudo, exames, declaracao }: 
   const [selecionados, setSelecionados] = useState<string[]>(() => conteudo.exames.map((x) => x.id).filter((id) => existentes.has(id)));
   const [textos, setTextos] = useState({ avaliacao: conteudo.avaliacao, conduta: conteudo.conduta, encaminhamentos: conteudo.encaminhamentos });
   const [declarada, setDeclarada] = useState(false);
+  // Q13-1 ★: null = não é retificação (o campo não aparece nem vai no formulário)
+  const [motivoRet, setMotivoRet] = useState(motivo ?? '');
   const excluidoNaCopia = conteudo.exames.some((x) => !existentes.has(x.id));
   const e = s.erros ?? {};
   /** RNF-10: o controle com erro leva aria-invalid e aponta para a mensagem (`<id>-erro`). */
@@ -58,6 +61,7 @@ export function ParecerForm({ patientId, docId, conteudo, exames, declaracao }: 
   return (
     <form action={action} className="space-y-6" data-guia="editor-parecer">
       <input type="hidden" name="conteudo" value={JSON.stringify({ exameIds, ...textos })} />
+      {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={e.motivoRetificacao} />}
       {/* só aria-describedby: aria-invalid não vale num grupo (fieldset) */}
       <fieldset className="space-y-2" aria-describedby={e.exames ? 'exames-erro' : undefined}>
         <legend className="font-semibold">Exames considerados</legend>
