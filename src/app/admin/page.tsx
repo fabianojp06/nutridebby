@@ -40,9 +40,18 @@ function Convite({ c }: { c: ContaResumo }) {
 
 export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
-  const { aviso } = await searchParams;
+  const { aviso, busca, depois, antes } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const [contas, metricas, sucesso, iaMetricas, exames] = await Promise.all([listarContas(), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant(), metricasDeExamesEnviadosPorTenant()]);
+  // D-P5: as métricas continuam vindo de todos os consultórios (funções SECURITY DEFINER sem parâmetro); a página só desenha os 50 dela
+  const [pagina, metricas, sucesso, iaMetricas, exames] = await Promise.all([listarContas(undefined, undefined, { busca, depois, antes }), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant(), metricasDeExamesEnviadosPorTenant()]);
+  const contas = pagina.contas;
+  const linkDaPagina = (c: { depois?: string; antes?: string }) => {
+    const q = new URLSearchParams();
+    if (pagina.busca) q.set('busca', pagina.busca);
+    if (c.depois) q.set('depois', c.depois);
+    if (c.antes) q.set('antes', c.antes);
+    return `/admin?${q.toString()}`;
+  };
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
@@ -63,6 +72,17 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
         <p className="text-sm">Use quando alguém perdeu o app autenticador e os códigos de recuperação, ou depois da troca do AUTH_SECRET. Confirme antes a identidade de quem pediu.</p>
         <Reiniciar2faForm />
       </section>
+      {/* P09-07: busca e páginas da lista (GET: a busca não é dado de saúde; GET_PERMITIDOS) */}
+      <form method="get" action="/admin" role="search" className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <label htmlFor="busca" className="block text-sm font-medium">Buscar por nome, endereço ou e-mail</label>
+          <input id="busca" name="busca" type="search" maxLength={100} defaultValue={pagina.busca} className="rounded border p-2" />
+        </div>
+        <button className="min-h-11 rounded border px-4">Buscar</button>
+        {pagina.busca && <Link href="/admin" className="inline-flex min-h-11 items-center underline">Limpar busca</Link>}
+      </form>
+      {contas.length === 0 && <p>Nenhuma conta encontrada.</p>}
+      {contas.length > 0 && (
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Contas de nutricionista</caption>
         <thead>
@@ -170,6 +190,13 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
           })}
         </tbody>
       </table>
+      )}
+      {(pagina.anterior || pagina.proxima) && (
+        <nav aria-label="Páginas da lista de contas" className="flex gap-4">
+          {pagina.anterior && <Link href={linkDaPagina({ antes: pagina.anterior })} className="inline-flex min-h-11 items-center underline">Anterior</Link>}
+          {pagina.proxima && <Link href={linkDaPagina({ depois: pagina.proxima })} className="inline-flex min-h-11 items-center underline">Próxima</Link>}
+        </nav>
+      )}
     </main>
   );
 }

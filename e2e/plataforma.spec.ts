@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { codigoDoAdmin, entrarComoAdmin, fecharTourDeBoasVindas } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
@@ -45,6 +46,21 @@ test('admin cria a conta; e-mail com maiúsculas e espaços é aceito; endereço
   await expect(admin.getByText('Endereço já em uso')).toBeVisible();
 });
 
+test('P09-07: a busca acha o consultório pelo endereço e pelo e-mail; sem resultado, "Nenhuma conta encontrada."; axe da página', async () => {
+  await admin.goto('/admin');
+  await admin.getByLabel('Buscar por nome, endereço ou e-mail').fill(NUTRI.slug);
+  await admin.getByRole('button', { name: 'Buscar' }).click();
+  await expect(admin).toHaveURL(new RegExp(`/admin\\?busca=${NUTRI.slug}`));
+  await expect(admin.getByRole('row', { name: new RegExp(NUTRI.slug) })).toBeVisible();
+  await expect(admin.getByRole('row')).toHaveCount(2); // o cabeçalho e o consultório
+  await admin.goto(`/admin?busca=${encodeURIComponent(NUTRI.email)}`);
+  await expect(admin.getByRole('row', { name: new RegExp(NUTRI.slug) })).toBeVisible();
+  await admin.goto('/admin?busca=%25%25nada-assim%25%25');
+  await expect(admin.getByText('Nenhuma conta encontrada.')).toBeVisible();
+  const r = await new AxeBuilder({ page: admin }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(r.violations.map((v) => v.id)).toEqual([]);
+});
+
 test('a nutricionista define a senha, aceita o DPA e chega ao painel; o link não vale de novo (US-002)', async ({ browser }) => {
   const email = await esperarEmail(NUTRI.email, { assunto: 'Seu acesso ao NutriDebby' });
   const link = primeiroLink(email.texto, '/convite/');
@@ -84,7 +100,7 @@ test('suspender derruba a sessão aberta e bloqueia o login; reativar devolve o 
   await login();
   await expect(nutri).toHaveURL(/\/painel$/);
 
-  await admin.goto('/admin');
+  await admin.goto(`/admin?busca=${NUTRI.slug}`);
   admin.once('dialog', (d) => d.accept());
   await admin.getByRole('row', { name: new RegExp(NUTRI.slug) }).getByRole('button', { name: 'Suspender' }).click();
   await expect(admin.getByRole('status')).toContainText('Conta suspensa.');
@@ -179,7 +195,7 @@ test('perfil e marca: contraste recusado, cor e logo aplicados ao painel (US-005
 });
 
 test('métricas de sucesso: o admin grava a base do CS-03 e o início do uso; valor fora da faixa é recusado (P08-07, D15)', async () => {
-  await admin.goto('/admin');
+  await admin.goto(`/admin?busca=${NUTRI.slug}`);
   const linha = admin.getByRole('row', { name: new RegExp(NUTRI.slug) });
   const taxa = linha.getByLabel('Taxa de faltas antes do sistema (%)');
   await taxa.fill('120');

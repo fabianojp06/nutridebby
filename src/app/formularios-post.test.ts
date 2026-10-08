@@ -18,6 +18,7 @@ const GET_PERMITIDOS: Record<string, string> = {
   'src/app/painel/pacientes/[id]/anamnese/page.tsx': 'escolha do modelo de anamnese (id do modelo)',
   'src/app/p/(portal)/compras/page.tsx': 'número de dias da lista de compras',
   'src/app/p/(portal)/conteudos/page.tsx': 'busca e filtro da biblioteca de conteúdos',
+  'src/app/admin/page.tsx': 'P09-07: busca da lista de consultórios do admin (nome, endereço, e-mail da nutricionista — sem dado de saúde)',
 };
 
 type Achado = { arquivo: string; linha: number; motivo: string };
