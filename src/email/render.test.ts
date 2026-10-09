@@ -239,3 +239,22 @@ describe('Plano 11 — e-mails da IA', () => {
     expect(r.text).not.toContain('00000000-0000-4000-8000-000000000001');
   });
 });
+
+describe('Plano 14A — e-mails da autorização de IA', () => {
+  it('autorizacao_ia: assunto com o consultório, botão "Ler e decidir" com o link; sem dado de saúde', () => {
+    const r = renderEmail({ tipo: 'autorizacao_ia', para: 'p@x.dev', consultorio: 'Consultório Debby', link: 'https://app.test/autorizacao-ia/abc' });
+    expect(r.subject).toBe('Consultório Debby: autorização para uso de inteligência artificial');
+    expect(r.html).toContain('href="https://app.test/autorizacao-ia/abc"');
+    expect(r.text).toContain('Ler e decidir');
+    expect(r.text).toContain('recusar não muda nada no seu atendimento');
+    expect(r.text).toContain('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.'); // F4
+  });
+
+  it('autorizacao_ia_confirmada: só a leitura de laudos (F2), a versão, o destino, o "Se não foi você" (F4) e o botão "Retirar a autorização"', () => {
+    const r = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Amazon Web Services (Claude), União Europeia', versao: '0.1-provisorio', link: 'https://app.test/autorizacao-ia/xyz' });
+    expect(r.subject).toBe('Você autorizou o uso de inteligência artificial');
+    for (const t of ['ler os laudos dos seus exames', '0.1-provisorio', 'União Europeia', 'saem do Brasil', 'Retirar a autorização', 'Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista.']) expect(r.text).toContain(t);
+    for (const t of ['resumir o seu histórico', 'rascunho']) expect(r.text).not.toContain(t);
+    expect(r.html).toContain('href="https://app.test/autorizacao-ia/xyz"');
+  });
+});

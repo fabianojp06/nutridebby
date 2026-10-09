@@ -70,6 +70,10 @@ export type EmailMessage =
    * desistir; o job inteiro vai cifrado e o texto do e-mail nunca os mostra. Sem dado de saúde.
    */
   | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string }
+  /** Plano 14A (US-105, US-107): o pedido de autorização de IA — `link` = /autorizacao-ia/<token> (sem login, 7 dias). Sem dado de saúde. */
+  | { tipo: 'autorizacao_ia'; para: string; consultorio: string; link: string }
+  /** Plano 14A (US-106 a US-108): a confirmação, com o resumo do que foi autorizado e o link de RETIRADA (não vence, D11). `destino` = o rótulo. */
+  | { tipo: 'autorizacao_ia_confirmada'; para: string; consultorio: string; destino: string; versao: string; link: string }
   /**
    * Plano 12 (RN-168, D16 = a): exames novos enviados por pacientes, às nutricionistas do tenant (no máximo 1 a cada 6 h);
    * `pendentesAntigos` = há envio aguardando há mais de 30 dias (US-165). Sem nome de paciente, de exame nem arquivo (C-05).
