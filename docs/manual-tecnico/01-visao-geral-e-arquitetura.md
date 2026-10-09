@@ -572,7 +572,9 @@ flowchart LR
   end
   M[Merge na main<br/>= deploy] --> D
   subgraph D["deploy.yml (push na main)"]
-    C2[job ci: reusa ci.yml] --> PUB[publish<br/>build + push GHCR<br/>:sha e :latest]
+    DEC[decidir: o PR já passou<br/>o CI nesta árvore?] -->|não ou dúvida| C2[job ci: reusa ci.yml]
+    DEC -->|sim| PUB
+    C2 --> PUB[publish<br/>build + push GHCR<br/>:sha e :latest]
     PUB --> PODA[poda: mantém 2 versões]
     PODA --> HK[POST webhooks Easypanel<br/>app e worker]
   end
@@ -580,7 +582,7 @@ flowchart LR
 ```
 
 Resumo: o CI roda quatro jobs em paralelo (`.github/workflows/ci.yml`); o deploy (`.github/workflows/deploy.yml`) reusa
-o CI, publica `:<sha>` e `:latest` no GHCR, poda para 2 versões e chama os webhooks do Easypanel do app e do worker.
+o CI — ou o pula, quando o PR já passou o CI na mesma árvore (job `decidir`, desde 09/10/2026) —, publica `:<sha>` e `:latest` no GHCR, poda para 2 versões e chama os webhooks do Easypanel do app e do worker.
 As migrations rodam no start do app (`docker-entrypoint.sh:9`), por isso seguem **expand/contract** (spec §9.7).
 Volta atrás: fixar o `:<sha>` anterior no app e no worker (os serviços usam `:latest`), sem voltar migration; roteiro
 em [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás). Jobs, passos, variáveis do CI e o porquê de cada escolha:

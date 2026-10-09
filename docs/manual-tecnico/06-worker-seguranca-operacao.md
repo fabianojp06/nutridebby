@@ -778,8 +778,8 @@ Por que não basta "redeploy": `nutri_app` e `nutri_worker` usam `ghcr.io/fabian
 redeploy puxa de novo o `:latest`, que é a imagem quebrada. É preciso fixar o SHA anterior. Toda troca de imagem é
 feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e reinicia serviço (regra 3 do servidor).
 
-1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:39-41`)
-   e poda o pacote para as 2 versões mais recentes (`deploy.yml:52-57`). A anterior é o merge de antes na `main`
+1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:77-79`)
+   e poda o pacote para as 2 versões mais recentes (`deploy.yml:87-95`). A anterior é o merge de antes na `main`
    (`git log --first-parent main`) e aparece na lista de versões do pacote no GHCR.
 2. **Conferir as migrations.** O Drizzle só avança: não há migration de volta, e o banco fica no schema novo. Se o
    deploy quebrado aplicou uma migration de **contração** (removeu ou renomeou coluna, tabela ou função que a versão
@@ -795,7 +795,7 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
    dos dois serviços sem erro (`docker service logs`, leitura livre pela regra 2 do servidor).
 5. **Corrigir para frente.** A correção segue o fluxo normal: PR → revisão → OK do dono. **Antes do merge**, o dono
    volta os dois serviços para `:latest` no Easypanel. Por quê: o webhook só manda o Easypanel reimplantar a imagem
-   configurada (`deploy.yml:58-65`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
+   configurada (`deploy.yml:96-103`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
    GHCR remove esse SHA dois deploys depois.
 6. **Snapshot do hPanel só como último recurso** (banco corrompido, servidor sem subir). O snapshot volta a VPS
    inteira: inclusive o `cursoia_crm` e os outros projetos do servidor, e perde tudo o que foi gravado depois dele
