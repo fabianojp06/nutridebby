@@ -75,8 +75,8 @@ Fila `expirar-exame-envio` (*/15, America/Sao_Paulo) → varrerEnvios: 'processa
 | `src/modules/pacientes/exames-enviados-constantes.ts` | Limites (`ENVIO_*`, `MAX_PIXELS_IMAGEM_PDF`, `ENVIOS_PENDENTES_MAX`, `ENVIOS_POR_DIA_MAX`), prazos (`ENVIO_EXPIRA_DIAS` 90, `ENVIO_LEMBRETE_DIAS` 30, `AVISO_EXAMES_INTERVALO_MS` 6 h), listas de situação e motivos, textos (`MSG_ENVIO`, `SITUACAO`, `MSG_REVISAO`, `ROTULO_MOTIVO_RECUSA`) e funções puras (`situacaoParaPaciente`, `nomeDoEnvio`, `diasEntre`, `haDias`). Sem import de servidor: serve ao cliente | não |
 | `src/modules/plataforma/armazenamento.ts` | `salvarArquivos` (lote do paciente; núcleo comum `gravarArquivos` com `salvarArquivo`) | não |
 | `src/modules/portal/exames-enviados.ts` | Lado do paciente: `classificarArquivos`, `enviarExame`, `meusEnvios`, `pdfDoMeuEnvio`, `cancelarMeuEnvio`, `EnvioError` | não |
-| `src/app/api/p/exames/route.ts`, `src/app/api/p/exames/[id]/pdf/route.ts` | `POST` do envio (vagas, prazo do corpo, `lerCorpoLimitado`) e `GET` do PDF limpo (303 para `signFileUrl`) | não |
-| `src/app/p/(portal)/exames/` | Tela `/p/exames`: `EnvioForm` (fetch multipart), `CancelarEnvio` (`window.confirm`), `cancelarEnvioAction` | não |
+| `src/app/api/p/exames/route.ts`, `src/app/api/p/exames/[id]/pdf/route.ts`, `src/app/api/p/exames/situacoes/route.ts` | `POST` do envio (vagas, prazo do corpo, `lerCorpoLimitado`), `GET` do PDF limpo (303 para `signFileUrl`) e `GET` só da situação (`[{ id, status }]`, sem auditoria; hotfix 09/10/2026) | não |
+| `src/app/p/(portal)/exames/` | Tela `/p/exames`: `EnvioForm` (fetch multipart), `CancelarEnvio` (`window.confirm`), `cancelarEnvioAction`; com algum envio "Processando…", `AtualizarEnquantoProcessa` consulta só a situação em `GET /api/p/exames/situacoes` (`situacoesDosMeusEnvios`: `[{ id, status }]`, sem `auditRead`, cabeçalho de consulta automática) a cada 5 s nos 3 primeiros minutos e a cada 30 s até 30 min (pausa com a aba oculta; recomeça quando o conjunto de envios em processamento muda) e faz `router.refresh()` uma única vez quando algum sai de "processando" (a lista relida audita uma vez); e `AnunciarSituacoes` (região viva única, sempre montada) anuncia "Nome: situação" do envio que mudou (hotfix 09/10/2026) | não |
 | `src/modules/pacientes/exames-enviados-arquivos.ts` | `apagarArquivosDoEnvio`: cada arquivo no seu `apagarArquivo`, por papel e situação; idempotente | não |
 | `src/modules/pacientes/exames-enviados.ts` | Lado da equipe: `filaDeEnvios`, `contarEnviosRecebidos`, `contarEnviosDoPaciente`, `examesEnviadosPeloPaciente`, `abrirEnvio`, `aceitarEnvio`, `recusarEnvio`, `RevisaoError` | não |
 | `src/modules/pacientes/exames-enviados-ia.ts` | Chave curta das mensagens da IA no redirecionamento do "Aceitar e ler" (`chaveDaMensagemIa`, `mensagemIaDaChave`) | não |
@@ -292,7 +292,8 @@ imagem podada, sem rede ("rasterização ok na imagem"). Detalhe em [§7.7](07-t
 - **Auditoria de leitura (regra 8; Plano 06, D22).** `auditRead` (entidade `exames_enviados`) ao **abrir** um envio
   `recebido` no painel (`abrirEnvio`; nas outras situações ele não devolve observação, PDF nem páginas e não audita — code
   review do PR #25, P12-22 b) e, no portal, na **lista** (`meusEnvios`, quando não está vazia) e no **download** do próprio PDF
-  (`pdfDoMeuEnvio`). A fila e os contadores do menu não chamam (só listam, como a lista de pacientes). As escritas viram
+  (`pdfDoMeuEnvio`). A fila e os contadores do menu não chamam (só listam, como a lista de pacientes), nem a consulta de
+  situação do portal (`situacoesDosMeusEnvios`, `GET /api/p/exames/situacoes`: só id e status, hotfix 09/10/2026). As escritas viram
   `audit_log` pelo gatilho; o worker grava com ator nulo ("Sistema").
 - **O original nunca sai.** Ele só existe enquanto o envio está `processando`, não é servido por nenhuma rota, não chega ao
   navegador nem à IA. O paciente baixa só o PDF limpo, e só enquanto o envio está `recebido`; a nutricionista vê as páginas
@@ -348,6 +349,7 @@ imagem podada, sem rede ("rasterização ok na imagem"). Detalhe em [§7.7](07-t
 - Os demais "Pontos menores" do plano (P12-16) e os Minors das revisões por tarefa (P12-17 a P12-20), entre eles: o
   `created_at` da sessão de paciente não é imposto pelo banco; resíduo `nutri-raster-*` no `/tmp` se o worker morrer no meio
   do job; falha de infraestrutura na rasterização (ENOSPC, `fork`) vira `conversao` definitiva; o job sem `job.signal`
-  (job em dobro, R8, só monitorado); "Processando…" não se atualiza sozinho em `/p/exames`.
+  (job em dobro, R8, só monitorado). ("Processando…" não se atualizava sozinho em `/p/exames`: resolvido no hotfix de
+  09/10/2026.)
 - A confirmar com a Debby (P12-21): lembrete próprio dos 30 dias sem envio novo (D6), aba própria no portal (D4), contador
   do menu sem navegar (R5).
