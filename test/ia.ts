@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '@/db/client';
 import { iaAutorizacoes, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import type { ConfigIA } from '@/modules/ia/modo';
+import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
@@ -11,11 +13,11 @@ import { novoPaciente } from './pacientes';
 /** Bytes que o detectarTipo aceita como PDF (para exames cujo conteúdo não é lido). Para um PDF de verdade, `pdfDeTeste`. */
 export const PDF_MINIMO = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(200, 0x20)]);
 
-/** A IA liberada pela admin e ativada pela nutricionista, com o aditivo atual (T2 cria IA_ADITIVO_VERSAO). */
+/** A IA liberada pela admin e ativada pela nutricionista, com o aditivo atual (Plano 14A: com o 0.1, o consultório ficaria "aditivo desatualizado"). */
 export async function iaPronta(db: Db, tenantId: string, o: { cotaUsd?: number; aditivo?: string } = {}): Promise<void> {
   await db
     .update(tenants)
-    .set({ iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: o.aditivo ?? '0.1-provisorio', iaCotaMensalUsd: o.cotaUsd ?? 15 })
+    .set({ iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: o.aditivo ?? IA_ADITIVO_VERSAO, iaCotaMensalUsd: o.cotaUsd ?? 15 })
     .where(eq(tenants.id, tenantId));
 }
 
@@ -121,3 +123,6 @@ export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string
   await withTenant(ctx, (tx) => tx.insert(storedFiles).values({ tenantId: ctx.tenantId, tipo: 'ia_autorizacao_termo', caminho, bytes: 100, mime: 'application/pdf', patientId }), db);
   return caminho;
 }
+
+/** Plano 14A: a configuração dos testes da IA — provedor falso (destino `teste`), retenção zero ligada, teto da plataforma folgado. */
+export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, retencaoZero: true };

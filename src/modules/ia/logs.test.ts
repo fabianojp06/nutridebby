@@ -6,7 +6,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
+import { exameComLaudo, IA_TESTE, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
 import { closeDb } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -38,7 +38,7 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       const p = await pacienteInformado(app.db, T.ctx, { nome: `${MARCADOR} Souza` });
       const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir, conteudo: await pdfDeTeste({ textos: [`Paciente ${MARCADOR} — Glicose ${MARCADOR}`], titulo: MARCADOR }) });
       const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
-      const ia = { modo: 'fake' as const, modelo: 'claude-opus-5-5' as const, geo: 'us' as const, tetoGlobalMicroUsd: 50_000_000_000 };
+      const ia = IA_TESTE;
       const tarefaId = await pedirLeituraExame(T.ctx, tenant as TenantRow, p.id, examId, { db: app.db, agora, ia, avisarTeto: async () => 0 });
       const deps = { db: app.db, dataDir, modo: 'fake' as const, geo: 'us' as const, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, alertas: { credencial: async () => 0, teto: async () => 0 } };
       const ok = respostaOk({ documento_reconhecido: true, data_coleta: null, marcadores: [{ nome_no_laudo: MARCADOR, valor_texto: MARCADOR, unidade: MARCADOR, referencia: MARCADOR, pagina: 1 }] });

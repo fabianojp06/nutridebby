@@ -6,7 +6,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, tarefaNoBanco } from '../../../test/ia';
+import { exameComLaudo, fotoDeTeste, IA_TESTE, iaPronta, pacienteInformado, tarefaNoBanco } from '../../../test/ia';
 import { closeDb } from '@/db/client';
 import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -27,7 +27,7 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 const agora = new Date('2026-10-06T15:00:00Z');
-const IA: ConfigIA = { modo: 'fake', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000 };
+const IA: ConfigIA = IA_TESTE;
 const tenantDe = async (id: string) => (await app.db.select().from(tenants).where(eq(tenants.id, id)))[0] as TenantRow;
 const mensagem = async (p: Promise<unknown>) => {
   try {

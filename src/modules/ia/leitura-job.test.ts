@@ -6,7 +6,7 @@ import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
+import { exameComLaudo, fotoDeTeste, IA_TESTE, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
 import { closeDb, type Tx } from '@/db/client';
 import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -37,7 +37,7 @@ afterAll(async () => {
 });
 // relógio real: as tarefas nascem "agora"; a varredura do teste roda só nos tenants do próprio teste (expirarTarefasDoTenant)
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
-const IA: ConfigIA = { modo: 'fake', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000 };
+const IA: ConfigIA = IA_TESTE;
 
 async function pedido(o: { conteudo?: Buffer; cotaUsd?: number; nome?: string } = {}) {
   const T = await novoTenant(app.db);
