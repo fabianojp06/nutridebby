@@ -7,8 +7,9 @@
 #      merge_commit_sha = $SHA);
 #   2. a árvore do commit da main é IDÊNTICA à do head do PR (git rev-parse <sha>^{tree}) e a main anterior
 #      ($BEFORE) está no histórico do head — o CI do PR (que roda no merge do head com a base) testou esta árvore;
-#   3. a execução mais recente do ci.yml (evento pull_request) para o head terminou em success, com os jobs
-#      quality, test, e2e e image em success. PR só de documentação (test/e2e/image pulados pelo job mudancas)
+#   3. a execução mais recente do ci.yml (evento pull_request) DESTE PR para a main (pull_requests da execução, nunca
+#      só o head_sha), com a base dela no histórico do head, terminou em success, com os jobs quality, test, e2e e
+#      image em success. PR só de documentação (test/e2e/image pulados pelo job mudancas)
 #      não pula: o deploy roda o CI, que já é curto nesse caso e decide sozinho não publicar.
 # Qualquer dúvida — entrada ausente, API fora do ar, resposta estranha, árvore diferente, CI cancelado, com falha
 # ou em andamento — vira pular=false (CI completo, como antes). O script nunca falha o job.
@@ -63,11 +64,20 @@ echo "Árvore idêntica à do head do PR: ${arvore_main}"
 # 3. o CI do head passou, com os jobs exigidos em success
 runs="$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${head}&event=pull_request&per_page=100" 2>/dev/null)" \
   || nao "a API de execuções do CI falhou"
-run="$(jq -c --arg head "$head" '
-  [ .workflow_runs[]? | select(.head_sha == $head and .event == "pull_request") ]
+# Só as execuções DESTE PR para a main (revisão do branch): o mesmo head pode ter rodado noutro PR, com outra base (PR
+# empilhado, base trocada sem push) — o CI de PR testa o merge do head com a base, então outra base = outra árvore. PR de
+# fork vem com pull_requests vazio: CI completo.
+run="$(jq -c --arg head "$head" --argjson numero "$numero" --arg base "$BASE_BRANCH" '
+  [ .workflow_runs[]? | select(.head_sha == $head and .event == "pull_request"
+      and ([ .pull_requests[]? | select(.number == $numero and .base.ref == $base) ] | length > 0)) ]
   | sort_by(.created_at) | last // empty' <<<"$runs" 2>/dev/null)" || nao "resposta inesperada da API de execuções"
-[[ -n "$run" ]] || nao "nenhuma execução do CI para o head ${head}"
+[[ -n "$run" ]] || nao "nenhuma execução do CI do PR #${numero} (base ${BASE_BRANCH}) para o head ${head}"
 run_id="$(jq -r '.id' <<<"$run")"
+base_run="$(jq -r --argjson numero "$numero" '[ .pull_requests[] | select(.number == $numero) ][0].base.sha' <<<"$run")"
+e_sha "$base_run" || nao "base da execução ${run_id} inválida"
+# a base daquela execução já estava no head: o merge que o CI testou tem a árvore do head
+git merge-base --is-ancestor "$base_run" "$head" 2>/dev/null \
+  || nao "a base da execução ${run_id} (${base_run}) não está no histórico do head; o CI testou outra árvore"
 estado="$(jq -r '"\(.status)/\(.conclusion)"' <<<"$run")"
 [[ "$run_id" =~ ^[0-9]+$ ]] || nao "id da execução inválido"
 [[ "$estado" == "completed/success" ]] || nao "a execução ${run_id} do CI do head está ${estado}"

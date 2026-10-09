@@ -555,17 +555,19 @@ sequenceDiagram
 2. a árvore do commit da `main` é **idêntica** à do head do PR (`git rev-parse <sha>^{tree}`; o head vem de
    `refs/pull/<n>/head` quando não está no histórico, como num squash) e a `main` anterior (`github.event.before`) está
    no histórico do head — o CI de PR roda no merge do head com a base, então só assim ele testou exatamente esta árvore;
-3. a execução mais recente do `ci.yml` (evento `pull_request`) para o head terminou em `success`, com `quality`, `test`,
+3. a execução mais recente do `ci.yml` (evento `pull_request`) **deste PR para a `main`** (`pull_requests` da execução
+   com o número do PR e a base `main` — nunca só o `head_sha`: o mesmo head pode ter rodado noutro PR, com outra base),
+   com a base daquela execução no histórico do head, terminou em `success`, com `quality`, `test`,
    `e2e` e `image` em `success` (última tentativa, `filter=latest`).
 
 Qualquer dúvida — entrada ausente, primeiro push, API fora do ar ou resposta estranha, árvore diferente, PR
-desatualizado, CI cancelado, com falha ou em andamento, job ausente ou pulado — vira `pular=false`, e o `ci` roda como
+desatualizado, execução de outro PR ou de outra base, PR de fork (sem `pull_requests`), CI cancelado, com falha ou em andamento, job ausente ou pulado — vira `pular=false`, e o `ci` roda como
 antes. O script nunca falha o job; se o próprio `decidir` falhar, o `ci` roda do mesmo jeito (`if: !cancelled() &&
 pular != 'true'`). PR só de documentação (com `test`, `e2e` e `image` pulados pelo `mudancas`) também não pula: o CI
 desse caso já é curto e é ele que decide não publicar (`codigo == 'false'`). Por isso, quando o CI é pulado, o PR tinha
 código e o `publish` roda direto. Nas fusões de hoje (merge commit com a `main` já mesclada no branch), as três
 condições de árvore e histórico valem (conferido nos merges dos PRs #27 a #30). Os casos estão em
-`test/ci-ja-passou.test.ts` (`gh` falso e repositórios git reais: merge, squash, árvore diferente, PR desatualizado, CI
+`test/ci-ja-passou.test.ts` (`gh` falso e repositórios git reais: merge, squash, árvore diferente, PR desatualizado, outro PR, outra base, fork, base fora do histórico, CI
 `failure`/`cancelled`/em andamento, execução mais recente, job pulado ou ausente, sem PR, API falhando, resposta
 inválida).
 

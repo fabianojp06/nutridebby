@@ -34,8 +34,9 @@ import { apagarConvitesPendentes } from './convite-paciente';
 import { formatarData, hojeNoFuso, somarAnos, somarDias } from './datas';
 
 /**
- * P-01: referência da spec (20 anos, Lei 13.787/2018). Validar com CRN/advogado antes do go-live. Conta do último registro
- * do prontuário — a data do bloqueio (JUR-01, atenderPedidoExclusao). A migration 0110 usa o mesmo número.
+ * P-01: referência da spec (20 anos, Lei 13.787/2018; Res. CFN 594/2017, art. 3º, VI, "b"). Validar com CRN/advogado antes do
+ * go-live. Conta do último registro do prontuário — a data do bloqueio (JUR-01, atenderPedidoExclusao). A migration 0110 usa
+ * o mesmo número.
  */
 export const PRAZO_GUARDA_ANOS = 20;
 /** RNF-08 / §7 privacy_requests: prazo de resposta ao titular. */

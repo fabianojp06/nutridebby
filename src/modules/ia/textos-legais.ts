@@ -106,16 +106,30 @@ const RETENCAO_ZERO_NA_AUTORIZACAO = ' O fornecedor usa os dados só para devolv
  * na UE continua sem guardar (A-D4).
  */
 const RETENCAO_NA_AUTORIZACAO_1_0: Record<DestinoIA, string> = {
-  'anthropic-us': ' O fornecedor usa os dados só para devolver a resposta e não os usa para treinar a IA. A Anthropic pode guardar os dados enviados por até 30 dias, apenas para segurança e prevenção de abuso, e depois os apaga.',
+  // revisão normativa: nada além do que o DPA da Anthropic garante (sem "só para devolver a resposta" nem "apenas para segurança")
+  'anthropic-us': ' O fornecedor não usa os dados para treinar a IA. A Anthropic guarda os dados enviados por até 30 dias, para operar e proteger o serviço (por exemplo, segurança e prevenção de abuso), e depois os apaga.',
   'bedrock-eu': RETENCAO_ZERO_NA_AUTORIZACAO,
   teste: RETENCAO_ZERO_NA_AUTORIZACAO,
 };
+/** Revisão normativa da 1.0: o teto de 2 anos vale só para o conteúdo sinalizado; o que a lei exigir, pelo tempo da lei. */
+const EXCECAO_DE_RETENCAO_1_0: Partial<Record<DestinoIA, string>> = {
+  ...EXCECAO_DE_RETENCAO,
+  'anthropic-us': ' Se os sistemas de segurança dele sinalizarem o conteúdo, ele pode guardá-lo por até 2 anos; se a lei exigir, pelo tempo que a lei exigir.',
+};
+/**
+ * Transparência na 1.0 (decisão do controlador, a confirmar com o advogado — P14A-16): na Anthropic direta, os riscos da
+ * guarda nos EUA, na forma do F6 da variante bedrock-eu, e a revisão humana do conteúdo sinalizado.
+ */
+const RISCOS_A_MAIS_1_0: Partial<Record<DestinoIA, string>> = {
+  'anthropic-us': ' A Anthropic é uma empresa dos Estados Unidos e guarda os seus dados lá por até 30 dias. As leis de lá permitem, em certas situações, que autoridades americanas peçam acesso a esses dados. Se os sistemas de segurança do fornecedor sinalizarem o conteúdo, ele pode ser revisto por pessoas da equipe do fornecedor.',
+};
+type VarianteDoTexto = { retencao: string; excecao: string; riscos: string; rodape: string };
 
 /**
  * Parecer JUR-2026-013, item 4.1, sem os trechos [14B] (F2), com as adaptações da §18.5: (a) "a: (1) ler…" vira "a ler…"
- * (sobrou um uso só); (b) "Os seus dados saem do Brasil.". `retencao` e `rodape` mudam entre as versões.
+ * (sobrou um uso só); (b) "Os seus dados saem do Brasil.". A retenção, a exceção, os riscos a mais e o rodapé mudam entre as versões.
  */
-function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLegal {
+function autorizacao(d: DadosDoTexto, v: VarianteDoTexto): TextoLegal {
   return {
     titulo: 'Autorização para uso de inteligência artificial',
     paragrafos: [
@@ -130,7 +144,7 @@ function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLe
       ],
       [
         b('Benefícios e riscos.'),
-        n(' O benefício é a nutricionista gastar menos tempo digitando e preparando, e ter mais tempo para você. Os riscos são dois: a IA pode errar, e por isso a nutricionista confere tudo; e os seus dados saem do Brasil, como explicado abaixo.'),
+        n(` O benefício é a nutricionista gastar menos tempo digitando e preparando, e ter mais tempo para você. Os riscos são dois: a IA pode errar, e por isso a nutricionista confere tudo; e os seus dados saem do Brasil, como explicado abaixo.${v.riscos}`),
       ],
       [
         b('O que é enviado.'),
@@ -139,7 +153,7 @@ function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLe
       PARA_ONDE_VAI[d.destino],
       [
         b('Por quanto tempo.'),
-        n(`${retencao}${EXCECAO_DE_RETENCAO[d.destino] ?? ''} A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.`),
+        n(`${v.retencao}${v.excecao} A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.`),
       ],
       [
         b('Você decide.'),
@@ -156,7 +170,7 @@ function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLe
         n(' A sua autorização fica registrada com a data, a versão deste texto, o destino e o canal (app, link do e-mail ou termo assinado). No app e no link, também com o endereço IP e o navegador. No link, também com uma marca protegida do e-mail usado. Ela vale só para este consultório. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.'),
       ],
       [n('Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para as tarefas descritas.')],
-      [n(rodape)],
+      [n(v.rodape)],
     ],
   };
 }
@@ -166,8 +180,15 @@ function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLe
  * a 1.0 (A-D27) volta ao "Versão 1.0, de {data}" do parecer e traz a retenção do destino.
  */
 const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
-  '0.1-provisorio': (d) => autorizacao(d, RETENCAO_ZERO_NA_AUTORIZACAO, 'Versão provisória 0.1, de 09/10/2026, em revisão jurídica.'),
-  '1.0': (d) => autorizacao(d, RETENCAO_NA_AUTORIZACAO_1_0[d.destino], `Versão 1.0, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}.`),
+  '0.1-provisorio': (d) =>
+    autorizacao(d, { retencao: RETENCAO_ZERO_NA_AUTORIZACAO, excecao: EXCECAO_DE_RETENCAO[d.destino] ?? '', riscos: '', rodape: 'Versão provisória 0.1, de 09/10/2026, em revisão jurídica.' }),
+  '1.0': (d) =>
+    autorizacao(d, {
+      retencao: RETENCAO_NA_AUTORIZACAO_1_0[d.destino],
+      excecao: EXCECAO_DE_RETENCAO_1_0[d.destino] ?? '',
+      riscos: RISCOS_A_MAIS_1_0[d.destino] ?? '',
+      rodape: `Versão 1.0, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}.`,
+    }),
 };
 
 /** O texto da versão pedida, com o destino em uso e a forma de retirar do canal; versão que não existe → null. */
@@ -179,6 +200,12 @@ const FORNECEDOR: Record<DestinoIA, string> = {
   'anthropic-us': 'Anthropic (Claude), com processamento nos Estados Unidos',
   'bedrock-eu': 'Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia',
   teste: 'provedor de teste, sem envio de dados a fornecedor',
+};
+/** Revisão normativa: o DPA 0.1 não tem cláusulas numeradas nem cita o fornecedor de IA — a cláusula 3 o inclui. */
+const SUBOPERADORA: Record<DestinoIA, string> = {
+  'anthropic-us': 'A Anthropic',
+  'bedrock-eu': 'A Amazon Web Services',
+  teste: 'O provedor de teste',
 };
 const MECANISMO: Record<DestinoIA, string> = {
   'anthropic-us': 'A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma.',
@@ -197,7 +224,7 @@ const SALVO: Record<DestinoIA, string> = {
  */
 function retencaoDoAditivo(destino: DestinoIA, operador: string): string {
   if (destino === 'anthropic-us') {
-    return '6. Retenção. O fornecedor não usa o conteúdo para treinar modelos. A Anthropic pode guardar o conteúdo enviado por até 30 dias, apenas para segurança e prevenção de abuso, e depois o apaga; o conteúdo sinalizado pelos sistemas de segurança dela, ou guardado por exigência legal, pode ficar até 2 anos. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.';
+    return '6. Retenção. O fornecedor não usa o conteúdo para treinar modelos. A Anthropic guarda o conteúdo enviado por até 30 dias, para operar e proteger o serviço (por exemplo, segurança e prevenção de abuso), e depois o apaga. Se os sistemas de segurança dela sinalizarem o conteúdo, ela pode guardá-lo por até 2 anos; se a lei exigir, pelo tempo que a lei exigir. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.';
   }
   return `6. Retenção. A plataforma só usa a IA com dados de paciente enquanto houver retenção zero com o fornecedor: ele não guarda o conteúdo depois da resposta, salvo ${SALVO[destino]}, e não o usa para treinar modelos.${operador} A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`;
 }
@@ -214,11 +241,11 @@ export function aditivoIa(destino: DestinoIA): TextoLegal {
     paragrafos: [
       '1. Partes e objeto. Este aditivo complementa o contrato de tratamento de dados (DPA) entre a nutricionista titular da conta (CONTROLADORA) e WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07 (OPERADORA), para o uso de inteligência artificial (IA) no consultório. Vale a partir do aceite e enquanto a IA estiver ativada.',
       '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário. Sem dados de paciente: sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames, não prescreve e não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.',
-      `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor segue a cláusula 7 do DPA, com aviso de 15 dias, e torna necessária uma nova autorização de todos os pacientes.`,
+      `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. ${SUBOPERADORA[destino]} atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes.`,
       `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.`,
       '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.',
       retencaoDoAditivo(destino, operador),
-      '7. Deveres da CONTROLADORA. Antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. A confidencialidade do fornecedor está garantida pelo contrato dele com a OPERADORA e por este aditivo.',
+      '7. Deveres da CONTROLADORA. Antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo.',
       `8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, ${destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada'}, nem quando o limite mensal de custo do consultório foi atingido.`,
       '9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor.',
       '10. Selo e transparência. A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',

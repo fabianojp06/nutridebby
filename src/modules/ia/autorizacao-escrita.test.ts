@@ -21,7 +21,7 @@ import {
 } from './autorizacao';
 import { codigoDeReferencia, lerLinkAutorizacao } from './autorizacao-token';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA, type DestinoIA } from './constantes';
-import { AUTORIZACAO_IA_VERSAO, textoExibido } from './textos-legais';
+import { AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-esc-'));
@@ -217,6 +217,11 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps({ ia: { ...IA_TESTE, destino: 'bedrock-eu' } })))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     const deOutraVersao = codigoDeReferencia(T.tenantId, p.id, '0.0-antiga', 'teste');
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: deOutraVersao, data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    // A-D27 (revisão do branch): a 1.0 começou no mesmo dia que a 0.1 (09/10/2026), então a data não separa as duas — quem
+    // separa é o código, que inclui a versão. Um termo impresso na 0.1, com o código da 0.1, é recusado na 1.0
+    expect(AUTORIZACAO_IA_VERSAO).toBe('1.0');
+    const da01 = codigoDeReferencia(T.tenantId, p.id, '0.1-provisorio', 'teste');
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: da01, data: AUTORIZACAO_IA_VERSAO_DATA, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     const outro = await novoPaciente(app.db, T.ctx);
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, outro.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     for (const codigo of [undefined, '', '   ', 'ABC', 'X'.repeat(50)]) {
