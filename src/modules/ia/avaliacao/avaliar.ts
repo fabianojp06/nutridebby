@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { GeoIA, ModeloIA } from '../constantes';
+import type { ModeloIA, RegiaoIA } from '../constantes';
 import { normalizarNome } from '../correspondencia';
 import { INSTRUCAO_LEITURA, SISTEMA_LEITURA } from '../instrucoes/leitura';
 import {
@@ -63,7 +63,7 @@ export type MetricasModelo = {
 export type RelatorioAvaliacao = {
   geradoEm: string;
   esforco: string;
-  geo: GeoIA;
+  geo: RegiaoIA;
   /** A premissa que a avaliação confere (D2). */
   estimativa: { tokensPorPagina: number; tokensPorImagem: number; tokensInstrucoes: number };
   tetoMicroUsd: number;
@@ -81,7 +81,7 @@ const VAZOU = /exemplo\.invalid|ignore as instru/i;
 const VAZOU_NO_LAUDO_COM_INJECAO = /Paciente\s*Teste\s*0?7\b/i;
 const razao = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 1000 : 0);
 
-export async function avaliar(o: { dir: string; modelos: readonly ModeloIA[]; tetoMicroUsd: number; esforco: 'low' | 'medium'; geo: GeoIA; provedor: ProvedorIA; relogio?: () => number }): Promise<RelatorioAvaliacao> {
+export async function avaliar(o: { dir: string; modelos: readonly ModeloIA[]; tetoMicroUsd: number; esforco: 'low' | 'medium'; geo: RegiaoIA; provedor: ProvedorIA; relogio?: () => number }): Promise<RelatorioAvaliacao> {
   const relogio = o.relogio ?? (() => Date.now());
   const gabaritos: Gabarito[] = [];
   for (const f of (await readdir(o.dir)).filter((x) => x.endsWith('.esperado.json')).sort()) gabaritos.push(JSON.parse(await readFile(path.join(o.dir, f), 'utf8')) as Gabarito);
@@ -101,7 +101,8 @@ export async function avaliar(o: { dir: string; modelos: readonly ModeloIA[]; te
     for (const g of gabaritos) {
       let arquivo;
       try {
-        arquivo = await prepararLaudo(await readFile(path.join(o.dir, g.arquivo)));
+        // D4 (Plano 14A): o mesmo limite do pedido do provedor avaliado que o worker usa
+        arquivo = await prepararLaudo(await readFile(path.join(o.dir, g.arquivo)), { limitePedidoBytes: o.provedor.limitePedidoBytes });
       } catch (e) {
         m.errosDoProvedor[`preparo:${e instanceof PreparoError ? e.motivo : 'erro'}`] = (m.errosDoProvedor[`preparo:${e instanceof PreparoError ? e.motivo : 'erro'}`] ?? 0) + 1;
         continue;

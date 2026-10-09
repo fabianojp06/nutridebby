@@ -21,7 +21,7 @@ import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
 import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
+import { DESTINO_ROTULO } from '@/modules/ia/constantes';
 import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -49,6 +49,7 @@ import { anexosDoPaciente } from './lgpd';
 import { semDetalhe } from '@/worker/sem-detalhe';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const dono = makeDb(inject('ownerDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-export-'));
 const now = new Date('2026-10-01T15:00:00Z');
 const deps = { db: app.db, now, dataDir, appUrl: 'http://localhost:3000' };
@@ -56,6 +57,7 @@ afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await dono.pool.end();
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -616,9 +618,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
-          avisoIa: null,
-          avisoIaEnviadoEm: null,
-          recusouIaEm: null,
+          autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
@@ -655,9 +655,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
       expect(dados.ia, escopo).toEqual(
         expect.arrayContaining([
-          { id, tipo: 'leitura_exame', status: 'aplicada', criadoEm: now.toISOString(), encerradoEm: now.toISOString(), enviadoEm: now.toISOString(), provedor: PROVEDOR_IA_DESCRICAO },
-          { id: pronta, tipo: 'leitura_exame', status: 'pronta', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null },
-          { id: naoSaiu, tipo: 'leitura_exame', status: 'falhou', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null },
+          { id, tipo: 'leitura_exame', status: 'aplicada', criadoEm: now.toISOString(), encerradoEm: now.toISOString(), enviadoEm: now.toISOString(), provedor: DESTINO_ROTULO['anthropic-us'], destino: null },
+          { id: pronta, tipo: 'leitura_exame', status: 'pronta', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null, destino: null },
+          { id: naoSaiu, tipo: 'leitura_exame', status: 'falhou', criadoEm: now.toISOString(), encerradoEm: null, enviadoEm: null, provedor: null, destino: null },
         ]),
       );
       expect(dados.ia, escopo).toHaveLength(3);
@@ -667,16 +667,61 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(pronta).toBeDefined();
   });
 
-  it('Plano 11 (revisão final, LGPD art. 18, II): dados.json traz a ciência do aviso de IA, o envio do aviso pendente e o "Não usar IA"', async () => {
+  it('RN-128 (Plano 14A): os campos legados da ciência saem só quando preenchidos', async () => {
     const T = await novoTenant(app.db);
-    const informado = await novoPaciente(app.db, T.ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: now, iaAvisoCanal: 'em_maos', iaRecusadaEm: now });
-    const semAviso = await novoPaciente(app.db, T.ctx, { iaAvisoEnviadoEm: now });
+    const informado = await novoPaciente(app.db, T.ctx);
+    const nunca = await novoPaciente(app.db, T.ctx);
+    // contexto vazio (o gatilho da T10 congela as colunas para qualquer sessão do app)
+    await dono.db.update(patients).set({ iaAvisoVersao: '0.1-provisorio', iaAvisoEm: now, iaAvisoCanal: 'em_maos', iaRecusadaEm: now }).where(eq(patients.id, informado.id));
     for (const escopo of ['equipe', 'titular'] as const) {
       const a = await withTenant(T.ctx, (tx) => montarDados(tx, informado.id, now, 'America/Sao_Paulo', escopo), app.db);
-      expect(a.dados.paciente, escopo).toMatchObject({ avisoIa: { versao: '0.1-provisorio', em: now.toISOString(), canal: 'em_maos' }, avisoIaEnviadoEm: null, recusouIaEm: now.toISOString() });
-      const b = await withTenant(T.ctx, (tx) => montarDados(tx, semAviso.id, now, 'America/Sao_Paulo', escopo), app.db);
-      expect(b.dados.paciente, escopo).toMatchObject({ avisoIa: null, avisoIaEnviadoEm: now.toISOString(), recusouIaEm: null });
+      expect(a.dados.paciente, escopo).toMatchObject({ avisoIa: { versao: '0.1-provisorio', em: now.toISOString(), canal: 'em_maos' }, recusouIaEm: now.toISOString() });
+      expect(a.dados.paciente, escopo).not.toHaveProperty('avisoIaEnviadoEm');
+      const b = await withTenant(T.ctx, (tx) => montarDados(tx, nunca.id, now, 'America/Sao_Paulo', escopo), app.db);
+      for (const campo of ['avisoIa', 'avisoIaEnviadoEm', 'recusouIaEm']) expect(b.dados.paciente, `${escopo} ${campo}`).not.toHaveProperty(campo);
     }
+  });
+
+  it('US-113: a seção ia traz o destino gravado no portão (antiga com saída e sem destino = Anthropic, EUA; sem saída, nenhum)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const eu = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'aplicada', linhasAplicadas: 1, encerradoEm: now, criadoEm: now, saiuEm: now, destino: 'bedrock-eu' });
+    const antiga = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'aplicada', linhasAplicadas: 1, encerradoEm: now, criadoEm: now, saiuEm: now });
+    const naoSaiu = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'falhou', erro: 'sem_autorizacao', criadoEm: now });
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.ia.find((t) => t.id === eu)).toMatchObject({ destino: 'bedrock-eu', provedor: 'Amazon Web Services (Claude), União Europeia', enviadoEm: now.toISOString() });
+    expect(dados.ia.find((t) => t.id === antiga)).toMatchObject({ destino: null, provedor: 'Anthropic (Claude), Estados Unidos' });
+    expect(dados.ia.find((t) => t.id === naoSaiu)).toMatchObject({ destino: null, provedor: null, enviadoEm: null });
+  });
+
+  it('US-113: autorizacoesIa (evento, versão, usos, destino com código e rótulo, canal, datas, IP e user-agent; nunca o HMAC) e o termo em papel no ZIP (autorizacao-ia/)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(300, 0x20)]);
+    const termo = await salvarArquivo(T.ctx, { tipo: 'ia_autorizacao_termo', conteudo: PDF, permitidos: ['pdf'], patientId: p.id }, { db: app.db, dataDir });
+    const USOS = sql`array['leitura_laudos']::text[]`; // os usos da versão 0.1 (F2)
+    await withTenant(T.ctx, async (tx) => {
+      await tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, canal, registrado_por, email_hmac) values (${T.tenantId}, ${p.id}, 'pedido_email', '0.1-provisorio', 'link', ${T.nutriId}, 'hmac-secreto')`);
+      await tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, usos, destino, canal, registrado_por, arquivo_path, em) values (${T.tenantId}, ${p.id}, 'autorizou', '0.1-provisorio', ${USOS}, 'bedrock-eu', 'papel', ${T.nutriId}, ${termo.caminho}, '2026-10-01T03:00:00Z')`);
+    }, app.db);
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, canal, registrado_por, ip, user_agent) values (${T.tenantId}, ${p.id}, 'retirou', 'app', app_current_user(), '203.0.113.7', 'Mozilla/5.0')`), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.paciente.autorizacoesIa, escopo).toEqual([
+        { evento: 'pedido_email', versao: '0.1-provisorio', usos: null, destino: null, canal: 'link', em: expect.any(String), registradoEm: expect.any(String), ip: null, userAgent: null, termo: null },
+        { evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos'], destino: { codigo: 'bedrock-eu', rotulo: 'Amazon Web Services (Claude), União Europeia' }, canal: 'papel', em: '2026-10-01T03:00:00.000Z', registradoEm: expect.any(String), ip: null, userAgent: null, termo: null },
+        { evento: 'retirou', versao: null, usos: null, destino: null, canal: 'app', em: expect.any(String), registradoEm: expect.any(String), ip: '203.0.113.7', userAgent: 'Mozilla/5.0', termo: null },
+      ]);
+      expect(JSON.stringify(dados), escopo).not.toContain('hmac-secreto');
+    }
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false });
+    const zip = await zipDoPedido(T, id);
+    const nome = Object.keys(zip).find((n) => n.startsWith('autorizacao-ia/'));
+    expect(nome).toBe('autorizacao-ia/2026-10-01-01.pdf');
+    expect(Buffer.from(zip[nome!]).equals(PDF)).toBe(true);
+    const dados = JSON.parse(strFromU8(zip['dados.json']));
+    expect(dados.paciente.autorizacoesIa[1].termo).toBe('autorizacao-ia/2026-10-01-01.pdf');
   });
 
   it('apagar a conta de quem pediu a exportação não esbarra na auditoria (solicitado_por sem FK, como o ator do audit_log)', async () => {
@@ -993,9 +1038,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           telefone: null,
           status: 'ativo',
           cadastradoEm: now.toISOString(),
-          avisoIa: null,
-          avisoIaEnviadoEm: null,
-          recusouIaEm: null,
+          autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
         },
         anamneses: [],

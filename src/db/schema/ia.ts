@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type { ResultadoLeitura } from '@/modules/ia/tipos';
 import { patients } from './pacientes';
-import { tenants } from './platform';
+import { storedFiles, tenants } from './platform';
 
 /**
  * Plano 11 (spec v0.3 §11): um pedido à IA. Dado de saúde em `resultado` (só até a decisão da nutricionista ou 7 dias);
@@ -39,6 +39,8 @@ export const iaTarefas = pgTable(
     enviadoEm: timestamp('enviado_em', { withTimezone: true }),
     /** D4 / RN-101: a PRIMEIRA saída do laudo ao provedor (registro conservador; nunca volta a nulo). Vai à exportação do titular. */
     saiuEm: timestamp('saiu_em', { withTimezone: true }),
+    /** Plano 14A (RN-109): o código do destino gravado no portão do envio, junto da primeira saída; nunca muda (0108). */
+    destino: text('destino'),
     concluidoEm: timestamp('concluido_em', { withTimezone: true }),
     expiraEm: timestamp('expira_em', { withTimezone: true }),
     /** §5.11 / ECF.17.01: quem aplicou, descartou ou cancelou, e quando. */
@@ -60,6 +62,7 @@ export const iaTarefas = pgTable(
     check('ia_tarefas_erro_tamanho', sql`${t.erro} is null or char_length(${t.erro}) <= 60`),
     check('ia_tarefas_linhas_so_aplicada', sql`(${t.status} = 'aplicada') = (${t.linhasAplicadas} is not null)`),
     check('ia_tarefas_reserva_valida', sql`${t.reservaMicroUsd} >= 0`),
+    check('ia_tarefas_destino_valido', sql`${t.destino} is null or (${t.destino} in ('anthropic-us', 'bedrock-eu', 'teste') and ${t.saiuEm} is not null)`),
     uniqueIndex('ia_tarefas_em_andamento_idx').on(t.tenantId, t.patientId, t.tipo, t.examId).where(sql`${t.status} in ('na_fila', 'processando')`),
     index('ia_tarefas_pedidos_idx').on(t.tenantId, t.pedidoPor, t.criadoEm),
     index('ia_tarefas_status_idx').on(t.tenantId, t.status),
@@ -123,3 +126,71 @@ export const iaGastoPlataforma = pgTable(
   },
   (t) => [check('ia_gasto_plataforma_valido', sql`${t.custoMicroUsd} >= 0 and ${t.mes} ~ '^[0-9]{4}-[0-9]{2}$'`)],
 );
+
+/**
+ * Plano 14A (spec da IA v0.5.1 §11, RN-107): a autorização (consentimento, LGPD art. 33, VIII) do paciente para o uso de
+ * IA — um EVENTO por linha (`autorizou`, `retirou`, `pedido_email`), só inclusão: UPDATE/DELETE/TRUNCATE revogados de
+ * nutri_app_role (0108); os dados de identificação e o ponteiro do termo só saem pelas funções SECURITY DEFINER da 0108,
+ * no contexto worker. `registrado_em` e, fora do papel, `em` vêm do gatilho ia_autorizacoes_regras (clock_timestamp). Sem
+ * o gatilho de auditoria (AUDIT_EXCEPTIONS): a própria linha é a prova, como `consents`. "Papel exige arquivo" e "quem
+ * registrou" ficam no gatilho de INSERT, não em CHECK: um CHECK valeria também no UPDATE da anonimização.
+ */
+export const iaAutorizacoes = pgTable(
+  'ia_autorizacoes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    patientId: uuid('patient_id').notNull(),
+    evento: text('evento').notNull(),
+    /** Versão do texto (AUTORIZACAO_IA_VERSAO); nula só em `retirou`. */
+    versao: text('versao'),
+    /** Só em `autorizou`: lista fechada (USOS_IA). */
+    usos: text('usos').array(),
+    /** Só em `autorizou`: código estável do destino (RN-109). */
+    destino: text('destino'),
+    canal: text('canal').notNull(),
+    /** O ato (no papel, a data da assinatura informada; nos outros canais, o gatilho grava = registrado_em). */
+    em: timestamp('em', { withTimezone: true }).notNull().defaultNow(),
+    registradoEm: timestamp('registrado_em', { withTimezone: true }).notNull().defaultNow(),
+    /** Quem registrou: a conta do paciente (app), a nutricionista (papel, nutricionista, pedido_email); nulo no link. Sem FK (como audit_log.actor_user_id). */
+    registradoPor: uuid('registrado_por'),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    /** HMAC do e-mail para onde o link foi (nunca o e-mail em claro). */
+    emailHmac: text('email_hmac'),
+    /** Só no papel: a foto ou o PDF do termo assinado (FK NO ACTION, regra 9). */
+    arquivoPath: text('arquivo_path').references(() => storedFiles.caminho),
+  },
+  (t) => [
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'ia_autorizacoes_paciente_fk' }),
+    check('ia_autorizacoes_evento_valido', sql`${t.evento} in ('autorizou', 'retirou', 'pedido_email')`),
+    check('ia_autorizacoes_canal_valido', sql`${t.canal} in ('app', 'link', 'papel', 'nutricionista')`),
+    check('ia_autorizacoes_versao', sql`(${t.evento} = 'retirou') = (${t.versao} is null) and (${t.versao} is null or char_length(${t.versao}) between 1 and 40)`),
+    check(
+      'ia_autorizacoes_usos',
+      sql`(${t.evento} = 'autorizou') = (${t.usos} is not null) and (${t.usos} is null or (cardinality(${t.usos}) > 0 and ${t.usos} <@ array['leitura_laudos', 'resumo_historico', 'rascunho_plano']::text[]))`,
+    ),
+    check('ia_autorizacoes_destino', sql`(${t.evento} = 'autorizou') = (${t.destino} is not null) and (${t.destino} is null or ${t.destino} in ('anthropic-us', 'bedrock-eu', 'teste'))`),
+    check(
+      'ia_autorizacoes_canal_do_evento',
+      sql`(${t.evento} <> 'pedido_email' or ${t.canal} = 'link') and (${t.evento} <> 'retirou' or ${t.canal} <> 'papel') and (${t.evento} <> 'autorizou' or ${t.canal} <> 'nutricionista')`,
+    ),
+    check('ia_autorizacoes_em', sql`${t.em} <= ${t.registradoEm}`),
+    check('ia_autorizacoes_link_sem_conta', sql`not (${t.canal} = 'link' and ${t.evento} <> 'pedido_email') or ${t.registradoPor} is null`),
+    check(
+      'ia_autorizacoes_ip_so_digital',
+      sql`(${t.ip} is null and ${t.userAgent} is null) or (${t.canal} in ('app', 'link') and ${t.evento} <> 'pedido_email')`,
+    ),
+    check('ia_autorizacoes_tamanhos', sql`(${t.ip} is null or char_length(${t.ip}) <= 45) and (${t.userAgent} is null or char_length(${t.userAgent}) <= 300) and (${t.emailHmac} is null or char_length(${t.emailHmac}) <= 64)`),
+    check('ia_autorizacoes_hmac_so_link', sql`${t.emailHmac} is null or ${t.canal} = 'link'`),
+    check(
+      'ia_autorizacoes_arquivo_so_papel',
+      sql`${t.arquivoPath} is null or (${t.canal} = 'papel' and ${t.evento} = 'autorizou' and ${t.arquivoPath} like ${t.tenantId}::text || '/ia_autorizacao_termo/%')`,
+    ),
+    index('ia_autorizacoes_paciente_idx').on(t.tenantId, t.patientId, t.registradoEm),
+  ],
+);
+
+export type IaAutorizacaoRow = typeof iaAutorizacoes.$inferSelect;

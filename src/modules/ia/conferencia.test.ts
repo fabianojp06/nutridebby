@@ -6,7 +6,7 @@ import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, pacienteInformado, tarefaNoBanco } from '../../../test/ia';
+import { autorizacaoNoBanco, exameComLaudo, pacienteAutorizado, tarefaNoBanco } from '../../../test/ia';
 import { auditLog, exams, iaTarefas, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -37,7 +37,7 @@ const RESULTADO: ResultadoLeitura = {
 
 async function pronta(o: { valores?: unknown[]; outrosExames?: unknown[][] } = {}) {
   const T = await novoTenant(app.db);
-  const p = await pacienteInformado(app.db, T.ctx);
+  const p = await pacienteAutorizado(app.db, T.ctx);
   for (const v of o.outrosExames ?? []) await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir, valores: v, data: '2026-06-01' });
   const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir, valores: o.valores ?? [] });
   const tarefaId = await tarefaNoBanco(app.db, T.ctx, p.id, examId, { status: 'pronta', resultado: RESULTADO, expiraEm: new Date(agora.getTime() + 86_400_000) });
@@ -74,9 +74,9 @@ describe('US-111 — abrir a sugestão', () => {
   it('vencida, de outro paciente ou já aplicada → null', async () => {
     const P = await pronta();
     expect(await abrirSugestao(P.T.ctx, P.p.id, P.tarefaId, { db: app.db, agora: new Date(agora.getTime() + 2 * 86_400_000) })).toBeNull();
-    const outro = await pacienteInformado(app.db, P.T.ctx);
+    const outro = await pacienteAutorizado(app.db, P.T.ctx);
     expect(await abrirSugestao(P.T.ctx, outro.id, P.tarefaId, { db: app.db, agora })).toBeNull();
-    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora });
+    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' });
     expect(await abrirSugestao(P.T.ctx, P.p.id, P.tarefaId, { db: app.db, agora })).toBeNull();
   });
 });
@@ -84,7 +84,7 @@ describe('US-111 — abrir a sugestão', () => {
 describe('US-111 / RN-114 — salvar os valores selecionados', () => {
   it('acrescenta DEPOIS dos existentes, com iaTarefaId; a tarefa fica "aplicada" com quem, quando e quantas linhas; a sugestão é esvaziada', async () => {
     const P = await pronta({ valores: [{ nome: 'Colesterol total', valor: '190', unidade: 'mg/dL', referencia: '' }] });
-    const r = await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92', { nome: 'Glicemia de jejum' }), linha(4, '1234,5', { unidade: 'ng/mL' })], usarData: false }, { db: app.db, agora });
+    const r = await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92', { nome: 'Glicemia de jejum' }), linha(4, '1234,5', { unidade: 'ng/mL' })], usarData: false }, { db: app.db, agora, destino: 'teste' });
     expect(r).toEqual({ linhas: 2 });
     const e = await exame(P);
     expect(e.valores).toEqual([
@@ -95,50 +95,68 @@ describe('US-111 / RN-114 — salvar os valores selecionados', () => {
     expect(e.data).toBe('2026-09-01');
     expect(await tarefa(P)).toMatchObject({ status: 'aplicada', resultado: null, encerradoPor: P.T.nutriId, encerradoEm: agora, linhasAplicadas: 2, exameDataAnterior: null });
     // a mesma sugestão de novo (outra aba): indisponível, nada muda
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
     expect((await exame(P)).valores).toHaveLength(3);
   });
 
   it('D10: ambíguo sem editar, editado para outro ambíguo ou não numérico → recusa por linha; nada é gravado', async () => {
     const P = await pronta();
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '250.000'), linha(0, '92')], usarData: false }, { db: app.db, agora }))).toEqual({ 'valor-1': MSG_IA.ambiguo });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '7.500')], usarData: false }, { db: app.db, agora }))).toEqual({ 'valor-1': MSG_IA.ambiguo });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(2, 'Não reagente')], usarData: false }, { db: app.db, agora }))).toEqual({ 'valor-2': MSG_IA.naoNumerico });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '250.000'), linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ 'valor-1': MSG_IA.ambiguo });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '7.500')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ 'valor-1': MSG_IA.ambiguo });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(2, 'Não reagente')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ 'valor-2': MSG_IA.naoNumerico });
     expect((await exame(P)).valores).toEqual([]);
-    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '250000'), linha(3, '0,0000001')], usarData: false }, { db: app.db, agora });
+    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(1, '250000'), linha(3, '0,0000001')], usarData: false }, { db: app.db, agora, destino: 'teste' });
     expect((await exame(P)).valores).toMatchObject([{ nome: 'Plaquetas', valor: 250000 }, { nome: 'Colesterol total', valor: 1e-7 }]);
   });
 
   it('índice inexistente ou repetido → indisponível; nenhuma linha → "Marque ao menos uma linha"; nome vazio → erro da linha', async () => {
     const P = await pronta();
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92'), { ...linha(0, '92') }], usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [{ indice: 99, nome: 'X', valor: '1', unidade: null, referencia: null }], usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [], usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.nadaMarcado });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: Array.from({ length: 151 }, () => linha(0, '92')), usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92', { nome: '' })], usarData: false }, { db: app.db, agora }))).toMatchObject({ 'linha-0': expect.any(String) });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92'), { ...linha(0, '92') }], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [{ indice: 99, nome: 'X', valor: '1', unidade: null, referencia: null }], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.nadaMarcado });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: Array.from({ length: 151 }, () => linha(0, '92')), usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92', { nome: '' })], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toMatchObject({ 'linha-0': expect.any(String) });
   });
 
   it('limite de 50 valores: "Desmarque {n} linhas."', async () => {
     const P = await pronta({ valores: Array.from({ length: 49 }, (_, i) => ({ nome: `M${i}`, valor: '1', unidade: '', referencia: '' })) });
-    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92'), linha(3, '190')], usarData: false }, { db: app.db, agora }))).toEqual({ geral: MSG_IA.limiteLinhas(1) });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92'), linha(3, '190')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.limiteLinhas(1) });
   });
 
   it('"Usar esta data ao salvar": troca a data na mesma gravação e guarda a anterior na tarefa; data futura → recusa', async () => {
     const P = await pronta();
-    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: true }, { db: app.db, agora });
+    await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: true }, { db: app.db, agora, destino: 'teste' });
     expect((await exame(P)).data).toBe('2026-08-28');
     expect((await tarefa(P)).exameDataAnterior).toBe('2026-09-01');
     const F = await pronta();
     await withTenant(F.T.ctx, (tx) => tx.update(iaTarefas).set({ resultado: { ...RESULTADO, dataColeta: '2026-12-01' } }).where(eq(iaTarefas.id, F.tarefaId)), app.db);
-    expect(await erros(aplicarSugestao(F.T.ctx, fuso, F.p.id, F.tarefaId, { linhas: [linha(0, '92')], usarData: true }, { db: app.db, agora }))).toEqual({ data: MSG_IA.dataInvalida });
+    expect(await erros(aplicarSugestao(F.T.ctx, fuso, F.p.id, F.tarefaId, { linhas: [linha(0, '92')], usarData: true }, { db: app.db, agora, destino: 'teste' }))).toEqual({ data: MSG_IA.dataInvalida });
+  });
+
+  it('RN-108: a retirada antes de salvar → "Esta sugestão não está mais disponível." e o exame não muda', async () => {
+    const P = await pronta();
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect((await exame(P)).valores).toEqual([]);
+  });
+
+  it('RN-108 / D14: sugestão pedida antes da retirada, com o paciente já autorizado de novo → indisponível e o exame não muda; a pedida depois aplica', async () => {
+    const P = await pronta();
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id);
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect((await exame(P)).valores).toEqual([]);
+    expect(await tarefa(P)).toMatchObject({ status: 'pronta' }); // o job ia-retirada (ou a varredura) a cancela
+    const depois = await tarefaNoBanco(app.db, P.T.ctx, P.p.id, P.examId, { status: 'pronta', resultado: RESULTADO, expiraEm: new Date(agora.getTime() + 86_400_000) });
+    expect(await aplicarSugestao(P.T.ctx, fuso, P.p.id, depois, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' })).toEqual({ linhas: 1 });
   });
 
   it('paciente bloqueado entre abrir e salvar → PacienteBloqueadoError; vencida → indisponível', async () => {
     const P = await pronta();
     await withTenant(P.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora }).where(eq(patients.id, P.p.id)), app.db);
-    await expect(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora })).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    await expect(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' })).rejects.toBeInstanceOf(PacienteBloqueadoError);
     const V = await pronta();
-    expect(await erros(aplicarSugestao(V.T.ctx, fuso, V.p.id, V.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora: new Date(agora.getTime() + 2 * 86_400_000) }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect(await erros(aplicarSugestao(V.T.ctx, fuso, V.p.id, V.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora: new Date(agora.getTime() + 2 * 86_400_000), destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
   });
 });
 

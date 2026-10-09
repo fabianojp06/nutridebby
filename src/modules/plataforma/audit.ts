@@ -67,6 +67,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   ia: 'Inteligência artificial',
   exames_enviados: 'Exames enviados pelo paciente',
   peso_no_app: 'Peso oculto no app',
+  ia_autorizacao: 'Autorização de IA',
 };
 
 export type AccessHistoryItem = {

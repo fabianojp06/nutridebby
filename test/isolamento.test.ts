@@ -123,6 +123,12 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         values (${t}, ${p}, 'leitura_exame', 'falhou', null, coalesce(app_current_user(), gen_random_uuid()), 'claude-opus-5-5', 'iso', 0, 'interrompida')`,
   ia_uso: (t) =>
     sql`insert into ia_uso (tenant_id, tarefa_id, tipo, modelo, prompt_versao, custo_micro_usd, situacao, mes) values (${t}, gen_random_uuid(), 'leitura_exame', 'claude-opus-5-5', 'iso', 1, 'confirmado', '2026-10')`,
+  // Plano 14A (desvio 1 do plano): as fábricas rodam como nutri, e o gatilho ia_autorizacoes_regras só deixa a equipe gravar
+  // papel, nutricionista e pedido_email, em nome da própria usuária — a retirada pela nutricionista não precisa de linha-mãe
+  // (o paciente já existe), então a recusa dos testes negativos vem da política da própria tabela (fora de COM_MAE).
+  // `coalesce`: nos contextos sem usuário (publico, conta) o gatilho deixa passar e a RLS recusa.
+  ia_autorizacoes: (t, p) =>
+    sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, canal, registrado_por) values (${t}, ${p}, 'retirou', 'nutricionista', coalesce(app_current_user(), gen_random_uuid()))`,
   // Plano 12: nasce "processando" (gatilho exam_submissions_nasce, revisão do plano); o beforeAll leva as linhas a "recebido" pelo
   // worker (a transição legal) para a sessão de paciente conseguir cancelar a própria linha (UPDATE_DO_PACIENTE); o gatilho
   // exam_submissions_regras recusa mudar tenant/paciente (IMUTAVEIS) e o exam_submissions_sem_apagar recusa o DELETE (SEM_DELETE)
@@ -139,7 +145,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, ${p}, s.id, a.caminho, 'original', 1 from a, s`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts']);
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
@@ -169,7 +175,8 @@ const SO_APAGA: Record<string, SQL> = {
   patients: sql`not exists (select 1 from signed_documents s where s.tenant_id = patients.tenant_id and s.patient_id = patients.id)
                 and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
                 and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)
-                and not exists (select 1 from exam_submissions e where e.tenant_id = patients.tenant_id and e.patient_id = patients.id)`,
+                and not exists (select 1 from exam_submissions e where e.tenant_id = patients.tenant_id and e.patient_id = patients.id)
+                and not exists (select 1 from ia_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;

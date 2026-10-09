@@ -164,6 +164,13 @@ describe('preparo do laudo (A-D7, RN-110): o que sai do sistema', () => {
     expect(await motivo(prepararLaudo(await pdfDeTeste({ paginas: 16 })))).toBe('laudo_longo');
   });
 
+  it('D4 (Plano 14A): o limite do pedido vem do provedor — acima dele, arquivo_invalido', async () => {
+    const pdf = await pdfDeTeste({ paginas: 1 });
+    await expect(prepararLaudo(pdf, { limitePedidoBytes: 1024 })).rejects.toMatchObject({ motivo: 'arquivo_invalido' });
+    await expect(prepararLaudo(await fotoDeTeste({ largura: 400, altura: 300 }), { limitePedidoBytes: 1024 })).rejects.toMatchObject({ motivo: 'arquivo_invalido' });
+    expect((await prepararLaudo(pdf)).tipo).toBe('pdf');
+  });
+
   it('PDF com senha (dicionário /Encrypt) → pdf_com_senha', async () => {
     const doc = await PDFDocument.create();
     doc.addPage();

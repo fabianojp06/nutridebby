@@ -16,7 +16,7 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
-import { desfazerAvisoPendente, registrarCienciaPorEmail } from '@/modules/ia/ciencia-paciente';
+import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autorizacao-retirada-job';
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
 import { configIA } from '@/modules/ia/modo';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
@@ -81,17 +81,6 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
       transport,
       from: env.EMAIL_FROM,
       tenantAtivo: (tenantId) => tenantIsActive(getDb(), tenantId),
-      // D5 (Plano 11): a ciência do aviso de IA só é gravada depois do envio aceito
-      aposEnviar: async (msg, tenantId) => {
-        if (msg.tipo === 'aviso_ia' && tenantId) await registrarCienciaPorEmail(getDb(), tenantId, msg.patientId, msg.versao, msg.para, new Date());
-      },
-      // code review do PR #23: conta suspensa ou tentativas esgotadas → o "aguardando" do aviso de IA é desfeito
-      ultimaTentativa: job.retryCount >= job.retryLimit,
-      aoDesistir: async (msg, tenantId) => {
-        if (msg.tipo !== 'aviso_ia' || !tenantId) return;
-        const desfeito = await desfazerAvisoPendente(getDb(), tenantId, msg.patientId, msg.enviadoEm);
-        logger.warn({ jobId: job.id, tenantId, desfeito }, 'aviso de IA não enviado: o paciente volta a "não informado"');
-      },
     });
   });
 
@@ -240,10 +229,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   // do handler (preparo + uma chamada de 120 s); se expirar mesmo assim, a execução antiga não passa do portão do envio.
   const ia = configIA(env);
   const { provedor: provedorIA } = provedorIADoAmbiente(env);
-  logger.info({ ia: ia.modo, modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
+  logger.info({ ia: ia.modo, provedor: provedorIA?.nome ?? 'nenhum', modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
   await work('ia', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobIA>[]) => {
     await processarTarefaIA(job.data, {
       db: getDb(), dataDir: env.DATA_DIR, modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd,
+      destino: ia.destino, retencaoZero: ia.retencaoZero,
       appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
       // pg-boss 12: o sinal é abortado quando o job expira (resolveWithinSeconds) ou no encerramento do worker
       abortado: () => job.signal.aborted,
@@ -251,7 +241,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   });
   await boss.schedule('expirar-ia', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-ia', async () => {
-    await expirarTarefasIA(getDb(), new Date());
+    await expirarTarefasIA(getDb(), new Date(), ia.destino);
+  });
+  // Plano 14A (RN-108): a retirada pelo paciente — o job nasce na transação da retirada (app ou link)
+  await work<DadosRetiradaIa>('ia-retirada', async ([job]) => {
+    await processarRetiradaIa(job.data, { db: getDb(), destino: ia.destino });
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).

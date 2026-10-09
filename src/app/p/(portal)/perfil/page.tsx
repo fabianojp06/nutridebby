@@ -4,12 +4,16 @@ import { MSG_G } from '@/components/portal/textos';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
 import { AVISO_PORTAL } from '@/modules/ajuda/portal';
+import { blocoIaDoApp, type SituacaoAutorizacao } from '@/modules/ia/autorizacao';
+import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { configIA } from '@/modules/ia/modo';
+import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
 import { molduraDaSecao } from '../../moldura';
 import { AtivarNotificacoes } from '../../notificacoes';
 import { SairPortal } from '../../sair-portal';
 import { InstalarNoEu } from './instalar-no-eu';
-import { Privacidade } from './privacidade';
+import { Privacidade, type BlocoIaNaTela } from './privacidade';
 import { WhatsappForm } from './whatsapp-form';
 
 export const dynamic = 'force-dynamic';
@@ -19,15 +23,39 @@ const H2 = 'font-portal-titulo text-lg font-bold';
 const LINK = 'inline-flex min-h-11 items-center font-semibold text-link underline';
 
 /**
+ * US-106 / US-109: a frase da situação e os botões do bloco de IA (datas no fuso do consultório). "Ler e decidir" só com
+ * algo a decidir (D10) e sem autorização em vigor; "Retirar autorização" sempre que houver uma autorização dada que não foi
+ * retirada (US-106 "Retirar sempre possível", também com a IA desligada). O retorno vem só dos dois valores conhecidos do
+ * `?ia=` (nunca o texto da URL).
+ */
+function blocoNaTela(b: { situacao: SituacaoAutorizacao; podeDecidir: boolean }, fuso: string, ia: string | undefined): BlocoIaNaTela {
+  const s = b.situacao;
+  const data = (d: Date) => formatarDataNoFuso(d, fuso);
+  const situacao =
+    s.tipo === 'vigente' ? MSG_AUTORIZACAO.voceAutorizou(data(s.em), s.versao)
+    : s.tipo === 'retirada' ? MSG_AUTORIZACAO.voceRetirou(data(s.em))
+    : s.tipo === 'nunca' ? MSG_AUTORIZACAO.voceNaoAutorizou
+    : MSG_AUTORIZACAO.textoMudou; // versão antiga ou outro destino (RN-109)
+  return {
+    situacao,
+    lerEDecidir: b.podeDecidir && s.tipo !== 'vigente',
+    retirar: s.tipo === 'vigente' || s.tipo === 'versao_antiga' || s.tipo === 'outro_destino',
+    retorno: ia === 'autorizou' ? MSG_AUTORIZACAO.registradaApp : ia === 'agora-nao' ? MSG_AUTORIZACAO.tudoBem : '',
+  };
+}
+
+/**
  * Plano 16 (US-197, G-01g, molde D-Assuntos): Eu — a conta, o consultório ("Trocar de nutricionista" com 2+ vínculos,
  * RN-210), Meus documentos (US-146: só com os documentos liberados, D20 do 10A), Notificações (push e WhatsApp), Instalar
- * o app, Privacidade (US-046 + RN-214), Como usar o app (/p/ajuda, RN-212) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
+ * o app, Privacidade (US-046 + RN-214 + o bloco de IA do Plano 14A, US-106/US-109), Como usar o app (/p/ajuda, RN-212) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
  * é seção (G-D9).
  */
-export default async function Eu() {
+export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
   const acesso = await requirePaciente('/p/perfil');
   const { ctx, data, tenant, vinculo, vinculos } = acesso;
-  const [moldura, whatsapp] = await Promise.all([molduraDaSecao(acesso), situacaoDoWhatsapp(ctx)]);
+  const busca = await searchParams;
+  const [moldura, whatsapp, bloco] = await Promise.all([molduraDaSecao(acesso), situacaoDoWhatsapp(ctx), blocoIaDoApp(ctx, tenant, configIA(getEnv()))]);
+  const ia = bloco ? blocoNaTela(bloco, tenant.fuso, typeof busca.ia === 'string' ? busca.ia : undefined) : null;
   return (
     <>
       <Faixa {...moldura} atual="/p/perfil" titulo={MSG_G.titulos.eu} />
@@ -66,7 +94,7 @@ export default async function Eu() {
         <InstalarNoEu />
         <section aria-labelledby="privacidade" className={CARTAO}>
           <h2 id="privacidade" className={H2}>Privacidade</h2>
-          <Privacidade />
+          <Privacidade ia={ia} />
         </section>
         {/* Plano 16 (US-199, RN-212): o manual do portal, que também reabre o tour */}
         <p>

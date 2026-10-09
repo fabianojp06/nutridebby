@@ -10,11 +10,11 @@ import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { tarefaNoBanco } from '../../../test/ia';
-import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { reservar } from '@/modules/ia/cota';
@@ -655,5 +655,51 @@ describe('Plano 06: diário, pedidos do titular e conta na LGPD', () => {
     const [u] = await app.db.select().from(user).where(eq(user.id, nutriId));
     expect(u).toMatchObject({ name: 'Debby Silva', email: emailNutri });
     expect(await app.db.select().from(account).where(eq(account.userId, nutriId))).toHaveLength(1);
+  });
+});
+
+/** Plano 14A: um termo em papel do paciente (arquivo no disco + a autorização que aponta para ele). */
+const termoEmPapel = async (T: TenantDeTeste, patientId: string) => {
+  const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(300, 0x20)]);
+  const a = await salvarArquivo(T.ctx, { tipo: 'ia_autorizacao_termo', conteudo: PDF, permitidos: ['pdf'], patientId }, { db: app.db, dataDir });
+  await withTenant(T.ctx, (tx) => tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, usos, destino, canal, registrado_por, arquivo_path, em)
+    values (${T.tenantId}, ${patientId}, 'autorizou', '0.1-provisorio', array['leitura_laudos']::text[], 'teste', 'papel', ${T.nutriId}, ${a.caminho}, now())`), app.db);
+  return a.caminho;
+};
+const autorizacoesDe = (T: TenantDeTeste, patientId: string) =>
+  withTenant(T.ctx, (tx) => tx.select().from(iaAutorizacoes).where(eq(iaAutorizacoes.patientId, patientId)), app.db);
+
+describe('Plano 14A — a autorização de IA na LGPD (US-113, RNF-111 g)', () => {
+  it('o pedido de exclusão (bloqueio) e a rede de segurança das fotos NÃO apagam o termo nem as linhas (são a prova até a anonimização)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const caminho = await termoEmPapel(T, p.id);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, deps);
+    const [job] = await jobsDaExclusao(p.id);
+    await concluirExclusaoAtendida(job, { db: app.db, dataDir, ultimaTentativa: false });
+    await anonimizarSo(T); // o prazo de guarda não venceu: só a rede de segurança dos bloqueados
+    expect(existsSync(path.join(dataDir, caminho))).toBe(true);
+    expect(await autorizacoesDe(T, p.id)).toEqual([expect.objectContaining({ arquivoPath: caminho })]);
+  });
+
+  it('a anonimização apaga o termo num passo próprio e tira IP, user-agent, HMAC e a conta do canal app; nenhuma linha é apagada', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const caminho = await termoEmPapel(T, p.id);
+    const conta = randomUUID();
+    await withTenant(ctxPaciente(T.tenantId, p.id, conta), (tx) => tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, canal, registrado_por, ip, user_agent)
+      values (${T.tenantId}, ${p.id}, 'retirou', 'app', ${conta}, '203.0.113.7', 'Mozilla/5.0')`), app.db);
+    await withTenant({ tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true }, (tx) => tx.execute(sql`insert into ia_autorizacoes (tenant_id, patient_id, evento, versao, usos, destino, canal, email_hmac, ip)
+      values (${T.tenantId}, ${p.id}, 'autorizou', '0.1-provisorio', array['leitura_laudos']::text[], 'teste', 'link', 'hmac-do-email', '203.0.113.8')`), app.db);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
+    expect((await anonimizarSo(T)).anonimizados).toBeGreaterThanOrEqual(1);
+    expect(existsSync(path.join(dataDir, caminho))).toBe(false);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, caminho)), app.db)).toEqual([]);
+    const linhas = await autorizacoesDe(T, p.id);
+    expect(linhas).toHaveLength(3);
+    for (const l of linhas) expect(l, l.canal).toMatchObject({ ip: null, userAgent: null, emailHmac: null, arquivoPath: null });
+    expect(linhas.find((l) => l.canal === 'app')?.registradoPor).toBeNull();
+    expect(linhas.find((l) => l.canal === 'papel')?.registradoPor).toBe(T.nutriId);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm).not.toBeNull();
   });
 });

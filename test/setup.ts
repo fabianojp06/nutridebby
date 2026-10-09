@@ -20,6 +20,8 @@ process.env.TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
 process.env.TURNSTILE_SECRET_KEY = '1x0000000000000000000000000000000AA';
 // Rede de segurança (Plano 11, T4): nenhum teste herda a chave da Anthropic do ambiente.
 delete process.env.ANTHROPIC_API_KEY;
+// Plano 14A (D2): nenhum teste herda credencial nem configuração da AWS do ambiente
+for (const v of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE', 'AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_BEDROCK_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS']) delete process.env[v];
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-data-'));
 process.env.DATA_DIR = dataDir;
 

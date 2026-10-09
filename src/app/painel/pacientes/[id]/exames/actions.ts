@@ -49,7 +49,7 @@ export async function aplicarSugestaoAction(patientId: string, tarefaId: string,
     return { indice: i, nome: fd.get(`nome-${i}`), valor: fd.get(`valor-${i}`), unidade: fd.get(`unidade-${i}`), referencia: fd.get(`referencia-${i}`) };
   });
   try {
-    await aplicarSugestao(ctx, tenant, patientId, tarefaId, { linhas, usarData: fd.get('usarData') === '1' });
+    await aplicarSugestao(ctx, tenant, patientId, tarefaId, { linhas, usarData: fd.get('usarData') === '1' }, { destino: configIA(getEnv()).destino });
   } catch (e) {
     if (e instanceof ConferenciaError) return { erros: e.erros };
     if (e instanceof PacienteBloqueadoError) return { erros: { geral: MSG_BLOQUEADO } };

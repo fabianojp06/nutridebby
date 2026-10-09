@@ -34,4 +34,12 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
   it('RN-203/RN-214: nem a ajuda nem o tour falam de peso ou IMC (o mesmo texto vai a quem tem o peso oculto)', () => {
     expect(JSON.stringify({ ajuda: GUIA_PORTAL.ajuda, passos: GUIA_PORTAL.passos, aviso: AVISO_PORTAL })).not.toMatch(/peso|IMC/i);
   });
+  it('Plano 14A (US-106, desvio 11): a autorização de IA nas perguntas comuns, sem subir a versão e sem falar de peso', () => {
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    expect(itens).toContain(
+      'Se o seu consultório usar inteligência artificial, o pedido de autorização aparece em Eu, no cartão Privacidade. Autorizar é opcional: recusar ou retirar não muda nada no seu atendimento.',
+    );
+    expect(GUIA_PORTAL.versao).toBe(1);
+    expect(itens.join('\n')).not.toMatch(/peso|IMC/i);
+  });
 });

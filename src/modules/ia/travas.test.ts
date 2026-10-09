@@ -3,13 +3,13 @@ import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { pacienteInformado, tarefaNoBanco } from '../../../test/ia';
+import { pacienteAutorizado, tarefaNoBanco } from '../../../test/ia';
 import { closeDb, type Tx } from '@/db/client';
 import { iaGastoPlataforma, iaTarefas, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { registrarRetiradaPelaNutri } from './autorizacao';
 import { cancelarTarefas } from './cancelar';
-import { definirRecusaIa } from './ciencia-paciente';
 import { FUSO_DA_PLATAFORMA, mesNoFuso, reservar } from './cota';
 import { expirarTarefasDoTenant } from './leitura-job';
 
@@ -67,9 +67,9 @@ async function parada(ctx: TenantContext, antes: (tx: Tx) => Promise<unknown>, d
 }
 
 describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
-  it('worker no passo 1 (tarefa travada, antes do UPDATE auditado) × "Não usar IA": as duas terminam, sem 40P01', async () => {
+  it('worker no passo 1 (tarefa travada, antes do UPDATE auditado) × retirada pela nutricionista: as duas terminam, sem 40P01', async () => {
     const T = await novoTenant(app.db);
-    const p = await pacienteInformado(app.db, T.ctx);
+    const p = await pacienteAutorizado(app.db, T.ctx);
     const id = await tarefaNoBanco(app.db, T.ctx, p.id, null);
     // o passo 1 de processarTarefaIA: SELECT … FOR UPDATE da tarefa e, depois, o UPDATE para "processando" (gatilho de
     // auditoria → INSERT em audit_log → FK para tenants, que pede FOR KEY SHARE na linha do tenant)
@@ -78,20 +78,21 @@ describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
       (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, id)).for('update'),
       (tx) => tx.update(iaTarefas).set({ status: 'processando', iniciadoEm: agora, tentativas: 1, updatedAt: agora }).where(eq(iaTarefas.id, id)),
     );
-    // a nutricionista: paciente → tenant → cancelarTarefas, que espera a tarefa travada pelo worker
-    const recusa = definirRecusaIa(T.ctx, p.id, true, { db: app.db, agora });
+    // a nutricionista (Plano 14A, US-109): paciente → (evento retirou) → tenant → cancelarTarefas, que espera a tarefa
+    // travada pelo worker
+    const retirada = registrarRetiradaPelaNutri(T.ctx, p.id, { db: app.db, agora });
     await esperarBloqueadoPor(worker.pid);
     worker.soltar();
-    const r = await Promise.allSettled([worker.fim, recusa]);
+    const r = await Promise.allSettled([worker.fim, retirada]);
     expect(r.map((x) => (x.status === 'rejected' ? codigo(x.reason) : 'ok'))).toEqual(['ok', 'ok']);
-    // o worker confirmou "processando" antes: o cancelamento não a pega (o portão do envio recusa depois — paciente recusou)
+    // o worker confirmou "processando" antes: o cancelamento não a pega (o portão do envio recusa depois — sem autorização)
     const [t] = await withTenant(T.ctx, (tx) => tx.select({ status: iaTarefas.status }).from(iaTarefas).where(eq(iaTarefas.id, id)), app.db);
     expect(t.status).toBe('processando');
   });
 
   it('code review do PR #23 (item 7): cancelarTarefas trava o próprio tenant — espera o portão do envio (tenant FOR SHARE) antes de mexer nas tarefas', async () => {
     const T = await novoTenant(app.db);
-    const p = await pacienteInformado(app.db, T.ctx);
+    const p = await pacienteAutorizado(app.db, T.ctx);
     const pronta = await tarefaNoBanco(app.db, T.ctx, p.id, null, { status: 'pronta', expiraEm: new Date(agora.getTime() + 86_400_000), resultado: { versao: 1, dataColeta: null, linhas: [], descartadas: 0 } });
     const portao = await parada(
       { tenantId: T.tenantId, role: 'worker' },
@@ -110,7 +111,7 @@ describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
 
   it('varredura × cancelamento: a varredura trava todas as tarefas antes do contador da plataforma (sem ciclo tarefa ↔ plataforma)', async () => {
     const T = await novoTenant(app.db);
-    const p = await pacienteInformado(app.db, T.ctx);
+    const p = await pacienteAutorizado(app.db, T.ctx);
     const velho = new Date(agora.getTime() - 60 * 60_000);
     // uma esquecida na fila (com reserva: o estorno vai ao contador da plataforma) e uma pronta vencida
     const esquecida = await tarefaNoBanco(app.db, T.ctx, p.id, null, { criadoEm: velho });
@@ -123,11 +124,11 @@ describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
       (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, vencida)).for('update'),
       (tx) => tx.update(iaGastoPlataforma).set({ updatedAt: agora }).where(eq(iaGastoPlataforma.mes, mes)),
     );
-    const varredura = withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora), app.db);
+    const varredura = withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, 'teste'), app.db);
     await esperarBloqueadoPor(cancela.pid);
     cancela.soltar();
     const r = await Promise.allSettled([cancela.fim, varredura]);
     expect(r.map((x) => (x.status === 'rejected' ? codigo(x.reason) : 'ok'))).toEqual(['ok', 'ok']);
-    expect(r[1].status === 'fulfilled' && r[1].value).toEqual({ interrompidas: 1, expiradas: 1 });
+    expect(r[1].status === 'fulfilled' && r[1].value).toEqual({ interrompidas: 1, expiradas: 1, canceladas: 0 });
   });
 });

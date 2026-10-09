@@ -183,5 +183,5 @@ test('arquivar tira da lista de ativos e mostra o selo; desarquivar devolve (US-
   await expect(nutri.getByRole('link', { name: ANA.nome })).toBeVisible();
   await nutri.goto(`${prontuario}/privacidade`);
   await nutri.getByRole('button', { name: 'Desarquivar paciente' }).click();
-  await expect(nutri.getByRole('button', { name: 'Arquivar paciente' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Arquivar paciente', exact: true })).toBeVisible();
 });

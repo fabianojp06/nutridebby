@@ -25,6 +25,7 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
           </div>
           <p className="text-sm text-suave">{partes.join(' · ')}</p>
         </header>
+        {/* US-108: o termo da IA esconde este cabeçalho e as abas só na impressão dele (o <style> de privacidade/termo-ia/page.tsx) */}
         <Abas patientId={paciente.id} documentos={tenant.documentosLiberados} />
         {children}
       </div>

@@ -29,13 +29,21 @@ export const patients = pgTable(
     whatsappOptinEm: timestamp('whatsapp_optin_em', { withTimezone: true }),
     whatsappOptinOrigem: text('whatsapp_optin_origem'),
     whatsappOptoutEm: timestamp('whatsapp_optout_em', { withTimezone: true }),
-    /** Plano 11 (A-D9): "Não usar IA com os dados deste paciente". */
+    /** Plano 11 (A-D9): "Não usar IA com os dados deste paciente". Congelada desde o Plano 14A (RN-128, 0109): ninguém grava; a exportação a mostra se preenchida. */
     iaRecusadaEm: timestamp('ia_recusada_em', { withTimezone: true }),
-    /** Plano 11 (A-D19): ciência do aviso de IA — versão, data e canal juntos (o canal `portal` fica reservado, spec §5.3). */
+    /**
+     * Plano 11 (A-D19): ciência do aviso de IA — versão, data e canal juntos (o canal `portal` fica reservado, spec §5.3).
+     * Congelada desde o Plano 14A (RN-128, 0109): ninguém grava; a exportação a mostra se preenchida.
+     */
     iaAvisoVersao: text('ia_aviso_versao'),
+    /** Plano 11: data da ciência do aviso de IA. Congelada desde o Plano 14A (RN-128, 0109): ninguém grava; a exportação a mostra se preenchida. */
     iaAvisoEm: timestamp('ia_aviso_em', { withTimezone: true }),
+    /** Plano 11: canal da ciência do aviso de IA. Congelada desde o Plano 14A (RN-128, 0109): ninguém grava; a exportação a mostra se preenchida. */
     iaAvisoCanal: text('ia_aviso_canal'),
-    /** D5: e-mail do aviso enfileirado, aguardando o envio (a ciência só é gravada no pós-envio do worker, quando o provedor aceita o envio). */
+    /**
+     * Plano 11 (D5): e-mail do aviso enfileirado, aguardando o envio (a ciência era gravada no pós-envio do worker).
+     * Congelada desde o Plano 14A (RN-128, 0109): ninguém grava; a exportação a mostra se preenchida.
+     */
     iaAvisoEnviadoEm: timestamp('ia_aviso_enviado_em', { withTimezone: true }),
     /**
      * Plano 16 (G-D1, RN-203): "Não mostrar peso no app" — só a equipe liga (aba Evolução do prontuário); o portal deixa de

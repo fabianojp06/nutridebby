@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { ModeloIA, RegiaoIA } from './constantes';
 import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
 
 /**
@@ -11,6 +12,8 @@ import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura
  */
 export const TIMEOUT_MS = 120_000;
 const BASE_URL = 'https://api.anthropic.com';
+/** D4 / R-116: a API direta aceita pedido de até 32 MB (base64 do arquivo + instruções). */
+export const LIMITE_PEDIDO_ANTHROPIC_BYTES = 32 * 1024 * 1024;
 /** Códigos do Node em que a requisição nem saiu (RN-105: dá para repetir). */
 const ANTES_DO_ENVIO = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
 
@@ -68,11 +71,20 @@ function usoDe(u: Anthropic.Usage): UsoTokens {
   };
 }
 
+/** D5: a API direta atende `us`/`global`; a região `eu` é só do Bedrock. */
+const aceitaAnthropic = (_modelo: ModeloIA, geo: RegiaoIA): boolean => geo !== 'eu';
+
 export function provedorAnthropic(o: { apiKey: string; fetch?: typeof fetch; baseURL?: string; timeoutMs?: number }): ProvedorIA {
   const cliente = new Anthropic({ apiKey: o.apiKey, authToken: null, maxRetries: 0, timeout: o.timeoutMs ?? TIMEOUT_MS, logLevel: 'off', baseURL: o.baseURL ?? BASE_URL, ...(o.fetch ? { fetch: o.fetch } : {}) });
   return {
     nome: 'anthropic',
+    destino: 'anthropic-us',
+    limitePedidoBytes: LIMITE_PEDIDO_ANTHROPIC_BYTES,
+    aceita: aceitaAnthropic,
     async lerDocumento(p): Promise<RespostaLeitura> {
+      // D5: a região `eu` é do Bedrock; a API direta só tem `us`/`global` — nada sai com outra (defesa a mais: o job já
+      // conferiu `aceita` antes do portão)
+      if (!aceitaAnthropic(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
       // o SDK devolve a mensagem com o `_request_id` (WithRequestID<Message>, não exportado pelo índice do SDK)
       let r: Anthropic.Message & { _request_id?: string | null };
       try {

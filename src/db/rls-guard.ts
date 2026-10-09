@@ -197,6 +197,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   document_access_codes: { comandos: ['insert', 'update'], motivo: 'RN-158 / D3 b: o paciente sem login pede e confere o código do próprio documento (src/modules/documentos/link-documento.ts, contexto de paciente sem conta, N7)' },
   exam_submissions: { comandos: ['insert', 'update'], motivo: 'US-160/US-161 (Plano 12): o paciente cria o envio "processando" e cancela o próprio "recebido" — políticas paciente_envio_insert/paciente_envio_update e o gatilho exam_submissions_regras (0102)' },
   exam_submission_files: { comandos: ['insert'], motivo: 'US-160 (Plano 12): o paciente registra os originais do próprio envio "processando" (paciente_envio_arquivo, 0102); não lê as páginas' },
+  ia_autorizacoes: { comandos: ['insert'], motivo: 'Plano 14A (RN-107, US-106, US-107, US-109): o paciente autoriza ou retira a própria autorização de IA no app (canal app, com a própria conta) ou pelo link do e-mail (canal link, sem conta) — política paciente_autorizacao_propria (0108); UPDATE, DELETE e TRUNCATE revogados' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

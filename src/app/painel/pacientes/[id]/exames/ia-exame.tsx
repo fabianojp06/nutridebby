@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { SituacaoAutorizacao } from '@/modules/ia/autorizacao';
 import { MSG_FALHA, MSG_IA, type MotivoFalha } from '@/modules/ia/constantes';
 import type { SituacaoCotaIa } from '@/modules/ia/cota';
 import type { EstadoIaTenant } from '@/modules/ia/modo';
@@ -12,16 +13,17 @@ export type IaNoExame = { podePedir: true; aviso: null } | { podePedir: false; a
 /**
  * O motivo de não poder pedir a IA agora (consultório ou paciente). US-101: antes de ativar, os botões não aparecem e
  * nenhum aviso sai nos exames (revisão da T13: o "indisponível" é só do IA_DESLIGADA, §5.9). `nao_liberada` mantém o
- * aviso da R7 (decisão pendente do dono).
+ * aviso da R7 (decisão pendente do dono). Plano 14A (D8, D9): o motivo do paciente vem da autorização (US-105: sem
+ * autorização vigente ou retirada) e a falta da retenção zero cai no "indisponível".
  */
-export function iaNoExame(p: { estadoIa: EstadoIaTenant; motivo: MotivoFalha | null; recusou: boolean; cota: SituacaoCotaIa | null }): IaNoExame {
+export function iaNoExame(p: { estadoIa: EstadoIaTenant; motivo: MotivoFalha | null; situacao: SituacaoAutorizacao; cota: SituacaoCotaIa | null }): IaNoExame {
   if (p.estadoIa === 'nao_ativada') return { podePedir: false, aviso: null };
   const aviso =
-    p.estadoIa === 'emergencia' ? MSG_IA.indisponivel
+    p.estadoIa === 'emergencia' || p.estadoIa === 'sem_retencao' ? MSG_IA.indisponivel
     : p.estadoIa === 'nao_liberada' ? MSG_IA.naoLiberada
     : p.estadoIa === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado
-    : p.motivo === 'paciente_nao_informado' ? MSG_IA.semCiencia
-    : p.motivo ? (p.recusou ? MSG_IA.recusou : MSG_FALHA.paciente_indisponivel)
+    : p.motivo === 'sem_autorizacao' ? (p.situacao.tipo === 'retirada' ? MSG_IA.retirouAutorizacao : MSG_IA.semAutorizacao)
+    : p.motivo ? MSG_FALHA[p.motivo]
     : p.cota?.nivel === 'esgotada' ? MSG_IA.cotaAcabou
     : null;
   return aviso === null ? { podePedir: true, aviso: null } : { podePedir: false, aviso };

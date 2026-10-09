@@ -15,7 +15,7 @@ import type { ArquivoPreparado } from './provedor';
  * decodificada — um arquivo pequeno não pode levar o worker compartilhado de 512 MB ao OOM.
  */
 export const LADO_MAX_IMAGEM = 2576; // maior lado da alta resolução dos modelos 4.7+ (spec §5.4)
-export const LIMITE_PEDIDO_BYTES = 32 * 1024 * 1024; // limite da API para o pedido inteiro
+export const LIMITE_PEDIDO_BYTES = 32 * 1024 * 1024; // limite da API direta para o pedido inteiro (padrão; o provedor em uso manda, D4)
 const MARGEM_DO_PEDIDO = 512 * 1024; // instruções, schema e o JSON em volta do base64
 /**
  * RNF-101/A-03 (worker de 512 MB, compartilhado com as outras filas): teto do heap da thread que lê o PDF. Um PDF de
@@ -42,12 +42,17 @@ export class PreparoError extends Error {
   }
 }
 
-const cabeNoPedido = (bytes: number) => Math.ceil(bytes / 3) * 4 + MARGEM_DO_PEDIDO <= LIMITE_PEDIDO_BYTES;
+const cabeNoPedido = (bytes: number, limite: number) => Math.ceil(bytes / 3) * 4 + MARGEM_DO_PEDIDO <= limite;
 
-export async function prepararLaudo(conteudo: Buffer): Promise<ArquivoPreparado> {
+/**
+ * D4 (Plano 14A): o limite do pedido é do provedor em uso (32 MB na API direta, 20 MB no Bedrock — ≈ 14 MB de arquivo
+ * preparado, R-116). Acima dele, `arquivo_invalido` aqui, ANTES do portão: nada sai e nada é marcado como saído.
+ */
+export async function prepararLaudo(conteudo: Buffer, o: { limitePedidoBytes?: number } = {}): Promise<ArquivoPreparado> {
+  const limite = o.limitePedidoBytes ?? LIMITE_PEDIDO_BYTES;
   const tipo = conteudo.length ? detectarTipo(conteudo) : null;
-  if (tipo?.ext === 'pdf') return prepararPdf(conteudo);
-  if (tipo?.ext === 'jpg' || tipo?.ext === 'png') return prepararImagem(conteudo);
+  if (tipo?.ext === 'pdf') return prepararPdf(conteudo, limite);
+  if (tipo?.ext === 'jpg' || tipo?.ext === 'png') return prepararImagem(conteudo, limite);
   throw new PreparoError('arquivo_invalido');
 }
 
@@ -57,13 +62,13 @@ function registrarRecusa(etapa: 'pdf' | 'thread' | 'imagem', erro: unknown): voi
   logger.warn({ etapa, erro: nome.slice(0, 60) }, 'laudo recusado no preparo para a IA');
 }
 
-async function prepararPdf(conteudo: Buffer): Promise<ArquivoPreparado> {
+async function prepararPdf(conteudo: Buffer, limite: number): Promise<ArquivoPreparado> {
   const saida = await lerPdfNaThread(conteudo);
   if ('motivo' in saida) {
     if (saida.erro) registrarRecusa('pdf', saida.erro);
     throw new PreparoError(saida.motivo);
   }
-  if (!cabeNoPedido(saida.bytes.length)) throw new PreparoError('arquivo_invalido');
+  if (!cabeNoPedido(saida.bytes.length, limite)) throw new PreparoError('arquivo_invalido');
   return { tipo: 'pdf', base64: Buffer.from(saida.bytes.buffer, saida.bytes.byteOffset, saida.bytes.byteLength).toString('base64'), paginas: saida.paginas };
 }
 
@@ -117,7 +122,7 @@ function lerPdfNaThread(conteudo: Buffer): Promise<SaidaDoPdf> {
   });
 }
 
-async function prepararImagem(conteudo: Buffer): Promise<ArquivoPreparado> {
+async function prepararImagem(conteudo: Buffer, limite: number): Promise<ArquivoPreparado> {
   let jpeg: Buffer;
   try {
     const m = await sharp(conteudo, { failOn: 'error', limitInputPixels: MAX_PIXELS_IMAGEM }).metadata();
@@ -131,6 +136,6 @@ async function prepararImagem(conteudo: Buffer): Promise<ArquivoPreparado> {
     if (!(e instanceof PreparoError)) registrarRecusa('imagem', e);
     throw new PreparoError('arquivo_invalido');
   }
-  if (!cabeNoPedido(jpeg.length)) throw new PreparoError('arquivo_invalido');
+  if (!cabeNoPedido(jpeg.length, limite)) throw new PreparoError('arquivo_invalido');
   return { tipo: 'imagem', base64: jpeg.toString('base64') };
 }

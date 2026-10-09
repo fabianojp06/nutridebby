@@ -112,6 +112,8 @@ jobs:
       EVOLUTION_WEBHOOK_SECRET: ci-webhook-secret-with-at-least-32-characters
       # Plano 11 (RNF-107): IA de laudos pelo sandbox — respostas fixas, nenhuma chamada à API real
       IA_PROVEDOR: sandbox
+      # Plano 14A (A-D4): retenção zero só no E2E/dev, com o sandbox
+      IA_RETENCAO_ZERO: '1'
       CI: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -157,6 +159,7 @@ jobs:
       - name: O worker carrega o pdf-lib e o SDK da IA na imagem podada (Plano 11)
         # O Dockerfile apaga partes do pdf-lib e do @anthropic-ai/sdk que não rodam; aqui, o preparo do PDF (thread com o
         # DecodeStream do pdf-lib) e o cliente do SDK sobem como no worker. Nenhuma chamada sai (sem rede para o provedor).
+        # Plano 14A: também o SDK do Bedrock e a assinatura SigV4 das dependências da AWS podadas (fetch falso).
         shell: bash
         run: |
           set -euo pipefail
@@ -168,6 +171,15 @@ jobs:
             if (r.tipo !== 'pdf' || r.paginas !== 1) throw new Error('preparo do PDF falhou na imagem');
             const { default: Anthropic } = await import('@anthropic-ai/sdk');
             if (typeof new Anthropic({ apiKey: 'ci' }).messages.create !== 'function') throw new Error('SDK da IA não carregou');
+            const { provedorBedrock } = await import('./src/modules/ia/provedor-bedrock.ts');
+            const b = provedorBedrock({ regiao: 'eu-central-1', accessKeyId: 'AKIA' + 'C'.repeat(16), secretAccessKey: 'c'.repeat(40) });
+            if (b.nome !== 'bedrock-eu' || typeof b.lerDocumento !== 'function') throw new Error('SDK do Bedrock não carregou');
+            // Plano 14A: a assinatura SigV4 (@smithy/*) roda na imagem podada — contra um fetch falso, sem rede
+            const msg = { id: 'm', type: 'message', role: 'assistant', model: 'x', content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } };
+            const falso = async (u, init) => { if (!String(new Headers(init?.headers).get('authorization')).startsWith('AWS4-HMAC-SHA256 ')) throw new Error('sem SigV4'); return new Response(JSON.stringify(msg), { status: 200, headers: { 'content-type': 'application/json' } }); };
+            const lido = await provedorBedrock({ regiao: 'eu-central-1', accessKeyId: 'AKIA' + 'C'.repeat(16), secretAccessKey: 'c'.repeat(40), fetch: falso })
+              .lerDocumento({ modelo: 'claude-sonnet-5-5', geo: 'eu', sistema: 's', instrucao: 'i', arquivo: { tipo: 'imagem', base64: 'AA==' }, schema: { type: 'object' }, maxTokens: 10, esforco: 'low' });
+            if (lido.tipo !== 'ok') throw new Error('provedor do Bedrock falhou na imagem');
             console.log('IA ok na imagem');"
       - name: O worker rasteriza PDF na imagem podada (Plano 12)
         # O Dockerfile poda o @hyzyla/pdfium; aqui o processo filho sobe como no worker (node puro, .ts com tipos apagados).

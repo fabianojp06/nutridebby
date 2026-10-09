@@ -32,7 +32,7 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
   await expect(p.page).toHaveURL(/\/p\/sem-acesso$/);
   await expect(p.page.getByRole('status')).toHaveText('Seu acesso ao portal não está ativo. Fale com sua nutricionista.');
   await nutri.getByRole('button', { name: 'Desarquivar paciente' }).click();
-  await expect(nutri.getByRole('button', { name: 'Arquivar paciente' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Arquivar paciente', exact: true })).toBeVisible();
   await p.page.goto('/p/inicio');
   await expect(p.page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   await p.page.context().close();
@@ -300,7 +300,8 @@ test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal;
   await expect(p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu' })).toHaveAttribute('aria-current', 'page');
   // RNF-10 (achado 2 do /code-review): a região viva já existe, vazia, antes do clique — e é ela que recebe o texto
   const privacidade = p.page.getByRole('region', { name: 'Privacidade' });
-  const regiao = privacidade.getByRole('status').first();
+  // a região do "Baixar meus dados" (logo depois do botão): o bloco de IA do Plano 14A, antes dele, tem a sua própria
+  const regiao = privacidade.locator('form:has(button:text-is("Baixar meus dados")) + [role="status"]');
   await expect(regiao).toBeEmpty();
   await regiao.evaluate((el) => el.setAttribute('data-e2e-montada', ''));
   await p.page.getByRole('button', { name: 'Baixar meus dados' }).click();

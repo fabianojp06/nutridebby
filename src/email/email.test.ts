@@ -72,39 +72,11 @@ describe('fila de e-mail (INT-02)', () => {
     expect(await (await getBoss()).getQueue('email')).toMatchObject({ retryLimit: 3, retryDelay: 60, retryBackoff: true });
   });
 
-  it('Plano 11 (D5): aposEnviar recebe a mensagem decifrada só DEPOIS do envio aceito; falha no envio não chama', async () => {
-    const chamadas: string[] = [];
-    const msg = { tipo: 'aviso_ia' as const, para: 'p@x.dev', nome: 'Ana', consultorio: 'Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001' };
-    const data = { tenantId: null, selado: sealSecret(JSON.stringify(msg), EMAIL_FINALIDADE) };
-    const aposEnviar = async (m: { tipo: string }) => void chamadas.push(`apos:${m.tipo}`);
-    await processEmailJob(data, 'job-1', { transport: { send: async () => void chamadas.push('send') }, from: 'a@b.dev', tenantAtivo: async () => true, aposEnviar });
-    expect(chamadas).toEqual(['send', 'apos:aviso_ia']);
-    await expect(processEmailJob(data, 'job-2', { transport: { send: async () => { throw new Error('smtp'); } }, from: 'a@b.dev', tenantAtivo: async () => true, aposEnviar })).rejects.toThrow('smtp');
-    expect(chamadas).toEqual(['send', 'apos:aviso_ia']);
-  });
-
-  it('code review do PR #23 (item 5): aoDesistir só quando o job termina sem o pós-envio — conta suspensa ou última tentativa falhou', async () => {
-    const msg = { tipo: 'aviso_ia' as const, para: 'p@x.dev', nome: 'Ana', consultorio: 'Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001', enviadoEm: '2026-10-06T15:00:00.000Z' };
-    const data = { tenantId: '00000000-0000-4000-8000-0000000000aa', selado: sealSecret(JSON.stringify(msg), EMAIL_FINALIDADE) };
-    const desistencias: string[] = [];
-    const aoDesistir = async (m: { tipo: string }, tenantId: string | null) => void desistencias.push(`${m.tipo}:${tenantId}`);
-    const falha = { send: async () => { throw new Error('smtp'); } };
-    const ok = { send: async () => undefined };
-    const base = { from: 'a@b.dev', tenantAtivo: async () => true, aoDesistir };
-    // suspensa: ignorado, sem envio, e o pendente é desfeito
-    expect(await processEmailJob(data, 'j1', { ...base, transport: ok, tenantAtivo: async () => false })).toBe('ignorado');
-    expect(desistencias).toEqual([`aviso_ia:${data.tenantId}`]);
-    // falha antes da última tentativa: o pg-boss tenta de novo, nada é desfeito
-    await expect(processEmailJob(data, 'j2', { ...base, transport: falha, ultimaTentativa: false })).rejects.toThrow('smtp');
-    expect(desistencias).toHaveLength(1);
-    // falha na última tentativa (envio ou pós-envio): desfaz e relança o erro original
-    await expect(processEmailJob(data, 'j3', { ...base, transport: falha, ultimaTentativa: true })).rejects.toThrow('smtp');
-    await expect(processEmailJob(data, 'j4', { ...base, transport: ok, ultimaTentativa: true, aposEnviar: async () => { throw new Error('banco'); } })).rejects.toThrow('banco');
-    expect(desistencias).toHaveLength(3);
-    // o próprio aoDesistir falhando não esconde o erro original
-    await expect(processEmailJob(data, 'j5', { ...base, transport: falha, ultimaTentativa: true, aoDesistir: async () => { throw new Error('outro'); } })).rejects.toThrow('smtp');
-    // sucesso: nunca desiste
-    expect(await processEmailJob(data, 'j6', { ...base, transport: ok, ultimaTentativa: true })).toBe('enviado');
-    expect(desistencias).toHaveLength(3);
+  it('RN-128 (Plano 14A): um e-mail aviso_ia que estava na fila no deploy termina sem enviar e sem erro (tipo legado)', async () => {
+    const enviados: string[] = [];
+    const legado = { tipo: 'aviso_ia', para: 'p@x.dev', nome: 'Ana', consultorio: 'Debby', versao: '0.1-provisorio', patientId: '00000000-0000-4000-8000-000000000001', enviadoEm: '2026-10-06T15:00:00.000Z' };
+    const data = { tenantId: '00000000-0000-4000-8000-0000000000aa', selado: sealSecret(JSON.stringify(legado), EMAIL_FINALIDADE) };
+    expect(await processEmailJob(data, 'j-legado', { transport: { send: async () => void enviados.push('send') }, from: 'a@b.dev', tenantAtivo: async () => true })).toBe('ignorado');
+    expect(enviados).toEqual([]);
   });
 });

@@ -5,8 +5,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, tarefaNoBanco } from '../../../test/ia';
+import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { autorizacaoNoBanco, exameComLaudo, fotoDeTeste, IA_TESTE, iaPronta, pacienteAutorizado, tarefaNoBanco } from '../../../test/ia';
 import { closeDb } from '@/db/client';
 import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -27,7 +27,7 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 const agora = new Date('2026-10-06T15:00:00Z');
-const IA: ConfigIA = { modo: 'fake', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000 };
+const IA: ConfigIA = IA_TESTE;
 const tenantDe = async (id: string) => (await app.db.select().from(tenants).where(eq(tenants.id, id)))[0] as TenantRow;
 const mensagem = async (p: Promise<unknown>) => {
   try {
@@ -39,10 +39,10 @@ const mensagem = async (p: Promise<unknown>) => {
   return 'sem erro';
 };
 
-async function cenario(o: { cotaUsd?: number; paciente?: Parameters<typeof pacienteInformado>[2] } = {}) {
+async function cenario(o: { cotaUsd?: number; paciente?: Parameters<typeof pacienteAutorizado>[2] } = {}) {
   const T = await novoTenant(app.db);
   await iaPronta(app.db, T.tenantId, { cotaUsd: o.cotaUsd });
-  const p = await pacienteInformado(app.db, T.ctx, o.paciente);
+  const p = await pacienteAutorizado(app.db, T.ctx, o.paciente);
   const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir });
   return { T, p, examId, tenant: await tenantDe(T.tenantId) };
 }
@@ -68,7 +68,7 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
   it('foto: reserva menor (teto de uma imagem)', async () => {
     const T = await novoTenant(app.db);
     await iaPronta(app.db, T.tenantId);
-    const p = await pacienteInformado(app.db, T.ctx);
+    const p = await pacienteAutorizado(app.db, T.ctx);
     const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir, conteudo: await fotoDeTeste({ largura: 400, altura: 300 }) });
     const id = await pedirLeituraExame(T.ctx, await tenantDe(T.tenantId), p.id, examId, deps());
     const [t] = await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, id)), app.db);
@@ -118,11 +118,22 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
     expect(avisarTeto).toHaveBeenCalledTimes(1);
   });
 
-  it('RN-100 no app: sem ciência, com recusa, bloqueado, exame sem laudo, IA não ativa', async () => {
-    const semCiencia = await cenario({ paciente: { iaAvisoVersao: null, iaAvisoEm: null, iaAvisoCanal: null } });
-    expect(await mensagem(pedirLeituraExame(semCiencia.T.ctx, semCiencia.tenant, semCiencia.p.id, semCiencia.examId, deps()))).toBe(MSG_IA.semCiencia);
-    const recusou = await cenario({ paciente: { iaRecusadaEm: agora } });
-    expect(await mensagem(pedirLeituraExame(recusou.T.ctx, recusou.tenant, recusou.p.id, recusou.examId, deps()))).toBe(MSG_IA.recusou);
+  it('US-110 (Plano 14A): sem autorização, retirada ou de versão antiga → os textos da US-105; sem retenção zero → indisponível; nada reservado', async () => {
+    const { T, examId, tenant, p } = await cenario();
+    await autorizacaoNoBanco(app.db, T.tenantId, p.id, { evento: 'retirou' });
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, p.id, examId, deps()))).toBe(MSG_IA.retirouAutorizacao);
+    const nunca = await novoPaciente(app.db, T.ctx);
+    const exameDele = await exameComLaudo(app.db, T.ctx, T.tenant, nunca.id, { dataDir });
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, nunca.id, exameDele, deps()))).toBe(MSG_IA.semAutorizacao);
+    await autorizacaoNoBanco(app.db, T.tenantId, nunca.id, { versao: '0.0.1-antiga' });
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, nunca.id, exameDele, deps()))).toBe(MSG_IA.semAutorizacao);
+    const ok = await pacienteAutorizado(app.db, T.ctx);
+    const exameOk = await exameComLaudo(app.db, T.ctx, T.tenant, ok.id, { dataDir });
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, ok.id, exameOk, deps({ ia: { ...IA_TESTE, retencaoZero: false } })))).toBe(MSG_IA.indisponivel);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas), app.db)).toHaveLength(0);
+  });
+
+  it('RN-100 no app: bloqueado, exame sem laudo, IA não ativa', async () => {
     const bloq = await cenario();
     await withTenant(bloq.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora }).where(eq(patients.id, bloq.p.id)), app.db);
     await expect(pedirLeituraExame(bloq.T.ctx, bloq.tenant, bloq.p.id, bloq.examId, deps())).rejects.toBeInstanceOf(PacienteBloqueadoError);
@@ -166,7 +177,7 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
 
   it('exame de outro paciente ou id inválido: "Este exame não está mais disponível."', async () => {
     const A = await cenario();
-    const B = await pacienteInformado(app.db, A.T.ctx);
+    const B = await pacienteAutorizado(app.db, A.T.ctx);
     expect(await mensagem(pedirLeituraExame(A.T.ctx, A.tenant, B.id, A.examId, deps()))).toBe('Este exame não está mais disponível.');
     expect(await mensagem(pedirLeituraExame(A.T.ctx, A.tenant, A.p.id, 'nao-e-uuid', deps()))).toBe('Este exame não está mais disponível.');
   });

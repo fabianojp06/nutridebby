@@ -2,7 +2,7 @@ import { createECDH } from 'node:crypto';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
-import { GEOS_IA, MODELOS_IA } from '@/modules/ia/constantes';
+import { GEOS_IA, MODELOS_BEDROCK_EU, MODELOS_IA, PROVEDORES_IA, REGIOES_BEDROCK_EU } from '@/modules/ia/constantes';
 
 /*
  * Cada processo valida só o que usa (RNF-07): a credencial do role dono do schema
@@ -80,19 +80,32 @@ const appUrl = z.url({ message: 'APP_URL deve ser uma URL (ex.: https://app.exem
 const evolutionUrl = opcional(z.url({ message: 'EVOLUTION_API_URL deve ser uma URL (ex.: http://nutri_evolution:8080)' }).optional());
 const evolutionKey = opcional(z.string().min(16, { message: 'EVOLUTION_API_KEY precisa de pelo menos 16 caracteres' }).optional());
 const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX deve ser 0 ou 1' }).optional());
-/** Plano 11 (spec §12): ausente = IA desligada; fake/sandbox só fora de produção (RNF-107). App e worker. */
-const iaProvedor = opcional(z.enum(['anthropic', 'sandbox', 'fake'], { message: 'IA_PROVEDOR deve ser anthropic, sandbox ou fake' }).optional());
+/** Plano 11 + 14A (spec §12): ausente = IA desligada; fake/sandbox só fora de produção (RNF-107); bedrock-eu = AWS na UE (A-D26). App e worker. */
+const iaProvedor = opcional(z.enum(PROVEDORES_IA, { message: 'IA_PROVEDOR deve ser anthropic, bedrock-eu, sandbox ou fake' }).optional());
 const iaDesligada = opcional(z.enum(['0', '1'], { message: 'IA_DESLIGADA deve ser 0 ou 1' }).optional());
 const iaModelo = opcional(z.enum(MODELOS_IA, { message: `IA_MODELO_LEITURA deve ser um destes: ${MODELOS_IA.join(', ')}` }).default('claude-opus-5-5'));
 const iaGeo = opcional(z.enum(GEOS_IA, { message: 'IA_INFERENCE_GEO deve ser us ou global' }).default('us'));
 const iaTeto = opcional(
   z.coerce.number({ message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser um número' }).min(0, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).max(10_000, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).default(50),
 );
-/** A conferência da IA em produção, igual no app e no worker. A mensagem nunca repete valor. */
-function conferirIaEmProducao(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string }, ctx: z.RefinementCtx): void {
+/** Plano 14A (A-D4): 1 = retenção zero confirmada pelo dono no runbook; sem ela, nenhum uso com dado de paciente (RN-100). */
+const iaRetencaoZero = opcional(z.enum(['0', '1'], { message: 'IA_RETENCAO_ZERO deve ser 0 ou 1' }).optional());
+/** Plano 14A (INT-08): a região da UE do cliente do Bedrock (lista fechada). */
+const iaBedrockRegiao = opcional(z.enum(REGIOES_BEDROCK_EU, { message: `IA_BEDROCK_REGIAO deve ser uma destas regiões da União Europeia: ${REGIOES_BEDROCK_EU.join(', ')}` }).optional());
+/** Plano 14A (RNF-103, D2): variáveis que o SDK do provedor leria sozinho, mudando a chamada sem passar pelo código. */
+const proibidaNoWorker = (nome: string) => opcional(z.undefined({ message: `${nome} não pode ser definida no worker: o SDK do provedor de IA a leria sozinho (RNF-103)` }));
+/** A conferência da IA, igual no app e no worker. A mensagem nunca repete valor. */
+function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string; IA_MODELO_LEITURA: string; IA_BEDROCK_REGIAO?: string }, ctx: z.RefinementCtx): void {
+  if (e.IA_PROVEDOR === 'bedrock-eu') {
+    if (!e.IA_BEDROCK_REGIAO) ctx.addIssue({ code: 'custom', path: ['IA_BEDROCK_REGIAO'], message: 'IA_BEDROCK_REGIAO é obrigatória com IA_PROVEDOR=bedrock-eu' });
+    if (!(MODELOS_BEDROCK_EU as readonly string[]).includes(e.IA_MODELO_LEITURA)) {
+      ctx.addIssue({ code: 'custom', path: ['IA_MODELO_LEITURA'], message: `Com IA_PROVEDOR=bedrock-eu, IA_MODELO_LEITURA deve ser um destes: ${MODELOS_BEDROCK_EU.join(', ')}` });
+    }
+  }
   if (!emProducao(e)) return;
   if (e.IA_PROVEDOR === 'fake' || e.IA_PROVEDOR === 'sandbox') ctx.addIssue({ code: 'custom', path: ['IA_PROVEDOR'], message: 'IA_PROVEDOR sandbox ou fake só fora de produção' });
-  if (e.IA_INFERENCE_GEO !== 'us') ctx.addIssue({ code: 'custom', path: ['IA_INFERENCE_GEO'], message: 'IA_INFERENCE_GEO deve ser us em produção (A-D5)' });
+  // C5 (Plano 14A): a região us vale para a API direta; no Bedrock a região vem do perfil eu.
+  if (e.IA_PROVEDOR === 'anthropic' && e.IA_INFERENCE_GEO !== 'us') ctx.addIssue({ code: 'custom', path: ['IA_INFERENCE_GEO'], message: 'IA_INFERENCE_GEO deve ser us em produção (A-D5)' });
 }
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
 /**
@@ -159,7 +172,7 @@ const appSchema = serverSchema
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
     CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // P12-14: só teste — encurta os prazos da sessão da equipe (inatividade em ms) para quem traz o cookie nd_sessao_teste
     // (E2E do aviso de inatividade). Recusada em produção (abaixo), como o IA_PROVEDOR sandbox/fake.
     SESSAO_TESTE_MS: opcional(
@@ -172,7 +185,7 @@ const appSchema = serverSchema
     ),
   })
   .superRefine((e, ctx) => {
-    conferirIaEmProducao(e, ctx);
+    conferirIa(e, ctx);
     if (e.SESSAO_TESTE_MS !== undefined && emProducao(e)) {
       ctx.addIssue({ code: 'custom', path: ['SESSAO_TESTE_MS'], message: 'SESSAO_TESTE_MS só fora de produção (encurta a sessão; é só do E2E)' });
     }
@@ -258,9 +271,18 @@ const workerSchema = serverSchema
     EVOLUTION_API_URL: evolutionUrl,
     EVOLUTION_API_KEY: evolutionKey,
     WHATSAPP_SANDBOX: whatsappSandbox,
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // Plano 11 (RNF-103): a chave do provedor só existe no worker; o app nunca a declara (o schema dele a descarta)
     ANTHROPIC_API_KEY: opcional(z.string().regex(/^sk-ant-[A-Za-z0-9_-]{20,}$/, { message: 'ANTHROPIC_API_KEY em formato inválido (confira se foi colada inteira)' }).optional()),
+    // Plano 14A (INT-08, RNF-103): as chaves da AWS só existem no worker (o app nunca as declara); só a chave de longo prazo
+    // do usuário IAM (AKIA…): credencial temporária (ASIA…) precisaria do token de sessão, que o worker não aceita (D2)
+    AWS_ACCESS_KEY_ID: opcional(z.string().regex(/^AKIA[A-Z0-9]{16}$/, { message: 'AWS_ACCESS_KEY_ID em formato inválido (use a chave de acesso de longo prazo do usuário IAM, que começa com AKIA)' }).optional()),
+    AWS_SECRET_ACCESS_KEY: opcional(z.string().regex(/^[A-Za-z0-9/+=]{40}$/, { message: 'AWS_SECRET_ACCESS_KEY em formato inválido (confira se foi colada inteira)' }).optional()),
+    AWS_BEARER_TOKEN_BEDROCK: proibidaNoWorker('AWS_BEARER_TOKEN_BEDROCK'),
+    AWS_SESSION_TOKEN: proibidaNoWorker('AWS_SESSION_TOKEN'),
+    AWS_PROFILE: proibidaNoWorker('AWS_PROFILE'),
+    ANTHROPIC_BEDROCK_BASE_URL: proibidaNoWorker('ANTHROPIC_BEDROCK_BASE_URL'),
+    ANTHROPIC_CUSTOM_HEADERS: proibidaNoWorker('ANTHROPIC_CUSTOM_HEADERS'),
     // INT-03: chaves do push (gere com: npx web-push generate-vapid-keys). Sem elas, o push fica desligado
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     VAPID_PRIVATE_KEY: opcional(z.string().regex(VAPID_PRIVADA, { message: 'VAPID_PRIVATE_KEY deve ser a chave privada em base64url (43 caracteres)' }).optional()),
@@ -277,7 +299,10 @@ const workerSchema = serverSchema
     EMAIL_TRANSPORT: e.EMAIL_TRANSPORT ?? (e.NODE_ENV === 'production' ? 'resend' : 'mailpit'),
   }))
   .superRefine((e, ctx) => {
-    conferirIaEmProducao(e, ctx);
+    conferirIa(e, ctx);
+    if (Boolean(e.AWS_ACCESS_KEY_ID) !== Boolean(e.AWS_SECRET_ACCESS_KEY)) {
+      ctx.addIssue({ code: 'custom', path: ['AWS_ACCESS_KEY_ID'], message: 'Configure AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY juntas (ou nenhuma)' });
+    }
     if (e.EMAIL_TRANSPORT === 'resend' && !e.RESEND_API_KEY) {
       ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'RESEND_API_KEY é obrigatória para enviar pelo Resend' });
     }

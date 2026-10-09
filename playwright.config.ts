@@ -21,13 +21,15 @@ export default defineConfig({
       url: `${baseURL}/entrar`,
       // P12-14: prazos curtos da sessão da equipe (30 s) só para o contexto com o cookie nd_sessao_teste
       // (e2e/sessao-equipe.spec.ts); as outras specs seguem com os 30 min. Recusada em produção (src/env.ts).
-      env: { SESSAO_TESTE_MS: '30000' },
+      // Plano 14A (A-D4): retenção zero só no E2E/dev, com o sandbox (também no worker, abaixo: app e worker iguais)
+      env: { SESSAO_TESTE_MS: '30000', IA_RETENCAO_ZERO: '1' },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
       // e-mails (Mailpit) são enviados pelo worker
       command: 'pnpm worker',
+      env: { IA_RETENCAO_ZERO: '1' },
       wait: { stdout: /worker iniciado/ },
       reuseExistingServer: false,
       timeout: 60_000,

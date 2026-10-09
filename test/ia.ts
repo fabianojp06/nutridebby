@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@/db/client';
-import { iaTarefas, patients, tenants, type PatientRow } from '@/db/schema';
+import { iaAutorizacoes, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import type { ConfigIA } from '@/modules/ia/modo';
+import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
@@ -11,17 +13,19 @@ import { novoPaciente } from './pacientes';
 /** Bytes que o detectarTipo aceita como PDF (para exames cujo conteúdo não é lido). Para um PDF de verdade, `pdfDeTeste`. */
 export const PDF_MINIMO = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(200, 0x20)]);
 
-/** A IA liberada pela admin e ativada pela nutricionista, com o aditivo atual (T2 cria IA_ADITIVO_VERSAO). */
+/** A IA liberada pela admin e ativada pela nutricionista, com o aditivo atual (Plano 14A: com o 0.1, o consultório ficaria "aditivo desatualizado"). */
 export async function iaPronta(db: Db, tenantId: string, o: { cotaUsd?: number; aditivo?: string } = {}): Promise<void> {
   await db
     .update(tenants)
-    .set({ iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: o.aditivo ?? '0.1-provisorio', iaCotaMensalUsd: o.cotaUsd ?? 15 })
+    .set({ iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: o.aditivo ?? IA_ADITIVO_VERSAO, iaCotaMensalUsd: o.cotaUsd ?? 15 })
     .where(eq(tenants.id, tenantId));
 }
 
-/** Paciente com a ciência do aviso de IA registrada em mãos (US-104). */
-export async function pacienteInformado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
-  return novoPaciente(db, ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: new Date('2026-10-01T12:00:00Z'), iaAvisoCanal: 'em_maos', ...extra });
+/** Plano 14A: paciente com a autorização vigente (os usos da versão atual — só `leitura_laudos`, F2 — destino `teste` — o dos provedores fake e sandbox). */
+export async function pacienteAutorizado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
+  const p = await novoPaciente(db, ctx, extra);
+  await autorizacaoNoBanco(db, ctx.tenantId, p.id);
+  return p;
 }
 
 /** Exame com laudo gravado pelo caminho real (salvarArquivo). */
@@ -83,3 +87,44 @@ export async function fotoDeTeste(o: { largura?: number; altura?: number; orient
   const img = sharp({ create: { width: o.largura ?? 4000, height: o.altura ?? 3000, channels: 3, background: '#f0f0f0' } });
   return img.jpeg().withMetadata({ orientation: o.orientacao ?? 6, exif: { IFD0: { Copyright: o.copyright ?? 'Ana Souza' } } }).toBuffer();
 }
+
+/**
+ * Plano 14A: um evento de autorização gravado pela sessão de paciente SEM conta (canal `link`, como o link do e-mail): o
+ * único caminho de teste que a política paciente_autorizacao_propria e o gatilho ia_autorizacoes_regras (0108) aceitam
+ * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, versão 0.1-provisorio, os usos da 0.1 (só `leitura_laudos`, F2),
+ * destino `teste` (o dos provedores sandbox/fake).
+ */
+export async function autorizacaoNoBanco(
+  db: Db,
+  tenantId: string,
+  patientId: string,
+  o: { evento?: 'autorizou' | 'retirou'; versao?: string; usos?: string[]; destino?: string; emailHmac?: string } = {},
+): Promise<string> {
+  const evento = o.evento ?? 'autorizou';
+  const autorizou = evento === 'autorizou';
+  const [r] = await withTenant(
+    { tenantId, role: 'paciente', patientId, semConta: true },
+    (tx) =>
+      tx
+        .insert(iaAutorizacoes)
+        .values({
+          tenantId, patientId, evento, canal: 'link', emailHmac: o.emailHmac ?? 'hmac-de-teste',
+          versao: autorizou ? (o.versao ?? '0.1-provisorio') : null,
+          usos: autorizou ? (o.usos ?? ['leitura_laudos']) : null,
+          destino: autorizou ? (o.destino ?? 'teste') : null,
+        })
+        .returning({ id: iaAutorizacoes.id }),
+    db,
+  );
+  return r.id;
+}
+
+/** Plano 14A: a linha de stored_files de um termo em papel (sem arquivo no disco; os testes de banco só precisam da FK). */
+export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string): Promise<string> {
+  const caminho = `${ctx.tenantId}/ia_autorizacao_termo/${randomUUID()}.pdf`;
+  await withTenant(ctx, (tx) => tx.insert(storedFiles).values({ tenantId: ctx.tenantId, tipo: 'ia_autorizacao_termo', caminho, bytes: 100, mime: 'application/pdf', patientId }), db);
+  return caminho;
+}
+
+/** Plano 14A: a configuração dos testes da IA — provedor falso (destino `teste`), retenção zero ligada, teto da plataforma folgado. */
+export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, retencaoZero: true };

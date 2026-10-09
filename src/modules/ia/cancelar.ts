@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt } from 'drizzle-orm';
 import type { Tx } from '@/db/client';
 import { iaTarefas, tenants } from '@/db/schema';
 import { estornar } from './cota';
@@ -11,8 +11,10 @@ import { estornar } from './cota';
  * o tenant (FOR NO KEY UPDATE) e segue a ordem da cota (cota.ts): paciente → tenant → tarefas → ia_uso → plataforma.
  * As tarefas são travadas de uma vez, por id, antes de qualquer estorno — a mesma ordem da varredura
  * (expirarTarefasDoTenant), para as duas não se cruzarem entre uma tarefa e a linha do mês da plataforma.
+ * Plano 14A (D14): o job `ia-retirada` com o paciente reautorizado cancela só as tarefas criadas antes da retirada
+ * (`criadasAntesDe`).
  */
-export async function cancelarTarefas(tx: Tx, o: { tenantId: string; patientId?: string; examId?: string; agora: Date; por?: string | null }): Promise<number> {
+export async function cancelarTarefas(tx: Tx, o: { tenantId: string; patientId?: string; examId?: string; agora: Date; por?: string | null; criadasAntesDe?: Date }): Promise<number> {
   // a trava do tenant fica aqui (code review do PR #23): quem chama não pode esquecê-la antes do contador da plataforma
   await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, o.tenantId)).for('no key update');
   const alvo = await tx
@@ -23,6 +25,7 @@ export async function cancelarTarefas(tx: Tx, o: { tenantId: string; patientId?:
         inArray(iaTarefas.status, ['na_fila', 'pronta']),
         o.patientId ? eq(iaTarefas.patientId, o.patientId) : undefined,
         o.examId ? eq(iaTarefas.examId, o.examId) : undefined,
+        o.criadasAntesDe ? lt(iaTarefas.criadoEm, o.criadasAntesDe) : undefined,
       ),
     )
     .orderBy(asc(iaTarefas.id))

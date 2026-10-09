@@ -6,7 +6,7 @@ import { getEnv } from '@/env';
 import { MSG_IA } from '@/modules/ia/constantes';
 import { situacaoDaCotaIa } from '@/modules/ia/cota';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
-import { IA_ADITIVO_PARAGRAFOS, IA_ADITIVO_TITULO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { aditivoIa, IA_ADITIVO_VERSAO, textoCorrido } from '@/modules/ia/textos-legais';
 import { desativarIaAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
 
@@ -15,12 +15,14 @@ import { IaAtivarForm } from './ia-ativar-form';
  * `ativada`: a página recebeu `?ia=ativada` do `ativarIaAction`; a confirmação só aparece se a IA está mesmo ativa.
  */
 export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean }) {
-  const estado = estadoIaDoTenant(tenant, configIA(getEnv()).modo);
-  if (estado === 'ausente' || estado === 'suspensa') return null;
+  const { modo, destino } = configIA(getEnv());
+  const estado = estadoIaDoTenant(tenant, modo);
+  if (estado === 'ausente' || estado === 'suspensa' || !destino) return null;
+  const texto = aditivoIa(destino); // RN-109: fornecedor, mecanismo da transferência e retenção mudam conforme o provedor em uso (§18.5)
   const aditivo = (
     <details className="rounded-2xl border border-borda p-3">
-      <summary className="cursor-pointer font-semibold">{`${IA_ADITIVO_TITULO} (versão ${IA_ADITIVO_VERSAO})`}</summary>
-      <div className="mt-2 space-y-2">{IA_ADITIVO_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}</div>
+      <summary className="cursor-pointer font-semibold">{`${texto.titulo} (versão ${IA_ADITIVO_VERSAO})`}</summary>
+      <div className="mt-2 space-y-2">{texto.paragrafos.map((p, i) => <p key={i}>{textoCorrido(p)}</p>)}</div>
     </details>
   );
   const cota = estado === 'ativa' ? await situacaoDaCotaIa(ctx, tenant) : null;

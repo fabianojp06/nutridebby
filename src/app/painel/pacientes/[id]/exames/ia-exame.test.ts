@@ -27,7 +27,7 @@ const LIVRE = { podePedir: true, aviso: null } as const;
 const situacao = (s: Partial<SituacaoDoExame>) => ({ id: 't1', status: 'pronta', erro: null, expiraEm: new Date('2026-10-10T00:00:00Z'), ...s }) as SituacaoDoExame;
 const montar = (s: SituacaoDoExame | undefined, ia: Parameters<typeof IaDoExame>[0]['ia']) =>
   renderToStaticMarkup(createElement(IaDoExame, { patientId: 'p', exame: EXAME, situacao: s, ia, agora: AGORA }));
-const base = { motivo: null, recusou: false, cota: null };
+const base = { motivo: null, situacao: { tipo: 'nunca' } as const, cota: null };
 
 describe('IA em cada exame (revisão da T13)', () => {
   it('toda situação fica dentro de uma região viva que não muda; o "Lendo o laudo…" não tem região própria', () => {
@@ -53,9 +53,12 @@ describe('IA em cada exame (revisão da T13)', () => {
     expect(iaNoExame({ estadoIa: 'emergencia', ...base })).toEqual({ podePedir: false, aviso: MSG_IA.indisponivel });
     expect(iaNoExame({ estadoIa: 'nao_liberada', ...base })).toEqual({ podePedir: false, aviso: MSG_IA.naoLiberada }); // R7
     expect(iaNoExame({ estadoIa: 'aditivo_desatualizado', ...base })).toEqual({ podePedir: false, aviso: MSG_IA.aditivoDesatualizado });
-    expect(iaNoExame({ estadoIa: 'ativa', ...base, motivo: 'paciente_nao_informado' }).aviso).toBe(MSG_IA.semCiencia);
-    expect(iaNoExame({ estadoIa: 'ativa', ...base, motivo: 'paciente_indisponivel', recusou: true }).aviso).toBe(MSG_IA.recusou);
-    expect(iaNoExame({ estadoIa: 'ativa', ...base, motivo: 'paciente_indisponivel' }).aviso).toBe(MSG_FALHA.paciente_indisponivel);
+    // Plano 14A (US-105, D8, D9): o motivo do paciente pela autorização; sem retenção zero → "indisponível"
+    const nunca = { tipo: 'nunca' } as const;
+    expect(iaNoExame({ estadoIa: 'ativa', motivo: 'sem_autorizacao', situacao: nunca, cota: null }).aviso).toBe(MSG_IA.semAutorizacao);
+    expect(iaNoExame({ estadoIa: 'ativa', motivo: 'sem_autorizacao', situacao: { tipo: 'retirada', id: 'r', em: new Date(), canal: 'app' }, cota: null }).aviso).toBe(MSG_IA.retirouAutorizacao);
+    expect(iaNoExame({ estadoIa: 'ativa', motivo: 'paciente_indisponivel', situacao: nunca, cota: null }).aviso).toBe(MSG_FALHA.paciente_indisponivel);
+    expect(iaNoExame({ estadoIa: 'sem_retencao', motivo: null, situacao: nunca, cota: null })).toEqual({ podePedir: false, aviso: MSG_IA.indisponivel });
     expect(iaNoExame({ estadoIa: 'ativa', ...base, cota: { usadoMicroUsd: 1, cotaMicroUsd: 1, percentual: 100, nivel: 'esgotada' } }).aviso).toBe(MSG_IA.cotaAcabou);
     expect(iaNoExame({ estadoIa: 'ativa', ...base })).toEqual(LIVRE);
     expect(montar(undefined, iaNoExame({ estadoIa: 'emergencia', ...base }))).toContain(MSG_IA.indisponivel);

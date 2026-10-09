@@ -13,9 +13,11 @@ import { withTenant } from '@/db/tenant';
 import { excluirExame } from '@/modules/pacientes/exames';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const dono = makeDb(inject('ownerDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-schema-'));
 afterAll(async () => {
   await app.pool.end();
+  await dono.pool.end();
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -80,31 +82,22 @@ describe('Plano 11 — banco da IA (spec v0.3 §11, §5.11)', () => {
     expect(await falhaCom(mudar({ iaRecusadaEm: new Date() }))).toBe('42501');
   });
 
-  it('defesa em profundidade (gatilho patients_ia_quem): o contexto público não cria paciente "informado"; a ciência por e-mail só pelo worker', async () => {
-    const T = await novoTenant(app.db);
-    const publico = { tenantId: T.tenantId, role: 'publico' as const };
-    // o executor confere os campos mínimos do INSERT do contexto público em src/modules/agenda/agendamento-publico.ts
-    expect(await falhaCom(novoPaciente(app.db, publico, { origem: 'agendamento_publico', iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos' }))).toBe('42501');
-    expect(await falhaCom(novoPaciente(app.db, T.ctx, { iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'email' }))).toBe('42501');
-    await novoPaciente(app.db, T.ctx, { iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos' }); // nutricionista, em mãos: passa
-  });
-
-  it('Minor 1 (revisão final): com canal e-mail, a nutricionista não troca versão nem data da ciência; recusa e reenvio seguem livres; o worker grava a ciência por e-mail', async () => {
+  it('RN-128 (Plano 14A, 0109): as colunas de ciência e recusa do Plano 11 estão congeladas para qualquer sessão do app; no contexto vazio, passam', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
-    const worker = { tenantId: T.tenantId, role: 'worker' as const };
-    const mudar = (ctx: Parameters<typeof withTenant>[0], set: Partial<typeof patients.$inferInsert>) =>
-      withTenant(ctx, (tx) => tx.update(patients).set(set).where(eq(patients.id, p.id)).returning({ id: patients.id }), app.db);
-    const em = new Date('2026-10-01T12:00:00Z');
-    // Minor 4: o ramo do worker (pós-envio do e-mail) passa
-    expect(await mudar(worker, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: em, iaAvisoCanal: 'email' })).toHaveLength(1);
-    expect(await falhaCom(mudar(T.ctx, { iaAvisoVersao: '9.9', iaAvisoEm: new Date() }))).toBe('42501');
-    expect(await falhaCom(mudar(T.ctx, { iaAvisoEm: new Date('2026-10-05T12:00:00Z') }))).toBe('42501');
-    // Minor 4: a nutricionista grava a recusa e o reenvio do aviso (versão, data e canal iguais)
-    expect(await mudar(T.ctx, { iaRecusadaEm: new Date() })).toHaveLength(1);
-    expect(await mudar(T.ctx, { iaRecusadaEm: null, iaAvisoEnviadoEm: new Date() })).toHaveLength(1);
-    // trocar para "em mãos" (nova ciência registrada pela nutricionista) continua valendo
-    expect(await mudar(T.ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos', iaAvisoEnviadoEm: null })).toHaveLength(1);
+    // (o contexto publico não vê a linha para o UPDATE — PUBLICO_LIBERADO.patients é só select/insert —, então só o INSERT dele abaixo)
+    const contextos = [T.ctx, { tenantId: T.tenantId, role: 'worker' as const }];
+    for (const ctx of contextos) {
+      for (const set of [{ iaRecusadaEm: new Date() }, { iaAvisoEnviadoEm: new Date() }, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos' }]) {
+        expect(await falhaCom(withTenant(ctx, (tx) => tx.update(patients).set(set).where(eq(patients.id, p.id)), app.db)), `${ctx.role} ${Object.keys(set)}`).toBe('42501');
+      }
+    }
+    expect(await falhaCom(novoPaciente(app.db, T.ctx, { iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'em_maos' }))).toBe('42501');
+    expect(await falhaCom(novoPaciente(app.db, { tenantId: T.tenantId, role: 'publico' }, { origem: 'agendamento_publico', iaRecusadaEm: new Date() }))).toBe('42501');
+    // contexto vazio (migration, script do dono): passa — a remoção futura das colunas é a PM-17
+    await dono.db.update(patients).set({ iaRecusadaEm: new Date() }).where(eq(patients.id, p.id));
+    // o resto do cadastro segue livre para a nutricionista
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ nome: 'Ana Souza Lima' }).where(eq(patients.id, p.id)), app.db);
   });
 
   it('Minor 2 (revisão final): a tarefa não muda de consultório, de paciente, de exame, de quem pediu nem de modelo; saiu_em não volta a nulo', async () => {
@@ -159,8 +152,11 @@ describe('Plano 11 — banco da IA (spec v0.3 §11, §5.11)', () => {
 
   it('a ciência é "tudo ou nada" e o canal é da lista', async () => {
     const T = await novoTenant(app.db);
-    expect(await falhaCom(novoPaciente(app.db, T.ctx, { iaAvisoVersao: '0.1-provisorio' }))).toBe('23514');
-    expect(await falhaCom(novoPaciente(app.db, T.ctx, { iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'whatsapp' }))).toBe('23514');
+    // pelo dono (contexto vazio): o gatilho da 0109 recusa antes do CHECK em qualquer sessão do app (e-mail, nascimento e sexo
+    // preenchidos para a recusa vir só do CHECK da ciência)
+    const base = { tenantId: T.tenantId, nome: 'X', dataNascimento: '1991-03-10', sexo: 'F', email: `x-${randomUUID().slice(0, 8)}@ex.com` };
+    expect(await falhaCom(dono.db.insert(patients).values({ ...base, iaAvisoVersao: '0.1-provisorio' }))).toBe('23514');
+    expect(await falhaCom(dono.db.insert(patients).values({ ...base, iaAvisoVersao: '1', iaAvisoEm: new Date(), iaAvisoCanal: 'whatsapp' }))).toBe('23514');
   });
 
   it('admin_actions: as ações de IA exigem o consultório e nenhum usuário-alvo; o 2FA continua exigindo o usuário', async () => {

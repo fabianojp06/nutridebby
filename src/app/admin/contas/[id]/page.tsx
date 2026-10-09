@@ -28,7 +28,7 @@ const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   conta_suspensa: { texto: MSG.contaSuspensa, erro: true },
   suspensa: { texto: 'Conta suspensa. A nutricionista e os pacientes veem "Conta temporariamente indisponível".' },
   reativada: { texto: 'Conta reativada.' },
-  ia_provisoria: { texto: 'Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar.', erro: true },
+  ia_provisoria: { texto: 'Os textos legais da IA ainda são provisórios. Publique a autorização do paciente e o aditivo finais antes de liberar.', erro: true },
 };
 
 const BOTAO = classeDoBotao('secundario');

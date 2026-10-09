@@ -343,6 +343,55 @@ describe('Plano 11 — variáveis da IA (spec v0.3 §12)', () => {
   });
 });
 
+describe('Plano 14A — bedrock-eu, retenção zero e variáveis que o SDK leria sozinho (spec §12, INT-08, RNF-103)', () => {
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  const prodWorker = { ...w, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', EMAIL_TRANSPORT: 'mailpit' };
+  const bedrock = { IA_PROVEDOR: 'bedrock-eu', IA_BEDROCK_REGIAO: 'eu-central-1', IA_MODELO_LEITURA: 'claude-sonnet-5-5' };
+  const AK = 'AKIA' + 'A'.repeat(16);
+  const SK = 'x'.repeat(40);
+
+  it('IA_RETENCAO_ZERO: 0 ou 1, ausente por padrão, no app e no worker', () => {
+    expect(parseEnv(base).IA_RETENCAO_ZERO).toBeUndefined();
+    expect(parseEnv({ ...base, IA_RETENCAO_ZERO: '1' }).IA_RETENCAO_ZERO).toBe('1');
+    expect(parseWorkerEnv({ ...w, IA_RETENCAO_ZERO: '0' }).IA_RETENCAO_ZERO).toBe('0');
+    expect(() => parseEnv({ ...base, IA_RETENCAO_ZERO: 'sim' })).toThrow(/IA_RETENCAO_ZERO/);
+  });
+
+  it('bedrock-eu exige uma região da UE e o modelo da lista do perfil eu. (D3); Londres e Zurique não são UE', () => {
+    expect(() => parseEnv({ ...base, IA_PROVEDOR: 'bedrock-eu', IA_MODELO_LEITURA: 'claude-sonnet-5-5' })).toThrow(/IA_BEDROCK_REGIAO/);
+    expect(() => parseEnv({ ...base, IA_PROVEDOR: 'bedrock-eu', IA_BEDROCK_REGIAO: 'eu-central-1' })).toThrow(/IA_MODELO_LEITURA/); // o padrão é o Opus, fora do perfil eu.
+    for (const r of ['eu-west-2', 'eu-central-2', 'us-east-1']) expect(() => parseEnv({ ...base, ...bedrock, IA_BEDROCK_REGIAO: r }), r).toThrow(/IA_BEDROCK_REGIAO/);
+    expect(parseEnv({ ...base, ...bedrock })).toMatchObject(bedrock);
+    expect(parseWorkerEnv({ ...w, ...bedrock, AWS_ACCESS_KEY_ID: AK, AWS_SECRET_ACCESS_KEY: SK })).toMatchObject({ ...bedrock, AWS_ACCESS_KEY_ID: AK });
+  });
+
+  it('em produção, IA_INFERENCE_GEO=us só é exigida com a anthropic (C5)', () => {
+    expect(parseWorkerEnv({ ...prodWorker, ...bedrock, IA_INFERENCE_GEO: 'global' }).IA_PROVEDOR).toBe('bedrock-eu');
+    expect(() => parseWorkerEnv({ ...prodWorker, IA_PROVEDOR: 'anthropic', IA_INFERENCE_GEO: 'global' })).toThrow(/IA_INFERENCE_GEO/);
+  });
+
+  it('as chaves da AWS: só no worker, juntas e no formato; a mensagem nunca repete o valor', () => {
+    expect(parseEnv({ ...base, AWS_ACCESS_KEY_ID: AK, AWS_SECRET_ACCESS_KEY: SK })).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
+    expect(() => parseWorkerEnv({ ...w, AWS_ACCESS_KEY_ID: AK })).toThrow(/AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY juntas/);
+    const errada = 'ASIA' + 'B'.repeat(16); // credencial temporária (precisaria de token de sessão): recusada
+    let msg = '';
+    try {
+      parseWorkerEnv({ ...w, AWS_ACCESS_KEY_ID: errada, AWS_SECRET_ACCESS_KEY: SK });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toMatch(/AWS_ACCESS_KEY_ID/);
+    expect(msg).not.toContain(errada);
+  });
+
+  it('D2: o worker não sobe com as variáveis que o SDK leria sozinho (o token de portador venceria as chaves)', () => {
+    for (const nome of ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_SESSION_TOKEN', 'AWS_PROFILE', 'ANTHROPIC_BEDROCK_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS']) {
+      expect(() => parseWorkerEnv({ ...w, [nome]: 'qualquer-coisa' }), nome).toThrow(new RegExp(nome));
+      expect(parseWorkerEnv({ ...w, [nome]: '' }), nome).toBeDefined(); // vazio = não definida
+    }
+  });
+});
+
 describe('P12-14 — SESSAO_TESTE_MS (só teste)', () => {
   const prodApp = { ...base, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', TRUSTED_PROXIES: '10.0.0.0/8', TURNSTILE_SITE_KEY: 'chave-real', TURNSTILE_SECRET_KEY: 'segredo-real' };
 

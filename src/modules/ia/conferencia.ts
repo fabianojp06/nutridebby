@@ -6,7 +6,8 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { agruparMarcadores, lerValores, MSG_EXAME, type ValorExame } from '@/modules/pacientes/exames';
 import { auditRead } from '@/modules/plataforma/audit';
-import { MAX_LINHAS_SUGESTAO, MAX_VALORES_EXAME, MSG_IA } from './constantes';
+import { autorizacaoDaTarefa, vigentePara } from './autorizacao';
+import { MAX_LINHAS_SUGESTAO, MAX_VALORES_EXAME, MSG_IA, USO_DA_TAREFA, type DestinoIA } from './constantes';
 import { jaLancado, nomeDaSerie } from './correspondencia';
 import { lerValorLaudo, type ValorLido } from './valor-laudo';
 
@@ -91,7 +92,9 @@ export class ConferenciaError extends Error {
  * US-111 "Conferir e salvar" / RN-114. Ordem de travas: paciente → exame → tarefa. Só ACRESCENTA (as linhas existentes não
  * mudam); cada linha nova leva `iaTarefaId`; o valor enviado passa de novo por lerValorLaudo (D10) e pelas regras da
  * US-015 (lerValores). A mesma transação marca a tarefa "aplicada" com quem, quando e quantas linhas, e esvazia a
- * sugestão. O gatilho de auditoria registra a alteração do exame e a da tarefa, com o ator.
+ * sugestão. O gatilho de auditoria registra a alteração do exame e a da tarefa, com o ator. Plano 14A (RN-108, RN-122):
+ * a autorização do paciente é conferida com o paciente travado — retirada (ou versão/destino que não vale mais) depois
+ * da leitura → nada é aplicado. `deps.destino` = o do provedor em uso (configIA).
  */
 export async function aplicarSugestao(
   ctx: TenantContext,
@@ -99,7 +102,7 @@ export async function aplicarSugestao(
   patientId: string,
   tarefaId: string,
   entrada: { linhas: LinhaEnviada[]; usarData: boolean },
-  deps: Deps = {},
+  deps: Deps & { destino: DestinoIA | null },
 ): Promise<{ linhas: number }> {
   if (!idValido(tarefaId)) throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
   if (!entrada.linhas.length) throw new ConferenciaError({ geral: MSG_IA.nadaMarcado });
@@ -110,8 +113,13 @@ export async function aplicarSugestao(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
-      const [ref] = await tx.select({ examId: iaTarefas.examId }).from(iaTarefas).where(and(eq(iaTarefas.id, tarefaId), eq(iaTarefas.patientId, p.id)));
+      const [ref] = await tx.select({ examId: iaTarefas.examId, criadoEm: iaTarefas.criadoEm }).from(iaTarefas).where(and(eq(iaTarefas.id, tarefaId), eq(iaTarefas.patientId, p.id)));
       if (!ref?.examId) throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
+      // RN-108 (Plano 14A): retirada (ou versão/destino que não vale mais) depois da leitura → nada é aplicado; a sugestão
+      // pedida antes da última retirada também não, mesmo com o paciente autorizado de novo (D14; criado_em não muda)
+      if (!vigentePara(await autorizacaoDaTarefa(tx, { patientId: p.id, criadoEm: ref.criadoEm }, deps.destino), USO_DA_TAREFA.leitura_exame)) {
+        throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
+      }
       const [e] = await tx.select().from(exams).where(and(eq(exams.id, ref.examId), eq(exams.patientId, p.id))).for('update');
       const [t] = await tx.select().from(iaTarefas).where(eq(iaTarefas.id, tarefaId)).for('update');
       if (!e || !t || t.status !== 'pronta' || !t.resultado || t.examId !== e.id || !t.expiraEm || t.expiraEm <= agora) {

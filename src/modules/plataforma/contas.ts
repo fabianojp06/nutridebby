@@ -7,7 +7,7 @@ import { account, adminActions, tenants, user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import { emProducao, getEnv } from '@/env';
 import { logger } from '@/lib/logger';
-import { AVISO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { criarConvite, linkDoConvite } from './convites';
@@ -262,15 +262,15 @@ export async function definirDocumentosLiberados(db: Db, tenantId: string, liber
 export class IaProvisoriaError extends Error {
   override name = 'IaProvisoriaError';
   constructor() {
-    super('Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar.');
+    super('Os textos legais da IA ainda são provisórios. Publique a autorização do paciente e o aditivo finais antes de liberar.');
   }
 }
 
 export async function definirIaLiberada(db: Db, tenantId: string, liberar: boolean, adminId: string, o: { producao?: boolean } = {}): Promise<void> {
-  // D22 (A-06 também no código): em produção, só com o aviso e o aditivo finais (versões sem "-provisorio"). Sem `producao`,
-  // vale o ambiente (Minor 7 da revisão final: quem esquecer de informar não abre a guarda)
+  // D22 (A-06 também no código; C8 do Plano 14A): em produção, só com a autorização do paciente e o aditivo finais (versões
+  // sem "-provisorio"). Sem `producao`, vale o ambiente (Minor 7 da revisão final: quem esquecer de informar não abre a guarda)
   const producao = o.producao ?? emProducao(getEnv());
-  if (liberar && producao && [AVISO_IA_VERSAO, IA_ADITIVO_VERSAO].some((v) => v.endsWith('-provisorio'))) throw new IaProvisoriaError();
+  if (liberar && producao && [AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO].some((v) => v.endsWith('-provisorio'))) throw new IaProvisoriaError();
   await db.transaction(async (tx) => {
     const r = await tx.update(tenants).set({ iaLiberada: liberar, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
     if (!r.length) throw new ContaNaoEncontradaError();

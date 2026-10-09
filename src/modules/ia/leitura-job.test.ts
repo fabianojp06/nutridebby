@@ -6,20 +6,22 @@ import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, fotoDeTeste, iaPronta, pacienteInformado, pdfDeTeste } from '../../../test/ia';
+import { autorizacaoNoBanco, exameComLaudo, fotoDeTeste, IA_TESTE, iaPronta, pacienteAutorizado, pdfDeTeste } from '../../../test/ia';
 import { closeDb, type Tx } from '@/db/client';
-import { auditLog, exams, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
+import { auditLog, exams, iaAutorizacoes, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { excluirExame } from '@/modules/pacientes/exames';
 import { atenderPedidoExclusao } from '@/modules/pacientes/lgpd';
 import { desativarIa } from './ativacao';
+import { registrarRetiradaPelaNutri } from './autorizacao';
 import { cancelarTarefas } from './cancelar';
-import { definirRecusaIa } from './ciencia-paciente';
 import type { ConfigIA } from './modo';
 import { expirarTarefasDoTenant, processarTarefaIA, RepetirIaError, type DepsJobIA } from './leitura-job';
 import { custoMaximoDoArquivo, custoMicroUsd } from './precos';
 import { ErroProvedor, type ProvedorIA } from './provedor';
+import { provedorAnthropic } from './provedor-anthropic';
+import { provedorBedrock } from './provedor-bedrock';
 import { provedorFake, respostaOk, USO_FAKE } from './provedor-fake';
 import { RESPOSTA_SANDBOX } from './provedor-sandbox';
 import { pedirLeituraExame } from './tarefas';
@@ -37,12 +39,12 @@ afterAll(async () => {
 });
 // relógio real: as tarefas nascem "agora"; a varredura do teste roda só nos tenants do próprio teste (expirarTarefasDoTenant)
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
-const IA: ConfigIA = { modo: 'fake', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000 };
+const IA: ConfigIA = IA_TESTE;
 
 async function pedido(o: { conteudo?: Buffer; cotaUsd?: number; nome?: string } = {}) {
   const T = await novoTenant(app.db);
   await iaPronta(app.db, T.tenantId, { cotaUsd: o.cotaUsd });
-  const p = await pacienteInformado(app.db, T.ctx, o.nome ? { nome: o.nome } : {});
+  const p = await pacienteAutorizado(app.db, T.ctx, o.nome ? { nome: o.nome } : {});
   const examId = await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir, conteudo: o.conteudo ?? (await pdfDeTeste({ paginas: 2 })) });
   const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
   const tarefaId = await pedirLeituraExame(T.ctx, tenant as TenantRow, p.id, examId, { db: app.db, agora, ia: IA, avisarTeto: async () => 0 });
@@ -50,7 +52,7 @@ async function pedido(o: { conteudo?: Buffer; cotaUsd?: number; nome?: string } 
 }
 const alertas = () => ({ credencial: vi.fn(async () => 0), teto: vi.fn(async () => 0) });
 const deps = (provedor: ProvedorIA | null, extra: Partial<DepsJobIA> = {}): DepsJobIA => ({
-  db: app.db, dataDir, modo: 'fake', provedor, geo: 'us', tetoGlobalMicroUsd: IA.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, ultimaTentativa: false, alertas: alertas(), ...extra,
+  db: app.db, dataDir, modo: 'fake', provedor, geo: 'us', destino: 'teste', retencaoZero: true, tetoGlobalMicroUsd: IA.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, ultimaTentativa: false, alertas: alertas(), ...extra,
 });
 const tarefa = async (P: Awaited<ReturnType<typeof pedido>>) => (await withTenant(P.T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, P.tarefaId)), app.db))[0];
 const usoDe = async (P: Awaited<ReturnType<typeof pedido>>) => (await withTenant(P.T.ctx, (tx) => tx.select().from(iaUso).where(eq(iaUso.tarefaId, P.tarefaId)), app.db))[0];
@@ -104,11 +106,12 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect((await usoDe(P)).situacao).toBe('estornado');
   });
 
-  it('RN-100 no worker: paciente bloqueado, recusa, ciência retirada ou IA desativada depois do pedido → falha sem envio', async () => {
+  it('RN-100 no worker: paciente bloqueado, autorização retirada ou de versão antiga, sem retenção zero ou IA desativada depois do pedido → falha sem envio', async () => {
     const casos: [string, (P: Awaited<ReturnType<typeof pedido>>) => Promise<unknown>, string][] = [
       ['bloqueado', (P) => withTenant(P.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora }).where(eq(patients.id, P.p.id)), app.db), 'paciente_indisponivel'],
-      ['recusa', (P) => withTenant(P.T.ctx, (tx) => tx.update(patients).set({ iaRecusadaEm: agora }).where(eq(patients.id, P.p.id)), app.db), 'paciente_indisponivel'],
-      ['sem ciência', (P) => withTenant(P.T.ctx, (tx) => tx.update(patients).set({ iaAvisoVersao: null, iaAvisoEm: null, iaAvisoCanal: null }).where(eq(patients.id, P.p.id)), app.db), 'paciente_nao_informado'],
+      ['retirada', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' }), 'sem_autorizacao'],
+      ['versão antiga', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { versao: '0.0.1-antiga' }), 'sem_autorizacao'],
+      ['sem retenção zero', async () => undefined, 'ia_desligada'], // com deps({ retencaoZero: false }), abaixo
       ['IA desativada', (P) => app.db.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, P.T.tenantId)), 'ia_desligada'],
       ['tenant suspenso', (P) => app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, P.T.tenantId)), 'ia_desligada'],
     ];
@@ -116,16 +119,16 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       const P = await pedido();
       await mudar(P);
       const f = provedorFake();
-      expect(await processarTarefaIA(P.d, deps(f)), nome).toBe('falhou');
+      expect(await processarTarefaIA(P.d, deps(f, nome === 'sem retenção zero' ? { retencaoZero: false } : {})), nome).toBe('falhou');
       expect(await tarefa(P), nome).toMatchObject({ status: 'falhou', erro: motivo, saiuEm: null });
       expect(f.chamadas.ler, nome).toHaveLength(0);
       expect((await usoDe(P)).situacao, nome).toBe('estornado');
     }
   });
 
-  it('portão do envio (Review Focus 4): recusa, exclusão atendida, IA desativada ou exame excluído DEPOIS da leitura da tarefa e antes do envio → nada sai, nem uma chamada', async () => {
+  it('portão do envio (Review Focus 4): retirada pela nutricionista, exclusão atendida, IA desativada ou exame excluído DEPOIS da leitura da tarefa e antes do envio → nada sai, nem uma chamada', async () => {
     const casos: [string, (P: Awaited<ReturnType<typeof pedido>>) => Promise<unknown>, string][] = [
-      ['Não usar IA', (P) => definirRecusaIa(P.T.ctx, P.p.id, true, { db: app.db, agora }), 'paciente_indisponivel'],
+      ['retirada pela nutricionista', (P) => registrarRetiradaPelaNutri(P.T.ctx, P.p.id, { db: app.db, agora }), 'sem_autorizacao'],
       ['exclusão atendida', (P) => atenderPedidoExclusao(P.T.ctx, P.T.tenant, P.p.id, 'Ana Souza', { db: app.db, now: agora }), 'paciente_indisponivel'],
       ['IA desativada', (P) => desativarIa(P.T.ctx, { db: app.db, agora }), 'ia_desligada'],
       ['exame excluído', (P) => excluirExame(P.T.ctx, P.p.id, P.examId, { db: app.db, dataDir }), 'exame_indisponivel'],
@@ -140,6 +143,121 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       expect(await saidas(P), nome).toHaveLength(0);
       expect((await usoDe(P)).situacao, nome).toBe('estornado');
     }
+  });
+
+  it('CS-105 / RNF-111 (a, b): retirada, versão abaixo do mínimo, destino trocado ou uso fora da lista ENTRE o pedido e o envio → nada sai (sem_autorizacao) e a reserva volta', async () => {
+    const casos: [string, (P: Awaited<ReturnType<typeof pedido>>) => Promise<unknown>][] = [
+      ['retirada pelo link', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' })],
+      ['nova autorização de versão antiga', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { versao: '0.0.1-antiga' })],
+      ['nova autorização para outro destino', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { destino: 'bedrock-eu' })],
+      ['nova autorização sem a leitura de laudos', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { usos: ['resumo_historico'] })],
+    ];
+    for (const [nome, mudar] of casos) {
+      const P = await pedido();
+      const f = provedorFake();
+      expect(await processarTarefaIA(P.d, deps(f, { depoisDoPreparo: () => mudar(P) })), nome).toBe('falhou');
+      expect(await tarefa(P), nome).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', enviadoEm: null, saiuEm: null, destino: null });
+      expect(f.chamadas.ler, nome).toHaveLength(0);
+      expect(await saidas(P), nome).toHaveLength(0);
+      expect((await usoDe(P)).situacao, nome).toBe('estornado');
+    }
+  });
+
+  it('RN-109 / D6: o portão grava o destino com a saída; a tarefa que já saiu para outro destino não sai de novo', async () => {
+    const P = await pedido();
+    expect(await processarTarefaIA(P.d, deps(provedorFake()))).toBe('pronta');
+    expect(await tarefa(P)).toMatchObject({ destino: 'teste' });
+    const Q = await pedido();
+    // uma tentativa anterior saiu pelo Bedrock e mandou repetir (429); agora o provedor em uso é o de teste
+    await withTenant({ tenantId: Q.T.tenantId, role: 'worker' }, (tx) => tx.update(iaTarefas).set({ status: 'processando', saiuEm: agora, destino: 'bedrock-eu' }).where(eq(iaTarefas.id, Q.tarefaId)), app.db);
+    const f = provedorFake();
+    expect(await processarTarefaIA(Q.d, deps(f))).toBe('falhou');
+    expect(await tarefa(Q)).toMatchObject({ erro: 'ia_desligada', destino: 'bedrock-eu' });
+    expect(f.chamadas.ler).toHaveLength(0);
+  });
+
+  it('a retirada chega DURANTE a chamada: o resultado não é gravado (RN-100 ao gravar), o custo é', async () => {
+    const P = await pedido();
+    const f = provedorFake({ ler: [respostaOk(RESPOSTA_SANDBOX)] });
+    const lerOriginal = f.lerDocumento.bind(f);
+    f.lerDocumento = async (p) => {
+      await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+      return lerOriginal(p);
+    };
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
+    expect(await tarefa(P)).toHaveProperty('saiuEm', expect.any(Date));
+    expect((await usoDe(P)).situacao).toBe('confirmado');
+  });
+
+  it('D15: a varredura cancela as tarefas de paciente sem autorização vigente (estorno da fila; pronta esvaziada)', async () => {
+    const P = await pedido();
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    const r = await withTenant({ tenantId: P.T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, 'teste'), app.db);
+    expect(r).toEqual({ interrompidas: 0, expiradas: 0, canceladas: 1 });
+    expect(await tarefa(P)).toMatchObject({ status: 'cancelada', encerradoPor: null });
+    expect((await usoDe(P)).situacao).toBe('estornado');
+  });
+
+  // revisão da T4 (RN-108, D14): "se o paciente autorizou de novo, cancela só as tarefas criadas antes da retirada" vale
+  // também no portão, no passo 6 e na varredura — não só no job ia-retirada
+  const retirarEReautorizar = async (P: Awaited<ReturnType<typeof pedido>>) => {
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id);
+  };
+
+  it('D14: retirou e autorizou de novo antes do envio (o job ia roda antes do ia-retirada) → a tarefa de antes da retirada não sai e a reserva volta', async () => {
+    const P = await pedido();
+    const f = provedorFake();
+    expect(await processarTarefaIA(P.d, deps(f, { depoisDoPreparo: () => retirarEReautorizar(P) }))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', enviadoEm: null, saiuEm: null, destino: null });
+    expect(f.chamadas.ler).toHaveLength(0);
+    expect(await saidas(P)).toHaveLength(0);
+    expect((await usoDe(P)).situacao).toBe('estornado');
+    // a reautorização vale para os pedidos novos: a tarefa pedida depois dela sai
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, P.T.tenantId));
+    const outroExame = await exameComLaudo(app.db, P.T.ctx, P.T.tenant, P.p.id, { dataDir, conteudo: await pdfDeTeste() });
+    const nova = await pedirLeituraExame(P.T.ctx, tenant as TenantRow, P.p.id, outroExame, { db: app.db, agora, ia: IA, avisarTeto: async () => 0 });
+    expect(await processarTarefaIA({ tenantId: P.T.tenantId, tarefaId: nova }, deps(provedorFake()))).toBe('pronta');
+  });
+
+  it('D14: a "processando" que voltou do 529 à espera da nova tentativa, com retirada e reautorização no intervalo → não sai de novo (falhou, estorno)', async () => {
+    const P = await pedido();
+    const f = provedorFake({ ler: [new ErroProvedor('repetir', 529, 'r1')] });
+    await expect(processarTarefaIA(P.d, deps(f))).rejects.toBeInstanceOf(RepetirIaError);
+    expect(await tarefa(P)).toMatchObject({ status: 'processando', enviadoEm: null });
+    await retirarEReautorizar(P); // o cancelamento da retirada pula a "processando"
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', tentativas: 2 });
+    expect(f.chamadas.ler).toHaveLength(1); // só a primeira, antes da retirada
+    expect(await saidas(P)).toHaveLength(1);
+    expect((await usoDe(P)).situacao).toBe('estornado');
+  });
+
+  it('D14: retirada e reautorização DURANTE a chamada → o resultado não é gravado, o custo é', async () => {
+    const P = await pedido();
+    const f = provedorFake({ ler: [respostaOk(RESPOSTA_SANDBOX)] });
+    const lerOriginal = f.lerDocumento.bind(f);
+    f.lerDocumento = async (p) => {
+      await retirarEReautorizar(P);
+      return lerOriginal(p);
+    };
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
+    expect((await usoDe(P)).situacao).toBe('confirmado');
+  });
+
+  it('D14 / D15: a varredura cancela a tarefa de antes da retirada mesmo com o paciente autorizado de novo; a pedida depois fica', async () => {
+    const P = await pedido();
+    await retirarEReautorizar(P);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, P.T.tenantId));
+    const outroExame = await exameComLaudo(app.db, P.T.ctx, P.T.tenant, P.p.id, { dataDir });
+    const nova = await pedirLeituraExame(P.T.ctx, tenant as TenantRow, P.p.id, outroExame, { db: app.db, agora, ia: IA, avisarTeto: async () => 0 });
+    const r = await withTenant({ tenantId: P.T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, 'teste'), app.db);
+    expect(r).toEqual({ interrompidas: 0, expiradas: 0, canceladas: 1 });
+    expect(await tarefa(P)).toMatchObject({ status: 'cancelada' });
+    expect((await usoDe(P)).situacao).toBe('estornado');
+    expect((await withTenant(P.T.ctx, (tx) => tx.select({ s: iaTarefas.status }).from(iaTarefas).where(eq(iaTarefas.id, nova)), app.db))[0].s).toBe('na_fila');
   });
 
   it('duas execuções do mesmo job ao mesmo tempo (expiração do pg-boss): o laudo sai uma vez só', async () => {
@@ -164,6 +282,50 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await processarTarefaIA(P.d, deps(null, { modo: 'anthropic', alertas: a }))).toBe('falhou');
     expect((await tarefa(P)).erro).toBe('credencial_invalida');
     expect(a.credencial).toHaveBeenCalledTimes(1);
+  });
+
+  it('bedrock-eu sem as chaves no worker → credencial_invalida, sem chamada, e os admins avisados', async () => {
+    const P = await pedido();
+    const a = alertas();
+    expect(await processarTarefaIA(P.d, deps(null, { modo: 'bedrock-eu', alertas: a }))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ erro: 'credencial_invalida', saiuEm: null });
+    expect(a.credencial).toHaveBeenCalledTimes(1);
+  });
+
+  it('D3/D5 (Plano 14A, revisão da T3): modelo ou região que o provedor do worker não atende → ia_desligada ANTES do portão: sem saiu_em, sem "Laudo enviado à IA", estorno e nenhuma chamada', async () => {
+    // os provedores reais contra um fetch que conta (nada sai da máquina; chaves só no formato)
+    let rede = 0;
+    const semRede: typeof fetch = async () => {
+      rede++;
+      throw new Error('chamada ao provedor');
+    };
+    const bedrock = provedorBedrock({ regiao: 'eu-central-1', accessKeyId: 'AKIA' + 'T'.repeat(16), secretAccessKey: 's'.repeat(40), fetch: semRede });
+    const anthropic = provedorAnthropic({ apiKey: 'sk-ant-api03-' + 'x'.repeat(40), fetch: semRede });
+    const casos: [string, ProvedorIA, Partial<DepsJobIA>][] = [
+      // a troca de IA_PROVEDOR para bedrock-eu com tarefa criada pelo app ainda com o modelo padrão da API direta (opus)
+      ['bedrock-eu com o modelo fora do perfil eu.', bedrock, { modo: 'bedrock-eu', geo: 'eu' }],
+      ['bedrock-eu com região que não é eu', bedrock, { modo: 'bedrock-eu', geo: 'us' }],
+      ['anthropic com a região eu', anthropic, { modo: 'anthropic', geo: 'eu' }],
+      ['fake que não atende', provedorFake({ aceita: () => false }), {}],
+    ];
+    for (const [nome, provedor, extra] of casos) {
+      const P = await pedido();
+      expect(await processarTarefaIA(P.d, deps(provedor, extra)), nome).toBe('falhou');
+      expect(await tarefa(P), nome).toMatchObject({ status: 'falhou', erro: 'ia_desligada', enviadoEm: null, saiuEm: null });
+      expect(await saidas(P), nome).toHaveLength(0);
+      expect((await usoDe(P)).situacao, nome).toBe('estornado');
+    }
+    expect(rede).toBe(0);
+  });
+
+  it('D4 (Plano 14A): o arquivo preparado acima do limite do provedor em uso → arquivo_invalido, sem sair', async () => {
+    const P = await pedido();
+    const f = provedorFake({ limitePedidoBytes: 1024 });
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'arquivo_invalido', enviadoEm: null, saiuEm: null });
+    expect(f.chamadas.ler).toHaveLength(0);
+    expect(await saidas(P)).toHaveLength(0);
+    expect((await usoDe(P)).situacao).toBe('estornado');
   });
 
   it('RN-105: 529 → relança (nova tentativa) com enviado_em limpo e saiu_em mantido; na última tentativa → provedor_indisponivel e estorno', async () => {
@@ -260,13 +422,14 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
   // o passo (6) espera o commit e vê a mudança.
   it.each([
     [
-      '"Não usar IA"',
+      'a retirada pela nutricionista',
+      // o mesmo que registrarRetiradaPelaNutri: paciente FOR UPDATE → evento `retirou` → cancelarTarefas (Plano 14A, US-109)
       async (tx: Tx, P: Awaited<ReturnType<typeof pedido>>) => {
         await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, P.p.id)).for('update');
-        await tx.update(patients).set({ iaRecusadaEm: agora }).where(eq(patients.id, P.p.id));
+        await tx.insert(iaAutorizacoes).values({ tenantId: P.T.tenantId, patientId: P.p.id, evento: 'retirou', canal: 'nutricionista', registradoPor: P.T.nutriId });
         await cancelarTarefas(tx, { tenantId: P.T.tenantId, patientId: P.p.id, agora });
       },
-      'paciente_indisponivel',
+      'sem_autorizacao',
     ],
     [
       'a desativação da IA',
@@ -333,7 +496,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     // que rodam em paralelo: o teste chama só a parte por tenant, para não expirar tarefas de outros arquivos
     let r = { interrompidas: 0, expiradas: 0 };
     for (const X of [A, B, C, D]) {
-      const x = await withTenant({ tenantId: X.T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora), app.db);
+      const x = await withTenant({ tenantId: X.T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, 'teste'), app.db);
       r = { interrompidas: r.interrompidas + x.interrompidas, expiradas: r.expiradas + x.expiradas };
     }
     expect(r).toEqual({ interrompidas: 3, expiradas: 1 });

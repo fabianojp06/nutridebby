@@ -116,14 +116,14 @@ export const GUIAS: readonly Guia[] = [
     id: 'prontuario',
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
-    versao: 1,
+    versao: 2, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns)
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
     ajuda: {
       resumo: 'Tudo do paciente em abas: anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
         { titulo: 'Passo a passo', itens: ['Comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
-        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.'] },
+        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.'] },
       ],
     },
     passos: [
@@ -224,7 +224,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 4, // Plano 13: o carimbo também sai no parecer
+    versao: 5, // Plano 14A: a autorização do paciente no lugar do aviso de IA
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
@@ -244,7 +244,7 @@ export const GUIAS: readonly Guia[] = [
           itens: [
             'A leitura de laudos com IA só aparece depois que o suporte libera o seu consultório; para ativar, você aceita o aditivo de inteligência artificial.',
             'A IA só sugere: você confere cada valor antes de salvar. Nada entra no prontuário sem você marcar e salvar.',
-            'Antes de usar a IA com um paciente, informe-o (aba Privacidade do paciente, "Uso de IA"). Quem pedir para não usar IA fica de fora.',
+            'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
           ],
         },
