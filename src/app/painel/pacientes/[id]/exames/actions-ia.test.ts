@@ -32,7 +32,7 @@ describe('ações da IA na aba Exames', () => {
         { indice: 3, nome: 'Colesterol total', valor: '190', unidade: 'mg/dL', referencia: '' },
       ],
       usarData: true,
-    });
+    }, { destino: 'teste' });
   });
 
   it('aplicar: erro de conferência volta para a tela, por linha', async () => {

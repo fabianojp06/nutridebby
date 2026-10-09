@@ -8,11 +8,11 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { avisarCredencialInvalida, avisarTetoGlobal } from './alertas';
-import { motivoDoPaciente } from './ciencia-paciente';
-import { PRAZO_SUGESTAO_DIAS, type ModeloIA, type MotivoFalha, type RegiaoIA } from './constantes';
+import { autorizacaoDoPaciente, motivoDoPaciente, vigentePara, type SituacaoAutorizacao } from './autorizacao';
+import { PRAZO_SUGESTAO_DIAS, USO_DA_TAREFA, type DestinoIA, type ModeloIA, type MotivoFalha, type RegiaoIA, type TipoTarefa } from './constantes';
 import { acertar, avisarSeChegou80Ia, estornar, marcarIncerto, reduzirReserva } from './cota';
 import { ESFORCO_LEITURA, INSTRUCAO_LEITURA, SISTEMA_LEITURA } from './instrucoes/leitura';
-import { estadoIaDoTenant, type ModoIA } from './modo';
+import { estadoIaComPaciente, type ModoIA } from './modo';
 import { custoMaximoDoArquivo, custoMicroUsd, MAX_TOKENS_LEITURA } from './precos';
 import { prepararLaudo, PreparoError } from './preparar-arquivo';
 import { ErroProvedor, type ArquivoPreparado, type PedidoLeitura, type ProvedorIA, type RespostaLeitura } from './provedor';
@@ -42,6 +42,10 @@ export type DepsJobIA = {
   alertas?: { credencial: (agora: Date) => Promise<unknown>; teto: (agora: Date) => Promise<unknown> };
   /** Só nos testes: mudança entre o preparo e o portão do envio (Review Focus 4). */
   depoisDoPreparo?: () => Promise<unknown>;
+  /** RN-109 (Plano 14A): o destino do provedor em uso — a autorização tem de ser para ele, e o portão o grava na tarefa. Nulo = sem IA_PROVEDOR. */
+  destino: DestinoIA | null;
+  /** A-D4 (Plano 14A, D9): sem retenção zero, nada com dado de paciente sai (ia_desligada). */
+  retencaoZero: boolean;
 };
 export type FimDoJob = 'pronta' | 'falhou' | 'ignorada';
 
@@ -89,11 +93,13 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
     async (tx) => {
       const [t] = await tx.select().from(iaTarefas).where(eq(iaTarefas.id, d.tarefaId)).for('update');
       if (!t || (t.status !== 'na_fila' && t.status !== 'processando')) return null;
-      if (t.enviadoEm) return { t, jaEnviada: true as const, paciente: null, arquivo: null };
+      if (t.enviadoEm) return { t, jaEnviada: true as const, paciente: null, situacao: null, arquivo: null };
       await tx.update(iaTarefas).set({ status: 'processando', iniciadoEm: t.iniciadoEm ?? agora(), tentativas: t.tentativas + 1, updatedAt: agora() }).where(eq(iaTarefas.id, t.id));
       const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId));
+      // Plano 14A (RN-100, RN-107): a situação da autorização junto do paciente (conferência barata; o portão relê com trava)
+      const situacao: SituacaoAutorizacao | null = p ? await autorizacaoDoPaciente(tx, p.id, deps.destino) : null;
       const [e] = t.examId ? await tx.select({ arquivo: exams.arquivoPath }).from(exams).where(eq(exams.id, t.examId)) : [];
-      return { t, jaEnviada: false as const, paciente: p ?? null, arquivo: e?.arquivo ?? null };
+      return { t, jaEnviada: false as const, paciente: p ?? null, situacao, arquivo: e?.arquivo ?? null };
     },
     db,
   );
@@ -101,10 +107,12 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   if (lida.jaEnviada) return falhar('resultado_incerto', 'manter'); // D4: nunca reenviar o que pode ter sido processado
   const { t } = lida;
 
-  // (2) RN-100 de novo, no worker (conferência barata, antes de abrir o arquivo; o portão confere de novo com travas)
+  // (2) RN-100 de novo, no worker (conferência barata, antes de abrir o arquivo; o portão confere de novo com travas).
+  // Plano 14A: a retenção zero (A-D4) e o destino do provedor em uso (RN-109) entram aqui; a autorização, no paciente.
+  const uso = USO_DA_TAREFA[t.tipo as TipoTarefa];
   const tenant = await buscarTenant(db, d.tenantId);
-  if (!tenant || estadoIaDoTenant(tenant, deps.modo) !== 'ativa') return falhar('ia_desligada');
-  const motivoPaciente = lida.paciente ? motivoDoPaciente(lida.paciente) : 'paciente_indisponivel';
+  if (!tenant || estadoIaComPaciente(tenant, deps) !== 'ativa' || !deps.destino) return falhar('ia_desligada');
+  const motivoPaciente = lida.paciente && lida.situacao ? motivoDoPaciente(lida.paciente, lida.situacao, uso) : 'paciente_indisponivel';
   if (motivoPaciente) return falhar(motivoPaciente);
   if (!lida.arquivo) return falhar('exame_indisponivel');
   if (!deps.provedor) return falhar(deps.modo === 'anthropic' || deps.modo === 'bedrock-eu' ? 'credencial_invalida' : 'ia_desligada');
@@ -136,12 +144,13 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
 
   // (4) PORTÃO DO ENVIO (RN-100, RN-104, D4; Review Focus 4). Numa transação só, logo antes do primeiro contato com o
   // provedor, na ordem de travas da spec (§5.5): paciente FOR SHARE (serializa com o FOR UPDATE de
-  // carregarPacienteParaEscrita em definirRecusaIa, atenderPedidoExclusao e excluirExame) → exame FOR SHARE (o mesmo
-  // arquivo_path; serializa com o DELETE) → tenant FOR SHARE (serializa com desativarIa, definirIaLiberada e a suspensão)
-  // → tarefa → ia_uso → plataforma. Reconfere tudo; grava `enviado_em` (pode ter sido processado) e `saiu_em` (registro
-  // conservador da primeira saída, nunca volta a nulo) só se a tarefa ainda está "processando" e sem envio (RETURNING:
-  // sem linha, outra execução já marcou ou a varredura encerrou → não chama); reduz a reserva ao teto das páginas; grava
-  // a auditoria "Laudo enviado à IA" (exportar/ia, ator nulo, sem conteúdo). Só depois do commit o laudo sai.
+  // carregarPacienteParaEscrita em registrarRetiradaPelaNutri, atenderPedidoExclusao e excluirExame, e com o do job
+  // ia-retirada) → exame FOR SHARE (o mesmo arquivo_path; serializa com o DELETE) → tenant FOR SHARE (serializa com
+  // desativarIa, definirIaLiberada e a suspensão) → tarefa → ia_uso → plataforma. Reconfere tudo; grava `enviado_em`
+  // (pode ter sido processado), `saiu_em` (registro conservador da primeira saída, nunca volta a nulo) e `destino`
+  // (RN-109, Plano 14A) só se a tarefa ainda está "processando" e sem envio (RETURNING: sem linha, outra execução já
+  // marcou ou a varredura encerrou → não chama); reduz a reserva ao teto das páginas; grava a auditoria "Laudo enviado
+  // à IA" (exportar/ia, ator nulo, sem conteúdo). Só depois do commit o laudo sai.
   const teto = custoMaximoDoArquivo(pedido.modelo, pedido.geo, arquivo);
   const portao = await withTenant(
     ctx,
@@ -149,14 +158,17 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
       const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId)).for('share');
       const [e] = t.examId ? await tx.select({ arquivo: exams.arquivoPath }).from(exams).where(eq(exams.id, t.examId)).for('share') : [];
       const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
-      if (!tn || estadoIaDoTenant(tn, deps.modo) !== 'ativa') return 'ia_desligada';
+      if (!tn || estadoIaComPaciente(tn, deps) !== 'ativa' || !deps.destino) return 'ia_desligada';
+      // D6 (RN-109): a tarefa que já saiu para um destino (tentativa anterior) não sai para outro
+      if (t.destino && t.destino !== deps.destino) return 'ia_desligada';
       if (!p) return 'paciente_indisponivel';
-      const doPaciente = motivoDoPaciente(p);
+      // CS-105 / RN-108: a autorização relida com o paciente travado (FOR SHARE) — serializa com a retirada (FOR UPDATE)
+      const doPaciente = motivoDoPaciente(p, await autorizacaoDoPaciente(tx, p.id, deps.destino), uso);
       if (doPaciente) return doPaciente;
       if (!e || e.arquivo !== lida.arquivo) return 'exame_indisponivel';
       const marcada = await tx
         .update(iaTarefas)
-        .set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), updatedAt: agora() })
+        .set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, updatedAt: agora() })
         .where(and(eq(iaTarefas.id, t.id), eq(iaTarefas.status, 'processando'), isNull(iaTarefas.enviadoEm)))
         .returning({ id: iaTarefas.id });
       if (!marcada.length) return 'ignorada';
@@ -193,7 +205,7 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   // (varredura, cancelamento), a IA do consultório (desativada, bloqueada pela admin, tenant suspenso), o paciente e o
   // exame (excluído → sem linha, e exam_id nulo pelo SET NULL). Resultado que chega depois de qualquer mudança não é
   // gravado. Com as MESMAS travas do portão, na ordem da spec (§5.5): paciente FOR SHARE → exame FOR SHARE → tenant FOR
-  // SHARE → tarefa FOR UPDATE → (acertar) ia_uso → plataforma. Sem elas, uma mudança ainda sem commit (definirRecusaIa,
+  // SHARE → tarefa FOR UPDATE → (acertar) ia_uso → plataforma. Sem elas, uma mudança ainda sem commit (a retirada,
   // excluirExame e a exclusão atendida travam o paciente; desativarIa, o tenant) não é vista aqui, e o cancelarTarefas
   // dela, que ainda vê "processando", pula a linha: ficaria uma "pronta" com o resultado (revisão da T11). Com elas, ou
   // este passo espera o commit e vê a mudança, ou a mudança espera e o cancelarTarefas dela encontra a "pronta" já gravada
@@ -212,10 +224,11 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
       const [e] = t.examId ? await tx.select({ id: exams.id }).from(exams).where(eq(exams.id, t.examId)).for('share') : [];
       const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [atual] = await tx.select({ status: iaTarefas.status, examId: iaTarefas.examId }).from(iaTarefas).where(eq(iaTarefas.id, t.id)).for('update');
-      const doPaciente = p ? motivoDoPaciente(p) : 'paciente_indisponivel';
+      // Plano 14A (RN-108): a retirada que chegou durante a chamada — o resultado não é gravado (o custo é)
+      const doPaciente = p ? motivoDoPaciente(p, await autorizacaoDoPaciente(tx, p.id, deps.destino), uso) : 'paciente_indisponivel';
       let motivo: MotivoFalha | null = null;
       if (atual?.status !== 'processando') motivo = 'interrompida';
-      else if (!tn || estadoIaDoTenant(tn, deps.modo) !== 'ativa') motivo = 'ia_desligada';
+      else if (!tn || estadoIaComPaciente(tn, deps) !== 'ativa') motivo = 'ia_desligada';
       else if (doPaciente) motivo = doPaciente;
       else if (!atual.examId || !e) motivo = 'exame_indisponivel';
       else if (r.tipo === 'recusa') motivo = 'recusa';
@@ -241,25 +254,47 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   return fim.status;
 }
 
+const ATIVAS = ['na_fila', 'processando', 'pronta'] as const;
+
 /**
  * A varredura de UM tenant (dentro do withTenant do worker). Separada para o teste não varrer os tenants de outros arquivos.
  * Trava de uma vez, por id, todas as tarefas que vai mudar (paradas, esquecidas e prontas vencidas) ANTES de qualquer
  * estorno: a ordem de cancelarTarefas (tarefas → ia_uso → plataforma). Travar as vencidas só depois do estorno fecharia
  * um ciclo com quem cancela (já travou a pronta e vai estornar na linha do mês da plataforma) — revisão final, Minor 11.
+ * Plano 14A (D15, RN-108): também cancela as tarefas ativas de paciente SEM autorização vigente para o uso da tarefa
+ * (rede de segurança do job ia-retirada): na fila → cancelada com estorno; processando → cancelada, com estorno se nada
+ * saiu e a reserva mantida (incerta) se `enviado_em` está gravado; pronta → cancelada e esvaziada. A situação é lida
+ * antes (sem trava) e a trava única por id continua antes de qualquer estorno.
  */
-export async function expirarTarefasDoTenant(tx: Tx, agora: Date): Promise<{ interrompidas: number; expiradas: number }> {
+export async function expirarTarefasDoTenant(tx: Tx, agora: Date, destino: DestinoIA | null): Promise<{ interrompidas: number; expiradas: number; canceladas: number }> {
   const parada = and(eq(iaTarefas.status, 'processando'), lt(iaTarefas.iniciadoEm, new Date(agora.getTime() - PROCESSANDO_MAX_MS)));
   const esquecida = and(eq(iaTarefas.status, 'na_fila'), lt(iaTarefas.criadoEm, new Date(agora.getTime() - NA_FILA_MAX_MS)));
   const vencida = and(eq(iaTarefas.status, 'pronta'), isNotNull(iaTarefas.expiraEm), lt(iaTarefas.expiraEm, agora));
+  const candidatas = await tx.select({ id: iaTarefas.id, patientId: iaTarefas.patientId, tipo: iaTarefas.tipo }).from(iaTarefas).where(inArray(iaTarefas.status, [...ATIVAS]));
+  const situacoes = new Map<string, SituacaoAutorizacao>();
+  const semAutorizacao = new Set<string>();
+  for (const c of candidatas) {
+    if (!situacoes.has(c.patientId)) situacoes.set(c.patientId, await autorizacaoDoPaciente(tx, c.patientId, destino));
+    if (!vigentePara(situacoes.get(c.patientId)!, USO_DA_TAREFA[c.tipo as TipoTarefa])) semAutorizacao.add(c.id);
+  }
   const alvo = await tx
     .select({ id: iaTarefas.id, status: iaTarefas.status, enviadoEm: iaTarefas.enviadoEm })
     .from(iaTarefas)
-    .where(or(parada, esquecida, vencida))
+    .where(or(parada, esquecida, vencida, semAutorizacao.size ? inArray(iaTarefas.id, [...semAutorizacao]) : undefined))
     .orderBy(asc(iaTarefas.id))
     .for('update');
   let interrompidas = 0;
   let expiradas = 0;
+  let canceladas = 0;
   for (const x of alvo) {
+    if (semAutorizacao.has(x.id)) {
+      if (!(ATIVAS as readonly string[]).includes(x.status)) continue; // mudou entre a leitura e a trava (aplicada, descartada…)
+      await tx.update(iaTarefas).set({ status: 'cancelada', resultado: null, parametros: null, encerradoEm: agora, encerradoPor: null, updatedAt: agora }).where(eq(iaTarefas.id, x.id));
+      if (x.status === 'processando' && x.enviadoEm) await marcarIncerto(tx, x.id, agora);
+      else if (x.status !== 'pronta') await estornar(tx, x.id, agora);
+      canceladas++;
+      continue;
+    }
     if (x.status === 'pronta') {
       await tx.update(iaTarefas).set({ status: 'expirada', resultado: null, parametros: null, updatedAt: agora }).where(eq(iaTarefas.id, x.id));
       expiradas++;
@@ -270,25 +305,28 @@ export async function expirarTarefasDoTenant(tx: Tx, agora: Date): Promise<{ int
     else await estornar(tx, x.id, agora);
     interrompidas++;
   }
-  return { interrompidas, expiradas };
+  return { interrompidas, expiradas, canceladas };
 }
 
 /**
- * Varredura (fila `expirar-ia`, de 15 em 15 min): worker que caiu, job perdido e sugestão vencida (RN-106). Um tenant com
- * erro não para os outros.
+ * Varredura (fila `expirar-ia`, de 15 em 15 min): worker que caiu, job perdido e sugestão vencida (RN-106); Plano 14A
+ * (D15): tarefas de paciente sem autorização vigente (`destino` = o do provedor em uso). Um tenant com erro não para os
+ * outros.
  */
-export async function expirarTarefasIA(db: Db, agora: Date): Promise<{ interrompidas: number; expiradas: number }> {
+export async function expirarTarefasIA(db: Db, agora: Date, destino: DestinoIA | null): Promise<{ interrompidas: number; expiradas: number; canceladas: number }> {
   let interrompidas = 0;
   let expiradas = 0;
+  let canceladas = 0;
   for (const t of await listarTenantsParaVarredura(db)) {
     try {
-      const r = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora), db);
+      const r = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, destino), db);
       interrompidas += r.interrompidas;
       expiradas += r.expiradas;
+      canceladas += r.canceladas;
     } catch (err) {
       logger.error({ tenantId: t.id, err: err instanceof Error ? err.name : 'erro' }, 'falha na varredura das tarefas de IA');
     }
   }
-  if (interrompidas || expiradas) logger.info({ interrompidas, expiradas }, 'varredura das tarefas de IA');
-  return { interrompidas, expiradas };
+  if (interrompidas || expiradas || canceladas) logger.info({ interrompidas, expiradas, canceladas }, 'varredura das tarefas de IA');
+  return { interrompidas, expiradas, canceladas };
 }

@@ -10,11 +10,11 @@ import { getEnv } from '@/env';
 import { logger } from '@/lib/logger';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { avisarTetoGlobal } from './alertas';
-import { motivoDoPaciente } from './ciencia-paciente';
-import { EM_ANDAMENTO, IA_ARQUIVO_MAX_BYTES, MSG_FALHA, MSG_IA, type MotivoFalha, type StatusTarefa } from './constantes';
+import { autorizacaoDoPaciente, motivoDoPaciente, type SituacaoAutorizacao } from './autorizacao';
+import { EM_ANDAMENTO, IA_ARQUIVO_MAX_BYTES, MSG_FALHA, MSG_IA, USO_DA_TAREFA, type MotivoFalha, type StatusTarefa } from './constantes';
 import { CotaIaError, reservar } from './cota';
 import { PROMPT_VERSAO_LEITURA } from './instrucoes/leitura';
-import { estadoIaDoTenant, type ConfigIA } from './modo';
+import { estadoIaComPaciente, type EstadoIaTenant, type ConfigIA } from './modo';
 import { reservaDaLeitura } from './precos';
 
 /** Erro com texto pronto para a tela (texto da spec). */
@@ -30,13 +30,14 @@ export type DepsPedido = { ia: ConfigIA; db?: Db; boss?: PgBoss; agora?: Date; a
 const MAX_EM_ANDAMENTO_POR_TENANT = 2; // RN-103
 const MAX_PEDIDOS_POR_HORA = 30; // RN-103
 
-function mensagemDoEstado(e: ReturnType<typeof estadoIaDoTenant>): string {
+/** `sem_retencao` (Plano 14A, D9) cai no "indisponível", como a emergência. */
+function mensagemDoEstado(e: EstadoIaTenant): string {
   return e === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado : MSG_IA.indisponivel;
 }
-/** US-110: a mensagem do paciente — sem ciência (US-104), com recusa (US-103) ou arquivado. */
-function mensagemDoPaciente(motivo: MotivoFalha, recusou: boolean): string {
-  if (motivo === 'paciente_nao_informado') return MSG_IA.semCiencia;
-  return recusou ? MSG_IA.recusou : MSG_FALHA[motivo];
+/** US-110 (Plano 14A): a mensagem do paciente — sem autorização vigente (US-105), com a autorização retirada, ou indisponível. */
+function mensagemDoPaciente(motivo: MotivoFalha, s: SituacaoAutorizacao): string {
+  if (motivo === 'sem_autorizacao') return s.tipo === 'retirada' ? MSG_IA.retirouAutorizacao : MSG_IA.semAutorizacao;
+  return MSG_FALHA[motivo];
 }
 
 /** RN-103, com a linha do tenant já travada (D16): duas abas não passam do limite. */
@@ -59,7 +60,7 @@ async function conferirLimites(tx: Tx, usuaria: string, agora: Date): Promise<vo
 export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, patientId: string, examId: string, deps: DepsPedido): Promise<string> {
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  const estado = estadoIaDoTenant(tenant, deps.ia.modo); // atalho barato; a decisão vale sob a trava D16, abaixo
+  const estado = estadoIaComPaciente(tenant, deps.ia); // atalho barato; a decisão vale sob a trava D16, abaixo
   if (estado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estado));
   if (!idValido(examId) || !ctx.actorUserId) throw new PedidoIaError(MSG_FALHA.exame_indisponivel);
   const boss = deps.boss ?? (await getBoss());
@@ -68,8 +69,10 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
       ctx,
       async (tx) => {
         const p = await carregarPacienteParaEscrita(tx, patientId); // bloqueado/anonimizado → PacienteBloqueadoError
-        const motivo = motivoDoPaciente(p);
-        if (motivo) throw new PedidoIaError(mensagemDoPaciente(motivo, Boolean(p.iaRecusadaEm)));
+        // RN-100 / RN-107 (Plano 14A): a autorização lida com o paciente travado (a retirada trava o mesmo paciente)
+        const situacao = await autorizacaoDoPaciente(tx, p.id, deps.ia.destino);
+        const motivo = motivoDoPaciente(p, situacao, USO_DA_TAREFA.leitura_exame);
+        if (motivo) throw new PedidoIaError(mensagemDoPaciente(motivo, situacao));
         const [e] = await tx.select({ id: exams.id, arquivo: exams.arquivoPath }).from(exams).where(and(eq(exams.id, examId), eq(exams.patientId, p.id))).for('update');
         if (!e?.arquivo) throw new PedidoIaError(MSG_FALHA.exame_indisponivel);
         const [arq] = await tx.select({ mime: storedFiles.mime, bytes: storedFiles.bytes }).from(storedFiles).where(eq(storedFiles.caminho, e.arquivo));
@@ -94,7 +97,7 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
           .from(tenants)
           .where(eq(tenants.id, ctx.tenantId))
           .for('no key update');
-        const estadoTravado = tn ? estadoIaDoTenant(tn, deps.ia.modo) : 'suspensa';
+        const estadoTravado = tn ? estadoIaComPaciente(tn, deps.ia) : 'suspensa';
         if (estadoTravado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estadoTravado));
         await conferirLimites(tx, ctx.actorUserId!, agora);
         const tarefaId = randomUUID();

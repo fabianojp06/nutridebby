@@ -57,6 +57,9 @@ export const QUEUES = {
   ia: { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   // Plano 11: processando há mais de 15 min / na fila há mais de 30 min → falhou (interrompida); pronta vencida → expirada (15 em 15 min)
   'expirar-ia': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
+  // Plano 14A (RN-108, D14): a retirada da autorização pelo paciente (app ou link) — cancela a fila e esvazia as sugestões no
+  // contexto worker (a sessão de paciente não alcança ia_tarefas). Payload { tenantId, patientId, retiradaId } (só ids).
+  'ia-retirada': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // Plano 12 (RN-163, D23 = a): o envio de exame do paciente — fotos convertidas e PDF rasterizado num processo filho, PDF
   // limpo, páginas e aviso. Payload { tenantId, envioId } (nada de dado de saúde). Um por vez (padrão do boss.work, RNF-162);
   // 300 s acima do pior caso (rasterização de até 120 s + gravações); na última tentativa, "falhou" (o handler decide).

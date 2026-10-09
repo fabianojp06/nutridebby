@@ -16,6 +16,7 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
+import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autorizacao-retirada-job';
 import { desfazerAvisoPendente, registrarCienciaPorEmail } from '@/modules/ia/ciencia-paciente';
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
 import { configIA } from '@/modules/ia/modo';
@@ -244,6 +245,7 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await work('ia', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobIA>[]) => {
     await processarTarefaIA(job.data, {
       db: getDb(), dataDir: env.DATA_DIR, modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd,
+      destino: ia.destino, retencaoZero: ia.retencaoZero,
       appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
       // pg-boss 12: o sinal é abortado quando o job expira (resolveWithinSeconds) ou no encerramento do worker
       abortado: () => job.signal.aborted,
@@ -251,7 +253,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   });
   await boss.schedule('expirar-ia', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-ia', async () => {
-    await expirarTarefasIA(getDb(), new Date());
+    await expirarTarefasIA(getDb(), new Date(), ia.destino);
+  });
+  // Plano 14A (RN-108): a retirada pelo paciente — o job nasce na transação da retirada (app ou link)
+  await work<DadosRetiradaIa>('ia-retirada', async ([job]) => {
+    await processarRetiradaIa(job.data, { db: getDb(), destino: ia.destino });
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).

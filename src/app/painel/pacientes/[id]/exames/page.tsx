@@ -5,11 +5,11 @@ import { Selo } from '@/components/ui/selo';
 import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
-import { motivoDoPaciente } from '@/modules/ia/ciencia-paciente';
+import { motivoDoPaciente, situacaoIaDoPaciente } from '@/modules/ia/autorizacao';
 import { abrirSugestao } from '@/modules/ia/conferencia';
 import { MSG_IA } from '@/modules/ia/constantes';
 import { situacaoDaCotaIa } from '@/modules/ia/cota';
-import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
+import { configIA, estadoIaComPaciente } from '@/modules/ia/modo';
 import { marcasDeIa, tarefasDosExames } from '@/modules/ia/tarefas';
 import { formatarData, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarExames } from '@/modules/pacientes/exames';
@@ -31,7 +31,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const bloqueado = paciente.status === 'bloqueado';
   const busca = await searchParams;
   const ia = configIA(getEnv());
-  const estadoIa = estadoIaDoTenant(tenant, ia.modo);
+  const estadoIa = estadoIaComPaciente(tenant, ia);
   const agora = new Date();
   // R7/D19: a sugestão já pronta segue visível e aplicável até vencer mesmo com a IA bloqueada depois; o pedido novo não.
   const mostrarIa = !bloqueado && estadoIa !== 'ausente' && estadoIa !== 'suspensa';
@@ -45,7 +45,9 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
     examesEnviadosPeloPaciente(ctx, paciente.id),
   ]);
   const iaRecusou = mensagemIaDaChave(busca.iaMsg);
-  const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente), recusou: !!paciente.iaRecusadaEm, cota });
+  // Plano 14A (D8): a autorização do paciente (sem auditoria: não é dado de saúde)
+  const situacaoIa = mostrarIa ? await situacaoIaDoPaciente(ctx, paciente.id, ia.destino) : ({ tipo: 'nunca' } as const);
+  const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente, situacaoIa, 'leitura_laudos'), situacao: situacaoIa, cota });
   const conferir = typeof busca.conferir === 'string' && mostrarIa ? await abrirSugestao(ctx, paciente.id, busca.conferir) : null;
   const pediuConferir = typeof busca.conferir === 'string';
   return (

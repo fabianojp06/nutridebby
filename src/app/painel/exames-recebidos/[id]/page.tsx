@@ -3,8 +3,8 @@ import { notFound } from 'next/navigation';
 import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { requireNutri } from '@/lib/tenant-session';
-import { motivoDoPaciente } from '@/modules/ia/ciencia-paciente';
-import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
+import { motivoDoPaciente, situacaoIaDoPaciente } from '@/modules/ia/autorizacao';
+import { configIA, estadoIaComPaciente } from '@/modules/ia/modo';
 import { formatarData, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { abrirEnvio } from '@/modules/pacientes/exames-enviados';
 import { MSG_REVISAO, nomeDoEnvio } from '@/modules/pacientes/exames-enviados-constantes';
@@ -24,7 +24,11 @@ export default async function EnvioRecebido({ params }: PageProps<'/painel/exame
   const { id } = await params;
   const envio = await abrirEnvio(ctx, id);
   if (!envio) notFound();
-  const comIa = estadoIaDoTenant(tenant, configIA(getEnv()).modo) === 'ativa' && motivoDoPaciente(envio.paciente) === null;
+  // Plano 14A (D8): "Aceitar e ler" só com a IA utilizável com dado de paciente e a autorização vigente para a leitura
+  const ia = configIA(getEnv());
+  const comIa =
+    estadoIaComPaciente(tenant, ia) === 'ativa' &&
+    motivoDoPaciente(envio.paciente, await situacaoIaDoPaciente(ctx, envio.paciente.id, ia.destino), 'leitura_laudos') === null;
   const enviado = formatarDataNoFuso(envio.enviadoEm, tenant.fuso);
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
