@@ -52,7 +52,7 @@ async function pedido(o: { conteudo?: Buffer; cotaUsd?: number; nome?: string } 
 }
 const alertas = () => ({ credencial: vi.fn(async () => 0), teto: vi.fn(async () => 0) });
 const deps = (provedor: ProvedorIA | null, extra: Partial<DepsJobIA> = {}): DepsJobIA => ({
-  db: app.db, dataDir, modo: 'fake', provedor, geo: 'us', destino: 'teste', retencaoZero: true, tetoGlobalMicroUsd: IA.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, ultimaTentativa: false, alertas: alertas(), ...extra,
+  db: app.db, dataDir, modo: 'fake', provedor, geo: 'us', destino: 'teste', retencao: 'zero', tetoGlobalMicroUsd: IA.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, ultimaTentativa: false, alertas: alertas(), ...extra,
 });
 const tarefa = async (P: Awaited<ReturnType<typeof pedido>>) => (await withTenant(P.T.ctx, (tx) => tx.select().from(iaTarefas).where(eq(iaTarefas.id, P.tarefaId)), app.db))[0];
 const usoDe = async (P: Awaited<ReturnType<typeof pedido>>) => (await withTenant(P.T.ctx, (tx) => tx.select().from(iaUso).where(eq(iaUso.tarefaId, P.tarefaId)), app.db))[0];
@@ -111,7 +111,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       ['bloqueado', (P) => withTenant(P.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora }).where(eq(patients.id, P.p.id)), app.db), 'paciente_indisponivel'],
       ['retirada', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' }), 'sem_autorizacao'],
       ['versão antiga', (P) => autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { versao: '0.0.1-antiga' }), 'sem_autorizacao'],
-      ['sem retenção zero', async () => undefined, 'ia_desligada'], // com deps({ retencaoZero: false }), abaixo
+      ['sem retenção zero', async () => undefined, 'ia_desligada'], // com deps({ retencao: null }), abaixo
       ['IA desativada', (P) => app.db.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, P.T.tenantId)), 'ia_desligada'],
       ['tenant suspenso', (P) => app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, P.T.tenantId)), 'ia_desligada'],
     ];
@@ -119,7 +119,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
       const P = await pedido();
       await mudar(P);
       const f = provedorFake();
-      expect(await processarTarefaIA(P.d, deps(f, nome === 'sem retenção zero' ? { retencaoZero: false } : {})), nome).toBe('falhou');
+      expect(await processarTarefaIA(P.d, deps(f, nome === 'sem retenção zero' ? { retencao: null } : {})), nome).toBe('falhou');
       expect(await tarefa(P), nome).toMatchObject({ status: 'falhou', erro: motivo, saiuEm: null });
       expect(f.chamadas.ler, nome).toHaveLength(0);
       expect((await usoDe(P)).situacao, nome).toBe('estornado');

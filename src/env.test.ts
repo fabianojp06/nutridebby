@@ -357,6 +357,17 @@ describe('Plano 14A — bedrock-eu, retenção zero e variáveis que o SDK leria
     expect(() => parseEnv({ ...base, IA_RETENCAO_ZERO: 'sim' })).toThrow(/IA_RETENCAO_ZERO/);
   });
 
+  it('A-D27 (dono, 09/10/2026): IA_RETENCAO_ACEITA_30_DIAS 0 ou 1, ausente por padrão, no app e no worker; só com a Anthropic direta', () => {
+    expect(parseEnv(base).IA_RETENCAO_ACEITA_30_DIAS).toBeUndefined();
+    expect(parseEnv({ ...base, IA_PROVEDOR: 'anthropic', IA_RETENCAO_ACEITA_30_DIAS: '1' }).IA_RETENCAO_ACEITA_30_DIAS).toBe('1');
+    expect(parseWorkerEnv({ ...prodWorker, IA_PROVEDOR: 'anthropic', IA_RETENCAO_ACEITA_30_DIAS: '1' }).IA_RETENCAO_ACEITA_30_DIAS).toBe('1');
+    expect(parseWorkerEnv({ ...w, IA_RETENCAO_ACEITA_30_DIAS: '0' }).IA_RETENCAO_ACEITA_30_DIAS).toBe('0');
+    expect(() => parseEnv({ ...base, IA_RETENCAO_ACEITA_30_DIAS: 'sim' })).toThrow(/IA_RETENCAO_ACEITA_30_DIAS/);
+    // no Bedrock a retenção de 30 dias não existe: a variável ligada é erro de configuração (ele continua exigindo a zero)
+    expect(() => parseEnv({ ...base, ...bedrock, IA_RETENCAO_ACEITA_30_DIAS: '1' })).toThrow(/IA_RETENCAO_ACEITA_30_DIAS/);
+    expect(() => parseWorkerEnv({ ...w, ...bedrock, AWS_ACCESS_KEY_ID: AK, AWS_SECRET_ACCESS_KEY: SK, IA_RETENCAO_ACEITA_30_DIAS: '1' })).toThrow(/IA_RETENCAO_ACEITA_30_DIAS/);
+  });
+
   it('bedrock-eu exige uma região da UE e o modelo da lista do perfil eu. (D3); Londres e Zurique não são UE', () => {
     expect(() => parseEnv({ ...base, IA_PROVEDOR: 'bedrock-eu', IA_MODELO_LEITURA: 'claude-sonnet-5-5' })).toThrow(/IA_BEDROCK_REGIAO/);
     expect(() => parseEnv({ ...base, IA_PROVEDOR: 'bedrock-eu', IA_BEDROCK_REGIAO: 'eu-central-1' })).toThrow(/IA_MODELO_LEITURA/); // o padrão é o Opus, fora do perfil eu.

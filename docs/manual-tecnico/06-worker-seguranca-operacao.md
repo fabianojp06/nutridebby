@@ -80,7 +80,8 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` e, desde o Plano 11, `IA_PROVEDOR`, `IA_DESLIGADA`, `IA_MODELO_LEITURA`,
 `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD` e `ANTHROPIC_API_KEY` (só no worker; o app não a declara) e, desde o
 Plano 14A, `IA_RETENCAO_ZERO`, `IA_BEDROCK_REGIAO` (app e worker), `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (só no
-worker, juntas). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
+worker, juntas) e, desde a A-D27 (09/10/2026), `IA_RETENCAO_ACEITA_30_DIAS` (app e worker; só com `IA_PROVEDOR=anthropic`,
+[§10.10.10](10-ia.md#101010-retenção-aceita-e-textos-10-a-d27-09102026)). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
 as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sandbox`/`fake` é recusado e, com
 `IA_PROVEDOR=anthropic`, `IA_INFERENCE_GEO` só aceita `us`; com `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO` é obrigatória

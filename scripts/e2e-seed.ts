@@ -33,7 +33,7 @@ const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', ende
 // Plano 10A: documentos assinados liberados pelo admin (D20) e o perfil profissional completo (carimbo da receita)
 const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Nutri E2E da Silva', contatoEmail: 'contato-e2e@nutridebby.test', contatoTelefoneE164: '+5511912345678' };
 // Plano 11: a IA liberada pela admin e ativada com o aditivo no consultório do E2E (o CI roda com IA_PROVEDOR=sandbox).
-// Plano 14A: o aditivo 0.2-provisorio (IA_ADITIVO_VERSAO) e o perfil de DOCUMENTOS, que o texto da autorização cita.
+// Plano 14A: o aditivo atual (IA_ADITIVO_VERSAO, 1.0 desde a A-D27) e o perfil de DOCUMENTOS, que o texto da autorização cita.
 const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15 };
 // Plano 12 (D18 = a): o recebimento de exames pelo app ligado no consultório do E2E (o axe passa por /p/exames com o formulário)
 const EXAMES_APP = { examesPacienteAtivadoEm: new Date(), examesAvisoEm: null };

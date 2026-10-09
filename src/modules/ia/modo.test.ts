@@ -25,11 +25,27 @@ describe('modo e estado da IA (spec v0.3 §5.9, RN-100)', () => {
 
 describe('Plano 14A — destino, retenção zero e estado com dado de paciente (RN-100, RN-109, A-D4)', () => {
   it('o destino vem do IA_PROVEDOR (inclusive na emergência); a retenção zero só com IA_RETENCAO_ZERO=1', () => {
-    expect(configIA(base)).toMatchObject({ destino: null, retencaoZero: false });
-    expect(configIA({ ...base, IA_PROVEDOR: 'anthropic' })).toMatchObject({ modo: 'anthropic', destino: 'anthropic-us' });
+    expect(configIA(base)).toMatchObject({ destino: null, retencao: null });
+    expect(configIA({ ...base, IA_PROVEDOR: 'anthropic' })).toMatchObject({ modo: 'anthropic', destino: 'anthropic-us', retencao: null });
     expect(configIA({ ...base, IA_PROVEDOR: 'bedrock-eu', IA_DESLIGADA: '1' })).toMatchObject({ modo: 'emergencia', destino: 'bedrock-eu' });
-    expect(configIA({ ...base, IA_PROVEDOR: 'sandbox', IA_RETENCAO_ZERO: '1' })).toMatchObject({ modo: 'sandbox', destino: 'teste', retencaoZero: true });
-    expect(configIA({ ...base, IA_PROVEDOR: 'fake', IA_RETENCAO_ZERO: '0' }).retencaoZero).toBe(false);
+    expect(configIA({ ...base, IA_PROVEDOR: 'sandbox', IA_RETENCAO_ZERO: '1' })).toMatchObject({ modo: 'sandbox', destino: 'teste', retencao: 'zero' });
+    expect(configIA({ ...base, IA_PROVEDOR: 'fake', IA_RETENCAO_ZERO: '0' }).retencao).toBeNull();
+    expect('retencaoZero' in configIA(base)).toBe(false); // A-D27: a retenção de 30 dias nunca passa por retenção zero
+  });
+
+  it.each([
+    // provedor × variável: A-D27 (dono, 09/10/2026) — a Anthropic direta aceita a retenção de até 30 dias; o Bedrock continua exigindo a zero
+    ['anthropic', { IA_RETENCAO_ZERO: '1' }, 'zero'],
+    ['anthropic', { IA_RETENCAO_ACEITA_30_DIAS: '1' }, '30-dias'],
+    ['anthropic', { IA_RETENCAO_ZERO: '1', IA_RETENCAO_ACEITA_30_DIAS: '1' }, 'zero'],
+    ['anthropic', { IA_RETENCAO_ACEITA_30_DIAS: '0' }, null],
+    ['bedrock-eu', { IA_RETENCAO_ZERO: '1' }, 'zero'],
+    ['bedrock-eu', { IA_RETENCAO_ACEITA_30_DIAS: '1' }, null],
+    ['sandbox', { IA_RETENCAO_ACEITA_30_DIAS: '1' }, null],
+  ] as const)('A-D27: %s com %o → retenção %s', (provedor, vars, retencao) => {
+    const ia = configIA({ ...base, IA_PROVEDOR: provedor, ...vars });
+    expect(ia.retencao).toBe(retencao);
+    expect(estadoIaComPaciente(tenant, ia)).toBe(retencao ? 'ativa' : 'sem_retencao');
   });
 
   it('D5: a região efetiva — eu no bedrock-eu (o IA_INFERENCE_GEO só vale para a API direta)', () => {
@@ -38,9 +54,10 @@ describe('Plano 14A — destino, retenção zero e estado com dado de paciente (
   });
 
   it('estadoIaComPaciente: o do consultório e, por cima, sem retenção zero = sem_retencao; o aditivo 0.1 não vale mais', () => {
-    expect(estadoIaComPaciente(tenant, { modo: 'fake', retencaoZero: true })).toBe('ativa');
-    expect(estadoIaComPaciente(tenant, { modo: 'fake', retencaoZero: false })).toBe('sem_retencao');
-    expect(estadoIaComPaciente({ ...tenant, iaLiberada: false }, { modo: 'fake', retencaoZero: false })).toBe('nao_liberada');
+    expect(estadoIaComPaciente(tenant, { modo: 'fake', retencao: 'zero' })).toBe('ativa');
+    expect(estadoIaComPaciente(tenant, { modo: 'anthropic', retencao: '30-dias' })).toBe('ativa');
+    expect(estadoIaComPaciente(tenant, { modo: 'fake', retencao: null })).toBe('sem_retencao');
+    expect(estadoIaComPaciente({ ...tenant, iaLiberada: false }, { modo: 'fake', retencao: null })).toBe('nao_liberada');
     expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: '0.1-provisorio' }, 'bedrock-eu')).toBe('aditivo_desatualizado');
   });
 });

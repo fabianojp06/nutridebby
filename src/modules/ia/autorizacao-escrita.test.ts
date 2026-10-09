@@ -56,11 +56,11 @@ describe('US-106 — autorizar no app', () => {
     const { p, P, conta, deps, eventos } = await cenario();
     expect(await autorizarNoApp(P, LIDO, deps({ ip: '203.0.113.9', userAgent: 'U'.repeat(400) }))).toBe('registrada');
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos'] });
+    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '1.0', destino: 'teste', usos: ['leitura_laudos'] });
     expect(e.userAgent).toHaveLength(300);
     expect(e.em.getTime()).toBe(e.registradoEm.getTime());
     const [m] = await emailsNaFila('autorizacao_ia_confirmada', p.email!);
-    expect(m).toMatchObject({ consultorio: expect.any(String), destino: 'Provedor de teste', versao: '0.1-provisorio' });
+    expect(m).toMatchObject({ consultorio: expect.any(String), destino: 'Provedor de teste', versao: '1.0' });
     const token = m.link.split('/autorizacao-ia/')[1];
     expect(lerLinkAutorizacao(token)).toMatchObject({ tipo: 'retirada', autorizacaoId: e.id });
     expect(await autorizarNoApp(P, LIDO, deps())).toBe('ja_vigente'); // clique duplo: nada novo
@@ -116,7 +116,7 @@ describe('US-105 — pedido por e-mail', () => {
     const { validoAte } = await enviarPedidoPorEmail(T.ctx, p.id, deps({ agora }));
     expect(validoAte.getTime() - agora.getTime()).toBe(7 * 86_400_000);
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'pedido_email', canal: 'link', registradoPor: T.nutriId, versao: '0.1-provisorio', ip: null });
+    expect(e).toMatchObject({ evento: 'pedido_email', canal: 'link', registradoPor: T.nutriId, versao: '1.0', ip: null });
     expect(e.emailHmac).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const [m] = await emailsNaFila('autorizacao_ia', p.email!);
     expect(lerLinkAutorizacao(m.link.split('/autorizacao-ia/')[1])).toMatchObject({ tipo: 'pedido', tenantId: T.tenantId, patientId: p.id });

@@ -12,6 +12,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
+import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { ContaError, contaPorId, CONTAS_POR_PAGINA, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite, resumoDasContas } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
@@ -320,19 +321,29 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     await expect(definirIaLiberada(app.db, randomUUID(), true, admin)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
   });
 
-  it('D22 (A-06): em produção, recusa liberar enquanto o aviso ou o aditivo forem provisórios; bloquear sempre passa', async () => {
+  it('D22 (A-06): em produção, recusa liberar enquanto a autorização ou o aditivo forem provisórios; bloquear sempre passa', async () => {
     const T = await novoTenant(app.db);
     const admin = randomUUID();
-    await expect(definirIaLiberada(app.db, T.tenantId, true, admin, { producao: true })).rejects.toBeInstanceOf(IaProvisoriaError);
+    for (const versoes of [['0.1-provisorio', '1.0'], ['1.0', '0.2-provisorio']]) {
+      await expect(definirIaLiberada(app.db, T.tenantId, true, admin, { producao: true, versoes }), versoes.join()).rejects.toBeInstanceOf(IaProvisoriaError);
+    }
     await definirIaLiberada(app.db, T.tenantId, false, admin, { producao: true });
     expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
   });
 
-  it('Minor 7 (revisão final): sem informar `producao`, vale o ambiente — em produção a guarda da D22 continua fechada', async () => {
+  it('A-D27 (dono, 09/10/2026): com os textos 1.0, a guarda da D22 deixa liberar em produção', async () => {
+    const T = await novoTenant(app.db);
+    expect([AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO]).toEqual(['1.0', '1.0']);
+    await definirIaLiberada(app.db, T.tenantId, true, randomUUID(), { producao: true });
+    const [t] = await app.db.select({ l: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t.l).toBe(true);
+  });
+
+  it('Minor 7 (revisão final): sem informar `producao`, vale o ambiente — em produção a guarda da D22 continua fechada para texto provisório', async () => {
     const T = await novoTenant(app.db);
     ambiente.producao = true;
     try {
-      await expect(definirIaLiberada(app.db, T.tenantId, true, randomUUID())).rejects.toBeInstanceOf(IaProvisoriaError);
+      await expect(definirIaLiberada(app.db, T.tenantId, true, randomUUID(), { versoes: ['0.1-provisorio', '1.0'] })).rejects.toBeInstanceOf(IaProvisoriaError);
     } finally {
       ambiente.producao = null;
     }

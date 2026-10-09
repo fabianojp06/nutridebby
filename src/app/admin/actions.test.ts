@@ -76,11 +76,13 @@ describe('P16-17: destino das ações do admin', () => {
     expect(revalidatePath).toHaveBeenLastCalledWith('/admin', 'layout');
   });
 
-  it('IA com textos provisórios em produção volta para a página da conta com "ia_provisoria"', async () => {
+  it('A-D27: com os textos 1.0, a IA é liberada em produção (sem o aviso "ia_provisoria")', async () => {
     const id = await consultorio();
     ambiente.producao = true;
     try {
-      expect(await destino(definirIaAction(id, true))).toBe(`redirect /admin/contas/${id}?aviso=ia_provisoria`);
+      expect(await destino(definirIaAction(id, true))).toBeNull();
+      const [t] = await db.select({ ia: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, id));
+      expect(t.ia).toBe(true);
     } finally {
       ambiente.producao = null;
     }

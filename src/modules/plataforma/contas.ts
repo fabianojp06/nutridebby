@@ -256,8 +256,9 @@ export async function definirDocumentosLiberados(db: Db, tenantId: string, liber
 }
 
 /**
- * Plano 11 (US-100, A-06, D6): a admin libera a IA do consultório só depois da ZDR, do parecer do advogado, da avaliação e
- * dos textos finais (runbook). Trilha em admin_actions (NGS1.07.03); só tenants e admin_actions (nenhuma tabela 🔒).
+ * Plano 11 (US-100, A-06, D6) e A-D27 (09/10/2026): a admin libera a IA do consultório só depois da retenção aceita (zero, ou
+ * 30 dias na Anthropic direta), dos textos 1.0 (publicados sem advogado por decisão do dono) e da avaliação (runbook).
+ * Trilha em admin_actions (NGS1.07.03); só tenants e admin_actions (nenhuma tabela 🔒).
  */
 export class IaProvisoriaError extends Error {
   override name = 'IaProvisoriaError';
@@ -266,11 +267,19 @@ export class IaProvisoriaError extends Error {
   }
 }
 
-export async function definirIaLiberada(db: Db, tenantId: string, liberar: boolean, adminId: string, o: { producao?: boolean } = {}): Promise<void> {
+export async function definirIaLiberada(
+  db: Db,
+  tenantId: string,
+  liberar: boolean,
+  adminId: string,
+  o: { producao?: boolean; /** só nos testes: as versões de agora são as 1.0 */ versoes?: readonly string[] } = {},
+): Promise<void> {
   // D22 (A-06 também no código; C8 do Plano 14A): em produção, só com a autorização do paciente e o aditivo finais (versões
-  // sem "-provisorio"). Sem `producao`, vale o ambiente (Minor 7 da revisão final: quem esquecer de informar não abre a guarda)
+  // sem "-provisorio"; desde a A-D27, 09/10/2026, as 1.0). Sem `producao`, vale o ambiente (Minor 7 da revisão final: quem
+  // esquecer de informar não abre a guarda)
   const producao = o.producao ?? emProducao(getEnv());
-  if (liberar && producao && [AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO].some((v) => v.endsWith('-provisorio'))) throw new IaProvisoriaError();
+  const versoes = o.versoes ?? [AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO];
+  if (liberar && producao && versoes.some((v) => v.endsWith('-provisorio'))) throw new IaProvisoriaError();
   await db.transaction(async (tx) => {
     const r = await tx.update(tenants).set({ iaLiberada: liberar, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
     if (!r.length) throw new ContaNaoEncontradaError();

@@ -48,7 +48,7 @@ describe('US-107 — o estado do link (GET não grava nada)', () => {
     expect(e.texto.titulo).toBe('Autorização para uso de inteligência artificial');
     expect(texto).toContain('Debora Silva, CRN-3 12345');
     expect(texto).toContain('pelo link "Retirar a autorização" do e-mail de confirmação');
-    expect(e.exibido).toEqual({ versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos'] }); // o que o POST devolve
+    expect(e.exibido).toEqual({ versao: '1.0', destino: 'teste', usos: ['leitura_laudos'] }); // o que o POST devolve
     expect(T.tenantId).toBeTruthy();
   });
 
@@ -117,7 +117,7 @@ describe('RN-107 (revisão da T6) — a autorização gravada é a do texto que 
     if (relido.tipo !== 'decidir') throw new Error('estado');
     expect(relido.exibido.destino).toBe('bedrock-eu');
     await autorizarPeloLink(t, { turnstile: 'ok', exibido: relido.exibido }, emUe);
-    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu', versao: '0.1-provisorio', usos: ['leitura_laudos'] }]);
+    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu', versao: '1.0', usos: ['leitura_laudos'] }]);
   });
 
   it('sem o texto lido, ou com outra versão ou outros usos → 409, nada gravado', async () => {

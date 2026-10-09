@@ -3,21 +3,22 @@ import type { DestinoIA, UsoIA } from './constantes';
 
 /**
  * Plano 11 (A-D20) e Plano 14A (A-D23 a A-D25, RN-107, RN-109, §18.5): os textos legais da IA, na redação do parecer
- * JUR-2026-013 (itens 4.1 e 4.2), PROVISÓRIOS até o advogado da OAB (B3). O interruptor da admin (tenants.ia_liberada,
- * D22) impede o uso real antes da versão final, que será a **1.0** (a parte numérica sobe: força nova autorização e novo
- * aceite de todos). Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109) — inclusive os
- * usos da 14B (F2).
+ * JUR-2026-013 (itens 4.1 e 4.2), sem os trechos [14B]. **A-D27 (dono, 09/10/2026):** publicados como **1.0 sem a
+ * validação do advogado da OAB** (risco assumido pelo dono; item no backlog), com a retenção de até 30 dias da Anthropic
+ * direta. A 1.0 sobe a parte numérica: quem autorizou ou aceitou nas provisórias (0.1/0.2) autoriza e aceita de novo.
+ * Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109) — inclusive os usos da 14B (F2).
  */
-/** C1 / US-101: 0.2 — a 0.1-provisorio não serviria (versaoAtende só olha a parte numérica). A definitiva será a 1.0. */
-export const IA_ADITIVO_VERSAO = '0.2-provisorio';
-export const IA_ADITIVO_VERSAO_MIN = '0.2-provisorio';
+export const IA_ADITIVO_VERSAO = '1.0';
+export const IA_ADITIVO_VERSAO_MIN = '1.0';
 export const IA_ADITIVO_TERMO = `ia-aditivo-${IA_ADITIVO_VERSAO}`;
-export const AUTORIZACAO_IA_VERSAO = '0.1-provisorio';
-export const AUTORIZACAO_IA_VERSAO_MIN = '0.1-provisorio';
+/** A data impressa no fim do aditivo 1.0. */
+export const IA_ADITIVO_VERSAO_DATA = '2026-10-09';
+export const AUTORIZACAO_IA_VERSAO = '1.0';
+export const AUTORIZACAO_IA_VERSAO_MIN = '1.0';
 /** US-108 "Data inválida": o termo em papel não pode ser de antes do início desta versão (é também a data impressa no texto). */
 export const AUTORIZACAO_IA_VERSAO_DATA = '2026-10-09';
 /**
- * F2 (parecer JUR-2026-013, §18.5): a versão 0.1 autoriza só a leitura de laudos. O resumo e o rascunho (14B) entram
+ * F2 (parecer JUR-2026-013, §18.5): a versão 1.0 (como a 0.1) autoriza só a leitura de laudos. O resumo e o rascunho (14B) entram
  * numa versão nova do texto, que sobe o mínimo e pede autorização nova de todos (RN-109).
  */
 export const AUTORIZACAO_IA_USOS: readonly UsoIA[] = ['leitura_laudos'];
@@ -96,13 +97,26 @@ const EXCECAO_DE_RETENCAO: Partial<Record<DestinoIA, string>> = {
 };
 
 type DadosDoTexto = Responsavel & { destino: DestinoIA; canal: CanalDoTexto; avisoPrivacidadeUrl?: string | null };
+
+/** "Por quanto tempo", antes da exceção. Na 0.1 provisória, a promessa da retenção zero para os dois destinos. */
+const RETENCAO_ZERO_NA_AUTORIZACAO = ' O fornecedor usa os dados só para devolver a resposta, não os usa para treinar a IA e não os guarda depois da resposta.';
+/**
+ * A-D27 (dono, 09/10/2026): na Anthropic direta, a retenção padrão aceita pelo dono — até 30 dias, só segurança e abuso,
+ * sem treino (o texto não promete retenção zero, mesmo que a ZDR venha a ser concedida: fica o limite de cima). O Bedrock
+ * na UE continua sem guardar (A-D4).
+ */
+const RETENCAO_NA_AUTORIZACAO_1_0: Record<DestinoIA, string> = {
+  'anthropic-us': ' O fornecedor usa os dados só para devolver a resposta e não os usa para treinar a IA. A Anthropic pode guardar os dados enviados por até 30 dias, apenas para segurança e prevenção de abuso, e depois os apaga.',
+  'bedrock-eu': RETENCAO_ZERO_NA_AUTORIZACAO,
+  teste: RETENCAO_ZERO_NA_AUTORIZACAO,
+};
+
 /**
  * Parecer JUR-2026-013, item 4.1, sem os trechos [14B] (F2), com as adaptações da §18.5: (a) "a: (1) ler…" vira "a ler…"
- * (sobrou um uso só); (b) "Os seus dados saem do Brasil."; (c) "Versão 1.0, de {data}" vira "Versão provisória 0.1, de
- * {data}, em revisão jurídica." até o advogado da OAB.
+ * (sobrou um uso só); (b) "Os seus dados saem do Brasil.". `retencao` e `rodape` mudam entre as versões.
  */
-const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
-  '0.1-provisorio': (d) => ({
+function autorizacao(d: DadosDoTexto, retencao: string, rodape: string): TextoLegal {
+  return {
     titulo: 'Autorização para uso de inteligência artificial',
     paragrafos: [
       [n(`${d.consultorio} pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso, é separada do termo de uso do app e é pessoal: só você pode dar.`)],
@@ -125,7 +139,7 @@ const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
       PARA_ONDE_VAI[d.destino],
       [
         b('Por quanto tempo.'),
-        n(` O fornecedor usa os dados só para devolver a resposta, não os usa para treinar a IA e não os guarda depois da resposta.${EXCECAO_DE_RETENCAO[d.destino] ?? ''} A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.`),
+        n(`${retencao}${EXCECAO_DE_RETENCAO[d.destino] ?? ''} A sugestão da IA fica guardada no NutriDebby por até 7 dias, até a nutricionista usar ou descartar. O que ela usar passa a fazer parte do seu prontuário. Cada envio fica registrado e aparece na cópia dos seus dados, que você pode pedir no app (Baixar meus dados) ou à sua nutricionista.`),
       ],
       [
         b('Você decide.'),
@@ -142,9 +156,18 @@ const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
         n(' A sua autorização fica registrada com a data, a versão deste texto, o destino e o canal (app, link do e-mail ou termo assinado). No app e no link, também com o endereço IP e o navegador. No link, também com uma marca protegida do e-mail usado. Ela vale só para este consultório. Se o texto mudar, se surgir um uso novo, se mudar o que é enviado ou se o destino mudar, pediremos uma nova autorização.'),
       ],
       [n('Ao tocar em "Autorizo o envio para fora do Brasil" (ou ao assinar este termo, se recebê-lo impresso), você autoriza o envio dos seus dados para fora do Brasil, ao destino acima, só para as tarefas descritas.')],
-      [n(`Versão provisória 0.1, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}, em revisão jurídica.`)],
+      [n(rodape)],
     ],
-  }),
+  };
+}
+
+/**
+ * As versões do texto. A 0.1 provisória fica para mostrar o que quem autorizou nela leu (com a adaptação (c) da §18.5);
+ * a 1.0 (A-D27) volta ao "Versão 1.0, de {data}" do parecer e traz a retenção do destino.
+ */
+const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
+  '0.1-provisorio': (d) => autorizacao(d, RETENCAO_ZERO_NA_AUTORIZACAO, 'Versão provisória 0.1, de 09/10/2026, em revisão jurídica.'),
+  '1.0': (d) => autorizacao(d, RETENCAO_NA_AUTORIZACAO_1_0[d.destino], `Versão 1.0, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}.`),
 };
 
 /** O texto da versão pedida, com o destino em uso e a forma de retirar do canal; versão que não existe → null. */
@@ -169,9 +192,20 @@ const SALVO: Record<DestinoIA, string> = {
 };
 
 /**
- * US-101 (Plano 14A): o aditivo 0.2-provisorio na redação do parecer JUR-2026-013, item 4.2, sem os trechos [14B] (F2),
+ * A-D27: a cláusula 6 na Anthropic direta — a retenção de até 30 dias aceita pelo dono, sem prometer retenção zero.
+ * No Bedrock (e no teste), a retenção zero da redação do parecer.
+ */
+function retencaoDoAditivo(destino: DestinoIA, operador: string): string {
+  if (destino === 'anthropic-us') {
+    return '6. Retenção. O fornecedor não usa o conteúdo para treinar modelos. A Anthropic pode guardar o conteúdo enviado por até 30 dias, apenas para segurança e prevenção de abuso, e depois o apaga; o conteúdo sinalizado pelos sistemas de segurança dela, ou guardado por exigência legal, pode ficar até 2 anos. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.';
+  }
+  return `6. Retenção. A plataforma só usa a IA com dados de paciente enquanto houver retenção zero com o fornecedor: ele não guarda o conteúdo depois da resposta, salvo ${SALVO[destino]}, e não o usa para treinar modelos.${operador} A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`;
+}
+
+/**
+ * US-101 (Plano 14A) e A-D27: o aditivo 1.0 na redação do parecer JUR-2026-013, item 4.2, sem os trechos [14B] (F2),
  * com as variantes do destino (RN-109) e as adaptações da §18.5: (d) a frase do "nenhum operador" e do registro de chamadas
- * só na variante do Bedrock; (e) "Versão 1.0" vira a frase da versão provisória.
+ * só na variante do Bedrock; na Anthropic direta, a retenção de até 30 dias (cláusulas 6 e 8).
  */
 export function aditivoIa(destino: DestinoIA): TextoLegal {
   const operador = destino === 'bedrock-eu' ? ' No Amazon Web Services, nenhum operador do serviço tem acesso ao conteúdo, e o registro de chamadas fica desligado na conta.' : '';
@@ -183,13 +217,13 @@ export function aditivoIa(destino: DestinoIA): TextoLegal {
       `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor segue a cláusula 7 do DPA, com aviso de 15 dias, e torna necessária uma nova autorização de todos os pacientes.`,
       `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.`,
       '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.',
-      `6. Retenção. A plataforma só usa a IA com dados de paciente enquanto houver retenção zero com o fornecedor: ele não guarda o conteúdo depois da resposta, salvo ${SALVO[destino]}, e não o usa para treinar modelos.${operador} A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`,
+      retencaoDoAditivo(destino, operador),
       '7. Deveres da CONTROLADORA. Antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. A confidencialidade do fornecedor está garantida pelo contrato dele com a OPERADORA e por este aditivo.',
-      '8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, sem retenção zero confirmada, nem quando o limite mensal de custo do consultório foi atingido.',
+      `8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, ${destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada'}, nem quando o limite mensal de custo do consultório foi atingido.`,
       '9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor.',
       '10. Selo e transparência. A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',
       '11. Desativação e limite. A CONTROLADORA pode desativar a IA a qualquer momento. A OPERADORA pode suspendê-la por motivo de segurança, mudança do fornecedor ou de norma, avisando a CONTROLADORA. O uso tem um limite mensal de custo por consultório, informado no painel.',
-      'Versão provisória 0.2, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.',
+      `Versão 1.0, de ${dataBr(IA_ADITIVO_VERSAO_DATA)}.`,
     ].map((t) => [n(t)]),
   };
 }

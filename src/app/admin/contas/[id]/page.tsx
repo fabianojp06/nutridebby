@@ -113,7 +113,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                 </ConfirmarBotao>
               </form>
             </div>
-            {/* US-100 (A-06): liberar só com ZDR, advogado, avaliação e textos finais */}
+            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos 1.0, a avaliação e o backup */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda pt-4">
               <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
               <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
@@ -122,7 +122,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                   mensagem={
                     c.iaLiberada
                       ? `Bloquear a IA de ${c.nomeExibicao}? Novas leituras deixam de ser aceitas; o que está na fila falha sem envio.`
-                      : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção zero concedida, o parecer do advogado, a avaliação aprovada, os textos finais publicados e o backup no host (runbook do Plano 11).`
+                      : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção configurada (zero, ou a de até 30 dias aceita na Anthropic direta), os textos 1.0 publicados, a avaliação aprovada e o backup no host (runbook da IA).`
                   }
                 >
                   {c.iaLiberada ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` a IA de ${c.nomeExibicao}`}</span>
