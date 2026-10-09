@@ -197,3 +197,27 @@ describe('portal do paciente: tokens novos e a cor da faixa (Plano 16, §4.7, RN
     }
   });
 });
+
+describe('campo de data no celular (hotfix 09/10/2026, RNF-09)', () => {
+  const css = readFileSync('src/app/globals.css', 'utf8');
+  const base = css.slice(css.indexOf('@layer base {'));
+
+  it('todo input type="date" encolhe com o cartão (min-width: 0), na camada base (uma classe da tela vence)', () => {
+    expect(base).toMatch(/input\[type='date'\] \{\s*min-width: 0;/);
+  });
+
+  it('no Safari do iOS o controle nativo perde a largura mínima própria (appearance: none) e o valor fica à esquerda com altura de uma linha', () => {
+    const i = base.indexOf('@supports (-webkit-touch-callout: none) {');
+    expect(i, 'regra só do iOS').toBeGreaterThanOrEqual(0);
+    const ios = base.slice(i);
+    expect(ios).toMatch(/input\[type='date'\] \{\s*-webkit-appearance: none;\s*appearance: none;/);
+    expect(ios).toMatch(/input\[type='date'\]::-webkit-date-and-time-value \{\s*min-height: 1\.5em;\s*text-align: start;/);
+  });
+
+  it('nenhum campo de data desliga a correção com min-w-* ou appearance-auto na própria classe', () => {
+    const fontes = (readdirSync('src', { recursive: true }) as string[]).filter((f) => /\.tsx$/.test(f));
+    const datas = fontes.flatMap((f) => readFileSync(join('src', f), 'utf8').split('\n').filter((l) => /type[=:]\s*['"{]*date/.test(l)).map((l) => [f, l] as const));
+    expect(datas.length).toBeGreaterThan(5);
+    expect(datas.filter(([, l]) => /\b(min-w-(?!0\b)[\w[\]-]+|appearance-auto)\b/.test(l)).map(([f]) => f)).toEqual([]);
+  });
+});

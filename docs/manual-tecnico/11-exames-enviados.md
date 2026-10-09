@@ -76,7 +76,7 @@ Fila `expirar-exame-envio` (*/15, America/Sao_Paulo) → varrerEnvios: 'processa
 | `src/modules/plataforma/armazenamento.ts` | `salvarArquivos` (lote do paciente; núcleo comum `gravarArquivos` com `salvarArquivo`) | não |
 | `src/modules/portal/exames-enviados.ts` | Lado do paciente: `classificarArquivos`, `enviarExame`, `meusEnvios`, `pdfDoMeuEnvio`, `cancelarMeuEnvio`, `EnvioError` | não |
 | `src/app/api/p/exames/route.ts`, `src/app/api/p/exames/[id]/pdf/route.ts` | `POST` do envio (vagas, prazo do corpo, `lerCorpoLimitado`) e `GET` do PDF limpo (303 para `signFileUrl`) | não |
-| `src/app/p/(portal)/exames/` | Tela `/p/exames`: `EnvioForm` (fetch multipart), `CancelarEnvio` (`window.confirm`), `cancelarEnvioAction` | não |
+| `src/app/p/(portal)/exames/` | Tela `/p/exames`: `EnvioForm` (fetch multipart), `CancelarEnvio` (`window.confirm`), `cancelarEnvioAction`; com algum envio "Processando…", `AtualizarEnquantoProcessa` faz `router.refresh()` a cada 5 s (até 36 vezes, pausa com a aba oculta; cada refresh relê a lista com `auditRead`) e `AnunciarSituacoes` (região viva única, sempre montada) anuncia "Nome: situação" do envio que mudou (hotfix 09/10/2026) | não |
 | `src/modules/pacientes/exames-enviados-arquivos.ts` | `apagarArquivosDoEnvio`: cada arquivo no seu `apagarArquivo`, por papel e situação; idempotente | não |
 | `src/modules/pacientes/exames-enviados.ts` | Lado da equipe: `filaDeEnvios`, `contarEnviosRecebidos`, `contarEnviosDoPaciente`, `examesEnviadosPeloPaciente`, `abrirEnvio`, `aceitarEnvio`, `recusarEnvio`, `RevisaoError` | não |
 | `src/modules/pacientes/exames-enviados-ia.ts` | Chave curta das mensagens da IA no redirecionamento do "Aceitar e ler" (`chaveDaMensagemIa`, `mensagemIaDaChave`) | não |
@@ -348,6 +348,7 @@ imagem podada, sem rede ("rasterização ok na imagem"). Detalhe em [§7.7](07-t
 - Os demais "Pontos menores" do plano (P12-16) e os Minors das revisões por tarefa (P12-17 a P12-20), entre eles: o
   `created_at` da sessão de paciente não é imposto pelo banco; resíduo `nutri-raster-*` no `/tmp` se o worker morrer no meio
   do job; falha de infraestrutura na rasterização (ENOSPC, `fork`) vira `conversao` definitiva; o job sem `job.signal`
-  (job em dobro, R8, só monitorado); "Processando…" não se atualiza sozinho em `/p/exames`.
+  (job em dobro, R8, só monitorado). ("Processando…" não se atualizava sozinho em `/p/exames`: resolvido no hotfix de
+  09/10/2026.)
 - A confirmar com a Debby (P12-21): lembrete próprio dos 30 dias sem envio novo (D6), aba própria no portal (D4), contador
   do menu sem navegar (R5).

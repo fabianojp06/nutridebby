@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MeuEnvio } from '@/modules/portal/exames-enviados';
@@ -14,6 +15,8 @@ vi.mock('@/modules/portal/exames-enviados', async (importOriginal) => ({
   meusEnvios: vi.fn(async () => lista),
 }));
 vi.mock('./actions', () => ({ cancelarEnvioAction: async () => ({}) }));
+// o atualizador não desenha nada: aqui uma marca, para ver quando a página o monta
+vi.mock('./atualizar-enquanto-processa', () => ({ AtualizarEnquantoProcessa: () => createElement('span', { 'data-atualizador': '' }) }));
 vi.mock('@/app/p/moldura', () => ({
   molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
 }));
@@ -61,5 +64,25 @@ describe('/p/exames (US-160, US-161)', () => {
 
   it('sem envios: "Nenhum exame enviado ainda."', async () => {
     expect(await render()).toContain('Nenhum exame enviado ainda.');
+  });
+
+  it('com algum envio "Processando…": monta o atualizador da lista (5 s, até o worker terminar)', async () => {
+    lista.push(envio({}), envio({ id: '00000000-0000-4000-8000-0000000000e2', status: 'processando', situacao: 'Processando…', podeBaixar: false }));
+    expect(await render()).toContain('data-atualizador');
+  });
+
+  it('sem envio processando (recebido, falhou, aceito ou lista vazia): não monta o atualizador', async () => {
+    expect(await render()).not.toContain('data-atualizador');
+    lista.push(envio({}), envio({ id: '00000000-0000-4000-8000-0000000000e2', status: 'falhou', situacao: 'O PDF tem mais de 10 páginas.', podeBaixar: false }));
+    expect(await render()).not.toContain('data-atualizador');
+  });
+
+  it('a troca da situação é anunciada por uma região viva única, sempre montada e vazia na abertura (RNF-10)', async () => {
+    lista.push(envio({ status: 'processando', situacao: 'Processando…', podeBaixar: false }));
+    const html = await render();
+    const secao = html.slice(html.indexOf('id="enviados"'));
+    expect(secao).toMatch(/<p role="status" class="sr-only"><\/p>/);
+    expect(secao).toContain('<p>Processando…</p>'); // a linha da lista não é região viva (seria anunciada inteira)
+    expect(await (lista.length = 0, render())).toMatch(/id="enviados"[\s\S]*<p role="status" class="sr-only"><\/p>/);
   });
 });

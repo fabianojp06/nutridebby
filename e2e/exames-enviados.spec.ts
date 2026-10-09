@@ -88,6 +88,27 @@ test('US-161 e US-164: o paciente cancela um envio; a nutricionista recusa outro
 test('US-160 "PDF longo": 11 páginas → o paciente vê a mensagem do limite de páginas', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.16.64');
   await enviar(p.page, 'Longo', await laudo(11));
-  await situacao(p.page, 'O PDF tem mais de 10 páginas. Envie só as páginas com os resultados.');
+  await expect(p.page.getByRole('heading', { level: 3, name: 'Longo' })).toBeVisible();
+  const viuProcessando = await p.page.getByRole('listitem').getByText('Processando…', { exact: true }).isVisible();
+  // hotfix 09/10/2026: sem recarregar — enquanto o envio processa, a lista se atualiza sozinha (5 s) até o worker terminar
+  const falhou = 'O PDF tem mais de 10 páginas. Envie só as páginas com os resultados.';
+  await expect(p.page.getByRole('listitem').getByText(falhou, { exact: true })).toBeVisible({ timeout: 60_000 });
+  // e a troca é anunciada na região viva única da lista (se o worker terminou antes do 1º refresh, não houve troca a anunciar)
+  if (viuProcessando) await expect(p.page.locator('section[aria-labelledby="enviados"] > p[role="status"]')).toHaveText(`Longo: ${falhou}`);
+  await p.page.context().close();
+});
+
+test('celular a 360 px (RNF-09): /p/exames não rola na horizontal e "Data da coleta" fica dentro do cartão', async ({ browser }) => {
+  const p = await pacienteNoPortal(browser, nutri, '10.9.16.65');
+  await p.page.setViewportSize({ width: 360, height: 780 });
+  await p.page.goto('/p/exames');
+  await p.page.getByLabel('Data da coleta').fill('2026-09-28');
+  expect(await p.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const dentro = await p.page.getByLabel('Data da coleta').evaluate((el) => {
+    const campo = el.getBoundingClientRect();
+    const cartao = el.closest('section')!.getBoundingClientRect();
+    return campo.left >= cartao.left && campo.right <= cartao.right;
+  });
+  expect(dentro).toBe(true);
   await p.page.context().close();
 });
