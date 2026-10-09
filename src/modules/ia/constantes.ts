@@ -68,8 +68,6 @@ export type MotivoFalha = (typeof MOTIVOS_FALHA)[number];
 
 /** A-D14 = (b). */
 export const LIMITE_PAGINAS = 15;
-/** §5.3 / exportação do titular (T15): para quem o laudo saiu. Em produção o único provedor é a Anthropic (A-D1, A-D5). */
-export const PROVEDOR_IA_DESCRICAO = 'Anthropic (Claude), Estados Unidos';
 /** A-D15 = (b): sugestão não aplicada vence em 7 dias (RN-106). */
 export const PRAZO_SUGESTAO_DIAS = 7;
 /** A-D10 = (a). */

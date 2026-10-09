@@ -17,6 +17,7 @@ import {
   examSubmissions,
   exams,
   foods,
+  iaAutorizacoes,
   iaTarefas,
   mealItems,
   mealPlans,
@@ -46,7 +47,7 @@ import {
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
-import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
+import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules/ia/constantes';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
@@ -76,12 +77,30 @@ export type DadosExportacao = {
     status: string;
     cadastradoEm: string;
     /**
-     * Plano 11 (revisão final; LGPD art. 18, II e art. 19, II): a ciência do aviso de IA (US-104) e o "Não usar IA"
-     * (US-103), para o titular confrontar com a data em que o laudo saiu (seção `ia`, `enviadoEm`).
+     * Plano 11 (legado, RN-128): a ciência do aviso de IA e o "Não usar IA" — saem só quando preenchidos (as colunas estão
+     * congeladas desde o Plano 14A; o esperado em produção é nunca).
      */
-    avisoIa: { versao: string; em: string; canal: string } | null;
-    avisoIaEnviadoEm: string | null;
-    recusouIaEm: string | null;
+    avisoIa?: { versao: string; em: string; canal: string };
+    avisoIaEnviadoEm?: string;
+    recusouIaEm?: string;
+    /**
+     * Plano 14A (US-113, LGPD art. 18): cada evento da autorização de IA — autorizou, retirou, pedido por e-mail — com a
+     * versão, os usos, o destino (código e rótulo, RN-109), o canal, o ato, o registro, o IP e o user-agent (nulos no papel,
+     * no pedido e na retirada pela nutricionista); `termo` = a foto ou o PDF do termo em papel no ZIP (`autorizacao-ia/…`).
+     * O HMAC do e-mail não sai (não serve ao titular).
+     */
+    autorizacoesIa: {
+      evento: string;
+      versao: string | null;
+      usos: string[] | null;
+      destino: { codigo: string; rotulo: string } | null;
+      canal: string;
+      em: string;
+      registradoEm: string;
+      ip: string | null;
+      userAgent: string | null;
+      termo: string | null;
+    }[];
     /**
      * Plano 16 (G-D1, D6 ★ revista na revisão do plano): preferência de exibição no app definida pela nutricionista ("Não
      * mostrar peso no app", desde quando) — nos DOIS escopos: é dado pessoal do titular (LGPD art. 5º, I; art. 18, II). Tirar
@@ -180,7 +199,20 @@ export type DadosExportacao = {
    * situação, datas, se o laudo saiu ao provedor (`enviadoEm` = `saiu_em`) e para quem. Nunca a sugestão (ia_tarefas é
    * staff_only: inclusão explícita).
    */
-  ia: { id: string; tipo: string; status: string; criadoEm: string; encerradoEm: string | null; enviadoEm: string | null; provedor: string | null }[];
+  ia: {
+    id: string;
+    tipo: string;
+    status: string;
+    criadoEm: string;
+    encerradoEm: string | null;
+    enviadoEm: string | null;
+    /**
+     * RN-109: o código gravado no portão do envio; `provedor` é o rótulo dele — tarefa antiga com saída e sem destino =
+     * Anthropic, EUA, o único provedor do Plano 11.
+     */
+    destino: string | null;
+    provedor: string | null;
+  }[];
   /**
    * Plano 12 (§13.3): exames enviados pelo paciente pelo app — envio, coleta, nome, observação, situação e motivo da recusa.
    * `pdf` = o PDF limpo no ZIP (`envios/…`), só dos que aguardam revisão (o dos aceitos já sai em `laudos/`, como exame).
@@ -205,10 +237,11 @@ export type DadosExportacao = {
 
 /**
  * Arquivo a copiar para o ZIP: laudo (`indice` em `exames`), foto do diário (`indice` em `diario`), PDF assinado de
- * documento (`indice` em `documentos`, Plano 10A) ou PDF limpo de exame enviado aguardando revisão (`indice` em
- * `examesEnviados`, Plano 12); `nome` sem texto do usuário (data + posição).
+ * documento (`indice` em `documentos`, Plano 10A), PDF limpo de exame enviado aguardando revisão (`indice` em
+ * `examesEnviados`, Plano 12) ou termo em papel da autorização de IA (`indice` em `paciente.autorizacoesIa`, Plano 14A);
+ * `nome` sem texto do usuário (data + posição).
  */
-type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento' | 'envio'; indice: number; caminho: string; nome: string };
+type AnexoParaZip = { tipo: 'laudo' | 'foto' | 'documento' | 'envio' | 'termo'; indice: number; caminho: string; nome: string };
 
 /** O ZIP é montado em memória no worker: acima disto, laudos e fotos ficam de fora (com aviso), não a exportação. */
 export const LIMITE_LAUDOS_BYTES = 100 * 1024 ** 2;
@@ -344,10 +377,35 @@ export async function montarDados(
   const conteudos = await conteudosDoTitular(tx, patientId);
   const docs = await documentosParaExportacao(tx, patientId, escopo);
   const tarefasIa = await tx
-    .select({ id: iaTarefas.id, tipo: iaTarefas.tipo, status: iaTarefas.status, criadoEm: iaTarefas.criadoEm, encerradoEm: iaTarefas.encerradoEm, saiuEm: iaTarefas.saiuEm })
+    .select({ id: iaTarefas.id, tipo: iaTarefas.tipo, status: iaTarefas.status, criadoEm: iaTarefas.criadoEm, encerradoEm: iaTarefas.encerradoEm, saiuEm: iaTarefas.saiuEm, destino: iaTarefas.destino })
     .from(iaTarefas)
     .where(eq(iaTarefas.patientId, patientId))
     .orderBy(asc(iaTarefas.criadoEm));
+  // Plano 14A (US-113): os eventos da autorização de IA, na ordem em que foram registrados (o titular lê os próprios — sem staff_only)
+  const autorizacoes = await tx
+    .select({
+      evento: iaAutorizacoes.evento,
+      versao: iaAutorizacoes.versao,
+      usos: iaAutorizacoes.usos,
+      destino: iaAutorizacoes.destino,
+      canal: iaAutorizacoes.canal,
+      em: iaAutorizacoes.em,
+      registradoEm: iaAutorizacoes.registradoEm,
+      ip: iaAutorizacoes.ip,
+      userAgent: iaAutorizacoes.userAgent,
+      arquivoPath: iaAutorizacoes.arquivoPath,
+    })
+    .from(iaAutorizacoes)
+    .where(eq(iaAutorizacoes.patientId, patientId))
+    .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
+  // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
+  // termos — sem texto do usuário (regra 9)
+  let nTermo = 0;
+  const termos: AnexoParaZip[] = autorizacoes.flatMap((a, i) =>
+    a.arquivoPath
+      ? [{ tipo: 'termo' as const, indice: i, caminho: a.arquivoPath, nome: `autorizacao-ia/${hojeNoFuso(fuso, a.em)}-${String(++nTermo).padStart(2, '0')}${path.extname(a.arquivoPath)}` }]
+      : [],
+  );
   const laudos: AnexoParaZip[] = ex.flatMap((e, i) =>
     e.arquivoPath
       ? [
@@ -384,9 +442,21 @@ export async function montarDados(
       telefone: p.telefoneE164 ? formatarTelefone(p.telefoneE164) : null,
       status: p.status,
       cadastradoEm: p.createdAt.toISOString(),
-      avisoIa: p.iaAvisoVersao && p.iaAvisoEm && p.iaAvisoCanal ? { versao: p.iaAvisoVersao, em: p.iaAvisoEm.toISOString(), canal: p.iaAvisoCanal } : null,
-      avisoIaEnviadoEm: p.iaAvisoEnviadoEm?.toISOString() ?? null,
-      recusouIaEm: p.iaRecusadaEm?.toISOString() ?? null,
+      ...(p.iaAvisoVersao && p.iaAvisoEm && p.iaAvisoCanal ? { avisoIa: { versao: p.iaAvisoVersao, em: p.iaAvisoEm.toISOString(), canal: p.iaAvisoCanal } } : {}),
+      ...(p.iaAvisoEnviadoEm ? { avisoIaEnviadoEm: p.iaAvisoEnviadoEm.toISOString() } : {}),
+      ...(p.iaRecusadaEm ? { recusouIaEm: p.iaRecusadaEm.toISOString() } : {}),
+      autorizacoesIa: autorizacoes.map((a) => ({
+        evento: a.evento,
+        versao: a.versao,
+        usos: a.usos,
+        destino: a.destino ? { codigo: a.destino, rotulo: DESTINO_ROTULO[a.destino as DestinoIA] } : null,
+        canal: a.canal,
+        em: a.em.toISOString(),
+        registradoEm: a.registradoEm.toISOString(),
+        ip: a.ip,
+        userAgent: a.userAgent,
+        termo: null,
+      })),
       pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null, // D6 ★ revista: nos dois escopos
     },
     anamneses: as.map((a) => ({
@@ -465,7 +535,7 @@ export async function montarDados(
     })),
     conteudos,
     documentos: docs.documentos,
-    // Em produção o único provedor é a Anthropic (sandbox e fake são recusados — T2)
+    // RN-109 (Plano 14A): o destino gravado no portão; tarefa antiga com saída e sem destino = Anthropic, EUA (Plano 11)
     ia: tarefasIa.map((t) => ({
       id: t.id,
       tipo: t.tipo,
@@ -473,7 +543,8 @@ export async function montarDados(
       criadoEm: t.criadoEm.toISOString(),
       encerradoEm: t.encerradoEm?.toISOString() ?? null,
       enviadoEm: t.saiuEm?.toISOString() ?? null,
-      provedor: t.saiuEm ? PROVEDOR_IA_DESCRICAO : null,
+      destino: t.destino,
+      provedor: t.saiuEm ? (t.destino ? DESTINO_ROTULO[t.destino as DestinoIA] : ROTULO_DESTINO_LEGADO) : null,
     })),
     examesEnviados: ee.map((e) => {
       const exame = e.examId ? ex.find((x) => x.id === e.examId) : undefined;
@@ -493,11 +564,11 @@ export async function montarDados(
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
   const pdfsDeDocumentos: AnexoParaZip[] = docs.anexos.map((a) => ({ tipo: 'documento', ...a }));
-  return { dados, laudos: [...laudos, ...fotos, ...envios, ...pdfsDeDocumentos] };
+  return { dados, laudos: [...laudos, ...fotos, ...envios, ...pdfsDeDocumentos, ...termos] };
 }
 
 /**
- * Lê os anexos (laudos, fotos do diário, PDFs assinados de documentos e PDFs limpos de exames enviados) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
+ * Lê os anexos (laudos, fotos do diário, PDFs assinados de documentos, PDFs limpos de exames enviados e termos em papel da autorização de IA) de /data para o ZIP e marca em `dados` onde cada um ficou. Acima do teto,
  * o que não cabe não vai (e `laudosForaDoZip` avisa); arquivo que sumiu do disco fica de fora sem derrubar a exportação.
  */
 async function lerAnexos(
@@ -539,6 +610,7 @@ async function lerAnexos(
     else if (l.tipo === 'foto') dados.diario[l.indice].foto = l.nome;
     else if (l.tipo === 'documento') dados.documentos[l.indice].pdf = l.nome;
     else if (l.tipo === 'envio') dados.examesEnviados[l.indice].pdf = l.nome;
+    else if (l.tipo === 'termo') dados.paciente.autorizacoesIa[l.indice].termo = l.nome;
     total += conteudo.length;
   }
   if (ausentes)

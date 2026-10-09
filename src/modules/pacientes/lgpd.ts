@@ -9,6 +9,7 @@ import {
   examSubmissionFiles,
   examSubmissions,
   exams,
+  iaAutorizacoes,
   iaTarefas,
   mealPlans,
   notifications,
@@ -287,6 +288,47 @@ export async function apagarEnviosDoTitular(
   return n;
 }
 
+/**
+ * US-113 (Plano 14A): os termos em papel da autorização de IA do titular — cada arquivo no seu apagarArquivo, com o `rm`
+ * antes do commit e o ponteiro anulado no naMesmaTransacao pela função SECURITY DEFINER (FK NO ACTION; o UPDATE de
+ * ia_autorizacoes é revogado do app). Só na anonimização (contexto worker, titular bloqueado): nunca no pedido de exclusão,
+ * em que o termo ainda é a prova do consentimento (art. 8º, § 2º). Fora de anexosDoPaciente por causa da FK.
+ */
+export async function apagarTermosDeAutorizacao(ctx: TenantContext, patientId: string, deps: { db?: Db; dataDir?: string }): Promise<number> {
+  const db = deps.db ?? getDb();
+  const termos = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ id: iaAutorizacoes.id, caminho: iaAutorizacoes.arquivoPath })
+        .from(iaAutorizacoes)
+        .where(and(eq(iaAutorizacoes.patientId, patientId), isNotNull(iaAutorizacoes.arquivoPath))),
+    db,
+  );
+  let apagados = 0;
+  for (const t of termos) {
+    const ok = await apagarArquivo(ctx, { caminho: t.caminho! }, {
+      db,
+      dataDir: deps.dataDir,
+      removerAntesDoCommit: true,
+      naMesmaTransacao: async (tx) =>
+        ((await tx.execute(sql`select app_ia_autorizacao_soltar_termo(${t.id}) as ok`)).rows[0] as { ok?: boolean } | undefined)?.ok === true,
+    });
+    if (ok) apagados++;
+  }
+  return apagados;
+}
+
+/** Com o paciente travado: um termo gravado depois da lista desfaz a anonimização (o dia seguinte tenta de novo). */
+export async function termosDeAutorizacaoRestantes(tx: Tx, patientId: string): Promise<boolean> {
+  const [t] = await tx
+    .select({ id: iaAutorizacoes.id })
+    .from(iaAutorizacoes)
+    .where(and(eq(iaAutorizacoes.patientId, patientId), isNotNull(iaAutorizacoes.arquivoPath)))
+    .limit(1);
+  return !!t;
+}
+
 /** Job `exclusao-atendida` (F-13): só ids — o e-mail, o nome e a data saem do banco na hora do aviso. */
 export type DadosExclusaoAtendida = { tenantId: string; patientId: string };
 
@@ -463,6 +505,8 @@ export async function anonimizarVencidos(
         await anonimizarDocumentosDoPaciente(ctx, id, { db, dataDir: deps.dataDir });
         // Plano 12 (§13.3): os envios de exame (arquivos e linhas dos não aceitos), cada arquivo no seu apagarArquivo
         await apagarEnviosDoTitular(ctx, id, { db, dataDir: deps.dataDir });
+        // Plano 14A (US-113): os termos em papel da autorização de IA, num passo próprio (FK NO ACTION, função do worker)
+        await apagarTermosDeAutorizacao(ctx, id, { db, dataDir: deps.dataDir });
         for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
           await apagarArquivo(
             ctx,
@@ -478,6 +522,8 @@ export async function anonimizarVencidos(
             if (!pendente) return false;
             // D13 (Tarefa 15): aceites do termo sem IP e sem a conta — antes do UPDATE, que solta a conta (0065)
             await tx.execute(sql`select app_anonimizar_aceites(${id})`);
+            // Plano 14A (US-113): as autorizações de IA ficam (prova), sem IP, user-agent, HMAC e, no canal app, sem a conta
+            await tx.execute(sql`select app_anonimizar_autorizacoes_ia(${id})`);
             const r = await tx
               .update(patients)
               .set({
@@ -497,6 +543,8 @@ export async function anonimizarVencidos(
               throw new Error('anexo novo durante a anonimização');
             // RN-140 (c): nenhum PDF de documento (assinado ou preparado) pode ter sobrado
             if (r.length && (await pdfsDeDocumentosRestantes(tx, id))) throw new Error('documento novo durante a anonimização');
+            // Plano 14A (US-113): nenhum termo em papel da autorização de IA pode ter sobrado
+            if (r.length && (await termosDeAutorizacaoRestantes(tx, id))) throw new Error('termo de autorização novo durante a anonimização');
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             // D15: alvo, visualização ou favorito de conteúdo gravados depois do bloqueio também saem (idempotente)
