@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 /**
  * US-106 "Ler e autorizar": a autorização numa página própria, com o texto inteiro e em destaque, separada do termo do app
  * (art. 33, VIII; C12). Só com algo a decidir (IA ativa no consultório do vínculo aberto, perfil completo, não vigente);
- * senão volta a Eu. "Agora não" não grava nada (volta a Eu com "Tudo bem…"). Plano 16: tela de detalhe de Eu, com o
+ * senão volta a Eu. "Agora não" não grava nada (volta a Eu, na âncora do bloco de IA, com "Tudo bem…"). Plano 16: tela de detalhe de Eu, com o
  * cabeçalho compacto e "Voltar para Eu" (como "Meus documentos").
  */
 export default async function AutorizacaoIa() {
@@ -39,7 +39,7 @@ export default async function AutorizacaoIa() {
           <form action={autorizarIaAction.bind(null, tenant.id)}>
             <button className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">{MSG_AUTORIZACAO.autorizo}</button>
           </form>
-          <Link href="/p/perfil?ia=agora-nao" className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
+          <Link href="/p/perfil?ia=agora-nao#eu-ia" className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
             {MSG_AUTORIZACAO.agoraNao}
           </Link>
         </div>

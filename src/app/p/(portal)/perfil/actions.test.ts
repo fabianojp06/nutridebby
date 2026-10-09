@@ -36,9 +36,9 @@ beforeEach(() => {
 });
 
 describe('ações de IA em Eu › Privacidade (US-106, US-109)', () => {
-  it('"Autorizo…": grava com o destino em uso, o IP e o navegador (RN-107) e volta a Eu com "?ia=autorizou"', async () => {
+  it('"Autorizo…": grava com o destino em uso, o IP e o navegador (RN-107) e volta a Eu com "?ia=autorizou", na âncora do bloco de IA (o retorno fica na vista)', async () => {
     s.autorizar.mockResolvedValue('registrada');
-    await expect(autorizarIaAction('t1')).rejects.toThrow('redirect /p/perfil?ia=autorizou');
+    await expect(autorizarIaAction('t1')).rejects.toThrow(/^redirect \/p\/perfil\?ia=autorizou#eu-ia$/);
     expect(s.autorizar).toHaveBeenCalledTimes(1);
     const [ctx, deps] = s.autorizar.mock.calls[0];
     expect(ctx).toBe(s.ctx);

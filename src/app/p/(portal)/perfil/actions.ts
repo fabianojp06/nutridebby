@@ -51,7 +51,7 @@ async function origemDaRequisicao() {
 }
 
 /**
- * US-106 "Autorizo o envio para fora do Brasil" (/p/perfil/ia): grava e volta a Eu com o retorno. `tenantId` = o consultório
+ * US-106 "Autorizo o envio para fora do Brasil" (/p/perfil/ia): grava e volta a Eu, no bloco de IA, com o retorno. `tenantId` = o consultório
  * cujo texto a página mostrou (nome, nutricionista, CRN): se o vínculo aberto mudou entre a leitura e o toque (troca de
  * consultório em outra aba), nada é gravado e Eu mostra a situação do consultório de agora.
  */
@@ -66,7 +66,8 @@ export async function autorizarIaAction(tenantId: string): Promise<void> {
     if (e instanceof AutorizacaoError) redirect('/p/perfil');
     throw e;
   }
-  redirect('/p/perfil?ia=autorizou');
+  // a âncora do bloco: o retorno fica na vista, não no fim de Eu (revisão da T8)
+  redirect('/p/perfil?ia=autorizou#eu-ia');
 }
 
 /** US-109 "Retirar autorização" no app: o evento e o job ia-retirada na mesma transação (RN-108). */

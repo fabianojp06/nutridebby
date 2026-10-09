@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { exclusaoAction, meusDadosAction, retirarIaAction, type PerfilState } from './actions';
 
@@ -28,6 +28,14 @@ export function Privacidade({ ia }: { ia: BlocoIaNaTela | null }) {
   const [dados, pedirDados, pedindo] = useActionState<PerfilState>(meusDadosAction, {});
   const [exc, pedirExc, excluindo] = useActionState<PerfilState>(exclusaoAction, {});
   const [ret, retirar, retirando] = useActionState<PerfilState>(retirarIaAction, {});
+  // US-106/US-109: o retorno do bloco de IA (o do ?ia= ao voltar de /p/perfil/ia, ou o da retirada). A região nasce já com o
+  // texto quando se volta da página da autorização (página montada de novo) e não seria anunciada: o foco vai para ela, como
+  // no ConfirmarNoMural — o leitor de tela a lê e o navegador a traz para a vista (revisão da T8)
+  const retornoIa = ret.ok ?? ia?.retorno ?? '';
+  const avisoIa = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (retornoIa) avisoIa.current?.focus();
+  }, [retornoIa]);
   return (
     <div className="space-y-4">
       {/* RN-214 (Plano 16): transparência sem estigma — nunca diz ao paciente que o peso dele está oculto; e não promete
@@ -55,7 +63,7 @@ export function Privacidade({ ia }: { ia: BlocoIaNaTela | null }) {
             </form>
           )}
           {/* RNF-10: a região existe desde o início; o retorno da retirada ou o do ?ia= (autorizou / agora-nao) */}
-          <p role="status">{ret.ok ?? ia.retorno}</p>
+          <p ref={avisoIa} tabIndex={-1} role="status">{retornoIa}</p>
         </section>
       )}
       <form action={pedirDados}>

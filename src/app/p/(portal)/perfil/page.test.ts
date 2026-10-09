@@ -67,6 +67,9 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
     expect(html).toContain('Retirar autorização');
     expect(html).not.toContain('Ler e decidir');
     expect(html).toMatch(/role="status"[^>]*>Autorização registrada\. Você pode retirar quando quiser\.</);
+    // a âncora do retorno (#eu-ia, actions.ts e ia/page.tsx) e a região focável (o foco vai para ela ao voltar: anunciada e na vista)
+    expect(html).toMatch(/<h3 id="eu-ia"[^>]*>Uso de inteligência artificial \(IA\)<\/h3>/);
+    expect(html).toMatch(/<p tabindex="-1" role="status">Autorização registrada\./);
     blocoIa.valor = { situacao: { tipo: 'retirada', em }, podeDecidir: false };
     html = renderToStaticMarkup(await eu());
     expect(html).toContain('Você retirou a autorização em 09/10/2026.');
