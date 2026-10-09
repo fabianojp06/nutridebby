@@ -88,11 +88,14 @@ test('US-161 e US-164: o paciente cancela um envio; a nutricionista recusa outro
 test('US-160 "PDF longo": 11 páginas → o paciente vê a mensagem do limite de páginas', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.16.64');
   await enviar(p.page, 'Longo', await laudo(11));
-  await expect(p.page.getByRole('heading', { level: 3, name: 'Longo' })).toBeVisible();
-  const viuProcessando = await p.page.getByRole('listitem').getByText('Processando…', { exact: true }).isVisible();
-  // hotfix 09/10/2026: sem recarregar — enquanto o envio processa, a lista se atualiza sozinha (5 s) até o worker terminar
+  // hotfix 09/10/2026: sem recarregar — enquanto o envio processa, a tela consulta só a situação (5 s) e refaz a lista
+  // uma vez quando o worker termina. Espera o envio aparecer, em "Processando…" ou já com a falha (worker mais rápido que o refresh)
   const falhou = 'O PDF tem mais de 10 páginas. Envie só as páginas com os resultados.';
-  await expect(p.page.getByRole('listitem').getByText(falhou, { exact: true })).toBeVisible({ timeout: 60_000 });
+  const item = p.page.getByRole('listitem').filter({ has: p.page.getByRole('heading', { level: 3, name: 'Longo' }) });
+  const processando = item.getByText('Processando…', { exact: true });
+  await expect(processando.or(item.getByText(falhou, { exact: true }))).toBeVisible();
+  const viuProcessando = await processando.isVisible();
+  await expect(item.getByText(falhou, { exact: true })).toBeVisible({ timeout: 60_000 });
   // e a troca é anunciada na região viva única da lista (se o worker terminou antes do 1º refresh, não houve troca a anunciar)
   if (viuProcessando) await expect(p.page.locator('section[aria-labelledby="enviados"] > p[role="status"]')).toHaveText(`Longo: ${falhou}`);
   await p.page.context().close();

@@ -16,8 +16,9 @@ export const dynamic = 'force-dynamic';
  * US-160 / US-161 (PM-10 = molde de "Documentos"): "Meus exames" — seção do Plano 16 (G-D9); a âncora `#enviar` da
  * barra "Ações" cai no h2 de "Enviar exame". O formulário só com o recebimento ligado (D18 = a); a lista continua (os
  * envios antigos). Fora da cópia offline (o service worker só guarda /p/plano). A lista é auditada no módulo (D22).
- * Hotfix 09/10/2026: com algum envio "Processando…", AtualizarEnquantoProcessa refaz a página a cada 5 s (até 3 min) até
- * o worker terminar; a troca de situação é anunciada numa região viva única (AnunciarSituacoes), não em cada linha.
+ * Hotfix 09/10/2026: com algum envio "Processando…", AtualizarEnquantoProcessa acompanha só a situação (rota leve, sem
+ * auditoria) e refaz a página uma vez quando o worker termina; a troca é anunciada numa região viva única
+ * (AnunciarSituacoes), não em cada linha.
  */
 export default async function MeusExames() {
   const acesso = await requirePaciente('/p/exames');
@@ -25,6 +26,7 @@ export default async function MeusExames() {
   const moldura = await molduraDaSecao(acesso);
   const lista = await meusEnvios(ctx);
   const data = (d: Date) => formatarDataNoFuso(d, tenant.fuso);
+  const processando = lista.filter((e) => e.status === 'processando').map((e) => e.id);
   const envios = lista.map((e) => ({ ...e, rotulo: nomeDoEnvio(e.nome, data(e.enviadoEm)) }));
   return (
     <>
@@ -58,7 +60,7 @@ export default async function MeusExames() {
             })}
           </ul>
           <AnunciarSituacoes envios={envios.map((e) => ({ id: e.id, nome: e.rotulo, situacao: e.situacao }))} />
-          {lista.some((e) => e.status === 'processando') && <AtualizarEnquantoProcessa />}
+          {processando.length > 0 && <AtualizarEnquantoProcessa processando={processando} />}
         </section>
       </main>
     </>

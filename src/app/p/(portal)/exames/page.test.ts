@@ -16,7 +16,9 @@ vi.mock('@/modules/portal/exames-enviados', async (importOriginal) => ({
 }));
 vi.mock('./actions', () => ({ cancelarEnvioAction: async () => ({}) }));
 // o atualizador não desenha nada: aqui uma marca, para ver quando a página o monta
-vi.mock('./atualizar-enquanto-processa', () => ({ AtualizarEnquantoProcessa: () => createElement('span', { 'data-atualizador': '' }) }));
+vi.mock('./atualizar-enquanto-processa', () => ({
+  AtualizarEnquantoProcessa: ({ processando }: { processando: string[] }) => createElement('span', { 'data-atualizador': processando.join(',') }),
+}));
 vi.mock('@/app/p/moldura', () => ({
   molduraDaSecao: async () => ({ marca: { nome: 'Consultório', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }),
 }));
@@ -68,7 +70,8 @@ describe('/p/exames (US-160, US-161)', () => {
 
   it('com algum envio "Processando…": monta o atualizador da lista (5 s, até o worker terminar)', async () => {
     lista.push(envio({}), envio({ id: '00000000-0000-4000-8000-0000000000e2', status: 'processando', situacao: 'Processando…', podeBaixar: false }));
-    expect(await render()).toContain('data-atualizador');
+    // só os ids em processamento (a rota leve compara a situação deles; nada de nome ou situação no cliente)
+    expect(await render()).toContain('data-atualizador="00000000-0000-4000-8000-0000000000e2"');
   });
 
   it('sem envio processando (recebido, falhou, aceito ou lista vazia): não monta o atualizador', async () => {
