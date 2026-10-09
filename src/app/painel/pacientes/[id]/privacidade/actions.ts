@@ -2,7 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
+import { getEnv } from '@/env';
 import { requireNutri } from '@/lib/tenant-session';
+import { AutorizacaoError, enviarPedidoPorEmail, registrarRetiradaPelaNutri } from '@/modules/ia/autorizacao';
+import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { configIA } from '@/modules/ia/modo';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import {
   arquivarPaciente,
@@ -10,7 +14,6 @@ import {
   desarquivarPaciente,
   LgpdError,
 } from '@/modules/pacientes/lgpd';
-import { definirRecusaIa, enviarAvisoPorEmail, registrarEntregaEmMaos } from '@/modules/ia/ciencia-paciente';
 import { ExportacaoIndisponivelError, solicitarExportacao } from '@/modules/pacientes/exportacao';
 
 const caminho = (id: string) => `/painel/pacientes/${id}/privacidade`;
@@ -73,25 +76,27 @@ export async function exportarAction(patientId: string): Promise<void> {
   redirect(`/painel/pacientes/${patientId}/exportacoes/${id}`);
 }
 
-/** US-104 "Enviar aviso por e-mail" (D5: a ciência entra no pós-envio do worker). */
-export async function enviarAvisoIaAction(patientId: string): Promise<void> {
-  const { ctx, tenant } = await requireNutri(caminho(patientId));
+export type PedidoIaState = { ok?: string; erro?: string };
+
+/** US-105 "Enviar pedido de autorização por e-mail" (o e-mail entra na fila na mesma transação do registro). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- assinatura do useActionState
+export async function enviarPedidoIaAction(patientId: string, _prev: PedidoIaState, _fd: FormData): Promise<PedidoIaState> {
+  const { ctx } = await requireNutri(caminho(patientId));
   try {
-    await enviarAvisoPorEmail(ctx, tenant, patientId);
+    const env = getEnv();
+    await enviarPedidoPorEmail(ctx, patientId, { ia: configIA(env), appUrl: env.APP_URL });
   } catch (e) {
     if (e instanceof PacienteNaoEncontradoError) notFound();
-    if (!(e instanceof PacienteBloqueadoError)) throw e;
-    redirect(caminho(patientId)); // bloqueado: a ação não acontece, a página mostra o bloqueio
+    if (e instanceof AutorizacaoError || e instanceof PacienteBloqueadoError) return { erro: e.message };
+    throw e;
   }
-  redirect(`${caminho(patientId)}?ia=enviado`);
+  revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
+  return { ok: MSG_AUTORIZACAO.pedidoEnviado };
 }
 
-/** US-104 "Entreguei o aviso ao paciente". */
-export async function registrarEntregaIaAction(patientId: string): Promise<void> {
-  await situacao(patientId, (ctx) => registrarEntregaEmMaos(ctx, patientId));
-}
-
-/** US-103 "Não usar IA com os dados deste paciente" / "Voltar a usar IA com este paciente". */
-export async function recusaIaAction(patientId: string, recusar: boolean): Promise<void> {
-  await situacao(patientId, (ctx) => definirRecusaIa(ctx, patientId, recusar));
+/** US-109 "Registrar retirada a pedido do paciente": a retirada e o cancelamento na mesma transação (RN-108). */
+export async function retiradaIaAction(patientId: string): Promise<void> {
+  await situacao(patientId, async (ctx) => {
+    await registrarRetiradaPelaNutri(ctx, patientId);
+  });
 }

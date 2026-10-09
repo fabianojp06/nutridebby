@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { getEnv } from '@/env';
-import { usoDeIaVisivel } from '@/modules/ia/ciencia-paciente';
-import { configIA } from '@/modules/ia/modo';
+import { painelDaAutorizacao, secaoIaVisivel } from '@/modules/ia/autorizacao';
+import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
+import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao } from '@/modules/ia/textos-legais';
 import { formatarData } from '@/modules/pacientes/datas';
 import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
 import { PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
@@ -27,8 +29,14 @@ export default async function PrivacidadePage({
   const busca = await searchParams;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const recentes = await exportacoesRecentes(ctx, paciente.id);
-  // code review do PR #23 / D19: com a IA bloqueada pela admin depois de ativada, a recusa continua registrável
-  const iaVisivel = usoDeIaVisivel(configIA(getEnv()).modo, tenant, paciente);
+  // US-105: a seção aparece com IA_PROVEDOR e a IA liberada ou já ativada alguma vez, ou com registro do paciente — com a
+  // IA bloqueada pela admin depois de ativada, a retirada continua registrável (D10)
+  const ia = configIA(getEnv());
+  const painel = ia.modo === 'ausente' ? null : await painelDaAutorizacao(ctx, paciente, ia.destino);
+  const iaVisivel = !!painel && secaoIaVisivel(ia.modo, tenant, painel.temRegistro);
+  const responsavel = responsavelDoTenant(tenant);
+  const iaAtiva = estadoIaDoTenant(tenant, ia.modo) === 'ativa' && !!ia.destino;
+  const texto = responsavel && ia.destino ? textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...responsavel, destino: ia.destino, canal: 'link' }) : null;
   return (
     <div className="max-w-3xl space-y-8">
       <section aria-labelledby="arquivamento" className="space-y-2">
@@ -89,7 +97,17 @@ export default async function PrivacidadePage({
         )}
       </section>
 
-      {iaVisivel && <UsoDeIa paciente={paciente} fuso={tenant.fuso} enviado={busca.ia === 'enviado'} />}
+      {iaVisivel && painel && (
+        <UsoDeIa
+          paciente={paciente}
+          painel={painel}
+          podePedir={iaAtiva && !!responsavel}
+          motivoSemPedido={iaAtiva && !responsavel ? MSG_AUTORIZACAO.perfilIncompleto : null}
+          texto={texto}
+          fuso={tenant.fuso}
+          aviso={busca.ia === 'papel' ? MSG_AUTORIZACAO.termoRegistrado : null}
+        />
+      )}
 
       <section aria-labelledby="exclusao" className="space-y-2">
         <h2 id="exclusao" className="text-lg font-semibold">
