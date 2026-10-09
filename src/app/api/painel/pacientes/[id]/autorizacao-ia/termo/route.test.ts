@@ -6,7 +6,9 @@ import { iaAutorizacoes, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
+import { codigoDeReferencia } from '@/modules/ia/autorizacao-token';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { AUTORIZACAO_IA_VERSAO } from '@/modules/ia/textos-legais';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
 import { iaPronta, PDF_MINIMO } from '../../../../../../../../test/ia';
@@ -51,10 +53,15 @@ describe('POST do termo em papel (US-108)', () => {
     const sem = await enviar(p.id, { data: hoje }, N.cookie);
     expect(sem.status).toBe(400);
     expect(sem.headers.get('cache-control')).toBe('no-store');
-    expect((await sem.json()).erros).toMatchObject({ arquivo: MSG_AUTORIZACAO.faltouArquivo, confirmacao: MSG_AUTORIZACAO.faltouConfirmacao });
-    expect((await enviar(p.id, { data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, N.cookie, 'https://outro.site')).status).toBe(403);
+    expect((await sem.json()).erros).toMatchObject({ arquivo: MSG_AUTORIZACAO.faltouArquivo, confirmacao: MSG_AUTORIZACAO.faltouConfirmacao, codigo: MSG_AUTORIZACAO.faltouCodigo });
+    const codigo = codigoDeReferencia(N.ctx.tenantId, p.id, AUTORIZACAO_IA_VERSAO, 'teste'); // IA_PROVEDOR=sandbox
+    expect((await enviar(p.id, { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, N.cookie, 'https://outro.site')).status).toBe(403);
+    // revisão final (RN-107/RN-109): o código impresso com outro destino → 400 no campo do código
+    const outroDestino = await enviar(p.id, { codigo: codigoDeReferencia(N.ctx.tenantId, p.id, AUTORIZACAO_IA_VERSAO, 'anthropic-us'), data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, N.cookie);
+    expect(outroDestino.status).toBe(400);
+    expect((await outroDestino.json()).erros).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     expect(await autorizacoes(N.ctx, p.id)).toHaveLength(0);
-    const ok = await enviar(p.id, { data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO], { type: 'application/pdf' }) }, N.cookie);
+    const ok = await enviar(p.id, { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO], { type: 'application/pdf' }) }, N.cookie);
     expect(ok.status).toBe(200);
     const [a] = await autorizacoes(N.ctx, p.id);
     expect(a).toMatchObject({ canal: 'papel', evento: 'autorizou' });
@@ -65,12 +72,13 @@ describe('POST do termo em papel (US-108)', () => {
     const B = await nutri();
     const p = await novoPaciente(db, N.ctx);
     const hoje = hojeNoFuso('America/Sao_Paulo');
-    const txt = await enviar(p.id, { data: hoje, confirmacao: 'on', arquivo: new Blob([Buffer.from('texto qualquer, não é imagem nem PDF')]) }, N.cookie);
+    const codigo = codigoDeReferencia(N.ctx.tenantId, p.id, AUTORIZACAO_IA_VERSAO, 'teste');
+    const txt = await enviar(p.id, { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([Buffer.from('texto qualquer, não é imagem nem PDF')]) }, N.cookie);
     expect(txt.status).toBe(400);
     expect((await txt.json()).erros).toEqual({ arquivo: MSG_AUTORIZACAO.arquivoInvalido });
-    expect((await enviar('nao-e-uuid', { data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, N.cookie)).status).toBe(404);
-    expect((await enviar(p.id, { data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, B.cookie)).status).toBe(404);
-    expect((await enviar(p.id, { data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, '')).status).toBe(401);
+    expect((await enviar('nao-e-uuid', { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, N.cookie)).status).toBe(404);
+    expect((await enviar(p.id, { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, B.cookie)).status).toBe(404);
+    expect((await enviar(p.id, { codigo, data: hoje, confirmacao: 'on', arquivo: new Blob([PDF_MINIMO]) }, '')).status).toBe(401);
     expect(await autorizacoes(N.ctx, p.id)).toHaveLength(0);
   });
 });

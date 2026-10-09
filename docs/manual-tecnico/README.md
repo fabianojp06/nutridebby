@@ -297,7 +297,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Autorização de IA | Consentimento específico do paciente para o uso de IA com os dados dele (Plano 14A, A-D23 a A-D25): um evento por linha em `ia_autorizacoes` (`autorizou`, `retirou`, `pedido_email`), só de inclusão; vale para a versão, os usos e o **destino** em que foi dada. Canais: app, link do e-mail (sem login) e termo em papel | [§10.10](10-ia.md#1010-autorização-do-paciente-e-provedor-na-ue-plano-14a) |
 | Destino (IA) | Para onde o dado vai: `anthropic-us`, `bedrock-eu` ou `teste` (`DESTINO_DO_PROVEDOR`); gravado na autorização e, no portão do envio, em `ia_tarefas.destino` (RN-109, D6) | [§10.10.3](10-ia.md#10103-destino-rn-109-d6) |
 | Retenção zero (`IA_RETENCAO_ZERO`) | Interruptor que o dono liga quando a retenção zero do provedor está confirmada; sem ele, nenhum uso com dado de paciente (D9, `estadoIaComPaciente`) | [§10.7](10-ia.md#107-privacidade) |
-| Código de referência (termo) | 12 caracteres Crockford (`XXXX-XXXX-XXXX`) impressos em cada página do termo em papel da autorização de IA; a nutricionista confere na foto antes de salvar | [§10.10.5](10-ia.md#10105-os-canais-app-link-e-papel) |
+| Código de referência (termo) | 12 caracteres Crockford (`XXXX-XXXX-XXXX`) de tenant, paciente, versão e destino, impressos em cada página do termo em papel da autorização de IA; a nutricionista digita o código lido no papel ao salvar e o sistema recusa o de outro texto | [§10.10.5](10-ia.md#10105-os-canais-app-link-e-papel) |
 | Cota de IA / teto da plataforma | Limite mensal em US$ por consultório (`ia_cota_mensal_usd`, padrão 15) e teto mensal da plataforma inteira (`IA_TETO_GLOBAL_MENSAL_USD`); o custo é reservado antes do envio e acertado depois | [§10.5](10-ia.md#105-cota-e-custo) |
 | ZDR | *Zero data retention*: o provedor não guarda o laudo depois da resposta; pré-condição para dado real (A-D4) | [§10.7](10-ia.md#107-privacidade) |
 | Sandbox / fake (IA) | Provedores sem rede: `sandbox` (resposta fixa, dev e E2E) e `fake` (programável, testes). Os dois são recusados em produção | [§10.2](10-ia.md#102-peças) |
@@ -564,6 +564,7 @@ Desvios conscientes do plano, conferidos no branch `plano-14-ia-nutricionista` e
 | 92 | Spec da IA US-113 | Campos legados sempre na exportação | `avisoIa`, `avisoIaEnviadoEm` e `recusouIaEm` só quando preenchidos (desvio 10) | Reg. | 10 |
 | 93 | Plano 14A (manual guiado) | Texto novo do guia sobe a `versao` | Item do guia do portal sem subir a versão (desvio 11) | Reg. | 10 |
 | 94 | Spec da IA US-108 | — (não previsto) | Termo em papel recusado com retirada no dia da assinatura ou depois (desvio 12); o advogado (E-09) decide se algum termo anterior pode valer | Pend. | 10 |
+| 95 | Spec da IA US-108/RN-107 | A nutricionista confere na foto o código mostrado na tela; código de tenant, paciente e versão | O código inclui o destino; a nutricionista digita o código lido no papel e o servidor recusa o de outro texto; a confirmação cita o destino (desvio 13); textos novos à espera da Debby e do advogado | Pend. | 10 |
 
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

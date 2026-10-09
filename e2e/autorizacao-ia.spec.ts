@@ -89,12 +89,21 @@ test('termo em papel: imprimir, guardar a foto com o código de referência, "Ve
   // US-108: o "Salvar" vazio chega à rota (noValidate, R5) e volta com o erro por campo
   await nutri.getByRole('button', { name: 'Salvar' }).click();
   await expect(nutri.getByText('Envie a foto ou o PDF do termo assinado.')).toBeVisible();
+  await expect(nutri.getByText('Digite o código de referência impresso no termo assinado.')).toBeVisible();
   const doc = await PDFDocument.create();
   doc.addPage([595, 842]);
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   await nutri.getByLabel('Data da assinatura').fill(hoje);
   await nutri.getByLabel('Foto ou PDF do termo assinado').setInputFiles({ name: 'termo.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
-  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 0\.1-provisorio, e que o arquivo mostra todas as páginas e a assinatura\.$/).check();
+  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 0\.1-provisorio, com envio para Provedor de teste, e que o arquivo mostra todas as páginas e a assinatura\.$/).check();
+  // Revisão final (RN-107/RN-109): o código lido no papel; um código que não é o do texto de agora → recusa no campo
+  const impresso = (await nutri.getByText(/^Código de referência: [0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/).first().textContent())!.replace('Código de referência: ', '');
+  const codigo = nutri.getByLabel('Código de referência impresso no termo assinado');
+  await codigo.fill(impresso.split('').reverse().join(''));
+  await nutri.getByRole('button', { name: 'Salvar' }).click();
+  await expect(nutri.getByText(/^O código não confere com o do termo atual\./)).toBeVisible();
+  await expect(codigo).toHaveAttribute('aria-invalid', 'true');
+  await codigo.fill(impresso.toLowerCase());
   await nutri.getByRole('button', { name: 'Salvar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Termo registrado. Entregue ao paciente uma via do termo assinado.' })).toBeVisible();
   await expect(nutri.getByText(/^Autorizou em .* \(termo em papel, versão 0\.1-provisorio\)\./)).toBeVisible();

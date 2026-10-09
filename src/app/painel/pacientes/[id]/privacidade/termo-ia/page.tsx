@@ -2,7 +2,7 @@ import { TextoLegalView } from '@/components/texto-legal';
 import { Aviso } from '@/components/ui/aviso';
 import { getEnv } from '@/env';
 import { painelDaAutorizacao } from '@/modules/ia/autorizacao';
-import { MSG_AUTORIZACAO, MSG_FALHA, MSG_IA } from '@/modules/ia/constantes';
+import { DESTINO_ROTULO, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA } from '@/modules/ia/constantes';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao } from '@/modules/ia/textos-legais';
 import { carregarProntuario } from '../../prontuario';
@@ -20,6 +20,8 @@ export const dynamic = 'force-dynamic';
  * Chrome/Edge (o navegador do consultório; o runbook e o manual guiado dizem para imprimir por eles). O código é só
  * [0-9A-Z-] (Crockford), então pode ir na string do CSS sem escape. Só esta página tira da impressão o cabeçalho do paciente e
  * as abas do layout do prontuário (`data-guia`); as outras abas continuam saindo no papel com o nome do paciente.
+ * Revisão final (RN-107/RN-109): o código de referência inclui o destino; o formulário pede o código lido no papel (não
+ * mostra o de agora) e a confirmação cita a versão e o destino.
  */
 export default async function TermoIaPage({ params }: PageProps<'/painel/pacientes/[id]/privacidade/termo-ia'>) {
   const { id } = await params;
@@ -37,6 +39,7 @@ export default async function TermoIaPage({ params }: PageProps<'/painel/pacient
   if (motivo || !responsavel || !ia.destino) return <Aviso tipo="aviso">{motivo}</Aviso>;
   const texto = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...responsavel, destino: ia.destino, canal: paciente.email ? 'papel_com_email' : 'papel_sem_email' })!;
   const { codigoDeReferencia } = await painelDaAutorizacao(ctx, paciente, ia.destino);
+  if (!codigoDeReferencia) return <Aviso tipo="aviso">{MSG_IA.indisponivel}</Aviso>; // com o destino em uso, nunca nulo
   const impressao = `@page { margin: 18mm 16mm 22mm; @bottom-center { content: "${MSG_AUTORIZACAO.rodapeTermo(codigoDeReferencia)} " counter(page) " de " counter(pages); font-size: 9pt; } } @media print { [data-guia="cabecalho-paciente"], [data-guia="abas-prontuario"] { display: none; } }`;
   return (
     <div className="max-w-3xl space-y-6">
@@ -55,7 +58,7 @@ export default async function TermoIaPage({ params }: PageProps<'/painel/pacient
           {MSG_AUTORIZACAO.registrarPapel}
         </h2>
         <p className="text-suave">{MSG_AUTORIZACAO.guardarOriginal}</p>
-        <TermoPapelForm patientId={paciente.id} versao={AUTORIZACAO_IA_VERSAO} codigo={codigoDeReferencia} />
+        <TermoPapelForm patientId={paciente.id} versao={AUTORIZACAO_IA_VERSAO} destino={DESTINO_ROTULO[ia.destino]} />
       </section>
     </div>
   );

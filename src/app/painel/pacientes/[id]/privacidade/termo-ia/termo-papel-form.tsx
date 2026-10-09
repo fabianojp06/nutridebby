@@ -5,16 +5,18 @@ import { useState } from 'react';
 import { Botao } from '@/components/ui/botao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 
-type Erros = Partial<Record<'geral' | 'data' | 'arquivo' | 'confirmacao', string>>;
+type Erros = Partial<Record<'geral' | 'codigo' | 'data' | 'arquivo' | 'confirmacao', string>>;
 const FALHOU = 'Não foi possível salvar. Tente de novo.';
 
 /**
  * US-108 "Guardar o termo assinado": multipart para a rota do painel (o arquivo de até 20 MB não passa por Server Action),
  * como o laudo dos exames. Sucesso → volta à aba Privacidade com "Termo registrado…" (?ia=papel). Erros por campo, com
  * aria-invalid/aria-describedby; o geral em role="alert". `noValidate` (R5 do pre-flight): o "Salvar" com campos vazios
- * chega à rota, que devolve os textos da US-108 por campo — a validação nativa do navegador os esconderia.
+ * chega à rota, que devolve os textos da US-108 por campo — a validação nativa do navegador os esconderia. Revisão final
+ * (RN-107/RN-109): a nutricionista digita o código de referência lido no papel (o de agora não aparece aqui: o servidor
+ * recusa o papel impresso com outra versão ou outro destino) e a confirmação cita a versão e o destino.
  */
-export function TermoPapelForm({ patientId, versao, codigo }: { patientId: string; versao: string; codigo: string }) {
+export function TermoPapelForm({ patientId, versao, destino }: { patientId: string; versao: string; destino: string }) {
   const router = useRouter();
   const [erros, setErros] = useState<Erros>({});
   const [enviando, setEnviando] = useState(false);
@@ -46,7 +48,28 @@ export function TermoPapelForm({ patientId, versao, codigo }: { patientId: strin
     );
   return (
     <form method="post" noValidate onSubmit={enviar} className="space-y-3 print:hidden">
-      <p className="font-semibold">{MSG_AUTORIZACAO.codigoReferencia(codigo)}</p>
+      <div>
+        <label htmlFor="codigo" className="block font-medium">
+          {MSG_AUTORIZACAO.codigoLido}
+        </label>
+        <p id="codigo-dica" className="text-sm text-suave">
+          {MSG_AUTORIZACAO.dicaCodigoLido}
+        </p>
+        <input
+          id="codigo"
+          name="codigo"
+          type="text"
+          required
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={40}
+          className="min-h-11 rounded-xl border border-campo bg-cartao p-2 font-mono text-texto"
+          aria-describedby={erros.codigo ? 'codigo-dica codigo-erro' : 'codigo-dica'}
+          {...(erros.codigo ? { 'aria-invalid': true as const } : {})}
+        />
+        {erro('codigo')}
+      </div>
       <div>
         <label htmlFor="data" className="block font-medium">
           {MSG_AUTORIZACAO.dataAssinatura}
@@ -76,7 +99,7 @@ export function TermoPapelForm({ patientId, versao, codigo }: { patientId: strin
       </div>
       <div className="flex min-h-11 items-start gap-2">
         <input id="confirmacao" name="confirmacao" type="checkbox" required className="mt-1 h-5 w-5 shrink-0" {...campo('confirmacao')} />
-        <label htmlFor="confirmacao">{MSG_AUTORIZACAO.confirmacaoPapel(versao)}</label>
+        <label htmlFor="confirmacao">{MSG_AUTORIZACAO.confirmacaoPapel(versao, destino)}</label>
       </div>
       {erro('confirmacao')}
       {erro('geral')}

@@ -6,6 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
 import { inicioDoDia } from '@/modules/agenda/fuso';
+import { normalizarCodigo } from '@/modules/documentos/codigo';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -272,14 +273,15 @@ export async function enviarPedidoPorEmail(ctx: TenantContext, patientId: string
 /**
  * US-108 "Guardar o termo assinado" (RN-107, regra 9): o arquivo pelo salvarArquivo (tipo ia_autorizacao_termo, do paciente,
  * conta na cota), com o paciente travado no `antesDaReserva` e a linha `autorizou` (canal papel, em = início do dia
- * informado, D16) no `registrar` — ordem paciente → tenant → linha; tudo ou nada (RNF-111 f). Recusa o termo com uma
- * retirada no dia da assinatura ou depois (desvio 12). Com e-mail, a confirmação
- * com o link de retirada. Devolve o id da autorização.
+ * informado, D16) no `registrar` — ordem paciente → tenant → linha; tudo ou nada (RNF-111 f). Recusa o termo cujo código
+ * de referência digitado (o lido no papel) não é o do texto de agora — versão e destino (RN-107/RN-109, revisão final) — e
+ * o termo com uma retirada no dia da assinatura ou depois (desvio 12). Com e-mail, a confirmação com o link de retirada.
+ * Devolve o id da autorização.
  */
 export async function registrarTermoEmPapel(
   ctx: TenantContext,
   patientId: string,
-  input: { data: unknown; confirmacao: boolean; arquivo: Buffer | null },
+  input: { codigo: unknown; data: unknown; confirmacao: boolean; arquivo: Buffer | null },
   deps: DepsAutorizacao,
 ): Promise<string> {
   const db = deps.db ?? getDb();
@@ -289,6 +291,8 @@ export async function registrarTermoEmPapel(
   if (!input.arquivo?.length) erros.arquivo = MSG_AUTORIZACAO.faltouArquivo;
   else if (input.arquivo.length > TERMO_MAX_BYTES) erros.arquivo = MSG_AUTORIZACAO.arquivoInvalido;
   if (!input.confirmacao) erros.confirmacao = MSG_AUTORIZACAO.faltouConfirmacao;
+  const codigo = normalizarCodigo(input.codigo);
+  if (!codigo) erros.codigo = MSG_AUTORIZACAO.faltouCodigo;
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!t || !dataValida(data) || data > hojeNoFuso(t.fuso, agora) || data < AUTORIZACAO_IA_VERSAO_DATA) erros.data = MSG_AUTORIZACAO.dataInvalida;
   if (Object.keys(erros).length) throw new AutorizacaoError(erros);
@@ -306,6 +310,10 @@ export async function registrarTermoEmPapel(
         antesDaReserva: async (tx) => {
           const p = await carregarPacienteParaEscrita(tx, patientId); // bloqueado/anonimizado → PacienteBloqueadoError
           if (p.status !== 'ativo') throw new AutorizacaoError({ geral: MSG_FALHA.paciente_indisponivel });
+          // RN-107/RN-109 (revisão final): o código lido no papel é o do texto de agora (versão e destino). O papel impresso
+          // antes de uma troca de provedor (ou de versão) não registra o consentimento a um texto que o paciente não leu.
+          // Depois do paciente carregado: o de outro consultório continua "não encontrado".
+          if (normalizarCodigo(codigoDeReferencia(ctx.tenantId, p.id, AUTORIZACAO_IA_VERSAO, destino)) !== codigo) throw new AutorizacaoError({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
           // Desvio 12: a decisão mais recente é a de registrado_em (D7), e o termo nasce com o registrado_em do upload. Um
           // termo assinado antes de uma retirada (ou no mesmo dia: critério conservador, a favor do titular) desfaria a
           // retirada; com o paciente travado, nenhuma retirada nova entra entre esta leitura e a linha.
@@ -352,7 +360,7 @@ export async function caminhoDoTermo(ctx: TenantContext, patientId: string, auto
 }
 
 export type EventoNaTela = { id: string; evento: EventoAutorizacao; canal: CanalAutorizacao; versao: string | null; destino: DestinoIA | null; em: Date; temTermo: boolean };
-export type PainelAutorizacao = { situacao: SituacaoAutorizacao; eventos: EventoNaTela[]; pedidoAbertoAte: Date | null; alertaEmailTrocado: boolean; codigoDeReferencia: string; temRegistro: boolean };
+export type PainelAutorizacao = { situacao: SituacaoAutorizacao; eventos: EventoNaTela[]; pedidoAbertoAte: Date | null; alertaEmailTrocado: boolean; codigoDeReferencia: string | null; temRegistro: boolean };
 
 /**
  * US-105: os dados da seção "Uso de IA" (sem auditoria: não é dado de saúde, AUDIT_EXCEPTIONS). Eventos do mais recente ao
@@ -382,7 +390,7 @@ export async function painelDaAutorizacao(ctx: TenantContext, paciente: Pick<Pat
     eventos: linhas.map((l) => ({ id: l.id, evento: l.evento as EventoAutorizacao, canal: l.canal as CanalAutorizacao, versao: l.versao, destino: l.destino as DestinoIA | null, em: l.em, temTermo: !!l.arquivoPath })),
     pedidoAbertoAte: fim && fim > agora ? fim : null,
     alertaEmailTrocado,
-    codigoDeReferencia: codigoDeReferencia(ctx.tenantId, paciente.id, AUTORIZACAO_IA_VERSAO),
+    codigoDeReferencia: destino ? codigoDeReferencia(ctx.tenantId, paciente.id, AUTORIZACAO_IA_VERSAO, destino) : null,
     temRegistro: linhas.length > 0,
   };
 }

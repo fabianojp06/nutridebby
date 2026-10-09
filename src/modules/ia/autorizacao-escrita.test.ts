@@ -19,9 +19,9 @@ import {
   AutorizacaoError, autorizacaoDoPaciente, autorizarNoApp, blocoIaDoApp, caminhoDoTermo, enviarPedidoPorEmail, painelDaAutorizacao, registrarRetiradaPelaNutri, registrarTermoEmPapel,
   retirarNoApp, secaoIaVisivel,
 } from './autorizacao';
-import { lerLinkAutorizacao } from './autorizacao-token';
-import { MSG_AUTORIZACAO, MSG_FALHA, MSG_IA } from './constantes';
-import { textoExibido } from './textos-legais';
+import { codigoDeReferencia, lerLinkAutorizacao } from './autorizacao-token';
+import { DESTINO_ROTULO, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA, type DestinoIA } from './constantes';
+import { AUTORIZACAO_IA_VERSAO, textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-esc-'));
@@ -47,6 +47,8 @@ async function cenario(o: { perfil?: boolean; ia?: boolean } = {}) {
 const arquivosEm = (dir: string) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((d) => d.isFile()).length;
 /** O texto que a tela do app mostrou (destino de teste, versão e usos de agora). */
 const LIDO = textoExibido('teste');
+/** US-108 (revisão final): o código de referência impresso no termo (versão de agora e o destino da impressão). */
+const cod = (tenantId: string, patientId: string, destino: DestinoIA = 'teste') => codigoDeReferencia(tenantId, patientId, AUTORIZACAO_IA_VERSAO, destino);
 const erros = (pr: Promise<unknown>) => pr.then(() => null, (e: unknown) => (e instanceof AutorizacaoError ? e.erros : e));
 
 describe('US-106 — autorizar no app', () => {
@@ -145,7 +147,7 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
   it('arquivo e linha na mesma transação: canal papel, em = início do dia informado, o arquivo do tipo novo; confirmação ao e-mail do paciente', async () => {
     const { T, p, deps, eventos } = await cenario();
     const hoje = hojeNoFuso('America/Sao_Paulo');
-    const id = await registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps());
+    const id = await registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps());
     const [e] = await eventos();
     expect(e).toMatchObject({ id, evento: 'autorizou', canal: 'papel', registradoPor: T.nutriId, ip: null, destino: 'teste', usos: ['leitura_laudos'] }); // F2
     expect(e.em.getTime()).toBe(inicioDoDia(hoje, 'America/Sao_Paulo').getTime());
@@ -156,15 +158,15 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
 
   it('faltou arquivo, confirmação ou data válida (futura, antes da versão, inválida); arquivo fora do formato; nada gravado', async () => {
     const { T, p, deps, eventos } = await cenario();
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: '2999-01-01', confirmacao: false, arquivo: null }, deps()))).toEqual({
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: '2999-01-01', confirmacao: false, arquivo: null }, deps()))).toEqual({
       arquivo: MSG_AUTORIZACAO.faltouArquivo, confirmacao: MSG_AUTORIZACAO.faltouConfirmacao, data: MSG_AUTORIZACAO.dataInvalida,
     });
     for (const data of ['2999-01-01', '2026-10-08', '2026-02-30', 'ontem']) {
-      expect((await erros(registrarTermoEmPapel(T.ctx, p.id, { data, confirmacao: true, arquivo: PDF_MINIMO }, deps())) as Record<string, string>).data, data).toBe(MSG_AUTORIZACAO.dataInvalida);
+      expect((await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data, confirmacao: true, arquivo: PDF_MINIMO }, deps())) as Record<string, string>).data, data).toBe(MSG_AUTORIZACAO.dataInvalida);
     }
     const hoje = hojeNoFuso('America/Sao_Paulo');
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') }, deps()))).toEqual({ arquivo: MSG_AUTORIZACAO.arquivoInvalido });
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: Buffer.alloc(20 * 1024 * 1024 + 1) }, deps()))).toEqual({ arquivo: MSG_AUTORIZACAO.arquivoInvalido });
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') }, deps()))).toEqual({ arquivo: MSG_AUTORIZACAO.arquivoInvalido });
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: Buffer.alloc(20 * 1024 * 1024 + 1) }, deps()))).toEqual({ arquivo: MSG_AUTORIZACAO.arquivoInvalido });
     expect(await eventos()).toHaveLength(0);
   });
 
@@ -172,12 +174,12 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     const { T, p, deps, eventos } = await cenario();
     const hoje = hojeNoFuso('America/Sao_Paulo');
     const antes = arquivosEm(dataDir);
-    await expect(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps({ depoisDaLinha: async () => { throw new Error('falha simulada'); } }))).rejects.toThrow('falha simulada');
+    await expect(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps({ depoisDaLinha: async () => { throw new Error('falha simulada'); } }))).rejects.toThrow('falha simulada');
     expect(await eventos()).toHaveLength(0);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(and(eq(storedFiles.patientId, p.id), eq(storedFiles.tipo, 'ia_autorizacao_termo'))), app.db)).toHaveLength(0);
     expect(arquivosEm(dataDir)).toBe(antes);
     const bloqueado = await novoPaciente(app.db, T.ctx, { status: 'bloqueado' });
-    await expect(registrarTermoEmPapel(T.ctx, bloqueado.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps())).rejects.toBeInstanceOf(PacienteBloqueadoError);
+    await expect(registrarTermoEmPapel(T.ctx, bloqueado.id, { codigo: cod(T.tenantId, bloqueado.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps())).rejects.toBeInstanceOf(PacienteBloqueadoError);
   });
 
   it('retirada no dia da assinatura ou depois (no app ou pela nutricionista) → recusa no campo da data, nada registrado (LGPD art. 8º, § 5º)', async () => {
@@ -186,29 +188,58 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     await autorizarNoApp(P, LIDO, deps());
     expect(await retirarNoApp(P, deps())).toBe('retirada');
     const antes = arquivosEm(dataDir);
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
     expect((await eventos()).map((e) => e.evento).sort()).toEqual(['autorizou', 'retirou']);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(and(eq(storedFiles.patientId, p.id), eq(storedFiles.tipo, 'ia_autorizacao_termo'))), app.db)).toHaveLength(0);
     expect(arquivosEm(dataDir)).toBe(antes);
     expect(await withTenant(T.ctx, (tx) => autorizacaoDoPaciente(tx, p.id, 'teste'), app.db)).toMatchObject({ tipo: 'retirada' });
 
     const n = await cenario();
-    await registrarTermoEmPapel(n.T.ctx, n.p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps());
+    await registrarTermoEmPapel(n.T.ctx, n.p.id, { codigo: cod(n.T.tenantId, n.p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps());
     expect(await registrarRetiradaPelaNutri(n.T.ctx, n.p.id, { db: app.db })).toBe(true);
-    expect(await erros(registrarTermoEmPapel(n.T.ctx, n.p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
+    expect(await erros(registrarTermoEmPapel(n.T.ctx, n.p.id, { codigo: cod(n.T.tenantId, n.p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
     expect(await n.eventos()).toHaveLength(2);
   });
 
   it('armazenamento esgotado → o texto da US-108, nada registrado', async () => {
     const { T, p, deps, eventos } = await cenario();
     await app.db.update(tenants).set({ armazenamentoBytes: 5 * 1024 ** 3 }).where(eq(tenants.id, T.tenantId));
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ geral: MSG_COTA_ESGOTADA });
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ geral: MSG_COTA_ESGOTADA });
     expect(await eventos()).toHaveLength(0);
+  });
+
+  it('RN-107/RN-109 (revisão final): o código digitado é o do papel — impresso com outro destino (provedor trocado depois da impressão) ou outra versão → recusa no campo do código, nem linha nem arquivo', async () => {
+    const { T, p, deps, eventos } = await cenario();
+    const hoje = hojeNoFuso('America/Sao_Paulo');
+    const antes = arquivosEm(dataDir);
+    // impresso com a Anthropic (EUA), registrado com o provedor de agora (teste) — e o inverso, impresso no destino de agora e registrado com o da UE
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id, 'anthropic-us'), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps({ ia: { ...IA_TESTE, destino: 'bedrock-eu' } })))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    const deOutraVersao = codigoDeReferencia(T.tenantId, p.id, '0.0-antiga', 'teste');
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: deOutraVersao, data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    const outro = await novoPaciente(app.db, T.ctx);
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, outro.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    for (const codigo of [undefined, '', '   ', 'ABC', 'X'.repeat(50)]) {
+      expect((await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo, data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps())) as Record<string, string>).codigo, String(codigo)).toBe(MSG_AUTORIZACAO.faltouCodigo);
+    }
+    expect(await eventos()).toHaveLength(0);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(and(eq(storedFiles.patientId, p.id), eq(storedFiles.tipo, 'ia_autorizacao_termo'))), app.db)).toHaveLength(0);
+    expect(arquivosEm(dataDir)).toBe(antes);
+    // digitado como se lê no papel: minúsculas, espaços, sem hífens
+    const digitado = ` ${cod(T.tenantId, p.id).toLowerCase().replace(/-/g, ' ')} `;
+    await registrarTermoEmPapel(T.ctx, p.id, { codigo: digitado, data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps());
+    expect(await eventos()).toEqual([expect.objectContaining({ evento: 'autorizou', canal: 'papel', destino: 'teste' })]);
+  });
+
+  it('RN-109 (revisão final): a confirmação cita a versão e o destino', () => {
+    expect(MSG_AUTORIZACAO.confirmacaoPapel('0.1-provisorio', DESTINO_ROTULO['bedrock-eu'])).toBe(
+      'Confirmo que o paciente assinou este termo, na versão 0.1-provisorio, com envio para Amazon Web Services (Claude), União Europeia, e que o arquivo mostra todas as páginas e a assinatura.',
+    );
   });
 
   it('"Ver termo assinado": o caminho com auditRead (entidade ia_autorizacao); de outro paciente → null, sem auditoria', async () => {
     const { T, p, deps } = await cenario();
-    const id = await registrarTermoEmPapel(T.ctx, p.id, { data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, deps());
+    const id = await registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, deps());
     const outro = await novoPaciente(app.db, T.ctx);
     expect(await caminhoDoTermo(T.ctx, outro.id, id, app.db)).toBeNull();
     expect(await caminhoDoTermo(T.ctx, p.id, id, app.db)).toMatch(new RegExp(`^${T.tenantId}/ia_autorizacao_termo/`));
@@ -228,7 +259,8 @@ describe('US-105 — dados da seção "Uso de IA" e do bloco do app', () => {
     expect(painel.pedidoAbertoAte).toBeInstanceOf(Date);
     expect(painel.alertaEmailTrocado).toBe(true);
     expect(painel.temRegistro).toBe(true);
-    expect(painel.codigoDeReferencia).toMatch(/^.{4}-.{4}-.{4}$/);
+    expect(painel.codigoDeReferencia).toBe(cod(T.tenantId, p.id, 'teste')); // o do destino em uso (revisão final)
+    expect((await painelDaAutorizacao(T.ctx, p, null, { db: app.db })).codigoDeReferencia).toBeNull();
   });
 
   it('secaoIaVisivel e blocoIaDoApp seguem a US-105 "Quando a seção aparece" e a US-106 "Consultório sem IA" (desvio 8)', async () => {

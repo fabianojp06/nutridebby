@@ -2,6 +2,7 @@ import { createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 import { encryptionKey } from '@/lib/crypto';
 import { urlDoApp } from '@/lib/url-do-app';
 import { normalizarEmailDoLink } from '@/modules/agenda/link-consulta';
+import type { DestinoIA } from './constantes';
 
 /**
  * RN-107 / D11 / D12 (Plano 14A): os links da autorização de IA, SEM ESTADO, no molde de link-documento.ts.
@@ -83,11 +84,13 @@ export const urlDoLinkAutorizacao = (appUrl: string, token: string) => urlDoApp(
 const ALFABETO = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const [QUATRO, CINCO, MASCARA] = [BigInt(4), BigInt(5), BigInt(31)];
 /**
- * US-108 / RN-107: o código de referência do termo impresso — HMAC curto de tenant, paciente e versão, 12 caracteres em
- * base32 Crockford (o alfabeto do código dos documentos), "XXXX-XXXX-XXXX". A nutricionista confere na foto antes de salvar.
+ * US-108 / RN-107: o código de referência do termo impresso — HMAC curto de tenant, paciente, versão e destino, 12
+ * caracteres em base32 Crockford (o alfabeto do código dos documentos), "XXXX-XXXX-XXXX". RN-109 (revisão final): com o
+ * destino na entrada, trocado o provedor entre a impressão e o registro, o código do papel deixa de bater com o de agora;
+ * a nutricionista digita o código lido no papel e `registrarTermoEmPapel` recusa o que não bate.
  */
-export function codigoDeReferencia(tenantId: string, patientId: string, versao: string): string {
-  let n = createHmac('sha256', chaveDoLink()).update(`referencia:${tenantId}:${patientId}:${versao}`).digest().readBigUInt64BE() >> QUATRO;
+export function codigoDeReferencia(tenantId: string, patientId: string, versao: string, destino: DestinoIA): string {
+  let n = createHmac('sha256', chaveDoLink()).update(`referencia:${tenantId}:${patientId}:${versao}:${destino}`).digest().readBigUInt64BE() >> QUATRO;
   let s = '';
   for (let i = 0; i < 12; i++) {
     s = ALFABETO[Number(n & MASCARA)] + s;

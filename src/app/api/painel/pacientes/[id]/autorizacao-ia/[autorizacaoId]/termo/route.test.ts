@@ -7,6 +7,8 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
 import { registrarTermoEmPapel } from '@/modules/ia/autorizacao';
+import { codigoDeReferencia } from '@/modules/ia/autorizacao-token';
+import { AUTORIZACAO_IA_VERSAO } from '@/modules/ia/textos-legais';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
 import { IA_TESTE, iaPronta, PDF_MINIMO } from '../../../../../../../../../test/ia';
@@ -38,7 +40,7 @@ describe('GET "Ver termo assinado" (US-108)', () => {
     const B = await nutri();
     const p = await novoPaciente(db, N.ctx);
     const outro = await novoPaciente(db, N.ctx);
-    const id = await registrarTermoEmPapel(N.ctx, p.id, { data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, { ia: IA_TESTE, appUrl: 'http://localhost:3000', db });
+    const id = await registrarTermoEmPapel(N.ctx, p.id, { codigo: codigoDeReferencia(N.tenantId, p.id, AUTORIZACAO_IA_VERSAO, 'teste'), data: hojeNoFuso('America/Sao_Paulo'), confirmacao: true, arquivo: PDF_MINIMO }, { ia: IA_TESTE, appUrl: 'http://localhost:3000', db });
     const leituras = () =>
       withTenant(N.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidade, 'ia_autorizacao'), eq(auditLog.acao, 'ler'), eq(auditLog.entidadeId, id))), db);
 

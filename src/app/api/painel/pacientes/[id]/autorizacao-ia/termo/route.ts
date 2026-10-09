@@ -10,7 +10,7 @@ import { MSG_EXAME } from '@/modules/pacientes/exames-constantes';
 
 export const dynamic = 'force-dynamic';
 
-// O multipart leva, além do arquivo, a data, a confirmação e as fronteiras
+// O multipart leva, além do arquivo, o código lido no papel, a data, a confirmação e as fronteiras
 const LIMITE_CORPO = TERMO_MAX_BYTES + 64 * 1024;
 const resposta = (status: number, corpo: unknown) => Response.json(corpo, { status, headers: { 'cache-control': 'no-store' } });
 const NAO_ENCONTRADO = { erros: { geral: 'Paciente não encontrado.' } };
@@ -19,7 +19,7 @@ const MAX_ENVIOS = 2;
 let enviosEmAndamento = 0;
 
 /**
- * US-108 "Guardar o termo assinado": multipart (data, confirmacao, arquivo). A regra é a do `registrarTermoEmPapel` (T5);
+ * US-108 "Guardar o termo assinado": multipart (codigo, data, confirmacao, arquivo). A regra é a do `registrarTermoEmPapel` (T5);
  * aqui só o transporte. 200 · 400 (erros por campo) · 401 · 403 (outra origem) · 404 · 408 · 409 (bloqueado) · 413 · 429.
  */
 export async function POST(req: Request, { params }: RouteContext<'/api/painel/pacientes/[id]/autorizacao-ia/termo'>) {
@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: RouteContext<'/api/painel/p
     const arquivo = form.get('arquivo');
     const buf = arquivo instanceof Blob && arquivo.size > 0 ? Buffer.from(await arquivo.arrayBuffer()) : null;
     const env = getEnv();
-    await registrarTermoEmPapel(acesso.ctx, id, { data: form.get('data'), confirmacao: form.get('confirmacao') === 'on', arquivo: buf }, { ia: configIA(env), appUrl: env.APP_URL });
+    await registrarTermoEmPapel(acesso.ctx, id, { codigo: form.get('codigo'), data: form.get('data'), confirmacao: form.get('confirmacao') === 'on', arquivo: buf }, { ia: configIA(env), appUrl: env.APP_URL });
     return resposta(200, { ok: true });
   } catch (e) {
     if (e instanceof AutorizacaoError) return resposta(400, { erros: e.erros });

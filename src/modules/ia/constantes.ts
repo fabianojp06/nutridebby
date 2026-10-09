@@ -184,8 +184,17 @@ export const MSG_AUTORIZACAO = {
   codigoReferencia: (codigo: string) => `Código de referência: ${codigo}`,
   /** F5 (§18.5): o rodapé de todas as páginas do termo impresso (o número da página vem do CSS de impressão). */
   rodapeTermo: (codigo: string) => `Código de referência: ${codigo} — Página`,
-  /** F5: a confirmação cobre todas as páginas. */
-  confirmacaoPapel: (versao: string) => `Confirmo que o paciente assinou este termo, na versão ${versao}, e que o arquivo mostra todas as páginas e a assinatura.`,
+  /** F5: a confirmação cobre todas as páginas. Revisão final (RN-109, texto novo: vai à Debby e ao advogado): cita o destino. */
+  confirmacaoPapel: (versao: string, destino: string) =>
+    `Confirmo que o paciente assinou este termo, na versão ${versao}, com envio para ${destino}, e que o arquivo mostra todas as páginas e a assinatura.`,
+  /**
+   * Revisão final (RN-107/RN-109, textos novos: vão à Debby, à revisão de interface e ao advogado): a nutricionista digita o
+   * código de referência lido no papel; o servidor recusa o que não bate com o texto de agora (versão e destino).
+   */
+  codigoLido: 'Código de referência impresso no termo assinado',
+  dicaCodigoLido: 'Digite o código que aparece no rodapé do termo assinado.',
+  faltouCodigo: 'Digite o código de referência impresso no termo assinado.',
+  codigoNaoConfere: 'O código não confere com o do termo atual. Se o código digitado está certo, o texto do termo mudou: imprima o termo de novo e peça uma nova assinatura.',
   /** F5: a dica do campo do arquivo e a recomendação de guardar o original. */
   dicaArquivoTermo: 'Fotografe ou digitalize todas as páginas do termo, num arquivo só.',
   guardarOriginal: 'Guarde o original em papel na pasta do paciente até a anonimização dele e entregue ao paciente uma via.',
