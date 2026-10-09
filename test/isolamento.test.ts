@@ -81,7 +81,7 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   access_events: (t, p) => sql`insert into access_events (tenant_id, patient_id, dia) values (${t}, ${p}, ${`2030-01-${String((++seqConsulta % 28) + 1).padStart(2, '0')}`})`,
   push_subscriptions: (t, p) =>
     sql`insert into push_subscriptions (tenant_id, patient_id, endpoint, p256dh, auth) values (${t}, ${p}, ${`https://push.example.test/${randomUUID()}`}, ${'a'.repeat(87)}, ${'b'.repeat(22)})`,
-  diary_entries: (t, p) => sql`insert into diary_entries (tenant_id, patient_id, refeicao, texto) values (${t}, ${p}, 'Almoço', 'arroz e feijão')`,
+  diary_entries: (t, p) => sql`insert into diary_entries (tenant_id, patient_id, refeicao, resposta, refeicao_do_plano) values (${t}, ${p}, 'Almoço', 'como_no_plano', 'Almoço · 12:30')`,
   // Plano 07: cada fábrica cria o próprio conteúdo (UNIQUE (content_id, patient_id) em views/favoritos) no mesmo comando
   contents: (t) => sql`insert into contents (tenant_id, tipo, titulo, status, publicado_em) values (${t}, 'orientacao', 'Iso', 'publicado', now())`,
   recipes: (t) => sql`with c as (insert into contents (tenant_id, tipo, titulo) values (${t}, 'receita', 'Iso') returning id)

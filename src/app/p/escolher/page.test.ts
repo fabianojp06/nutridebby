@@ -41,7 +41,9 @@ describe('/p/escolher com consultório suspenso (RN-15)', () => {
     expect(html).toContain('Bia Nutri</button>');
     expect(html).not.toContain('Ana Nutri</button>');
     expect(html).toContain('<p>Ana Nutri</p><p class="text-sm">Conta temporariamente indisponível</p>');
-    expect(html.match(/<button/g)).toHaveLength(1);
+    // Plano 16 (RN-211): o "Sair" do topo (CabecalhoSair) fica fora do <main>; dentro dele, só o botão do ativo
+    expect(html).toMatch(/^<header[^>]*><form action="\/sair" method="post"><button [^>]*data-sair="true"[^>]*>Sair<\/button><\/form><\/header><main/);
+    expect(html.slice(html.indexOf('<main')).match(/<button/g)).toHaveLength(1);
   });
 
   it('todos os consultórios suspensos → /indisponivel', async () => {

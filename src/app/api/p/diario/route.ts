@@ -20,7 +20,10 @@ let emAndamento = 0;
 const enviosPorConta = new Set<string>();
 const PRAZO_CORPO_MS = 60_000;
 
-/** US-042: multipart (refeicao, texto, foto opcional). Fora do proxy.ts, que não bufferiza /api. */
+/**
+ * US-042: multipart (refeicao, texto, foto opcional) e, no Plano 16 (RN-197), refeicaoId + resposta ("Comi assim" /
+ * "Comi outra coisa"; 404 para a refeição fora do plano publicado do paciente). Fora do proxy.ts, que não bufferiza /api.
+ */
 export async function POST(req: Request): Promise<Response> {
   if (!mesmaOrigem(req)) return resposta(403, { erros: { geral: 'Acesso negado' } });
   const acesso = await requireApiPaciente(req);
@@ -51,12 +54,22 @@ async function receber(req: Request, acesso: Extract<ApiPaciente, { ok: true }>)
   const arquivo = form.get('foto');
   const foto = arquivo instanceof Blob && arquivo.size > 0 ? Buffer.from(await arquivo.arrayBuffer()) : null;
   try {
-    const r = await registrarNoDiario(acesso.ctx, acesso.tenant, { refeicao: form.get('refeicao'), texto: form.get('texto'), foto });
+    const r = await registrarNoDiario(acesso.ctx, acesso.tenant, {
+      refeicao: form.get('refeicao'),
+      texto: form.get('texto'),
+      foto,
+      refeicaoId: form.get('refeicaoId'),
+      resposta: form.get('resposta'),
+    });
     // R9: com a cota esgotada o texto entra sem a foto, e a pessoa vê o texto da spec (US-042 "Cota de armazenamento")
-    return resposta(200, { ok: true, id: r.id, mensagem: r.semFoto ? `${MSG_DIARIO.salvoSemFoto} ${MSG_COTA_ESGOTADA}` : MSG_DIARIO.salvo, semFoto: r.semFoto });
+    return resposta(200, { ok: true, id: r.id, jaRegistrado: r.jaRegistrado, mensagem: r.semFoto ? `${MSG_DIARIO.salvoSemFoto} ${MSG_COTA_ESGOTADA}` : MSG_DIARIO.salvo, semFoto: r.semFoto });
   } catch (e) {
     if (e instanceof DiarioError) {
-      const status = e.erros.foto ? (foto && foto.length > FOTO_DIARIO_MAX_BYTES ? 413 : e.erros.foto === MSG_DIARIO.foto ? 415 : 507) : e.erros.geral === MSG_DIARIO.limite ? 409 : 400;
+      const status = e.erros.foto
+        ? foto && foto.length > FOTO_DIARIO_MAX_BYTES ? 413 : e.erros.foto === MSG_DIARIO.foto ? 415 : 507
+        : e.erros.geral === MSG_DIARIO.limite ? 409
+        : e.erros.geral === MSG_DIARIO.refeicaoNaoEncontrada ? 404
+        : 400;
       return resposta(status, { erros: e.erros });
     }
     throw e;

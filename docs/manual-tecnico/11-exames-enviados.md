@@ -17,9 +17,22 @@ pelo paciente"; com a IA ativa, dá para aceitar e já pedir a leitura da F3-01)
 vê. O paciente acompanha a situação em `/p/exames`, baixa o PDF limpo enquanto aguarda e pode cancelar.
 
 **Nasce desligado (D18 = a).** A nutricionista liga em Configurações, seção "Exames enviados pelos pacientes"
-(`tenants.exames_paciente_ativado_em`). Desligado, o portal não mostra "Enviar exame" nem "Meus exames" (Início e Perfil) e o envio
+(`tenants.exames_paciente_ativado_em`). Desligado, o portal não mostra "Enviar exame" e o envio
 (`POST /api/p/exames`, `src/app/api/p/exames/route.ts`) recusa com 404; a tela `/p/exames` continua abrindo pelo endereço e
 mostra só a lista, sem o formulário (`src/app/p/(portal)/exames/page.tsx`); os envios que já estão na fila continuam revisáveis.
+
+**Onde fica no portal (Plano 16, layout G).** Antes, "Enviar exame" e "Meus exames" eram links do Início e do Perfil;
+desde o Plano 16 ([§5.5.2](05-agenda-portal-conteudo.md#552-rotas-e-seções)):
+
+- **Seção "Exames"** (`/p/exames`, título "Meus exames") na faixa do topo, **condicional** (RN-192, G-D9 = a): aparece com o
+  recebimento ligado **ou** quando o paciente tem envio não cancelado (`temEnvioVisivel`, `src/modules/portal/exames-enviados.ts`:
+  só a existência, sem `auditRead`; `secoesDoPortal({ exames })`, `src/app/p/navegacao.ts`). Sem os dois, o portal tem quatro
+  seções; a rota continua abrindo pelo endereço.
+- **"Enviar exame" na barra "Ações" de Hoje** (`BarraDeAcoes`, `/p/exames#enviar`), só com o recebimento ligado (RN-215).
+- **Item do mural** (§5.5.11, RN-199): envio de hoje, ou mudança de situação depois do envio nos últimos 7 dias (revisão,
+  expiração, falha; o processamento não conta), com o texto "{nome do exame}: {situação}" (`situacaoParaPaciente`, a mesma
+  de `/p/exames`) e o link "Ver meus exames". O mural lê os envios na sua transação e chama `auditRead`
+  (`exames_enviados`) uma vez, quando há linhas.
 
 **Por que tudo passa pelo worker (D23 = a, R-170).** Um PDF vindo do **paciente** é conteúdo não confiável (JavaScript,
 links, anexos embutidos, falhas de leitor). O worker o **rasteriza** num processo filho e guarda só imagens: o que a

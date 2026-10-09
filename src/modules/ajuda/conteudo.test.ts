@@ -12,6 +12,8 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
 const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/pacientes']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
+  // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
+  .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 

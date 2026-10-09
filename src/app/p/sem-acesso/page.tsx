@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { SEM_ACESSO_PATH } from '@/lib/paciente-session';
 import { requireUser } from '@/lib/session';
+import { CabecalhoSair } from '@/components/portal/cabecalho-sair';
 import { EsquecerPlanoGuardado } from '../esquecer-plano';
 
 export const dynamic = 'force-dynamic';
@@ -10,10 +11,13 @@ export const metadata: Metadata = { title: 'Meu acompanhamento' };
 export default async function SemAcesso() {
   await requireUser(['paciente'], SEM_ACESSO_PATH);
   return (
-    <main className="mx-auto max-w-md space-y-4 p-6">
-      <EsquecerPlanoGuardado />
-      <h1 className="font-titulo text-2xl font-semibold">Meu acompanhamento</h1>
-      <p role="status">Seu acesso ao portal não está ativo. Fale com sua nutricionista.</p>
-    </main>
+    <>
+      <CabecalhoSair />
+      <main className="mx-auto max-w-md space-y-4 p-6">
+        <EsquecerPlanoGuardado />
+        <h1 className="font-portal-titulo text-2xl font-semibold">Meu acompanhamento</h1>
+        <p role="status">Seu acesso ao portal não está ativo. Fale com sua nutricionista.</p>
+      </main>
+    </>
   );
 }

@@ -1,4 +1,4 @@
-import { eq, lt } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { accessEvents } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -18,6 +18,21 @@ export async function registrarAcesso(ctx: TenantContext, fuso: string, o: { db?
     ctx,
     (tx) => tx.insert(accessEvents).values({ tenantId: ctx.tenantId, patientId, dia }).onConflictDoNothing().returning({ id: accessEvents.id }),
     o.db ?? getDb(),
+  );
+  return r.length > 0;
+}
+
+/**
+ * Plano 16 (G-D17 = a, R7): o paciente já abria o app antes de hoje? Decide só o texto do aviso de Hoje (boas-vindas ou
+ * "O app mudou…"). Pela RLS do paciente (só as próprias linhas); `access_events` é registro de uso, sem `auditRead`
+ * (AUDIT_EXCEPTIONS). `hoje` no fuso do tenant, como o `dia` gravado por `registrarAcesso`.
+ */
+export async function jaUsavaOApp(ctx: TenantContext, hoje: string, db: Db = getDb()): Promise<boolean> {
+  const patientId = pacienteDaSessao(ctx, 'jaUsavaOApp');
+  const r = await withTenant(
+    ctx,
+    (tx) => tx.select({ id: accessEvents.id }).from(accessEvents).where(and(eq(accessEvents.patientId, patientId), lt(accessEvents.dia, hoje))).limit(1),
+    db,
   );
   return r.length > 0;
 }

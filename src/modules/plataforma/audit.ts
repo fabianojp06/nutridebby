@@ -66,6 +66,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   tentativa_assinatura: 'Tentativa de assinatura com código recusado',
   ia: 'Inteligência artificial',
   exames_enviados: 'Exames enviados pelo paciente',
+  peso_no_app: 'Peso oculto no app',
 };
 
 export type AccessHistoryItem = {
@@ -86,6 +87,9 @@ export type AccessHistoryItem = {
 export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade'>): string {
   if (i.entidade === 'ia' && i.acao === 'criar') return 'Pediu leitura à IA';
   if (i.entidade === 'ia' && i.acao === 'exportar') return 'Laudo enviado à IA';
+  // Plano 16 (Desvio 5): a decisão "Não mostrar peso no app" (`criar` = ligou, `excluir` = desligou, peso-oculto.ts)
+  if (i.entidade === 'peso_no_app' && i.acao === 'criar') return 'Ligou';
+  if (i.entidade === 'peso_no_app' && i.acao === 'excluir') return 'Desligou';
   return ACAO_ROTULO[i.acao];
 }
 

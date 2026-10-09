@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Queryable } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { account, adminActions, tenants, user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
@@ -153,6 +153,34 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const cursor = (v: unknown): string | null => (typeof v === 'string' && UUID_RE.test(v) ? v : null);
 
 /**
+ * Colunas e junção da linha de cada consultório, as mesmas para a lista, a página da conta (P16-17) e o resumo: só
+ * `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. Uma linha por consultório (revisão do plano P09-07): com
+ * duas usuárias 'nutri' no mesmo tenant, o join simples repetiria o consultório, o limit contaria linhas e o cursor
+ * (created_at, id) pularia as outras linhas dele na "Próxima".
+ */
+const LINHA_DA_CONTA = sql`
+    select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
+           t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
+           t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd,
+           exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
+           (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
+      from tenants t
+      left join lateral (select u1.id, u1.email from "user" u1 where u1.tenant_id = t.id and u1.app_role = 'nutri'
+                          order by u1.created_at, u1.id limit 1) u on true`;
+
+function paraResumo(row: LinhaConta, now: Date): ContaResumo {
+  const expira = row.convite_expira ? new Date(row.convite_expira) : null;
+  const convite = row.tem_senha ? 'aceito' : !expira ? 'sem_convite' : expira.getTime() > now.getTime() ? 'pendente' : 'expirado';
+  return {
+    tenantId: row.tenant_id, slug: row.slug, nomeExibicao: row.nome_exibicao, status: row.status, crn: row.crn,
+    email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at), waCotaMensal: row.wa_cota_mensal,
+    taxaFaltasBase: row.taxa_faltas_base === null ? null : Number(row.taxa_faltas_base), goLiveEm: row.go_live_em,
+    documentosLiberados: row.documentos_liberados,
+    iaLiberada: row.ia_liberada, iaAtivada: row.ia_ativada, iaCotaMensalUsd: Number(row.ia_cota_mensal_usd),
+  };
+}
+
+/**
  * Lista para o admin: só `tenants`, `user`, `account` e `invites` — nenhuma tabela 🔒. P09-07 (Plano 13): por páginas de
  * 50, com cursor = o id de um consultório (a comparação `(created_at, id)` usa a linha dele no banco, sem perder os
  * microssegundos do `created_at` no JavaScript) e busca por nome de exibição, slug ou e-mail da nutricionista, sem
@@ -175,17 +203,7 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: 
       ? sql`and (t.created_at, t.id) > (select c.created_at, c.id from tenants c where c.id = ${antes}::uuid)`
       : sql``;
   const ordem = antes ? sql`order by t.created_at asc, t.id asc` : sql`order by t.created_at desc, t.id desc`;
-  const r = await db.execute<LinhaConta>(sql`
-    select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
-           t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
-           t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd,
-           exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
-           (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
-      from tenants t
-      -- uma linha por consultório (revisão do plano): com duas usuárias 'nutri' no mesmo tenant, o join simples repetiria o
-      -- consultório, o limit contaria linhas e o cursor (created_at, id) pularia as outras linhas dele na "Próxima"
-      left join lateral (select u1.id, u1.email from "user" u1 where u1.tenant_id = t.id and u1.app_role = 'nutri'
-                          order by u1.created_at, u1.id limit 1) u on true
+  const r = await db.execute<LinhaConta>(sql`${LINHA_DA_CONTA}
      where true ${filtroBusca} ${filtroCursor}
      ${ordem}
      limit ${limite + 1}`);
@@ -193,17 +211,7 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: 
   const temMais = r.rows.length > limite;
   const linhas = r.rows.slice(0, limite);
   if (antes) linhas.reverse();
-  const contas = linhas.map((row): ContaResumo => {
-    const expira = row.convite_expira ? new Date(row.convite_expira) : null;
-    const convite = row.tem_senha ? 'aceito' : !expira ? 'sem_convite' : expira.getTime() > now.getTime() ? 'pendente' : 'expirado';
-    return {
-      tenantId: row.tenant_id, slug: row.slug, nomeExibicao: row.nome_exibicao, status: row.status, crn: row.crn,
-      email: row.email, convite, conviteExpiraEm: expira, criadaEm: new Date(row.created_at), waCotaMensal: row.wa_cota_mensal,
-      taxaFaltasBase: row.taxa_faltas_base === null ? null : Number(row.taxa_faltas_base), goLiveEm: row.go_live_em,
-      documentosLiberados: row.documentos_liberados,
-      iaLiberada: row.ia_liberada, iaAtivada: row.ia_ativada, iaCotaMensalUsd: Number(row.ia_cota_mensal_usd),
-    };
-  });
+  const contas = linhas.map((row) => paraResumo(row, now));
   const primeira = contas[0]?.tenantId ?? null;
   const ultima = contas.at(-1)?.tenantId ?? null;
   return {
@@ -213,6 +221,31 @@ export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: 
     anterior: antes ? (temMais ? primeira : null) : depois ? primeira : null,
     proxima: antes ? ultima : temMais ? ultima : null,
   };
+}
+
+/** P16-17: a página da conta (`/admin/contas/[id]`) — a mesma linha da lista, pelo id. Id que não é uuid ou de consultório que não existe = null. */
+export async function contaPorId(tenantId: unknown, db: Db = getDb(), now: Date = new Date()): Promise<ContaResumo | null> {
+  const id = cursor(tenantId);
+  if (!id) return null;
+  const r = await db.execute<LinhaConta>(sql`${LINHA_DA_CONTA} where t.id = ${id}::uuid`);
+  return r.rows[0] ? paraResumo(r.rows[0], now) : null;
+}
+
+export type ResumoDasContas = { ativas: number; suspensas: number; convitesPendentes: number };
+
+/**
+ * P16-17 (R19 do pre-flight): a linha de resumo da lista conta TODAS as contas — não só a página de 50 nem só o resultado da
+ * busca. "Convite pendente" com a mesma regra do `convite` da lista (nutricionista sem senha e convite não usado ainda no
+ * prazo), suspensa ou não.
+ */
+export async function resumoDasContas(db: Queryable = getDb(), now: Date = new Date()): Promise<ResumoDasContas> {
+  const r = await db.execute<{ ativas: string; suspensas: string; convites_pendentes: string }>(sql`
+    select count(*) filter (where c.status = 'ativa') as ativas,
+           count(*) filter (where c.status = 'suspensa') as suspensas,
+           count(*) filter (where not c.tem_senha and c.convite_expira > ${now.toISOString()}::timestamptz) as convites_pendentes
+      from (${LINHA_DA_CONTA}) c`);
+  const x = r.rows[0];
+  return { ativas: Number(x.ativas), suspensas: Number(x.suspensas), convitesPendentes: Number(x.convites_pendentes) };
 }
 
 /** D20 (Plano 10A): o admin libera os documentos assinados do consultório só depois da liberação para uso real. */

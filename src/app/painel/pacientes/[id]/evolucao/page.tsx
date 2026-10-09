@@ -3,15 +3,17 @@ import { formatarData } from '@/modules/pacientes/datas';
 import { casasDoMarcador, evolucaoDoPaciente, MSG_POUCOS_DADOS } from '@/modules/pacientes/evolucao';
 import { GraficoLinha } from '@/modules/pacientes/ui/grafico-linha';
 import { carregarProntuario } from '../prontuario';
+import { PesoOcultoNoApp } from './peso-oculto';
 
 export const dynamic = 'force-dynamic';
 
 export default async function EvolucaoPage({ params }: PageProps<'/painel/pacientes/[id]/evolucao'>) {
   const { id } = await params;
-  const { ctx, paciente } = await carregarProntuario(id);
+  const { ctx, paciente, tenant } = await carregarProntuario(id);
   const e = await evolucaoDoPaciente(ctx, paciente.id);
   return (
     <div className="space-y-10">
+      <PesoOcultoNoApp paciente={paciente} fuso={tenant.fuso} />
       <section aria-labelledby="evolucao-medidas" className="space-y-4">
         <h2 id="evolucao-medidas" className="text-lg font-semibold">Medidas</h2>
         {e.avaliacoes < 2 ? (

@@ -67,6 +67,9 @@ describe('Meu plano (US-041)', () => {
     expect(plano!.orientacoes).toBe('Beba água.');
     // US-054: sem sugestão de receita, a refeição sai sem a chave (o portal não mostra o cartão)
     expect(plano!.refeicoes[0]).not.toHaveProperty('receita');
+    // Plano 16 (RN-213): o total da refeição (sem as substituições), só com "mostrar calorias"
+    expect(plano!.refeicoes.map((r) => r.kcal)).toEqual(['64 kcal', '128 kcal']);
+    expect(plano!.mostrarCalorias).toBe(true);
   });
 
   it('próxima refeição no fuso do tenant: 10:00 de Brasília → almoço; 21:00 → o café do dia seguinte', async () => {
@@ -78,6 +81,11 @@ describe('Meu plano (US-041)', () => {
     expect(as21!.refeicoes.find((r) => r.id === as21!.proximaRefeicaoId)!.nome).toBe('Café da manhã');
     expect(proximaRefeicao([], '10:00')).toBeNull();
     expect(proximaRefeicao([{ id: 'x', horario: '12:30' }], '12:30')).toBe('x'); // na hora ainda é a próxima
+  });
+
+  it('Plano 16: refeição sem horário não é a "próxima" (vai para o fim da sanfona e nunca ao mural, RN-196)', () => {
+    expect(proximaRefeicao([{ id: 'ceia', horario: '' }, { id: 'almoco', horario: '12:30' }], '10:00')).toBe('almoco');
+    expect(proximaRefeicao([{ id: 'ceia', horario: '' }], '10:00')).toBeNull();
   });
 
   it('sem plano publicado → null (o rascunho não aparece: paciente_sem_rascunho)', async () => {

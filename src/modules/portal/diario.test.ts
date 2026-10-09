@@ -5,13 +5,15 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { planoEmRascunho, planoPublicado } from '../../../test/plano';
+import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { closeDb } from '@/db/client';
-import { auditLog, diaryEntries, storedFiles, tenants } from '@/db/schema';
+import { auditLog, diaryEntries, mealPlans, meals, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { COTA_BYTES, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_DIARIO } from './diario-constantes';
-import { DiarioError, diarioDoPaciente, registrarNoDiario } from './diario';
+import { DiarioError, diarioDoPaciente, registrarNoDiario, respostasDeHoje } from './diario';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-diario-'));
@@ -117,5 +119,103 @@ describe('diário (US-042, RN-07)', () => {
     expect(lista[0].foto).toEqual({ estado: 'sem_foto' });
     const lidas = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p1.id), eq(auditLog.acao, 'ler'), eq(auditLog.entidade, 'diario'))), app.db);
     expect(lidas).toHaveLength(1);
+  });
+});
+
+describe('respostas à refeição do plano (Plano 16, RN-197, D3)', () => {
+  const ALMOCO_1240 = new Date('2026-10-05T15:40:00Z'); // 12:40 em São Paulo
+  async function comPlano(o: { refeicoes?: { nome: string; horario: string }[] } = {}) {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const plano = await planoPublicado(app.db, T, p.id, { refeicoes: o.refeicoes ?? [{ nome: 'Almoço', horario: '12:30' }, { nome: 'Pré-treino', horario: '17:00' }, { nome: 'Ceia', horario: '21:00' }] });
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    const linhas = () => withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, p.id)), app.db);
+    return { T, p, ctx, plano, linhas, ref: (nome: string) => plano.refeicoes.find((r) => r.nome === nome)!.id };
+  }
+
+  it('"Comi assim": refeição do diário mapeada pelo nome, resposta e a cópia "{nome} · {HH:MM}", sem texto nem foto', async () => {
+    const { ctx, linhas, ref } = await comPlano();
+    const r = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    expect(r).toMatchObject({ semFoto: false, jaRegistrado: false });
+    expect(await linhas()).toEqual([expect.objectContaining({ id: r.id, refeicao: 'Almoço', resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', texto: null, fotoStatus: 'sem_foto', dataHora: ALMOCO_1240 })]);
+  });
+
+  it('nome fora da lista vira "Outro"; refeição sem horário leva só o nome', async () => {
+    const { T, ctx, linhas, ref } = await comPlano();
+    // a publicação de hoje exige horário em toda refeição (MSG_PLANO.publicarHorario); a coluna aceita nulo
+    await withTenant(T.ctx, (tx) => tx.update(meals).set({ horario: null }).where(eq(meals.id, ref('Ceia'))), app.db);
+    await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Pré-treino'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Ceia'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    expect((await linhas()).map((e) => [e.refeicao, e.refeicaoDoPlano]).sort()).toEqual([['Ceia', 'Ceia'], ['Outro', 'Pré-treino · 17:00']]);
+  });
+
+  it('uma resposta por refeição do plano por dia: o segundo "Comi assim" devolve o mesmo registro — também em duas conexões ao mesmo tempo', async () => {
+    const { ctx, linhas, ref } = await comPlano();
+    const entrada = { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' };
+    const [a, b] = await Promise.all([registrarNoDiario(ctx, SP, entrada, deps(ALMOCO_1240)), registrarNoDiario(ctx, SP, entrada, deps(ALMOCO_1240))]);
+    expect(a.id).toBe(b.id);
+    expect([a.jaRegistrado, b.jaRegistrado].sort()).toEqual([false, true]);
+    expect(await linhas()).toHaveLength(1);
+    // no dia seguinte, outra resposta à mesma refeição entra
+    await registrarNoDiario(ctx, SP, entrada, deps(new Date('2026-10-06T15:40:00Z')));
+    expect(await linhas()).toHaveLength(2);
+  });
+
+  it('"Comi outra coisa" exige texto ou foto; com texto, entra com a resposta; depois de uma resposta, o registro com conteúdo vira registro comum (D3)', async () => {
+    const { ctx, linhas, ref } = await comPlano();
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '  ', foto: null, refeicaoId: ref('Almoço'), resposta: 'outra_coisa' }, deps(ALMOCO_1240)))).toEqual({ geral: MSG_DIARIO.vazio });
+    const outra = await registrarNoDiario(ctx, SP, { refeicao: null, texto: 'Sanduíche natural', foto: null, refeicaoId: ref('Almoço'), resposta: 'outra_coisa' }, deps(ALMOCO_1240));
+    const depois = await registrarNoDiario(ctx, SP, { refeicao: null, texto: 'e um suco', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    expect(depois.id).not.toBe(outra.id);
+    const porId = new Map((await linhas()).map((e) => [e.id, e]));
+    expect(porId.get(outra.id)).toMatchObject({ resposta: 'outra_coisa', refeicaoDoPlano: 'Almoço · 12:30', texto: 'Sanduíche natural' });
+    expect(porId.get(depois.id)).toMatchObject({ resposta: null, refeicaoDoPlano: null, refeicao: 'Almoço', texto: 'e um suco' });
+  });
+
+  it('refeição de outro paciente, do rascunho, do plano arquivado, id inválido ou resposta sem refeição: nada gravado', async () => {
+    const { T, p, ctx, linhas, ref } = await comPlano();
+    const outro = await novoPaciente(app.db, T.ctx);
+    const deOutro = (await planoPublicado(app.db, T, outro.id)).refeicoes[0].id;
+    const naoEncontrada = { geral: MSG_DIARIO.refeicaoNaoEncontrada };
+    // rascunho do próprio paciente (a nova versão em edição): a RLS já o esconde da sessão do paciente
+    const rascunho = await planoEmRascunho(app.db, T, p.id, { refeicoes: [{ nome: 'Lanche da tarde', horario: '16:00' }] });
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: rascunho.refeicoes[0].id, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    // publicado o rascunho, o plano anterior vira arquivado: a RLS ainda o mostra ao paciente (status <> 'rascunho'),
+    // então só o filtro de plano PUBLICADO em refeicaoDoPlanoPublicado recusa o "Comi assim" numa refeição antiga
+    const almocoAntigo = ref('Almoço');
+    await publicarPlano(T.ctx, p.id, rascunho.planId, { db: app.db });
+    const [antigo] = await withTenant(T.ctx, (tx) => tx.select({ status: mealPlans.status }).from(mealPlans).innerJoin(meals, eq(meals.planId, mealPlans.id)).where(eq(meals.id, almocoAntigo)), app.db);
+    expect(antigo.status).toBe('arquivado');
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: almocoAntigo, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: 'Sanduíche', foto: null, refeicaoId: almocoAntigo, resposta: 'outra_coisa' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: deOutro, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: 'nao-e-uuid', resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual(naoEncontrada);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Almoço', texto: '', foto: null, resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual({ geral: MSG_DIARIO.formulario });
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: deOutro, resposta: 'talvez' }, deps(ALMOCO_1240)))).toEqual({ geral: MSG_DIARIO.formulario });
+    expect(await linhas()).toEqual([]);
+  });
+
+  it('limite de 10 por dia (RN-07): o "Comi assim" novo recusa; o repetido de uma refeição já respondida devolve o registro', async () => {
+    const { ctx, ref } = await comPlano();
+    const almoco = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    for (let i = 0; i < 9; i++) await registrarNoDiario(ctx, SP, { refeicao: 'Outro', texto: `item ${i}`, foto: null }, deps(ALMOCO_1240));
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Pré-treino'), resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual({ geral: MSG_DIARIO.limite });
+    const repetido = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    expect(repetido).toMatchObject({ id: almoco.id, jaRegistrado: true });
+  });
+
+  it('vínculo bloqueado depois de abrir a tela: "Conta temporariamente indisponível"', async () => {
+    const { T, p, ctx, ref } = await comPlano();
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: new Date() }).where(eq(patients.id, p.id)), app.db);
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240)))).toEqual({ geral: 'Conta temporariamente indisponível' });
+  });
+
+  it('foto com "Comi assim": a resposta vai junto da foto em processamento; respostasDeHoje e a leitura devolvem a resposta', async () => {
+    const { ctx, ref } = await comPlano();
+    const r = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: JPEG, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    const lista = await diarioDoPaciente(ctx, { db: app.db });
+    expect(lista).toEqual([expect.objectContaining({ id: r.id, resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', foto: { estado: 'processando' } })]);
+    expect(await respostasDeHoje(ctx, SP.fuso, { db: app.db, agora: ALMOCO_1240 })).toEqual(new Set(['Almoço · 12:30']));
+    expect(await respostasDeHoje(ctx, SP.fuso, { db: app.db, agora: new Date('2026-10-06T15:40:00Z') })).toEqual(new Set());
   });
 });

@@ -17,7 +17,7 @@ http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429));
 // Toda rota que o cenário chama (tag `nome`: caminho sem query, UUID → `:id`, slug → `:slug`). Rota nova entra aqui;
 // a que faltar derruba a iteração (sem linha no resumo, a "pior rota" sairia errada).
 const ROTAS = [
-  '/p/inicio', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos/:id', '/p/diario',
+  '/p/inicio', '/p/jornada', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos/:id', '/p/diario',
   '/painel', '/painel/agenda', '/painel/pacientes', '/painel/pacientes/:id', '/painel/pacientes/:id/antropometria', '/painel/conteudos',
   '/n/:slug',
   '/api/p/acesso', '/api/p/push', '/api/painel/planos/:id', '/api/painel/planos/:id/revisao', '/api/painel/alimentos',
@@ -69,7 +69,8 @@ export function paciente() {
   const p = pacientes[(__VU * 7 + __ITER) % pacientes.length];
   api('POST', '/api/p/acesso', p.cookie); // N14: uma "abertura" do app
   api('POST', '/api/p/push?sincronizar=1', p.cookie, p.inscricao); // B-8: a sincronização da abertura (204; 429 = limite da T6)
-  for (const url of ['/p/inicio', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos?busca=aveia', '/p/conteudos?etiqueta=sem%20lactose', `/p/conteudos/${p.conteudo}`, '/p/diario']) {
+  // Plano 16 (RNF-190, PM-G11): a Jornada logo depois de Hoje, como o paciente faz (p95 de /p/inicio e /p/jornada no runbook)
+  for (const url of ['/p/inicio', '/p/jornada', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos?busca=aveia', '/p/conteudos?etiqueta=sem%20lactose', `/p/conteudos/${p.conteudo}`, '/p/diario']) {
     pagina(url, p.cookie);
     pausa();
   }

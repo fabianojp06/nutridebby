@@ -18,6 +18,15 @@ export type CriarContaState = { erros?: ErrosDeCampo; valores?: Record<string, s
 const campo = (f: FormData, k: string) => String(f.get(k) ?? '');
 const uuid = z.guid(); // G5: mesmo formato do tipo uuid do Postgres (z.uuid() exige versão RFC)
 
+/**
+ * P16-17: as ações de uma conta voltam para a página dela; id que não é uuid ou conta que não existe (apagada, id antigo
+ * numa aba aberta) voltam para a lista com o aviso (M9). `revalidatePath('/admin', 'layout')` (R19 do pre-flight): vale
+ * para a lista e para `/admin/contas/[id]` — com `'/admin'` só, a página da conta mostraria o valor velho.
+ */
+const NAO_ENCONTRADA = '/admin?aviso=nao_encontrada';
+const paginaDaConta = (tenantId: string, aviso: string) => (aviso === 'nao_encontrada' ? NAO_ENCONTRADA : `/admin/contas/${tenantId}?aviso=${aviso}`);
+const revalidarAdmin = () => revalidatePath('/admin', 'layout');
+
 export async function criarContaAction(_prev: CriarContaState, formData: FormData): Promise<CriarContaState> {
   await requireUser(['admin'], '/admin/contas/nova');
   const valores = {
@@ -32,24 +41,24 @@ export async function criarContaAction(_prev: CriarContaState, formData: FormDat
     if (e instanceof ContaError) return { erros: e.erros, valores };
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
   redirect('/admin?aviso=criada');
 }
 
 export async function reenviarConviteAction(tenantId: string): Promise<void> {
   await requireUser(['admin'], '/admin');
-  if (!uuid.safeParse(tenantId).success) redirect('/admin');
+  if (!uuid.safeParse(tenantId).success) redirect(NAO_ENCONTRADA);
   let aviso = 'reenviado';
   try {
     await reenviarConvite(tenantId);
   } catch (e) {
     if (!(e instanceof ContaError)) throw e;
     // T5-R2: cada código do ContaError vira seu próprio aviso (a Tarefa 7 acrescenta o código
-    // de "conta suspensa" — basta uma entrada nova em AVISOS, `/admin/page.tsx`, nada aqui).
+    // de "conta suspensa" — basta uma entrada nova em AVISOS, `/admin/contas/[id]/page.tsx`, nada aqui).
     aviso = e.code;
   }
-  revalidatePath('/admin');
-  redirect(`/admin?aviso=${aviso}`);
+  revalidarAdmin();
+  redirect(paginaDaConta(tenantId, aviso));
 }
 
 /** M9: tenant inexistente (apagado, id antigo numa aba aberta) vira aviso próprio, não página de erro. */
@@ -65,45 +74,45 @@ async function naoEncontradaVira(ok: string, fn: () => Promise<unknown>): Promis
 
 export async function suspenderAction(tenantId: string): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
-  if (!uuid.safeParse(tenantId).success) redirect('/admin');
+  if (!uuid.safeParse(tenantId).success) redirect(NAO_ENCONTRADA);
   const aviso = await naoEncontradaVira('suspensa', () => suspenderConta(tenantId, user.id));
-  revalidatePath('/admin');
-  redirect(`/admin?aviso=${aviso}`);
+  revalidarAdmin();
+  redirect(paginaDaConta(tenantId, aviso));
 }
 
 export async function reativarAction(tenantId: string): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
-  if (!uuid.safeParse(tenantId).success) redirect('/admin');
+  if (!uuid.safeParse(tenantId).success) redirect(NAO_ENCONTRADA);
   const aviso = await naoEncontradaVira('reativada', () => reativarConta(tenantId, user.id));
-  revalidatePath('/admin');
-  redirect(`/admin?aviso=${aviso}`);
+  revalidarAdmin();
+  redirect(paginaDaConta(tenantId, aviso));
 }
 
-/** D20 (Plano 10A): liga/desliga os documentos assinados do consultório (a confirmação fica no botão da tabela). */
+/** D20 (Plano 10A): liga/desliga os documentos assinados do consultório (a confirmação fica no botão da página da conta). */
 export async function definirDocumentosAction(tenantId: string, liberar: boolean): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
-  if (!uuid.safeParse(tenantId).success) return;
+  if (!uuid.safeParse(tenantId).success) redirect(NAO_ENCONTRADA);
   try {
     await definirDocumentosLiberados(getDb(), tenantId, liberar, user.id);
   } catch (e) {
-    if (e instanceof ContaNaoEncontradaError) redirect('/admin?aviso=nao_encontrada'); // M9: aviso, não página de erro
+    if (e instanceof ContaNaoEncontradaError) redirect(NAO_ENCONTRADA); // M9: aviso, não página de erro
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
 }
 
 /** US-100 (A-06): libera/bloqueia a IA do consultório; a confirmação do botão lembra as condições do uso real. */
 export async function definirIaAction(tenantId: string, liberar: boolean): Promise<void> {
   const { user } = await requireUser(['admin'], '/admin');
-  if (!uuid.safeParse(tenantId).success) return;
+  if (!uuid.safeParse(tenantId).success) redirect(NAO_ENCONTRADA);
   try {
     await definirIaLiberada(getDb(), tenantId, liberar, user.id, { producao: emProducao(getEnv()) });
   } catch (e) {
-    if (e instanceof ContaNaoEncontradaError) redirect('/admin?aviso=nao_encontrada');
-    if (e instanceof IaProvisoriaError) redirect('/admin?aviso=ia_provisoria'); // D22
+    if (e instanceof ContaNaoEncontradaError) redirect(NAO_ENCONTRADA);
+    if (e instanceof IaProvisoriaError) redirect(paginaDaConta(tenantId, 'ia_provisoria')); // D22
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
 }
 
 export type CotaState = { erro?: string; ok?: boolean };
@@ -118,7 +127,7 @@ export async function ajustarCotaAction(tenantId: string, _prev: CotaState, form
     if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
   return { ok: true };
 }
 
@@ -133,7 +142,7 @@ export async function ajustarCotaIaAction(tenantId: string, _prev: CotaState, fo
     if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
   return { ok: true };
 }
 
@@ -151,7 +160,7 @@ export async function salvarMetricasAction(tenantId: string, _prev: MetricasStat
     if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
     throw e;
   }
-  revalidatePath('/admin');
+  revalidarAdmin();
   return { ok: true };
 }
 
@@ -162,7 +171,7 @@ export type Reiniciar2faState = { erro?: string; ok?: string; valor?: string; ca
  * (reiniciarPeloAdmin, com a sessão dela nos cabeçalhos); a confirmação do botão fica.
  */
 export async function reiniciar2faAction(_prev: Reiniciar2faState, formData: FormData): Promise<Reiniciar2faState> {
-  const { user } = await requireUser(['admin'], '/admin');
+  const { user } = await requireUser(['admin'], '/admin/seguranca');
   const email = campo(formData, 'email');
   try {
     const r = await reiniciarPeloAdmin(email, { adminId: user.id, codigo: formData.get('codigo'), headers: new Headers(await headers()) });

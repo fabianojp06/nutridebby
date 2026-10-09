@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { esquecerComprasDoAparelho } from '@/app/p/(portal)/compras/marcacao';
 import { esquecerPlanoGuardado } from '@/app/sw-regras';
+import { esquecerCartoesDoAparelho } from '@/components/portal/cartoes-dispensados';
 import { authClient } from '@/lib/auth-client';
 import { safeReturnPath } from '@/lib/safe-return';
 import { ehMotivoDoFim, MSG_FIM_DA_SESSAO } from '@/lib/session-rules';
@@ -22,10 +23,11 @@ function Form() {
   const [erro, setErro] = useState(() => avisoInicial(params));
   const [enviando, setEnviando] = useState(false);
   // D6 / Review Focus 4: aqui chegam a sessão vencida e o "Sair", e por aqui outra pessoa entra no mesmo aparelho —
-  // o plano guardado offline e as marcações da lista de compras saem antes de qualquer login
+  // o plano guardado offline, as marcações da lista de compras e os cartões dispensados (RN-201) saem antes de qualquer login
   useEffect(() => {
     void esquecerPlanoGuardado();
     esquecerComprasDoAparelho();
+    esquecerCartoesDoAparelho();
   }, []);
 
   async function entrar(e: React.FormEvent) {

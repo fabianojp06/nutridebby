@@ -1,5 +1,5 @@
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { and, desc, eq, gte, not, sql, type SQL } from 'drizzle-orm';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { contentFavorites, contents, contentViews } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { signFileUrl } from '@/lib/signed-url';
@@ -183,4 +183,20 @@ export async function caminhoDoPdfDoConteudo(ctx: TenantContext, id: string, db:
   if (!idValido(id)) return null;
   const [c] = await withTenant(ctx, (tx) => tx.select({ pdfPath: contents.pdfPath }).from(contents).where(and(eq(contents.id, id), eq(contents.tipo, 'orientacao'), eq(contents.status, 'publicado'))), db);
   return c?.pdfPath ?? null;
+}
+
+/**
+ * Plano 16 (mural, RN-199): até `limite` conteúdos publicados desde `desde` que o paciente ainda não abriu. A RLS de
+ * `contents` aplica a audiência (RN-12) — sem a liberação das receitas do plano, que é só de planoDoPaciente. Sem auditRead (P07 D6).
+ */
+export async function conteudosNovosNaTransacao(tx: Tx, patientId: string, desde: Date, limite: number): Promise<{ id: string; titulo: string; publicadoEm: Date }[]> {
+  const idDoConteudo = sql`${contents}.${sql.identifier(contents.id.name)}`;
+  const visto = sql`exists (select 1 from ${contentViews} v where v.content_id = ${idDoConteudo} and v.patient_id = ${patientId})`;
+  const r = await tx
+    .select({ id: contents.id, titulo: contents.titulo, publicadoEm: contents.publicadoEm })
+    .from(contents)
+    .where(and(eq(contents.status, 'publicado'), gte(contents.publicadoEm, desde), not(visto)))
+    .orderBy(desc(contents.publicadoEm), desc(contents.id))
+    .limit(limite);
+  return r.map((c) => ({ id: c.id, titulo: c.titulo, publicadoEm: c.publicadoEm! }));
 }

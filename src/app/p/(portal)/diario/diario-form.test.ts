@@ -14,3 +14,22 @@ describe('DiarioForm antes da hidratação (P09-04)', () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Registrar<\/button>/);
   });
 });
+
+describe('DiarioForm com a refeição do plano (Plano 16, US-192)', () => {
+  it('a refeição já escolhida vai num campo escondido (sem a lista); "Como foi?" com as duas respostas, "Comi outra coisa" marcada quando pedida', () => {
+    const html = renderToStaticMarkup(createElement(DiarioForm, { refeicaoDoPlano: { id: 'r1', rotulo: 'Almoço · 12:30' }, resposta: 'outra_coisa' }));
+    expect(html).toContain('<input type="hidden" name="refeicaoId" value="r1"/>');
+    expect(html).not.toContain('<select');
+    expect(html).toContain('Almoço · 12:30');
+    expect(html).toContain('<legend');
+    // o React escreve `checked` antes de `value` no HTML: a etiqueta inteira de cada rádio, sem depender da ordem
+    const radio = (v: string) => html.match(new RegExp(`<input[^>]*value="${v}"[^>]*/>`))?.[0] ?? '';
+    expect(radio('outra_coisa')).toContain('checked=""');
+    expect(radio('como_no_plano')).toMatch(/^<input[^>]*type="radio"/);
+    expect(radio('como_no_plano')).not.toContain('checked');
+  });
+  it('"Foto da refeição": o campo da foto pede a câmera traseira (RNF-195)', () => {
+    expect(renderToStaticMarkup(createElement(DiarioForm, { foto: true }))).toMatch(/<input[^>]*capture="environment"/);
+    expect(renderToStaticMarkup(createElement(DiarioForm))).not.toContain('capture=');
+  });
+});

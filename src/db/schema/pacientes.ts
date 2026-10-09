@@ -37,6 +37,11 @@ export const patients = pgTable(
     iaAvisoCanal: text('ia_aviso_canal'),
     /** D5: e-mail do aviso enfileirado, aguardando o envio (a ciência só é gravada no pós-envio do worker, quando o provedor aceita o envio). */
     iaAvisoEnviadoEm: timestamp('ia_aviso_enviado_em', { withTimezone: true }),
+    /**
+     * Plano 16 (G-D1, RN-203): "Não mostrar peso no app" — só a equipe liga (aba Evolução do prontuário); o portal deixa de
+     * mostrar peso e IMC (filtrado no servidor). Fora de `livres` no gatilho paciente_colunas (0085): a sessão de paciente não muda.
+     */
+    pesoOcultoNoAppEm: timestamp('peso_oculto_no_app_em', { withTimezone: true }),
     status: text('status').notNull().default('ativo'),
     bloqueadoEm: timestamp('bloqueado_em', { withTimezone: true }),
     anonimizarApos: date('anonimizar_apos', { mode: 'string' }),

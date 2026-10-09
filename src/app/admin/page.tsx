@@ -1,50 +1,56 @@
 import Link from 'next/link';
-import { formatarBytes } from '@/lib/format';
+import { Aviso } from '@/components/ui/aviso';
+import { Botao, BotaoLink } from '@/components/ui/botao';
+import { Selo } from '@/components/ui/selo';
 import { requireUser } from '@/lib/session';
-import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
-import { listarContas, MSG, type ContaResumo } from '@/modules/plataforma/contas';
-import { textoTaxa } from '@/modules/agenda/presenca';
-import { metricasDeExamesEnviadosPorTenant, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
+import { listarContas, resumoDasContas, type ContaResumo } from '@/modules/plataforma/contas';
+import { metricasPorTenant, type MetricasTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
-import { definirDocumentosAction, definirIaAction, reativarAction, reenviarConviteAction, suspenderAction } from './actions';
-import { ConfirmarBotao } from '@/components/confirmar-botao';
-import { CotaForm } from './cota-form';
-import { IaCotaForm } from './ia-cota-form';
-import { MetricasForm } from './metricas-form';
-import { PainelInfra } from './painel-infra';
-import { Reiniciar2faForm } from './reiniciar-2fa-form';
+import { Convite } from './convite';
+import { ResumoDoServidor } from './painel-infra';
 
 export const dynamic = 'force-dynamic';
 
+/** P16-17: na lista, só os avisos da criação e da conta que não existe; os das ações de uma conta ficam na página dela. */
 const AVISOS: Record<string, { texto: string; erro?: boolean }> = {
   criada: { texto: 'Conta criada. O convite foi enviado para o e-mail da nutricionista.' },
-  reenviado: { texto: 'Convite reenviado.' },
-  ja_tem_senha: { texto: MSG.jaTemSenha, erro: true },
-  sem_nutri: { texto: MSG.semNutri, erro: true },
-  conta_suspensa: { texto: MSG.contaSuspensa, erro: true },
-  suspensa: { texto: 'Conta suspensa. A nutricionista e os pacientes veem "Conta temporariamente indisponível".' },
-  reativada: { texto: 'Conta reativada.' },
-  ia_provisoria: { texto: 'Os textos legais da IA ainda são provisórios. Publique o aviso e o aditivo finais antes de liberar.', erro: true },
   nao_encontrada: { texto: MSG_CONTA_NAO_ENCONTRADA, erro: true },
 };
 
-const data = (d: Date) =>
-  new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+const situacao = (c: ContaResumo) => (c.status === 'ativa' ? 'Ativa' : 'Suspensa');
 
-function Convite({ c }: { c: ContaResumo }) {
-  if (c.convite === 'aceito') return <>Aceito</>;
-  if (c.convite === 'pendente') return <>{`Pendente (até ${data(c.conviteExpiraEm!)})`}</>;
-  if (c.convite === 'expirado') return <>Expirado</>;
-  return <>Sem convite</>;
+/** "Abrir" com nome acessível único por conta (M22: o texto visível é o mesmo em toda linha). */
+function Abrir({ c }: { c: ContaResumo }) {
+  return (
+    <BotaoLink href={`/admin/contas/${c.tenantId}`} variante="secundario">
+      Abrir<span className="sr-only">{` a conta ${c.nomeExibicao}`}</span>
+    </BotaoLink>
+  );
 }
 
+function NomeDaConta({ c }: { c: ContaResumo }) {
+  return (
+    <>
+      <span className="font-semibold">{c.nomeExibicao}</span> <span className="text-suave">({c.slug})</span>
+      <span className="block break-all text-sm text-suave">{c.email ?? '—'}</span>
+    </>
+  );
+}
+
+/**
+ * P16-17: lista enxuta das contas (6 colunas; no celular, cartões) — cotas, liberações, métricas e as ações de cada conta
+ * ficam na página da conta; o servidor e a verificação em duas etapas, nas próprias abas. Mesma fonte de dados de antes.
+ */
 export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
   const { aviso, busca, depois, antes } = await searchParams;
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  // D-P5: as métricas continuam vindo de todos os consultórios (funções SECURITY DEFINER sem parâmetro); a página só desenha os 50 dela
-  const [pagina, metricas, sucesso, iaMetricas, exames] = await Promise.all([listarContas(undefined, undefined, { busca, depois, antes }), metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant(), metricasDeExamesEnviadosPorTenant()]);
+  // D-P5: as métricas continuam vindo de todos os consultórios (função SECURITY DEFINER sem parâmetro); a página só desenha os 50 dela.
+  // O resumo conta todas as contas (R19 do pre-flight), não só as da página ou da busca.
+  const [pagina, metricas, resumo] = await Promise.all([listarContas(undefined, undefined, { busca, depois, antes }), metricasPorTenant(), resumoDasContas()]);
   const contas = pagina.contas;
+  const m = (c: ContaResumo): MetricasTenant | undefined => metricas.get(c.tenantId);
   const linkDaPagina = (c: { depois?: string; antes?: string }) => {
     const q = new URLSearchParams();
     if (pagina.busca) q.set('busca', pagina.busca);
@@ -53,148 +59,81 @@ export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
     return `/admin?${q.toString()}`;
   };
   return (
-    <main className="mx-auto max-w-6xl space-y-6 p-6">
-      <header className="flex items-center justify-between">
+    <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Administração</h1>
-          <p className="text-sm">Conectado como {user.email}.</p>
+          <h1 className="font-titulo text-2xl font-semibold">Contas</h1>
+          <p className="text-sm text-suave">Conectado como {user.email}.</p>
         </div>
-        <Link href="/admin/contas/nova" className="rounded bg-emerald-700 px-4 py-2 text-white">Nova conta</Link>
+        <BotaoLink href="/admin/contas/nova">Nova conta</BotaoLink>
       </header>
-      {a && (
-        <p role={a.erro ? 'alert' : 'status'} className={a.erro ? 'rounded bg-red-50 p-3 text-red-800' : 'rounded bg-emerald-50 p-3'}>
-          {a.texto}
+      {a && <Aviso tipo={a.erro ? 'erro' : 'ok'}>{a.texto}</Aviso>}
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-2xl border border-borda bg-cartao px-4 py-2">
+        <p className="text-sm font-medium">
+          {`${plural(resumo.ativas, 'ativa', 'ativas')} · ${plural(resumo.suspensas, 'suspensa', 'suspensas')} · ${plural(resumo.convitesPendentes, 'convite pendente', 'convites pendentes')}`}
         </p>
-      )}
-      <PainelInfra />
-      <section aria-labelledby="titulo-2fa" className="space-y-2 rounded border p-4">
-        <h2 id="titulo-2fa" className="text-lg font-semibold">Verificação em duas etapas</h2>
-        <p className="text-sm">Use quando alguém perdeu o app autenticador e os códigos de recuperação, ou depois da troca do AUTH_SECRET. Confirme antes a identidade de quem pediu.</p>
-        <Reiniciar2faForm />
-      </section>
+        <ResumoDoServidor />
+      </div>
       {/* P09-07: busca e páginas da lista (GET: a busca não é dado de saúde; GET_PERMITIDOS) */}
       <form method="get" action="/admin" role="search" className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
           <label htmlFor="busca" className="block text-sm font-medium">Buscar por nome, endereço ou e-mail</label>
-          <input id="busca" name="busca" type="search" maxLength={100} defaultValue={pagina.busca} className="rounded border p-2" />
+          <input id="busca" name="busca" type="search" maxLength={100} defaultValue={pagina.busca} className="min-h-11 w-72 max-w-full rounded-xl border border-campo bg-cartao px-3" />
         </div>
-        <button className="min-h-11 rounded border px-4">Buscar</button>
-        {pagina.busca && <Link href="/admin" className="inline-flex min-h-11 items-center underline">Limpar busca</Link>}
+        <Botao variante="secundario">Buscar</Botao>
+        {pagina.busca && <Link href="/admin" className="inline-flex min-h-11 items-center text-link underline">Limpar busca</Link>}
       </form>
       {contas.length === 0 && <p>Nenhuma conta encontrada.</p>}
       {contas.length > 0 && (
-      <table className="w-full text-left text-sm">
-        <caption className="sr-only">Contas de nutricionista</caption>
-        <thead>
-          <tr>
-            <th scope="col">Conta</th>
-            <th scope="col">E-mail</th>
-            <th scope="col">CRN</th>
-            <th scope="col">Situação</th>
-            <th scope="col">Convite</th>
-            <th scope="col">Pacientes ativos</th>
-            <th scope="col">Consultas no mês</th>
-            <th scope="col">App na semana</th>
-            <th scope="col">Faltas no mês</th>
-            <th scope="col">WhatsApp no mês</th>
-            <th scope="col">Cota de WhatsApp</th>
-            <th scope="col">Armazenamento</th>
-            <th scope="col">Métricas de sucesso</th>
-            <th scope="col">Documentos</th>
-            <th scope="col">Exames do app</th>
-            <th scope="col">IA</th>
-            <th scope="col">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {contas.map((c) => {
-            const m = metricas.get(c.tenantId);
-            const s = sucesso.get(c.tenantId);
-            return (
-            <tr key={c.tenantId} className="border-t">
-              <th scope="row" className="font-normal">{c.nomeExibicao} <span className="text-zinc-500">({c.slug})</span></th>
-              <td>{c.email ?? '—'}</td>
-              <td>{c.crn ?? '—'}</td>
-              <td>{c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</td>
-              <td><Convite c={c} /></td>
-              <td>{m?.pacientesAtivos ?? '—'}</td>
-              <td>{m?.consultasMes ?? '—'}</td>
-              {/* D15: CS-02 (ativos com conta que abriram o app em 7 dias) e faltas do mês (CS-03), só contagens */}
-              <td>{s && s.comConta ? `${s.abriram} de ${s.comConta} (${Math.round((s.abriram / s.comConta) * 100)}%)` : '—'}</td>
-              <td>{s && s.iniciadasMes ? textoTaxa(s.faltasMes / s.iniciadasMes, s.faltasMes, s.iniciadasMes) : '—'}</td>
-              <td>{m?.mensagensWhatsappMes ?? '—'}</td>
-              <td><CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} conta={c.nomeExibicao} /></td>
-              <td>{m ? `${formatarBytes(m.armazenamentoBytes)} de ${formatarBytes(COTA_BYTES)} (${m.arquivos} arquivos)` : '—'}</td>
-              <td><MetricasForm tenantId={c.tenantId} conta={c.nomeExibicao} taxaBase={c.taxaFaltasBase} goLiveEm={c.goLiveEm} /></td>
-              {/* D20 (Plano 10A): a liberação dos documentos assinados, conta a conta */}
-              <td>
-                <p>{c.documentosLiberados ? 'Liberados' : 'Bloqueados'}</p>
-                <form action={definirDocumentosAction.bind(null, c.tenantId, !c.documentosLiberados)}>
-                  <ConfirmarBotao
-                    mensagem={
-                      c.documentosLiberados
-                        ? `Bloquear os documentos assinados de ${c.nomeExibicao}? Só antes do uso real. Bloqueado: o consultório perde a aba Documentos (inclusive Cancelar documento e Entregue pessoalmente), os pacientes deixam de ver e abrir os documentos no app e pelo link do e-mail (nenhum código é enviado), e a verificação pública pelo código continua funcionando.`
-                        : `Liberar os documentos assinados para ${c.nomeExibicao}? Confira antes a resposta do CRN-3, o termo e o backup.`
-                    }
-                  >
-                    {c.documentosLiberados ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` os documentos de ${c.nomeExibicao}`}</span>
-                  </ConfirmarBotao>
-                </form>
-              </td>
-              {/* Plano 12 (§3): só contagens — o admin nunca vê envio, arquivo ou paciente */}
-              <td className="space-y-1">
-                <p>{`Enviados no mês: ${exames.get(c.tenantId)?.enviadosMes ?? 0}`}</p>
-                <p>{`Aguardando revisão: ${exames.get(c.tenantId)?.pendentes ?? 0}`}</p>
-              </td>
-              {/* US-100 (A-06): só contagens e valores; liberar só com ZDR, advogado, avaliação e textos finais */}
-              <td className="space-y-1">
-                <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
-                <p>{`Uso de IA no mês: US$ ${((iaMetricas.get(c.tenantId)?.custoMesMicroUsd ?? 0) / 1_000_000).toFixed(2).replace('.', ',')} de US$ ${c.iaCotaMensalUsd.toFixed(2).replace('.', ',')}`}</p>
-                <p>{`Tarefas de IA no mês: ${iaMetricas.get(c.tenantId)?.tarefasMes ?? 0}`}</p>
-                <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
-                  <ConfirmarBotao
-                    mensagem={
-                      c.iaLiberada
-                        ? `Bloquear a IA de ${c.nomeExibicao}? Novas leituras deixam de ser aceitas; o que está na fila falha sem envio.`
-                        : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção zero concedida, o parecer do advogado, a avaliação aprovada, os textos finais publicados e o backup no host (runbook do Plano 11).`
-                    }
-                  >
-                    {c.iaLiberada ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` a IA de ${c.nomeExibicao}`}</span>
-                  </ConfirmarBotao>
-                </form>
-                <IaCotaForm tenantId={c.tenantId} cota={c.iaCotaMensalUsd} conta={c.nomeExibicao} />
-              </td>
-              <td className="space-y-1">
-                {c.convite !== 'aceito' && c.email && (
-                  <form action={reenviarConviteAction.bind(null, c.tenantId)}>
-                    {/* M22: nome acessível diferente por linha (o texto visível continua o mesmo) */}
-                    <button className="underline">Reenviar convite<span className="sr-only">{` para ${c.nomeExibicao}`}</span></button>
-                  </form>
-                )}
-                {c.status === 'ativa' ? (
-                  <form action={suspenderAction.bind(null, c.tenantId)}>
-                    <ConfirmarBotao mensagem={`Suspender a conta ${c.nomeExibicao}? A nutricionista e os pacientes perdem o acesso até a reativação. Nenhum dado é apagado.`}>
-                      Suspender<span className="sr-only">{` a conta ${c.nomeExibicao}`}</span>
-                    </ConfirmarBotao>
-                  </form>
-                ) : (
-                  <form action={reativarAction.bind(null, c.tenantId)}>
-                    <ConfirmarBotao mensagem={`Reativar a conta ${c.nomeExibicao}?`}>
-                      Reativar<span className="sr-only">{` a conta ${c.nomeExibicao}`}</span>
-                    </ConfirmarBotao>
-                  </form>
-                )}
-              </td>
-            </tr>
-            );
-          })}
-        </tbody>
-      </table>
+        <>
+          {/* a partir de 640 px: a tabela; no celular, a mesma informação em cartões (sem rolagem horizontal da página) */}
+          <div className="hidden overflow-x-auto rounded-3xl border border-borda bg-cartao sm:block">
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">Contas de nutricionista</caption>
+              <thead className="border-b border-borda text-suave">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-medium">Conta</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Situação</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Convite</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Pacientes ativos</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Consultas no mês</th>
+                  <th scope="col" className="px-4 py-3 font-medium"><span className="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {contas.map((c) => (
+                  <tr key={c.tenantId} className="border-t border-borda first:border-t-0">
+                    <th scope="row" className="px-4 py-3 font-normal"><NomeDaConta c={c} /></th>
+                    <td className="px-4 py-3"><Selo>{situacao(c)}</Selo></td>
+                    <td className="px-4 py-3"><Convite c={c} /></td>
+                    <td className="px-4 py-3">{m(c)?.pacientesAtivos ?? '—'}</td>
+                    <td className="px-4 py-3">{m(c)?.consultasMes ?? '—'}</td>
+                    <td className="px-4 py-3 text-right"><Abrir c={c} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ul aria-label="Contas de nutricionista" className="space-y-3 sm:hidden">
+            {contas.map((c) => (
+              <li key={c.tenantId} className="rounded-3xl border border-borda bg-cartao p-4">
+                <p><NomeDaConta c={c} /></p>
+                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  <div><dt className="text-suave">Situação</dt><dd><Selo>{situacao(c)}</Selo></dd></div>
+                  <div><dt className="text-suave">Convite</dt><dd><Convite c={c} /></dd></div>
+                  <div><dt className="text-suave">Pacientes ativos</dt><dd>{m(c)?.pacientesAtivos ?? '—'}</dd></div>
+                  <div><dt className="text-suave">Consultas no mês</dt><dd>{m(c)?.consultasMes ?? '—'}</dd></div>
+                </dl>
+                <div className="mt-3"><Abrir c={c} /></div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {(pagina.anterior || pagina.proxima) && (
         <nav aria-label="Páginas da lista de contas" className="flex gap-4">
-          {pagina.anterior && <Link href={linkDaPagina({ antes: pagina.anterior })} className="inline-flex min-h-11 items-center underline">Anterior</Link>}
-          {pagina.proxima && <Link href={linkDaPagina({ depois: pagina.proxima })} className="inline-flex min-h-11 items-center underline">Próxima</Link>}
+          {pagina.anterior && <Link href={linkDaPagina({ antes: pagina.anterior })} className="inline-flex min-h-11 items-center text-link underline">Anterior</Link>}
+          {pagina.proxima && <Link href={linkDaPagina({ depois: pagina.proxima })} className="inline-flex min-h-11 items-center text-link underline">Próxima</Link>}
         </nav>
       )}
     </main>

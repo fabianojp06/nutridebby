@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { corNoEscuro } from '@/lib/tema/marca-tema';
+import { corDaFaixa } from '@/lib/tema/marca-tema';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -23,7 +23,7 @@ test.afterAll(async () => {
 test('portal: o paciente entra no consultório, vê a navegação; arquivado perde o acesso e desarquivado volta (RN-08)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.2');
   await expect(p.page.getByText('Acompanhamento com Consultório E2E')).toBeVisible();
-  await expect(p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Início' })).toHaveAttribute('aria-current', 'page');
+  await expect(p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' })).toHaveAttribute('aria-current', 'page');
   await nutri.goto(`${p.prontuario}/privacidade`);
   nutri.once('dialog', (d) => d.accept()); // ConfirmarBotao usa window.confirm
   await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
@@ -34,7 +34,7 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
   await nutri.getByRole('button', { name: 'Desarquivar paciente' }).click();
   await expect(nutri.getByRole('button', { name: 'Arquivar paciente' })).toBeVisible();
   await p.page.goto('/p/inicio');
-  await expect(p.page.getByRole('heading', { name: 'Meu acompanhamento' })).toBeVisible();
+  await expect(p.page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   await p.page.context().close();
 });
 
@@ -65,8 +65,63 @@ test('Meu plano: sem plano → "Sua nutricionista ainda está preparando seu pla
   await publicarPlanoSimples(nutri, p.prontuario); // e2e/portal.ts
   await p.page.reload();
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
-  await expect(p.page.getByText('Chuchu, cozido — 100 g')).toBeVisible();
+  // Plano 16: o item em colunas (nome à esquerda, quantidade à direita), dentro da sanfona; o Almoço é a única refeição com
+  // horário, logo sempre a "próxima" e já aberta (clicar no título fecharia a sanfona)
+  await expect(p.page.getByText('Chuchu, cozido', { exact: true })).toBeVisible();
+  await expect(p.page.getByText('100 g', { exact: true })).toBeVisible();
   await expect(p.page.getByRole('link', { name: 'Baixar PDF' })).toBeVisible();
+  await p.page.context().close();
+});
+
+// Revisão da T11 do Plano 16: no Chrome o botão ganha o foco no pointerdown, e o "Desfazer" pegava o foco (e pausava o prazo)
+// em todo toque — o registro não saía. IP 10.9.26.40 (bloco do Plano 16, livre depois dos da T16).
+test('"Comi assim" (US-192, RN-198, WCAG 2.2.1): no toque o prazo de 10 s corre sozinho; pelo teclado o foco vai ao "Desfazer" e pausa; a página escondida envia', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const p = await pacienteNoPortal(browser, nutri, '10.9.26.40', undefined, { hasTouch: true, isMobile: true, viewport: { width: 412, height: 839 } });
+  await publicarPlanoSimples(nutri, p.prontuario);
+  const posts: number[] = [];
+  p.page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/p/diario') posts.push(Date.now());
+  });
+  const comiAssim = p.page.getByRole('button', { name: 'Comi assim' });
+  const desfazer = p.page.getByRole('button', { name: 'Desfazer' });
+  const registrado = p.page.getByRole('status').filter({ hasText: 'Registrado no diário.' });
+
+  // 1. Toque: o foco não vai ao "Desfazer" e o POST sai em cerca de 10 s, sem outra interação
+  await p.page.goto('/p/plano');
+  const tocouEm = Date.now();
+  await comiAssim.tap();
+  await expect(registrado).toBeVisible();
+  await expect(desfazer).toBeVisible();
+  await expect(desfazer).not.toBeFocused();
+  await expect.poll(() => posts.length, { timeout: 15_000 }).toBe(1);
+  expect(posts[0] - tocouEm).toBeGreaterThanOrEqual(9_000);
+  await expect(desfazer).toHaveCount(0);
+  await expect(registrado).toBeVisible();
+
+  // 2. Teclado (Enter): o foco vai ao "Desfazer", o prazo pausa (nada sai em 12 s) e "Desfazer" devolve o foco ao botão
+  await p.page.goto('/p/plano');
+  await comiAssim.focus();
+  await p.page.keyboard.press('Enter');
+  await expect(desfazer).toBeFocused();
+  await p.page.waitForTimeout(12_000); // passa dos 10 s do prazo: com o foco no "Desfazer", o prazo está pausado
+  expect(posts).toHaveLength(1);
+  await p.page.keyboard.press('Enter');
+  await expect(p.page.getByRole('status').filter({ hasText: 'Registro desfeito.' })).toBeVisible();
+  await expect(comiAssim).toBeFocused();
+  expect(posts).toHaveLength(1);
+
+  // 3. A página escondida (tela inicial, outro app: só visibilitychange, sem pagehide) envia na hora o que está pendente
+  await p.page.goto('/p/plano');
+  await comiAssim.tap();
+  await expect(desfazer).toBeVisible();
+  const escondeuEm = Date.now();
+  await p.page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => posts.length, { timeout: 5_000 }).toBe(2);
+  expect(posts[1] - escondeuEm).toBeLessThan(5_000); // antes do fim do prazo de 10 s
   await p.page.context().close();
 });
 
@@ -76,7 +131,7 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await p.page.goto('/p/inicio');
   await p.page.evaluate(async () => { await navigator.serviceWorker.ready; });
   // Uso normal: o menu é next/link (fetch RSC do roteador, não navegação 'navigate') — a página pede ao service worker
-  await p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Plano' }).click();
+  await p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Plano' }).click();
   await expect(p.page).toHaveURL(/\/p\/plano$/);
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
   await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
@@ -91,6 +146,7 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await p.page.goto('about:blank');
   await p.page.context().setOffline(false);
   await p.page.goto('/p/inicio');
+  await p.page.goto('/p/perfil'); // Plano 16 (RN-211): o "Sair" do portal fica no fim de "Eu"
   await p.page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(p.page).toHaveURL(/\/entrar$/);
   expect(await p.page.evaluate(() => caches.keys())).not.toContain('nd-plano-v1');
@@ -147,9 +203,11 @@ test('acesso do dia: abrir o portal registra o dia e renova o cookie de sessão 
   await p.page.context().close();
 });
 
-test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e a tela explica', async ({ browser }) => {
+test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e Eu explica', async ({ browser }) => {
   test.skip(!!process.env.VAPID_PUBLIC_KEY, 'o E2E com push de verdade precisa de um serviço de push real');
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.7');
+  // Plano 16 (RN-201): Hoje só mostra o cartão quando dá para ativar; a explicação fica em Eu › Notificações
+  await p.page.goto('/p/perfil');
   await expect(p.page.getByRole('status').filter({ hasText: 'Notificações no app ainda não estão disponíveis.' })).toBeVisible();
   await expect(p.page.getByRole('button', { name: 'Ativar notificações' })).toHaveCount(0);
   await p.page.context().close();
@@ -226,7 +284,7 @@ test('link com o consultório (?v=, e-mail e push): com 2+ vínculos abre o cons
   await expect(page).toHaveURL(/\/p\/perfil$/); // o nd_vinculo foi regravado e o ?v= saiu
   await expect(page.getByText('Acompanhamento com Consultório E2E', { exact: true })).toBeVisible();
   expect(await vinculo()).toBe(consultorio1);
-  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Início' }).click();
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' }).click();
   await expect(page).toHaveURL(/\/p\/inicio$/);
   await expect(page.getByText('Acompanhamento com Consultório E2E', { exact: true })).toBeVisible();
   // forjado (não é vínculo da conta): ignorado, fica o consultório do cookie
@@ -239,7 +297,7 @@ test('link com o consultório (?v=, e-mail e push): com 2+ vínculos abre o cons
 test('Perfil > Privacidade: baixar meus dados chega por e-mail e abre no portal; pedir exclusão aparece no painel (US-046)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.16');
   await p.page.goto('/p/perfil');
-  await expect(p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' })).toHaveAttribute('aria-current', 'page');
+  await expect(p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu' })).toHaveAttribute('aria-current', 'page');
   // RNF-10 (achado 2 do /code-review): a região viva já existe, vazia, antes do clique — e é ela que recebe o texto
   const privacidade = p.page.getByRole('region', { name: 'Privacidade' });
   const regiao = privacidade.getByRole('status').first();
@@ -302,22 +360,23 @@ test('Diários: a nutricionista vê o registro novo, abre, comenta; o paciente v
   await p.page.context().close();
 });
 
-test('Minha evolução: peso sem % de gordura; com a opção ligada, o % aparece; orientações sem exames (US-044)', async ({ browser }) => {
+test('Todas as medidas: peso sem % de gordura; com a opção ligada, o % aparece (US-044, US-194)', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.14');
   await avaliar(nutri, p.prontuario, '2026-08-01', '80');
   await avaliar(nutri, p.prontuario, '2026-09-01', '77');
   await p.page.goto('/p/evolucao');
-  await expect(p.page.getByRole('heading', { name: 'Minha evolução' })).toBeVisible();
-  await expect(p.page.getByText(/^Peso: 80,0/)).toBeVisible();
-  await expect(p.page.getByText('% de gordura')).toHaveCount(0);
+  await expect(p.page.getByRole('heading', { level: 1, name: 'Todas as medidas' })).toBeVisible();
+  const tabela = p.page.getByRole('table', { name: 'Medidas por avaliação' });
+  await expect(tabela.getByRole('row', { name: /^Peso \(kg\)/ })).toContainText('80,0');
+  await expect(p.page.getByRole('heading', { level: 2, name: 'Peso (kg)' })).toBeVisible(); // título visível do gráfico
+  await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toHaveCount(0);
   try {
     await mostrarPercGordura(nutri, true);
     await p.page.reload();
-    await expect(p.page.getByText(/^% de gordura:/)).toBeVisible();
+    await expect(tabela.getByRole('row', { name: /^% de gordura/ })).toBeVisible();
   } finally {
     await mostrarPercGordura(nutri, false);
   }
-  await expect(p.page.getByText('Nenhuma orientação registrada ainda.')).toBeVisible();
   await p.page.context().close();
 });
 
@@ -356,10 +415,10 @@ test('agenda no PWA: a consulta marcada pela nutricionista aparece; confirmar pr
   await p.page.context().close();
 });
 
-// Plano 08, T18 (D18): o portal usa a cor do consultório no item ativo da barra de abas (`text-marca`), no claro e com o
-// aparelho escuro (`corNoEscuro`). O contêiner do (portal)/layout repete data-tema="sistema"; sem ele os dois dariam o verde padrão.
-// IP deste teste: 10.9.13.86.
-test('cor do consultório no portal: item ativo da barra de abas, no claro e com o aparelho escuro (D18)', async ({ browser }) => {
+// Plano 08, T18 (D18) e Plano 16 (RN-207): o portal usa a cor do consultório na faixa (`bg-faixa` = corDaFaixa, posta pelo
+// (portal)/layout em --nd-faixa) e na pílula da seção atual (`text-faixa` sobre branco), iguais no claro e com o aparelho
+// escuro (G-D7: só a faixa escurece a cor). Sem o --nd-faixa do layout, os dois dariam o verde padrão. IP deste teste: 10.9.13.86.
+test('cor do consultório no portal: a faixa e a seção atual, no claro e com o aparelho escuro (D18, RN-207)', async ({ browser }) => {
   const COR = '#2E7D32';
   const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
   await nutri.goto('/painel/configuracoes/perfil');
@@ -375,13 +434,15 @@ test('cor do consultório no portal: item ativo da barra de abas, no claro e com
   try {
     const p = await pacienteNoPortal(browser, nutri, '10.9.13.86');
     try {
-      const item = p.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Início' });
+      const item = p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Hoje' });
       await expect(item).toHaveAttribute('aria-current', 'page');
       const cor = () => item.evaluate((el) => getComputedStyle(el).color);
-      await p.page.emulateMedia({ colorScheme: 'light' });
-      expect(await cor()).toBe(rgb(COR));
-      await p.page.emulateMedia({ colorScheme: 'dark' });
-      expect(await cor()).toBe(rgb(corNoEscuro(COR)));
+      const fundoDaFaixa = () => p.page.getByRole('banner').evaluate((el) => getComputedStyle(el).backgroundColor);
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await p.page.emulateMedia({ colorScheme });
+        expect(await cor(), colorScheme).toBe(rgb(corDaFaixa(COR)));
+        expect(await fundoDaFaixa(), colorScheme).toBe(rgb(corDaFaixa(COR)));
+      }
     } finally {
       await p.page.context().close();
     }

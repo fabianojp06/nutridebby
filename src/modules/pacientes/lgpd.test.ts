@@ -416,6 +416,16 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select().from(iaUso).where(eq(iaUso.tarefaId, id)), app.db)).toHaveLength(1);
     expect(await withTenant(T.ctx, (tx) => tx.select({ id: iaTarefas.id }).from(iaTarefas).where(eq(iaTarefas.patientId, outro.id)), app.db)).toEqual([{ id: doOutro }]);
   });
+
+  it('Plano 16 (§10): a anonimização trata a refeição do plano como o texto do diário — o registro fica, a identificação sai', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-30' });
+    await withTenant(T.ctx, (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, refeicao: 'Almoço', texto: 'arroz', resposta: 'outra_coisa', refeicaoDoPlano: 'Almoço · 12:30' }), app.db);
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, p.id)).nome).toBe('Paciente anonimizado');
+    const [e] = await withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, p.id)), app.db);
+    expect(e).toMatchObject({ texto: 'arroz', resposta: 'outra_coisa', refeicaoDoPlano: 'Almoço · 12:30' });
+  });
 });
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 1)]);

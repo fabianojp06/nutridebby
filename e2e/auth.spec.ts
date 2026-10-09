@@ -30,7 +30,7 @@ test('admin sem 2FA é obrigado a ativar e depois chega à administração', asy
   await page.getByRole('button', { name: 'Confirmar' }).click();
   await expect(page.getByTestId('backup-codes').locator('li')).toHaveCount(10);
   await page.getByRole('link', { name: 'Continuar' }).click();
-  await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Contas' })).toBeVisible();
   await ctx.close();
 });
 
@@ -60,7 +60,7 @@ test('admin sai pelo "Sair" do topo da administração; /admin deixa de abrir (U
   await expect(page).toHaveURL(/\/entrar\/2fa/);
   await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: adminTotpSecret }).generate());
   await page.getByRole('button', { name: 'Verificar' }).click();
-  await expect(page.getByRole('heading', { name: 'Administração' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Contas' })).toBeVisible();
   // no topo de todas as páginas do admin (layout comum), não só na lista de contas
   const sair = page.getByRole('banner').getByRole('button', { name: 'Sair', exact: true });
   await expect(sair).toBeVisible();

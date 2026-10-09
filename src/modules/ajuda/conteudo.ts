@@ -123,7 +123,7 @@ export const GUIAS: readonly Guia[] = [
       resumo: 'Tudo do paciente em abas: anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
         { titulo: 'Passo a passo', itens: ['Comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
-        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.'] },
+        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.'] },
       ],
     },
     passos: [
@@ -192,7 +192,7 @@ export const GUIAS: readonly Guia[] = [
     versao: 1,
     padrao: /^\/painel\/diarios(\/.*)?$/,
     titulo: 'Diários',
-    ajuda: { resumo: 'O que os pacientes registram no app (refeição, texto e foto). Os não vistos aparecem primeiro.', secoes: [{ titulo: 'Passo a passo', itens: ['Abra um registro para ver a foto e comentar; o paciente recebe o aviso do comentário no app.'] }] },
+    ajuda: { resumo: 'O que os pacientes registram no app (refeição, texto e foto). Os não vistos aparecem primeiro.', secoes: [{ titulo: 'Passo a passo', itens: ['Abra um registro para ver a foto e comentar; o paciente recebe o aviso do comentário no app.'] }, { titulo: 'Perguntas comuns', itens: ['Um registro pode chegar só com "Comeu como no plano" ou "Comeu outra coisa": é a resposta do paciente à refeição do plano, com a refeição e o horário.'] }] },
     passos: [{ alvo: 'feed-diarios', titulo: 'Registros dos pacientes', texto: 'Os registros novos ficam no topo. Abrir um registro marca como visto.' }],
   },
   {

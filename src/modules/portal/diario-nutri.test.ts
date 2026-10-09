@@ -96,4 +96,13 @@ describe('Diários da nutricionista (US-043)', () => {
     expect(leiturasDepois).toHaveLength(leiturasAntes.length);
     await expect(contarDiariosNaoVistos(ctxPaciente(T.tenantId, ana.id), app.db)).rejects.toThrow(/sessão da nutricionista/);
   });
+
+  it('Plano 16 (§4.9): o registro de "Comi assim" chega ao feed e ao registro aberto com a resposta e a refeição do plano', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.insert(diaryEntries).values({ tenantId: T.tenantId, patientId: p.id, refeicao: 'Almoço', resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30' }), app.db);
+    const [item] = await feedDeDiarios(T.ctx, { db: app.db });
+    expect(item).toMatchObject({ resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', texto: null });
+    expect((await abrirRegistro(T.ctx, item.id, { db: app.db }))?.resposta).toBe('como_no_plano');
+  });
 });

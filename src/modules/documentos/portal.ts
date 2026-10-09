@@ -80,32 +80,31 @@ export async function documentosDoPaciente(ctx: TenantContext, db: Db = getDb())
   );
 }
 
-/** O número do cartão do Início: assinados ainda não abertos. */
+/** O número do cartão do Início (e do item do mural): assinados ainda não abertos. Sem auditRead (10A D17: contagem). */
 export async function novosNoPortal(ctx: TenantContext, db: Db = getDb()): Promise<number> {
-  return withTenant(
-    ctx,
-    async (tx) => {
-      if (!(await ativo(tx, ctx))) return 0;
-      const [r] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(signedDocuments)
-        .where(
-          and(
-            eq(signedDocuments.patientId, ctx.patientId!),
-            eq(signedDocuments.status, 'assinado'),
-            isNull(signedDocuments.anonimizadoEm),
-            notExists(
-              tx
-                .select({ x: sql`1` })
-                .from(signedDocumentReceipts)
-                .where(and(eq(signedDocumentReceipts.documentoId, signedDocuments.id), eq(signedDocumentReceipts.evento, 'aberto'))),
-            ),
-          ),
-        );
-      return r?.n ?? 0;
-    },
-    db,
-  );
+  return withTenant(ctx, (tx) => novosNoPortalNaTransacao(tx, ctx), db);
+}
+
+/** Plano 16: o mesmo, dentro da transação do mural (muralDoPaciente). Só numa sessão de paciente. */
+export async function novosNoPortalNaTransacao(tx: Tx, ctx: TenantContext): Promise<number> {
+  if (!(await ativo(tx, ctx))) return 0;
+  const [r] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(signedDocuments)
+    .where(
+      and(
+        eq(signedDocuments.patientId, ctx.patientId!),
+        eq(signedDocuments.status, 'assinado'),
+        isNull(signedDocuments.anonimizadoEm),
+        notExists(
+          tx
+            .select({ x: sql`1` })
+            .from(signedDocumentReceipts)
+            .where(and(eq(signedDocumentReceipts.documentoId, signedDocuments.id), eq(signedDocumentReceipts.evento, 'aberto'))),
+        ),
+      ),
+    );
+  return r?.n ?? 0;
 }
 
 /** "Abrir PDF": dado de saúde → auditRead; grava o evento "aberto" (uma vez, só no assinado). A URL assinada nasce na rota (303). */

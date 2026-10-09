@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { primeiroNome as primeiroNomeDoTexto } from '@/modules/notificacoes/mensagens';
 import { escolhaWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { pacienteDaSessao } from './sessao';
 
@@ -48,3 +49,6 @@ export async function preferenciaWhatsapp(ctx: TenantContext, quer: boolean, o: 
     o.db ?? getDb(),
   );
 }
+
+/** Plano 16 (RN-218): a saudação usa o primeiro nome (até o primeiro espaço). O recorte é o de `mensagens.ts` (um lugar só); nome em branco vira vazio. */
+export const primeiroNome = (nome: string): string => (nome.trim() ? primeiroNomeDoTexto(nome) : '');

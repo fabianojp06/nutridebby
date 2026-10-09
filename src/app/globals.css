@@ -90,6 +90,21 @@
   --nd-foco: #ffffff;
 }
 
+/* Plano 16 (§4.7, C-193): tokens do portal do paciente — só dentro de [data-app='paciente'] (o painel não muda). Os
+   outros tokens do portal são os gerais (fundo, cartão, texto, suave, borda). Valores conferidos em tema.test.ts. */
+[data-app='paciente'] {
+  --nd-p-clara: #e2efe9;
+  --nd-p-marco: #f0b867;
+  --nd-p-marco-texto: #14211d;
+}
+@media (prefers-color-scheme: dark) {
+  [data-app='paciente'][data-tema='sistema'] {
+    --nd-p-clara: #1f3a31;
+    --nd-p-marco: #f0b867;
+    --nd-p-marco-texto: #14211d;
+  }
+}
+
 /* D26: o manual "dá para imprimir". No escuro o navegador imprime sem o fundo, e o texto claro (#e6eeea) some no papel:
    na impressão, todo contêiner com data-tema volta aos tokens claros. Depois dos blocos de tema (mesma especificidade:
    o último vence). O cabeçalho do painel tem print:hidden. */
@@ -137,6 +152,15 @@
   --color-botao-texto: var(--nd-botao-texto);
   --color-marca: var(--nd-marca);
   --color-destaque: var(--nd-marca-base, #1d6b5a); /* sempre a cor original: fundo com texto branco nos dois modos */
+  /* Plano 16: a faixa do portal (corDaFaixa da cor do consultório, posta pelo layout em --nd-faixa) e o cartão translúcido
+     sobre ela (verde claro a 16%: a conta de corDaFaixa usa os mesmos números) */
+  --color-faixa: var(--nd-faixa, #1d6b5a);
+  --color-faixa-cartao: rgb(226 239 233 / 0.16);
+  --color-p-clara: var(--nd-p-clara);
+  --color-p-marco: var(--nd-p-marco);
+  --color-p-marco-texto: var(--nd-p-marco-texto);
+  --font-portal: var(--font-atkinson), system-ui, sans-serif;
+  --font-portal-titulo: var(--font-redhat), var(--font-atkinson), system-ui, sans-serif;
   --font-sans: var(--font-figtree), system-ui, sans-serif;
   --font-titulo: var(--font-bricolage), var(--font-figtree), system-ui, sans-serif;
 }

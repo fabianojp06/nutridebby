@@ -4,7 +4,7 @@ import { contraste } from '@/lib/tema/contraste';
 import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
-import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
@@ -16,13 +16,21 @@ let nutri: Page;
 let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
 let docs: Page; // Plano 10A: a nutricionista dos documentos (E2E_DOCS, 2FA), um login só (o limite de login é por IP)
 let codigoDaReceita = ''; // Plano 10A: a receita assinada da paciente (XXXX-XXXX-XXXX)
+let refeicaoId = ''; // Plano 16: a refeição do plano, para o axe da refeição aberta
+// Plano 16 (revisão final): um link longo sem espaço, maior que 320 px, no texto livre das telas de detalhe
+const LINK_LONGO = 'https://exemplo.com.br/receitas/lanche-integral-com-frutas-vermelhas-e-aveia-em-flocos-finos';
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado)
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.21', devices['Desktop Chrome']); // o painel, em tela de computador
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
-  await publicarPlanoSimples(nutri, paciente.prontuario);
+  // Plano 16 (revisão do plano, achado 21): o "Almoço" daqui a 30 min — o mural de Hoje tem a refeição (e o "Comi assim")
+  // qualquer que seja a hora do CI (com 12:00, só entre 10:30 e 23:59)
+  // texto livre com um link longo (observação, orientações, diário e comentário): a tela de 320 px não pode rolar na horizontal
+  await publicarPlanoDoDia(nutri, paciente.prontuario, undefined, { observacao: `Veja ${LINK_LONGO}`, orientacoes: `Leia ${LINK_LONGO}` });
+  await paciente.page.goto('/p/plano');
+  refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, 1); // R11: semana 1 (o portal.spec usa a 0)
   // duas avaliações: o axe de /p/evolucao audita também o gráfico (GraficoLinha) e a lista de diferenças
   await avaliar(nutri, paciente.prontuario, '2026-08-01', '80');
@@ -30,9 +38,15 @@ test.beforeAll(async ({ browser }) => {
   // um registro no diário, para a lista não sair vazia
   await paciente.page.goto('/p/diario');
   await paciente.page.getByLabel('Refeição', { exact: true }).selectOption('Almoço');
-  await paciente.page.getByLabel('O que você comeu?').fill('arroz e feijão');
+  await paciente.page.getByLabel('O que você comeu?').fill(`arroz e feijão ${LINK_LONGO}`);
   await paciente.page.getByRole('button', { name: 'Registrar' }).click();
   await expect(paciente.page.getByRole('status').filter({ hasText: 'Registro salvo.' })).toBeVisible();
+  // e o comentário da nutricionista nele (o mesmo caminho do portal.spec, US-043)
+  await nutri.goto('/painel/diarios');
+  await nutri.getByRole('listitem').filter({ hasText: paciente.nome }).getByRole('link').first().click();
+  await nutri.getByLabel('Comentar').fill(`Veja ${LINK_LONGO}`);
+  await nutri.getByRole('button', { name: 'Salvar comentário' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Comentário salvo.' })).toBeVisible();
   // Plano 10A (T16, RNF-144): uma receita emitida, para /p/documentos não sair vazia (assinar exige 2FA: a conta E2E_DOCS)
   docs = await entrarComoDocs(browser, '10.9.14.79', devices['Desktop Chrome']);
   codigoDaReceita = await emitirReceita(docs, paciente.prontuario);
@@ -56,7 +70,7 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos', '/p/exames'];
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos', '/p/exames', '/p/ajuda'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -127,6 +141,103 @@ test('foco visível sobre a cor do consultório: contorno ≥ 3:1 contra o fundo
   }
 });
 
+// Plano 16 (T16): as telas e os estados novos do layout G que o laço das ROTAS não alcança
+test('axe na refeição aberta (claro e escuro) e no tour do portal (passo a passo, só teclado)', async () => {
+  await semViolacoes(paciente.page, `/p/plano/refeicao/${refeicaoId}`);
+  await paciente.page.emulateMedia({ colorScheme: 'dark' });
+  try {
+    expect(await violacoes(paciente.page), 'refeição aberta, aparelho escuro').toEqual([]);
+  } finally {
+    await paciente.page.emulateMedia({ colorScheme: 'light' });
+  }
+  await paciente.page.goto('/p/inicio?tour=portal-novidades');
+  const dialogo = paciente.page.getByRole('dialog');
+  await expect(dialogo).toBeVisible();
+  await expect(dialogo.getByText('1 de 5')).toBeVisible();
+  expect(await violacoes(paciente.page)).toEqual([]);
+  for (let i = 2; i <= 5; i++) {
+    await dialogo.getByRole('button', { name: 'Próximo' }).focus();
+    await paciente.page.keyboard.press('Enter');
+    await expect(dialogo.getByText(`${i} de 5`)).toBeVisible();
+    if (i === 4) {
+      // "Atalhos" (alvo: a barra de ações, sticky no rodapé): a folha do tour não pode cobrir o alvo (folhaEvitaAlvo, T14)
+      const alvo = (await paciente.page.locator('[data-guia="acoes"]').boundingBox())!;
+      const folha = (await dialogo.locator('#tour-titulo').locator('xpath=..').boundingBox())!;
+      expect(folha.y + folha.height <= alvo.y || alvo.y + alvo.height <= folha.y, 'folha do tour sobre a barra de ações').toBe(true);
+    }
+  }
+  await dialogo.getByRole('button', { name: 'Concluir' }).focus();
+  await paciente.page.keyboard.press('Enter');
+  await expect(dialogo).toBeHidden();
+});
+
+test('foco visível sobre a faixa do portal: contorno branco ≥ 3:1 contra a cor da faixa, no claro e no escuro (RN-207)', async () => {
+  const hex = (cor: string) => `#${/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cor)!.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  for (const modo of ['light', 'dark'] as const) {
+    await paciente.page.emulateMedia({ colorScheme: modo });
+    try {
+      await paciente.page.goto('/p/inicio');
+      const alvos = paciente.page.locator('header[data-sobre-marca] a[href]');
+      expect(await alvos.count()).toBeGreaterThan(4);
+      await paciente.page.keyboard.press('Tab'); // modalidade de teclado: o focus() programático acende o :focus-visible
+      for (let k = 0; k < (await alvos.count()); k++) {
+        const r = await alvos.nth(k).evaluate((el) => {
+          (el as HTMLElement).focus();
+          const s = getComputedStyle(el);
+          return { visivel: el.matches(':focus-visible'), cor: s.outlineColor, largura: parseFloat(s.outlineWidth), faixa: getComputedStyle(el.closest('header')!).backgroundColor };
+        });
+        expect(r.visivel, `${modo} ${k}`).toBe(true);
+        expect(r.largura).toBeGreaterThanOrEqual(2);
+        expect(contraste(hex(r.cor), hex(r.faixa)), `${modo} ${k}`).toBeGreaterThanOrEqual(3);
+      }
+    } finally {
+      await paciente.page.emulateMedia({ colorScheme: 'light' });
+    }
+  }
+});
+
+test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G rola na horizontal; axe a 320 px em todas', async () => {
+  test.setTimeout(120_000);
+  await paciente.page.setViewportSize({ width: 320, height: 780 });
+  try {
+    // todas as telas do portal que esta paciente abre (termo, escolher e sem-acesso: testes próprios do arquivo)
+    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
+      await paciente.page.goto(url);
+      await paciente.page.waitForLoadState('networkidle');
+      expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
+      // o link longo do texto livre está mesmo na página (diário: registro e comentário; plano: orientações e a observação na sanfona; refeição: observação)
+      const comLink = { '/p/diario': 2, '/p/plano': 2, [`/p/plano/refeicao/${refeicaoId}`]: 1 }[url] ?? 0;
+      if (comLink) await expect(paciente.page.getByRole('main').getByText(LINK_LONGO, { exact: false })).toHaveCount(comLink);
+      await paciente.page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
+    }
+  } finally {
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+  }
+});
+
+test('"Comi assim" só com o teclado (WCAG 2.1.1, 2.2.1, 2.4.3): o foco vai ao "Desfazer" (o prazo pausa) e, ao desfazer, volta ao botão; axe com o aviso aberto, claro e escuro', async () => {
+  test.setTimeout(60_000);
+  for (const modo of ['light', 'dark'] as const) {
+    await paciente.page.emulateMedia({ colorScheme: modo });
+    try {
+      await paciente.page.goto('/p/inicio');
+      const comi = paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first();
+      await comi.focus();
+      await paciente.page.keyboard.press('Enter');
+      const desfazer = paciente.page.getByRole('button', { name: 'Desfazer' });
+      await expect(desfazer).toBeFocused();
+      expect(await violacoes(paciente.page), `Hoje com o "Desfazer" aberto (${modo})`).toEqual([]);
+      await paciente.page.waitForTimeout(11_000); // com o foco no aviso, o prazo de 10 s não corre (nada é enviado)
+      await expect(desfazer).toBeVisible();
+      await paciente.page.keyboard.press('Enter');
+      await expect(paciente.page.getByRole('main').getByRole('button', { name: 'Comi assim' }).first()).toBeFocused();
+    } finally {
+      await paciente.page.emulateMedia({ colorScheme: 'light' });
+    }
+  }
+});
+
 test('axe sem violações no detalhe de uma orientação (markdown e "Baixar material (PDF)")', async () => {
   const titulo = `Como ler rótulos ${Date.now().toString(36)}`;
   await nutri.goto('/painel/conteudos/novo?tipo=orientacao');
@@ -168,7 +279,7 @@ test('axe sem violações no detalhe de uma orientação (markdown e "Baixar mat
   expect(r.headers()['content-type']).toMatch(/^application\/pdf/);
 });
 
-test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e a barra de abas cabe em 7 colunas iguais (também a 320 px, com axe)', async () => {
+test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA rola na horizontal e as seções da faixa cabem em 5 colunas iguais (também a 320 px, com axe)', async () => {
   await paciente.page.setViewportSize({ width: 360, height: 780 });
   try {
     for (const url of ROTAS) {
@@ -178,23 +289,24 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
     }
     await paciente.page.goto('/p/inicio');
-    for (const aba of ['Início', 'Plano', 'Diário', 'Conteúdos', 'Evolução', 'Agenda', 'Perfil']) {
-      await expect(paciente.page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: aba })).toBeVisible();
-    }
-    // D3 (ratificado 04/10): 7 colunas iguais, palavra longa quebra com hífen — nada rola nem invade a vizinha, a 360 e a 320 px
+    const secoes = paciente.page.getByRole('navigation', { name: 'Seções' });
+    for (const s of ['Hoje', 'Jornada', 'Plano', 'Exames', 'Eu']) await expect(secoes.getByRole('link', { name: s, exact: true })).toBeVisible();
+    // Plano 16 (§4.2): 5 colunas iguais (o consultório do E2E recebe exames), palavra longa quebra com hífen — nada rola nem invade a vizinha
     for (const largura of [360, 320]) {
       await paciente.page.setViewportSize({ width: largura, height: 780 });
-      const barra = await paciente.page.getByRole('navigation', { name: 'Portal' }).evaluate((nav) => {
+      const barra = await secoes.evaluate((nav) => {
         const ul = nav.querySelector('ul')!;
         const lis = [...ul.querySelectorAll('li')].map((li) => li.getBoundingClientRect());
         const links = [...ul.querySelectorAll('a')];
         return {
           rola: ul.scrollWidth > ul.clientWidth || document.documentElement.scrollWidth > window.innerWidth,
+          colunas: lis.length,
           larguras: lis.map((r) => Math.round(r.width)),
           vazaDaColuna: links.filter((a) => a.scrollWidth > a.clientWidth).map((a) => a.textContent),
           alturaMin: Math.min(...links.map((a) => a.getBoundingClientRect().height)),
         };
       });
+      expect(barra.colunas, `${largura} px`).toBe(5);
       expect(barra.rola, `${largura} px`).toBe(false);
       expect(Math.max(...barra.larguras) - Math.min(...barra.larguras), `${largura} px: ${barra.larguras}`).toBeLessThanOrEqual(1);
       expect(barra.vazaDaColuna, `${largura} px`).toEqual([]);
@@ -210,10 +322,40 @@ test('celular (RNF-09): a 360 px (o menor Android da R16), nenhuma tela do PWA r
   }
 });
 
-test('alvo de toque ≥ 44 px (RNF-10): "Próxima consulta" no Início e as semanas do agendamento', async () => {
+// Plano 16 (§4.2, revisão da T4): a barra "Ações" de Hoje fica fixa embaixo também com Hoje curta (mt-auto no flex-col do
+// (portal)/layout; o sticky bottom-0 só prende quando a página passa da tela). A 360 × 780 e numa janela alta, em que Hoje
+// sempre sobra, o fim da barra é o fim da janela.
+test('Hoje: a barra "Ações" fica fixa embaixo, com a página curta ou comprida (§4.2)', async () => {
+  try {
+    for (const altura of [780, 1600]) {
+      await paciente.page.setViewportSize({ width: 360, height: altura });
+      await paciente.page.goto('/p/inicio');
+      await paciente.page.waitForLoadState('networkidle');
+      const acoes = paciente.page.getByRole('navigation', { name: 'Ações' });
+      await expect(acoes).toBeVisible();
+      expect(await acoes.evaluate((nav) => Math.round(nav.getBoundingClientRect().bottom)), `360 × ${altura}`).toBe(altura);
+    }
+  } finally {
+    await paciente.page.setViewportSize(devices['Pixel 7'].viewport);
+  }
+});
+
+// Revisão da T4: <form> dentro de <p> não existe no HTML — o parser fecha o <p> antes do <form>, o DOM fica diferente da
+// árvore do React e a hidratação falha (era o "Sair" no fim de Eu). Confere o HTML do servidor de todas as telas do portal.
+test('nenhuma tela do portal põe <form> dentro de <p> no HTML do servidor (hidratação)', async () => {
+  for (const url of ROTAS) {
+    const r = await paciente.page.request.get(url);
+    expect(r.status(), url).toBe(200);
+    const html = await r.text();
+    expect(html.match(/<p\b[^>]*>(?:(?!<\/p>)[\s\S])*?<form\b/)?.[0] ?? null, url).toBeNull();
+  }
+});
+
+test('alvo de toque ≥ 44 px (RNF-10): a barra de ações e "Ver todo o diário" em Hoje e as semanas do agendamento', async () => {
   const altura = async (l: ReturnType<Page['getByRole']>) => (await l.boundingBox())?.height ?? 0;
   await paciente.page.goto('/p/inicio');
-  expect(await altura(paciente.page.locator('p', { hasText: 'Próxima consulta:' }).getByRole('link'))).toBeGreaterThanOrEqual(44);
+  for (const link of [paciente.page.getByRole('navigation', { name: 'Ações' }).getByRole('link').first(), paciente.page.getByRole('link', { name: 'Ver todo o diário' })])
+    expect(await altura(link)).toBeGreaterThanOrEqual(44);
   await paciente.page.goto('/p/agenda/nova');
   expect(await altura(paciente.page.getByRole('navigation', { name: 'Semana' }).getByRole('link', { name: 'Próxima semana' }))).toBeGreaterThanOrEqual(44);
 });
@@ -262,12 +404,12 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
-  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Plano' }).click();
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Plano' }).click();
   await expect(page).toHaveURL(/\/p\/plano$/);
   await expect.poll(() => entradasDoPlano(page)).toBe(1);
 
   // troca pelo Perfil, sem sair: o consultório 3 pede o termo (axe)...
-  await page.getByRole('navigation', { name: 'Portal' }).getByRole('link', { name: 'Perfil' }).click();
+  await page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Eu' }).click();
   expect((await page.getByRole('link', { name: 'Trocar de nutricionista' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44); // RNF-10
   await page.getByRole('link', { name: 'Trocar de nutricionista' }).click();
   // achado 4 do /code-review: na escolha, a cópia do consultório 1 (ativo, escolhível) fica no aparelho

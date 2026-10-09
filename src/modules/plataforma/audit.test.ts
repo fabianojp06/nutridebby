@@ -147,4 +147,11 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
     expect(ENTIDADE_ROTULO.ia).toBe('Inteligência artificial');
     expect(rotuloDaAcao({ acao: 'ler', entidade: 'ia' })).toBe('Visualizou');
   });
+
+  it('Plano 16 (Desvio 5): "Não mostrar peso no app" aparece como "Ligou"/"Desligou — Peso oculto no app"', () => {
+    expect(ENTIDADE_ROTULO.peso_no_app).toBe('Peso oculto no app');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'peso_no_app' })).toBe('Ligou');
+    expect(rotuloDaAcao({ acao: 'excluir', entidade: 'peso_no_app' })).toBe('Desligou');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'peso_no_app' })).toBe('Alterou');
+  });
 });

@@ -48,6 +48,7 @@ import {
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
 import { PROVEDOR_IA_DESCRICAO } from '@/modules/ia/constantes';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
+import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
 import { hojeNoFuso } from './datas';
@@ -81,6 +82,12 @@ export type DadosExportacao = {
     avisoIa: { versao: string; em: string; canal: string } | null;
     avisoIaEnviadoEm: string | null;
     recusouIaEm: string | null;
+    /**
+     * Plano 16 (G-D1, D6 ★ revista na revisão do plano): preferência de exibição no app definida pela nutricionista ("Não
+     * mostrar peso no app", desde quando) — nos DOIS escopos: é dado pessoal do titular (LGPD art. 5º, I; art. 18, II). Tirar
+     * da cópia do titular só com o parecer do advogado (E-09) e a base no LEIA-ME. O peso das avaliações vai nos dois (RN-204).
+     */
+    pesoOcultoNoAppEm: string | null;
   };
   anamneses: {
     data: string;
@@ -147,8 +154,23 @@ export type DadosExportacao = {
   aceitesDoTermo: { termoVersao: string; aceitoEm: string; ip: string | null }[];
   /** D14 / T13: aparelhos inscritos para notificação no app — só a data e o navegador (nunca o endereço ou as chaves). */
   dispositivosPush: { criadaEm: string; navegador: string | null }[];
-  /** Plano 06: diário alimentar (US-042/043) — texto, refeição, comentário da nutricionista e a foto (em `diario/`). */
-  diario: { dataHora: string; refeicao: string; texto: string | null; foto: string | null; comentarioNutri: string | null }[];
+  /**
+   * Plano 06: diário alimentar (US-042/043) — texto, refeição, a resposta à refeição do plano (Plano 16), comentário da
+   * nutricionista e a foto (em `diario/`).
+   */
+  diario: {
+    dataHora: string;
+    refeicao: string;
+    texto: string | null;
+    foto: string | null;
+    comentarioNutri: string | null;
+    /** Plano 16 (RN-197): "como_no_plano" | "outra_coisa" | null. */
+    resposta: string | null;
+    /** O texto que o paciente viu: "Comi assim" | "Comi outra coisa" | null (LGPD art. 19, II). */
+    respostaRotulo: string | null;
+    /** "{nome} · {HH:MM}" da refeição do plano (cópia). */
+    refeicaoDoPlano: string | null;
+  }[];
   /** Plano 07 (D15): conteúdos que o titular abriu e favoritou (título e data). */
   conteudos: ConteudosDoTitular;
   /** Plano 10A (US-150 base): receitas; o titular recebe só as emitidas (D15 = (b): com a justificativa de uso). */
@@ -365,6 +387,7 @@ export async function montarDados(
       avisoIa: p.iaAvisoVersao && p.iaAvisoEm && p.iaAvisoCanal ? { versao: p.iaAvisoVersao, em: p.iaAvisoEm.toISOString(), canal: p.iaAvisoCanal } : null,
       avisoIaEnviadoEm: p.iaAvisoEnviadoEm?.toISOString() ?? null,
       recusouIaEm: p.iaRecusadaEm?.toISOString() ?? null,
+      pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null, // D6 ★ revista: nos dois escopos
     },
     anamneses: as.map((a) => ({
       data: a.data,
@@ -430,7 +453,16 @@ export async function montarDados(
     })),
     aceitesDoTermo: ac.map((a) => ({ termoVersao: a.termoVersao, aceitoEm: a.aceitoEm.toISOString(), ip: a.ip })),
     dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
-    diario: di.map((e) => ({ dataHora: e.dataHora.toISOString(), refeicao: e.refeicao, texto: e.texto, foto: null, comentarioNutri: e.comentarioNutri })),
+    diario: di.map((e) => ({
+      dataHora: e.dataHora.toISOString(),
+      refeicao: e.refeicao,
+      texto: e.texto,
+      foto: null,
+      comentarioNutri: e.comentarioNutri,
+      resposta: e.resposta,
+      respostaRotulo: e.resposta ? ROTULO_RESPOSTA[e.resposta as RespostaDoDiario] : null,
+      refeicaoDoPlano: e.refeicaoDoPlano,
+    })),
     conteudos,
     documentos: docs.documentos,
     // Em produção o único provedor é a Anthropic (sandbox e fake são recusados — T2)

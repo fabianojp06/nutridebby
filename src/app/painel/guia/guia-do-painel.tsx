@@ -2,19 +2,14 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Tour } from '@/components/guia/tour';
 import { guiaDaRota, GUIAS, ID_BOAS_VINDAS, precisaDoGuia, type Guia } from '@/modules/ajuda/conteudo';
-import type { EstadoGuia, ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
+import { aplicarMarca, type EstadoGuia, type ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { marcarGuiaAction } from '../preferencias/actions';
 import { GavetaAjuda } from './gaveta-ajuda';
-import { Tour } from './tour';
 
-/** A mesma regra do marcarGuia (T13), no estado local: versão menor não sobrescreve a maior; "visto" não rebaixa concluído/dispensado na mesma versão. */
-export function aplicarMarca(p: ProgressoGuia, id: string, versao: number, estado: EstadoGuia): ProgressoGuia {
-  const atual = p[id];
-  if (atual && atual.v > versao) return p;
-  if (estado === 'visto' && atual?.v === versao && (atual.estado === 'concluido' || atual.estado === 'dispensado')) return p;
-  return { ...p, [id]: { v: versao, estado } };
-}
+// Plano 16: a regra mora em preferencias-tipos.ts (o GuiaDoPortal também a usa); reexportada para quem já a importava daqui
+export { aplicarMarca };
 
 /** Otimista: se a gravação falhar (sessão vencida, rede), o progresso local vale nesta visita e o servidor pede de novo na próxima. */
 function gravar(g: Guia, estado: EstadoGuia) {
