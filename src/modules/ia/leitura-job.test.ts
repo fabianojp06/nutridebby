@@ -199,6 +199,67 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect((await usoDe(P)).situacao).toBe('estornado');
   });
 
+  // revisão da T4 (RN-108, D14): "se o paciente autorizou de novo, cancela só as tarefas criadas antes da retirada" vale
+  // também no portão, no passo 6 e na varredura — não só no job ia-retirada
+  const retirarEReautorizar = async (P: Awaited<ReturnType<typeof pedido>>) => {
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id);
+  };
+
+  it('D14: retirou e autorizou de novo antes do envio (o job ia roda antes do ia-retirada) → a tarefa de antes da retirada não sai e a reserva volta', async () => {
+    const P = await pedido();
+    const f = provedorFake();
+    expect(await processarTarefaIA(P.d, deps(f, { depoisDoPreparo: () => retirarEReautorizar(P) }))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', enviadoEm: null, saiuEm: null, destino: null });
+    expect(f.chamadas.ler).toHaveLength(0);
+    expect(await saidas(P)).toHaveLength(0);
+    expect((await usoDe(P)).situacao).toBe('estornado');
+    // a reautorização vale para os pedidos novos: a tarefa pedida depois dela sai
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, P.T.tenantId));
+    const outroExame = await exameComLaudo(app.db, P.T.ctx, P.T.tenant, P.p.id, { dataDir, conteudo: await pdfDeTeste() });
+    const nova = await pedirLeituraExame(P.T.ctx, tenant as TenantRow, P.p.id, outroExame, { db: app.db, agora, ia: IA, avisarTeto: async () => 0 });
+    expect(await processarTarefaIA({ tenantId: P.T.tenantId, tarefaId: nova }, deps(provedorFake()))).toBe('pronta');
+  });
+
+  it('D14: a "processando" que voltou do 529 à espera da nova tentativa, com retirada e reautorização no intervalo → não sai de novo (falhou, estorno)', async () => {
+    const P = await pedido();
+    const f = provedorFake({ ler: [new ErroProvedor('repetir', 529, 'r1')] });
+    await expect(processarTarefaIA(P.d, deps(f))).rejects.toBeInstanceOf(RepetirIaError);
+    expect(await tarefa(P)).toMatchObject({ status: 'processando', enviadoEm: null });
+    await retirarEReautorizar(P); // o cancelamento da retirada pula a "processando"
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', tentativas: 2 });
+    expect(f.chamadas.ler).toHaveLength(1); // só a primeira, antes da retirada
+    expect(await saidas(P)).toHaveLength(1);
+    expect((await usoDe(P)).situacao).toBe('estornado');
+  });
+
+  it('D14: retirada e reautorização DURANTE a chamada → o resultado não é gravado, o custo é', async () => {
+    const P = await pedido();
+    const f = provedorFake({ ler: [respostaOk(RESPOSTA_SANDBOX)] });
+    const lerOriginal = f.lerDocumento.bind(f);
+    f.lerDocumento = async (p) => {
+      await retirarEReautorizar(P);
+      return lerOriginal(p);
+    };
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
+    expect((await usoDe(P)).situacao).toBe('confirmado');
+  });
+
+  it('D14 / D15: a varredura cancela a tarefa de antes da retirada mesmo com o paciente autorizado de novo; a pedida depois fica', async () => {
+    const P = await pedido();
+    await retirarEReautorizar(P);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, P.T.tenantId));
+    const outroExame = await exameComLaudo(app.db, P.T.ctx, P.T.tenant, P.p.id, { dataDir });
+    const nova = await pedirLeituraExame(P.T.ctx, tenant as TenantRow, P.p.id, outroExame, { db: app.db, agora, ia: IA, avisarTeto: async () => 0 });
+    const r = await withTenant({ tenantId: P.T.tenantId, role: 'worker' }, (tx) => expirarTarefasDoTenant(tx, agora, 'teste'), app.db);
+    expect(r).toEqual({ interrompidas: 0, expiradas: 0, canceladas: 1 });
+    expect(await tarefa(P)).toMatchObject({ status: 'cancelada' });
+    expect((await usoDe(P)).situacao).toBe('estornado');
+    expect((await withTenant(P.T.ctx, (tx) => tx.select({ s: iaTarefas.status }).from(iaTarefas).where(eq(iaTarefas.id, nova)), app.db))[0].s).toBe('na_fila');
+  });
+
   it('duas execuções do mesmo job ao mesmo tempo (expiração do pg-boss): o laudo sai uma vez só', async () => {
     const P = await pedido();
     const f = provedorFake({ atrasoMs: 200 });

@@ -6,7 +6,7 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { agruparMarcadores, lerValores, MSG_EXAME, type ValorExame } from '@/modules/pacientes/exames';
 import { auditRead } from '@/modules/plataforma/audit';
-import { autorizacaoDoPaciente, vigentePara } from './autorizacao';
+import { autorizacaoDaTarefa, vigentePara } from './autorizacao';
 import { MAX_LINHAS_SUGESTAO, MAX_VALORES_EXAME, MSG_IA, USO_DA_TAREFA, type DestinoIA } from './constantes';
 import { jaLancado, nomeDaSerie } from './correspondencia';
 import { lerValorLaudo, type ValorLido } from './valor-laudo';
@@ -113,12 +113,13 @@ export async function aplicarSugestao(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
-      // RN-108 (Plano 14A): retirada (ou versão/destino que não vale mais) depois da leitura → nada é aplicado
-      if (!vigentePara(await autorizacaoDoPaciente(tx, p.id, deps.destino), USO_DA_TAREFA.leitura_exame)) {
+      const [ref] = await tx.select({ examId: iaTarefas.examId, criadoEm: iaTarefas.criadoEm }).from(iaTarefas).where(and(eq(iaTarefas.id, tarefaId), eq(iaTarefas.patientId, p.id)));
+      if (!ref?.examId) throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
+      // RN-108 (Plano 14A): retirada (ou versão/destino que não vale mais) depois da leitura → nada é aplicado; a sugestão
+      // pedida antes da última retirada também não, mesmo com o paciente autorizado de novo (D14; criado_em não muda)
+      if (!vigentePara(await autorizacaoDaTarefa(tx, { patientId: p.id, criadoEm: ref.criadoEm }, deps.destino), USO_DA_TAREFA.leitura_exame)) {
         throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
       }
-      const [ref] = await tx.select({ examId: iaTarefas.examId }).from(iaTarefas).where(and(eq(iaTarefas.id, tarefaId), eq(iaTarefas.patientId, p.id)));
-      if (!ref?.examId) throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
       const [e] = await tx.select().from(exams).where(and(eq(exams.id, ref.examId), eq(exams.patientId, p.id))).for('update');
       const [t] = await tx.select().from(iaTarefas).where(eq(iaTarefas.id, tarefaId)).for('update');
       if (!e || !t || t.status !== 'pronta' || !t.resultado || t.examId !== e.id || !t.expiraEm || t.expiraEm <= agora) {

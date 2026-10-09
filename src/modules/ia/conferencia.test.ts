@@ -140,6 +140,17 @@ describe('US-111 / RN-114 — salvar os valores selecionados', () => {
     expect((await exame(P)).valores).toEqual([]);
   });
 
+  it('RN-108 / D14: sugestão pedida antes da retirada, com o paciente já autorizado de novo → indisponível e o exame não muda; a pedida depois aplica', async () => {
+    const P = await pronta();
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id, { evento: 'retirou' });
+    await autorizacaoNoBanco(app.db, P.T.tenantId, P.p.id);
+    expect(await erros(aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    expect((await exame(P)).valores).toEqual([]);
+    expect(await tarefa(P)).toMatchObject({ status: 'pronta' }); // o job ia-retirada (ou a varredura) a cancela
+    const depois = await tarefaNoBanco(app.db, P.T.ctx, P.p.id, P.examId, { status: 'pronta', resultado: RESULTADO, expiraEm: new Date(agora.getTime() + 86_400_000) });
+    expect(await aplicarSugestao(P.T.ctx, fuso, P.p.id, depois, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' })).toEqual({ linhas: 1 });
+  });
+
   it('paciente bloqueado entre abrir e salvar → PacienteBloqueadoError; vencida → indisponível', async () => {
     const P = await pronta();
     await withTenant(P.T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora }).where(eq(patients.id, P.p.id)), app.db);

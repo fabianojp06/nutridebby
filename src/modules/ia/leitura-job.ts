@@ -8,7 +8,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { avisarCredencialInvalida, avisarTetoGlobal } from './alertas';
-import { autorizacaoDoPaciente, motivoDoPaciente, vigentePara, type SituacaoAutorizacao } from './autorizacao';
+import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente, situacaoParaTarefa, ultimaRetirada, vigentePara, type SituacaoAutorizacao } from './autorizacao';
 import { PRAZO_SUGESTAO_DIAS, USO_DA_TAREFA, type DestinoIA, type ModeloIA, type MotivoFalha, type RegiaoIA, type TipoTarefa } from './constantes';
 import { acertar, avisarSeChegou80Ia, estornar, marcarIncerto, reduzirReserva } from './cota';
 import { ESFORCO_LEITURA, INSTRUCAO_LEITURA, SISTEMA_LEITURA } from './instrucoes/leitura';
@@ -96,8 +96,9 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
       if (t.enviadoEm) return { t, jaEnviada: true as const, paciente: null, situacao: null, arquivo: null };
       await tx.update(iaTarefas).set({ status: 'processando', iniciadoEm: t.iniciadoEm ?? agora(), tentativas: t.tentativas + 1, updatedAt: agora() }).where(eq(iaTarefas.id, t.id));
       const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId));
-      // Plano 14A (RN-100, RN-107): a situação da autorização junto do paciente (conferência barata; o portão relê com trava)
-      const situacao: SituacaoAutorizacao | null = p ? await autorizacaoDoPaciente(tx, p.id, deps.destino) : null;
+      // Plano 14A (RN-100, RN-107): a situação da autorização junto do paciente (conferência barata; o portão relê com trava).
+      // RN-108 (D14): tarefa criada antes da última retirada não vale, mesmo com o paciente autorizado de novo.
+      const situacao: SituacaoAutorizacao | null = p ? await autorizacaoDaTarefa(tx, t, deps.destino) : null;
       const [e] = t.examId ? await tx.select({ arquivo: exams.arquivoPath }).from(exams).where(eq(exams.id, t.examId)) : [];
       return { t, jaEnviada: false as const, paciente: p ?? null, situacao, arquivo: e?.arquivo ?? null };
     },
@@ -162,8 +163,10 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
       // D6 (RN-109): a tarefa que já saiu para um destino (tentativa anterior) não sai para outro
       if (t.destino && t.destino !== deps.destino) return 'ia_desligada';
       if (!p) return 'paciente_indisponivel';
-      // CS-105 / RN-108: a autorização relida com o paciente travado (FOR SHARE) — serializa com a retirada (FOR UPDATE)
-      const doPaciente = motivoDoPaciente(p, await autorizacaoDoPaciente(tx, p.id, deps.destino), uso);
+      // CS-105 / RN-108: a autorização relida com o paciente travado (FOR SHARE) — serializa com a retirada (FOR UPDATE).
+      // D14: a tarefa pedida antes da última retirada não sai, mesmo com a reautorização gravada (a "processando" que
+      // voltou do 429/529 à espera da nova tentativa, ou o job que roda antes do ia-retirada).
+      const doPaciente = motivoDoPaciente(p, await autorizacaoDaTarefa(tx, t, deps.destino), uso);
       if (doPaciente) return doPaciente;
       if (!e || e.arquivo !== lida.arquivo) return 'exame_indisponivel';
       const marcada = await tx
@@ -224,8 +227,9 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
       const [e] = t.examId ? await tx.select({ id: exams.id }).from(exams).where(eq(exams.id, t.examId)).for('share') : [];
       const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [atual] = await tx.select({ status: iaTarefas.status, examId: iaTarefas.examId }).from(iaTarefas).where(eq(iaTarefas.id, t.id)).for('update');
-      // Plano 14A (RN-108): a retirada que chegou durante a chamada — o resultado não é gravado (o custo é)
-      const doPaciente = p ? motivoDoPaciente(p, await autorizacaoDoPaciente(tx, p.id, deps.destino), uso) : 'paciente_indisponivel';
+      // Plano 14A (RN-108): a retirada que chegou durante a chamada — o resultado não é gravado (o custo é), mesmo que o
+      // paciente já tenha autorizado de novo (D14: a tarefa é de antes da retirada)
+      const doPaciente = p ? motivoDoPaciente(p, await autorizacaoDaTarefa(tx, t, deps.destino), uso) : 'paciente_indisponivel';
       let motivo: MotivoFalha | null = null;
       if (atual?.status !== 'processando') motivo = 'interrompida';
       else if (!tn || estadoIaComPaciente(tn, deps) !== 'ativa') motivo = 'ia_desligada';
@@ -262,7 +266,8 @@ const ATIVAS = ['na_fila', 'processando', 'pronta'] as const;
  * estorno: a ordem de cancelarTarefas (tarefas → ia_uso → plataforma). Travar as vencidas só depois do estorno fecharia
  * um ciclo com quem cancela (já travou a pronta e vai estornar na linha do mês da plataforma) — revisão final, Minor 11.
  * Plano 14A (D15, RN-108): também cancela as tarefas ativas de paciente SEM autorização vigente para o uso da tarefa
- * (rede de segurança do job ia-retirada): na fila → cancelada com estorno; processando → cancelada, com estorno se nada
+ * (rede de segurança do job ia-retirada) e as criadas antes da última retirada do paciente, mesmo reautorizado (D14,
+ * a regra do `criadasAntesDe`): na fila → cancelada com estorno; processando → cancelada, com estorno se nada
  * saiu e a reserva mantida (incerta) se `enviado_em` está gravado; pronta → cancelada e esvaziada. A situação é lida
  * antes (sem trava) e a trava única por id continua antes de qualquer estorno.
  */
@@ -270,12 +275,17 @@ export async function expirarTarefasDoTenant(tx: Tx, agora: Date, destino: Desti
   const parada = and(eq(iaTarefas.status, 'processando'), lt(iaTarefas.iniciadoEm, new Date(agora.getTime() - PROCESSANDO_MAX_MS)));
   const esquecida = and(eq(iaTarefas.status, 'na_fila'), lt(iaTarefas.criadoEm, new Date(agora.getTime() - NA_FILA_MAX_MS)));
   const vencida = and(eq(iaTarefas.status, 'pronta'), isNotNull(iaTarefas.expiraEm), lt(iaTarefas.expiraEm, agora));
-  const candidatas = await tx.select({ id: iaTarefas.id, patientId: iaTarefas.patientId, tipo: iaTarefas.tipo }).from(iaTarefas).where(inArray(iaTarefas.status, [...ATIVAS]));
-  const situacoes = new Map<string, SituacaoAutorizacao>();
+  const candidatas = await tx
+    .select({ id: iaTarefas.id, patientId: iaTarefas.patientId, tipo: iaTarefas.tipo, criadoEm: iaTarefas.criadoEm })
+    .from(iaTarefas)
+    .where(inArray(iaTarefas.status, [...ATIVAS]));
+  const situacoes = new Map<string, { s: SituacaoAutorizacao; retirada: Awaited<ReturnType<typeof ultimaRetirada>> }>();
   const semAutorizacao = new Set<string>();
   for (const c of candidatas) {
-    if (!situacoes.has(c.patientId)) situacoes.set(c.patientId, await autorizacaoDoPaciente(tx, c.patientId, destino));
-    if (!vigentePara(situacoes.get(c.patientId)!, USO_DA_TAREFA[c.tipo as TipoTarefa])) semAutorizacao.add(c.id);
+    if (!situacoes.has(c.patientId)) situacoes.set(c.patientId, { s: await autorizacaoDoPaciente(tx, c.patientId, destino), retirada: await ultimaRetirada(tx, c.patientId) });
+    const { s, retirada } = situacoes.get(c.patientId)!;
+    // D14: a tarefa de antes da última retirada é cancelada mesmo com o paciente autorizado de novo
+    if (!vigentePara(situacaoParaTarefa(s, retirada, c.criadoEm), USO_DA_TAREFA[c.tipo as TipoTarefa])) semAutorizacao.add(c.id);
   }
   const alvo = await tx
     .select({ id: iaTarefas.id, status: iaTarefas.status, enviadoEm: iaTarefas.enviadoEm })

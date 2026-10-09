@@ -14,7 +14,9 @@ export type DadosRetiradaIa = { tenantId: string; patientId: string; retiradaId:
  * (staff_only): a transação da retirada enfileira este job, que roda no contexto worker na ordem paciente → tenant
  * (cancelarTarefas trava o tenant): trava o paciente, confere de novo a situação e cancela a fila (estorno) e as sugestões
  * prontas (esvaziadas). Se o paciente autorizou de novo depois da retirada, só as tarefas criadas ANTES dela. Até o job
- * rodar, nada sai (portão do envio) e nada é aplicado (aplicarSugestao); a varredura expirar-ia é a rede de segurança.
+ * rodar — e mesmo com a reautorização já gravada —, a tarefa de antes da retirada não sai (portão do envio), não é
+ * gravada (passo 6) e não é aplicada (aplicarSugestao): a mesma regra, por `autorizacaoDaTarefa` (revisão da T4). A
+ * "processando" (que este job pula) fica para o portão, o passo 6 e a varredura expirar-ia, a rede de segurança.
  */
 export async function processarRetiradaIa(d: DadosRetiradaIa, deps: { db: Db; destino: DestinoIA | null; agora?: () => Date }): Promise<number> {
   const agora = (deps.agora ?? (() => new Date()))();

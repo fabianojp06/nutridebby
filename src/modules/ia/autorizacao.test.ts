@@ -11,7 +11,7 @@ import { iaAutorizacoes, iaTarefas, iaUso, tenants, type TenantRow } from '@/db/
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
-import { autorizacaoDoPaciente, motivoDoPaciente, registrarRetiradaPelaNutri, situacaoDaAutorizacao, ultimaDecisao, vigentePara, type EventoDeDecisao } from './autorizacao';
+import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente, registrarRetiradaPelaNutri, situacaoDaAutorizacao, situacaoParaTarefa, ultimaDecisao, vigentePara, type EventoDeDecisao } from './autorizacao';
 import { pedirLeituraExame } from './tarefas';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -53,6 +53,18 @@ describe('situacaoDaAutorizacao (RN-107, RN-109, D7) — sem banco', () => {
   });
 });
 
+describe('situacaoParaTarefa (RN-108, D14) — sem banco', () => {
+  it('vigente + tarefa criada antes da última retirada → retirada (a da retirada); depois dela, ou sem retirada → a situação do paciente', () => {
+    const vigente = situacaoDaAutorizacao(evento({ registradoEm: new Date('2026-10-09T12:10:00Z') }), 'teste');
+    const retirada = { id: 'r1', canal: 'app', em: new Date('2026-10-09T12:05:00Z'), registradoEm: new Date('2026-10-09T12:05:00Z') };
+    expect(situacaoParaTarefa(vigente, retirada, new Date('2026-10-09T12:04:59Z'))).toEqual({ tipo: 'retirada', id: 'r1', em: retirada.em, canal: 'app' });
+    expect(situacaoParaTarefa(vigente, retirada, new Date('2026-10-09T12:05:01Z'))).toBe(vigente);
+    expect(situacaoParaTarefa(vigente, null, new Date('2026-10-01T00:00:00Z'))).toBe(vigente);
+    const antiga = situacaoDaAutorizacao(evento({ versao: '0.0.9-velha' }), 'teste');
+    expect(situacaoParaTarefa(antiga, retirada, new Date('2026-10-09T12:04:59Z'))).toBe(antiga);
+  });
+});
+
 describe('ultimaDecisao e autorizacaoDoPaciente — no banco', () => {
   it('o último autorizou/retirou decide (por registrado_em); pedido por e-mail não conta; a reautorização volta a valer', async () => {
     const T = await novoTenant(app.db);
@@ -68,6 +80,28 @@ describe('ultimaDecisao e autorizacaoDoPaciente — no banco', () => {
     await autorizacaoNoBanco(app.db, T.tenantId, p.id);
     expect((await ler()).tipo).toBe('vigente');
     expect((await withTenant(T.ctx, (tx) => ultimaDecisao(tx, p.id), app.db))?.evento).toBe('autorizou');
+  });
+});
+
+describe('autorizacaoDaTarefa (RN-108, D14) — no banco', () => {
+  it('criado_em pelo relógio do banco, depois da trava: a tarefa pedida antes da retirada vale como retirada mesmo reautorizado; a pedida depois, vigente', async () => {
+    const T = await novoTenant(app.db);
+    await iaPronta(app.db, T.tenantId);
+    const p = await pacienteAutorizado(app.db, T.ctx);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    // o `agora` do app num passado distante: não é ele que vale para a comparação com a retirada
+    const pedir = async () => pedirLeituraExame(T.ctx, tenant as TenantRow, p.id, await exameComLaudo(app.db, T.ctx, T.tenant, p.id, { dataDir }), { db: app.db, agora: new Date('2026-01-01T00:00:00Z'), ia: IA_TESTE, avisarTeto: async () => 0 });
+    const ler = (id: string) =>
+      withTenant(T.ctx, async (tx) => {
+        const [t] = await tx.select({ patientId: iaTarefas.patientId, criadoEm: iaTarefas.criadoEm }).from(iaTarefas).where(eq(iaTarefas.id, id));
+        return autorizacaoDaTarefa(tx, t, 'teste');
+      }, app.db);
+    const antes = await pedir();
+    await autorizacaoNoBanco(app.db, T.tenantId, p.id, { evento: 'retirou' });
+    await autorizacaoNoBanco(app.db, T.tenantId, p.id);
+    const depois = await pedir();
+    expect((await ler(antes)).tipo).toBe('retirada');
+    expect((await ler(depois)).tipo).toBe('vigente');
   });
 });
 

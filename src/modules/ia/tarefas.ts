@@ -105,7 +105,9 @@ export async function pedirLeituraExame(ctx: TenantContext, tenant: TenantRow, p
         await reservar(tx, { tenantId: ctx.tenantId, tarefaId, tipo: 'leitura_exame', modelo: deps.ia.modelo, promptVersao: PROMPT_VERSAO_LEITURA, microUsd, agora, tetoGlobalMicroUsd: deps.ia.tetoGlobalMicroUsd });
         await tx.insert(iaTarefas).values({
           id: tarefaId, tenantId: ctx.tenantId, patientId: p.id, tipo: 'leitura_exame', status: 'na_fila', examId: e.id, pedidoPor: ctx.actorUserId!,
-          modelo: deps.ia.modelo, promptVersao: PROMPT_VERSAO_LEITURA, reservaMicroUsd: microUsd, criadoEm: agora, updatedAt: agora,
+          // RN-108 (D14): criado_em pelo relógio do banco, depois da trava do paciente — comparado com o registrado_em da
+          // retirada (o mesmo relógio, também depois da trava); o `agora` do app é tomado antes da espera pela trava
+          modelo: deps.ia.modelo, promptVersao: PROMPT_VERSAO_LEITURA, reservaMicroUsd: microUsd, criadoEm: sql`clock_timestamp()`, updatedAt: agora,
         });
         const job = await boss.send('ia', { tenantId: ctx.tenantId, tarefaId }, { db: fromDrizzle(tx, sql) });
         if (!job) throw new Error('A fila recusou o pedido de IA');

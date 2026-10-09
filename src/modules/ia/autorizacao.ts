@@ -55,6 +55,34 @@ export async function autorizacaoDoPaciente(tx: Tx, patientId: string, destino: 
   return situacaoDaAutorizacao(await ultimaDecisao(tx, patientId), destino);
 }
 
+/** A última `retirou` do paciente (por `registrado_em`, o relógio do banco depois da trava; desempate pelo id). */
+export async function ultimaRetirada(tx: Tx, patientId: string): Promise<Pick<EventoDeDecisao, 'id' | 'canal' | 'em' | 'registradoEm'> | null> {
+  const [r] = await tx
+    .select({ id: iaAutorizacoes.id, canal: iaAutorizacoes.canal, em: iaAutorizacoes.em, registradoEm: iaAutorizacoes.registradoEm })
+    .from(iaAutorizacoes)
+    .where(and(eq(iaAutorizacoes.patientId, patientId), eq(iaAutorizacoes.evento, 'retirou')))
+    .orderBy(desc(iaAutorizacoes.registradoEm), desc(iaAutorizacoes.id))
+    .limit(1);
+  return r ?? null;
+}
+
+/**
+ * RN-108 (D14) para uma tarefa JÁ pedida: "se o paciente autorizou de novo, cancela só as tarefas criadas antes da
+ * retirada" — a mesma regra do `criadasAntesDe` do job ia-retirada. A tarefa criada antes da última retirada vale como
+ * retirada mesmo com a reautorização vigente: não sai (portão), não é gravada (passo 6), não é aplicada e a varredura a
+ * cancela. `criado_em` e `registrado_em` vêm do relógio do banco, os dois depois da trava do paciente (pedirLeituraExame,
+ * gatilho ia_autorizacoes_regras): a ordem entre eles é a ordem real.
+ */
+export function situacaoParaTarefa(s: SituacaoAutorizacao, retirada: Pick<EventoDeDecisao, 'id' | 'canal' | 'em' | 'registradoEm'> | null, criadoEm: Date): SituacaoAutorizacao {
+  if (s.tipo === 'vigente' && retirada && criadoEm < retirada.registradoEm) return { tipo: 'retirada', id: retirada.id, em: retirada.em, canal: retirada.canal as CanalAutorizacao };
+  return s;
+}
+
+/** Dentro de withTenant, com o paciente travado: a situação da autorização para uma tarefa já pedida (RN-100 + RN-108/D14). */
+export async function autorizacaoDaTarefa(tx: Tx, t: { patientId: string; criadoEm: Date }, destino: DestinoIA | null): Promise<SituacaoAutorizacao> {
+  return situacaoParaTarefa(await autorizacaoDoPaciente(tx, t.patientId, destino), await ultimaRetirada(tx, t.patientId), t.criadoEm);
+}
+
 /** RN-100 (parte do paciente, D8): ativo e com a autorização vigente para o uso. No app, no worker e ao aplicar. */
 export function motivoDoPaciente(p: Pick<PatientRow, 'status' | 'anonimizadoEm'>, s: SituacaoAutorizacao, uso: UsoIA): MotivoFalha | null {
   if (p.status !== 'ativo' || p.anonimizadoEm) return 'paciente_indisponivel';
