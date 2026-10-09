@@ -25,6 +25,25 @@ export const AUTORIZACAO_IA_VERSAO_DATA = '2026-10-09';
  */
 export const AUTORIZACAO_IA_USOS: readonly UsoIA[] = ['leitura_laudos'];
 
+/**
+ * RN-107 (revisão da T6, I1): a versão, os usos e o destino do texto que o paciente LEU. A tela que mostra o texto manda
+ * isto de volta com o "Autorizo", e a gravação confere com os de agora: um deploy entre a leitura e o toque (troca de
+ * IA_PROVEDOR, versão ou usos novos) não pode gravar um consentimento a um texto que o paciente não viu (prova só de
+ * inclusão, art. 8º, § 2º; informação prévia do art. 33, VIII).
+ */
+export type TextoExibido = { versao: string; destino: DestinoIA; usos: readonly UsoIA[] };
+export const textoExibido = (destino: DestinoIA): TextoExibido => ({ versao: AUTORIZACAO_IA_VERSAO, destino, usos: [...AUTORIZACAO_IA_USOS] });
+
+/** O que veio do cliente (não confiável) é o texto de agora para `destino`? Os usos como conjunto, sem repetição. */
+export function conferirTextoExibido(exibido: unknown, destino: DestinoIA): boolean {
+  if (!exibido || typeof exibido !== 'object') return false;
+  const e = exibido as Record<string, unknown>;
+  if (e.versao !== AUTORIZACAO_IA_VERSAO || e.destino !== destino || !Array.isArray(e.usos)) return false;
+  const usos = e.usos as unknown[];
+  const atuais: readonly unknown[] = AUTORIZACAO_IA_USOS;
+  return usos.length === atuais.length && new Set(usos).size === usos.length && usos.every((u) => atuais.includes(u));
+}
+
 /** Um trecho de parágrafo; `forte` = em destaque (art. 33, VIII: "em destaque"). O destaque é apresentação, não redação. */
 export type Trecho = { texto: string; forte?: true };
 export type Paragrafo = readonly Trecho[];

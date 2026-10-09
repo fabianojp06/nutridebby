@@ -11,7 +11,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { autorizarPeloLink, estadoDoLinkIa, LinkIaError, retirarPeloLink, type DepsLinkIa } from './autorizacao-link';
 import { assinarLinkPedido, assinarLinkRetirada, emailHmac } from './autorizacao-token';
 import { MSG_AUTORIZACAO } from './constantes';
-import { textoCorrido } from './textos-legais';
+import { textoCorrido, textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -34,6 +34,8 @@ async function cenario() {
   const eventos = () => withTenant(T.ctx, (tx) => tx.select().from(iaAutorizacoes).where(eq(iaAutorizacoes.patientId, p.id)), app.db);
   return { T, p, pedido, eventos };
 }
+/** O texto que a página mostrou (destino de teste, versão e usos de agora): o formulário o devolve no POST. */
+const LIDO = textoExibido('teste');
 const status = (pr: Promise<unknown>) => pr.then(() => null, (e: unknown) => (e instanceof LinkIaError ? [e.status, e.mensagem] : e));
 
 describe('US-107 — o estado do link (GET não grava nada)', () => {
@@ -46,6 +48,7 @@ describe('US-107 — o estado do link (GET não grava nada)', () => {
     expect(e.texto.titulo).toBe('Autorização para uso de inteligência artificial');
     expect(texto).toContain('Debora Silva, CRN-3 12345');
     expect(texto).toContain('pelo link "Retirar a autorização" do e-mail de confirmação');
+    expect(e.exibido).toEqual({ versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos'] }); // o que o POST devolve
     expect(T.tenantId).toBeTruthy();
   });
 
@@ -68,33 +71,60 @@ describe('US-107 — autorizar pelo link (RNF-111 e)', () => {
   it('grava canal link, sem conta, com IP, user-agent e o HMAC do e-mail; manda a confirmação; o estado vira "já autorizou"', async () => {
     const { p, pedido, eventos } = await cenario();
     const t = pedido();
-    await autorizarPeloLink(t, { turnstile: 'ok' }, deps());
+    await autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, deps());
     const [e] = await eventos();
     expect(e).toMatchObject({ evento: 'autorizou', canal: 'link', registradoPor: null, ip: '203.0.113.50', userAgent: 'Navegador de teste', emailHmac: emailHmac(p.email!), destino: 'teste', usos: ['leitura_laudos'] }); // F2
     expect(await emailsNaFila('autorizacao_ia_confirmada', p.email!)).toHaveLength(1);
     expect(await estadoDoLinkIa(t, deps())).toMatchObject({ tipo: 'ja_autorizou' });
-    await autorizarPeloLink(t, { turnstile: 'ok' }, deps()); // idempotente
+    await autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, deps()); // idempotente
     expect(await eventos()).toHaveLength(1);
   });
 
   it('sem Turnstile → 403; Turnstile fora → 503; acima de 20 por hora no mesmo IP → 429; nada gravado', async () => {
     const { pedido, eventos } = await cenario();
     expect(await status(autorizarPeloLink(pedido(), {}, deps()))).toEqual([403, MSG_AUTORIZACAO.robo]);
-    expect(await status(autorizarPeloLink(pedido(), { turnstile: 'ok' }, deps({ verificarTurnstile: async () => 'indisponivel' })))).toEqual([503, MSG_AUTORIZACAO.turnstileFora]);
+    expect(await status(autorizarPeloLink(pedido(), { turnstile: 'ok', exibido: LIDO }, deps({ verificarTurnstile: async () => 'indisponivel' })))).toEqual([503, MSG_AUTORIZACAO.turnstileFora]);
     const mesmoIp = deps();
     const t = 'x'.repeat(72); // inválido: consome o limite e cai no 410
-    for (let i = 0; i < 20; i++) await autorizarPeloLink(t, { turnstile: 'ok' }, mesmoIp).catch(() => undefined);
-    expect(await status(autorizarPeloLink(pedido(), { turnstile: 'ok' }, mesmoIp))).toEqual([429, MSG_AUTORIZACAO.muitasTentativas]);
+    for (let i = 0; i < 20; i++) await autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, mesmoIp).catch(() => undefined);
+    expect(await status(autorizarPeloLink(pedido(), { turnstile: 'ok', exibido: LIDO }, mesmoIp))).toEqual([429, MSG_AUTORIZACAO.muitasTentativas]);
     expect(await eventos()).toHaveLength(0);
   });
 
   it('vencido → 410 "Este link expirou…"; adulterado, de retirada ou com o e-mail corrigido → 410 "Este link não é mais válido…"', async () => {
     const { T, p, pedido, eventos } = await cenario();
-    expect(await status(autorizarPeloLink(pedido(new Date(Date.now() - 8 * 86_400_000)), { turnstile: 'ok' }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkExpirado]);
-    expect(await status(autorizarPeloLink(assinarLinkRetirada({ tenantId: T.tenantId, patientId: p.id, autorizacaoId: randomUUID() }), { turnstile: 'ok' }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkInvalido]);
+    expect(await status(autorizarPeloLink(pedido(new Date(Date.now() - 8 * 86_400_000)), { turnstile: 'ok', exibido: LIDO }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkExpirado]);
+    expect(await status(autorizarPeloLink(assinarLinkRetirada({ tenantId: T.tenantId, patientId: p.id, autorizacaoId: randomUUID() }), { turnstile: 'ok', exibido: LIDO }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkInvalido]);
     const t = pedido();
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ email: `trocado-${randomUUID().slice(0, 6)}@ex.com` }).where(eq(patients.id, p.id)), app.db);
-    expect(await status(autorizarPeloLink(t, { turnstile: 'ok' }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkInvalido]);
+    expect(await status(autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, deps()))).toEqual([410, MSG_AUTORIZACAO.linkInvalido]);
+    expect(await eventos()).toHaveLength(0);
+  });
+});
+
+describe('RN-107 (revisão da T6) — a autorização gravada é a do texto que o paciente leu', () => {
+  it('GET com o destino A, POST com o destino B (deploy entre a leitura e o toque) → 409, nada gravado nem enviado', async () => {
+    const { p, pedido, eventos } = await cenario();
+    const t = pedido();
+    const lido = await estadoDoLinkIa(t, deps());
+    if (lido.tipo !== 'decidir') throw new Error('estado');
+    const emUe = deps({ ia: { ...IA_TESTE, destino: 'bedrock-eu' } });
+    expect(await status(autorizarPeloLink(t, { turnstile: 'ok', exibido: lido.exibido }, emUe))).toEqual([409, MSG_AUTORIZACAO.textoMudouLink]);
+    expect(await eventos()).toHaveLength(0);
+    expect(await emailsNaFila('autorizacao_ia_confirmada', p.email!)).toHaveLength(0);
+    // recarregou: a página mostra o texto do destino B, e aí grava
+    const relido = await estadoDoLinkIa(t, emUe);
+    if (relido.tipo !== 'decidir') throw new Error('estado');
+    expect(relido.exibido.destino).toBe('bedrock-eu');
+    await autorizarPeloLink(t, { turnstile: 'ok', exibido: relido.exibido }, emUe);
+    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu', versao: '0.1-provisorio', usos: ['leitura_laudos'] }]);
+  });
+
+  it('sem o texto lido, ou com outra versão ou outros usos → 409, nada gravado', async () => {
+    const { pedido, eventos } = await cenario();
+    for (const exibido of [undefined, null, 'teste', [], { ...LIDO, versao: '0.0-antiga' }, { ...LIDO, usos: [...LIDO.usos, 'resumo_historico'] }, { ...LIDO, usos: [] }, { ...LIDO, usos: ['leitura_laudos', 'leitura_laudos'] }]) {
+      expect(await status(autorizarPeloLink(pedido(), { turnstile: 'ok', exibido }, deps())), JSON.stringify(exibido)).toEqual([409, MSG_AUTORIZACAO.textoMudouLink]);
+    }
     expect(await eventos()).toHaveLength(0);
   });
 });

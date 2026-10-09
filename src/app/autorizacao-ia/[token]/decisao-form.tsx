@@ -4,13 +4,16 @@ import { useState } from 'react';
 import { TurnstileWidget } from '@/components/turnstile-widget';
 import { Botao } from '@/components/ui/botao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import type { TextoExibido } from '@/modules/ia/textos-legais';
 
 /**
  * US-107 / US-109: Turnstile e os botões da decisão (sem <form>: nada vai à URL; o POST é por fetch, como o link de
  * documentos). "Agora não" não grava nada (decisão da spec, §18.2): só o retorno. A região role="status" existe desde o
  * início (RNF-10) e recebe "Autorização registrada…", "Tudo bem…" ou "Autorização retirada."; o erro vai em role="alert".
+ * `exibido` (só no "decidir"): a versão, os usos e o destino do texto mostrado, devolvidos no POST — se o texto mudou
+ * entre a leitura e o toque, o servidor recusa (409) e pede para recarregar (RN-107).
  */
-export function DecisaoForm({ token, siteKey, modo }: { token: string; siteKey: string; modo: 'decidir' | 'retirar' }) {
+export function DecisaoForm({ token, siteKey, modo, exibido }: { token: string; siteKey: string; modo: 'decidir' | 'retirar'; exibido?: TextoExibido }) {
   const [turnstile, setTurnstile] = useState<string | null>(null);
   const [widget, setWidget] = useState(0);
   const [retorno, setRetorno] = useState('');
@@ -23,7 +26,7 @@ export function DecisaoForm({ token, siteKey, modo }: { token: string; siteKey: 
     setEnviando(true);
     setErro('');
     try {
-      const res = await fetch(`/api/autorizacao-ia/${token}/${acao}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ turnstile }) });
+      const res = await fetch(`/api/autorizacao-ia/${token}/${acao}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(acao === 'autorizar' ? { turnstile, exibido } : { turnstile }) });
       const r = (await res.json().catch(() => ({}))) as { erro?: string };
       if (res.ok) {
         setEncerrado(true);

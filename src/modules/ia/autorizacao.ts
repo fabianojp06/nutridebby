@@ -17,7 +17,7 @@ import {
   type CanalAutorizacao, type DestinoIA, type EventoAutorizacao, type MotivoFalha, type UsoIA,
 } from './constantes';
 import { estadoIaDoTenant, type ConfigIA, type ModoIA } from './modo';
-import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, responsavelDoTenant, versaoAtende } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, conferirTextoExibido, responsavelDoTenant, versaoAtende } from './textos-legais';
 
 /**
  * Plano 14A (spec da IA v0.5.1, RN-107 a RN-109, A-D23 a A-D25): a autorização do paciente para o uso de IA. Esta é a parte
@@ -178,9 +178,11 @@ const sessaoDePacienteComConta = (ctx: TenantContext) => ctx.role === 'paciente'
 /**
  * US-106 "Autorizo o envio para fora do Brasil" no app: sessão de paciente com conta; o paciente travado (FOR UPDATE,
  * PACIENTE_ESCREVE.patients) antes de ler a situação e gravar — a política paciente_autorizacao_propria confere a conta.
- * Já vigente (clique duplo, outra aba) → nada novo.
+ * Já vigente (clique duplo, outra aba) → nada novo. `exibido` é o texto que a tela mostrou (`textoExibido(destino)`:
+ * versão, usos e destino, vindos do cliente): diferente do de agora (deploy entre a leitura e o toque) → "O texto da
+ * autorização mudou. Leia e decida de novo." e nada gravado (RN-107, revisão da T6).
  */
-export async function autorizarNoApp(ctx: TenantContext, deps: DepsAutorizacao): Promise<'registrada' | 'ja_vigente'> {
+export async function autorizarNoApp(ctx: TenantContext, exibido: unknown, deps: DepsAutorizacao): Promise<'registrada' | 'ja_vigente'> {
   if (!sessaoDePacienteComConta(ctx)) throw new Error('autorizarNoApp: só a sessão de paciente com conta');
   return withTenant(
     ctx,
@@ -189,6 +191,7 @@ export async function autorizarNoApp(ctx: TenantContext, deps: DepsAutorizacao):
       if (!p || p.status !== 'ativo' || p.anonimizadoEm) throw new AutorizacaoError({ geral: MSG_IA.indisponivel });
       const [t] = await tx.select().from(tenants).where(eq(tenants.id, ctx.tenantId));
       const destino = destinoParaPedir(t, deps.ia);
+      if (!conferirTextoExibido(exibido, destino)) throw new AutorizacaoError({ geral: MSG_AUTORIZACAO.textoMudou });
       if ((await autorizacaoDoPaciente(tx, p.id, destino)).tipo === 'vigente') return 'ja_vigente';
       const [a] = await tx
         .insert(iaAutorizacoes)

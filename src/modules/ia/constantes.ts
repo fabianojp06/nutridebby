@@ -238,6 +238,11 @@ export const MSG_AUTORIZACAO = {
   robo: 'Confirme que você não é um robô.',
   muitasTentativas: 'Muitas tentativas. Tente de novo em alguns minutos.',
   turnstileFora: 'Tente novamente em alguns minutos',
+  /**
+   * Texto novo (revisão da T6, I1; vai à Debby e à revisão de interface): o texto da autorização mudou entre a abertura da
+   * página do link e o toque em "Autorizo" (deploy com outro provedor, versão ou usos). Nada é gravado.
+   */
+  textoMudouLink: 'O texto da autorização mudou. Recarregue a página e leia de novo.',
   // US-109 (retirada)
   confirmarRetirada: 'Retirar a autorização? A partir de agora, nenhum dado seu será enviado à IA. Isso não muda nada no seu atendimento.',
   retirada: 'Autorização retirada.',

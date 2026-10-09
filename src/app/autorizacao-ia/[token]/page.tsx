@@ -39,7 +39,7 @@ export default async function AutorizacaoPeloLink({ params }: PageProps<'/autori
             classeTitulo="font-titulo text-2xl font-semibold"
             aposTitulo={<p className="font-semibold">{MSG_AUTORIZACAO.autorizacaoPessoal}</p>}
           />
-          <DecisaoForm token={token} siteKey={env.TURNSTILE_SITE_KEY} modo="decidir" />
+          <DecisaoForm token={token} siteKey={env.TURNSTILE_SITE_KEY} modo="decidir" exibido={estado.exibido} />
         </>
       ) : (
         <>

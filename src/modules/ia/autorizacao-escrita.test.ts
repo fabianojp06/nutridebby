@@ -21,6 +21,7 @@ import {
 } from './autorizacao';
 import { lerLinkAutorizacao } from './autorizacao-token';
 import { MSG_AUTORIZACAO, MSG_FALHA, MSG_IA } from './constantes';
+import { textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-esc-'));
@@ -38,18 +39,20 @@ async function cenario(o: { perfil?: boolean; ia?: boolean } = {}) {
   const p = await novoPaciente(app.db, T.ctx);
   const conta = randomUUID();
   const P = ctxPaciente(T.tenantId, p.id, conta);
-  const deps = (extra: Partial<Parameters<typeof autorizarNoApp>[1]> = {}) => ({ ia: IA_TESTE, appUrl: 'https://app.test', db: app.db, dataDir, ...extra });
+  const deps = (extra: Partial<Parameters<typeof autorizarNoApp>[2]> = {}) => ({ ia: IA_TESTE, appUrl: 'https://app.test', db: app.db, dataDir, ...extra });
   const eventos = () => withTenant(T.ctx, (tx) => tx.select().from(iaAutorizacoes).where(eq(iaAutorizacoes.patientId, p.id)), app.db);
   return { T, p, P, conta, deps, eventos };
 }
 /** R2: conta só arquivos (o salvarArquivo cria os diretórios do tenant antes da transação e não os tira na falha). */
 const arquivosEm = (dir: string) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((d) => d.isFile()).length;
+/** O texto que a tela do app mostrou (destino de teste, versão e usos de agora). */
+const LIDO = textoExibido('teste');
 const erros = (pr: Promise<unknown>) => pr.then(() => null, (e: unknown) => (e instanceof AutorizacaoError ? e.erros : e));
 
 describe('US-106 — autorizar no app', () => {
   it('grava canal app, a conta, o IP e o user-agent (até 300), versão, os usos da versão (só a leitura de laudos, F2) e o destino; manda a confirmação com o link de retirada', async () => {
     const { p, P, conta, deps, eventos } = await cenario();
-    expect(await autorizarNoApp(P, deps({ ip: '203.0.113.9', userAgent: 'U'.repeat(400) }))).toBe('registrada');
+    expect(await autorizarNoApp(P, LIDO, deps({ ip: '203.0.113.9', userAgent: 'U'.repeat(400) }))).toBe('registrada');
     const [e] = await eventos();
     expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '0.1-provisorio', destino: 'teste', usos: ['leitura_laudos'] });
     expect(e.userAgent).toHaveLength(300);
@@ -58,16 +61,28 @@ describe('US-106 — autorizar no app', () => {
     expect(m).toMatchObject({ consultorio: expect.any(String), destino: 'Provedor de teste', versao: '0.1-provisorio' });
     const token = m.link.split('/autorizacao-ia/')[1];
     expect(lerLinkAutorizacao(token)).toMatchObject({ tipo: 'retirada', autorizacaoId: e.id });
-    expect(await autorizarNoApp(P, deps())).toBe('ja_vigente'); // clique duplo: nada novo
+    expect(await autorizarNoApp(P, LIDO, deps())).toBe('ja_vigente'); // clique duplo: nada novo
     expect(await eventos()).toHaveLength(1);
   });
 
   it('D10: com a IA não ativa no consultório → indisponível; perfil profissional incompleto → o texto do desvio 7', async () => {
     const semIa = await cenario({ ia: false });
-    expect(await erros(autorizarNoApp(semIa.P, semIa.deps()))).toEqual({ geral: MSG_IA.indisponivel });
+    expect(await erros(autorizarNoApp(semIa.P, LIDO, semIa.deps()))).toEqual({ geral: MSG_IA.indisponivel });
     const semPerfil = await cenario({ perfil: false });
-    expect(await erros(autorizarNoApp(semPerfil.P, semPerfil.deps()))).toEqual({ geral: MSG_AUTORIZACAO.perfilIncompleto });
+    expect(await erros(autorizarNoApp(semPerfil.P, LIDO, semPerfil.deps()))).toEqual({ geral: MSG_AUTORIZACAO.perfilIncompleto });
     expect(await semPerfil.eventos()).toHaveLength(0);
+  });
+
+  it('RN-107 (revisão da T6): o texto mudou entre a leitura e o toque (outro destino, versão ou usos) → "O texto da autorização mudou…", nada gravado', async () => {
+    const { P, deps, eventos } = await cenario();
+    const emUe = deps({ ia: { ...IA_TESTE, destino: 'bedrock-eu' } });
+    expect(await erros(autorizarNoApp(P, LIDO, emUe))).toEqual({ geral: MSG_AUTORIZACAO.textoMudou });
+    for (const exibido of [undefined, null, 'teste', { ...LIDO, versao: '0.0-antiga' }, { ...LIDO, usos: [...LIDO.usos, 'resumo_historico'] }, { ...LIDO, usos: [] }, { ...LIDO, usos: ['leitura_laudos', 'leitura_laudos'] }]) {
+      expect(await erros(autorizarNoApp(P, exibido, deps())), JSON.stringify(exibido)).toEqual({ geral: MSG_AUTORIZACAO.textoMudou });
+    }
+    expect(await eventos()).toHaveLength(0);
+    expect(await autorizarNoApp(P, textoExibido('bedrock-eu'), emUe)).toBe('registrada');
+    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu' }]);
   });
 });
 
@@ -75,7 +90,7 @@ describe('US-109 — retirar no app', () => {
   it('grava a retirada (canal app) e enfileira o job ia-retirada na mesma transação; sem nada a retirar, nada', async () => {
     const { T, p, P, conta, deps, eventos } = await cenario();
     expect(await retirarNoApp(P, deps())).toBe('nada_a_retirar');
-    await autorizarNoApp(P, deps());
+    await autorizarNoApp(P, LIDO, deps());
     expect(await retirarNoApp(P, deps({ ip: '203.0.113.9' }))).toBe('retirada');
     const ret = (await eventos()).find((e) => e.evento === 'retirou')!;
     expect(ret).toMatchObject({ canal: 'app', registradoPor: conta, ip: '203.0.113.9' });
@@ -86,7 +101,7 @@ describe('US-109 — retirar no app', () => {
 
   it('a retirada funciona com a IA desativada no consultório (US-106 "Retirar sempre possível")', async () => {
     const { T, P, deps } = await cenario();
-    await autorizarNoApp(P, deps());
+    await autorizarNoApp(P, LIDO, deps());
     await app.db.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, T.tenantId));
     expect(await retirarNoApp(P, deps())).toBe('retirada');
   });
@@ -168,7 +183,7 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
   it('retirada no dia da assinatura ou depois (no app ou pela nutricionista) → recusa no campo da data, nada registrado (LGPD art. 8º, § 5º)', async () => {
     const hoje = hojeNoFuso('America/Sao_Paulo');
     const { T, p, P, deps, eventos } = await cenario();
-    await autorizarNoApp(P, deps());
+    await autorizarNoApp(P, LIDO, deps());
     expect(await retirarNoApp(P, deps())).toBe('retirada');
     const antes = arquivosEm(dataDir);
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });

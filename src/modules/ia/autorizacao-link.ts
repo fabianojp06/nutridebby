@@ -9,7 +9,7 @@ import { autorizacaoDoPaciente, enfileirarConfirmacao } from './autorizacao';
 import { emailHmac, lerLinkAutorizacao } from './autorizacao-token';
 import { MSG_AUTORIZACAO, VALIDADE_PEDIDO_MS } from './constantes';
 import { estadoIaDoTenant, type ConfigIA } from './modo';
-import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao, type TextoLegal } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, conferirTextoExibido, responsavelDoTenant, textoDaAutorizacao, textoExibido, type TextoExibido, type TextoLegal } from './textos-legais';
 
 /**
  * US-107 / US-109 (Plano 14A, RN-107): a autorização e a retirada pelo link do e-mail, SEM login — contexto de paciente
@@ -21,7 +21,8 @@ export type EstadoLinkIa =
   | { tipo: 'invalido' }
   | { tipo: 'expirado' }
   | { tipo: 'nao_vigente' }
-  | { tipo: 'decidir'; consultorio: string; texto: TextoLegal }
+  /** `exibido`: a versão, os usos e o destino deste texto — o formulário os devolve no POST (RN-107, revisão da T6). */
+  | { tipo: 'decidir'; consultorio: string; texto: TextoLegal; exibido: TextoExibido }
   | { tipo: 'ja_autorizou'; consultorio: string; em: Date }
   | { tipo: 'retirar'; consultorio: string; em: Date };
 
@@ -92,7 +93,7 @@ export async function estadoDoLinkIa(token: unknown, deps: DepsLinkIa): Promise<
       if (!u) return { tipo: 'invalido' };
       if (vencido(l, agora)) return { tipo: 'expirado' };
       if (c.situacao.tipo === 'vigente') return { tipo: 'ja_autorizou', consultorio, em: c.situacao.em };
-      return { tipo: 'decidir', consultorio, texto: textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...u.resp, destino: u.destino, canal: 'link' })! };
+      return { tipo: 'decidir', consultorio, texto: textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...u.resp, destino: u.destino, canal: 'link' })!, exibido: textoExibido(u.destino) };
     },
     deps.db ?? getDb(),
   );
@@ -111,8 +112,10 @@ async function conferirRobo(input: { turnstile?: unknown }, deps: DepsLinkIa): P
 /**
  * US-107 "Autorizo o envio para fora do Brasil" pelo link: o evento `autorizou` (canal link, sem conta, IP, user-agent e o
  * HMAC do e-mail para onde o link foi) com o paciente travado, e a confirmação com o link de retirada. Já vigente → nada.
+ * `input.exibido` é o texto que a página mostrou (versão, usos e destino): diferente do de agora (deploy entre a leitura e
+ * o toque) → 409, nada gravado — a linha só de inclusão nunca afirma um consentimento a um texto não lido (RN-107).
  */
-export async function autorizarPeloLink(token: unknown, input: { turnstile?: unknown }, deps: DepsLinkIa): Promise<void> {
+export async function autorizarPeloLink(token: unknown, input: { turnstile?: unknown; exibido?: unknown }, deps: DepsLinkIa): Promise<void> {
   await conferirRobo(input, deps);
   const l = lerLinkAutorizacao(token);
   if (!l || l.tipo !== 'pedido') throw new LinkIaError(410, MSG_AUTORIZACAO.linkInvalido);
@@ -124,6 +127,7 @@ export async function autorizarPeloLink(token: unknown, input: { turnstile?: unk
       const u = c && pedidoUtilizavel(c, deps.ia);
       if (!c || !u) throw new LinkIaError(410, MSG_AUTORIZACAO.linkInvalido);
       if (vencido(l, agora)) throw new LinkIaError(410, MSG_AUTORIZACAO.linkExpirado);
+      if (!conferirTextoExibido(input.exibido, u.destino)) throw new LinkIaError(409, MSG_AUTORIZACAO.textoMudouLink);
       if (c.situacao.tipo === 'vigente') return;
       const [a] = await tx
         .insert(iaAutorizacoes)
