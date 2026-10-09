@@ -5,8 +5,9 @@ import { CONSULTA_AUTOMATICA } from '@/lib/consulta-automatica';
 
 /**
  * Ritmo da consulta: a cada 5 s nos 3 primeiros minutos (o worker costuma terminar em segundos), depois a cada 30 s até
- * 30 min desde a montagem — o pior caso do job (um envio por vez na fila, 2 novas tentativas com 30 s de espera, 300 s de
- * prazo cada) e a varredura que marca "falhou" depois de 30 min.
+ * 30 min desde a montagem — cobre o pior caso do job (um envio por vez na fila, 2 novas tentativas com 30 s de espera,
+ * 300 s de prazo cada: cerca de 16 min). Um envio travado que a varredura marca "falhou" (a cada 15 min, depois de 30 min
+ * parado) pode mudar depois do teto; aí o paciente vê a situação nova ao abrir ou recarregar a página.
  */
 export const SITUACOES_RAPIDO_MS = 5000;
 export const SITUACOES_RAPIDO_ATE_MS = 3 * 60_000;
