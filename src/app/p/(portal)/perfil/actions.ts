@@ -1,7 +1,13 @@
 'use server';
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getEnv } from '@/env';
+import { clientIp } from '@/lib/ip';
 import { requirePaciente } from '@/lib/paciente-session';
+import { AutorizacaoError, autorizarNoApp, retirarNoApp } from '@/modules/ia/autorizacao';
+import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { configIA } from '@/modules/ia/modo';
 import { MSG_MEUS_DADOS, pedirExclusao, pedirMeusDados } from '@/modules/portal/meus-dados';
 import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp } from '@/modules/portal/perfil';
 
@@ -36,4 +42,37 @@ export async function whatsappAction(_: PerfilState, formData: FormData): Promis
   }
   revalidatePath('/p/perfil');
   return { ok: MSG_PERFIL.salvo };
+}
+
+/** RN-107: IP e user-agent da requisição (prova do ato no app). */
+async function origemDaRequisicao() {
+  const h = await headers();
+  return { ip: clientIp(h, getEnv().TRUSTED_PROXIES), userAgent: h.get('user-agent') };
+}
+
+/**
+ * US-106 "Autorizo o envio para fora do Brasil" (/p/perfil/ia): grava e volta a Eu com o retorno. `tenantId` = o consultório
+ * cujo texto a página mostrou (nome, nutricionista, CRN): se o vínculo aberto mudou entre a leitura e o toque (troca de
+ * consultório em outra aba), nada é gravado e Eu mostra a situação do consultório de agora.
+ */
+export async function autorizarIaAction(tenantId: string): Promise<void> {
+  const { ctx } = await requirePaciente('/p/perfil/ia');
+  if (ctx.tenantId !== tenantId) redirect('/p/perfil');
+  const env = getEnv();
+  try {
+    await autorizarNoApp(ctx, { ia: configIA(env), appUrl: env.APP_URL, ...(await origemDaRequisicao()) });
+  } catch (e) {
+    // a IA foi desativada (ou o perfil ficou incompleto) entre a leitura e o toque: Eu mostra a situação de agora
+    if (e instanceof AutorizacaoError) redirect('/p/perfil');
+    throw e;
+  }
+  redirect('/p/perfil?ia=autorizou');
+}
+
+/** US-109 "Retirar autorização" no app: o evento e o job ia-retirada na mesma transação (RN-108). */
+export async function retirarIaAction(): Promise<PerfilState> {
+  const { ctx } = await requirePaciente('/p/perfil');
+  const r = await retirarNoApp(ctx, await origemDaRequisicao());
+  revalidatePath('/p/perfil');
+  return r === 'retirada' ? { ok: MSG_AUTORIZACAO.retirada } : {};
 }
