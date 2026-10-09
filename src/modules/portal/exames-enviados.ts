@@ -167,6 +167,28 @@ export type MeuEnvio = {
 };
 
 /**
+ * Hotfix de 09/10/2026: só a situação (id e status) dos envios do paciente da sessão, para `/p/exames` saber quando o
+ * worker terminou sem reler a lista a cada 5 s. Sem auditRead — só estado, nenhum dado do exame (nome, observação,
+ * arquivo, motivo), como a consulta de estado da tarefa de IA; quando algo muda, a tela relê a lista (`meusEnvios`, auditada).
+ * Mesmo filtro e mesmo teto de `meusEnvios`.
+ */
+export async function situacoesDosMeusEnvios(ctx: TenantContext, db: Db = getDb()): Promise<{ id: string; status: StatusEnvio }[]> {
+  const patientId = pacienteDaSessao(ctx, 'situacoesDosMeusEnvios');
+  const linhas = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ id: examSubmissions.id, status: examSubmissions.status })
+        .from(examSubmissions)
+        .where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado')))
+        .orderBy(desc(examSubmissions.createdAt))
+        .limit(50),
+    db,
+  );
+  return linhas.map((e) => ({ id: e.id, status: e.status as StatusEnvio }));
+}
+
+/**
  * US-161 / RN-169: os envios do paciente da sessão (RLS por paciente), mais recentes primeiro, sem os cancelados ("some da
  * lista"). Projeção fechada: nunca caminho de arquivo, códigos internos nem a revisão. Leitura do titular auditada (D22).
  */

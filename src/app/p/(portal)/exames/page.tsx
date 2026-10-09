@@ -4,6 +4,8 @@ import { MSG_ENVIO, nomeDoEnvio } from '@/modules/pacientes/exames-enviados-cons
 import { meusEnvios } from '@/modules/portal/exames-enviados';
 import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
+import { AnunciarSituacoes } from './anunciar-situacoes';
+import { AtualizarEnquantoProcessa } from './atualizar-enquanto-processa';
 import { CancelarEnvio } from './cancelar-envio';
 import { EnvioForm } from './envio-form';
 import { molduraDaSecao } from '../../moldura';
@@ -14,6 +16,9 @@ export const dynamic = 'force-dynamic';
  * US-160 / US-161 (PM-10 = molde de "Documentos"): "Meus exames" — seção do Plano 16 (G-D9); a âncora `#enviar` da
  * barra "Ações" cai no h2 de "Enviar exame". O formulário só com o recebimento ligado (D18 = a); a lista continua (os
  * envios antigos). Fora da cópia offline (o service worker só guarda /p/plano). A lista é auditada no módulo (D22).
+ * Hotfix 09/10/2026: com algum envio "Processando…", AtualizarEnquantoProcessa acompanha só a situação (rota leve, sem
+ * auditoria) e refaz a página uma vez quando o worker termina; a troca é anunciada numa região viva única
+ * (AnunciarSituacoes), não em cada linha.
  */
 export default async function MeusExames() {
   const acesso = await requirePaciente('/p/exames');
@@ -21,6 +26,8 @@ export default async function MeusExames() {
   const moldura = await molduraDaSecao(acesso);
   const lista = await meusEnvios(ctx);
   const data = (d: Date) => formatarDataNoFuso(d, tenant.fuso);
+  const processando = lista.filter((e) => e.status === 'processando').map((e) => e.id);
+  const envios = lista.map((e) => ({ ...e, rotulo: nomeDoEnvio(e.nome, data(e.enviadoEm)) }));
   return (
     <>
       <Faixa {...moldura} atual="/p/exames" titulo={MSG_G.titulos.exames} />
@@ -35,8 +42,8 @@ export default async function MeusExames() {
           <h2 id="enviados" className="font-portal-titulo text-lg font-bold">Meus exames enviados</h2>
           {lista.length === 0 && <p>{MSG_ENVIO.nenhum}</p>}
           <ul className="space-y-4">
-            {lista.map((e) => {
-              const nome = nomeDoEnvio(e.nome, data(e.enviadoEm));
+            {envios.map((e) => {
+              const nome = e.rotulo;
               return (
                 <li key={e.id} className="space-y-2 rounded-2xl border border-borda bg-cartao p-4">
                   <h3 className="font-semibold">{nome}</h3>
@@ -52,6 +59,8 @@ export default async function MeusExames() {
               );
             })}
           </ul>
+          <AnunciarSituacoes envios={envios.map((e) => ({ id: e.id, nome: e.rotulo, situacao: e.situacao }))} />
+          {processando.length > 0 && <AtualizarEnquantoProcessa processando={processando} />}
         </section>
       </main>
     </>

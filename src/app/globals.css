@@ -185,6 +185,24 @@ body {
     outline: 3px solid var(--nd-foco, #1d6b5a);
     outline-offset: 2px;
   }
+
+  /* Hotfix 09/10/2026 (RNF-09): no Safari do iOS o input type="date" nativo tem largura mínima própria e passava da borda
+     direita do cartão ("Data da coleta" em /p/exames), mesmo com w-full. Na camada base, para todo campo de data do portal,
+     do painel e do admin. appearance: none só no iOS (no Chrome o ícone do calendário fica como está); sem ele o valor
+     vazio do iOS encolhe a altura e o texto vai ao centro. */
+  input[type='date'] {
+    min-width: 0;
+  }
+  @supports (-webkit-touch-callout: none) {
+    input[type='date'] {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input[type='date']::-webkit-date-and-time-value {
+      min-height: 1.5em;
+      text-align: start;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
