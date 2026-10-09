@@ -240,7 +240,7 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   // do handler (preparo + uma chamada de 120 s); se expirar mesmo assim, a execução antiga não passa do portão do envio.
   const ia = configIA(env);
   const { provedor: provedorIA } = provedorIADoAmbiente(env);
-  logger.info({ ia: ia.modo, modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
+  logger.info({ ia: ia.modo, provedor: provedorIA?.nome ?? 'nenhum', modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
   await work('ia', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobIA>[]) => {
     await processarTarefaIA(job.data, {
       db: getDb(), dataDir: env.DATA_DIR, modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd,

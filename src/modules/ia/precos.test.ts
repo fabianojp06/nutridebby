@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { custoMaximoDoArquivo, custoMaximoMicroUsd, custoMicroUsd, reservaDaLeitura } from './precos';
+import { custoMaximoDoArquivo, custoMaximoMicroUsd, custoMicroUsd, MULTIPLICADOR_GEO, reservaDaLeitura } from './precos';
 
 describe('preços (spec §6, 06/10/2026) — micro-dólares inteiros, região us = ×1,1', () => {
   it('laudo de 3 páginas no Opus 5.5 us (~19 mil de entrada, 4 mil de saída) ≈ US$ 0,17', () => {
@@ -21,5 +21,10 @@ describe('preços (spec §6, 06/10/2026) — micro-dólares inteiros, região us
     expect(custoMaximoDoArquivo('claude-opus-5-5', 'us', { tipo: 'pdf', paginas: 2 })).toBe(custoMaximoMicroUsd('claude-opus-5-5', 'us', 2 * 8700 + 3000, 16_000));
     expect(custoMaximoDoArquivo('claude-opus-5-5', 'us', { tipo: 'pdf', paginas: 15 })).toBe(reservaDaLeitura('claude-opus-5-5', 'us', 'pdf'));
     expect(custoMaximoDoArquivo('claude-opus-5-5', 'us', { tipo: 'imagem' })).toBe(reservaDaLeitura('claude-opus-5-5', 'us', 'imagem'));
+  });
+
+  it('Plano 14A (D5): o perfil eu. do Bedrock custa 1,1× (prêmio do endpoint regional)', () => {
+    expect(MULTIPLICADOR_GEO.eu).toBe(1.1);
+    expect(custoMicroUsd('claude-sonnet-5-5', 'eu', { entrada: 1_000_000, cacheLeitura: 0, cacheGravacao: 0, saida: 0, geo: 'eu' })).toBe(2_200_000);
   });
 });

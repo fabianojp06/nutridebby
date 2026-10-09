@@ -6,6 +6,9 @@ export const MODELOS_IA = ['claude-opus-5-5', 'claude-sonnet-5-5'] as const;
 export type ModeloIA = (typeof MODELOS_IA)[number];
 export const GEOS_IA = ['us', 'global'] as const;
 export type GeoIA = (typeof GEOS_IA)[number];
+/** Plano 14A (§5.5, D5): a região efetiva da chamada — `us`/`global` na API direta (IA_INFERENCE_GEO), `eu` no perfil eu. do Bedrock. */
+export const REGIOES_IA = ['us', 'global', 'eu'] as const;
+export type RegiaoIA = (typeof REGIOES_IA)[number];
 
 export const TIPOS_TAREFA = ['leitura_exame'] as const;
 export type TipoTarefa = (typeof TIPOS_TAREFA)[number];

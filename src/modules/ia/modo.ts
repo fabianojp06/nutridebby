@@ -1,5 +1,5 @@
 import type { TenantRow } from '@/db/schema';
-import { DESTINO_DO_PROVEDOR, MODELOS_IA, usdParaMicro, type DestinoIA, type GeoIA, type ModeloIA, type ProvedorConfigurado } from './constantes';
+import { DESTINO_DO_PROVEDOR, MODELOS_IA, usdParaMicro, type DestinoIA, type GeoIA, type ModeloIA, type ProvedorConfigurado, type RegiaoIA } from './constantes';
 import { IA_ADITIVO_VERSAO_MIN, versaoAtende } from './textos-legais';
 
 export { MODELOS_IA };
@@ -10,7 +10,7 @@ export type ModoIA = 'ausente' | 'emergencia' | ProvedorConfigurado;
  * `destino` (RN-109): o do provedor configurado, mesmo na emergência (a tela de autorização compara com ele); nulo sem
  * IA_PROVEDOR. `retencaoZero` (A-D4, Plano 14A): sem ela, nenhum uso com dado de paciente (RN-100).
  */
-export type ConfigIA = { modo: ModoIA; destino: DestinoIA | null; modelo: ModeloIA; geo: GeoIA; tetoGlobalMicroUsd: number; retencaoZero: boolean };
+export type ConfigIA = { modo: ModoIA; destino: DestinoIA | null; modelo: ModeloIA; geo: RegiaoIA; tetoGlobalMicroUsd: number; retencaoZero: boolean };
 export type AmbienteIA = {
   IA_PROVEDOR?: ProvedorConfigurado;
   IA_DESLIGADA?: '0' | '1';
@@ -26,7 +26,8 @@ export function configIA(e: AmbienteIA): ConfigIA {
     modo,
     destino: e.IA_PROVEDOR ? DESTINO_DO_PROVEDOR[e.IA_PROVEDOR] : null,
     modelo: e.IA_MODELO_LEITURA,
-    geo: e.IA_INFERENCE_GEO,
+    // D5: a região efetiva — `eu` no Bedrock (vem do perfil); IA_INFERENCE_GEO só vale para a API direta (§12)
+    geo: e.IA_PROVEDOR === 'bedrock-eu' ? 'eu' : e.IA_INFERENCE_GEO,
     tetoGlobalMicroUsd: usdParaMicro(e.IA_TETO_GLOBAL_MENSAL_USD),
     retencaoZero: e.IA_RETENCAO_ZERO === '1',
   };

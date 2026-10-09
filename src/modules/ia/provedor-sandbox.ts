@@ -21,6 +21,8 @@ export const RESPOSTA_SANDBOX = {
 export function provedorSandbox(): ProvedorIA {
   return {
     nome: 'sandbox',
+    destino: 'teste',
+    limitePedidoBytes: 32 * 1024 * 1024,
     async lerDocumento(p: PedidoLeitura): Promise<RespostaLeitura> {
       const id = createHash('sha256').update(p.arquivo.base64).digest('hex').slice(0, 12);
       return { tipo: 'ok', texto: JSON.stringify(RESPOSTA_SANDBOX), uso: { entrada: 8000, cacheLeitura: 0, cacheGravacao: 0, saida: 900, geo: p.geo }, requestId: `sandbox-${id}` };

@@ -28,12 +28,20 @@ RUN pnpm build && pnpm prune --prod && rm -rf .next/cache
 # Plano 12: do `@hyzyla/pdfium` só ficam o `index.esm.js` (que carrega o WASM pelo caminho) e o `pdfium.wasm`; saem as
 # cópias em base64, os bundles de navegador, de CDN e de worker, o CJS e as declarações (≈ 2,8 MB comprimidos; ficam
 # ≈ 2,1 MB comprimidos, quase todo o `pdfium.wasm`). Os `test -f` param o build se a versão nova mudar os nomes.
+# Plano 14A: o SDK do Bedrock (só no worker) e as dependências da AWS: saem os fontes, as declarações e os mapas; ficam
+# `dist-cjs` e `dist-es` (o Node escolhe pelo `exports`).
 RUN set -eu; \
     for d in node_modules/.pnpm/pdf-lib@*/node_modules/pdf-lib; do \
       rm -rf "$d/dist" "$d/es" "$d/src" "$d/ts3.4"; find "$d" \( -name '*.map' -o -name '*.d.ts' \) -delete; \
     done; \
     for d in node_modules/.pnpm/@anthropic-ai+sdk@*/node_modules/@anthropic-ai/sdk; do \
       rm -rf "$d/src"; find "$d" \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.mts' \) -delete; \
+    done; \
+    for d in node_modules/.pnpm/@anthropic-ai+bedrock-sdk@*/node_modules/@anthropic-ai/bedrock-sdk; do \
+      test -f "$d/index.js"; rm -rf "$d/src"; find "$d" \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.mts' \) -delete; \
+    done; \
+    for d in node_modules/.pnpm/@aws-sdk+*/node_modules/@aws-sdk/* node_modules/.pnpm/@smithy+*/node_modules/@smithy/*; do \
+      rm -rf "$d/dist-types"; find "$d" -name '*.map' -delete; \
     done; \
     for d in node_modules/.pnpm/@hyzyla+pdfium@*/node_modules/@hyzyla/pdfium; do \
       test -f "$d/dist/index.esm.js"; test -f "$d/dist/pdfium.wasm"; \

@@ -32,6 +32,11 @@ describe('Plano 14A — destino, retenção zero e estado com dado de paciente (
     expect(configIA({ ...base, IA_PROVEDOR: 'fake', IA_RETENCAO_ZERO: '0' }).retencaoZero).toBe(false);
   });
 
+  it('D5: a região efetiva — eu no bedrock-eu (o IA_INFERENCE_GEO só vale para a API direta)', () => {
+    expect(configIA({ ...base, IA_PROVEDOR: 'bedrock-eu' }).geo).toBe('eu');
+    expect(configIA({ ...base, IA_PROVEDOR: 'anthropic' }).geo).toBe('us');
+  });
+
   it('estadoIaComPaciente: o do consultório e, por cima, sem retenção zero = sem_retencao; o aditivo 0.1 não vale mais', () => {
     expect(estadoIaComPaciente(tenant, { modo: 'fake', retencaoZero: true })).toBe('ativa');
     expect(estadoIaComPaciente(tenant, { modo: 'fake', retencaoZero: false })).toBe('sem_retencao');

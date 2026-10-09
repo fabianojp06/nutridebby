@@ -166,6 +166,24 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(a.credencial).toHaveBeenCalledTimes(1);
   });
 
+  it('bedrock-eu sem as chaves no worker → credencial_invalida, sem chamada, e os admins avisados', async () => {
+    const P = await pedido();
+    const a = alertas();
+    expect(await processarTarefaIA(P.d, deps(null, { modo: 'bedrock-eu', alertas: a }))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ erro: 'credencial_invalida', saiuEm: null });
+    expect(a.credencial).toHaveBeenCalledTimes(1);
+  });
+
+  it('D4 (Plano 14A): o arquivo preparado acima do limite do provedor em uso → arquivo_invalido, sem sair', async () => {
+    const P = await pedido();
+    const f = provedorFake({ limitePedidoBytes: 1024 });
+    expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
+    expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'arquivo_invalido', enviadoEm: null, saiuEm: null });
+    expect(f.chamadas.ler).toHaveLength(0);
+    expect(await saidas(P)).toHaveLength(0);
+    expect((await usoDe(P)).situacao).toBe('estornado');
+  });
+
   it('RN-105: 529 → relança (nova tentativa) com enviado_em limpo e saiu_em mantido; na última tentativa → provedor_indisponivel e estorno', async () => {
     const P = await pedido();
     const f = provedorFake({ ler: [new ErroProvedor('repetir', 529, 'r1'), new ErroProvedor('repetir', 529, 'r2')] });

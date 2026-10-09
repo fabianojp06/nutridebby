@@ -14,6 +14,21 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('@anthropic-ai/sdk'))).toEqual(['src/modules/ia/provedor-anthropic.ts']);
   });
 
+  it('@anthropic-ai/bedrock-sdk só em src/modules/ia/provedor-bedrock.ts (src e scripts)', () => {
+    expect([...fontes('src'), ...fontes('scripts')].filter(importa('@anthropic-ai/bedrock-sdk'))).toEqual(['src/modules/ia/provedor-bedrock.ts']);
+  });
+
+  it('RNF-105 no Bedrock: só InvokeModel do perfil eu. — sem Batch, S3, URL, count_tokens, Mantle, inference_geo nem streaming', () => {
+    const codigo = readFileSync('src/modules/ia/provedor-bedrock.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    for (const proibido of [/\bbatches\b/, /CreateModelInvocationJob/, /\bs3\b/i, /type:\s*'url'/, /countTokens|count_tokens/, /Mantle/, /inference_geo/, /\bstream\b/, /\bbetas?\b/, /\bfiles\b/, /\btools\b/, /\bthinking\b/, /\bfallbacks\b/]) {
+      expect(codigo, String(proibido)).not.toMatch(proibido);
+    }
+    expect(codigo).toMatch(/maxRetries:\s*0/);
+    expect(codigo).toMatch(/logLevel:\s*'off'/);
+    expect(codigo).toMatch(/awsSessionToken:\s*null/);
+    expect(codigo).toMatch(/apiKey:\s*null/);
+  });
+
   it('pdf-lib só na thread do preparo do laudo e no gerador dos laudos fictícios', () => {
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('pdf-lib')).sort()).toEqual(
       ['src/modules/ia/avaliacao/laudos-ficticios.ts', 'src/modules/ia/preparar-pdf-thread.ts'].filter((f) => existsSync(f)).sort(),
@@ -34,6 +49,7 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
     const g = grafoDeImports(raizesDoNext());
     for (const proibido of [
       'src/modules/ia/provedor-anthropic.ts',
+      'src/modules/ia/provedor-bedrock.ts',
       'src/modules/ia/provedor-do-ambiente.ts',
       'src/modules/ia/preparar-arquivo.ts',
       'src/modules/ia/preparar-pdf-thread.ts',
@@ -44,6 +60,7 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }
     expect(g.pacotes.get('@anthropic-ai/sdk'), '@anthropic-ai/sdk importado (no grafo do Next) por').toBeUndefined();
+    expect(g.pacotes.get('@anthropic-ai/bedrock-sdk'), '@anthropic-ai/bedrock-sdk importado (no grafo do Next) por').toBeUndefined();
     expect(g.pacotes.get('pdf-lib'), 'pdf-lib importado (no grafo do Next) por').toBeUndefined();
   });
 });

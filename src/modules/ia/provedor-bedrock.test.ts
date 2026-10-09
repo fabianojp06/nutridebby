@@ -1,0 +1,111 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import type { PedidoLeitura } from './provedor';
+import { classificarErroBedrock, LIMITE_PEDIDO_BEDROCK_BYTES, PERFIL_BEDROCK_EU, provedorBedrock } from './provedor-bedrock';
+
+// Nenhuma chamada sai da máquina: todo teste passa um fetch falso. As chaves são de mentira (só o formato).
+const CHAVES = { accessKeyId: 'AKIA' + 'T'.repeat(16), secretAccessKey: 's'.repeat(40) };
+const pedido: PedidoLeitura = {
+  modelo: 'claude-sonnet-5-5', geo: 'eu', sistema: 'SISTEMA', instrucao: 'INSTRUCAO',
+  arquivo: { tipo: 'pdf', base64: 'JVBERi0xLjcK', paginas: 1 },
+  schema: { type: 'object', additionalProperties: false, properties: {}, required: [] }, maxTokens: 16_000, esforco: 'low',
+};
+type Chamada = { url: string; corpo: Record<string, unknown>; cabecalhos: Headers };
+function fetchFalso(respostas: (() => Response | Promise<Response>)[]) {
+  const chamadas: Chamada[] = [];
+  const f: typeof fetch = async (entrada, init) => {
+    const req = new Request(entrada as RequestInfo, init);
+    chamadas.push({ url: req.url, corpo: JSON.parse(await req.text()), cabecalhos: req.headers });
+    const r = respostas.shift();
+    if (!r) throw new Error('chamada a mais');
+    return r();
+  };
+  return { f, chamadas };
+}
+const json = (status: number, corpo: unknown, extra: Record<string, string> = {}) =>
+  new Response(JSON.stringify(corpo), { status, headers: { 'content-type': 'application/json', 'x-amzn-requestid': 'aws-req-1', ...extra } });
+const mensagem = (texto: string, stop = 'end_turn') =>
+  json(200, {
+    id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'text', text: texto }],
+    stop_reason: stop, stop_details: null, stop_sequence: null, usage: { input_tokens: 9_000, output_tokens: 800, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+  });
+const novo = (f: typeof fetch, extra: { timeoutMs?: number } = {}) => provedorBedrock({ regiao: 'eu-central-1', ...CHAVES, fetch: f, ...extra });
+
+const AMBIENTE = ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_REGION', 'ANTHROPIC_BEDROCK_BASE_URL', 'AWS_PROFILE', 'AWS_SESSION_TOKEN'] as const;
+afterEach(() => {
+  for (const v of AMBIENTE) delete process.env[v];
+});
+
+describe('provedor Bedrock na UE (INT-08, D1, D2) — só contra fetch falso', () => {
+  it('InvokeModel do perfil eu. na região dada: PDF inline em base64, output_config, anthropic_version; sem model no corpo, sem inference_geo, sem thinking/ferramentas', async () => {
+    const { f, chamadas } = fetchFalso([() => mensagem('{"ok":true}')]);
+    const p = novo(f);
+    expect(p).toMatchObject({ nome: 'bedrock-eu', destino: 'bedrock-eu', limitePedidoBytes: LIMITE_PEDIDO_BEDROCK_BYTES });
+    const r = await p.lerDocumento(pedido);
+    expect(r).toMatchObject({ tipo: 'ok', texto: '{"ok":true}', requestId: 'aws-req-1', uso: { entrada: 9_000, saida: 800, geo: 'eu' } });
+    const { url, corpo, cabecalhos } = chamadas[0];
+    expect(url).toBe(`https://bedrock-runtime.eu-central-1.amazonaws.com/model/${PERFIL_BEDROCK_EU['claude-sonnet-5-5']}/invoke`);
+    expect(corpo).toMatchObject({
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 16_000, system: 'SISTEMA',
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: pedido.schema } },
+      messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0xLjcK' } }, { type: 'text', text: 'INSTRUCAO' }] }],
+    });
+    for (const proibido of ['model', 'inference_geo', 'thinking', 'tools', 'tool_choice', 'fallbacks', 'speed', 'stream', 'anthropic_beta']) expect(corpo, proibido).not.toHaveProperty(proibido);
+    expect(cabecalhos.get('authorization')).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIATTTTTTTTTTTTTTTT\/\d{8}\/eu-central-1\/bedrock\/aws4_request/);
+    expect(cabecalhos.get('anthropic-beta')).toBeNull();
+  });
+
+  it('D2: AWS_BEARER_TOKEN_BEDROCK, AWS_REGION e ANTHROPIC_BEDROCK_BASE_URL do ambiente não mudam a credencial, a região nem o destino', async () => {
+    process.env.AWS_BEARER_TOKEN_BEDROCK = 'token-do-ambiente';
+    process.env.AWS_REGION = 'us-east-1';
+    process.env.ANTHROPIC_BEDROCK_BASE_URL = 'http://outro.invalid';
+    process.env.AWS_PROFILE = 'perfil-do-ambiente';
+    const { f, chamadas } = fetchFalso([() => mensagem('{}')]);
+    await novo(f).lerDocumento(pedido);
+    expect(new URL(chamadas[0].url).host).toBe('bedrock-runtime.eu-central-1.amazonaws.com');
+    const auth = chamadas[0].cabecalhos.get('authorization') ?? '';
+    expect(auth).toMatch(/^AWS4-HMAC-SHA256 /);
+    expect(auth).toContain('/eu-central-1/bedrock/aws4_request');
+    expect(auth).not.toContain('token-do-ambiente');
+  });
+
+  it('D3: modelo fora do perfil eu. ou região que não é eu → ErroProvedor, sem chamada', async () => {
+    const { f, chamadas } = fetchFalso([]);
+    await expect(novo(f).lerDocumento({ ...pedido, modelo: 'claude-opus-5-5' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
+    await expect(novo(f).lerDocumento({ ...pedido, geo: 'us' })).rejects.toMatchObject({ tipo: 'pedido_invalido' });
+    expect(chamadas).toHaveLength(0);
+  });
+
+  it('recusa e saída cortada viram resultado (sem lançar); foto vai como image/jpeg', async () => {
+    const { f, chamadas } = fetchFalso([() => mensagem('', 'refusal'), () => mensagem('{"x":', 'max_tokens'), () => mensagem('{}')]);
+    const p = novo(f);
+    expect(await p.lerDocumento(pedido)).toMatchObject({ tipo: 'recusa' });
+    expect(await p.lerDocumento(pedido)).toMatchObject({ tipo: 'cortada' });
+    await p.lerDocumento({ ...pedido, arquivo: { tipo: 'imagem', base64: '/9j/4AAQ' } });
+    expect((chamadas[2].corpo.messages as { content: unknown[] }[])[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4AAQ' } });
+  });
+
+  it.each([
+    [403, 'credencial'], [401, 'credencial'], [413, 'grande_demais'], [429, 'repetir'], [500, 'repetir'], [503, 'repetir'],
+    [408, 'incerto'], [424, 'incerto'], [504, 'incerto'], [400, 'pedido_invalido'], [404, 'pedido_invalido'],
+  ])('HTTP %i → %s, uma chamada só (maxRetries 0) e sem o texto do provedor', async (status, tipo) => {
+    const { f, chamadas } = fetchFalso([() => json(status, { message: 'mensagem da AWS que pode ecoar o pedido' }, { 'x-amzn-errortype': 'QualquerException' })]);
+    const erro = await novo(f).lerDocumento(pedido).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ name: 'ErroProvedor', tipo, status, requestId: 'aws-req-1' });
+    expect(String((erro as Error).message)).not.toContain('ecoar');
+    expect(chamadas).toHaveLength(1);
+  });
+
+  it('tempo esgotado depois do envio → incerto, uma chamada só', async () => {
+    let n = 0;
+    const lento: typeof fetch = (_e, init) => {
+      n++;
+      return new Promise((_r, rejeitar) => init?.signal?.addEventListener('abort', () => rejeitar(Object.assign(new Error('abortado'), { name: 'AbortError' }))));
+    };
+    await expect(novo(lento, { timeoutMs: 50 }).lerDocumento(pedido)).rejects.toMatchObject({ tipo: 'incerto' });
+    expect(n).toBe(1);
+  });
+
+  it('classificarErroBedrock: erro desconhecido → incerto (nunca repete o que pode ter sido processado)', () => {
+    expect(classificarErroBedrock(new Error('qualquer'))).toMatchObject({ tipo: 'incerto', status: null });
+  });
+});

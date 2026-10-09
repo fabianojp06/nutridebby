@@ -6,6 +6,10 @@ allowBuilds:
   sharp: true
   ssh2: false
   unrs-resolver: false
+# Plano 14A (T3): o @anthropic-ai/bedrock-sdk 0.34.4 (versão conferida no plano, D2) saiu em 08/10/2026 03:10 UTC, antes
+# do prazo mínimo de publicação do pnpm (1 dia). Só esta versão exata fica fora do prazo; pode sair a partir de 09/10/2026.
+minimumReleaseAgeExclude:
+  - '@anthropic-ai/bedrock-sdk@0.34.4'
 # P08-01 (Plano 08, Tarefa 2): o @sentry/node v11 traz os plugins de bundler (vite/rollup/webpack/esbuild) como
 # dependência, com a CLI do Sentry e o oxc-parser (~6 MB comprimidos na imagem). Só os subcaminhos `@sentry/node/vite`
 # etc. os usam — nada disso roda no app nem no worker. Sem eles a imagem cabe no orçamento de 260 MB do CI.

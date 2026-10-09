@@ -130,4 +130,12 @@ describe('provedor Anthropic (INT-07) — só contra fetch falso', () => {
     expect(await p1.lerDocumento(pedido).catch((e: unknown) => e)).toMatchObject({ tipo: 'nao_enviado' });
     expect(await p2.lerDocumento(pedido).catch((e: unknown) => e)).toMatchObject({ tipo: 'incerto' });
   });
+
+  it('Plano 14A (D5): geo eu (do Bedrock) nunca vai à API direta — pedido inválido, sem chamada', async () => {
+    const { f, chamadas } = fetchFalso([]);
+    const p = provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' });
+    expect(p).toMatchObject({ nome: 'anthropic', destino: 'anthropic-us', limitePedidoBytes: 32 * 1024 * 1024 });
+    await expect(p.lerDocumento({ ...pedido, geo: 'eu' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
+    expect(chamadas).toHaveLength(0);
+  });
 });

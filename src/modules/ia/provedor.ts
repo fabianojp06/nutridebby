@@ -1,4 +1,4 @@
-import type { GeoIA, ModeloIA } from './constantes';
+import type { DestinoIA, ModeloIA, RegiaoIA } from './constantes';
 
 /**
  * Plano 11 (spec v0.3 §5.1, A-D1): a interface que isola o provedor. Nada aqui importa SDK: o app pode importar os tipos;
@@ -9,7 +9,8 @@ export type ArquivoPreparado = { tipo: 'pdf'; base64: string; paginas: number } 
 
 export type PedidoLeitura = {
   modelo: ModeloIA;
-  geo: GeoIA;
+  /** A região efetiva (D5): `us`/`global` na API direta; `eu` no Bedrock (a região vem do perfil; nunca vai como parâmetro). */
+  geo: RegiaoIA;
   /** Instruções fixas versionadas (instrucoes/leitura.ts). */
   sistema: string;
   instrucao: string;
@@ -47,7 +48,11 @@ export class ErroProvedor extends Error {
 }
 
 export interface ProvedorIA {
-  readonly nome: 'anthropic' | 'sandbox' | 'fake';
+  readonly nome: 'anthropic' | 'bedrock-eu' | 'sandbox' | 'fake';
+  /** RN-109: o destino que o portão do envio grava na tarefa e que a autorização do paciente precisa ter. */
+  readonly destino: DestinoIA;
+  /** D4 / R-116: o tamanho máximo do pedido inteiro (base64 + instruções); o preparo recusa antes do portão. */
+  readonly limitePedidoBytes: number;
   // Sem contarTokens (revisão do plano): contar mandaria o laudo ao provedor uma vez a mais, antes do portão do envio.
   // O teto da tarefa sai das páginas (custoMaximoDoArquivo, T7).
   /** Uma chamada; nunca repete sozinho (maxRetries 0); lança ErroProvedor. */

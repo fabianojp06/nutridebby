@@ -9,7 +9,7 @@ export function respostaOk(json: unknown, uso: UsoTokens = USO_FAKE): RespostaLe
 }
 
 type Passo<T> = T | ErroProvedor | Error;
-export type RoteiroFake = { ler?: Passo<RespostaLeitura>[]; atrasoMs?: number };
+export type RoteiroFake = { ler?: Passo<RespostaLeitura>[]; atrasoMs?: number; /** D4: o limite do pedido do provedor simulado (padrão: o da API direta). */ limitePedidoBytes?: number };
 export type ProvedorFake = ProvedorIA & { chamadas: { ler: PedidoLeitura[] } };
 
 /**
@@ -24,6 +24,8 @@ export function provedorFake(roteiro: RoteiroFake = {}): ProvedorFake {
   const esperar = () => (roteiro.atrasoMs ? new Promise((r) => setTimeout(r, roteiro.atrasoMs)) : Promise.resolve());
   return {
     nome: 'fake',
+    destino: 'teste',
+    limitePedidoBytes: roteiro.limitePedidoBytes ?? 32 * 1024 * 1024,
     chamadas,
     async lerDocumento(p) {
       chamadas.ler.push(p);

@@ -9,7 +9,7 @@ import { resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { avisarCredencialInvalida, avisarTetoGlobal } from './alertas';
 import { motivoDoPaciente } from './ciencia-paciente';
-import { PRAZO_SUGESTAO_DIAS, type GeoIA, type ModeloIA, type MotivoFalha } from './constantes';
+import { PRAZO_SUGESTAO_DIAS, type ModeloIA, type MotivoFalha, type RegiaoIA } from './constantes';
 import { acertar, avisarSeChegou80Ia, estornar, marcarIncerto, reduzirReserva } from './cota';
 import { ESFORCO_LEITURA, INSTRUCAO_LEITURA, SISTEMA_LEITURA } from './instrucoes/leitura';
 import { estadoIaDoTenant, type ModoIA } from './modo';
@@ -31,7 +31,7 @@ export type DepsJobIA = {
   dataDir: string;
   modo: ModoIA;
   provedor: ProvedorIA | null;
-  geo: GeoIA;
+  geo: RegiaoIA;
   tetoGlobalMicroUsd: number;
   appUrl: string;
   agora?: () => Date;
@@ -107,12 +107,13 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   const motivoPaciente = lida.paciente ? motivoDoPaciente(lida.paciente) : 'paciente_indisponivel';
   if (motivoPaciente) return falhar(motivoPaciente);
   if (!lida.arquivo) return falhar('exame_indisponivel');
-  if (!deps.provedor) return falhar(deps.modo === 'anthropic' ? 'credencial_invalida' : 'ia_desligada');
+  if (!deps.provedor) return falhar(deps.modo === 'anthropic' || deps.modo === 'bedrock-eu' ? 'credencial_invalida' : 'ia_desligada');
 
   // (3) prepara o arquivo (regra 9: lê pelo caminho do exame); nada sai se não der
   let arquivo: ArquivoPreparado;
   try {
-    arquivo = await prepararLaudo(await readFile(resolverCaminho(deps.dataDir, lida.arquivo)));
+    // D4 (Plano 14A): o limite do pedido é o do provedor em uso; acima dele, arquivo_invalido aqui, antes do portão
+    arquivo = await prepararLaudo(await readFile(resolverCaminho(deps.dataDir, lida.arquivo)), { limitePedidoBytes: deps.provedor.limitePedidoBytes });
   } catch (e) {
     if (e instanceof PreparoError) return falhar(e.motivo);
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return falhar('exame_indisponivel');
