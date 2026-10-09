@@ -64,12 +64,6 @@ export type EmailMessage =
   | { tipo: 'cota_ia'; para: string; link: string }
   /** Plano 11 (RN-105): aos admins — credencial do provedor inválida (1 por hora) ou teto/limite de gasto atingido (1 por mês). */
   | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
-  /**
-   * Plano 11 (US-104, D5): o aviso de IA ao paciente. `patientId` só serve ao passo pós-envio do worker (registrar a
-   * ciência) e `enviadoEm` (ISO, o mesmo de `patients.ia_aviso_enviado_em`) a desfazer o "aguardando" deste envio se o job
-   * desistir; o job inteiro vai cifrado e o texto do e-mail nunca os mostra. Sem dado de saúde.
-   */
-  | { tipo: 'aviso_ia'; para: string; nome: string; consultorio: string; versao: string; patientId: string; enviadoEm: string }
   /** Plano 14A (US-105, US-107): o pedido de autorização de IA — `link` = /autorizacao-ia/<token> (sem login, 7 dias). Sem dado de saúde. */
   | { tipo: 'autorizacao_ia'; para: string; consultorio: string; link: string }
   /** Plano 14A (US-106 a US-108): a confirmação, com o resumo do que foi autorizado e o link de RETIRADA (não vence, D11). `destino` = o rótulo. */

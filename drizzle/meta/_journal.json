@@ -764,6 +764,13 @@
       "when": 1791510009260,
       "tag": "0108_rls_ia_autorizacoes",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1791521514764,
+      "tag": "0109_ia_ciencia_congelada",
+      "breakpoints": true
     }
   ]
 }

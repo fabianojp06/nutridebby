@@ -8,9 +8,6 @@ import type { DestinoIA, UsoIA } from './constantes';
  * aceite de todos). Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109) — inclusive os
  * usos da 14B (F2).
  */
-/** Legado (RN-128): o aviso de ciência do Plano 11 — sai na T10 do Plano 14A. */
-export const AVISO_IA_VERSAO = '0.1-provisorio';
-export const AVISO_IA_VERSAO_MIN = '0.1-provisorio';
 /** C1 / US-101: 0.2 — a 0.1-provisorio não serviria (versaoAtende só olha a parte numérica). A definitiva será a 1.0. */
 export const IA_ADITIVO_VERSAO = '0.2-provisorio';
 export const IA_ADITIVO_VERSAO_MIN = '0.2-provisorio';
@@ -52,24 +49,6 @@ export const textoCorrido = (p: Paragrafo): string => p.map((t) => t.texto).join
 const n = (texto: string): Trecho => ({ texto });
 const b = (texto: string): Trecho => ({ texto, forte: true });
 const dataBr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
-
-type TextoAviso = { titulo: string; paragrafos: readonly string[] };
-const AVISOS_IA: Record<string, TextoAviso> = {
-  '0.1-provisorio': {
-    titulo: 'Aviso sobre o uso de inteligência artificial',
-    paragrafos: [
-      'Sua nutricionista pode usar uma ferramenta de inteligência artificial (IA) para ler os laudos de exames que você entrega e transcrever os valores para o seu prontuário. A IA só sugere: a nutricionista confere cada valor antes de salvar e continua responsável pelo seu atendimento.',
-      'Para isso, o laudo inteiro é enviado à Anthropic, empresa que fornece a IA e processa os dados nos Estados Unidos, só para devolver a leitura: vão junto o seu nome, a sua data de nascimento e os demais dados impressos no laudo (o laudo não é anonimizado). Só os dados escondidos do arquivo, como autor e localização, são retirados antes do envio. O laudo não é usado para treinar a IA.',
-      'A Anthropic não guarda o laudo depois da resposta, salvo quando a lei exigir ou quando os sistemas de segurança dela sinalizarem o conteúdo; nesse caso, pode guardá-lo por até 2 anos.',
-      'A sugestão da IA fica guardada por até 7 dias, até a nutricionista salvar ou descartar. Os valores que ela salvar fazem parte do seu prontuário.',
-      'Se você preferir não usar inteligência artificial com os seus dados, peça à sua nutricionista. A recusa não muda o seu atendimento: os valores continuam sendo lançados à mão.',
-      'Versão provisória 0.1, em revisão jurídica.',
-    ],
-  },
-};
-export function avisoDaVersao(versao: string): TextoAviso {
-  return AVISOS_IA[versao] ?? AVISOS_IA[AVISO_IA_VERSAO];
-}
 
 /** Desvio 7: o texto cita a responsável; sem nome profissional, CRN ou e-mail de contato, não há como pedir. */
 export type Responsavel = { consultorio: string; nutricionista: string; crn: string; contato: string };

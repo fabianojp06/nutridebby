@@ -110,7 +110,7 @@ export async function situacaoIaDoPaciente(ctx: TenantContext, patientId: string
 
 /**
  * US-109 "Retirada a pedido, pela nutricionista" (RN-108): na MESMA transação, o evento `retirou` (canal `nutricionista`)
- * e o cancelamento da fila e das sugestões prontas do paciente — como o `definirRecusaIa` do Plano 11. Ordem de travas da
+ * e o cancelamento da fila e das sugestões prontas do paciente — como o "Não usar IA" do Plano 11. Ordem de travas da
  * cota: paciente (carregarPacienteParaEscrita) → tenant (cancelarTarefas) → tarefas → ia_uso → plataforma. Funciona com a
  * IA bloqueada pela admin, desativada ou em emergência (a retirada é sempre possível, US-105). Sem nada a retirar → false.
  */

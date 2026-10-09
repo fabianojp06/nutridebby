@@ -106,8 +106,6 @@ export const MSG_IA = {
   muitosPedidos: 'Muitos pedidos à IA em pouco tempo. Tente de novo em alguns minutos.',
   cotaAcabou: 'O limite de uso da IA deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite.',
   aviso80: 'Você já usou 80% do limite de IA deste mês.',
-  semCiencia: 'Antes de usar a IA, informe o paciente (Privacidade > Uso de IA).',
-  recusou: 'Este paciente pediu para não usar IA com os dados dele.',
   // Plano 14A (US-105, US-110): os botões de IA do paciente sem autorização vigente
   semAutorizacao: 'Antes de usar a IA, peça a autorização do paciente (Privacidade > Uso de IA).',
   retirouAutorizacao: 'Este paciente retirou a autorização para o uso de IA.',
@@ -115,11 +113,6 @@ export const MSG_IA = {
   naoLiberada: 'A IA ainda não foi liberada para o seu consultório.',
   iaAtivada: 'IA ativada.',
   usoDoMes: (p: number) => `Uso da IA neste mês: ${p}% do limite`,
-  naoInformado: 'Este paciente ainda não foi informado sobre o uso de IA.',
-  // decisão do dono (07/10/2026): a ciência vale quando o provedor de e-mail aceita o envio (não há confirmação de entrega)
-  avisoEnviado: 'Aviso enviado. A IA fica liberada para este paciente quando o e-mail for enviado.',
-  aguardandoEnvio: (data: string) => `Aviso pedido em ${data}; aguardando o envio do e-mail.`,
-  informado: (data: string, canal: string, versao: string) => `Informado em ${data} (${canal}, versão ${versao}).`,
   valoresSalvos: 'Valores salvos.',
   naoNumerico: 'Valor não numérico: edite ou deixe desmarcado',
   ambiguo: 'Confira o valor: o ponto ou a vírgula pode ser de milhar ou decimal. Edite o valor.',
@@ -150,7 +143,8 @@ export const MSG_FALHA: Record<MotivoFalha, string> = {
   cota: MSG_IA.cotaAcabou,
   teto_plataforma: INDISPONIVEL,
   ia_desligada: INDISPONIVEL,
-  paciente_nao_informado: MSG_IA.semCiencia,
+  // RN-128 / RN-112: motivo do Plano 11, só em linhas antigas — o texto do Plano 11, literal
+  paciente_nao_informado: 'Antes de usar a IA, informe o paciente (Privacidade > Uso de IA).',
   // RN-112 (Plano 14A): o texto novo (a recusa virou a retirada da autorização) e o motivo novo
   paciente_indisponivel: 'Este paciente não pode usar a IA agora (bloqueado, arquivado ou anonimizado).',
   sem_autorizacao: 'A autorização do paciente para o uso de IA não está em vigor.',

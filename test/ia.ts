@@ -21,11 +21,6 @@ export async function iaPronta(db: Db, tenantId: string, o: { cotaUsd?: number; 
     .where(eq(tenants.id, tenantId));
 }
 
-/** Paciente com a ciência do aviso de IA registrada em mãos (US-104). Legado do Plano 11 (RN-128): só o teste de `ciencia-paciente.ts` usa; sai na T10. */
-export async function pacienteInformado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
-  return novoPaciente(db, ctx, { iaAvisoVersao: '0.1-provisorio', iaAvisoEm: new Date('2026-10-01T12:00:00Z'), iaAvisoCanal: 'em_maos', ...extra });
-}
-
 /** Plano 14A: paciente com a autorização vigente (os usos da versão atual — só `leitura_laudos`, F2 — destino `teste` — o dos provedores fake e sandbox). */
 export async function pacienteAutorizado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
   const p = await novoPaciente(db, ctx, extra);

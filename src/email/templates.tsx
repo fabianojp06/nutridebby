@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO } from '@/modules/ia/constantes';
-import { avisoDaVersao } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import type { EmailMessage, RenderedEmail } from './types';
 
@@ -404,10 +403,6 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
           : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
         { href: msg.painelUrl, rotulo: 'Abrir o painel do admin' },
       );
-    case 'aviso_ia': {
-      const aviso = avisoDaVersao(msg.versao);
-      return simples(aviso.titulo, [`Olá, ${msg.nome}!`, `Este aviso é do consultório ${msg.consultorio}.`, ...aviso.paragrafos]);
-    }
     case 'autorizacao_ia':
       // US-107: só o consultório e o link; nada de saúde (desvio 9: corpo novo, vai ao advogado com a autorização)
       return simples(
