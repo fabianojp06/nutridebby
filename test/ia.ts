@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@/db/client';
-import { iaTarefas, patients, tenants, type PatientRow } from '@/db/schema';
+import { iaAutorizacoes, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
@@ -82,4 +82,42 @@ export async function pdfDeTeste(o: { paginas?: number; textos?: string[]; titul
 export async function fotoDeTeste(o: { largura?: number; altura?: number; orientacao?: number; copyright?: string } = {}): Promise<Buffer> {
   const img = sharp({ create: { width: o.largura ?? 4000, height: o.altura ?? 3000, channels: 3, background: '#f0f0f0' } });
   return img.jpeg().withMetadata({ orientation: o.orientacao ?? 6, exif: { IFD0: { Copyright: o.copyright ?? 'Ana Souza' } } }).toBuffer();
+}
+
+/**
+ * Plano 14A: um evento de autorização gravado pela sessão de paciente SEM conta (canal `link`, como o link do e-mail): o
+ * único caminho de teste que a política paciente_autorizacao_propria e o gatilho ia_autorizacoes_regras (0108) aceitam
+ * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, versão 0.1-provisorio, os usos da 0.1 (só `leitura_laudos`, F2),
+ * destino `teste` (o dos provedores sandbox/fake).
+ */
+export async function autorizacaoNoBanco(
+  db: Db,
+  tenantId: string,
+  patientId: string,
+  o: { evento?: 'autorizou' | 'retirou'; versao?: string; usos?: string[]; destino?: string; emailHmac?: string } = {},
+): Promise<string> {
+  const evento = o.evento ?? 'autorizou';
+  const autorizou = evento === 'autorizou';
+  const [r] = await withTenant(
+    { tenantId, role: 'paciente', patientId, semConta: true },
+    (tx) =>
+      tx
+        .insert(iaAutorizacoes)
+        .values({
+          tenantId, patientId, evento, canal: 'link', emailHmac: o.emailHmac ?? 'hmac-de-teste',
+          versao: autorizou ? (o.versao ?? '0.1-provisorio') : null,
+          usos: autorizou ? (o.usos ?? ['leitura_laudos']) : null,
+          destino: autorizou ? (o.destino ?? 'teste') : null,
+        })
+        .returning({ id: iaAutorizacoes.id }),
+    db,
+  );
+  return r.id;
+}
+
+/** Plano 14A: a linha de stored_files de um termo em papel (sem arquivo no disco; os testes de banco só precisam da FK). */
+export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string): Promise<string> {
+  const caminho = `${ctx.tenantId}/ia_autorizacao_termo/${randomUUID()}.pdf`;
+  await withTenant(ctx, (tx) => tx.insert(storedFiles).values({ tenantId: ctx.tenantId, tipo: 'ia_autorizacao_termo', caminho, bytes: 100, mime: 'application/pdf', patientId }), db);
+  return caminho;
 }

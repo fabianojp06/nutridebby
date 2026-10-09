@@ -15,12 +15,12 @@ export const MSG_COTA_ESGOTADA = 'Espaço de armazenamento esgotado. Fale com o 
 
 export type TipoDeArquivo =
   | 'logo' | 'capa' | 'exame' | 'plano_pdf' | 'diario_foto' | 'diario_foto_original' | 'orientacao_pdf' | 'exportacao'
-  | 'documento_base' | 'documento_assinado' | 'documento_digitalizado' | 'exame_original' | 'exame_pagina';
+  | 'documento_base' | 'documento_assinado' | 'documento_digitalizado' | 'exame_original' | 'exame_pagina' | 'ia_autorizacao_termo';
 
-/** D4: arquivos com dono (paciente). O resto é do consultório. Plano 12: o original e as páginas do exame enviado. */
+/** D4: arquivos com dono (paciente). O resto é do consultório. Plano 12: o original e as páginas do exame enviado. Plano 14A: o termo de autorização de IA em papel. */
 export const TIPOS_DO_PACIENTE: readonly TipoDeArquivo[] = [
   'exame', 'plano_pdf', 'diario_foto', 'diario_foto_original', 'exportacao', 'documento_base', 'documento_assinado', 'documento_digitalizado',
-  'exame_original', 'exame_pagina',
+  'exame_original', 'exame_pagina', 'ia_autorizacao_termo',
 ];
 export type ArquivoSalvo = { id: string; caminho: string; bytes: number; mime: string };
 

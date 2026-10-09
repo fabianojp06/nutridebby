@@ -13,6 +13,8 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
   content_views: 'D6 (Plano 07): registro de uso (o paciente abriu o conteúdo da nutricionista), como access_events; não é prontuário',
   content_favorites: 'D6 (Plano 07): preferência do paciente na biblioteca de conteúdo; não é prontuário',
   document_access_codes: 'RN-158: código do link de uso único (só HMAC, validade, tentativas); não é dado de saúde — a abertura vira evento auditado em signed_document_receipts',
+  ia_autorizacoes:
+    'Plano 14A (RN-107, §11): consentimento do titular para a transferência à IA (LGPD art. 33, VIII), não é dado de saúde; prova só de inclusão (UPDATE e DELETE revogados) com quem registrou, quando, canal, IP e user-agent na própria linha, como consents; a abertura do termo em papel chama auditRead (entidade ia_autorizacao)',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */
