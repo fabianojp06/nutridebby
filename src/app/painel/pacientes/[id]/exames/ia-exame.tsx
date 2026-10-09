@@ -14,7 +14,7 @@ export type IaNoExame = { podePedir: true; aviso: null } | { podePedir: false; a
  * O motivo de não poder pedir a IA agora (consultório ou paciente). US-101: antes de ativar, os botões não aparecem e
  * nenhum aviso sai nos exames (revisão da T13: o "indisponível" é só do IA_DESLIGADA, §5.9). `nao_liberada` mantém o
  * aviso da R7 (decisão pendente do dono). Plano 14A (D8, D9): o motivo do paciente vem da autorização (US-105: sem
- * autorização vigente ou retirada) e a falta da retenção zero cai no "indisponível".
+ * autorização vigente ou retirada) e a falta da retenção aceita (zero, ou 30 dias na Anthropic direta — A-D27) cai no "indisponível".
  */
 export function iaNoExame(p: { estadoIa: EstadoIaTenant; motivo: MotivoFalha | null; situacao: SituacaoAutorizacao; cota: SituacaoCotaIa | null }): IaNoExame {
   if (p.estadoIa === 'nao_ativada') return { podePedir: false, aviso: null };

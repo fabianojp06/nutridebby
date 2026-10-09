@@ -12,13 +12,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Dono, 09/10/2026 (economia de minutos do Actions, plano Free): o merge de um PR não repete o CI que o PR já passou.
+  # O decidir só responde pular=true quando o commit da main é o merge de um PR, tem a árvore IDÊNTICA à do head do
+  # PR (que já continha a main anterior) e o ci.yml desse head terminou em success com quality, test, e2e e image em
+  # success (regras e testes em .github/scripts/ci-ja-passou.sh e test/ci-ja-passou.test.ts). Na dúvida — API fora do
+  # ar, sem PR, árvore diferente, CI cancelado, com falha, em andamento ou PR só de documentação —, pular=false e o CI
+  # completo roda como antes. Se o próprio decidir falhar, o CI também roda (fail-safe).
+  decidir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read        # clone e git fetch do head do PR
+      pull-requests: read   # commits/{sha}/pulls
+      actions: read         # execuções e jobs do ci.yml do PR
+    outputs:
+      pular: ${{ steps.decisao.outputs.pular }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: decisao
+        name: O CI deste commit já passou no PR?
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/ci-ja-passou.sh
+
   ci:
+    needs: decidir
+    if: ${{ !cancelled() && needs.decidir.outputs.pular != 'true' }}
     uses: ./.github/workflows/ci.yml
 
   publish:
-    needs: ci
+    needs: [decidir, ci]
+    # Publica quando (a) o decidir confirmou que o CI já passou no PR — então o ci foi pulado e o PR tinha código
+    # (test/e2e/image rodaram) — ou (b) o CI rodou aqui e passou com mudança de código.
     # Plano 12 (R-D1): commit só de documentação não reconstrói a imagem nem refaz o deploy (ci.yml, job mudancas)
-    if: needs.ci.outputs.codigo == 'true'
+    if: >-
+      ${{ !cancelled() && (
+        (needs.decidir.result == 'success' && needs.decidir.outputs.pular == 'true' && needs.ci.result == 'skipped') ||
+        (needs.ci.result == 'success' && needs.ci.outputs.codigo == 'true')
+      ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -129,7 +129,7 @@ describe('US-110 — pedir a leitura (RN-100, RN-103, RN-104)', () => {
     expect(await mensagem(pedirLeituraExame(T.ctx, tenant, nunca.id, exameDele, deps()))).toBe(MSG_IA.semAutorizacao);
     const ok = await pacienteAutorizado(app.db, T.ctx);
     const exameOk = await exameComLaudo(app.db, T.ctx, T.tenant, ok.id, { dataDir });
-    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, ok.id, exameOk, deps({ ia: { ...IA_TESTE, retencaoZero: false } })))).toBe(MSG_IA.indisponivel);
+    expect(await mensagem(pedirLeituraExame(T.ctx, tenant, ok.id, exameOk, deps({ ia: { ...IA_TESTE, retencao: null } })))).toBe(MSG_IA.indisponivel);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(iaTarefas), app.db)).toHaveLength(0);
   });
 

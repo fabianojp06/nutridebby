@@ -1,9 +1,8 @@
-import { and, asc, eq, isNotNull, isNull, lt, max, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import {
   appointments,
-  consultations,
   dataExports,
   diaryEntries,
   examSubmissionFiles,
@@ -34,7 +33,11 @@ import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular
 import { apagarConvitesPendentes } from './convite-paciente';
 import { formatarData, hojeNoFuso, somarAnos, somarDias } from './datas';
 
-/** P-01: referência da spec (20 anos, Lei 13.787/2018). Validar com CRN/advogado antes do go-live. */
+/**
+ * P-01: referência da spec (20 anos, Lei 13.787/2018; Res. CFN 594/2017, art. 3º, VI, "b"). Validar com CRN/advogado antes do
+ * go-live. Conta do último registro do prontuário — a data do bloqueio (JUR-01, atenderPedidoExclusao). A migration 0110 usa
+ * o mesmo número.
+ */
 export const PRAZO_GUARDA_ANOS = 20;
 /** RNF-08 / §7 privacy_requests: prazo de resposta ao titular. */
 export const PRAZO_RESPOSTA_DIAS = 15;
@@ -94,7 +97,9 @@ const nomeParaConferir = (s: string) =>
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
  * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push) e
  * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
- * `anonimizar_apos` = última consulta (ou hoje) + PRAZO_GUARDA_ANOS. Tudo numa transação, com o job
+ * `anonimizar_apos` = data do bloqueio (hoje no fuso do consultório) + PRAZO_GUARDA_ANOS — JUR-01 (decisão do dono,
+ * 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo conta do último registro do prontuário, e no pedido de
+ * exclusão o último registro é o próprio bloqueio (a 0110 recalculou quem já estava bloqueado). Tudo numa transação, com o job
  * `exclusao-atendida` na fila. As fotos do diário saem logo depois, por apagarFotosDoDiario (arquivo fora da
  * transação): no próprio job e, como rede de segurança, no job diário.
  * F-13: o e-mail ao paciente ("Foram apagados agora: as fotos do diário…") sai pelo job, só depois das fotos
@@ -116,11 +121,9 @@ export async function atenderPedidoExclusao(
       if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome))
         throw new LgpdError(MSG_LGPD.confirmarNome);
       const hoje = hojeNoFuso(tenant.fuso, now);
-      const [{ ultima }] = await tx
-        .select({ ultima: max(consultations.data) })
-        .from(consultations)
-        .where(eq(consultations.patientId, p.id));
-      const anonimizarApos = somarAnos(ultima ?? hoje, PRAZO_GUARDA_ANOS);
+      // JUR-01: o bloqueio é o último registro do prontuário — depois dele nada mais é registrado —, então o prazo de
+      // guarda conta de hoje (a data do bloqueio no fuso do consultório), não da última consulta
+      const anonimizarApos = somarAnos(hoje, PRAZO_GUARDA_ANOS);
 
       const [aberto] = await tx
         .select({ id: privacyRequests.id })

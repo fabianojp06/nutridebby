@@ -448,7 +448,7 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 29 | Apêndice A e US-014 | Harris-Benedict do exemplo = 1371 | `formulas.ts:90` dá 1370,47 → **1370** (RN-14); desvio registrado no Plano 03, spec não atualizada | Doc | 4 #1 |
 | 30 | US-021 | "…está em um plano e não pode ser excluído." | "…está em um plano ou receita…" (`MSG_ALIMENTO.emUso`; Plano 07, D12) | Doc | 4 #6 |
 | 31 | US-018 | `dados.json` com todas as tabelas do paciente | Exclui tabelas `staff_only` e o motivo de cancelamento escrito pela nutricionista (decisão do Plano 03; US-046) | Doc | 4 #7 |
-| 32 | US-018 | Prazo conta da última consulta | Conta de `max(consultations.data)` (`lgpd.ts:102-106`): consulta agendada sem atendimento não estende o prazo | Comp. | 4 #8 |
+| 32 | US-018 | Prazo conta da última consulta | **Resolvida (JUR-01, 09/10/2026):** conta da data do bloqueio, o último registro do prontuário (`lgpd.ts:123-126`, migration `0110`); a US-018 foi corrigida | Comp. | 4 #8 |
 | 33 | Plano 03 | Teto de laudos na exportação: 200 MB | `LIMITE_LAUDOS_BYTES = 100 MB` (Plano 06, D16, inclui fotos do diário) | Doc | 4 #9 |
 
 ### Agenda, portal e conteúdo
