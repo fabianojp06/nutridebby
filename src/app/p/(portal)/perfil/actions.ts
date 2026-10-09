@@ -53,15 +53,18 @@ async function origemDaRequisicao() {
 /**
  * US-106 "Autorizo o envio para fora do Brasil" (/p/perfil/ia): grava e volta a Eu, no bloco de IA, com o retorno. `tenantId` = o consultório
  * cujo texto a página mostrou (nome, nutricionista, CRN): se o vínculo aberto mudou entre a leitura e o toque (troca de
- * consultório em outra aba), nada é gravado e Eu mostra a situação do consultório de agora.
+ * consultório em outra aba), nada é gravado e Eu mostra a situação do consultório de agora. `exibido` = o texto que a página
+ * mostrou (`textoExibido(destino)`, vindo do cliente): `autorizarNoApp` o confere com o de agora (revisão da T6).
  */
-export async function autorizarIaAction(tenantId: string): Promise<void> {
+export async function autorizarIaAction(tenantId: string, exibido: unknown): Promise<void> {
   const { ctx } = await requirePaciente('/p/perfil/ia');
   if (ctx.tenantId !== tenantId) redirect('/p/perfil');
   const env = getEnv();
   try {
-    await autorizarNoApp(ctx, { ia: configIA(env), appUrl: env.APP_URL, ...(await origemDaRequisicao()) });
+    await autorizarNoApp(ctx, exibido, { ia: configIA(env), appUrl: env.APP_URL, ...(await origemDaRequisicao()) });
   } catch (e) {
+    // o texto mudou entre a leitura e o toque (deploy: versão, usos ou destino novos, RN-107): nada gravado, relê o de agora
+    if (e instanceof AutorizacaoError && e.erros.geral === MSG_AUTORIZACAO.textoMudou) redirect('/p/perfil/ia');
     // a IA foi desativada (ou o perfil ficou incompleto) entre a leitura e o toque: Eu mostra a situação de agora
     if (e instanceof AutorizacaoError) redirect('/p/perfil');
     throw e;

@@ -8,7 +8,7 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { blocoIaDoApp } from '@/modules/ia/autorizacao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA } from '@/modules/ia/modo';
-import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao } from '@/modules/ia/textos-legais';
+import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao, textoExibido } from '@/modules/ia/textos-legais';
 import { autorizarIaAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
  * US-106 "Ler e autorizar": a autorização numa página própria, com o texto inteiro e em destaque, separada do termo do app
  * (art. 33, VIII; C12). Só com algo a decidir (IA ativa no consultório do vínculo aberto, perfil completo, não vigente);
  * senão volta a Eu. "Agora não" não grava nada (volta a Eu, na âncora do bloco de IA, com "Tudo bem…"). Plano 16: tela de detalhe de Eu, com o
- * cabeçalho compacto e "Voltar para Eu" (como "Meus documentos").
+ * cabeçalho compacto e "Voltar para Eu" (como "Meus documentos"). O "Autorizo…" leva o texto mostrado (versão, usos e
+ * destino, `textoExibido`) à ação, que o confere com o de agora antes de gravar (RN-107, revisão da T6).
  */
 export default async function AutorizacaoIa() {
   const { ctx, tenant } = await requirePaciente('/p/perfil/ia');
@@ -36,7 +37,7 @@ export default async function AutorizacaoIa() {
           <TextoLegalView texto={texto} id="autorizacao-ia" nivel="h2" classeTitulo="font-portal-titulo text-lg font-bold" />
         </section>
         <div className="flex flex-wrap gap-3">
-          <form action={autorizarIaAction.bind(null, tenant.id)}>
+          <form action={autorizarIaAction.bind(null, tenant.id, textoExibido(ia.destino))}>
             <button className="min-h-11 rounded-xl bg-destaque px-4 font-semibold text-white">{MSG_AUTORIZACAO.autorizo}</button>
           </form>
           <Link href="/p/perfil?ia=agora-nao#eu-ia" className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
