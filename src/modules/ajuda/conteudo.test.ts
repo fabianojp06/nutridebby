@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/pacientes']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -69,7 +69,7 @@ describe('conteúdo do manual (P08-10)', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)];
     expect(textos.filter((t) => /documento/i.test(t))).toEqual([]);
-    expect(g.versao).toBe(1);
+    expect(g.versao).toBe(2); // subiu no Plano 14A pela autorização de IA (item novo nas perguntas comuns), não pela aba Documentos
   });
   it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;

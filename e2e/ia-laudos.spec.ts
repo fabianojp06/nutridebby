@@ -4,23 +4,34 @@ import { violacoesNoPainel } from './documentos';
 import { entrarComo } from './helpers';
 import { pacienteNoPortal } from './portal';
 
-// Plano 11 (US-104, US-110, US-111): com IA_PROVEDOR=sandbox (nenhuma chamada à API real). IPs: nutricionista 10.9.15.81, paciente .82 (bloco .81–.85 desta spec).
+// Plano 11 (US-110, US-111) e Plano 14A (US-106: a autorização do paciente no app, no lugar do aviso da US-104): com
+// IA_PROVEDOR=sandbox e IA_RETENCAO_ZERO=1 (nenhuma chamada à API real). IPs: nutricionista 10.9.15.81, paciente .82 (bloco .81–.85 desta spec).
 // Credenciais copiadas (importar o seed roda o seed), como nas outras specs.
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 
-test('IA: aviso em mãos → laudo → "Ler valores com IA" → conferir → salvar só o marcado', async ({ browser }) => {
+test('IA: autorização no app → laudo → "Ler valores com IA" → conferir → salvar só o marcado', async ({ browser }) => {
   test.setTimeout(120_000);
   const nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.15.81', { viewport: { width: 1280, height: 900 } });
   await expect(nutri).toHaveURL(/\/painel$/);
   const paciente = await pacienteNoPortal(browser, nutri, '10.9.15.82');
   const p = paciente.prontuario;
 
-  // US-104: sem ciência, o botão não aparece; registrar em mãos
+  // US-105/US-106 (Plano 14A): sem autorização, a seção explica; o paciente autoriza no app (Eu › Privacidade)
   await nutri.goto(`${p}/privacidade`);
-  await expect(nutri.getByText('Este paciente ainda não foi informado sobre o uso de IA.')).toBeVisible();
-  await nutri.getByText('Registrar entrega em mãos').click();
-  await nutri.getByRole('button', { name: 'Entreguei o aviso ao paciente' }).click();
-  await expect(nutri.getByText(/^Informado em .*\(em mãos, versão /)).toBeVisible();
+  await expect(nutri.getByText('Ainda não autorizou.')).toBeVisible();
+  await expect(nutri.getByText('O paciente também pode autorizar no app, em Eu › Privacidade.')).toBeVisible();
+  await paciente.page.goto('/p/perfil');
+  await expect(paciente.page.getByText('Você ainda não autorizou.')).toBeVisible();
+  await paciente.page.getByRole('link', { name: 'Ler e decidir' }).click();
+  await expect(paciente.page.getByRole('heading', { name: 'Autorização para uso de inteligência artificial' })).toBeVisible();
+  await paciente.page.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
+  const registrada = paciente.page.getByRole('status').filter({ hasText: 'Autorização registrada. Você pode retirar quando quiser.' });
+  await expect(registrada).toBeVisible();
+  // revisão da T8: de volta a Eu, o retorno fica na vista e com o foco (o leitor de tela o anuncia)
+  await expect(registrada).toBeInViewport();
+  await expect(registrada).toBeFocused();
+  await nutri.reload();
+  await expect(nutri.getByText(/^Autorizou em \d{2}\/\d{2}\/\d{4} \(app, versão 0\.1-provisorio\)\./)).toBeVisible();
 
   // exame com laudo (PDF de uma página em branco, gerado na hora: nenhum dado real; abre no pdf-lib do worker)
   const doc = await PDFDocument.create();

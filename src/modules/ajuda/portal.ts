@@ -30,6 +30,8 @@ export const GUIA_PORTAL: Guia = {
           'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta: dúvidas, anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
           '"Comi assim" registra a refeição no seu diário, sem escrever. Você tem 10 segundos para desfazer.',
           'Sem internet, o app mostra a última versão do seu plano.',
+          // Plano 14A (desvio 11): sem subir a versão — a autorização depende da IA ligada no consultório
+          'Se o seu consultório usar inteligência artificial, o pedido de autorização aparece em Eu, no cartão Privacidade. Autorizar é opcional: recusar ou retirar não muda nada no seu atendimento.',
         ],
       },
     ],

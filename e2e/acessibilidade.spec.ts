@@ -70,7 +70,7 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/documentos', '/p/exames', '/p/ajuda'];
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/documentos', '/p/exames', '/p/ajuda'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);

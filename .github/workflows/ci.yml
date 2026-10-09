@@ -112,6 +112,8 @@ jobs:
       EVOLUTION_WEBHOOK_SECRET: ci-webhook-secret-with-at-least-32-characters
       # Plano 11 (RNF-107): IA de laudos pelo sandbox — respostas fixas, nenhuma chamada à API real
       IA_PROVEDOR: sandbox
+      # Plano 14A (A-D4): retenção zero só no E2E/dev, com o sandbox
+      IA_RETENCAO_ZERO: '1'
       CI: 'true'
     steps:
       - uses: actions/checkout@v4
