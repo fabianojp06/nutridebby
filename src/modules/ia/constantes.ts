@@ -204,6 +204,11 @@ export const MSG_AUTORIZACAO = {
   faltouArquivo: 'Envie a foto ou o PDF do termo assinado.',
   faltouConfirmacao: 'Confirme que o paciente assinou o termo.',
   dataInvalida: 'Informe a data em que o paciente assinou o termo.',
+  /**
+   * Desvio 12 (texto novo, revisão da T5): a retirada registrada no dia da assinatura ou depois — um termo assinado antes
+   * não desfaz a retirada (LGPD art. 8º, § 5º). Entra como cenário da US-108; vai à Debby e à revisão de interface.
+   */
+  retiradaDepoisDaData: 'O paciente retirou a autorização depois desta data. Imprima o termo de novo e peça uma nova assinatura.',
   /** Desvio 9 (texto novo): arquivo fora do formato ou do tamanho. */
   arquivoInvalido: 'Envie um arquivo JPEG, PNG ou PDF de até 20 MB.',
   nomePaciente: (nome: string) => `Nome do paciente: ${nome}`,

@@ -16,7 +16,8 @@ import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import {
-  AutorizacaoError, autorizarNoApp, blocoIaDoApp, caminhoDoTermo, enviarPedidoPorEmail, painelDaAutorizacao, registrarTermoEmPapel, retirarNoApp, secaoIaVisivel,
+  AutorizacaoError, autorizacaoDoPaciente, autorizarNoApp, blocoIaDoApp, caminhoDoTermo, enviarPedidoPorEmail, painelDaAutorizacao, registrarRetiradaPelaNutri, registrarTermoEmPapel,
+  retirarNoApp, secaoIaVisivel,
 } from './autorizacao';
 import { lerLinkAutorizacao } from './autorizacao-token';
 import { MSG_AUTORIZACAO, MSG_FALHA, MSG_IA } from './constantes';
@@ -162,6 +163,25 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     expect(arquivosEm(dataDir)).toBe(antes);
     const bloqueado = await novoPaciente(app.db, T.ctx, { status: 'bloqueado' });
     await expect(registrarTermoEmPapel(T.ctx, bloqueado.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps())).rejects.toBeInstanceOf(PacienteBloqueadoError);
+  });
+
+  it('retirada no dia da assinatura ou depois (no app ou pela nutricionista) → recusa no campo da data, nada registrado (LGPD art. 8º, § 5º)', async () => {
+    const hoje = hojeNoFuso('America/Sao_Paulo');
+    const { T, p, P, deps, eventos } = await cenario();
+    await autorizarNoApp(P, deps());
+    expect(await retirarNoApp(P, deps())).toBe('retirada');
+    const antes = arquivosEm(dataDir);
+    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
+    expect((await eventos()).map((e) => e.evento).sort()).toEqual(['autorizou', 'retirou']);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(and(eq(storedFiles.patientId, p.id), eq(storedFiles.tipo, 'ia_autorizacao_termo'))), app.db)).toHaveLength(0);
+    expect(arquivosEm(dataDir)).toBe(antes);
+    expect(await withTenant(T.ctx, (tx) => autorizacaoDoPaciente(tx, p.id, 'teste'), app.db)).toMatchObject({ tipo: 'retirada' });
+
+    const n = await cenario();
+    await registrarTermoEmPapel(n.T.ctx, n.p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps());
+    expect(await registrarRetiradaPelaNutri(n.T.ctx, n.p.id, { db: app.db })).toBe(true);
+    expect(await erros(registrarTermoEmPapel(n.T.ctx, n.p.id, { data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, n.deps()))).toEqual({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
+    expect(await n.eventos()).toHaveLength(2);
   });
 
   it('armazenamento esgotado → o texto da US-108, nada registrado', async () => {

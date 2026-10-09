@@ -269,7 +269,8 @@ export async function enviarPedidoPorEmail(ctx: TenantContext, patientId: string
 /**
  * US-108 "Guardar o termo assinado" (RN-107, regra 9): o arquivo pelo salvarArquivo (tipo ia_autorizacao_termo, do paciente,
  * conta na cota), com o paciente travado no `antesDaReserva` e a linha `autorizou` (canal papel, em = início do dia
- * informado, D16) no `registrar` — ordem paciente → tenant → linha; tudo ou nada (RNF-111 f). Com e-mail, a confirmação
+ * informado, D16) no `registrar` — ordem paciente → tenant → linha; tudo ou nada (RNF-111 f). Recusa o termo com uma
+ * retirada no dia da assinatura ou depois (desvio 12). Com e-mail, a confirmação
  * com o link de retirada. Devolve o id da autorização.
  */
 export async function registrarTermoEmPapel(
@@ -302,6 +303,11 @@ export async function registrarTermoEmPapel(
         antesDaReserva: async (tx) => {
           const p = await carregarPacienteParaEscrita(tx, patientId); // bloqueado/anonimizado → PacienteBloqueadoError
           if (p.status !== 'ativo') throw new AutorizacaoError({ geral: MSG_FALHA.paciente_indisponivel });
+          // Desvio 12: a decisão mais recente é a de registrado_em (D7), e o termo nasce com o registrado_em do upload. Um
+          // termo assinado antes de uma retirada (ou no mesmo dia: critério conservador, a favor do titular) desfaria a
+          // retirada; com o paciente travado, nenhuma retirada nova entra entre esta leitura e a linha.
+          const r = await ultimaRetirada(tx, patientId);
+          if (r && r.em >= inicioDoDia(data, t!.fuso)) throw new AutorizacaoError({ data: MSG_AUTORIZACAO.retiradaDepoisDaData });
           email = p.email;
         },
         registrar: async (tx, a) => {
