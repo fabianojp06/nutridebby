@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  * completo (D10) e com o paciente ativo. F5 (§18.5, D21): todas as páginas impressas levam no rodapé o código de referência
  * e "Página x de y" — caixa de margem do `@page` (`@bottom-center`, com `counter(page)`/`counter(pages)`), impressa pelo
  * Chrome/Edge (o navegador do consultório; o runbook e o manual guiado dizem para imprimir por eles). O código é só
- * [0-9A-Z-] (Crockford), então pode ir na string do CSS sem escape.
+ * [0-9A-Z-] (Crockford), então pode ir na string do CSS sem escape. Só esta página tira da impressão o cabeçalho do paciente e
+ * as abas do layout do prontuário (`data-guia`); as outras abas continuam saindo no papel com o nome do paciente.
  */
 export default async function TermoIaPage({ params }: PageProps<'/painel/pacientes/[id]/privacidade/termo-ia'>) {
   const { id } = await params;
@@ -36,10 +37,10 @@ export default async function TermoIaPage({ params }: PageProps<'/painel/pacient
   if (motivo || !responsavel || !ia.destino) return <Aviso tipo="aviso">{motivo}</Aviso>;
   const texto = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...responsavel, destino: ia.destino, canal: paciente.email ? 'papel_com_email' : 'papel_sem_email' })!;
   const { codigoDeReferencia } = await painelDaAutorizacao(ctx, paciente, ia.destino);
-  const rodape = `@page { margin: 18mm 16mm 22mm; @bottom-center { content: "${MSG_AUTORIZACAO.rodapeTermo(codigoDeReferencia)} " counter(page) " de " counter(pages); font-size: 9pt; } }`;
+  const impressao = `@page { margin: 18mm 16mm 22mm; @bottom-center { content: "${MSG_AUTORIZACAO.rodapeTermo(codigoDeReferencia)} " counter(page) " de " counter(pages); font-size: 9pt; } } @media print { [data-guia="cabecalho-paciente"], [data-guia="abas-prontuario"] { display: none; } }`;
   return (
     <div className="max-w-3xl space-y-6">
-      <style>{rodape}</style>
+      <style>{impressao}</style>
       <Imprimir />
       <div className="space-y-3 rounded-3xl border border-borda bg-cartao p-5 print:border-0 print:p-0">
         <TextoLegalView texto={texto} id="termo-ia" nivel="h2" />
