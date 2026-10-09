@@ -34,6 +34,7 @@ export type TenantContext = {
 export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/agenda/acoes-link.ts',
   'src/modules/documentos/link-documento.ts',
+  'src/modules/ia/autorizacao-link.ts',
   'src/modules/notificacoes/whatsapp/webhook.ts',
   'src/modules/pacientes/convite-paciente.ts',
 ];
