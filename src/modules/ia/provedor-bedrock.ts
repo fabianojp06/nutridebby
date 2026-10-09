@@ -2,7 +2,7 @@ import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk';
 // a raiz do SDK do Bedrock 0.34.4 não reexporta as classes de erro; o `core/error` dele reexporta as do @anthropic-ai/sdk
 // (versão única no lockfile: o `instanceof` vale para o erro que o cliente lança)
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/bedrock-sdk/core/error';
-import type { ModeloIA, RegiaoBedrock } from './constantes';
+import type { ModeloIA, RegiaoBedrock, RegiaoIA } from './constantes';
 import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
 
 /**
@@ -63,6 +63,9 @@ function usoDe(u: { input_tokens: number; output_tokens: number; cache_read_inpu
   return { entrada: u.input_tokens, cacheLeitura: u.cache_read_input_tokens ?? 0, cacheGravacao: u.cache_creation_input_tokens ?? 0, saida: u.output_tokens, geo: 'eu' };
 }
 
+/** D3: só os modelos com perfil `eu.` e só a região `eu` (o job confere antes do portão do envio). */
+const aceitaBedrock = (modelo: ModeloIA, geo: RegiaoIA): boolean => Boolean(PERFIL_BEDROCK_EU[modelo]) && geo === 'eu';
+
 export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string; secretAccessKey: string; fetch?: typeof fetch; baseURL?: string; timeoutMs?: number }): ProvedorIA {
   const cliente = new AnthropicBedrock({
     awsRegion: o.regiao,
@@ -81,10 +84,12 @@ export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string;
     nome: 'bedrock-eu',
     destino: 'bedrock-eu',
     limitePedidoBytes: LIMITE_PEDIDO_BEDROCK_BYTES,
+    aceita: aceitaBedrock,
     async lerDocumento(p: PedidoLeitura): Promise<RespostaLeitura> {
       const perfil = PERFIL_BEDROCK_EU[p.modelo];
-      // D3: nada sai para modelo fora do perfil eu. nem com região que não é a da UE
-      if (!perfil || p.geo !== 'eu') throw new ErroProvedor('pedido_invalido', null, null);
+      // D3: nada sai para modelo fora do perfil eu. nem com região que não é a da UE (defesa a mais: o job já conferiu
+      // `aceita` antes do portão)
+      if (!perfil || !aceitaBedrock(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
       const bloco =
         p.arquivo.tipo === 'pdf'
           ? ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.arquivo.base64 } } as const)

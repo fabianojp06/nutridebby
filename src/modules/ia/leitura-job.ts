@@ -108,6 +108,14 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   if (motivoPaciente) return falhar(motivoPaciente);
   if (!lida.arquivo) return falhar('exame_indisponivel');
   if (!deps.provedor) return falhar(deps.modo === 'anthropic' || deps.modo === 'bedrock-eu' ? 'credencial_invalida' : 'ia_desligada');
+  // D3/D5 (Plano 14A, revisão da T3): o provedor deste worker tem de atender, na região dele, o modelo gravado na tarefa
+  // pelo app (que pode estar com outra configuração na janela de deploy ou na troca de IA_PROVEDOR). Recusa aqui, ANTES do
+  // portão: sem `saiu_em`, sem "Laudo enviado à IA" e com estorno — a recusa dentro de lerDocumento viria depois do portão
+  // e registraria uma transferência que não aconteceu.
+  if (!deps.provedor.aceita(t.modelo as ModeloIA, deps.geo)) {
+    logger.warn({ tarefaId: t.id, tenantId: d.tenantId, modelo: t.modelo, provedor: deps.provedor.nome, geo: deps.geo }, 'provedor de IA do worker não atende o modelo da tarefa');
+    return falhar('ia_desligada');
+  }
 
   // (3) prepara o arquivo (regra 9: lê pelo caminho do exame); nada sai se não der
   let arquivo: ArquivoPreparado;

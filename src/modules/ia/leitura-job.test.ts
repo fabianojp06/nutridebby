@@ -20,6 +20,8 @@ import type { ConfigIA } from './modo';
 import { expirarTarefasDoTenant, processarTarefaIA, RepetirIaError, type DepsJobIA } from './leitura-job';
 import { custoMaximoDoArquivo, custoMicroUsd } from './precos';
 import { ErroProvedor, type ProvedorIA } from './provedor';
+import { provedorAnthropic } from './provedor-anthropic';
+import { provedorBedrock } from './provedor-bedrock';
 import { provedorFake, respostaOk, USO_FAKE } from './provedor-fake';
 import { RESPOSTA_SANDBOX } from './provedor-sandbox';
 import { pedirLeituraExame } from './tarefas';
@@ -172,6 +174,32 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await processarTarefaIA(P.d, deps(null, { modo: 'bedrock-eu', alertas: a }))).toBe('falhou');
     expect(await tarefa(P)).toMatchObject({ erro: 'credencial_invalida', saiuEm: null });
     expect(a.credencial).toHaveBeenCalledTimes(1);
+  });
+
+  it('D3/D5 (Plano 14A, revisão da T3): modelo ou região que o provedor do worker não atende → ia_desligada ANTES do portão: sem saiu_em, sem "Laudo enviado à IA", estorno e nenhuma chamada', async () => {
+    // os provedores reais contra um fetch que conta (nada sai da máquina; chaves só no formato)
+    let rede = 0;
+    const semRede: typeof fetch = async () => {
+      rede++;
+      throw new Error('chamada ao provedor');
+    };
+    const bedrock = provedorBedrock({ regiao: 'eu-central-1', accessKeyId: 'AKIA' + 'T'.repeat(16), secretAccessKey: 's'.repeat(40), fetch: semRede });
+    const anthropic = provedorAnthropic({ apiKey: 'sk-ant-api03-' + 'x'.repeat(40), fetch: semRede });
+    const casos: [string, ProvedorIA, Partial<DepsJobIA>][] = [
+      // a troca de IA_PROVEDOR para bedrock-eu com tarefa criada pelo app ainda com o modelo padrão da API direta (opus)
+      ['bedrock-eu com o modelo fora do perfil eu.', bedrock, { modo: 'bedrock-eu', geo: 'eu' }],
+      ['bedrock-eu com região que não é eu', bedrock, { modo: 'bedrock-eu', geo: 'us' }],
+      ['anthropic com a região eu', anthropic, { modo: 'anthropic', geo: 'eu' }],
+      ['fake que não atende', provedorFake({ aceita: () => false }), {}],
+    ];
+    for (const [nome, provedor, extra] of casos) {
+      const P = await pedido();
+      expect(await processarTarefaIA(P.d, deps(provedor, extra)), nome).toBe('falhou');
+      expect(await tarefa(P), nome).toMatchObject({ status: 'falhou', erro: 'ia_desligada', enviadoEm: null, saiuEm: null });
+      expect(await saidas(P), nome).toHaveLength(0);
+      expect((await usoDe(P)).situacao, nome).toBe('estornado');
+    }
+    expect(rede).toBe(0);
   });
 
   it('D4 (Plano 14A): o arquivo preparado acima do limite do provedor em uso → arquivo_invalido, sem sair', async () => {

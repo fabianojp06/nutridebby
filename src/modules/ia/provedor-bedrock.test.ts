@@ -73,6 +73,12 @@ describe('provedor Bedrock na UE (INT-08, D1, D2) — só contra fetch falso', (
     await expect(novo(f).lerDocumento({ ...pedido, modelo: 'claude-opus-5-5' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
     await expect(novo(f).lerDocumento({ ...pedido, geo: 'us' })).rejects.toMatchObject({ tipo: 'pedido_invalido' });
     expect(chamadas).toHaveLength(0);
+    // a mesma regra exposta ao job, que a confere antes do portão do envio (revisão da T3)
+    const p = novo(f);
+    expect(p.aceita('claude-sonnet-5-5', 'eu')).toBe(true);
+    expect(p.aceita('claude-opus-5-5', 'eu')).toBe(false);
+    expect(p.aceita('claude-sonnet-5-5', 'us')).toBe(false);
+    expect(p.aceita('claude-sonnet-5-5', 'global')).toBe(false);
   });
 
   it('recusa e saída cortada viram resultado (sem lançar); foto vai como image/jpeg', async () => {

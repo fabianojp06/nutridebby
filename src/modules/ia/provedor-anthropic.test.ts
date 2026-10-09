@@ -137,5 +137,9 @@ describe('provedor Anthropic (INT-07) — só contra fetch falso', () => {
     expect(p).toMatchObject({ nome: 'anthropic', destino: 'anthropic-us', limitePedidoBytes: 32 * 1024 * 1024 });
     await expect(p.lerDocumento({ ...pedido, geo: 'eu' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
     expect(chamadas).toHaveLength(0);
+    // a mesma regra exposta ao job, que a confere antes do portão do envio (revisão da T3)
+    expect(p.aceita('claude-opus-5-5', 'eu')).toBe(false);
+    expect(p.aceita('claude-opus-5-5', 'us')).toBe(true);
+    expect(p.aceita('claude-opus-5-5', 'global')).toBe(true);
   });
 });

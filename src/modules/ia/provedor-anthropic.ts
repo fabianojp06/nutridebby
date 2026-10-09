@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { ModeloIA, RegiaoIA } from './constantes';
 import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
 
 /**
@@ -70,15 +71,20 @@ function usoDe(u: Anthropic.Usage): UsoTokens {
   };
 }
 
+/** D5: a API direta atende `us`/`global`; a região `eu` é só do Bedrock. */
+const aceitaAnthropic = (_modelo: ModeloIA, geo: RegiaoIA): boolean => geo !== 'eu';
+
 export function provedorAnthropic(o: { apiKey: string; fetch?: typeof fetch; baseURL?: string; timeoutMs?: number }): ProvedorIA {
   const cliente = new Anthropic({ apiKey: o.apiKey, authToken: null, maxRetries: 0, timeout: o.timeoutMs ?? TIMEOUT_MS, logLevel: 'off', baseURL: o.baseURL ?? BASE_URL, ...(o.fetch ? { fetch: o.fetch } : {}) });
   return {
     nome: 'anthropic',
     destino: 'anthropic-us',
     limitePedidoBytes: LIMITE_PEDIDO_ANTHROPIC_BYTES,
+    aceita: aceitaAnthropic,
     async lerDocumento(p): Promise<RespostaLeitura> {
-      // D5: a região `eu` é do Bedrock; a API direta só tem `us`/`global` — nada sai com outra
-      if (p.geo === 'eu') throw new ErroProvedor('pedido_invalido', null, null);
+      // D5: a região `eu` é do Bedrock; a API direta só tem `us`/`global` — nada sai com outra (defesa a mais: o job já
+      // conferiu `aceita` antes do portão)
+      if (!aceitaAnthropic(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
       // o SDK devolve a mensagem com o `_request_id` (WithRequestID<Message>, não exportado pelo índice do SDK)
       let r: Anthropic.Message & { _request_id?: string | null };
       try {

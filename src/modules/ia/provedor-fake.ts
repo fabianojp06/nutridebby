@@ -1,3 +1,4 @@
+import type { ModeloIA, RegiaoIA } from './constantes';
 import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
 import { provedorSandbox } from './provedor-sandbox';
 
@@ -9,7 +10,14 @@ export function respostaOk(json: unknown, uso: UsoTokens = USO_FAKE): RespostaLe
 }
 
 type Passo<T> = T | ErroProvedor | Error;
-export type RoteiroFake = { ler?: Passo<RespostaLeitura>[]; atrasoMs?: number; /** D4: o limite do pedido do provedor simulado (padrão: o da API direta). */ limitePedidoBytes?: number };
+export type RoteiroFake = {
+  ler?: Passo<RespostaLeitura>[];
+  atrasoMs?: number;
+  /** D4: o limite do pedido do provedor simulado (padrão: o da API direta). */
+  limitePedidoBytes?: number;
+  /** D3/D5: o que o provedor simulado atende (padrão: tudo). */
+  aceita?: (modelo: ModeloIA, geo: RegiaoIA) => boolean;
+};
 export type ProvedorFake = ProvedorIA & { chamadas: { ler: PedidoLeitura[] } };
 
 /**
@@ -26,6 +34,7 @@ export function provedorFake(roteiro: RoteiroFake = {}): ProvedorFake {
     nome: 'fake',
     destino: 'teste',
     limitePedidoBytes: roteiro.limitePedidoBytes ?? 32 * 1024 * 1024,
+    aceita: roteiro.aceita ?? (() => true),
     chamadas,
     async lerDocumento(p) {
       chamadas.ler.push(p);

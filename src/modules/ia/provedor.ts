@@ -53,6 +53,12 @@ export interface ProvedorIA {
   readonly destino: DestinoIA;
   /** D4 / R-116: o tamanho máximo do pedido inteiro (base64 + instruções); o preparo recusa antes do portão. */
   readonly limitePedidoBytes: number;
+  /**
+   * D3/D5 (Plano 14A, revisão da T3): se este provedor atende o modelo na região. O job confere ANTES do portão do envio
+   * (passo 2): pedido que o provedor recusaria localmente nunca vira `saiu_em` nem "Laudo enviado à IA". A guarda dentro de
+   * `lerDocumento` fica como defesa a mais.
+   */
+  aceita(modelo: ModeloIA, geo: RegiaoIA): boolean;
   // Sem contarTokens (revisão do plano): contar mandaria o laudo ao provedor uma vez a mais, antes do portão do envio.
   // O teto da tarefa sai das páginas (custoMaximoDoArquivo, T7).
   /** Uma chamada; nunca repete sozinho (maxRetries 0); lança ErroProvedor. */
