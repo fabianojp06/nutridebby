@@ -32,7 +32,7 @@ test('portal: o paciente entra no consultório, vê a navegação; arquivado per
   await expect(p.page).toHaveURL(/\/p\/sem-acesso$/);
   await expect(p.page.getByRole('status')).toHaveText('Seu acesso ao portal não está ativo. Fale com sua nutricionista.');
   await nutri.getByRole('button', { name: 'Desarquivar paciente' }).click();
-  await expect(nutri.getByRole('button', { name: 'Arquivar paciente' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Arquivar paciente', exact: true })).toBeVisible();
   await p.page.goto('/p/inicio');
   await expect(p.page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   await p.page.context().close();
