@@ -78,11 +78,23 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `APP_URL`, `ENCRYPTION_KEY`, `DATA_DIR`, `EMAIL_FROM`, `EMAIL_TRANSPORT`,
 `RESEND_API_KEY`, `MAILPIT_URL`, `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `WHATSAPP_SANDBOX`, `VAPID_PUBLIC_KEY`,
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` e, desde o Plano 11, `IA_PROVEDOR`, `IA_DESLIGADA`, `IA_MODELO_LEITURA`,
-`IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD` e `ANTHROPIC_API_KEY` (só no worker; o app não a declara). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
+`IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD` e `ANTHROPIC_API_KEY` (só no worker; o app não a declara) e, desde o
+Plano 14A, `IA_RETENCAO_ZERO`, `IA_BEDROCK_REGIAO` (app e worker), `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (só no
+worker, juntas). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
-as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sandbox`/`fake` é recusado e `IA_INFERENCE_GEO`
-só aceita `us`. Ao subir, o worker loga `IA de laudos` com o modo, o modelo e `chave: presente`/`ausente` (nunca a
-chave). Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
+as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sandbox`/`fake` é recusado e, com
+`IA_PROVEDOR=anthropic`, `IA_INFERENCE_GEO` só aceita `us`; com `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO` é obrigatória
+e `IA_MODELO_LEITURA` tem de estar em `MODELOS_BEDROCK_EU` (`conferirIa`); as duas chaves da AWS vêm juntas e a de acesso
+só no formato `AKIA…`. **O worker não sobe** com `AWS_BEARER_TOKEN_BEDROCK`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`,
+`ANTHROPIC_BEDROCK_BASE_URL` ou `ANTHROPIC_CUSTOM_HEADERS` definidas: o SDK do provedor as leria sozinho (Plano 14A, D2,
+`proibidaNoWorker`, `src/env.ts:281-285`). Ao subir, o worker loga `IA de laudos` com o modo, o provedor (só o nome), o
+modelo e `chave: presente`/`ausente` (nunca a chave). Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
+
+**Imagem do worker (Plano 14A).** O SDK do Bedrock (`@anthropic-ai/bedrock-sdk`, com `@aws-sdk/*` e `@smithy/*`) roda só
+no worker; o `Dockerfile` poda dele os fontes (`src`), as declarações e os mapas (dos `@aws-sdk`/`@smithy`, o
+`dist-types` e os `.map`; ficam `dist-cjs` e `dist-es`). A fumaça do job `image` do CI chama o provedor contra um `fetch`
+falso que exige a assinatura SigV4, para provar que a poda não tirou o que roda. Medida da T3: 264,4 MB comprimidos, no
+orçamento de 265 MB, com folga de ≈ 0,6 MB (risco R1 do plano: passou, decisão do dono).
 
 **Espera do schema (P09-02).** Antes de subir o pg-boss, `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`) confere
 pela função `app_versao_do_schema()` (0094) que a última migration do `drizzle/meta/_journal.json` da imagem já foi
@@ -114,9 +126,11 @@ exportação ⇔ job `exportacao-paciente` (`src/modules/pacientes/exportacao.ts
 
 ### 6.2.3 Filas
 
-São **22 filas** (17 até o Plano 08, 3 do Plano 10A e 2 do Plano 11), todas em `QUEUES` (`src/jobs/queues.ts`) e todas
-registradas em `src/worker/index.ts` pelo `work` embrulhado (seção 6.2.7). A guarda `src/worker/sem-detalhe.test.ts`
-exige pelo menos 17 registros (`await work(`; o piso não subiu com os Planos 10A e 11, e hoje são 22 — uma por fila).
+São **26 filas** (17 até o Plano 08, 3 do Plano 10A, 2 do Plano 11, 3 do Plano 12 — `exame-envio`, `exame-envio-limpar`
+e `expirar-exame-envio`, descritas no [§11.2](11-exames-enviados.md#112-peças) — e 1 do Plano 14A, `ia-retirada`), todas em
+`QUEUES` (`src/jobs/queues.ts`) e todas registradas em `src/worker/index.ts` pelo `work` embrulhado (seção 6.2.7). A guarda
+`src/worker/sem-detalhe.test.ts` exige pelo menos 17 registros (`await work(`; o piso não subiu com os Planos 10A, 11, 12 e
+14A, e hoje são 26 — uma por fila).
 
 Legenda das colunas de tentativa (opções do pg-boss 12, `package.json:39`): **retry** = `retryLimit` (número de
 **novas** tentativas, leitura da INT-02 no Plano 02, linha "Fila de e-mail"); **atraso** = `retryDelay` em segundos,
@@ -126,7 +140,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | Fila | Gatilho | O que faz | retry / atraso / expira / apaga | Payload |
 |---|---|---|---|---|
 | `heartbeat` | cron `* * * * *` (`index.ts:58`) | Grava `system_heartbeat(name='worker')` (`recordHeartbeat`) | 0 / — / 60 / — | `{}` |
-| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). Desde o Plano 11 (`includeMetadata`): `aposEnviar` grava a ciência do aviso de IA quando o Resend aceita o envio (`registrarCienciaPorEmail`, D5/A-D21) e `aoDesistir` — tenant suspenso ou última tentativa que falha no envio ou no pós-envio — desfaz o "aguardando" daquele aviso (`desfazerAvisoPendente`); na última tentativa, a falha do `aoDesistir` vai ao log só com o nome (`falha ao desistir do e-mail`); com o consultório suspenso, ela sobe para o pg-boss, que tenta de novo (P11-20 e) | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
+| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). O `aposEnviar`/`aoDesistir` da ciência do aviso de IA (Plano 11) saiu no Plano 14A (RN-128): um e-mail do tipo legado `aviso_ia` que esteja na fila no deploy termina `ignorado`, sem renderizar, enviar nem gravar (`TIPOS_LEGADOS`, `src/email/job.ts:9`; log só com o id do job, o tipo e o tenant). Tipos novos do Plano 14A: `autorizacao_ia` e `autorizacao_ia_confirmada` | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
 | `notificacoes` | cron `* * * * *` (`index.ts:85`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:199`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:36`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:178`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
 | `agenda-tenant` | Produtor na suspensão/reativação (`src/modules/plataforma/suspensao.ts:11`) | Suspenso: pendentes viram `ignorada`/`tenant_suspenso`; reativado: lembretes de consultas futuras voltam (`ignorarPendentesDoTenant`, `reagendarTenantReativado`) | 3 / 60↗ / 300 / 86 400 | `{ tenantId, evento }` |
 | `whatsapp-evento` | Produtor na rota do webhook (`src/modules/notificacoes/whatsapp/webhook.ts:91`) | Conexão, status de entrega e resposta "1"/"2"; idempotente (`processarEventoWhatsapp`) | 3 / 30↗ / 60 / 86 400 | `{ selado }` |
@@ -146,7 +160,8 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `documento-digitalizado` | Produtor no envio das fotos (`receberDigitalizada`, `src/modules/documentos/digitalizada.ts`) | Normaliza as fotos, monta o PDF e assina como "digitalizada" (`montarPdfDigitalizado`); foto ilegível ou cota: falha sem nova tentativa | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
 | `expirar-documento-pdf` | cron `*/15 * * * *` (`index.ts:231`) | PDF `pendente` ou digitalização `recebendo`/`pendente` há mais de 1 h → `falhou` (`expirarPdfsDeDocumentoPendentes`); PDF base e fotos sem referência há mais de 1 h e ponteiros que sobraram num documento emitido → apagados (`limparArquivosOrfaosDeDocumentos`) | 1 / 60 / 300 / — | `{}` |
 | `ia` | Produtor no pedido de leitura (`pedirLeituraExame`, `src/modules/ia/tarefas.ts`, na transação que cria a tarefa e reserva a cota) | Leitura de laudo com IA (`processarTarefaIA`, Plano 11): prepara o arquivo sem metadados, passa pelo **portão do envio** e chama o provedor **uma vez**; grava a sugestão ou a falha e acerta o custo. Um job por vez; `abortado` = sinal do pg-boss (expiração ou parada). Nova tentativa só quando o provedor não processou ou mandou repetir (RN-105); o resto termina sem relançar ([§10.6](10-ia.md#106-erros-e-novas-tentativas-d4-rn-105)) | 2 / 30↗ / 300 / 86 400 | `{ tenantId, tarefaId }` |
-| `expirar-ia` | cron `*/15 * * * *` (`index.ts:250`) | `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu); `na_fila` há mais de 30 min → `falhou` com estorno; `pronta` vencida (7 dias) → `expirada`, conteúdo esvaziado (`expirarTarefasIA`); loga `varredura das tarefas de IA` só quando mexeu em algo | 1 / 60 / 300 / — | `{}` |
+| `expirar-ia` | cron `*/15 * * * *` (`index.ts:242`) | `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu); `na_fila` há mais de 30 min → `falhou` com estorno; `pronta` vencida (7 dias) → `expirada`, conteúdo esvaziado (`expirarTarefasIA`, com o destino em uso). Desde o Plano 14A (D15), também cancela as tarefas ativas de paciente sem autorização vigente para o uso da tarefa ou criadas antes da última retirada (fila com estorno; `processando` com estorno ou incerta; pronta esvaziada); loga `varredura das tarefas de IA` só quando mexeu em algo, com `canceladas` | 1 / 60 / 300 / — | `{}` |
+| `ia-retirada` | Produtor na retirada da autorização pelo paciente (`retirarNoApp`, `src/modules/ia/autorizacao.ts`; `retirarPeloLink`, `autorizacao-link.ts`), na mesma transação do evento `retirou` | Plano 14A (RN-108, D14): no contexto `worker`, trava o paciente, confere que a retirada é dele, relê a situação e cancela a fila (estorno) e as sugestões prontas (esvaziadas); com o paciente já autorizado de novo, só as tarefas criadas antes da retirada (`processarRetiradaIa`, `index.ts:247`); loga só o tenant e a contagem | 3 / 30↗ / 120 / 86 400 | `{ tenantId, patientId, retiradaId }` |
 
 Ordem do dia (BRT): 03h backup no host → 04h `retencao-lgpd` e `limpar-tmp` → 04h30 `agenda-limpeza` → 07h
 `monitor-backup`. A retenção roda **depois** do backup de propósito (comentário em `src/jobs/queues.ts:16`).
@@ -180,6 +195,7 @@ Quando o worker cai na última tentativa, o pg-boss expira o job e o registro fi
 | Exportação pronta vencida ou pendente esquecida | `retencao-lgpd` → `expirarExportacoesVencidas` | 24 h / 1 dia |
 | `.tmp` de gravação interrompida | `limpar-tmp` | 24 h |
 | Tarefa de IA parada, esquecida na fila ou com sugestão vencida (Plano 11) | `expirar-ia` | 15 min / 30 min / 7 dias |
+| Tarefa de IA de paciente que retirou a autorização e cujo job `ia-retirada` não rodou (Plano 14A, D15) | `expirar-ia` | 15 min |
 
 A foto esquecida **não** é reconvertida: se a queda foi falta de memória com aquela foto, cada varredura derrubaria
 o worker de novo (comentário de `expirarFotosPendentes`).
@@ -768,7 +784,10 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
 2. **Conferir as migrations.** O Drizzle só avança: não há migration de volta, e o banco fica no schema novo. Se o
    deploy quebrado aplicou uma migration de **contração** (removeu ou renomeou coluna, tabela ou função que a versão
    antiga usa), a imagem antiga quebra contra esse schema. Nesse caso, não volte a imagem: corrija para frente
-   (passo 5). Migration só de expansão (spec §9.7; §1.8) é compatível com a imagem anterior.
+   (passo 5). Migration só de expansão (spec §9.7; §1.8) é compatível com a imagem anterior. Contração **de
+   comportamento** também conta: depois da `0109` (Plano 14A), a imagem anterior ainda tem os caminhos que gravam a
+   ciência e a recusa de IA do Plano 11 ("Entreguei o aviso", "Não usar IA", o pós-envio do `aviso_ia`), e o gatilho os
+   recusa com 42501 — inócuo sem `IA_PROVEDOR` em produção, relevante se a IA estiver ligada (revisão da T10).
 3. **Fixar a imagem (dono).** No Easypanel, trocar a imagem de `nutri_app` **e** de `nutri_worker` para
    `ghcr.io/fabianojp06/nutridebby:<sha anterior>` e implantar. Os dois juntos: app e worker dividem o código de
    domínio e as filas.
@@ -846,6 +865,7 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 | `DATABASE_URL` (senha do role do app) | O `ensureAppLogin` regrava a senha do role a partir da variável a cada start do app (`src/db/migrate.ts:21`) | Trocar no app e no worker; o app aplica no boot |
 | `DATABASE_URL_MIGRATOR` | Não se regrava sozinha | O dono troca a senha do role com `\password` no `psql` (sem eco, nunca no chat) e atualiza a variável do app |
 | `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EVOLUTION_API_KEY`, `SENTRY_DSN`, chaves do R2 | Sem efeito em dado guardado | Gerar a nova no provedor, trocar a variável, revogar a antiga |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (Plano 14A, só no worker, com `bedrock-eu`) | Sem efeito em dado guardado. Entre revogar a antiga e pôr a nova, cada leitura falha como `credencial_invalida` (401/403 do Bedrock), com estorno e e-mail aos admins (1 por hora) | Criar a chave de acesso de longo prazo nova do usuário IAM `nutridebby-ia-producao`, trocar as duas variáveis juntas só no `nutri_worker`, desativar e apagar a antiga e conferir o log `IA de laudos` com `chave: presente`; nunca `AWS_SESSION_TOKEN`, `AWS_PROFILE` nem `AWS_BEARER_TOKEN_BEDROCK` (o worker não sobe) |
 | `ANTHROPIC_API_KEY` (Plano 11, só no worker) | Sem efeito em dado guardado. Entre revogar a antiga e pôr a nova, cada leitura falha como `credencial_invalida`, com estorno da reserva e e-mail aos admins (1 por hora) | Gerar a nova no workspace **de produção** do Console, trocar só no `nutri_worker`, revogar a antiga e conferir o log `IA de laudos` com `chave: presente` |
 
 **Plano para o 2FA ao trocar `AUTH_SECRET`.**
@@ -884,7 +904,8 @@ tabela pede. (6) Atualizar o gerenciador de senhas e registrar o incidente; LGPD
 | Assinar o checklist do go-live | `docs/operacao/go-live.md`, "Assinatura" |
 | Fazer (ou pedir ao Claude, só os itens de leitura) a rotina de sustentação e registrá-la na issue mensal | [Cap. 8](08-sustentacao.md); checklist em `docs/operacao/sustentacao.md` |
 | Liberar a IA para uso real (Plano 11): conta da empresa e workspaces no Console da Anthropic, pedido de ZDR, advogado, avaliação com laudos fictícios e a chave de **dev**, variáveis `IA_*` no app e no worker e `ANTHROPIC_API_KEY` só no worker, "Liberar" na coluna "IA" do admin; nunca definir outra `ANTHROPIC_*` no worker (o SDK lê `ANTHROPIC_CUSTOM_HEADERS`) | Runbook `docs/operacao/ia.md` (P11-18); [§10.9](10-ia.md#109-divergências-conhecidas) |
-| Emergência da IA: `IA_DESLIGADA=1` no app e no worker (esconde a IA de todos) ou "Bloquear" na coluna "IA" (um consultório); a chave vazada se troca no Console e só no worker | Runbook `docs/operacao/ia.md`, passo 7; §6.9.1 |
+| Liberar a IA com dado real depois do Plano 14A: escolher o provedor antes do primeiro pedido de autorização (decisão F1: `bedrock-eu`, com as três condições), conta AWS em nome do CNPJ com o `GetInferenceProfile` só com destinos UE/EEE (regra P0, F7) e o registro de invocações desligado, avaliação com `bedrock-eu`, `IA_RETENCAO_ZERO=1`, advogado (B1–B5) e a versão `1.0` dos textos, CRN-3 (F8), variáveis no Easypanel (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` só no worker; nunca `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_BEDROCK_BASE_URL` nem `ANTHROPIC_CUSTOM_HEADERS`), perfil profissional da Debby completo e "Liberar" no admin | Runbook `docs/operacao/ia.md`, seção "Plano 14A" (P14A-13); [§10.10](10-ia.md#1010-autorização-do-paciente-e-provedor-na-ue-plano-14a) |
+| Emergência da IA: `IA_DESLIGADA=1` no app e no worker (esconde a IA de todos; a retirada da autorização continua possível) ou "Bloquear" na página da conta no admin (um consultório); a chave vazada se troca no Console (Anthropic) ou no IAM (AWS) e só no worker | Runbook `docs/operacao/ia.md`, passo 7 do Plano 11 e passo 8 do Plano 14A; §6.9.1 |
 
 A rotina periódica (diária a anual), o catálogo dos serviços externos com cotas e vencimentos, quem confere cada item
 e onde fica o registro estão no [capítulo 8, Sustentação](08-sustentacao.md).
