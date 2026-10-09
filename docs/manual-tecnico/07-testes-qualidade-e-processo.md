@@ -555,13 +555,14 @@ sequenceDiagram
 2. a árvore do commit da `main` é **idêntica** à do head do PR (`git rev-parse <sha>^{tree}`; o head vem de
    `refs/pull/<n>/head` quando não está no histórico, como num squash) e a `main` anterior (`github.event.before`) está
    no histórico do head — o CI de PR roda no merge do head com a base, então só assim ele testou exatamente esta árvore;
-3. a execução mais recente do `ci.yml` (evento `pull_request`) **deste PR para a `main`** (`pull_requests` da execução
-   com o número do PR e a base `main` — nunca só o `head_sha`: o mesmo head pode ter rodado noutro PR, com outra base),
-   com a base daquela execução no histórico do head, terminou em `success`, com `quality`, `test`,
+3. a execução mais recente do `ci.yml` (evento `pull_request`) **deste PR** — nome `ci-pr-<n>-<base.sha>` (o `run-name`
+   do `ci.yml` grava o número do PR e o `base.sha` quando a execução é criada; a API só preenche
+   `workflow_runs[].pull_requests` com o PR aberto e, depois do merge, o devolve vazio), do próprio repositório
+   (`head_repository`, fork não) e com essa base no histórico do head — terminou em `success`, com `quality`, `test`,
    `e2e` e `image` em `success` (última tentativa, `filter=latest`).
 
 Qualquer dúvida — entrada ausente, primeiro push, API fora do ar ou resposta estranha, árvore diferente, PR
-desatualizado, execução de outro PR ou de outra base, PR de fork (sem `pull_requests`), CI cancelado, com falha ou em andamento, job ausente ou pulado — vira `pular=false`, e o `ci` roda como
+desatualizado, execução de outro PR, com base fora do histórico, sem o nome `ci-pr-…` (anterior ao `run-name`), de fork, CI cancelado, com falha ou em andamento, job ausente ou pulado — vira `pular=false`, e o `ci` roda como
 antes. O script nunca falha o job; se o próprio `decidir` falhar, o `ci` roda do mesmo jeito (`if: !cancelled() &&
 pular != 'true'`). PR só de documentação (com `test`, `e2e` e `image` pulados pelo `mudancas`) também não pula: o CI
 desse caso já é curto e é ele que decide não publicar (`codigo == 'false'`). Por isso, quando o CI é pulado, o PR tinha
@@ -570,6 +571,10 @@ condições de árvore e histórico valem (conferido nos merges dos PRs #27 a #3
 `test/ci-ja-passou.test.ts` (`gh` falso e repositórios git reais: merge, squash, árvore diferente, PR desatualizado, outro PR, outra base, fork, base fora do histórico, CI
 `failure`/`cancelled`/em andamento, execução mais recente, job pulado ou ausente, sem PR, API falhando, resposta
 inválida).
+
+**Primeiro deploy depois deste merge.** A execução do CI do próprio PR que trouxe o `run-name` não tem o nome
+`ci-pr-…` (foi criada antes dele), então esse deploy ainda roda o CI completo. A economia começa no PR seguinte. Quando o
+deploy chama o `ci.yml` (`workflow_call`), o `run-name` dele é ignorado e vale o nome da execução do deploy.
 
 **Merge = deploy = reinício de serviço.** Por isso o merge exige o OK explícito do dono e um snapshot no hPanel antes
 (regra 6 do `CLAUDE.md`; regras 3 e 5 do `CLAUDE.md` do servidor). Volta atrás: os serviços usam `:latest`, então

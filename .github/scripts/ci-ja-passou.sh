@@ -7,9 +7,9 @@
 #      merge_commit_sha = $SHA);
 #   2. a árvore do commit da main é IDÊNTICA à do head do PR (git rev-parse <sha>^{tree}) e a main anterior
 #      ($BEFORE) está no histórico do head — o CI do PR (que roda no merge do head com a base) testou esta árvore;
-#   3. a execução mais recente do ci.yml (evento pull_request) DESTE PR para a main (pull_requests da execução, nunca
-#      só o head_sha), com a base dela no histórico do head, terminou em success, com os jobs quality, test, e2e e
-#      image em success. PR só de documentação (test/e2e/image pulados pelo job mudancas)
+#   3. a execução mais recente do ci.yml (evento pull_request) DESTE PR (nome `ci-pr-<n>-<base.sha>`, gravado pelo
+#      run-name do ci.yml; nunca só o head_sha), do próprio repositório (fork não), com a base dela no histórico do head,
+#      terminou em success, com os jobs quality, test, e2e e image em success. PR só de documentação (test/e2e/image pulados pelo job mudancas)
 #      não pula: o deploy roda o CI, que já é curto nesse caso e decide sozinho não publicar.
 # Qualquer dúvida — entrada ausente, API fora do ar, resposta estranha, árvore diferente, CI cancelado, com falha
 # ou em andamento — vira pular=false (CI completo, como antes). O script nunca falha o job.
@@ -64,17 +64,24 @@ echo "Árvore idêntica à do head do PR: ${arvore_main}"
 # 3. o CI do head passou, com os jobs exigidos em success
 runs="$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${head}&event=pull_request&per_page=100" 2>/dev/null)" \
   || nao "a API de execuções do CI falhou"
-# Só as execuções DESTE PR para a main (revisão do branch): o mesmo head pode ter rodado noutro PR, com outra base (PR
-# empilhado, base trocada sem push) — o CI de PR testa o merge do head com a base, então outra base = outra árvore. PR de
-# fork vem com pull_requests vazio: CI completo.
-run="$(jq -c --arg head "$head" --argjson numero "$numero" --arg base "$BASE_BRANCH" '
+# Só as execuções DESTE PR (revisão do branch): o mesmo head pode ter rodado noutro PR, com outra base (PR empilhado, base
+# trocada sem push) — o CI de PR testa o merge do head com a base, então outra base = outra árvore. A API só preenche
+# workflow_runs[].pull_requests com o PR aberto; depois do merge (quando o deploy roda) vem vazio. Por isso o ci.yml grava
+# no nome da execução (run-name → display_title) o número do PR e o base.sha do momento em que ela foi criada:
+# `ci-pr-<n>-<sha>`. Execução sem esse nome (anterior ao run-name) não serve. PR de fork: head_repository diferente.
+# A base do PR ser a main já foi conferida na API de pulls do commit (passo 1), que funciona depois do merge.
+run="$(jq -c --arg head "$head" --arg numero "$numero" --arg repo "$REPO" '
   [ .workflow_runs[]? | select(.head_sha == $head and .event == "pull_request"
-      and ([ .pull_requests[]? | select(.number == $numero and .base.ref == $base) ] | length > 0)) ]
+      and .head_repository.full_name == $repo
+      and ((.display_title // "") | test("^ci-pr-[0-9]+-[0-9a-f]{40}$"))
+      and ((.display_title | capture("^ci-pr-(?<n>[0-9]+)-").n) == $numero)) ]
   | sort_by(.created_at) | last // empty' <<<"$runs" 2>/dev/null)" || nao "resposta inesperada da API de execuções"
-[[ -n "$run" ]] || nao "nenhuma execução do CI do PR #${numero} (base ${BASE_BRANCH}) para o head ${head}"
+[[ -n "$run" ]] || nao "nenhuma execução do CI do PR #${numero} (nome ci-pr-${numero}-<base>, do próprio repositório) para o head ${head}"
 run_id="$(jq -r '.id' <<<"$run")"
-base_run="$(jq -r --argjson numero "$numero" '[ .pull_requests[] | select(.number == $numero) ][0].base.sha' <<<"$run")"
-e_sha "$base_run" || nao "base da execução ${run_id} inválida"
+titulo="$(jq -r '.display_title' <<<"$run")"
+[[ "$titulo" =~ ^ci-pr-([0-9]+)-([0-9a-f]{40})$ ]] || nao "nome da execução ${run_id} fora do padrão"
+[[ "${BASH_REMATCH[1]}" == "$numero" ]] || nao "a execução ${run_id} é de outro PR"
+base_run="${BASH_REMATCH[2]}"
 # a base daquela execução já estava no head: o merge que o CI testou tem a árvore do head
 git merge-base --is-ancestor "$base_run" "$head" 2>/dev/null \
   || nao "a base da execução ${run_id} (${base_run}) não está no histórico do head; o CI testou outra árvore"

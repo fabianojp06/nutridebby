@@ -77,17 +77,19 @@ interface Api {
   jobs?: unknown;
 }
 
-/** `pull_requests` da execução: o PR #7, com a base `main` no commit em que a main estava (ancestral do head). */
-const prDaExecucao = (
+/**
+ * Os campos da execução no formato REAL da API depois do merge (conferido nos PRs #29 e #30): `pull_requests` vazio,
+ * `display_title` = o run-name do ci.yml (`ci-pr-<n>-<base.sha>`) e `head_repository`. Padrão: o PR #7, com a base no
+ * commit em que a main estava (ancestral do head), do próprio repositório.
+ */
+const daExecucao = (
   c: ReturnType<typeof cenario>,
-  o: { number?: number; ref?: string; sha?: string } = {},
-) => [
-  {
-    number: o.number ?? 7,
-    head: { ref: 'pr', sha: c.head },
-    base: { ref: o.ref ?? 'main', sha: o.sha ?? c.antes },
-  },
-];
+  o: { number?: number; sha?: string; repo?: string; titulo?: string } = {},
+) => ({
+  pull_requests: [],
+  display_title: o.titulo ?? `ci-pr-${o.number ?? 7}-${o.sha ?? c.antes}`,
+  head_repository: { full_name: o.repo ?? REPO },
+});
 
 function apiPadrao(c: ReturnType<typeof cenario>): Api {
   return {
@@ -110,7 +112,7 @@ function apiPadrao(c: ReturnType<typeof cenario>): Api {
           status: 'completed',
           conclusion: 'success',
           created_at: '2026-10-09T11:00:00Z',
-          pull_requests: prDaExecucao(c),
+          ...daExecucao(c),
         },
       ],
     },
@@ -238,7 +240,7 @@ describe('ci-ja-passou.sh (deploy pula o CI que o PR já passou)', () => {
       status: 'completed',
       conclusion,
       created_at,
-      pull_requests: prDaExecucao(c),
+      ...daExecucao(c),
     });
     const api = apiPadrao(c);
     api.runs = {
@@ -261,30 +263,56 @@ describe('ci-ja-passou.sh (deploy pula o CI que o PR já passou)', () => {
 
   it.each([
     ['de outro PR (mesmo commit em dois PRs)', { number: 8 }],
-    ['de outra base (PR empilhado ou base trocada)', { ref: 'outro-branch' }],
     ['com a base fora do histórico do head (testou o merge com outra base)', { sha: 'MERGE' }],
     ['com uma base que nem existe no clone', { sha: 'c'.repeat(40) }],
+    ['de um fork (head_repository de outro dono)', { repo: 'outro/nutridebby' }],
   ] as const)('execução do CI %s → CI completo', (_nome, o) => {
     const c = cenario('merge');
     const api = apiPadrao(c);
     const run = (api.runs as { workflow_runs: Record<string, unknown>[] }).workflow_runs[0];
     api.runs = {
       workflow_runs: [
-        {
-          ...run,
-          pull_requests: prDaExecucao(c, 'sha' in o && o.sha === 'MERGE' ? { sha: c.sha } : o),
-        },
+        { ...run, ...daExecucao(c, 'sha' in o && o.sha === 'MERGE' ? { sha: c.sha } : o) },
       ],
     };
     expect(rodar(c, api).pular).toBe('false');
   });
 
-  it('execução sem PR associado (PR de fork: pull_requests vem vazio) → CI completo', () => {
+  it('PR do merge com outra base (PR empilhado: a API de pulls do commit diz a base) → CI completo', () => {
+    const c = cenario('merge');
+    const api = apiPadrao(c);
+    api.pulls = [{ ...(api.pulls as Record<string, unknown>[])[0], base: { ref: 'outro-branch' } }];
+    expect(rodar(c, api).pular).toBe('false');
+  });
+
+  it.each([
+    'Plano 14A — IA', // execução antiga, sem o run-name (o display_title é o título do PR)
+    'ci',
+    'ci-pr-7-abc',
+    'ci-pr--' + 'a'.repeat(40),
+    'ci-pr-7-' + 'A'.repeat(40),
+    'xci-pr-7-' + 'a'.repeat(40),
+    'ci-pr-7-' + 'a'.repeat(40) + ' extra',
+  ])('display_title fora do padrão (%s) → CI completo', (titulo) => {
     const c = cenario('merge');
     const api = apiPadrao(c);
     const run = (api.runs as { workflow_runs: Record<string, unknown>[] }).workflow_runs[0];
-    api.runs = { workflow_runs: [{ ...run, pull_requests: [] }] };
+    api.runs = { workflow_runs: [{ ...run, display_title: titulo }] };
     expect(rodar(c, api).pular).toBe('false');
+  });
+
+  it('o select não depende de pull_requests: vazio (depois do merge) ou preenchido com outro PR, vale o display_title', () => {
+    const c = cenario('merge');
+    const api = apiPadrao(c);
+    const run = (api.runs as { workflow_runs: Record<string, unknown>[] }).workflow_runs[0];
+    expect(run.pull_requests).toEqual([]);
+    expect(rodar(c, api).pular).toBe('true');
+    api.runs = {
+      workflow_runs: [
+        { ...run, pull_requests: [{ number: 8, base: { ref: 'outro', sha: c.sha } }] },
+      ],
+    };
+    expect(rodar(c, api).pular).toBe('true');
   });
 
   it('a execução mais recente do PR certo vale, mesmo com uma execução mais nova do mesmo head em outro PR', () => {
@@ -298,7 +326,7 @@ describe('ci-ja-passou.sh (deploy pula o CI que o PR já passou)', () => {
           id: 301,
           conclusion: 'failure',
           created_at: '2026-10-09T11:59:00Z',
-          pull_requests: prDaExecucao(c, { number: 8 }),
+          ...daExecucao(c, { number: 8 }),
         },
         run,
       ],
