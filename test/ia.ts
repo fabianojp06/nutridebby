@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@/db/client';
-import { iaAutorizacoes, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
+import { iaAutorizacoes, iaGeracoesModelos, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { ConfigIA } from '@/modules/ia/modo';
 import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
@@ -62,6 +62,20 @@ export async function tarefaNoBanco(db: Db, ctx: TenantContext, patientId: strin
     db,
   );
   return t.id;
+}
+
+/** Plano 14B: uma geração de modelos gravada direto (sem reserva nem fila), para os testes de banco e de tela. */
+export async function geracaoNoBanco(db: Db, ctx: TenantContext, o: Partial<typeof iaGeracoesModelos.$inferInsert> = {}): Promise<string> {
+  const [g] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .insert(iaGeracoesModelos)
+        .values({ tenantId: ctx.tenantId, area: 'diabetes', status: 'na_fila', pedidoPor: ctx.actorUserId ?? randomUUID(), modelo: 'claude-sonnet-5-5', promptVersao: 'teste', reservaMicroUsd: 0, ...o })
+        .returning({ id: iaGeracoesModelos.id }),
+    db,
+  );
+  return g.id;
 }
 
 /** PDF de verdade (abre no pdf-lib), com texto por página e, se pedido, metadados com o "nome do paciente". */

@@ -17,6 +17,25 @@ export type StatusTarefa = (typeof STATUS_TAREFA)[number];
 export const EM_ANDAMENTO: readonly StatusTarefa[] = ['na_fila', 'processando'];
 
 /**
+ * Plano 14B (US-123 (a), A-D22): as áreas dos modelos sugeridos — lista a validar com a Debby; "Infantil" ficou de fora
+ * (RN-17, R-119). O código guarda a chave; a tela mostra o rótulo.
+ */
+export const AREAS_MODELOS_IA = ['emagrecimento', 'esportiva', 'gestacao', 'diabetes', 'hipertensao', 'vegetariana', 'idosos'] as const;
+export type AreaModelosIA = (typeof AREAS_MODELOS_IA)[number];
+export const AREA_ROTULO: Record<AreaModelosIA, string> = {
+  emagrecimento: 'Emagrecimento',
+  esportiva: 'Nutrição esportiva',
+  gestacao: 'Gestação',
+  diabetes: 'Diabetes',
+  hipertensao: 'Hipertensão',
+  vegetariana: 'Vegetariana e vegana',
+  idosos: 'Pessoas idosas',
+};
+/** RN-124: a situação de uma geração de modelos (sem `aplicada`: os modelos já nascem gravados). */
+export const STATUS_GERACAO = ['na_fila', 'processando', 'pronta', 'falhou', 'cancelada'] as const;
+export type StatusGeracao = (typeof STATUS_GERACAO)[number];
+
+/**
  * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): a
  * versão 0.1 do texto autoriza só `leitura_laudos` (AUTORIZACAO_IA_USOS, em textos-legais.ts); resumo e rascunho entram
  * com a 14B, numa versão nova do texto que pede autorização nova (RN-109).

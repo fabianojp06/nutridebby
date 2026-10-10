@@ -123,6 +123,10 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         values (${t}, ${p}, 'leitura_exame', 'falhou', null, coalesce(app_current_user(), gen_random_uuid()), 'claude-opus-5-5', 'iso', 0, 'interrompida')`,
   ia_uso: (t) =>
     sql`insert into ia_uso (tenant_id, tarefa_id, tipo, modelo, prompt_versao, custo_micro_usd, situacao, mes) values (${t}, gen_random_uuid(), 'leitura_exame', 'claude-opus-5-5', 'iso', 1, 'confirmado', '2026-10')`,
+  // Plano 14B: "falhou" para não cair no índice de um pacote em andamento por tenant (a fábrica roda duas vezes por tenant)
+  ia_geracoes_modelos: (t) =>
+    sql`insert into ia_geracoes_modelos (tenant_id, area, status, pedido_por, modelo, prompt_versao, reserva_micro_usd, erro)
+        values (${t}, 'diabetes', 'falhou', coalesce(app_current_user(), gen_random_uuid()), 'claude-sonnet-5-5', 'iso', 0, 'interrompida')`,
   // Plano 14A (desvio 1 do plano): as fábricas rodam como nutri, e o gatilho ia_autorizacoes_regras só deixa a equipe gravar
   // papel, nutricionista e pedido_email, em nome da própria usuária — a retirada pela nutricionista não precisa de linha-mãe
   // (o paciente já existe), então a recusa dos testes negativos vem da política da própria tabela (fora de COM_MAE).
@@ -151,12 +155,13 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
  * Plano 12: exam_submissions — gatilho exam_submissions_sem_apagar (0102): só o worker apaga, com o titular bloqueado ou anonimizado.
  */
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions']);
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
-const DELETE_REVOGADO = new Set(['ia_uso']);
+// Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -164,7 +169,8 @@ const DELETE_REVOGADO = new Set(['ia_uso']);
  */
 // Plano 11 (revisão final, Minor 2): ia_tarefas_imutavel (0100) recusa mudar tenant_id/patient_id com 42501 antes da RLS.
 // Plano 12: exam_submissions — gatilho exam_submissions_regras (0102): tenant e paciente são colunas fixas (42501 antes da RLS).
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions']);
+// Plano 14B: ia_geracoes_modelos_imutavel (0112) recusa mudar tenant_id (coluna fixa) com 42501 antes da RLS.
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions', 'ia_geracoes_modelos']);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
