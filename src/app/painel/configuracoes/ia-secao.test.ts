@@ -12,6 +12,8 @@ vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'fake', IA_MODELO_LEITUR
 vi.mock('@/modules/ia/cota', () => ({ situacaoDaCotaIa: vi.fn(async () => ({ usadoMicroUsd: 0, cotaMicroUsd: 15_000_000, percentual: 0, nivel: 'normal' })) }));
 vi.mock('./actions', () => ({ desativarIaAction: vi.fn() }));
 vi.mock('./ia-ativar-form', () => ({ IaAtivarForm: ({ rotulo }: { rotulo: string }) => `[IaAtivarForm ${rotulo}]` }));
+// R5: o componente de servidor assíncrono dos modelos (US-123) lê o banco; aqui só importa onde ele aparece
+vi.mock('./modelos-ia', () => ({ ModelosIa: ({ fuso }: { fuso: string }) => `[ModelosIa ${fuso}]` }));
 
 const { IaSecao } = await import('./ia-secao');
 
@@ -35,5 +37,13 @@ describe('Configurações > IA: confirmação "IA ativada." (US-101)', () => {
     const h = await html(base, true);
     expect(h).not.toContain(MSG_IA.iaAtivada);
     expect(h).toContain('[IaAtivarForm Ativar a IA no consultório]');
+  });
+});
+
+describe('Configurações > IA: modelos sugeridos (US-123 "Onde fica")', () => {
+  it('a seção dos modelos aparece só com a IA ativa, com o fuso do consultório', async () => {
+    expect(await html(ativa)).toContain('[ModelosIa America/Sao_Paulo]');
+    expect(await html(base)).not.toContain('[ModelosIa');
+    expect(await html({ ...ativa, iaLiberada: false })).not.toContain('[ModelosIa');
   });
 });

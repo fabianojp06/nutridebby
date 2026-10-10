@@ -157,6 +157,7 @@ describe('PDF do plano (US-026)', () => {
       id: randomUUID(), patientId: randomUUID(), isTemplate: false, titulo: 'Plano grande', metaKcal: null, energyCalcId: null, status: 'publicado',
       versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', pdfStatus: 'pendente', pdfPath: null,
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', itens }],
+      origemIa: null,
     };
     const avisos = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

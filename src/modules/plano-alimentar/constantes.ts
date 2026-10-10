@@ -34,3 +34,14 @@ export const MSG_PLANO = {
   semValor: 'Sem valor na TACO',
   semPeso: 'Registre a antropometria para ver g/kg',
 } as const;
+
+/** Plano 14B (US-123, RN-125): textos do modelo sugerido (os mesmos de MSG_MODELOS_IA; repetidos aqui para o editor, que não importa o módulo da IA). */
+export const MSG_MODELO_IA = {
+  aprove: 'Aprove o modelo antes de usá-lo com pacientes.',
+  marca: 'Sugestão da IA — revise',
+  faixa: 'Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu.',
+  aprovar: 'Aprovar modelo',
+  confirmarAprovar: 'Aprovar este modelo? Ele poderá ser usado com pacientes.',
+  aprovadoEm: (data: string) => `Aprovado em ${data}`,
+  descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
+} as const;

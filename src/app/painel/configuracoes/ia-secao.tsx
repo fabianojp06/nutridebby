@@ -9,6 +9,7 @@ import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { aditivoIa, IA_ADITIVO_VERSAO, textoCorrido } from '@/modules/ia/textos-legais';
 import { desativarIaAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
+import { ModelosIa } from './modelos-ia';
 
 /**
  * US-101 / US-102: seção "Inteligência artificial (IA)" de Configurações. Sem IA_PROVEDOR, a seção não existe.
@@ -45,6 +46,7 @@ export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: Tenant
           <p role="status">{MSG_IA.usoDoMes(cota.percentual)}</p>
           {cota.nivel === 'aviso' && <Aviso tipo="aviso">{MSG_IA.aviso80}</Aviso>}
           {cota.nivel === 'esgotada' && <Aviso tipo="aviso">{MSG_IA.cotaAcabou}</Aviso>}
+          <ModelosIa ctx={ctx} fuso={tenant.fuso} />
           {aditivo}
           <form action={desativarIaAction}>
             <ConfirmarBotao mensagem="Desativar a IA? As leituras na fila são canceladas e as sugestões ainda não salvas são descartadas.">Desativar a IA</ConfirmarBotao>

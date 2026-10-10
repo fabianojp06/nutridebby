@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { criarDeModeloAction } from '@/app/painel/planos/modelos/actions';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
-import { listarModelos } from '@/modules/plano-alimentar/modelos';
+import { listarModelosUsaveis } from '@/modules/plano-alimentar/modelos';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
 import { CriarDeModelo } from './criar-de-modelo';
@@ -19,7 +19,7 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   const rascunho = planos.find((p) => p.status === 'rascunho');
   const publicado = planos.find((p) => p.status === 'publicado');
   const bloqueado = paciente.status === 'bloqueado'; // US-018: só consulta, sem criar nem editar versões
-  const modelos = rascunho || bloqueado ? [] : await listarModelos(ctx); // "Criar a partir de modelo" só aparece sem rascunho
+  const modelos = rascunho || bloqueado ? [] : await listarModelosUsaveis(ctx); // "Criar a partir de modelo" só aparece sem rascunho; sugestão da IA só aprovada (US-123)
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold">Plano alimentar</h2>

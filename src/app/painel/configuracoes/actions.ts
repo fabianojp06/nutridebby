@@ -2,8 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { getEnv } from '@/env';
 import { requireNutri } from '@/lib/tenant-session';
 import { ativarIa, AtivacaoIaError, desativarIa } from '@/modules/ia/ativacao';
+import { pedirModelos } from '@/modules/ia/modelos-sugeridos';
+import { configIA } from '@/modules/ia/modo';
+import { PedidoIaError } from '@/modules/ia/tarefas';
 import { definirRecebimentoDeExames } from '@/modules/plataforma/recebimento-exames';
 
 export type AtivarIaState = { erro?: string };
@@ -30,6 +34,24 @@ export async function desativarIaAction(): Promise<void> {
   const { ctx } = await requireNutri('/painel/configuracoes');
   await desativarIa(ctx);
   revalidatePath('/painel', 'layout');
+}
+
+export type PedirModelosState = { erro?: string };
+
+/**
+ * US-123 "Gerar": o consultório e a usuária vêm da sessão; a área do formulário passa pela lista fechada no módulo.
+ * No sucesso, redirect: a seção passa a mostrar o andamento (o formulário some), como no "Ativar".
+ */
+export async function pedirModelosAction(_prev: PedirModelosState, fd: FormData): Promise<PedirModelosState> {
+  const { ctx, tenant } = await requireNutri('/painel/configuracoes');
+  try {
+    await pedirModelos(ctx, tenant, fd.get('area'), { ia: configIA(getEnv()) });
+  } catch (e) {
+    if (e instanceof PedidoIaError) return { erro: e.mensagem };
+    throw e;
+  }
+  revalidatePath('/painel/configuracoes');
+  redirect('/painel/configuracoes?modelos=pedido');
 }
 
 /** D18 = a (Plano 12): liga/desliga o recebimento de exames pelo app. O consultório vem da sessão, nunca do formulário. */

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
-import { AnamneseError, atualizarAnamnese, buscarModelo, perguntasDaAnamnese, preencherAnamnese } from '@/modules/pacientes/anamnese';
+import { AnamneseError, atualizarAnamnese, buscarModeloUsavel, perguntasDaAnamnese, preencherAnamnese } from '@/modules/pacientes/anamnese';
 import { respostasDoFormulario } from '@/modules/pacientes/anamnese-tipos';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 
@@ -18,7 +18,7 @@ function tratar(e: unknown, valores: Record<string, string | string[]>): Anamnes
 
 export async function preencherAnamneseAction(patientId: string, modeloId: string, _prev: AnamneseState, formData: FormData): Promise<AnamneseState> {
   const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/anamnese`);
-  const modelo = await buscarModelo(ctx, modeloId);
+  const modelo = await buscarModeloUsavel(ctx, modeloId); // R8: sugestão da IA não aprovada → 404, como a página
   if (!modelo) notFound();
   const valores = respostasDoFormulario(modelo.schema.perguntas, formData);
   let id: string;

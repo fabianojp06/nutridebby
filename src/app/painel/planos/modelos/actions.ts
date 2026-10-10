@@ -5,7 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { PlanoError, PlanoNaoEncontradoError } from '@/modules/plano-alimentar/erros';
-import { criarDeModelo, criarModelo, excluirModelo, salvarComoModelo } from '@/modules/plano-alimentar/modelos';
+import { aprovarModeloPlano, criarDeModelo, criarModelo, excluirModelo, salvarComoModelo } from '@/modules/plano-alimentar/modelos';
 
 export type ModeloState = { erro?: string; ok?: string };
 const mensagem = (e: PlanoError) => Object.values(e.erros)[0];
@@ -59,4 +59,17 @@ export async function criarDeModeloAction(patientId: string, _prev: ModeloState,
     throw e;
   }
   redirect(`/painel/pacientes/${patientId}/plano-alimentar/${id}`);
+}
+
+/** US-123 "Aprovar modelo": quem aprova é a usuária da sessão (o módulo e o gatilho conferem); modelo sem origem IA → 404. */
+export async function aprovarModeloPlanoAction(id: string): Promise<void> {
+  const { ctx } = await requireNutri(`/painel/planos/modelos/${id}`);
+  try {
+    await aprovarModeloPlano(ctx, id);
+  } catch (e) {
+    if (e instanceof PlanoNaoEncontradoError) notFound();
+    throw e;
+  }
+  revalidatePath('/painel/planos/modelos');
+  revalidatePath(`/painel/planos/modelos/${id}`);
 }

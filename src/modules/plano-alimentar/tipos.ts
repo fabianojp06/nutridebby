@@ -42,7 +42,14 @@ export type PlanoCompleto = {
   /** Caminho interno do arquivo: só no servidor (download por signFileUrl); nunca vai ao cliente (`PlanoDoCliente`). */
   pdfPath: string | null;
   refeicoes: RefeicaoPlano[];
+  /**
+   * Plano 14B (US-123): modelo sugerido pela IA — `sugestao` enquanto não aprovado ("Sugestão da IA — revise"),
+   * a data da aprovação e os itens descartados do pacote (desvio 12). Nulo em modelo feito à mão e em plano de paciente.
+   */
+  origemIa: OrigemIaDoModelo | null;
 };
+
+export type OrigemIaDoModelo = { sugestao: boolean; aprovadoEm: string | null; descartados: number };
 
 /** O que o editor (cliente) e o JSON da API recebem: sem o caminho interno do PDF (`paraCliente`, carregar.ts). */
 export type PlanoDoCliente = Omit<PlanoCompleto, 'pdfPath'> & { pdfPath?: never };
