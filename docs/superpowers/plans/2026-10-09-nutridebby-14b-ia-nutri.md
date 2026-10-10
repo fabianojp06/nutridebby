@@ -2641,6 +2641,11 @@ O PR 1 (branch `plano-14b-ia-nutri`, título "Plano 14B-1: modelos sugeridos pel
 
 ### Task 6: Textos jurídicos — autorização `1.1` com os usos da 14B, aditivo `1.1`, o contrato do que sai e o e-mail de confirmação (P14B-06)
 
+> **Decisão do dono D27 (10/10/2026, caderno do Plano 15 — `docs/superpowers/specs/2026-10-09-nutridebby-plano15-decisoes.md`, branch `plano-15-ia-nutri-paciente`):** a IA Nutri do paciente (Plano 15, depois da 14B-2) vai conversar com o paciente, então os textos **1.1** restringem a frase aos usos da nutricionista, para continuarem verdadeiros sem nova reautorização:
+> - **Autorização 1.1** ("Para que serve"): "… A IA não faz diagnóstico, não interpreta os seus exames e não receita. **Nestes usos, a IA não fala com você.**" (no lugar de "… não receita e não fala com você.").
+> - **Aditivo 1.1** (cláusula 2, Finalidades): "A IA não diagnostica, não interpreta exames e não prescreve. **Nestes usos, a IA não fala com o paciente.**" (no lugar de "… não prescreve e não fala com o paciente.").
+> - Os testes de texto desta tarefa conferem as frases novas. O Plano 15 traz o aditivo **1.2** com a finalidade da IA Nutri e versão mínima só da IA Nutri (não bloqueia laudos nem a 14B).
+
 **Revisão: completa (agente normas-cfn-lgpd)** — F2 do parecer JUR-2026-013 (os trechos `[14B]` agora, com versão nova e mínimo novo: 1.0 → 1.1, sem "provisorio", na linha da A-D27; a retenção de até 30 dias da Anthropic direta mantida), os oito requisitos da 3.3 (F3), a descrição do que sai batendo com o código (adaptações do desvio 10, que vão ao advogado), o aditivo com as finalidades (b)–(d), o item 5 e o selo, o e-mail com os três usos.
 
 **Files:**
@@ -2669,7 +2674,7 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
 
   it('"Para que serve" e "O que é enviado": a redação [14B] do parecer com as adaptações (b)–(c) do desvio 10, palavra por palavra', () => {
     const p = t02({ ...RESP, destino: 'bedrock-eu', canal: 'app' });
-    expect(p[2]).toBe('Para que serve. A IA ajuda a sua nutricionista a: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você.');
+    expect(p[2]).toBe('Para que serve. A IA ajuda a sua nutricionista a: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames e não receita. Nestes usos, a IA não fala com você.');
     expect(p[4]).toBe(
       'O que é enviado. Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. ' +
       'No resumo e no rascunho, vão as informações do seu prontuário necessárias para a tarefa: a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela. ' +
@@ -2798,7 +2803,7 @@ const LEITURA_ENVIA = 'Na leitura de laudos, vai o laudo inteiro, com o seu nome
 type Partes = { retencao: string; rodape: string; paraQueServe?: string; oQueEEnviado?: string };
 function autorizacao(d: DadosDoTexto, x: Partes): TextoLegal {
   // … os parágrafos de hoje, com:
-  //   [b('Para que serve.'), n(` ${x.paraQueServe ?? PARA_QUE_SERVE_LEITURA} A IA só sugere. … não fala com você.`)],
+  //   [b('Para que serve.'), n(` ${x.paraQueServe ?? PARA_QUE_SERVE_LEITURA} A IA só sugere. … e não receita. Nestes usos, a IA não fala com você.`)],
   //   [b('O que é enviado.'), n(` ${x.oQueEEnviado ?? LEITURA_ENVIA} Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.`)],
   //   [b('Por quanto tempo.'), n(`${x.retencao}${EXCECAO_DE_RETENCAO[d.destino] ?? ''} …`)],
   //   [n(x.rodape)],
