@@ -88,7 +88,9 @@ describe('conteúdo do manual (P08-10)', () => {
     const modelos = GUIAS.find((x) => x.id === 'modelos')!;
     expect(modelos.versao).toBe(2);
     const textosModelos = [...modelos.ajuda.secoes.flatMap((s) => s.itens), ...modelos.passos.map((p) => p.texto)];
-    expect(textosModelos).toContain('Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só aparecem para os pacientes depois de "Aprovar modelo".');
+    expect(textosModelos).toContain('Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".');
+    // revisão da T5F: o paciente nunca vê um modelo; aprovar só o libera para uso com pacientes
+    expect(textosModelos.join(' ')).not.toMatch(/aparece\w* para os pacientes/);
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
     expect(config.versao).toBe(6);
     expect(config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')?.itens).toContain(

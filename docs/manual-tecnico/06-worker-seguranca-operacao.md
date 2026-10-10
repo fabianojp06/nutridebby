@@ -90,7 +90,7 @@ as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sand
 e `IA_MODELO_LEITURA` e `IA_MODELO_ASSISTENTE` têm de estar em `MODELOS_BEDROCK_EU` (`conferirIa`); as duas chaves da AWS vêm juntas e a de acesso
 só no formato `AKIA…`. **O worker não sobe** com `AWS_BEARER_TOKEN_BEDROCK`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`,
 `ANTHROPIC_BEDROCK_BASE_URL` ou `ANTHROPIC_CUSTOM_HEADERS` definidas: o SDK do provedor as leria sozinho (Plano 14A, D2,
-`proibidaNoWorker`, `src/env.ts:281-285`). Ao subir, o worker loga `IA de laudos` com o modo, o provedor (só o nome), o
+`proibidaNoWorker`, `src/env.ts:299-303`). Ao subir, o worker loga `IA de laudos` com o modo, o provedor (só o nome), o
 modelo e `chave: presente`/`ausente` (nunca a chave) e, desde o Plano 14B-1, `IA Nutri` com o `modeloAssistente`. Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
 
 **Imagem do worker (Plano 14A).** O SDK do Bedrock (`@anthropic-ai/bedrock-sdk`, com `@aws-sdk/*` e `@smithy/*`) roda só

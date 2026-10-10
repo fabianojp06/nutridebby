@@ -221,11 +221,11 @@ export const GUIAS: readonly Guia[] = [
     titulo: 'Modelos',
     ajuda: {
       resumo: 'Modelos de plano alimentar e de anamnese para começar mais rápido. Usar um modelo copia o conteúdo; mudar o modelo depois não muda o que já foi criado.',
-      secoes: [{ titulo: 'Modelos sugeridos pela IA', itens: ['Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só aparecem para os pacientes depois de "Aprovar modelo".'] }],
+      secoes: [{ titulo: 'Modelos sugeridos pela IA', itens: ['Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".'] }],
     },
     passos: [
       { titulo: 'Modelos', texto: 'Crie um modelo aqui ou salve um plano pronto como modelo pelo editor do plano.' },
-      { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só aparecem para os pacientes depois de "Aprovar modelo".' },
+      { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".' },
     ],
   },
   {

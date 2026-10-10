@@ -143,7 +143,7 @@ Chaves e restrições que importam:
 |---|---|---|
 | `RLS_EXCEPTIONS` | `document_verifications` | `src/db/rls-guard.ts:15` |
 | `STAFF_ONLY` | `signed_document_notes` | `src/db/rls-guard.ts:113` |
-| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:196-197` |
+| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:197-198` |
 | `AUDIT_EXCEPTIONS` | `document_access_codes` | `src/db/audit-guard.ts:15` |
 | `SEM_CONTA_PERMITIDOS` | `src/modules/documentos/link-documento.ts` (quatro arquivos) | `src/db/tenant.ts:34` |
 | `ENTIDADE_ROTULO` | `documentos` ("Documentos assinados"), `perfil_profissional` ("Perfil profissional"), `tentativa_assinatura` ("Tentativa de assinatura com código recusado") | `src/modules/plataforma/audit.ts:64-66` |

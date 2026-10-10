@@ -558,8 +558,8 @@ só a preserva enquanto a IA continua ativa (aceite de versão nova do aditivo, 
 `desativarIa` a zera (`src/modules/ia/ativacao.ts:48`) e a reativação grava a data nova. A data do primeiro aceite de cada
 versão fica em `consents.aceito_em` (`onConflictDoNothing`). Diferente do DPA, versão nova do aditivo **não**
 redireciona o painel: a seção de IA em Configurações mostra "Para continuar usando a IA, aceite a versão atual do aditivo
-de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual" (`ia-secao.tsx:33-38`), e cada exame com
-laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:22`)
+de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual" (`ia-secao.tsx:35-41`), e cada exame com
+laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:24`)
 (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 
 **Como publicar uma versão nova** (texto do advogado, P08-06): trocar `DPA_VERSAO` ou `TERMO_PACIENTE_VERSAO` e os parágrafos. Na próxima requisição, toda nutricionista vai para `/painel/dpa` e todo paciente para `/p/termo`. Não precisa de migration.
