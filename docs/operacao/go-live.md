@@ -86,6 +86,15 @@ Nada disto bloqueia o deploy: sem `IA_PROVEDOR` a IA fica escondida e, sem a ret
 - Emergência: `IA_DESLIGADA=1` no Easypanel (a retirada da autorização continua possível).
 - Todo mês: soma de `ia_uso` do mês × Cost Explorer da AWS filtrado pelo Bedrock; diferença > 5% abre investigação (RNF-108).
 
+## Plano 14B-1 — modelos sugeridos pela IA
+Nada disto bloqueia o deploy: a seção "Modelos sugeridos pela IA" só aparece em Configurações com a IA ativa no consultório, e nenhum dado de paciente sai (os modelos usam só a área e a tabela de alimentos). Bloqueia **a Debby usar os modelos sugeridos** com pacientes. Passos e porquês: [`docs/operacao/ia.md`](ia.md#plano-14b-1--modelos-sugeridos) (runbook da 14B-1, P14B-05F) e [§10.12 do manual técnico](../manual-tecnico/10-ia.md#1012-modelos-sugeridos-pela-ia-plano-14b-1).
+- [ ] Antes do merge (merge = deploy): snapshot no hPanel; OK explícito do dono no PR 1; as migrations `0111`–`0112` rodam no deploy com `DATABASE_URL_MIGRATOR`; job `image` do PR dentro de **265 MB** (nenhuma dependência nova) — **dono**
+- [ ] Áreas confirmadas pela Debby (emagrecimento, nutrição esportiva, gestação, diabetes, hipertensão, vegetariana e vegana, pessoas idosas; "Infantil" fora pela RN-17) — trocar = PR curto em `AREAS_MODELOS_IA`/`AREA_ROTULO` e no CHECK, com migration — e os textos novos das telas dos modelos e dos guias `modelos` e `configuracoes` do manual guiado revistos — **Debby**
+- [ ] Avaliação manual dos 7 pacotes (RN-127), na máquina do dono, com o `.env.avaliacao` (chave do workspace **dev**), `IA_AVALIACAO_TAREFA=modelos` e `IA_AVALIACAO_MODELOS=claude-sonnet-5-5`, custo < US$ 10: 7 de 7 pacotes com os 3 modelos válidos, itens descartados ≤ 10%, nenhum suplemento ou medicamento (`rn123 = 0`), custo de cada pacote ≤ US$ 1,00; relatório (só métricas) no PR 1 — **dono**
+- [ ] Easypanel (snapshot antes; reinício só com o OK do dono): app **e** worker com `IA_MODELO_ASSISTENTE=claude-sonnet-5-5`; no log do worker, a linha "IA Nutri" com o `modeloAssistente` — **dono**
+- [ ] A Debby gera os pacotes das áreas que usa, revisa cada modelo (alimentos, quantidades, textos) e aprova; só os aprovados aparecem em "Criar a partir de modelo" e na anamnese do paciente — **Debby**
+- Emergência: `IA_DESLIGADA=1` no Easypanel (os modelos já aprovados continuam usáveis: são da nutricionista).
+
 ## Plano 13 — parecer nutricional e retificação
 Runbook do dono, copiado do plano (`docs/superpowers/plans/2026-10-08-nutridebby-13-parecer.md`, "Runbook do dono"; manual técnico, cap. 9, §9.11). O passo 1 foi feito em 08/10/2026: o dono aprovou o plano com a D2 = (a) e as Q13-1 a Q13-6 como recomendadas.
 

@@ -1,6 +1,6 @@
 # 2. Banco de dados
 
-Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0110`, `drizzle/meta/_journal.json` com 111 entradas, conferidas no branch do Plano 14A em 09/10/2026 e, a `0110` (migration de dados do prazo de guarda, JUR-01), no mesmo dia; as tabelas e funções dos documentos assinados, `0089`–`0093` e `0104`–`0105`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco), as da IA, `0098`–`0100` e `0107`–`0109` (Plano 14A), no [cap. 10](10-ia.md#104-banco), e as dos exames enviados, `0101`–`0102`, no [cap. 11](11-exames-enviados.md#113-banco); `0094`–`0097` são do Plano 09: `app_versao_do_schema()` e `admin_actions`; a `0103`, da sessão da equipe; a `0106`, do Plano 16). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
+Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0112`, `drizzle/meta/_journal.json` com 113 entradas, conferidas no branch do Plano 14A em 09/10/2026, a `0110` (migration de dados do prazo de guarda, JUR-01) no mesmo dia e as `0111`–`0112` (Plano 14B-1, modelos sugeridos pela IA) no branch `plano-14b-ia-nutri` em 10/10/2026; as tabelas e funções dos documentos assinados, `0089`–`0093` e `0104`–`0105`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco), as da IA, `0098`–`0100`, `0107`–`0109` (Plano 14A) e `0111`–`0112` (Plano 14B-1, [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112)), no [cap. 10](10-ia.md#104-banco), e as dos exames enviados, `0101`–`0102`, no [cap. 11](11-exames-enviados.md#113-banco); `0094`–`0097` são do Plano 09: `app_versao_do_schema()` e `admin_actions`; a `0103`, da sessão da equipe; a `0106`, do Plano 16). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
 
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
@@ -158,7 +158,7 @@ Regras de operação:
 
 ## 2.5 Catálogo de tabelas
 
-São 58 tabelas em `public`: 43 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 11 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (09/10/2026).
+São 59 tabelas em `public`: 44 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 11 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS; Plano 14B-1: `ia_geracoes_modelos` sob RLS). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (10/10/2026).
 
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
@@ -176,14 +176,14 @@ Legenda da coluna "Proteção":
 | `consultation_notes` | T, P, S, A `notas_privadas` | 0028 |
 | `anthropometry` | T, P, A `antropometria` | 0022 |
 | `energy_calcs` | T, P, A `gasto_energetico` | 0024 |
-| `anamnesis_templates` | T | 0026 |
+| `anamnesis_templates` | T, gatilho `anamnesis_templates_ia_origem` (`app_modelo_ia_origem`, Plano 14B-1: origem IA só pelo `worker`, aprovação uma vez e pela usuária da sessão) | 0026, 0112 |
 | `anamneses` | T, P, A `anamnese` | 0026 |
 | `exams` | T, P, A `exames`; UNIQUE (`tenant_id`, `patient_id`, `id`), alvo da FK de `ia_tarefas` | 0030, 0098 |
 | `privacy_requests` | T, P, PE `insert`, A `pedidos_titular` | 0033, 0079 |
 | `data_exports` | T, P, PE `insert`/`update`, A `exportacoes`, X `paciente_exportacao_titular`, gatilho `paciente_colunas` | 0035, 0079, 0080, 0085 |
 | `foods` | T, X `taco_leitura` | 0040 |
 | `food_measures` | T | 0043 |
-| `meal_plans` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho` | 0045 |
+| `meal_plans` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho`, gatilho `meal_plans_ia_origem` (`app_modelo_ia_origem`, Plano 14B-1) | 0045, 0112 |
 | `meals` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho` | 0045 |
 | `meal_items` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho` | 0045 |
 | `availability_rules` | T, S, Pub `select` | 0049, 0051 |
@@ -207,6 +207,7 @@ Legenda da coluna "Proteção":
 | `document_access_codes` | T, P, PE `insert`/`update` (sem auditoria), X `paciente_codigo_de_assinado`, gatilho `codigo_acesso_regras` | 0090, 0091, 0092 |
 | `ia_tarefas` | T, P, S, A `ia`, gatilhos `ia_tarefas_sem_apagar` (DELETE só do `worker` com o paciente anonimizado) e `ia_tarefas_imutavel` (colunas fixas) | 0099, 0100 |
 | `ia_uso` | T, S (sem `patient_id`, fora da auditoria); `REVOKE DELETE, TRUNCATE` | 0099 |
+| `ia_geracoes_modelos` (Plano 14B-1) | T, S (sem `patient_id`, fora da auditoria); `REVOKE DELETE, TRUNCATE`; gatilho `ia_geracoes_modelos_imutavel` (colunas fixas); índice único parcial de um pacote em andamento por tenant | 0112 |
 | `ia_autorizacoes` (Plano 14A) | T, P, PE `insert` (sem auditoria, `AUDIT_EXCEPTIONS`), X `paciente_autorizacao_propria` (RESTRICTIVE, só a própria autorização ou retirada, no app com a própria conta ou no link sem conta); `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `ia_autorizacoes_regras` | 0108 |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
@@ -265,7 +266,7 @@ Decisões: tabelas do Better Auth no lugar de `users` (Plano 01, "Desvios consci
 | `consultation_notes` | `consultation_id` (UNIQUE), `texto` (1–20000) | FK tripla → `consultations` `CASCADE` | 0027 |
 | `anthropometry` | `data`, `peso_kg`, `altura_cm`, `imc` (GENERATED STORED), `circunferencias`, `dobras_mm`, `protocolo` (`jp3`/`jp7`/`nenhum`), `densidade`, `perc_gordura`, `consultation_id` | peso 1–400, altura 30–250 | 0021, 0027 |
 | `energy_calcs` | `formula` (`harris_benedict`/`mifflin`/`fao_oms`), `peso_kg`, `altura_cm`, `idade` (≥ 18), `sexo`, `fator_atividade` (1,00–2,50), `tmb`, `get` | — | 0023 |
-| `anamnesis_templates` | `nome` (1–80), `schema` (jsonb), `padrao`, `arquivado_em` | UNIQUE (`tenant_id`,`id`); um `padrao` por tenant | 0025 |
+| `anamnesis_templates` | `nome` (1–80), `schema` (jsonb), `padrao`, `arquivado_em`; Plano 14B-1: `ia_geracao_id` (origem IA), `aprovado_em`, `aprovado_por` | UNIQUE (`tenant_id`,`id`); um `padrao` por tenant; FK (`tenant_id`,`ia_geracao_id`) → `ia_geracoes_modelos` (na `0112`); CHECKs `anamnesis_templates_aprovacao_coerente` e `_padrao_aprovado` (o padrão nunca é sugestão sem aprovação) | 0025, 0111 |
 | `anamneses` | `template_id`, `template_snapshot`, `respostas`, `data` | FK (`tenant_id`,`template_id`) → modelos | 0025 |
 | `exams` | `data`, `titulo` (1–120), `arquivo_path`, `valores` (jsonb; desde o Plano 11 cada linha pode ter `iaTarefaId`, a origem da sugestão da IA) | `arquivo_path` do próprio tenant; FK → `stored_files.caminho` `SET NULL`; UNIQUE `exams_tenant_paciente_id_unique` (0098) | 0029, 0031, 0098 |
 | `privacy_requests` | `tipo` (`exportacao`/`exclusao`), `status` (`aberto`/`concluido`), `prazo`, `concluido_em` | um `aberto` por (`tenant_id`,`patient_id`,`tipo`) | 0032, 0078 |
@@ -279,7 +280,7 @@ Notas privadas e etiquetas são tabelas próprias com `staff_only`, porque uma c
 |---|---|---|---|
 | `foods` | `tenant_id` (**nulo = TACO**), `taco_id`, `nome` (2–120), `grupo`, `kcal`, `proteina_g`, `carboidrato_g`, `lipidio_g`, `fibra_g`, `micros`, `medidas_caseiras`, `origem_food_id` (sem FK) | `taco_id` UNIQUE; CHECK `foods_origem_valida` (`tenant_id` nulo ⇔ `taco_id` presente); alimento próprio completo; faixas | 0038, 0040 |
 | `food_measures` | `food_id`, `nome`, `plural`, `gramas` (0,1–5000) | UNIQUE (`tenant_id`,`food_id`,`nome`); FK `food_id` `CASCADE` | 0041 |
-| `meal_plans` | `patient_id` (nulo = modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id` (sem FK), `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `revisao`, `ultimo_envio`, `publicado_em`, `origem_plan_id`, `mostrar_calorias`, `orientacoes`, `pdf_path`, `pdf_status`, `pdf_pedido_em` | UNIQUE (`tenant_id`,`id`) e (`tenant_id`,`id`,`patient_id`); um publicado e um rascunho por paciente (índices parciais); modelo ⇔ sem paciente e sempre rascunho | 0044, 0046, 0047 |
+| `meal_plans` | `patient_id` (nulo = modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id` (sem FK), `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `revisao`, `ultimo_envio`, `publicado_em`, `origem_plan_id`, `mostrar_calorias`, `orientacoes`, `pdf_path`, `pdf_status`, `pdf_pedido_em`; Plano 14B-1: `ia_geracao_id` (origem IA, só em modelo), `aprovado_em`, `aprovado_por` | UNIQUE (`tenant_id`,`id`) e (`tenant_id`,`id`,`patient_id`); um publicado e um rascunho por paciente (índices parciais); modelo ⇔ sem paciente e sempre rascunho; FK `meal_plans_ia_geracao_fk` (`tenant_id`,`ia_geracao_id`); CHECKs `meal_plans_ia_geracao_so_modelo` e `_aprovacao_coerente` | 0044, 0046, 0047, 0111 |
 | `meals` | `plan_id`, `patient_id`, `nome`, `horario`, `ordem`, `observacao`, `recipe_content_id` | UNIQUE (`tenant_id`,`plan_id`,`id`); FKs para o plano `CASCADE`; `meals_receita_fk` `SET NULL (recipe_content_id)` | 0044, 0081, 0082 |
 | `meal_items` | `plan_id`, `meal_id`, `patient_id`, `food_id` (FK `RESTRICT`), `quantidade_g` (0,1–5000), `medida`, `medida_caseira_txt`, `substitui_item_id`, `ordem`, `nutrientes` | FK para a refeição e para o item principal da mesma refeição `CASCADE` | 0044 |
 
@@ -338,12 +339,16 @@ Anti-sobreposição (Plano 05, D9): `EXCLUDE USING gist (tenant_id WITH =, tstzr
 | `ia_uso` | Registro técnico de custo, uma linha por tarefa, sem `patient_id` nem conteúdo; `REVOKE DELETE, TRUNCATE` | idem |
 | `ia_gasto_plataforma` | Contador do mês de Brasília do teto global, **sem `tenant_id`** (§2.9) | idem |
 | `ia_autorizacoes` (Plano 14A) | Um evento por linha da autorização de IA do paciente (`autorizou`, `retirou`, `pedido_email`): versão, usos, destino, canal, quem registrou, `em`/`registrado_em` do relógio do banco, IP e user-agent (app e link), HMAC do e-mail (link), termo em papel (FK `NO ACTION` para `stored_files.caminho`); só de inclusão | [§10.10.1](10-ia.md#10101-banco-ia_autorizacoes) |
+| `ia_geracoes_modelos` (Plano 14B-1) | Um pedido de pacote de modelos sugeridos por área (sem paciente): área (CHECK com as 7), situação (`na_fila`, `processando`, `pronta`, `falhou`, `cancelada`), quem pediu, modelo e versão das instruções, reserva e custo, itens descartados, voltas, `enviado_em`; os modelos gravados apontam para ela (`ia_geracao_id`) | [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112) |
 
 Colunas novas em `tenants` e `patients` (§2.5.3, §2.5.4) e a UNIQUE de `exams` vêm da `0098`; RLS, auditoria, gatilhos e
 `admin_metricas_ia()`, da `0099`; os gatilhos de defesa da revisão final, da `0100`. Plano 14A: `ia_autorizacoes`, a
 coluna `ia_tarefas.destino` (o destino gravado no portão do envio; CHECK `ia_tarefas_destino_valido`, imutável depois de
 gravado) e o tipo de arquivo `ia_autorizacao_termo`, da `0107`; RLS, política, `REVOKE`, gatilho, funções e
 `app_ia_tarefas_imutavel` refeita, da `0108`; `app_patients_ia_quem` refeita (colunas de ciência congeladas), da `0109`.
+Plano 14B-1: `ia_geracoes_modelos` e as colunas de origem e aprovação de `meal_plans` e `anamnesis_templates`, da `0111`;
+RLS, `staff_only`, `REVOKE`, a FK de `anamnesis_templates` e os gatilhos `app_ia_geracoes_imutavel` e `app_modelo_ia_origem`,
+da `0112` (nenhuma migração de dados, nenhum `DISABLE TRIGGER`).
 
 ---
 
@@ -505,7 +510,11 @@ ou canal mantendo `email`; trocar para `em_maos` — nova entrega em mãos, `reg
 `app_patients_ia_quem` refeita na `0109` (com qualquer `app.role`, recusa INSERT que preencha e UPDATE que mude qualquer
 das cinco colunas de ciência e recusa; só o contexto vazio passa — RN-128), `app_ia_tarefas_imutavel` refeita na `0108`
 (o `destino` gravado não muda nem volta a nulo) e o gatilho novo `app_ia_autorizacoes_regras` (BEFORE INSERT em
-`ia_autorizacoes`, [§10.10.1](10-ia.md#10101-banco-ia_autorizacoes)); testes em `src/db/ia-autorizacoes.test.ts`.
+`ia_autorizacoes`, [§10.10.1](10-ia.md#10101-banco-ia_autorizacoes)); testes em `src/db/ia-autorizacoes.test.ts`. Plano 14B-1:
+`app_ia_geracoes_imutavel` (BEFORE UPDATE em `ia_geracoes_modelos`: id, tenant, área, quem pediu, modelo, versão das
+instruções e data do pedido fixos) e `app_modelo_ia_origem` (BEFORE INSERT OR UPDATE em `meal_plans` e
+`anamnesis_templates`: `ia_geracao_id` só pelo `worker`, nunca já aprovado e imutável; a aprovação vai de nula a
+preenchida uma vez, com `aprovado_por = app_current_user()`), na `0112`; testes em `src/db/ia-modelos.test.ts`.
 
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 

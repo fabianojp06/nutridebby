@@ -286,24 +286,29 @@ Decisão (Plano 03, "Notas privadas e etiquetas"): tabelas próprias com a polí
 
 **Arquivos:** `anamnese.ts`, `anamnese-tipos.ts` (puro, usado também no navegador), `anamnese-padrao.ts`.
 
-**Tabelas:** `anamnesis_templates` 🔒 (`nome`, `schema jsonb`, `padrao`, `arquivado_em`; índice único parcial de um padrão por tenant) e `anamneses` 🔒 (`template_snapshot`, `respostas`, `data`).
+**Tabelas:** `anamnesis_templates` 🔒 (`nome`, `schema jsonb`, `padrao`, `arquivado_em`; índice único parcial de um padrão por tenant; Plano 14B-1: `ia_geracao_id`, `aprovado_em`, `aprovado_por`) e `anamneses` 🔒 (`template_snapshot`, `respostas`, `data`).
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `garantirModeloPadrao(tx, tenantId)` | Cria "Anamnese geral" se o tenant nunca teve padrão; corrida decidida pelo índice único (`ON CONFLICT DO NOTHING`) | `anamnese.ts:22` |
-| `listarModelos(ctx)` | Garante o padrão e lista os não arquivados | `anamnese.ts:27` |
-| `salvarModelo(ctx, id, input)` | Cria ou altera; valida com `validarModelo` (até 100 perguntas; escolha precisa de ≥ 2 opções; até 30 opções de até 100 caracteres) | `anamnese.ts:50`; `anamnese-tipos.ts:43` |
-| `arquivarModelo(ctx, id)` | "Excluir" = arquivar | `anamnese.ts:74` |
-| `preencherAnamnese(ctx, tenant, patientId, templateId, respostas)` | Valida contra o modelo atual e grava **cópia do modelo** em `template_snapshot` | `anamnese.ts:80` |
-| `atualizarAnamnese(...)` | Valida contra o **snapshot**, nunca contra o modelo atual | `anamnese.ts:119` |
-| `listarAnamneses`, `buscarAnamnese` | Leituras auditadas (`anamnese`) | `anamnese.ts:134,161` |
-| `perguntasDaAnamnese(...)` | Só as perguntas do snapshot, sem auditar (não devolve resposta) | `anamnese.ts:151` |
+| `garantirModeloPadrao(tx, tenantId)` | Cria "Anamnese geral" se o tenant nunca teve padrão; corrida decidida pelo índice único (`ON CONFLICT DO NOTHING`) | `anamnese.ts:36` |
+| `listarModelos(ctx)` | Garante o padrão e lista os não arquivados, com `sugestaoIa` e `aprovadoEm` (Plano 14B-1) | `anamnese.ts:42` |
+| `listarModelosUsaveis(ctx)`, `buscarModeloUsavel(ctx, id)` | Plano 14B-1 (RN-125): só os próprios e os sugeridos pela IA **aprovados** — as escolhas do paciente (lista, página "nova" e a action) | `anamnese.ts:47,75` |
+| `aprovarModeloAnamnese(ctx, id)` | Plano 14B-1: "Aprovar modelo" com o modelo travado; grava `aprovado_por` (= `actorUserId`) e `aprovado_em`; sem origem IA → "modelo não encontrado" | `anamnese.ts:93` |
+| `itensDescartadosDoModelo(ctx, m)` | Plano 14B-1 (desvio 12): os itens descartados do pacote de onde veio o modelo | `anamnese.ts:85` |
+| `salvarModelo(ctx, id, input)` | Cria ou altera; valida com `validarModelo` (até 100 perguntas; escolha precisa de ≥ 2 opções; até 30 opções de até 100 caracteres) | `anamnese.ts:114`; `anamnese-tipos.ts:43` |
+| `arquivarModelo(ctx, id)` | "Excluir" = arquivar | `anamnese.ts:138` |
+| `preencherAnamnese(ctx, tenant, patientId, templateId, respostas)` | Valida contra o modelo atual e grava **cópia do modelo** em `template_snapshot`; modelo sugerido pela IA sem aprovação → "Aprove o modelo antes de usá-lo com pacientes." (Plano 14B-1) | `anamnese.ts:144` |
+| `atualizarAnamnese(...)` | Valida contra o **snapshot**, nunca contra o modelo atual | `anamnese.ts:184` |
+| `listarAnamneses`, `buscarAnamnese` | Leituras auditadas (`anamnese`) | `anamnese.ts:199,226` |
+| `perguntasDaAnamnese(...)` | Só as perguntas do snapshot, sem auditar (não devolve resposta) | `anamnese.ts:216` |
 
 Tipos de pergunta (`TIPOS_PERGUNTA`, `anamnese-tipos.ts:6`): `texto_curto` (≤ 200), `texto_longo` (≤ 5000), `numero` (com unidade), `sim_nao`, `escolha_unica`, `multipla_escolha`, `data`. Obrigatória vazia: "Responda: {rótulo}"; valor inválido: "Resposta inválida: {rótulo}". Qualquer erro = nada salvo (`validarRespostas`, `anamnese-tipos.ts:81`).
 
 Modelo padrão (`modeloPadrao`, `anamnese-padrao.ts:6`): dez perguntas não obrigatórias com os nomes exatos da US-012.
 
 Decisão (Plano 03, "Modelo padrão de anamnese"): criado na primeira listagem, não na criação da conta, porque a conta é criada pelo admin, que nunca toca tabela 🔒.
+
+**Modelos sugeridos pela IA (Plano 14B-1, US-123).** O pacote de uma área traz 1 modelo de anamnese, gravado pelo worker com `ia_geracao_id` e o nome prefixado pela área ("Diabetes: …"). Na lista (`/painel/anamnese/modelos`) aparece a marca "Sugestão da IA — revise" ou "Aprovado em {data}"; na página do modelo, a faixa, os itens descartados do pacote e "Aprovar modelo". O gatilho `app_modelo_ia_origem` segura a origem e a aprovação (só pelo `worker`, aprovação uma vez e pela usuária da sessão) e o CHECK `anamnesis_templates_padrao_aprovado` impede que um sugerido sem aprovação seja o padrão (não há ação "tornar padrão", desvio 9). Desenho completo no [§10.12](10-ia.md#1012-modelos-sugeridos-pela-ia-plano-14b-1).
 
 ### 4.2.4 Antropometria (US-013) e gasto energético (US-014)
 
@@ -691,13 +696,17 @@ Consequência de D10: corrigir um "Meu alimento" não muda plano publicado; "Edi
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `criarModelo(ctx, titulo)` | Modelo vazio | `modelos.ts:20` |
-| `listarModelos(ctx)` | Com contagem de refeições | `modelos.ts:26` |
-| `salvarComoModelo(ctx, planId, titulo)` | Copia refeições e itens; audita a leitura do plano do paciente; paciente bloqueado não gera modelo | `modelos.ts:48` |
-| `criarDeModelo(ctx, modeloId, patientId)` | Rascunho novo do paciente; recusa se já houver rascunho ("Já existe um rascunho para este paciente.") | `modelos.ts:73` |
-| `excluirModelo(ctx, id)` | Apaga o modelo | `modelos.ts:94` |
+| `criarModelo(ctx, titulo)` | Modelo vazio | `modelos.ts:23` |
+| `listarModelos(ctx)` | Com contagem de refeições; Plano 14B-1: `sugestaoIa` (origem IA sem aprovação) e `aprovadoEm` | `modelos.ts:30` |
+| `listarModelosUsaveis(ctx)` | Plano 14B-1 (RN-125): só os próprios e os sugeridos **aprovados** — "Criar a partir de modelo" na página do plano do paciente | `modelos.ts:53` |
+| `aprovarModeloPlano(ctx, id)` | Plano 14B-1: "Aprovar modelo" com o modelo travado; grava `aprovado_por` (= `actorUserId`) e `aprovado_em`; sem origem IA → `PlanoNaoEncontradoError` | `modelos.ts:74` |
+| `salvarComoModelo(ctx, planId, titulo)` | Copia refeições e itens; audita a leitura do plano do paciente; paciente bloqueado não gera modelo | `modelos.ts:99` |
+| `criarDeModelo(ctx, modeloId, patientId)` | Rascunho novo do paciente; recusa se já houver rascunho ("Já existe um rascunho para este paciente.") e, desde o Plano 14B-1, o sugerido pela IA sem aprovação ("Aprove o modelo antes de usá-lo com pacientes."); o plano criado não leva marca de IA | `modelos.ts:124` |
+| `excluirModelo(ctx, id)` | Apaga o modelo | `modelos.ts:146` |
 
 Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não encontrado" (`publicacao.ts:44-45`). Modelos não mostram g/kg (D15).
+
+**Modelos sugeridos pela IA (Plano 14B-1, US-123).** O pacote de uma área traz 2 modelos de plano, gravados pelo worker na mesma transação (`ia_geracao_id`, título prefixado pela área, conteúdo por `gravarConteudoRascunhoTx` em `rascunho.ts`, com `patientId` nulo). `carregarPlano` devolve `origemIa` (`{ sugestao, aprovadoEm, descartados }`, `carregar.ts`; `PlanoCompleto.origemIa` em `tipos.ts`). Na lista (`/painel/planos/modelos`), a marca "Sugestão da IA — revise" (texto, não só cor) ou "Aprovado em {data}"; na página do modelo, a faixa ("Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu."), "{n} itens sugeridos foram descartados por serem inválidos." e "Aprovar modelo" (com confirmação; `AprovarModelo`, `aprovarModeloPlanoAction`). O modelo continua editável no editor antes e depois da aprovação. Textos em `MSG_MODELO_IA` (`constantes.ts`). Gatilho `app_modelo_ia_origem` e CHECKs no [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112).
 
 ### 4.4.5 PDF do plano no worker (US-026, Plano 04, D13, D14)
 

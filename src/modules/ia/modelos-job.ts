@@ -213,9 +213,10 @@ type PacoteValido = { planos: PlanoIa[]; anamnese: { nome: string; perguntas: Pe
 /**
  * Os três modelos do pacote, revalidados (planos por validarPlanoIa; anamnese por validarModelo, a do editor). Fora do
  * formato, sem os 2 planos, plano sem refeição válida ou anamnese inválida → `null` (nenhum é gravado). Da pergunta só
- * passam os campos do editor (o id é sempre novo).
+ * passam os campos do editor (o id é sempre novo). Exportada para a avaliação dos pacotes (RN-127, `avaliar-assistente.ts`)
+ * decidir "pacote válido" com o mesmo código do worker.
  */
-function lerPacote(texto: string, cat: CatalogoDaTarefa): PacoteValido | null {
+export function lerPacote(texto: string, cat: CatalogoDaTarefa): PacoteValido | null {
   let obj: unknown;
   try {
     obj = JSON.parse(texto);

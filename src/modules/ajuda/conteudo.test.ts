@@ -84,6 +84,19 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.passos.map((p) => p.alvo)).toEqual(expect.arrayContaining(['novo-parecer', 'editor-parecer', 'retificar-documento']));
     expect(g.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Novo parecer nutricional"');
   });
+  it('Plano 14B-1: os modelos sugeridos pela IA nos guias de Modelos e de Configurações, com a versão nova (quem já viu o tour, vê de novo)', () => {
+    const modelos = GUIAS.find((x) => x.id === 'modelos')!;
+    expect(modelos.versao).toBe(2);
+    const textosModelos = [...modelos.ajuda.secoes.flatMap((s) => s.itens), ...modelos.passos.map((p) => p.texto)];
+    expect(textosModelos).toContain('Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só aparecem para os pacientes depois de "Aprovar modelo".');
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(6);
+    expect(config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')?.itens).toContain(
+      'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
+    );
+    // o alvo da seção (data-guia="modelos-ia", em ModelosIa) entra na lista conferida pelo teste dos alvos acima
+    expect(config.passos.map((p) => p.alvo)).toContain('modelos-ia');
+  });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });

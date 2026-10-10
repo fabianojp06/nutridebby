@@ -1,4 +1,4 @@
-# IA de leitura de laudos — runbooks do dono (Plano 11 e Plano 14A)
+# IA de leitura de laudos e modelos sugeridos — runbooks do dono (Planos 11, 14A e 14B-1)
 
 Copiado sem mudança do plano (`docs/superpowers/plans/2026-10-06-nutridebby-11-ia-laudos.md`, seção "Runbook do dono").
 O porquê de cada passo está no [cap. 10 do manual técnico](../manual-tecnico/10-ia.md); o checklist de marcar fica em
@@ -45,3 +45,20 @@ Nenhum passo é do código; cada um tem dono. A IA continua **desligada para dad
 7. **Variáveis no Easypanel (regra 6; o dono aplica).** **`anthropic` (A-D27, a configuração escolhida):** app **e** worker com `IA_PROVEDOR=anthropic`, `IA_MODELO_LEITURA=claude-sonnet-5-5`, `IA_INFERENCE_GEO=us`, `IA_TETO_GLOBAL_MENSAL_USD=50` e `IA_RETENCAO_ACEITA_30_DIAS=1` (o app também precisa dela: é ele que mostra o botão e aceita o pedido de leitura); **só no worker** `ANTHROPIC_API_KEY` (workspace de produção). Conferir no log do worker a linha "IA de laudos" com `provedor: anthropic`, `chave: presente` e `retencao: 30-dias` (nunca a chave; `retencao: nenhuma` = faltou a variável). **`bedrock-eu`:** app e worker: `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO`, `IA_MODELO_LEITURA=claude-sonnet-5-5`, `IA_RETENCAO_ZERO=1`, `IA_TETO_GLOBAL_MENSAL_USD=50`. **Só no worker:** `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (usuário de produção). **Nunca** `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_BEDROCK_BASE_URL` nem `ANTHROPIC_CUSTOM_HEADERS` (o worker não sobe com elas, D2). Snapshot no hPanel antes; reiniciar os serviços só com o OK do dono. Conferir no log do worker a linha "IA de laudos" com `provedor: bedrock-eu` e `chave: presente` (nunca a chave).
 8. **Debby e liberação.** **Ordem com a A-D27:** deploy deste PR (textos 1.0) → variáveis do passo 7 → log do worker com `retencao: 30-dias` → Admin "Liberar" (aceito em produção com os textos 1.0) → a nutricionista aceita o **aditivo 1.0** em Configurações → pede as autorizações **1.0** (quem autorizou numa versão provisória autoriza de novo). O resto do passo vale para os dois provedores: O perfil profissional completo em Configurações (nome completo, CRN, e-mail de contato — o texto da autorização os cita; sem eles, o pedido não sai); os textos de tela e do manual guiado; um teste com paciente fictício (o pedido para uma caixa dela, o link, o termo em papel, a retirada pelo link e a pedido). Depois, e só com o backup no host (P02-11) funcionando, as três condições do F1 cumpridas (passo 2) e a saída do `GetInferenceProfile` só com UE/EEE no registro (passo 3 c): Admin → "Liberar" (recusado em produção enquanto a autorização ou o aditivo forem provisórios, D22; com a 1.0, passa) → a nutricionista aceita o aditivo 1.0 em Configurações → pede as autorizações. **Emergência:** `IA_DESLIGADA=1` no Easypanel (a retirada continua possível).
 9. **Todo mês:** a soma de `ia_uso` do mês (coluna "Uso de IA no mês" do admin) × o Cost Explorer da AWS filtrado pelo Bedrock; diferença > 5% abre investigação (RNF-108).
+
+## Plano 14B-1 — modelos sugeridos
+
+Copiado sem mudança do plano (`docs/superpowers/plans/2026-10-09-nutridebby-14b-ia-nutri.md`, seção "Entregas"). O porquê
+de cada passo está na [§10.12 do manual técnico](../manual-tecnico/10-ia.md#1012-modelos-sugeridos-pela-ia-plano-14b-1);
+o checklist de marcar fica em [`go-live.md`](go-live.md#plano-14b-1--modelos-sugeridos-pela-ia). Os modelos sugeridos
+não mandam dado de paciente: com a IA já liberada pelo runbook do Plano 14A (A-D27), só os passos abaixo se somam.
+
+### Runbook do dono (14B-1 — modelos sugeridos)
+
+A 14B-1 não manda dado de paciente: não depende da retenção, de autorização nem de texto novo. Vale o runbook da 14A e da A-D27 para ligar a IA no consultório (provedor, liberação da admin, aceite do aditivo 1.0).
+
+1. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR 1; as migrations `0111`–`0112` rodam no deploy com `DATABASE_URL_MIGRATOR`. Nenhuma consulta ao banco de produção é necessária.
+2. **Debby — áreas.** As áreas dos modelos sugeridos (US-123 (a): emagrecimento, nutrição esportiva, gestação, diabetes, hipertensão, vegetariana e vegana, pessoas idosas; "Infantil" fora pela RN-17): confirmar ou trocar (troca = PR curto em `AREAS_MODELOS_IA`/`AREA_ROTULO` e no CHECK, com migration) e os textos novos das telas dos modelos.
+3. **Avaliação manual dos pacotes (RN-127) — custo < US$ 10.** Na máquina do dono, com o `.env.avaliacao` da 14A (chave **de dev**) e `IA_AVALIACAO_TAREFA=modelos`, `IA_AVALIACAO_MODELOS=claude-sonnet-5-5`: `pnpm ia:avaliar`. Critério: 7 de 7 com os 3 modelos válidos, itens descartados ≤ 10%, nenhum suplemento ou medicamento, custo de cada pacote ≤ US$ 1,00. Relatório (só métricas) no PR 1.
+4. **Variáveis no Easypanel (regra 6; o dono aplica).** App e worker: `IA_MODELO_ASSISTENTE=claude-sonnet-5-5`. Snapshot antes; reiniciar só com o OK do dono. Conferir no log do worker a linha "IA Nutri" com o `modeloAssistente`.
+5. **Uso.** Com a IA ativa no consultório (aditivo 1.0 aceito), a Debby gera os pacotes das áreas, revisa e aprova os modelos. **Emergência:** `IA_DESLIGADA=1` (os modelos já aprovados continuam usáveis — são da nutricionista).
