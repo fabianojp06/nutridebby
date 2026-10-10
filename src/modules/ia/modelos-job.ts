@@ -14,7 +14,7 @@ import { ESFORCO_MODELOS, instrucaoModelos, SCHEMA_MODELOS, SISTEMA_MODELOS } fr
 import { ErroNoLaco, rodarLaco, type FimDoLaco } from './laco-ferramentas';
 import { RepetirIaError, type DepsJobIA, type FimDoJob } from './leitura-job';
 import { estadoIaDoTenant } from './modo';
-import { validarPlanoIa, type PlanoIa } from './plano-ia';
+import { limparLinha, validarPlanoIa, type PlanoIa } from './plano-ia';
 import { MAX_TOKENS_VOLTA } from './precos';
 import type { TipoErroProvedor } from './provedor';
 
@@ -210,10 +210,14 @@ export async function processarGeracaoModelos(d: { tenantId: string; geracaoId: 
 
 type PacoteValido = { planos: PlanoIa[]; anamnese: { nome: string; perguntas: Pergunta[] }; descartados: number };
 
+// §5.8 (camada 3), como nos planos: o texto da anamnese sai sem link, controle (o \u0000 derrubaria o INSERT) e invisível
+// antes da validação do editor; o que fica vazio é recusado por ela (opção vazia sai; nome ou pergunta vazios, pacote inválido)
+const limpo = (v: unknown): unknown => (typeof v === 'string' ? limparLinha(v) : v);
+
 /**
  * Os três modelos do pacote, revalidados (planos por validarPlanoIa; anamnese por validarModelo, a do editor). Fora do
  * formato, sem os 2 planos, plano sem refeição válida ou anamnese inválida → `null` (nenhum é gravado). Da pergunta só
- * passam os campos do editor (o id é sempre novo). Exportada para a avaliação dos pacotes (RN-127, `avaliar-assistente.ts`)
+ * passam os campos do editor (o id é sempre novo), com o texto limpo pela §5.8. Exportada para a avaliação dos pacotes (RN-127, `avaliar-assistente.ts`)
  * decidir "pacote válido" com o mesmo código do worker.
  */
 export function lerPacote(texto: string, cat: CatalogoDaTarefa): PacoteValido | null {
@@ -236,10 +240,11 @@ export function lerPacote(texto: string, cat: CatalogoDaTarefa): PacoteValido | 
   const perguntas = Array.isArray(an.perguntas)
     ? an.perguntas.map((q) => {
         const x = (q && typeof q === 'object' ? q : {}) as Record<string, unknown>;
-        return { tipo: x.tipo, rotulo: x.rotulo, obrigatoria: x.obrigatoria, unidade: x.unidade, opcoes: x.opcoes };
+        const opcoes = Array.isArray(x.opcoes) ? x.opcoes.map(limpo) : x.opcoes;
+        return { tipo: x.tipo, rotulo: limpo(x.rotulo), obrigatoria: x.obrigatoria, unidade: limpo(x.unidade), opcoes };
       })
     : an.perguntas;
-  const a = validarModelo({ nome: an.nome, perguntas });
+  const a = validarModelo({ nome: limpo(an.nome), perguntas });
   if (!a.ok) return null;
   return { planos, anamnese: { nome: a.nome, perguntas: a.perguntas }, descartados: planos.reduce((n, p) => n + p.descartados, 0) };
 }

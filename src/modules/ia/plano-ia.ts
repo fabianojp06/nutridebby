@@ -80,8 +80,8 @@ export function limparTexto(s: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
-/** Título e nome de refeição: uma linha só. */
-const limparLinha = (s: string): string => limparTexto(s).replace(/\n+/g, ' ');
+/** Título e nome de refeição (e nome, pergunta, unidade e opção da anamnese do pacote de modelos): uma linha só. */
+export const limparLinha = (s: string): string => limparTexto(s).replace(/\n+/g, ' ');
 
 const brutoSchema = z.object({
   titulo: z.string(),

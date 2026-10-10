@@ -111,6 +111,40 @@ describe('processarGeracaoModelos (US-123, RN-124, D6)', () => {
     }
   });
 
+  it('§5.8 (camada 3): a anamnese sai sem link, controle (\\u0000) e invisível, e o pacote é gravado (revisão final)', async () => {
+    const P = await pedido();
+    const anamnese = {
+      nome: 'Anamnese\u0000 de diabetes www.exemplo.com',
+      perguntas: [
+        { tipo: 'sim_nao', rotulo: 'Usa in​sulina?‮ veja https://exemplo.com', obrigatoria: true },
+        { tipo: 'numero', rotulo: 'Peso\u0000 habitual', obrigatoria: false, unidade: 'kg​ www.x.io' },
+        { tipo: 'escolha_unica', rotulo: 'Pratica atividade física?', obrigatoria: false, opcoes: ['Sim‮', 'Não\u0000', 'www.exemplo.com', 'Às vezes ht​tps://x.y'] },
+      ],
+    };
+    const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk({ ...pacote, anamnese })] });
+    expect(await processarGeracaoModelos(P.d, deps(f))).toBe('pronta');
+    const [a] = await withTenant(P.T.ctx, (tx) => tx.select().from(anamnesisTemplates).where(eq(anamnesisTemplates.iaGeracaoId, P.d.geracaoId)), app.db);
+    expect(a.nome).toBe('Diabetes: Anamnese de diabetes');
+    expect((a.schema as { perguntas: unknown[] }).perguntas).toEqual([
+      expect.objectContaining({ tipo: 'sim_nao', rotulo: 'Usa insulina? veja', obrigatoria: true }),
+      expect.objectContaining({ tipo: 'numero', rotulo: 'Peso habitual', unidade: 'kg' }),
+      expect.objectContaining({ tipo: 'escolha_unica', rotulo: 'Pratica atividade física?', opcoes: ['Sim', 'Não', 'Às vezes'] }),
+    ]); // a opção que só tinha o link ficou vazia e saiu
+  });
+
+  it('nome ou pergunta da anamnese que fica vazio depois da limpeza (só link) → resposta_invalida, nada gravado', async () => {
+    const pergunta = { tipo: 'sim_nao', rotulo: 'Usa insulina?', obrigatoria: false };
+    const soLinkNoNome = { nome: 'www.exemplo.com​', perguntas: [pergunta] };
+    const soLinkNaPergunta = { nome: 'Anamnese', perguntas: [pergunta, { ...pergunta, rotulo: 'https://exemplo.com\u0000' }] };
+    for (const anamnese of [soLinkNoNome, soLinkNaPergunta]) {
+      const P = await pedido();
+      const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk({ ...pacote, anamnese })] });
+      expect(await processarGeracaoModelos(P.d, deps(f))).toBe('falhou');
+      expect(await geracao(P)).toMatchObject({ status: 'falhou', erro: 'resposta_invalida' });
+      expect(await modelosDoPacote(P)).toEqual({ planos: [], anamneses: [] });
+    }
+  });
+
   it('recusa do provedor → falhou recusa, com o acerto e a categoria', async () => {
     const P = await pedido();
     const recusa = { tipo: 'recusa' as const, categoria: 'cyber', bruto: [], uso: USO_FAKE, requestId: 'fake-req' };
