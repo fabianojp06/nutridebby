@@ -214,13 +214,13 @@ describe('expirarGeracoesDoTenant (D20)', () => {
   it('processando há mais de 15 min → interrompida (estorno sem envio; reserva incerta com envio)', async () => {
     const P = await pedido();
     await mudar(P, { status: 'processando', iniciadoEm: new Date(agora.getTime() - 16 * 60_000) });
-    const r = await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, agora), app.db);
+    const r = await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, P.T.tenantId, agora), app.db);
     expect(r.interrompidas).toBe(1);
     expect(await geracao(P)).toMatchObject({ status: 'falhou', erro: 'interrompida' });
     expect((await uso(P)).situacao).toBe('estornado');
     const Q = await pedido();
     await mudar(Q, { status: 'processando', iniciadoEm: new Date(agora.getTime() - 16 * 60_000), enviadoEm: new Date(agora.getTime() - 15 * 60_000) });
-    await withTenant(worker(Q), (tx) => expirarGeracoesDoTenant(tx, agora), app.db);
+    await withTenant(worker(Q), (tx) => expirarGeracoesDoTenant(tx, Q.T.tenantId, agora), app.db);
     expect(await geracao(Q)).toMatchObject({ status: 'falhou', erro: 'interrompida' });
     expect((await uso(Q)).situacao).toBe('incerto');
   });
@@ -228,21 +228,21 @@ describe('expirarGeracoesDoTenant (D20)', () => {
   it('na fila há mais de 30 min → interrompida com estorno; as recentes ficam', async () => {
     const velha = await pedido();
     // criado_em é coluna fixa (gatilho): a geração "velha" é a varredura rodando 31 min depois do pedido
-    const r = await withTenant(worker(velha), (tx) => expirarGeracoesDoTenant(tx, new Date(agora.getTime() + 31 * 60_000)), app.db);
+    const r = await withTenant(worker(velha), (tx) => expirarGeracoesDoTenant(tx, velha.T.tenantId, new Date(agora.getTime() + 31 * 60_000)), app.db);
     expect(r.interrompidas).toBe(1);
     expect(await geracao(velha)).toMatchObject({ status: 'falhou', erro: 'interrompida' });
     expect((await uso(velha)).situacao).toBe('estornado');
     const nova = await pedido();
-    expect((await withTenant(worker(nova), (tx) => expirarGeracoesDoTenant(tx, new Date(agora.getTime() + 29 * 60_000)), app.db)).interrompidas).toBe(0);
+    expect((await withTenant(worker(nova), (tx) => expirarGeracoesDoTenant(tx, nova.T.tenantId, new Date(agora.getTime() + 29 * 60_000)), app.db)).interrompidas).toBe(0);
     expect((await geracao(nova)).status).toBe('na_fila');
   });
 
   it('R14: a relançada (início limpo) só é varrida 15 min depois do relançamento, nunca pelo início da tentativa anterior', async () => {
     const P = await pedido();
     await mudar(P, { status: 'processando', iniciadoEm: null, updatedAt: new Date(agora.getTime() - 5 * 60_000) });
-    expect((await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, agora), app.db)).interrompidas).toBe(0);
+    expect((await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, P.T.tenantId, agora), app.db)).interrompidas).toBe(0);
     await mudar(P, { updatedAt: new Date(agora.getTime() - 16 * 60_000) });
-    expect((await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, agora), app.db)).interrompidas).toBe(1);
+    expect((await withTenant(worker(P), (tx) => expirarGeracoesDoTenant(tx, P.T.tenantId, agora), app.db)).interrompidas).toBe(1);
     expect(await geracao(P)).toMatchObject({ status: 'falhou', erro: 'interrompida' });
   });
 });

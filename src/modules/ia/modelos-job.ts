@@ -247,9 +247,13 @@ function lerPacote(texto: string, cat: CatalogoDaTarefa): PacoteValido | null {
  * D20: a varredura das gerações de UM tenant (dentro do withTenant worker). Separada para o teste não varrer os tenants
  * de outros arquivos. `processando` há mais de 15 min (contados do início desta tentativa; na relançada ainda sem início,
  * do relançamento — R14) e `na_fila` há mais de 30 min → `falhou` (`interrompida`): estorno se nada saiu, reserva incerta
- * se `enviado_em` está gravado. Trava todas de uma vez, por id, antes de qualquer estorno (a ordem de cancelarGeracoes).
+ * se `enviado_em` está gravado. Ordem de travas, a de cancelarGeracoes: tenant (FOR NO KEY UPDATE) → gerações, todas de
+ * uma vez, por id, antes de qualquer estorno → ia_uso → plataforma. A trava do tenant vem primeiro (revisão da T4): sem
+ * ela, o "Desativar" (tenant → estorno das tarefas na linha do mês da plataforma → gerações) e a varredura (geração →
+ * plataforma) se cruzam em 40P01. Chamar dentro de withTenant do mesmo `tenantId`.
  */
-export async function expirarGeracoesDoTenant(tx: Tx, agora: Date): Promise<{ interrompidas: number }> {
+export async function expirarGeracoesDoTenant(tx: Tx, tenantId: string, agora: Date): Promise<{ interrompidas: number }> {
+  await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).for('no key update');
   const limiteProcessando = new Date(agora.getTime() - PROCESSANDO_MAX_MS);
   const alvo = await tx
     .select({ id: iaGeracoesModelos.id, enviadoEm: iaGeracoesModelos.enviadoEm })
@@ -278,7 +282,7 @@ export async function expirarGeracoesIA(db: Db, agora: Date): Promise<{ interrom
   let interrompidas = 0;
   for (const t of await listarTenantsParaVarredura(db)) {
     try {
-      interrompidas += (await withTenant({ tenantId: t.id, role: 'worker' }, (tx) => expirarGeracoesDoTenant(tx, agora), db)).interrompidas;
+      interrompidas += (await withTenant({ tenantId: t.id, role: 'worker' }, (tx) => expirarGeracoesDoTenant(tx, t.id, agora), db)).interrompidas;
     } catch (err) {
       logger.error({ tenantId: t.id, err: err instanceof Error ? err.name : 'erro' }, 'falha na varredura das gerações de modelos da IA');
     }
