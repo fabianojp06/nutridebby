@@ -3,7 +3,8 @@ import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk';
 // (versão única no lockfile: o `instanceof` vale para o erro que o cliente lança)
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/bedrock-sdk/core/error';
 import type { ModeloIA, RegiaoBedrock, RegiaoIA } from './constantes';
-import { ErroProvedor, type PedidoGeracao, type PedidoLeitura, type ProvedorIA, type RespostaGeracao, type RespostaLeitura, type TurnoIA, type UsoTokens } from './provedor';
+import { mensagensDaGeracao, respostaDaGeracao } from './geracao-formato';
+import { ErroProvedor, type PedidoGeracao, type PedidoLeitura, type ProvedorIA, type RespostaGeracao, type RespostaLeitura, type UsoTokens } from './provedor';
 
 /**
  * INT-08 (Plano 14A, A-D26): o ÚNICO arquivo que importa o SDK do Bedrock (RNF-103; guarda em guardas.test.ts). Só o worker
@@ -65,38 +66,12 @@ function usoDe(u: { input_tokens: number; output_tokens: number; cache_read_inpu
 }
 
 /**
- * Plano 14B (D1): os tipos do corpo e da resposta vêm inferidos do cliente do Bedrock (importar os do @anthropic-ai/sdk
- * quebraria a guarda do RNF-103). A resposta é o membro da união que tem `content` (a mensagem, não o fluxo de eventos).
+ * Plano 14B (D1): o tipo das mensagens do pedido vem inferido do cliente do Bedrock (importar os do @anthropic-ai/sdk
+ * quebraria a guarda do RNF-103); o histórico e a classificação da resposta são os do módulo comum (geracao-formato.ts).
  */
 type MensagemDoPedido = Parameters<AnthropicBedrock['messages']['create']>[0]['messages'][number];
-type BlocoDoPedido = Exclude<MensagemDoPedido['content'], string>[number];
-type MensagemDaResposta = Extract<Awaited<ReturnType<AnthropicBedrock['messages']['create']>>, { content: unknown }>;
-
-/** Plano 14B (D1): o turno do assistente volta como veio (o bruto, com o raciocínio e a assinatura) — nada é editado. */
-function mensagensDe(turnos: readonly TurnoIA[]): MensagemDoPedido[] {
-  return turnos.map((t): MensagemDoPedido =>
-    t.papel === 'assistente'
-      ? { role: 'assistant', content: t.bruto as BlocoDoPedido[] }
-      : {
-          role: 'user',
-          content: t.blocos.map((b): BlocoDoPedido =>
-            b.tipo === 'texto' ? { type: 'text', text: b.texto } : { type: 'tool_result', tool_use_id: b.chamadaId, content: b.conteudo, ...(b.erro ? { is_error: true } : {}) },
-          ),
-        },
-  );
-}
-
-/** Plano 14B (D1): a resposta de uma volta, como na API direta; o request-id vem do cabeçalho da AWS. */
-function respostaDe(r: MensagemDaResposta, requestId: string | null): RespostaGeracao {
-  const base = { bruto: r.content as readonly unknown[], uso: usoDe(r.usage), requestId };
-  if (r.stop_reason === 'refusal') return { tipo: 'recusa', categoria: r.stop_details?.category ?? null, ...base };
-  if (r.stop_reason === 'tool_use') {
-    const chamadas = r.content.flatMap((b) => (b.type === 'tool_use' ? [{ id: b.id, nome: b.name, entrada: b.input }] : []));
-    return chamadas.length ? { tipo: 'ferramentas', chamadas, ...base } : { tipo: 'cortada', ...base };
-  }
-  if (r.stop_reason !== 'end_turn') return { tipo: 'cortada', ...base };
-  return { tipo: 'final', texto: r.content.map((b) => (b.type === 'text' ? b.text : '')).join(''), ...base };
-}
+/** O schema de entrada da ferramenta (fixo do código, D7), no tipo que o SDK pede. */
+type EsquemaDaFerramenta = { type: 'object' };
 
 /** D3: só os modelos com perfil `eu.` e só a região `eu` (o job confere antes do portão do envio). */
 const aceitaBedrock = (modelo: ModeloIA, geo: RegiaoIA): boolean => Boolean(PERFIL_BEDROCK_EU[modelo]) && geo === 'eu';
@@ -162,11 +137,12 @@ export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string;
           model: perfil,
           max_tokens: p.maxTokens,
           system: p.sistema,
-          messages: mensagensDe(p.turnos),
+          // D1: o histórico e a classificação da resposta são os do módulo comum (os mesmos da API direta)
+          messages: mensagensDaGeracao(p.turnos) as MensagemDoPedido[],
           output_config: { effort: p.esforco, format: { type: 'json_schema', schema: p.schema } },
           // RNF-105: só ferramentas do cliente, strict, com a escolha automática (forçar dá 400 nos modelos 5.5)
           ...(p.ferramentas.length
-            ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as { type: 'object' }, strict: true })), tool_choice: { type: 'auto' } as const }
+            ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as EsquemaDaFerramenta, strict: true })), tool_choice: { type: 'auto' } as const }
             : {}),
         })
         .withResponse()
@@ -176,7 +152,7 @@ export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string;
             throw classificarErroBedrock(err);
           },
         );
-      return respostaDe(r, response.headers.get('x-amzn-requestid'));
+      return respostaDaGeracao(r, usoDe(r.usage), response.headers.get('x-amzn-requestid'));
     },
   };
 }

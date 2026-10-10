@@ -27,11 +27,24 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
   for (const arquivo of ['src/modules/ia/provedor-anthropic.ts', 'src/modules/ia/provedor-bedrock.ts']) {
     it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
       const codigo = readFileSync(arquivo, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/]) {
+      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
+        // ferramentas de servidor do SDK (ToolUnion) e o contêiner delas: nada sai para busca, navegador ou execução de terceiro
+        /web_search|web_fetch|browser_toolset|computer_|memory_20|bash_20|text_editor|tool_search|\bcontainer\b/]) {
         expect(codigo, String(proibido)).not.toMatch(proibido);
       }
-      expect(codigo).toMatch(/strict:\s*true/);
+      // ferramentas só do cliente: `tools` aparece uma vez, montado só de p.ferramentas, e cada entrada tem exatamente
+      // nome, descrição, schema e strict — sem `type` (que faria dela uma ferramenta de servidor) nem outra chave
+      expect(codigo.match(/\btools\b/g), 'tools aparece uma única vez').toHaveLength(1);
+      const ferramenta = codigo.match(/\btools:\s*p\.ferramentas\.map\(\(f\)\s*=>\s*\(\{([^{}]*)\}\)\)/);
+      expect(ferramenta, 'tools: p.ferramentas.map((f) => ({ … }))').not.toBeNull();
+      expect([...(ferramenta?.[1] ?? '').matchAll(/(\w+)\s*:/g)].map((m) => m[1])).toEqual(['name', 'description', 'input_schema', 'strict']);
+      expect(ferramenta?.[1]).toMatch(/strict:\s*true/);
+      expect(codigo.match(/\btool_choice\b/g), 'tool_choice aparece uma única vez').toHaveLength(1);
       expect(codigo).toMatch(/tool_choice:\s*\{\s*type:\s*'auto'\s*\}/);
+      // Plano 14B (D1): o histórico e a classificação da resposta vêm do módulo comum (geracao-formato.ts) — nenhum
+      // provedor monta tool_result nem lê tool_use por conta própria
+      expect(codigo).toMatch(/from '\.\/geracao-formato'/);
+      expect(codigo).not.toMatch(/tool_use|tool_result/);
       expect(codigo).toMatch(/maxRetries:\s*0/);
       expect(codigo).toMatch(/logLevel:\s*'off'/);
     });
