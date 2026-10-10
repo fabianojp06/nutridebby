@@ -14,8 +14,10 @@ import { logger } from '@/lib/logger';
 import { filtrarEvento } from '@/lib/sentry-filtro';
 import { erroSemDetalhe } from '@/worker/sem-detalhe';
 import { processarTarefaIA, RepetirIaError } from './leitura-job';
+import { processarGeracaoModelos } from './modelos-job';
+import { pedirModelos } from './modelos-sugeridos';
 import { ErroProvedor } from './provedor';
-import { provedorFake, respostaOk } from './provedor-fake';
+import { finalOk, pedeFerramenta, provedorFake, respostaOk } from './provedor-fake';
 import { pedirLeituraExame } from './tarefas';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -57,6 +59,46 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       expect(JSON.stringify(jobs.map((j) => j.data))).not.toContain(MARCADOR);
       const evento = filtrarEvento({ message: MARCADOR, extra: { resultado: MARCADOR, parametros: MARCADOR }, tags: { fila: 'ia', motivo: MARCADOR }, exception: { values: [{ type: 'RepetirIaError', value: MARCADOR }] } });
       expect(JSON.stringify(evento)).not.toContain(MARCADOR);
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  it('modelos sugeridos (Plano 14B): título, orientações e pergunta marcadores não vão a log, fila nem à saída do job', async () => {
+    const MARCADOR_2 = 'MARCADOR-SAUDE-456';
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const T = await novoTenant(app.db);
+      await iaPronta(app.db, T.tenantId);
+      const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+      const geracaoId = await pedirModelos(T.ctx, tenant as TenantRow, 'diabetes', { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
+      const plano = { titulo: MARCADOR, meta_kcal: 1600, orientacoes: MARCADOR, refeicoes: [{ nome: MARCADOR.slice(0, 20), horario: '12:00', itens: [{ alimento: 'A1', gramas: 100, medida: null, substitui: null }] }] };
+      const pacote = { planos: [plano, plano], anamnese: { nome: MARCADOR, perguntas: [{ tipo: 'texto_curto', rotulo: MARCADOR_2, obrigatoria: false }] } };
+      const deps = {
+        db: app.db, modo: 'fake' as const, geo: 'us' as const, destino: 'teste' as const, retencao: null, tetoGlobalMicroUsd: IA_TESTE.tetoGlobalMicroUsd, appUrl: 'https://x',
+        agora: () => agora, ultimaTentativa: false, alertas: { credencial: async () => 0, teto: async () => 0 }, modeloAssistente: IA_TESTE.modeloAssistente, tetoRascunhoMicroUsd: IA_TESTE.tetoRascunhoMicroUsd,
+      };
+      const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk(pacote)] });
+      const saida = await processarGeracaoModelos({ tenantId: T.tenantId, geracaoId }, { ...deps, provedor: f });
+      expect(saida).toBe('pronta');
+      // a 2ª geração falha com o marcador na resposta (fora do formato) e a 3ª relança ao pg-boss
+      const outro = await novoTenant(app.db);
+      await iaPronta(app.db, outro.tenantId);
+      const [t2] = await app.db.select().from(tenants).where(eq(tenants.id, outro.tenantId));
+      const g2 = await pedirModelos(outro.ctx, t2 as TenantRow, 'gestacao', { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
+      expect(await processarGeracaoModelos({ tenantId: outro.tenantId, geracaoId: g2 }, { ...deps, provedor: provedorFake({ gerar: [finalOk({ planos: [MARCADOR_2] })] }) })).toBe('falhou');
+      const terceiro = await novoTenant(app.db);
+      await iaPronta(app.db, terceiro.tenantId);
+      const [t3] = await app.db.select().from(tenants).where(eq(tenants.id, terceiro.tenantId));
+      const g3 = await pedirModelos(terceiro.ctx, t3 as TenantRow, 'idosos', { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
+      const repetir = await processarGeracaoModelos({ tenantId: terceiro.tenantId, geracaoId: g3 }, { ...deps, provedor: provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'req-neutro')] }) }).catch((e: unknown) => e);
+      expect(repetir).toBeInstanceOf(RepetirIaError);
+      expect(erroSemDetalhe('ia-assistente', repetir).message).not.toContain('MARCADOR');
+      const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
+      expect(logs).not.toContain('MARCADOR');
+      const jobs = await (await getBoss()).findJobs('ia-assistente');
+      expect(JSON.stringify(jobs.map((j) => j.data))).not.toContain('MARCADOR');
+      expect(JSON.stringify(jobs.map((j) => j.output ?? null))).not.toContain('MARCADOR');
     } finally {
       for (const s of espioes) s.mockRestore();
     }

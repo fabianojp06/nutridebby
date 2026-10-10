@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, lt } from 'drizzle-orm';
 import type { Tx } from '@/db/client';
-import { iaTarefas, tenants } from '@/db/schema';
+import { iaGeracoesModelos, iaTarefas, tenants } from '@/db/schema';
 import { estornar } from './cota';
 
 /**
@@ -36,6 +36,21 @@ export async function cancelarTarefas(tx: Tx, o: { tenantId: string; patientId?:
       .set({ status: 'cancelada', parametros: null, resultado: null, encerradoEm: o.agora, encerradoPor: o.por ?? null, updatedAt: o.agora })
       .where(eq(iaTarefas.id, t.id));
     if (t.status === 'na_fila') await estornar(tx, t.id, o.agora);
+  }
+  return alvo.length;
+}
+
+/**
+ * Plano 14B (D19, US-101 "Desativar"): as gerações de modelos na fila ficam "cancelada", com estorno. A "processando" o
+ * job reconfere (o portão e a gravação leem o tenant com trava: `ia_desligada`). Ordem de travas: tenant (FOR NO KEY
+ * UPDATE, a da reserva) → gerações, travadas de uma vez por id antes de qualquer estorno → ia_uso → plataforma.
+ */
+export async function cancelarGeracoes(tx: Tx, o: { tenantId: string; agora: Date }): Promise<number> {
+  await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, o.tenantId)).for('no key update');
+  const alvo = await tx.select({ id: iaGeracoesModelos.id }).from(iaGeracoesModelos).where(eq(iaGeracoesModelos.status, 'na_fila')).orderBy(asc(iaGeracoesModelos.id)).for('update');
+  for (const g of alvo) {
+    await tx.update(iaGeracoesModelos).set({ status: 'cancelada', concluidoEm: o.agora, updatedAt: o.agora }).where(eq(iaGeracoesModelos.id, g.id));
+    await estornar(tx, g.id, o.agora);
   }
   return alvo.length;
 }

@@ -286,3 +286,24 @@ export const MAX_VOLTAS_MODELOS = 24;
 export const PRAZO_LACO_MS = 12 * 60_000;
 /** US-123 (b): teto de US$ 1,00 por pacote de área. */
 export const TETO_PACOTE_MODELOS_USD = 1;
+
+/** Plano 14B (US-123): textos dos modelos sugeridos, com o texto exato da spec (os marcados "novo" vão à Debby, desvio 13). */
+export const MSG_MODELOS_IA = {
+  titulo: 'Modelos sugeridos pela IA',
+  explicacao: 'Para cada área, a IA sugere 2 modelos de plano alimentar e 1 modelo de anamnese, com os alimentos da sua tabela. Nenhum dado de paciente é enviado. Cada área usa parte do limite de IA do mês.',
+  area: 'Área',
+  geradoEm: (data: string) => `Gerado em ${data}`,
+  gerar: 'Gerar modelos',
+  gerando: (area: string) => `Gerando os modelos de ${area}… isso leva alguns minutos.`,
+  umPorVez: 'Já há um pacote de modelos em preparo. Aguarde terminar.',
+  falha: 'Não foi possível gerar os modelos agora. Tente de novo em alguns minutos.',
+  /** novo (desvio 13): área fora da lista (formulário adulterado). */
+  areaInvalida: 'Escolha uma das áreas da lista.',
+  marca: 'Sugestão da IA — revise',
+  faixa: 'Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu.',
+  aprovar: 'Aprovar modelo',
+  confirmarAprovar: 'Aprovar este modelo? Ele poderá ser usado com pacientes.',
+  aprovadoEm: (data: string) => `Aprovado em ${data}`,
+  aprove: 'Aprove o modelo antes de usá-lo com pacientes.',
+  descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
+} as const;
