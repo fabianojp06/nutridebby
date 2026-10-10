@@ -9,6 +9,14 @@
 
 ---
 
+## Decisão do dono (10/10/2026)
+
+**Todas as recomendações deste caderno aprovadas** ("minha decisão são suas recomendações"). Nas duas que tinham escolha em aberto:
+- **D1:** prazo de **8 semanas** para a resposta do CRN-3; sem resposta, a decisão volta para o dono e a IA Nutri não liga no modo (d).
+- **D3:** cota da IA Nutri de **US$ 7 por consultório por mês** (para não bloquear no pior caso da D4), dentro do teto global de US$ 50.
+
+A D27 já foi aplicada ao plano da 14B (branch `plano-14b-ia-nutri`, Task 6: textos 1.1 com "Nestes usos, a IA não fala com você"). O plano do Plano 15 só é escrito depois da 14B-2; ligar com paciente real depende das consultas da D2 (CRN-3, advogado, RIPD) e, sem a confirmação por escrito da Anthropic, só a partir de 12/11/2026.
+
 ## Resumo
 
 1. A parte da IA Nutri na spec foi revista contra o sistema de hoje. Muita coisa mudou desde 03/10.
@@ -146,7 +154,7 @@ Decidir nesta ordem destrava o resto:
 
 **Recomendação: (d)**, se o CRN-3 aceitar. É rápido para o paciente e não cria trabalho novo para a Debby. O paciente só lê o que ela escreveu.
 
-**Se o CRN-3 disser não:** modo (c), ou não ligar. **Se não responder em ___ semanas:** decisão sua (consulta a conselho pode levar meses).
+**Se o CRN-3 disser não:** modo (c), ou não ligar. **Se não responder em 8 semanas:** a decisão volta para o dono (consulta a conselho pode levar meses); a IA Nutri não liga sozinha no modo (d).
 
 **Se escolher outra:** com (c), cada pergunta vira tarefa para a Debby. Com (a), o risco ético e de política é alto.
 

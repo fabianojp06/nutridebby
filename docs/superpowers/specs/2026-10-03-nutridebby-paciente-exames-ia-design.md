@@ -1197,7 +1197,11 @@ Aprovadas como recomendadas na preparação do Plano 12 ("vamos para o plano 12"
 | D20 | **(a)** exame recusado tem o arquivo apagado na hora | RN-165, US-164 |
 | D23 | **(a)** o worker rasteriza todo envio (inclusive PDF) e guarda um PDF limpo + imagens de página; o painel mostra as páginas | §4.1, RN-163, DEP-10, R-170 |
 
-### Decisões pendentes (parte F3-02 — Plano 15) — revistas na v0.4 (09/10/2026)
+### Decisões do dono (10/10/2026) — parte F3-02
+
+**Todas aprovadas como recomendadas na tabela abaixo** (D1–D12, D19, D21, D22, D24–D36), a partir do caderno [`2026-10-09-nutridebby-plano15-decisoes.md`](2026-10-09-nutridebby-plano15-decisoes.md). Escolhas em aberto fechadas: **D1** — prazo de 8 semanas para a resposta do CRN-3; sem resposta, a decisão volta ao dono e o modo (d) não liga; **D3** — cota da IA Nutri de **US$ 7/mês por consultório**, dentro do teto global de US$ 50. **D27** aplicada ao plano da 14B (Task 6, textos 1.1). As condições de terceiros (D2, D8, D11, D19, D22) continuam valendo antes de ligar com paciente real.
+
+### Decisões da parte F3-02 (Plano 15) — revistas na v0.4 (09/10/2026), aprovadas em 10/10/2026
 
 D1–D12, D19, D21, D22, D24 e D25 foram revistas contra o código e as normas de 09/10/2026; D26 a D36 são novas (D36 acrescentada na revisão de 09/10/2026). A explicação para o dono, em linguagem simples, está no caderno [`2026-10-09-nutridebby-plano15-decisoes.md`](2026-10-09-nutridebby-plano15-decisoes.md). **Já decidido fora desta spec e que vale aqui:** A-D27 (Anthropic direta nos EUA, guarda de até 30 dias, textos 1.0 sem advogado), a autorização de IA da 14A (usos, destino, retirada) e a 14B aprovada (14B-1 e 14B-2 em dois PRs, textos 1.1). As da F3-04 levam a marca **Aprovada (07/10/2026)**. **Ordem sugerida:** D27 e D26 (textos e prova) → D2 (consultas externas) → D1, D21, D24 → D5, D3, D4 → D28, D29, D34 → as demais.
 
