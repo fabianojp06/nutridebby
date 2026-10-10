@@ -45,11 +45,12 @@ describe('Configurações > Modelos sugeridos pela IA (US-123)', () => {
     expect(await pedirModelosAction({}, fd)).toEqual({ erro: 'Escolha uma das áreas da lista.' });
   });
 
-  it('área válida: o consultório e a usuária vêm da sessão; redireciona com ?modelos=pedido', async () => {
+  it('área válida: o consultório e a usuária vêm da sessão; redireciona com ?modelos=pedido para a seção dos modelos', async () => {
     const fd = new FormData();
     fd.set('area', 'diabetes');
     fd.set('tenantId', 'outro'); // ignorado
-    await expect(pedirModelosAction({}, fd)).rejects.toThrow('redirect /painel/configuracoes?modelos=pedido');
+    // a seção dos modelos é a última de Configurações: a âncora leva a tela até a confirmação (revisão da T5, Important)
+    await expect(pedirModelosAction({}, fd)).rejects.toThrow('redirect /painel/configuracoes?modelos=pedido#modelos-ia');
     expect(pedir).toHaveBeenCalledWith(sessao.ctx, sessao.tenant, 'diabetes', { ia: expect.objectContaining({ modo: 'fake', modeloAssistente: 'claude-sonnet-5-5' }) });
   });
 

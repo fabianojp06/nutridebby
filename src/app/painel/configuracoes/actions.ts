@@ -40,7 +40,8 @@ export type PedirModelosState = { erro?: string };
 
 /**
  * US-123 "Gerar": o consultório e a usuária vêm da sessão; a área do formulário passa pela lista fechada no módulo.
- * No sucesso, redirect: a seção passa a mostrar o andamento (o formulário some), como no "Ativar".
+ * No sucesso, redirect: a seção passa a mostrar o andamento (o formulário some), como no "Ativar". A âncora `#modelos-ia`
+ * leva a tela até a seção (a última de Configurações) e `?modelos=pedido` põe o foco na confirmação (revisão da T5).
  */
 export async function pedirModelosAction(_prev: PedirModelosState, fd: FormData): Promise<PedirModelosState> {
   const { ctx, tenant } = await requireNutri('/painel/configuracoes');
@@ -51,7 +52,7 @@ export async function pedirModelosAction(_prev: PedirModelosState, fd: FormData)
     throw e;
   }
   revalidatePath('/painel/configuracoes');
-  redirect('/painel/configuracoes?modelos=pedido');
+  redirect('/painel/configuracoes?modelos=pedido#modelos-ia');
 }
 
 /** D18 = a (Plano 12): liga/desliga o recebimento de exames pelo app. O consultório vem da sessão, nunca do formulário. */

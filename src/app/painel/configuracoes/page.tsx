@@ -20,7 +20,7 @@ const CARTOES = [
 /** D20: hub de Configurações. */
 export default async function ConfiguracoesPage({ searchParams }: PageProps<'/painel/configuracoes'>) {
   const { data, tenant, ctx } = await requireNutri('/painel/configuracoes');
-  const { ia, exames } = await searchParams;
+  const { ia, exames, modelos } = await searchParams;
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
@@ -39,7 +39,7 @@ export default async function ConfiguracoesPage({ searchParams }: PageProps<'/pa
         <TemaForm tema={ehTema(data.user.tema) ? data.user.tema : 'sistema'} />
       </section>
       <ExamesSecao ligado={!!tenant.examesPacienteAtivadoEm} salvo={exames === 'salvo'} />
-      <IaSecao tenant={tenant} ctx={ctx} ativada={ia === 'ativada'} />
+      <IaSecao tenant={tenant} ctx={ctx} ativada={ia === 'ativada'} modelosPedido={modelos === 'pedido'} />
     </main>
   );
 }

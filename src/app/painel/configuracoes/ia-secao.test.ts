@@ -13,14 +13,14 @@ vi.mock('@/modules/ia/cota', () => ({ situacaoDaCotaIa: vi.fn(async () => ({ usa
 vi.mock('./actions', () => ({ desativarIaAction: vi.fn() }));
 vi.mock('./ia-ativar-form', () => ({ IaAtivarForm: ({ rotulo }: { rotulo: string }) => `[IaAtivarForm ${rotulo}]` }));
 // R5: o componente de servidor assíncrono dos modelos (US-123) lê o banco; aqui só importa onde ele aparece
-vi.mock('./modelos-ia', () => ({ ModelosIa: ({ fuso }: { fuso: string }) => `[ModelosIa ${fuso}]` }));
+vi.mock('./modelos-ia', () => ({ ModelosIa: ({ fuso, pedido }: { fuso: string; pedido?: boolean }) => `[ModelosIa ${fuso}${pedido ? ' pedido' : ''}]` }));
 
 const { IaSecao } = await import('./ia-secao');
 
 const ctx = { tenantId: '00000000-0000-4000-8000-000000000001', role: 'nutri' } as TenantContext;
 const base = { status: 'ativa', iaLiberada: true, iaAtivadaEm: null, iaAditivoVersao: null, fuso: 'America/Sao_Paulo', iaCotaMensalUsd: 15 };
 const ativa = { ...base, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO };
-const html = async (t: object, ativada?: boolean) => renderToStaticMarkup((await IaSecao({ tenant: t as TenantRow, ctx, ativada }))!);
+const html = async (t: object, ativada?: boolean, modelosPedido?: boolean) => renderToStaticMarkup((await IaSecao({ tenant: t as TenantRow, ctx, ativada, modelosPedido }))!);
 
 describe('Configurações > IA: confirmação "IA ativada." (US-101)', () => {
   it('depois do redirect (?ia=ativada), a seção ativa mostra "IA ativada." como status', async () => {
@@ -45,5 +45,9 @@ describe('Configurações > IA: modelos sugeridos (US-123 "Onde fica")', () => {
     expect(await html(ativa)).toContain('[ModelosIa America/Sao_Paulo]');
     expect(await html(base)).not.toContain('[ModelosIa');
     expect(await html({ ...ativa, iaLiberada: false })).not.toContain('[ModelosIa');
+  });
+
+  it('?modelos=pedido chega à seção dos modelos (foco na confirmação "Gerando os modelos de…")', async () => {
+    expect(await html(ativa, false, true)).toContain('[ModelosIa America/Sao_Paulo pedido]');
   });
 });
