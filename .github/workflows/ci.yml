@@ -1,4 +1,9 @@
 name: ci
+# Deploy sem repetir o CI do PR (revisão do branch, 09/10/2026): o nome da execução grava o número do PR e o base.sha no
+# momento em que ela é criada (`ci-pr-<n>-<sha>`). A API só preenche workflow_runs[].pull_requests enquanto o PR está
+# aberto; depois do merge, é por este nome que .github/scripts/ci-ja-passou.sh confere que a execução é do PR certo e de
+# que base. Quando o deploy chama este workflow (workflow_call), o run-name daqui é ignorado: vale o nome do deploy.
+run-name: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.base.sha) || 'ci' }}
 
 on:
   pull_request:

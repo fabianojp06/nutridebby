@@ -12,7 +12,7 @@ import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente, situacaoP
 import { PRAZO_SUGESTAO_DIAS, USO_DA_TAREFA, type DestinoIA, type ModeloIA, type MotivoFalha, type RegiaoIA, type TipoTarefa } from './constantes';
 import { acertar, avisarSeChegou80Ia, estornar, marcarIncerto, reduzirReserva } from './cota';
 import { ESFORCO_LEITURA, INSTRUCAO_LEITURA, SISTEMA_LEITURA } from './instrucoes/leitura';
-import { estadoIaComPaciente, type ModoIA } from './modo';
+import { estadoIaComPaciente, type ModoIA, type RetencaoIA } from './modo';
 import { custoMaximoDoArquivo, custoMicroUsd, MAX_TOKENS_LEITURA } from './precos';
 import { prepararLaudo, PreparoError } from './preparar-arquivo';
 import { ErroProvedor, type ArquivoPreparado, type PedidoLeitura, type ProvedorIA, type RespostaLeitura } from './provedor';
@@ -44,8 +44,8 @@ export type DepsJobIA = {
   depoisDoPreparo?: () => Promise<unknown>;
   /** RN-109 (Plano 14A): o destino do provedor em uso — a autorização tem de ser para ele, e o portão o grava na tarefa. Nulo = sem IA_PROVEDOR. */
   destino: DestinoIA | null;
-  /** A-D4 (Plano 14A, D9): sem retenção zero, nada com dado de paciente sai (ia_desligada). */
-  retencaoZero: boolean;
+  /** A-D4 (Plano 14A, D9) e A-D27: sem a retenção aceita (zero, ou 30 dias na Anthropic direta), nada com dado de paciente sai (ia_desligada). */
+  retencao: RetencaoIA;
 };
 export type FimDoJob = 'pronta' | 'falhou' | 'ignorada';
 
@@ -109,7 +109,8 @@ export async function processarTarefaIA(d: DadosJobIA, deps: DepsJobIA): Promise
   const { t } = lida;
 
   // (2) RN-100 de novo, no worker (conferência barata, antes de abrir o arquivo; o portão confere de novo com travas).
-  // Plano 14A: a retenção zero (A-D4) e o destino do provedor em uso (RN-109) entram aqui; a autorização, no paciente.
+  // Plano 14A: a retenção aceita (A-D4; A-D27: zero, ou 30 dias na Anthropic direta) e o destino do provedor em uso (RN-109)
+  // entram aqui; a autorização, no paciente.
   const uso = USO_DA_TAREFA[t.tipo as TipoTarefa];
   const tenant = await buscarTenant(db, d.tenantId);
   if (!tenant || estadoIaComPaciente(tenant, deps) !== 'ativa' || !deps.destino) return falhar('ia_desligada');

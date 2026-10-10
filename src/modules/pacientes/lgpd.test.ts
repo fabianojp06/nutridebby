@@ -143,9 +143,11 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect((await ler(T.ctx, p.id)).status).toBe('ativo');
 
     const r = await atenderPedidoExclusao(T.ctx, T.tenant, p.id, '  ana   SOUZA ', deps);
-    expect(r).toEqual({ anonimizarApos: `${2026 + PRAZO_GUARDA_ANOS}-09-15` }); // última consulta + prazo legal (P-01)
+    // JUR-01 (Res. CFN 594/2017, art. 3º, VI, "b"): o prazo conta do último registro do prontuário, que é o próprio
+    // bloqueio (hoje, 01/10, no fuso do consultório) — não do atendimento de 15/09
+    expect(r).toEqual({ anonimizarApos: `${2026 + PRAZO_GUARDA_ANOS}-10-01` });
     const b = await ler(T.ctx, p.id);
-    expect(b).toMatchObject({ status: 'bloqueado', whatsappOptinEm: null, whatsappOptinOrigem: null, anonimizarApos: '2046-09-15', nome: 'Ana Souza' });
+    expect(b).toMatchObject({ status: 'bloqueado', whatsappOptinEm: null, whatsappOptinOrigem: null, anonimizarApos: '2046-10-01', nome: 'Ana Souza' });
     expect(b.bloqueadoEm?.toISOString()).toBe(now.toISOString());
     expect(b.whatsappOptoutEm?.toISOString()).toBe(now.toISOString());
     const [pedido] = await withTenant(T.ctx, (tx) => tx.select().from(privacyRequests).where(eq(privacyRequests.patientId, p.id)), app.db);
@@ -158,11 +160,27 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     expect(await jobsDaExclusao(p.id)).toEqual([{ tenantId: T.tenantId, patientId: p.id }]);
     expect(await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir, ultimaTentativa: false })).toBe('avisado');
     const [msg] = await emailsNaFila('exclusao_atendida', email);
-    expect(msg).toMatchObject({ nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
+    expect(msg).toMatchObject({ nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '01/10/2046' });
     // prontuário mantido e só para consulta
     await expect(registrarAntropometria(T.ctx, T.tenant, p.id, entradaDoFormulario({ data: '2026-10-01', pesoKg: '60', alturaCm: '165', protocolo: 'nenhum' }), deps)).rejects.toBeInstanceOf(
       PacienteBloqueadoError,
     );
+  });
+
+  it('JUR-01: paciente com atendimento antigo — o prazo começa no bloqueio (último registro do prontuário), não no atendimento', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, cadastro(`antigo-${randomUUID().slice(0, 8)}@ex.com`), deps);
+    await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2019-05-20', notasPrivadas: '', orientacoes: '' }, deps);
+    const r = await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps);
+    expect(r.anonimizarApos).toBe(`${2026 + PRAZO_GUARDA_ANOS}-10-01`); // não 2039-05-20
+    expect((await ler(T.ctx, p.id)).anonimizarApos).toBe('2046-10-01');
+  });
+
+  it('JUR-01: a data do bloqueio é a do fuso do consultório (22h30 em São Paulo já é o dia seguinte em UTC)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const r = await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', { ...deps, now: new Date('2026-10-02T01:30:00Z') });
+    expect(r.anonimizarApos).toBe('2046-10-01');
   });
 
   it('pedido já aberto (registrado pelo portal no Plano 06) é concluído, sem criar outro; sem atendimento, conta da data do bloqueio', async () => {

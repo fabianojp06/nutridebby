@@ -24,14 +24,14 @@ afterAll(async () => {
 });
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
 const evento = (o: Partial<EventoDeDecisao> = {}): EventoDeDecisao => ({
-  id: 'e1', evento: 'autorizou', versao: '0.1-provisorio', usos: ['leitura_laudos'], destino: 'teste', canal: 'link',
+  id: 'e1', evento: 'autorizou', versao: '1.0', usos: ['leitura_laudos'], destino: 'teste', canal: 'link',
   em: new Date('2026-10-09T12:00:00Z'), registradoEm: new Date('2026-10-09T12:00:00Z'), ...o,
 });
 
 describe('situacaoDaAutorizacao (RN-107, RN-109, D7) — sem banco', () => {
   it('nunca, vigente, retirada, versão antiga, outro destino; destino nulo (IA desligada) não confere o destino', () => {
     expect(situacaoDaAutorizacao(null, 'teste')).toEqual({ tipo: 'nunca' });
-    expect(situacaoDaAutorizacao(evento(), 'teste')).toMatchObject({ tipo: 'vigente', versao: '0.1-provisorio', destino: 'teste', canal: 'link' });
+    expect(situacaoDaAutorizacao(evento(), 'teste')).toMatchObject({ tipo: 'vigente', versao: '1.0', destino: 'teste', canal: 'link' });
     expect(situacaoDaAutorizacao(evento({ evento: 'retirou', versao: null, usos: null, destino: null, canal: 'app' }), 'teste')).toMatchObject({ tipo: 'retirada', canal: 'app' });
     expect(situacaoDaAutorizacao(evento({ versao: '0.0.9-velha' }), 'teste')).toMatchObject({ tipo: 'versao_antiga', versao: '0.0.9-velha' });
     expect(situacaoDaAutorizacao(evento({ destino: 'anthropic-us' }), 'bedrock-eu')).toMatchObject({ tipo: 'outro_destino', destino: 'anthropic-us' });

@@ -35,7 +35,7 @@ flowchart LR
   MU -->|tem código| I[image<br/>docker build + orçamento 265 MB]
   Q & T & E & I --> V{CI verde}
   V -->|revisões + OK do dono| M[merge na main]
-  M --> D[deploy.yml<br/>CI de novo → GHCR → webhooks do Easypanel]
+  M --> D[deploy.yml<br/>decidir: CI já passou no PR?<br/>senão, CI de novo → GHCR → webhooks do Easypanel]
 ```
 
 ---
@@ -517,7 +517,12 @@ sequenceDiagram
   participant EP as Easypanel
   participant APP as nutri_app
   participant W as nutri_worker
-  GH->>GH: job ci (ci.yml inteiro de novo)
+  GH->>GH: job decidir (.github/scripts/ci-ja-passou.sh)
+  alt o PR já passou o CI nesta árvore
+    GH->>GH: job ci pulado
+  else qualquer dúvida
+    GH->>GH: job ci (ci.yml inteiro de novo)
+  end
   GH->>R: build + push :<sha> e :latest (sem provenance/SBOM)
   GH->>R: delete-package-versions (mantém 2)
   GH->>EP: POST EASYPANEL_DEPLOY_HOOK_APP
@@ -531,13 +536,45 @@ sequenceDiagram
 | Passo | Onde | Por quê |
 |---|---|---|
 | Build no Actions, nunca na VPS | `deploy.yml`, job `publish` | A VPS divide CPU e memória com o CRM `cursoia_crm` (RNF-03; Plano 01, Global Constraints) |
-| `publish` só com código | `deploy.yml`, `if: needs.ci.outputs.codigo == 'true'` | Plano 12 (R-D1): commit só de documentação não gera imagem nem deploy |
+| CI do PR não se repete | `deploy.yml`, job `decidir` (`.github/scripts/ci-ja-passou.sh`) | Dono, 09/10/2026: economia de ~36 min do Actions por merge (plano Free, 2 mil/mês); detalhes abaixo |
+| `publish` só com código | `deploy.yml`, `if` do `publish`: CI pulado pelo `decidir` **ou** `needs.ci.outputs.codigo == 'true'` | Plano 12 (R-D1): commit só de documentação não gera imagem nem deploy |
 | `provenance: false`, `sbom: false` | `deploy.yml` | Cada push vira um manifesto só; a poda conta versões reais |
-| Poda antes dos webhooks | `deploy.yml:53-57` | Se o deploy falhar, a poda já rodou; mantém a imagem nova e a anterior (a que roda) |
-| Webhooks obrigatórios | `deploy.yml:58` | Sem `EASYPANEL_DEPLOY_HOOK_APP`/`_WORKER` o job falha com mensagem clara |
+| Poda antes dos webhooks | `deploy.yml:87-95` | Se o deploy falhar, a poda já rodou; mantém a imagem nova e a anterior (a que roda) |
+| Webhooks obrigatórios | `deploy.yml:101` | Sem `EASYPANEL_DEPLOY_HOOK_APP`/`_WORKER` o job falha com mensagem clara |
 | `concurrency: deploy-main`, sem cancelamento | `deploy.yml` | Dois merges seguidos implantam em ordem |
 | Migrations no app, antes do `start` | `docker-entrypoint.sh` (modo `app`) | O migrator do Drizzle aplica **todas** as pendentes numa única transação (`drizzle-orm/pg-core/dialect.js`, `migrate`, `session.transaction`, linhas 60-71), não uma transação por migration: se uma falhar, nenhuma da leva fica gravada e o container novo não sobe |
 | `DATABASE_URL_MIGRATOR` fora dos processos longos | `docker-entrypoint.sh` (`env -u`) | O role dono do schema pode desligar a RLS; só o passo de migration o vê |
+
+**Deploy sem repetir o CI do PR (dono, 09/10/2026).** Antes, todo push na `main` rodava o `ci.yml` inteiro de novo
+(`quality`, `test`, `e2e`, `image`: ~36 min) sobre a mesma árvore que o PR já tinha testado. Agora o job `decidir`
+(`contents: read`, `pull-requests: read` e `actions: read`, só nele; `GITHUB_TOKEN`; sem ação de terceiros nova) roda
+`.github/scripts/ci-ja-passou.sh` e só responde `pular=true` quando **tudo** vale:
+
+1. o commit da `main` é o merge de um PR para a `main` (`gh api repos/{repo}/commits/{sha}/pulls`: `merged_at`
+   preenchido e `merge_commit_sha` igual ao commit);
+2. a árvore do commit da `main` é **idêntica** à do head do PR (`git rev-parse <sha>^{tree}`; o head vem de
+   `refs/pull/<n>/head` quando não está no histórico, como num squash) e a `main` anterior (`github.event.before`) está
+   no histórico do head — o CI de PR roda no merge do head com a base, então só assim ele testou exatamente esta árvore;
+3. a execução mais recente do `ci.yml` (evento `pull_request`) **deste PR** — nome `ci-pr-<n>-<base.sha>` (o `run-name`
+   do `ci.yml` grava o número do PR e o `base.sha` quando a execução é criada; a API só preenche
+   `workflow_runs[].pull_requests` com o PR aberto e, depois do merge, o devolve vazio), do próprio repositório
+   (`head_repository`, fork não) e com essa base no histórico do head — terminou em `success`, com `quality`, `test`,
+   `e2e` e `image` em `success` (última tentativa, `filter=latest`).
+
+Qualquer dúvida — entrada ausente, primeiro push, API fora do ar ou resposta estranha, árvore diferente, PR
+desatualizado, execução de outro PR, com base fora do histórico, sem o nome `ci-pr-…` (anterior ao `run-name`), de fork, CI cancelado, com falha ou em andamento, job ausente ou pulado — vira `pular=false`, e o `ci` roda como
+antes. O script nunca falha o job; se o próprio `decidir` falhar, o `ci` roda do mesmo jeito (`if: !cancelled() &&
+pular != 'true'`). PR só de documentação (com `test`, `e2e` e `image` pulados pelo `mudancas`) também não pula: o CI
+desse caso já é curto e é ele que decide não publicar (`codigo == 'false'`). Por isso, quando o CI é pulado, o PR tinha
+código e o `publish` roda direto. Nas fusões de hoje (merge commit com a `main` já mesclada no branch), as três
+condições de árvore e histórico valem (conferido nos merges dos PRs #27 a #30). Os casos estão em
+`test/ci-ja-passou.test.ts` (`gh` falso e repositórios git reais: merge, squash, árvore diferente, PR desatualizado, outro PR, outra base, fork, base fora do histórico, CI
+`failure`/`cancelled`/em andamento, execução mais recente, job pulado ou ausente, sem PR, API falhando, resposta
+inválida).
+
+**Primeiro deploy depois deste merge.** A execução do CI do próprio PR que trouxe o `run-name` não tem o nome
+`ci-pr-…` (foi criada antes dele), então esse deploy ainda roda o CI completo. A economia começa no PR seguinte. Quando o
+deploy chama o `ci.yml` (`workflow_call`), o `run-name` dele é ignorado e vale o nome da execução do deploy.
 
 **Merge = deploy = reinício de serviço.** Por isso o merge exige o OK explícito do dono e um snapshot no hPanel antes
 (regra 6 do `CLAUDE.md`; regras 3 e 5 do `CLAUDE.md` do servidor). Volta atrás: os serviços usam `:latest`, então
@@ -772,7 +809,7 @@ merge: merge é deploy e precisa do OK do dono.
 |---|---|---|---|
 | 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | **Resolvida no Plano 09 (P09-02 a):** o worker espera a versão do schema (`esperarVersaoDoSchema`, §6.2.1). Antes dela: nenhuma espera. `startWorker` (`src/worker/index.ts:42`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
 | 2 | Spec §9.7, "Pull request" | Pipeline em sequência: lint → `tsc` → Vitest → testes de RLS/isolamento → build → Playwright | Quatro jobs paralelos (`quality`, `test`, `e2e`, `image`). Os testes de RLS e isolamento estão dentro do `pnpm test`; o build está dentro do job `e2e`; o job `image` (orçamento de 260 MB) não aparece na spec |
-| 3 | Spec §9.7, "Merge na `main`" | Push para o GHCR "com tag = SHA do commit" | Também publica `:latest` e poda o pacote para as 2 versões mais recentes (`deploy.yml:39-57`) |
+| 3 | Spec §9.7, "Merge na `main`" | Push para o GHCR "com tag = SHA do commit" | Também publica `:latest` e poda o pacote para as 2 versões mais recentes (`deploy.yml:77-95`) |
 | 4 | Spec RNF-10 (v1.11) | Axe em "42 rotas de `ROTAS_DO_PAINEL`" | 43 entradas em `ROTAS_DO_PAINEL`, uma por `page.tsx` de `src/app/painel` (43), mais `/conta/seguranca` = 44 telas. O Plano 08, D25, fala em "~43" |
 | 5 | Spec §9.2 | `@sentry/cli` como dependência de dev "para source maps"; `web-push` na mesma linha de dependências de dev | `@sentry/cli` não está no `package.json` (a própria v1.11 diz que não há source maps do navegador); `web-push` é dependência de produção (`dependencies`) |
 | 6 | Índice dos planos, "Convenções" | "lista do teste de isolamento (Plano 01, Tarefa 5)" | A Tarefa 5 do Plano 01 criou a guarda `rls-guard`. A matriz `test/isolamento.test.ts` nasceu no Plano 02, Tarefa 8 (`docs/superpowers/plans/2026-09-28-nutridebby-02-plataforma.md:4268`) |

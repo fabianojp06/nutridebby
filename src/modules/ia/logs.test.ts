@@ -40,7 +40,7 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
       const ia = IA_TESTE;
       const tarefaId = await pedirLeituraExame(T.ctx, tenant as TenantRow, p.id, examId, { db: app.db, agora, ia, avisarTeto: async () => 0 });
-      const deps = { db: app.db, dataDir, modo: 'fake' as const, geo: 'us' as const, destino: 'teste' as const, retencaoZero: true, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, alertas: { credencial: async () => 0, teto: async () => 0 } };
+      const deps = { db: app.db, dataDir, modo: 'fake' as const, geo: 'us' as const, destino: 'teste' as const, retencao: 'zero' as const, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, appUrl: 'https://x', agora: () => agora, alertas: { credencial: async () => 0, teto: async () => 0 } };
       const ok = respostaOk({ documento_reconhecido: true, data_coleta: null, marcadores: [{ nome_no_laudo: MARCADOR, valor_texto: MARCADOR, unidade: MARCADOR, referencia: MARCADOR, pagina: 1 }] });
       // linha com valor não numérico é válida na leitura (o "não numérico" é da tela): a tarefa fica pronta
       expect(await processarTarefaIA({ tenantId: T.tenantId, tarefaId }, { ...deps, provedor: provedorFake({ ler: [ok] }), ultimaTentativa: false })).toBe('pronta');

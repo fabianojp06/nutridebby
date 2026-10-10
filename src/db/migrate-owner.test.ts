@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Pool, type PoolClient } from 'pg';
@@ -386,5 +387,102 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
         c.release();
       }
     });
+  });
+
+  // JUR-01 (dono, 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo de guarda conta do último registro do
+  // prontuário — no pedido de exclusão, o próprio bloqueio. A 0110 recalcula quem já está bloqueado: data do bloqueio no
+  // fuso do tenant + 20 anos, só para mais (GREATEST), com o gatilho de auditoria ligado, sob FORCE RLS (dono sem
+  // superusuário, como em produção). Roda por último neste arquivo: a migration de novo pega todos os tenants do cluster.
+  it('prazo de guarda do bloqueio (0110): recalcula os bloqueados de dois consultórios no fuso de cada um, nunca antecipa e audita', async () => {
+    const MIGRATION = readFileSync(new URL('../../drizzle/0110_prazo_guarda_bloqueio.sql', import.meta.url), 'utf8');
+    const c = await app.connect();
+    const emTenant = async (t: string) => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true)`, [t]);
+    };
+    const migrar = async () => {
+      const o = await owner.connect();
+      try {
+        await o.query('begin');
+        for (const st of MIGRATION.split('--> statement-breakpoint')) if (st.trim()) await o.query(st);
+        await o.query('commit');
+      } finally {
+        await o.query('rollback').catch(() => undefined);
+        o.release();
+      }
+    };
+    try {
+      const a = (await c.query(`insert into tenants (slug, nome_exibicao) values ('jur01-a', 'A') returning id`)).rows[0].id as string;
+      const b = (await c.query(`insert into tenants (slug, nome_exibicao, fuso) values ('jur01-b', 'B', 'Asia/Tokyo') returning id`)).rows[0].id as string;
+      const ids: Record<string, string> = {};
+      const inserir = async (t: string, nome: string, status: string, bloqueadoEm: string | null, anonimizarApos: string | null, anonimizadoEm: string | null = null) => {
+        ids[nome] = (
+          await c.query(
+            `insert into patients (tenant_id, nome, data_nascimento, sexo, email, status, bloqueado_em, anonimizar_apos, anonimizado_em)
+             values ($1, $2, '1990-01-01', 'F', $3, $4, $5, $6, $7) returning id`,
+            [t, nome, `${nome}@jur01.dev`, status, bloqueadoEm, anonimizarApos, anonimizadoEm],
+          )
+        ).rows[0].id as string;
+      };
+      await emTenant(a);
+      await inserir(a, 'a1', 'bloqueado', '2026-10-05T12:00:00Z', '2045-03-10'); // antes: última consulta 10/03/2025 + 20
+      await inserir(a, 'a2', 'bloqueado', '2026-10-02T01:30:00Z', '2046-01-01'); // 22h30 de 01/10 em São Paulo
+      await inserir(a, 'a3', 'bloqueado', '2026-10-05T12:00:00Z', '2050-01-01'); // já depois: GREATEST mantém
+      await inserir(a, 'a4', 'bloqueado', '2006-01-01T12:00:00Z', '2026-01-01', '2026-01-02T03:00:00Z'); // já anonimizado
+      await inserir(a, 'a5', 'ativo', null, null);
+      await inserir(a, 'a6', 'bloqueado', null, '2040-01-01'); // sem bloqueado_em: data do pedido de exclusão atendido
+      await inserir(a, 'a7', 'bloqueado', null, '2040-01-01'); // sem data nenhuma: não mexe
+      await inserir(a, 'a8', 'bloqueado', '2026-10-05T12:00:00Z', null); // sem prazo: não cria um
+      await c.query(
+        `insert into privacy_requests (tenant_id, patient_id, tipo, status, prazo, concluido_em) values
+           ($1, $2, 'exclusao', 'concluido', '2026-10-05', '2026-09-20T15:00:00Z'),
+           ($1, $2, 'exportacao', 'concluido', '2026-10-10', '2026-09-25T15:00:00Z'),
+           ($1, $3, 'exclusao', 'aberto', '2026-10-20', null)`,
+        [a, ids.a6, ids.a7],
+      );
+      await c.query('commit');
+      await emTenant(b);
+      await inserir(b, 'b1', 'bloqueado', '2026-10-05T16:00:00Z', '2045-01-01'); // 01h de 06/10 em Tóquio
+      await inserir(b, 'b2', 'bloqueado', '2026-10-05T16:00:00Z', '2047-01-01');
+      await c.query('commit');
+
+      await migrar();
+      await migrar(); // de novo: nada muda (só para mais)
+
+      const ler = async (t: string) => {
+        await emTenant(t);
+        const p = await c.query(`select nome, anonimizar_apos::text as apos from patients where tenant_id = $1`, [t]);
+        const log = await c.query(
+          `select p.nome, l.actor_user_id from audit_log l join patients p on p.id = l.patient_id
+            where l.tenant_id = $1 and l.entidade = 'patients' and l.acao = 'alterar' order by p.nome`,
+          [t],
+        );
+        await c.query('commit');
+        return { prazos: Object.fromEntries(p.rows.map((r) => [r.nome, r.apos])), alterados: log.rows };
+      };
+      const ra = await ler(a);
+      expect(ra.prazos).toEqual({
+        a1: '2046-10-05',
+        a2: '2046-10-01',
+        a3: '2050-01-01',
+        a4: '2026-01-01',
+        a5: null,
+        a6: '2046-09-20',
+        a7: '2040-01-01',
+        a8: null,
+      });
+      // gatilho de auditoria ligado: uma linha "alterar" (ator nulo = Sistema) por paciente que mudou, só na 1ª vez
+      expect(ra.alterados).toEqual([
+        { nome: 'a1', actor_user_id: null },
+        { nome: 'a2', actor_user_id: null },
+        { nome: 'a6', actor_user_id: null },
+      ]);
+      const rb = await ler(b);
+      expect(rb.prazos).toEqual({ b1: '2046-10-06', b2: '2047-01-01' });
+      expect(rb.alterados).toEqual([{ nome: 'b1', actor_user_id: null }]);
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
   });
 });

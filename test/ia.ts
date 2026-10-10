@@ -3,7 +3,7 @@ import type { Db } from '@/db/client';
 import { iaAutorizacoes, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { ConfigIA } from '@/modules/ia/modo';
-import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
@@ -91,7 +91,7 @@ export async function fotoDeTeste(o: { largura?: number; altura?: number; orient
 /**
  * Plano 14A: um evento de autorização gravado pela sessão de paciente SEM conta (canal `link`, como o link do e-mail): o
  * único caminho de teste que a política paciente_autorizacao_propria e o gatilho ia_autorizacoes_regras (0108) aceitam
- * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, versão 0.1-provisorio, os usos da 0.1 (só `leitura_laudos`, F2),
+ * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, a versão atual (AUTORIZACAO_IA_VERSAO, 1.0), os usos dela (só `leitura_laudos`, F2),
  * destino `teste` (o dos provedores sandbox/fake).
  */
 export async function autorizacaoNoBanco(
@@ -109,7 +109,7 @@ export async function autorizacaoNoBanco(
         .insert(iaAutorizacoes)
         .values({
           tenantId, patientId, evento, canal: 'link', emailHmac: o.emailHmac ?? 'hmac-de-teste',
-          versao: autorizou ? (o.versao ?? '0.1-provisorio') : null,
+          versao: autorizou ? (o.versao ?? AUTORIZACAO_IA_VERSAO) : null,
           usos: autorizou ? (o.usos ?? ['leitura_laudos']) : null,
           destino: autorizou ? (o.destino ?? 'teste') : null,
         })
@@ -127,4 +127,4 @@ export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string
 }
 
 /** Plano 14A: a configuração dos testes da IA — provedor falso (destino `teste`), retenção zero ligada, teto da plataforma folgado. */
-export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, retencaoZero: true };
+export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, retencao: 'zero' };

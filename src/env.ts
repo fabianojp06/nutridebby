@@ -90,13 +90,22 @@ const iaTeto = opcional(
 );
 /** Plano 14A (A-D4): 1 = retenção zero confirmada pelo dono no runbook; sem ela, nenhum uso com dado de paciente (RN-100). */
 const iaRetencaoZero = opcional(z.enum(['0', '1'], { message: 'IA_RETENCAO_ZERO deve ser 0 ou 1' }).optional());
+/**
+ * A-D27 (dono, 09/10/2026): com a Anthropic direta, o dono aceita a retenção padrão (até 30 dias, só segurança e abuso,
+ * sem treino) no lugar da retenção zero. Nunca é tratada como retenção zero (modo.ts, `retencao: '30-dias'`).
+ */
+const iaRetencao30Dias = opcional(z.enum(['0', '1'], { message: 'IA_RETENCAO_ACEITA_30_DIAS deve ser 0 ou 1' }).optional());
 /** Plano 14A (INT-08): a região da UE do cliente do Bedrock (lista fechada). */
 const iaBedrockRegiao = opcional(z.enum(REGIOES_BEDROCK_EU, { message: `IA_BEDROCK_REGIAO deve ser uma destas regiões da União Europeia: ${REGIOES_BEDROCK_EU.join(', ')}` }).optional());
 /** Plano 14A (RNF-103, D2): variáveis que o SDK do provedor leria sozinho, mudando a chamada sem passar pelo código. */
 const proibidaNoWorker = (nome: string) => opcional(z.undefined({ message: `${nome} não pode ser definida no worker: o SDK do provedor de IA a leria sozinho (RNF-103)` }));
 /** A conferência da IA, igual no app e no worker. A mensagem nunca repete valor. */
-function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string; IA_MODELO_LEITURA: string; IA_BEDROCK_REGIAO?: string }, ctx: z.RefinementCtx): void {
+function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string; IA_MODELO_LEITURA: string; IA_BEDROCK_REGIAO?: string; IA_RETENCAO_ACEITA_30_DIAS?: string }, ctx: z.RefinementCtx): void {
   if (e.IA_PROVEDOR === 'bedrock-eu') {
+    // A-D27: a retenção de 30 dias é a da Anthropic direta; o Bedrock continua exigindo a zero (IA_RETENCAO_ZERO=1)
+    if (e.IA_RETENCAO_ACEITA_30_DIAS === '1') {
+      ctx.addIssue({ code: 'custom', path: ['IA_RETENCAO_ACEITA_30_DIAS'], message: 'IA_RETENCAO_ACEITA_30_DIAS só vale com IA_PROVEDOR=anthropic; o bedrock-eu exige IA_RETENCAO_ZERO=1' });
+    }
     if (!e.IA_BEDROCK_REGIAO) ctx.addIssue({ code: 'custom', path: ['IA_BEDROCK_REGIAO'], message: 'IA_BEDROCK_REGIAO é obrigatória com IA_PROVEDOR=bedrock-eu' });
     if (!(MODELOS_BEDROCK_EU as readonly string[]).includes(e.IA_MODELO_LEITURA)) {
       ctx.addIssue({ code: 'custom', path: ['IA_MODELO_LEITURA'], message: `Com IA_PROVEDOR=bedrock-eu, IA_MODELO_LEITURA deve ser um destes: ${MODELOS_BEDROCK_EU.join(', ')}` });
@@ -172,7 +181,7 @@ const appSchema = serverSchema
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
     CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_BEDROCK_REGIAO: iaBedrockRegiao,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // P12-14: só teste — encurta os prazos da sessão da equipe (inatividade em ms) para quem traz o cookie nd_sessao_teste
     // (E2E do aviso de inatividade). Recusada em produção (abaixo), como o IA_PROVEDOR sandbox/fake.
     SESSAO_TESTE_MS: opcional(
@@ -271,7 +280,7 @@ const workerSchema = serverSchema
     EVOLUTION_API_URL: evolutionUrl,
     EVOLUTION_API_KEY: evolutionKey,
     WHATSAPP_SANDBOX: whatsappSandbox,
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_BEDROCK_REGIAO: iaBedrockRegiao,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // Plano 11 (RNF-103): a chave do provedor só existe no worker; o app nunca a declara (o schema dele a descarta)
     ANTHROPIC_API_KEY: opcional(z.string().regex(/^sk-ant-[A-Za-z0-9_-]{20,}$/, { message: 'ANTHROPIC_API_KEY em formato inválido (confira se foi colada inteira)' }).optional()),
     // Plano 14A (INT-08, RNF-103): as chaves da AWS só existem no worker (o app nunca as declara); só a chave de longo prazo

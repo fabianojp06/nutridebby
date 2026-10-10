@@ -229,11 +229,12 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   // do handler (preparo + uma chamada de 120 s); se expirar mesmo assim, a execução antiga não passa do portão do envio.
   const ia = configIA(env);
   const { provedor: provedorIA } = provedorIADoAmbiente(env);
-  logger.info({ ia: ia.modo, provedor: provedorIA?.nome ?? 'nenhum', modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente' }, 'IA de laudos');
+  // A-D27: o log diz a retenção em vigor ('zero', '30-dias' ou 'nenhuma' — sem ela, nada com dado de paciente sai)
+  logger.info({ ia: ia.modo, provedor: provedorIA?.nome ?? 'nenhum', modelo: ia.modelo, chave: provedorIA ? 'presente' : 'ausente', retencao: ia.retencao ?? 'nenhuma' }, 'IA de laudos');
   await work('ia', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobIA>[]) => {
     await processarTarefaIA(job.data, {
       db: getDb(), dataDir: env.DATA_DIR, modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd,
-      destino: ia.destino, retencaoZero: ia.retencaoZero,
+      destino: ia.destino, retencao: ia.retencao,
       appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
       // pg-boss 12: o sinal é abortado quando o job expira (resolveWithinSeconds) ou no encerramento do worker
       abortado: () => job.signal.aborted,

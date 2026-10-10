@@ -445,7 +445,7 @@ O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
 8. `access_events` apagados (`apagarAcessosDoTitular`; Plano 08, D13).
 9. `recordAudit('bloquear')` e job `exclusao-atendida`.
 
-Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:21`), contado do último `consultations.data` (atendimento registrado) ou de hoje, se não houver (`lgpd.ts:102-106`). P-01 pendente com CRN/advogado.
+Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:41`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:123-126`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
 
 A anonimização de cada paciente (`lgpd.ts:372-428`):
 
@@ -750,7 +750,7 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 5. **§7 `exams.arquivo_path`.** A spec trata como campo livre; o código tem FK para `stored_files.caminho` com `ON DELETE SET NULL` e CHECK `exams_arquivo_do_tenant` (desvio do Plano 03 não refletido na §7).
 6. **US-021, cenário "Alimento em uso".** O cenário diz "Este alimento está em um plano e não pode ser excluído."; o código diz "Este alimento está em um plano ou receita e não pode ser excluído." (`alimentos-constantes.ts`, `MSG_ALIMENTO.emUso`; Plano 07, D12). A nota do Plano 07 (`…-historias.md:1367`) já traz o texto novo; o cenário original não foi corrigido.
 7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (`exportacao-job.ts:106,128,214`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
-8. **US-018 "anonimizar_apos = última consulta + prazo".** O código conta da última **data de atendimento registrado** (`max(consultations.data)`), não da última consulta da agenda (`appointments`) (`lgpd.ts:102-106`). Coerente com o Plano 03 ("Prazo de guarda"); uma consulta agendada sem atendimento registrado não estende o prazo.
+8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:123-126`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
 
 Plano × código:
 

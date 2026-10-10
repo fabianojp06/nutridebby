@@ -771,6 +771,13 @@
       "when": 1791521514764,
       "tag": "0109_ia_ciencia_congelada",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1791546677160,
+      "tag": "0110_prazo_guarda_bloqueio",
+      "breakpoints": true
     }
   ]
 }

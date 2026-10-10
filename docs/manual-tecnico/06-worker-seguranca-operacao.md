@@ -80,7 +80,8 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` e, desde o Plano 11, `IA_PROVEDOR`, `IA_DESLIGADA`, `IA_MODELO_LEITURA`,
 `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD` e `ANTHROPIC_API_KEY` (só no worker; o app não a declara) e, desde o
 Plano 14A, `IA_RETENCAO_ZERO`, `IA_BEDROCK_REGIAO` (app e worker), `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (só no
-worker, juntas). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
+worker, juntas) e, desde a A-D27 (09/10/2026), `IA_RETENCAO_ACEITA_30_DIAS` (app e worker; só com `IA_PROVEDOR=anthropic`,
+[§10.10.10](10-ia.md#101010-retenção-aceita-e-textos-10-a-d27-09102026)). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
 as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sandbox`/`fake` é recusado e, com
 `IA_PROVEDOR=anthropic`, `IA_INFERENCE_GEO` só aceita `us`; com `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO` é obrigatória
@@ -778,8 +779,8 @@ Por que não basta "redeploy": `nutri_app` e `nutri_worker` usam `ghcr.io/fabian
 redeploy puxa de novo o `:latest`, que é a imagem quebrada. É preciso fixar o SHA anterior. Toda troca de imagem é
 feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e reinicia serviço (regra 3 do servidor).
 
-1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:39-41`)
-   e poda o pacote para as 2 versões mais recentes (`deploy.yml:52-57`). A anterior é o merge de antes na `main`
+1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:77-79`)
+   e poda o pacote para as 2 versões mais recentes (`deploy.yml:87-95`). A anterior é o merge de antes na `main`
    (`git log --first-parent main`) e aparece na lista de versões do pacote no GHCR.
 2. **Conferir as migrations.** O Drizzle só avança: não há migration de volta, e o banco fica no schema novo. Se o
    deploy quebrado aplicou uma migration de **contração** (removeu ou renomeou coluna, tabela ou função que a versão
@@ -795,7 +796,7 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
    dos dois serviços sem erro (`docker service logs`, leitura livre pela regra 2 do servidor).
 5. **Corrigir para frente.** A correção segue o fluxo normal: PR → revisão → OK do dono. **Antes do merge**, o dono
    volta os dois serviços para `:latest` no Easypanel. Por quê: o webhook só manda o Easypanel reimplantar a imagem
-   configurada (`deploy.yml:58-65`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
+   configurada (`deploy.yml:96-103`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
    GHCR remove esse SHA dois deploys depois.
 6. **Snapshot do hPanel só como último recurso** (banco corrompido, servidor sem subir). O snapshot volta a VPS
    inteira: inclusive o `cursoia_crm` e os outros projetos do servidor, e perde tudo o que foi gravado depois dele
