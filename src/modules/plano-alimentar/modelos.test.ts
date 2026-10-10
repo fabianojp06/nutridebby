@@ -228,12 +228,13 @@ describe('modelos sugeridos pela IA (US-123, RN-125, RN-126)', () => {
     expect(depois).toMatchObject({ aprovadoPor: T.nutriId, aprovadoEm: new Date('2026-10-10T13:00:00Z') });
   });
 
-  it('salvarComoModelo de um plano não copia origem nem aprovação; modelo feito à mão segue usável', async () => {
+  it('salvarComoModelo: sugestão não aprovada recusada (RN-125); a cópia não leva origem nem aprovação; modelo feito à mão segue usável', async () => {
     const T = await novoTenant(app.db);
     const { id } = await criarModelo(T.ctx, 'Meu modelo', { db: app.db });
     expect((await listarModelosUsaveis(T.ctx, app.db)).map((m) => m.id)).toContain(id);
     expect((await listarModelos(T.ctx, app.db)).find((m) => m.id === id)).toMatchObject({ sugestaoIa: false, aprovadoEm: null });
     const sugerido = await modeloSugerido(T);
+    await expect(salvarComoModelo(T.ctx, sugerido, 'Cópia', { db: app.db })).rejects.toEqual(new PlanoError({ geral: MSG_MODELO_IA.aprove })); // RN-125
     await aprovarModeloPlano(T.ctx, sugerido, { db: app.db });
     const { id: copia } = await salvarComoModelo(T.ctx, sugerido, 'Cópia do sugerido', { db: app.db });
     const [c] = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, copia)), app.db);

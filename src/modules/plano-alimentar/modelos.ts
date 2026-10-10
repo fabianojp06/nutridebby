@@ -108,6 +108,7 @@ export async function salvarComoModelo(ctx: TenantContext, planId: string, titul
       // FOR SHARE: cabeçalho, refeições e itens da mesma versão (o salvamento em curso termina antes)
       const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('share');
       if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
+      if (p.iaGeracaoId && !p.aprovadoEm) throw new PlanoError({ geral: MSG_MODELO_IA.aprove }); // RN-125: copiar a sugestão não aprovada viraria modelo à mão
       if (p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId }); // copiar lê o plano do paciente
       const [m] = await tx
         .insert(mealPlans)
