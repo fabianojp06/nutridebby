@@ -20,6 +20,11 @@ export const TOKENS_POR_IMAGEM_TETO = 4784;
 export const TOKENS_INSTRUCOES_TETO = 3000;
 /** D11: saída + raciocínio da leitura; sem streaming, cabe no timeout de 120 s. */
 export const MAX_TOKENS_LEITURA = 16_000;
+/** Plano 14B (D2): saída + raciocínio de cada volta do laço e do resumo — sem streaming, dentro do timeout de 120 s. */
+export const MAX_TOKENS_VOLTA = 16_000;
+export const MAX_TOKENS_RESUMO = 8_000;
+/** D5/D12: estimativa conservadora de tokens de um texto já montado (2 bytes UTF-8 por token; o português dá ≈ 4). */
+export const tokensDeBytes = (bytes: number): number => Math.ceil(bytes / 2);
 
 const geoDe = (g: string | null | undefined, padrao: RegiaoIA): RegiaoIA => (g === 'us' || g === 'global' || g === 'eu' ? g : padrao);
 

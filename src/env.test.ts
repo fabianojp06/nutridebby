@@ -336,6 +336,19 @@ describe('Plano 11 — variáveis da IA (spec v0.3 §12)', () => {
     expect(msg).not.toContain(errado);
   });
 
+  it('IA_MODELO_ASSISTENTE: padrão claude-sonnet-5-5 (A-D3); fora da lista não sobe; com bedrock-eu, só os do perfil eu.', () => {
+    expect(parseWorkerEnv({ ...w, IA_PROVEDOR: 'sandbox' }).IA_MODELO_ASSISTENTE).toBe('claude-sonnet-5-5');
+    expect(() => parseWorkerEnv({ ...w, IA_PROVEDOR: 'sandbox', IA_MODELO_ASSISTENTE: 'claude-fable-5-1' })).toThrow(/IA_MODELO_ASSISTENTE/);
+    expect(() => parseWorkerEnv({ ...w, IA_PROVEDOR: 'bedrock-eu', IA_BEDROCK_REGIAO: 'eu-central-1', IA_MODELO_LEITURA: 'claude-sonnet-5-5', IA_MODELO_ASSISTENTE: 'claude-opus-5-5' }))
+      .toThrow(/Com IA_PROVEDOR=bedrock-eu, IA_MODELO_ASSISTENTE/);
+  });
+
+  it('IA_TETO_RASCUNHO_USD: padrão 1 (D5); fora de 0,05–5 não sobe', () => {
+    expect(parseWorkerEnv({ ...w }).IA_TETO_RASCUNHO_USD).toBe(1);
+    expect(() => parseWorkerEnv({ ...w, IA_TETO_RASCUNHO_USD: '0.01' })).toThrow(/IA_TETO_RASCUNHO_USD/);
+    expect(() => parseWorkerEnv({ ...w, IA_TETO_RASCUNHO_USD: '6' })).toThrow(/IA_TETO_RASCUNHO_USD/);
+  });
+
   it('teto global: número de 0 a 10000; vazio vira o padrão', () => {
     expect(parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '' }).IA_TETO_GLOBAL_MENSAL_USD).toBe(50);
     expect(parseEnv({ ...base, IA_TETO_GLOBAL_MENSAL_USD: '120' }).IA_TETO_GLOBAL_MENSAL_USD).toBe(120);

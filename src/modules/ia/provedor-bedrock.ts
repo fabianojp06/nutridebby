@@ -3,7 +3,7 @@ import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk';
 // (versão única no lockfile: o `instanceof` vale para o erro que o cliente lança)
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/bedrock-sdk/core/error';
 import type { ModeloIA, RegiaoBedrock, RegiaoIA } from './constantes';
-import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
+import { ErroProvedor, type PedidoGeracao, type PedidoLeitura, type ProvedorIA, type RespostaGeracao, type RespostaLeitura, type TurnoIA, type UsoTokens } from './provedor';
 
 /**
  * INT-08 (Plano 14A, A-D26): o ÚNICO arquivo que importa o SDK do Bedrock (RNF-103; guarda em guardas.test.ts). Só o worker
@@ -14,7 +14,8 @@ import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura
  * da AWS (AWS_PROFILE, SSO, IMDS) nunca é consultada. `maxRetries: 0`: as novas tentativas são do pg-boss (RN-105).
  * Só messages.create, com PDF/imagem inline em base64 — sem Batch (CreateModelInvocationJob), S3, URL, count_tokens nem
  * `inference_geo` (não existe no Bedrock: a região vem do perfil). Nenhum erro sai com o texto do provedor: só
- * ErroProvedor { tipo, status, requestId }.
+ * ErroProvedor { tipo, status, requestId }. Plano 14B (D1): `gerar` usa o mesmo InvokeModel, com ferramentas só do
+ * cliente (`strict`, escolha `auto`), sem streaming e sem `thinking` explícito.
  */
 export const TIMEOUT_MS = 120_000;
 /** INT-08 / R-116: o Bedrock aceita pedido de até 20 MB (base64 do arquivo + instruções). */
@@ -61,6 +62,40 @@ export function classificarErroBedrock(err: unknown): ErroProvedor {
 
 function usoDe(u: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }): UsoTokens {
   return { entrada: u.input_tokens, cacheLeitura: u.cache_read_input_tokens ?? 0, cacheGravacao: u.cache_creation_input_tokens ?? 0, saida: u.output_tokens, geo: 'eu' };
+}
+
+/**
+ * Plano 14B (D1): os tipos do corpo e da resposta vêm inferidos do cliente do Bedrock (importar os do @anthropic-ai/sdk
+ * quebraria a guarda do RNF-103). A resposta é o membro da união que tem `content` (a mensagem, não o fluxo de eventos).
+ */
+type MensagemDoPedido = Parameters<AnthropicBedrock['messages']['create']>[0]['messages'][number];
+type BlocoDoPedido = Exclude<MensagemDoPedido['content'], string>[number];
+type MensagemDaResposta = Extract<Awaited<ReturnType<AnthropicBedrock['messages']['create']>>, { content: unknown }>;
+
+/** Plano 14B (D1): o turno do assistente volta como veio (o bruto, com o raciocínio e a assinatura) — nada é editado. */
+function mensagensDe(turnos: readonly TurnoIA[]): MensagemDoPedido[] {
+  return turnos.map((t): MensagemDoPedido =>
+    t.papel === 'assistente'
+      ? { role: 'assistant', content: t.bruto as BlocoDoPedido[] }
+      : {
+          role: 'user',
+          content: t.blocos.map((b): BlocoDoPedido =>
+            b.tipo === 'texto' ? { type: 'text', text: b.texto } : { type: 'tool_result', tool_use_id: b.chamadaId, content: b.conteudo, ...(b.erro ? { is_error: true } : {}) },
+          ),
+        },
+  );
+}
+
+/** Plano 14B (D1): a resposta de uma volta, como na API direta; o request-id vem do cabeçalho da AWS. */
+function respostaDe(r: MensagemDaResposta, requestId: string | null): RespostaGeracao {
+  const base = { bruto: r.content as readonly unknown[], uso: usoDe(r.usage), requestId };
+  if (r.stop_reason === 'refusal') return { tipo: 'recusa', categoria: r.stop_details?.category ?? null, ...base };
+  if (r.stop_reason === 'tool_use') {
+    const chamadas = r.content.flatMap((b) => (b.type === 'tool_use' ? [{ id: b.id, nome: b.name, entrada: b.input }] : []));
+    return chamadas.length ? { tipo: 'ferramentas', chamadas, ...base } : { tipo: 'cortada', ...base };
+  }
+  if (r.stop_reason !== 'end_turn') return { tipo: 'cortada', ...base };
+  return { tipo: 'final', texto: r.content.map((b) => (b.type === 'text' ? b.text : '')).join(''), ...base };
 }
 
 /** D3: só os modelos com perfil `eu.` e só a região `eu` (o job confere antes do portão do envio). */
@@ -117,6 +152,31 @@ export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string;
       if (r.stop_reason !== 'end_turn') return { tipo: 'cortada', uso, requestId };
       const texto = r.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
       return { tipo: 'ok', texto, uso, requestId };
+    },
+    async gerar(p: PedidoGeracao): Promise<RespostaGeracao> {
+      const perfil = PERFIL_BEDROCK_EU[p.modelo];
+      // D3: como na leitura, nada sai para modelo fora do perfil eu. nem com região que não é a da UE
+      if (!perfil || !aceitaBedrock(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
+      const { data: r, response } = await cliente.messages
+        .create({
+          model: perfil,
+          max_tokens: p.maxTokens,
+          system: p.sistema,
+          messages: mensagensDe(p.turnos),
+          output_config: { effort: p.esforco, format: { type: 'json_schema', schema: p.schema } },
+          // RNF-105: só ferramentas do cliente, strict, com a escolha automática (forçar dá 400 nos modelos 5.5)
+          ...(p.ferramentas.length
+            ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as { type: 'object' }, strict: true })), tool_choice: { type: 'auto' } as const }
+            : {}),
+        })
+        .withResponse()
+        .then(
+          (x) => x,
+          (err: unknown) => {
+            throw classificarErroBedrock(err);
+          },
+        );
+      return respostaDe(r, response.headers.get('x-amzn-requestid'));
     },
   };
 }

@@ -82,6 +82,8 @@ export const MOTIVOS_FALHA = [
   'provedor_indisponivel', 'resultado_incerto', 'recusa', 'resposta_invalida', 'documento_nao_reconhecido', 'nada_encontrado',
   'interrompida', 'cota', 'teto_plataforma', 'ia_desligada', 'credencial_invalida', 'paciente_indisponivel',
   'paciente_nao_informado', 'arquivo_invalido', 'laudo_longo', 'pdf_com_senha', 'exame_indisponivel', 'sem_autorizacao',
+  // Plano 14B (RN-121, RN-124, D5): o laço de ferramentas parou antes de passar do limite de voltas, do prazo ou do teto
+  'limite_voltas', 'limite_custo',
 ] as const;
 export type MotivoFalha = (typeof MOTIVOS_FALHA)[number];
 
@@ -168,6 +170,9 @@ export const MSG_FALHA: Record<MotivoFalha, string> = {
   paciente_indisponivel: 'Este paciente não pode usar a IA agora (bloqueado, arquivado ou anonimizado).',
   sem_autorizacao: 'A autorização do paciente para o uso de IA não está em vigor.',
   exame_indisponivel: 'Este exame não está mais disponível.',
+  // Plano 14B (US-122): o mesmo texto para o limite de voltas (ou o prazo) e o teto de custo do laço
+  limite_voltas: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
+  limite_custo: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
 };
 
 /** Plano 14A (US-105 a US-109): textos da autorização no painel, no app e no link (texto exato da spec v0.5.1). */
@@ -271,3 +276,13 @@ export const MSG_AUTORIZACAO = {
   voceRetirou: (data: string) => `Você retirou a autorização em ${data}.`,
   naoVigente: 'Esta autorização já não está em vigor.',
 } as const;
+
+/** Plano 14B: para que serve cada chamada de `gerar` (o sandbox e o log usam; nada de conteúdo). */
+export const FINALIDADES_IA = ['resumo', 'rascunho', 'modelos'] as const;
+export type FinalidadeIA = (typeof FINALIDADES_IA)[number];
+/** RN-121 / RN-124 / D5–D6: voltas do laço de ferramentas (rascunho; pacote = 12 por modelo de plano × 2) e prazo total. */
+export const MAX_VOLTAS_RASCUNHO = 12;
+export const MAX_VOLTAS_MODELOS = 24;
+export const PRAZO_LACO_MS = 12 * 60_000;
+/** US-123 (b): teto de US$ 1,00 por pacote de área. */
+export const TETO_PACOTE_MODELOS_USD = 1;
