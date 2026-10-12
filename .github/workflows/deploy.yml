@@ -3,6 +3,13 @@ name: deploy
 on:
   push:
     branches: [main]
+  # Emergência (runner próprio fora do ar, docs/operacao/runner-proprio.md): publica a main SEM rodar o CI. Só depois da
+  # validação local (lint, typecheck, test, e2e) e com o OK explícito do dono.
+  workflow_dispatch:
+    inputs:
+      confirmo:
+        description: 'Digite PUBLICAR-SEM-CI para confirmar que a validação local passou e o dono autorizou'
+        required: true
 
 permissions:
   contents: read
@@ -19,6 +26,8 @@ jobs:
   # ar, sem PR, árvore diferente, CI cancelado, com falha, em andamento ou PR só de documentação —, pular=false e o CI
   # completo roda como antes. Se o próprio decidir falhar, o CI também roda (fail-safe).
   decidir:
+    if: github.event_name == 'push'
+    # Fica hospedado: não depende do runner próprio e não pode ser forjado por ele (≈1 min por merge)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -42,19 +51,23 @@ jobs:
 
   ci:
     needs: decidir
-    if: ${{ !cancelled() && needs.decidir.outputs.pular != 'true' }}
-    uses: ./.github/workflows/ci.yml
+    if: ${{ github.event_name == 'push' && !cancelled() && needs.decidir.outputs.pular != 'true' }}
+    uses: ./.github/workflows/ci.yml   # roda no runner próprio (custo zero)
 
   publish:
     needs: [decidir, ci]
     # Publica quando (a) o decidir confirmou que o CI já passou no PR — então o ci foi pulado e o PR tinha código
     # (test/e2e/image rodaram) — ou (b) o CI rodou aqui e passou com mudança de código.
     # Plano 12 (R-D1): commit só de documentação não reconstrói a imagem nem refaz o deploy (ci.yml, job mudancas)
+    # (c) Emergência: disparo manual na main com a confirmação digitada (decidir e ci ficam skipped; o !cancelled() deixa
+    # este job ser avaliado mesmo assim).
     if: >-
       ${{ !cancelled() && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmo == 'PUBLICAR-SEM-CI') ||
         (needs.decidir.result == 'success' && needs.decidir.outputs.pular == 'true' && needs.ci.result == 'skipped') ||
         (needs.ci.result == 'success' && needs.ci.outputs.codigo == 'true')
       ) }}
+    # Fica hospedado: os webhooks do Easypanel e o packages:write nunca vão para a VPS
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
