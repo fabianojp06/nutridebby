@@ -1,0 +1,8 @@
+[Unit]
+Description=Poda semanal do Docker do CI (imagens e cache com mais de 7 dias)
+
+[Service]
+Type=oneshot
+Environment=DOCKER_HOST=unix:///run/user/1500/docker.sock
+ExecStart=/usr/bin/docker system prune -af --filter until=168h
+ExecStart=/usr/bin/docker builder prune -af --filter until=168h
