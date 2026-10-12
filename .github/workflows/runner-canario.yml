@@ -89,3 +89,31 @@ jobs:
           echo "porta publicada=$P"
           tenta "localhost + porta publicada" "127.0.0.1:$P"
           docker rm -f eco2 >/dev/null
+
+  testcontainers:
+    # Amostra do `pnpm test` no Docker rootless. O contêiner do job fica numa rede própria do runner, e o isolamento entre
+    # redes do Docker barra o caminho até a porta publicada do Ryuk/Postgres (que nascem na rede bridge). Hipótese do
+    # canário: ligar o job também à bridge e apontar o Testcontainers para o gateway dela.
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: >-
+        --cpus 4 --memory 8g
+        -v nutri-ci-pnpm:/pnpm-store
+        -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
+        -v /usr/bin/docker:/usr/local/bin/docker:ro
+    env:
+      DOCKER_HOST: unix:///run/user/1500/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: 172.17.0.1
+    steps:
+      - name: Liga o contêiner do job à rede bridge (onde o Testcontainers cria os contêineres)
+        run: docker network connect bridge "$(hostname)"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
+      - name: Testcontainers no Docker rootless (amostra do pnpm test)
+        run: pnpm exec vitest run src/db/rls-guard.test.ts src/db/db-error.test.ts
