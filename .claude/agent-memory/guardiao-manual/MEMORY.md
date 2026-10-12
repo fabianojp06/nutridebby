@@ -1,3 +1,3 @@
-- [Estado dos manuais](estado-dos-manuais.md) — usuário: proposta P13+P16+P14A refeita p/ PR #31 em 09/10/2026 (main 944cd71), pendente; técnico: divergência /admin
+- [Estado dos manuais](estado-dos-manuais.md) — usuário: proposta P13+P16+P14A p/ PR #31 pendente; 14B-1 T5F revista 10/10 (4 Important); técnico: divergência /admin
 - [Onde os manuais envelhecem](onde-os-manuais-envelhecem.md) — checklist de contagens, linhas e status que ficam velhos a cada fechamento
 - [Sem push nem PR](sem-push-sem-pr.md) — commit só se pedido; push/PR/merge ficam com quem orquestra

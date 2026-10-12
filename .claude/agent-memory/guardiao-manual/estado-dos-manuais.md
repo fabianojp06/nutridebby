@@ -38,6 +38,11 @@ fica com quem orquestra (não confirmada).
 **Manual guiado** (`src/modules/ajuda/conteudo.ts`): `configuracoes` v3 (seção de ajuda da IA, sem passo para
 `ia-secao`; dois textos divergem da tela, P11-20 g → `versao` 4 quando corrigir); `prontuario` v1 com a pergunta da IA sem subir versão.
 
+**Plano 14B-1 (modelos sugeridos)** — revisão da T5F em 10/10/2026 (worktree `nutridebby-plano14b`, `ba299fa..5f47237`,
+relatório `.superpowers/sdd/2026-10-10-nutridebby-14b1-modelos/review-task-5F-c.md`): §10.12 fiel; 4 Important (cronologia
+§1.10 sem 14B-1 e 14A "em execução"; §2.7 sem `ia_geracoes_modelos`; linhas deslocadas pela 14B-1; texto do guia
+`modelos` "aparecem para os pacientes"). Roteiro do manual do usuário da 14B-1 ainda a montar (rascunho no task-5F-report).
+
 **Why:** o fechamento de cada plano parte do estado anterior; saber a base evita reconferir tudo.
 **How to apply:** no próximo fechamento, `git diff 2efa27b..<head>` e comece pelos capítulos tocados; confira se a
 proposta do usuário do Plano 11 foi aplicada. Ver [[onde-os-manuais-envelhecem]].

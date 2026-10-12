@@ -1,1 +1,1 @@
-- [Padrões recorrentes](padroes-recorrentes.md) — gatilho só-worker fraco, TOCTOU, travas e KEY SHARE de FK, CHECK × transição, recusa do provedor depois do portão, env implícita de SDK
+- [Padrões recorrentes](padroes-recorrentes.md) — gatilho só-worker fraco, TOCTOU, travas e KEY SHARE de FK, CHECK × transição, recusa do provedor depois do portão, env implícita de SDK, pgboss em função SQL, plano arquivado visível ao paciente
