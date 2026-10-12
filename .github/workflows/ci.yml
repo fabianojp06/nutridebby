@@ -81,8 +81,11 @@ jobs:
     timeout-minutes: 25
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
+      # Sem DAC_OVERRIDE/DAC_READ_SEARCH: o job roda como root no contêiner, e os testes de pasta ilegível (chmod 000)
+      # precisam que as permissões valham, como no usuário comum do runner hospedado
       options: >-
         --cpus 4 --memory 8g
+        --cap-drop DAC_OVERRIDE --cap-drop DAC_READ_SEARCH
         -v nutri-ci-pnpm:/pnpm-store
         -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
         -v /usr/bin/docker:/usr/local/bin/docker:ro
@@ -103,6 +106,8 @@ jobs:
           docker info -f '{{.SecurityOptions}}' | grep -q rootless
           test "$(docker info -f '{{.Swarm.LocalNodeState}}')" = inactive
           docker network connect bridge "$(hostname)"
+      - name: jq (o ci-ja-passou.sh usa; a imagem do Playwright não traz)
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends jq >/dev/null && jq --version
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
