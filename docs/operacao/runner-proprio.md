@@ -479,7 +479,7 @@ sudo nsenter -t "$(systemctl show -p MainPID --value user@1500.service)" -m ls /
 Se o `user@1500` não subir com o `isolamento.conf`, me mande o `journalctl -u user@1500 -b`. (O `ProtectProc=invisible` do desenho original já saiu: seção 0, item 1.)
 
 ### 8. Docker rootless (dentro do `user@1500`, sem sessão `sudo -iu`)
-Crie como root e depois passe para o `gh-runner`:
+Grave como `gh-runner` (com `$R`, abaixo), nunca como root:
 - `/home/gh-runner/.config/systemd/user/docker.service.d/env.conf`:
   ```ini
   [Service]
