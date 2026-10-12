@@ -31,6 +31,9 @@ confere etc/user@1500-isolamento.conf /etc/systemd/system/user@1500.service.d/is
 confere etc/user-1500-slice.conf      /etc/systemd/system/user-1500.slice.d/50-nutri-ci.conf     root:root 644
 confere hooks/inicio.sh               /opt/nutri-ci/hooks/inicio.sh                              root:root 755
 confere hooks/fim.sh                  /opt/nutri-ci/hooks/fim.sh                                 root:root 755
+confere alarme/nutri-ci-alarme.sh       /opt/nutri-ci/nutri-ci-alarme.sh                       root:root 755
+confere alarme/nutri-ci-alarme.service  /etc/systemd/system/nutri-ci-alarme.service            root:root 644
+confere alarme/nutri-ci-alarme.timer    /etc/systemd/system/nutri-ci-alarme.timer              root:root 644
 confere user/docker-env.conf          $H/.config/systemd/user/docker.service.d/env.conf          gh-runner:gh-runner 644
 confere user/daemon.json              $H/.config/docker/daemon.json                              gh-runner:gh-runner 644
 confere user/actions-runner.service   $H/.config/systemd/user/actions-runner.service             gh-runner:gh-runner 644
@@ -62,13 +65,17 @@ for f in /etc/cron.deny /etc/at.deny; do
 done
 if grep -qx 'DenyUsers gh-runner' /etc/ssh/sshd_config.d/40-gh-runner.conf 2>/dev/null; then echo "ok         SSH negado ao gh-runner"
 else echo "FALTA      DenyUsers gh-runner no sshd (instalar-1-base.sh)"; DIFERENCAS=$((DIFERENCAS + 1)); fi
+if [ "$(stat -c '%U:%G %a' /etc/nutri-ci/runner-hc.url 2>/dev/null)" = "root:root 600" ]; then echo "ok         URL do alarme só do root"
+else echo "FALTA      /etc/nutri-ci/runner-hc.url (root 600) do alarme (seção 7)"; DIFERENCAS=$((DIFERENCAS + 1)); fi
+if systemctl is-active --quiet nutri-ci-alarme.timer; then echo "ok         alarme ligado (nutri-ci-alarme.timer)"
+else echo "FALTA      nutri-ci-alarme.timer ativo (instalar-alarme.sh)"; DIFERENCAS=$((DIFERENCAS + 1)); fi
 if [ "$(stat -c '%U:%G %a' /opt/nutri-ci/hooks 2>/dev/null)" = "root:root 755" ]; then echo "ok         /opt/nutri-ci/hooks é do root"
 else echo "PERMISSÃO  /opt/nutri-ci/hooks deveria ser root:root 755"; DIFERENCAS=$((DIFERENCAS + 1)); fi
 
 echo
 if [ "$DIFERENCAS" = 0 ]; then echo "Tudo igual ao versionado."; exit 0; fi
 echo "$DIFERENCAS diferença(s). Arquivos de etc/ e user/: instalar-1-base.sh e instalar-2-runner.sh (idempotentes);"
-echo "isolamento: atualizar-isolamento.sh; vigias: atualizar-hooks.sh."
+echo "isolamento: atualizar-isolamento.sh; vigias: atualizar-hooks.sh; alarme: instalar-alarme.sh."
 echo "Atenção: o instalar-2-runner.sh e o atualizar-isolamento.sh reiniciam o Docker do CI e derrubam um job em andamento."
 echo "Rode-os com o runner parado (busy=false em: gh api repos/fabianojp06/nutridebby/actions/runners)."
 exit 1

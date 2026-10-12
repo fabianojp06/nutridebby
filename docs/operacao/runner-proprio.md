@@ -16,7 +16,7 @@ Achados dos canários (10 rodadas no branch `canario-runner`, custo hospedado ze
 4. **Paralelismo:** o contêiner do job enxerga os 8 núcleos da VPS, mas a slice limita a 4. Os padrões davam 4 workers no Playwright (prazos estourados) e 7 no Vitest (deadlock de DDL do `rls-guard.test.ts` contra outro arquivo). No CI: 2 e 3, como no runner hospedado de 4 vCPU.
 5. **Job `test` sem `DAC_OVERRIDE`/`DAC_READ_SEARCH`:** o job roda como root no contêiner e os testes de pasta ilegível (`chmod 000`) precisam que as permissões valham. Por isso o `jq` (usado pelo `ci-ja-passou.sh`) vem do binário estático oficial, conferido pelo sha256 da release: o `apt` não roda sem essas capacidades.
 6. **Orçamento da imagem:** o Docker 29 do runner (armazenamento do containerd) salva as camadas já em gzip, e o `gzip -6` por cima dava 266-267 MB. A conta agora descomprime as camadas e comprime o pacote inteiro, igual em qualquer Docker: 263 MB, o mesmo número do runner hospedado.
-7. **Scripts:** no lugar de um `instalar.sh` único, `instalar-1-base.sh` (passos 1-7) e `instalar-2-runner.sh` (passos 8-10), idempotentes; `atualizar-isolamento.sh` e `atualizar-hooks.sh` para reinstalar só uma parte; `verificar.sh` (só lê) compara o instalado com o versionado, inclusive a regra nft **carregada** (contra o `egress.nft` carregado num namespace de rede descartável) e as linhas dos vigias no `.env` do runner; `testar-isolamento.sh` é a bateria da seção 6 (alvo não encontrado conta como falha). O `instalar-1-base.sh` recarrega o filtro (`nft -f`) a cada execução. O `instalar-2-runner.sh` e o `atualizar-isolamento.sh` reiniciam o Docker do CI: rode-os só com o runner parado (`busy=false`). O token de registro do runner vem do `gh` do usuário `deploy`. Pendente: o alarme de "runner fora do ar" (seção 7).
+7. **Scripts:** no lugar de um `instalar.sh` único, `instalar-1-base.sh` (passos 1-7) e `instalar-2-runner.sh` (passos 8-10), idempotentes; `atualizar-isolamento.sh` e `atualizar-hooks.sh` para reinstalar só uma parte; `verificar.sh` (só lê) compara o instalado com o versionado, inclusive a regra nft **carregada** (contra o `egress.nft` carregado num namespace de rede descartável) e as linhas dos vigias no `.env` do runner; `testar-isolamento.sh` é a bateria da seção 6 (alvo não encontrado conta como falha). O `instalar-1-base.sh` recarrega o filtro (`nft -f`) a cada execução. O `instalar-2-runner.sh` e o `atualizar-isolamento.sh` reiniciam o Docker do CI: rode-os só com o runner parado (`busy=false`). O token de registro do runner vem do `gh` do usuário `deploy`. Alarme de "runner fora do ar": `instalar-alarme.sh` (seção 7).
 
 Tempos medidos no runner próprio (canário 9): `quality` 2 min, `test` 6 min, `e2e` 18 min, `image` 4 min, um job por vez (no hospedado: 1, 8, 21 e 4 min, em paralelo).
 
@@ -300,7 +300,7 @@ Junto no mesmo PR, os fallbacks de `e2e/whatsapp.ts` (`localhost:54329`, o banco
 Ficam em `infra/runner/`, versionados e revisados no PR:
 - `egress.nft`;
 - os drop-ins: `user-1500.slice.d/50-nutri-ci.conf`, `user@1500.service.d/isolamento.conf` e `user@1500.service.d/egress.conf`;
-- as units `nutri-ci-egress.service`, `actions-runner.service` e `nutri-ci-poda.{service,timer}`;
+- as units `nutri-ci-egress.service`, `actions-runner.service`, `nutri-ci-poda.{service,timer}` e o alarme `nutri-ci-alarme.{sh,service,timer}` (`alarme/`);
 - `inicio.sh` e `fim.sh`;
 - os scripts de instalação, atualização e conferência (seção 0, item 7); o `verificar.sh` só compara o instalado com o versionado.
 
@@ -668,7 +668,7 @@ WantedBy=default.target
   - `df -h /home/gh-runner`;
   - resultado do último CI;
   - contadores de `nutri-ci-negado`.
-- **Runner fora do ar** (o GitHub não avisa; o job só espera até 24 h): **pendente, ainda não instalado.** O desenho é um timer de **root** a cada 10 min que pinga o healthchecks.io se `systemctl --user -M gh-runner@ is-active actions-runner` estiver ativo (a URL do check fica fora do alcance dos jobs; é um check novo no plano gratuito que você já usa). Precisa da URL do check, que só você cria. Até lá: o painel de Runners do GitHub mostra "Offline", e o `verificar.sh` confere o resto da instalação.
+- **Runner fora do ar** (o GitHub não avisa; o job só espera até 24 h): timer de **root** `nutri-ci-alarme.timer` a cada 10 min (`infra/runner/alarme/`). Se o processo `Runner.Listener` do `gh-runner` está de pé, pinga o check `nutri-ci runner` do healthchecks.io (período 10 min, tolerância 20 min); se não está, manda `/fail` e o alarme sai na hora. Sem ping nenhum (VPS fora do ar, timer parado), o healthchecks.io avisa em uns 30 min. A URL do check vale como senha: fica em `/etc/nutri-ci/runner-hc.url` (root 600, fora do alcance dos jobs) e chega ao `curl` pela entrada padrão, nunca na linha de comando. Instalação: o dono cria o check, grava a URL sem mostrá-la (`read -rsp`) e roda `sudo bash infra/runner/instalar-alarme.sh`, que já manda o primeiro ping; o `verificar.sh` confere os arquivos, a permissão da URL e o timer ativo.
 - **Logs:**
   - `sudo journalctl _UID=1500 --since today`;
   - saídas negadas: `journalctl -k --since today | grep nutri-ci-negado`.
