@@ -97,8 +97,6 @@ jobs:
       # (test/postgres-teste.ts). Sem Ryuk: o vigia fim.sh apaga todos os contêineres no fim de cada job.
       NUTRI_CI_REDE_DIRETA: '1'
       TESTCONTAINERS_RYUK_DISABLED: 'true'
-      # nutri-backup.sh nunca acha um contêiner de banco pelo nome (defesa extra: o Docker do CI nem vê os de produção)
-      NUTRI_DB_CONTAINER_FILTER: ci-nunca-existe
     steps:
       - name: docker e rclone do host (montados só leitura), daemon rootless e job ligado à rede bridge
         run: |

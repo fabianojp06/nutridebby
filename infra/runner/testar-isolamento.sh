@@ -14,6 +14,9 @@ barrado() {  # o comando PRECISA falhar
   local d="$1"; shift; N=$((N+1))
   if "$@" >/dev/null 2>&1; then printf '  \033[31m✘ FURO\033[0m  %s\n' "$d"; FUROS=$((FUROS+1)); else printf '  \033[32m✔\033[0m barrado  %s\n' "$d"; fi
 }
+sem_alvo() {  # o alvo do teste não foi achado: conta como falha (teste que não rodou não prova nada)
+  N=$((N+1)); printf '  \033[31m✘ FALHOU\033[0m %s (alvo não encontrado)\n' "$1"; FUROS=$((FUROS+1))
+}
 funciona() {  # o comando PRECISA funcionar
   local d="$1"; shift; N=$((N+1))
   if "$@" >/dev/null 2>&1; then printf '  \033[32m✔\033[0m ok       %s\n' "$d"; else printf '  \033[31m✘ FALHOU\033[0m %s\n' "$d"; FUROS=$((FUROS+1)); fi
@@ -27,8 +30,9 @@ barrado "1. Docker de produção (/run/docker.sock)"            R docker -H unix
 for p in /etc/easypanel /srv/nutri/data /home/deploy /root; do
   barrado "2. ler $p"                                          R ls "$p"
 done
-PIDPROD=$(pgrep -xo dockerd)
-barrado "3. ler o ambiente (segredos) de processo da produção" R cat "/proc/$PIDPROD/environ"
+PIDPROD=$(pgrep -xo -u root dockerd)
+if [ -n "$PIDPROD" ]; then barrado "3. ler o ambiente (segredos) de processo da produção" R cat "/proc/$PIDPROD/environ"
+else sem_alvo "3. dockerd da produção"; fi
 barrado "4. sudo"                                             R sudo -n true
 barrado "5. crontab"                                          R bash -c 'out=$(crontab -l 2>&1); [[ $out != *"not allowed"* ]]'
 barrado "7. painel do Easypanel 127.0.0.1:3000"               R curl -sS -m5 http://127.0.0.1:3000
@@ -38,7 +42,9 @@ barrado "8. IP público da VPS 179.197.68.197:443"             R curl -sS -m5 -k
 barrado "8. o próprio site (nutri.wsscloud.tech)"             R curl -sS -m5 https://nutri.wsscloud.tech
 barrado "9. IPv6 da VPS :3000"                                R curl -6 -sS -m5 -k 'https://[2a02:4780:6e:8cf1::1]:3000'
 barrado "9. metadados 169.254.169.254"                        R curl -sS -m5 http://169.254.169.254
-for ip in $(docker inspect $(docker ps -qf name=nutri_db) -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}'); do
+IPSDB=$(docker ps -qf name=nutri_db | xargs -r docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}')
+[ -n "${IPSDB// /}" ] || sem_alvo "10. banco de produção (contêiner nutri_db)"
+for ip in $IPSDB; do
   barrado "10. banco de produção ($ip:5432)"                  R timeout 5 bash -c "</dev/tcp/$ip/5432"
 done
 barrado "10. Swarm 172.16.1.1:2377"                           R timeout 5 bash -c '</dev/tcp/172.16.1.1/2377'

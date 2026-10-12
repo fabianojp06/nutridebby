@@ -87,6 +87,9 @@ install -m 644 -o root -g root "$ETC/user@1500-egress.conf" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now nutri-ci-egress >/dev/null 2>&1
 systemctl is-active --quiet nutri-ci-egress || pare "nutri-ci-egress não ficou ativo"
+# Unit oneshot já ativa não roda o ExecStart de novo: recarrega sempre (o arquivo apaga e recria só a tabela própria,
+# de uma vez, sem tocar nas regras do Docker de produção). Assim, rodar este script depois de mudar o egress.nft aplica.
+nft -f /etc/nutri-ci/egress.nft || pare "nft -f falhou ao recarregar o filtro"
 nft list chain inet nutri_ci_egress ci >/dev/null || pare "cadeia ci ausente"
 ok "tabela inet nutri_ci_egress carregada"
 curl -s -o /dev/null -m 10 -w '%{http_code}' https://nutri.wsscloud.tech | grep -q '^[23]' || pare "a produção não respondeu depois do filtro"

@@ -16,7 +16,7 @@ Achados dos canários (10 rodadas no branch `canario-runner`, custo hospedado ze
 4. **Paralelismo:** o contêiner do job enxerga os 8 núcleos da VPS, mas a slice limita a 4. Os padrões davam 4 workers no Playwright (prazos estourados) e 7 no Vitest (deadlock de DDL do `rls-guard.test.ts` contra outro arquivo). No CI: 2 e 3, como no runner hospedado de 4 vCPU.
 5. **Job `test` sem `DAC_OVERRIDE`/`DAC_READ_SEARCH`:** o job roda como root no contêiner e os testes de pasta ilegível (`chmod 000`) precisam que as permissões valham. Por isso o `jq` (usado pelo `ci-ja-passou.sh`) vem do binário estático oficial, conferido pelo sha256 da release: o `apt` não roda sem essas capacidades.
 6. **Orçamento da imagem:** o Docker 29 do runner (armazenamento do containerd) salva as camadas já em gzip, e o `gzip -6` por cima dava 266-267 MB. A conta agora descomprime as camadas e comprime o pacote inteiro, igual em qualquer Docker: 263 MB, o mesmo número do runner hospedado.
-7. **Scripts:** no lugar de um `instalar.sh` único, `instalar-1-base.sh` (passos 1-7) e `instalar-2-runner.sh` (passos 8-10), idempotentes; `atualizar-isolamento.sh` e `atualizar-hooks.sh` para reinstalar só uma parte; `verificar.sh` (só lê) compara o instalado com o versionado; `testar-isolamento.sh` é a bateria da seção 6.
+7. **Scripts:** no lugar de um `instalar.sh` único, `instalar-1-base.sh` (passos 1-7) e `instalar-2-runner.sh` (passos 8-10), idempotentes; `atualizar-isolamento.sh` e `atualizar-hooks.sh` para reinstalar só uma parte; `verificar.sh` (só lê) compara o instalado com o versionado, inclusive a regra nft **carregada** (contra o `egress.nft` carregado num namespace de rede descartável) e as linhas dos vigias no `.env` do runner; `testar-isolamento.sh` é a bateria da seção 6 (alvo não encontrado conta como falha). O `instalar-1-base.sh` recarrega o filtro (`nft -f`) a cada execução. O `instalar-2-runner.sh` e o `atualizar-isolamento.sh` reiniciam o Docker do CI: rode-os só com o runner parado (`busy=false`). O token de registro do runner vem do `gh` do usuário `deploy`. Pendente: o alarme de "runner fora do ar" (seção 7).
 
 Tempos medidos no runner próprio (canário 9): `quality` 2 min, `test` 6 min, `e2e` 18 min, `image` 4 min, um job por vez (no hospedado: 1, 8, 21 e 4 min, em paralelo).
 
@@ -84,7 +84,7 @@ Host (Ubuntu 24.04, kernel 6.8, systemd 255) — /dev/sda1 ext4 (387 GB, 14% usa
       └── user-1500.slice  ── CI  ◄── limites de root: CPUQuota 400%, MemoryMax 12G, swap 0, TasksMax, IO*Max
             └── user@1500.service  ◄── namespace de montagem de root:
                   │  InaccessiblePaths: /etc/easypanel /srv /home/deploy /root /run/docker.sock /opt/backup /etc/nutri-backup /var/crash
-                  │  TemporaryFileSystem: /tmp /var/tmp      ProtectProc=invisible
+                  │  TemporaryFileSystem: /tmp /var/tmp                           
                   │  /home/gh-runner = imagem ext4 de 100 GB (loop, nosuid,nodev)
                   ├── docker.service (rootless: rootlesskit + slirp4netns, UID 1500 + subuid 165536–231071)
                   │     socket /run/user/1500/docker.sock — sem Swarm, sem overlays, outro data-root
@@ -115,6 +115,8 @@ saída só 80/443 + DNS. O restante do host segue "accept" (nada da produção p
 ## 4. Mudanças no `ci.yml` e no `deploy.yml` (diff proposto)
 
 Os nomes dos jobs `quality`, `test`, `e2e` e `image` e o `run-name` não mudam, porque o `.github/scripts/ci-ja-passou.sh` depende deles.
+
+> **Instalado:** o diff abaixo é o do desenho. O que vale é o código (`.github/workflows/ci.yml` e `deploy.yml`); o que mudou está na seção 0 (contêiner do `test` sem `DAC_OVERRIDE`, `jq`, Testcontainers por IP direto, workers, conta da imagem) e, no deploy, o job `confirmar` (emergência recusada falha à vista) e o `cancel-in-progress` só para a emergência.
 
 ### `.github/workflows/ci.yml`
 
@@ -162,8 +164,6 @@ Os nomes dos jobs `quality`, `test`, `e2e` e `image` e o `run-name` não mudam, 
 +    env:
 +      DOCKER_HOST: unix:///run/user/1500/docker.sock
 +      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
-+      # nutri-backup.sh nunca acha um contêiner de banco (há bancos de produção no host)
-+      NUTRI_DB_CONTAINER_FILTER: ci-nunca-existe
      steps:
        - uses: actions/checkout@v4
        - uses: pnpm/action-setup@v4
@@ -293,7 +293,7 @@ Junto no mesmo PR, os fallbacks de `e2e/whatsapp.ts` (`localhost:54329`, o banco
            cache-to: type=gha,mode=max   # sem mudança: agora só a main grava cache (sai o cache dos PRs)
 ```
 
-> **[a conferir no PR]** No `workflow_dispatch`, o `decidir` e o `ci` ficam `skipped`. O `!cancelled()` do `publish` precisa deixar o job seguir mesmo assim. Um teste no estilo de `test/ci-ja-passou.test.ts`, ou um `actionlint`, valida a expressão antes do merge.
+> **Conferido no PR:** no `workflow_dispatch`, o `decidir` e o `ci` ficam `skipped`, e o `!cancelled()` do `publish` deixa o job ser avaliado mesmo assim. A guarda `test/runner-proprio.test.ts` trava a expressão, o job `confirmar` (confirmação errada ou fora da main → execução vermelha) e o `cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}`: a emergência cancela o deploy de push que estiver preso na fila do CI (com o runner fora do ar ele seguraria o grupo `deploy-main` por até 24 h). Um push novo nunca cancela a emergência em andamento.
 
 ### Arquivos novos no repositório (operação M7)
 
@@ -445,7 +445,8 @@ RequiresMountsFor=/home/gh-runner
 # Namespace de montagem herdado por TODO processo do runner (qualquer UID, inclusive subuid)
 InaccessiblePaths=/etc/easypanel /srv /home/deploy /root /run/docker.sock /var/crash -/opt/backup -/etc/nutri-backup
 TemporaryFileSystem=/tmp:mode=1777,size=4G /var/tmp:mode=1777,size=1G
-ProtectProc=invisible
+# Sem ProtectProc=invisible: ele esconde também o PID 1, e o runner lê /proc/1/cgroup para iniciar jobs com container
+# (canário de 12/10/2026). Sem ele, o runner vê nomes de processos, mas não o environ, a memória nem os fds de outros usuários.
 # NÃO acrescentar NoNewPrivileges, SystemCallFilter, RestrictNamespaces nem ProtectKernel*: quebram o newuidmap do rootless
 ```
 
@@ -475,7 +476,7 @@ sudo loginctl enable-linger gh-runner
 systemctl is-active user@1500.service                      # ✔ active
 sudo nsenter -t "$(systemctl show -p MainPID --value user@1500.service)" -m ls /etc/easypanel   # ✔ Permission denied
 ```
-Se o `user@1500` não subir com o `isolamento.conf`, me mande o `journalctl -u user@1500 -b`. A primeira suspeita é o `ProtectProc`: o plano B é tirar só ele.
+Se o `user@1500` não subir com o `isolamento.conf`, me mande o `journalctl -u user@1500 -b`. (O `ProtectProc=invisible` do desenho original já saiu: seção 0, item 1.)
 
 ### 8. Docker rootless (dentro do `user@1500`, sem sessão `sudo -iu`)
 Crie como root e depois passe para o `gh-runner`:
@@ -607,7 +608,7 @@ WantedBy=default.target
 |---|---|---|
 | 1 | `$R docker -H unix:///run/docker.sock ps` | `permission denied` ou `no such file` |
 | 2 | `$R ls /etc/easypanel /srv/nutri/data /home/deploy /root` | `Permission denied` em todos |
-| 3 | `$R bash -c 'cat /proc/$(pgrep -u 1001 \| head -1)/cmdline'` | vazio ou erro (`ProtectProc=invisible` esconde) |
+| 3 | `$R cat /proc/$(pgrep -xo -u root dockerd)/environ` | `Permission denied` (o `environ` de processo de outro usuário não se lê; sem alvo, a bateria conta falha) |
 | 4 | `$R sudo -n true` | `sudo: a password is required` ou "not in sudoers" |
 | 5 | `$R crontab -l` | `You (gh-runner) are not allowed to use this program` |
 | 6 | `ssh -o BatchMode=yes gh-runner@179.197.68.197` (de fora) | `Permission denied` (o log do sshd mostra `DenyUsers`) |
@@ -666,7 +667,7 @@ WantedBy=default.target
   - `df -h /home/gh-runner`;
   - resultado do último CI;
   - contadores de `nutri-ci-negado`.
-- **Runner fora do ar** (o GitHub não avisa; o job só espera até 24 h): um timer de **root** a cada 10 min pinga o healthchecks.io se `systemctl --user -M gh-runner@ is-active actions-runner` estiver ativo. O ping parte do root porque a URL do check fica fora do alcance dos jobs. É um check novo no plano gratuito que você já usa.
+- **Runner fora do ar** (o GitHub não avisa; o job só espera até 24 h): **pendente, ainda não instalado.** O desenho é um timer de **root** a cada 10 min que pinga o healthchecks.io se `systemctl --user -M gh-runner@ is-active actions-runner` estiver ativo (a URL do check fica fora do alcance dos jobs; é um check novo no plano gratuito que você já usa). Precisa da URL do check, que só você cria. Até lá: o painel de Runners do GitHub mostra "Offline", e o `verificar.sh` confere o resto da instalação.
 - **Logs:**
   - `sudo journalctl _UID=1500 --since today`;
   - saídas negadas: `journalctl -k --since today | grep nutri-ci-negado`.
@@ -680,6 +681,7 @@ WantedBy=default.target
 **Volta rápida, sem mexer na VPS:**
 - Com minutos sobrando (a partir de 01/11): um PR que reverte o YAML.
 - Em outubro, o `git revert` não é rápido: o PR do revert roda o CI hospedado (cerca de 38 min) e restam cerca de 10 min. Nesse caso, use o "publicar-emergencia" com validação local e o seu OK.
+- **Publicar sem CI (emergência):** Actions → deploy → Run workflow, na `main`, digitando `PUBLICAR-SEM-CI`. Ela cancela um deploy de push que estiver preso esperando o runner. Confirmação errada ou outro branch: a execução fica vermelha (job `confirmar`) e nada é publicado.
 
 **Remoção completa** (nenhum passo toca o Docker de produção, o Swarm ou o Easypanel):
 ```bash
@@ -721,7 +723,7 @@ Se nada disso der certo, o último recurso é o snapshot.
 4. **Saída livre por 443 e DNS.** Permite levar dados para fora, mas hoje nenhum segredo fica ao alcance do job.
 5. **Sessão `sudo -iu gh-runner` aberta** fura o namespace via `/proc/<pid>/root` (seção 3). A regra é administrar só com `systemd-run --user`.
 6. **Disponibilidade em outubro.** Se o runner cair, não há CI nem deploy normal até 01/11. Sobra só o "publicar-emergencia" (validação local + o seu OK). Não se publica sem teste por acidente: o desenho falha fechado.
-7. **Latência do deploy.** Com uma instância só, o `ci` de um merge (quando `pular=false`) espera os jobs de PR na fila; um merge pode levar mais de 75 min até o `publish`. O `concurrency: deploy-main` guarda só 1 execução pendente.
+7. **Latência do deploy.** Com uma instância só, o `ci` de um merge (quando `pular=false`) espera os jobs de PR na fila; um merge pode levar mais de 75 min até o `publish`. O `concurrency: deploy-main` guarda só 1 execução pendente (a emergência é a exceção: cancela o deploy de push em curso).
 8. **Taxa de self-hosted.** O GitHub adiou a cobrança de US$ 0,002/min sem nova data, e não se sabe se valerá para conta pessoal no plano Free. Acompanhar a página de billing.
 9. **Fork e ações de terceiros:**
    - Manter desligado o "Run workflows from fork pull requests", como já está.
@@ -750,10 +752,10 @@ Se nada disso der certo, o último recurso é o snapshot.
 - **`umask 077` no `deploy` e limpeza do `/tmp` antigo** (isolamento I1). Desnecessário para o runner, porque o `/tmp` dele é privado. Pode ficar como higiene separada, com o seu OK.
 
 **A validar no canário (passo 11), em ordem de risco:**
-1. O `user@1500` e o Docker rootless sobem com `InaccessiblePaths`, `TemporaryFileSystem` e `ProtectProc=invisible`. Plano B: tirar o `ProtectProc`; o `cmdline` da produção não tem segredo (conferido por contagem).
+1. ~~O `user@1500` e o Docker rootless sobem com `ProtectProc=invisible`~~ **Resolvido:** o `ProtectProc` saiu (seção 0, item 1).
 2. O runner monta `/var/run/docker.sock` em todo job com `container:`. A origem, agora inacessível, não pode impedir a criação do contêiner.
 3. Os hooks `JOB_STARTED` e `JOB_COMPLETED` rodam no host, e não no contêiner do job. Isso inclui o `COMPLETED` num job cancelado.
-4. O Testcontainers e o Ryuk, de dentro do contêiner do job, alcançam as portas mapeadas com `DETACH_NETNS=false`. Se não alcançarem, um passo grava `TESTCONTAINERS_HOST_OVERRIDE` a partir de `/proc/net/route`.
+4. ~~O Testcontainers e o Ryuk alcançam as portas mapeadas~~ **Resolvido de outro jeito:** nenhuma rota de dentro do job chega à porta publicada; IP direto e sem Ryuk (seção 0, item 3).
 5. A tag `mcr.microsoft.com/playwright:v1.63.0-noble` existe e traz o `git` (o `@playwright/test` do repo é 1.63.0).
 6. O `docker` e o `rclone` montados do host funcionam na imagem noble (o `ldd` indicou só libc; uma revisão não conseguiu confirmar).
 7. O pnpm 12.6.0 aceita `--store-dir` com o store em volume. Ele copia em vez de criar hardlink: funciona, só fica mais lento.

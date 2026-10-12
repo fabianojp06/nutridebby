@@ -37,9 +37,25 @@ confere user/actions-runner.service   $H/.config/systemd/user/actions-runner.ser
 confere user/nutri-ci-poda.service    $H/.config/systemd/user/nutri-ci-poda.service              gh-runner:gh-runner 644
 confere user/nutri-ci-poda.timer      $H/.config/systemd/user/nutri-ci-poda.timer                gh-runner:gh-runner 644
 
-# O que não é arquivo copiado: filtro carregado, portas de fuga fechadas e a pasta dos vigias só do root
-if nft list table inet nutri_ci_egress >/dev/null 2>&1; then echo "ok         filtro de rede carregado (inet nutri_ci_egress)"
-else echo "FALTA      filtro de rede (nft) não carregado: systemctl status nutri-ci-egress"; DIFERENCAS=$((DIFERENCAS + 1)); fi
+# O que não é arquivo copiado: a regra CARREGADA (não basta o arquivo igual), portas de fuga fechadas e vigias ligados.
+# Referência: o egress.nft versionado carregado num namespace de rede descartável (não toca na rede da VPS), listado no
+# mesmo formato da tabela em uso.
+normaliza() { sed -E 's/ # handle [0-9]+//; s/[[:space:]]+$//' | grep -v '^$'; }
+ATUAL="$(nft list table inet nutri_ci_egress 2>/dev/null | normaliza)"
+REFERENCIA="$(unshare --net sh -c "nft -f '$AQUI/etc/egress.nft' && nft list table inet nutri_ci_egress" 2>/dev/null | normaliza)"
+if [ -z "$ATUAL" ]; then
+  echo "FALTA      filtro de rede (nft) não carregado: systemctl status nutri-ci-egress"; DIFERENCAS=$((DIFERENCAS + 1))
+elif [ -z "$REFERENCIA" ]; then
+  echo "ERRO       não consegui montar a referência do filtro (unshare/nft)"; DIFERENCAS=$((DIFERENCAS + 1))
+elif [ "$ATUAL" != "$REFERENCIA" ]; then
+  echo "DIFERENTE  filtro de rede carregado ≠ infra/runner/etc/egress.nft (instalar-1-base.sh recarrega)"; DIFERENCAS=$((DIFERENCAS + 1))
+else
+  echo "ok         filtro de rede carregado igual ao versionado"
+fi
+for l in DOCKER_HOST=unix:///run/user/1500/docker.sock ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/nutri-ci/hooks/inicio.sh ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/nutri-ci/hooks/fim.sh; do
+  if grep -qxF "$l" $H/actions-runner/.env 2>/dev/null; then echo "ok         .env do runner: ${l%%=*}"
+  else echo "FALTA      .env do runner: $l (instalar-2-runner.sh)"; DIFERENCAS=$((DIFERENCAS + 1)); fi
+done
 for f in /etc/cron.deny /etc/at.deny; do
   if grep -qx gh-runner "$f" 2>/dev/null; then echo "ok         gh-runner em $f"
   else echo "FALTA      gh-runner em $f (instalar-1-base.sh)"; DIFERENCAS=$((DIFERENCAS + 1)); fi
@@ -53,4 +69,6 @@ echo
 if [ "$DIFERENCAS" = 0 ]; then echo "Tudo igual ao versionado."; exit 0; fi
 echo "$DIFERENCAS diferença(s). Arquivos de etc/ e user/: instalar-1-base.sh e instalar-2-runner.sh (idempotentes);"
 echo "isolamento: atualizar-isolamento.sh; vigias: atualizar-hooks.sh."
+echo "Atenção: o instalar-2-runner.sh e o atualizar-isolamento.sh reiniciam o Docker do CI e derrubam um job em andamento."
+echo "Rode-os com o runner parado (busy=false em: gh api repos/fabianojp06/nutridebby/actions/runners)."
 exit 1
