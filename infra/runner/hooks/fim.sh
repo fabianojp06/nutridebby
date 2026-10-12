@@ -12,10 +12,18 @@ docker network prune -f >/dev/null
 docker volume prune -af --filter 'label!=nutri-ci.manter' >/dev/null
 docker image prune -f >/dev/null
 docker builder prune -f --reserved-space 25GB >/dev/null 2>&1 || true
-# Arquivos criados dentro de contêineres de job podem ter dono da faixa subordinada (o gh-runner não apaga):
-# um contêiner descartável (root dele = UID 1500, com poder sobre a faixa) limpa _temp e _tool.
-docker run --rm -v "$HOME/actions-runner/_work:/w" alpine:3.20 sh -c 'rm -rf /w/_temp/* /w/_temp/.[!.]* /w/_tool' >/dev/null 2>&1 \
-  || rm -rf "$HOME/actions-runner/_work/_tool" "$HOME/actions-runner/_work/_temp"/* 2>/dev/null
+# Arquivos criados dentro de contêineres de job podem ter dono da faixa subordinada (o gh-runner não apaga). Sem imagem
+# nenhuma (um job poderia trocar uma imagem por outra com o mesmo nome): entra no espaço de usuários do Docker do CI
+# (é do próprio gh-runner; lá dentro ele tem poder sobre a faixa), apaga e confere.
+W="$HOME/actions-runner/_work"
+FILHO=$(cat /run/user/1500/dockerd-rootless/child_pid 2>/dev/null)
+if [ -n "$FILHO" ]; then
+  nsenter -U --preserve-credentials -t "$FILHO" rm -rf "$W/_tool" "$W/_temp" 2>/dev/null
+else
+  rm -rf "$W/_tool" "$W/_temp" 2>/dev/null
+fi
+mkdir -p "$W/_temp"
+[ -z "$(ls -A "$W/_temp" 2>/dev/null)" ] && [ ! -e "$W/_tool" ] || echo "::warning::nutri-ci: sobrou arquivo em _temp/_tool depois da limpeza"
 find /tmp -xdev -mindepth 1 -delete 2>/dev/null || true     # /tmp é o tmpfs privado do user@1500
 echo "nutri-ci: limpeza feita ($(df -h --output=avail /home/gh-runner | tail -1 | tr -d ' ') livres no disco do CI)"
 exit 0
