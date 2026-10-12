@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Pool, type PoolClient } from 'pg';
 import { runMigrations } from './migrate';
+import { novoPostgres, uriDoPostgres } from '../../test/postgres-teste';
 
 // Tarefa 13 (Ruling R49): em produção o migrator é um role dono do banco SEM superusuário.
 // Cluster próprio, montado como no runbook, para provar que as migrations rodam assim.
@@ -13,14 +14,14 @@ let owner: Pool;
 let app: Pool;
 
 beforeAll(async () => {
-  container = await new PostgreSqlContainer('postgres:16-alpine').start();
-  const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+  container = await novoPostgres().start();
+  const su = new Pool({ connectionString: uriDoPostgres(container), max: 1 });
   // mesmos comandos do runbook (Tarefa 13, Step 1b), rodados uma vez como postgres
   await su.query(`CREATE ROLE nutri_owner LOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS PASSWORD 'owner-pw'`);
   await su.query('CREATE DATABASE nutri OWNER nutri_owner');
   await su.end();
   const url = (user: string, password: string) => {
-    const u = new URL(container.getConnectionUri());
+    const u = new URL(uriDoPostgres(container));
     u.username = user;
     u.password = password;
     u.pathname = '/nutri';
@@ -74,7 +75,7 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
   });
 
   it('REVOKE TEMPORARY sem efeito (migrator deixou de ser dono do banco) falha com mensagem clara, sem segredo (G6)', async () => {
-    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    const su = new Pool({ connectionString: uriDoPostgres(container), max: 1 });
     try {
       // Cenário do achado: outro role é dono do banco (o migrator só tem CREATE, que as migrations
       // exigem) e PUBLIC tem TEMP; o REVOKE do migrator só gera WARNING
@@ -101,7 +102,7 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
   });
 
   it('TEMPORARY concedido direto ao role da aplicação também faz a migração parar (G6)', async () => {
-    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    const su = new Pool({ connectionString: uriDoPostgres(container), max: 1 });
     try {
       await su.query('GRANT TEMPORARY ON DATABASE nutri TO nutri_app');
       await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).rejects.toThrow(/nutri_app ainda pode criar tabela temporária/);
@@ -116,7 +117,7 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
   });
 
   it('recusa seguir se o role da aplicação ganhou atributo perigoso (o migrator não pode removê-lo)', async () => {
-    const su = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
+    const su = new Pool({ connectionString: uriDoPostgres(container), max: 1 });
     try {
       await su.query('ALTER ROLE nutri_app CREATEDB');
       await expect(runMigrations({ migratorUrl: ownerUrl, appUrl })).rejects.toThrow(/CREATEDB/);
