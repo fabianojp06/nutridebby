@@ -110,8 +110,9 @@ jobs:
           # com min-versions-to-keep conta versões reais de imagem.
           provenance: false
           sbom: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Sem cache do Actions (type=gha): os jobs do CI no runner próprio recebem o token do runtime, que grava no
+          # cache do escopo da main mesmo sem `permissions:`; um runner comprometido envenenaria camadas que este job
+          # importaria para a imagem de produção (revisão de segurança do PR #33). O build é sempre do zero aqui.
       # Poda logo após o push e antes dos webhooks: se o deploy falhar (ex.: segredos
       # ainda não cadastrados), a poda já rodou. Mantém a imagem recém-publicada e a
       # anterior (a que está rodando), então nunca remove a imagem em uso.

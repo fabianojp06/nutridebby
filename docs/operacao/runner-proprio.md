@@ -57,7 +57,7 @@ Mais duas saídas descartadas: VM ou KVM aninhada (não há `/dev/kvm` e a CPU n
 | Runner comprometido forja o "verde" e o `decidir` (isolamento I3, GitHub I3) | O `decidir` fica no `ubuntu-latest`. O risco fica registrado como aceito; o runner efêmero (JIT) vai para a fase 2 |
 | `DATA_DIR: ${{ runner.temp }}` invalida o `ci.yml` (GitHub C2) | Fica `DATA_DIR: /tmp/nd-data`, que é o `/tmp` do contêiner do job |
 | O canário por `workflow_dispatch` num PR não roda e gasta minutos (GitHub C1) | O canário roda num `push` para o branch `canario-runner`, sem PR (custo hospedado zero) |
-| Estimativa do `publish` errada (operação I2, GitHub I2) | O `publish` mantém `cache-to: type=gha,mode=max`. Nova estimativa: 5 a 7 min por merge, a medir |
+| Estimativa do `publish` errada (operação I2, GitHub I2) | O `publish` builda sem cache (revisão de segurança do PR #33: o cache `type=gha` do escopo da main é gravável pelos jobs do runner próprio, pelo token do runtime, e um runner comprometido envenenaria a imagem de produção). Estimativa: 5 a 7 min por merge, a medir |
 | Não havia caminho de emergência (operação I3, GitHub I1) | `workflow_dispatch` "publicar-emergencia" no `deploy.yml`, só com o seu OK |
 | `CPUWeight=20` não priorizava a produção (operação I1) | Texto corrigido: a barreira real é o `CPUQuota=400%`. O peso do `user.slice` fica como decisão sua |
 | `--keep-storage` obsoleto (operação M2, GitHub M1) | `--reserved-space`, conferido no `docker builder prune --help` do buildx v0.37.0. O `builder.gc` saiu do `daemon.json` |
@@ -717,7 +717,7 @@ Se nada disso der certo, o último recurso é o snapshot.
 1. **Runner persistente comprometido forja o resultado do CI.**
    - O código de um PR pode alterar os binários do runner, o `.env`, o `_work` e as units de usuário, e ler a credencial do runner (`.credentials`), porque tudo roda com o mesmo UID.
    - Com isso, ele pode marcar `quality`, `test`, `e2e` e `image` como `success`, e o `ci-ja-passou.sh` confia nisso.
-   - **O que não cai:** a imagem publicada continua sendo montada no `ubuntu-latest` a partir do `github.sha`, e o `decidir` fica hospedado.
+   - **O que não cai:** a imagem publicada continua sendo montada no `ubuntu-latest` a partir do `github.sha`, sem o cache do Actions (que os jobs do runner conseguem gravar pelo token do runtime), e o `decidir` fica hospedado.
    - **O que cai:** o portão "testou antes de publicar".
    - **Fase 2:** runner efêmero (JIT), com o token guardado fora do alcance do runner.
 2. **Kernel compartilhado.** O `uidmap` mais o perfil `rootlesskit` dão ao código do PR capacidades dentro de user namespaces, o que aumenta a superfície de ataque do kernel. Mitigação: kernel atualizado, com reboot programado (decisão sua, fora deste PR).
@@ -765,7 +765,7 @@ Se nada disso der certo, o último recurso é o snapshot.
 9. O `io.max` em `/dev/sda` vale para a escrita que passa pelo dispositivo loop. Confirmar no `io.stat` da slice.
 10. O efeito do teto de IO no `fsync` da produção (seção 7).
 11. Tempos reais: estimativa de 35 a 45 min por CI completo; os timeouts são provisórios.
-12. O custo real do `publish` com cache só da `main`: estimativa de 5 a 7 min por merge, a medir no primeiro.
+12. O custo real do `publish` sem cache (build do zero no hospedado): estimativa de 5 a 7 min por merge, a medir no primeiro.
 13. A expressão do `publish` no `workflow_dispatch` (seção 4).
 14. O comportamento exato do GitHub com o saldo zerado no Free (os jobs hospedados não iniciam).
 15. O caminho `bin/runsvc.sh` dentro do pacote do runner.

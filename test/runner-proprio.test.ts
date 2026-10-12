@@ -82,6 +82,8 @@ describe('runner próprio: guardas dos workflows', () => {
     expect(deploy.decidir).toContain(HOSPEDADO);
     expect(deploy.publish).toContain(HOSPEDADO);
     expect(deploy.publish).toMatch(/packages: write/);
+    // O cache do Actions é gravável pelos jobs do runner próprio (token do runtime): a imagem de produção não o lê
+    for (const { nome, texto } of workflows) expect(texto, nome).not.toMatch(/type=gha/);
   });
 
   it('a publicação de emergência só vale na main e com a confirmação digitada; o contrário falha à vista', () => {
