@@ -1,6 +1,24 @@
 # Runner próprio do GitHub Actions — desenho isolado
 
-Versão para aprovação do dono, 12/10/2026. Base: o desenho da opção A mais três revisões céticas (isolamento, operação, GitHub). Tudo o que está aqui foi levantado só com leitura; nada foi instalado nem alterado. Horários em BRT (a VPS está em UTC).
+Versão para aprovação do dono, 12/10/2026. Base: o desenho da opção A mais três revisões céticas (isolamento, operação, GitHub). Horários em BRT (a VPS está em UTC).
+
+**Instalado em 12/10/2026** (dono aprovou: instalar já com canário, SSH e cron bloqueados, só a cota de 4 vCPU, publicação de emergência). O que mudou do desenho para o instalado está na seção 0; o resto do documento continua valendo como desenho e passo a passo.
+
+---
+
+## 0. Como ficou na instalação (12/10/2026)
+
+Achados dos canários (10 rodadas no branch `canario-runner`, custo hospedado zero) e o que mudou por causa deles:
+
+1. **Sem `ProtectProc=invisible`** no `user@1500`: ele esconde também o PID 1, e o runner lê `/proc/1/cgroup` para iniciar job com `container:`. Sem ele, o runner vê os nomes dos processos da VPS, mas não o `environ`, a memória nem os descritores de outros usuários (teste 3 da bateria confere o `environ` de um processo da produção). Bateria: 32 de 32.
+2. **Vigias rodam com `bash -e`** (é assim que o runner os chama): o `fim.sh` usa `set +e` e nunca reprova o job. Os arquivos que os contêineres deixam em `_work/_temp` têm dono da faixa subordinada; o `fim.sh` os apaga entrando no espaço de usuários do Docker do CI (`nsenter -U` no `child_pid` do rootlesskit), sem imagem nenhuma (um job poderia trocar uma imagem por outra com o mesmo nome).
+3. **Rede do Testcontainers:** no Docker rootless a porta publicada só existe do lado do host, onde o job não chega (o filtro barra o loopback, de propósito). O canário mapeou 8 rotas; só o IP do contêiner funciona. O job `test` liga o contêiner do job à rede `bridge`, desliga o Ryuk (o `fim.sh` apaga todos os contêineres no fim de cada job) e, com `NUTRI_CI_REDE_DIRETA=1`, `test/postgres-teste.ts` conecta no IP do Postgres na porta 5432 e espera só pelo healthcheck. Fora do runner próprio, nada muda.
+4. **Paralelismo:** o contêiner do job enxerga os 8 núcleos da VPS, mas a slice limita a 4. Os padrões davam 4 workers no Playwright (prazos estourados) e 7 no Vitest (deadlock de DDL do `rls-guard.test.ts` contra outro arquivo). No CI: 2 e 3, como no runner hospedado de 4 vCPU.
+5. **Job `test` sem `DAC_OVERRIDE`/`DAC_READ_SEARCH`:** o job roda como root no contêiner e os testes de pasta ilegível (`chmod 000`) precisam que as permissões valham. Por isso o `jq` (usado pelo `ci-ja-passou.sh`) vem do binário estático oficial, conferido pelo sha256 da release: o `apt` não roda sem essas capacidades.
+6. **Orçamento da imagem:** o Docker 29 do runner (armazenamento do containerd) salva as camadas já em gzip, e o `gzip -6` por cima dava 266-267 MB. A conta agora descomprime as camadas e comprime o pacote inteiro, igual em qualquer Docker: 263 MB, o mesmo número do runner hospedado.
+7. **Scripts:** no lugar de um `instalar.sh` único, `instalar-1-base.sh` (passos 1-7) e `instalar-2-runner.sh` (passos 8-10), idempotentes; `atualizar-isolamento.sh` e `atualizar-hooks.sh` para reinstalar só uma parte; `verificar.sh` (só lê) compara o instalado com o versionado; `testar-isolamento.sh` é a bateria da seção 6.
+
+Tempos medidos no runner próprio (canário 9): `quality` 2 min, `test` 6 min, `e2e` 18 min, `image` 4 min, um job por vez (no hospedado: 1, 8, 21 e 4 min, em paralelo).
 
 ---
 
@@ -284,9 +302,9 @@ Ficam em `infra/runner/`, versionados e revisados no PR:
 - os drop-ins: `user-1500.slice.d/50-nutri-ci.conf`, `user@1500.service.d/isolamento.conf` e `user@1500.service.d/egress.conf`;
 - as units `nutri-ci-egress.service`, `actions-runner.service` e `nutri-ci-poda.{service,timer}`;
 - `inicio.sh` e `fim.sh`;
-- `instalar.sh`, idempotente, com modo `--verificar` que só compara (`diff`) o instalado com o versionado.
+- os scripts de instalação, atualização e conferência (seção 0, item 7); o `verificar.sh` só compara o instalado com o versionado.
 
-Mais um teste-guarda que quebra se algum workflow usar `pull_request_target`, `workflow_run` ou `issue_comment` com `runs-on` self-hosted (GitHub M4).
+Mais um teste-guarda (`test/runner-proprio.test.ts`) que quebra se algum workflow usar `pull_request_target`, `workflow_run` ou `issue_comment` (GitHub M4), se os jobs do `ci.yml` saírem do runner próprio, se o `decidir` ou o `publish` do deploy forem para ele (ou se um job no runner próprio usar segredos) e se a expressão da publicação de emergência mudar.
 
 ### Workflow do canário (não vai para a `main`)
 
