@@ -44,11 +44,11 @@ jobs:
 
   rede-conteiner:
     # Diagnóstico: de dentro do contêiner do job, por qual caminho se alcança uma porta publicada por um contêiner irmão
-    # (é o que o Testcontainers faz com o Ryuk e o Postgres). Nenhuma rota precisa dar certo aqui: o job só relata.
+    # (é o que o Testcontainers faz com o Ryuk e o Postgres). O job só relata; nenhuma rota precisa dar certo.
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 10
     container:
-      image: alpine:3.20
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: >-
         -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
         -v /usr/bin/docker:/usr/local/bin/docker:ro
@@ -56,15 +56,16 @@ jobs:
       DOCKER_HOST: unix:///run/user/1500/docker.sock
     steps:
       - name: Rotas até uma porta publicada
+        shell: bash
         run: |
-          tenta() { if wget -T4 -qO- "http://$2" >/dev/null 2>&1; then echo "OK    $1 ($2)"; else echo "falha $1 ($2)"; fi; }
+          tenta() { if timeout 4 bash -c "</dev/tcp/${2%:*}/${2#*:}" 2>/dev/null; then echo "OK    $1 ($2)"; else echo "falha $1 ($2)"; fi; }
           docker rm -f eco >/dev/null 2>&1 || true
           docker run -d --name eco -p 0:80 nginx:alpine >/dev/null
           sleep 3
           P=$(docker port eco 80/tcp | head -1 | sed 's/.*://')
           ECO=$(docker inspect eco -f '{{.NetworkSettings.IPAddress}}')
-          GW=$(ip route | awk '/default/{print $3}')
-          echo "porta publicada=$P  eco=$ECO  gateway do job=$GW"
+          GW=$(awk '$2=="00000000"{h=$3; printf "%d.%d.%d.%d\n", strtonum("0x" substr(h,7,2)), strtonum("0x" substr(h,5,2)), strtonum("0x" substr(h,3,2)), strtonum("0x" substr(h,1,2)); exit}' /proc/net/route 2>/dev/null)
+          echo "porta publicada=$P  eco=$ECO  gateway do job=$GW  hostname=$(hostname)"
           tenta "gateway do job + porta publicada (padrão do Testcontainers)" "$GW:$P"
           tenta "IP do contêiner irmão, porta interna" "$ECO:80"
           tenta "docker0 + porta publicada" "172.17.0.1:$P"
