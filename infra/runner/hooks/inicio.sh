@@ -2,7 +2,7 @@
 # /opt/nutri-ci/hooks/inicio.sh — roda antes de CADA job do runner próprio (ACTIONS_RUNNER_HOOK_JOB_STARTED).
 # Canário do isolamento: se qualquer barreira cair, o job falha antes de rodar código do PR (falha fechado).
 # docs/operacao/runner-proprio.md, passo 9.
-set -uo pipefail
+set -uo pipefail   # o runner chama com bash -e; cada teste abaixo trata o próprio erro
 
 falha() { echo "::error::nutri-ci: isolamento quebrado — $*"; exit 1; }
 deve_falhar() { local d="$1"; shift; if "$@" >/dev/null 2>&1; then falha "$d"; fi; }
