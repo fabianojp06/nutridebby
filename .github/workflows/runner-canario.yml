@@ -1,0 +1,65 @@
+# Canário do runner próprio (docs/operacao/runner-proprio.md, passo 11). Só existe no branch canario-runner:
+# push neste branch não dispara o ci.yml (só pull_request) nem o deploy.yml (só main). Custo hospedado: zero.
+name: runner-canario
+on:
+  push:
+    branches: [canario-runner]
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 10
+    steps:
+      - name: Barreiras vistas de dentro de um job (o hook inicio.sh já rodou antes)
+        run: |
+          nega() { if "$@" >/dev/null 2>&1; then echo "::error::FURO: $*"; exit 1; fi; echo "barrado: $*"; }
+          docker info -f '{{.SecurityOptions}} {{.Swarm.LocalNodeState}}'
+          nega docker -H unix:///run/docker.sock version
+          nega ls /etc/easypanel
+          nega curl -sS -m5 http://127.0.0.1:3000
+          nega curl -sS -m5 https://nutri.wsscloud.tech
+          nega docker run --rm --user 1000 -v /:/h alpine:3.20 ls /h/etc/easypanel
+          curl -sS -m10 https://api.github.com/zen; echo
+
+  servicos:
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 10
+    container: { image: postgres:16-alpine }
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_PASSWORD: canario }
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - name: Serviço alcançável pelo nome (padrão do E2E)
+        run: pg_isready -h postgres -U postgres
+      - name: Contêiner do job não alcança o host
+        run: |
+          if wget -T5 -qO- http://10.0.2.2:3000 >/dev/null 2>&1; then echo "::error::FURO: 10.0.2.2:3000"; exit 1; fi
+          echo "barrado: 10.0.2.2:3000"
+
+  testcontainers:
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: >-
+        --cpus 4 --memory 8g
+        -v nutri-ci-pnpm:/pnpm-store
+        -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
+        -v /usr/bin/docker:/usr/local/bin/docker:ro
+    env:
+      DOCKER_HOST: unix:///run/user/1500/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
+      - name: Testcontainers no Docker rootless (amostra do pnpm test)
+        run: pnpm exec vitest run src/db/rls-guard.test.ts src/db/db-error.test.ts
