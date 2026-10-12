@@ -76,6 +76,8 @@ echo
 if [ "$DIFERENCAS" = 0 ]; then echo "Tudo igual ao versionado."; exit 0; fi
 echo "$DIFERENCAS diferença(s). Arquivos de etc/ e user/: instalar-1-base.sh e instalar-2-runner.sh (idempotentes);"
 echo "isolamento: atualizar-isolamento.sh; vigias: atualizar-hooks.sh; alarme: instalar-alarme.sh."
+echo "Diferença em arquivo do home do gh-runner (user/) que ninguém mudou de propósito pode ser um job mexendo no runner:"
+echo "investigue antes de reinstalar (o que mudou, em que job) e trate o runner como comprometido (seção 9.1)."
 echo "Atenção: o instalar-2-runner.sh e o atualizar-isolamento.sh reiniciam o Docker do CI e derrubam um job em andamento."
 echo "Rode-os com o runner parado (busy=false em: gh api repos/fabianojp06/nutridebby/actions/runners)."
 exit 1

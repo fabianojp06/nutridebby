@@ -15,6 +15,10 @@ pare() { printf '\n\033[31mPARE:\033[0m %s\nMande esta saída para o Claude.\n' 
 passo(){ printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 # Executa como gh-runner dentro do user@1500 (mesmo namespace e mesma slice dos jobs)
 R() { sudo -u gh-runner XDG_RUNTIME_DIR=/run/user/1500 systemd-run --user --wait --pipe --quiet --collect -E DOCKER_HOST="$SOCK" -- "$@"; }
+# Grava um arquivo versionado no home do gh-runner COMO gh-runner (conteúdo pela entrada padrão). Nunca como root: o home
+# é do gh-runner, e um link simbólico plantado por um job levaria o install do root a mudar dono e modo fora dele
+# (/etc/systemd/system, /etc) — revisão de segurança do PR #33.
+NO_HOME() { R install -m 644 /dev/stdin "$2" < "$AQUI/$1"; }
 
 [ "$(id -u)" = 0 ] || pare "rode com sudo"
 systemctl is-active --quiet user@1500.service || pare "user@1500 não está ativo (fase 1)"
@@ -22,9 +26,9 @@ systemctl is-active --quiet nutri-ci-egress || pare "filtro de rede inativo (fas
 H=/home/gh-runner
 
 passo "8. Docker rootless do CI"
-install -d -o 1500 -g 1500 -m 700 $H/.config $H/.config/docker $H/.config/systemd $H/.config/systemd/user $H/.config/systemd/user/docker.service.d
-install -o 1500 -g 1500 -m 644 "$AQUI/user/docker-env.conf" $H/.config/systemd/user/docker.service.d/env.conf
-install -o 1500 -g 1500 -m 644 "$AQUI/user/daemon.json" $H/.config/docker/daemon.json
+R install -d -m 700 $H/.config $H/.config/docker $H/.config/systemd $H/.config/systemd/user $H/.config/systemd/user/docker.service.d
+NO_HOME user/docker-env.conf $H/.config/systemd/user/docker.service.d/env.conf
+NO_HOME user/daemon.json $H/.config/docker/daemon.json
 if ! R test -f $H/.config/systemd/user/docker.service; then
   R /usr/bin/dockerd-rootless-setuptool.sh install || pare "dockerd-rootless-setuptool falhou"
 fi
@@ -47,8 +51,8 @@ passo "9. Hooks e poda"
 install -d -o root -g root -m 755 /opt/nutri-ci /opt/nutri-ci/hooks
 install -o root -g root -m 755 "$AQUI/hooks/inicio.sh" /opt/nutri-ci/hooks/inicio.sh
 install -o root -g root -m 755 "$AQUI/hooks/fim.sh" /opt/nutri-ci/hooks/fim.sh
-install -o 1500 -g 1500 -m 644 "$AQUI/user/nutri-ci-poda.service" $H/.config/systemd/user/nutri-ci-poda.service
-install -o 1500 -g 1500 -m 644 "$AQUI/user/nutri-ci-poda.timer" $H/.config/systemd/user/nutri-ci-poda.timer
+NO_HOME user/nutri-ci-poda.service $H/.config/systemd/user/nutri-ci-poda.service
+NO_HOME user/nutri-ci-poda.timer $H/.config/systemd/user/nutri-ci-poda.timer
 R systemctl --user daemon-reload
 R systemctl --user enable --now nutri-ci-poda.timer >/dev/null 2>&1
 R systemctl --user is-active --quiet nutri-ci-poda.timer || pare "timer da poda inativo"
@@ -79,7 +83,7 @@ else
   ok "runner já registrado"
 fi
 R bash -c "cd ~/actions-runner && for l in 'DOCKER_HOST=$SOCK' 'ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/nutri-ci/hooks/inicio.sh' 'ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/nutri-ci/hooks/fim.sh'; do grep -qxF \"\$l\" .env 2>/dev/null || echo \"\$l\" >> .env; done"
-install -o 1500 -g 1500 -m 644 "$AQUI/user/actions-runner.service" $H/.config/systemd/user/actions-runner.service
+NO_HOME user/actions-runner.service $H/.config/systemd/user/actions-runner.service
 R systemctl --user daemon-reload
 R systemctl --user enable --now actions-runner >/dev/null 2>&1
 sleep 15

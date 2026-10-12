@@ -495,8 +495,9 @@ Crie como root e depois passe para o `gh-runner`:
    "registry-mirrors":["https://mirror.gcr.io"]}
   ```
 ```bash
-sudo chown -R 1500:1500 /home/gh-runner/.config
 R='sudo -u gh-runner XDG_RUNTIME_DIR=/run/user/1500 systemd-run --user --wait --pipe --quiet -E DOCKER_HOST=unix:///run/user/1500/docker.sock --'
+# Os arquivos acima são gravados COMO gh-runner, nunca pelo root (um link simbólico plantado por um job no home dele
+# levaria o root a mudar dono e modo fora do home): $R install -d -m 700 …; $R install -m 644 /dev/stdin <destino> < <arquivo>
 $R /usr/bin/dockerd-rootless-setuptool.sh install
 $R systemctl --user daemon-reload
 $R systemctl --user restart docker        # é o daemon do CI, não o de produção
