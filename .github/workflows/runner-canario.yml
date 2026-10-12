@@ -42,24 +42,49 @@ jobs:
           if wget -T5 -qO- http://10.0.2.2:3000 >/dev/null 2>&1; then echo "::error::FURO: 10.0.2.2:3000"; exit 1; fi
           echo "barrado: 10.0.2.2:3000"
 
-  testcontainers:
+  rede-conteiner:
+    # Diagnóstico: de dentro do contêiner do job, por qual caminho se alcança uma porta publicada por um contêiner irmão
+    # (é o que o Testcontainers faz com o Ryuk e o Postgres). Nenhuma rota precisa dar certo aqui: o job só relata.
     runs-on: [self-hosted, nutri-ci]
-    timeout-minutes: 25
+    timeout-minutes: 10
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: alpine:3.20
       options: >-
-        --cpus 4 --memory 8g
-        -v nutri-ci-pnpm:/pnpm-store
         -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
         -v /usr/bin/docker:/usr/local/bin/docker:ro
     env:
       DOCKER_HOST: unix:///run/user/1500/docker.sock
-      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 24 }
-      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
-      - name: Testcontainers no Docker rootless (amostra do pnpm test)
-        run: pnpm exec vitest run src/db/rls-guard.test.ts src/db/db-error.test.ts
+      - name: Rotas até uma porta publicada
+        run: |
+          tenta() { if wget -T4 -qO- "http://$2" >/dev/null 2>&1; then echo "OK    $1 ($2)"; else echo "falha $1 ($2)"; fi; }
+          docker rm -f eco >/dev/null 2>&1 || true
+          docker run -d --name eco -p 0:80 nginx:alpine >/dev/null
+          sleep 3
+          P=$(docker port eco 80/tcp | head -1 | sed 's/.*://')
+          ECO=$(docker inspect eco -f '{{.NetworkSettings.IPAddress}}')
+          GW=$(ip route | awk '/default/{print $3}')
+          echo "porta publicada=$P  eco=$ECO  gateway do job=$GW"
+          tenta "gateway do job + porta publicada (padrão do Testcontainers)" "$GW:$P"
+          tenta "IP do contêiner irmão, porta interna" "$ECO:80"
+          tenta "docker0 + porta publicada" "172.17.0.1:$P"
+          docker network connect bridge "$(hostname)" && echo "job ligado também à rede bridge"
+          tenta "depois de ligar à bridge: docker0 + porta publicada" "172.17.0.1:$P"
+          tenta "depois de ligar à bridge: IP do irmão" "$ECO:80"
+          docker rm -f eco >/dev/null
+
+  rede-host:
+    # O mesmo, com o job direto no runner (sem contêiner): o Testcontainers usaria localhost.
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 10
+    steps:
+      - name: Porta publicada vista do runner
+        run: |
+          tenta() { if curl -s -m4 -o /dev/null "http://$2"; then echo "OK    $1 ($2)"; else echo "falha $1 ($2)"; fi; }
+          docker rm -f eco2 >/dev/null 2>&1 || true
+          docker run -d --name eco2 -p 0:80 nginx:alpine >/dev/null
+          sleep 3
+          P=$(docker port eco2 80/tcp | head -1 | sed 's/.*://')
+          echo "porta publicada=$P"
+          tenta "localhost + porta publicada" "127.0.0.1:$P"
+          docker rm -f eco2 >/dev/null
