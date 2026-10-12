@@ -293,7 +293,7 @@ Junto no mesmo PR, os fallbacks de `e2e/whatsapp.ts` (`localhost:54329`, o banco
            cache-to: type=gha,mode=max   # sem mudança: agora só a main grava cache (sai o cache dos PRs)
 ```
 
-> **Conferido no PR:** no `workflow_dispatch`, o `decidir` e o `ci` ficam `skipped`, e o `!cancelled()` do `publish` deixa o job ser avaliado mesmo assim. A guarda `test/runner-proprio.test.ts` trava a expressão, o job `confirmar` (confirmação errada ou fora da main → execução vermelha) e o `cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}`: a emergência cancela o deploy de push que estiver preso na fila do CI (com o runner fora do ar ele seguraria o grupo `deploy-main` por até 24 h). Um push novo nunca cancela a emergência em andamento.
+> **Conferido no PR:** no `workflow_dispatch`, o `decidir` e o `ci` ficam `skipped`, e o `!cancelled()` do `publish` deixa o job ser avaliado mesmo assim. A guarda `test/runner-proprio.test.ts` trava a expressão, o job `confirmar` (confirmação errada ou fora da main → execução vermelha) e o `cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}`: a emergência cancela o deploy de push que estiver preso na fila do CI (com o runner fora do ar ele seguraria o grupo `deploy-main` por até 24 h). Um push novo nunca cancela a emergência em andamento. O disparo recusado (confirmação errada ou fora da main) vai para um grupo de concorrência só dele (`deploy-recusado-<run_id>`) e não cancela nem tira da fila o deploy de push.
 
 ### Arquivos novos no repositório (operação M7)
 
@@ -542,10 +542,11 @@ $R bash -c 'mkdir -p ~/actions-runner && cd ~/actions-runner &&
 - No **seu** terminal:
 ```bash
 read -rs RT     # cole o token; nada aparece e nada vai para o histórico
-# o token entra pela entrada padrão (não aparece na linha de comando do sudo, que o `ps` mostraria)
+# o token entra pela entrada padrão e chega ao config.sh pelo ambiente (ACTIONS_RUNNER_INPUT_TOKEN): nunca na linha
+# de comando, que o `ps` de qualquer usuário mostraria
 printf '%s\n' "$RT" | sudo -u gh-runner XDG_RUNTIME_DIR=/run/user/1500 systemd-run --user --wait --pipe --quiet \
-  bash -c 'read -r T; cd ~/actions-runner && ./config.sh --unattended \
-  --url https://github.com/fabianojp06/nutridebby --token "$T" \
+  bash -c 'read -r T; export ACTIONS_RUNNER_INPUT_TOKEN="$T"; unset T; cd ~/actions-runner && ./config.sh --unattended \
+  --url https://github.com/fabianojp06/nutridebby \
   --name vps-nutri-ci --labels nutri-ci --work _work'
 unset RT
 ```

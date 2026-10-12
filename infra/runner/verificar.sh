@@ -39,8 +39,8 @@ confere user/nutri-ci-poda.timer      $H/.config/systemd/user/nutri-ci-poda.time
 
 # O que não é arquivo copiado: a regra CARREGADA (não basta o arquivo igual), portas de fuga fechadas e vigias ligados.
 # Referência: o egress.nft versionado carregado num namespace de rede descartável (não toca na rede da VPS), listado no
-# mesmo formato da tabela em uso.
-normaliza() { sed -E 's/ # handle [0-9]+//; s/[[:space:]]+$//' | grep -v '^$'; }
+# mesmo formato da tabela em uso. Os contadores da tabela em uso já contaram pacotes: compara só a regra, sem os números.
+normaliza() { sed -E 's/ # handle [0-9]+//; s/counter packets [0-9]+ bytes [0-9]+/counter/g; s/[[:space:]]+$//' | grep -v '^$'; }
 ATUAL="$(nft list table inet nutri_ci_egress 2>/dev/null | normaliza)"
 REFERENCIA="$(unshare --net sh -c "nft -f '$AQUI/etc/egress.nft' && nft list table inet nutri_ci_egress" 2>/dev/null | normaliza)"
 if [ -z "$ATUAL" ]; then

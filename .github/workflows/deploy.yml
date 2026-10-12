@@ -16,8 +16,10 @@ permissions:
 
 # A emergência (workflow_dispatch) cancela o deploy de push em curso: com o runner próprio fora do ar, esse deploy fica
 # preso na fila do CI (até 24 h) segurando o grupo, e a emergência esperaria atrás dele. O push nunca cancela nada.
+# Disparo recusado (confirmação errada ou fora da main) vai para um grupo só dele: não cancela nem tira da fila o deploy
+# de push (no grupo, o pendente novo sempre derruba o pendente anterior, com ou sem cancel-in-progress).
 concurrency:
-  group: deploy-main
+  group: ${{ github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/main' && inputs.confirmo == 'PUBLICAR-SEM-CI') && format('deploy-recusado-{0}', github.run_id) || 'deploy-main' }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:

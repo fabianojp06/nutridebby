@@ -61,11 +61,13 @@ describe('runner próprio: guardas dos workflows', () => {
   });
 
   it('nada que vá para o runner próprio recebe segredos ou permissão de escrita', () => {
-    for (const { nome, bruto } of workflows) {
-      // Texto BRUTO: o GitHub expande ${{ secrets.X }} até dentro de um comentário de shell num `run:`
+    for (const { nome, bruto, texto } of workflows) {
+      // Onde o job roda sai do texto sem comentários (um "# antes: runs-on: ubuntu-latest" não o isenta); o que ele
+      // recebe, do texto BRUTO: o GitHub expande ${{ secrets.X }} até dentro de um comentário de shell num `run:`
+      const semComentario = jobs(texto);
       for (const [job, bloco] of Object.entries(jobs(bruto))) {
-        if (!bloco.includes(HOSPEDADO)) {
-          expect(bloco, `${nome}/${job}`).not.toMatch(/\bsecrets\b|: write\b|write-all|EASYPANEL/);
+        if (semComentario[job]?.match(/^ {4}runs-on:.*$/m)?.[0].trim() !== HOSPEDADO) {
+          expect(bloco, `${nome}/${job}`).not.toMatch(/\bsecrets\b|: write\b|write-all|EASYPANEL|github\.token|GITHUB_TOKEN/);
         }
       }
     }
@@ -98,5 +100,9 @@ describe('runner próprio: guardas dos workflows', () => {
     expect(j.decidir).toMatch(/if: github\.event_name == 'push'/);
     expect(j.ci).toMatch(/if: \$\{\{ github\.event_name == 'push' && !cancelled\(\)/);
     expect(deploy).toMatch(/cancel-in-progress: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}/);
+    // ...mas só a emergência válida entra no grupo do deploy; a recusada fica num grupo próprio e não derruba nada
+    expect(deploy).toMatch(
+      /group: \$\{\{ github\.event_name == 'workflow_dispatch' && !\(github\.ref == 'refs\/heads\/main' && inputs\.confirmo == 'PUBLICAR-SEM-CI'\) && format\('deploy-recusado-\{0\}', github\.run_id\) \|\| 'deploy-main' \}\}/,
+    );
   });
 });

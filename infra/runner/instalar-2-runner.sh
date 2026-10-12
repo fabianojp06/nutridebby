@@ -66,10 +66,12 @@ else
   ok "runner já baixado"
 fi
 if ! R test -f $H/actions-runner/.runner; then
-  # Token de registro (vale 1 h) pedido com o gh do deploy; vai pela entrada padrão, nunca por argumento nem arquivo
+  # Token de registro (vale 1 h) pedido com o gh do deploy; vai pela entrada padrão e chega ao config.sh pelo ambiente
+  # (ACTIONS_RUNNER_INPUT_TOKEN, que o runner lê e apaga), nunca por argumento (o /proc/<pid>/cmdline é visível a todos
+  # os usuários do host; o environ, só ao dono e ao root) nem arquivo
   TOKEN=$(sudo -u deploy -H gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq .token) || pare "não consegui o token de registro (gh do deploy)"
   [ -n "$TOKEN" ] || pare "token de registro vazio"
-  printf '%s\n' "$TOKEN" | R bash -c "read -r T; cd ~/actions-runner && ./config.sh --unattended --url https://github.com/$REPO --token \"\$T\" --name vps-nutri-ci --labels nutri-ci --work _work --replace" \
+  printf '%s\n' "$TOKEN" | R bash -c "read -r T; export ACTIONS_RUNNER_INPUT_TOKEN=\"\$T\"; unset T; cd ~/actions-runner && ./config.sh --unattended --url https://github.com/$REPO --name vps-nutri-ci --labels nutri-ci --work _work --replace" \
     || { unset TOKEN; pare "config.sh falhou"; }
   unset TOKEN
   ok "runner registrado como vps-nutri-ci (label nutri-ci)"
