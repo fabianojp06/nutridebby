@@ -1,0 +1,12 @@
+[Unit]
+Description=Filtro de saída do runner de CI (tabela nft própria)
+Before=user@1500.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nutri-ci/egress.nft
+ExecStop=/usr/sbin/nft delete table inet nutri_ci_egress
+
+[Install]
+WantedBy=multi-user.target
