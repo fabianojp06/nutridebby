@@ -107,7 +107,11 @@ jobs:
           test "$(docker info -f '{{.Swarm.LocalNodeState}}')" = inactive
           docker network connect bridge "$(hostname)"
       - name: jq (o ci-ja-passou.sh usa; a imagem do Playwright não traz)
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends jq >/dev/null && jq --version
+        # Binário estático oficial, conferido pelo sha256 publicado na release (o apt não roda sem DAC_OVERRIDE)
+        run: |
+          curl -fsSL -o /usr/local/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+          echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  /usr/local/bin/jq" | sha256sum -c -
+          chmod 755 /usr/local/bin/jq && jq --version
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
