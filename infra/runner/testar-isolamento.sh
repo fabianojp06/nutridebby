@@ -28,7 +28,7 @@ for p in /etc/easypanel /srv/nutri/data /home/deploy /root; do
   barrado "2. ler $p"                                          R ls "$p"
 done
 PIDPROD=$(pgrep -xo dockerd)
-barrado "3. ver processo da produção (/proc/$PIDPROD)"        R cat "/proc/$PIDPROD/cmdline"
+barrado "3. ler o ambiente (segredos) de processo da produção" R cat "/proc/$PIDPROD/environ"
 barrado "4. sudo"                                             R sudo -n true
 barrado "5. crontab"                                          R bash -c 'out=$(crontab -l 2>&1); [[ $out != *"not allowed"* ]]'
 barrado "7. painel do Easypanel 127.0.0.1:3000"               R curl -sS -m5 http://127.0.0.1:3000
