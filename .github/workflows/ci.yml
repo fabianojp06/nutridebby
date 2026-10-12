@@ -192,14 +192,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Runner próprio (Docker 29, armazenamento do containerd): o `docker save` já sai com as camadas em gzip, como no
-          # GHCR; comprimir de novo só somaria cabeçalhos (+3 MB medidos em 12/10/2026). Docker clássico: camadas sem
-          # compressão, então gzip -6. Se o formato mudar e vier sem compressão, a conta só cresce (nunca aprova a mais).
-          if docker info -f '{{json .DriverStatus}}' | grep -q 'containerd.snapshotter'; then
-            bytes=$(docker save nutridebby:ci | wc -c)
-          else
-            bytes=$(docker save nutridebby:ci | gzip -6 | wc -c)
-          fi
+          # Mesma conta em qualquer Docker: o pacote do `docker save` com as camadas SEM compressão, comprimido de uma vez
+          # (gzip -6). O Docker 28 hospedado já salva as camadas assim; o 29 do runner próprio (armazenamento do containerd)
+          # salva em gzip, então elas são descomprimidas antes (medir sem isso dava 266-267 MB contra 263, em 12/10/2026).
+          d="$RUNNER_TEMP/orcamento-imagem"; rm -rf "$d"; mkdir -p "$d"
+          docker save nutridebby:ci | tar -x -C "$d"
+          find "$d" -type f -size +0 | while read -r f; do
+            if gzip -t "$f" 2>/dev/null; then gzip -dc "$f" > "$f.u" && mv "$f.u" "$f"; fi
+          done
+          bytes=$(tar -C "$d" -cf - . | gzip -6 | wc -c)
+          rm -rf "$d"
           mb=$(( (bytes + 1024 * 1024 - 1) / 1024 / 1024 ))
           echo "Imagem comprimida: ${mb} MB (limite 265 MB)"
           test "$mb" -le 265 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 265 MB"; exit 1; }
