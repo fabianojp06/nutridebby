@@ -1,13 +1,14 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import type { TestProject } from 'vitest/node';
 import { Pool } from 'pg';
 import { runMigrations } from '../src/db/migrate';
+import { novoPostgres, uriDoPostgres } from './postgres-teste';
 
 let container: StartedPostgreSqlContainer;
 
 export async function setup(project: TestProject) {
-  container = await new PostgreSqlContainer('postgres:16-alpine').start();
-  const ownerUrl = container.getConnectionUri(); // superusuário: só para migrations e fixtures
+  container = await novoPostgres().start();
+  const ownerUrl = uriDoPostgres(container); // superusuário: só para migrations e fixtures
   const app = new URL(ownerUrl);
   app.username = 'nutri_app';
   app.password = 'test-app-pw';
