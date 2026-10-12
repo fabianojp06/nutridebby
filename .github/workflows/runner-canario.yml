@@ -59,19 +59,30 @@ jobs:
         shell: bash
         run: |
           tenta() { if timeout 4 bash -c "</dev/tcp/${2%:*}/${2#*:}" 2>/dev/null; then echo "OK    $1 ($2)"; else echo "falha $1 ($2)"; fi; }
+          ip_em() { docker inspect "$1" -f "{{with index .NetworkSettings.Networks \"$2\"}}{{.IPAddress}}{{end}}"; }
+          docker version -f 'docker {{.Server.Version}}'
+          docker info -f '{{.SecurityOptions}}'
           docker rm -f eco >/dev/null 2>&1 || true
           docker run -d --name eco -p 0:80 nginx:alpine >/dev/null
           sleep 3
           P=$(docker port eco 80/tcp | head -1 | sed 's/.*://')
-          ECO=$(docker inspect eco -f '{{.NetworkSettings.IPAddress}}')
-          GW=$(awk '$2=="00000000"{h=$3; printf "%d.%d.%d.%d\n", strtonum("0x" substr(h,7,2)), strtonum("0x" substr(h,5,2)), strtonum("0x" substr(h,3,2)), strtonum("0x" substr(h,1,2)); exit}' /proc/net/route 2>/dev/null)
-          echo "porta publicada=$P  eco=$ECO  gateway do job=$GW  hostname=$(hostname)"
-          tenta "gateway do job + porta publicada (padrão do Testcontainers)" "$GW:$P"
-          tenta "IP do contêiner irmão, porta interna" "$ECO:80"
-          tenta "docker0 + porta publicada" "172.17.0.1:$P"
-          docker network connect bridge "$(hostname)" && echo "job ligado também à rede bridge"
-          tenta "depois de ligar à bridge: docker0 + porta publicada" "172.17.0.1:$P"
-          tenta "depois de ligar à bridge: IP do irmão" "$ECO:80"
+          ECO=$(ip_em eco bridge)
+          EU=$(hostname)
+          REDE=$(docker inspect "$EU" -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+          GWJOB=$(docker network inspect "$REDE" -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          GWBR=$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          echo "porta=$P eco=$ECO rede do job=$REDE gw job=$GWJOB gw bridge=$GWBR"
+          tenta "A gateway do job + porta publicada" "$GWJOB:$P"
+          tenta "B IP do irmão na bridge, porta interna" "$ECO:80"
+          tenta "C gateway da bridge + porta publicada" "$GWBR:$P"
+          docker network connect bridge "$EU" && echo "-- job ligado também à rede bridge"
+          tenta "D (ligado) gateway da bridge + porta publicada" "$GWBR:$P"
+          tenta "E (ligado) IP do irmão na bridge" "$ECO:80"
+          tenta "F (ligado) gateway do job + porta publicada" "$GWJOB:$P"
+          docker network connect "$REDE" eco && echo "-- irmão ligado à rede do job"
+          ECO2=$(ip_em eco "$REDE")
+          tenta "G irmão na rede do job, porta interna" "$ECO2:80"
+          tenta "H irmão pelo nome na rede do job" "eco:80"
           docker rm -f eco >/dev/null
 
   rede-host:
@@ -107,6 +118,7 @@ jobs:
       DOCKER_HOST: unix:///run/user/1500/docker.sock
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
       TESTCONTAINERS_HOST_OVERRIDE: 172.17.0.1
+      DEBUG: testcontainers*
     steps:
       - name: Liga o contêiner do job à rede bridge (onde o Testcontainers cria os contêineres)
         run: docker network connect bridge "$(hostname)"
