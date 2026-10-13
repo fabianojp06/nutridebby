@@ -41,6 +41,13 @@ Checklist do que envelhece a cada plano (conferido no fechamento do Plano 11, 07
 isolamento, divergência #3).
 **How to apply:** passar por esta lista em todo fechamento. Ver [[estado-dos-manuais]].
 
+- "01: cronologia" no brief = a tabela §1.10 "Cronologia dos planos", não o "Conferido contra"/"Data da conferência"
+  do cabeçalho (na T5F da 14B-1 o implementador só mexeu no cabeçalho; 14A ficou "em execução" mesmo mesclado no PR #29).
+- Plano que acrescenta código no meio de arquivo citado (env.ts, carregar.ts, rascunho.ts, ia-secao.tsx, rls-guard.ts)
+  envelhece as linhas das tabelas vizinhas: comparar `git show <base>:arq` × `<head>:arq` em cada `arq:N` citado
+  (script em Python que percorre `docs/manual-tecnico` e só os arquivos do `git diff --name-only`).
+- Tabela nova em `STAFF_ONLY` também entra na coluna "Conteúdo hoje" da §2.7 do cap. 02.
+
 - Versão de texto legal da IA (`textos-legais.ts`: `AUTORIZACAO_IA_VERSAO`, `IA_ADITIVO_VERSAO`) muda telas em vários
   lugares do manual do usuário: aviso do topo, 1.6.x, confirmação do "Liberar" do admin, Parte 2 e roteiro. Ao subir
   versão, `grep -n "provis\|0\.[0-9]-\|versão" ` na proposta inteira. O estado `nao_liberada` vem antes do `nao_ativada`

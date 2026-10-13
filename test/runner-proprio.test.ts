@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ARQUIVOS_DE_TEMPO, selecaoDosTestes } from './arquivos-de-tempo';
 
 // Runner próprio (docs/operacao/runner-proprio.md, 12/10/2026): os jobs do ci.yml rodam na VPS. Estas guardas leem os
 // workflows como texto e quebram o CI se uma mudança abrir caminho para código de terceiros no runner ou levar para ele
@@ -106,5 +107,34 @@ describe('runner próprio: guardas dos workflows', () => {
     expect(deploy).toMatch(
       /group: \$\{\{ github\.event_name == 'workflow_dispatch' && !\(github\.ref == 'refs\/heads\/main' && inputs\.confirmo == 'PUBLICAR-SEM-CI'\) && format\('deploy-recusado-\{0\}', github\.run_id\) \|\| 'deploy-main' \}\}/,
     );
+  });
+});
+
+describe('testes que medem tempo (*.tempo.test.ts): sozinhos no CI', () => {
+  // CI do PR #34: com a suíte em 3 workers, a cota de 4 vCPU do runner próprio pausa o grupo inteiro e o p95 da busca
+  // (RNF-01) passou de 300 ms por disputar CPU com o arquivo vizinho. No CI eles saem da suíte e rodam depois, um por vez.
+  it('no CI a suíte paralela deixa os arquivos de tempo de fora; o test:tempo roda só eles, sem paralelismo', () => {
+    const suite = selecaoDosTestes({ CI: 'true' });
+    expect(suite.exclude).toEqual(expect.arrayContaining(ARQUIVOS_DE_TEMPO));
+    expect(suite.maxWorkers).toBe(3);
+    const tempo = selecaoDosTestes({ CI: 'true', VITEST_SO_TEMPO: '1' });
+    expect(tempo.include).toEqual(ARQUIVOS_DE_TEMPO);
+    expect(tempo.fileParallelism).toBe(false);
+    // fora do CI o pnpm test roda tudo, como antes
+    // ...e o vitest.config.ts usa esta função (com include/exclude fixos, os de tempo voltariam à suíte paralela)
+    expect(readFileSync('vitest.config.ts', 'utf8')).toMatch(/^\s*\.\.\.selecaoDosTestes\(process\.env\),$/m);
+    const local = selecaoDosTestes({});
+    expect(local.exclude).not.toEqual(expect.arrayContaining(ARQUIVOS_DE_TEMPO));
+    expect(local.maxWorkers).toBeUndefined();
+  });
+
+  it('o job test do ci.yml roda o pnpm test:tempo depois do pnpm test, e o script liga o VITEST_SO_TEMPO', () => {
+    const test = jobs(lerWorkflow('ci.yml')).test;
+    const suite = test.search(/- run: pnpm test$/m);
+    const tempo = test.search(/- run: pnpm test:tempo$/m);
+    expect(suite).toBeGreaterThan(-1);
+    expect(tempo).toBeGreaterThan(suite);
+    const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts;
+    expect(scripts['test:tempo']).toBe('VITEST_SO_TEMPO=1 vitest run');
   });
 });

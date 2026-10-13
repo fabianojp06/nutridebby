@@ -8,6 +8,7 @@ import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import type { ItemIa, RefeicaoIa } from '@/modules/ia/plano-ia';
 import { lerQuantidade } from './calculo';
 import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_PLANO } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
@@ -313,6 +314,48 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   const subs = its.filter((i) => i.substituiItemId).map(linha);
   if (principais.length) await tx.insert(mealItems).values(principais);
   if (subs.length) await tx.insert(mealItems).values(subs);
+}
+
+/**
+ * Plano 14B (RN-122, RN-124): grava refeições e itens sugeridos pela IA (já revalidados por validarPlanoIa) num plano que
+ * acabou de nascer (`patientId` nulo = modelo). Confere de novo, na transação, que cada alimento ainda é visível ao tenant:
+ * o que sumiu entre a geração e a gravação sai e é contado (`foraDoCatalogo`), com as substituições dele. Refeição sem
+ * principal visível não é criada. Um INSERT por grupo (principais antes das substituições, FK meal_items_principal_fk),
+ * como no salvamento automático. `substitui` é o índice (0…n-1) do principal na lista de itens da refeição.
+ */
+export async function gravarConteudoRascunhoTx(tx: Tx, tenantId: string, patientId: string | null, planId: string, refeicoes: RefeicaoIa[]): Promise<{ itens: number; foraDoCatalogo: number }> {
+  const ids = [...new Set(refeicoes.flatMap((r) => r.itens.map((i) => i.foodId)))];
+  const visiveis = new Set(ids.length ? (await tx.select({ id: foods.id }).from(foods).where(inArray(foods.id, ids))).map((f) => f.id) : []);
+  let foraDoCatalogo = 0;
+  let itensGravados = 0;
+  for (const [ordem, r] of refeicoes.entries()) {
+    const principaisValidos = r.itens.map((i, idx) => ({ i, idx })).filter(({ i }) => i.substitui === null && visiveis.has(i.foodId));
+    if (!principaisValidos.length) {
+      foraDoCatalogo += r.itens.length;
+      continue;
+    }
+    const mealId = crypto.randomUUID();
+    await tx.insert(meals).values({ id: mealId, tenantId, patientId, planId, nome: r.nome, horario: r.horario, ordem, observacao: '' });
+    const novoId = new Map<number, string>();
+    const linha = (i: ItemIa, idx: number, o: number, principal: string | null) => {
+      const id = crypto.randomUUID();
+      novoId.set(idx, id);
+      return {
+        id, tenantId, patientId, planId, mealId, foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida,
+        medidaCaseiraTxt: i.medida ? textoMedida(i.medida.qtd, i.medida) : null, substituiItemId: principal, ordem: o,
+      };
+    };
+    const principais = principaisValidos.map(({ i, idx }, o) => linha(i, idx, o, null));
+    await tx.insert(mealItems).values(principais);
+    const subs = r.itens
+      .map((i, idx) => ({ i, idx }))
+      .filter(({ i }) => i.substitui !== null && visiveis.has(i.foodId) && novoId.has(i.substitui))
+      .map(({ i, idx }, o) => linha(i, idx, principais.length + o, novoId.get(i.substitui!)!));
+    if (subs.length) await tx.insert(mealItems).values(subs);
+    itensGravados += principais.length + subs.length;
+    foraDoCatalogo += r.itens.length - principais.length - subs.length;
+  }
+  return { itens: itensGravados, foraDoCatalogo };
 }
 
 /** "Descartar rascunho": só o rascunho do paciente da URL (plano de outro paciente → não encontrado); paciente bloqueado não descarta. */

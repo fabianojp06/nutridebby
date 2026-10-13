@@ -2,15 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { geracaoNoBanco } from '../../../test/ia';
+import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
-import { MSG_PLANO } from './constantes';
+import { MSG_MODELO_IA, MSG_PLANO } from './constantes';
 import { PlanoError, PlanoNaoEncontradoError } from './erros';
-import { criarDeModelo, criarModelo, excluirModelo, listarModelos, salvarComoModelo } from './modelos';
+import { aprovarModeloPlano, criarDeModelo, criarModelo, excluirModelo, listarModelos, listarModelosUsaveis, salvarComoModelo } from './modelos';
 import { criarRascunho, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
 
@@ -189,5 +190,86 @@ describe('modelos de plano: limites e isolamento', () => {
     expect(orfas.rows).toHaveLength(0);
     expect((await carregarPlano(T.ctx, id, app.db))!.refeicoes[0].itens).toHaveLength(2);
     await expect(excluirModelo(T.ctx, modelo, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
+  });
+});
+
+async function modeloSugerido(T: TenantDeTeste) {
+  const g = await geracaoNoBanco(app.db, T.ctx, { status: 'pronta', itensDescartados: 3 });
+  const [m] = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.insert(mealPlans).values({ tenantId: T.tenantId, isTemplate: true, titulo: 'Diabetes: Plano A', iaGeracaoId: g }).returning({ id: mealPlans.id }), app.db);
+  return m.id;
+}
+
+describe('modelos sugeridos pela IA (US-123, RN-125, RN-126)', () => {
+  it('não aprovado: fica fora das escolhas e criarDeModelo recusa com o texto da spec', async () => {
+    const T = await novoTenant(app.db);
+    const id = await modeloSugerido(T);
+    const p = await novoPaciente(app.db, T.ctx);
+    expect((await listarModelos(T.ctx, app.db)).find((m) => m.id === id)).toMatchObject({ sugestaoIa: true, aprovadoEm: null });
+    expect((await listarModelosUsaveis(T.ctx, app.db)).map((m) => m.id)).not.toContain(id);
+    await expect(criarDeModelo(T.ctx, id, p.id, { db: app.db })).rejects.toMatchObject({ erros: { geral: 'Aprove o modelo antes de usá-lo com pacientes.' } });
+    const planos = await withTenant(T.ctx, (tx) => tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.patientId, p.id)), app.db);
+    expect(planos).toEqual([]); // nada criado
+  });
+
+  it('aprovar grava quem e quando; depois o modelo é usável e o plano criado não leva origem nem selo', async () => {
+    const T = await novoTenant(app.db);
+    const id = await modeloSugerido(T);
+    await aprovarModeloPlano(T.ctx, id, { db: app.db, agora: new Date('2026-10-10T13:00:00Z') });
+    const [m] = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, id)), app.db);
+    expect(m).toMatchObject({ aprovadoPor: T.nutriId, aprovadoEm: new Date('2026-10-10T13:00:00Z') });
+    expect((await listarModelosUsaveis(T.ctx, app.db)).map((x) => x.id)).toContain(id);
+    expect((await listarModelos(T.ctx, app.db)).find((x) => x.id === id)).toMatchObject({ sugestaoIa: false, aprovadoEm: '2026-10-10T13:00:00.000Z' });
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: planId } = await criarDeModelo(T.ctx, id, p.id, { db: app.db });
+    const [plano] = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, planId)), app.db);
+    expect(plano).toMatchObject({ iaGeracaoId: null, aprovadoEm: null }); // a origem fica só no modelo (US-123 (f))
+    await aprovarModeloPlano(T.ctx, id, { db: app.db }); // aprovar de novo: nada muda, sem erro (idempotente)
+    const [depois] = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, id)), app.db);
+    expect(depois).toMatchObject({ aprovadoPor: T.nutriId, aprovadoEm: new Date('2026-10-10T13:00:00Z') });
+  });
+
+  it('salvarComoModelo: sugestão não aprovada recusada (RN-125); a cópia não leva origem nem aprovação; modelo feito à mão segue usável', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await criarModelo(T.ctx, 'Meu modelo', { db: app.db });
+    expect((await listarModelosUsaveis(T.ctx, app.db)).map((m) => m.id)).toContain(id);
+    expect((await listarModelos(T.ctx, app.db)).find((m) => m.id === id)).toMatchObject({ sugestaoIa: false, aprovadoEm: null });
+    const sugerido = await modeloSugerido(T);
+    await expect(salvarComoModelo(T.ctx, sugerido, 'Cópia', { db: app.db })).rejects.toEqual(new PlanoError({ geral: MSG_MODELO_IA.aprove })); // RN-125
+    await aprovarModeloPlano(T.ctx, sugerido, { db: app.db });
+    const { id: copia } = await salvarComoModelo(T.ctx, sugerido, 'Cópia do sugerido', { db: app.db });
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, copia)), app.db);
+    expect(c).toMatchObject({ iaGeracaoId: null, aprovadoEm: null, aprovadoPor: null });
+  });
+
+  it('aprovar: só modelo de origem IA do próprio consultório; id inválido, plano de paciente, modelo à mão ou de outro tenant → não encontrado', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const sugerido = await modeloSugerido(A);
+    const { id: aMao } = await criarModelo(A.ctx, 'À mão', { db: app.db });
+    const ana = await novoPaciente(app.db, A.ctx);
+    const { id: planoAna } = await criarRascunho(A.ctx, ana.id, deps);
+    for (const id of ['nao-e-uuid', aMao, planoAna]) await expect(aprovarModeloPlano(A.ctx, id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
+    await expect(aprovarModeloPlano(B.ctx, sugerido, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
+    await expect(aprovarModeloPlano({ tenantId: A.tenantId, role: 'nutri' }, sugerido, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError); // sem usuária na sessão
+    expect((await listarModelos(A.ctx, app.db)).find((m) => m.id === sugerido)).toMatchObject({ sugestaoIa: true, aprovadoEm: null });
+  });
+
+  it('carregarPlano: origemIa com a marca, a data da aprovação e os itens descartados do pacote; modelo à mão sem origem', async () => {
+    const T = await novoTenant(app.db);
+    const id = await modeloSugerido(T);
+    expect((await carregarPlano(T.ctx, id, app.db))!.origemIa).toEqual({ sugestao: true, aprovadoEm: null, descartados: 3 });
+    await aprovarModeloPlano(T.ctx, id, { db: app.db, agora: new Date('2026-10-10T13:00:00Z') });
+    expect((await carregarPlano(T.ctx, id, app.db))!.origemIa).toEqual({ sugestao: false, aprovadoEm: '2026-10-10T13:00:00.000Z', descartados: 3 });
+    const { id: aMao } = await criarModelo(T.ctx, 'À mão', deps);
+    expect((await carregarPlano(T.ctx, aMao, app.db))!.origemIa).toBeNull();
+  });
+
+  it('os textos repetidos no módulo do plano são os mesmos de MSG_MODELOS_IA', async () => {
+    const { MSG_MODELOS_IA } = await import('@/modules/ia/constantes');
+    expect([MSG_MODELO_IA.aprove, MSG_MODELO_IA.marca, MSG_MODELO_IA.faixa, MSG_MODELO_IA.aprovar, MSG_MODELO_IA.confirmarAprovar]).toEqual([
+      MSG_MODELOS_IA.aprove, MSG_MODELOS_IA.marca, MSG_MODELOS_IA.faixa, MSG_MODELOS_IA.aprovar, MSG_MODELOS_IA.confirmarAprovar,
+    ]);
+    expect(MSG_MODELO_IA.aprovadoEm('10/10/2026')).toBe(MSG_MODELOS_IA.aprovadoEm('10/10/2026'));
+    expect(MSG_MODELO_IA.descartados(3)).toBe(MSG_MODELOS_IA.descartados(3));
   });
 });

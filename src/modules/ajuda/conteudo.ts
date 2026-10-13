@@ -216,15 +216,21 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'modelos',
-    versao: 1,
+    versao: 2, // Plano 14B: modelos sugeridos pela IA (a marca e a aprovação; quem já viu o tour, vê de novo)
     padrao: /^\/painel\/(planos\/modelos|anamnese\/modelos)(\/.*)?$/,
     titulo: 'Modelos',
-    ajuda: { resumo: 'Modelos de plano alimentar e de anamnese para começar mais rápido. Usar um modelo copia o conteúdo; mudar o modelo depois não muda o que já foi criado.', secoes: [] },
-    passos: [{ titulo: 'Modelos', texto: 'Crie um modelo aqui ou salve um plano pronto como modelo pelo editor do plano.' }],
+    ajuda: {
+      resumo: 'Modelos de plano alimentar e de anamnese para começar mais rápido. Usar um modelo copia o conteúdo; mudar o modelo depois não muda o que já foi criado.',
+      secoes: [{ titulo: 'Modelos sugeridos pela IA', itens: ['Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".'] }],
+    },
+    passos: [
+      { titulo: 'Modelos', texto: 'Crie um modelo aqui ou salve um plano pronto como modelo pelo editor do plano.' },
+      { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".' },
+    ],
   },
   {
     id: 'configuracoes',
-    versao: 5, // Plano 14A: a autorização do paciente no lugar do aviso de IA
+    versao: 6, // Plano 14B: os modelos sugeridos pela IA (item e passo novos)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
@@ -246,6 +252,7 @@ export const GUIAS: readonly Guia[] = [
             'A IA só sugere: você confere cada valor antes de salvar. Nada entra no prontuário sem você marcar e salvar.',
             'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
+            'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
           ],
         },
       ],
@@ -254,6 +261,8 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
+      // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
+      { alvo: 'modelos-ia', titulo: 'Modelos sugeridos pela IA', texto: 'Com a IA ativa, escolha a área e clique em "Gerar modelos": a IA prepara 2 modelos de plano e 1 de anamnese, sem nenhum dado de paciente. Revise e aprove cada um antes de usar com pacientes.' },
     ],
   },
   {

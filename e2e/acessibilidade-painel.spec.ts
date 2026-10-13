@@ -71,6 +71,55 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   expect(await violacoes(nutri)).toEqual([]);
 });
 
+/**
+ * Plano 14B-1 (US-123): o id de um modelo de plano sugerido pela IA ainda sem aprovação. O banco do E2E é reaproveitado
+ * (o ia-modelos.spec deixa o "Plano sugerido 2" sem aprovar); no banco novo (CI), pede um pacote (sandbox: nenhuma
+ * chamada à API real). Um pacote por consultório (RN-103): se outro estiver em preparo, espera a lista ganhar o modelo.
+ */
+async function modeloSugeridoSemAprovacao(page: Page): Promise<string> {
+  const achar = async (): Promise<string | null> => {
+    await page.goto('/painel/planos/modelos');
+    const item = page.getByRole('listitem').filter({ has: page.getByText('Sugestão da IA — revise', { exact: true }) }).first();
+    if (!(await item.count())) return null;
+    return (await item.getByRole('link').getAttribute('href'))?.split('/').pop() ?? null;
+  };
+  const id = await achar();
+  if (id) return id;
+  await page.goto('/painel/configuracoes');
+  const area = page.getByLabel('Área');
+  if (await area.isVisible()) {
+    await area.selectOption('idosos');
+    await page.getByRole('button', { name: 'Gerar modelos' }).click();
+  }
+  let achado: string | null = null;
+  await expect.poll(async () => (achado = await achar()), { timeout: 120_000, intervals: [3_000] }).not.toBeNull();
+  return achado!;
+}
+
+test('Plano 14B-1: Configurações com os modelos sugeridos pela IA, a marca na lista e um modelo sugerido (faixa e "Aprovar modelo"), nos três modos', async () => {
+  test.setTimeout(240_000);
+  const id = await modeloSugeridoSemAprovacao(nutri);
+  const falhas: string[] = [];
+  for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+    await escolherTema(nutri, tema);
+    await nutri.emulateMedia({ colorScheme: aparelho });
+    await nutri.goto('/painel/configuracoes');
+    await expect(nutri.getByRole('heading', { name: 'Modelos sugeridos pela IA' })).toBeVisible();
+    await nutri.waitForLoadState('networkidle');
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/configuracoes — ${v}`);
+    await nutri.goto('/painel/planos/modelos');
+    await expect(nutri.getByText('Sugestão da IA — revise', { exact: true }).first()).toBeVisible();
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/planos/modelos — ${v}`);
+    await nutri.goto(`/painel/planos/modelos/${id}`);
+    await expect(nutri.getByText('Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu.')).toBeVisible();
+    await expect(nutri.getByRole('button', { name: 'Aprovar modelo' })).toBeVisible();
+    await nutri.waitForLoadState('networkidle');
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/planos/modelos/[id] — ${v}`);
+  }
+  await nutri.emulateMedia({ colorScheme: 'light' });
+  expect(falhas).toEqual([]);
+});
+
 test('768 px: nenhuma tela do painel rola na horizontal', async () => {
   await nutri.setViewportSize({ width: 768, height: 1000 });
   try {

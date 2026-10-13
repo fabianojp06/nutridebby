@@ -84,6 +84,12 @@ const whatsappSandbox = opcional(z.enum(['0', '1'], { message: 'WHATSAPP_SANDBOX
 const iaProvedor = opcional(z.enum(PROVEDORES_IA, { message: 'IA_PROVEDOR deve ser anthropic, bedrock-eu, sandbox ou fake' }).optional());
 const iaDesligada = opcional(z.enum(['0', '1'], { message: 'IA_DESLIGADA deve ser 0 ou 1' }).optional());
 const iaModelo = opcional(z.enum(MODELOS_IA, { message: `IA_MODELO_LEITURA deve ser um destes: ${MODELOS_IA.join(', ')}` }).default('claude-opus-5-5'));
+/** Plano 14B (A-D3, §12): o modelo do resumo, do rascunho e dos modelos sugeridos. */
+const iaModeloAssistente = opcional(z.enum(MODELOS_IA, { message: `IA_MODELO_ASSISTENTE deve ser um destes: ${MODELOS_IA.join(', ')}` }).default('claude-sonnet-5-5'));
+/** Plano 14B (RN-121, D5): o teto por tarefa de rascunho; o laço para em `limite_custo` antes de passar dele. */
+const iaTetoRascunho = opcional(
+  z.coerce.number({ message: 'IA_TETO_RASCUNHO_USD deve ser um número' }).min(0.05, { message: 'IA_TETO_RASCUNHO_USD deve ser de 0,05 a 5' }).max(5, { message: 'IA_TETO_RASCUNHO_USD deve ser de 0,05 a 5' }).default(1),
+);
 const iaGeo = opcional(z.enum(GEOS_IA, { message: 'IA_INFERENCE_GEO deve ser us ou global' }).default('us'));
 const iaTeto = opcional(
   z.coerce.number({ message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser um número' }).min(0, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).max(10_000, { message: 'IA_TETO_GLOBAL_MENSAL_USD deve ser de 0 a 10000' }).default(50),
@@ -100,7 +106,7 @@ const iaBedrockRegiao = opcional(z.enum(REGIOES_BEDROCK_EU, { message: `IA_BEDRO
 /** Plano 14A (RNF-103, D2): variáveis que o SDK do provedor leria sozinho, mudando a chamada sem passar pelo código. */
 const proibidaNoWorker = (nome: string) => opcional(z.undefined({ message: `${nome} não pode ser definida no worker: o SDK do provedor de IA a leria sozinho (RNF-103)` }));
 /** A conferência da IA, igual no app e no worker. A mensagem nunca repete valor. */
-function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string; IA_MODELO_LEITURA: string; IA_BEDROCK_REGIAO?: string; IA_RETENCAO_ACEITA_30_DIAS?: string }, ctx: z.RefinementCtx): void {
+function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string; IA_INFERENCE_GEO: string; IA_MODELO_LEITURA: string; IA_MODELO_ASSISTENTE: string; IA_BEDROCK_REGIAO?: string; IA_RETENCAO_ACEITA_30_DIAS?: string }, ctx: z.RefinementCtx): void {
   if (e.IA_PROVEDOR === 'bedrock-eu') {
     // A-D27: a retenção de 30 dias é a da Anthropic direta; o Bedrock continua exigindo a zero (IA_RETENCAO_ZERO=1)
     if (e.IA_RETENCAO_ACEITA_30_DIAS === '1') {
@@ -109,6 +115,9 @@ function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string
     if (!e.IA_BEDROCK_REGIAO) ctx.addIssue({ code: 'custom', path: ['IA_BEDROCK_REGIAO'], message: 'IA_BEDROCK_REGIAO é obrigatória com IA_PROVEDOR=bedrock-eu' });
     if (!(MODELOS_BEDROCK_EU as readonly string[]).includes(e.IA_MODELO_LEITURA)) {
       ctx.addIssue({ code: 'custom', path: ['IA_MODELO_LEITURA'], message: `Com IA_PROVEDOR=bedrock-eu, IA_MODELO_LEITURA deve ser um destes: ${MODELOS_BEDROCK_EU.join(', ')}` });
+    }
+    if (!(MODELOS_BEDROCK_EU as readonly string[]).includes(e.IA_MODELO_ASSISTENTE)) {
+      ctx.addIssue({ code: 'custom', path: ['IA_MODELO_ASSISTENTE'], message: `Com IA_PROVEDOR=bedrock-eu, IA_MODELO_ASSISTENTE deve ser um destes: ${MODELOS_BEDROCK_EU.join(', ')}` });
     }
   }
   if (!emProducao(e)) return;
@@ -181,7 +190,7 @@ const appSchema = serverSchema
     VAPID_PUBLIC_KEY: opcional(z.string().regex(VAPID_PUBLICA, { message: 'VAPID_PUBLIC_KEY deve ser a chave pública em base64url (87 caracteres)' }).optional()),
     // P08-05 (D7): vazio = CSP valendo; "relatorio" = só Report-Only (emergência). O proxy lê process.env direto.
     CSP_MODO: opcional(z.enum(['valendo', 'relatorio'], { message: 'CSP_MODO deve ser valendo ou relatorio' }).optional()),
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_MODELO_ASSISTENTE: iaModeloAssistente, IA_TETO_RASCUNHO_USD: iaTetoRascunho, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // P12-14: só teste — encurta os prazos da sessão da equipe (inatividade em ms) para quem traz o cookie nd_sessao_teste
     // (E2E do aviso de inatividade). Recusada em produção (abaixo), como o IA_PROVEDOR sandbox/fake.
     SESSAO_TESTE_MS: opcional(
@@ -280,7 +289,7 @@ const workerSchema = serverSchema
     EVOLUTION_API_URL: evolutionUrl,
     EVOLUTION_API_KEY: evolutionKey,
     WHATSAPP_SANDBOX: whatsappSandbox,
-    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
+    IA_PROVEDOR: iaProvedor, IA_DESLIGADA: iaDesligada, IA_MODELO_LEITURA: iaModelo, IA_MODELO_ASSISTENTE: iaModeloAssistente, IA_TETO_RASCUNHO_USD: iaTetoRascunho, IA_INFERENCE_GEO: iaGeo, IA_TETO_GLOBAL_MENSAL_USD: iaTeto, IA_RETENCAO_ZERO: iaRetencaoZero, IA_RETENCAO_ACEITA_30_DIAS: iaRetencao30Dias, IA_BEDROCK_REGIAO: iaBedrockRegiao,
     // Plano 11 (RNF-103): a chave do provedor só existe no worker; o app nunca a declara (o schema dele a descarta)
     ANTHROPIC_API_KEY: opcional(z.string().regex(/^sk-ant-[A-Za-z0-9_-]{20,}$/, { message: 'ANTHROPIC_API_KEY em formato inválido (confira se foi colada inteira)' }).optional()),
     // Plano 14A (INT-08, RNF-103): as chaves da AWS só existem no worker (o app nunca as declara); só a chave de longo prazo

@@ -17,6 +17,25 @@ export type StatusTarefa = (typeof STATUS_TAREFA)[number];
 export const EM_ANDAMENTO: readonly StatusTarefa[] = ['na_fila', 'processando'];
 
 /**
+ * Plano 14B (US-123 (a), A-D22): as áreas dos modelos sugeridos — lista a validar com a Debby; "Infantil" ficou de fora
+ * (RN-17, R-119). O código guarda a chave; a tela mostra o rótulo.
+ */
+export const AREAS_MODELOS_IA = ['emagrecimento', 'esportiva', 'gestacao', 'diabetes', 'hipertensao', 'vegetariana', 'idosos'] as const;
+export type AreaModelosIA = (typeof AREAS_MODELOS_IA)[number];
+export const AREA_ROTULO: Record<AreaModelosIA, string> = {
+  emagrecimento: 'Emagrecimento',
+  esportiva: 'Nutrição esportiva',
+  gestacao: 'Gestação',
+  diabetes: 'Diabetes',
+  hipertensao: 'Hipertensão',
+  vegetariana: 'Vegetariana e vegana',
+  idosos: 'Pessoas idosas',
+};
+/** RN-124: a situação de uma geração de modelos (sem `aplicada`: os modelos já nascem gravados). */
+export const STATUS_GERACAO = ['na_fila', 'processando', 'pronta', 'falhou', 'cancelada'] as const;
+export type StatusGeracao = (typeof STATUS_GERACAO)[number];
+
+/**
  * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): a
  * versão 0.1 do texto autoriza só `leitura_laudos` (AUTORIZACAO_IA_USOS, em textos-legais.ts); resumo e rascunho entram
  * com a 14B, numa versão nova do texto que pede autorização nova (RN-109).
@@ -63,6 +82,8 @@ export const MOTIVOS_FALHA = [
   'provedor_indisponivel', 'resultado_incerto', 'recusa', 'resposta_invalida', 'documento_nao_reconhecido', 'nada_encontrado',
   'interrompida', 'cota', 'teto_plataforma', 'ia_desligada', 'credencial_invalida', 'paciente_indisponivel',
   'paciente_nao_informado', 'arquivo_invalido', 'laudo_longo', 'pdf_com_senha', 'exame_indisponivel', 'sem_autorizacao',
+  // Plano 14B (RN-121, RN-124, D5): o laço de ferramentas parou antes de passar do limite de voltas, do prazo ou do teto
+  'limite_voltas', 'limite_custo',
 ] as const;
 export type MotivoFalha = (typeof MOTIVOS_FALHA)[number];
 
@@ -149,6 +170,9 @@ export const MSG_FALHA: Record<MotivoFalha, string> = {
   paciente_indisponivel: 'Este paciente não pode usar a IA agora (bloqueado, arquivado ou anonimizado).',
   sem_autorizacao: 'A autorização do paciente para o uso de IA não está em vigor.',
   exame_indisponivel: 'Este exame não está mais disponível.',
+  // Plano 14B (US-122): o mesmo texto para o limite de voltas (ou o prazo) e o teto de custo do laço
+  limite_voltas: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
+  limite_custo: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
 };
 
 /** Plano 14A (US-105 a US-109): textos da autorização no painel, no app e no link (texto exato da spec v0.5.1). */
@@ -251,4 +275,35 @@ export const MSG_AUTORIZACAO = {
   retirada: 'Autorização retirada.',
   voceRetirou: (data: string) => `Você retirou a autorização em ${data}.`,
   naoVigente: 'Esta autorização já não está em vigor.',
+} as const;
+
+/** Plano 14B: para que serve cada chamada de `gerar` (o sandbox e o log usam; nada de conteúdo). */
+export const FINALIDADES_IA = ['resumo', 'rascunho', 'modelos'] as const;
+export type FinalidadeIA = (typeof FINALIDADES_IA)[number];
+/** RN-121 / RN-124 / D5–D6: voltas do laço de ferramentas (rascunho; pacote = 12 por modelo de plano × 2) e prazo total. */
+export const MAX_VOLTAS_RASCUNHO = 12;
+export const MAX_VOLTAS_MODELOS = 24;
+export const PRAZO_LACO_MS = 12 * 60_000;
+/** US-123 (b): teto de US$ 1,00 por pacote de área. */
+export const TETO_PACOTE_MODELOS_USD = 1;
+
+/** Plano 14B (US-123): textos dos modelos sugeridos, com o texto exato da spec (os marcados "novo" vão à Debby, desvio 13). */
+export const MSG_MODELOS_IA = {
+  titulo: 'Modelos sugeridos pela IA',
+  explicacao: 'Para cada área, a IA sugere 2 modelos de plano alimentar e 1 modelo de anamnese, com os alimentos da sua tabela. Nenhum dado de paciente é enviado. Cada área usa parte do limite de IA do mês.',
+  area: 'Área',
+  geradoEm: (data: string) => `Gerado em ${data}`,
+  gerar: 'Gerar modelos',
+  gerando: (area: string) => `Gerando os modelos de ${area}… isso leva alguns minutos.`,
+  umPorVez: 'Já há um pacote de modelos em preparo. Aguarde terminar.',
+  falha: 'Não foi possível gerar os modelos agora. Tente de novo em alguns minutos.',
+  /** novo (desvio 13): área fora da lista (formulário adulterado). */
+  areaInvalida: 'Escolha uma das áreas da lista.',
+  marca: 'Sugestão da IA — revise',
+  faixa: 'Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu.',
+  aprovar: 'Aprovar modelo',
+  confirmarAprovar: 'Aprovar este modelo? Ele poderá ser usado com pacientes.',
+  aprovadoEm: (data: string) => `Aprovado em ${data}`,
+  aprove: 'Aprove o modelo antes de usá-lo com pacientes.',
+  descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
 } as const;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { PedidoLeitura } from './provedor';
+import type { PedidoGeracao, PedidoLeitura } from './provedor';
 import { classificarErroBedrock, LIMITE_PEDIDO_BEDROCK_BYTES, PERFIL_BEDROCK_EU, provedorBedrock } from './provedor-bedrock';
 
 // Nenhuma chamada sai da máquina: todo teste passa um fetch falso. As chaves são de mentira (só o formato).
@@ -113,5 +113,67 @@ describe('provedor Bedrock na UE (INT-08, D1, D2) — só contra fetch falso', (
 
   it('classificarErroBedrock: erro desconhecido → incerto (nunca repete o que pode ter sido processado)', () => {
     expect(classificarErroBedrock(new Error('qualquer'))).toMatchObject({ tipo: 'incerto', status: null });
+  });
+});
+
+const pedidoGeracao: PedidoGeracao = {
+  finalidade: 'rascunho', modelo: 'claude-sonnet-5-5', geo: 'eu', sistema: 'SISTEMA',
+  turnos: [{ papel: 'usuario', blocos: [{ tipo: 'texto', texto: 'METAS' }] }],
+  ferramentas: [{ nome: 'buscar_alimentos', descricao: 'Busca', schema: { type: 'object', additionalProperties: false, required: ['termo'], properties: { termo: { type: 'string' } } } }],
+  schema: { type: 'object', additionalProperties: false, properties: {}, required: [] }, maxTokens: 16_000, esforco: 'medium',
+};
+const comFerramenta = () =>
+  json(200, {
+    id: 'msg_2', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
+    content: [{ type: 'thinking', thinking: '', signature: 'assinatura-opaca' }, { type: 'tool_use', id: 'toolu_1', name: 'buscar_alimentos', input: { termo: 'arroz' } }],
+    stop_reason: 'tool_use', stop_details: null, stop_sequence: null,
+    usage: { input_tokens: 2_000, output_tokens: 300, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+  });
+
+describe('gerar no Bedrock (Plano 14B, D1): ferramentas strict com auto, sem inference_geo, histórico reenviado sem mudança', () => {
+  it('InvokeModel do perfil eu.: tools com strict: true, tool_choice auto, output_config; sem model no corpo, inference_geo, thinking nem stream', async () => {
+    const { f, chamadas } = fetchFalso([comFerramenta]);
+    const r = await novo(f).gerar(pedidoGeracao);
+    const { url, corpo } = chamadas[0];
+    expect(url).toBe('https://bedrock-runtime.eu-central-1.amazonaws.com/model/eu.anthropic.claude-sonnet-5-5/invoke');
+    expect(corpo.tools).toEqual([{ name: 'buscar_alimentos', description: 'Busca', input_schema: pedidoGeracao.ferramentas[0].schema, strict: true }]);
+    expect(corpo.tool_choice).toEqual({ type: 'auto' });
+    expect(corpo.output_config).toEqual({ effort: 'medium', format: { type: 'json_schema', schema: pedidoGeracao.schema } });
+    for (const proibido of ['model', 'inference_geo', 'thinking', 'stream', 'fallbacks', 'speed', 'anthropic_beta']) expect(corpo, proibido).not.toHaveProperty(proibido);
+    expect(r).toMatchObject({ tipo: 'ferramentas', chamadas: [{ id: 'toolu_1', nome: 'buscar_alimentos', entrada: { termo: 'arroz' } }], requestId: 'aws-req-1', uso: { geo: 'eu' } });
+  });
+
+  it('reenvia o bruto do assistente sem mudança e os resultados como tool_result; sem ferramentas, nem tools nem tool_choice', async () => {
+    const { f, chamadas } = fetchFalso([comFerramenta, () => mensagem('{"ok":true}'), () => mensagem('{}')]);
+    const p = novo(f);
+    const r1 = await p.gerar(pedidoGeracao);
+    const r2 = await p.gerar({
+      ...pedidoGeracao,
+      turnos: [...pedidoGeracao.turnos, { papel: 'assistente', bruto: r1.bruto }, { papel: 'usuario', blocos: [{ tipo: 'resultado', chamadaId: 'toolu_1', conteudo: '[]' }] }],
+    });
+    const msgs = chamadas[1].corpo.messages as { role: string; content: unknown[] }[];
+    expect(msgs[1]).toEqual({ role: 'assistant', content: r1.bruto });
+    expect(msgs[2]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '[]' }] });
+    expect(r2).toMatchObject({ tipo: 'final', texto: '{"ok":true}' });
+    await p.gerar({ ...pedidoGeracao, finalidade: 'resumo', ferramentas: [] });
+    expect(chamadas[2].corpo).not.toHaveProperty('tools');
+    expect(chamadas[2].corpo).not.toHaveProperty('tool_choice');
+  });
+
+  it('recusa, saída cortada e erro do provedor (RN-105, sem o texto do provedor)', async () => {
+    const { f } = fetchFalso([() => mensagem('', 'refusal'), () => mensagem('{', 'max_tokens'), () => json(503, { message: 'mensagem da AWS que pode ecoar o pedido' })]);
+    const p = novo(f);
+    expect(await p.gerar(pedidoGeracao)).toMatchObject({ tipo: 'recusa' });
+    expect(await p.gerar(pedidoGeracao)).toMatchObject({ tipo: 'cortada' });
+    const erro = await p.gerar(pedidoGeracao).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ name: 'ErroProvedor', tipo: 'repetir', status: 503 });
+    expect(String((erro as Error).message)).not.toContain('ecoar');
+  });
+
+  it('D3: modelo fora do perfil eu. ou região que não é eu → ErroProvedor(pedido_invalido), sem chamada', async () => {
+    const { f, chamadas } = fetchFalso([]);
+    await expect(novo(f).gerar({ ...pedidoGeracao, modelo: 'claude-opus-5-5' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
+    await expect(novo(f).gerar({ ...pedidoGeracao, geo: 'us' })).rejects.toMatchObject({ tipo: 'pedido_invalido' });
+    expect(chamadas).toHaveLength(0);
   });
 });

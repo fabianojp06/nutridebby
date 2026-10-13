@@ -1,7 +1,8 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { avaliar } from '@/modules/ia/avaliacao/avaliar';
-import { MODELOS_BEDROCK_EU, MODELOS_IA, REGIOES_BEDROCK_EU, type ModeloIA, type RegiaoBedrock } from '@/modules/ia/constantes';
+import { avaliarAssistente, type RelatorioAssistente } from '@/modules/ia/avaliacao/avaliar-assistente';
+import { MODELOS_BEDROCK_EU, MODELOS_IA, REGIOES_BEDROCK_EU, usdParaMicro, type ModeloIA, type RegiaoBedrock } from '@/modules/ia/constantes';
 import type { ProvedorIA } from '@/modules/ia/provedor';
 import { provedorAnthropic } from '@/modules/ia/provedor-anthropic';
 import { provedorBedrock } from '@/modules/ia/provedor-bedrock';
@@ -11,6 +12,8 @@ import { provedorBedrock } from '@/modules/ia/provedor-bedrock';
  * a chave do workspace de DEV (A-D16) em ANTHROPIC_API_KEY; recusa produção, pasta dentro do repositório e teto acima de
  * US$ 10. Só laudos fictícios (pnpm ia:laudos). Nunca roda no CI (não está em pnpm test). Plano 14A (RN-127, INT-08):
  * IA_AVALIACAO_PROVEDOR=bedrock-eu avalia o perfil eu. do Bedrock, com as chaves de um usuário IAM de DEV.
+ * Plano 14B-1 (RN-127): IA_AVALIACAO_TAREFA=laudos (o padrão, a leitura acima) ou modelos (os 7 pacotes de área do
+ * assistente, sem dado de paciente: a busca de alimentos é a TACO em memória) — as mesmas travas e o mesmo teto somado.
  */
 const falhar = (msg: string): never => {
   console.error(msg);
@@ -23,6 +26,8 @@ const raiz = path.resolve('.');
 if (dir === raiz || dir.startsWith(raiz + path.sep)) falhar('IA_AVALIACAO_DIR precisa ficar fora do repositório.');
 const tetoUsd = Number(process.env.IA_AVALIACAO_TETO_USD ?? '10');
 if (!Number.isFinite(tetoUsd) || tetoUsd <= 0 || tetoUsd > 10) falhar('IA_AVALIACAO_TETO_USD deve ser maior que 0 e no máximo 10 (A-D2).');
+const tarefa = process.env.IA_AVALIACAO_TAREFA ?? 'laudos';
+if (tarefa !== 'laudos' && tarefa !== 'modelos') falhar('IA_AVALIACAO_TAREFA: laudos ou modelos (resumo e rascunho chegam com o Plano 14B-2).');
 const esforco = process.env.IA_AVALIACAO_ESFORCO === 'medium' ? 'medium' : 'low';
 const qual = process.env.IA_AVALIACAO_PROVEDOR ?? 'anthropic';
 if (qual !== 'anthropic' && qual !== 'bedrock-eu') falhar('IA_AVALIACAO_PROVEDOR: anthropic ou bedrock-eu.');
@@ -51,21 +56,56 @@ if (qual === 'bedrock-eu') {
 const modelos = (process.env.IA_AVALIACAO_MODELOS ?? permitidos.join(',')).split(',').map((m) => m.trim()) as ModeloIA[];
 if (!modelos.length || modelos.some((m) => !permitidos.includes(m))) falhar(`IA_AVALIACAO_MODELOS: só ${permitidos.join(', ')}.`);
 
-const r = await avaliar({ dir, modelos, tetoMicroUsd: Math.round(tetoUsd * 1_000_000), esforco, geo, provedor });
-const arquivo = path.join(dir, `relatorio-${r.geradoEm.replace(/[:.]/g, '-')}.json`);
-await writeFile(arquivo, JSON.stringify(r, null, 2));
 const usd = (micro: number) => `US$ ${(micro / 1_000_000).toFixed(4)}`;
-console.table(
-  r.porModelo.map((m) => ({
-    modelo: m.modelo, laudos: m.laudos, precisao: `${(m.precisao * 100).toFixed(1)}%`, inventados: m.inventados, documentosErrados: m.documentosErrados,
-    injecaoVazou: m.injecaoVazou, rn123: m.violacoesRn123, recusas: JSON.stringify(m.recusas), invalidas: m.invalidas, erros: JSON.stringify(m.errosDoProvedor),
-    custoMedio: usd(m.custoMedioMicroUsd), custoMaximo: usd(m.custoMaximoMicroUsd), acimaDoTeto: m.acimaDoTetoDasPaginas, custoSobreTeto: m.maiorRazaoCustoTeto,
-    entradaPorPagina: m.maiorEntradaPorPaginaPdf, entradaImagem: m.maiorEntradaPorImagem, entradaAcima: m.entradaAcimaDaEstimativa, entradaSobreEstimativa: m.maiorRazaoEntradaEstimativa,
-    reservaPdf: usd(m.reservaPdfMicroUsd), reservaImagem: usd(m.reservaImagemMicroUsd), tempoMedio: `${m.tempoMedioMs} ms`, tempoMaximo: `${m.tempoMaximoMs} ms`,
-  })),
-);
-console.info(
-  `Estimativa sem count_tokens (D2): ${r.estimativa.tokensPorPagina} tokens/página de PDF, ${r.estimativa.tokensPorImagem} por imagem, ${r.estimativa.tokensInstrucoes} de instruções. ` +
-    'acimaDoTeto/custoSobreTeto > 1 ou entradaAcima > 0: a estimativa não segurou — rever TOKENS_POR_PAGINA_TETO antes de liberar.',
-);
-console.info(`Gasto real: ${usd(r.gastoRealMicroUsd)} (máximo reservado ${usd(r.gastoMaximoMicroUsd)} de ${usd(r.tetoMicroUsd)})${r.parouPeloTeto ? ' — PAROU PELO TETO' : ''}. Relatório: ${arquivo}`);
+if (tarefa === 'modelos') await avaliarModelos();
+else await avaliarLaudos();
+
+/**
+ * Plano 14B-1: os 7 pacotes de área para cada modelo pedido, com o que sobrar do teto (o teto somado vale para a avaliação
+ * inteira). O esforço é o de produção (ESFORCO_MODELOS); IA_AVALIACAO_ESFORCO é só da leitura.
+ */
+async function avaliarModelos() {
+  await mkdir(dir, { recursive: true });
+  const relatorios: RelatorioAssistente[] = [];
+  let gasto = 0;
+  for (const modelo of modelos) {
+    const r = await avaliarAssistente({ tarefas: ['modelos'], modelo, geo, provedor, tetoMicroUsd: usdParaMicro(tetoUsd) - gasto, tetoRascunhoMicroUsd: usdParaMicro(1) });
+    relatorios.push(r);
+    gasto += r.gastoRealMicroUsd;
+    if (r.parouPeloTeto) break;
+  }
+  const arquivo = path.join(dir, `relatorio-modelos-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  await writeFile(arquivo, JSON.stringify(relatorios, null, 2));
+  console.table(
+    relatorios.map(({ modelo, modelos: m }) => ({
+      modelo, pacotes: m?.pacotes, validos: m?.pacotesValidos, planos: m?.planosValidos, anamneses: m?.anamnesesValidas,
+      descartados: `${m?.itensDescartados}/${m?.itens} (${((m?.descartadosPct ?? 0) * 100).toFixed(1)}%)`, rn123: m?.termosProibidos,
+      paradas: JSON.stringify(m?.paradas), recusas: JSON.stringify(m?.recusas), erros: JSON.stringify(m?.errosDoProvedor),
+      voltas: `${m?.voltasMedia} (máx. ${m?.voltasMaximo})`, custoMedio: usd(m?.custoMedioMicroUsd ?? 0), custoMaximo: usd(m?.custoMaximoMicroUsd ?? 0),
+      tetoPacote: usd(m?.tetoPorPacoteMicroUsd ?? 0), acimaDoTeto: m?.acimaDoTeto, tempoMedio: `${m?.tempoMedioMs} ms`, tempoMaximo: `${m?.tempoMaximoMs} ms`,
+    })),
+  );
+  console.info('Critério do runbook (14B-1): 7 de 7 pacotes válidos, descartados ≤ 10%, rn123 = 0 (nenhum suplemento ou medicamento) e custo máximo ≤ US$ 1,00 por pacote.');
+  const parou = relatorios.some((r) => r.parouPeloTeto);
+  console.info(`Gasto real: ${usd(gasto)} de ${usd(usdParaMicro(tetoUsd))}${parou ? ' — PAROU PELO TETO' : ''}. Relatório (só métricas): ${arquivo}`);
+}
+
+async function avaliarLaudos() {
+  const r = await avaliar({ dir, modelos, tetoMicroUsd: Math.round(tetoUsd * 1_000_000), esforco, geo, provedor });
+  const arquivo = path.join(dir, `relatorio-${r.geradoEm.replace(/[:.]/g, '-')}.json`);
+  await writeFile(arquivo, JSON.stringify(r, null, 2));
+  console.table(
+    r.porModelo.map((m) => ({
+      modelo: m.modelo, laudos: m.laudos, precisao: `${(m.precisao * 100).toFixed(1)}%`, inventados: m.inventados, documentosErrados: m.documentosErrados,
+      injecaoVazou: m.injecaoVazou, rn123: m.violacoesRn123, recusas: JSON.stringify(m.recusas), invalidas: m.invalidas, erros: JSON.stringify(m.errosDoProvedor),
+      custoMedio: usd(m.custoMedioMicroUsd), custoMaximo: usd(m.custoMaximoMicroUsd), acimaDoTeto: m.acimaDoTetoDasPaginas, custoSobreTeto: m.maiorRazaoCustoTeto,
+      entradaPorPagina: m.maiorEntradaPorPaginaPdf, entradaImagem: m.maiorEntradaPorImagem, entradaAcima: m.entradaAcimaDaEstimativa, entradaSobreEstimativa: m.maiorRazaoEntradaEstimativa,
+      reservaPdf: usd(m.reservaPdfMicroUsd), reservaImagem: usd(m.reservaImagemMicroUsd), tempoMedio: `${m.tempoMedioMs} ms`, tempoMaximo: `${m.tempoMaximoMs} ms`,
+    })),
+  );
+  console.info(
+    `Estimativa sem count_tokens (D2): ${r.estimativa.tokensPorPagina} tokens/página de PDF, ${r.estimativa.tokensPorImagem} por imagem, ${r.estimativa.tokensInstrucoes} de instruções. ` +
+      'acimaDoTeto/custoSobreTeto > 1 ou entradaAcima > 0: a estimativa não segurou — rever TOKENS_POR_PAGINA_TETO antes de liberar.',
+  );
+  console.info(`Gasto real: ${usd(r.gastoRealMicroUsd)} (máximo reservado ${usd(r.gastoMaximoMicroUsd)} de ${usd(r.tetoMicroUsd)})${r.parouPeloTeto ? ' — PAROU PELO TETO' : ''}. Relatório: ${arquivo}`);
+}

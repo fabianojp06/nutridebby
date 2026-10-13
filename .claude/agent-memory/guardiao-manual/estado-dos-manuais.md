@@ -14,7 +14,7 @@ Spec da IA v0.4, spec do MVP v1.13. Cap. 10 = IA; caps. 01–08 citam a IA.
 controlador comita): §7.7 reescrita (jobs no `[self-hosted, nutri-ci]`, peças do isolamento, guardas
 `test/runner-proprio.test.ts`, emergência `PUBLICAR-SEM-CI` com job `confirmar`), §1.8/§1.9/§1.10 (tabela "Fora dos
 planos" na cronologia; linha do 14A agora com #29/#31), caps. 2, 6, 8 (D8 diária, lacuna 27, lacuna 12 resolvida) e
-README (glossário, divergência #96). Sem mudança para o manual do usuário nem para `conteudo.ts`. A divergência do
+README (glossário, divergência #102). Sem mudança para o manual do usuário nem para `conteudo.ts`. A divergência do
 §4.1.1 (/admin "Consultas no mês") foi corrigida no commit `2500508` desse branch.
 
 **Manual do usuário — Plano 12** (exames do paciente + sessão da equipe 30 min/8 h): proposta entregue em 08/10/2026 em
@@ -43,6 +43,11 @@ fica com quem orquestra (não confirmada).
 
 **Manual guiado** (`src/modules/ajuda/conteudo.ts`): `configuracoes` v3 (seção de ajuda da IA, sem passo para
 `ia-secao`; dois textos divergem da tela, P11-20 g → `versao` 4 quando corrigir); `prontuario` v1 com a pergunta da IA sem subir versão.
+
+**Plano 14B-1 (modelos sugeridos)** — revisão da T5F em 10/10/2026 (worktree `nutridebby-plano14b`, `ba299fa..5f47237`,
+relatório `.superpowers/sdd/2026-10-10-nutridebby-14b1-modelos/review-task-5F-c.md`): §10.12 fiel; 4 Important (cronologia
+§1.10 sem 14B-1 e 14A "em execução"; §2.7 sem `ia_geracoes_modelos`; linhas deslocadas pela 14B-1; texto do guia
+`modelos` "aparecem para os pacientes"). Roteiro do manual do usuário da 14B-1 ainda a montar (rascunho no task-5F-report).
 
 **Why:** o fechamento de cada plano parte do estado anterior; saber a base evita reconferir tudo.
 **How to apply:** no próximo fechamento, `git diff 2efa27b..<head>` e comece pelos capítulos tocados; confira se a

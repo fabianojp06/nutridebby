@@ -247,6 +247,15 @@ export const anamnesisTemplates = pgTable(
     schema: jsonb('schema').$type<ModeloSchema>().notNull(),
     padrao: boolean('padrao').notNull().default(false),
     arquivadoEm: timestamp('arquivado_em', { withTimezone: true }),
+    /**
+     * Plano 14B (US-123 (f)): o modelo sugerido pela IA — a geração de onde veio (nunca muda, gatilho 0112). A FK composta
+     * para `ia_geracoes_modelos` fica só na migration custom 0112 (`ia.ts` importa este arquivo; declará-la aqui criaria
+     * import circular — o mesmo motivo da FK de `consultations` para `appointments`, 0064).
+     */
+    iaGeracaoId: uuid('ia_geracao_id'),
+    /** Plano 14B (US-123 (g), RN-125): quem aprovou o modelo sugerido e quando (imutáveis depois de gravados). */
+    aprovadoEm: timestamp('aprovado_em', { withTimezone: true }),
+    aprovadoPor: uuid('aprovado_por'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -254,6 +263,9 @@ export const anamnesisTemplates = pgTable(
     unique('anamnesis_templates_tenant_id_unique').on(t.tenantId, t.id),
     uniqueIndex('anamnesis_templates_padrao_idx').on(t.tenantId).where(sql`${t.padrao}`),
     check('anamnesis_templates_nome_tamanho', sql`char_length(${t.nome}) between 1 and 80`),
+    check('anamnesis_templates_aprovacao_coerente', sql`(${t.aprovadoEm} is null) = (${t.aprovadoPor} is null) and (${t.aprovadoEm} is null or ${t.iaGeracaoId} is not null)`),
+    // RN-125: o modelo de anamnese sugerido e não aprovado nunca é o padrão (defesa: o código não tem "tornar padrão", desvio 9)
+    check('anamnesis_templates_padrao_aprovado', sql`not ${t.padrao} or ${t.iaGeracaoId} is null or ${t.aprovadoEm} is not null`),
   ],
 );
 

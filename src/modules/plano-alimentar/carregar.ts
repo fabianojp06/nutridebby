@@ -1,11 +1,11 @@
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { contents, foods, mealItems, mealPlans, meals } from '@/db/schema';
+import { contents, foods, iaGeracoesModelos, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
-import type { PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
+import type { OrigemIaDoModelo, PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
 
@@ -41,6 +41,13 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
   };
   const editavel = p.status === 'rascunho';
   const medidas = editavel && opts.comMedidas !== false ? await medidasDeVarios(tx, its.map((x) => x.i.foodId)) : new Map();
+  // US-123: só modelo tem origem IA (CHECK meal_plans_ia_geracao_so_modelo); a equipe lê a geração (staff_only), o
+  // paciente nunca chega a um modelo
+  let origemIa: OrigemIaDoModelo | null = null;
+  if (p.iaGeracaoId) {
+    const [g] = await tx.select({ descartados: iaGeracoesModelos.itensDescartados }).from(iaGeracoesModelos).where(eq(iaGeracoesModelos.id, p.iaGeracaoId));
+    origemIa = { sugestao: p.aprovadoEm === null, aprovadoEm: p.aprovadoEm?.toISOString() ?? null, descartados: g?.descartados ?? 0 };
+  }
   if (opts.auditar !== false && p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId });
   return {
     id: p.id,
@@ -82,6 +89,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
           };
         }),
     })),
+    origemIa,
   };
 }
 

@@ -17,15 +17,28 @@ export type RetencaoIA = 'zero' | '30-dias' | null;
  * `destino` (RN-109): o do provedor configurado, mesmo na emergência (a tela de autorização compara com ele); nulo sem
  * IA_PROVEDOR. `retencao`: ver RetencaoIA.
  */
-export type ConfigIA = { modo: ModoIA; destino: DestinoIA | null; modelo: ModeloIA; geo: RegiaoIA; tetoGlobalMicroUsd: number; retencao: RetencaoIA };
+export type ConfigIA = {
+  modo: ModoIA;
+  destino: DestinoIA | null;
+  modelo: ModeloIA;
+  /** Plano 14B (A-D3): o modelo do resumo, do rascunho e dos modelos sugeridos (IA_MODELO_ASSISTENTE). */
+  modeloAssistente: ModeloIA;
+  geo: RegiaoIA;
+  tetoGlobalMicroUsd: number;
+  /** Plano 14B (RN-121, D5): o teto por tarefa de rascunho (IA_TETO_RASCUNHO_USD), em micro-dólares. */
+  tetoRascunhoMicroUsd: number;
+  retencao: RetencaoIA;
+};
 export type AmbienteIA = {
   IA_PROVEDOR?: ProvedorConfigurado;
   IA_DESLIGADA?: '0' | '1';
   IA_RETENCAO_ZERO?: '0' | '1';
   IA_RETENCAO_ACEITA_30_DIAS?: '0' | '1';
   IA_MODELO_LEITURA: ModeloIA;
+  IA_MODELO_ASSISTENTE: ModeloIA;
   IA_INFERENCE_GEO: GeoIA;
   IA_TETO_GLOBAL_MENSAL_USD: number;
+  IA_TETO_RASCUNHO_USD: number;
 };
 
 export function configIA(e: AmbienteIA): ConfigIA {
@@ -34,9 +47,11 @@ export function configIA(e: AmbienteIA): ConfigIA {
     modo,
     destino: e.IA_PROVEDOR ? DESTINO_DO_PROVEDOR[e.IA_PROVEDOR] : null,
     modelo: e.IA_MODELO_LEITURA,
+    modeloAssistente: e.IA_MODELO_ASSISTENTE,
     // D5: a região efetiva — `eu` no Bedrock (vem do perfil); IA_INFERENCE_GEO só vale para a API direta (§12)
     geo: e.IA_PROVEDOR === 'bedrock-eu' ? 'eu' : e.IA_INFERENCE_GEO,
     tetoGlobalMicroUsd: usdParaMicro(e.IA_TETO_GLOBAL_MENSAL_USD),
+    tetoRascunhoMicroUsd: usdParaMicro(e.IA_TETO_RASCUNHO_USD),
     retencao: retencaoDoAmbiente(e),
   };
 }

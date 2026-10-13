@@ -2,12 +2,14 @@ import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { listarModelos } from '@/modules/pacientes/anamnese';
+import { formatarDataNoFuso } from '@/modules/pacientes/datas';
+import { MSG_MODELO_IA } from '@/modules/plano-alimentar/constantes';
 import { arquivarModeloAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ModelosPage() {
-  const { ctx } = await requireNutri('/painel/anamnese/modelos');
+  const { ctx, tenant } = await requireNutri('/painel/anamnese/modelos');
   const modelos = await listarModelos(ctx);
   return (
     <>
@@ -19,7 +21,12 @@ export default async function ModelosPage() {
         <ul className="divide-y divide-linha">
           {modelos.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
-              <span>{`${m.nome}${m.padrao ? ' (padrão)' : ''} · ${m.perguntas} ${m.perguntas === 1 ? 'pergunta' : 'perguntas'}`}</span>
+              <span className="flex flex-wrap items-baseline gap-2">
+                <span>{`${m.nome}${m.padrao ? ' (padrão)' : ''} · ${m.perguntas} ${m.perguntas === 1 ? 'pergunta' : 'perguntas'}`}</span>
+                {/* US-123: a origem em texto (não só cor) */}
+                {m.sugestaoIa && <span className="rounded-full border border-aviso bg-aviso-fundo px-2 text-sm text-aviso">{MSG_MODELO_IA.marca}</span>}
+                {m.aprovadoEm && <span className="text-sm text-suave">{MSG_MODELO_IA.aprovadoEm(formatarDataNoFuso(m.aprovadoEm, tenant.fuso))}</span>}
+              </span>
               <span className="flex gap-4">
                 <Link href={`/painel/anamnese/modelos/${m.id}`} className="text-link underline" aria-label={`Editar o modelo ${m.nome}`}>Editar</Link>
                 <form action={arquivarModeloAction.bind(null, m.id)}>

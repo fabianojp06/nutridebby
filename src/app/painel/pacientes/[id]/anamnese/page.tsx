@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { listarAnamneses, listarModelos } from '@/modules/pacientes/anamnese';
+import { listarAnamneses, listarModelosUsaveis } from '@/modules/pacientes/anamnese';
 import { formatarData } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function AnamnesesPage({ params }: PageProps<'/painel/pacientes/[id]/anamnese'>) {
   const { id } = await params;
   const { ctx, paciente } = await carregarProntuario(id);
-  const [lista, modelos] = await Promise.all([listarAnamneses(ctx, paciente.id), listarModelos(ctx)]);
+  const [lista, modelos] = await Promise.all([listarAnamneses(ctx, paciente.id), listarModelosUsaveis(ctx)]);
   return (
     <div className="space-y-8">
       {paciente.status !== 'bloqueado' && (

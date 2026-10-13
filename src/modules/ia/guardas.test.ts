@@ -18,31 +18,44 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('@anthropic-ai/bedrock-sdk'))).toEqual(['src/modules/ia/provedor-bedrock.ts']);
   });
 
-  it('RNF-105 no Bedrock: só InvokeModel do perfil eu. — sem Batch, S3, URL, count_tokens, Mantle, inference_geo nem streaming', () => {
-    const codigo = readFileSync('src/modules/ia/provedor-bedrock.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-    for (const proibido of [/\bbatches\b/, /CreateModelInvocationJob/, /\bs3\b/i, /type:\s*'url'/, /countTokens|count_tokens/, /Mantle/, /inference_geo/, /\bstream\b/, /\bbetas?\b/, /\bfiles\b/, /\btools\b/, /\bthinking\b/, /\bfallbacks\b/]) {
-      expect(codigo, String(proibido)).not.toMatch(proibido);
-    }
-    expect(codigo).toMatch(/maxRetries:\s*0/);
-    expect(codigo).toMatch(/logLevel:\s*'off'/);
-    expect(codigo).toMatch(/awsSessionToken:\s*null/);
-    expect(codigo).toMatch(/apiKey:\s*null/);
-  });
-
   it('pdf-lib só na thread do preparo do laudo e no gerador dos laudos fictícios', () => {
     expect([...fontes('src'), ...fontes('scripts')].filter(importa('pdf-lib')).sort()).toEqual(
       ['src/modules/ia/avaliacao/laudos-ficticios.ts', 'src/modules/ia/preparar-pdf-thread.ts'].filter((f) => existsSync(f)).sort(),
     );
   });
 
-  it('ZDR: o provedor não usa Batch, Files, código, MCP, fallbacks, speed, betas, citações nem source url', () => {
-    const codigo = readFileSync('src/modules/ia/provedor-anthropic.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-    for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\btools\b/]) {
-      expect(codigo, String(proibido)).not.toMatch(proibido);
-    }
-    expect(codigo).toMatch(/maxRetries:\s*0/);
-    expect(codigo).toMatch(/logLevel:\s*'off'/);
-    expect(codigo, 'sem count_tokens: o laudo sai uma vez só').not.toMatch(/countTokens|count_tokens/);
+  for (const arquivo of ['src/modules/ia/provedor-anthropic.ts', 'src/modules/ia/provedor-bedrock.ts']) {
+    it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
+      const codigo = readFileSync(arquivo, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
+        // ferramentas de servidor do SDK (ToolUnion) e o contêiner delas: nada sai para busca, navegador ou execução de terceiro
+        /web_search|web_fetch|browser_toolset|computer_|memory_20|bash_20|text_editor|tool_search|\bcontainer\b/]) {
+        expect(codigo, String(proibido)).not.toMatch(proibido);
+      }
+      // ferramentas só do cliente: `tools` aparece uma vez, montado só de p.ferramentas, e cada entrada tem exatamente
+      // nome, descrição, schema e strict — sem `type` (que faria dela uma ferramenta de servidor) nem outra chave
+      expect(codigo.match(/\btools\b/g), 'tools aparece uma única vez').toHaveLength(1);
+      const ferramenta = codigo.match(/\btools:\s*p\.ferramentas\.map\(\(f\)\s*=>\s*\(\{([^{}]*)\}\)\)/);
+      expect(ferramenta, 'tools: p.ferramentas.map((f) => ({ … }))').not.toBeNull();
+      expect([...(ferramenta?.[1] ?? '').matchAll(/(\w+)\s*:/g)].map((m) => m[1])).toEqual(['name', 'description', 'input_schema', 'strict']);
+      expect(ferramenta?.[1]).toMatch(/strict:\s*true/);
+      expect(codigo.match(/\btool_choice\b/g), 'tool_choice aparece uma única vez').toHaveLength(1);
+      expect(codigo).toMatch(/tool_choice:\s*\{\s*type:\s*'auto'\s*\}/);
+      // Plano 14B (D1): o histórico e a classificação da resposta vêm do módulo comum (geracao-formato.ts) — nenhum
+      // provedor monta tool_result nem lê tool_use por conta própria
+      expect(codigo).toMatch(/from '\.\/geracao-formato'/);
+      expect(codigo).not.toMatch(/tool_use|tool_result/);
+      expect(codigo).toMatch(/maxRetries:\s*0/);
+      expect(codigo).toMatch(/logLevel:\s*'off'/);
+    });
+  }
+  it('RNF-105 no Bedrock: credenciais explícitas, sem inference_geo e sem S3', () => {
+    const codigo = readFileSync('src/modules/ia/provedor-bedrock.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(codigo).not.toMatch(/inference_geo/);
+    // R2 (pre-flight da 14B-1): a proibição de S3 do teste da 14A continua (a lista comum não a tem)
+    expect(codigo).not.toMatch(/\bs3\b/i);
+    expect(codigo).toMatch(/awsSessionToken:\s*null/);
+    expect(codigo).toMatch(/apiKey:\s*null/);
   });
 
   it('nada do grafo do Next alcança o SDK, o pdf-lib, o provedor real, o preparo, o job da leitura nem a avaliação', () => {
@@ -56,6 +69,9 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       'src/modules/ia/leitura-job.ts',
       'src/modules/ia/avaliacao/laudos-ficticios.ts',
       'src/modules/ia/avaliacao/avaliar.ts',
+      // Plano 14B: o laço, os jobs, o roteador da fila ia-assistente e a avaliação do assistente (os arquivos nascem nas T3, T4, T9, T10 e T12;
+      // a avaliação dos pacotes e a busca em memória da TACO, com o xlsx, na T5F)
+      ...['src/modules/ia/laco-ferramentas.ts', 'src/modules/ia/modelos-job.ts', 'src/modules/ia/assistente-job.ts', 'src/modules/ia/resumo-job.ts', 'src/modules/ia/rascunho-job.ts', 'src/modules/ia/avaliacao/avaliar-assistente.ts', 'src/modules/ia/avaliacao/catalogo-taco.ts'].filter((f) => existsSync(f)),
     ]) {
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }

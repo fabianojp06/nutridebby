@@ -223,3 +223,37 @@ CI sem repetir no deploy (ci-ja-passou.sh, 09/10/2026):
 - CI/deploy (09/10/2026): `workflow_runs[].pull_requests` da API do GitHub só lista PRs ABERTOS — depois do merge vem
   vazio (conferido em 30 execuções reais). Guarda de deploy que depende dele vira no-op; teste com gh falso não pega.
   Conferir a forma real da resposta da API (gh api, só leitura) antes de aceitar teste com mock.
+
+Plano 15 (F3-02 IA Nutri do paciente, spec C v0.3 × código, 09/10/2026):
+- Spec escrita ANTES de um plano posterior cita pré-condições já congeladas/trocadas (ciência/recusa do Plano 11 congeladas
+  pela 0109; autorização = ia_autorizacoes 0107/0108) e um molde de consentimento próprio sem destino/canal/registrado_em.
+  Conferir cada pré-condição e cada "tabela de prova" contra as migrations mais novas.
+- "Função SECURITY DEFINER grava em tabela STAFF_ONLY/negada ao paciente": sob FORCE RLS e migrator sem BYPASSRLS, a função
+  vê app.role='paciente'; precisa trocar para 'worker' localmente e devolver (molde 0075/0083). Specs omitem isso.
+- "Política RESTRICTIVE por comando" prometida para limitar COLUNAS do UPDATE do paciente: RLS não compara OLD/NEW → gatilho.
+- Limite por usuário contado em linhas que o próprio usuário apaga (revogar e aceitar de novo zera o dia/mês).
+- Leitura "só do paciente X" no contexto worker: patient_isolation e paciente_sem_rascunho não valem; só o código isola.
+- Mudar PK/UNIQUE de tabela usada em ON CONFLICT (ia_gasto_plataforma.mes) quebra o app antigo na janela do deploy.
+
+Plano 15 (spec C v0.4 × código, 2ª revisão, 09/10/2026):
+- Função SQL SECURITY DEFINER que "enfileira o job" ou confere "job vivo" (pgboss.job): o schema pgboss é do nutri_app
+  (migrate.ts) e o migrator tem `INHERIT FALSE` → permissão negada em produção. O CI roda as migrations como SUPERUSUÁRIO
+  (test/global-setup.ts) e passa. Enfileirar sempre em TS (`boss.send` com `fromDrizzle(tx)`) depois da função.
+- `paciente_sem_rascunho` (0045) deixa a sessão de paciente ver plano ARQUIVADO; "só o publicado" mora no módulo
+  (`planoDoPaciente`). Releitura por id na sessão de paciente não barra versão substituída. `lerPlanoNaTransacao` audita
+  por padrão (`auditar !== false`).
+- Duas tabelas com a MESMA entidade de auditoria + rótulo por (entidade, ação) em `rotuloDaAcao`: o `criar` de outra
+  tabela (liberação pela nutri, resposta do worker) herda o rótulo da pergunta. Conferir entidade × tabela × ator.
+- Revogação/retirada feita na sessão de paciente (ou função SQL) que "estorna": estorno é só por cota.ts no worker
+  (molde: job ia-retirada da 14A). E o passo de gravação do worker precisa reconferir o consentimento (14A: passo 6).
+
+Plano 14B-1, T3 (laço de ferramentas, 10/10/2026):
+- Envelope de erro que leva o gasto (`ErroNoLaco`) só em volta da chamada ao provedor: exceção dos callbacks (busca no banco,
+  `antesDaVolta`) escapa crua e o custo das voltas se perde. Conferir no job se o caminho genérico mantém a reserva (incerto).
+- Índice que o modelo usa (medida) aceito além do que a ferramenta mostrou (slice(0,5)): conferir o limite nos dois lados.
+
+Plano 14B-1, T4 (modelos sugeridos, 10/10/2026):
+- Função de desativação que chama DOIS cancelamentos em sequência (cancelarTarefas → cancelarGeracoes): o 2º trava linhas
+  DEPOIS do estorno do 1º (linha global do mês em ia_gasto_plataforma) → ciclo com a varredura da 2ª tabela, que trava a
+  linha sem o tenant e estorna. Conferir a ordem "linhas → plataforma" em cada transação com mais de um grupo de estornos;
+  trocar a ordem das chamadas só move o ciclo para a outra varredura. Correção: a varredura trava o tenant antes.

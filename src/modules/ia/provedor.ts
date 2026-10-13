@@ -1,4 +1,4 @@
-import type { DestinoIA, ModeloIA, RegiaoIA } from './constantes';
+import type { DestinoIA, FinalidadeIA, ModeloIA, RegiaoIA } from './constantes';
 
 /**
  * Plano 11 (spec v0.3 §5.1, A-D1): a interface que isola o provedor. Nada aqui importa SDK: o app pode importar os tipos;
@@ -28,6 +28,37 @@ export type RespostaLeitura = ({ tipo: 'ok'; texto: string } | { tipo: 'recusa';
   /** `request-id` do provedor: pode ir para o log (spec §5.7). */
   requestId: string | null;
 };
+
+/**
+ * Plano 14B (D1): uma chamada de `gerar` — o resumo (sem ferramentas), e cada volta do laço de ferramentas do rascunho e
+ * dos modelos. Sem SDK aqui. Os turnos do assistente levam o conteúdo BRUTO que o provedor devolveu (texto, ferramentas e
+ * os blocos de raciocínio com a assinatura), reenviado sem nenhuma mudança: o histórico é só de inclusão ("preserved
+ * thinking" dos modelos 5.5: editar um turno anterior invalida o raciocínio e pode dar 400).
+ */
+export type FerramentaIA = { nome: string; descricao: string; schema: Record<string, unknown> };
+export type BlocoDoUsuario = { tipo: 'texto'; texto: string } | { tipo: 'resultado'; chamadaId: string; conteudo: string; erro?: true };
+export type TurnoIA = { papel: 'usuario'; blocos: readonly BlocoDoUsuario[] } | { papel: 'assistente'; bruto: readonly unknown[] };
+export type PedidoGeracao = {
+  finalidade: FinalidadeIA;
+  modelo: ModeloIA;
+  geo: RegiaoIA;
+  /** Instruções fixas versionadas (instrucoes/*.ts) — nunca com dado de paciente. */
+  sistema: string;
+  turnos: readonly TurnoIA[];
+  /** Vazio = sem ferramentas (resumo). Com ferramentas: strict e tool_choice auto (forçado → 400 nos 5.5). */
+  ferramentas: readonly FerramentaIA[];
+  /** JSON Schema da resposta final (output_config.format) — fixo do código, sem dado de paciente. */
+  schema: Record<string, unknown>;
+  maxTokens: number;
+  esforco: 'low' | 'medium';
+};
+export type ChamadaFerramenta = { id: string; nome: string; entrada: unknown };
+export type RespostaGeracao = (
+  | { tipo: 'final'; texto: string }
+  | { tipo: 'ferramentas'; chamadas: ChamadaFerramenta[] }
+  | { tipo: 'recusa'; categoria: string | null }
+  | { tipo: 'cortada' }
+) & { bruto: readonly unknown[]; uso: UsoTokens; requestId: string | null };
 
 /**
  * D4 / RN-105: o que o worker faz com cada falha. `nao_enviado` e `repetir` → nova tentativa pelo pg-boss; `incerto` →
@@ -63,4 +94,6 @@ export interface ProvedorIA {
   // O teto da tarefa sai das páginas (custoMaximoDoArquivo, T7).
   /** Uma chamada; nunca repete sozinho (maxRetries 0); lança ErroProvedor. */
   lerDocumento(p: PedidoLeitura): Promise<RespostaLeitura>;
+  /** Plano 14B: uma chamada; nunca repete sozinho (maxRetries 0); lança ErroProvedor. O laço fica no worker (laco-ferramentas.ts). */
+  gerar(p: PedidoGeracao): Promise<RespostaGeracao>;
 }

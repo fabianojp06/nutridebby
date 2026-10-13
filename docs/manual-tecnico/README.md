@@ -7,8 +7,8 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge; mergeado no PR #28, `3fe7452`, em 08/10/2026), em 08/10/2026; as atualizações do Plano 14A (autorização do paciente para IA e provedor na UE: §10.10–§10.11 e os caps. 1, 2 e 6) contra o branch `plano-14-ia-nutricionista` em `fa7f712` (Tarefas 1–11 integradas, antes do merge), em 09/10/2026; o CI no runner próprio da VPS (§7.7, §1.8, §1.9, §1.10 e os caps. 2, 6 e 8) contra o branch `runner-proprio` em `bbd7728` (antes do merge), em 12/10/2026 |
-| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) e 14A (autorização do paciente para IA e provedor AWS na UE), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A), migrations `0000`–`0109` (110 arquivos em `drizzle/`; a `0106` é do Plano 16, §5.5.12 e §5.5.14; o cap. 10 cobre `0098`–`0100` e, do Plano 14A, `0107`–`0109`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge; mergeado no PR #28, `3fe7452`, em 08/10/2026), em 08/10/2026; as atualizações do Plano 14A (autorização do paciente para IA e provedor na UE: §10.10–§10.11 e os caps. 1, 2 e 6) contra o branch `plano-14-ia-nutricionista` em `fa7f712` (Tarefas 1–11 integradas, antes do merge), em 09/10/2026; as atualizações do Plano 14B-1 (modelos sugeridos pela IA por área: §10.12 e os caps. 1, 2, 4 e 6) contra o branch `plano-14b-ia-nutri` (Tarefas 1–5 e o fechamento 5F, antes do merge), em 10/10/2026; o CI no runner próprio da VPS (§7.7, §1.8, §1.9, §1.10 e os caps. 2, 6 e 8) contra o branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33, `8a8d202`, em 13/10/2026), em 12/10/2026 |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) 14A (autorização do paciente para IA e provedor AWS na UE) e 14B-1 (modelos de plano e de anamnese sugeridos pela IA por área, sem dado de paciente), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A) e v0.6 (parte da 14B-1), migrations `0000`–`0112` (113 arquivos em `drizzle/`; a `0106` é do Plano 16, §5.5.12 e §5.5.14; a `0110` é a migration de dados do prazo de guarda, JUR-01; o cap. 10 cobre `0098`–`0100`, do Plano 14A, `0107`–`0109` e, do Plano 14B-1, `0111`–`0112`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -61,7 +61,7 @@ flowchart LR
   C6 --> C8["8 Sustentação<br/>rotina e serviços externos"]
   C4 --> C9["9 Documentos assinados<br/>e receita (Plano 10A)"]
   C5 --> C9
-  C4 --> C10["10 Inteligência artificial<br/>laudos e autorização (Planos 11 e 14A)"]
+  C4 --> C10["10 Inteligência artificial<br/>laudos, autorização e modelos (Planos 11, 14A e 14B-1)"]
   C6 --> C10
   C5 --> C11["11 Exames enviados<br/>pelo paciente (Plano 12)"]
   C6 --> C11
@@ -78,7 +78,7 @@ flowchart LR
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
 | 9 | [09-documentos-assinados.md](09-documentos-assinados.md) | Módulo `documentos` (Planos 10A e 13): receita e parecer nutricional, retificação por versão nova, estados, imutabilidade no banco, PDF preparado e digitalizada no worker, 2FA ao assinar, entrega e recebimento, link de uso único, verificação pública, cancelamento, LGPD, interruptor do admin | Tabelas e gatilhos dos documentos, link `/documento/<token>`, verificação `/v` |
-| 10 | [10-ia.md](10-ia.md) | Módulo `ia` (Plano 11): leitura de laudos com IA, provedor e sandbox, preparo do laudo no worker, portão do envio, cota e custo, erros e novas tentativas, privacidade (o que sai, ZDR, nada em log), como estender, divergências conhecidas; Plano 14A: autorização do paciente (banco só de inclusão, vigência e destino, retirada, canais app, link e papel, e-mails, exportação e anonimização), provedor `bedrock-eu`, `IA_RETENCAO_ZERO`, desvios conscientes | Tabelas `ia_tarefas`/`ia_uso`/`ia_gasto_plataforma`/`ia_autorizacoes`, filas `ia` e `ia-retirada`, cota de IA; runbook em [`docs/operacao/ia.md`](../operacao/ia.md) |
+| 10 | [10-ia.md](10-ia.md) | Módulo `ia` (Plano 11): leitura de laudos com IA, provedor e sandbox, preparo do laudo no worker, portão do envio, cota e custo, erros e novas tentativas, privacidade (o que sai, ZDR, nada em log), como estender, divergências conhecidas; Plano 14A: autorização do paciente (banco só de inclusão, vigência e destino, retirada, canais app, link e papel, e-mails, exportação e anonimização), provedor `bedrock-eu`, `IA_RETENCAO_ZERO`, desvios conscientes; Plano 14B-1: modelos sugeridos por área (`gerar` com ferramentas, laço só de inclusão, validação, origem e aprovação dos modelos, avaliação dos pacotes) | Tabelas `ia_tarefas`/`ia_uso`/`ia_gasto_plataforma`/`ia_autorizacoes`/`ia_geracoes_modelos`, filas `ia`, `ia-retirada` e `ia-assistente`, cota de IA; runbook em [`docs/operacao/ia.md`](../operacao/ia.md) |
 | 11 | [11-exames-enviados.md](11-exames-enviados.md) | Envio de exames pelo paciente (Plano 12, F3-04): fluxo do portal ao worker, rasterização do PDF num processo filho (PDFium em WASM), PDF limpo só com imagens, fila "Exames recebidos", aceite e recusa, transições conferidas no banco, cota, varredura, privacidade e LGPD, como estender, divergências | Tabelas `exam_submissions`/`exam_submission_files`, filas `exame-envio`, `exame-envio-limpar` e `expirar-exame-envio`, orçamento de memória da rasterização (RNF-162); runbook em [`docs/operacao/exames-enviados.md`](../operacao/exames-enviados.md) |
 
 ### Seções principais
@@ -183,7 +183,8 @@ flowchart LR
 [10.8 Como estender](10-ia.md#108-como-estender) ·
 [10.9 Divergências](10-ia.md#109-divergências-conhecidas) ·
 [10.10 Autorização do paciente e provedor na UE](10-ia.md#1010-autorização-do-paciente-e-provedor-na-ue-plano-14a) ·
-[10.11 Desvios do Plano 14A](10-ia.md#1011-divergências-do-plano-14a-desvios-conscientes)
+[10.11 Desvios do Plano 14A](10-ia.md#1011-divergências-do-plano-14a-desvios-conscientes) ·
+[10.12 Modelos sugeridos pela IA (Plano 14B-1)](10-ia.md#1012-modelos-sugeridos-pela-ia-plano-14b-1)
 
 **11. Exames enviados pelo paciente** — [11.1 Visão](11-exames-enviados.md#111-visão) ·
 [11.2 Peças](11-exames-enviados.md#112-peças) ·
@@ -218,7 +219,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Segredo vazado (troca de variável) | [§6.9.1](06-worker-seguranca-operacao.md#691-segredo-vazado) | §6.10 |
 | Rotina periódica, registro e responsáveis | [§8.3](08-sustentacao.md#83-rotina-periódica), [§8.5](08-sustentacao.md#85-responsáveis-e-registro) | §6.10; `docs/operacao/sustentacao.md` |
 | Serviços externos, cotas e vencimentos | [§8.4](08-sustentacao.md#84-catálogo-de-serviços-externos) | §1.8, §6.4, §6.5 |
-| IA de laudos (provedor, cota, privacidade, liberação) e autorização do paciente (Plano 14A) | [cap. 10](10-ia.md) | §1.9, §2.5.10, §2.6.8, §6.2.3, §6.3.8, §6.10, §7.4, §8.4; `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
+| IA de laudos (provedor, cota, privacidade, liberação), autorização do paciente (Plano 14A) e modelos sugeridos por área (Plano 14B-1) | [cap. 10](10-ia.md) | §1.9, §2.5.10, §2.6.8, §6.2.3, §6.3.8, §6.10, §7.4, §8.4; `docs/operacao/ia.md` (runbook), `docs/operacao/go-live.md` |
 | Portal do paciente no layout G (seções, mural de Hoje, respostas, Jornada, peso oculto, guia do portal) | [§5.5](05-agenda-portal-conteudo.md#55-portal-do-paciente-p-plano-06-layout-g-no-plano-16), [§5.7.6](05-agenda-portal-conteudo.md#576-portal-tokens-faixa-e-fontes-p08-d18-layout-g-no-plano-16), [§5.8.4](05-agenda-portal-conteudo.md#584-manual-guiado-do-portal-plano-16-t14-us-199-rn-212-pm-g10) | §1.7, §1.10, §4 (exportação), §6.8.1 (voltar atrás), §7.4.5, cap. 11; `docs/operacao/app-paciente.md` (runbook) |
 | Exames enviados pelo paciente (envio, rasterização, revisão, memória) | [cap. 11](11-exames-enviados.md) | §6.4 (#3, limites do worker), §7.7 (orçamento da imagem e filtro de documentação); `docs/operacao/exames-enviados.md` (runbook) |
 
@@ -321,9 +322,9 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento, link da autorização de IA). Lista fechada em `SEM_CONTA_PERMITIDOS` | `src/db/tenant.ts:34` |
 | `tenant_isolation` / `patient_isolation` | Políticas base: linha do tenant do contexto; na sessão de paciente, só as linhas do próprio `patient_id` | `drizzle/0000_base_roles_e_rls.sql:30-50` |
 | `STAFF_ONLY` | Lista de tabelas que o paciente nunca vê, nem as próprias linhas (notas privadas, etiquetas, regras da agenda…). Política RESTRICTIVE `staff_only` por `app_enable_staff_only` | `src/db/rls-guard.ts:105`; `drizzle/0020_rls_etiquetas.sql:3` |
-| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:136`; `drizzle/0051_rls_consultas.sql:19` |
-| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:183`; `drizzle/0070_paciente_sem_escrita.sql:25` |
-| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:234`; `drizzle/0083_audiencia_conteudos.sql:42` |
+| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:137`; `drizzle/0051_rls_consultas.sql:19` |
+| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:184`; `drizzle/0070_paciente_sem_escrita.sql:25` |
+| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:238`; `drizzle/0083_audiencia_conteudos.sql:42` |
 | `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, `document_verifications`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
 | `AUDIT_EXCEPTIONS` | Tabelas com `patient_id` sem gatilho de auditoria, com justificativa | `src/db/audit-guard.ts:4` |
 | `liberarReceitasDoPlano` | Exceção da RN-12: libera, na transação, as receitas sugeridas no plano publicado do próprio paciente | `src/modules/conteudo/audiencia.ts:45` |
@@ -381,7 +382,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; CI no runner próprio em 12/10/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; modelos sugeridos do Plano 14B-1 em 10/10/2026; CI no runner próprio em 12/10/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -568,14 +569,28 @@ Desvios conscientes do plano, conferidos no branch `plano-14-ia-nutricionista` e
 | 94 | Spec da IA US-108 | — (não previsto) | Termo em papel recusado com retirada no dia da assinatura ou depois (desvio 12); o advogado (E-09) decide se algum termo anterior pode valer | Pend. | 10 |
 | 95 | Spec da IA US-108/RN-107 | A nutricionista confere na foto o código mostrado na tela; código de tenant, paciente e versão | O código inclui o destino; a nutricionista digita o código lido no papel e o servidor recusa o de outro texto; a confirmação cita o destino (desvio 13); textos novos à espera da Debby e do advogado | Pend. | 10 |
 
+### Modelos sugeridos pela IA (Plano 14B-1)
+
+Desvios conscientes do plano que valem na 14B-1, conferidos no branch `plano-14b-ia-nutri` em 10/10/2026; detalhe na
+[§10.12.8](10-ia.md#10128-divergências-da-14b-1-desvios-conscientes).
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 96 | Spec da IA §5.6 | 300 s por chamada, com streaming | Sem streaming; `timeout` de 120 s por volta e prazo total de 12 min no laço (desvio 1) | Reg. | 10 |
+| 97 | Spec da IA §5.6 | Fila `ia` | Fila nova `ia-assistente` (900 s; desvio 2) | Reg. | 10 |
+| 98 | Spec da IA RN-124 | Até 12 voltas por modelo de plano | Um laço por pacote, até 24 voltas e o teto de US$ 1,00 do pacote inteiro (desvio 3) | Reg. | 10 |
+| 99 | Spec da IA US-123 | O modelo de anamnese não aprovado não vira o padrão | Não há ação "tornar padrão"; fica o CHECK `anamnesis_templates_padrao_aprovado` (desvio 9) | Reg. | 10 |
+| 100 | Spec da IA US-123 (c) | Aditivo `0.2-provisorio` | A 1.0 (A-D27) já cobre os modelos; a 14B-2 sobe para 1.1 (desvio 11) | Reg. | 10 |
+| 101 | Spec da IA US-123 | "{n} itens…" por modelo | Contagem do pacote, mostrada em cada modelo enquanto for sugestão (desvio 12) | Reg. | 10 |
+
 ### CI no runner próprio (12/10/2026)
 
-Conferido no branch `runner-proprio` em `bbd7728` (antes do merge); detalhe na
+Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33 em 13/10/2026); detalhe na
 [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy).
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 96 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
+| 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { configIA, estadoIaComPaciente, estadoIaDoTenant } from './modo';
 import { IA_ADITIVO_VERSAO } from './textos-legais';
 
-const base = { IA_MODELO_LEITURA: 'claude-opus-5-5' as const, IA_INFERENCE_GEO: 'us' as const, IA_TETO_GLOBAL_MENSAL_USD: 50 };
+const base = { IA_MODELO_LEITURA: 'claude-opus-5-5' as const, IA_MODELO_ASSISTENTE: 'claude-sonnet-5-5' as const, IA_INFERENCE_GEO: 'us' as const, IA_TETO_GLOBAL_MENSAL_USD: 50, IA_TETO_RASCUNHO_USD: 1 };
 const tenant = { status: 'ativa', iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO };
 
 describe('modo e estado da IA (spec v0.3 §5.9, RN-100)', () => {
@@ -10,6 +10,12 @@ describe('modo e estado da IA (spec v0.3 §5.9, RN-100)', () => {
     expect(configIA(base)).toMatchObject({ modo: 'ausente', modelo: 'claude-opus-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000 });
     expect(configIA({ ...base, IA_PROVEDOR: 'anthropic', IA_DESLIGADA: '1' }).modo).toBe('emergencia');
     expect(configIA({ ...base, IA_PROVEDOR: 'sandbox' }).modo).toBe('sandbox');
+  });
+
+  it('configIA: modelo do assistente e teto do rascunho em micro-dólares (Plano 14B)', () => {
+    const c = configIA({ IA_PROVEDOR: 'sandbox', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_MODELO_ASSISTENTE: 'claude-sonnet-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50, IA_TETO_RASCUNHO_USD: 1 });
+    expect(c.modeloAssistente).toBe('claude-sonnet-5-5');
+    expect(c.tetoRascunhoMicroUsd).toBe(1_000_000);
   });
 
   it('estado do consultório na ordem da RN-100', () => {

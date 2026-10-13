@@ -778,6 +778,20 @@
       "when": 1791546677160,
       "tag": "0110_prazo_guarda_bloqueio",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1791633328935,
+      "tag": "0111_ia_modelos_sugeridos",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1791633340362,
+      "tag": "0112_rls_ia_modelos_sugeridos",
+      "breakpoints": true
     }
   ]
 }
