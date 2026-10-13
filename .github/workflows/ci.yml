@@ -116,6 +116,9 @@ jobs:
         with: { node-version: 24 }
       - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
       - run: pnpm test   # inclui a guarda de RLS (Testcontainers usa o Docker do runner)
+      # Testes que medem tempo (*.tempo.test.ts), depois da suíte e um por vez: ao lado dos outros workers, a cota de CPU
+      # do runner pausa o grupo e o teste mede a pausa (test/arquivos-de-tempo.ts)
+      - run: pnpm test:tempo
 
   e2e:
     needs: mudancas

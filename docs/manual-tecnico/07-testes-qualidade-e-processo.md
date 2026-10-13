@@ -69,16 +69,18 @@ os valores marcados "10A" abaixo. **Atualização do Plano 11** (`2efa27b`, PR #
 
 ### Como roda
 
-`pnpm test` executa `vitest run` (`package.json`, script `test`). A configuração está em `vitest.config.ts`:
+`pnpm test` executa `vitest run` (`package.json`, script `test`). A configuração está em `vitest.config.ts`; o `include`, o
+`exclude` e os workers vêm de `selecaoDosTestes` (`test/arquivos-de-tempo.ts`):
 
 | Opção | Valor | Por quê |
 |---|---|---|
 | `include` | `src/**/*.test.ts`, `test/**/*.test.ts` | Testes ficam ao lado do código; `test/` guarda os transversais |
+| `exclude` | Com `CI`, também os `*.tempo.test.ts` | Os **testes que medem tempo** (p95 da busca, RNF-01, em `busca.tempo.test.ts`; tempo linear do SVG em `logo.tempo.test.ts`) rodam no CI depois da suíte, sozinhos: `pnpm test:tempo` (`VITEST_SO_TEMPO=1`, só esses arquivos, `fileParallelism: false`). Ao lado dos outros workers, a cota de 4 vCPU do runner pausa o grupo e o teste mede a pausa (CI do PR #34: p95 de 434 e 575 ms com o `acesso.test.ts` ao lado; 46–78 ms sozinho). Local: `pnpm test` roda tudo |
 | `globalSetup` | `test/global-setup.ts` | Sobe **um** Postgres para a suíte inteira |
 | `setupFiles` | `test/setup.ts` | Variáveis de ambiente de teste em cada arquivo |
 | `hookTimeout` | 120 s | Subir o container e rodar todas as migrations leva tempo |
 | `testTimeout` | 30 s | Testes de integração com banco real |
-| `maxWorkers` | 3, só com `CI` (`vitest.config.ts:14`) | O contêiner do job no runner próprio enxerga 8 núcleos numa cota de 4; o padrão daria 7 workers e expôs um deadlock de DDL do `rls-guard.test.ts` contra outro arquivo. Local: o padrão do Vitest |
+| `maxWorkers` | 3, só com `CI` (`test/arquivos-de-tempo.ts`) | O contêiner do job no runner próprio enxerga 8 núcleos numa cota de 4; o padrão daria 7 workers e expôs um deadlock de DDL do `rls-guard.test.ts` contra outro arquivo. Local: o padrão do Vitest |
 | `resolve.tsconfigPaths` | `true` | O alias `@/` funciona nos testes |
 
 Pré-requisito: Docker acessível. O Testcontainers usa o Docker da máquina. No CI, é o Docker rootless do runner
@@ -494,7 +496,7 @@ runner é montado e por que, em "Runner próprio na VPS", abaixo.
 |---|---|---|---|---|
 | `mudancas` (`ci.yml:37-60`) | 5 min | No host do runner, sem `container:` | `git diff --name-only` contra a base | Plano 12 (R-D1): diz se a mudança tem código (saída `codigo`); ver "Mudança só de documentação", abaixo |
 | `quality` (`:62-75`) | 20 min | Contêiner `mcr.microsoft.com/playwright:v1.63.0-noble` (`--cpus 4 --memory 6g`) | `pnpm install --frozen-lockfile --store-dir /pnpm-store`, `lint`, `typecheck` | Node 24 pelo `setup-node`, sem o cache do GHA: o store do pnpm fica no volume `nutri-ci-pnpm`, montado em `/pnpm-store`. Roda sempre |
-| `test` (`:77-118`) | 25 min | Contêiner do Playwright (`--cpus 4 --memory 8g`), **sem** `DAC_OVERRIDE` e `DAC_READ_SEARCH`; com o socket do Docker rootless do CI e o `docker` e o `rclone` do host montados só leitura | Confere que o `rclone` e o `docker` existem, que o daemon é o rootless e sem Swarm, e liga o contêiner do job à rede `bridge`; baixa o `jq` 1.7.1 (binário estático da release, conferido pelo sha256); `pnpm install`; `pnpm test` | Inclui todas as guardas. Postgres do Testcontainers pelo IP do contêiner (`NUTRI_CI_REDE_DIRETA=1`) e Ryuk desligado (`TESTCONTAINERS_RYUK_DISABLED`); 3 workers do Vitest. Só com `codigo == 'true'` |
+| `test` (`:77-118`) | 25 min | Contêiner do Playwright (`--cpus 4 --memory 8g`), **sem** `DAC_OVERRIDE` e `DAC_READ_SEARCH`; com o socket do Docker rootless do CI e o `docker` e o `rclone` do host montados só leitura | Confere que o `rclone` e o `docker` existem, que o daemon é o rootless e sem Swarm, e liga o contêiner do job à rede `bridge`; baixa o `jq` 1.7.1 (binário estático da release, conferido pelo sha256); `pnpm install`; `pnpm test`; `pnpm test:tempo` (os testes de tempo, depois e sozinhos) | Inclui todas as guardas. Postgres do Testcontainers pelo IP do contêiner (`NUTRI_CI_REDE_DIRETA=1`) e Ryuk desligado (`TESTCONTAINERS_RYUK_DISABLED`); 3 workers do Vitest. Só com `codigo == 'true'` |
 | `e2e` (`:120-174`) | 45 min | Contêiner do Playwright (`--cpus 4 --memory 8g --shm-size 1g`); serviços `postgres:16-alpine` e `axllent/mailpit:v1.27` **sem** `ports:` | `playwright install chromium` (sem `--with-deps`: a imagem já traz as dependências do sistema), `db:migrate`, `e2e:seed`, `build`, `test:e2e` | Serviços pelo nome na rede do job (`postgres:5432`, `mailpit:8025`); `APP_URL` é o `localhost:3000` do contêiner do job, não o painel do Easypanel. `NODE_ENV=production`, `CI=true`, `WHATSAPP_SANDBOX=1`, `EMAIL_TRANSPORT=mailpit`; 2 workers do Playwright; relatório do Playwright como artefato na falha. Só com `codigo == 'true'` |
 | `image` (`:176-250`) | 30 min | No host do runner, no Docker rootless do CI (`DOCKER_HOST` vem do `.env` do runner) | `setup-buildx-action` com `driver: docker`; `build-push-action` com `push: false` e `load: true`, sem cache do GHA; o orçamento; os testes de fumaça da IA e da rasterização; `docker image rm -f nutridebby:ci` no fim (`if: always()`) | **Só build e provas, sem push:** a imagem que vai para o GHCR é montada de novo no `publish`, hospedado. A imagem comprimida tem de caber em **265 MB** (`set -euo pipefail`, MB arredondado para cima; conta abaixo); depois, `node --import tsx` na imagem, sem rede, prepara um PDF (thread do `pdf-lib`), cria o cliente do SDK e (Plano 12) rasteriza uma página no processo filho do PDFium — confere a poda do Dockerfile. Só com `codigo == 'true'` |
 
@@ -541,7 +543,8 @@ O que mudou nos testes por causa do runner (seção 0 do runbook):
    os contêineres.
 2. **Paralelismo.** O contêiner do job enxerga os 8 núcleos da VPS, mas a slice limita a 4. Os padrões davam 4 workers
    no Playwright (prazos estourados) e 7 no Vitest (deadlock de DDL do `rls-guard.test.ts` contra outro arquivo). No CI:
-   `workers: 2` (`playwright.config.ts:12`) e `maxWorkers: 3` (`vitest.config.ts:14`), como no runner hospedado de 4 vCPU.
+   `workers: 2` (`playwright.config.ts:12`) e `maxWorkers: 3` (`test/arquivos-de-tempo.ts`), como no runner hospedado de 4 vCPU.
+   Os testes que medem tempo saem da suíte paralela e rodam depois, sozinhos (`pnpm test:tempo`, desde o PR #34).
 3. **Permissões valem no `test`.** O job roda como root no contêiner. Sem `DAC_OVERRIDE`/`DAC_READ_SEARCH`, os testes de
    pasta ilegível (`chmod 000`) se comportam como no usuário comum do runner hospedado. Por isso o `apt` não roda ali, e o
    `jq` (usado pelo `ci-ja-passou.sh`, que o `test/ci-ja-passou.test.ts` executa) vem do binário estático oficial,

@@ -15,7 +15,7 @@ Manual técnico (especificação técnica do produto, fonte de verdade = código
 - `docker compose -f docker-compose.dev.yml up -d` — Postgres (127.0.0.1:54329) + Mailpit (:8025)
 - `pnpm db:migrate` — migrations + role da aplicação
 - `pnpm dev` (porta 3100 — a 3000 é o painel do Easypanel) / `pnpm worker`
-- `pnpm test` (sobe Postgres via Testcontainers) · `pnpm test:e2e` · `pnpm lint` · `pnpm typecheck`
+- `pnpm test` (sobe Postgres via Testcontainers; no CI sem os `*.tempo.test.ts`, que rodam depois em `pnpm test:tempo`) · `pnpm test:e2e` · `pnpm lint` · `pnpm typecheck`
 - `pnpm admin:criar <email>`
 
 ## Regras obrigatórias
