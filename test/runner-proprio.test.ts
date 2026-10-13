@@ -121,6 +121,8 @@ describe('testes que medem tempo (*.tempo.test.ts): sozinhos no CI', () => {
     expect(tempo.include).toEqual(ARQUIVOS_DE_TEMPO);
     expect(tempo.fileParallelism).toBe(false);
     // fora do CI o pnpm test roda tudo, como antes
+    // ...e o vitest.config.ts usa esta função (com include/exclude fixos, os de tempo voltariam à suíte paralela)
+    expect(readFileSync('vitest.config.ts', 'utf8')).toMatch(/^\s*\.\.\.selecaoDosTestes\(process\.env\),$/m);
     const local = selecaoDosTestes({});
     expect(local.exclude).not.toEqual(expect.arrayContaining(ARQUIVOS_DE_TEMPO));
     expect(local.maxWorkers).toBeUndefined();
