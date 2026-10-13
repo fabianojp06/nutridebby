@@ -1,0 +1,19 @@
+[Unit]
+Description=GitHub Actions runner (nutri-ci)
+Requires=docker.service
+After=docker.service
+
+[Service]
+WorkingDirectory=%h/actions-runner
+ExecStartPre=/bin/cp -n %h/actions-runner/bin/runsvc.sh %h/actions-runner/runsvc.sh
+ExecStart=%h/actions-runner/runsvc.sh
+Environment=DOCKER_HOST=unix:///run/user/1500/docker.sock
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+Restart=always
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -165,17 +165,20 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
   });
 
   it('"<!--", "<?" ou "<![CDATA[" sem fechamento é recusado, em tempo linear mesmo com 200 mil (M15, G1)', () => {
+    // Teto folgado (3 s): no runner próprio a cota de CPU é dividida com outros workers e a mesma conta levou 824 ms;
+    // o que este teste pega é a volta do tempo quadrático, que com 200 mil aberturas fica ordens de grandeza acima
+    const TETO = 3000;
     for (const abre of ['<!--', '<?', '<![CDATA[']) {
       const svg = Buffer.from(`<svg><style>${abre.repeat(200_000)}x</style></svg>`);
       const inicio = performance.now();
       expect(contemFiltroSvg(svg)).toBe(true);
-      expect(performance.now() - inicio).toBeLessThan(500);
+      expect(performance.now() - inicio).toBeLessThan(TETO);
     }
     for (const par of ['<!---->', '<?x?>', '<![CDATA[]]>', '<', '<!DOCTYPE svg SYSTEM "', '<!DOCTYPE svg>', '<!DOCTYPE svg                 ']) {
       const svg = Buffer.from(`<svg><style>${par.repeat(200_000)}x</style></svg>`);
       const inicio = performance.now();
       contemFiltroSvg(svg);
-      expect(performance.now() - inicio).toBeLessThan(500);
+      expect(performance.now() - inicio).toBeLessThan(TETO);
     }
   });
 

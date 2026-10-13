@@ -24,13 +24,18 @@ concurrency:
 permissions:
   contents: read
 
+# Runner próprio (docs/operacao/runner-proprio.md, 12/10/2026): os jobs rodam na VPS, no usuário gh-runner com Docker
+# rootless, filtro de rede e vigias de início e fim de job (infra/runner/). Custo de minutos do Actions: zero. Os
+# `container:` com --cpus/--memory são conveniência, não barreira: o limite real é a user-1500.slice (o YAML de um PR pode
+# tirar isto). Nunca usar este runner em pull_request_target, workflow_run ou issue_comment (guarda em
+# test/runner-proprio.test.ts).
 jobs:
   # Plano 12 (R-D1, dono, 07/10/2026): PR ou push na main só de documentação (docs/**, *.md, .claude/agents/**) não roda
   # test, e2e nem image (economia de minutos do Actions), e o deploy não reconstrói a imagem. Sem ação de terceiros: git diff
   # contra a base (PR: o ponto em que o branch saiu da main; push: o commit anterior). Na dúvida — base ausente ou fora do
   # histórico (primeiro push, push forçado), diff vazio —, roda tudo. O quality roda sempre.
   mudancas:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 5
     outputs:
       codigo: ${{ steps.filtro.outputs.codigo }}
@@ -55,61 +60,94 @@ jobs:
           echo "codigo=${codigo}" >> "$GITHUB_OUTPUT"
 
   quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --cpus 4 --memory 6g -v nutri-ci-pnpm:/pnpm-store
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
       - run: pnpm lint
       - run: pnpm typecheck
 
   test:
     needs: mudancas
     if: needs.mudancas.outputs.codigo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      # Sem DAC_OVERRIDE/DAC_READ_SEARCH: o job roda como root no contêiner, e os testes de pasta ilegível (chmod 000)
+      # precisam que as permissões valham, como no usuário comum do runner hospedado
+      options: >-
+        --cpus 4 --memory 8g
+        --cap-drop DAC_OVERRIDE --cap-drop DAC_READ_SEARCH
+        -v nutri-ci-pnpm:/pnpm-store
+        -v /run/user/1500/docker.sock:/run/user/1500/docker.sock
+        -v /usr/bin/docker:/usr/local/bin/docker:ro
+        -v /usr/bin/rclone:/usr/local/bin/rclone:ro
+    env:
+      DOCKER_HOST: unix:///run/user/1500/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /run/user/1500/docker.sock
+      # A porta publicada do Docker rootless só existe do lado do host: o job fala com o Postgres pelo IP na rede bridge
+      # (test/postgres-teste.ts). Sem Ryuk: o vigia fim.sh apaga todos os contêineres no fim de cada job.
+      NUTRI_CI_REDE_DIRETA: '1'
+      TESTCONTAINERS_RYUK_DISABLED: 'true'
     steps:
+      - name: docker e rclone do host (montados só leitura), daemon rootless e job ligado à rede bridge
+        run: |
+          command -v rclone && command -v docker
+          docker info -f '{{.SecurityOptions}}' | grep -q rootless
+          test "$(docker info -f '{{.Swarm.LocalNodeState}}')" = inactive
+          docker network connect bridge "$(hostname)"
+      - name: jq (o ci-ja-passou.sh usa; a imagem do Playwright não traz)
+        # Binário estático oficial, conferido pelo sha256 publicado na release (o apt não roda sem DAC_OVERRIDE)
+        run: |
+          curl -fsSL -o /usr/local/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+          echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  /usr/local/bin/jq" | sha256sum -c -
+          chmod 755 /usr/local/bin/jq && jq --version
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - name: rclone (teste do script de backup, P02-10)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rclone
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
       - run: pnpm test   # inclui a guarda de RLS (Testcontainers usa o Docker do runner)
 
   e2e:
     needs: mudancas
     if: needs.mudancas.outputs.codigo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --cpus 4 --memory 8g --shm-size 1g -v nutri-ci-pnpm:/pnpm-store
     services:
       postgres:
         image: postgres:16-alpine
         env: { POSTGRES_USER: owner, POSTGRES_PASSWORD: owner, POSTGRES_DB: nutri }
-        ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U owner -d nutri" --health-interval 5s --health-timeout 5s --health-retries 20
       mailpit:
         image: axllent/mailpit:v1.27
-        ports: ['8025:8025', '1025:1025']
     env:
       NODE_ENV: production
-      APP_URL: http://localhost:3000
-      DATABASE_URL: postgres://nutri_app:ci-app@localhost:5432/nutri
-      DATABASE_URL_MIGRATOR: postgres://owner:owner@localhost:5432/nutri
+      APP_URL: http://localhost:3000   # localhost do contêiner do job (não o painel do Easypanel)
+      # Serviços pelo nome, na rede do job (o runner próprio não publica portas)
+      DATABASE_URL: postgres://nutri_app:ci-app@postgres:5432/nutri
+      DATABASE_URL_MIGRATOR: postgres://owner:owner@postgres:5432/nutri
       AUTH_SECRET: ci-secret-with-at-least-32-characters-long
       ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       # TEST-NET-1: validação de produção satisfeita sem confiar em nenhum IP; o E2E manda um único X-Forwarded-For
       TRUSTED_PROXIES: 192.0.2.0/24
       EMAIL_FROM: 'NutriDebby <nao-responda@nutridebby.test>'
       EMAIL_TRANSPORT: mailpit
-      MAILPIT_URL: http://localhost:8025
+      MAILPIT_URL: http://mailpit:8025
       FILE_URL_SECRET: ci-file-url-secret-with-at-least-32-chars
-      DATA_DIR: /tmp/nd-data
+      DATA_DIR: /tmp/nd-data   # /tmp do contêiner do job, descartado no fim
       TURNSTILE_SITE_KEY: 1x00000000000000000000AA
       TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
       # Plano 05 (D1): WhatsApp pelo sandbox (Mailpit); o E2E assina os webhooks com o segredo
@@ -124,9 +162,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
+      - run: pnpm exec playwright install chromium   # a imagem já traz as dependências do sistema
       - run: pnpm db:migrate
       - run: pnpm e2e:seed
       - run: pnpm build
@@ -138,26 +176,34 @@ jobs:
   image:
     needs: mudancas
     if: needs.mudancas.outputs.codigo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: [self-hosted, nutri-ci]   # no host do runner; DOCKER_HOST vem do .env do runner (daemon rootless)
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+        with: { driver: docker }
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: false
           load: true
           tags: nutridebby:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       - name: Orçamento da imagem (GHCR grátis = 500 MB para as 2 versões mantidas)
         # M1: pipefail — falha do `docker save` não pode virar 0 MB aprovado; MB arredondado para cima
         # Plano 12 (D-R2, aprovada pelo dono em 07/10/2026): o limite sobe de 260 para 265 MB (o PDFium em WASM da rasterização)
         shell: bash
         run: |
           set -euo pipefail
-          bytes=$(docker save nutridebby:ci | gzip -6 | wc -c)
+          # Mesma conta em qualquer Docker: o pacote do `docker save` com as camadas SEM compressão, comprimido de uma vez
+          # (gzip -6). O Docker 28 hospedado já salva as camadas assim; o 29 do runner próprio (armazenamento do containerd)
+          # salva em gzip, então elas são descomprimidas antes (medir sem isso dava 266-267 MB contra 263, em 12/10/2026).
+          d="$RUNNER_TEMP/orcamento-imagem"; rm -rf "$d"; mkdir -p "$d"
+          docker save nutridebby:ci | tar -x -C "$d"
+          find "$d" -type f -size +0 | while read -r f; do
+            if gzip -t "$f" 2>/dev/null; then gzip -dc "$f" > "$f.u" && mv "$f.u" "$f"; fi
+          done
+          bytes=$(tar -C "$d" -cf - . | gzip -6 | wc -c)
+          rm -rf "$d"
           mb=$(( (bytes + 1024 * 1024 - 1) / 1024 / 1024 ))
           echo "Imagem comprimida: ${mb} MB (limite 265 MB)"
           test "$mb" -le 265 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 265 MB"; exit 1; }
@@ -199,3 +245,6 @@ jobs:
             const r = await rasterizarPdf(Buffer.from(await d.save()), { limitePaginas: 10, ladoMax: 2000, maxPixelsImagem: 20000000 }, async () => { n++; });
             if (r.paginas !== 1 || n !== 1) throw new Error('rasterização falhou na imagem');
             console.log('rasterização ok na imagem');"
+      - name: Limpar a imagem do CI
+        if: always()
+        run: docker image rm -f nutridebby:ci

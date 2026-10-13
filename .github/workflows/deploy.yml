@@ -3,15 +3,37 @@ name: deploy
 on:
   push:
     branches: [main]
+  # Emergência (runner próprio fora do ar, docs/operacao/runner-proprio.md): publica a main SEM rodar o CI. Só depois da
+  # validação local (lint, typecheck, test, e2e) e com o OK explícito do dono.
+  workflow_dispatch:
+    inputs:
+      confirmo:
+        description: 'Digite PUBLICAR-SEM-CI para confirmar que a validação local passou e o dono autorizou'
+        required: true
 
 permissions:
   contents: read
 
+# A emergência (workflow_dispatch) cancela o deploy de push em curso: com o runner próprio fora do ar, esse deploy fica
+# preso na fila do CI (até 24 h) segurando o grupo, e a emergência esperaria atrás dele. O push nunca cancela nada.
+# Disparo recusado (confirmação errada ou fora da main) vai para um grupo só dele: não cancela nem tira da fila o deploy
+# de push (no grupo, o pendente novo sempre derruba o pendente anterior, com ou sem cancel-in-progress).
 concurrency:
-  group: deploy-main
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/main' && inputs.confirmo == 'PUBLICAR-SEM-CI') && format('deploy-recusado-{0}', github.run_id) || 'deploy-main' }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
+  # Disparo manual com a confirmação errada ou fora da main: falha à vista (senão a execução fecharia verde, toda skipped,
+  # e pareceria publicada)
+  confirmar:
+    if: github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/main' && inputs.confirmo == 'PUBLICAR-SEM-CI')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          echo "::error::Publicação de emergência recusada: dispare na main e digite exatamente PUBLICAR-SEM-CI"
+          exit 1
+
   # Dono, 09/10/2026 (economia de minutos do Actions, plano Free): o merge de um PR não repete o CI que o PR já passou.
   # O decidir só responde pular=true quando o commit da main é o merge de um PR, tem a árvore IDÊNTICA à do head do
   # PR (que já continha a main anterior) e o ci.yml desse head terminou em success com quality, test, e2e e image em
@@ -19,6 +41,8 @@ jobs:
   # ar, sem PR, árvore diferente, CI cancelado, com falha, em andamento ou PR só de documentação —, pular=false e o CI
   # completo roda como antes. Se o próprio decidir falhar, o CI também roda (fail-safe).
   decidir:
+    if: github.event_name == 'push'
+    # Fica hospedado: não depende do runner próprio e não pode ser forjado por ele (≈1 min por merge)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -42,19 +66,23 @@ jobs:
 
   ci:
     needs: decidir
-    if: ${{ !cancelled() && needs.decidir.outputs.pular != 'true' }}
-    uses: ./.github/workflows/ci.yml
+    if: ${{ github.event_name == 'push' && !cancelled() && needs.decidir.outputs.pular != 'true' }}
+    uses: ./.github/workflows/ci.yml   # roda no runner próprio (custo zero)
 
   publish:
     needs: [decidir, ci]
     # Publica quando (a) o decidir confirmou que o CI já passou no PR — então o ci foi pulado e o PR tinha código
     # (test/e2e/image rodaram) — ou (b) o CI rodou aqui e passou com mudança de código.
     # Plano 12 (R-D1): commit só de documentação não reconstrói a imagem nem refaz o deploy (ci.yml, job mudancas)
+    # (c) Emergência: disparo manual na main com a confirmação digitada (decidir e ci ficam skipped; o !cancelled() deixa
+    # este job ser avaliado mesmo assim).
     if: >-
       ${{ !cancelled() && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmo == 'PUBLICAR-SEM-CI') ||
         (needs.decidir.result == 'success' && needs.decidir.outputs.pular == 'true' && needs.ci.result == 'skipped') ||
         (needs.ci.result == 'success' && needs.ci.outputs.codigo == 'true')
       ) }}
+    # Fica hospedado: os webhooks do Easypanel e o packages:write nunca vão para a VPS
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -82,8 +110,9 @@ jobs:
           # com min-versions-to-keep conta versões reais de imagem.
           provenance: false
           sbom: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Sem cache do Actions (type=gha): os jobs do CI no runner próprio recebem o token do runtime, que grava no
+          # cache do escopo da main mesmo sem `permissions:`; um runner comprometido envenenaria camadas que este job
+          # importaria para a imagem de produção (revisão de segurança do PR #33). O build é sempre do zero aqui.
       # Poda logo após o push e antes dos webhooks: se o deploy falhar (ex.: segredos
       # ainda não cadastrados), a poda já rodou. Mantém a imagem recém-publicada e a
       # anterior (a que está rodando), então nunca remove a imagem em uso.

@@ -10,6 +10,13 @@ metadata:
 (PR #23). Push do `c3eb4fe` fica com quem orquestra.
 Spec da IA v0.4, spec do MVP v1.13. Cap. 10 = IA; caps. 01–08 citam a IA.
 
+**Manual técnico — CI no runner próprio** (12/10/2026, branch `runner-proprio`, base `bbd7728`, sem commit meu; o
+controlador comita): §7.7 reescrita (jobs no `[self-hosted, nutri-ci]`, peças do isolamento, guardas
+`test/runner-proprio.test.ts`, emergência `PUBLICAR-SEM-CI` com job `confirmar`), §1.8/§1.9/§1.10 (tabela "Fora dos
+planos" na cronologia; linha do 14A agora com #29/#31), caps. 2, 6, 8 (D8 diária, lacuna 27, lacuna 12 resolvida) e
+README (glossário, divergência #96). Sem mudança para o manual do usuário nem para `conteudo.ts`. A divergência do
+§4.1.1 (/admin "Consultas no mês") foi corrigida no commit `2500508` desse branch.
+
 **Manual do usuário — Plano 12** (exames do paciente + sessão da equipe 30 min/8 h): proposta entregue em 08/10/2026 em
 `.superpowers/sdd/2026-10-08-plano13-preparacao/manual-usuario-plano12.md` do worktree `nutridebby-plano13` (main `3b59c38`);
 aplicação com quem orquestra. Cap. 11 do técnico ainda diz "sem merge" e erra o 404 de `/p/exames` (só a API recusa).
@@ -19,8 +26,7 @@ Guia `configuracoes` v3 não cita a seção de exames (`data-guia="exames-app"` 
 da conta, app do paciente G, peso oculto, autorização de IA, lista de exames que se atualiza): proposta entregue em
 09/10/2026 no scratchpad da sessão (não versionada), base `main` `23d41b5` (cópia `nutridebby-ci-guarda`). Inclui a
 Parte 2 "o que deixa de valer" (portal de 7 abas, tabela antiga do /admin, ciência de IA do Plano 11, textos do Plano 12)
-e blocos A–F do roteiro. Aplicação com quem orquestra. Divergência achada no técnico: §4.1.1 (`04-...md:55`) diz que a
-lista do /admin mostra "armazenamento"; o código mostra "Consultas no mês".
+e blocos A–F do roteiro. Aplicação com quem orquestra. Divergência do §4.1.1 (lista do /admin) corrigida em `2500508` (branch `runner-proprio`).
 
 **Manual do usuário — atualização do PR #31** (textos 1.0 da IA, Anthropic EUA com guarda de 30 dias, prazo de guarda
 contado do bloqueio, migration 0110): nova versão da proposta acima entregue em 09/10/2026 no scratchpad da sessão

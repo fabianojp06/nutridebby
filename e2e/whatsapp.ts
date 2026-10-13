@@ -10,9 +10,16 @@ import { instanciaDoTenant } from '@/modules/notificacoes/whatsapp/conexao';
 import { assinarJwtWebhook, chaveDoWebhook } from '@/modules/notificacoes/whatsapp/jwt';
 import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 
-// CI: as variáveis do job; local: os padrões do .env.example (o Playwright não lê o .env.local)
-const SEGREDO = process.env.EVOLUTION_WEBHOOK_SECRET ?? 'dev-webhook-secret-com-pelo-menos-32-caracteres';
-const BANCO = process.env.DATABASE_URL ?? 'postgres://nutri_app:dev-app@localhost:54329/nutri';
+// CI: as variáveis do job, obrigatórias (no runner próprio, cair no padrão de dev apontaria para o banco de dev da VPS);
+// local: os padrões do .env.example (o Playwright não lê o .env.local)
+function doAmbiente(nome: string, padraoDev: string): string {
+  const valor = process.env[nome];
+  if (valor) return valor;
+  if (process.env.CI) throw new Error(`${nome} não definida no CI (o E2E não cai no padrão de dev)`);
+  return padraoDev;
+}
+const SEGREDO = doAmbiente('EVOLUTION_WEBHOOK_SECRET', 'dev-webhook-secret-com-pelo-menos-32-caracteres');
+const BANCO = doAmbiente('DATABASE_URL', 'postgres://nutri_app:dev-app@localhost:54329/nutri');
 
 async function comBanco<T>(fn: (db: Db) => Promise<T>): Promise<T> {
   const pool = new Pool({ connectionString: BANCO, max: 1 });

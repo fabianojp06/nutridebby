@@ -1,0 +1,30 @@
+# /etc/nutri-ci/egress.nft — filtro de saída do runner de CI (docs/operacao/runner-proprio.md, passo 5)
+# Tabela própria: nunca usar "flush ruleset" nem ativar o nftables.service (apagaria as regras do Docker de produção).
+table inet nutri_ci_egress
+delete table inet nutri_ci_egress
+table inet nutri_ci_egress {
+  set privadas4 { type ipv4_addr; flags interval; elements = {
+    0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16,
+    172.16.0.0/12, 192.168.0.0/16, 179.197.68.197, 224.0.0.0/3 } }
+  set dns4 { type ipv4_addr; elements = { 153.92.2.6, 1.1.1.1, 8.8.4.4 } }
+
+  # Cadeia base: SÓ desvia o que pertence ao CI. Pacote sem socket (RST, ICMP, TIME_WAIT)
+  # não casa com skuid e segue a política accept — a produção nunca passa pela cadeia "ci".
+  chain saida {
+    type filter hook output priority filter - 10; policy accept;
+    meta skuid { 1500, 165536-231071 } jump ci
+  }
+
+  chain ci {
+    ct direction reply oifname != "lo" counter drop
+    ip daddr { 127.0.0.53, 127.0.0.54 } meta l4proto { udp, tcp } th dport 53 accept
+    oifname "lo" counter reject
+    ip daddr @privadas4 counter reject with icmpx admin-prohibited
+    meta nfproto ipv6 counter reject with icmpx admin-prohibited
+    ip daddr @dns4 meta l4proto { udp, tcp } th dport 53 accept
+    tcp dport { 80, 443 } ct state new accept
+    ct state established,related accept
+    limit rate 10/minute log prefix "nutri-ci-negado " counter
+    counter reject with icmpx admin-prohibited
+  }
+}

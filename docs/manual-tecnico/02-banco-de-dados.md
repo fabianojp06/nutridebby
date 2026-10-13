@@ -10,7 +10,7 @@ Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" 
 
 | Item | Valor | Fonte |
 |---|---|---|
-| SGBD | PostgreSQL 16 (`postgres:16-alpine` em dev e nos testes) | `docker-compose.dev.yml`, `test/global-setup.ts:9` |
+| SGBD | PostgreSQL 16 (`postgres:16-alpine` em dev e nos testes) | `docker-compose.dev.yml`, `test/postgres-teste.ts:11` |
 | Extensões | `citext`, `pg_trgm`, `unaccent`, `btree_gist` | `drizzle/0000_base_roles_e_rls.sql:1-7` |
 | ORM | Drizzle (`drizzle-orm` 0.45.3) com `node-postgres` | `package.json`, `src/db/client.ts:1-2` |
 | Schema TS | `src/db/schema/*.ts` (reexportado por `index.ts`) | `drizzle.config.ts:5`, `src/db/schema/index.ts` |
@@ -107,9 +107,9 @@ Consequência operacional: a senha do role da aplicação volta sozinha a cada s
 | Ambiente | Comando | Quem é o migrator | Fonte |
 |---|---|---|---|
 | Dev | `docker compose -f docker-compose.dev.yml up -d` e `pnpm db:migrate` | `nutri_owner` do compose (superusuário do container de dev) | `package.json` (`db:migrate`), `docker-compose.dev.yml` |
-| Testes (Vitest) | automático no `globalSetup` | superusuário do Testcontainers | `test/global-setup.ts:8-16` |
+| Testes (Vitest) | automático no `globalSetup` | superusuário do Testcontainers | `test/global-setup.ts:9-17` |
 | Teste do migrator sem superusuário | `src/db/migrate-owner.test.ts` (cluster próprio montado como o runbook) | role com `CREATEROLE`, dono do banco | `src/db/migrate-owner.test.ts:41-127` |
-| CI (E2E) | `pnpm db:migrate` antes do `e2e:seed` | — | `.github/workflows/ci.yml:84` |
+| CI (E2E) | `pnpm db:migrate` antes do `e2e:seed` | — | `.github/workflows/ci.yml:168` |
 | Produção | automático: `docker-entrypoint.sh` roda `scripts/migrate.ts` antes do `next start` | `nutri_owner` | `docker-entrypoint.sh:8-10` |
 
 `pnpm db:migrate` = `tsx --env-file-if-exists=.env.local scripts/migrate.ts`. O script lê `getMigratorEnv()` e chama `runMigrations({ migratorUrl, appUrl })` com um pool de 1 conexão (`scripts/migrate.ts:1-5`, `src/db/migrate.ts:8-18`). Rodar de novo é seguro (`src/db/migrate.test.ts:67`).
@@ -513,7 +513,7 @@ Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` p
 
 ## 2.7 Guardas no CI
 
-As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da verdade do código. Os testes comparam cada lista com o catálogo do banco (`pg_policies`, `pg_trigger`) nos dois sentidos possíveis e também com nomes que não existem mais (`findStaleExceptions`, `src/db/rls-guard.ts:85`). Rodam no `pnpm test` do CI (`.github/workflows/ci.yml:42`). O porquê de conferir a expressão (e não só o nome) e de "negar por padrão" está em [§7.4.1](07-testes-qualidade-e-processo.md#741-guardas-de-banco-catálogo-do-postgres).
+As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da verdade do código. Os testes comparam cada lista com o catálogo do banco (`pg_policies`, `pg_trigger`) nos dois sentidos possíveis e também com nomes que não existem mais (`findStaleExceptions`, `src/db/rls-guard.ts:85`). Rodam no `pnpm test` do CI (`.github/workflows/ci.yml:118`, job `test`, no runner próprio). O porquê de conferir a expressão (e não só o nome) e de "negar por padrão" está em [§7.4.1](07-testes-qualidade-e-processo.md#741-guardas-de-banco-catálogo-do-postgres).
 
 | Lista | Conteúdo hoje | Guarda | Teste |
 |---|---|---|---|
@@ -533,7 +533,7 @@ Outros testes de isolamento:
 - `test/isolamento.test.ts` (RNF-07, US-006; detalhe em [§7.4.2](07-testes-qualidade-e-processo.md#742-a-matriz-de-isolamento-testisolamentotestts)): exige uma fábrica em `FABRICAS` (`:24`) para **toda** tabela com `tenant_id` fora de `RLS_EXCEPTIONS` (`:200-202`). Com dois tenants e dois pacientes por tenant, tenta ler, alterar, excluir e gravar linha alheia em cada contexto (`nutri` de outro tenant, `paciente`, `publico`, `conta`). Tabela-mãe com FK `NO ACTION` entra em `ULTIMAS` (`:113`), apagada por último.
 - `src/db/tenant.test.ts`: contexto inválido, reaproveitamento do pool, `audit_log` sem `UPDATE`/`DELETE`, `withConta`.
 - `src/db/migrate.test.ts:15-29`: o role da aplicação não é superusuário nem `BYPASSRLS` e é membro de `nutri_app_role` (Plano 01, Review Focus 2: o superusuário do Testcontainers mascararia a RLS).
-- Fixtures de teste `rls_fixture_patient_items` e `audit_fixture_registros`, criadas só no `globalSetup` (`test/global-setup.ts:18-42`).
+- Fixtures de teste `rls_fixture_patient_items` e `audit_fixture_registros`, criadas só no `globalSetup` (`test/global-setup.ts:19-44`).
 
 ---
 

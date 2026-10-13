@@ -1,0 +1,9 @@
+[Unit]
+Description=Alarme de runner do CI fora do ar (ping ao healthchecks.io)
+After=network-online.target user@1500.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nutri-ci/nutri-ci-alarme.sh
+TimeoutStartSec=90
