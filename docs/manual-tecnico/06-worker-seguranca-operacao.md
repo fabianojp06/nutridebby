@@ -668,7 +668,9 @@ constantes em [§4.1.4 Monitoramento de backup e disco](04-modulos-clinicos.md#4
 | `test/backup.test.ts` | Roda o script contra um remoto `crypt` sobre pasta local (sem R2, decisão "Alvo S3 nos testes" do Plano 02): domingo com semanal, histórico datado e poda, falhas do dump, do envio, da retenção, dos roles e da promoção do `globais.sql`, container ausente, sem `stderr` no log; e que **nenhum outro código cita o script** (linha 247) |
 | `test/restauracao.test.ts` | Restaura num banco descartável e confere as guardas; `SECURITY DEFINER` com dono superusuário reprova; `globais.sql` vazio = ausente; dump sem as tabelas do app falha; dia sem dump falha |
 
-O CI instala `rclone` e falha se ele faltar (`.github/workflows/ci.yml:40-41`; `test/backup.test.ts:19`).
+No CI, o `rclone` e o `docker` do host são montados só leitura no contêiner do job `test` do runner próprio, que confere
+que existem antes dos testes (`.github/workflows/ci.yml:91-92`, `:101-106`); sem `rclone`, o teste falha no CI
+(`test/backup.test.ts:20`). O `docker exec` do teste vai ao Docker rootless do CI, que não vê os contêineres de produção.
 **Nunca rode `nutri-backup.sh` fora desse teste** — há bancos de produção no host (regra 10).
 
 ### 6.5.8 Teste de restauração mensal
@@ -773,7 +775,10 @@ nele.
 
 Merge na `main` = deploy (só com OK do dono, regra 6 do CLAUDE.md). O pipeline completo (CI, imagem no GHCR com
 `:<sha>` e `:latest`, poda para 2 versões, webhooks do Easypanel, migrations no boot do `nutri_app`) está em
-[§7.7 Pipeline do CI e deploy](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy). Antes do merge, o dono tira o snapshot no hPanel
+[§7.7 Pipeline do CI e deploy](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy). Desde 12/10/2026 o CI roda
+no runner próprio da VPS; com ele fora do ar, o deploy normal fica parado e só sobra a publicação de emergência sem CI
+(disparo manual do `deploy.yml` na `main` com `PUBLICAR-SEM-CI`), com validação local e OK do dono
+(`docs/operacao/runner-proprio.md`). Antes do merge, o dono tira o snapshot no hPanel
 (`docs/operacao/go-live.md:31`).
 
 O worker que sobe antes das migrations cai e volta sozinho (`docs/operacao/carga.md:17`).
@@ -784,8 +789,8 @@ Por que não basta "redeploy": `nutri_app` e `nutri_worker` usam `ghcr.io/fabian
 redeploy puxa de novo o `:latest`, que é a imagem quebrada. É preciso fixar o SHA anterior. Toda troca de imagem é
 feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e reinicia serviço (regra 3 do servidor).
 
-1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:77-79`)
-   e poda o pacote para as 2 versões mais recentes (`deploy.yml:87-95`). A anterior é o merge de antes na `main`
+1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:103-105`)
+   e poda o pacote para as 2 versões mais recentes (`deploy.yml:113-121`). A anterior é o merge de antes na `main`
    (`git log --first-parent main`) e aparece na lista de versões do pacote no GHCR.
 2. **Conferir as migrations.** O Drizzle só avança: não há migration de volta, e o banco fica no schema novo. Se o
    deploy quebrado aplicou uma migration de **contração** (removeu ou renomeou coluna, tabela ou função que a versão
@@ -801,7 +806,7 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
    dos dois serviços sem erro (`docker service logs`, leitura livre pela regra 2 do servidor).
 5. **Corrigir para frente.** A correção segue o fluxo normal: PR → revisão → OK do dono. **Antes do merge**, o dono
    volta os dois serviços para `:latest` no Easypanel. Por quê: o webhook só manda o Easypanel reimplantar a imagem
-   configurada (`deploy.yml:96-103`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
+   configurada (`deploy.yml:122-129`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
    GHCR remove esse SHA dois deploys depois.
 6. **Snapshot do hPanel só como último recurso** (banco corrompido, servidor sem subir). O snapshot volta a VPS
    inteira: inclusive o `cursoia_crm` e os outros projetos do servidor, e perde tudo o que foi gravado depois dele

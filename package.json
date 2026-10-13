@@ -74,6 +74,7 @@
     "otpauth": "^9.5.2",
     "prettier": "^3.9.9",
     "tailwindcss": "^4",
+    "testcontainers": "12.1.0",
     "typescript": "^5",
     "vitest": "5.0.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

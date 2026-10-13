@@ -122,7 +122,7 @@ Versões conferidas em `package.json` (dependências fixadas; `^` indica faixa).
 | `tailwindcss`, `@tailwindcss/postcss` | ^4 | Estilos; tokens `--nd-*` por tema (spec §4.3) |
 | `vitest` | 5.0.2 | Testes unitários e de banco |
 | `@testcontainers/postgresql` | 12.1.0 | Postgres real nos testes (RLS, isolamento) |
-| `@playwright/test` | 1.63.0 | E2E (projetos `chromium`, `celular`, `painel`, `playwright.config.ts:11-16`) |
+| `@playwright/test` | 1.63.0 | E2E (projetos `chromium`, `celular`, `painel`, `playwright.config.ts:14-20`) |
 | `@axe-core/playwright` | 4.13.0 | Acessibilidade (RNF-10) |
 | `eslint`, `eslint-config-next` | ^9, 16.3.6 | Lint |
 | `prettier` | ^3.9.9 | Formatação |
@@ -153,7 +153,7 @@ Um repositório, **uma imagem Docker**, três processos possíveis — **app** (
 | Decisão | Motivo | Fonte |
 |---|---|---|
 | Monólito modular em Next.js, não microsserviços | Um dev, uma VPS compartilhada, deploy simples; módulos por domínio mantêm a separação | Spec §4, §4.1; D-04 |
-| Worker na **mesma imagem** | Mesmo código de domínio no app e nos jobs; uma imagem só no GHCR gratuito (500 MB para 2 versões) | Plano 01, "Architecture"; `.github/workflows/ci.yml:107-114` |
+| Worker na **mesma imagem** | Mesmo código de domínio no app e nos jobs; uma imagem só no GHCR gratuito (500 MB para 2 versões) | Plano 01, "Architecture"; `.github/workflows/ci.yml:191-209` (orçamento da imagem) |
 | Fila no **Postgres** (pg-boss), sem Redis | Um serviço a menos; o envio do job entra na **mesma transação** da escrita (`enqueueEmail(msg, { tx })`) | Spec §4; Plano 02, "Fila de e-mail" |
 | Isolamento por **RLS forçada** no banco | Um erro de código não expõe outro consultório nem outro paciente | RNF-07; Plano 01, Global Constraints |
 | Código pesado **só no worker** (PDF, ZIP, web-push, HEIC) | Mantém o grafo do Next leve e evita processamento longo na requisição | Plano 03, "PDF e ZIP"; Plano 05, D19; Plano 06, D10 |
@@ -507,6 +507,7 @@ Nenhuma rota de API passa pelo `src/proxy.ts` (§1.4).
 | Projeto no Easypanel | `nutri`, com os serviços `nutri_app`, `nutri_worker`, `nutri_db` | Plano 01, Tarefa 13; `docker service ls` (05/10/2026) |
 | Vizinhos | O CRM `cursoia_crm` roda na mesma VPS e não pode ser afetado | Spec RNF-03, P-05 |
 | Domínio | `https://nutri.wsscloud.tech` (produção) | Backlog, "Resumo"; Plano 08, D8 |
+| Runner de CI (desde 12/10/2026) | Runner próprio do GitHub Actions (`vps-nutri-ci`, rótulo `nutri-ci`) no usuário `gh-runner` (UID 1500): Docker rootless próprio, sem Swarm e sem acesso ao socket de produção; `user-1500.slice` com 4 de 8 vCPU, 12 GB e sem swap; disco de 100 GB em imagem ext4; filtro de saída nft (só 80/443 e DNS); vigias de início e fim de job | `docs/operacao/runner-proprio.md` (seção 0 = como ficou instalado); `infra/runner/`; [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) |
 
 **Regra de operação:** configuração de serviço (variáveis, domínio, imagem, volumes) muda **só pelo Easypanel**,
 nunca por `docker service update` — o Easypanel sobrescreve no próximo deploy (`CLAUDE.md` do servidor, regra 1;
@@ -560,21 +561,22 @@ O `src/` vai para a imagem porque o worker, as migrations e o `admin:criar` roda
 Por que remover `DATABASE_URL_MIGRATOR`: é a credencial do dono do schema, capaz de desligar a RLS; só o script de
 migrations a recebe (`src/env.ts:6-10`, comentário RNF-07).
 
-### Deploy: CI no GitHub Actions → GHCR → Easypanel
+### Deploy: CI no runner próprio → GHCR → Easypanel
 
 ```mermaid
 flowchart LR
   PR[Pull request] --> CI
-  subgraph CI["ci.yml (PR e chamado pelo deploy)"]
+  subgraph CI["ci.yml (PR e chamado pelo deploy) — runner próprio na VPS, um job por vez"]
     Q[quality<br/>lint + typecheck]
-    TE[test<br/>Vitest + Testcontainers + rclone]
+    TE[test<br/>Vitest + Testcontainers<br/>rclone do host]
     E2E[e2e<br/>Postgres 16 + Mailpit<br/>migrate, seed, build, Playwright]
     IMG[image<br/>build local + orçamento 265 MB]
   end
   M[Merge na main<br/>= deploy] --> D
-  subgraph D["deploy.yml (push na main)"]
+  subgraph D["deploy.yml (push na main; decidir e publish no GitHub)"]
     DEC[decidir: o PR já passou<br/>o CI nesta árvore?] -->|não ou dúvida| C2[job ci: reusa ci.yml]
     DEC -->|sim| PUB
+    EMG[disparo manual na main<br/>PUBLICAR-SEM-CI<br/>emergência, OK do dono] --> PUB
     C2 --> PUB[publish<br/>build + push GHCR<br/>:sha e :latest]
     PUB --> PODA[poda: mantém 2 versões]
     PODA --> HK[POST webhooks Easypanel<br/>app e worker]
@@ -582,8 +584,13 @@ flowchart LR
   HK --> EP[Easypanel puxa :latest<br/>nutri_app migra e sobe<br/>nutri_worker sobe]
 ```
 
-Resumo: o CI roda quatro jobs em paralelo (`.github/workflows/ci.yml`); o deploy (`.github/workflows/deploy.yml`) reusa
-o CI — ou o pula, quando o PR já passou o CI na mesma árvore (job `decidir`, desde 09/10/2026) —, publica `:<sha>` e `:latest` no GHCR, poda para 2 versões e chama os webhooks do Easypanel do app e do worker.
+Resumo: o CI (`.github/workflows/ci.yml`) tem os jobs `mudancas`, `quality`, `test`, `e2e` e `image`. Desde 12/10/2026,
+eles rodam no runner próprio da VPS, um por vez, e o CI de PR não gasta minutos do Actions. O deploy
+(`.github/workflows/deploy.yml`) reusa o CI — ou o pula, quando o PR já passou o CI na mesma árvore (job `decidir`,
+desde 09/10/2026) —, publica `:<sha>` e `:latest` no GHCR, poda para 2 versões e chama os webhooks do Easypanel do app e
+do worker. O `decidir` e o `publish` ficam no GitHub (`ubuntu-latest`): os segredos de deploy e o `packages: write`
+nunca vão para a VPS, e a imagem publicada é montada lá. Com o runner fora do ar, há a publicação de emergência sem CI
+(disparo manual com `PUBLICAR-SEM-CI`, só com validação local e OK do dono).
 As migrations rodam no start do app (`docker-entrypoint.sh:9`), por isso seguem **expand/contract** (spec §9.7).
 Volta atrás: fixar o `:<sha>` anterior no app e no worker (os serviços usam `:latest`), sem voltar migration; roteiro
 em [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás). Jobs, passos, variáveis do CI e o porquê de cada escolha:
@@ -597,7 +604,7 @@ obrigatória a cada entrega").
 | Ambiente | Onde | Composição |
 |---|---|---|
 | dev | VPS, `docker-compose.dev.yml` | Postgres 16 em `127.0.0.1:54329`, Mailpit em `:8025`, `pnpm dev` na porta **3100** (a 3000 é o painel do Easypanel), `pnpm worker` |
-| CI | GitHub Actions | Postgres e Mailpit como `services`; Testcontainers no `pnpm test` |
+| CI | Runner próprio na VPS (desde 12/10/2026), isolado da produção: usuário `gh-runner`, Docker rootless, `user-1500.slice`, filtro de rede ([§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy); `docs/operacao/runner-proprio.md`) | Jobs em contêiner `mcr.microsoft.com/playwright:v1.63.0-noble`; Postgres e Mailpit como `services` sem portas publicadas, pelo nome na rede do job; Testcontainers no `pnpm test`, pelo IP do contêiner. O `decidir` e o `publish` do deploy rodam no GitHub |
 | carga | VPS, `docker-compose.carga.yml` | Banco próprio, imagem do GHCR, portas só em `127.0.0.1`; nunca contra produção (Plano 08, D5) |
 | prod | Easypanel, projeto `nutri` | Tabela "Serviços" acima |
 | staging | — | Fase 2 (spec §9.4) |
@@ -673,9 +680,9 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `PORT` | Imagem | Não (padrão 3000) | Porta do `next start` (`Dockerfile:26`; `docker-entrypoint.sh:10`) |
 | `NEXT_RUNTIME` | Definida pelo Next | — | `src/instrumentation.ts` só liga o Sentry no runtime `nodejs` |
 | `GIT_SHA`, `DEPLOY_TIMESTAMP` | Presentes nos serviços (observado em 05/10/2026) | — | Nenhuma leitura no código |
-| `GITHUB_TOKEN` | GitHub Actions | Automática | Login no GHCR no `deploy.yml` |
-| `EASYPANEL_DEPLOY_HOOK_APP`, `EASYPANEL_DEPLOY_HOOK_WORKER` | Segredos do repositório no GitHub | **Sim** para o deploy | URLs de "Deploy Webhook" do Easypanel (`.github/workflows/deploy.yml:60-61`) |
-| `CI` | GitHub Actions | — | Ajusta o Playwright (`playwright.config.ts`) e os testes de backup/restauração |
+| `GITHUB_TOKEN` | GitHub Actions | Automática | Login no GHCR no `deploy.yml` (job `publish`, hospedado). No runner próprio, os jobs do `ci.yml` só têm `contents: read` |
+| `EASYPANEL_DEPLOY_HOOK_APP`, `EASYPANEL_DEPLOY_HOOK_WORKER` | Segredos do repositório no GitHub | **Sim** para o deploy | URLs de "Deploy Webhook" do Easypanel (`.github/workflows/deploy.yml:124-125`); só no `publish`, hospedado (guarda `test/runner-proprio.test.ts`) |
+| `CI` | GitHub Actions (também no runner próprio) | — | Ajusta o Playwright (`playwright.config.ts`: `retries` 1, `workers` 2) e o Vitest (`vitest.config.ts`: `maxWorkers` 3), torna o `rclone` obrigatório nos testes de backup/restauração e faz `e2e/mailpit.ts` e `e2e/whatsapp.ts` lançarem erro sem `MAILPIT_URL`, `EVOLUTION_WEBHOOK_SECRET` ou `DATABASE_URL` |
 
 ### Host (backup) e testes
 
@@ -690,7 +697,11 @@ Fonte da verdade: `src/env.ts`. Cada processo valida **só o que usa** e falha n
 | `CARGA_TENANTS`, `CARGA_PACIENTES`, `CARGA_VENCER_EM_MIN` | `test/carga/seed.ts` | Tamanho da semente sintética da pilha de carga |
 | `IA_AVALIACAO`, `IA_AVALIACAO_DIR`, `IA_AVALIACAO_MODELOS`, `IA_AVALIACAO_TETO_USD`, `IA_AVALIACAO_ESFORCO`, `IA_AVALIACAO_PROVEDOR`, `IA_AVALIACAO_TAREFA` | `.env.avaliacao` na máquina do dono (fora do git), lido por `pnpm ia:avaliar` (`scripts/ia-avaliar.ts`) | Avaliação da IA com laudos fictícios e a chave do workspace de **dev** (runbook do Plano 11, passo 4); desde o Plano 14A, `IA_AVALIACAO_PROVEDOR=bedrock-eu` com `IA_BEDROCK_REGIAO` e as chaves do usuário IAM **de dev** (runbook do Plano 14A, passo 4); desde o Plano 14B-1, `IA_AVALIACAO_TAREFA=modelos` avalia os 7 pacotes de área (o padrão, `laudos`, é a leitura; [§10.12.6](10-ia.md#10126-avaliação-dos-pacotes-rn-127-fora-do-ci)); `IA_AVALIACAO_DIR` também em `pnpm ia:laudos`. Nunca no Easypanel |
 | `NUTRI_DEV_DATABASE_URL` | Ambiente do desenvolvedor, lida pelo `.mcp.json` (`:16`) | Conexão do MCP `postgres-dev`, **só banco de dev** (regra 5 do CLAUDE.md); só o nome aqui, nunca o valor |
-| `DOCKER_HOST` | `test/backup.test.ts`, `test/restauracao.test.ts` | Docker usado pelos testes |
+| `DOCKER_HOST` | `test/backup.test.ts`, `test/restauracao.test.ts`; no CI, o job `test` e o `.env` do runner próprio | Docker usado pelos testes; no runner próprio, o socket rootless do CI (`/run/user/1500/docker.sock`) |
+| `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` | Job `test` do `ci.yml` | Caminho do socket que o Testcontainers monta nos contêineres auxiliares, como o Ryuk (o rootless do CI) |
+| `NUTRI_CI_REDE_DIRETA` | Job `test` do `ci.yml` (`1`), lida por `test/postgres-teste.ts` | Postgres do Testcontainers pelo IP do contêiner na rede `bridge`, porta 5432, com espera só pelo healthcheck: no Docker rootless, a porta publicada só existe do lado do host. Fora do runner próprio, ausente |
+| `TESTCONTAINERS_RYUK_DISABLED` | Job `test` do `ci.yml` (`true`) | Desliga o Ryuk (o contêiner de limpeza do Testcontainers); o vigia de fim do runner apaga todos os contêineres a cada job |
+| `ACTIONS_RUNNER_HOOK_JOB_STARTED`, `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` | `.env` do runner próprio (`instalar-2-runner.sh`) | Vigias de início e de fim de job (`/opt/nutri-ci/hooks/inicio.sh`, `fim.sh`) |
 
 `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` e `BACKUP_PASSPHRASE` aparecem no
 `.env.example`, mas **nenhum código os lê**: no backup do host eles viram as `RCLONE_CONFIG_*` acima (spec §9.6,
@@ -736,6 +747,13 @@ na `main` (`git log --merges`). Migrations = arquivos SQL adicionados pelo merge
 | **14A Autorização do paciente para IA e provedor na UE** (pós-MVP) | #29 (09/10/2026); prazo de guarda e textos 1.0 no #31 (0110) | 0107–0109; 0110 no #31 | IA v0.6 (execução); v0.6.1 com a A-D27 (#31) | No módulo `ia` ([§10.10](10-ia.md#1010-autorização-do-paciente-e-provedor-na-ue-plano-14a)): **autorização do paciente** no lugar da ciência do aviso — `ia_autorizacoes` só de inclusão (`REVOKE UPDATE, DELETE`), política RESTRICTIVE para a sessão de paciente, gatilho de INSERT com o relógio do banco e duas funções `SECURITY DEFINER` da anonimização; três canais (app, **link sem login** com tokens sem estado e termo **em papel** impresso pelo navegador com código de referência); a RN-100 reconferida em todo ponto (pedido, portão, resultado, aplicação, varredura) com a autorização da **tarefa** (D14) e o **destino** gravado no portão (`ia_tarefas.destino`, D6); job `ia-retirada`; segundo provedor, **AWS Bedrock na UE** (`@anthropic-ai/bedrock-sdk` só no worker, variáveis que o SDK leria sozinho proibidas); `IA_RETENCAO_ZERO`; a ciência do Plano 11 congelada (`0109`) (D1–D21; F1–F9 do parecer JUR-2026-013) |
 | **14B-1 Modelos sugeridos pela IA** (pós-MVP) | — (em execução no branch `plano-14b-ia-nutri`, 10/10/2026) | 0111–0112 | IA v0.6.1 | No módulo `ia` ([§10.12](10-ia.md#1012-modelos-sugeridos-pela-ia-plano-14b-1)): `gerar` com ferramentas nos dois provedores (só `strict`/`auto`) e **laço só de inclusão** com limites (`laco-ferramentas.ts`, só no worker); ferramentas de busca sem escrita e no tenant da geração; `ia_geracoes_modelos` (STAFF_ONLY, um pacote por vez, gatilho `app_ia_geracoes_imutavel`); colunas de origem e aprovação em `meal_plans` e `anamnesis_templates` com o gatilho `app_modelo_ia_origem`; só modelos aprovados nas escolhas do paciente; fila **`ia-assistente`** e varredura das gerações |
 
+Fora dos planos, mudanças de infraestrutura do CI:
+
+| Mudança | PR (merge) | O que introduziu |
+|---|---|---|
+| Deploy sem repetir o CI do PR | #31 (09/10/2026) | Job `decidir` hospedado com `.github/scripts/ci-ja-passou.sh` e `run-name` `ci-pr-<n>-<base.sha>` no `ci.yml` ([§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)) |
+| **CI no runner próprio** | #33 (13/10/2026; runner instalado na VPS em 12/10/2026) | Jobs do `ci.yml` em `[self-hosted, nutri-ci]`, em contêiner do Playwright, um por vez; usuário `gh-runner` com Docker rootless, `user-1500.slice`, disco de 100 GB, filtro de saída nft e vigias de início e fim (`infra/runner/`); Testcontainers por IP direto (`test/postgres-teste.ts`); 2 workers do Playwright e 3 do Vitest no CI; orçamento da imagem com a mesma conta em qualquer Docker; `decidir` e `publish` hospedados; publicação de emergência `PUBLICAR-SEM-CI` no `deploy.yml`; guardas em `test/runner-proprio.test.ts` (`docs/operacao/runner-proprio.md`) |
+
 O processo de revisão de cada entrega (revisor por tarefa, revisão final do branch, `/code-review high` uma vez,
 re-revisão do diff das correções e `/security-review`) está no índice dos planos e no `CLAUDE.md` do projeto.
 
@@ -773,7 +791,7 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 1 | Spec §9.1, linha "UI": "Tailwind CSS 4 · shadcn/ui · react-hook-form · Recharts · lucide-react" | `package.json` não tem `shadcn/ui` (nem `components.json`), `react-hook-form`, `recharts` nem `lucide-react`. Os gráficos são SVG próprio no servidor (desvio registrado no Plano 03, "Gráficos"); os componentes base são próprios (`src/components/ui/`) | Documental: a §9.1 deve listar só o que existe |
 | 2 | Spec §9.2: `@sentry/cli` como dependência de dev do projeto | Não existe no `package.json`; sem source maps do navegador (Plano 08, D1) | Documental |
 | 3 | Spec §9.7: "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | Nenhum código faz o worker esperar a versão do schema: `src/worker/index.ts` sobe direto, e o `deploy.yml:64-65` dispara os webhooks do app e do worker em sequência imediata | **Resolvida no Plano 09 (P09-02 a).** Num deploy com migration, o worker novo pode rodar alguns segundos antes de o app terminar as migrations. Reforça a regra de migrations expand/contract |
-| 4 | Spec §9.7: imagem publicada "com tag = SHA do commit"; etapas do PR em sequência (lint → tsc → Vitest → RLS → build → E2E) | `deploy.yml` publica `:<sha>` **e** `:latest`, e os serviços usam `:latest`; o CI roda quatro jobs em paralelo e tem um job extra de orçamento da imagem (260 MB) | Rollback exige apontar o serviço para o SHA anterior no Easypanel |
+| 4 | Spec §9.7: imagem publicada "com tag = SHA do commit"; etapas do PR em sequência (lint → tsc → Vitest → RLS → build → E2E) | `deploy.yml` publica `:<sha>` **e** `:latest`, e os serviços usam `:latest`; o CI tem jobs separados (`mudancas`, `quality`, `test`, `e2e`, `image`), que no runner próprio (desde 12/10/2026) rodam um por vez, e um job extra de orçamento da imagem (265 MB desde o Plano 12) | Rollback exige apontar o serviço para o SHA anterior no Easypanel |
 | 5 | Spec §9.6 (lista de variáveis) | Faltam `TRUSTED_PROXIES` (**obrigatória em produção**, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE` e `PORT` | Quem montar um ambiente pela spec não sobe o app em produção |
 | 6 | `.env.example` lista `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `BACKUP_PASSPHRASE` | Nenhum código os lê; a spec §9.6 (nota do Plano 02) diz que ficam só no `backup.env` do host, como `RCLONE_CONFIG_*` | Pode levar alguém a cadastrá-los no Easypanel sem efeito |
 | 7 | Spec §4.2: URLs `app.<dominio>/…` e "O domínio definitivo ainda não foi escolhido" | Produção em `https://nutri.wsscloud.tech` (backlog, "Resumo"; Plano 08, D8) | Documental |
@@ -782,3 +800,4 @@ Conferência de 05/10/2026. Quando código e spec divergem, este capítulo descr
 | 10 | Infraestrutura real: serviço `nutri_app` | A mensagem de erro de `EVOLUTION_WEBHOOK_URL` (`src/env.ts:182`) e o comentário do `.env.example` dão como exemplo `http://nutridebby_app:3000/…` | O exemplo não funciona copiado: o nome do serviço na rede interna é `nutri_app` |
 | 11 | Spec §4 (diagrama): `nutri_evolution` na VPS | Não implantado em 05/10/2026 (`docker service ls`); o WhatsApp é opcional e o go-live pode sair sem ele (Plano 08, D16) | Estado operacional, não erro de código |
 | 12 | §1.11 item 6 (e `src/lib/mesma-origem.ts:3-7`): rota de escrita com cookie chama `mesmaOrigem` | `PUT /api/painel/planos/[id]` (`src/app/api/painel/planos/[id]/route.ts:22`) só chama `requireApiNutri`; nenhum comentário ou teste explica a exceção. O que protege na prática é o cookie de sessão `SameSite=Lax`, que o navegador não envia em requisição entre sites, mais o corpo JSON lido por `lerCorpoLimitado`. Os outros handlers de escrita (`/api/p/push` POST e DELETE, uploads, `/api/erro-cliente`) conferem a origem | **Resolvida no Plano 09 (P09-01).** Defesa em profundidade a menos, sem motivo registrado. Sugestão: incluir `mesmaOrigem` no `PUT` ou registrar por que não |
+| 13 | Spec §9.7 ("Build da imagem no GitHub Actions (não na VPS, para não consumir CPU e memória do CRM)") e RNF-03 ("Build da imagem fora da VPS") | Desde 12/10/2026, o CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push). A imagem **publicada** continua montada no GitHub, no job `publish` (`ubuntu-latest`) | A proteção da produção e do `cursoia_crm` passa a ser a `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap, teto de IO) e o disco de 100 GB do CI ([§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy)). A spec ainda não registra o runner próprio |

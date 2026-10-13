@@ -52,3 +52,8 @@ isolamento, divergência #3).
   lugares do manual do usuário: aviso do topo, 1.6.x, confirmação do "Liberar" do admin, Parte 2 e roteiro. Ao subir
   versão, `grep -n "provis\|0\.[0-9]-\|versão" ` na proposta inteira. O estado `nao_liberada` vem antes do `nao_ativada`
   (`modo.ts`): com `IA_PROVEDOR` ligado, consultório não liberado vê "A IA ainda não foi liberada…" em cada exame com laudo.
+
+- Linhas de `.github/workflows/ci.yml` e `deploy.yml` são citadas nos caps. 01, 02, 06, 07 e 08: a cada mudança de
+  workflow, `grep -n "ci.yml:[0-9]\|deploy.yml:[0-9]" docs/manual-tecnico/*.md` e conferir com `sed -n`. No runner próprio
+  (12/10/2026) o controlador comitou correções no meio da minha tarefa (`bbd7728`): reler `git log -1` e o diff antes de
+  entregar, e retirar divergências que o commit novo já resolveu.

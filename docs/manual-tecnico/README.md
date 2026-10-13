@@ -7,7 +7,7 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 |---|---|
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
-| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge; mergeado no PR #28, `3fe7452`, em 08/10/2026), em 08/10/2026; as atualizações do Plano 14A (autorização do paciente para IA e provedor na UE: §10.10–§10.11 e os caps. 1, 2 e 6) contra o branch `plano-14-ia-nutricionista` em `fa7f712` (Tarefas 1–11 integradas, antes do merge), em 09/10/2026; as atualizações do Plano 14B-1 (modelos sugeridos pela IA por área: §10.12 e os caps. 1, 2, 4 e 6) contra o branch `plano-14b-ia-nutri` (Tarefas 1–5 e o fechamento 5F, antes do merge), em 10/10/2026 |
+| Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge; mergeado no PR #28, `3fe7452`, em 08/10/2026), em 08/10/2026; as atualizações do Plano 14A (autorização do paciente para IA e provedor na UE: §10.10–§10.11 e os caps. 1, 2 e 6) contra o branch `plano-14-ia-nutricionista` em `fa7f712` (Tarefas 1–11 integradas, antes do merge), em 09/10/2026; as atualizações do Plano 14B-1 (modelos sugeridos pela IA por área: §10.12 e os caps. 1, 2, 4 e 6) contra o branch `plano-14b-ia-nutri` (Tarefas 1–5 e o fechamento 5F, antes do merge), em 10/10/2026; o CI no runner próprio da VPS (§7.7, §1.8, §1.9, §1.10 e os caps. 2, 6 e 8) contra o branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33, `8a8d202`, em 13/10/2026), em 12/10/2026 |
 | Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) 14A (autorização do paciente para IA e provedor AWS na UE) e 14B-1 (modelos de plano e de anamnese sugeridos pela IA por área, sem dado de paciente), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A) e v0.6 (parte da 14B-1), migrations `0000`–`0112` (113 arquivos em `drizzle/`; a `0106` é do Plano 16, §5.5.12 e §5.5.14; a `0110` é a migration de dados do prazo de guarda, JUR-01; o cap. 10 cobre `0098`–`0100`, do Plano 14A, `0107`–`0109` e, do Plano 14B-1, `0111`–`0112`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
@@ -212,7 +212,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Filas do worker (26) | [§6.2.3](06-worker-seguranca-operacao.md#623-filas) | §4.5, §5.10, §9.8 |
 | Documentos assinados (receita, parecer, retificação, link, verificação) | [cap. 9](09-documentos-assinados.md) | §1.6, §1.7, §2.5, §2.7, §2.9, §6.2.3, §6.3, §7.4 |
 | Backup e restauração | [§6.5](06-worker-seguranca-operacao.md#65-backup-e-restauração-rnf-05-regra-10) | §1.8 |
-| CI, imagem e deploy | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) | §1.8 (diagrama), §6.8 |
+| CI, imagem e deploy | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) | §1.8 (diagrama), §6.8; runner próprio: `docs/operacao/runner-proprio.md` e `infra/runner/` |
 | Matriz de isolamento | [§7.4.2](07-testes-qualidade-e-processo.md#742-a-matriz-de-isolamento-testisolamentotestts) | §2.7 |
 | Tela nova (painel e portal) | [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova) | §1 (rotas), §3.17, §5.9 |
 | Volta atrás de um deploy | [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás) | §1.8, §7.7 |
@@ -350,6 +350,8 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Heartbeat | Batida do worker em `system_heartbeat`, lida pelo `/api/health` | [§6.2.6](06-worker-seguranca-operacao.md#626-heartbeat), [§6.4.3](06-worker-seguranca-operacao.md#643-apihealth) |
 | Easypanel | Painel sobre Docker Swarm que roda os serviços. Configuração muda só por ele (regra 6) | [§1.8](01-visao-geral-e-arquitetura.md#18-infraestrutura) |
 | GHCR | GitHub Container Registry, onde o deploy publica a imagem | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) |
+| Runner próprio | Runner do GitHub Actions instalado na VPS (desde 12/10/2026, rótulo `nutri-ci`), isolado da produção: usuário `gh-runner`, Docker rootless, `user-1500.slice`, disco de 100 GB e filtro de saída. Roda os jobs do `ci.yml`; o `decidir` e o `publish` do deploy ficam no GitHub | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy); `docs/operacao/runner-proprio.md` |
+| Publicação de emergência | Disparo manual do `deploy.yml` na `main` com `PUBLICAR-SEM-CI`: publica sem CI quando o runner próprio está fora do ar, só com validação local e OK do dono | [§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy) |
 
 ### Identificadores da spec, dos planos e do backlog
 
@@ -380,7 +382,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; modelos sugeridos do Plano 14B-1 em 10/10/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; modelos sugeridos do Plano 14B-1 em 10/10/2026; CI no runner próprio em 12/10/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -406,7 +408,7 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 1 | Spec §9.1 | UI com shadcn/ui, react-hook-form, Recharts, lucide-react | Nenhum no `package.json`; gráficos em SVG no servidor, componentes próprios em `src/components/ui/` | Doc | 1 #1, 4 #3 |
 | 2 | Spec §9.2 | `@sentry/cli` em dev; `web-push` como dependência de dev | `@sentry/cli` não existe (sem source maps); `web-push` está em `dependencies` | Doc | 1 #2, 7 #5 |
 | 3 | Spec §9.7 | "o worker espera a versão do schema" | **Resolvida no Plano 09 (P09-02 a):** `esperarVersaoDoSchema` (`src/worker/versao-schema.ts`, função `app_versao_do_schema()`, 0094) antes de registrar os consumidores ([§6.2.1](06-worker-seguranca-operacao.md#621-processo-e-ciclo-de-vida)) | — | 1 #3, 7 #1 |
-| 4 | Spec §9.7 | Imagem com tag = SHA; etapas do PR em sequência | Tags `:<sha>` e `:latest` (serviços usam `:latest`), poda para 2 versões; 4 jobs paralelos (desde o Plano 12, `test`, `e2e` e `image` pulados em mudança só de documentação, R-D1), com orçamento de imagem de 265 MB (260 até o Plano 11) MB | Doc | 1 #4, 7 #2, 7 #3 |
+| 4 | Spec §9.7 | Imagem com tag = SHA; etapas do PR em sequência | Tags `:<sha>` e `:latest` (serviços usam `:latest`), poda para 2 versões; jobs separados — em paralelo até 11/10/2026, um por vez no runner próprio desde 12/10/2026 (desde o Plano 12, `test`, `e2e` e `image` pulados em mudança só de documentação, R-D1), com orçamento de imagem de 265 MB (260 até o Plano 11) | Doc | 1 #4, 7 #2, 7 #3 |
 | 5 | Spec §9.6 | Lista de variáveis | Faltam `TRUSTED_PROXIES` (obrigatória em produção, `src/env.ts:162-169`), `LOG_LEVEL`, `NODE_ENV`, `APP_ROLE`, `PORT` | Doc | 1 #5 |
 | 6 | `.env.example` | `R2_*` e `BACKUP_PASSPHRASE` | Nenhum código lê; no host viram `RCLONE_CONFIG_*` do `backup.env` | Doc | 1 #6 |
 | 7 | Spec §4.2 | `app.<dominio>`, domínio a definir | `https://nutri.wsscloud.tech` | Doc | 1 #7 |
@@ -580,6 +582,15 @@ Desvios conscientes do plano que valem na 14B-1, conferidos no branch `plano-14b
 | 99 | Spec da IA US-123 | O modelo de anamnese não aprovado não vira o padrão | Não há ação "tornar padrão"; fica o CHECK `anamnesis_templates_padrao_aprovado` (desvio 9) | Reg. | 10 |
 | 100 | Spec da IA US-123 (c) | Aditivo `0.2-provisorio` | A 1.0 (A-D27) já cobre os modelos; a 14B-2 sobe para 1.1 (desvio 11) | Reg. | 10 |
 | 101 | Spec da IA US-123 | "{n} itens…" por modelo | Contagem do pacote, mostrada em cada modelo enquanto for sugestão (desvio 12) | Reg. | 10 |
+
+### CI no runner próprio (12/10/2026)
+
+Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33 em 13/10/2026); detalhe na
+[§7.7](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy).
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

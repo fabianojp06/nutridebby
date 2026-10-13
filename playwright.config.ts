@@ -7,6 +7,9 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
+  // Runner próprio: o contêiner do job enxerga os 8 núcleos da VPS, mas a slice do CI limita a 4 (o padrão do Playwright,
+  // metade dos núcleos vistos, daria 4 workers e estouraria prazos). 2, como no runner hospedado de 4 vCPU.
+  workers: process.env.CI ? 2 : undefined,
   use: { baseURL, trace: 'retain-on-failure' },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /acessibilidade(-painel)?\.spec\.ts/ },
