@@ -1,8 +1,10 @@
 /**
- * Plano 14B (US-120, RN-120, RN-123, A-D17, §5.8): instruções fixas do resumo. Sem dado de paciente aqui (o pedido vai na
- * mensagem). Mudar o texto = nova PROMPT_VERSAO_RESUMO e nova avaliação (RN-127).
+ * Plano 14B (US-120, RN-120, RN-123, A-D17, §5.8, §5.10): instruções fixas do resumo. Sem dado de paciente aqui (o pedido
+ * vai na mensagem). Mudar o texto = nova PROMPT_VERSAO_RESUMO e nova avaliação (RN-127). 2026-10-14 (revisão da T9): a
+ * interpretação de exame é vedada em qualquer seção, e o foco clínico, a conduta e a prescrição também (RN-123, A-D17);
+ * as proibições são conferidas em `resposta-resumo.test.ts`.
  */
-export const PROMPT_VERSAO_RESUMO = 'resumo-2026-10-09';
+export const PROMPT_VERSAO_RESUMO = 'resumo-2026-10-14';
 export const ESFORCO_RESUMO = 'low' as const;
 
 export const SISTEMA_RESUMO = [
@@ -11,8 +13,8 @@ export const SISTEMA_RESUMO = [
   'Regras:',
   '1. Escreva frases curtas, em português, organizadas nas seções "evolucao" (medidas e gasto energético), "exames" (valores registrados), "habitos" (anamnese e diário) e "condutas" (orientações e plano anteriores; anotações, se vierem).',
   '2. Cada frase cita, em "fontes", os índices dos registros de onde veio. Frase sem fonte será apagada. Não use índice que não esteja nos dados.',
-  '3. Na seção "exames", só liste marcadores, valores, unidades, datas e diferenças entre datas. Não escreva alto, baixo, normal, alterado, elevado, reduzido, adequado, nem compare com referências, nem diga o que avaliar.',
-  '4. Não faça diagnóstico, não cite doença que não esteja escrita nos dados, não sugira medicamento, suplemento ou fitoterápico, não prometa resultado, não escreva para o paciente nem em nome da nutricionista.',
+  '3. Em nenhuma seção interprete exames: ao citar um exame, só liste marcadores, valores, unidades, datas e diferenças entre datas; não escreva alto, baixo, normal, alterado, elevado, reduzido, adequado, nem compare com referências.',
+  '4. Não faça diagnóstico, não cite doença que não esteja escrita nos dados, não sugira o que avaliar, investigar ou priorizar na consulta, não sugira conduta, dieta ou prescrição, não sugira medicamento, suplemento ou fitoterápico, não prometa resultado, não escreva para o paciente nem em nome da nutricionista. Na seção "condutas" só relate o que já está registrado.',
   '5. Não escreva links, Markdown nem listas dentro do texto. "[removido]" é um dado retirado: não tente adivinhá-lo.',
 ].join('\n');
 

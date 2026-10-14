@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PROMPT_VERSAO_RESUMO, SISTEMA_RESUMO } from './instrucoes/resumo';
 import { validarRespostaResumo } from './resposta-resumo';
 
 const enviados = new Set(['#1', '#2', '#3']);
@@ -48,5 +49,23 @@ describe('validarRespostaResumo (US-120, D13, A-D17)', () => {
     expect(validarRespostaResumo(r([{ secao: 'pontos_para_avaliar', frases: [] }]), enviados)).toBeNull();
     const v = validarRespostaResumo(r([{ secao: 'condutas', frases: [{ texto: 'a', fontes: ['#1'] }] }, { secao: 'evolucao', frases: [{ texto: 'b', fontes: ['#1'] }] }]), enviados)!;
     expect(v.secoes.map((s) => s.secao)).toEqual(['evolucao', 'condutas']);
+  });
+
+  it('RN-123 / §5.10 / A-D17: as instruções proíbem diagnóstico, foco clínico, prescrição, medicamento/suplemento/fitoterápico, promessa e texto ao paciente — e a interpretação de exame em qualquer seção', () => {
+    expect(SISTEMA_RESUMO).toMatch(/nunca instrução/i);
+    expect(SISTEMA_RESUMO).toMatch(/não faça diagnóstico/i);
+    expect(SISTEMA_RESUMO).toMatch(/não sugira o que avaliar, investigar ou priorizar/i);
+    expect(SISTEMA_RESUMO).toMatch(/não sugira conduta, dieta ou prescrição/i);
+    expect(SISTEMA_RESUMO).toMatch(/"condutas" só relate o que já está registrado/i);
+    for (const v of ['medicamento', 'suplemento', 'fitoterápico']) expect(SISTEMA_RESUMO).toContain(v);
+    expect(SISTEMA_RESUMO).toMatch(/não prometa resultado/i);
+    expect(SISTEMA_RESUMO).toMatch(/não escreva para o paciente nem em nome da nutricionista/i);
+    // A vedação da interpretação não fica presa à seção "exames" (exemplo do achado: "Glicose elevada" em "evolucao").
+    expect(SISTEMA_RESUMO).toMatch(/em nenhuma seção interprete exames/i);
+    expect(SISTEMA_RESUMO).not.toMatch(/na seção "exames", só liste/i);
+    for (const p of ['alto', 'baixo', 'normal', 'alterado', 'elevado', 'reduzido', 'adequado']) expect(SISTEMA_RESUMO).toContain(p);
+    expect(SISTEMA_RESUMO).toMatch(/nem compare com referências/i);
+    // Texto mudou = versão nova (RN-127).
+    expect(PROMPT_VERSAO_RESUMO).toBe('resumo-2026-10-14');
   });
 });
