@@ -45,6 +45,7 @@ const SO_CONSTANTES: Record<string, string> = {
   'src/modules/plataforma/tenant-status.ts': 'ContaNaoEncontradaError e mensagens (o status do tenant não tem tenant_id)',
   'src/modules/plataforma/armazenamento.ts': 'só COTA_BYTES (constante)',
   'src/modules/agenda/presenca.ts': 'só textoTaxa (formatação)',
+  'src/modules/ia/textos-legais.ts': 'só IA_ADITIVO_VERSAO (constante: a versão citada na confirmação de "Liberar" a IA)',
 };
 describe('§4.1: o que o admin importa de src/modules passa pela guarda', () => {
   const ADMIN = ARQUIVOS_DO_ADMIN.filter((f) => f.startsWith(path.resolve('src/app/admin')));
