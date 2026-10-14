@@ -10,7 +10,8 @@ export type GeoIA = (typeof GEOS_IA)[number];
 export const REGIOES_IA = ['us', 'global', 'eu'] as const;
 export type RegiaoIA = (typeof REGIOES_IA)[number];
 
-export const TIPOS_TAREFA = ['leitura_exame'] as const;
+/** Plano 14B: o resumo do histórico e o rascunho de plano (o CHECK do banco ganha os tipos na 0113, T7). */
+export const TIPOS_TAREFA = ['leitura_exame', 'resumo_historico', 'rascunho_plano'] as const;
 export type TipoTarefa = (typeof TIPOS_TAREFA)[number];
 export const STATUS_TAREFA = ['na_fila', 'processando', 'pronta', 'falhou', 'aplicada', 'descartada', 'expirada', 'cancelada'] as const;
 export type StatusTarefa = (typeof STATUS_TAREFA)[number];
@@ -36,14 +37,14 @@ export const STATUS_GERACAO = ['na_fila', 'processando', 'pronta', 'falhou', 'ca
 export type StatusGeracao = (typeof STATUS_GERACAO)[number];
 
 /**
- * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): a
- * versão 0.1 do texto autoriza só `leitura_laudos` (AUTORIZACAO_IA_USOS, em textos-legais.ts); resumo e rascunho entram
- * com a 14B, numa versão nova do texto que pede autorização nova (RN-109).
+ * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): as
+ * versões 0.1 e 1.0 do texto autorizavam só `leitura_laudos`; resumo e rascunho entraram com a 1.1 (Plano 14B), que pede
+ * autorização nova (RN-109). Os usos da versão atual: AUTORIZACAO_IA_USOS, em textos-legais.ts.
  */
 export const USOS_IA = ['leitura_laudos', 'resumo_historico', 'rascunho_plano'] as const;
 export type UsoIA = (typeof USOS_IA)[number];
-/** O uso que cada tipo de tarefa pede na RN-100 (a 14B acrescenta resumo e rascunho). */
-export const USO_DA_TAREFA: Record<TipoTarefa, UsoIA> = { leitura_exame: 'leitura_laudos' };
+/** O uso que cada tipo de tarefa pede na RN-100. */
+export const USO_DA_TAREFA: Record<TipoTarefa, UsoIA> = { leitura_exame: 'leitura_laudos', resumo_historico: 'resumo_historico', rascunho_plano: 'rascunho_plano' };
 
 /** Plano 14A (RN-109): o destino em código estável (o banco guarda o código; telas, textos e exportação, o rótulo). */
 export const DESTINOS_IA = ['anthropic-us', 'bedrock-eu', 'teste'] as const;

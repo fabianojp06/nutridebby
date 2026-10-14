@@ -3,7 +3,7 @@ import type { Db } from '@/db/client';
 import { iaAutorizacoes, iaGeracoesModelos, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { ConfigIA } from '@/modules/ia/modo';
-import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { criarExame } from '@/modules/pacientes/exames';
 import { eq } from 'drizzle-orm';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
@@ -21,7 +21,7 @@ export async function iaPronta(db: Db, tenantId: string, o: { cotaUsd?: number; 
     .where(eq(tenants.id, tenantId));
 }
 
-/** Plano 14A: paciente com a autorização vigente (os usos da versão atual — só `leitura_laudos`, F2 — destino `teste` — o dos provedores fake e sandbox). */
+/** Plano 14A: paciente com a autorização vigente (os usos da versão atual — os três, Plano 14B — destino `teste` — o dos provedores fake e sandbox). */
 export async function pacienteAutorizado(db: Db, ctx: TenantContext, extra: Partial<typeof patients.$inferInsert> = {}): Promise<PatientRow> {
   const p = await novoPaciente(db, ctx, extra);
   await autorizacaoNoBanco(db, ctx.tenantId, p.id);
@@ -105,7 +105,7 @@ export async function fotoDeTeste(o: { largura?: number; altura?: number; orient
 /**
  * Plano 14A: um evento de autorização gravado pela sessão de paciente SEM conta (canal `link`, como o link do e-mail): o
  * único caminho de teste que a política paciente_autorizacao_propria e o gatilho ia_autorizacoes_regras (0108) aceitam
- * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, a versão atual (AUTORIZACAO_IA_VERSAO, 1.0), os usos dela (só `leitura_laudos`, F2),
+ * sem conta de login. `registrado_em` e `em` vêm do gatilho. Padrões: autorizou, a versão atual (AUTORIZACAO_IA_VERSAO), os usos da versão atual (os três, Plano 14B),
  * destino `teste` (o dos provedores sandbox/fake).
  */
 export async function autorizacaoNoBanco(
@@ -124,7 +124,7 @@ export async function autorizacaoNoBanco(
         .values({
           tenantId, patientId, evento, canal: 'link', emailHmac: o.emailHmac ?? 'hmac-de-teste',
           versao: autorizou ? (o.versao ?? AUTORIZACAO_IA_VERSAO) : null,
-          usos: autorizou ? (o.usos ?? ['leitura_laudos']) : null,
+          usos: autorizou ? (o.usos ?? [...AUTORIZACAO_IA_USOS]) : null,
           destino: autorizou ? (o.destino ?? 'teste') : null,
         })
         .returning({ id: iaAutorizacoes.id }),

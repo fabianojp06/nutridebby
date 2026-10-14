@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { AUTORIZACAO_IA_VERSAO } from '@/modules/ia/textos-legais';
 
 const estado = vi.hoisted(() => ({ contato: 'contato@debby.test', bloco: { situacao: { tipo: 'nunca' }, podeDecidir: true } as { situacao: { tipo: string }; podeDecidir: boolean } | null }));
 vi.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect ${url}`); } }));
@@ -14,7 +15,7 @@ const { default: AutorizacaoIa } = await import('./page');
 describe('/p/perfil/ia — ler e decidir (US-106)', () => {
   it('o título, o consultório, o texto inteiro da versão atual com o destino em uso e a forma de retirar do app; "Autorizo…" e "Agora não"', async () => {
     const html = renderToStaticMarkup(await AutorizacaoIa());
-    for (const t of ['Autorização para uso de inteligência artificial', 'Consultório Debby', 'Debora Silva, CRN-3 12345', 'Ambiente de teste', 'no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista', 'Versão 1.0, de 09/10/2026.']) {
+    for (const t of ['Autorização para uso de inteligência artificial', 'Consultório Debby', 'Debora Silva, CRN-3 12345', 'Ambiente de teste', 'no app (Eu › Privacidade), pelo link do e-mail de confirmação ou pedindo à sua nutricionista', `Versão ${AUTORIZACAO_IA_VERSAO}, de 09/10/2026.`]) {
       expect(html, t).toContain(t);
     }
     expect(html).toMatch(/<button[^>]*>Autorizo o envio para fora do Brasil<\/button>/);

@@ -31,7 +31,7 @@ test('IA: autorização no app → laudo → "Ler valores com IA" → conferir �
   await expect(registrada).toBeInViewport();
   await expect(registrada).toBeFocused();
   await nutri.reload();
-  await expect(nutri.getByText(/^Autorizou em \d{2}\/\d{2}\/\d{4} \(app, versão 1\.0\)\./)).toBeVisible();
+  await expect(nutri.getByText(/^Autorizou em \d{2}\/\d{2}\/\d{4} \(app, versão 1\.1\)\./)).toBeVisible();
 
   // exame com laudo (PDF de uma página em branco, gerado na hora: nenhum dado real; abre no pdf-lib do worker)
   const doc = await PDFDocument.create();

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DESTINO_ROTULO, MSG_AUTORIZACAO } from '@/modules/ia/constantes';
+import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
+import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import type { EmailMessage, RenderedEmail } from './types';
 
@@ -415,19 +416,21 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ],
         { href: msg.link, rotulo: MSG_AUTORIZACAO.lerEDecidir },
       );
-    case 'autorizacao_ia_confirmada':
-      // US-107/US-108: o resumo do que foi autorizado e a retirada a qualquer momento (art. 8º, § 5º). F2: a versão 0.1
-      // autoriza só a leitura de laudos (o resumo e o rascunho entram com a 14B, numa versão nova). F4: "Se não foi você".
+    case 'autorizacao_ia_confirmada': {
+      // US-107/US-108: o resumo do que foi autorizado e a retirada a qualquer momento (art. 8º, § 5º). F4: "Se não foi você".
+      // Plano 14B (F2): os usos da versão gravada, como no texto; job antigo, sem `usos`, é da 0.1 ou da 1.0 (só a leitura).
+      const usos = (msg.usos?.length ? msg.usos : ['leitura_laudos']).map((u) => DESCRICAO_DO_USO[u as UsoIA]).filter(Boolean);
       return simples(
         MSG_AUTORIZACAO.confirmacaoAssunto,
         [
-          `Você autorizou ${msg.consultorio} a usar inteligência artificial com os seus dados de saúde (texto da versão ${msg.versao}), só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.`,
+          `Você autorizou ${msg.consultorio} a usar inteligência artificial com os seus dados de saúde (texto da versão ${msg.versao}), só para${usos.length > 1 ? `: ${usos.join('; ')}` : ` ${usos[0]}`}.`,
           ...(msg.destino === DESTINO_ROTULO.teste ? [] : [`Destino dos dados: ${msg.destino}. Os seus dados saem do Brasil.`]),
           'Você pode retirar a autorização quando quiser, sem custo, pelo botão abaixo. Retirar não muda nada no seu atendimento.',
           MSG_AUTORIZACAO.seNaoFoiVoce,
         ],
         { href: msg.link, rotulo: MSG_AUTORIZACAO.retirarALink },
       );
+    }
     case 'exames_recebidos':
       // RN-168 / C-05: genérico — nem paciente, nem exame, nem arquivo
       return simples(

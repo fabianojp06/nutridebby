@@ -11,7 +11,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { autorizarPeloLink, estadoDoLinkIa, LinkIaError, retirarPeloLink, type DepsLinkIa } from './autorizacao-link';
 import { assinarLinkPedido, assinarLinkRetirada, emailHmac } from './autorizacao-token';
 import { MSG_AUTORIZACAO } from './constantes';
-import { textoCorrido, textoExibido } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, textoCorrido, textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -48,7 +48,7 @@ describe('US-107 — o estado do link (GET não grava nada)', () => {
     expect(e.texto.titulo).toBe('Autorização para uso de inteligência artificial');
     expect(texto).toContain('Debora Silva, CRN-3 12345');
     expect(texto).toContain('pelo link "Retirar a autorização" do e-mail de confirmação');
-    expect(e.exibido).toEqual({ versao: '1.0', destino: 'teste', usos: ['leitura_laudos'] }); // o que o POST devolve
+    expect(e.exibido).toEqual({ versao: AUTORIZACAO_IA_VERSAO, destino: 'teste', usos: [...AUTORIZACAO_IA_USOS] }); // o que o POST devolve
     expect(T.tenantId).toBeTruthy();
   });
 
@@ -73,7 +73,7 @@ describe('US-107 — autorizar pelo link (RNF-111 e)', () => {
     const t = pedido();
     await autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, deps());
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'autorizou', canal: 'link', registradoPor: null, ip: '203.0.113.50', userAgent: 'Navegador de teste', emailHmac: emailHmac(p.email!), destino: 'teste', usos: ['leitura_laudos'] }); // F2
+    expect(e).toMatchObject({ evento: 'autorizou', canal: 'link', registradoPor: null, ip: '203.0.113.50', userAgent: 'Navegador de teste', emailHmac: emailHmac(p.email!), destino: 'teste', usos: [...AUTORIZACAO_IA_USOS] }); // F2: os usos da versão atual
     expect(await emailsNaFila('autorizacao_ia_confirmada', p.email!)).toHaveLength(1);
     expect(await estadoDoLinkIa(t, deps())).toMatchObject({ tipo: 'ja_autorizou' });
     await autorizarPeloLink(t, { turnstile: 'ok', exibido: LIDO }, deps()); // idempotente
@@ -117,7 +117,7 @@ describe('RN-107 (revisão da T6) — a autorização gravada é a do texto que 
     if (relido.tipo !== 'decidir') throw new Error('estado');
     expect(relido.exibido.destino).toBe('bedrock-eu');
     await autorizarPeloLink(t, { turnstile: 'ok', exibido: relido.exibido }, emUe);
-    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu', versao: '1.0', usos: ['leitura_laudos'] }]);
+    expect(await eventos()).toMatchObject([{ evento: 'autorizou', destino: 'bedrock-eu', versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS] }]);
   });
 
   it('sem o texto lido, ou com outra versão ou outros usos → 409, nada gravado', async () => {

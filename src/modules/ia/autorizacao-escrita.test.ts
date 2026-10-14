@@ -21,7 +21,7 @@ import {
 } from './autorizacao';
 import { codigoDeReferencia, lerLinkAutorizacao } from './autorizacao-token';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, MSG_FALHA, MSG_IA, type DestinoIA } from './constantes';
-import { AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, textoExibido } from './textos-legais';
+import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, textoExibido } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-esc-'));
@@ -52,15 +52,15 @@ const cod = (tenantId: string, patientId: string, destino: DestinoIA = 'teste') 
 const erros = (pr: Promise<unknown>) => pr.then(() => null, (e: unknown) => (e instanceof AutorizacaoError ? e.erros : e));
 
 describe('US-106 — autorizar no app', () => {
-  it('grava canal app, a conta, o IP e o user-agent (até 300), versão, os usos da versão (só a leitura de laudos, F2) e o destino; manda a confirmação com o link de retirada', async () => {
+  it('grava canal app, a conta, o IP e o user-agent (até 300), versão, os usos da versão (os três desde a 1.1, Plano 14B) e o destino; manda a confirmação com os usos e o link de retirada', async () => {
     const { p, P, conta, deps, eventos } = await cenario();
     expect(await autorizarNoApp(P, LIDO, deps({ ip: '203.0.113.9', userAgent: 'U'.repeat(400) }))).toBe('registrada');
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: '1.0', destino: 'teste', usos: ['leitura_laudos'] });
+    expect(e).toMatchObject({ evento: 'autorizou', canal: 'app', registradoPor: conta, ip: '203.0.113.9', versao: AUTORIZACAO_IA_VERSAO, destino: 'teste', usos: [...AUTORIZACAO_IA_USOS] });
     expect(e.userAgent).toHaveLength(300);
     expect(e.em.getTime()).toBe(e.registradoEm.getTime());
     const [m] = await emailsNaFila('autorizacao_ia_confirmada', p.email!);
-    expect(m).toMatchObject({ consultorio: expect.any(String), destino: 'Provedor de teste', versao: '1.0' });
+    expect(m).toMatchObject({ consultorio: expect.any(String), destino: 'Provedor de teste', versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS] });
     const token = m.link.split('/autorizacao-ia/')[1];
     expect(lerLinkAutorizacao(token)).toMatchObject({ tipo: 'retirada', autorizacaoId: e.id });
     expect(await autorizarNoApp(P, LIDO, deps())).toBe('ja_vigente'); // clique duplo: nada novo
@@ -116,7 +116,7 @@ describe('US-105 — pedido por e-mail', () => {
     const { validoAte } = await enviarPedidoPorEmail(T.ctx, p.id, deps({ agora }));
     expect(validoAte.getTime() - agora.getTime()).toBe(7 * 86_400_000);
     const [e] = await eventos();
-    expect(e).toMatchObject({ evento: 'pedido_email', canal: 'link', registradoPor: T.nutriId, versao: '1.0', ip: null });
+    expect(e).toMatchObject({ evento: 'pedido_email', canal: 'link', registradoPor: T.nutriId, versao: AUTORIZACAO_IA_VERSAO, ip: null });
     expect(e.emailHmac).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const [m] = await emailsNaFila('autorizacao_ia', p.email!);
     expect(lerLinkAutorizacao(m.link.split('/autorizacao-ia/')[1])).toMatchObject({ tipo: 'pedido', tenantId: T.tenantId, patientId: p.id });
@@ -149,7 +149,7 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     const hoje = hojeNoFuso('America/Sao_Paulo');
     const id = await registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps());
     const [e] = await eventos();
-    expect(e).toMatchObject({ id, evento: 'autorizou', canal: 'papel', registradoPor: T.nutriId, ip: null, destino: 'teste', usos: ['leitura_laudos'] }); // F2
+    expect(e).toMatchObject({ id, evento: 'autorizou', canal: 'papel', registradoPor: T.nutriId, ip: null, destino: 'teste', usos: [...AUTORIZACAO_IA_USOS] }); // F2: os usos da versão atual
     expect(e.em.getTime()).toBe(inicioDoDia(hoje, 'America/Sao_Paulo').getTime());
     const [f] = await withTenant(T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, e.arquivoPath!)), app.db);
     expect(f).toMatchObject({ tipo: 'ia_autorizacao_termo', patientId: p.id });
@@ -217,11 +217,13 @@ describe('US-108 — termo em papel (RNF-111 f)', () => {
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, p.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps({ ia: { ...IA_TESTE, destino: 'bedrock-eu' } })))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     const deOutraVersao = codigoDeReferencia(T.tenantId, p.id, '0.0-antiga', 'teste');
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: deOutraVersao, data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
-    // A-D27 (revisão do branch): a 1.0 começou no mesmo dia que a 0.1 (09/10/2026), então a data não separa as duas — quem
-    // separa é o código, que inclui a versão. Um termo impresso na 0.1, com o código da 0.1, é recusado na 1.0
-    expect(AUTORIZACAO_IA_VERSAO).toBe('1.0');
-    const da01 = codigoDeReferencia(T.tenantId, p.id, '0.1-provisorio', 'teste');
-    expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: da01, data: AUTORIZACAO_IA_VERSAO_DATA, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    // A-D27 (revisão do branch): a 1.0 começou no mesmo dia que a 0.1 (09/10/2026), e a 1.1 (Plano 14B) também — a data não
+    // separa as versões; quem separa é o código, que inclui a versão. Um termo impresso na 0.1 ou na 1.0 é recusado na 1.1
+    expect(AUTORIZACAO_IA_VERSAO).toBe('1.1');
+    for (const antiga of ['0.1-provisorio', '1.0']) {
+      const codigo = codigoDeReferencia(T.tenantId, p.id, antiga, 'teste');
+      expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo, data: AUTORIZACAO_IA_VERSAO_DATA, confirmacao: true, arquivo: PDF_MINIMO }, deps())), antiga).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
+    }
     const outro = await novoPaciente(app.db, T.ctx);
     expect(await erros(registrarTermoEmPapel(T.ctx, p.id, { codigo: cod(T.tenantId, outro.id), data: hoje, confirmacao: true, arquivo: PDF_MINIMO }, deps()))).toEqual({ codigo: MSG_AUTORIZACAO.codigoNaoConfere });
     for (const codigo of [undefined, '', '   ', 'ABC', 'X'.repeat(50)]) {
