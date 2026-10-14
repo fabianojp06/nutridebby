@@ -24,6 +24,12 @@ test('IA: autorização no app → laudo → "Ler valores com IA" → conferir �
   await expect(paciente.page.getByText('Você ainda não autorizou.')).toBeVisible();
   await paciente.page.getByRole('link', { name: 'Ler e decidir' }).click();
   await expect(paciente.page.getByRole('heading', { name: 'Autorização para uso de inteligência artificial' })).toBeVisible();
+  // Plano 14B-2 (F2): a versão 1.1 traz os três usos no "Para que serve"
+  await expect(
+    paciente.page.getByText(
+      'A IA ajuda a sua nutricionista a: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa.',
+    ),
+  ).toBeVisible();
   await paciente.page.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
   const registrada = paciente.page.getByRole('status').filter({ hasText: 'Autorização registrada. Você pode retirar quando quiser.' });
   await expect(registrada).toBeVisible();
@@ -31,7 +37,7 @@ test('IA: autorização no app → laudo → "Ler valores com IA" → conferir �
   await expect(registrada).toBeInViewport();
   await expect(registrada).toBeFocused();
   await nutri.reload();
-  await expect(nutri.getByText(/^Autorizou em \d{2}\/\d{2}\/\d{4} \(app, versão 1\.0\)\./)).toBeVisible();
+  await expect(nutri.getByText(/^Autorizou em \d{2}\/\d{2}\/\d{4} \(app, versão 1\.1\)\./)).toBeVisible();
 
   // exame com laudo (PDF de uma página em branco, gerado na hora: nenhum dado real; abre no pdf-lib do worker)
   const doc = await PDFDocument.create();

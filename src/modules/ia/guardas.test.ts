@@ -69,10 +69,18 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       'src/modules/ia/leitura-job.ts',
       'src/modules/ia/avaliacao/laudos-ficticios.ts',
       'src/modules/ia/avaliacao/avaliar.ts',
-      // Plano 14B: o laço, os jobs, o roteador da fila ia-assistente e a avaliação do assistente (os arquivos nascem nas T3, T4, T9, T10 e T12;
-      // a avaliação dos pacotes e a busca em memória da TACO, com o xlsx, na T5F)
-      ...['src/modules/ia/laco-ferramentas.ts', 'src/modules/ia/modelos-job.ts', 'src/modules/ia/assistente-job.ts', 'src/modules/ia/resumo-job.ts', 'src/modules/ia/rascunho-job.ts', 'src/modules/ia/avaliacao/avaliar-assistente.ts', 'src/modules/ia/avaliacao/catalogo-taco.ts'].filter((f) => existsSync(f)),
+      // Plano 14B: o laço, os jobs, o roteador da fila ia-assistente e a avaliação do assistente (a avaliação dos pacotes e a
+      // busca em memória da TACO, com o xlsx, na T5F; os prontuários fictícios do resumo e do rascunho na T12)
+      'src/modules/ia/laco-ferramentas.ts',
+      'src/modules/ia/modelos-job.ts',
+      'src/modules/ia/assistente-job.ts',
+      'src/modules/ia/resumo-job.ts',
+      'src/modules/ia/rascunho-job.ts',
+      'src/modules/ia/avaliacao/avaliar-assistente.ts',
+      'src/modules/ia/avaliacao/catalogo-taco.ts',
+      'src/modules/ia/avaliacao/prontuarios-ficticios.ts',
     ]) {
+      expect(existsSync(proibido), `${proibido} existe (a guarda não confere arquivo que sumiu)`).toBe(true);
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }
     expect(g.pacotes.get('@anthropic-ai/sdk'), '@anthropic-ai/sdk importado (no grafo do Next) por').toBeUndefined();

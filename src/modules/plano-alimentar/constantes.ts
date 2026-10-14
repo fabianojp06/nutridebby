@@ -33,6 +33,9 @@ export const MSG_PLANO = {
   publicarRefeicaoVazia: (nome: string) => `A refeição "${nome}" não tem alimentos.`,
   semValor: 'Sem valor na TACO',
   semPeso: 'Registre a antropometria para ver g/kg',
+  /** Plano 14B (RN-117, A-D13): o selo do plano publicado que nasceu da IA (PDF e portal) e a marca no editor. */
+  seloIa: 'Elaborado com apoio de IA e revisado pela nutricionista',
+  marcaIa: 'Criado com apoio de IA',
 } as const;
 
 /** Plano 14B (US-123, RN-125): textos do modelo sugerido (os mesmos de MSG_MODELOS_IA; repetidos aqui para o editor, que não importa o módulo da IA). */

@@ -11,12 +11,14 @@ vi.mock('@/app/p/moldura', () => ({
 }));
 const LINK = vi.hoisted(() => 'https://exemplo.com.br/receitas/lanche-integral-com-frutas-vermelhas-e-aveia-em-flocos-finos');
 const respostas = vi.hoisted(() => vi.fn(async () => new Set<string>()));
+const selo = vi.hoisted(() => ({ ia: false }));
 vi.mock('@/modules/portal/diario', () => ({ respostasDeHoje: respostas }));
 vi.mock('@/modules/portal/plano', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/portal/plano')>()),
   planoDoPaciente: async () => ({
     id: 'p1',
     titulo: 'Plano de outubro',
+    seloIa: selo.ia,
     orientacoes: `Leia ${LINK}`,
     totalKcal: null,
     mostrarCalorias: false,
@@ -55,5 +57,17 @@ describe('/p/plano em sanfona (US-196, F-Plano)', () => {
       const classe = new RegExp(`<p class="([^"]*)">${texto.replaceAll('.', '\\.')}</p>`).exec(html)?.[1].split(' ');
       expect(classe, texto).toContain('wrap-break-word');
     }
+  });
+
+  it('selo (RN-117, A-D13): com seloIa, "Elaborado com apoio de IA e revisado pela nutricionista" logo depois do título; sem, nada', async () => {
+    selo.ia = true;
+    try {
+      const html = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
+      expect(html).toMatch(/<h2[^>]*>Plano de outubro<\/h2><p class="[^"]*">Elaborado com apoio de IA e revisado pela nutricionista<\/p>/);
+    } finally {
+      selo.ia = false;
+    }
+    const sem = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
+    expect(sem).not.toContain('Elaborado com apoio de IA');
   });
 });

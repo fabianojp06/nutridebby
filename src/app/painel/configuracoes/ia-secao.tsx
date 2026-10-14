@@ -31,7 +31,7 @@ export async function IaSecao({ tenant, ctx, ativada = false, modelosPedido = fa
   return (
     <section data-guia="ia-secao" aria-labelledby="ia-titulo" className="max-w-2xl space-y-3 rounded-3xl border border-borda bg-cartao p-5">
       <h2 id="ia-titulo" className="font-titulo text-lg font-semibold">Inteligência artificial (IA)</h2>
-      <p className="text-suave">Leitura de laudos de exames: a IA sugere os valores e você confere antes de salvar.</p>
+      <p className="text-suave">Leitura de laudos, resumo do histórico, rascunho de plano alimentar e modelos sugeridos: a IA sugere e você confere antes de usar.</p>
       {estado === 'emergencia' && <Aviso tipo="aviso">{MSG_IA.indisponivel}</Aviso>}
       {estado === 'nao_liberada' && <p>{MSG_IA.naoLiberada}</p>}
       {(estado === 'nao_ativada' || estado === 'aditivo_desatualizado') && (

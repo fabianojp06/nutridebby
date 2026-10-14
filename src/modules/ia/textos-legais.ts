@@ -7,21 +7,35 @@ import type { DestinoIA, UsoIA } from './constantes';
  * validação do advogado da OAB** (risco assumido pelo dono; item no backlog), com a retenção de até 30 dias da Anthropic
  * direta. A 1.0 sobe a parte numérica: quem autorizou ou aceitou nas provisórias (0.1/0.2) autoriza e aceita de novo.
  * Qualquer mudança no que sai para a IA também sobe AUTORIZACAO_IA_VERSAO_MIN (RN-109) — inclusive os usos da 14B (F2).
+ *
+ * D21 (Plano 14B, sobre a A-D27): 1.1 — o aditivo e a autorização com os trechos [14B] do parecer. Versão final, sem
+ * "provisorio", como a 1.0 publicada pelo dono sem o advogado; os trechos adaptados (desvio 10) estão na lista do P14A-16.
  */
-export const IA_ADITIVO_VERSAO = '1.0';
-export const IA_ADITIVO_VERSAO_MIN = '1.0';
+export const IA_ADITIVO_VERSAO = '1.1';
+export const IA_ADITIVO_VERSAO_MIN = '1.1';
 export const IA_ADITIVO_TERMO = `ia-aditivo-${IA_ADITIVO_VERSAO}`;
-/** A data impressa no fim do aditivo 1.0. */
+/** A data impressa no fim do aditivo 1.1. */
 export const IA_ADITIVO_VERSAO_DATA = '2026-10-09';
-export const AUTORIZACAO_IA_VERSAO = '1.0';
-export const AUTORIZACAO_IA_VERSAO_MIN = '1.0';
-/** US-108 "Data inválida": o termo em papel não pode ser de antes do início desta versão (é também a data impressa no texto). */
-export const AUTORIZACAO_IA_VERSAO_DATA = '2026-10-09';
+/** F2 / RN-109 (Plano 14B): a versão nova lista os três usos; o mínimo sobe junto — a 1.0 (só leitura) não vale mais. */
+export const AUTORIZACAO_IA_VERSAO = '1.1';
+export const AUTORIZACAO_IA_VERSAO_MIN = '1.1';
 /**
- * F2 (parecer JUR-2026-013, §18.5): a versão 1.0 (como a 0.1) autoriza só a leitura de laudos. O resumo e o rascunho (14B) entram
- * numa versão nova do texto, que sobe o mínimo e pede autorização nova de todos (RN-109).
+ * A data impressa em cada versão. US-108 "Data inválida": a da versão atual é também o piso da data do termo em papel. Um
+ * termo impresso na 1.0 e assinado depois do deploy da 1.1 não passa pelo código de referência, que inclui a versão.
  */
-export const AUTORIZACAO_IA_USOS: readonly UsoIA[] = ['leitura_laudos'];
+export const DATA_DA_VERSAO: Record<string, string> = { '0.1-provisorio': '2026-10-09', '1.0': '2026-10-09', '1.1': '2026-10-09' };
+export const AUTORIZACAO_IA_VERSAO_DATA = DATA_DA_VERSAO[AUTORIZACAO_IA_VERSAO];
+/**
+ * F2 (parecer JUR-2026-013, §18.5): a 0.1 e a 1.0 autorizavam só a leitura de laudos; a 1.1 (Plano 14B) traz o resumo do
+ * histórico e o rascunho de plano, e por isso subiu o mínimo e pede autorização nova de todos (RN-109).
+ */
+export const AUTORIZACAO_IA_USOS: readonly UsoIA[] = ['leitura_laudos', 'resumo_historico', 'rascunho_plano'];
+/** O que cada uso faz, como no texto 1.1 (e-mail de confirmação, telas). */
+export const DESCRICAO_DO_USO: Record<UsoIA, string> = {
+  leitura_laudos: 'ler os laudos dos seus exames e sugerir os valores para o seu prontuário',
+  resumo_historico: 'resumir o seu histórico antes da consulta',
+  rascunho_plano: 'montar um primeiro rascunho do seu plano alimentar, que a nutricionista revisa',
+};
 
 /**
  * RN-107 (revisão da T6, I1): a versão, os usos e o destino do texto que o paciente LEU. A tela que mostra o texto manda
@@ -123,11 +137,19 @@ const EXCECAO_DE_RETENCAO_1_0: Partial<Record<DestinoIA, string>> = {
 const RISCOS_A_MAIS_1_0: Partial<Record<DestinoIA, string>> = {
   'anthropic-us': ' A Anthropic é uma empresa dos Estados Unidos e guarda os seus dados lá por até 30 dias. As leis de lá permitem, em certas situações, que autoridades americanas peçam acesso a esses dados. Se os sistemas de segurança do fornecedor sinalizarem o conteúdo, ele pode ser revisto por pessoas da equipe do fornecedor.',
 };
-type VarianteDoTexto = { retencao: string; excecao: string; riscos: string; rodape: string };
+/** "Para que serve" e "O que é enviado" da 0.1 e da 1.0 (só a leitura de laudos, F2). */
+const PARA_QUE_SERVE_LEITURA = 'A IA ajuda a sua nutricionista a ler os laudos dos seus exames e sugerir os valores para o seu prontuário.';
+const FECHO_PARA_QUE_SERVE_LEITURA = 'A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você.';
+const LEITURA_ENVIA = 'Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização.';
+/**
+ * O que muda entre as versões: a retenção, a exceção, os riscos a mais e o rodapé (A-D27) e, desde a 1.1 (Plano 14B), os
+ * dois parágrafos dos usos e o fecho do "Para que serve" (sem eles, os textos da 0.1 e da 1.0, que não mudam uma vírgula).
+ */
+type VarianteDoTexto = { retencao: string; excecao: string; riscos: string; rodape: string; paraQueServe?: string; fechoParaQueServe?: string; oQueEEnviado?: string };
 
 /**
- * Parecer JUR-2026-013, item 4.1, sem os trechos [14B] (F2), com as adaptações da §18.5: (a) "a: (1) ler…" vira "a ler…"
- * (sobrou um uso só); (b) "Os seus dados saem do Brasil.". A retenção, a exceção, os riscos a mais e o rodapé mudam entre as versões.
+ * Parecer JUR-2026-013, item 4.1, com as adaptações da §18.5: na 0.1 e na 1.0, sem os trechos [14B] (F2), (a) "a: (1) ler…"
+ * vira "a ler…" (sobrou um uso só); (b) "Os seus dados saem do Brasil.". Na 1.1, os trechos [14B] (desvio 10 do Plano 14B).
  */
 function autorizacao(d: DadosDoTexto, v: VarianteDoTexto): TextoLegal {
   return {
@@ -140,7 +162,7 @@ function autorizacao(d: DadosDoTexto, v: VarianteDoTexto): TextoLegal {
       ],
       [
         b('Para que serve.'),
-        n(' A IA ajuda a sua nutricionista a ler os laudos dos seus exames e sugerir os valores para o seu prontuário. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames, não receita e não fala com você.'),
+        n(` ${v.paraQueServe ?? PARA_QUE_SERVE_LEITURA} A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. ${v.fechoParaQueServe ?? FECHO_PARA_QUE_SERVE_LEITURA}`),
       ],
       [
         b('Benefícios e riscos.'),
@@ -148,7 +170,7 @@ function autorizacao(d: DadosDoTexto, v: VarianteDoTexto): TextoLegal {
       ],
       [
         b('O que é enviado.'),
-        n(' Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.'),
+        n(` ${v.oQueEEnviado ?? LEITURA_ENVIA} Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.`),
       ],
       PARA_ONDE_VAI[d.destino],
       [
@@ -176,8 +198,9 @@ function autorizacao(d: DadosDoTexto, v: VarianteDoTexto): TextoLegal {
 }
 
 /**
- * As versões do texto. A 0.1 provisória fica para mostrar o que quem autorizou nela leu (com a adaptação (c) da §18.5);
- * a 1.0 (A-D27) volta ao "Versão 1.0, de {data}" do parecer e traz a retenção do destino.
+ * As versões do texto. A 0.1 provisória e a 1.0 ficam para mostrar o que quem autorizou nelas leu (a 0.1 com a adaptação
+ * (c) da §18.5; a 1.0, da A-D27, com o "Versão 1.0, de {data}" do parecer e a retenção do destino). A 1.1 (Plano 14B) traz
+ * os três usos; o resto do texto é o da 1.0.
  */
 const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
   '0.1-provisorio': (d) =>
@@ -187,7 +210,25 @@ const AUTORIZACOES_IA: Record<string, (d: DadosDoTexto) => TextoLegal> = {
       retencao: RETENCAO_NA_AUTORIZACAO_1_0[d.destino],
       excecao: EXCECAO_DE_RETENCAO_1_0[d.destino] ?? '',
       riscos: RISCOS_A_MAIS_1_0[d.destino] ?? '',
-      rodape: `Versão 1.0, de ${dataBr(AUTORIZACAO_IA_VERSAO_DATA)}.`,
+      rodape: `Versão 1.0, de ${dataBr(DATA_DA_VERSAO['1.0'])}.`,
+    }),
+  // Plano 14B (F2): os trechos [14B] do parecer, item 4.1, com as adaptações do desvio 10 — P14A-16 (advogado da OAB)
+  '1.1': (d) =>
+    autorizacao(d, {
+      // A-D27: a retenção, a exceção e os riscos do destino não mudam (anthropic-us: até 30 dias)
+      retencao: RETENCAO_NA_AUTORIZACAO_1_0[d.destino],
+      excecao: EXCECAO_DE_RETENCAO_1_0[d.destino] ?? '',
+      riscos: RISCOS_A_MAIS_1_0[d.destino] ?? '',
+      rodape: `Versão 1.1, de ${dataBr(DATA_DA_VERSAO['1.1'])}.`,
+      // P14A-16: adaptação (a) do desvio 10 — os três usos numerados (texto do parecer)
+      paraQueServe: `A IA ajuda a sua nutricionista a: (1) ${DESCRICAO_DO_USO.leitura_laudos}; (2) ${DESCRICAO_DO_USO.resumo_historico}; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa.`,
+      // D27 do Plano 15: a IA Nutri do paciente virá depois — a frase vale "nestes usos", os da nutricionista
+      fechoParaQueServe: 'A IA não faz diagnóstico, não interpreta os seus exames e não receita. Nestes usos, a IA não fala com você.',
+      // P14A-16: adaptações (b) e (c) do desvio 10 — dizem exatamente o que o código manda (campos-enviados.ts) e o limite da máscara
+      // (revisão da T6: as restrições do pedido do rascunho, §5.4, e o que a máscara deixa passar do próprio nome, RN-115 —
+      // primeiro nome curto ou da lista PALAVRAS_COMUNS_ALIMENTACAO, qualquer outra parte do nome sem o primeiro — segundo nome
+      // (Ana Beatriz → "Beatriz"), sobrenomes —, apelidos; art. 9º, § 1º)
+      oQueEEnviado: `${LEITURA_ENVIA} No resumo e no rascunho, vão as informações do seu prontuário necessárias para a tarefa: a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas, as restrições e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela. O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. No lugar da data de nascimento, vai a sua idade. Nos textos escritos no prontuário e no pedido do rascunho, o sistema retira o seu nome (completo, com o sobrenome ou só o primeiro nome), e-mail, telefone e CPF. Podem ir junto: o seu primeiro nome sozinho, quando tem menos de três letras ou também é uma palavra comum de alimentação (como Rosa ou Clara); outras partes do seu nome escritas sem o primeiro nome (como um segundo nome ou os sobrenomes); apelidos; e outros dados escritos ali, como o nome de outras pessoas ou um endereço.`,
     }),
 };
 
@@ -230,9 +271,10 @@ function retencaoDoAditivo(destino: DestinoIA, operador: string): string {
 }
 
 /**
- * US-101 (Plano 14A) e A-D27: o aditivo 1.0 na redação do parecer JUR-2026-013, item 4.2, sem os trechos [14B] (F2),
- * com as variantes do destino (RN-109) e as adaptações da §18.5: (d) a frase do "nenhum operador" e do registro de chamadas
- * só na variante do Bedrock; na Anthropic direta, a retenção de até 30 dias (cláusulas 6 e 8).
+ * US-101 (Plano 14A), A-D27 e Plano 14B (D21): o aditivo 1.1 na redação do parecer JUR-2026-013, item 4.2, com os trechos
+ * [14B] (finalidades (b)–(d), item 5 e o selo do item 10), com as variantes do destino (RN-109) e as adaptações da §18.5:
+ * (d) a frase do "nenhum operador" e do registro de chamadas só na variante do Bedrock; na Anthropic direta, a retenção de
+ * até 30 dias (cláusulas 6 e 8). Sempre a versão atual (quem aceitou outra aceita de novo: não há mapa por versão).
  */
 export function aditivoIa(destino: DestinoIA): TextoLegal {
   const operador = destino === 'bedrock-eu' ? ' No Amazon Web Services, nenhum operador do serviço tem acesso ao conteúdo, e o registro de chamadas fica desligado na conta.' : '';
@@ -240,17 +282,19 @@ export function aditivoIa(destino: DestinoIA): TextoLegal {
     titulo: 'Aditivo de inteligência artificial ao contrato de tratamento de dados',
     paragrafos: [
       '1. Partes e objeto. Este aditivo complementa o contrato de tratamento de dados (DPA) entre a nutricionista titular da conta (CONTROLADORA) e WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07 (OPERADORA), para o uso de inteligência artificial (IA) no consultório. Vale a partir do aceite e enquanto a IA estiver ativada.',
-      '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário. Sem dados de paciente: sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames, não prescreve e não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.',
+      // D27 do Plano 15: "Nestes usos" restringe a frase aos usos da nutricionista (a IA Nutri do paciente vem depois, com o aditivo 1.2)
+      '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.',
       `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. ${SUBOPERADORA[destino]} atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes.`,
       `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.`,
-      '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.',
+      // P14A-16: adaptação (e) do desvio 10 — "documentos do cadastro", as restrições do rascunho e o limite da máscara, como no texto da autorização
+      '5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.',
       retencaoDoAditivo(destino, operador),
       '7. Deveres da CONTROLADORA. Antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo.',
       `8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, ${destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada'}, nem quando o limite mensal de custo do consultório foi atingido.`,
       '9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor.',
-      '10. Selo e transparência. A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',
+      '10. Selo e transparência. O plano alimentar criado a partir do rascunho da IA leva o selo "Elaborado com apoio de IA e revisado pela nutricionista". A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',
       '11. Desativação e limite. A CONTROLADORA pode desativar a IA a qualquer momento. A OPERADORA pode suspendê-la por motivo de segurança, mudança do fornecedor ou de norma, avisando a CONTROLADORA. O uso tem um limite mensal de custo por consultório, informado no painel.',
-      `Versão 1.0, de ${dataBr(IA_ADITIVO_VERSAO_DATA)}.`,
+      `Versão 1.1, de ${dataBr(IA_ADITIVO_VERSAO_DATA)}.`,
     ].map((t) => [n(t)]),
   };
 }

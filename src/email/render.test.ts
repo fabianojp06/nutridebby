@@ -242,11 +242,20 @@ describe('Plano 14A — e-mails da autorização de IA', () => {
     expect(r.text).toContain('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.'); // F4
   });
 
-  it('autorizacao_ia_confirmada: só a leitura de laudos (F2), a versão, o destino, o "Se não foi você" (F4) e o botão "Retirar a autorização"', () => {
+  it('autorizacao_ia_confirmada de job antigo, sem `usos` (14A): só a leitura de laudos (F2), a versão, o destino, o "Se não foi você" (F4) e o botão "Retirar a autorização"', () => {
     const r = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Amazon Web Services (Claude), União Europeia', versao: '0.1-provisorio', link: 'https://app.test/autorizacao-ia/xyz' });
     expect(r.subject).toBe('Você autorizou o uso de inteligência artificial');
     for (const t of ['ler os laudos dos seus exames', '0.1-provisorio', 'União Europeia', 'saem do Brasil', 'Retirar a autorização', 'Se não foi você quem autorizou, toque em Retirar a autorização e avise sua nutricionista.']) expect(r.text).toContain(t);
     for (const t of ['resumir o seu histórico', 'rascunho']) expect(r.text).not.toContain(t);
+    expect(r.text).toContain('(texto da versão 0.1-provisorio), só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
     expect(r.html).toContain('href="https://app.test/autorizacao-ia/xyz"');
+  });
+
+  it('Plano 14B (F2): autorizacao_ia_confirmada com os usos da versão gravada — os três, como no texto 1.1', () => {
+    const r = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Provedor de teste', versao: '1.1', usos: ['leitura_laudos', 'resumo_historico', 'rascunho_plano'], link: 'https://app.test/autorizacao-ia/xyz' });
+    expect(r.text).toContain('(texto da versão 1.1), só para: ler os laudos dos seus exames e sugerir os valores para o seu prontuário; resumir o seu histórico antes da consulta; montar um primeiro rascunho do seu plano alimentar, que a nutricionista revisa.');
+    expect(r.text).not.toContain('Destino dos dados'); // destino de teste: nada sai para fornecedor
+    const so = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Provedor de teste', versao: '1.0', usos: ['leitura_laudos'], link: 'https://app.test/autorizacao-ia/xyz' });
+    expect(so.text).toContain('só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
   });
 });

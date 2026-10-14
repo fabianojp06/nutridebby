@@ -32,14 +32,31 @@ export async function criarRascunho(ctx: TenantContext, patientId: string, deps:
         .from(mealPlans)
         .where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'rascunho')));
       if (existe) return { id: existe.id, criado: false };
-      const [p] = await tx
-        .insert(mealPlans)
-        .values({ tenantId: ctx.tenantId, patientId, titulo: 'Plano alimentar', versao: await proximaVersao(tx, patientId) })
-        .returning({ id: mealPlans.id });
-      return { id: p.id, criado: true };
+      return { id: await criarRascunhoTx(tx, ctx.tenantId, patientId), criado: true };
     },
     deps.db ?? getDb(),
   );
+}
+
+/**
+ * RN-122 (Plano 14B): o rascunho novo do paciente, dentro da transação de quem chama (que já travou o paciente e conferiu
+ * que não há rascunho — D11). `iaOrigemEm` = a marca "Criado com apoio de IA" ("Usar como rascunho"), que vira o selo
+ * quando publicado (RN-117).
+ */
+export async function criarRascunhoTx(
+  tx: Tx,
+  tenantId: string,
+  patientId: string,
+  o: { titulo?: string; metaKcal?: number | null; orientacoes?: string; iaOrigemEm?: Date | null } = {},
+): Promise<string> {
+  const [p] = await tx
+    .insert(mealPlans)
+    .values({
+      tenantId, patientId, titulo: o.titulo ?? 'Plano alimentar', metaKcal: o.metaKcal ?? null, orientacoes: o.orientacoes ?? '', iaOrigemEm: o.iaOrigemEm ?? null,
+      versao: await proximaVersao(tx, patientId),
+    })
+    .returning({ id: mealPlans.id });
+  return p.id;
 }
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };

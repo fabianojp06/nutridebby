@@ -1,7 +1,7 @@
 import { count, desc, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { auditLog, user } from '@/db/schema';
+import { auditLog, iaTarefas, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 
 export type AuditAction = 'ler' | 'criar' | 'alterar' | 'excluir' | 'exportar' | 'bloquear' | 'anonimizar';
@@ -79,15 +79,23 @@ export type AccessHistoryItem = {
   ip: string | null;
   /** null = ação do sistema (job do worker) */
   ator: { nome: string; papel: string } | null;
+  /**
+   * Plano 14B (D22, RN-101): só nos itens da entidade `ia` — o tipo da tarefa (`leitura_exame`, `resumo_historico`,
+   * `rascunho_plano`), ou null se a tarefa já não existe (apagada na anonimização). Ausente = item de outra entidade.
+   */
+  tipoIa?: string | null;
 };
 /**
- * RN-101: o PEDIDO é o `criar` do gatilho de ia_tarefas (com o ator da sessão); a SAÍDA do laudo ao provedor é o
- * `exportar` que o worker grava no portão do envio (ator nulo = "Sistema"). Tarefa que termina antes de enviar (laudo
- * longo, PDF com senha, exame excluído, recusa do paciente) não tem a linha de saída. Sem ação nova no audit_log.
+ * RN-101: o PEDIDO é o `criar` do gatilho de ia_tarefas (com o ator da sessão); a SAÍDA ao provedor é o `exportar` que o
+ * worker grava no portão do envio (ator nulo = "Sistema"). Tarefa que termina antes de enviar (laudo longo, PDF com senha,
+ * exame excluído, recusa do paciente) não tem a linha de saída. Sem ação nova no audit_log. Plano 14B (D22): o rótulo
+ * depende do tipo da tarefa (`tipoIa`, lido por listAccessHistory) — o laudo na leitura, os dados no resumo e no rascunho;
+ * `null` (tarefa apagada na anonimização) = "Pediu uso da IA"/"Dados enviados à IA"; sem o campo = os rótulos da leitura.
  */
-export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade'>): string {
-  if (i.entidade === 'ia' && i.acao === 'criar') return 'Pediu leitura à IA';
-  if (i.entidade === 'ia' && i.acao === 'exportar') return 'Laudo enviado à IA';
+const PEDIU_IA: Record<string, string> = { leitura_exame: 'Pediu leitura à IA', resumo_historico: 'Pediu resumo à IA', rascunho_plano: 'Pediu rascunho à IA' };
+export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 'tipoIa'>): string {
+  if (i.entidade === 'ia' && i.acao === 'criar') return i.tipoIa === undefined ? PEDIU_IA.leitura_exame : (PEDIU_IA[i.tipoIa ?? ''] ?? 'Pediu uso da IA');
+  if (i.entidade === 'ia' && i.acao === 'exportar') return i.tipoIa === undefined || i.tipoIa === 'leitura_exame' ? 'Laudo enviado à IA' : 'Dados enviados à IA';
   // Plano 16 (Desvio 5): a decisão "Não mostrar peso no app" (`criar` = ligou, `excluir` = desligou, peso-oculto.ts)
   if (i.entidade === 'peso_no_app' && i.acao === 'criar') return 'Ligou';
   if (i.entidade === 'peso_no_app' && i.acao === 'excluir') return 'Desligou';
@@ -121,7 +129,11 @@ export async function listAccessHistory(
       .orderBy(desc(auditLog.criadoEm), desc(auditLog.id))
       .limit(HISTORICO_POR_PAGINA)
       .offset((atual - 1) * HISTORICO_POR_PAGINA);
-    return { linhas, total: n, atual, totalPaginas };
+    // RN-101 (Plano 14B, D22): o rótulo da IA depende do tipo da tarefa — lido em ia_tarefas pelos entidade_id desta página
+    // (a equipe lê a tabela, dentro do withTenant: regra 1); id que não é uuid não vai à consulta (o cast falharia)
+    const idsIa = [...new Set(linhas.filter((l) => l.entidade === 'ia' && l.entidadeId && z.guid().safeParse(l.entidadeId).success).map((l) => l.entidadeId!))];
+    const tipos = new Map(idsIa.length ? (await tx.select({ id: iaTarefas.id, tipo: iaTarefas.tipo }).from(iaTarefas).where(inArray(iaTarefas.id, idsIa))).map((x) => [x.id, x.tipo]) : []);
+    return { linhas, total: n, atual, totalPaginas, tipos };
   }, db);
 
   // Nomes dos atores: tabela `user` (identidade global, exceção de RLS acessada só pelo M1)
@@ -143,6 +155,7 @@ export async function listAccessHistory(
       entidadeId: l.entidadeId,
       ip: l.ip,
       ator: l.actorUserId ? (porId.get(l.actorUserId) ?? { nome: 'Usuário removido', papel: '' }) : null,
+      ...(l.entidade === 'ia' ? { tipoIa: (l.entidadeId && r.tipos.get(l.entidadeId)) || null } : {}),
     })),
   };
 }

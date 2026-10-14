@@ -29,12 +29,14 @@ test('link por e-mail: pedido → página sem login → autorizo → confirmaç�
   await expect(anonimo.getByRole('heading', { name: 'Autorização para uso de inteligência artificial' })).toBeVisible();
   await expect(anonimo.getByText('Consultório E2E').first()).toBeVisible();
   await expect(anonimo.getByText('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.')).toBeVisible(); // F4
+  // Plano 14B-2 (F2): o texto 1.1 da página do link traz os três usos no "Para que serve"
+  await expect(anonimo.getByText(/A IA ajuda a sua nutricionista a: \(1\) ler os laudos .*; \(2\) resumir o seu histórico antes da consulta; \(3\) montar um primeiro rascunho do seu plano alimentar, que ela revisa\./)).toBeVisible();
   expect((await new AxeBuilder({ page: anonimo }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
   await anonimo.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
   await expect(anonimo.getByRole('status').filter({ hasText: /^Autorização registrada\. Você pode retirar quando quiser, pelo link do e-mail de confirmação/ })).toBeVisible();
 
   await nutri.reload();
-  await expect(nutri.getByText(/^Autorizou em .* \(link por e-mail, versão 1\.0\)\./)).toBeVisible();
+  await expect(nutri.getByText(/^Autorizou em .* \(link por e-mail, versão 1\.1\)\./)).toBeVisible();
   await expect(nutri.getByText(/— Pedido enviado por e-mail$/)).toBeVisible();
 
   const confirmacao = await esperarEmail(paciente.email, { assunto: 'Você autorizou o uso de inteligência artificial', depoisDe: antes });
@@ -95,7 +97,7 @@ test('termo em papel: imprimir, guardar a foto com o código de referência, "Ve
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   await nutri.getByLabel('Data da assinatura').fill(hoje);
   await nutri.getByLabel('Foto ou PDF do termo assinado').setInputFiles({ name: 'termo.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
-  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 1\.0, com envio para Provedor de teste, e que o arquivo mostra todas as páginas e a assinatura\.$/).check();
+  await nutri.getByLabel(/^Confirmo que o paciente assinou este termo, na versão 1\.1, com envio para Provedor de teste, e que o arquivo mostra todas as páginas e a assinatura\.$/).check();
   // Revisão final (RN-107/RN-109): o código lido no papel; um código que não é o do texto de agora → recusa no campo
   const impresso = (await nutri.getByText(/^Código de referência: [0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/).first().textContent())!.replace('Código de referência: ', '');
   const codigo = nutri.getByLabel('Código de referência impresso no termo assinado');
@@ -106,7 +108,7 @@ test('termo em papel: imprimir, guardar a foto com o código de referência, "Ve
   await codigo.fill(impresso.toLowerCase());
   await nutri.getByRole('button', { name: 'Salvar' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Termo registrado. Entregue ao paciente uma via do termo assinado.' })).toBeVisible();
-  await expect(nutri.getByText(/^Autorizou em .* \(termo em papel, versão 1\.0\)\./)).toBeVisible();
+  await expect(nutri.getByText(/^Autorizou em .* \(termo em papel, versão 1\.1\)\./)).toBeVisible();
   // "Ver termo assinado" abre em outra aba; o Chromium sem tela baixa o PDF em vez de mostrar (a aba nunca termina de
   // carregar): a rota é conferida pela sessão da nutricionista — 303 para a URL assinada (/api/arquivos) e o PDF
   const verTermo = nutri.getByRole('link', { name: 'Ver termo assinado' });

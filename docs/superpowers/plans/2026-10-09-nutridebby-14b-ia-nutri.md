@@ -74,7 +74,7 @@ Todas técnicas, tomadas aqui com base na spec e no código. Nenhuma pergunta no
 7. **Reserva do resumo pelo pedido montado** (§5.5: "teto de entrada fixo do pedido montado"): D12 — com diário e anamnese sem limite de quantidade, um teto fixo seria ou alto demais (consome a cota) ou baixo demais; o tamanho real × 1,5 é o teto, e o portão recusa sem enviar se o pedido crescer além dele.
 8. **Filtro de interpretação na seção de exames** (A-D17 só pede a instrução e a avaliação): D13 — guarda de código a mais.
 9. **"O modelo de anamnese não aprovado não vira o padrão"**: não existe ação "tornar padrão" no código (só o "Anamnese geral" automático, `garantirModeloPadrao`); fica o CHECK `anamnesis_templates_padrao_aprovado` como defesa (D17).
-10. **Adaptações da redação `[14B]` do parecer para bater com o código** (F2; parecer 3.2 (ii) e (iv); entram na lista do **P14A-16** — validação dos textos de IA com advogado da OAB, A-D27): (a) "Para que serve" com os três usos numerados (texto do parecer); (b) "O que é enviado": a lista entre parênteses do parecer vira "a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela" — o código manda **sexo** e **cálculos de gasto energético** (RN-120), **datas** (§5.4) e, no rascunho, **metas e preferências** (§5.4), que o parecer não nomeia; (c) "O seu nome, e-mail, telefone, endereço e documentos não vão" vira "O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. Nos textos escritos no prontuário, o sistema retira o seu nome, e-mail, telefone e CPF; outros dados escritos ali, como o nome de outras pessoas ou um endereço, podem ir junto." — a máscara não reconhece endereço, outros documentos nem nomes de terceiros (§5.4 "Limite declarado"); prometer mais seria falso (art. 9º, § 1º); (d) "Versão 1.1, de {data}." (como a 1.0 da A-D27); (e) no aditivo, o item 5 `[14B]` com a mesma ressalva da máscara ("com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente)"). No código, um comentário `P14A-16` em cada trecho adaptado.
+10. **Adaptações da redação `[14B]` do parecer para bater com o código** (F2; parecer 3.2 (ii) e (iv); entram na lista do **P14A-16** — validação dos textos de IA com advogado da OAB, A-D27): (a) "Para que serve" com os três usos numerados (texto do parecer); (b) "O que é enviado": a lista entre parênteses do parecer vira "a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela" — o código manda **sexo** e **cálculos de gasto energético** (RN-120), **datas** (§5.4) e, no rascunho, **metas e preferências** (§5.4), que o parecer não nomeia; (c) "O seu nome, e-mail, telefone, endereço e documentos não vão" vira "O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. Nos textos escritos no prontuário, o sistema retira o seu nome, e-mail, telefone e CPF; outros dados escritos ali, como o nome de outras pessoas ou um endereço, podem ir junto." — a máscara não reconhece endereço, outros documentos nem nomes de terceiros (§5.4 "Limite declarado"); prometer mais seria falso (art. 9º, § 1º); (d) "Versão 1.1, de {data}." (como a 1.0 da A-D27); (e) no aditivo, o item 5 `[14B]` com a mesma ressalva da máscara ("com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente)"). No código, um comentário `P14A-16` em cada trecho adaptado. **Revisão da T6 (14/10/2026), achados confirmados que prevalecem sobre a redação acima:** (b) passa a "no rascunho, também as metas, as restrições e as preferências que a nutricionista informar" (o texto livre "Restrições e preferências" sai, §5.4); (c) passa a "Nos textos escritos no prontuário e no pedido do rascunho, o sistema retira o seu nome (completo, com o sobrenome ou só o primeiro nome), e-mail, telefone e CPF. Podem ir junto: o seu primeiro nome sozinho, quando tem menos de três letras ou também é uma palavra comum de alimentação (como Rosa ou Clara); outras partes do seu nome escritas sem o primeiro nome (como um segundo nome ou os sobrenomes); apelidos; e outros dados escritos ali, como o nome de outras pessoas ou um endereço." (a máscara da RN-115 não tira esses casos: ela só reconhece o nome completo, o primeiro nome com um sobrenome e o primeiro nome sozinho, então "Beatriz" de Ana Beatriz Souza, "Fátima" de Maria de Fátima Souza e "Silva Souza" de Maria Silva Souza passam; 2ª rodada da revisão); (e) o item 5 do aditivo nomeia as restrições do rascunho e os mesmos limites ("o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto"). O teste do contrato (D8) confere as frases só na lista do "O que é enviado". Redação final a confirmar com o dono antes do merge (A-D27) e na lista do P14A-16.
 11. **Aditivo e os modelos** (US-123 (c) cita o aditivo `0.2-provisorio`, que a A-D27 substituiu pela 1.0): a **14B-1 não sobe o aditivo** — a 1.0 já cobre os modelos sem paciente (itens 2 e 5, conferido no `d3e366d`). A **14B-2** sobe o aditivo para **1.1** (os trechos `[14B]`); como o mínimo é único, a partir dela os modelos também pedem o aceite da 1.1.
 12. **Itens descartados por modelo** (US-123: "o modelo mostra '{n} itens…'"): a contagem fica na geração (`itens_descartados`, do pacote) e aparece em cada modelo do pacote enquanto ele é "Sugestão da IA — revise".
 13. **Textos novos** (vão à revisão de interface e à Debby): "Ainda não há histórico para resumir." já é da spec; novos: "Restrições e preferências" com o contador "{n}/500"; "Texto muito longo (até 500 caracteres)." (restrições); "Informe ao menos uma refeição."; "Este rascunho tem {n} itens que não puderam ser usados (alimento excluído)." (D15); "Gerar de novo"; "Copiar texto" e "Texto copiado."; "Rascunho sugerido pela IA" como título da prévia; "Usar como rascunho"; "Substituir" e "Cancelar"; "Gerando o resumo…"/"Preparando o resumo… isso leva até 1 minuto." (spec); a coluna de origem na lista de modelos ("Sugestão da IA — revise" / "Aprovado em {data}").
@@ -3014,16 +3014,26 @@ pnpm db:generate --name ia_resumo_rascunho
 pnpm drizzle-kit generate --custom --name rls_ia_resumo_rascunho
 ```
 
-Conferir a gerada (CHECK trocado com `DROP CONSTRAINT`/`ADD CONSTRAINT`, as colunas, o índice; nada mais). Em `drizzle/0114_rls_ia_resumo_rascunho.sql`, a função de 0108 linha a linha, com `carimbo_dados` entre as colunas fixas:
+Conferir a gerada (CHECK trocado com `DROP CONSTRAINT`/`ADD CONSTRAINT`, as colunas, o índice; nada mais). Em `drizzle/0114_rls_ia_resumo_rascunho.sql`, a função de 0108 linha a linha, com `carimbo_dados` fixo salvo na troca do portão (revisão da T7: o carimbo é gravado no pedido, mas o que sai é remontado no portão; o worker grava ali o carimbo do pedido montado, no mesmo UPDATE que marca `enviado_em` — T9, passo do portão):
 
 ```sql
--- Plano 14B (RN-120, D11): app_ia_tarefas_imutavel (0108) + carimbo_dados entre as colunas fixas (gravado no pedido; o
--- "Reaproveitar" compara com ele). O resto é o da 0108, linha a linha.
+-- Plano 14B (RN-120, D11): app_ia_tarefas_imutavel (0108) + carimbo_dados entre as colunas fixas (o "Reaproveitar"
+-- compara com ele). O resto é o da 0108, linha a linha. Os tipos novos (resumo_historico, rascunho_plano) herdam, sem
+-- mudança, a RLS e o staff_only, a auditoria (entidade `ia`) e o ia_tarefas_sem_apagar da 0099.
+-- O carimbo é gravado no pedido, mas o que sai é remontado no portão do worker (D12, paciente travado): para o
+-- "Reaproveitar" nunca devolver um resumo feito com dados diferentes dos do carimbo, o worker grava o carimbo do pedido
+-- montado no mesmo UPDATE que marca enviado_em — a única troca aceita (contexto worker, tarefa em processando ainda não
+-- enviada, enviado_em preenchido junto). Fora disso, o carimbo é fixo.
 CREATE OR REPLACE FUNCTION app_ia_tarefas_imutavel() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.tipo, NEW.pedido_por, NEW.modelo, NEW.prompt_versao, NEW.criado_em, NEW.carimbo_dados)
-     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.tipo, OLD.pedido_por, OLD.modelo, OLD.prompt_versao, OLD.criado_em, OLD.carimbo_dados) THEN
+  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.tipo, NEW.pedido_por, NEW.modelo, NEW.prompt_versao, NEW.criado_em)
+     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.tipo, OLD.pedido_por, OLD.modelo, OLD.prompt_versao, OLD.criado_em) THEN
+    RAISE EXCEPTION 'coluna fixa da tarefa de IA' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.carimbo_dados IS DISTINCT FROM OLD.carimbo_dados
+     AND NOT (app_current_role() IS NOT DISTINCT FROM 'worker' AND OLD.status = 'processando'
+              AND OLD.enviado_em IS NULL AND NEW.enviado_em IS NOT NULL) THEN
     RAISE EXCEPTION 'coluna fixa da tarefa de IA' USING ERRCODE = '42501';
   END IF;
   IF NEW.exam_id IS NOT NULL AND NEW.exam_id IS DISTINCT FROM OLD.exam_id THEN
@@ -3651,6 +3661,10 @@ describe('pedirResumo (US-120, RN-100, RN-103, D12)', () => {
     expect((await tarefa(C, a.tarefaId)).status).toBe('descartada');
   });
 
+  // Revisão da T7 (RN-120): acrescentar aqui o caso "registro lançado com a tarefa na fila e apagado depois do resumo":
+  // pedirResumo (carimbo C0) → lançar uma antropometria (pelo módulo, como o prontuarioCompleto) → processarResumo (o
+  // portão monta com ela e grava o carimbo C1 do pedido que saiu: expect(t.carimboDados).not.toBe(C0)) → apagar a
+  // antropometria → pedirResumo com a mesma escolha devolve reaproveitada: false (o carimbo da pronta é C1, não C0).
   it('um resumo em andamento por paciente (RN-103)', async () => {
     const C = await cenario();
     await pedirResumo(C.T.ctx, C.tenant, C.p.id, { notasPrivadas: false, gerarDeNovo: false }, deps);
@@ -4030,7 +4044,10 @@ export async function processarResumo(d: { tenantId: string; tarefaId: string },
     if (pedido.vazio) return 'nada_encontrado';
     const teto = custoMaximoMicroUsd(t.modelo as ModeloIA, deps.geo, tokensDeBytes(pedido.bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_RESUMO);
     if (teto > t.reservaMicroUsd) return 'limite_custo'; // D12: a reserva nunca sobe
-    const marcada = await tx.update(iaTarefas).set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, updatedAt: agora() })
+    // revisão da T7 (RN-120): o carimbo passa a ser o do pedido que sai — o "Reaproveitar" compara com o que foi de fato
+    // enviado (um registro lançado depois do pedido e apagado depois do resumo não deixa o resumo velho passar por atual).
+    // A 0114 só aceita esta troca do worker, em processando, sem enviado_em, junto com enviado_em.
+    const marcada = await tx.update(iaTarefas).set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, carimboDados: pedido.carimbo, updatedAt: agora() })
       .where(and(eq(iaTarefas.id, t.id), eq(iaTarefas.status, 'processando'), isNull(iaTarefas.enviadoEm))).returning({ id: iaTarefas.id });
     if (!marcada.length) return 'ignorada';
     await reduzirReserva(tx, t.id, teto, agora());

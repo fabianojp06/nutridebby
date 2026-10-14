@@ -3,6 +3,7 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { daquiA } from '@/modules/portal/datas-portal';
 import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
+import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline } from '@/modules/portal/plano';
 import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
@@ -45,6 +46,8 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
         ) : (
           <>
             <h2 className="font-portal-titulo text-xl font-bold">{plano.titulo}</h2>
+            {/* RN-117 / art. 37 (A-D13): o selo nasce com o plano publicado (id novo), então a cópia offline (D6) já muda de versão */}
+            {plano.seloIa && <p className="text-sm text-suave">{MSG_PLANO.seloIa}</p>}
             {plano.totalKcal && <p>{`Total do dia: ${plano.totalKcal}`}</p>}
             {pdf === 'preparando' && <p role="status">{MSG_PLANO_PACIENTE.pdfPreparando}</p>}
             <p className="flex flex-wrap gap-2">

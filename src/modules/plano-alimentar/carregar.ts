@@ -90,6 +90,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
         }),
     })),
     origemIa,
+    iaOrigemEm: p.iaOrigemEm?.toISOString() ?? null,
   };
 }
 

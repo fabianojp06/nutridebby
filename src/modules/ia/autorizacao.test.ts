@@ -13,6 +13,7 @@ import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente, registrarRetiradaPelaNutri, situacaoDaAutorizacao, situacaoParaTarefa, ultimaDecisao, vigentePara, type EventoDeDecisao } from './autorizacao';
 import { pedirLeituraExame } from './tarefas';
+import { AUTORIZACAO_IA_VERSAO } from './textos-legais';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-aut-'));
@@ -24,14 +25,16 @@ afterAll(async () => {
 });
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
 const evento = (o: Partial<EventoDeDecisao> = {}): EventoDeDecisao => ({
-  id: 'e1', evento: 'autorizou', versao: '1.0', usos: ['leitura_laudos'], destino: 'teste', canal: 'link',
+  id: 'e1', evento: 'autorizou', versao: AUTORIZACAO_IA_VERSAO, usos: ['leitura_laudos'], destino: 'teste', canal: 'link',
   em: new Date('2026-10-09T12:00:00Z'), registradoEm: new Date('2026-10-09T12:00:00Z'), ...o,
 });
 
 describe('situacaoDaAutorizacao (RN-107, RN-109, D7) — sem banco', () => {
   it('nunca, vigente, retirada, versão antiga, outro destino; destino nulo (IA desligada) não confere o destino', () => {
     expect(situacaoDaAutorizacao(null, 'teste')).toEqual({ tipo: 'nunca' });
-    expect(situacaoDaAutorizacao(evento(), 'teste')).toMatchObject({ tipo: 'vigente', versao: '1.0', destino: 'teste', canal: 'link' });
+    expect(situacaoDaAutorizacao(evento(), 'teste')).toMatchObject({ tipo: 'vigente', versao: AUTORIZACAO_IA_VERSAO, destino: 'teste', canal: 'link' });
+    // Plano 14B (RN-109): a 1.0 (só a leitura) ficou abaixo do mínimo da 1.1 — deixa de valer, inclusive para a leitura de laudos
+    expect(situacaoDaAutorizacao(evento({ versao: '1.0' }), 'teste')).toMatchObject({ tipo: 'versao_antiga', versao: '1.0' });
     expect(situacaoDaAutorizacao(evento({ evento: 'retirou', versao: null, usos: null, destino: null, canal: 'app' }), 'teste')).toMatchObject({ tipo: 'retirada', canal: 'app' });
     expect(situacaoDaAutorizacao(evento({ versao: '0.0.9-velha' }), 'teste')).toMatchObject({ tipo: 'versao_antiga', versao: '0.0.9-velha' });
     expect(situacaoDaAutorizacao(evento({ destino: 'anthropic-us' }), 'bedrock-eu')).toMatchObject({ tipo: 'outro_destino', destino: 'anthropic-us' });
@@ -42,7 +45,7 @@ describe('situacaoDaAutorizacao (RN-107, RN-109, D7) — sem banco', () => {
     const s = situacaoDaAutorizacao(evento({ usos: ['resumo_historico'] }), 'teste');
     expect(vigentePara(s, 'leitura_laudos')).toBe(false);
     expect(vigentePara(s, 'resumo_historico')).toBe(true);
-    expect(vigentePara(situacaoDaAutorizacao(evento(), 'teste'), 'resumo_historico')).toBe(false); // F2: a autorização da 0.1 não cobre os usos da 14B
+    expect(vigentePara(situacaoDaAutorizacao(evento(), 'teste'), 'resumo_historico')).toBe(false); // F2: uma autorização só com a leitura não cobre os usos da 14B
     const ativo = { status: 'ativo', anonimizadoEm: null };
     expect(motivoDoPaciente(ativo, situacaoDaAutorizacao(evento(), 'teste'), 'leitura_laudos')).toBeNull();
     expect(motivoDoPaciente(ativo, { tipo: 'nunca' }, 'leitura_laudos')).toBe('sem_autorizacao');

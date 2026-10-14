@@ -6,7 +6,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { exameComLaudo, IA_TESTE, iaPronta, pacienteAutorizado, pdfDeTeste } from '../../../test/ia';
+import { exameComLaudo, IA_TESTE, iaPronta, pacienteAutorizado, pdfDeTeste, prontuarioCompleto } from '../../../test/ia';
 import { closeDb } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -18,6 +18,10 @@ import { processarGeracaoModelos } from './modelos-job';
 import { pedirModelos } from './modelos-sugeridos';
 import { ErroProvedor } from './provedor';
 import { finalOk, pedeFerramenta, provedorFake, respostaOk } from './provedor-fake';
+import { pedirRascunhoIa } from './rascunho-ia';
+import { processarRascunho } from './rascunho-job';
+import { pedirResumo } from './resumo';
+import { processarResumo } from './resumo-job';
 import { pedirLeituraExame } from './tarefas';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -92,6 +96,93 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       const [t3] = await app.db.select().from(tenants).where(eq(tenants.id, terceiro.tenantId));
       const g3 = await pedirModelos(terceiro.ctx, t3 as TenantRow, 'idosos', { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
       const repetir = await processarGeracaoModelos({ tenantId: terceiro.tenantId, geracaoId: g3 }, { ...deps, provedor: provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'req-neutro')] }) }).catch((e: unknown) => e);
+      expect(repetir).toBeInstanceOf(RepetirIaError);
+      expect(erroSemDetalhe('ia-assistente', repetir).message).not.toContain('MARCADOR');
+      const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
+      expect(logs).not.toContain('MARCADOR');
+      const jobs = await (await getBoss()).findJobs('ia-assistente');
+      expect(JSON.stringify(jobs.map((j) => j.data))).not.toContain('MARCADOR');
+      expect(JSON.stringify(jobs.map((j) => j.output ?? null))).not.toContain('MARCADOR');
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  it('resumo do histórico (Plano 14B): prontuário e frases da IA marcadores não vão a log, fila nem à saída do job', async () => {
+    const DO_PRONTUARIO = 'MARCADOR-SAUDE-790';
+    const DA_IA = 'MARCADOR-SAUDE-789';
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const deps = {
+        db: app.db, modo: 'fake' as const, geo: 'us' as const, destino: 'teste' as const, retencao: 'zero' as const, tetoGlobalMicroUsd: IA_TESTE.tetoGlobalMicroUsd, appUrl: 'https://x',
+        agora: () => agora, ultimaTentativa: false, alertas: { credencial: async () => 0, teto: async () => 0 }, modeloAssistente: IA_TESTE.modeloAssistente, tetoRascunhoMicroUsd: IA_TESTE.tetoRascunhoMicroUsd,
+      };
+      const umPedido = async () => {
+        const T = await novoTenant(app.db);
+        await iaPronta(app.db, T.tenantId);
+        const p = await pacienteAutorizado(app.db, T.ctx, { nome: `${DO_PRONTUARIO} Souza` });
+        await prontuarioCompleto(app.db, T.ctx, p.id, DO_PRONTUARIO);
+        const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+        const { tarefaId } = await pedirResumo(T.ctx, tenant as TenantRow, p.id, { notasPrivadas: true, gerarDeNovo: false }, { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
+        return { tenantId: T.tenantId, tarefaId };
+      };
+      const frase = { texto: `${DA_IA} pesa 80 kg.`, fontes: ['#1'] };
+      // pronta (com uma frase retirada), fora do formato e relançada ao pg-boss
+      const ok = await umPedido();
+      const f = provedorFake({ gerar: [finalOk({ secoes: [{ secao: 'evolucao', frases: [frase, { texto: DA_IA, fontes: [] }] }] })] });
+      expect(await processarResumo(ok, { ...deps, provedor: f })).toBe('pronta');
+      expect(f.chamadas.gerar[0].turnos[0]).toBeDefined(); // o pedido saiu ao provedor falso (o conteúdo vai só ao provedor)
+      const invalida = await umPedido();
+      expect(await processarResumo(invalida, { ...deps, provedor: provedorFake({ gerar: [finalOk({ secoes: DA_IA })] }) })).toBe('falhou');
+      const repete = await umPedido();
+      const repetir = await processarResumo(repete, { ...deps, provedor: provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'req-neutro')] }) }).catch((e: unknown) => e);
+      expect(repetir).toBeInstanceOf(RepetirIaError);
+      expect(erroSemDetalhe('ia-assistente', repetir).message).not.toContain('MARCADOR');
+      const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
+      expect(logs).not.toContain('MARCADOR');
+      const jobs = await (await getBoss()).findJobs('ia-assistente');
+      expect(JSON.stringify(jobs.map((j) => j.data))).not.toContain('MARCADOR');
+      expect(JSON.stringify(jobs.map((j) => j.output ?? null))).not.toContain('MARCADOR');
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  it('rascunho de plano (Plano 14B): restrições e título da IA marcadores não vão a log, fila nem à saída do job', async () => {
+    const DAS_METAS = 'MARCADOR-SAUDE-901';
+    const DA_IA = 'MARCADOR-SAUDE-902';
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const deps = {
+        db: app.db, modo: 'fake' as const, geo: 'us' as const, destino: 'teste' as const, retencao: 'zero' as const, tetoGlobalMicroUsd: IA_TESTE.tetoGlobalMicroUsd, appUrl: 'https://x',
+        agora: () => agora, ultimaTentativa: false, alertas: { credencial: async () => 0, teto: async () => 0 }, modeloAssistente: IA_TESTE.modeloAssistente, tetoRascunhoMicroUsd: IA_TESTE.tetoRascunhoMicroUsd,
+      };
+      const metas = {
+        metaKcal: '1800', proteinaPct: '20', carboidratoPct: '50', lipidioPct: '30', refeicoes: [{ nome: `Almoço ${DAS_METAS}`, horario: '12:00' }],
+        restricoes: `Sem lactose ${DAS_METAS}.`, considerarAnamnese: true,
+      };
+      const umPedido = async () => {
+        const T = await novoTenant(app.db);
+        await iaPronta(app.db, T.tenantId);
+        const p = await pacienteAutorizado(app.db, T.ctx);
+        await prontuarioCompleto(app.db, T.ctx, p.id, DAS_METAS);
+        const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+        const tarefaId = await pedirRascunhoIa(T.ctx, tenant as TenantRow, p.id, metas, { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 });
+        return { tenantId: T.tenantId, tarefaId };
+      };
+      const plano = { titulo: DA_IA, meta_kcal: 1800, orientacoes: DA_IA, refeicoes: [{ nome: DA_IA, horario: '12:00', itens: [{ alimento: 'A1', gramas: 150, medida: null, substitui: null }] }] };
+      // pronta, fora do formato, parada no limite de voltas e relançada ao pg-boss
+      const ok = await umPedido();
+      const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk(plano)] });
+      expect(await processarRascunho(ok, { ...deps, provedor: f })).toBe('pronta');
+      expect(JSON.stringify(f.chamadas.gerar[0].turnos)).toContain(DAS_METAS); // as restrições foram ao provedor falso (só a ele)
+      const invalida = await umPedido();
+      expect(await processarRascunho(invalida, { ...deps, provedor: provedorFake({ gerar: [finalOk({ ...plano, refeicoes: DA_IA })] }) })).toBe('falhou');
+      const voltas = await umPedido();
+      const muitas = provedorFake({ gerar: Array.from({ length: 13 }, (_, i) => pedeFerramenta('buscar_alimentos', { termo: DA_IA }, `c${i}`)) });
+      expect(await processarRascunho(voltas, { ...deps, provedor: muitas })).toBe('falhou');
+      const repete = await umPedido();
+      const repetir = await processarRascunho(repete, { ...deps, provedor: provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'req-neutro')] }) }).catch((e: unknown) => e);
       expect(repetir).toBeInstanceOf(RepetirIaError);
       expect(erroSemDetalhe('ia-assistente', repetir).message).not.toContain('MARCADOR');
       const logs = JSON.stringify(espioes.map((s) => s.mock.calls));

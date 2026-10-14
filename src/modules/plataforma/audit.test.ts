@@ -148,6 +148,44 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
     expect(rotuloDaAcao({ acao: 'ler', entidade: 'ia' })).toBe('Visualizou');
   });
 
+  it('Plano 14B (D22, RN-101): o rótulo da IA pelo tipo da tarefa', () => {
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia', tipoIa: 'leitura_exame' })).toBe('Pediu leitura à IA');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia', tipoIa: 'leitura_exame' })).toBe('Laudo enviado à IA');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia', tipoIa: 'resumo_historico' })).toBe('Pediu resumo à IA');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia', tipoIa: 'rascunho_plano' })).toBe('Pediu rascunho à IA');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia', tipoIa: 'resumo_historico' })).toBe('Dados enviados à IA');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia', tipoIa: 'rascunho_plano' })).toBe('Dados enviados à IA');
+    // tarefa já apagada (anonimização): o tipo não é mais conhecido
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia', tipoIa: null })).toBe('Pediu uso da IA');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia', tipoIa: null })).toBe('Dados enviados à IA');
+    // chamada sem o campo (antes do Plano 14B): os rótulos da leitura
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia' })).toBe('Pediu leitura à IA');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia' })).toBe('Laudo enviado à IA');
+    expect(rotuloDaAcao({ acao: 'ler', entidade: 'ia', tipoIa: 'resumo_historico' })).toBe('Visualizou');
+  });
+
+  it('Plano 14B (D22): listAccessHistory lê o tipo em ia_tarefas — resumo, rascunho e leitura; tarefa sem linha → null; fora da IA, sem o campo', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    const resumo = await tarefaNoBanco(app.db, T.ctx, p.id, null, { tipo: 'resumo_historico', status: 'na_fila' });
+    const rascunho = await tarefaNoBanco(app.db, T.ctx, p.id, null, { tipo: 'rascunho_plano', status: 'na_fila' });
+    await withTenant(worker, (tx) => recordAudit(tx, { acao: 'exportar', entidade: 'ia', entidadeId: resumo, patientId: p.id }), app.db);
+    const apagada = randomUUID(); // a tarefa que a anonimização apagou: o registro fica, sem a linha em ia_tarefas
+    await withTenant(worker, (tx) => recordAudit(tx, { acao: 'exportar', entidade: 'ia', entidadeId: apagada, patientId: p.id }), app.db);
+    await withTenant(T.ctx, (tx) => recordAudit(tx, { acao: 'ler', entidade: 'patients', entidadeId: p.id, patientId: p.id }), app.db);
+    const h = await listAccessHistory(T.ctx, p.id, 1, app.db);
+    const de = (id: string, acao: string) => h.itens.find((i) => i.entidadeId === id && i.acao === acao)!;
+    expect(de(resumo, 'criar').tipoIa).toBe('resumo_historico');
+    expect(rotuloDaAcao(de(resumo, 'criar'))).toBe('Pediu resumo à IA');
+    expect(rotuloDaAcao(de(resumo, 'exportar'))).toBe('Dados enviados à IA');
+    expect(rotuloDaAcao(de(rascunho, 'criar'))).toBe('Pediu rascunho à IA');
+    expect(de(apagada, 'exportar').tipoIa).toBeNull();
+    expect(rotuloDaAcao(de(apagada, 'exportar'))).toBe('Dados enviados à IA');
+    expect(h.itens.filter((i) => i.entidade !== 'ia').length).toBeGreaterThan(0);
+    expect(h.itens.filter((i) => i.entidade !== 'ia').every((i) => !('tipoIa' in i))).toBe(true);
+  });
+
   it('Plano 16 (Desvio 5): "Não mostrar peso no app" aparece como "Ligou"/"Desligou — Peso oculto no app"', () => {
     expect(ENTIDADE_ROTULO.peso_no_app).toBe('Peso oculto no app');
     expect(rotuloDaAcao({ acao: 'criar', entidade: 'peso_no_app' })).toBe('Ligou');

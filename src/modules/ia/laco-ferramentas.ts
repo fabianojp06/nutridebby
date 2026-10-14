@@ -35,6 +35,17 @@ export const somarUso = (a: UsoTokens, b: UsoTokens): UsoTokens => ({
 });
 const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
 
+/** A entrada estimada da 1ª volta, em tokens: as instruções, as ferramentas, o schema e a mensagem inicial. */
+const entradaDaPrimeiraVolta = (pedido: Omit<PedidoGeracao, 'turnos'>, inicio: string): number =>
+  tokensDeBytes(bytes(pedido.sistema) + bytes(inicio) + bytes(JSON.stringify(pedido.ferramentas)) + bytes(JSON.stringify(pedido.schema)));
+
+/**
+ * O custo MÁXIMO da 1ª volta — a mesma conta com que o laço confere o teto antes de chamar o provedor. O portão do rascunho
+ * a faz ANTES de marcar a saída: se nem a 1ª volta cabe no teto, nada sai e nada se registra como enviado (RN-101).
+ */
+export const custoMaximoDaPrimeiraVolta = (pedido: Omit<PedidoGeracao, 'turnos'>, inicio: string): number =>
+  custoMaximoMicroUsd(pedido.modelo, pedido.geo, entradaDaPrimeiraVolta(pedido, inicio), pedido.maxTokens);
+
 export async function rodarLaco(o: {
   provedor: ProvedorIA;
   pedido: Omit<PedidoGeracao, 'turnos'>;
@@ -48,7 +59,7 @@ export async function rodarLaco(o: {
   const comeco = relogio();
   const turnos: TurnoIA[] = [{ papel: 'usuario', blocos: [{ tipo: 'texto', texto: o.inicio }] }];
   // a 1ª volta: as instruções, as ferramentas, o schema e a mensagem inicial
-  let entradaEstimada = tokensDeBytes(bytes(o.pedido.sistema) + bytes(o.inicio) + bytes(JSON.stringify(o.pedido.ferramentas)) + bytes(JSON.stringify(o.pedido.schema)));
+  let entradaEstimada = entradaDaPrimeiraVolta(o.pedido, o.inicio);
   let custo = 0;
   let uso = ZERO;
   let requestId: string | null = null;

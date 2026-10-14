@@ -6,11 +6,11 @@ import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/paci
 import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEncontradoError } from './erros';
-import { copiarConteudo, criarRascunho, descartarRascunho, gravarConteudoRascunhoTx, proximaVersao, salvarRascunho } from './rascunho';
+import { copiarConteudo, criarRascunho, criarRascunhoTx, descartarRascunho, gravarConteudoRascunhoTx, proximaVersao, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -66,7 +66,27 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const a = await criarRascunho(T.ctx, p.id, deps);
     expect(a.criado).toBe(true);
     expect(await criarRascunho(T.ctx, p.id, deps)).toEqual({ id: a.id, criado: false });
-    expect(await carregarPlano(T.ctx, a.id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, revisao: 0, titulo: 'Plano alimentar', refeicoes: [] });
+    expect(await carregarPlano(T.ctx, a.id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, revisao: 0, titulo: 'Plano alimentar', refeicoes: [], iaOrigemEm: null });
+  });
+
+  it('criarRascunhoTx (Plano 14B, RN-122): rascunho com a versão seguinte e a marca da IA; criarRascunho continua devolvendo o existente (D11)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const agora = new Date('2026-10-14T12:00:00Z');
+    const id = await withTenant(
+      T.ctx,
+      async (tx) => {
+        await carregarPacienteParaEscrita(tx, p.id);
+        return criarRascunhoTx(tx, T.tenantId, p.id, { titulo: 'Plano', metaKcal: 1800, orientacoes: 'x', iaOrigemEm: agora });
+      },
+      app.db,
+    );
+    expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, titulo: 'Plano', metaKcal: 1800, orientacoes: 'x', iaOrigemEm: agora.toISOString() });
+    expect(await criarRascunho(T.ctx, p.id, deps)).toEqual({ id, criado: false });
+    // sem opções: os padrões de criarRascunho, sem a marca
+    const outro = await novoPaciente(app.db, T.ctx);
+    const semMarca = await withTenant(T.ctx, (tx) => criarRascunhoTx(tx, T.tenantId, outro.id), app.db);
+    expect(await carregarPlano(T.ctx, semMarca, app.db)).toMatchObject({ titulo: 'Plano alimentar', metaKcal: null, orientacoes: '', iaOrigemEm: null });
   });
 
   it('salvar grava refeições, itens, medida ("4 colheres de sopa cheias" = 100 g) e substituição; revisão sobe', async () => {

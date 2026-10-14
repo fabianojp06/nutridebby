@@ -13,7 +13,7 @@ import { patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PacienteBloqueadoError } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
@@ -23,7 +23,7 @@ import { PdfEmPreparoError, PlanoNaoEncontradoError } from './erros';
 import { renderizarPlano } from './plano-pdf';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { editarPublicado, pedirNovoPdf, publicarPlano } from './publicacao';
-import { criarRascunho, salvarRascunho } from './rascunho';
+import { criarRascunho, criarRascunhoTx, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento, PlanoCompleto } from './tipos';
 
 // Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
@@ -106,6 +106,25 @@ describe('PDF do plano (US-026)', () => {
     expect(texto.indexOf('Café da manhã')).toBeLessThan(texto.indexOf('Almoço')); // por horário
     expect(texto).not.toContain('kcal');
     expect(texto).not.toContain('Proteína'); // totais nutricionais só com "Mostrar calorias ao paciente"
+    expect(texto).not.toContain('Elaborado com apoio de IA'); // RN-117: o selo só no plano que nasceu do rascunho da IA
+  });
+
+  it('selo (RN-117, A-D13): o plano publicado a partir do rascunho da IA leva "Elaborado com apoio de IA e revisado pela nutricionista" logo depois do título', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ crn: 'CRN-3 12345' }).where(eq(tenants.id, T.tenantId));
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = await withTenant(T.ctx, async (tx) => {
+      await carregarPacienteParaEscrita(tx, p.id);
+      return criarRascunhoTx(tx, T.tenantId, p.id, { iaOrigemEm: now });
+    }, app.db);
+    await salvarRascunho(T.ctx, id, conteudo(false), deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
+    let pdf: Buffer | null = null;
+    expect(await job(T, id, { renderizar: async (d) => (pdf = await renderizarPlano(d)) })).toBe('pronto');
+    const texto = textoDoPdf(pdf!);
+    expect(texto).toContain('Elaborado com apoio de IA e revisado pela nutricionista');
+    expect(texto.indexOf('Plano de Ana')).toBeLessThan(texto.indexOf('Elaborado com apoio de IA'));
+    expect(texto.indexOf('Elaborado com apoio de IA')).toBeLessThan(texto.indexOf('Paciente: Ana Souza'));
   });
 
   it('"Mostrar calorias ao paciente" marcado: totais por refeição e do dia', async () => {
@@ -158,6 +177,7 @@ describe('PDF do plano (US-026)', () => {
       versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', pdfStatus: 'pendente', pdfPath: null,
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', itens }],
       origemIa: null,
+      iaOrigemEm: null,
     };
     const avisos = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

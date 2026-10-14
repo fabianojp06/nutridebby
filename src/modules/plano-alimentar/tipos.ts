@@ -47,6 +47,11 @@ export type PlanoCompleto = {
    * a data da aprovação e os itens descartados do pacote (desvio 12). Nulo em modelo feito à mão e em plano de paciente.
    */
   origemIa: OrigemIaDoModelo | null;
+  /**
+   * Plano 14B (RN-117, D16): quando o rascunho do paciente nasceu de "Usar como rascunho" (ISO). O editor mostra "Criado
+   * com apoio de IA"; publicado, o PDF e o portal mostram o selo. "Editar" o copia; modelos nunca o têm.
+   */
+  iaOrigemEm: string | null;
 };
 
 export type OrigemIaDoModelo = { sugestao: boolean; aprovadoEm: string | null; descartados: number };

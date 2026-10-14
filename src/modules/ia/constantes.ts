@@ -10,7 +10,8 @@ export type GeoIA = (typeof GEOS_IA)[number];
 export const REGIOES_IA = ['us', 'global', 'eu'] as const;
 export type RegiaoIA = (typeof REGIOES_IA)[number];
 
-export const TIPOS_TAREFA = ['leitura_exame'] as const;
+/** Plano 14B: o resumo do histórico e o rascunho de plano (o CHECK do banco ganha os tipos na 0113, T7). */
+export const TIPOS_TAREFA = ['leitura_exame', 'resumo_historico', 'rascunho_plano'] as const;
 export type TipoTarefa = (typeof TIPOS_TAREFA)[number];
 export const STATUS_TAREFA = ['na_fila', 'processando', 'pronta', 'falhou', 'aplicada', 'descartada', 'expirada', 'cancelada'] as const;
 export type StatusTarefa = (typeof STATUS_TAREFA)[number];
@@ -36,14 +37,14 @@ export const STATUS_GERACAO = ['na_fila', 'processando', 'pronta', 'falhou', 'ca
 export type StatusGeracao = (typeof STATUS_GERACAO)[number];
 
 /**
- * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): a
- * versão 0.1 do texto autoriza só `leitura_laudos` (AUTORIZACAO_IA_USOS, em textos-legais.ts); resumo e rascunho entram
- * com a 14B, numa versão nova do texto que pede autorização nova (RN-109).
+ * Plano 14A (RN-107, A-D24): os usos que a coluna `usos` aceita (o CHECK do banco já prevê os da 14B). F2 (§18.5): as
+ * versões 0.1 e 1.0 do texto autorizavam só `leitura_laudos`; resumo e rascunho entraram com a 1.1 (Plano 14B), que pede
+ * autorização nova (RN-109). Os usos da versão atual: AUTORIZACAO_IA_USOS, em textos-legais.ts.
  */
 export const USOS_IA = ['leitura_laudos', 'resumo_historico', 'rascunho_plano'] as const;
 export type UsoIA = (typeof USOS_IA)[number];
-/** O uso que cada tipo de tarefa pede na RN-100 (a 14B acrescenta resumo e rascunho). */
-export const USO_DA_TAREFA: Record<TipoTarefa, UsoIA> = { leitura_exame: 'leitura_laudos' };
+/** O uso que cada tipo de tarefa pede na RN-100. */
+export const USO_DA_TAREFA: Record<TipoTarefa, UsoIA> = { leitura_exame: 'leitura_laudos', resumo_historico: 'resumo_historico', rascunho_plano: 'rascunho_plano' };
 
 /** Plano 14A (RN-109): o destino em código estável (o banco guarda o código; telas, textos e exportação, o rótulo). */
 export const DESTINOS_IA = ['anthropic-us', 'bedrock-eu', 'teste'] as const;
@@ -306,4 +307,58 @@ export const MSG_MODELOS_IA = {
   aprovadoEm: (data: string) => `Aprovado em ${data}`,
   aprove: 'Aprove o modelo antes de usá-lo com pacientes.',
   descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
+} as const;
+
+/** Plano 14B (US-121, US-122): textos do rascunho, com o texto exato da spec (os "novo" vão à Debby, desvio 13). */
+export const MSG_RASCUNHO_IA = {
+  botao: 'Gerar rascunho com IA',
+  meta: 'Meta deve estar entre 500 e 10000 kcal',
+  rotuloMeta: 'Meta de energia (kcal/dia)',
+  rotuloProteina: 'Proteína (% da energia)',
+  rotuloCarboidrato: 'Carboidrato (%)',
+  rotuloLipidio: 'Lipídio (%)',
+  soma: 'Soma diferente de 100%',
+  rotuloRefeicoes: 'Refeições',
+  semRefeicao: 'Informe ao menos uma refeição.', // novo
+  rotuloRestricoes: 'Restrições e preferências',
+  dicaRestricoes: 'Não escreva nome ou dados que identifiquem o paciente ou outras pessoas.',
+  restricoes: 'Texto muito longo (até 500 caracteres).', // novo
+  considerarAnamnese: 'Considerar a anamnese',
+  gerar: 'Gerar rascunho',
+  corrijaCampos: 'Corrija os campos destacados para gerar o rascunho.', // novo (revisão final: aviso perto do botão, no molde do "Corrija os campos destacados para salvar." do editor)
+  gerando: 'Gerando o rascunho… isso leva até 3 minutos.',
+  previa: 'Rascunho sugerido pela IA',
+  faixa: 'Sugestão gerada por inteligência artificial. Confira alimentos, quantidades e adequação ao paciente antes de publicar. A responsabilidade pelo plano é da nutricionista.',
+  descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
+  usar: 'Usar como rascunho',
+  criado: 'Rascunho criado. Revise antes de publicar.',
+  jaExiste: 'Este paciente já tem um rascunho. Substituir pelo rascunho da IA?',
+  substituir: 'Substituir',
+  cancelar: 'Cancelar',
+  foraDoCatalogo: (n: number) => `Este rascunho tem ${n} itens que não puderam ser usados (alimento excluído).`, // novo
+  falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
+  limite: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
+  emAndamento: 'O rascunho deste paciente já está sendo preparado.', // novo
+  pronto: 'Rascunho pronto.', // novo (só leitor de tela: o fim da espera, revisão da T11)
+} as const;
+
+/** Plano 14B (US-120, US-122): textos do resumo, com o texto exato da spec (os "novo" vão à Debby, desvio 13). */
+export const MSG_RESUMO = {
+  botao: 'Resumo do histórico (IA)',
+  incluirNotas: 'Incluir notas privadas',
+  gerar: 'Gerar resumo',
+  preparando: 'Preparando o resumo… isso leva até 1 minuto.',
+  titulo: (dataHora: string) => `Resumo gerado por IA em ${dataHora} — não substitui a leitura do prontuário`,
+  faixa: 'Sugestão gerada por inteligência artificial. Ela pode errar: confira com o prontuário. A responsabilidade pelas decisões é da nutricionista.',
+  secoes: { evolucao: 'Evolução das medidas', exames: 'Exames (valores registrados)', habitos: 'Hábitos, anamnese e diário', condutas: 'Condutas anteriores' },
+  dadosUsados: 'Dados usados',
+  retiradas: (n: number) => `${n} frases sem fonte foram retiradas.`,
+  vazio: 'Ainda não há histórico para resumir.',
+  gerarDeNovo: 'Gerar de novo', // novo
+  copiar: 'Copiar texto',
+  copiado: 'Texto copiado.', // novo
+  descartar: 'Descartar resumo',
+  falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
+  emAndamento: 'O resumo deste paciente já está sendo preparado.', // novo
+  pronto: 'Resumo pronto.', // novo (só leitor de tela: o fim da espera, revisão da T11)
 } as const;
