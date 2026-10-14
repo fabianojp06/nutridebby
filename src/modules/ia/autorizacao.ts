@@ -170,7 +170,7 @@ export async function enfileirarConfirmacao(
 ): Promise<void> {
   if (!o.para) return;
   const link = urlDoLinkAutorizacao(o.appUrl, assinarLinkRetirada({ tenantId: o.tenantId, patientId: o.patientId, autorizacaoId: o.autorizacaoId }));
-  await enqueueEmail({ tipo: 'autorizacao_ia_confirmada', para: o.para, consultorio: o.consultorio, destino: DESTINO_ROTULO[o.destino], versao: AUTORIZACAO_IA_VERSAO, link }, { tenantId: o.tenantId, tx });
+  await enqueueEmail({ tipo: 'autorizacao_ia_confirmada', para: o.para, consultorio: o.consultorio, destino: DESTINO_ROTULO[o.destino], versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS], link }, { tenantId: o.tenantId, tx });
 }
 
 /** A sessão de paciente sem conta (o link) já é recusada pelo assertContext com ator (tenant.ts): basta exigir o ator. */

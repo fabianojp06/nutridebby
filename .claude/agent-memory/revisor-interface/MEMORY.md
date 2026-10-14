@@ -1,0 +1,20 @@
+- [Sucesso que some com o revalidatePath](feedback_mensagem-sucesso-desmontada.md) — useActionState num ramo condicional perde o "ok" quando a seção redesenha
+- [Axe num modo só em E2E novo](feedback_axe-um-modo-so.md) — tema vem da conta compartilhada; estado fora das `rotas` precisa do laço claro/escuro/aparelho
+- [Região viva e avisos de estado](feedback_live_region_e_avisos_ia.md) — aria-live no nó trocado; aviso de estado do consultório espalhado/mostrado a quem nunca teve a função
+- [Reset do React 19 em formulário](feedback_react19_reset_formulario.md) — campos não controlados voltam ao default depois de erro da action
+- [Polling com teto curto](feedback_polling-com-teto.md) — teto do polling menor que o pior caso da fila deixa a tela presa em "carregando"
+- [Summary com flex e campo descartado](feedback_summary-e-campo-condicional.md) — details sem marcador; texto livre visível para opção que o servidor ignora
+- [Confirmação decidida por estado velho](feedback_confirmacao-por-estado-velho.md) — botão destrutivo pula confirm pelo estado renderizado; job terminou → executa sem confirmar
+- [Foco invisível e upload sem andamento](feedback_foco-e-envio-sem-andamento.md) — outline-current em botão bg-destaque; envio grande sem "enviando"
+- [Voltar por histórico e foco no botão trocado](feedback_voltar-e-foco-no-botao-trocado.md) — "Voltar para X" com history.back; foco no botão trocado; activeElement no click ≠ teclado (Chrome)
+- [Fechamento: guia no cap. 05](feedback_fechamento-guia-no-cap05.md) — §5.8.1 sem a linha do plano (P13, P16); manual que cita coluna/tela reorganizada
+- [Erro longe do botão](feedback_erro-longe-do-botao.md) — campo só exigido no preparo, no topo do editor; erro fora da tela, nada perto do botão
+- [Token escopado fora da impressão](feedback_tokens-escopados-e-impressao.md) — --nd-* novo com bloco escuro esquecido no reset do @media print
+- [Form em <p> e barra sem flex-1](feedback_form-em-p-e-barra-sem-flex1.md) — SairPortal dentro de <p> quebra a hidratação; sticky bottom sobe sem flex-1/mt-auto
+- [Gráfico, tabela e texto livre no portal](feedback_grafico-tabela-texto-livre-no-portal.md) — GraficoLinha sem título visível; th/td sem padding; link longo sem quebra (4x: grep whitespace-pre-line; e-mail interpolado em texto legal)
+- [Vazio global x seção vazia](feedback_vazio-global-x-secao.md) — texto de vazio pelo conjunto inteiro; "Hoje" em branco com só dias anteriores
+- [Guia estático x opt-in do consultório](feedback_guia-estatico-x-estado-do-consultorio.md) — guia do portal afirma Exames/atalho que o consultório padrão não tem
+- [Retorno por ?param= fora da tela](feedback_retorno-por-query-fora-da-tela.md) — redirect leva ao topo; mensagem no fim de Eu não é vista nem anunciada
+- [print:hidden no layout](feedback_print-hidden-no-layout.md) — limpar a impressão de uma página no layout compartilhado tira o nome do paciente de todas as abas
+- [Base legal no roteiro do manual](feedback_base-legal-no-roteiro.md) — "a lei exige o consentimento" contradiz o bedrock-eu (adequação); runbook proíbe
+- [Redirect silencioso no consentimento](feedback_redirect-silencioso-no-consentimento.md) — action recusa por texto mudado e redireciona sem a frase que já existe; recorrências do 14A

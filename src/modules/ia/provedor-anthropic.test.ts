@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PedidoLeitura } from './provedor';
+import type { PedidoGeracao, PedidoLeitura } from './provedor';
 import { provedorAnthropic } from './provedor-anthropic';
 
 const CHAVE = 'sk-ant-api03-' + 'x'.repeat(40);
@@ -141,5 +141,68 @@ describe('provedor Anthropic (INT-07) — só contra fetch falso', () => {
     expect(p.aceita('claude-opus-5-5', 'eu')).toBe(false);
     expect(p.aceita('claude-opus-5-5', 'us')).toBe(true);
     expect(p.aceita('claude-opus-5-5', 'global')).toBe(true);
+  });
+});
+
+const pedidoGeracao: PedidoGeracao = {
+  finalidade: 'rascunho', modelo: 'claude-sonnet-5-5', geo: 'us', sistema: 'SISTEMA',
+  turnos: [{ papel: 'usuario', blocos: [{ tipo: 'texto', texto: 'METAS' }] }],
+  ferramentas: [{ nome: 'buscar_alimentos', descricao: 'Busca', schema: { type: 'object', additionalProperties: false, required: ['termo'], properties: { termo: { type: 'string' } } } }],
+  schema: { type: 'object', additionalProperties: false, properties: {}, required: [] }, maxTokens: 16_000, esforco: 'medium',
+};
+const comFerramenta = () =>
+  json(200, {
+    id: 'msg_2', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
+    content: [{ type: 'thinking', thinking: '', signature: 'assinatura-opaca' }, { type: 'tool_use', id: 'toolu_1', name: 'buscar_alimentos', input: { termo: 'arroz' } }],
+    stop_reason: 'tool_use', stop_details: null, stop_sequence: null,
+    usage: { input_tokens: 2_000, output_tokens: 300, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, inference_geo: 'us' },
+  });
+
+describe('gerar (Plano 14B, D1): ferramentas strict com auto, saída estruturada, histórico reenviado sem mudança', () => {
+  it('manda tools com strict: true, tool_choice auto, output_config com esforço e schema; sem thinking, stream nem fallbacks', async () => {
+    const { f, chamadas } = fetchFalso([comFerramenta]);
+    const r = await provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' }).gerar(pedidoGeracao);
+    const c = chamadas[0].corpo;
+    expect(c.tools).toEqual([{ name: 'buscar_alimentos', description: 'Busca', input_schema: pedidoGeracao.ferramentas[0].schema, strict: true }]);
+    expect(c.tool_choice).toEqual({ type: 'auto' });
+    expect(c.output_config).toEqual({ effort: 'medium', format: { type: 'json_schema', schema: pedidoGeracao.schema } });
+    expect(c.inference_geo).toBe('us');
+    for (const proibido of ['thinking', 'stream', 'fallbacks', 'betas', 'speed']) expect(c).not.toHaveProperty(proibido);
+    expect(r).toMatchObject({ tipo: 'ferramentas', chamadas: [{ id: 'toolu_1', nome: 'buscar_alimentos', entrada: { termo: 'arroz' } }], requestId: 'req_teste' });
+  });
+
+  it('reenvia o bruto do assistente sem mudança (raciocínio e assinatura) e os resultados como tool_result', async () => {
+    const { f, chamadas } = fetchFalso([comFerramenta, () => mensagem('{"ok":true}')]);
+    const p = provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' });
+    const r1 = await p.gerar(pedidoGeracao);
+    const r2 = await p.gerar({
+      ...pedidoGeracao,
+      turnos: [...pedidoGeracao.turnos, { papel: 'assistente', bruto: r1.bruto }, { papel: 'usuario', blocos: [{ tipo: 'resultado', chamadaId: 'toolu_1', conteudo: '[]', erro: true }] }],
+    });
+    const msgs = chamadas[1].corpo.messages as { role: string; content: unknown[] }[];
+    expect(msgs[1]).toEqual({ role: 'assistant', content: r1.bruto });
+    expect(msgs[2]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '[]', is_error: true }] });
+    expect(r2).toMatchObject({ tipo: 'final', texto: '{"ok":true}' });
+  });
+
+  it('recusa, saída cortada e erro do provedor como na leitura (RN-105, sem o texto do provedor)', async () => {
+    const { f } = fetchFalso([() => mensagem('', 'refusal', { type: 'refusal', category: 'bio' }), () => mensagem('{', 'max_tokens'), () => erroApi(529, 'overloaded_error')]);
+    const p = provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' });
+    expect(await p.gerar(pedidoGeracao)).toMatchObject({ tipo: 'recusa', categoria: 'bio' });
+    expect(await p.gerar(pedidoGeracao)).toMatchObject({ tipo: 'cortada' });
+    await expect(p.gerar(pedidoGeracao)).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'repetir', status: 529 });
+  });
+
+  it('sem ferramentas (resumo): não manda tools nem tool_choice', async () => {
+    const { f, chamadas } = fetchFalso([() => mensagem('{}')]);
+    await provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' }).gerar({ ...pedidoGeracao, finalidade: 'resumo', ferramentas: [] });
+    expect(chamadas[0].corpo).not.toHaveProperty('tools');
+    expect(chamadas[0].corpo).not.toHaveProperty('tool_choice');
+  });
+
+  it('geo eu (do Bedrock) nunca vai à API direta — pedido inválido, sem chamada', async () => {
+    const { f, chamadas } = fetchFalso([]);
+    await expect(provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' }).gerar({ ...pedidoGeracao, geo: 'eu' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
+    expect(chamadas).toHaveLength(0);
   });
 });

@@ -39,6 +39,8 @@ export type PlanoDoPaciente = {
   refeicoes: RefeicaoDoPaciente[];
   proximaRefeicaoId: string | null;
   pdf: 'pronto' | 'pendente' | 'indisponivel';
+  /** RN-117 / A-D13 (Plano 14B): o plano nasceu do rascunho da IA ("Elaborado com apoio de IA e revisado pela nutricionista"). */
+  seloIa: boolean;
 };
 
 /** A primeira refeição COM HORÁRIO a partir de agora (HH:MM no fuso do tenant); depois da última, a primeira do dia seguinte. */
@@ -105,6 +107,7 @@ export async function planoDoPaciente(ctx: TenantContext, fuso: string, o: { db?
     refeicoes,
     proximaRefeicaoId: proximaRefeicao(refeicoes, partesNoFuso(o.agora ?? new Date(), fuso).hora),
     pdf: plano.pdfStatus === 'pronto' && plano.pdfPath ? 'pronto' : plano.pdfStatus === 'pendente' || plano.pdfStatus === null ? 'pendente' : 'indisponivel',
+    seloIa: plano.iaOrigemEm !== null,
   };
 }
 

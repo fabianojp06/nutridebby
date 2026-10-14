@@ -13,13 +13,13 @@ import { stopBoss } from '@/jobs/boss';
 import { criarAlimento, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PacienteBloqueadoError } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
-import { criarModelo } from './modelos';
+import { criarDeModelo, criarModelo, salvarComoModelo } from './modelos';
 import { editarPublicado, publicarPlano } from './publicacao';
-import { criarRascunho, salvarRascunho } from './rascunho';
+import { criarRascunho, criarRascunhoTx, salvarRascunho } from './rascunho';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -71,6 +71,33 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     expect((await carregarPlano(T.ctx, v2, app.db))?.status).toBe('publicado');
     const publicados = await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(and(eq(mealPlans.patientId, p.id), eq(mealPlans.status, 'publicado'))), app.db);
     expect(publicados).toHaveLength(1);
+  });
+
+  it('RN-117 (Plano 14B, D16): "Editar" copia a marca da IA (ia_origem_em); salvar como modelo e criar de modelo não a levam', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const marca = new Date('2026-10-14T12:00:00Z');
+    const v1 = await withTenant(
+      T.ctx,
+      async (tx) => {
+        await carregarPacienteParaEscrita(tx, p.id);
+        return criarRascunhoTx(tx, T.tenantId, p.id, { titulo: 'Plano de Ana', iaOrigemEm: marca });
+      },
+      app.db,
+    );
+    await salvarRascunho(T.ctx, v1, corpo(0), deps);
+    await publicarPlano(T.ctx, p.id, v1, deps);
+    const { id: v2 } = await editarPublicado(T.ctx, p.id, v1, deps);
+    expect(await carregarPlano(T.ctx, v2, app.db)).toMatchObject({ status: 'rascunho', versao: 2, iaOrigemEm: marca.toISOString() });
+    const { id: modelo } = await salvarComoModelo(T.ctx, v1, 'Modelo da IA', deps);
+    expect(await carregarPlano(T.ctx, modelo, app.db)).toMatchObject({ isTemplate: true, iaOrigemEm: null });
+    const outro = await novoPaciente(app.db, T.ctx);
+    const { id: doModelo } = await criarDeModelo(T.ctx, modelo, outro.id, deps);
+    expect(await carregarPlano(T.ctx, doModelo, app.db)).toMatchObject({ status: 'rascunho', iaOrigemEm: null });
+    // sem a marca, "Editar" continua sem ela
+    const { p: semIa, id: manual } = await publicado(T);
+    const { id: manual2 } = await editarPublicado(T.ctx, semIa.id, manual, deps);
+    expect((await carregarPlano(T.ctx, manual2, app.db))?.iaOrigemEm).toBeNull();
   });
 
   it('"o banco nunca tem 2 planos publicados para P": o índice único parcial recusa', async () => {

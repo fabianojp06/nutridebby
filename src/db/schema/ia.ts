@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import type { ResultadoLeitura } from '@/modules/ia/tipos';
+import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { AREAS_MODELOS_IA, STATUS_GERACAO } from '../../modules/ia/constantes'; // relativo: o drizzle-kit não resolve o alias @/
+import type { ResultadoIa } from '@/modules/ia/tipos';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
@@ -25,7 +26,7 @@ export const iaTarefas = pgTable(
     pedidoPor: uuid('pedido_por').notNull(),
     /** Plano 14 (opções do resumo e do rascunho); nulo na leitura. */
     parametros: jsonb('parametros'),
-    resultado: jsonb('resultado').$type<ResultadoLeitura>(),
+    resultado: jsonb('resultado').$type<ResultadoIa>(),
     /** Motivo da RN-112, só em `falhou`. */
     erro: text('erro'),
     modelo: text('modelo').notNull(),
@@ -49,11 +50,13 @@ export const iaTarefas = pgTable(
     linhasAplicadas: integer('linhas_aplicadas'),
     /** RN-114 / ECF.17.03: a data do exame antes de "Usar esta data ao salvar". */
     exameDataAnterior: date('exame_data_anterior', { mode: 'string' }),
+    /** Plano 14B (RN-120, D11): SHA-256 dos registros usados no resumo + a escolha das notas ("Reaproveitar"). Gravado no pedido; o worker o troca pelo do pedido montado no portão, junto com enviado_em — fora disso, fixo (0114). */
+    carimboDados: text('carimbo_dados'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'ia_tarefas_paciente_fk' }),
-    check('ia_tarefas_tipo_valido', sql`${t.tipo} in ('leitura_exame')`),
+    check('ia_tarefas_tipo_valido', sql`${t.tipo} in ('leitura_exame', 'resumo_historico', 'rascunho_plano')`),
     check('ia_tarefas_status_valido', sql`${t.status} in ('na_fila', 'processando', 'pronta', 'falhou', 'aplicada', 'descartada', 'expirada', 'cancelada')`),
     check('ia_tarefas_exame_so_na_leitura', sql`${t.examId} is null or ${t.tipo} = 'leitura_exame'`),
     check('ia_tarefas_resultado_so_pronta', sql`${t.resultado} is null or ${t.status} = 'pronta'`),
@@ -64,6 +67,9 @@ export const iaTarefas = pgTable(
     check('ia_tarefas_reserva_valida', sql`${t.reservaMicroUsd} >= 0`),
     check('ia_tarefas_destino_valido', sql`${t.destino} is null or (${t.destino} in ('anthropic-us', 'bedrock-eu', 'teste') and ${t.saiuEm} is not null)`),
     uniqueIndex('ia_tarefas_em_andamento_idx').on(t.tenantId, t.patientId, t.tipo, t.examId).where(sql`${t.status} in ('na_fila', 'processando')`),
+    check('ia_tarefas_carimbo_so_resumo', sql`(${t.tipo} = 'resumo_historico') = (${t.carimboDados} is not null) and (${t.carimboDados} is null or ${t.carimboDados} ~ '^[0-9a-f]{64}$')`),
+    // RN-103 (C2): o índice de cima inclui exam_id, nulo no resumo e no rascunho (nulos não colidem) — este cobre os tipos sem exame
+    uniqueIndex('ia_tarefas_em_andamento_sem_exame_idx').on(t.tenantId, t.patientId, t.tipo).where(sql`${t.tipo} <> 'leitura_exame' and ${t.status} in ('na_fila', 'processando')`),
     index('ia_tarefas_pedidos_idx').on(t.tenantId, t.pedidoPor, t.criadoEm),
     index('ia_tarefas_status_idx').on(t.tenantId, t.status),
     index('ia_tarefas_exame_idx').on(t.tenantId, t.patientId, t.examId, t.criadoEm),
@@ -126,6 +132,51 @@ export const iaGastoPlataforma = pgTable(
   },
   (t) => [check('ia_gasto_plataforma_valido', sql`${t.custoMicroUsd} >= 0 and ${t.mes} ~ '^[0-9]{4}-[0-9]{2}$'`)],
 );
+
+/**
+ * Plano 14B (US-123 (d), RN-124, §11): um pedido de pacote de modelos sugeridos (uma área). SEM patient_id — nenhum dado
+ * de paciente vai à IA nem fica aqui (`ia_tarefas` não serve: patient_id é obrigatório). RLS por tenant, `staff_only`,
+ * DELETE/TRUNCATE revogados (0112): a linha é o registro técnico do pedido; os modelos gerados apontam para ela
+ * (`ia_geracao_id`). O custo vai a `ia_uso` (tipo `modelos_area`, `tarefa_id` = este id).
+ */
+export const iaGeracoesModelos = pgTable(
+  'ia_geracoes_modelos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    area: text('area').notNull(),
+    status: text('status').notNull().default('na_fila'),
+    pedidoPor: uuid('pedido_por').notNull(),
+    modelo: text('modelo').notNull(),
+    promptVersao: text('prompt_versao').notNull(),
+    reservaMicroUsd: bigint('reserva_micro_usd', { mode: 'number' }).notNull(),
+    custoMicroUsd: bigint('custo_micro_usd', { mode: 'number' }),
+    erro: text('erro'),
+    itensDescartados: integer('itens_descartados').notNull().default(0),
+    voltas: integer('voltas').notNull().default(0),
+    criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+    iniciadoEm: timestamp('iniciado_em', { withTimezone: true }),
+    /** D4: gravado no portão, antes da primeira chamada; nova tentativa com ele preenchido = resultado incerto, sem reenviar. */
+    enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+    concluidoEm: timestamp('concluido_em', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('ia_geracoes_modelos_tenant_id_unique').on(t.tenantId, t.id),
+    check('ia_geracoes_modelos_area_valida', sql`${t.area} in (${sql.raw(AREAS_MODELOS_IA.map((a) => `'${a}'`).join(', '))})`),
+    check('ia_geracoes_modelos_status_valido', sql`${t.status} in (${sql.raw(STATUS_GERACAO.map((s) => `'${s}'`).join(', '))})`),
+    check('ia_geracoes_modelos_erro_so_falhou', sql`(${t.status} = 'falhou') = (${t.erro} is not null)`),
+    check('ia_geracoes_modelos_erro_tamanho', sql`${t.erro} is null or char_length(${t.erro}) <= 60`),
+    check('ia_geracoes_modelos_descartados_valido', sql`${t.itensDescartados} >= 0 and ${t.voltas} >= 0 and ${t.reservaMicroUsd} >= 0`),
+    // RN-103 / D19: um pacote em andamento por consultório
+    uniqueIndex('ia_geracoes_modelos_em_andamento_idx').on(t.tenantId).where(sql`${t.status} in ('na_fila', 'processando')`),
+    index('ia_geracoes_modelos_area_idx').on(t.tenantId, t.area, t.criadoEm),
+  ],
+);
+
+export type IaGeracaoModelosRow = typeof iaGeracoesModelos.$inferSelect;
 
 /**
  * Plano 14A (spec da IA v0.5.1 §11, RN-107): a autorização (consentimento, LGPD art. 33, VIII) do paciente para o uso de

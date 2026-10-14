@@ -1,12 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { acompanharLeitura } from './acompanhar-leitura';
+import { EstadoTarefa } from '@/app/painel/ia/estado-tarefa';
 
-/** RNF-100: acompanha a leitura (acompanhar-leitura.ts) e, quando a situação muda, recarrega a página uma vez. */
+/** RNF-100: acompanha a leitura do laudo (EstadoTarefa) e recarrega a página quando a situação muda. */
 export function EstadoIa({ tarefaId }: { tarefaId: string }) {
-  const router = useRouter();
-  useEffect(() => acompanharLeitura(tarefaId, () => router.refresh()), [router, tarefaId]);
-  return null;
+  return <EstadoTarefa url={`/api/painel/ia/tarefas/${tarefaId}`} />;
 }

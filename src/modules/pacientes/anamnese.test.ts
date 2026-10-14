@@ -1,19 +1,24 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoPaciente, novoTenant } from '../../../test/pacientes';
-import { anamneses, auditLog } from '@/db/schema';
+import { geracaoNoBanco } from '../../../test/ia';
+import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { anamneses, anamnesisTemplates, auditLog } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import {
   AnamneseError,
+  aprovarModeloAnamnese,
   arquivarModelo,
   atualizarAnamnese,
   buscarAnamnese,
   buscarModelo,
+  buscarModeloUsavel,
   listarAnamneses,
   perguntasDaAnamnese,
   listarModelos,
+  listarModelosUsaveis,
   preencherAnamnese,
   salvarModelo,
 } from './anamnese';
@@ -125,5 +130,66 @@ describe('preencher anamnese', () => {
     await expect(preencherAnamnese(A.T.ctx, A.T.tenant, pB.id, A.modeloId, {}, { db: app.db, now })).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     expect(await erros(preencherAnamnese(B.ctx, B.tenant, pB.id, A.modeloId, {}, { db: app.db, now }))).toEqual({ geral: 'Modelo de anamnese não encontrado.' });
     expect(await buscarAnamnese(B.ctx, pB.id, 'abc', app.db)).toBeNull();
+  });
+});
+
+describe('modelos de anamnese sugeridos pela IA (US-123, RN-125)', () => {
+  async function modeloSugerido(T: TenantDeTeste) {
+    const g = await geracaoNoBanco(app.db, T.ctx, { status: 'pronta', itensDescartados: 2 });
+    const [m] = await withTenant(
+      { tenantId: T.tenantId, role: 'worker' },
+      (tx) =>
+        tx
+          .insert(anamnesisTemplates)
+          .values({ tenantId: T.tenantId, nome: 'Diabetes: Anamnese sugerida', schema: { perguntas: [{ id: randomUUID(), tipo: 'texto_curto', rotulo: 'Glicemia', obrigatoria: false }] }, iaGeracaoId: g })
+          .returning({ id: anamnesisTemplates.id }),
+      app.db,
+    );
+    return m.id;
+  }
+
+  it('não aprovado: listado com a marca, fora das escolhas, buscarModeloUsavel nulo e preencherAnamnese recusa', async () => {
+    const T = await novoTenant(app.db);
+    const id = await modeloSugerido(T);
+    const p = await novoPaciente(app.db, T.ctx);
+    expect((await listarModelos(T.ctx, app.db)).find((m) => m.id === id)).toMatchObject({ sugestaoIa: true, aprovadoEm: null });
+    expect((await listarModelosUsaveis(T.ctx, app.db)).map((m) => m.id)).not.toContain(id);
+    expect(await buscarModeloUsavel(T.ctx, id, app.db)).toBeNull();
+    expect(await buscarModelo(T.ctx, id, app.db)).not.toBeNull(); // a página de edição do modelo continua abrindo
+    expect(await erros(preencherAnamnese(T.ctx, T.tenant, p.id, id, {}, { db: app.db, now }))).toEqual({ geral: 'Aprove o modelo antes de usá-lo com pacientes.' });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(anamneses).where(eq(anamneses.patientId, p.id)), app.db)).toEqual([]);
+  });
+
+  it('aprovar grava quem e quando (idempotente); depois é usável e preenche; o "Anamnese geral" segue padrão e usável', async () => {
+    const T = await novoTenant(app.db);
+    const id = await modeloSugerido(T);
+    await aprovarModeloAnamnese(T.ctx, id, { db: app.db, agora: new Date('2026-10-10T13:00:00Z') });
+    const ler = async () => (await withTenant(T.ctx, (tx) => tx.select().from(anamnesisTemplates).where(eq(anamnesisTemplates.id, id)), app.db))[0];
+    expect(await ler()).toMatchObject({ aprovadoPor: T.nutriId, aprovadoEm: new Date('2026-10-10T13:00:00Z') });
+    await aprovarModeloAnamnese(T.ctx, id, { db: app.db });
+    expect(await ler()).toMatchObject({ aprovadoPor: T.nutriId, aprovadoEm: new Date('2026-10-10T13:00:00Z') });
+    expect((await listarModelos(T.ctx, app.db)).find((m) => m.id === id)).toMatchObject({ sugestaoIa: false, aprovadoEm: '2026-10-10T13:00:00.000Z' });
+    const usaveis = await listarModelosUsaveis(T.ctx, app.db);
+    expect(usaveis.map((m) => m.id)).toContain(id);
+    expect(usaveis.find((m) => m.padrao)).toMatchObject({ nome: NOME_MODELO_PADRAO, sugestaoIa: false, aprovadoEm: null });
+    expect(await buscarModeloUsavel(T.ctx, id, app.db)).toMatchObject({ id });
+    const p = await novoPaciente(app.db, T.ctx);
+    expect(await preencherAnamnese(T.ctx, T.tenant, p.id, id, {}, { db: app.db, now })).toEqual(expect.any(String));
+  });
+
+  it('aprovar: modelo à mão, arquivado, de outro tenant, id inválido ou sessão sem usuária → não encontrado', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const sugerido = await modeloSugerido(A);
+    const aMao = await salvarModelo(A.ctx, null, { nome: 'À mão', perguntas: [{ tipo: 'texto_curto', rotulo: 'Q', obrigatoria: false }] }, app.db);
+    const arquivado = await modeloSugerido(A);
+    await arquivarModelo(A.ctx, arquivado, app.db);
+    const naoEncontrado = { geral: 'Modelo de anamnese não encontrado.' };
+    for (const id of ['abc', aMao, arquivado]) expect(await erros(aprovarModeloAnamnese(A.ctx, id, { db: app.db }))).toEqual(naoEncontrado);
+    expect(await erros(aprovarModeloAnamnese(B.ctx, sugerido, { db: app.db }))).toEqual(naoEncontrado);
+    expect(await erros(aprovarModeloAnamnese({ tenantId: A.tenantId, role: 'nutri' }, sugerido, { db: app.db }))).toEqual(naoEncontrado);
+    expect(await buscarModeloUsavel(A.ctx, sugerido, app.db)).toBeNull();
+    expect(await buscarModeloUsavel(A.ctx, aMao, app.db)).toMatchObject({ id: aMao });
+    expect(await buscarModeloUsavel(A.ctx, 'abc', app.db)).toBeNull();
   });
 });

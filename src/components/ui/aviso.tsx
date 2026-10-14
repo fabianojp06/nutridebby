@@ -6,10 +6,13 @@ const ESTILO = {
   ok: 'rounded-2xl border border-ok bg-ok-fundo p-3 text-ok',
 } as const;
 
-/** Mensagens do topo das telas (cota, WhatsApp, sucesso). Erro anuncia na hora (alert); o resto, educado (status). */
-export function Aviso({ tipo, papel, children }: { tipo: keyof typeof ESTILO; papel?: 'alert' | 'status'; children?: ReactNode }) {
+/**
+ * Mensagens do topo das telas (cota, WhatsApp, sucesso). Erro anuncia na hora (alert); o resto, educado (status).
+ * `nenhum`: sem papel próprio, para o aviso que já fica dentro de uma região viva (não aninhar regiões).
+ */
+export function Aviso({ tipo, papel, children }: { tipo: keyof typeof ESTILO; papel?: 'alert' | 'status' | 'nenhum'; children?: ReactNode }) {
   return (
-    <p role={papel ?? (tipo === 'erro' ? 'alert' : 'status')} className={ESTILO[tipo]}>
+    <p role={papel === 'nenhum' ? undefined : (papel ?? (tipo === 'erro' ? 'alert' : 'status'))} className={ESTILO[tipo]}>
       {children}
     </p>
   );

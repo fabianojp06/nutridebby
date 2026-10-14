@@ -25,6 +25,7 @@ import { provedorBedrock } from './provedor-bedrock';
 import { provedorFake, respostaOk, USO_FAKE } from './provedor-fake';
 import { RESPOSTA_SANDBOX } from './provedor-sandbox';
 import { pedirLeituraExame } from './tarefas';
+import { ehLeitura } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 // só para envelhecer criado_em, coluna fixa da tarefa (gatilho ia_tarefas_imutavel, 0100): gatilhos desligados só na transação
@@ -79,7 +80,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(t).toMatchObject({ status: 'pronta', erro: null, tentativas: 1, custoMicroUsd: custoMicroUsd('claude-opus-5-5', 'us', USO_FAKE), reservaMicroUsd: teto });
     expect(t.enviadoEm).not.toBeNull();
     expect(t.expiraEm!.getTime() - agora.getTime()).toBe(7 * 86_400_000);
-    expect(t.resultado!.linhas.map((l) => l.valorTexto)).toEqual(RESPOSTA_SANDBOX.marcadores.map((m) => m.valor_texto));
+    expect(ehLeitura(t.resultado) && t.resultado.linhas.map((l) => l.valorTexto)).toEqual(RESPOSTA_SANDBOX.marcadores.map((m) => m.valor_texto));
     expect(await usoDe(P)).toMatchObject({ situacao: 'confirmado', custoMicroUsd: t.custoMicroUsd, tokensEntrada: 10_000, inferenceGeo: 'us' });
     expect((await saidas(P))[0]).toMatchObject({ actorUserId: null, patientId: P.p.id });
     expect(await processarTarefaIA(P.d, deps(f))).toBe('ignorada'); // idempotente: não reenvia

@@ -107,6 +107,7 @@ export async function editarPublicado(ctx: TenantContext, patientId: string, pla
           mostrarCalorias: p.mostrarCalorias,
           orientacoes: p.orientacoes,
           origemPlanId: p.id,
+          iaOrigemEm: p.iaOrigemEm, // RN-117 (Plano 14B, D16): a nova versão de um plano feito com apoio da IA continua com o selo
           versao: await proximaVersao(tx, patientId),
         })
         .returning({ id: mealPlans.id });

@@ -81,15 +81,17 @@ Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DA
 `IA_INFERENCE_GEO`, `IA_TETO_GLOBAL_MENSAL_USD` e `ANTHROPIC_API_KEY` (só no worker; o app não a declara) e, desde o
 Plano 14A, `IA_RETENCAO_ZERO`, `IA_BEDROCK_REGIAO` (app e worker), `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` (só no
 worker, juntas) e, desde a A-D27 (09/10/2026), `IA_RETENCAO_ACEITA_30_DIAS` (app e worker; só com `IA_PROVEDOR=anthropic`,
-[§10.10.10](10-ia.md#101010-retenção-aceita-e-textos-10-a-d27-09102026)). Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
+[§10.10.10](10-ia.md#101010-retenção-aceita-e-textos-10-a-d27-09102026)) e, desde o Plano 14B-1, `IA_MODELO_ASSISTENTE`
+(o modelo do resumo, do rascunho e dos modelos sugeridos; padrão `claude-sonnet-5-5`) e `IA_TETO_RASCUNHO_USD` (teto por
+tarefa de rascunho, 0,05–5, padrão 1; desde o Plano 14B-2 é a reserva e o teto do laço de cada rascunho, D5, a ajustar pela avaliação), ambas no app e no worker. Regras cruzadas no `superRefine` (`src/env.ts`, fim do `workerSchema`):
 Resend exige `RESEND_API_KEY`; Evolution exige as duas variáveis juntas; `WHATSAPP_SANDBOX=1` é recusado em produção;
 as três do VAPID vêm juntas e do mesmo par; em produção, `IA_PROVEDOR` `sandbox`/`fake` é recusado e, com
 `IA_PROVEDOR=anthropic`, `IA_INFERENCE_GEO` só aceita `us`; com `IA_PROVEDOR=bedrock-eu`, `IA_BEDROCK_REGIAO` é obrigatória
-e `IA_MODELO_LEITURA` tem de estar em `MODELOS_BEDROCK_EU` (`conferirIa`); as duas chaves da AWS vêm juntas e a de acesso
+e `IA_MODELO_LEITURA` e `IA_MODELO_ASSISTENTE` têm de estar em `MODELOS_BEDROCK_EU` (`conferirIa`); as duas chaves da AWS vêm juntas e a de acesso
 só no formato `AKIA…`. **O worker não sobe** com `AWS_BEARER_TOKEN_BEDROCK`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`,
 `ANTHROPIC_BEDROCK_BASE_URL` ou `ANTHROPIC_CUSTOM_HEADERS` definidas: o SDK do provedor as leria sozinho (Plano 14A, D2,
-`proibidaNoWorker`, `src/env.ts:281-285`). Ao subir, o worker loga `IA de laudos` com o modo, o provedor (só o nome), o
-modelo e `chave: presente`/`ausente` (nunca a chave). Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
+`proibidaNoWorker`, `src/env.ts:299-303`). Ao subir, o worker loga `IA de laudos` com o modo, o provedor (só o nome), o
+modelo e `chave: presente`/`ausente` (nunca a chave) e, desde o Plano 14B-1, `IA Nutri` com o `modeloAssistente`. Tabela completa: [§1.9 Variáveis de ambiente](01-visao-geral-e-arquitetura.md#19-variáveis-de-ambiente).
 
 **Imagem do worker (Plano 14A).** O SDK do Bedrock (`@anthropic-ai/bedrock-sdk`, com `@aws-sdk/*` e `@smithy/*`) roda só
 no worker; o `Dockerfile` poda dele os fontes (`src`), as declarações e os mapas (dos `@aws-sdk`/`@smithy`, o
@@ -127,11 +129,12 @@ exportação ⇔ job `exportacao-paciente` (`src/modules/pacientes/exportacao.ts
 
 ### 6.2.3 Filas
 
-São **26 filas** (17 até o Plano 08, 3 do Plano 10A, 2 do Plano 11, 3 do Plano 12 — `exame-envio`, `exame-envio-limpar`
-e `expirar-exame-envio`, descritas no [§11.2](11-exames-enviados.md#112-peças) — e 1 do Plano 14A, `ia-retirada`), todas em
+São **27 filas** (17 até o Plano 08, 3 do Plano 10A, 2 do Plano 11, 3 do Plano 12 — `exame-envio`, `exame-envio-limpar`
+e `expirar-exame-envio`, descritas no [§11.2](11-exames-enviados.md#112-peças) —, 1 do Plano 14A, `ia-retirada`, e 1 do
+Plano 14B-1, `ia-assistente`), todas em
 `QUEUES` (`src/jobs/queues.ts`) e todas registradas em `src/worker/index.ts` pelo `work` embrulhado (seção 6.2.7). A guarda
 `src/worker/sem-detalhe.test.ts` exige pelo menos 17 registros (`await work(`; o piso não subiu com os Planos 10A, 11, 12 e
-14A, e hoje são 26 — uma por fila).
+14A e 14B-1, e hoje são 27 — uma por fila).
 
 Legenda das colunas de tentativa (opções do pg-boss 12, `package.json:39`): **retry** = `retryLimit` (número de
 **novas** tentativas, leitura da INT-02 no Plano 02, linha "Fila de e-mail"); **atraso** = `retryDelay` em segundos,
@@ -161,8 +164,9 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `documento-digitalizado` | Produtor no envio das fotos (`receberDigitalizada`, `src/modules/documentos/digitalizada.ts`) | Normaliza as fotos, monta o PDF e assina como "digitalizada" (`montarPdfDigitalizado`); foto ilegível ou cota: falha sem nova tentativa | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
 | `expirar-documento-pdf` | cron `*/15 * * * *` (`index.ts:231`) | PDF `pendente` ou digitalização `recebendo`/`pendente` há mais de 1 h → `falhou` (`expirarPdfsDeDocumentoPendentes`); PDF base e fotos sem referência há mais de 1 h e ponteiros que sobraram num documento emitido → apagados (`limparArquivosOrfaosDeDocumentos`) | 1 / 60 / 300 / — | `{}` |
 | `ia` | Produtor no pedido de leitura (`pedirLeituraExame`, `src/modules/ia/tarefas.ts`, na transação que cria a tarefa e reserva a cota) | Leitura de laudo com IA (`processarTarefaIA`, Plano 11): prepara o arquivo sem metadados, passa pelo **portão do envio** e chama o provedor **uma vez**; grava a sugestão ou a falha e acerta o custo. Um job por vez; `abortado` = sinal do pg-boss (expiração ou parada). Nova tentativa só quando o provedor não processou ou mandou repetir (RN-105); o resto termina sem relançar ([§10.6](10-ia.md#106-erros-e-novas-tentativas-d4-rn-105)) | 2 / 30↗ / 300 / 86 400 | `{ tenantId, tarefaId }` |
-| `expirar-ia` | cron `*/15 * * * *` (`index.ts:242`) | `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu); `na_fila` há mais de 30 min → `falhou` com estorno; `pronta` vencida (7 dias) → `expirada`, conteúdo esvaziado (`expirarTarefasIA`, com o destino em uso). Desde o Plano 14A (D15), também cancela as tarefas ativas de paciente sem autorização vigente para o uso da tarefa ou criadas antes da última retirada (fila com estorno; `processando` com estorno ou incerta; pronta esvaziada); loga `varredura das tarefas de IA` só quando mexeu em algo, com `canceladas` | 1 / 60 / 300 / — | `{}` |
-| `ia-retirada` | Produtor na retirada da autorização pelo paciente (`retirarNoApp`, `src/modules/ia/autorizacao.ts`; `retirarPeloLink`, `autorizacao-link.ts`), na mesma transação do evento `retirou` | Plano 14A (RN-108, D14): no contexto `worker`, trava o paciente, confere que a retirada é dele, relê a situação e cancela a fila (estorno) e as sugestões prontas (esvaziadas); com o paciente já autorizado de novo, só as tarefas criadas antes da retirada (`processarRetiradaIa`, `index.ts:247`); loga só o tenant e a contagem | 3 / 30↗ / 120 / 86 400 | `{ tenantId, patientId, retiradaId }` |
+| `expirar-ia` | cron `*/15 * * * *` (`index.ts:245`) | `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu); `na_fila` há mais de 30 min → `falhou` com estorno; `pronta` vencida (7 dias) → `expirada`, conteúdo esvaziado (`expirarTarefasIA`, com o destino em uso). Desde o Plano 14A (D15), também cancela as tarefas ativas de paciente sem autorização vigente para o uso da tarefa ou criadas antes da última retirada (fila com estorno; `processando` com estorno ou incerta; pronta esvaziada); loga `varredura das tarefas de IA` só quando mexeu em algo, com `canceladas`. Desde o Plano 14B-1 (D20), no mesmo job e mesmo se a das tarefas falhar (`finally`), a varredura das gerações de modelos sugeridos (`expirarGeracoesIA`, `modelos-job.ts`): `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu, reserva incerta se saiu); `na_fila` há mais de 30 min → `falhou` com estorno; trava o tenant antes das gerações | 1 / 60 / 300 / — | `{}` |
+| `ia-retirada` | Produtor na retirada da autorização pelo paciente (`retirarNoApp`, `src/modules/ia/autorizacao.ts`; `retirarPeloLink`, `autorizacao-link.ts`), na mesma transação do evento `retirou` | Plano 14A (RN-108, D14): no contexto `worker`, trava o paciente, confere que a retirada é dele, relê a situação e cancela a fila (estorno) e as sugestões prontas (esvaziadas); com o paciente já autorizado de novo, só as tarefas criadas antes da retirada (`processarRetiradaIa`, `index.ts:256`); loga só o tenant e a contagem | 3 / 30↗ / 120 / 86 400 | `{ tenantId, patientId, retiradaId }` |
+| `ia-assistente` | Produtor no pedido de um pacote de modelos sugeridos (`pedirModelos`, `src/modules/ia/modelos-sugeridos.ts`, na transação que cria a geração e reserva US$ 1,00) e, desde o Plano 14B-2, no pedido do resumo e do rascunho (`criarTarefaDoAssistente`, `src/modules/ia/tarefas.ts:87`, chamada por `pedirResumo` e `pedirRascunhoIa`, na transação que cria a tarefa e reserva a cota) | Plano 14B-1 (D3): o roteador `processarJobAssistente` (`assistente-job.ts:15`) chama `processarGeracaoModelos` (`modelos-job.ts`): portão sem paciente, laço de ferramentas (até 24 voltas, 12 min e o teto da reserva) e a gravação dos 3 modelos juntos ([§10.12.4](10-ia.md#10124-pedido-fila-job-e-varredura-d3-d19-d20)). Plano 14B-2: com `tarefaId`, lê só o `tipo` da tarefa e chama `processarResumo` (`resumo-job.ts`: portão do paciente que monta o pedido pseudonimizado, uma chamada sem ferramentas) ou `processarRascunho` (`rascunho-job.ts`: portão do paciente e o laço de até 12 voltas com a autorização reconferida a cada volta); tarefa inexistente ou de outro tipo → ignorada ([§10.13](10-ia.md#1013-ia-nutri--resumo-e-rascunho-plano-14b-2)). Só a 1ª volta (ou a única chamada do resumo) repete (D4); `abortado` = sinal do pg-boss | 2 / 30↗ / 900 / 86 400 | `{ tenantId, geracaoId }` ou `{ tenantId, tarefaId }` |
 
 Ordem do dia (BRT): 03h backup no host → 04h `retencao-lgpd` e `limpar-tmp` → 04h30 `agenda-limpeza` → 07h
 `monitor-backup`. A retenção roda **depois** do backup de propósito (comentário em `src/jobs/queues.ts:16`).
@@ -195,8 +199,9 @@ Quando o worker cai na última tentativa, o pg-boss expira o job e o registro fi
 | PDF do plano "pendente" | `expirar-plano-pdf` | 1 h (`PDF_PENDENTE_MAX_MS`, `plano-pdf-job.ts`) |
 | Exportação pronta vencida ou pendente esquecida | `retencao-lgpd` → `expirarExportacoesVencidas` | 24 h / 1 dia |
 | `.tmp` de gravação interrompida | `limpar-tmp` | 24 h |
-| Tarefa de IA parada, esquecida na fila ou com sugestão vencida (Plano 11) | `expirar-ia` | 15 min / 30 min / 7 dias |
+| Tarefa de IA parada, esquecida na fila ou com sugestão vencida (Plano 11; desde o Plano 14B-2 também o resumo e o rascunho, pela tarefa e não pelo tipo — o job regrava `iniciado_em` a cada tentativa, R7) | `expirar-ia` | 15 min / 30 min / 7 dias |
 | Tarefa de IA de paciente que retirou a autorização e cujo job `ia-retirada` não rodou (Plano 14A, D15) | `expirar-ia` | 15 min |
+| Pacote de modelos sugeridos parado ou esquecido na fila (Plano 14B-1, D20) | `expirar-ia` → `expirarGeracoesIA` | 15 min / 30 min |
 
 A foto esquecida **não** é reconvertida: se a queda foi falta de memória com aquela foto, cada varredura derrubaria
 o worker de novo (comentário de `expirarFotosPendentes`).
@@ -464,7 +469,7 @@ Camadas, de dentro para fora:
   `aviso de IA não enviado: o paciente volta a "não informado"` (`aoDesistir` do job `email`, `src/worker/index.ts:91`;
   conta os avisos desfeitos), `falha ao desistir do e-mail` (`src/email/job.ts:46`); do app: `IA ativada pela nutricionista`,
   `IA desativada pela nutricionista`, `IA liberada/bloqueada pelo admin`, `limite de IA ajustado`,
-  `falha ao avisar os admins do teto da IA` (`src/modules/ia/tarefas.ts:118`).
+  `falha ao avisar os admins do teto da IA` (`src/modules/ia/tarefas.ts:195`; desde o Plano 14B-2 também em `falhaDoPedidoDoAssistente`, `:119`).
 
 ### 6.4.2 `request_id` (D2 do Plano 08)
 
@@ -663,7 +668,9 @@ constantes em [§4.1.4 Monitoramento de backup e disco](04-modulos-clinicos.md#4
 | `test/backup.test.ts` | Roda o script contra um remoto `crypt` sobre pasta local (sem R2, decisão "Alvo S3 nos testes" do Plano 02): domingo com semanal, histórico datado e poda, falhas do dump, do envio, da retenção, dos roles e da promoção do `globais.sql`, container ausente, sem `stderr` no log; e que **nenhum outro código cita o script** (linha 247) |
 | `test/restauracao.test.ts` | Restaura num banco descartável e confere as guardas; `SECURITY DEFINER` com dono superusuário reprova; `globais.sql` vazio = ausente; dump sem as tabelas do app falha; dia sem dump falha |
 
-O CI instala `rclone` e falha se ele faltar (`.github/workflows/ci.yml:40-41`; `test/backup.test.ts:19`).
+No CI, o `rclone` e o `docker` do host são montados só leitura no contêiner do job `test` do runner próprio, que confere
+que existem antes dos testes (`.github/workflows/ci.yml:91-92`, `:101-106`); sem `rclone`, o teste falha no CI
+(`test/backup.test.ts:20`). O `docker exec` do teste vai ao Docker rootless do CI, que não vê os contêineres de produção.
 **Nunca rode `nutri-backup.sh` fora desse teste** — há bancos de produção no host (regra 10).
 
 ### 6.5.8 Teste de restauração mensal
@@ -768,7 +775,10 @@ nele.
 
 Merge na `main` = deploy (só com OK do dono, regra 6 do CLAUDE.md). O pipeline completo (CI, imagem no GHCR com
 `:<sha>` e `:latest`, poda para 2 versões, webhooks do Easypanel, migrations no boot do `nutri_app`) está em
-[§7.7 Pipeline do CI e deploy](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy). Antes do merge, o dono tira o snapshot no hPanel
+[§7.7 Pipeline do CI e deploy](07-testes-qualidade-e-processo.md#77-pipeline-do-ci-e-deploy). Desde 12/10/2026 o CI roda
+no runner próprio da VPS; com ele fora do ar, o deploy normal fica parado e só sobra a publicação de emergência sem CI
+(disparo manual do `deploy.yml` na `main` com `PUBLICAR-SEM-CI`), com validação local e OK do dono
+(`docs/operacao/runner-proprio.md`). Antes do merge, o dono tira o snapshot no hPanel
 (`docs/operacao/go-live.md:31`).
 
 O worker que sobe antes das migrations cai e volta sozinho (`docs/operacao/carga.md:17`).
@@ -779,8 +789,8 @@ Por que não basta "redeploy": `nutri_app` e `nutri_worker` usam `ghcr.io/fabian
 redeploy puxa de novo o `:latest`, que é a imagem quebrada. É preciso fixar o SHA anterior. Toda troca de imagem é
 feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e reinicia serviço (regra 3 do servidor).
 
-1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:77-79`)
-   e poda o pacote para as 2 versões mais recentes (`deploy.yml:87-95`). A anterior é o merge de antes na `main`
+1. **Achar o SHA anterior.** O `deploy.yml` publica `:<sha do commit>` e `:latest` (`.github/workflows/deploy.yml:103-105`)
+   e poda o pacote para as 2 versões mais recentes (`deploy.yml:113-121`). A anterior é o merge de antes na `main`
    (`git log --first-parent main`) e aparece na lista de versões do pacote no GHCR.
 2. **Conferir as migrations.** O Drizzle só avança: não há migration de volta, e o banco fica no schema novo. Se o
    deploy quebrado aplicou uma migration de **contração** (removeu ou renomeou coluna, tabela ou função que a versão
@@ -796,7 +806,7 @@ feita pelo dono no Easypanel (regra 1 do servidor; regra 6 do `CLAUDE.md`) e rei
    dos dois serviços sem erro (`docker service logs`, leitura livre pela regra 2 do servidor).
 5. **Corrigir para frente.** A correção segue o fluxo normal: PR → revisão → OK do dono. **Antes do merge**, o dono
    volta os dois serviços para `:latest` no Easypanel. Por quê: o webhook só manda o Easypanel reimplantar a imagem
-   configurada (`deploy.yml:96-103`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
+   configurada (`deploy.yml:122-129`); com o SHA fixado, o merge da correção reimplanta a versão antiga. E a poda do
    GHCR remove esse SHA dois deploys depois.
 6. **Snapshot do hPanel só como último recurso** (banco corrompido, servidor sem subir). O snapshot volta a VPS
    inteira: inclusive o `cursoia_crm` e os outros projetos do servidor, e perde tudo o que foi gravado depois dele

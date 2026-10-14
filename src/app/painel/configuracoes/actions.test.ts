@@ -9,10 +9,15 @@ vi.mock('next/navigation', () => ({
     throw new Error(`redirect ${url}`);
   },
 }));
+vi.mock('@/env', async (orig) => ({ ...(await orig<typeof import('@/env')>()), getEnv: () => ({ IA_PROVEDOR: 'fake', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_MODELO_ASSISTENTE: 'claude-sonnet-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50, IA_TETO_RASCUNHO_USD: 1 }) }));
 const ativar = vi.fn();
 vi.mock('@/modules/ia/ativacao', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/ativacao')>()), ativarIa: ativar }));
-const { ativarIaAction } = await import('./actions');
+const pedir = vi.fn();
+vi.mock('@/modules/ia/modelos-sugeridos', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/modelos-sugeridos')>()), pedirModelos: pedir }));
+const { ativarIaAction, pedirModelosAction } = await import('./actions');
 const { AtivacaoIaError } = await import('@/modules/ia/ativacao');
+const real = await vi.importActual<typeof import('@/modules/ia/modelos-sugeridos')>('@/modules/ia/modelos-sugeridos');
+const { PedidoIaError } = await import('@/modules/ia/tarefas');
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -29,5 +34,30 @@ describe('Configurações > Inteligência artificial (US-101)', () => {
   it('erro de ativação volta como mensagem da tela', async () => {
     ativar.mockRejectedValueOnce(new AtivacaoIaError('A IA ainda não foi liberada para o seu consultório.'));
     expect(await ativarIaAction({}, new FormData())).toEqual({ erro: 'A IA ainda não foi liberada para o seu consultório.' });
+  });
+});
+
+describe('Configurações > Modelos sugeridos pela IA (US-123)', () => {
+  it('área fora da lista (formulário adulterado): "Escolha uma das áreas da lista." pela validação do módulo', async () => {
+    pedir.mockImplementationOnce(real.pedirModelos);
+    const fd = new FormData();
+    fd.set('area', 'cardiologia');
+    expect(await pedirModelosAction({}, fd)).toEqual({ erro: 'Escolha uma das áreas da lista.' });
+  });
+
+  it('área válida: o consultório e a usuária vêm da sessão; redireciona com ?modelos=pedido para a seção dos modelos', async () => {
+    const fd = new FormData();
+    fd.set('area', 'diabetes');
+    fd.set('tenantId', 'outro'); // ignorado
+    // a seção dos modelos é a última de Configurações: a âncora leva a tela até a confirmação (revisão da T5, Important)
+    await expect(pedirModelosAction({}, fd)).rejects.toThrow('redirect /painel/configuracoes?modelos=pedido#modelos-ia');
+    expect(pedir).toHaveBeenCalledWith(sessao.ctx, sessao.tenant, 'diabetes', { ia: expect.objectContaining({ modo: 'fake', modeloAssistente: 'claude-sonnet-5-5' }) });
+  });
+
+  it('recusa do pedido (um por vez, cota, IA indisponível) volta como mensagem da tela', async () => {
+    pedir.mockRejectedValueOnce(new PedidoIaError('Já há um pacote de modelos em preparo. Aguarde terminar.'));
+    const fd = new FormData();
+    fd.set('area', 'diabetes');
+    expect(await pedirModelosAction({}, fd)).toEqual({ erro: 'Já há um pacote de modelos em preparo. Aguarde terminar.' });
   });
 });

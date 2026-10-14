@@ -3,15 +3,16 @@ import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
-import { pacienteAutorizado, tarefaNoBanco } from '../../../test/ia';
+import { geracaoNoBanco, pacienteAutorizado, tarefaNoBanco } from '../../../test/ia';
 import { closeDb, type Tx } from '@/db/client';
-import { iaGastoPlataforma, iaTarefas, tenants } from '@/db/schema';
+import { iaGastoPlataforma, iaGeracoesModelos, iaTarefas, iaUso, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { registrarRetiradaPelaNutri } from './autorizacao';
-import { cancelarTarefas } from './cancelar';
+import { cancelarGeracoes, cancelarTarefas } from './cancelar';
 import { FUSO_DA_PLATAFORMA, mesNoFuso, reservar } from './cota';
 import { expirarTarefasDoTenant } from './leitura-job';
+import { expirarGeracoesDoTenant } from './modelos-job';
 
 /**
  * Revisão final do Plano 11 (Important "deadlock" e Minors 10 e 11): ciclos de travas entre a equipe, o worker e a
@@ -130,5 +131,38 @@ describe('Plano 11 — ordem de travas sem ciclo (revisão final)', () => {
     const r = await Promise.allSettled([cancela.fim, varredura]);
     expect(r.map((x) => (x.status === 'rejected' ? codigo(x.reason) : 'ok'))).toEqual(['ok', 'ok']);
     expect(r[1].status === 'fulfilled' && r[1].value).toEqual({ interrompidas: 1, expiradas: 1, canceladas: 0 });
+  });
+});
+
+describe('Plano 14B — ordem de travas das gerações de modelos (revisão da T4)', () => {
+  it('"Desativar" × varredura das gerações: a varredura trava o tenant antes das gerações e espera o desativar (sem ciclo geração ↔ plataforma)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await pacienteAutorizado(app.db, T.ctx);
+    // uma tarefa na fila (o estorno do desativar trava a linha do mês da plataforma) e uma geração esquecida na fila
+    const tarefa = await tarefaNoBanco(app.db, T.ctx, p.id, null);
+    await withTenant(T.ctx, (tx) => reservar(tx, { tenantId: T.tenantId, tarefaId: tarefa, tipo: 'leitura_exame', modelo: 'claude-opus-5-5', promptVersao: 'teste', microUsd: 1, agora, tetoGlobalMicroUsd: Number.MAX_SAFE_INTEGER }), app.db);
+    const geracaoId = await geracaoNoBanco(app.db, T.ctx);
+    await withTenant(T.ctx, (tx) => reservar(tx, { tenantId: T.tenantId, tarefaId: geracaoId, tipo: 'modelos_area', modelo: 'claude-sonnet-5-5', promptVersao: 'teste', microUsd: 1, agora, tetoGlobalMicroUsd: Number.MAX_SAFE_INTEGER }), app.db);
+    // desativarIa: tenant (UPDATE) → cancelarTarefas (estorno: linha do mês da plataforma); para antes de cancelarGeracoes
+    const desativa = await parada(
+      T.ctx,
+      async (tx) => {
+        await tx.update(tenants).set({ iaAtivadaEm: null, updatedAt: agora }).where(eq(tenants.id, T.tenantId));
+        expect(await cancelarTarefas(tx, { tenantId: T.tenantId, agora })).toBe(1);
+      },
+      (tx) => cancelarGeracoes(tx, { tenantId: T.tenantId, agora }),
+    );
+    // a varredura roda 31 min depois do pedido (criado_em é fixo): a geração na fila está esquecida
+    const varredura = withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => expirarGeracoesDoTenant(tx, T.tenantId, new Date(agora.getTime() + 31 * 60_000)), app.db);
+    await esperarBloqueadoPor(desativa.pid);
+    desativa.soltar();
+    const r = await Promise.allSettled([desativa.fim, varredura]);
+    expect(r.map((x) => (x.status === 'rejected' ? codigo(x.reason) : 'ok'))).toEqual(['ok', 'ok']);
+    // o desativar chegou primeiro ao tenant: cancelou a geração; a varredura não a encontra mais na fila
+    expect(r[1].status === 'fulfilled' && r[1].value).toEqual({ interrompidas: 0 });
+    const [g] = await withTenant(T.ctx, (tx) => tx.select({ status: iaGeracoesModelos.status }).from(iaGeracoesModelos).where(eq(iaGeracoesModelos.id, geracaoId)), app.db);
+    expect(g.status).toBe('cancelada');
+    const [u] = await withTenant(T.ctx, (tx) => tx.select({ situacao: iaUso.situacao }).from(iaUso).where(eq(iaUso.tarefaId, geracaoId)), app.db);
+    expect(u.situacao).toBe('estornado');
   });
 });

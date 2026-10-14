@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ModeloIA, RegiaoIA } from './constantes';
-import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura, type UsoTokens } from './provedor';
+import { mensagensDaGeracao, respostaDaGeracao } from './geracao-formato';
+import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaGeracao, type RespostaLeitura, type UsoTokens } from './provedor';
 
 /**
  * INT-07 (spec v0.3): o ÚNICO arquivo que importa o SDK (RNF-103; guarda em guardas.test.ts). Só o worker o alcança.
@@ -8,7 +9,8 @@ import { ErroProvedor, type PedidoLeitura, type ProvedorIA, type RespostaLeitura
  * logLevel 'off', baseURL explícito e authToken null: ANTHROPIC_LOG/ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN do ambiente não
  * mudam o comportamento. maxRetries 0: as novas tentativas são do pg-boss, pela RN-105 — o SDK repetiria um tempo
  * esgotado e cobraria de novo sem aparecer na reserva. O timeout do SDK TypeScript é em MILISSEGUNDOS. Nenhum erro sai daqui com o texto do provedor (que pode ecoar
- * o pedido): só ErroProvedor { tipo, status, requestId }.
+ * o pedido): só ErroProvedor { tipo, status, requestId }. Plano 14B (D1): `gerar` usa o mesmo messages.create, com
+ * ferramentas só do cliente (`strict`, escolha `auto`), sem streaming e sem `thinking` explícito.
  */
 export const TIMEOUT_MS = 120_000;
 const BASE_URL = 'https://api.anthropic.com';
@@ -105,6 +107,29 @@ export function provedorAnthropic(o: { apiKey: string; fetch?: typeof fetch; bas
       if (r.stop_reason !== 'end_turn') return { tipo: 'cortada', uso, requestId };
       const texto = r.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
       return { tipo: 'ok', texto, uso, requestId };
+    },
+    async gerar(p): Promise<RespostaGeracao> {
+      // D5: como na leitura, a região `eu` nunca vai à API direta (defesa a mais: o job confere `aceita` antes do portão)
+      if (!aceitaAnthropic(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
+      let r: Anthropic.Message & { _request_id?: string | null };
+      try {
+        r = await cliente.messages.create({
+          model: p.modelo,
+          max_tokens: p.maxTokens,
+          system: p.sistema,
+          // D1: o histórico e a classificação da resposta são os do módulo comum (os mesmos do Bedrock)
+          messages: mensagensDaGeracao(p.turnos) as Anthropic.MessageParam[],
+          inference_geo: p.geo,
+          output_config: { effort: p.esforco, format: { type: 'json_schema', schema: p.schema } },
+          // RNF-105: só ferramentas do cliente, strict, com a escolha automática (forçar dá 400 nos modelos 5.5)
+          ...(p.ferramentas.length
+            ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as Anthropic.Tool.InputSchema, strict: true })), tool_choice: { type: 'auto' } as const }
+            : {}),
+        });
+      } catch (err) {
+        throw classificarErro(err);
+      }
+      return respostaDaGeracao(r, usoDe(r.usage), r._request_id ?? null);
     },
   };
 }

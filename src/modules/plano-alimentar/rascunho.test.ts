@@ -6,11 +6,11 @@ import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/paci
 import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
-import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
 import { MSG_PLANO } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEncontradoError } from './erros';
-import { copiarConteudo, criarRascunho, descartarRascunho, proximaVersao, salvarRascunho } from './rascunho';
+import { copiarConteudo, criarRascunho, criarRascunhoTx, descartarRascunho, gravarConteudoRascunhoTx, proximaVersao, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -66,7 +66,27 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const a = await criarRascunho(T.ctx, p.id, deps);
     expect(a.criado).toBe(true);
     expect(await criarRascunho(T.ctx, p.id, deps)).toEqual({ id: a.id, criado: false });
-    expect(await carregarPlano(T.ctx, a.id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, revisao: 0, titulo: 'Plano alimentar', refeicoes: [] });
+    expect(await carregarPlano(T.ctx, a.id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, revisao: 0, titulo: 'Plano alimentar', refeicoes: [], iaOrigemEm: null });
+  });
+
+  it('criarRascunhoTx (Plano 14B, RN-122): rascunho com a versão seguinte e a marca da IA; criarRascunho continua devolvendo o existente (D11)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const agora = new Date('2026-10-14T12:00:00Z');
+    const id = await withTenant(
+      T.ctx,
+      async (tx) => {
+        await carregarPacienteParaEscrita(tx, p.id);
+        return criarRascunhoTx(tx, T.tenantId, p.id, { titulo: 'Plano', metaKcal: 1800, orientacoes: 'x', iaOrigemEm: agora });
+      },
+      app.db,
+    );
+    expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ status: 'rascunho', versao: 1, titulo: 'Plano', metaKcal: 1800, orientacoes: 'x', iaOrigemEm: agora.toISOString() });
+    expect(await criarRascunho(T.ctx, p.id, deps)).toEqual({ id, criado: false });
+    // sem opções: os padrões de criarRascunho, sem a marca
+    const outro = await novoPaciente(app.db, T.ctx);
+    const semMarca = await withTenant(T.ctx, (tx) => criarRascunhoTx(tx, T.tenantId, outro.id), app.db);
+    expect(await carregarPlano(T.ctx, semMarca, app.db)).toMatchObject({ titulo: 'Plano alimentar', metaKcal: null, orientacoes: '', iaOrigemEm: null });
   });
 
   it('salvar grava refeições, itens, medida ("4 colheres de sopa cheias" = 100 g) e substituição; revisão sobe', async () => {
@@ -283,6 +303,38 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const [pao, tapioca] = modelo!.refeicoes[0].itens;
     expect(tapioca.substituiItemId).toBe(pao.id);
     expect(modelo!.refeicoes[1].itens[0]).toMatchObject({ quantidadeG: 100, medidaCaseiraTxt: '4 colheres de sopa cheias', medida: COLHER });
+  });
+
+  it('gravarConteudoRascunhoTx (Plano 14B): refeições e itens sugeridos num modelo novo; alimento que sumiu sai e é contado', async () => {
+    const T = await novoTenant(app.db);
+    const sumiu = randomUUID(); // id que não existe (ou de outro consultório): invisível ao tenant
+    const r = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [m] = await tx.insert(mealPlans).values({ tenantId: T.tenantId, isTemplate: true, titulo: 'Modelo' }).returning({ id: mealPlans.id });
+        const g = await gravarConteudoRascunhoTx(tx, T.tenantId, null, m.id, [
+          { nome: 'Café da manhã', horario: '07:30', itens: [
+            { foodId: idTaco(53), quantidadeG: 50, medida: null, substitui: null },
+            { foodId: sumiu, quantidadeG: 30, medida: null, substitui: null },
+            { foodId: idTaco(533), quantidadeG: 100, medida: null, substitui: 0 },
+            { foodId: idTaco(3), quantidadeG: 40, medida: null, substitui: 1 }, // a substituição do que sumiu também sai
+          ] },
+          { nome: 'Lanche', horario: '15:00', itens: [{ foodId: sumiu, quantidadeG: 30, medida: null, substitui: null }] },
+          { nome: 'Almoço', horario: '12:00', itens: [{ foodId: idTaco(3), quantidadeG: 100, medida: COLHER, substitui: null }] },
+        ]);
+        return { ...g, id: m.id };
+      },
+      app.db,
+    );
+    expect(r).toMatchObject({ itens: 3, foraDoCatalogo: 3 });
+    const modelo = await carregarPlano(T.ctx, r.id, app.db);
+    expect(modelo!.refeicoes.map((x) => x.nome)).toEqual(['Café da manhã', 'Almoço']); // a refeição só com o que sumiu não é criada
+    const [pao, tapioca] = modelo!.refeicoes[0].itens;
+    expect(pao).toMatchObject({ foodId: idTaco(53), substituiItemId: null });
+    expect(tapioca).toMatchObject({ foodId: idTaco(533), substituiItemId: pao.id });
+    expect(modelo!.refeicoes[1].itens[0]).toMatchObject({ quantidadeG: 100, medidaCaseiraTxt: '4 colheres de sopa cheias', medida: COLHER });
+    const linhas = await withTenant(T.ctx, (tx) => tx.select({ x: mealItems.patientId }).from(mealItems).where(eq(mealItems.planId, r.id)), app.db);
+    expect(linhas.every((l) => l.x === null)).toBe(true);
   });
 
   it('copiarConteudo: o paciente das refeições e itens copiados vem do plano de destino no banco', async () => {

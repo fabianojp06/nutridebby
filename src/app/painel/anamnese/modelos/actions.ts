@@ -1,9 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
-import { AnamneseError, arquivarModelo, salvarModelo } from '@/modules/pacientes/anamnese';
+import { AnamneseError, aprovarModeloAnamnese, arquivarModelo, salvarModelo } from '@/modules/pacientes/anamnese';
 
 export type ModeloState = { erros?: Record<string, string> };
 
@@ -29,4 +29,17 @@ export async function arquivarModeloAction(id: string): Promise<void> {
   const { ctx } = await requireNutri('/painel/anamnese/modelos');
   await arquivarModelo(ctx, id);
   revalidatePath('/painel/anamnese/modelos');
+}
+
+/** US-123 "Aprovar modelo" (anamnese): quem aprova é a usuária da sessão (o módulo e o gatilho conferem); sem origem IA → 404. */
+export async function aprovarModeloAnamneseAction(id: string): Promise<void> {
+  const { ctx } = await requireNutri(`/painel/anamnese/modelos/${id}`);
+  try {
+    await aprovarModeloAnamnese(ctx, id);
+  } catch (e) {
+    if (e instanceof AnamneseError) notFound();
+    throw e;
+  }
+  revalidatePath('/painel/anamnese/modelos');
+  revalidatePath(`/painel/anamnese/modelos/${id}`);
 }

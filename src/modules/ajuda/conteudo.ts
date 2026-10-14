@@ -55,6 +55,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'plano-alimentar',
+    // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
     versao: 1,
     padrao: new RegExp(`^/painel/pacientes/${ID}/plano-alimentar(/.*)?$`),
     titulo: 'Plano alimentar',
@@ -62,7 +63,14 @@ export const GUIAS: readonly Guia[] = [
       resumo: 'Monte o plano por refeições, com os alimentos da TACO ou os seus. O salvamento é automático; o paciente só vê depois de "Publicar".',
       secoes: [
         { titulo: 'Passo a passo', itens: ['Crie as refeições e adicione os alimentos com a quantidade em gramas ou medida caseira.', 'Confira os totais e a meta ao lado.', 'Clique em "Publicar": a versão anterior é arquivada e o paciente recebe o aviso no app.'] },
-        { titulo: 'Perguntas comuns', itens: ['Para mudar um plano publicado, use "Editar": uma versão nova é criada, e a publicada continua valendo até você publicar a nova.', 'O PDF do plano fica pronto em alguns segundos depois de publicar.'] },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Para mudar um plano publicado, use "Editar": uma versão nova é criada, e a publicada continua valendo até você publicar a nova.',
+            'O PDF do plano fica pronto em alguns segundos depois de publicar.',
+            '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
+          ],
+        },
       ],
     },
     passos: [
@@ -116,6 +124,7 @@ export const GUIAS: readonly Guia[] = [
     id: 'prontuario',
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
+    // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
     versao: 2, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns)
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
@@ -123,7 +132,7 @@ export const GUIAS: readonly Guia[] = [
       resumo: 'Tudo do paciente em abas: anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
         { titulo: 'Passo a passo', itens: ['Comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
-        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.'] },
+        { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.', '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".'] },
       ],
     },
     passos: [
@@ -216,15 +225,21 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'modelos',
-    versao: 1,
+    versao: 2, // Plano 14B: modelos sugeridos pela IA (a marca e a aprovação; quem já viu o tour, vê de novo)
     padrao: /^\/painel\/(planos\/modelos|anamnese\/modelos)(\/.*)?$/,
     titulo: 'Modelos',
-    ajuda: { resumo: 'Modelos de plano alimentar e de anamnese para começar mais rápido. Usar um modelo copia o conteúdo; mudar o modelo depois não muda o que já foi criado.', secoes: [] },
-    passos: [{ titulo: 'Modelos', texto: 'Crie um modelo aqui ou salve um plano pronto como modelo pelo editor do plano.' }],
+    ajuda: {
+      resumo: 'Modelos de plano alimentar e de anamnese para começar mais rápido. Usar um modelo copia o conteúdo; mudar o modelo depois não muda o que já foi criado.',
+      secoes: [{ titulo: 'Modelos sugeridos pela IA', itens: ['Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".'] }],
+    },
+    passos: [
+      { titulo: 'Modelos', texto: 'Crie um modelo aqui ou salve um plano pronto como modelo pelo editor do plano.' },
+      { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".' },
+    ],
   },
   {
     id: 'configuracoes',
-    versao: 5, // Plano 14A: a autorização do paciente no lugar do aviso de IA
+    versao: 7, // Plano 14B-2: o aditivo 1.1 (o resumo do histórico e o rascunho de plano); a 6 foi a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
@@ -242,10 +257,12 @@ export const GUIAS: readonly Guia[] = [
         {
           titulo: 'Inteligência artificial (IA)',
           itens: [
-            'A leitura de laudos com IA só aparece depois que o suporte libera o seu consultório; para ativar, você aceita o aditivo de inteligência artificial.',
+            'A IA (leitura de laudos, resumo do histórico e rascunho de plano) só aparece depois que o suporte libera o seu consultório; para ativar, você aceita o aditivo de inteligência artificial.',
+            'O aditivo está na versão 1.1, que inclui o resumo do histórico e o rascunho de plano alimentar. Quem aceitou a versão anterior vê "Aceitar a versão atual" e precisa aceitar de novo para continuar usando a IA. A autorização que o paciente deu na versão anterior também não vale mais: peça uma nova (a aba Privacidade do paciente avisa).',
             'A IA só sugere: você confere cada valor antes de salvar. Nada entra no prontuário sem você marcar e salvar.',
             'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
+            'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
           ],
         },
       ],
@@ -254,6 +271,8 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
+      // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
+      { alvo: 'modelos-ia', titulo: 'Modelos sugeridos pela IA', texto: 'Com a IA ativa, escolha a área e clique em "Gerar modelos": a IA prepara 2 modelos de plano e 1 de anamnese, sem nenhum dado de paciente. Revise e aprove cada um antes de usar com pacientes.' },
     ],
   },
   {

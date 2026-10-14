@@ -4,9 +4,11 @@ import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL } from './painel-rotas';
+import { avaliar, pacienteNoPortal } from './portal';
 
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
-// (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente).
+// (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente);
+// 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
@@ -69,6 +71,110 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
   expect(await violacoes(nutri)).toEqual([]);
+});
+
+/**
+ * Plano 14B-1 (US-123): o id de um modelo de plano sugerido pela IA ainda sem aprovação. O banco do E2E é reaproveitado
+ * (o ia-modelos.spec deixa o "Plano sugerido 2" sem aprovar); no banco novo (CI), pede um pacote (sandbox: nenhuma
+ * chamada à API real). Um pacote por consultório (RN-103): se outro estiver em preparo, espera a lista ganhar o modelo.
+ */
+async function modeloSugeridoSemAprovacao(page: Page): Promise<string> {
+  const achar = async (): Promise<string | null> => {
+    await page.goto('/painel/planos/modelos');
+    const item = page.getByRole('listitem').filter({ has: page.getByText('Sugestão da IA — revise', { exact: true }) }).first();
+    if (!(await item.count())) return null;
+    return (await item.getByRole('link').getAttribute('href'))?.split('/').pop() ?? null;
+  };
+  const id = await achar();
+  if (id) return id;
+  await page.goto('/painel/configuracoes');
+  const area = page.getByLabel('Área');
+  if (await area.isVisible()) {
+    await area.selectOption('idosos');
+    await page.getByRole('button', { name: 'Gerar modelos' }).click();
+  }
+  let achado: string | null = null;
+  await expect.poll(async () => (achado = await achar()), { timeout: 120_000, intervals: [3_000] }).not.toBeNull();
+  return achado!;
+}
+
+test('Plano 14B-1: Configurações com os modelos sugeridos pela IA, a marca na lista e um modelo sugerido (faixa e "Aprovar modelo"), nos três modos', async () => {
+  test.setTimeout(240_000);
+  const id = await modeloSugeridoSemAprovacao(nutri);
+  const falhas: string[] = [];
+  for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+    await escolherTema(nutri, tema);
+    await nutri.emulateMedia({ colorScheme: aparelho });
+    await nutri.goto('/painel/configuracoes');
+    await expect(nutri.getByRole('heading', { name: 'Modelos sugeridos pela IA' })).toBeVisible();
+    await nutri.waitForLoadState('networkidle');
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/configuracoes — ${v}`);
+    await nutri.goto('/painel/planos/modelos');
+    await expect(nutri.getByText('Sugestão da IA — revise', { exact: true }).first()).toBeVisible();
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/planos/modelos — ${v}`);
+    await nutri.goto(`/painel/planos/modelos/${id}`);
+    await expect(nutri.getByText('Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu.')).toBeVisible();
+    await expect(nutri.getByRole('button', { name: 'Aprovar modelo' })).toBeVisible();
+    await nutri.waitForLoadState('networkidle');
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/planos/modelos/[id] — ${v}`);
+  }
+  await nutri.emulateMedia({ colorScheme: 'light' });
+  expect(falhas).toEqual([]);
+});
+
+/**
+ * Plano 14B-2 (US-120, US-121): as telas do resumo e do rascunho com a tarefa PRONTA (no laço de cima, o paciente não
+ * autorizou a IA e elas mostram só o aviso). Um paciente que autoriza a versão 1.1 no app, duas antropometrias (a tabela
+ * "Dados usados" aparece) e as duas tarefas pelo sandbox (nenhuma chamada à API real).
+ */
+test('Plano 14B-2: o resumo do histórico e o rascunho de plano com a tarefa pronta, nos três modos e em 768 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const paciente = await pacienteNoPortal(browser, nutri, '10.9.29.31');
+  await paciente.page.goto('/p/perfil/ia');
+  await paciente.page.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
+  await expect(paciente.page.getByRole('status').filter({ hasText: 'Autorização registrada. Você pode retirar quando quiser.' })).toBeVisible();
+  await paciente.page.context().close();
+  const p = paciente.prontuario;
+  await avaliar(nutri, p, '2026-08-01', '80');
+  await avaliar(nutri, p, '2026-09-01', '78,5');
+  await nutri.goto(`${p}/resumo-ia`);
+  await nutri.getByRole('button', { name: 'Gerar resumo' }).click();
+  await expect(nutri.getByText(/^Resumo gerado por IA em /)).toBeVisible({ timeout: 90_000 });
+  await nutri.goto(`${p}/plano-alimentar/rascunho-ia`);
+  await nutri.getByLabel('Meta de energia (kcal/dia)').fill('1800');
+  await nutri.getByLabel('Proteína (% da energia)').fill('20');
+  await nutri.getByLabel('Carboidrato (%)').fill('50');
+  await nutri.getByLabel('Lipídio (%)').fill('30');
+  await nutri.getByRole('button', { name: 'Gerar rascunho' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Rascunho sugerido pela IA' })).toBeVisible({ timeout: 120_000 });
+
+  const telas = [
+    { url: `${p}/resumo-ia`, pronta: () => expect(nutri.getByRole('table', { name: 'Dados usados' })).toBeVisible() },
+    { url: `${p}/plano-alimentar/rascunho-ia`, pronta: () => expect(nutri.getByRole('button', { name: 'Usar como rascunho' })).toBeVisible() },
+  ];
+  const falhas: string[] = [];
+  for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+    await escolherTema(nutri, tema);
+    await nutri.emulateMedia({ colorScheme: aparelho });
+    for (const t of telas) {
+      await nutri.goto(t.url);
+      await t.pronta();
+      await nutri.waitForLoadState('networkidle');
+      for (const v of await violacoes(nutri)) falhas.push(`${tema} ${t.url} — ${v}`);
+    }
+  }
+  await nutri.emulateMedia({ colorScheme: 'light' });
+  expect(falhas).toEqual([]);
+  await nutri.setViewportSize({ width: 768, height: 1000 });
+  try {
+    for (const t of telas) {
+      await nutri.goto(t.url);
+      await t.pronta();
+      expect(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), t.url).toBe(true);
+    }
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+  }
 });
 
 test('768 px: nenhuma tela do painel rola na horizontal', async () => {

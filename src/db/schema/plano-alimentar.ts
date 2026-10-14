@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { foods } from './alimentos';
+import { iaGeracoesModelos } from './ia';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
@@ -42,6 +43,13 @@ export const mealPlans = pgTable(
     pdfStatus: text('pdf_status'),
     /** US-026: quando o PDF atual foi pedido (pdf_status virou 'pendente'); a rede de segurança mede a idade do pendente por aqui. */
     pdfPedidoEm: timestamp('pdf_pedido_em', { withTimezone: true }),
+    /** Plano 14B (US-123 (f)): o modelo sugerido pela IA — a geração de onde veio (nunca muda, gatilho 0112). Só em modelo. */
+    iaGeracaoId: uuid('ia_geracao_id'),
+    /** Plano 14B (US-123 (g), RN-125): quem aprovou o modelo sugerido e quando (imutáveis depois de gravados). */
+    aprovadoEm: timestamp('aprovado_em', { withTimezone: true }),
+    aprovadoPor: uuid('aprovado_por'),
+    /** Plano 14B (RN-117, A-D13): o plano do paciente veio do rascunho da IA — o selo do art. 37 no PDF e no app. "Editar" copia. */
+    iaOrigemEm: timestamp('ia_origem_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -61,6 +69,10 @@ export const mealPlans = pgTable(
     uniqueIndex('meal_plans_um_publicado_idx').on(t.tenantId, t.patientId).where(sql`${t.status} = 'publicado'`),
     uniqueIndex('meal_plans_um_rascunho_idx').on(t.tenantId, t.patientId).where(sql`${t.status} = 'rascunho' and ${t.patientId} is not null`),
     index('meal_plans_paciente_idx').on(t.tenantId, t.patientId, t.versao),
+    check('meal_plans_ia_geracao_so_modelo', sql`${t.iaGeracaoId} is null or ${t.isTemplate}`),
+    check('meal_plans_aprovacao_coerente', sql`(${t.aprovadoEm} is null) = (${t.aprovadoPor} is null) and (${t.aprovadoEm} is null or ${t.iaGeracaoId} is not null)`),
+    foreignKey({ columns: [t.tenantId, t.iaGeracaoId], foreignColumns: [iaGeracoesModelos.tenantId, iaGeracoesModelos.id], name: 'meal_plans_ia_geracao_fk' }),
+    check('meal_plans_ia_origem_so_paciente', sql`${t.iaOrigemEm} is null or not ${t.isTemplate}`),
   ],
 );
 

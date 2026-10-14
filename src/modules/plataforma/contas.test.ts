@@ -331,9 +331,9 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
   });
 
-  it('A-D27 (dono, 09/10/2026): com os textos 1.0, a guarda da D22 deixa liberar em produção', async () => {
+  it('A-D27 (dono, 09/10/2026) e Plano 14B: com os textos finais (1.1), a guarda da D22 deixa liberar em produção', async () => {
     const T = await novoTenant(app.db);
-    expect([AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO]).toEqual(['1.0', '1.0']);
+    expect([AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO]).toEqual(['1.1', '1.1']);
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID(), { producao: true });
     const [t] = await app.db.select({ l: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, T.tenantId));
     expect(t.l).toBe(true);

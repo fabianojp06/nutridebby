@@ -1,4 +1,10 @@
-const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
+// No CI a variável é obrigatória: cair no padrão de dev leria o Mailpit de dev (no runner próprio, o da VPS)
+const MAILPIT =
+  process.env.MAILPIT_URL ??
+  (() => {
+    if (process.env.CI) throw new Error('MAILPIT_URL não definida no CI (o E2E não cai no padrão de dev)');
+    return 'http://localhost:8025';
+  })();
 
 type Resumo = { ID: string; Subject: string; Created: string };
 

@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { CATEGORIAS, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA } from './campos-enviados';
 import {
-  aditivoIa, AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, IA_ADITIVO_TERMO,
-  IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN, responsavelDoTenant, textoCorrido, textoDaAutorizacao, versaoAtende,
+  aditivoIa, AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, DATA_DA_VERSAO, DESCRICAO_DO_USO,
+  IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_DATA, IA_ADITIVO_VERSAO_MIN, responsavelDoTenant, textoCorrido, textoDaAutorizacao, versaoAtende,
 } from './textos-legais';
 
 const RESP = { consultorio: 'Consultório Debby', nutricionista: 'Debora Silva', crn: 'CRN-3 12345', contato: 'contato@debby.test' };
-const corrido = (d: Parameters<typeof textoDaAutorizacao>[1]) => textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, d)!.paragrafos.map(textoCorrido);
+/** O texto 1.0 (A-D27): fica no mapa como registro do que quem autorizou nela leu; a versão atual é a 1.1 (Plano 14B). */
+const corrido = (d: Parameters<typeof textoDaAutorizacao>[1]) => textoDaAutorizacao('1.0', d)!.paragrafos.map(textoCorrido);
 
-describe('textos legais da IA (A-D19, A-D20; 1.0 publicada sem advogado pela A-D27)', () => {
+describe('textos legais da IA (A-D19, A-D20; 1.0 publicada sem advogado pela A-D27; 1.1 com os usos da 14B)', () => {
   it('versaoAtende compara a parte numérica; nulo nunca atende', () => {
     expect(versaoAtende('0.1-provisorio', '0.1-provisorio')).toBe(true);
     expect(versaoAtende('1.0', '0.1-provisorio')).toBe(true);
@@ -22,10 +24,10 @@ describe('textos legais da IA (A-D19, A-D20; 1.0 publicada sem advogado pela A-D
     expect(IA_ADITIVO_TERMO).toBe(`ia-aditivo-${IA_ADITIVO_VERSAO}`);
   });
 
-  it('A-D27: as quatro versões são 1.0; quem aceitou ou autorizou nas provisórias (0.1 e 0.2) fica abaixo do mínimo e aceita de novo', () => {
-    expect([AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN]).toEqual(['1.0', '1.0', '1.0', '1.0']);
-    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.0');
-    for (const antiga of ['0.1-provisorio', '0.2-provisorio']) {
+  it('Plano 14B (D21): as quatro versões são 1.1; quem aceitou ou autorizou na 1.0 ou nas provisórias (0.1 e 0.2) fica abaixo do mínimo e aceita de novo', () => {
+    expect([AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN]).toEqual(['1.1', '1.1', '1.1', '1.1']);
+    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.1');
+    for (const antiga of ['1.0', '0.1-provisorio', '0.2-provisorio']) {
       expect(versaoAtende(antiga, AUTORIZACAO_IA_VERSAO_MIN), antiga).toBe(false);
       expect(versaoAtende(antiga, IA_ADITIVO_VERSAO_MIN), antiga).toBe(false);
     }
@@ -33,14 +35,13 @@ describe('textos legais da IA (A-D19, A-D20; 1.0 publicada sem advogado pela A-D
 });
 
 describe('Plano 14A e A-D27 — texto da autorização 1.0 (redação do parecer JUR-2026-013, item 4.1; spec §18.5)', () => {
-  it('F2: a versão 1.0 lista só a leitura de laudos (os usos da 14B entram com a versão nova da 14B)', () => {
-    expect(AUTORIZACAO_IA_USOS).toEqual(['leitura_laudos']);
+  it('F2: a versão 1.0 lista só a leitura de laudos (os usos da 14B entram com a versão 1.1)', () => {
     const texto = corrido({ ...RESP, destino: 'anthropic-us', canal: 'app' }).join(' ');
     for (const da14B of ['resumir o seu histórico', 'rascunho do seu plano', 'No resumo e no rascunho', 'três tarefas']) expect(texto, da14B).not.toContain(da14B);
   });
 
   it('anthropic-us, canal app: a redação do parecer, palavra por palavra (adaptações a e b da §18.5; retenção de 30 dias da A-D27)', () => {
-    const t = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
+    const t = textoDaAutorizacao('1.0', { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
     expect(t.titulo).toBe('Autorização para uso de inteligência artificial');
     expect(t.paragrafos.map(textoCorrido)).toEqual([
       'Consultório Debby pede a sua autorização para usar uma ferramenta de inteligência artificial (IA) com os seus dados de saúde. Esta autorização é só para isso, é separada do termo de uso do app e é pessoal: só você pode dar.',
@@ -115,7 +116,7 @@ describe('Plano 14A e A-D27 — texto da autorização 1.0 (redação do parecer
   });
 
   it('em destaque (art. 33, VIII): o país, o "saem do Brasil" e o "nada muda" vão em negrito', () => {
-    const t = textoDaAutorizacao(AUTORIZACAO_IA_VERSAO, { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
+    const t = textoDaAutorizacao('1.0', { ...RESP, destino: 'anthropic-us', canal: 'app' })!;
     const fortes = t.paragrafos.flatMap((p) => p.filter((x) => x.forte).map((x) => x.texto));
     for (const f of ['nos Estados Unidos', 'saem do Brasil', 'Se você não autorizar, ou se retirar a autorização depois, nada muda no seu atendimento:', 'Para onde vai.', 'Benefícios e riscos.']) expect(fortes).toContain(f);
   });
@@ -133,16 +134,17 @@ describe('Plano 14A e A-D27 — texto da autorização 1.0 (redação do parecer
   });
 });
 
-describe('Plano 14A e A-D27 — aditivo 1.0 (redação do parecer JUR-2026-013, item 4.2; US-101, C1)', () => {
-  it('a versão é 1.0 e quem aceitou a 0.1 ou a 0.2 provisórias fica desatualizado', () => {
-    expect(IA_ADITIVO_VERSAO).toBe('1.0');
+describe('Plano 14A, A-D27 e Plano 14B — aditivo 1.1 (redação do parecer JUR-2026-013, item 4.2, com os trechos [14B]; US-101, C1)', () => {
+  it('a versão é 1.1 e quem aceitou a 1.0 ou as provisórias 0.1 e 0.2 fica desatualizado', () => {
+    expect(IA_ADITIVO_VERSAO).toBe('1.1');
     expect(versaoAtende(IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN)).toBe(true);
+    expect(versaoAtende('1.0', IA_ADITIVO_VERSAO_MIN)).toBe(false);
     expect(versaoAtende('0.1-provisorio', IA_ADITIVO_VERSAO_MIN)).toBe(false);
     expect(versaoAtende('0.2-provisorio', IA_ADITIVO_VERSAO_MIN)).toBe(false);
-    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.0');
+    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.1');
   });
 
-  it('fornecedor, mecanismo da transferência e retenção seguem o destino (F1: no Bedrock, a adequação; a autorização como exigência a mais); sem os usos da 14B (F2)', () => {
+  it('fornecedor, mecanismo da transferência e retenção seguem o destino (F1: no Bedrock, a adequação; a autorização como exigência a mais)', () => {
     const us = aditivoIa('anthropic-us');
     const eu = aditivoIa('bedrock-eu');
     expect(eu.titulo).toBe('Aditivo de inteligência artificial ao contrato de tratamento de dados');
@@ -167,9 +169,129 @@ describe('Plano 14A e A-D27 — aditivo 1.0 (redação do parecer JUR-2026-013, 
     // Minor (c): sem garantir além do contrato
     expect(pu[6]).toMatch(/\(f\) mantém o sigilo profissional\. Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo\.$/);
     expect(pu[6]).not.toContain('garantida');
-    expect(pu.join(' ')).not.toMatch(/resumir o histórico|rascunho de plano alimentar|Elaborado com apoio de IA/);
-    expect(pu.at(-1)).toBe('Versão 1.0, de 09/10/2026.');
-    expect(pe.at(-1)).toBe('Versão 1.0, de 09/10/2026.');
+    // D27 do Plano 15: a IA Nutri do paciente vem depois — "Nestes usos" restringe a frase aos usos da nutricionista
+    expect(pu[1]).toContain('A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente.');
+    expect(pu.at(-1)).toBe('Versão 1.1, de 09/10/2026.');
+    expect(pe.at(-1)).toBe('Versão 1.1, de 09/10/2026.');
     expect(pu).toHaveLength(12);
+  });
+});
+
+/**
+ * D8 (revisão da T6): as frases das categorias valem só na LISTA do "O que é enviado" — entre "No resumo e no rascunho" e
+ * "O seu nome, e-mail" —, no trecho comum aos dois usos ou no do próprio uso ("no rascunho, também …", "no resumo, se a
+ * nutricionista escolher, …"). Palavras como "exames" e "plano" aparecem também no "Para que serve" e não contam.
+ */
+function faltandoNaLista(p4: string) {
+  const ini = p4.indexOf('No resumo e no rascunho');
+  const fim = p4.indexOf('O seu nome, e-mail');
+  if (ini < 0 || fim <= ini) throw new Error('lista do "O que é enviado" não encontrada');
+  const lista = p4.slice(ini, fim);
+  const SO_RASCUNHO = '; no rascunho, também ';
+  const SO_RESUMO = '; no resumo, se a nutricionista escolher, ';
+  const corte = (marca: string) => (lista.includes(marca) ? lista.indexOf(marca) : lista.length);
+  const comum = lista.slice(0, Math.min(corte(SO_RASCUNHO), corte(SO_RESUMO)));
+  const trecho = (marca: string) => {
+    if (!lista.includes(marca)) return '';
+    const resto = lista.slice(lista.indexOf(marca) + marca.length);
+    return resto.split(/; no (?:rascunho|resumo)/)[0];
+  };
+  const doUso = { resumo_historico: `${comum} ${trecho(SO_RESUMO)}`, rascunho_plano: `${comum} ${trecho(SO_RASCUNHO)}` };
+  const faltando = (uso: keyof typeof CATEGORIAS_POR_USO) => CATEGORIAS_POR_USO[uso].filter((c) => !doUso[uso].includes(FRASE_DA_CATEGORIA[c]));
+  return { resumo_historico: faltando('resumo_historico'), rascunho_plano: faltando('rascunho_plano'), datas: !comum.includes('as datas de cada registro') };
+}
+
+describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-2026-013, item 4.1, trechos [14B]; desvio 10; A-D27)', () => {
+  const t02 = (d: Parameters<typeof textoDaAutorizacao>[1]) => textoDaAutorizacao('1.1', d)!.paragrafos.map(textoCorrido);
+
+  it('versão e mínimo sobem juntos, sem "provisorio"; os três usos; a 1.0 deixa de valer (RN-109)', () => {
+    expect(AUTORIZACAO_IA_VERSAO).toBe('1.1');
+    expect(AUTORIZACAO_IA_VERSAO_MIN).toBe('1.1');
+    expect(AUTORIZACAO_IA_USOS).toEqual(['leitura_laudos', 'resumo_historico', 'rascunho_plano']);
+    expect(versaoAtende('1.0', AUTORIZACAO_IA_VERSAO_MIN)).toBe(false);
+    expect(textoDaAutorizacao('1.1', { ...RESP, destino: 'anthropic-us', canal: 'app' })!.paragrafos.map(textoCorrido).join(' ')).not.toMatch(/provis[oó]ri/);
+    // a data impressa em cada versão; a da atual é o piso do termo em papel (US-108)
+    expect(DATA_DA_VERSAO).toEqual({ '0.1-provisorio': '2026-10-09', '1.0': '2026-10-09', '1.1': '2026-10-09' });
+    expect(AUTORIZACAO_IA_VERSAO_DATA).toBe(DATA_DA_VERSAO[AUTORIZACAO_IA_VERSAO]);
+    expect(Object.keys(DESCRICAO_DO_USO).sort()).toEqual([...AUTORIZACAO_IA_USOS].sort());
+  });
+
+  it('"Para que serve" e "O que é enviado": a redação [14B] do parecer com as adaptações (b)–(c) do desvio 10, palavra por palavra', () => {
+    const p = t02({ ...RESP, destino: 'bedrock-eu', canal: 'app' });
+    expect(p[2]).toBe('Para que serve. A IA ajuda a sua nutricionista a: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames e não receita. Nestes usos, a IA não fala com você.');
+    expect(p[4]).toBe(
+      'O que é enviado. Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. ' +
+      'No resumo e no rascunho, vão as informações do seu prontuário necessárias para a tarefa: a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas, as restrições e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela. ' +
+      'O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. No lugar da data de nascimento, vai a sua idade. ' +
+      // revisão da T6: o limite da máscara (RN-115) sobre o próprio nome e as restrições do pedido do rascunho (§5.4), art. 9º, § 1º
+      'Nos textos escritos no prontuário e no pedido do rascunho, o sistema retira o seu nome (completo, com o sobrenome ou só o primeiro nome), e-mail, telefone e CPF. ' +
+      'Podem ir junto: o seu primeiro nome sozinho, quando tem menos de três letras ou também é uma palavra comum de alimentação (como Rosa ou Clara); outras partes do seu nome escritas sem o primeiro nome (como um segundo nome ou os sobrenomes); apelidos; e outros dados escritos ali, como o nome de outras pessoas ou um endereço. ' +
+      'Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.',
+    );
+    expect(p.at(-1)).toBe(`Versão 1.1, de ${AUTORIZACAO_IA_VERSAO_DATA.split('-').reverse().join('/')}.`);
+  });
+
+  it('R1 (pre-flight): fora dos dois parágrafos da 14B e do rodapé, a 1.1 é a 1.0 palavra por palavra — mesma retenção, exceção revista e riscos da guarda nos EUA', () => {
+    for (const destino of ['anthropic-us', 'bedrock-eu', 'teste'] as const) {
+      const v11 = t02({ ...RESP, destino, canal: 'link' });
+      const v10 = corrido({ ...RESP, destino, canal: 'link' });
+      expect(v11).toHaveLength(v10.length);
+      expect(v11.flatMap((p, i) => (p === v10[i] ? [] : [i])), destino).toEqual([2, 4, v10.length - 1]);
+    }
+    // o "Nestes usos" é só da 1.1: a 0.1 e a 1.0 continuam com o que quem autorizou nelas leu
+    for (const versao of ['0.1-provisorio', '1.0']) {
+      expect(textoDaAutorizacao(versao, { ...RESP, destino: 'teste', canal: 'app' })!.paragrafos.map(textoCorrido)[2], versao).toMatch(/não receita e não fala com você\.$/);
+    }
+  });
+
+  it('A-D27: na anthropic-us, "Por quanto tempo" continua com a retenção de até 30 dias da 1.0', () => {
+    const p = t02({ ...RESP, destino: 'anthropic-us', canal: 'app' }).join(' ');
+    expect(p).toContain('A Anthropic guarda os dados enviados por até 30 dias, para operar e proteger o serviço (por exemplo, segurança e prevenção de abuso), e depois os apaga.');
+  });
+
+  it('F3: os oito requisitos continuam no texto novo, nos dois destinos e nos quatro canais', () => {
+    for (const destino of ['anthropic-us', 'bedrock-eu'] as const) {
+      for (const canal of ['app', 'link', 'papel_com_email', 'papel_sem_email'] as const) {
+        const texto = t02({ ...RESP, destino, canal }).join(' ');
+        for (const r of ['Para que serve.', 'O que é enviado.', 'Para onde vai.', 'saem do Brasil', 'Por quanto tempo.', 'é separada do termo de uso do app', 'nada muda no seu atendimento', 'Você pode retirar a autorização quando quiser', 'Versão 1.1', 'art. 18', 'gov.br/anpd']) {
+          expect(texto, `${destino}/${canal}: ${r}`).toContain(r);
+        }
+      }
+    }
+  });
+
+  it('o contrato do que sai (D8): cada categoria de cada uso tem a frase na lista do "O que é enviado" da 1.1 (só ali)', () => {
+    const p4 = t02({ ...RESP, destino: 'anthropic-us', canal: 'app' })[4];
+    expect(faltandoNaLista(p4)).toEqual({ resumo_historico: [], rascunho_plano: [], datas: false });
+    // a guarda percebe a saída de uma categoria da lista, mesmo com a palavra em outro parágrafo ou em outro trecho
+    expect(faltandoNaLista(p4.replace(' exames,', '')).resumo_historico).toEqual(['exames']);
+    expect(faltandoNaLista(p4.replace(' plano,', '')).resumo_historico).toEqual(['plano']);
+    expect(faltandoNaLista(p4.replace('a sua idade e ', '')).rascunho_plano).toEqual(['idade']); // "vai a sua idade" fica de fora da lista
+    expect(faltandoNaLista(p4.replace('as metas, as restrições e as preferências', 'as metas e as preferências')).rascunho_plano).toEqual(['metas']);
+    expect(faltandoNaLista(p4.replace('; no resumo, se a nutricionista escolher, as anotações dela', '')).resumo_historico).toEqual(['notas']);
+    expect(faltandoNaLista(p4.replace(' e as datas de cada registro', '')).datas).toBe(true);
+    // toda categoria do contrato é usada por algum uso (nada declarado à toa)
+    expect(new Set(Object.values(CATEGORIAS_POR_USO).flat())).toEqual(new Set(CATEGORIAS));
+  });
+
+  it('aditivo 1.1: finalidades (b)–(d), item 5 com a máscara, selo no item 10, retenção de até 30 dias na anthropic-us', () => {
+    expect(IA_ADITIVO_VERSAO).toBe('1.1');
+    expect(IA_ADITIVO_VERSAO_MIN).toBe('1.1');
+    const a = aditivoIa('anthropic-us').paragrafos.map(textoCorrido);
+    expect(a[5]).toContain('A Anthropic guarda o conteúdo enviado por até 30 dias');
+    expect(a[1]).toContain('(b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos');
+    expect(a[4]).toContain('com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido.');
+    expect(a[4]).toContain('e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente');
+    expect(a[9]).toBe('10. Selo e transparência. O plano alimentar criado a partir do rascunho da IA leva o selo "Elaborado com apoio de IA e revisado pela nutricionista". A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.');
+    expect(a.at(-1)).toBe(`Versão 1.1, de ${IA_ADITIVO_VERSAO_DATA.split('-').reverse().join('/')}.`);
+    expect(a.join(' ')).not.toMatch(/provis[oó]ri/);
+  });
+
+  it('aditivo 1.1, itens 2 e 5 inteiros (parecer 4.2 com os trechos [14B]; D27 do Plano 15; adaptação (e) do desvio 10)', () => {
+    for (const destino of ['anthropic-us', 'bedrock-eu'] as const) {
+      const a = aditivoIa(destino).paragrafos.map(textoCorrido);
+      expect(a[1]).toBe('2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.');
+      expect(a[4]).toBe('5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.');
+    }
   });
 });

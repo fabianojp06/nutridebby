@@ -9,12 +9,14 @@ import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { aditivoIa, IA_ADITIVO_VERSAO, textoCorrido } from '@/modules/ia/textos-legais';
 import { desativarIaAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
+import { ModelosIa } from './modelos-ia';
 
 /**
  * US-101 / US-102: seção "Inteligência artificial (IA)" de Configurações. Sem IA_PROVEDOR, a seção não existe.
  * `ativada`: a página recebeu `?ia=ativada` do `ativarIaAction`; a confirmação só aparece se a IA está mesmo ativa.
+ * `modelosPedido`: a página recebeu `?modelos=pedido` do `pedirModelosAction` (US-123 "Gerar"); vai para `ModelosIa`.
  */
-export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean }) {
+export async function IaSecao({ tenant, ctx, ativada = false, modelosPedido = false }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean; modelosPedido?: boolean }) {
   const { modo, destino } = configIA(getEnv());
   const estado = estadoIaDoTenant(tenant, modo);
   if (estado === 'ausente' || estado === 'suspensa' || !destino) return null;
@@ -29,7 +31,7 @@ export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: Tenant
   return (
     <section data-guia="ia-secao" aria-labelledby="ia-titulo" className="max-w-2xl space-y-3 rounded-3xl border border-borda bg-cartao p-5">
       <h2 id="ia-titulo" className="font-titulo text-lg font-semibold">Inteligência artificial (IA)</h2>
-      <p className="text-suave">Leitura de laudos de exames: a IA sugere os valores e você confere antes de salvar.</p>
+      <p className="text-suave">Leitura de laudos, resumo do histórico, rascunho de plano alimentar e modelos sugeridos: a IA sugere e você confere antes de usar.</p>
       {estado === 'emergencia' && <Aviso tipo="aviso">{MSG_IA.indisponivel}</Aviso>}
       {estado === 'nao_liberada' && <p>{MSG_IA.naoLiberada}</p>}
       {(estado === 'nao_ativada' || estado === 'aditivo_desatualizado') && (
@@ -45,6 +47,7 @@ export async function IaSecao({ tenant, ctx, ativada = false }: { tenant: Tenant
           <p role="status">{MSG_IA.usoDoMes(cota.percentual)}</p>
           {cota.nivel === 'aviso' && <Aviso tipo="aviso">{MSG_IA.aviso80}</Aviso>}
           {cota.nivel === 'esgotada' && <Aviso tipo="aviso">{MSG_IA.cotaAcabou}</Aviso>}
+          <ModelosIa ctx={ctx} fuso={tenant.fuso} pedido={modelosPedido} />
           {aditivo}
           <form action={desativarIaAction}>
             <ConfirmarBotao mensagem="Desativar a IA? As leituras na fila são canceladas e as sugestões ainda não salvas são descartadas.">Desativar a IA</ConfirmarBotao>

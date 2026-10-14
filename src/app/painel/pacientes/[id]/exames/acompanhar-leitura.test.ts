@@ -15,7 +15,7 @@ describe('acompanhar a leitura da IA no painel (RNF-100)', () => {
     const inicio = Date.now();
     const buscar = vi.fn(async () => resposta(Date.now() - inicio >= 4 * 60_000 ? 'pronta' : 'processando'));
     const aoMudar = vi.fn();
-    acompanharLeitura('t1', aoMudar, buscar as unknown as typeof fetch);
+    acompanharLeitura('/api/painel/ia/tarefas/t1', aoMudar, buscar as unknown as typeof fetch);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(buscar).toHaveBeenCalledTimes(60);
     expect(aoMudar).not.toHaveBeenCalled();
@@ -33,7 +33,7 @@ describe('acompanhar a leitura da IA no painel (RNF-100)', () => {
       return { ok: false } as Response;
     });
     const aoMudar = vi.fn();
-    acompanharLeitura('t2', aoMudar, buscar as unknown as typeof fetch);
+    acompanharLeitura('/api/painel/ia/tarefas/t2', aoMudar, buscar as unknown as typeof fetch);
     await vi.advanceTimersByTimeAsync(ACOMPANHAR_IA_MAX_MS + 60_000);
     const total = buscar.mock.calls.length;
     expect(total).toBe(60 + Math.floor((ACOMPANHAR_IA_MAX_MS - 60 * 3000) / 15_000));
@@ -42,9 +42,22 @@ describe('acompanhar a leitura da IA no painel (RNF-100)', () => {
     expect(aoMudar).not.toHaveBeenCalled();
   });
 
+  it('qualquer URL de situação (pacote de modelos, US-123): "processando" segue consultando, "pronta" recarrega uma vez', async () => {
+    let status = 'processando';
+    const buscar = vi.fn(async () => resposta(status));
+    const aoMudar = vi.fn();
+    acompanharLeitura('/api/painel/ia/geracoes/g1', aoMudar, buscar as unknown as typeof fetch);
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(aoMudar).not.toHaveBeenCalled();
+    status = 'pronta';
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(aoMudar).toHaveBeenCalledTimes(1);
+    expect(buscar).toHaveBeenCalledWith('/api/painel/ia/geracoes/g1', CONSULTA_AUTOMATICA);
+  });
+
   it('desmontar o componente para de consultar', async () => {
     const buscar = vi.fn(async () => resposta('na_fila'));
-    const parar = acompanharLeitura('t3', vi.fn(), buscar as unknown as typeof fetch);
+    const parar = acompanharLeitura('/api/painel/ia/tarefas/t3', vi.fn(), buscar as unknown as typeof fetch);
     await vi.advanceTimersByTimeAsync(9000);
     parar();
     await vi.advanceTimersByTimeAsync(60_000);

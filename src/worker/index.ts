@@ -16,8 +16,10 @@ import { chaveDosLinks } from '@/modules/agenda/link-consulta';
 import { montarPdfDigitalizado } from '@/modules/documentos/digitalizada-job';
 import { expirarPdfsDeDocumentoPendentes, gerarPdfDoDocumento, limparArquivosOrfaosDeDocumentos } from '@/modules/documentos/documento-pdf-job';
 import { limparCodigosDeDocumentoVencidos } from '@/modules/documentos/link-documento';
+import { processarJobAssistente } from '@/modules/ia/assistente-job';
 import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autorizacao-retirada-job';
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
+import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos-job';
 import { configIA } from '@/modules/ia/modo';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
@@ -242,11 +244,27 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   });
   await boss.schedule('expirar-ia', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-ia', async () => {
-    await expirarTarefasIA(getDb(), new Date(), ia.destino);
+    const agora = new Date();
+    // Plano 14B (D20, R9): as gerações de modelos na mesma varredura, mesmo se a das tarefas falhar
+    try {
+      await expirarTarefasIA(getDb(), agora, ia.destino);
+    } finally {
+      await expirarGeracoesIA(getDb(), agora);
+    }
   });
   // Plano 14A (RN-108): a retirada pelo paciente — o job nasce na transação da retirada (app ou link)
   await work<DadosRetiradaIa>('ia-retirada', async ([job]) => {
     await processarRetiradaIa(job.data, { db: getDb(), destino: ia.destino });
+  });
+  // Plano 14B (D3): a fila do resumo, do rascunho e dos modelos sugeridos — o mesmo provedor; o modelo é o do assistente
+  // (A-D3). Um job por vez (padrão do boss.work); expira em 900 s, acima do prazo do laço (12 min)
+  logger.info({ modeloAssistente: ia.modeloAssistente }, 'IA Nutri');
+  await work('ia-assistente', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobAssistente>[]) => {
+    await processarJobAssistente(job.data, {
+      db: getDb(), modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, destino: ia.destino, retencao: ia.retencao,
+      modeloAssistente: ia.modeloAssistente, tetoRascunhoMicroUsd: ia.tetoRascunhoMicroUsd,
+      appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit, abortado: () => job.signal.aborted,
+    });
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).

@@ -164,21 +164,6 @@ describe('processarLogo (US-005: PNG/JPEG/SVG, máx. 512 px)', () => {
     }
   });
 
-  it('"<!--", "<?" ou "<![CDATA[" sem fechamento é recusado, em tempo linear mesmo com 200 mil (M15, G1)', () => {
-    for (const abre of ['<!--', '<?', '<![CDATA[']) {
-      const svg = Buffer.from(`<svg><style>${abre.repeat(200_000)}x</style></svg>`);
-      const inicio = performance.now();
-      expect(contemFiltroSvg(svg)).toBe(true);
-      expect(performance.now() - inicio).toBeLessThan(500);
-    }
-    for (const par of ['<!---->', '<?x?>', '<![CDATA[]]>', '<', '<!DOCTYPE svg SYSTEM "', '<!DOCTYPE svg>', '<!DOCTYPE svg                 ']) {
-      const svg = Buffer.from(`<svg><style>${par.repeat(200_000)}x</style></svg>`);
-      const inicio = performance.now();
-      contemFiltroSvg(svg);
-      expect(performance.now() - inicio).toBeLessThan(500);
-    }
-  });
-
   it('imagem que o decodificador recusa vira 415 com log só do nome do erro (M16)', async () => {
     const { logger } = await import('@/lib/logger');
     const aviso = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);

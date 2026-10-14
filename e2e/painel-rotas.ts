@@ -51,8 +51,10 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/historico': (i) => `/painel/pacientes/${i.paciente}/historico`,
   '/painel/pacientes/[id]/plano-alimentar': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar`,
   '/painel/pacientes/[id]/plano-alimentar/[planId]': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar/${i.plano}`, // o editor
+  '/painel/pacientes/[id]/plano-alimentar/rascunho-ia': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar/rascunho-ia`, // Plano 14B (US-121)
   '/painel/pacientes/[id]/privacidade': (i) => `/painel/pacientes/${i.paciente}/privacidade`,
   '/painel/pacientes/[id]/privacidade/termo-ia': (i) => `/painel/pacientes/${i.paciente}/privacidade/termo-ia`,
+  '/painel/pacientes/[id]/resumo-ia': (i) => `/painel/pacientes/${i.paciente}/resumo-ia`, // Plano 14B (US-120)
   '/painel/planos/modelos': () => '/painel/planos/modelos',
   '/painel/planos/modelos/[id]': (i) => `/painel/planos/modelos/${i.modeloPlano}`,
   '/painel/whatsapp': () => '/painel/whatsapp',
