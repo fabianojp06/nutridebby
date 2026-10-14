@@ -1,0 +1,90 @@
+{
+ "projeto": "NutriDebby",
+ "cliente": "Cliente piloto: consultório da Debby",
+ "subtitulo": "SaaS de gestão de consultório de nutrição · produção em nutri.wsscloud.tech",
+ "data_extenso": "terça-feira, 14 de outubro de 2026",
+ "data_curta": "14/10/2026",
+ "emitido_em": "14/10/2026 às 06:00 (Brasília)",
+ "janela": "13/10 06:00 → 14/10 06:00",
+ "veredito": {"rag": "amarelo", "rotulo": "Atenção", "tendencia": "estável em relação a ontem",
+  "frase": "Produção estável; a entrega 14B-2 está pronta e aguarda o seu OK para o merge.",
+  "resumo": "A 14B-1 (modelos sugeridos pela IA) entrou em produção ontem às 20h48. A 14B-2 (resumo do histórico e rascunho de plano pela IA) passou em todas as revisões e no CI. O merge invalida o aceite do aditivo 1.0 de 1 consultório e a autorização de 1 paciente, que precisarão aceitar a versão 1.1."},
+ "kpis": [
+  {"rotulo": "Backlog concluído", "valor": "67%", "sub": "180 de 267 itens"},
+  {"rotulo": "Testes", "valor": "3.480", "sub": "suíte do PR #35, todos passando"},
+  {"rotulo": "Commits 24 h", "valor": "5", "sub": "na main"},
+  {"rotulo": "PRs mesclados", "valor": "2", "sub": "#33 e #34 em 24 h"},
+  {"rotulo": "Aguardando OK", "valor": "1", "sub": "PR #35 (14B-2)"},
+  {"rotulo": "Produção", "valor": "OK", "sub": "/api/health 200"}
+ ],
+ "dimensoes": [
+  {"nome": "Escopo", "rag": "verde", "texto": "MVP com código completo; pós-MVP seguindo o roadmap aprovado (Planos 09–16)."},
+  {"nome": "Prazo", "rag": "amarelo", "texto": "14B-2 pronta desde 14/10 02h36; depende do seu OK. Plano 15 começa depois do merge."},
+  {"nome": "Qualidade", "rag": "verde", "texto": "Revisão final com 1 achado corrigido; /code-review sem itens ≥ 80; /security-review sem vulnerabilidades."},
+  {"nome": "Produção", "rag": "verde", "texto": "/api/health OK; último deploy em 13/10 às 20h48 (PR #34), migrations até 0112."},
+  {"nome": "Go-live", "rag": "amarelo", "texto": "Faltam textos do advogado (E-09), validação da Debby (P08-08) e itens de backup."},
+  {"nome": "Segurança do servidor", "rag": "amarelo", "texto": "Backup diário ativo, mas /srv/nutri/data fora do restic e alerta de backup_runs disparando."}
+ ],
+ "depende_de_voce": [
+  {"titulo": "OK para o merge do PR #35 (14B-2)", "detalhe": "e o horário; avisar a nutricionista que aceitará o aditivo 1.1."},
+  {"titulo": "Data dos textos 1.1", "detalhe": "manter 09/10/2026 ou usar a data da publicação."},
+  {"titulo": "Snapshot da VPS", "detalhe": "o atual vence hoje às 19h16; novo antes do merge."}
+ ],
+ "commits_por_dia": [["01/10",64],["02/10",41],["03/10",44],["04/10",103],["05/10",54],["06/10",45],["07/10",53],["08/10",57],["09/10",44],["10/10",15],["11/10",0],["12/10",27],["13/10",5],["14/10",0]],
+ "nota_commits": "Data do commit na main (inclui os commits dos PRs mesclados).",
+ "backlog": {"feito": 180, "andamento": 27, "bloqueado": 1, "a_fazer": 59, "fonte": "Backlog do repositório (main), itens principais, sem subtarefas."},
+ "fases": [
+  {"nome": "Plano 01 — Fundação", "feitos": 15, "total": 15},
+  {"nome": "Plano 02 — Plataforma", "feitos": 10, "total": 11},
+  {"nome": "Plano 03 — Prontuário", "feitos": 11, "total": 11},
+  {"nome": "Plano 04 — Plano alimentar", "feitos": 9, "total": 10},
+  {"nome": "Plano 05 — Agenda", "feitos": 12, "total": 12},
+  {"nome": "Plano 06 — Portal do paciente", "feitos": 12, "total": 13},
+  {"nome": "Plano 07 — Conteúdos", "feitos": 8, "total": 9},
+  {"nome": "Plano 08 — Go-live", "feitos": 7, "total": 11},
+  {"nome": "Pós-MVP (Planos 09–16)", "feitos": 92, "total": 158},
+  {"nome": "Trilha externa", "feitos": 4, "total": 10}
+ ],
+ "entregue_24h": [
+  {"tag": "Produção", "titulo": "Plano 14B-1 em produção (PR #34)", "detalhe": "Modelos de plano e de anamnese sugeridos pela IA; migrations 0111–0112."},
+  {"tag": "Infra", "titulo": "CI no runner próprio da VPS (PR #33)", "detalhe": "Testes rodam sem consumir minutos do GitHub Actions."},
+  {"tag": "PR", "titulo": "PR #35 aberto com CI verde", "detalhe": "14B-2: resumo do histórico e rascunho de plano pela IA."}
+ ],
+ "proximos_passos": [
+  {"quando": "Hoje", "titulo": "Merge e deploy da 14B-2", "detalhe": "Com o seu OK e snapshot novo; conferir migrations 0113–0114."},
+  {"quando": "Após o merge", "titulo": "Manual do usuário", "detalhe": "Aplicar os roteiros da 14B-1 e da 14B-2 no Claude Docs."},
+  {"quando": "Em seguida", "titulo": "Plano 15", "detalhe": "IA Nutri; migrations a partir da 0115."}
+ ],
+ "prs": [
+  {"numero": 35, "titulo": "Plano 14B-2: resumo do histórico e rascunho de plano pela IA", "situacao": ["warn", "Aguardando OK"], "ci": ["ok", "Verde"], "data": "14/10"},
+  {"numero": 34, "titulo": "Plano 14B-1 — modelos de plano e de anamnese sugeridos pela IA", "situacao": ["ok", "Mesclado"], "ci": ["ok", "Verde"], "data": "13/10"},
+  {"numero": 33, "titulo": "CI: runner próprio isolado na VPS", "situacao": ["ok", "Mesclado"], "ci": ["ok", "Verde"], "data": "13/10"},
+  {"numero": 32, "titulo": "Docs: retomada de 12/10", "situacao": ["ok", "Mesclado"], "ci": ["ok", "Verde"], "data": "09/10"}
+ ],
+ "riscos": [
+  {"risco": "Imagem Docker no limite do CI", "impacto": "265 MB de 265 MB; o próximo plano pode reprovar no CI.", "nivel": "medio", "acao": "Reduzir a imagem antes do Plano 15.", "dono": "Dev"},
+  {"risco": "Merge da 14B-2 pausa a IA no consultório que a usa", "impacto": "1 consultório e 1 paciente precisam aceitar a versão 1.1.", "nivel": "baixo", "acao": "Merge fora do expediente, com aviso prévio.", "dono": "Você"},
+  {"risco": "Arquivos de /srv/nutri/data fora do backup", "impacto": "Perda de exames e PDFs em caso de falha do disco.", "nivel": "alto", "acao": "Incluir a pasta no restic.", "dono": "Você"},
+  {"risco": "Textos legais sem revisão do advogado", "impacto": "Bloqueia o go-live com pacientes reais (E-09).", "nivel": "medio", "acao": "Enviar a lista ao advogado.", "dono": "Você + Adv."}
+ ],
+ "operacao": [
+  {"item": "/api/health", "valor": "ok", "situacao": ["ok", "OK"]},
+  {"item": "Último deploy", "valor": "13/10 20h48 (PR #34)", "situacao": ["ok", "Sucesso"]},
+  {"item": "Migrations", "valor": "113 arquivos (até 0112)", "situacao": ["info", "—"]},
+  {"item": "Disco da VPS", "valor": "18% (66 de 387 GB)", "situacao": ["ok", "OK"]},
+  {"item": "Memória da VPS", "valor": "3 de 31 GB em uso", "situacao": ["ok", "OK"]}
+ ],
+ "pendencias_externas": [
+  {"id": "E-09", "texto": "Termo do paciente, DPA e prazo de guarda", "dono": "Você + Adv."},
+  {"id": "P08-08", "texto": "Validação da Debby", "dono": "Debby"},
+  {"id": "E-07", "texto": "Conta no Sentry", "dono": "Você"}
+ ],
+ "links": [
+  {"rotulo": "Backlog", "url": "https://claude.ai/artifact/BS9jN9FitWBcMSwougt7eT"},
+  {"rotulo": "Painel WS", "url": "https://claude.ai/artifact/Dhh7kABAX7cnMiSwJY81Vs"},
+  {"rotulo": "Pull requests", "url": "https://github.com/fabianojp06/nutridebby/pulls"},
+  {"rotulo": "Produção", "url": "https://nutri.wsscloud.tech"}
+ ],
+ "fontes": ["Git (main) e API REST do GitHub: commits, PRs, execuções do CI", "https://nutri.wsscloud.tech/api/health", "docs/superpowers/plans (backlog e índice dos planos)"],
+ "indisponiveis": []
+}
