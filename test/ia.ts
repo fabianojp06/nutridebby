@@ -167,10 +167,12 @@ export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'cla
 
 /**
  * Plano 14B: um prontuário com tudo o que a RN-120 lê — 4 atendimentos com orientações e notas, 6 antropometrias,
- * 3 cálculos, 2 exames com valores (com faixa de referência e título), uma anamnese, 3 registros do diário (com o
- * comentário da nutricionista) e um plano publicado. `marcador`: prefixo dos textos que NUNCA podem sair (referência,
- * título do exame, comentário do diário, título do plano) — e os textos livres citam o nome do paciente, que a máscara tira.
- * Gravado como `worker` (sem ator).
+ * 3 cálculos, 2 exames com valores (com faixa de referência e título; o mais recente com o laudo em `arquivo_path`),
+ * uma anamnese, 3 registros do diário (com o comentário da nutricionista; o mais recente com foto pronta e o original,
+ * e a resposta "Comi outra coisa" com a cópia da refeição do plano) e um plano publicado. `marcador`: prefixo dos textos
+ * que NUNCA podem sair (referência, título do exame, caminho do laudo, caminhos da foto, comentário do diário, refeição
+ * do plano copiada no diário, título do plano) — e os textos livres citam o nome do paciente, que a máscara tira.
+ * Gravado como `worker` (sem ator). As linhas de `stored_files` não têm arquivo no disco (os testes só leem o banco).
  */
 export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: string, marcador = 'MARCADOR'): Promise<void> {
   const w: TenantContext = { tenantId: ctx.tenantId, role: 'worker' };
@@ -192,8 +194,21 @@ export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: 
       for (const fator of [1.2, 1.4, 1.5]) {
         await tx.insert(energyCalcs).values({ tenantId: ctx.tenantId, patientId, formula: 'mifflin', pesoKg: 80, alturaCm: 165, idade: 45, sexo: 'F', fatorAtividade: fator, tmb: 1500, get: 1500 * fator });
       }
+      const arquivo = async (tipo: 'exame' | 'diario_foto' | 'diario_foto_original', nome: string, mime: string) => {
+        const caminho = `${ctx.tenantId}/${tipo}/${marcador}-${nome}-${randomUUID()}`;
+        await tx.insert(storedFiles).values({ tenantId: ctx.tenantId, tipo, caminho, bytes: 100, mime, patientId });
+        return caminho;
+      };
+      const laudo = await arquivo('exame', 'LAUDO', 'application/pdf');
       for (const [data, valor] of [['2026-06-01', 110], ['2026-09-01', 98]] as const) {
-        await tx.insert(exams).values({ tenantId: ctx.tenantId, patientId, data, titulo: `${marcador}-TITULO-EXAME`, valores: [{ nome: 'Glicose', valor, unidade: 'mg/dL', referencia: `${marcador}-REFERENCIA` }] });
+        await tx.insert(exams).values({
+          tenantId: ctx.tenantId,
+          patientId,
+          data,
+          titulo: `${marcador}-TITULO-EXAME`,
+          arquivoPath: data === '2026-09-01' ? laudo : null,
+          valores: [{ nome: 'Glicose', valor, unidade: 'mg/dL', referencia: `${marcador}-REFERENCIA` }],
+        });
       }
       await tx.insert(anamneses).values({
         tenantId: ctx.tenantId,
@@ -208,6 +223,8 @@ export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: 
         },
         respostas: { '00000000-0000-4000-8000-0000000000a1': `${p.nome} trabalha à noite.`, '00000000-0000-4000-8000-0000000000a2': false },
       });
+      const foto = await arquivo('diario_foto', 'FOTO', 'image/jpeg');
+      const fotoOriginal = await arquivo('diario_foto_original', 'FOTO-ORIGINAL', 'image/jpeg');
       for (const dias of [1, 2, 40]) {
         await tx.insert(diaryEntries).values({
           tenantId: ctx.tenantId,
@@ -216,6 +233,10 @@ export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: 
           refeicao: 'Almoço',
           texto: `Arroz e feijão. ${primeiro} comeu pouco.`,
           comentarioNutri: `${marcador}-COMENTARIO`,
+          // o mais recente (dentro dos 30 dias): foto pronta + original e "Comi outra coisa" com a cópia da refeição do plano
+          ...(dias === 1
+            ? { fotoPath: foto, fotoOriginalPath: fotoOriginal, fotoStatus: 'pronta', resposta: 'outra_coisa', refeicaoDoPlano: `${marcador}-REFEICAO-PLANO · 12:00` }
+            : {}),
         });
       }
       const [plano] = await tx
