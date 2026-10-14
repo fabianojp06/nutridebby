@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useId, useRef, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { Botao, classeDoBotao } from '@/components/ui/botao';
 import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
 import { MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
@@ -15,6 +15,9 @@ type Refeicao = { chave: string; nome: string; horario: string };
  * US-121: as metas do rascunho. A meta vem do último cálculo de gasto energético e as refeições do último plano (ou as
  * seis comuns) — `metasPadrao`; as porcentagens não têm padrão (R10). Campos controlados: depois de um erro, o que foi
  * digitado continua na tela. Erros por campo com `aria-invalid` + `aria-describedby`; o de `macros` é um só, abaixo dos três.
+ * Revisão final da 14B-2: o formulário é longo e os erros nascem no topo, fora da tela — com erro de campo, o aviso
+ * `corrijaCampos` aparece junto do botão e o foco vai ao primeiro campo com `aria-invalid` (sem campo marcado, só o erro
+ * de `refeicoes`: a "Acrescentar refeição").
  */
 export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: number | null; refeicoes: { nome: string; horario: string }[] } }) {
   const [s, enviar, enviando] = useActionState<MetasState, FormData>(acao, {});
@@ -30,6 +33,13 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
   const [anamnese, setAnamnese] = useState(true);
   const focar = useRef<string | null>(null);
   const acrescentar = useRef<HTMLButtonElement>(null);
+  const formulario = useRef<HTMLFormElement>(null);
+  const comErroDeCampo = !!s.erros && Object.keys(s.erros).length > 0;
+  useEffect(() => {
+    if (!s.erros || !Object.keys(s.erros).length) return;
+    const campo = formulario.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    (campo ?? acrescentar.current)?.focus();
+  }, [s]);
   const erro = (c: string) => s.erros?.[c];
   const mudar = (chave: string, campo: 'nome' | 'horario', valor: string) => setRefeicoes((rs) => rs.map((r) => (r.chave === chave ? { ...r, [campo]: valor } : r)));
   const campoInput = 'rounded-xl border border-campo bg-cartao p-2 text-texto';
@@ -40,7 +50,7 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
     </div>
   );
   return (
-    <form action={enviar} className="space-y-5">
+    <form ref={formulario} action={enviar} className="space-y-5">
       <div className="space-y-1">
         <label htmlFor="metaKcal" className="block font-medium">{MSG_RASCUNHO_IA.rotuloMeta}</label>
         <input id="metaKcal" name="metaKcal" inputMode="decimal" value={meta} onChange={(e) => setMeta(e.target.value)} aria-invalid={erro('metaKcal') ? true : undefined} aria-describedby={erro('metaKcal') ? 'metaKcal-erro' : undefined} className={`w-32 ${campoInput}`} />
@@ -137,7 +147,8 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
         <input type="checkbox" id="considerarAnamnese" name="considerarAnamnese" checked={anamnese} onChange={(e) => setAnamnese(e.target.checked)} className="size-5" />
         <label htmlFor="considerarAnamnese" className="inline-flex min-h-11 items-center">{MSG_RASCUNHO_IA.considerarAnamnese}</label>
       </div>
-      <Botao disabled={enviando} aria-describedby={s.erro ? 'rascunho-erro' : undefined}>{MSG_RASCUNHO_IA.gerar}</Botao>
+      <Botao disabled={enviando} aria-describedby={[comErroDeCampo && 'rascunho-campos', s.erro && 'rascunho-erro'].filter(Boolean).join(' ') || undefined}>{MSG_RASCUNHO_IA.gerar}</Botao>
+      {comErroDeCampo && <p id="rascunho-campos" role="alert" className="text-sm text-erro">{MSG_RASCUNHO_IA.corrijaCampos}</p>}
       {s.erro && <p id="rascunho-erro" role="alert" className="text-sm text-erro">{s.erro}</p>}
     </form>
   );

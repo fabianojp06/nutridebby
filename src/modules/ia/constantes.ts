@@ -325,6 +325,7 @@ export const MSG_RASCUNHO_IA = {
   restricoes: 'Texto muito longo (até 500 caracteres).', // novo
   considerarAnamnese: 'Considerar a anamnese',
   gerar: 'Gerar rascunho',
+  corrijaCampos: 'Corrija os campos destacados para gerar o rascunho.', // novo (revisão final: aviso perto do botão, no molde do "Corrija os campos destacados para salvar." do editor)
   gerando: 'Gerando o rascunho… isso leva até 3 minutos.',
   previa: 'Rascunho sugerido pela IA',
   faixa: 'Sugestão gerada por inteligência artificial. Confira alimentos, quantidades e adequação ao paciente antes de publicar. A responsabilidade pelo plano é da nutricionista.',

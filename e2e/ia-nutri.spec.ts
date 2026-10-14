@@ -50,7 +50,14 @@ test('IA Nutri: resumo e rascunho com a autorização 1.1 → publicar com o sel
   await nutri.goto(`${p}/plano-alimentar`);
   await nutri.getByRole('link', { name: 'Gerar rascunho com IA' }).click();
   await nutri.getByLabel('Meta de energia (kcal/dia)').fill('1800');
-  // R10 (pre-flight da 14B-2): as porcentagens não têm padrão (a spec não define)
+  // R10 (pre-flight da 14B-2): as porcentagens não têm padrão (a spec não define). Revisão final: sem elas, o erro sai no
+  // topo do formulário (fora da tela) — perto do botão aparece o aviso e o foco vai ao primeiro campo com erro
+  await nutri.getByRole('button', { name: 'Gerar rascunho' }).click();
+  await expect(nutri.locator('#rascunho-campos')).toHaveText('Corrija os campos destacados para gerar o rascunho.');
+  await expect(nutri.locator('#rascunho-campos')).toHaveAttribute('role', 'alert');
+  await expect(nutri.getByLabel('Proteína (% da energia)')).toBeFocused();
+  await expect(nutri.getByText('Soma diferente de 100%')).toBeVisible();
+  await expect(nutri).toHaveURL(/\/rascunho-ia$/);
   await nutri.getByLabel('Proteína (% da energia)').fill('20');
   await nutri.getByLabel('Carboidrato (%)').fill('50');
   await nutri.getByLabel('Lipídio (%)').fill('30');
