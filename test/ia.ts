@@ -1,6 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@/db/client';
-import { iaAutorizacoes, iaGeracoesModelos, iaTarefas, patients, storedFiles, tenants, type PatientRow } from '@/db/schema';
+import {
+  anamneses,
+  anthropometry,
+  consultationNotes,
+  consultations,
+  diaryEntries,
+  energyCalcs,
+  exams,
+  iaAutorizacoes,
+  iaGeracoesModelos,
+  iaTarefas,
+  mealItems,
+  mealPlans,
+  meals,
+  patients,
+  storedFiles,
+  tenants,
+  type PatientRow,
+} from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { ConfigIA } from '@/modules/ia/modo';
 import { AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
@@ -146,3 +164,78 @@ export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string
 
 /** Plano 14A: a configuração dos testes da IA — provedor falso (destino `teste`), retenção zero ligada, teto da plataforma folgado. */
 export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', modeloAssistente: 'claude-sonnet-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, tetoRascunhoMicroUsd: 1_000_000, retencao: 'zero' };
+
+/**
+ * Plano 14B: um prontuário com tudo o que a RN-120 lê — 4 atendimentos com orientações e notas, 6 antropometrias,
+ * 3 cálculos, 2 exames com valores (com faixa de referência e título), uma anamnese, 3 registros do diário (com o
+ * comentário da nutricionista) e um plano publicado. `marcador`: prefixo dos textos que NUNCA podem sair (referência,
+ * título do exame, comentário do diário, título do plano) — e os textos livres citam o nome do paciente, que a máscara tira.
+ * Gravado como `worker` (sem ator).
+ */
+export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: string, marcador = 'MARCADOR'): Promise<void> {
+  const w: TenantContext = { tenantId: ctx.tenantId, role: 'worker' };
+  const [p] = await withTenant(w, (tx) => tx.select().from(patients).where(eq(patients.id, patientId)), db);
+  const primeiro = p.nome.split(' ')[0];
+  await withTenant(
+    w,
+    async (tx) => {
+      for (const [i, data] of ['2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'].entries()) {
+        const [c] = await tx
+          .insert(consultations)
+          .values({ tenantId: ctx.tenantId, patientId, data, orientacoesPaciente: `${primeiro} deve beber mais água (${i}).` })
+          .returning({ id: consultations.id });
+        await tx.insert(consultationNotes).values({ tenantId: ctx.tenantId, patientId, consultationId: c.id, texto: `${marcador}-NOTA ${i}: ${p.nome} comenta ansiedade.` });
+      }
+      for (const [i, data] of ['2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'].entries()) {
+        await tx.insert(anthropometry).values({ tenantId: ctx.tenantId, patientId, data, pesoKg: 82.4 - i * 0.7, alturaCm: 165, circunferencias: { cintura: 90 - i } });
+      }
+      for (const fator of [1.2, 1.4, 1.5]) {
+        await tx.insert(energyCalcs).values({ tenantId: ctx.tenantId, patientId, formula: 'mifflin', pesoKg: 80, alturaCm: 165, idade: 45, sexo: 'F', fatorAtividade: fator, tmb: 1500, get: 1500 * fator });
+      }
+      for (const [data, valor] of [['2026-06-01', 110], ['2026-09-01', 98]] as const) {
+        await tx.insert(exams).values({ tenantId: ctx.tenantId, patientId, data, titulo: `${marcador}-TITULO-EXAME`, valores: [{ nome: 'Glicose', valor, unidade: 'mg/dL', referencia: `${marcador}-REFERENCIA` }] });
+      }
+      await tx.insert(anamneses).values({
+        tenantId: ctx.tenantId,
+        patientId,
+        data: '2026-06-01',
+        templateSnapshot: {
+          nome: 'Anamnese geral',
+          perguntas: [
+            { id: '00000000-0000-4000-8000-0000000000a1', tipo: 'texto_longo', rotulo: 'Rotina', obrigatoria: false },
+            { id: '00000000-0000-4000-8000-0000000000a2', tipo: 'sim_nao', rotulo: 'Fuma?', obrigatoria: false },
+          ],
+        },
+        respostas: { '00000000-0000-4000-8000-0000000000a1': `${p.nome} trabalha à noite.`, '00000000-0000-4000-8000-0000000000a2': false },
+      });
+      for (const dias of [1, 2, 40]) {
+        await tx.insert(diaryEntries).values({
+          tenantId: ctx.tenantId,
+          patientId,
+          dataHora: new Date(Date.now() - dias * 86_400_000),
+          refeicao: 'Almoço',
+          texto: `Arroz e feijão. ${primeiro} comeu pouco.`,
+          comentarioNutri: `${marcador}-COMENTARIO`,
+        });
+      }
+      const [plano] = await tx
+        .insert(mealPlans)
+        .values({ tenantId: ctx.tenantId, patientId, titulo: `${marcador}-TITULO-PLANO`, status: 'publicado', publicadoEm: new Date('2026-09-01T12:00:00Z'), orientacoes: `${p.nome}, evite frituras.` })
+        .returning({ id: mealPlans.id });
+      const mealId = randomUUID();
+      await tx.insert(meals).values({ id: mealId, tenantId: ctx.tenantId, patientId, planId: plano.id, nome: 'Almoço', horario: '12:00', ordem: 0 });
+      await tx.insert(mealItems).values({
+        id: randomUUID(),
+        tenantId: ctx.tenantId,
+        patientId,
+        planId: plano.id,
+        mealId,
+        foodId: '00000000-0000-4000-8000-000000000003',
+        quantidadeG: 150,
+        ordem: 0,
+        nutrientes: { nome: 'Arroz, tipo 1, cozido', origem: 'TACO', kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 },
+      });
+    },
+    db,
+  );
+}

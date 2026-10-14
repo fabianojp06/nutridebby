@@ -308,3 +308,34 @@ export const MSG_MODELOS_IA = {
   aprove: 'Aprove o modelo antes de usá-lo com pacientes.',
   descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
 } as const;
+
+/** Plano 14B (US-121, US-122): textos do rascunho, com o texto exato da spec (os "novo" vão à Debby, desvio 13). */
+export const MSG_RASCUNHO_IA = {
+  botao: 'Gerar rascunho com IA',
+  meta: 'Meta deve estar entre 500 e 10000 kcal',
+  rotuloMeta: 'Meta de energia (kcal/dia)',
+  rotuloProteina: 'Proteína (% da energia)',
+  rotuloCarboidrato: 'Carboidrato (%)',
+  rotuloLipidio: 'Lipídio (%)',
+  soma: 'Soma diferente de 100%',
+  rotuloRefeicoes: 'Refeições',
+  semRefeicao: 'Informe ao menos uma refeição.', // novo
+  rotuloRestricoes: 'Restrições e preferências',
+  dicaRestricoes: 'Não escreva nome ou dados que identifiquem o paciente ou outras pessoas.',
+  restricoes: 'Texto muito longo (até 500 caracteres).', // novo
+  considerarAnamnese: 'Considerar a anamnese',
+  gerar: 'Gerar rascunho',
+  gerando: 'Gerando o rascunho… isso leva até 3 minutos.',
+  previa: 'Rascunho sugerido pela IA',
+  faixa: 'Sugestão gerada por inteligência artificial. Confira alimentos, quantidades e adequação ao paciente antes de publicar. A responsabilidade pelo plano é da nutricionista.',
+  descartados: (n: number) => `${n} itens sugeridos foram descartados por serem inválidos.`,
+  usar: 'Usar como rascunho',
+  criado: 'Rascunho criado. Revise antes de publicar.',
+  jaExiste: 'Este paciente já tem um rascunho. Substituir pelo rascunho da IA?',
+  substituir: 'Substituir',
+  cancelar: 'Cancelar',
+  foraDoCatalogo: (n: number) => `Este rascunho tem ${n} itens que não puderam ser usados (alimento excluído).`, // novo
+  falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
+  limite: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
+  emAndamento: 'O rascunho deste paciente já está sendo preparado.', // novo
+} as const;
