@@ -1,4 +1,4 @@
-import { EstadoTarefa } from '@/app/painel/ia/estado-tarefa';
+import { EsperaDaIa } from '@/app/painel/ia/espera-da-ia';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
 import { classeDoBotao } from '@/components/ui/botao';
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * US-120 / US-122: o resumo do histórico. Em andamento: "Preparando o resumo…" e o acompanhamento só da situação (sem
- * auditoria). Pronto: abrir é leitura auditada (`abrirResumo`, RN-108: sem a autorização vigente, não abre). Falhou: o
+ * auditoria), na região viva que fica na tela (`EsperaDaIa`: o fim da espera é anunciado). Pronto: abrir é leitura auditada (`abrirResumo`, RN-108: sem a autorização vigente, não abre). Falhou: o
  * texto da US-122. Senão, o formulário — só quando dá para pedir (mesmas regras e textos da aba Exames).
  */
 export default async function ResumoIaPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/resumo-ia'>) {
@@ -38,14 +38,13 @@ export default async function ResumoIaPage({ params, searchParams }: PageProps<'
   return (
     <section aria-labelledby="resumo-ia" className="max-w-5xl space-y-4">
       <h2 id="resumo-ia" className="text-xl font-semibold">{MSG_RESUMO.botao}</h2>
-      {andamento && (
-        <p role="status">
-          {MSG_RESUMO.preparando}
-          <EstadoTarefa url={`/api/painel/ia/tarefas/${andamento.id}`} />
-        </p>
-      )}
-      {indisponivel && <Aviso tipo="aviso">{MSG_IA.indisponivelSugestao}</Aviso>}
-      {falhou && <Aviso tipo="aviso">{textoDaFalha(falhou.erro, { padrao: MSG_RESUMO.falha })}</Aviso>}
+      <EsperaDaIa
+        andamento={andamento}
+        textos={{ andamento: MSG_RESUMO.preparando, pronto: MSG_RESUMO.pronto }}
+        pronto={!!resumo}
+        falha={falhou ? textoDaFalha(falhou.erro, { padrao: MSG_RESUMO.falha }) : null}
+        indisponivel={indisponivel ? MSG_IA.indisponivelSugestao : null}
+      />
       {resumo ? (
         <ResumoAbertoView resumo={resumo} fuso={tenant.fuso} patientId={paciente.id} podeGerarDeNovo={!!pedir?.podePedir && !andamento} />
       ) : (

@@ -1,7 +1,6 @@
 import Link from 'next/link';
-import { EstadoTarefa } from '@/app/painel/ia/estado-tarefa';
+import { EsperaDaIa } from '@/app/painel/ia/espera-da-ia';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
-import { Aviso } from '@/components/ui/aviso';
 import { classeDoBotao } from '@/components/ui/botao';
 import { getEnv } from '@/env';
 import { MSG_FALHA, MSG_IA, MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
@@ -21,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * US-121 / US-122: o rascunho de plano com IA. Em andamento: "Gerando o rascunho…" e o acompanhamento só da situação
- * (sem auditoria). Pronto: a prévia (leitura auditada, `abrirRascunhoIa`; RN-108) com "Usar como rascunho". Falhou: o
+ * (sem auditoria), na região viva que fica na tela (`EsperaDaIa`: o fim da espera é anunciado). Pronto: a prévia (leitura auditada, `abrirRascunhoIa`; RN-108) com "Usar como rascunho". Falhou: o
  * texto da US-122 (limite de voltas ou de custo à parte). Senão, as metas — só quando dá para pedir.
  */
 export default async function RascunhoIaPage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/plano-alimentar/rascunho-ia'>) {
@@ -50,14 +49,13 @@ export default async function RascunhoIaPage({ params, searchParams }: PageProps
     <section aria-labelledby="rascunho-ia" className="max-w-5xl space-y-4">
       <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar`} className="inline-flex min-h-11 items-center text-sm underline">Voltar às versões</Link>
       <h2 id="rascunho-ia" className="text-xl font-semibold">{MSG_RASCUNHO_IA.botao}</h2>
-      {andamento && (
-        <p role="status">
-          {MSG_RASCUNHO_IA.gerando}
-          <EstadoTarefa url={`/api/painel/ia/tarefas/${andamento.id}`} />
-        </p>
-      )}
-      {indisponivel && <Aviso tipo="aviso">{MSG_IA.indisponivelSugestao}</Aviso>}
-      {falhou && <Aviso tipo="aviso">{textoDaFalha(falhou.erro, { padrao: MSG_RASCUNHO_IA.falha, limite: MSG_RASCUNHO_IA.limite })}</Aviso>}
+      <EsperaDaIa
+        andamento={andamento}
+        textos={{ andamento: MSG_RASCUNHO_IA.gerando, pronto: MSG_RASCUNHO_IA.pronto }}
+        pronto={!!previa}
+        falha={falhou ? textoDaFalha(falhou.erro, { padrao: MSG_RASCUNHO_IA.falha, limite: MSG_RASCUNHO_IA.limite }) : null}
+        indisponivel={indisponivel ? MSG_IA.indisponivelSugestao : null}
+      />
       {previa ? (
         <>
           <Previa previa={previa} />

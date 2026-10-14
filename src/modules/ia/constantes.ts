@@ -338,6 +338,7 @@ export const MSG_RASCUNHO_IA = {
   falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
   limite: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
   emAndamento: 'O rascunho deste paciente já está sendo preparado.', // novo
+  pronto: 'Rascunho pronto.', // novo (só leitor de tela: o fim da espera, revisão da T11)
 } as const;
 
 /** Plano 14B (US-120, US-122): textos do resumo, com o texto exato da spec (os "novo" vão à Debby, desvio 13). */
@@ -358,4 +359,5 @@ export const MSG_RESUMO = {
   descartar: 'Descartar resumo',
   falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
   emAndamento: 'O resumo deste paciente já está sendo preparado.', // novo
+  pronto: 'Resumo pronto.', // novo (só leitor de tela: o fim da espera, revisão da T11)
 } as const;
