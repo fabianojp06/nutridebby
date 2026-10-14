@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Escrito em 14/10/2026** a partir da `main` @ `b794739` (Planos 01–13, 16, 14A, 14B-1 e 14B-2 em produção; migrations `0000`–`0114`), mesclada no branch `plano-15-ia-nutri-paciente` (worktree `nutridebby-plano15`, merge `7e0f0e4`), com a spec **v0.4 da parte F3-02** e o caderno de decisões aprovado pelo dono em 10/10/2026 (todas as recomendações; **D1** = 8 semanas para o CRN-3; **D3** = cota de **US$ 7/mês** por consultório dentro do teto global de US$ 50). Cada nome de função, tabela, coluna e arquivo citado abaixo foi conferido no código desse commit; o que é novo está marcado como "novo" e definido numa tarefa.
+> **Escrito em 14/10/2026** a partir da `main` @ `b794739` (Planos 01–13, 16, 14A, 14B-1 e 14B-2 em produção; migrations `0000`–`0114`), mesclada no branch `plano-15-ia-nutri-paciente` (worktree `nutridebby-plano15`, merge `7e0f0e4`), com a spec **v0.4 da parte F3-02** e o caderno de decisões aprovado pelo dono em 10/10/2026 (todas as recomendações; **D1** = 8 semanas para o CRN-3; **D3** = cota de **US$ 7/mês** por consultório dentro do teto global de US$ 50) e as **respostas do dono às ★ DO-1 a DO-6 em 14/10/2026** (D37 do caderno: a IA Nutri liga pela nutricionista, sem nascer pausada; o consentimento sai como **1.0 final**, sem o advogado, como a A-D27). Cada nome de função, tabela, coluna e arquivo citado abaixo foi conferido no código desse commit; o que é novo está marcado como "novo" e definido numa tarefa.
 
 **Goal:** O paciente liberado pela nutricionista, e que consentiu, tira dúvidas sobre o **próprio plano alimentar publicado** e as **orientações publicadas** dentro de Plano, no app: o modelo só **classifica** a pergunta e **aponta** trechos; o texto que o paciente lê é **montado pelo sistema** com os trechos relidos do banco (D21); risco, sintoma, suplemento fora do plano, mudança de plano e peso recebem texto fixo e o botão "Enviar para minha nutricionista", que leva a dúvida à fila "Dúvidas dos pacientes" do painel, onde ela só **marca como vista** (D24 = b).
 
@@ -26,7 +26,7 @@
 - **Sem dependência nova, sem serviço pago novo** além do uso da IA já aceito (D3: cota de US$ 7 dentro do teto global de US$ 50). A avaliação manual fica abaixo de US$ 10 (A-D2).
 - Visual: só tokens do tema (painel: guarda `src/app/painel/cores.test.ts`; portal: componentes e tokens do Plano 16); acessibilidade RNF-167 (rótulo visível, `aria-describedby`, `role="status"` sempre montado, `<ol>` com o autor em texto, alvo ≥ 44 px, 320 px com texto a 200%, claro e escuro).
 - Regras do servidor (`/home/deploy/servidor/CLAUDE.md`): nada de mexer em produção, Easypanel, serviços, firewall ou banco de produção; nunca exibir segredos. **Subagentes nunca consultam o banco de produção**, nem para leitura. Merge = deploy, só com OK explícito do dono e snapshot no hPanel antes.
-- **Ligar com paciente real NÃO é passo de código** (runbook do dono, T14): CRN-3 + advogado + RIPD + DPA e termo do paciente fora do `0.1-provisorio` (D2), revisão dos textos por Debby, advogado e psicólogo (D11), nome escolhido pela Debby (D28), avaliação RN-184 aprovada (D5), e — sem confirmação escrita da Anthropic — só a partir de **12/11/2026**. Por isso a IA Nutri **nasce pausada na plataforma** (DP-1) e o consentimento nasce **provisório** (DP-2).
+- **A IA Nutri liga pela nutricionista (★ DO-1 = não, D37 do caderno, 14/10/2026).** Não há portão de plataforma nem trava de texto: no consultório com a IA liberada pelo suporte (`tenants.ia_liberada`, a mesma liberação das outras IAs) e o aditivo 1.2 aceito, a nutricionista ativa em Configurações e libera paciente por paciente, e o paciente consente no app. O consentimento sai como **1.0 final** e o protocolo do "Sinal de risco" como texto final (★ DO-2 trocada; DP-2, DP-18). CRN-3, advogado, RIPD, psicóloga e a data de 12/11/2026 **deixam de ser portões** (no código e no runbook) e viram **pendências registradas** (runbook passo 5, P15-B11); quando o advogado ou a psicóloga mudarem uma frase do consentimento, a versão sobe e o paciente consente de novo (US-171 "Nova versão"). A pausa da plataforma (`ia_nutri_pausa`, DP-1) fica só como **desligamento de emergência** e nasce **não pausada**. A avaliação RN-184 (D5) é passo do dono **antes do merge** (runbook passo 1): depois do deploy, nada no código a segura.
 - Política de revisão por entrega (índice, revista em 02/10/2026): revisor por tarefa (cada tarefa diz **Revisão: completa (agentes …)** ou **Revisão: leve (…)**) → revisão final do branch (workflow) com uma onda de correções → `/code-review high` no PR **uma vez** → correções do que for Critical/Important (Minor vai para o backlog) → re-revisão só do diff das correções → `/security-review` (checklist: as três funções `SECURITY DEFINER` e a troca de papel, os gatilhos de colunas e de DELETE, a projeção fechada, o contexto `semConta`, o portão do envio, a cota por escopo, o filtro de risco, nada em log).
 
 **Revisão completa** = os agentes especialistas indicados (`.claude/agents/revisor-rls.md`, `.claude/agents/normas-cfn-lgpd.md`, `.claude/agents/revisor-interface.md`, `.claude/agents/guardiao-manual.md`) com as lentes de segurança/LGPD e de spec, três verificadores adversariais por achado, até duas rodadas de correção. **Revisão leve** = o agente indicado, uma rodada.
@@ -35,8 +35,8 @@
 
 | # | Tema | Decisão (aplicada no plano) |
 |---|---|---|
-| DP-1 | Ligar só depois do runbook | A migration `0116` cria a linha única de `ia_nutri_pausa` **já pausada** (`pausada_em = now()`, `pausada_por` nulo). Nada da IA Nutri funciona em nenhum consultório até o admin tocar em "Retomar a IA Nutri" (Servidor) — passo final do runbook. A pausa é conferida no módulo antes da função, no job (passo 1, portão e passo 6) e nas telas (a entrada não aparece). **★ DO-1** pede o OK do dono |
-| DP-2 | Texto do consentimento antes do advogado (D11 = a) | `IA_NUTRI_TERMO_VERSAO = '0.1-provisorio'` e `IA_NUTRI_TERMO_VERSAO_MIN = '0.1'`. Em produção (`emProducao(getEnv())`), `ativarIaNutri` recusa com `MSG_IA_NUTRI.textosEmRevisao` enquanto a versão terminar em `-provisorio` (molde do `definirIaLiberada`, D22 da 14A). Depois da revisão, a versão vira `1.0` e o mínimo `1.0` num PR curto (quem aceitou a provisória em teste aceita de novo). **★ DO-2** |
+| DP-1 | Pausa da plataforma só de emergência (★ DO-1 = não, D37) | A migration `0116` cria a linha única de `ia_nutri_pausa` **não pausada** (`pausada_em` e `pausada_por` nulos): desde o deploy, a IA Nutri funciona no consultório que a ativar, para o paciente liberado e que consentiu. "Pausar a IA Nutri em todos os consultórios" (Admin › Servidor) é o **desligamento de emergência** da RN-185 (achado grave, mudança na Política de Uso do fornecedor, resposta negativa do CRN-3, D36); "Retomar a IA Nutri" desfaz essa pausa. A pausa é conferida no módulo antes da função, no job (passo 1, portão e passo 6) e nas telas (a entrada mostra "não disponível") |
+| DP-2 | Consentimento 1.0 final (★ DO-2 trocada, D37) | `IA_NUTRI_TERMO_VERSAO = '1.0'` e `IA_NUTRI_TERMO_VERSAO_MIN = '1.0'`, rodapé "Versão 1.0, de 14/10/2026." — publicado sem a validação do advogado e do psicólogo, como a A-D27 fez com a autorização dos laudos (risco jurídico assumido pelo dono). **Sem trava em produção:** `ativarIaNutri` não confere versão de texto (não há `-provisorio` a recusar) e não recebe `producao`. Quando o advogado ou o psicólogo mudarem uma frase, um PR curto sobe a versão (ex.: `1.1`, com o mínimo `1.1`): o aceite 1.0 deixa de valer (`consentimentoVigente`), a entrada vira `texto_mudou` e o paciente lê e decide de novo (US-171 "Nova versão"); o mesmo se a Debby trocar o nome (D28), que está no texto |
 | DP-3 | Aditivo 1.2 (D27) | `IA_ADITIVO_VERSAO = '1.2'` (a finalidade **(e)** da IA Nutri, cláusulas 5, 8 e 9 com o que é da conversa); `IA_ADITIVO_VERSAO_MIN` **continua `'1.1'`** (laudos, resumo, rascunho e modelos não pedem novo aceite); `IA_NUTRI_ADITIVO_VERSAO_MIN = '1.2'` (novo, só da IA Nutri). Publicado como versão final, na linha da A-D27; entra na lista do P14A-16 (advogado). **★ DO-2** |
 | DP-4 | Onde mora o código do texto fixo | Coluna nova `ia_nutri_mensagens.texto_fixo` (código de lista fechada, `TEXTOS_FIXOS`) nas mensagens `sistema` e `ia` que mostram texto fixo; a tela traduz o código pelo `textos.ts`. `texto` guarda só o que o paciente escreveu e a resposta **montada** (RN-172: o histórico mostra o que ele leu). Assim nenhum texto fixo fica duplicado no banco e uma revisão de redação (D11) vale para o histórico (desvio 1) |
 | DP-5 | Código `sem_plano` | `app_ia_nutri_perguntar` devolve também `sem_plano` (a spec lista `ok`/`limite_dia`/`limite_mes`/`em_andamento`/`indisponivel`), para a tela mostrar "A IA Nutri fica disponível quando sua nutricionista publicar o seu plano alimentar." sem consulta extra (desvio 2) |
@@ -52,18 +52,18 @@
 | DP-15 | Autor `nutri` | Fora desta entrega (D24 = b): o CHECK de `autor` aceita só `paciente`, `ia` e `sistema`. Se o dono passar a D24 para (a), um plano curto acrescenta o autor e a guarda do prontuário |
 | DP-16 | Enviar direto para a nutricionista (§7.5 "no menu da conversa", RN-178) | O formulário da conversa tem dois botões: "Perguntar" e "Enviar direto para minha nutricionista" (`MSG_IA_NUTRI.enviarDireto`). O segundo chama a função irmã `app_ia_nutri_enviar_a_nutri` (0117): grava a pergunta já encaminhada (`status = 'respondida'`, sem resposta, sem job, `contou_no_limite = false`), com a parte do paciente da RN-170 e o limite de 3 dúvidas abertas — e vale também com `limite_dia`/`limite_mes` e com a cota esgotada, que é o que os textos `limiteDia`, `limiteMes` e `indisponivel` mandam fazer. Com sinal de risco, o texto vai pelo ramo de risco de `app_ia_nutri_perguntar` (texto fixo na hora). Auditoria: `criar` de `ia_nutri_duvida` ("Enviou dúvida à nutricionista"). O texto enviado direto **nunca** vai ao provedor, nem no histórico de uma pergunta seguinte da mesma sessão: o histórico só leva pergunta do paciente com `enviado_em` preenchido (T9, `contexto.test.ts` e `logs.test.ts`). Além disso, "Enviar para minha nutricionista" aparece abaixo de **toda** resposta (montada ou texto fixo) de pergunta sem risco ainda não encaminhada (US-172 "Dúvida respondida pelo plano") |
 | DP-17 | Desativação a pedido do paciente, registrada pela nutricionista (LGPD art. 8º, § 5º; art. 18, IX) | `ia_nutri_consentimentos.canal` aceita `app` e `nutricionista` (o aceite continua só `app`). `app_ia_nutri_revogar(p_ip, p_user_agent, p_patient uuid DEFAULT NULL)`: na sessão de paciente, `p_patient` nulo (vem do contexto) e canal `app`; na sessão `nutri`, `p_patient` obrigatório, canal `nutricionista` e `registrado_por` = a usuária da sessão — o mesmo apagamento, esqueleto e D22. Na aba "IA Nutri" da ficha: "Registrar desativação a pedido do paciente" (com confirmação), que alcança o paciente arquivado, bloqueado ou de consultório desligado, que não entra no app (RN-08) |
-| DP-18 | Protocolo do "Sinal de risco" provisório | `MSG_IA_NUTRI.protocoloRisco` nasce como rascunho a partir da D11 (contatar o paciente, indicar CVV/CAPS/psicólogo, registrar no prontuário), com `PROTOCOLO_RISCO_PROVISORIO = true` em `textos.ts`. Em produção, `ativarIaNutri` recusa com `textosEmRevisao` enquanto o consentimento **ou** o protocolo forem provisórios (molde do DP-2); o PR curto do passo 3 do runbook traz o texto do psicólogo e põe `false` |
+| DP-18 | Protocolo do "Sinal de risco" final (★ DO-2 trocada, D37) | `MSG_IA_NUTRI.protocoloRisco` nasce como **texto final** a partir da D11 (contatar o paciente, indicar CVV/CAPS/psicólogo, registrar no prontuário), publicado pelo dono sem a psicóloga; **não trava a ativação** (não existe `PROTOCOLO_RISCO_PROVISORIO`). Quando a psicóloga reescrever, um PR curto troca o texto — é texto da equipe, não muda a versão do consentimento |
 
 ### Decisões para o dono (★)
 
-| # | Pergunta | Recomendação |
-|---|---|---|
-| ★ DO-1 | A IA Nutri pode nascer **pausada na plataforma** (DP-1), só ligando quando o admin tocar em "Retomar", depois do runbook? | **Sim.** É a barreira que segura as condições externas (as oito do passo 8 do runbook: CRN-3, advogado, RIPD, DPA e termo do paciente fora do `0.1-provisorio` — condição da D2 —, textos e protocolo revisados, avaliação, data de 12/11/2026 e Política de Uso) sem depender de lembrar de não ligar nada. Custa um clique do admin no dia certo |
-| ★ DO-2 | Publicar o **aditivo 1.2** como versão final (como a A-D27 fez com a 1.0) e deixar o **consentimento do paciente** como `0.1-provisorio` até o advogado e o psicólogo (DP-2, DP-3)? | **Sim.** O aditivo só acrescenta a finalidade e não muda nada para quem não ativa a IA Nutri; o consentimento fala com o paciente em crise (D11 = a) e por isso não pode ir ao ar sem revisão — a produção recusa ativar enquanto ele for provisório |
-| ★ DO-3 | Meta do CS-164 ("Ajudou" nas respostas avaliadas) | **70%** como meta de acompanhamento (não bloqueia nada; a revisão mensal da RN-185 olha as "Não ajudou"). Era "proposta" na spec (PM-4) |
-| ★ DO-4 | Até a Debby escolher o nome (D28), qual nome provisório nos testes e no ambiente de teste? | **"IA Nutri"** na constante `NOME_IA_NUTRI` (um lugar só). Trocar o nome antes de ligar não exige versão nova do consentimento, porque ninguém consentiu de verdade antes (DP-2) |
-| ★ DO-5 | Como o clique em "Retomar a IA Nutri" (o único portão de código para as condições externas, DP-1) registra que as condições foram conferidas? | **Sem marca nova no banco:** o `ConfirmarBotao` lista as oito condições (T11, Step 7) e a linha `retomar_ia_nutri` de `admin_actions` (quem e quando) é a trilha; a prova de cada condição (parecer, RIPD, resposta do CRN-3, versão do DPA) fica nos documentos do dono e no `go-live.md` marcado. `admin_actions` não tem coluna de detalhe (conferido em `platform.ts`): uma marca "condições conferidas" exigiria coluna nova (`condicoes_conferidas boolean`, só nas linhas `retomar_ia_nutri`) — alternativa, se o dono quiser a prova no banco |
-| ★ DO-6 | A versão do manual guiado do portal (`GUIA_PORTAL.versao`) sobe **neste PR** (todo paciente de todo consultório vê "O manual do app foi atualizado…" no dia do deploy, por uma função pausada) ou só no PR curto do passo 3 do runbook (junto com os textos 1.0)? | **No PR curto do passo 3.** Este PR já reescreve as frases do guia e do mural (verdadeiras com e sem a IA Nutri) e deixa pronto o aviso `AVISO_PORTAL.atualizado` escolhido por versão, mas mantém `versao: 1`; a subida para 2 vai no PR que liga os textos finais. **O mesmo vale para o guia do painel `boas-vindas`** (re-revisão): o passo do menu já cita "Dúvidas dos pacientes" neste PR, mas a `versao` fica em 2 e sobe para 3 no mesmo PR curto — o precedente do Plano 12 ("Exames recebidos", `conteudo.ts:22`) **subiu** a versão, mas lá a função estava no ar no dia do deploy; aqui toda nutricionista veria o tour de novo por um item que nenhuma tem (pausada, DP-1) |
+| # | Pergunta | Recomendação (do plano) | Resposta do dono (14/10/2026) |
+|---|---|---|---|
+| ★ DO-1 | A IA Nutri pode nascer **pausada na plataforma** (DP-1), só ligando quando o admin tocar em "Retomar", depois do runbook? | Sim (barreira de código para as condições externas do runbook) | **Não.** "A IA do paciente já pode estar ligada de acordo com a definição da nutri": o suporte libera o consultório (`ia_liberada`, como as outras IAs), a nutricionista ativa e o paciente consente. A pausa fica só como desligamento de **emergência**: a linha de `ia_nutri_pausa` nasce **não pausada**, com "Pausar"/"Retomar" no admin (DP-1; T1, T2, T5, T11; runbook sem o passo "Retomar depois das oito condições") |
+| ★ DO-2 | Publicar o **aditivo 1.2** como versão final (como a A-D27 fez com a 1.0) e deixar o **consentimento do paciente** como `0.1-provisorio` até o advogado e o psicólogo (DP-2, DP-3)? | Sim (o consentimento fala com o paciente em crise, D11 = a) | **Trocada (D37 do caderno).** O aditivo 1.2 continua final **e o consentimento sai como 1.0 final**, sem a validação do advogado, como a A-D27 (risco jurídico assumido pelo dono). Saem as travas de produção do texto provisório e do protocolo de risco (DP-2, DP-18; T4, T6, T7, T11). CRN-3, advogado, RIPD, psicóloga e 12/11/2026 viram pendências (P15-B11): o texto 1.0 entra na lista do advogado (P14A-16); frase mudada pelo advogado ou pela psicóloga → versão nova e novo consentimento |
+| ★ DO-3 | Meta do CS-164 ("Ajudou" nas respostas avaliadas) | **70%** como meta de acompanhamento (não bloqueia nada; a revisão mensal da RN-185 olha as "Não ajudou"). Era "proposta" na spec (PM-4) | **Como recomendado:** 70%, só acompanhamento |
+| ★ DO-4 | Até a Debby escolher o nome (D28), qual nome nos testes e no ambiente de teste? | **"IA Nutri"** na constante `NOME_IA_NUTRI` (um lugar só) | **Como recomendado:** "IA Nutri". Com a DO-1 = não, é também o nome que vai ao ar. O nome está no texto do consentimento: se a Debby escolher outro (D28) depois do deploy, sobe a versão do consentimento e o paciente consente de novo (DP-2) |
+| ★ DO-5 | Como "Pausar" e "Retomar a IA Nutri" ficam registrados? | **Sem marca nova no banco:** a linha `pausar_ia_nutri`/`retomar_ia_nutri` de `admin_actions` (quem e quando) é a trilha; `admin_actions` não tem coluna de detalhe (conferido em `platform.ts`) | **Como recomendado, com o sentido novo:** só `admin_actions`, sem coluna nova. "Retomar" agora é a volta de uma **pausa de emergência**, não a liberação inicial: a confirmação (`CONFIRMAR_RETOMAR_IA_NUTRI`, T11) **não lista mais as oito condições** — pede só que o motivo da pausa esteja resolvido |
+| ★ DO-6 | A versão do manual guiado do portal (`GUIA_PORTAL.versao`) e a do guia `boas-vindas` do painel sobem neste PR ou num PR posterior? | (Com a função pausada:) num PR curto posterior, para ninguém ver a novidade de uma função desligada | **Ajustada à DO-1 = não: sobem NESTE PR** — `GUIA_PORTAL.versao` 1 → 2 e `boas-vindas` 2 → 3 (T11, T12), porque a função vai ao ar ligada pela nutricionista (o precedente do Plano 12, "Exames recebidos", que subiu a versão com a função no ar). Quem já viu a versão 1 do guia do portal recebe "O manual do app foi atualizado…" (`avisoDoGuia`), nunca "O app mudou" de novo (§7.8). A spec (§7.8) só pede o aviso de novidade sem "O app mudou"; **não** o restringe a quem pode usar a IA Nutri — e as frases do mural e da privacidade mudam para todos —, por isso o aviso vale para todo paciente que já viu a versão 1 |
 
 ### Desvios conscientes da spec
 
@@ -71,7 +71,7 @@
 2. **`sem_plano`** como código a mais de `app_ia_nutri_perguntar` (DP-5).
 3. **Aviso de risco por job** (DP-6), não na transação do paciente: o e-mail sai em segundos, com o limite de 1 a cada 15 min conferido com o tenant travado no worker.
 4. **Sandbox por marcadores** (DP-12), não "por hash da pergunta" (RNF-168): o resultado é o mesmo (respostas fixas, inclusive as inválidas), e o E2E fica legível.
-5. **Textos novos** (sem texto na spec; vão à revisão de interface e à Debby): `MSG_IA_NUTRI.textosEmRevisao` ("Os textos da IA Nutri ainda estão em revisão. A ativação fica disponível depois da revisão."), `MSG_IA_NUTRI.pausada` no painel ("A IA Nutri está pausada pelo suporte."), `MSG_IA_NUTRI.desativada` ("IA Nutri desativada para pacientes. As dúvidas já enviadas continuam na fila."), os rótulos da aba "IA Nutri" da ficha ("Liberar a IA Nutri para este paciente", "IA Nutri: liberada — aguardando o aceite do paciente" é da spec; "IA Nutri: liberada e em uso", "IA Nutri: bloqueada" são novos), o selo da fila "Sinal de risco — o paciente desativou a IA Nutri" (spec) e "Aviso: houve sinal de risco" (aviso mínimo da D22, novo), o título da fila "Dúvidas dos pacientes" (spec), "Abrir dúvida" e "Marcar como vista" (spec), o título da tela de consentimento "Antes de usar a {NOME}" (spec), o link "Tirar dúvida sobre o plano" (spec §4.2), "Perguntar sobre esta refeição" (spec §7.8), o convite "A {NOME} está disponível para você." (spec §7.8) e o rótulo do bloco de Eu › Privacidade "{NOME}" (spec). Também novos (revisão do plano, 14/10/2026): `MSG_IA_NUTRI.avisoAtivacaoFila` (o que a ativação liga: aba "IA Nutri" na ficha, dúvidas e sinais de risco na fila e o que se espera da nutricionista — US-170, D7), `MSG_IA_NUTRI.protocoloRisco` (rascunho do protocolo do "Sinal de risco" a partir da D11, para o psicólogo reescrever — DP-18), `MSG_IA_NUTRI.riscoApagadoAoAbrir`, `MSG_IA_NUTRI.comoFuncionaTexto`, `MSG_IA_NUTRI.respostaChegou` ("A resposta chegou."), `MSG_IA_NUTRI.avaliado` ("Obrigado pela avaliação."), `MSG_IA_NUTRI.enviarDireto` ("Enviar direto para minha nutricionista"), `MSG_IA_NUTRI.desativarPelaNutri` e `MSG_IA_NUTRI.desativadaPelaNutri`, `AVISO_PORTAL.atualizado` ("O manual do app foi atualizado. Quer ver o que há de novo?"), a frase do peso oculto sobre os termos do plano (D25), o limite da máscara no consentimento e no item 5 do aditivo (art. 9º, § 1º), e as frases novas do aditivo 1.2 nos itens 2, 6 e 7.
+5. **Textos novos** (sem texto na spec; vão à revisão de interface e à Debby): `MSG_IA_NUTRI.pausada` no painel ("A IA Nutri está pausada pelo suporte.", só na pausa de emergência), `MSG_IA_NUTRI.desativada` ("IA Nutri desativada para pacientes. As dúvidas já enviadas continuam na fila."), os rótulos da aba "IA Nutri" da ficha ("Liberar a IA Nutri para este paciente", "IA Nutri: liberada — aguardando o aceite do paciente" é da spec; "IA Nutri: liberada e em uso", "IA Nutri: bloqueada" são novos), o selo da fila "Sinal de risco — o paciente desativou a IA Nutri" (spec) e "Aviso: houve sinal de risco" (aviso mínimo da D22, novo), o título da fila "Dúvidas dos pacientes" (spec), "Abrir dúvida" e "Marcar como vista" (spec), o título da tela de consentimento "Antes de usar a {NOME}" (spec), o link "Tirar dúvida sobre o plano" (spec §4.2), "Perguntar sobre esta refeição" (spec §7.8), o convite "A {NOME} está disponível para você." (spec §7.8) e o rótulo do bloco de Eu › Privacidade "{NOME}" (spec). Também novos (revisão do plano, 14/10/2026): `MSG_IA_NUTRI.avisoAtivacaoFila` (o que a ativação liga: aba "IA Nutri" na ficha, dúvidas e sinais de risco na fila e o que se espera da nutricionista — US-170, D7), `MSG_IA_NUTRI.protocoloRisco` (protocolo do "Sinal de risco" a partir da D11, publicado como texto final pelo dono, sem a psicóloga — DP-18, D37), `MSG_IA_NUTRI.riscoApagadoAoAbrir`, `MSG_IA_NUTRI.comoFuncionaTexto`, `MSG_IA_NUTRI.respostaChegou` ("A resposta chegou."), `MSG_IA_NUTRI.avaliado` ("Obrigado pela avaliação."), `MSG_IA_NUTRI.enviarDireto` ("Enviar direto para minha nutricionista"), `MSG_IA_NUTRI.desativarPelaNutri` e `MSG_IA_NUTRI.desativadaPelaNutri`, `AVISO_PORTAL.atualizado` ("O manual do app foi atualizado. Quer ver o que há de novo?"), a frase do peso oculto sobre os termos do plano (D25), o limite da máscara no consentimento e no item 5 do aditivo (art. 9º, § 1º), e as frases novas do aditivo 1.2 nos itens 2, 6 e 7.
 6. **Rótulos do Histórico de acessos**: `ia_nutri` = "IA Nutri (conversa com o paciente)" e `ia_nutri_liberacao` = "IA Nutri — liberação" (spec §13.2) usam o nome **de trabalho**, não a constante do paciente: o histórico é da equipe e não muda com a D28. O `criar` de `ia_nutri_duvida` ("Enviou dúvida à nutricionista", DP-16) é rótulo novo.
 7. **Métricas do admin** (DP-11): a spec (§13.2) fala das métricas da IA Nutri no admin sem dizer onde; o plano usa uma função nova (`admin_metricas_ia_nutri`) e corrige no TS a soma da 0099 (que passaria a contar a conversa do paciente na cota da nutricionista).
 8. **Envio direto à nutricionista** (DP-16): a spec diz "no menu da conversa"; o plano põe o botão "Enviar direto para minha nutricionista" no próprio formulário da conversa, ao lado de "Perguntar" (o app G não tem menu de três pontos na conversa).
@@ -85,7 +85,7 @@ As entradas e condições que a spec implica e que um teste de tarefa poderia n�
 2. **Revogação com a pergunta `processando`**: o paciente desativa a IA Nutri enquanto o `fake` devolve a resposta → nenhuma mensagem `ia` gravada, pergunta `cancelada`, uso `incerto`; e revogar + aceitar de novo no mesmo dia não zera o limite de 10 (T2 e T9).
 3. **Cinco perguntas ao mesmo tempo** do mesmo paciente (duas abas, clique duplo): 1 `ok`, 4 `em_andamento`, nenhuma linha a mais; e o papel volta a ser `paciente` depois de cada chamada, inclusive quando a função devolve cedo (T2).
 4. **"Posso X se tenho/estou Y" com o modelo devolvendo `plano`**: a regra de validação recusa montar resposta quando a pergunta tem marcador de condição (sintoma, gravidez, remédio) — texto fixo de `sintoma_ou_exame` (T6, `validar-resposta.test.ts`), e o conjunto de avaliação mede (T13).
-5. **Paciente bloqueado pela nutricionista, consultório desligado ou plataforma pausada**: o bloco "{NOME}" de Eu › Privacidade continua com "Desativar a {NOME} e apagar as conversas" e o acesso para ler, a desativação funciona e, **depois dela, o bloco e a confirmação "IA Nutri desativada." continuam na tela** (T7 e T12); o paciente arquivado (fora do app) é atendido pela nutricionista na ficha (DP-17, T7 e T11).
+5. **Paciente bloqueado pela nutricionista, consultório desligado ou plataforma pausada (emergência)**: o bloco "{NOME}" de Eu › Privacidade continua com "Desativar a {NOME} e apagar as conversas" e o acesso para ler, a desativação funciona e, **depois dela, o bloco e a confirmação "IA Nutri desativada." continuam na tela** (T7 e T12); o paciente arquivado (fora do app) é atendido pela nutricionista na ficha (DP-17, T7 e T11).
 6. **Pergunta barrada pelo filtro de risco, ou dúvida enviada direto à nutricionista (DP-16), seguida de outra pergunta na mesma sessão**: o texto da primeira nunca vai ao provedor no histórico (RN-174, "nada sai do país"); o histórico leva do paciente só a pergunta que passou pelo portão (`enviado_em` preenchido) e sem risco — T9 (`contexto.test.ts`) e T13 (`logs.test.ts`).
 7. **Paciente revoga com uma pergunta de risco não aberta; a nutricionista abre a dúvida**: a pergunta (com a mensagem `sistema` que aponta para ela) é mostrada e apagada sem erro — o `SET NULL` de `responde_a` passa pelo gatilho de colunas na sessão `nutri` (T1, T2 e T11); o mesmo depois de um pedido de exclusão atendido (T10).
 
@@ -127,7 +127,7 @@ As entradas e condições que a spec implica e que um teste de tarefa poderia n�
 **Telas (T11, T12):**
 - Painel: `src/app/painel/configuracoes/ia-nutri-secao.tsx` (nova, dentro da `IaSecao`), `src/app/painel/configuracoes/actions.ts`; `src/app/painel/pacientes/[id]/ia-nutri/page.tsx` + `actions.ts` (aba nova); `src/app/painel/duvidas/page.tsx` + `[id]/page.tsx` + `actions.ts` (fila); `src/app/painel/navegacao.ts` (`ITEM_DUVIDAS`), `src/app/painel/pacientes/[id]/abas.tsx`.
 - Admin: `src/app/admin/servidor/page.tsx` (pausa), `src/app/admin/contas/[id]/page.tsx` (cota e uso da IA Nutri), `src/app/admin/actions.ts`, `src/app/admin/ia-nutri-cota-form.tsx` (novo).
-- Portal: `src/app/p/(portal)/plano/ia/page.tsx`, `src/app/p/(portal)/plano/ia/conversa.tsx` (cliente), `src/app/p/(portal)/plano/ia/actions.ts`, `src/app/p/(portal)/plano/ia/autorizar/page.tsx`; `src/app/api/p/ia-nutri/situacao/route.ts`; `src/app/p/(portal)/plano/page.tsx` e `refeicao-detalhe.tsx` (entradas); `src/app/p/(portal)/inicio/` (convite); `src/app/p/(portal)/perfil/privacidade.tsx`, `page.tsx` e `actions.ts` (bloco de Eu); `src/modules/portal/mural-regras.ts` e `src/modules/ajuda/portal.ts` (frases reescritas, `AVISO_PORTAL.atualizado`; a versão do guia fica em 1 — ★ DO-6), `src/app/p/(portal)/inicio/guia-do-portal.tsx` (aviso por versão), `e2e/app-paciente.spec.ts` (a frase do mural); `src/modules/notificacoes/mensagens.ts`, `tipos.ts` (`duvida_vista`).
+- Portal: `src/app/p/(portal)/plano/ia/page.tsx`, `src/app/p/(portal)/plano/ia/conversa.tsx` (cliente), `src/app/p/(portal)/plano/ia/actions.ts`, `src/app/p/(portal)/plano/ia/autorizar/page.tsx`; `src/app/api/p/ia-nutri/situacao/route.ts`; `src/app/p/(portal)/plano/page.tsx` e `refeicao-detalhe.tsx` (entradas); `src/app/p/(portal)/inicio/` (convite); `src/app/p/(portal)/perfil/privacidade.tsx`, `page.tsx` e `actions.ts` (bloco de Eu); `src/modules/portal/mural-regras.ts` e `src/modules/ajuda/portal.ts` (frases reescritas, `AVISO_PORTAL.atualizado`; a versão do guia sobe de 1 para 2 — ★ DO-6), `src/app/p/(portal)/inicio/guia-do-portal.tsx` (aviso por versão), `e2e/app-paciente.spec.ts` (a frase do mural); `src/modules/notificacoes/mensagens.ts`, `tipos.ts` (`duvida_vista`).
 
 **Avaliação, guardas e E2E (T13):** `src/modules/ia/avaliacao/conversas-ficticias.ts`, `src/modules/ia/avaliacao/avaliar-conversa.ts`, `scripts/ia-avaliar.ts`; `src/modules/ia/guardas.test.ts`, `src/modules/ia/logs.test.ts`; `e2e/ia-nutri-paciente.spec.ts`, `e2e/acessibilidade.spec.ts` (portal), `e2e/acessibilidade-painel.spec.ts` e `e2e/painel-rotas.ts` (painel, nos três modos — as rotas entram em `ROTAS_DO_PAINEL` já na T11), `e2e/nada-some.spec.ts`, `scripts/e2e-seed.ts`.
 
@@ -243,7 +243,7 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
 | §12 integrações (INT-07, INT-03, INT-02, motor) | T3, T8, T11 |
 | §13.1/13.2 modelo de dados, §13.3 LGPD | T1, T2, T10 |
 | §14 variáveis | T3 |
-| D2, D11, D28, R-160 (12/11/2026), D36 | T14 (runbook) |
+| D2, D11, D28, R-160 (12/11/2026), D36 — pendências registradas, não portões (D37) | T14 (runbook passo 5, P15-B11) |
 
 ---
 ## Task 1: Banco — tabelas da IA Nutri, colunas do consultório, RLS, gatilhos de colunas e de DELETE e a pausa da plataforma (P15-01)
@@ -254,7 +254,7 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
 - Create: `src/db/schema/ia-nutri.ts`
 - Modify: `src/db/schema/index.ts` (exportar o novo arquivo), `src/db/schema/platform.ts` (`tenants`, `adminActions`), `src/db/schema/agenda.ts` (`notifications_tipo_valido`)
 - Create (gerada): `drizzle/0115_ia_nutri.sql`; Create (custom): `drizzle/0116_rls_ia_nutri.sql`
-- Modify: `src/db/rls-guard.ts` (`PACIENTE_ESCREVE`), `src/db/audit-guard.ts` (`AUDIT_EXCEPTIONS`), `test/isolamento.test.ts`, `test/global-setup.ts` (a pausa despausada no banco dos testes)
+- Modify: `src/db/rls-guard.ts` (`PACIENTE_ESCREVE`), `src/db/audit-guard.ts` (`AUDIT_EXCEPTIONS`), `test/isolamento.test.ts`
 - Create: `test/ia-nutri.ts` (helpers de teste), `src/db/ia-nutri-schema.test.ts`
 
 **Interfaces:**
@@ -421,7 +421,7 @@ export type IaNutriConsentimentoRow = typeof iaNutriConsentimentos.$inferSelect;
 /**
  * Plano 15 (RN-185, §13.2, DP-1): a pausa da IA Nutri em TODOS os consultórios — uma linha só, sem tenant_id, fora da RLS
  * (como ia_gasto_plataforma). Gravada só pelo painel do admin (fora de withTenant): o gatilho ia_nutri_pausa_da_admin
- * recusa escrita com app.role preenchido (0116). Nasce pausada (DP-1).
+ * recusa escrita com app.role preenchido (0116). Nasce NÃO pausada: é só o desligamento de emergência (DP-1, ★ DO-1 = não).
  */
 export const iaNutriPausa = pgTable(
   'ia_nutri_pausa',
@@ -613,7 +613,8 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER ia_nutri_mensagens_sem_apagar BEFORE DELETE ON ia_nutri_mensagens FOR EACH ROW EXECUTE FUNCTION app_ia_nutri_mensagens_sem_apagar();
 --> statement-breakpoint
--- RN-185 / DP-1: a pausa da plataforma só fora de withTenant (o painel do admin); nasce pausada
+-- RN-185 / DP-1: a pausa da plataforma (desligamento de emergência) só fora de withTenant (o painel do admin);
+-- nasce NÃO pausada: a IA Nutri liga pela nutricionista (★ DO-1 = não, 14/10/2026)
 REVOKE INSERT, DELETE, TRUNCATE ON ia_nutri_pausa FROM nutri_app_role;
 --> statement-breakpoint
 CREATE OR REPLACE FUNCTION app_ia_nutri_pausa_da_admin() RETURNS trigger
@@ -628,7 +629,7 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER ia_nutri_pausa_da_admin BEFORE UPDATE ON ia_nutri_pausa FOR EACH ROW EXECUTE FUNCTION app_ia_nutri_pausa_da_admin();
 --> statement-breakpoint
-INSERT INTO ia_nutri_pausa (id, pausada_em) VALUES (true, now()) ON CONFLICT (id) DO NOTHING;
+INSERT INTO ia_nutri_pausa (id, pausada_em, pausada_por) VALUES (true, NULL, NULL) ON CONFLICT (id) DO NOTHING;
 --> statement-breakpoint
 -- 0100 + a cota da IA Nutri (D3: a sessão da nutricionista não aumenta a própria cota). O resto é o da 0100, linha a linha.
 CREATE OR REPLACE FUNCTION app_tenants_interruptores_da_admin() RETURNS trigger
@@ -711,9 +712,9 @@ export async function iaNutriPronta(db: Db, tenantId: string, o: { cotaUsd?: num
     .where(eq(tenants.id, tenantId));
 }
 /**
- * A pausa é UMA linha para o banco inteiro, e os arquivos de teste rodam em paralelo no mesmo banco: nenhum teste muda a
- * linha. O global-setup a deixa despausada depois das migrations (Step 6b); o comportamento "pausada" é testado pela
- * injeção `deps.pausa` (T7–T9), e o "nasce pausada" no cluster próprio de `migrate-owner.test.ts` (T2).
+ * A pausa é UMA linha para o banco inteiro, e os arquivos de teste rodam em paralelo no mesmo banco: nenhum teste do banco
+ * comum muda a linha, que nasce NÃO pausada (DP-1, ★ DO-1 = não). O comportamento "pausada" (emergência) é testado pela
+ * injeção `deps.pausa` (T7–T9); "Pausar"/"Retomar" de verdade, no cluster próprio de `ia-nutri-pausa.test.ts` (T5).
  */
 export const PAUSADA = { pausadaEm: new Date('2026-10-14T12:00:00Z') } as const;
 export const SEM_PAUSA = { pausadaEm: null } as const;
@@ -725,7 +726,7 @@ export async function liberarNoBanco(db: Db, ctx: TenantContext, patientId: stri
 export async function aceiteNoBanco(db: Db, ctxPaciente: TenantContext, o: { versao?: string; destino?: string } = {}): Promise<void> {
   await withTenant(
     ctxPaciente,
-    (tx) => tx.insert(iaNutriConsentimentos).values({ tenantId: ctxPaciente.tenantId, patientId: ctxPaciente.patientId!, evento: 'aceite', versao: o.versao ?? '0.1-provisorio', destino: o.destino ?? 'teste', canal: 'app', registradoPor: ctxPaciente.actorUserId! }),
+    (tx) => tx.insert(iaNutriConsentimentos).values({ tenantId: ctxPaciente.tenantId, patientId: ctxPaciente.patientId!, evento: 'aceite', versao: o.versao ?? '1.0', destino: o.destino ?? 'teste', canal: 'app', registradoPor: ctxPaciente.actorUserId! }),
     db,
   );
 }
@@ -750,12 +751,12 @@ describe('0115/0116: ia_nutri_consentimentos (RN-171)', () => {
     const conta = randomUUID();
     const ctxP = ctxPaciente(T.tenantId, p.id, conta);
     const [r] = (await q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por, registrado_em)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'app', ${conta}, '2020-01-01') returning registrado_em`, ctxP)).rows as { registrado_em: string }[];
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'app', ${conta}, '2020-01-01') returning registrado_em`, ctxP)).rows as { registrado_em: string }[];
     expect(new Date(r.registrado_em).getTime()).toBeGreaterThan(Date.now() - 60_000);
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'app', ${randomUUID()})`, ctxP)).rejects.toSatisfy(violaRls);
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'app', ${randomUUID()})`, ctxP)).rejects.toSatisfy(violaRls);
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'app', ${T.nutriId})`)).rejects.toSatisfy(negadoPor('só o próprio paciente dá o consentimento'));
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'app', ${T.nutriId})`)).rejects.toSatisfy(negadoPor('só o próprio paciente dá o consentimento'));
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, canal, registrado_por)
       values (${T.tenantId}, ${p.id}, 'revogacao', 'app', ${conta})`, worker(T.tenantId))).rejects.toSatisfy(negadoPor('só pela função app_ia_nutri_revogar'));
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, canal, registrado_por)
@@ -768,21 +769,21 @@ describe('0115/0116: ia_nutri_consentimentos (RN-171)', () => {
     const ctxP2 = ctxPaciente(T.tenantId, p2.id, contaP2);
     // o isolamento genérico grava `revogacao` e cai em paciente_consentimento_proprio: aqui o evento é o que o papel pode gravar
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'app', ${contaP2})`, ctxP2)).rejects.toSatisfy(
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'app', ${contaP2})`, ctxP2)).rejects.toSatisfy(
       (e: unknown) => violaRls(e) && String((e as { cause?: { message?: string } }).cause?.message ?? '').includes('ia_nutri_consentimentos'),
     );
     await q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p2.id}, 'aceite', '0.1-provisorio', 'teste', 'app', ${contaP2})`, ctxP2); // controle positivo
+      values (${T.tenantId}, ${p2.id}, 'aceite', '1.0', 'teste', 'app', ${contaP2})`, ctxP2); // controle positivo
   });
   it('DP-17: canal `nutricionista` só na revogação; o paciente nunca grava esse canal', async () => {
     const { T, p, q } = await cenario();
     const conta = randomUUID();
     // na sessão de paciente, o WITH CHECK da RLS (paciente_consentimento_proprio: canal 'app') roda antes dos CHECKs da tabela
     await expect(q(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'nutricionista', ${conta})`, ctxPaciente(T.tenantId, p.id, conta))).rejects.toSatisfy(violaRls);
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'nutricionista', ${conta})`, ctxPaciente(T.tenantId, p.id, conta))).rejects.toSatisfy(violaRls);
     // o CHECK em si, pelo dono (contexto vazio: o gatilho só aplica as regras de dado e a RLS não se aplica ao superusuário)
     await expect(dono.db.execute(sql`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por)
-      values (${T.tenantId}, ${p.id}, 'aceite', '0.1-provisorio', 'teste', 'nutricionista', ${conta})`)).rejects.toSatisfy(violaCheck('ia_nutri_consentimentos_canal_valido'));
+      values (${T.tenantId}, ${p.id}, 'aceite', '1.0', 'teste', 'nutricionista', ${conta})`)).rejects.toSatisfy(violaCheck('ia_nutri_consentimentos_canal_valido'));
   });
   it('só inclusão: UPDATE, DELETE e TRUNCATE sem permissão para o app', async () => {
     const { T, q } = await cenario();
@@ -851,10 +852,10 @@ describe('0116: ia_nutri_mensagens — colunas por papel (RNF-164)', () => {
 describe('0116: pausa da plataforma e colunas do consultório', () => {
   it('a pausa é uma linha só e só muda fora de withTenant (qualquer papel recusa; nada muda de fato)', async () => {
     const { T, q } = await cenario();
-    const [l] = (await app.db.execute(sql`select count(*)::int as n from ia_nutri_pausa`)).rows as { n: number }[];
-    expect(l.n).toBe(1); // o "nasce pausada" é conferido no cluster próprio de migrate-owner.test.ts (T2)
+    const [l] = (await app.db.execute(sql`select count(*)::int as n, bool_and(pausada_em is null and pausada_por is null) as livre from ia_nutri_pausa`)).rows as { n: number; livre: boolean }[];
+    expect(l).toEqual({ n: 1, livre: true }); // DP-1 / ★ DO-1 = não: nasce NÃO pausada (nenhum teste do banco comum muda a linha)
     for (const ctx of [T.ctx, worker(T.tenantId)])
-      await expect(q(sql`update ia_nutri_pausa set pausada_em = null`, ctx)).rejects.toSatisfy(negadoPor('só a admin pausa'));
+      await expect(q(sql`update ia_nutri_pausa set pausada_em = now()`, ctx)).rejects.toSatisfy(negadoPor('só a admin pausa'));
     await expect(q(sql`insert into ia_nutri_pausa (id) values (true)`, worker(T.tenantId))).rejects.toSatisfy(semPermissao);
   });
   it('a cota da IA Nutri é da admin; a ativação não muda nas sessões de paciente, público e conta', async () => {
@@ -868,7 +869,7 @@ describe('0116: pausa da plataforma e colunas do consultório', () => {
 
 (`cenario()` como no harness da `ia-autorizacoes.test.ts` — devolve `{ T, p, q }`, com `q(sql, ctx = T.ctx)` = `withTenant(ctx, (tx) => tx.execute(sql), app.db)`; `novoPaciente(app.db, T.ctx)` de `test/pacientes.ts`; `dono = makeDb(inject('ownerDatabaseUrl'))` (fechado no `afterAll`, como em `src/db/ia-schema.test.ts`) para provar um CHECK que a RLS ou o gatilho recusariam antes; `negadoPor('')` = qualquer 42501 do gatilho. Os `update` que o gatilho recusa não mudam nada; nenhum teste muda `ia_nutri_pausa`. Em `test/isolamento.test.ts`, o negativo genérico "P2 não grava linha de P1" de `ia_nutri_consentimentos` cai na regra do evento (a fábrica grava `revogacao`): a prova do isolamento por paciente é o caso acima, com o `aceite`.)
 
-- [ ] **Step 6b: A pausa no banco dos testes.** Em `test/global-setup.ts`, depois de `runMigrations(...)`, com o pool do dono (fora de withTenant, o gatilho deixa): `await owner.query('update ia_nutri_pausa set pausada_em = null, pausada_por = null')`, com o comentário "Plano 15 (DP-1): a IA Nutri nasce pausada em produção; nos testes a linha fica despausada e o comportamento pausado é injetado (`deps.pausa`), porque os arquivos rodam em paralelo no mesmo banco". Conferir que o `owner` do global-setup existe nesse ponto (senão, abrir um `Pool` próprio e fechá-lo). O E2E (`scripts/e2e-seed.ts`, T13) faz o mesmo no banco dele.
+- [ ] **Step 6b: A pausa no banco dos testes — nada a fazer.** A linha nasce não pausada (DP-1, ★ DO-1 = não), então o banco dos testes e o do E2E já começam com a IA Nutri ligada na plataforma: `test/global-setup.ts` e `scripts/e2e-seed.ts` **não** mexem em `ia_nutri_pausa`, e nenhum teste do banco comum muda a linha (o comportamento pausado é injetado por `deps.pausa`).
 
 - [ ] **Step 7: Rodar.** Os Steps 2–3 já escreveram as migrations e o global-setup as aplica: Run: `pnpm vitest run src/db/ia-nutri-schema.test.ts` — Expected: PASS. (Para ver falhar de verdade, rode o arquivo antes dos Steps 2–3: FAIL com `relation "ia_nutri_consentimentos" does not exist`.)
 
@@ -879,7 +880,7 @@ describe('0116: pausa da plataforma e colunas do consultório', () => {
 - [ ] **Step 10: Commit.**
 
 ```bash
-git add src/db/schema drizzle/0115_ia_nutri.sql drizzle/0116_rls_ia_nutri.sql drizzle/meta src/db/rls-guard.ts src/db/audit-guard.ts test/isolamento.test.ts test/ia-nutri.ts test/global-setup.ts src/db/ia-nutri-schema.test.ts
+git add src/db/schema drizzle/0115_ia_nutri.sql drizzle/0116_rls_ia_nutri.sql drizzle/meta src/db/rls-guard.ts src/db/audit-guard.ts test/isolamento.test.ts test/ia-nutri.ts src/db/ia-nutri-schema.test.ts
 git commit -m "feat(db): tabelas da IA Nutri do paciente, RLS, gatilhos de colunas e de DELETE e a pausa da plataforma (P15-01)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -894,7 +895,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Files:**
 - Create (custom): `drizzle/0117_ia_nutri_funcoes.sql` (`pnpm drizzle-kit generate --custom --name ia_nutri_funcoes`)
 - Create: `src/db/ia-nutri-funcoes.test.ts`
-- Modify: `src/db/migrate-owner.test.ts` (as funções com o migrator sem superusuário; a pausa nasce pausada)
+- Modify: `src/db/migrate-owner.test.ts` (as funções com o migrator sem superusuário; a pausa nasce NÃO pausada)
 
 **Interfaces:**
 - Consumes: as tabelas e gatilhos da T1; `meal_plans.status`; `tenants.fuso`; `patients.status`, `patients.anonimizado_em`.
@@ -911,7 +912,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```ts
 const perguntar = (ctxP: TenantContext, texto: string, o: { risco?: string; textoFixo?: string; versaoMin?: string; destino?: string } = {}) =>
   withTenant(ctxP, async (tx) => {
-    const r = await tx.execute(sql`select * from app_ia_nutri_perguntar(${texto}, ${o.risco ?? null}, ${o.textoFixo ?? null}, ${o.versaoMin ?? '0.1'}, ${o.destino ?? 'teste'})`);
+    const r = await tx.execute(sql`select * from app_ia_nutri_perguntar(${texto}, ${o.risco ?? null}, ${o.textoFixo ?? null}, ${o.versaoMin ?? '1.0'}, ${o.destino ?? 'teste'})`);
     const papel = await tx.execute(sql`select current_setting('app.role', true) as r, current_setting('app.patient_id', true) as p`);
     return { ...(r.rows[0] as { codigo: string; mensagem_id: string | null }), papel: papel.rows[0] as { r: string; p: string } };
   }, app.db);
@@ -944,7 +945,7 @@ describe('0117: app_ia_nutri_perguntar (RN-178, RN-179)', () => {
   });
   it('indisponível sem liberação, bloqueado, sem consentimento, versão abaixo do mínimo ou outro destino; sem plano → sem_plano', async () => {
     const { T, p, ctxP } = await pronto();
-    expect((await perguntar(ctxP, 'oi', { versaoMin: '1.0' })).codigo).toBe('indisponivel');
+    expect((await perguntar(ctxP, 'oi', { versaoMin: '1.1' })).codigo).toBe('indisponivel');
     expect((await perguntar(ctxP, 'oi', { destino: 'anthropic-us' })).codigo).toBe('indisponivel');
     await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
     expect((await perguntar(ctxP, 'oi')).codigo).toBe('indisponivel');
@@ -992,7 +993,7 @@ describe('0117: app_ia_nutri_perguntar (RN-178, RN-179)', () => {
   });
   it('fora da sessão de paciente com conta → 42501; texto fora de 1–500 e par risco × texto fixo inválido → 22023', async () => {
     const { T, ctxP } = await pronto();
-    await expect(withTenant(T.ctx, (tx) => tx.execute(sql`select * from app_ia_nutri_perguntar('oi', null, null, '0.1', 'teste')`), app.db)).rejects.toSatisfy(negadoPor('só roda na sessão de paciente'));
+    await expect(withTenant(T.ctx, (tx) => tx.execute(sql`select * from app_ia_nutri_perguntar('oi', null, null, '1.0', 'teste')`), app.db)).rejects.toSatisfy(negadoPor('só roda na sessão de paciente'));
     await expect(perguntar(ctxP, 'x'.repeat(501))).rejects.toMatchObject({ cause: { code: '22023' } });
     await expect(perguntar(ctxP, 'dor', { risco: 'emergencia', textoFixo: 'risco_transtorno' })).rejects.toMatchObject({ cause: { code: '22023' } });
   });
@@ -1059,7 +1060,7 @@ describe('0117: app_ia_nutri_revogar (RN-182, D22, D32)', () => {
 
 describe('0117: app_ia_nutri_enviar_a_nutri (DP-16, §7.5, RN-178)', () => {
   const enviar = (ctxP: TenantContext, texto: string) =>
-    withTenant(ctxP, async (tx) => (await tx.execute(sql`select * from app_ia_nutri_enviar_a_nutri(${texto}, '0.1', 'teste')`)).rows[0] as { codigo: string; mensagem_id: string | null }, app.db);
+    withTenant(ctxP, async (tx) => (await tx.execute(sql`select * from app_ia_nutri_enviar_a_nutri(${texto}, '1.0', 'teste')`)).rows[0] as { codigo: string; mensagem_id: string | null }, app.db);
   it('com o limite do dia atingido: a pergunta vai direto à fila, sem job e sem contar no limite', async () => {
     const { T, p, ctxP } = await pronto();
     for (let i = 0; i < 10; i++) await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
@@ -1084,7 +1085,7 @@ describe('0117: app_anonimizar_consentimentos_ia_nutri e admin_metricas_ia_nutri
     await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
     await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select app_anonimizar_consentimentos_ia_nutri(${p.id})`), app.db);
     const [c] = (await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select evento, versao, destino, registrado_por, ip, user_agent from ia_nutri_consentimentos where patient_id = ${p.id}`), app.db)).rows;
-    expect(c).toEqual({ evento: 'aceite', versao: '0.1-provisorio', destino: 'teste', registrado_por: null, ip: null, user_agent: null });
+    expect(c).toEqual({ evento: 'aceite', versao: '1.0', destino: 'teste', registrado_por: null, ip: null, user_agent: null });
   });
   it('admin_metricas_ia_nutri: perguntas ao modelo e custo do escopo paciente no mês; recusa dentro de withTenant', async () => {
     const { T, p } = await pronto();
@@ -1497,9 +1498,9 @@ Notas para o implementador: (1) `admin_metricas_ia_nutri` lê `ia_uso` (STAFF_ON
 - [ ] **Step 4: O migrator sem superusuário.** Em `src/db/migrate-owner.test.ts`, um caso novo no `describe` existente (o cluster próprio dele está recém-migrado, sem global-setup):
 
 ```ts
-  it('Plano 15: a IA Nutri nasce pausada e as funções da 0117 rodam pelo app com o migrator sem superusuário', async () => {
-    const pausa = await owner.query(`select pausada_em from ia_nutri_pausa`);
-    expect(pausa.rows[0].pausada_em).not.toBeNull(); // DP-1
+  it('Plano 15: a IA Nutri nasce NÃO pausada e as funções da 0117 rodam pelo app com o migrator sem superusuário', async () => {
+    const pausa = await owner.query(`select pausada_em, pausada_por from ia_nutri_pausa`);
+    expect(pausa.rows).toEqual([{ pausada_em: null, pausada_por: null }]); // DP-1 / ★ DO-1 = não: a pausa é só de emergência
     const { rows } = await owner.query(
       `select p.proname, pg_get_userbyid(p.proowner) as dono, p.prosecdef from pg_proc p
         where p.proname in ('app_ia_nutri_perguntar','app_ia_nutri_enviar_a_nutri','app_ia_nutri_revogar','app_anonimizar_consentimentos_ia_nutri','admin_metricas_ia_nutri') order by 1`,
@@ -1527,12 +1528,12 @@ Notas para o implementador: (1) `admin_metricas_ia_nutri` lê `ia_uso` (STAFF_ON
       await c.query(`insert into ia_nutri_participacoes (tenant_id, patient_id, liberada_em, liberada_por) values ($1, $2, now(), $3)`, [t, p, nutri]);
       await c.query('commit');
       await ctx(t, 'paciente', { patient: p, user: conta });
-      await c.query(`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por, ip) values ($1, $2, 'aceite', '0.1-provisorio', 'teste', 'app', $3, '198.51.100.9')`, [t, p, conta]);
+      await c.query(`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por, ip) values ($1, $2, 'aceite', '1.0', 'teste', 'app', $3, '198.51.100.9')`, [t, p, conta]);
       // sem plano publicado: a função lê paciente, participação, consentimento, mensagens e meal_plans sob a RLS forçada
-      expect((await c.query(`select codigo from app_ia_nutri_perguntar('oi', null, null, '0.1', 'teste')`)).rows[0].codigo).toBe('sem_plano');
+      expect((await c.query(`select codigo from app_ia_nutri_perguntar('oi', null, null, '1.0', 'teste')`)).rows[0].codigo).toBe('sem_plano');
       // o ramo de risco grava (INSERT sob a RLS forçada, como worker) e o papel volta
-      expect((await c.query(`select codigo from app_ia_nutri_perguntar('quero sumir', 'emergencia', 'risco_emergencia', '0.1', 'teste')`)).rows[0].codigo).toBe('risco');
-      expect((await c.query(`select codigo from app_ia_nutri_enviar_a_nutri('Posso trocar o jantar?', '0.1', 'teste')`)).rows[0].codigo).toBe('encaminhada');
+      expect((await c.query(`select codigo from app_ia_nutri_perguntar('quero sumir', 'emergencia', 'risco_emergencia', '1.0', 'teste')`)).rows[0].codigo).toBe('risco');
+      expect((await c.query(`select codigo from app_ia_nutri_enviar_a_nutri('Posso trocar o jantar?', '1.0', 'teste')`)).rows[0].codigo).toBe('encaminhada');
       expect((await c.query(`select current_setting('app.role', true) as r`)).rows[0].r).toBe('paciente');
       expect((await c.query(`select revogacao_id from app_ia_nutri_revogar('198.51.100.9', 'teste')`)).rows[0].revogacao_id).not.toBeNull();
       await c.query('commit');
@@ -1694,7 +1695,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `PARA_ONDE_VAI`, `RETENCAO_NA_AUTORIZACAO_1_0`, `EXCECAO_DE_RETENCAO_1_0`, `RISCOS_A_MAIS_1_0`, `responsavelDoTenant`, `Responsavel`, `TextoLegal`, `Paragrafo`, `n`, `b`, `dataBr` (já em `textos-legais.ts`); `NOME_IA_NUTRI`, `RETENCAO_DIAS`, `RISCO_REVOGADO_MAX_DIAS` (T6 — esta tarefa cria `src/modules/ia/nutri-paciente/constantes.ts` com só essas três constantes se a T6 ainda não rodou; a T6 completa o arquivo).
-- Produces: `IA_ADITIVO_VERSAO = '1.2'`, `IA_ADITIVO_VERSAO_DATA = '2026-10-14'`, `IA_ADITIVO_VERSAO_MIN = '1.1'` (não muda), `IA_NUTRI_ADITIVO_VERSAO_MIN = '1.2'`, `IA_NUTRI_TERMO_VERSAO = '0.1-provisorio'`, `IA_NUTRI_TERMO_VERSAO_MIN = '0.1'`, `LIMITE_DA_MASCARA_IA_NUTRI` (ao paciente) e `LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI` (item 5 do aditivo), `textoDoConsentimentoIaNutri(versao, d)`, `textoExibidoIaNutri(destino)`, `conferirTextoExibidoIaNutri(exibido, destino)`, `consentimentoIaNutriProvisorio()`; `CATEGORIAS` com `'perguntas'`, `CATEGORIAS_DA_IA_NUTRI`, `FRASE_DA_CATEGORIA_IA_NUTRI`.
+- Produces: `IA_ADITIVO_VERSAO = '1.2'`, `IA_ADITIVO_VERSAO_DATA = '2026-10-14'`, `IA_ADITIVO_VERSAO_MIN = '1.1'` (não muda), `IA_NUTRI_ADITIVO_VERSAO_MIN = '1.2'`, `IA_NUTRI_TERMO_VERSAO = '1.0'`, `IA_NUTRI_TERMO_VERSAO_MIN = '1.0'`, `IA_NUTRI_TERMO_VERSAO_DATA = '2026-10-14'` (★ DO-2 trocada, D37: versão final, sem "-provisorio"), `LIMITE_DA_MASCARA_IA_NUTRI` (ao paciente) e `LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI` (item 5 do aditivo), `textoDoConsentimentoIaNutri(versao, d)`, `textoExibidoIaNutri(destino)`, `conferirTextoExibidoIaNutri(exibido, destino)`; `CATEGORIAS` com `'perguntas'`, `CATEGORIAS_DA_IA_NUTRI`, `FRASE_DA_CATEGORIA_IA_NUTRI`.
 
 - [ ] **Step 1: Testes que falham.** Em `textos-legais.test.ts`:
 
@@ -1747,9 +1748,13 @@ describe('Plano 15 (RN-171, US-171, D11): o consentimento da IA Nutri', () => {
     for (const trecho of ['primeiro nome sozinho', 'menos de três letras', 'palavra comum de alimentação', 'sobrenomes sem o primeiro nome', 'apelidos', 'endereços', 'outros documentos', 'dados de terceiros'])
       expect(LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI).toContain(trecho);
   });
-  it('a versão provisória diz que está em revisão; o texto exibido é conferido (versão e destino)', () => {
-    expect(consentimentoIaNutriProvisorio()).toBe(true);
-    expect(textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'teste' })!.paragrafos.map(textoCorrido).at(-1)).toBe('Versão provisória 0.1, de 14/10/2026, em revisão jurídica.');
+  it('★ DO-2 trocada (D37): o consentimento é a versão 1.0 final, sem "provisório" nem "em revisão"; o texto exibido é conferido (versão e destino)', () => {
+    expect(IA_NUTRI_TERMO_VERSAO).toBe('1.0');
+    expect(IA_NUTRI_TERMO_VERSAO_MIN).toBe('1.0');
+    const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'teste' })!.paragrafos.map(textoCorrido);
+    expect(t.at(-1)).toBe('Versão 1.0, de 14/10/2026.');
+    expect(t.join('\n')).not.toMatch(/provis|em revisão/i);
+    expect(textoDoConsentimentoIaNutri('0.1-provisorio', { ...d, destino: 'teste' })).toBeNull(); // nunca houve versão provisória da IA Nutri
     expect(conferirTextoExibidoIaNutri(textoExibidoIaNutri('teste'), 'teste')).toBe(true);
     expect(conferirTextoExibidoIaNutri({ versao: IA_NUTRI_TERMO_VERSAO, destino: 'teste' }, 'anthropic-us')).toBe(false);
     expect(conferirTextoExibidoIaNutri({ versao: '0.0', destino: 'teste' }, 'teste')).toBe(false);
@@ -1796,13 +1801,14 @@ export const IA_ADITIVO_VERSAO_MIN = '1.1';
 export const IA_NUTRI_ADITIVO_VERSAO_MIN = '1.2';
 export const IA_ADITIVO_VERSAO_DATA = '2026-10-14';
 /**
- * RN-171 / D11 = (a) / DP-2 (Plano 15): o consentimento da IA Nutri é PROVISÓRIO até a Debby, o advogado e o psicólogo
- * revisarem; em produção, a nutricionista não ativa a IA Nutri enquanto a versão terminar em "-provisorio"
- * (participacao.ts). Revisado → `1.0` e o mínimo `1.0` num PR curto.
+ * RN-171 / DP-2 / D37 (Plano 15, dono em 14/10/2026): o consentimento da IA Nutri é publicado como 1.0 FINAL, sem a
+ * validação do advogado e do psicólogo, como a A-D27 fez com a autorização dos laudos (risco assumido pelo dono; o texto
+ * está na lista do P14A-16). Nenhuma trava de produção depende dele. Frase mudada pelo advogado, pela psicóloga ou pela
+ * troca do nome (D28) → versão nova aqui (ex.: '1.1') e o mínimo junto: o paciente lê e decide de novo (US-171).
  */
-export const IA_NUTRI_TERMO_VERSAO = '0.1-provisorio';
-export const IA_NUTRI_TERMO_VERSAO_MIN = '0.1';
-export const consentimentoIaNutriProvisorio = (): boolean => IA_NUTRI_TERMO_VERSAO.endsWith('-provisorio');
+export const IA_NUTRI_TERMO_VERSAO = '1.0';
+export const IA_NUTRI_TERMO_VERSAO_MIN = '1.0';
+export const IA_NUTRI_TERMO_VERSAO_DATA = '2026-10-14';
 export type TextoExibidoIaNutri = { versao: string; destino: DestinoIA };
 export const textoExibidoIaNutri = (destino: DestinoIA): TextoExibidoIaNutri => ({ versao: IA_NUTRI_TERMO_VERSAO, destino });
 export function conferirTextoExibidoIaNutri(exibido: unknown, destino: DestinoIA): boolean {
@@ -1827,7 +1833,7 @@ export const LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI =
  * desativação também "pedindo à sua nutricionista".
  */
 const CONSENTIMENTOS_IA_NUTRI: Record<string, (d: Responsavel & { destino: DestinoIA }) => TextoLegal> = {
-  '0.1-provisorio': (d) => ({
+  '1.0': (d) => ({
     titulo: `Antes de usar a ${NOME_IA_NUTRI}`,
     paragrafos: [
       [b(`A ${NOME_IA_NUTRI} é uma inteligência artificial, não é a sua nutricionista.`)],
@@ -1845,7 +1851,7 @@ const CONSENTIMENTOS_IA_NUTRI: Record<string, (d: Responsavel & { destino: Desti
       [n(`Você pode desativar a ${NOME_IA_NUTRI} quando quiser em Eu › Privacidade ou pedindo à sua nutricionista; as conversas são apagadas na hora.`)],
       [n(`Se você desativar a ${NOME_IA_NUTRI}, uma mensagem com sinal de risco que sua nutricionista ainda não leu fica guardada até ela ler, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias.`)],
       [n('Recusar ou desativar não muda o seu atendimento nem a autorização de IA para os seus exames.')],
-      [n('Versão provisória 0.1, de 14/10/2026, em revisão jurídica.')],
+      [n(`Versão 1.0, de ${dataBr(IA_NUTRI_TERMO_VERSAO_DATA)}.`)],
     ],
   }),
 };
@@ -1878,7 +1884,7 @@ o item 8 ganha, no fim, `' Na IA Nutri, também sem a liberação do paciente pe
 
 ```bash
 git add src/modules/ia/textos-legais.ts src/modules/ia/textos-legais.test.ts src/modules/ia/campos-enviados.ts src/modules/ia/campos-enviados.test.ts src/modules/ia/nutri-paciente/constantes.ts src/modules/ia/modo.test.ts
-git commit -m "feat(ia): aditivo 1.2 com a IA Nutri, consentimento provisório do paciente e o contrato do que sai (P15-04)
+git commit -m "feat(ia): aditivo 1.2 com a IA Nutri, consentimento 1.0 do paciente e o contrato do que sai (P15-04)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1931,7 +1937,7 @@ describe('Plano 15 (D3, DP-7): cota por escopo', () => {
 });
 ```
 
-Em `ia-nutri-pausa.test.ts`: um **cluster próprio** (`novoPostgres()` de `test/postgres-teste.ts` + `runMigrations`, como `src/db/migrate-owner.test.ts`), porque a linha da pausa é uma só e os outros arquivos rodam em paralelo no banco comum, despausado (T1, Step 6b). Nele: a linha nasce pausada (DP-1); `retomarIaNutri(adminId, db)` e `pausarIaNutri(adminId, db)` mudam a linha e gravam `admin_actions` (`retomar_ia_nutri`, `pausar_ia_nutri`, sem alvo); `lerPausa` dentro de `withTenant` (nutri, paciente, worker) lê a linha; um `update ia_nutri_pausa` dentro de `withTenant` é recusado (42501).
+Em `ia-nutri-pausa.test.ts`: um **cluster próprio** (`novoPostgres()` de `test/postgres-teste.ts` + `runMigrations`, como `src/db/migrate-owner.test.ts`), porque a linha da pausa é uma só e os outros arquivos rodam em paralelo no banco comum, que nunca é pausado (T1). Nele: a linha nasce **não pausada** e `lerPausa` devolve `{ pausadaEm: null }` (DP-1, ★ DO-1 = não — a IA Nutri liga pela nutricionista); `pausarIaNutri(adminId, db)` (emergência) grava `pausada_em` e `pausada_por = adminId` e `lerPausa` passa a devolver a data; `retomarIaNutri(adminId, db)` volta os dois a nulo; cada um grava a sua linha em `admin_actions` (`pausar_ia_nutri`, `retomar_ia_nutri`, sem alvo — a única trilha, ★ DO-5); `lerPausa` dentro de `withTenant` (nutri, paciente, worker) lê a linha; um `update ia_nutri_pausa` dentro de `withTenant` é recusado (42501); sem a linha (apagada pelo dono no teste), `lerPausa` devolve pausada (falha fechada).
 
 Em `metricas.test.ts`: `ajustarCotaIaNutri(T.tenantId, '9,50', adminId)` grava `ia_nutri_cota_mensal_usd = 9.5` e `admin_actions.acao = 'ajustar_cota_ia_nutri'`; valor inválido → `CotaIaAdminError(MSG_COTA_IA)`; `metricasDeIaNutriPorTenant()` lê a função da T2; **DP-11:** uma reserva `leitura_exame` e uma `conversa_paciente` no mesmo tenant → `metricasDeIaPorTenant()` mostra só a da leitura (`tarefasMes: 1`, custo da leitura) e `metricasDeIaNutriPorTenant()` só a da conversa (`usosMes: 1`).
 
@@ -1991,7 +1997,8 @@ import { adminActions, iaNutriPausa } from '@/db/schema';
 import { logger } from '@/lib/logger';
 
 /**
- * Plano 15 (RN-185, DP-1): a pausa da IA Nutri em todos os consultórios — a linha única fora da RLS. Só o painel do admin
+ * Plano 15 (RN-185, DP-1, ★ DO-1 = não): o DESLIGAMENTO DE EMERGÊNCIA da IA Nutri em todos os consultórios — a linha
+ * única fora da RLS, que nasce não pausada (a IA Nutri liga pela nutricionista). Só o painel do admin
  * escreve (fora de withTenant; o gatilho ia_nutri_pausa_da_admin recusa com app.role preenchido); qualquer contexto lê.
  * Vale na PRÓXIMA pergunta (o módulo, a função e o job leem a cada pergunta). Trilha em admin_actions (NGS1.07.03).
  */
@@ -1999,7 +2006,9 @@ export type PausaIaNutri = { pausadaEm: Date | null };
 
 export async function lerPausa(q: Queryable): Promise<PausaIaNutri> {
   const [l] = await q.select({ pausadaEm: iaNutriPausa.pausadaEm }).from(iaNutriPausa).where(eq(iaNutriPausa.id, true));
-  return { pausadaEm: l?.pausadaEm ?? new Date(0) }; // sem a linha (não deveria acontecer): pausada, por segurança
+  // sem a linha (não deveria acontecer): pausada, por segurança. Nunca `l?.pausadaEm ?? …`: a linha existe com
+  // `pausada_em` nulo (o estado normal, ★ DO-1 = não) e o `??` a leria como pausada.
+  return { pausadaEm: l ? l.pausadaEm : new Date(0) };
 }
 
 export async function pausarIaNutri(adminId: string, db: Db = getDb()): Promise<void> {
@@ -2007,7 +2016,7 @@ export async function pausarIaNutri(adminId: string, db: Db = getDb()): Promise<
     await tx.update(iaNutriPausa).set({ pausadaEm: new Date(), pausadaPor: adminId, updatedAt: new Date() }).where(eq(iaNutriPausa.id, true));
     await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'pausar_ia_nutri', origem: 'admin' });
   });
-  logger.info({ adminId }, 'IA Nutri pausada na plataforma pelo admin');
+  logger.info({ adminId }, 'IA Nutri pausada na plataforma pelo admin (emergência)');
 }
 
 export async function retomarIaNutri(adminId: string, db: Db = getDb()): Promise<void> {
@@ -2015,7 +2024,7 @@ export async function retomarIaNutri(adminId: string, db: Db = getDb()): Promise
     await tx.update(iaNutriPausa).set({ pausadaEm: null, pausadaPor: null, updatedAt: new Date() }).where(eq(iaNutriPausa.id, true));
     await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'retomar_ia_nutri', origem: 'admin' });
   });
-  logger.info({ adminId }, 'IA Nutri retomada na plataforma pelo admin');
+  logger.info({ adminId }, 'IA Nutri retomada na plataforma pelo admin (fim da pausa de emergência)');
 }
 ```
 
@@ -2121,11 +2130,6 @@ export const FRASE_DO_TIPO: Record<TipoResposta, string> = {
   orientacao: 'Sua nutricionista escreveu esta orientação:',
 };
 export const FRASE_FINAL = 'Isto é o que está escrito no seu plano. Se a sua dúvida é se pode fazer diferente por causa de um sintoma ou situação de hoje, envie para sua nutricionista.';
-/**
- * DP-18 (D11): o protocolo do "Sinal de risco" (MSG_IA_NUTRI.protocoloRisco) é RASCUNHO até o psicólogo escrever o texto
- * final; em produção, ativarIaNutri recusa enquanto isto for `true` (como o consentimento provisório, DP-2).
- */
-export const PROTOCOLO_RISCO_PROVISORIO = true;
 ```
 
 e o `MSG_IA_NUTRI` em `constantes.ts` (textos de tela; os da spec, literais; os novos, marcados `// novo`):
@@ -2188,9 +2192,10 @@ export const MSG_IA_NUTRI = {
   avisoAtivar: 'A IA Nutri responde dúvidas dos pacientes sobre o plano publicado e as suas orientações. Ela não faz diagnóstico, não muda o plano e não indica suplementos ou remédios. Libere paciente por paciente.',
   // novo (US-170, D7, D11): o que a ativação liga e o que se espera da nutricionista — mostrado antes do botão de ativar
   avisoAtivacaoFila: 'Ao ativar: a ficha de cada paciente liberado ganha a aba "IA Nutri", onde você lê as conversas dele; as dúvidas que os pacientes enviarem e as mensagens com sinal de risco chegam à fila "Dúvidas dos pacientes", com as de risco no topo e um e-mail de aviso; o consultório não precisa responder em tempo real, mas deve abrir a fila com frequência e seguir o protocolo do "Sinal de risco".',
-  // novo — RASCUNHO a partir da D11 (DP-18), para o psicólogo reescrever; PROTOCOLO_RISCO_PROVISORIO em textos.ts
+  // novo — texto FINAL a partir da D11, publicado pelo dono sem a psicóloga (DP-18, ★ DO-2 trocada, D37); quando ela
+  // reescrever, um PR curto troca as linhas (texto da equipe: não muda a versão do consentimento)
   protocoloRisco: [
-    'Protocolo do "Sinal de risco" (rascunho, em revisão):',
+    'Protocolo do "Sinal de risco":',
     '1. Leia a mensagem e entre em contato com o paciente pelo canal que você já usa com ele, o quanto antes.',
     '2. Se houver risco à vida, oriente a procurar o SAMU (192), o pronto-socorro ou o CVV (188, 24 horas). Para acompanhamento, indique o CAPS da região ou um psicólogo.',
     '3. Registre no prontuário o que foi feito.',
@@ -2205,8 +2210,7 @@ export const MSG_IA_NUTRI = {
   desativarConsultorio: 'Desativar a IA Nutri para pacientes',
   desativadaConsultorio: 'IA Nutri desativada para pacientes. As dúvidas já enviadas continuam na fila.', // novo
   aditivoNovo: 'Para usar a IA Nutri, leia e aceite a nova versão do aditivo de IA.',
-  textosEmRevisao: 'Os textos da IA Nutri ainda estão em revisão. A ativação fica disponível depois da revisão.', // novo (DP-2)
-  pausada: 'A IA Nutri está pausada pelo suporte.', // novo (DP-1)
+  pausada: 'A IA Nutri está pausada pelo suporte.', // novo (DP-1: só na pausa de emergência da plataforma)
   usoDoMes: (p: number) => `Uso da IA Nutri neste mês: ${p}% do limite`,
   cotaAcabou: 'O limite da IA Nutri deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite.',
   liberar: 'Liberar a IA Nutri para este paciente',
@@ -2227,7 +2231,7 @@ export const MSG_IA_NUTRI = {
 } as const;
 ```
 
-(`protocoloRisco` e `comoFuncionaTexto` são listas de parágrafos: a tela desenha um `<p>` por item. `textos.test.ts` confere que `PROTOCOLO_RISCO_PROVISORIO` é `true` e que a primeira linha do protocolo diz "rascunho" — o PR do passo 3 do runbook troca os dois juntos.)
+(`protocoloRisco` e `comoFuncionaTexto` são listas de parágrafos: a tela desenha um `<p>` por item. `textos.test.ts` confere que nenhuma linha do protocolo diz "rascunho" nem "em revisão" (texto final, ★ DO-2 trocada, D37) e que `MSG_IA_NUTRI` não tem a chave `textosEmRevisao` — não existe trava de texto na ativação.)
 
 (`constantes.ts` importa nada além de si mesmo; `MAX_PERGUNTA` vem do mesmo arquivo — declarar antes do `MSG_IA_NUTRI`.)
 
@@ -2485,10 +2489,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test: `src/modules/ia/nutri-paciente/estado.test.ts`, `participacao.test.ts`, `consentimento.test.ts`, `revogacao-job.test.ts`
 
 **Interfaces:**
-- Consumes: `estadoIaComPaciente`, `ConfigIA` com `nutriDesligada` (`modo.ts`, **T3**); `PROTOCOLO_RISCO_PROVISORIO`, `MSG_IA_NUTRI` (T6); `versaoAtende`, `IA_NUTRI_ADITIVO_VERSAO_MIN`, `IA_NUTRI_TERMO_VERSAO`, `IA_NUTRI_TERMO_VERSAO_MIN`, `conferirTextoExibidoIaNutri`, `consentimentoIaNutriProvisorio`, `responsavelDoTenant` (`textos-legais.ts`, T4); `lerPausa`, `PausaIaNutri` (T5); `estornar`, `marcarIncerto` (`cota.ts`); `carregarPacienteParaEscrita` (`pacientes/base.ts`); `app_ia_nutri_revogar` (T2); `emProducao`, `getEnv` (`src/env.ts`); `getBoss` (`src/jobs/boss.ts`).
+- Consumes: `estadoIaComPaciente`, `ConfigIA` com `nutriDesligada` (`modo.ts`, **T3**); `MSG_IA_NUTRI` (T6); `versaoAtende`, `IA_NUTRI_ADITIVO_VERSAO_MIN`, `IA_NUTRI_TERMO_VERSAO`, `IA_NUTRI_TERMO_VERSAO_MIN`, `conferirTextoExibidoIaNutri`, `responsavelDoTenant` (`textos-legais.ts`, T4); `lerPausa`, `PausaIaNutri` (T5); `estornar`, `marcarIncerto` (`cota.ts`); `carregarPacienteParaEscrita` (`pacientes/base.ts`); `app_ia_nutri_revogar` (T2); `emProducao`, `getEnv` (`src/env.ts`); `getBoss` (`src/jobs/boss.ts`).
 - Produces (usados nas T8–T12):
   - `estado.ts`: `estadoIaNutriDoTenant(t, ia, pausa): EstadoIaNutriTenant`; `entradaDoPaciente(ctx, tenant, ia, o?: { db?: Db; pausa?: PausaIaNutri }): Promise<EntradaIaNutri>`; `entradaNaTransacao(tx, patientId, tenant, ia, pausa): Promise<EntradaIaNutri>`; `blocoIaNutriDoApp(ctx, tenant, ia, o?): Promise<BlocoIaNutriApp | null>`; `liberadoNaTransacao(tx, patientId): Promise<boolean>`; `ultimoEvento(tx, patientId): Promise<{ id: string; evento: 'aceite' | 'revogacao'; versao: string | null; destino: string | null; registradoEm: Date } | null>`; `consentimentoVigente(ev, destino): boolean`.
-  - `participacao.ts`: `class IaNutriError extends Error { mensagem }`; `class ConfirmarPesoOcultoError extends Error`; `ativarIaNutri(ctx, deps: { ia: ConfigIA; db?: Db; producao?: boolean })`; `desativarIaNutri(ctx, deps?)`; `liberarPaciente(ctx, patientId, o: { confirmarPesoOculto: boolean; db?: Db })`; `bloquearPaciente(ctx, patientId, db?)`; `type SituacaoNaFicha = { liberacao: 'nao' | 'aguardando' | 'em_uso' | 'bloqueada'; pesoOculto: boolean; podeRegistrarDesativacao: boolean }`; `situacaoNaFicha(ctx, patientId, destino: ConfigIA['destino'], db?)`; `temParticipacao(ctx, patientId, db?): Promise<boolean>` (a aba da ficha, T11).
+  - `participacao.ts`: `class IaNutriError extends Error { mensagem }`; `class ConfirmarPesoOcultoError extends Error`; `ativarIaNutri(ctx, deps: { ia: ConfigIA; db?: Db })` (sem `producao`: não há trava de texto, ★ DO-2 trocada); `desativarIaNutri(ctx, deps?)`; `liberarPaciente(ctx, patientId, o: { confirmarPesoOculto: boolean; db?: Db })`; `bloquearPaciente(ctx, patientId, db?)`; `type SituacaoNaFicha = { liberacao: 'nao' | 'aguardando' | 'em_uso' | 'bloqueada'; pesoOculto: boolean; podeRegistrarDesativacao: boolean }`; `situacaoNaFicha(ctx, patientId, destino: ConfigIA['destino'], db?)`; `temParticipacao(ctx, patientId, db?): Promise<boolean>` (a aba da ficha, T11).
   - `consentimento.ts`: `aceitarNoApp(ctx, exibido, deps)`; `desativarNoApp(ctx, deps)`; `desativarPelaNutri(ctx, patientId, deps)` (DP-17).
   - `revogacao-job.ts`: `type DadosRevogacaoIaNutri = { tenantId: string; patientId: string; revogacaoId: string }`; `processarRevogacaoIaNutri(d, deps: { db: Db; agora?: () => Date }): Promise<number>`.
 
@@ -2516,7 +2520,7 @@ it.each([
   - `desativarNoApp(ctxP, deps)` → `'desativada'`, a linha `revogacao` e o job `ia-nutri-revogacao` na fila com `{ tenantId, patientId, revogacaoId }` (só ids: `findJobs('ia-nutri-revogacao')`); sem consentimento → `'nada_a_desativar'` sem job; **funciona com o paciente bloqueado pela nutricionista, com o consultório desligado e com `pausa: PAUSADA`** (Review Focus 5).
   - `desativarPelaNutri(T.ctx, p.id, { db })` (DP-17) com o paciente **arquivado** e consentimento vigente → `'desativada'`, a linha `revogacao` com `canal = 'nutricionista'` e `registrado_por = T.nutriId`, o conteúdo apagado e o job `ia-nutri-revogacao`; sem consentimento → `'nada_a_desativar'`; `entradaDoPaciente` depois → `decidir` (se o paciente voltar a ativo).
   - `blocoIaNutriDoApp`: nulo sem nada (nunca liberado, sem conversa, sem evento); com consentimento vigente e o paciente bloqueado → `{ podeDesativar: true, podeDecidir: false }`; com conversa guardada e a IA Nutri desativada no consultório → aparece com `temConversa: true`; liberado sem consentimento → `podeDecidir: true`; **depois de desativar, com o paciente bloqueado (nada a decidir nem a desativar) → o bloco continua, com `situacao = MSG_IA_NUTRI.situacaoDesativada(data)`** (a confirmação não some, Review Focus 5).
-  - `ativarIaNutri(T.ctx, { ia: IA_TESTE, producao: true })` → `IaNutriError(MSG_IA_NUTRI.textosEmRevisao)` (o consentimento é `0.1-provisorio` e o protocolo de risco é rascunho — DP-2, DP-18); `producao: false` → grava `ia_nutri_ativada_em`; com o aditivo 1.1 → `IaNutriError(MSG_IA_NUTRI.aditivoNovo)`; `desativarIaNutri` → nulo.
+  - `ativarIaNutri(T.ctx, { ia: IA_TESTE })` → grava `ia_nutri_ativada_em` **também com o ambiente de produção** (`vi.mock('@/env')` com `emProducao` → `true`, molde de `contas.test.ts`): o consentimento é 1.0 final e o protocolo é final, não há trava de texto (★ DO-2 trocada, D37 — a regra nova presa no teste); ativar de novo não muda a data (`coalesce`); com o aditivo 1.1 → `IaNutriError(MSG_IA_NUTRI.aditivoNovo)`; com a IA do consultório não liberada pelo suporte (`ia_liberada = false`) → `IaNutriError(MSG_IA_NUTRI.naoDisponivel)`; `desativarIaNutri` → nulo.
   - `liberarPaciente(T.ctx, p.id, { confirmarPesoOculto: false })` com `peso_oculto_no_app_em` preenchido → `ConfirmarPesoOcultoError`; com `true` → liberado (`liberada_por = T.nutriId`); liberar de novo depois de bloquear → `bloqueada_em` nula; `situacaoNaFicha` → `aguardando` (sem consentimento), `em_uso` (com), `bloqueada`; a liberação aparece no histórico como entidade `ia_nutri_liberacao` (auditoria do gatilho).
   - `revogacao-job.test.ts`: duas perguntas canceladas pela revogação — uma sem `enviado_em` com `ia_uso` `reservado` → `estornado` e o contador da plataforma desce; outra com `enviado_em` → `incerto`; rodar duas vezes não muda nada (idempotente); revogação inexistente → 0.
 
@@ -2640,15 +2644,12 @@ import { eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { iaNutriParticipacoes, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { emProducao, getEnv } from '@/env';
 import { logger } from '@/lib/logger';
 import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
 import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
 import type { ConfigIA } from '../modo';
-import { consentimentoIaNutriProvisorio } from '../textos-legais';
 import { MSG_IA_NUTRI } from './constantes';
 import { consentimentoVigente, estadoIaNutriDoTenant, ultimoEvento } from './estado';
-import { PROTOCOLO_RISCO_PROVISORIO } from './textos';
 
 export class IaNutriError extends Error {
   override name = 'IaNutriError';
@@ -2661,10 +2662,12 @@ export class ConfirmarPesoOcultoError extends Error {
   override name = 'ConfirmarPesoOcultoError';
 }
 
-/** US-170 "Ligar no consultório": só com a IA do consultório ativa e o aditivo 1.2; em produção, só com o consentimento e o protocolo de risco finais (DP-2, DP-18). */
-export async function ativarIaNutri(ctx: TenantContext, deps: { ia: ConfigIA; db?: Db; producao?: boolean }): Promise<void> {
-  const producao = deps.producao ?? emProducao(getEnv());
-  if (producao && (consentimentoIaNutriProvisorio() || PROTOCOLO_RISCO_PROVISORIO)) throw new IaNutriError(MSG_IA_NUTRI.textosEmRevisao);
+/**
+ * US-170 "Ligar no consultório": só com a IA do consultório liberada pelo suporte e ativa (`ia_liberada`, como as outras
+ * IAs) e o aditivo 1.2. Sem trava de texto em produção: o consentimento e o protocolo de risco são finais (★ DO-1 = não,
+ * ★ DO-2 trocada, D37 — a IA Nutri liga pela definição da nutricionista). A pausa de emergência não impede ativar.
+ */
+export async function ativarIaNutri(ctx: TenantContext, deps: { ia: ConfigIA; db?: Db }): Promise<void> {
   await withTenant(
     ctx,
     async (tx) => {
@@ -4278,7 +4281,7 @@ import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { estadoIaNutriDoTenant } from '@/modules/ia/nutri-paciente/estado';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 import { IA_ADITIVO_VERSAO, IA_NUTRI_TERMO_VERSAO, responsavelDoTenant, textoDoConsentimentoIaNutri } from '@/modules/ia/textos-legais';
-import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
+import { lerPausa, type PausaIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { getDb } from '@/db/client';
 import { ativarIaNutriAction, desativarIaNutriAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
@@ -4286,14 +4289,15 @@ import { IaAtivarForm } from './ia-ativar-form';
 /**
  * US-170: a subseção "IA Nutri (pacientes)" dentro da IA do consultório. Aditivo < 1.2 → o aviso e "Aceitar a versão atual"
  * (a leitura de laudos continua); antes de ativar, o que a ativação liga (a aba "IA Nutri" na ficha, a fila e o que se
- * espera dela — D7) e o protocolo do "Sinal de risco" (D11, rascunho até o psicólogo — DP-18); "Veja o que o paciente lê"
- * com o consentimento e os textos fixos de risco e de recusa. Pausada pela plataforma num consultório que NUNCA ativou →
- * nada (a subseção nasce quando o suporte retoma; o mesmo erro corrigido na 14B-2). O retorno das actions (`?ia-nutri=`)
- * aparece aqui dentro, logo abaixo do título.
+ * espera dela — D7) e o protocolo do "Sinal de risco" (D11, texto final — DP-18); "Veja o que o paciente lê" com o
+ * consentimento 1.0 e os textos fixos de risco e de recusa. Sem trava de texto: a nutricionista ativa quando quiser (★ DO-1
+ * = não, D37). Na pausa de EMERGÊNCIA da plataforma, num consultório que NUNCA ativou → nada (a subseção volta quando o
+ * suporte retoma; o mesmo erro corrigido na 14B-2). O retorno das actions (`?ia-nutri=`) aparece aqui dentro, logo abaixo
+ * do título. `pausa` só vem dos testes (a linha do banco comum nunca é pausada, T1).
  */
-export async function IaNutriSecao({ tenant, ctx, retorno }: { tenant: TenantRow; ctx: TenantContext; retorno: 'ativada' | 'desativada' | 'revisao' | 'indisponivel' | null }) {
+export async function IaNutriSecao({ tenant, ctx, retorno, pausa }: { tenant: TenantRow; ctx: TenantContext; retorno: 'ativada' | 'desativada' | 'indisponivel' | null; pausa?: PausaIaNutri }) {
   const ia = configIA(getEnv());
-  const estado = estadoIaNutriDoTenant(tenant, ia, await lerPausa(getDb()));
+  const estado = estadoIaNutriDoTenant(tenant, ia, pausa ?? (await lerPausa(getDb())));
   if (estado === 'pausada' && !tenant.iaNutriAtivadaEm) return null;
   const resp = responsavelDoTenant(tenant);
   const texto = resp && ia.destino ? textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...resp, destino: ia.destino }) : null;
@@ -4311,7 +4315,7 @@ export async function IaNutriSecao({ tenant, ctx, retorno }: { tenant: TenantRow
       </div>
     </details>
   );
-  const MSG_RETORNO = { ativada: MSG_IA_NUTRI.ativada, desativada: MSG_IA_NUTRI.desativadaConsultorio, revisao: MSG_IA_NUTRI.textosEmRevisao, indisponivel: MSG_IA_NUTRI.naoDisponivel } as const;
+  const MSG_RETORNO = { ativada: MSG_IA_NUTRI.ativada, desativada: MSG_IA_NUTRI.desativadaConsultorio, indisponivel: MSG_IA_NUTRI.naoDisponivel } as const;
   return (
     <section aria-labelledby="ia-nutri-titulo" data-guia="ia-nutri-secao" className="space-y-3 border-t border-borda pt-4">
       <h3 id="ia-nutri-titulo" className="font-semibold">IA Nutri (pacientes)</h3>
@@ -4345,13 +4349,13 @@ export async function IaNutriSecao({ tenant, ctx, retorno }: { tenant: TenantRow
 com `UsoEAcoes` mostrando `<p>{MSG_IA_NUTRI.usoDoMes(cota.percentual)}</p>` (de `situacaoDaCotaIa(ctx, tenant, new Date(), getDb(), 'paciente')`), os avisos de 80% e de esgotada (`MSG_IA_NUTRI.cotaAcabou`), o `protocolo`, o `oQueLe` e o formulário `desativarIaNutriAction` com `ConfirmarBotao` ("Desativar a IA Nutri para pacientes? A fila de dúvidas continua."). A página de Configurações passa `retorno` (de `?ia-nutri=`, lista fechada) a `IaSecao`, que o repassa a `IaNutriSecao`. `actions.ts`:
 
 ```ts
-/** US-170: ativar a IA Nutri — a usuária e o consultório vêm da sessão; recusa em produção com o consentimento provisório (DP-2). */
+/** US-170: ativar a IA Nutri — a usuária e o consultório vêm da sessão; sem trava de texto (★ DO-2 trocada, D37). */
 export async function ativarIaNutriAction(): Promise<void> {
   const { ctx } = await requireNutri('/painel/configuracoes');
   try {
     await ativarIaNutri(ctx, { ia: configIA(getEnv()) });
   } catch (e) {
-    if (e instanceof IaNutriError) redirect(`/painel/configuracoes?ia-nutri=${encodeURIComponent(e.mensagem === MSG_IA_NUTRI.textosEmRevisao ? 'revisao' : 'indisponivel')}#ia-nutri-titulo`);
+    if (e instanceof IaNutriError) redirect('/painel/configuracoes?ia-nutri=indisponivel#ia-nutri-titulo');
     throw e;
   }
   redirect('/painel/configuracoes?ia-nutri=ativada#ia-nutri-titulo');
@@ -4363,7 +4367,7 @@ export async function desativarIaNutriAction(): Promise<void> {
 }
 ```
 
-e a página de Configurações lê `?ia-nutri=` (lista fechada: `ativada`, `desativada`, `revisao`, `indisponivel`; outro valor → nulo) e passa o retorno à subseção, que o mostra dentro dela, na região `role="status"` logo abaixo do título (o `#ia-nutri-titulo` da URL leva a ela). `ia-secao.test.ts`: aditivo 1.1 com IA ativa → o aviso "Para usar a IA Nutri, leia e aceite a nova versão do aditivo de IA." e o botão; a leitura de laudos continua (o uso do mês da IA aparece); desativada → `avisoAtivacaoFila` e as linhas de `protocoloRisco` **antes** do botão "Ativar a IA Nutri para pacientes"; ativada → "Uso da IA Nutri neste mês: {p}% do limite"; **plataforma pausada e consultório que nunca ativou → nenhuma subseção e nenhum "pausada pelo suporte"**; pausada com a IA Nutri já ativada → o aviso de pausa; `retorno: 'ativada'` → `MSG_IA_NUTRI.ativada` dentro da subseção.
+e a página de Configurações lê `?ia-nutri=` (lista fechada: `ativada`, `desativada`, `indisponivel`; outro valor — inclusive o antigo `revisao` — → nulo) e passa o retorno à subseção, que o mostra dentro dela, na região `role="status"` logo abaixo do título (o `#ia-nutri-titulo` da URL leva a ela). `ia-secao.test.ts`: aditivo 1.1 com IA ativa → o aviso "Para usar a IA Nutri, leia e aceite a nova versão do aditivo de IA." e o botão; a leitura de laudos continua (o uso do mês da IA aparece); desativada → `avisoAtivacaoFila` e as linhas de `protocoloRisco` (sem "rascunho") **antes** do botão "Ativar a IA Nutri para pacientes", com a linha real de `ia_nutri_pausa` (não pausada: a função liga pela nutricionista desde o deploy, ★ DO-1 = não) e nenhum aviso de "textos em revisão"; ativada → "Uso da IA Nutri neste mês: {p}% do limite"; **com `pausa: PAUSADA` (emergência) e consultório que nunca ativou → nenhuma subseção e nenhum "pausada pelo suporte"**; `pausa: PAUSADA` com a IA Nutri já ativada → o aviso de pausa; `retorno: 'ativada'` → `MSG_IA_NUTRI.ativada` dentro da subseção.
 
 - [ ] **Step 4: A aba "IA Nutri" da ficha.** `abas.tsx`: `{ seg: 'ia-nutri', rotulo: 'IA Nutri' }` antes de `'historico'`, mostrada só com `iaNutri` (nova prop: a IA Nutri ativada no consultório **ou** o paciente com participação); `layout.tsx` calcula com `tenant.iaNutriAtivadaEm !== null || (await temParticipacao(ctx, paciente.id))` (função pequena em `participacao.ts`). `src/app/painel/pacientes/[id]/ia-nutri/page.tsx` (`requireNutri` na primeira linha):
   - `situacaoNaFicha` → "IA Nutri: liberada — aguardando o aceite do paciente" / "IA Nutri: liberada e em uso" / "IA Nutri: bloqueada" / nada; o formulário com a caixa "Liberar a IA Nutri para este paciente" (marcada = liberado) e **uma só** action, `salvarLiberacaoIaNutriAction(patientId, fd)`, que decide pela caixa: marcada → `liberarPaciente`, desmarcada → `bloquearPaciente`. Com `pesoOculto`, a confirmação `MSG_IA_NUTRI.pesoOculto` aparece **só ao marcar** (um pequeno componente cliente no `onSubmit`: caixa marcada e antes desmarcada → `window.confirm`; a action recebe `confirmarPesoOculto` = a caixa marcada nesse fluxo) — desmarcar nunca pergunta.
@@ -4394,17 +4398,19 @@ e `itemAtual` acha `ITEM_DUVIDAS`; o menu mostra `rotuloDoItem(ITEM_DUVIDAS.rotu
   - `/painel/duvidas` (padrão `^/painel/duvidas(/.*)?$`): "Dúvidas dos pacientes" — "Aqui chegam as perguntas que os pacientes enviaram pela IA Nutri e as mensagens com sinal de risco, que ficam no topo. Abra a dúvida para ler, siga o protocolo nas de risco e toque em \"Marcar como vista\": o paciente vê no app que a dúvida foi vista. A resposta você dá na consulta ou pelo canal que já usa." e um passo no alvo `fila-duvidas` (a tabela da fila, Step 5).
   - a aba `^/painel/pacientes/${ID}/ia-nutri$`: "IA Nutri do paciente" — "Libere a IA Nutri paciente por paciente. Depois, o paciente lê o texto e decide no app. Aqui você lê as conversas dele com a IA e registra a desativação quando ele pedir." — **posto antes do guia `prontuario` na lista** (o padrão do prontuário casa qualquer aba da ficha: o primeiro que casa ganha); `conteudo.test.ts`: `guiaDaRota(\`/painel/pacientes/${UUID}/ia-nutri\`)?.id` é o id do guia novo.
   - o guia de Configurações, seção "Inteligência artificial (IA)": o item "O aditivo está na versão 1.1, que inclui…" passa a "O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 (\"Aceitar a versão atual\").", sem a frase "A autorização que o paciente deu na versão anterior também não vale mais" (a 1.2 não invalida autorização nenhuma); um item novo: "IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila \"Dúvidas dos pacientes\"." e um passo no alvo `ia-nutri-secao`. A `versao` desse guia sobe (de 7 para 8) pelo texto alterado **e** pelo passo novo; `conteudo.test.ts:118` passa a esperar a frase da 1.2 e `config.versao` 8.
-  - o passo do menu do guia `boas-vindas` do painel cita o item novo "Dúvidas dos pacientes" (a frase nova no fim do texto do passo: `' Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.'`, à Debby), **sem** subir a `versao` (continua 2) neste PR: ★ DO-6 — a função nasce pausada (DP-1) e subir agora mostraria o tour de novo a toda nutricionista por um item que nenhuma tem. Diferente do Plano 12, que subiu para 2 ao citar "Exames recebidos" (a função estava no ar). A subida para 3 vai no PR curto do passo 3 do runbook, junto com `GUIA_PORTAL.versao`. O comentário de `versao` em `conteudo.ts` ganha `; Plano 15: o passo do menu cita "Dúvidas dos pacientes" — a versão sobe para 3 no PR que liga a IA Nutri (★ DO-6)`, e `conteudo.test.ts` ganha: o passo `menu` do `boas-vindas` contém "Dúvidas dos pacientes" e `versao` continua 2.
+  - o passo do menu do guia `boas-vindas` do painel cita o item novo "Dúvidas dos pacientes" (a frase nova no fim do texto do passo: `' Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.'`, à Debby) e a `versao` **sobe de 2 para 3 neste PR** (★ DO-6 ajustada à DO-1 = não): a função vai ao ar ligada pela nutricionista, como no Plano 12, que subiu para 2 ao citar "Exames recebidos" com a função no ar. O comentário de `versao` em `conteudo.ts` ganha `; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)`, e `conteudo.test.ts` ganha: o passo `menu` do `boas-vindas` contém "Dúvidas dos pacientes" e `versao` é 3.
   `conteudo.test.ts`: as rotas novas têm guia (a lista `PAGINAS` acha as pastas novas).
 
-- [ ] **Step 7: Admin.** `src/app/admin/servidor/page.tsx`: um cartão "IA Nutri (pacientes)" com a situação (`lerPausa`: "Pausada desde {data}" / "Ligada") e o botão "Pausar a IA Nutri em todos os consultórios" ou "Retomar a IA Nutri", com `ConfirmarBotao` cuja mensagem é a constante `CONFIRMAR_RETOMAR_IA_NUTRI` (em `src/app/admin/textos.ts` ou junto da página; a lista inteira do passo 8 do runbook — ★ DO-1, DO-5):
+- [ ] **Step 7: Admin.** `src/app/admin/servidor/page.tsx`: um cartão "IA Nutri (pacientes) — desligamento de emergência" com a situação (`lerPausa`: "Ligada — cada consultório decide" no estado normal / "Pausada desde {data}") e o botão "Pausar a IA Nutri em todos os consultórios" (ligada) ou "Retomar a IA Nutri" (pausada), cada um com `ConfirmarBotao` e a sua constante (em `src/app/admin/textos.ts` ou junto da página). ★ DO-1 = não e ★ DO-5: a pausa é só de emergência e "Retomar" é a volta dela, **não** a liberação inicial — a confirmação não lista as condições do runbook:
 
 ```ts
+export const CONFIRMAR_PAUSAR_IA_NUTRI =
+  'Pausar a IA Nutri em todos os consultórios? É o desligamento de emergência: a partir da próxima pergunta, nenhum paciente usa a IA Nutri até você retomar. As dúvidas já enviadas continuam na fila das nutricionistas, e os pacientes continuam podendo ler as conversas e desativar a IA Nutri em Eu › Privacidade.';
 export const CONFIRMAR_RETOMAR_IA_NUTRI =
-  'Retomar a IA Nutri em todos os consultórios? Só retome com TODAS as condições do runbook do Plano 15 conferidas: (1) o CRN-3 aceitou o modo (d) — se recusou, não retome (o modo (c) não existe no código); sem resposta em 8 semanas, só com a decisão do dono registrada por escrito; (2) parecer do advogado; (3) RIPD concluído; (4) DPA e termo do paciente fora do "0.1-provisorio", ou decisão expressa do dono anotada como na A-D27; (5) textos 1.0 revisados pela Debby, pelo advogado e pelo psicólogo, com o protocolo do "Sinal de risco"; (6) avaliação RN-184 aprovada; (7) data a partir de 12/11/2026, ou confirmação escrita da Anthropic; (8) Política de Uso do fornecedor conferida.';
+  'Retomar a IA Nutri em todos os consultórios? Ela volta a responder aos pacientes liberados e que consentiram, nos consultórios que a ativaram. Retome só depois de resolver o motivo da pausa.';
 ```
 
-com as actions `pausarIaNutriAction`/`retomarIaNutriAction` em `src/app/admin/actions.ts` (a guarda de admin que as outras actions usam, na primeira linha); `actions.test.ts` confere que o texto cita as oito condições (CRN-3, advogado, RIPD, DPA, protocolo, avaliação, 12/11/2026, Política de Uso). `src/app/admin/contas/[id]/page.tsx` (DP-11): o item "Uso de IA no mês" passa a "Uso de IA da nutricionista no mês" (e "Tarefas de IA da nutricionista no mês"), com os números de `metricasDeIaPorTenant` já sem a IA Nutri; um item novo "IA Nutri (pacientes): {n} perguntas no mês · {p}% do limite de US$ {cota}" (de `metricasDeIaNutriPorTenant`) e o `IaNutriCotaForm` (molde de `ia-cota-form.tsx`, chama `ajustarCotaIaNutriAction`). `src/app/admin/sem-tabelas-tenant.test.ts`: as importações novas passam pela guarda.
+com as actions `pausarIaNutriAction`/`retomarIaNutriAction` em `src/app/admin/actions.ts` (a guarda de admin que as outras actions usam, na primeira linha; cada uma grava só a sua linha de `admin_actions`, por `pausarIaNutri`/`retomarIaNutri` — sem coluna nova, ★ DO-5); `actions.test.ts` confere que `CONFIRMAR_PAUSAR_IA_NUTRI` diz "emergência" e que `CONFIRMAR_RETOMAR_IA_NUTRI` fala do motivo da pausa e **não** cita condição do runbook (nem "CRN-3", "advogado", "RIPD", "12/11/2026" nem "provisorio") — a regra nova da ★ DO-5 presa no teste. `src/app/admin/contas/[id]/page.tsx` (DP-11): o item "Uso de IA no mês" passa a "Uso de IA da nutricionista no mês" (e "Tarefas de IA da nutricionista no mês"), com os números de `metricasDeIaPorTenant` já sem a IA Nutri; um item novo "IA Nutri (pacientes): {n} perguntas no mês · {p}% do limite de US$ {cota}" (de `metricasDeIaNutriPorTenant`) e o `IaNutriCotaForm` (molde de `ia-cota-form.tsx`, chama `ajustarCotaIaNutriAction`). `src/app/admin/sem-tabelas-tenant.test.ts`: as importações novas passam pela guarda.
 
 - [ ] **Step 7b: As rotas novas no axe do painel.** `e2e/painel-rotas.ts`: `IdsDoPainel` ganha `duvida: string`; `ROTAS_DO_PAINEL` ganha `'/painel/duvidas': () => '/painel/duvidas'`, `'/painel/duvidas/[id]': (i) => \`/painel/duvidas/${i.duvida}\`` e `'/painel/pacientes/[id]/ia-nutri': (i) => \`/painel/pacientes/${i.paciente}/ia-nutri\``. `prepararTelasComId` (`e2e/painel.ts`) cria a dúvida: com a **segunda** paciente da IA Nutri do seed (liberada e com consentimento, T13 — a primeira autoriza pela UI no E2E), entra no portal, escreve uma pergunta e toca "Enviar direto para minha nutricionista" (DP-16 — sem depender do worker), e lê o id da linha **da segunda paciente** em `/painel/duvidas` (a linha localizada pelo nome dela — `getByRole('listitem').filter({ hasText: segunda.nome })` ou o elemento da linha que a T11 usar — e o `href` de "Abrir dúvida" dentro dela; nunca "a primeira linha": a fila põe o risco no topo, e o `ia-nutri-paciente.spec.ts` deixa mensagens de risco da primeira paciente). Abrir essa dúvida no axe grava `aberta_pela_nutri_em` — não apaga nada (é a dúvida direta, sem risco). O banco do E2E não é limpo entre execuções: o seed (T13) apaga as mensagens das duas pacientes da IA Nutri e recria as 10 perguntas da segunda a cada execução, para o limite de 3 dúvidas abertas nunca ser atingido pelas execuções anteriores. O axe das três rotas roda em `e2e/acessibilidade-painel.spec.ts`, nos três modos (claro, escuro, igual ao aparelho), e não em `acessibilidade.spec.ts` (T13). O código entra aqui (o `rotas-axe.test.ts` do Vitest exige as chaves já nesta tarefa e o `tsc` exige o `duvida` preenchido); o E2E só **roda** na T13, depois da T12 (o botão do portal) e do seed.
 
@@ -4427,7 +4433,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/app/p/(portal)/plano/ia/page.tsx`, `src/app/p/(portal)/plano/ia/conversa.tsx` (cliente), `src/app/p/(portal)/plano/ia/actions.ts`, `src/app/p/(portal)/plano/ia/autorizar/page.tsx`, `src/app/p/(portal)/plano/ia/texto-fixo.tsx` (texto com `tel:` para 188 e 192)
-- Modify: `src/app/p/(portal)/plano/page.tsx` (link "Tirar dúvida sobre o plano" e o aviso `?ia-nutri=indisponivel`), `src/app/p/(portal)/plano/refeicao-detalhe.tsx` ("Perguntar sobre esta refeição"), `src/app/p/(portal)/inicio/page.tsx` e um cartão novo `src/app/p/(portal)/inicio/convite-ia-nutri.tsx` (cliente), `src/components/portal/cartoes-dispensados.ts` (cartão `ia_nutri`), `src/app/p/(portal)/perfil/page.tsx`, `privacidade.tsx` e `actions.ts` (bloco "{NOME}"), `src/modules/portal/mural-regras.ts` (`MSG_MURAL.rodape`), `src/modules/ajuda/portal.ts` (as duas frases e `AVISO_PORTAL.atualizado`; a `versao` fica em 1 — ★ DO-6), `src/app/p/(portal)/inicio/guia-do-portal.tsx` (o aviso escolhido pela versão já vista), `e2e/app-paciente.spec.ts` (a frase do mural, linha 28)
+- Modify: `src/app/p/(portal)/plano/page.tsx` (link "Tirar dúvida sobre o plano" e o aviso `?ia-nutri=indisponivel`), `src/app/p/(portal)/plano/refeicao-detalhe.tsx` ("Perguntar sobre esta refeição"), `src/app/p/(portal)/inicio/page.tsx` e um cartão novo `src/app/p/(portal)/inicio/convite-ia-nutri.tsx` (cliente), `src/components/portal/cartoes-dispensados.ts` (cartão `ia_nutri`), `src/app/p/(portal)/perfil/page.tsx`, `privacidade.tsx` e `actions.ts` (bloco "{NOME}"), `src/modules/portal/mural-regras.ts` (`MSG_MURAL.rodape`), `src/modules/ajuda/portal.ts` (as duas frases e `AVISO_PORTAL.atualizado`; a `versao` sobe de 1 para 2 — ★ DO-6), `src/app/p/(portal)/inicio/guia-do-portal.tsx` (o aviso escolhido pela versão já vista), `e2e/app-paciente.spec.ts` (a frase do mural, linha 28)
 - Test: `src/app/p/(portal)/plano/ia/page.test.ts`, `actions.test.ts`, `conversa.test.tsx` (se o projeto tiver testes de componente; senão, a lógica pura — `proximoIntervalo` e `encaminharNoItem` — com teste), `src/app/p/(portal)/perfil/page.test.ts`, `src/modules/portal/mural-regras.test.ts`, `src/modules/ajuda/portal.test.ts` (ou o teste do guia do portal), o teste de `guia-do-portal.tsx` (se houver; senão, a função pura `avisoDoGuia`)
 
 **Interfaces:**
@@ -4439,7 +4445,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `conversa` (componente ou funções puras): `encaminharNoItem` devolve o id da pergunta no item da resposta (montada ou texto fixo) e na própria pergunta que falhou sem resposta; depois de `perguntarAction` com `ok` e com `risco`, o campo fica vazio e o foco está na região `role="status"`; a região de status passa a "A resposta chegou." quando a situação vai de `processando` a `respondida`; com `useOnline() === false`, "Sem conexão. Pergunte quando voltar." está na mesma região (não num `<p>` à parte).
   - `actions.test.ts`: `perguntarAction` devolve o texto certo para cada código (`limite_dia` → `MSG_IA_NUTRI.limiteDia`; `limite_mes` → `limiteMes`; `em_andamento` → `emAndamento`; `indisponivel` → `naoDisponivel`; `sem_plano` → `semPlano`), `{ limpar: true }` no `ok` e no `risco`, o `textoFixo` no `risco` sem mensagem gravada, e nada da pergunta volta no retorno; `enviarANutriAction` → `encaminhada` (com o limite do dia atingido), `limiteDuvidas` ou `naoDisponivel`; `encaminharAction` → `encaminhada` ou `limiteDuvidas`; `avaliarAction` → `avaliado`; `aceitarIaNutriAction` com o texto de outro destino → redireciona para `…/autorizar?de=plano&mudou=1`; **com o paciente bloqueado, o consultório desligado ou a pausa (`naoDisponivel`) → `/p/plano?ia-nutri=indisponivel`, e `plano/page.test.ts` mostra `MSG_IA_NUTRI.naoDisponivel` com `role="status"` com esse parâmetro (e nada com outro valor)**; `desativarIaNutriAction` → `{ ok: MSG_IA_NUTRI.desativada }`; todas com `requirePaciente` na primeira linha.
   - `perfil/page.test.ts`: o bloco "{NOME}" ao lado do bloco "Uso de inteligência artificial (IA)"; com o paciente bloqueado pela nutricionista e consentimento vigente → o bloco com "Desativar a {NOME} e apagar as conversas" e "Ler as conversas" (Review Focus 5); **depois de desativar, com o paciente bloqueado → o bloco continua com "Você desativou em {data}." e a região de status com "IA Nutri desativada."**; sem nada → sem bloco; os dois botões (retirar a autorização da 14A e desativar a IA Nutri) são diferentes e os dois têm `min-h-11` e borda.
-  - `mural-regras.test.ts` e o teste do guia: o rodapé e a frase não dizem mais "Este app não é um canal de conversa" sem ressalva; a frase de privacidade fala em dois pedidos separados; a `versao` do `GUIA_PORTAL` **continua 1** (★ DO-6); `avisoDoGuia` devolve `AVISO_PORTAL.boasVindas` para quem nunca usou, `AVISO_PORTAL.pergunta` para quem já usava e nunca viu o guia, e `AVISO_PORTAL.atualizado` para quem já viu uma versão anterior do guia (testado com um guia de versão 2 fabricado no teste) — nunca "O app mudou" de novo.
+  - `mural-regras.test.ts` e o teste do guia: o rodapé e a frase não dizem mais "Este app não é um canal de conversa" sem ressalva; a frase de privacidade fala em dois pedidos separados; a `versao` do `GUIA_PORTAL` **é 2** (★ DO-6 ajustada à DO-1 = não); `avisoDoGuia` (com o `GUIA_PORTAL` real) devolve `AVISO_PORTAL.boasVindas` para quem nunca usou, `AVISO_PORTAL.pergunta` ("O app mudou…") só para quem já usava e nunca viu o guia, e `AVISO_PORTAL.atualizado` para quem já viu a versão 1 — nunca "O app mudou" de novo para quem já viu o guia.
 
 - [ ] **Step 2: Rodar e ver falhar.** Run: `pnpm vitest run "src/app/p/(portal)/plano/ia" "src/app/p/(portal)/perfil" src/modules/portal src/modules/ajuda` — Expected: FAIL.
 
@@ -4742,7 +4748,7 @@ export async function enviarANutriAction(tenantId: string, fd: FormData): Promis
   rodape: 'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. O mural não é uma conversa com a sua nutricionista e não tem prazo de resposta. A IA Nutri, quando liberada, é um programa e responde só sobre o seu plano. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
 ```
 
-(com `NOME_IA_NUTRI` no lugar de "IA Nutri" pela constante); `src/modules/ajuda/portal.ts`: a `versao` **continua 1** (★ DO-6: sobe para 2 no PR curto do passo 3 do runbook, junto com os textos 1.0 — senão todo paciente de todo consultório veria a novidade no dia do deploy, por uma função pausada); a frase "Seus registros do diário… Este app não é um canal de conversa…" passa à mesma redação do rodapé; a frase de privacidade passa a "Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a {NOME} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento."; a seção "Onde fica cada coisa" ganha em Plano "… a lista de compras, os conteúdos e, quando liberada, a {NOME}.". Esses textos são **emendas** à spec G (C-191, C-192, C-197, RN-193, RN-194, RN-209): a T14 registra na spec do app G.
+(com `NOME_IA_NUTRI` no lugar de "IA Nutri" pela constante); `src/modules/ajuda/portal.ts`: a `versao` **sobe de 1 para 2** neste PR (★ DO-6 ajustada à DO-1 = não: a função vai ao ar ligada pela nutricionista e o guia muda para todos — mural, privacidade e "Onde fica cada coisa"); a frase "Seus registros do diário… Este app não é um canal de conversa…" passa à mesma redação do rodapé; a frase de privacidade passa a "Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a {NOME} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento."; a seção "Onde fica cada coisa" ganha em Plano "… a lista de compras, os conteúdos e, quando liberada, a {NOME}.". Esses textos são **emendas** à spec G (C-191, C-192, C-197, RN-193, RN-194, RN-209): a T14 registra na spec do app G.
 
 O aviso de novidade (§7.8: "a versão sobe com um aviso de novidade que não diga de novo 'O app mudou'") fica pronto agora: `AVISO_PORTAL` ganha `atualizado: 'O manual do app foi atualizado. Quer ver o que há de novo?'` (novo, à Debby) e `portal.ts` exporta
 
@@ -4755,7 +4761,7 @@ export function avisoDoGuia(progresso: ProgressoGuia, jaUsava: boolean, guia: { 
 }
 ```
 
-e `guia-do-portal.tsx` troca `{jaUsava ? AVISO_PORTAL.pergunta : AVISO_PORTAL.boasVindas}` por `{avisoDoGuia(progresso, jaUsava)}` (`ProgressoGuia` em `preferencias-tipos.ts` guarda a versão vista em `v`, o mesmo campo que `precisaDoGuia` lê em `conteudo.ts`; `portal.test.ts` ganha: `avisoDoGuia({ [GUIA_PORTAL.id]: { v: 1, estado: 'visto' } }, true, { id: GUIA_PORTAL.id, versao: 2 })` → `AVISO_PORTAL.atualizado`; com `{}` e `jaUsava` → `pergunta`; sem `jaUsava` → `boasVindas`; com `v` igual à versão → não é `atualizado`). Com a `versao` em 1, nada muda na tela de ninguém neste PR.
+e `guia-do-portal.tsx` troca `{jaUsava ? AVISO_PORTAL.pergunta : AVISO_PORTAL.boasVindas}` por `{avisoDoGuia(progresso, jaUsava)}` (`ProgressoGuia` em `preferencias-tipos.ts` guarda a versão vista em `v`, o mesmo campo que `precisaDoGuia` lê em `conteudo.ts`; `portal.test.ts` ganha: `GUIA_PORTAL.versao` é 2; `avisoDoGuia({ [GUIA_PORTAL.id]: { v: 1, estado: 'visto' } }, true)` → `AVISO_PORTAL.atualizado` (o mesmo com `estado: 'dispensado'` e `'concluido'`, de `ESTADOS_GUIA`); com `{}` e `jaUsava` → `pergunta`; sem `jaUsava` → `boasVindas`; com `v: 2` → não é `atualizado`). **No dia do deploy**, todo paciente que já viu a versão 1 do guia recebe "O manual do app foi atualizado. Quer ver o que há de novo?" — em qualquer consultório, também onde a IA Nutri não está ativada: a §7.8 da spec pede só que o aviso não diga de novo "O app mudou" e **não** o restringe a quem pode usar a função, e as frases do mural, da privacidade e de "Onde fica cada coisa" mudaram para todos (o texto delas já diz "quando liberada"). "O app mudou" continua só para quem já usava o app e nunca viu o guia (Plano 16).
 
 `e2e/app-paciente.spec.ts`, linha 28: `getByText('Este app não é um canal de conversa', { exact: false })` passa a `getByText('O mural não é uma conversa com a sua nutricionista', { exact: false })`. Antes do commit: `git grep -n "canal de conversa\|prazo de resposta" e2e src` — nenhuma ocorrência da frase antiga fora das emendas registradas.
 
@@ -4778,7 +4784,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/modules/ia/avaliacao/conversas-ficticias.ts`, `src/modules/ia/avaliacao/avaliar-conversa.ts`, `e2e/ia-nutri-paciente.spec.ts`
-- Modify: `scripts/ia-avaliar.ts` (`IA_AVALIACAO_TAREFA=conversa`), `src/modules/ia/guardas.test.ts`, `src/modules/ia/logs.test.ts`, `e2e/acessibilidade.spec.ts` (portal), `e2e/acessibilidade-painel.spec.ts` (painel, três modos — as rotas já entraram em `e2e/painel-rotas.ts` na T11), `e2e/nada-some.spec.ts`, `scripts/e2e-seed.ts` (paciente liberado e com consentimento; a pausa despausada no banco do E2E), `e2e/portal.ts` (helpers, se preciso)
+- Modify: `scripts/ia-avaliar.ts` (`IA_AVALIACAO_TAREFA=conversa`), `src/modules/ia/guardas.test.ts`, `src/modules/ia/logs.test.ts`, `e2e/acessibilidade.spec.ts` (portal), `e2e/acessibilidade-painel.spec.ts` (painel, três modos — as rotas já entraram em `e2e/painel-rotas.ts` na T11), `e2e/nada-some.spec.ts`, `scripts/e2e-seed.ts` (paciente liberado e com consentimento; `ia_nutri_pausa` não é tocada — nasce não pausada, T1), `e2e/portal.ts` (helpers, se preciso)
 - Test: `src/modules/ia/avaliacao/avaliar-conversa.test.ts` (com o `fake`, nunca o provedor real)
 
 **Interfaces:**
@@ -4808,7 +4814,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 3: Guardas.** `src/modules/ia/guardas.test.ts`, na lista do "nada do grafo do Next alcança": `src/modules/ia/nutri-paciente/contexto.ts`, `job.ts`, `varredura.ts`, `revogacao-job.ts`, `risco-job.ts`, `retencao.ts`, `src/modules/ia/avaliacao/conversas-ficticias.ts`, `src/modules/ia/avaliacao/avaliar-conversa.ts`; um caso novo: nenhum arquivo de `src/modules/ia/nutri-paciente/` importa `@anthropic-ai/sdk`, `@anthropic-ai/bedrock-sdk` nem `./provedor-anthropic`/`./provedor-bedrock`/`../provedor-do-ambiente` (RNF-169); e o caso dos provedores proíbe `cache_control` (D35). `src/modules/ia/logs.test.ts` (RNF-165): um cenário com `MARCADOR-SAUDE-123` no nome do paciente, numa orientação de atendimento, na observação de uma refeição e na pergunta; `perguntar` + `processarPerguntaIaNutri` com o `fake` → o marcador não aparece no log capturado, em `pgboss.job.data` das filas `ia-paciente`, `ia-nutri-risco`, `ia-nutri-revogacao` (só ids), nem no `notifications`/e-mail; e o pedido ao `fake` **tem** `[removido]` no lugar do nome. **RN-174 (Review Focus 6):** um segundo cenário — `perguntar` com "não aguento mais, quero sumir MARCADOR-SAUDE-123" (barrada pelo filtro), depois, na mesma sessão, `perguntar` com uma pergunta normal + `processarPerguntaIaNutri` → `MARCADOR-SAUDE-123` não aparece em `JSON.stringify(fake.chamadas.gerar)`. **DP-16 (re-revisão):** um terceiro cenário — `enviarANutri` com "posso trocar o jantar de dia? MARCADOR-DIRETO-456" (dúvida só para a nutricionista, sem IA) e, na mesma sessão, `perguntar` com uma pergunta normal + `processarPerguntaIaNutri` (`depsDoJob` do harness) → `MARCADOR-DIRETO-456` não aparece em `JSON.stringify(fake.chamadas.gerar)` nem no log capturado (e aparece, como conferência do cenário, na linha da dúvida lida pelo `comoWorker`).
 
-- [ ] **Step 4: E2E.** `scripts/e2e-seed.ts`: no consultório do E2E, a IA Nutri ativada (`ia_nutri_ativada_em`), o aditivo 1.2, a paciente do E2E liberada e um plano publicado com "Lanche da tarde (16:00): Banana prata" e a substituição "Maçã"; uma segunda paciente com conta, liberada, com o aceite e 10 perguntas respondidas hoje (para o limite do passo 6b); a linha de `ia_nutri_pausa` despausada (o seed roda como dono, fora de withTenant). **A cada execução** (o banco do E2E persiste — `e2e/painel.ts`: "o seed não apaga consultas" — e as duas pacientes da IA Nutri são gravadas com `onConflictDoUpdate`, como a `Multi E2E`), o seed zera o estado delas, no molde do bloco `AGENDA_E2E` (`withTenant({ tenantId: consultorio.id, role: 'worker' }, …)`): (a) apaga as linhas de `ia_nutri_mensagens` das duas (o gatilho `ia_nutri_mensagens_sem_apagar` deixa o worker); (b) volta `bloqueada_em` a nulo nas participações delas (a variante do passo 6 bloqueia a primeira); (c) se o último evento de consentimento da **primeira** for `aceite`, grava a `revogacao` com o marcador local no mesmo comando (`with m as materialized (select set_config('app.ia_nutri_revogando', '1', true)) insert … select … from m`, como a fábrica do `test/isolamento.test.ts`, T1) — `ia_nutri_consentimentos` é só inclusão (UPDATE/DELETE revogados), então o seed nunca apaga consentimento; (d) se o último evento da **segunda** não for `aceite`, grava o aceite na sessão dela (`withTenant({ tenantId, role: 'paciente', patientId, actorUserId: conta })`, como `aceiteNoBanco`, T1 — o gatilho só aceita o aceite do paciente); (e) grava as 10 perguntas da segunda com `created_at = now()` (o "hoje" da execução, no fuso do tenant; `contou_no_limite = true`, `status = 'respondida'`, sem `encaminhada_em`). Assim o passo 1 sempre começa sem consentimento, o passo 5 conta "(2)" sem sobras, e o preparo do axe (T11, Step 7b) e o passo 6b somam 2 dúvidas diretas abertas — abaixo do limite de 3. `e2e/ia-nutri-paciente.spec.ts` (`IA_PROVEDOR=sandbox`; o worker do E2E processa a fila):
+- [ ] **Step 4: E2E.** `scripts/e2e-seed.ts`: no consultório do E2E, a IA Nutri ativada (`ia_nutri_ativada_em`), o aditivo 1.2, a paciente do E2E liberada e um plano publicado com "Lanche da tarde (16:00): Banana prata" e a substituição "Maçã"; uma segunda paciente com conta, liberada, com o aceite e 10 perguntas respondidas hoje (para o limite do passo 6b); a linha de `ia_nutri_pausa` não é tocada (nasce não pausada, ★ DO-1 = não; T1 Step 6b). **A cada execução** (o banco do E2E persiste — `e2e/painel.ts`: "o seed não apaga consultas" — e as duas pacientes da IA Nutri são gravadas com `onConflictDoUpdate`, como a `Multi E2E`), o seed zera o estado delas, no molde do bloco `AGENDA_E2E` (`withTenant({ tenantId: consultorio.id, role: 'worker' }, …)`): (a) apaga as linhas de `ia_nutri_mensagens` das duas (o gatilho `ia_nutri_mensagens_sem_apagar` deixa o worker); (b) volta `bloqueada_em` a nulo nas participações delas (a variante do passo 6 bloqueia a primeira); (c) se o último evento de consentimento da **primeira** for `aceite`, grava a `revogacao` com o marcador local no mesmo comando (`with m as materialized (select set_config('app.ia_nutri_revogando', '1', true)) insert … select … from m`, como a fábrica do `test/isolamento.test.ts`, T1) — `ia_nutri_consentimentos` é só inclusão (UPDATE/DELETE revogados), então o seed nunca apaga consentimento; (d) se o último evento da **segunda** não for `aceite`, grava o aceite na sessão dela (`withTenant({ tenantId, role: 'paciente', patientId, actorUserId: conta })`, como `aceiteNoBanco`, T1 — o gatilho só aceita o aceite do paciente); (e) grava as 10 perguntas da segunda com `created_at = now()` (o "hoje" da execução, no fuso do tenant; `contou_no_limite = true`, `status = 'respondida'`, sem `encaminhada_em`). Assim o passo 1 sempre começa sem consentimento, o passo 5 conta "(2)" sem sobras, e o preparo do axe (T11, Step 7b) e o passo 6b somam 2 dúvidas diretas abertas — abaixo do limite de 3. `e2e/ia-nutri-paciente.spec.ts` (`IA_PROVEDOR=sandbox`; o worker do E2E processa a fila):
   1. Plano → "Tirar dúvida sobre o plano" → a tela "Antes de usar a IA Nutri" com o texto → "Autorizo o uso da IA Nutri" → a conversa vazia com a mensagem de abertura ("Olá! Eu sou a IA Nutri…") **antes** de qualquer pergunta e "Como a IA Nutri funciona" aberto.
   2. "o que posso comer no lugar da banana à tarde?" → o campo esvazia e o foco vai para a região de status ("Pensando…") → "No seu plano, as opções de substituição são:" + "Maçã — …" + "Fonte: Lanche da tarde — substituições" + o rodapé, e o status "A resposta chegou."; abaixo da resposta montada, "Ajudou", "Não ajudou" **e** "Enviar para minha nutricionista" (US-172); "Ajudou" → "Obrigado pela avaliação." no lugar dos dois botões.
   3. "SANDBOX-FONTE-INEXISTENTE" → "Não encontrei isso no seu plano. Quer enviar essa pergunta para sua nutricionista?" → "Enviar para minha nutricionista" → "Pronto! Sua pergunta foi enviada ao consultório…".
@@ -4837,17 +4843,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Revisão: completa (agentes `guardiao-manual` e `normas-cfn-lgpd`).**
 
 **Files:**
-- Modify: `docs/manual-tecnico/10-ia.md` (§10.14 nova: "IA Nutri do paciente (Plano 15)"), `docs/manual-tecnico/README.md` (índice, glossário — "IA Nutri do paciente", "texto fixo", "resposta montada", "pausa da plataforma" —, divergências spec × código: os desvios 1–6), `docs/manual-tecnico/02-banco-de-dados.md` (as quatro tabelas, as três funções, os gatilhos), `docs/manual-tecnico/06-worker-seguranca-operacao.md` (as cinco filas), `docs/operacao/ia.md` (runbook do Plano 15), `docs/operacao/go-live.md` (checklist da IA Nutri), `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md` (P15-01…P15-14 e os minors P15-B*), `docs/superpowers/specs/2026-10-03-nutridebby-paciente-exames-ia-design.md` (v0.5: status, decisões do plano, ★ DO-1 a DO-4 com a resposta do dono), `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md` (as emendas C-191, C-192, C-197, RN-193, RN-194, RN-209), `CLAUDE.md` (regras 1, 2, 8 e 9)
+- Modify: `docs/manual-tecnico/10-ia.md` (§10.14 nova: "IA Nutri do paciente (Plano 15)"), `docs/manual-tecnico/README.md` (índice, glossário — "IA Nutri do paciente", "texto fixo", "resposta montada", "pausa da plataforma" —, divergências spec × código: os desvios 1–6), `docs/manual-tecnico/02-banco-de-dados.md` (as quatro tabelas, as três funções, os gatilhos), `docs/manual-tecnico/06-worker-seguranca-operacao.md` (as cinco filas), `docs/operacao/ia.md` (runbook do Plano 15), `docs/operacao/go-live.md` (checklist da IA Nutri), `docs/superpowers/plans/2026-09-27-nutridebby-00-indice.md`, `docs/superpowers/plans/2026-09-27-nutridebby-backlog.md` (P15-01…P15-14 e os minors P15-B*), `docs/superpowers/specs/2026-10-03-nutridebby-paciente-exames-ia-design.md` (v0.5: status, decisões do plano, ★ DO-1 a DO-6 com a resposta do dono e a D37), `docs/superpowers/specs/2026-10-08-nutridebby-app-paciente-g-design.md` (as emendas C-191, C-192, C-197, RN-193, RN-194, RN-209), `CLAUDE.md` (regras 1, 2, 8 e 9)
 
-- [ ] **Step 1: CLAUDE.md.** Regra 1: a lista da tabela `user` ganha "por `src/modules/ia/nutri-paciente/contexto.ts` (só `user.name` das nutricionistas do tenant, para a máscara do contexto da IA Nutri do paciente, Plano 15; só o worker importa)"; as tabelas fora da RLS ganham "`ia_nutri_pausa` (Plano 15, RN-185: linha única da pausa da IA Nutri, sem `tenant_id`; escrita só por `src/modules/plataforma/ia-nutri-pausa.ts`, fora de withTenant — gatilho `ia_nutri_pausa_da_admin`; qualquer contexto lê)". Regra 2: o parágrafo do Plano 15 — `ia_nutri_participacoes`, `ia_nutri_mensagens`, `ia_nutri_consentimentos` com tenant e paciente; `ia_nutri_mensagens` em `PACIENTE_ESCREVE` (`update`, gatilho `ia_nutri_mensagens_regras`: o paciente só `avaliacao` e `encaminhada_em`; a equipe só abre e resolve; DELETE pelo `ia_nutri_mensagens_sem_apagar`), em `UPDATE_DO_PACIENTE`, `SEM_DELETE` e `IMUTAVEIS`; o INSERT do paciente só por `app_ia_nutri_perguntar` e `app_ia_nutri_enviar_a_nutri` (SECURITY DEFINER, troca de papel, não enfileiram — o job `ia-paciente` vai pelo TS); na sessão `nutri`, `responde_a` só vai a nulo e só pelo SET NULL da FK no apagamento da D22 (`pg_trigger_depth() > 1`); `ia_nutri_consentimentos` em `PACIENTE_ESCREVE` (`insert`, `paciente_consentimento_proprio`), `REVOKE UPDATE, DELETE, TRUNCATE`, `SO_INSERE`, a revogação só por `app_ia_nutri_revogar` (marcador local `app.ia_nutri_revogando`; pelo paciente, canal `app`, ou pela nutricionista a pedido dele, canal `nutricionista` — DP-17), a anonimização só por `app_anonimizar_consentimentos_ia_nutri`. Regra 8: as entidades `ia_nutri` ("IA Nutri (conversa com o paciente)") e `ia_nutri_liberacao`; `ia_nutri_consentimentos` em `AUDIT_EXCEPTIONS`; "Perguntou à IA" é o `criar` de `ia_nutri_pergunta` gravado pelo módulo (também na pergunta com risco gravada); "Enviou dúvida à nutricionista" é o `criar` de `ia_nutri_duvida` (DP-16); "Pergunta enviada à IA" é o `exportar` do portão; o `criar` do gatilho em `ia_nutri` e os `alterar` de ator nulo ficam fora da tela; a montagem do contexto e a releitura passam `auditar: false`; a fila "Dúvidas dos pacientes" e a rota de situação não chamam `auditRead`; abrir a dúvida, a aba da ficha e a conversa do paciente chamam. Regra 9 não muda (a IA Nutri não grava arquivo) — conferir e não mexer.
+- [ ] **Step 1: CLAUDE.md.** Regra 1: a lista da tabela `user` ganha "por `src/modules/ia/nutri-paciente/contexto.ts` (só `user.name` das nutricionistas do tenant, para a máscara do contexto da IA Nutri do paciente, Plano 15; só o worker importa)"; as tabelas fora da RLS ganham "`ia_nutri_pausa` (Plano 15, RN-185: linha única da pausa de emergência da IA Nutri, que nasce não pausada — a IA Nutri liga pela nutricionista, D37 —, sem `tenant_id`; escrita só por `src/modules/plataforma/ia-nutri-pausa.ts`, fora de withTenant — gatilho `ia_nutri_pausa_da_admin`; qualquer contexto lê)". Regra 2: o parágrafo do Plano 15 — `ia_nutri_participacoes`, `ia_nutri_mensagens`, `ia_nutri_consentimentos` com tenant e paciente; `ia_nutri_mensagens` em `PACIENTE_ESCREVE` (`update`, gatilho `ia_nutri_mensagens_regras`: o paciente só `avaliacao` e `encaminhada_em`; a equipe só abre e resolve; DELETE pelo `ia_nutri_mensagens_sem_apagar`), em `UPDATE_DO_PACIENTE`, `SEM_DELETE` e `IMUTAVEIS`; o INSERT do paciente só por `app_ia_nutri_perguntar` e `app_ia_nutri_enviar_a_nutri` (SECURITY DEFINER, troca de papel, não enfileiram — o job `ia-paciente` vai pelo TS); na sessão `nutri`, `responde_a` só vai a nulo e só pelo SET NULL da FK no apagamento da D22 (`pg_trigger_depth() > 1`); `ia_nutri_consentimentos` em `PACIENTE_ESCREVE` (`insert`, `paciente_consentimento_proprio`), `REVOKE UPDATE, DELETE, TRUNCATE`, `SO_INSERE`, a revogação só por `app_ia_nutri_revogar` (marcador local `app.ia_nutri_revogando`; pelo paciente, canal `app`, ou pela nutricionista a pedido dele, canal `nutricionista` — DP-17), a anonimização só por `app_anonimizar_consentimentos_ia_nutri`. Regra 8: as entidades `ia_nutri` ("IA Nutri (conversa com o paciente)") e `ia_nutri_liberacao`; `ia_nutri_consentimentos` em `AUDIT_EXCEPTIONS`; "Perguntou à IA" é o `criar` de `ia_nutri_pergunta` gravado pelo módulo (também na pergunta com risco gravada); "Enviou dúvida à nutricionista" é o `criar` de `ia_nutri_duvida` (DP-16); "Pergunta enviada à IA" é o `exportar` do portão; o `criar` do gatilho em `ia_nutri` e os `alterar` de ator nulo ficam fora da tela; a montagem do contexto e a releitura passam `auditar: false`; a fila "Dúvidas dos pacientes" e a rota de situação não chamam `auditRead`; abrir a dúvida, a aba da ficha e a conversa do paciente chamam. Regra 9 não muda (a IA Nutri não grava arquivo) — conferir e não mexer.
 
-- [ ] **Step 2: Manual técnico §10.14** (o `guardiao-manual` escreve, conferindo no código): o fluxo do §4.2 com os nomes reais (`perguntar` → `app_ia_nutri_perguntar` → `ia-paciente` → `processarPerguntaIaNutri` → `montarContexto`/`relerTrechos` → `validarSaida`/`montarResposta`), a ordem de travas (a trava do paciente primeiro em toda transação de um paciente), a cota por escopo, a pausa da plataforma e as duas barreiras, a revogação e o esqueleto, a retenção, o que vai e o que não vai ao provedor (`CATEGORIAS_DA_IA_NUTRI`), as filas e as varreduras, os textos fixos e onde mudam (`textos.ts`, D11), e as decisões técnicas DP-1 a DP-15.
+- [ ] **Step 2: Manual técnico §10.14** (o `guardiao-manual` escreve, conferindo no código): o fluxo do §4.2 com os nomes reais (`perguntar` → `app_ia_nutri_perguntar` → `ia-paciente` → `processarPerguntaIaNutri` → `montarContexto`/`relerTrechos` → `validarSaida`/`montarResposta`), a ordem de travas (a trava do paciente primeiro em toda transação de um paciente), a cota por escopo, a pausa de emergência da plataforma (nasce não pausada, ★ DO-1 = não) e as duas barreiras, a revogação e o esqueleto, a retenção, o que vai e o que não vai ao provedor (`CATEGORIAS_DA_IA_NUTRI`), as filas e as varreduras, os textos fixos e onde mudam (`textos.ts`, D11), e as decisões técnicas DP-1 a DP-18 e a D37 do caderno (a IA Nutri liga pela nutricionista; consentimento 1.0 final).
 
-- [ ] **Step 3: Runbook do dono** em `docs/operacao/ia.md`, seção "Plano 15 — IA Nutri do paciente" (copiado do bloco "Runbook do dono (Plano 15)" abaixo). `go-live.md`: a lista para marcar — as oito condições do passo 8, uma por linha, com onde está a prova de cada uma.
+- [ ] **Step 3: Runbook do dono** em `docs/operacao/ia.md`, seção "Plano 15 — IA Nutri do paciente" (copiado do bloco "Runbook do dono (Plano 15)" abaixo). `go-live.md`: a lista da IA Nutri — os passos **antes do merge** (snapshot, avaliação RN-184, `IA_MODELO_PACIENTE` no Easypanel) para marcar, e as **pendências registradas** da D37 (CRN-3, advogado com o consentimento 1.0, RIPD, psicóloga, Política de Uso nova a partir de 12/11/2026, DPA e termo do paciente ainda provisórios), uma por linha, marcadas como "pendência, não portão", com onde fica a resposta de cada uma.
 
-- [ ] **Step 4: Roteiro do manual do usuário** (para a descrição do PR; o controlador aplica no Claude Docs depois do merge): capítulo "Inteligência artificial (IA)" — a seção nova "IA Nutri para pacientes (em preparação)" dizendo que **está no código e pausada** até o runbook (DP-1), o que a nutricionista vê em Configurações, na ficha e na fila quando for ligada, e o que o paciente vê em Plano e em Eu; a tabela "O que ainda não está pronto" com a linha da IA Nutri do paciente ("no código desde {data do merge}, pausada até CRN-3, advogado, RIPD, DPA e termo do paciente definitivos, textos e protocolo de risco revisados, nome, avaliação e 12/11/2026").
+- [ ] **Step 4: Roteiro do manual do usuário** (para a descrição do PR; o controlador aplica no Claude Docs depois do merge): capítulo "Inteligência artificial (IA)" — a seção nova "IA Nutri para pacientes", **disponível desde o merge** (★ DO-1 = não): com a IA do consultório liberada pelo suporte e o aditivo 1.2 aceito, a nutricionista ativa em Configurações, libera paciente por paciente na ficha e acompanha a fila "Dúvidas dos pacientes" (com o protocolo do "Sinal de risco"); o paciente lê o consentimento e decide em Plano, conversa, envia dúvidas e desativa em Eu › Privacidade; o suporte pode pausar a IA Nutri em todos os consultórios numa emergência. A linha da IA Nutri do paciente sai da tabela "O que ainda não está pronto".
 
-- [ ] **Step 5: Spec e índices.** A spec da F3-02 vira v0.5 (status: "Plano 15 em código, pausado"), com as respostas do dono às ★ DO-1 a DO-4 e os desvios 1–6; a spec do app G recebe as emendas; o índice dos planos e o backlog ganham o Plano 15 (P15-01 a P15-14) e os minors.
+- [ ] **Step 5: Spec e índices.** A spec da F3-02 vira v0.5 (status: "Plano 15 em código; a IA Nutri liga pela nutricionista"), com as respostas do dono às ★ DO-1 a DO-6, a D37 do caderno (notas "revista em 14/10/2026" na §5.2 — a pré-condição de data deixa de ser condição —, na RN-184 — "antes de ligar" passa a "antes do merge" —, na RN-185 — a pausa é de emergência e nasce desligada —, na RN-171 — versão 1.0 final — e nas D1, D2, D11 e D28 da §18) e os desvios 1–9; a spec do app G recebe as emendas; o índice dos planos e o backlog ganham o Plano 15 (P15-01 a P15-14) e os minors.
 
 - [ ] **Step 6: Checagem final** (abaixo) e o PR.
 
@@ -4862,19 +4868,24 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ## Runbook do dono (Plano 15 — IA Nutri do paciente)
 
-Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da A-D27 e da 14B. **A IA Nutri nasce pausada na plataforma (DP-1)**: o merge não liga nada para nenhum paciente.
+Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da A-D27 e da 14B. **A IA Nutri vai ao ar com o merge, ligada pela definição da nutricionista (★ DO-1 = não, D37 do caderno, 14/10/2026):** no dia do deploy, todo consultório com a IA liberada pelo suporte (`ia_liberada`) pode aceitar o aditivo 1.2, ativar a IA Nutri e liberar pacientes. Não há portão de plataforma nem trava de texto — por isso os passos 1 a 3 são **antes do merge**. A pausa da plataforma é só de **emergência** (nasce não pausada).
 
-1. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. As migrations `0115`–`0117` só acrescentam (tabelas, colunas e funções novas; a 0116 recria a função do gatilho `tenants_interruptores_da_admin` com a cota da IA Nutri). O aditivo sobe para 1.2, mas o mínimo das outras funções continua 1.1: **ninguém perde a IA de laudos, resumo, rascunho ou modelos**. Nenhuma contagem em produção é necessária (nada é invalidado).
-2. **Consultas externas (D2, D1).** CRN-3 (prazo de **8 semanas**; sem resposta, a decisão volta ao dono e o modo (d) não liga): as perguntas da D2 — 599/2018 art. 52; 856/2026 art. 34, parágrafo único; sigilo (599 art. 20, I) com o texto sinalizado revisto por pessoas do fornecedor; a conversa com a IA é prontuário (594/2017, art. 1º)?; o exemplo "posso comer o lanche mesmo com diarreia?". Advogado (junto do P14A-16): o consentimento 0.1 da IA Nutri (com o limite da máscara, art. 9º, § 1º, e a desativação "pedindo à sua nutricionista"), o aditivo 1.2 (itens 2, 5, 6 e 7 reescritos para a finalidade (e)), D22 (30 dias) **também no pedido de exclusão atendido** (o art. 18, VI só ressalva o art. 16), D8/prontuário, Anvisa (RDC 657/2022), guarda de até 2 anos do conteúdo sinalizado, DPA e termo do paciente ainda `0.1-provisorio` (P08-06). **Condição da D2 (aprovada em 10/10/2026): a IA Nutri só liga com paciente real depois que o DPA e o termo do paciente deixarem de ser provisórios, ou com decisão expressa do dono anotada como na A-D27.** **RIPD** da F3-02 antes de paciente real. **Se o CRN-3 recusar o modo (d), a IA Nutri não liga** (o modo (c) da D1 não existe no código: seria um plano novo); sem resposta em 8 semanas, só com a decisão do dono registrada por escrito.
-3. **Textos (D11 = a).** Debby revisa todos os textos ao paciente (`textos.ts`, `MSG_IA_NUTRI`, o consentimento) e as listas de `sinais-risco.ts` e `termos-sensiveis.ts`; o advogado revisa o consentimento e o aditivo 1.2; o psicólogo revisa os textos de risco — inclusive se `risco_emergencia` e `sintoma_agudo` devem dizer, como o `risco_transtorno`, que a mensagem foi ao consultório e que ele não acompanha em tempo real nem atende emergências (nota da D10) — e reescreve o protocolo do "Sinal de risco" (`MSG_IA_NUTRI.protocoloRisco`, rascunho do DP-18) — e confere se "Sua dúvida foi vista no consultório." deve aparecer sob a mensagem de risco depois que a nutricionista a marca como vista (hoje aparece; "Pronto! Sua pergunta foi enviada…" não aparece sob ela). Depois: um PR curto troca `IA_NUTRI_TERMO_VERSAO` para `1.0` (e o mínimo para `1.0`), põe o protocolo final com `PROTOCOLO_RISCO_PROVISORIO = false`, sobe `GUIA_PORTAL.versao` para 2 e a `versao` do guia `boas-vindas` do painel para 3 (★ DO-6), com os textos finais — só aí `ativarIaNutri` deixa de recusar em produção (DP-2, DP-18).
-4. **Nome (D28).** A Debby escolhe o nome que o paciente vê; o mesmo PR do passo 3 troca `NOME_IA_NUTRI`.
-5. **Avaliação (RN-184, D5) — custo < US$ 10.** Na máquina do dono, com o `.env.avaliacao` (chave **de dev**): `IA_AVALIACAO=1 IA_AVALIACAO_TAREFA=conversa IA_AVALIACAO_MODELOS=claude-haiku-5-5,claude-sonnet-5-5 pnpm ia:avaliar`. Abaixo das metas, não liga. Se o Haiku 5.5 passar (e não perder no sinal sutil), `IA_MODELO_PACIENTE=claude-haiku-5-5` (o padrão); senão `claude-sonnet-5-5` e rever a D3 (cota). A Debby revisa o relatório e as conversas do conjunto.
-6. **Data.** Sem a confirmação escrita da Anthropic (D2 b), ligar com paciente real **só a partir de 12/11/2026** (Política de Uso nova). Conferir a versão da Política de Uso a cada liberação (RN-185).
-7. **Variáveis no Easypanel (regra 6; o dono aplica).** Worker e app: `IA_MODELO_PACIENTE` (do passo 5; no Bedrock, não definir ou usar `claude-sonnet-5-5` — sem a variável, o padrão já segue o provedor); `IA_NUTRI_DESLIGADA` só em emergência (segunda barreira; exige redeploy). Snapshot antes; reiniciar só com o OK do dono.
-8. **Ligar — só com as oito condições conferidas e marcadas no `go-live.md`** (a mesma lista da confirmação de "Retomar a IA Nutri", T11, ★ DO-1/DO-5): (1) o CRN-3 aceitou o modo (d) — se recusou, não liga; sem resposta em 8 semanas, decisão do dono por escrito; (2) parecer do advogado; (3) RIPD concluído; (4) DPA e termo do paciente fora do `0.1-provisorio` (P08-06), ou decisão expressa do dono anotada como na A-D27; (5) textos 1.0 revisados pela Debby, pelo advogado e pelo psicólogo, com o protocolo do "Sinal de risco" (passo 3); (6) avaliação RN-184 aprovada (passo 5); (7) data a partir de 12/11/2026, ou confirmação escrita da Anthropic (passo 6); (8) Política de Uso conferida. Então o admin, em Admin › Servidor, toca em "Retomar a IA Nutri". A nutricionista (Debby) ativa em Configurações (aceita o aditivo 1.2 se ainda não aceitou) e libera paciente por paciente na ficha. **Emergência:** "Pausar a IA Nutri em todos os consultórios" (vale na próxima pergunta); `IA_NUTRI_DESLIGADA=1` como segunda barreira.
-9. **Todo mês (RN-185, CS-162 a CS-165).** A nutricionista revisa 50 conversas sorteadas e todas as "Não ajudou"; a Debby revisa o conjunto de avaliação; a soma de `ia_uso` (`conversa_paciente`) × a fatura (diferença > 5% → investigação); o dia do primeiro bloqueio por cota (CS-165: nenhum antes do dia 25); "Ajudou" ≥ 70% (★ DO-3).
-10. **Dezembro de 2026 (D36).** Reler o texto final da Res. CFN nº 856/2026; se o CRN-3 entender que o explicador é "interação direta", pausar a IA Nutri em 22/01/2027 ou passar ao modo (c) da D1.
-11. **Antes do 3º consultório (D3).** Rever o teto global de US$ 50 (US$ 15 + 7 por consultório); repasse do custo antes do 2º (PM-7).
+1. **Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR. As migrations `0115`–`0117` só acrescentam (tabelas, colunas e funções novas; a 0116 recria a função do gatilho `tenants_interruptores_da_admin` com a cota da IA Nutri e cria a linha de `ia_nutri_pausa` **não pausada**). O aditivo sobe para 1.2, mas o mínimo das outras funções continua 1.1: **ninguém perde a IA de laudos, resumo, rascunho ou modelos**. Nenhuma contagem em produção é necessária (nada é invalidado).
+2. **Avaliação (RN-184, D5) — antes do merge, no branch; custo < US$ 10.** A RN-184 pede a avaliação "antes de ligar" e, com a DO-1 = não, o merge já liga para quem ativar. Na máquina do dono, com o `.env.avaliacao` (chave **de dev**): `IA_AVALIACAO=1 IA_AVALIACAO_TAREFA=conversa IA_AVALIACAO_MODELOS=claude-haiku-5-5,claude-sonnet-5-5 pnpm ia:avaliar`. Abaixo das metas, **não fazer o merge** (decisão do dono). Se o Haiku 5.5 passar (e não perder no sinal sutil), `IA_MODELO_PACIENTE=claude-haiku-5-5` (o padrão); senão `claude-sonnet-5-5` e rever a D3 (cota). A Debby revisa o relatório e as conversas do conjunto.
+3. **Variáveis no Easypanel (regra 6; o dono aplica) — antes do deploy.** Worker e app: `IA_MODELO_PACIENTE` (do passo 2; no Bedrock, não definir ou usar `claude-sonnet-5-5` — sem a variável, o padrão já segue o provedor); `IA_NUTRI_DESLIGADA` só em emergência (segunda barreira; exige redeploy). Snapshot antes; reiniciar só com o OK do dono.
+4. **Textos (D11, D37).** O consentimento sai como **1.0 final** e o protocolo do "Sinal de risco" como texto final, publicados pelo dono sem o advogado e sem a psicóloga, como a A-D27 (risco jurídico assumido). Recomendado: a Debby lê os textos ao paciente (`textos.ts`, `MSG_IA_NUTRI`, o consentimento), as listas de `sinais-risco.ts` e `termos-sensiveis.ts` e o protocolo antes de ativar no consultório dela.
+5. **Pendências registradas (D2, D11, D37) — não são portões.** Nenhuma delas segura o merge nem a ativação; cada resposta pode mudar um texto ou levar a uma pausa:
+   - **CRN-3** (prazo de 8 semanas, D1): as perguntas da D2 — 599/2018 art. 52; 856/2026 art. 34, parágrafo único; sigilo (599 art. 20, I) com o texto sinalizado revisto por pessoas do fornecedor; a conversa com a IA é prontuário (594/2017, art. 1º)?; o exemplo "posso comer o lanche mesmo com diarreia?". **Se o CRN-3 responder "não" ao modo (d)**, pausar a IA Nutri (emergência) e decidir (o modo (c) da D1 não existe no código: seria um plano novo); sem resposta em 8 semanas, a decisão volta ao dono.
+   - **Advogado** (junto do P14A-16): o consentimento **1.0** da IA Nutri (com o limite da máscara, art. 9º, § 1º, e a desativação "pedindo à sua nutricionista"), o aditivo 1.2 (itens 2, 5, 6 e 7 reescritos para a finalidade (e)), D22 (30 dias) **também no pedido de exclusão atendido** (o art. 18, VI só ressalva o art. 16), D8/prontuário, Anvisa (RDC 657/2022), guarda de até 2 anos do conteúdo sinalizado, DPA e termo do paciente ainda `0.1-provisorio` (P08-06). A condição da D2 ("só ligar depois que o DPA e o termo do paciente deixarem de ser provisórios, ou com decisão expressa do dono anotada como na A-D27") fica atendida pela **decisão expressa da D37**.
+   - **RIPD** da F3-02 (dados de saúde com texto livre do paciente indo aos EUA).
+   - **Psicóloga:** os textos de risco — inclusive se `risco_emergencia` e `sintoma_agudo` devem dizer, como o `risco_transtorno`, que a mensagem foi ao consultório e que ele não acompanha em tempo real nem atende emergências (nota da D10) —, o protocolo do "Sinal de risco" (`MSG_IA_NUTRI.protocoloRisco`) e se "Sua dúvida foi vista no consultório." deve aparecer sob a mensagem de risco depois que a nutricionista a marca como vista (hoje aparece; "Pronto! Sua pergunta foi enviada…" não aparece sob ela).
+   - **Política de Uso da Anthropic (D2 b, R-160):** até 11/11/2026 vale a versão de 15/09/2025, ambígua para um plano clínico; a IA Nutri funciona nesse intervalo por decisão do dono (D37). Em 12/11/2026, conferir a versão nova; a cada mudança da página, reler e, se for o caso, pausar (RN-185).
+   - **Quando uma resposta mudar um texto:** frase do consentimento (advogado, psicóloga ou troca do nome, D28) → um PR curto sobe `IA_NUTRI_TERMO_VERSAO` e `IA_NUTRI_TERMO_VERSAO_MIN` juntos (ex.: `1.1`), e cada paciente lê e decide de novo ("O texto mudou", US-171); protocolo de risco ou texto fixo → PR curto sem versão nova do consentimento; aditivo → versão nova do aditivo (`IA_NUTRI_ADITIVO_VERSAO_MIN` junto, se for só da IA Nutri).
+6. **Nome (D28, ★ DO-4).** Vai ao ar como "IA Nutri" (`NOME_IA_NUTRI`). Se a Debby escolher outro nome depois, é versão nova do consentimento (passo 5).
+7. **Ligar — a nutricionista.** Depois do deploy, a Debby aceita o aditivo 1.2 em Configurações (se ainda não aceitou), ativa a IA Nutri e libera paciente por paciente na ficha; o paciente lê o consentimento e decide em Plano. Nenhuma ação do admin é necessária. **Emergência:** Admin › Servidor › "Pausar a IA Nutri em todos os consultórios" (vale na próxima pergunta; a trilha é `admin_actions`, ★ DO-5) e, resolvido o motivo, "Retomar a IA Nutri"; `IA_NUTRI_DESLIGADA=1` como segunda barreira.
+8. **Todo mês (RN-185, CS-162 a CS-165).** A nutricionista revisa 50 conversas sorteadas e todas as "Não ajudou"; a Debby revisa o conjunto de avaliação; a soma de `ia_uso` (`conversa_paciente`) × a fatura (diferença > 5% → investigação); o dia do primeiro bloqueio por cota (CS-165: nenhum antes do dia 25); "Ajudou" ≥ 70% (★ DO-3: meta de acompanhamento, não bloqueia nada); a versão da Política de Uso do fornecedor.
+9. **Dezembro de 2026 (D36).** Reler o texto final da Res. CFN nº 856/2026; se o CRN-3 entender que o explicador é "interação direta", pausar a IA Nutri em 22/01/2027 ou passar ao modo (c) da D1.
+10. **Antes do 3º consultório (D3).** Rever o teto global de US$ 50 (US$ 15 + 7 por consultório); repasse do custo antes do 2º (PM-7).
 
 ## Checagem final (antes do PR)
 
@@ -4883,19 +4894,23 @@ Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da 
 - [ ] `grep -rn "MARCADOR-SAUDE\|console.log" src/modules/ia/nutri-paciente` — nada fora dos testes.
 - [ ] As guardas: `rls-guard`, `audit-guard`, `isolamento`, `sem-conta-guarda`, `guardas` (grafo), `logs`, `sem-tabelas-tenant`, `acoes-de-paciente`, `conteudo.test` (guias) — passando.
 - [ ] `migrate-owner.test.ts` (migrator sem superusuário) passando com as funções novas **executadas** pelo login do app (perguntar, enviar à nutricionista, revogar, anonimizar e as métricas), não só conferidas no catálogo.
-- [ ] O PR diz em destaque: **a IA Nutri nasce pausada; o merge não liga nada; nenhuma autorização é invalidada.**
+- [ ] A avaliação RN-184 (runbook passo 2) foi feita no branch e aprovada pelo dono **antes** do pedido de merge.
+- [ ] O PR diz em destaque: **a IA Nutri vai ao ar com o merge, ligada pela definição da nutricionista (não nasce pausada; a pausa do admin é só de emergência); o consentimento sai como 1.0 final, sem o advogado (D37, como a A-D27); CRN-3, advogado, RIPD, psicóloga e 12/11/2026 são pendências, não portões; nenhuma autorização é invalidada; o guia do portal (versão 2) e o `boas-vindas` do painel (versão 3) mostram o aviso de novidade a quem já os viu.**
 
 ## Riscos e pendências que ficam
 
 | # | Risco | Tratamento |
 |---|---|---|
-| 1 | O CRN-3 não responder em 8 semanas | D1: a decisão volta ao dono; a IA Nutri continua pausada (DP-1) |
+| 1 | O CRN-3 não responder em 8 semanas, ou responder "não" ao modo (d) | Não é portão (D37): a IA Nutri já está no ar. Sem resposta, a decisão volta ao dono (D1); "não" → pausa de emergência (Admin › Servidor) e decisão do dono (runbook passo 5) |
 | 2 | O conteúdo sinalizado pela Anthropic ficar até 2 anos (R-178) | Consentimento diz por destino; filtro antes do modelo; advogado (passo 2) |
 | 3 | Falso negativo do filtro de risco (R-163) | Classificação do modelo como segunda camada; a nutricionista lê as conversas (D7); linha de emergência sempre visível; avaliação mede os sutis |
 | 4 | A conversa ser considerada prontuário (R-167) | Se o CRN/advogado disserem que é: caem D8, D32 e a frase "apagadas na hora" — plano curto com "copiar para o prontuário" |
 | 5 | `localConcurrency` com nome diferente no pg-boss 12 | O implementador confere na T9; sem ele, a fila roda uma por vez (mais lenta, não insegura) |
 | 6 | Menu do painel com 8 itens a 1280 px | Revisão de interface na T11 decide o rótulo curto |
 | 7 | A cópia offline de `/p/plano` manter o link da IA Nutri depois de um bloqueio | O toque mostra "não disponível"; a cópia se renova em até 1 dia (D6 do Plano 06) |
+| 8 | Uso com paciente real antes de 12/11/2026, sob a Política de Uso de 15/09/2025, ambígua para um plano clínico (R-160) | Risco assumido pelo dono (D37); conferir a versão nova em 12/11/2026 e a cada mudança; pausa de emergência se a leitura mudar (runbook passo 5) |
+| 9 | Consentimento 1.0 e protocolo de risco publicados sem o advogado e sem a psicóloga (D11, D37) | Risco jurídico assumido pelo dono, como na A-D27; P14A-16 e P15-B11; frase mudada → versão nova e novo consentimento |
+| 10 | Sem portão de código, todo consultório com a IA liberada pelo suporte pode ativar no dia do deploy, inclusive antes de a avaliação RN-184 ser refeita numa troca de modelo | Avaliação antes do merge (runbook passo 2) e a cada troca de modelo ou de `PROMPT_VERSAO_CONVERSA`; uma liberação do suporte só para a IA Nutri, por consultório, exigiria coluna nova (fora deste plano) |
 
 ## Autoconferência do plano (writing-plans)
 
@@ -4904,7 +4919,8 @@ Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da 
 - **Tipos:** `DepsIaNutri` (deps.ts), `DepsJobIaPaciente`, `CodigoPergunta`, `CodigoTextoFixo`, `EscopoCota`, `PausaIaNutri`, `Trecho`, `FonteDoContexto` — usados com os mesmos nomes e campos nas T5–T13. `tipo_resposta` usa `'nenhum'` fora de `plano` (schema, sandbox e validação).
 - **Review Focus:** os sete itens têm o teste na tarefa dona (T9 casos 1 e 2; T2 e T9 para a revogação; T2 para as cinco chamadas; T6 para "posso X se Y"; T7 e T12 para o bloco de Eu com bloqueio/pausa e depois da desativação; T9 e T13 para o risco fora do histórico; T1, T2, T10 e T11 para a D22 de ponta a ponta).
 - **Revisão do plano (14/10/2026, workflow):** os achados confirmados das lentes cobertura da spec, banco/RLS, normas, interface, executabilidade e segurança da IA foram aplicados nas tarefas (DP-16 a DP-18, desvios 7 a 9, ★ DO-5 e DO-6); os Minor que não couberam estão em P15-B6 a P15-B9.
-- **Re-revisão do plano (14/10/2026):** 12 achados (1 Important, 11 Minor), todos confirmados no plano e no código. Important: o histórico da conversa leva do paciente só a pergunta que passou pelo portão (`enviado_em`) e sem risco — a dúvida enviada direto à nutricionista (DP-16) e a pergunta que não saiu ficam de fora (T9, `contexto.test.ts`; T13, `logs.test.ts`). Minor resolvidos nas tarefas: a recusa da DP-17 é de RLS na sessão de paciente e o CHECK provado pelo dono (T1); `responde_a` a nulo só dentro da ação referencial (`pg_trigger_depth()`, T1); o limite da máscara inteiro (endereço, documentos, dados de terceiros; T4); `ProgressoGuia.v` (T12); `novoPaciente(app.db, T.ctx)` e `{ T, p, q }` (T1); a cerca de código da T5; `corpoDaConversa` única para o job e o avaliador (T9, T13); o seed do E2E zera a IA Nutri das duas pacientes e o axe localiza a dúvida pelo nome (T11, T13); sem "Pronto!…" sob a pergunta de risco (`MensagemDoPaciente.risco`, T8, T12; o "vista" sob o risco vai ao psicólogo no passo 3 do runbook); a versão do guia `boas-vindas` fica em 2 até o PR curto (★ DO-6). Para o backlog: o consultório suspenso na DP-17 (P15-B10).
+- **Decisões do dono (14/10/2026, D37 do caderno):** ★ DO-1 = não (a IA Nutri liga pela nutricionista; a linha de `ia_nutri_pausa` nasce não pausada e a pausa é só de emergência — T1, T2, T5, T11, runbook); ★ DO-2 trocada (consentimento 1.0 final e protocolo final, sem trava de produção — DP-2, DP-18, T4, T6, T7, T11; `textosEmRevisao` e `PROTOCOLO_RISCO_PROVISORIO` saíram); ★ DO-3 a DO-5 como recomendado ("Retomar" é a volta da pausa de emergência; a confirmação não lista condições — T11); ★ DO-6 ajustada (guia do portal 1 → 2 e `boas-vindas` 2 → 3 neste PR — T11, T12). Também corrigido: `lerPausa` lia `pausada_em` nulo como pausada (`?? new Date(0)`), o que, com a linha não pausada, desligaria a IA Nutri em todo lugar (T5).
+- **Re-revisão do plano (14/10/2026):** 12 achados (1 Important, 11 Minor), todos confirmados no plano e no código. Important: o histórico da conversa leva do paciente só a pergunta que passou pelo portão (`enviado_em`) e sem risco — a dúvida enviada direto à nutricionista (DP-16) e a pergunta que não saiu ficam de fora (T9, `contexto.test.ts`; T13, `logs.test.ts`). Minor resolvidos nas tarefas: a recusa da DP-17 é de RLS na sessão de paciente e o CHECK provado pelo dono (T1); `responde_a` a nulo só dentro da ação referencial (`pg_trigger_depth()`, T1); o limite da máscara inteiro (endereço, documentos, dados de terceiros; T4); `ProgressoGuia.v` (T12); `novoPaciente(app.db, T.ctx)` e `{ T, p, q }` (T1); a cerca de código da T5; `corpoDaConversa` única para o job e o avaliador (T9, T13); o seed do E2E zera a IA Nutri das duas pacientes e o axe localiza a dúvida pelo nome (T11, T13); sem "Pronto!…" sob a pergunta de risco (`MensagemDoPaciente.risco`, T8, T12; o "vista" sob o risco vai à psicóloga — hoje no passo 5 do runbook, como pendência); a versão do guia `boas-vindas` ficava em 2 até um PR curto (★ DO-6 — revista pelo dono em 14/10/2026: sobe para 3 neste PR). Para o backlog: o consultório suspenso na DP-17 (P15-B10).
 
 ## Pontos menores (backlog do Plano 15)
 
@@ -4920,6 +4936,7 @@ Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da 
 | P15-B8 | Isolamento: aceitar em `test/isolamento.test.ts` uma fábrica por papel para tabelas em `PACIENTE_ESCREVE` com `insert`, para o negativo "P2 não grava linha de P1" usar o evento que o papel pode gravar (o `aceite`), e não cair na regra do evento — hoje a prova está em `ia-nutri-schema.test.ts` (T1); vale também para `ia_autorizacoes` (14A) |
 | P15-B9 | Varredura: com muitos consultórios, a lista de candidatas sem trava + a trava por paciente dá uma consulta por presa; medir em carga (P08-03) junto do P15-B4 |
 | P15-B10 | DP-17 no consultório suspenso (RN-15, re-revisão): nem o paciente nem a nutricionista entram, então ninguém registra a revogação pedida pelo paciente (LGPD art. 8º, § 5º). Hoje o pedido espera a reativação ou o suporte. Se o dono quiser um caminho durante a suspensão: uma ação do admin que só enfileira um job do worker (`app_ia_nutri_revogar` não roda no worker hoje — exigiria um ramo `worker` com canal próprio, ex. `suporte`, e o CHECK de `canal`), sem o admin tocar tabela 🔒 (regra 1). Os textos (desvio 9, docstring de `desativarPelaNutri`) já não prometem esse caso |
+| P15-B11 | Pendências da D37 (dono, 14/10/2026), registradas e **não** portões: resposta do CRN-3 (D1, D2; "não" → pausa de emergência), parecer do advogado sobre o consentimento 1.0 e o aditivo 1.2 (na lista do P14A-16), RIPD da F3-02, revisão da psicóloga (textos de risco e protocolo), Política de Uso da Anthropic a partir de 12/11/2026, nome escolhido pela Debby (D28). Frase do consentimento mudada → versão nova (`IA_NUTRI_TERMO_VERSAO` e o mínimo) e novo consentimento de cada paciente |
 
 ## Dependências e paralelismo
 

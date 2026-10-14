@@ -2,7 +2,7 @@
 
 | Item | Valor |
 |---|---|
-| Data | 09/10/2026 |
+| Data | 09/10/2026 (revisto em 14/10/2026: D37 e as respostas às perguntas ★ do plano) |
 | Para quem | O dono do NutriDebby |
 | Base | Spec [`2026-10-03-nutridebby-paciente-exames-ia-design.md`](2026-10-03-nutridebby-paciente-exames-ia-design.md), **v0.4**, §18 (lá estão os detalhes técnicos de cada decisão) |
 | O que é a IA Nutri | Um assistente no app do paciente. Ele acha no plano alimentar a resposta para dúvidas simples ("quanto é 1 colher de arroz?"). Ele não cria conselho novo: mostra só o que a nutricionista escreveu. O resto vai para a nutricionista |
@@ -15,19 +15,51 @@
 - **D1:** prazo de **8 semanas** para a resposta do CRN-3; sem resposta, a decisão volta para o dono e a IA Nutri não liga no modo (d).
 - **D3:** cota da IA Nutri de **US$ 7 por consultório por mês** (para não bloquear no pior caso da D4), dentro do teto global de US$ 50.
 
-A D27 já foi aplicada ao plano da 14B (branch `plano-14b-ia-nutri`, Task 6: textos 1.1 com "Nestes usos, a IA não fala com você"). O plano do Plano 15 só é escrito depois da 14B-2; ligar com paciente real depende das consultas da D2 (CRN-3, advogado, RIPD) e, sem a confirmação por escrito da Anthropic, só a partir de 12/11/2026.
+A D27 já foi aplicada ao plano da 14B (branch `plano-14b-ia-nutri`, Task 6: textos 1.1 com "Nestes usos, a IA não fala com você"). O plano do Plano 15 só é escrito depois da 14B-2; ligar com paciente real depende das consultas da D2 (CRN-3, advogado, RIPD) e, sem a confirmação por escrito da Anthropic, só a partir de 12/11/2026. **Revisto em 14/10/2026 (D37, abaixo):** essas consultas e a data deixam de ser condição para ligar e viram pendências registradas.
+
+## Decisão do dono (14/10/2026) — D37 e as perguntas ★ do plano
+
+Nas perguntas ★ DO-1 a DO-6 do plano do Plano 15 (`docs/superpowers/plans/2026-10-14-nutridebby-15-ia-nutri-paciente.md`):
+- **DO-1 = não:** a IA Nutri **não** nasce pausada na plataforma. "A IA do paciente já pode estar ligada de acordo com a definição da nutri." A pausa fica só como desligamento de emergência (D37).
+- **DO-2 trocada:** o consentimento do paciente sai como **versão 1.0 final**, sem o advogado, como a A-D27 (D37). O aditivo 1.2 continua final.
+- **DO-3, DO-4 e DO-5 como recomendado:** meta de 70% de "Ajudou" só para acompanhamento; o nome "IA Nutri"; "Pausar" e "Retomar" registrados só em `admin_actions`, sem coluna nova — e "Retomar" passa a ser a volta de uma pausa de emergência, não a liberação inicial.
+- **DO-6 ajustada:** as versões dos manuais guiados (portal e `boas-vindas` do painel) sobem no próprio PR do Plano 15, porque a função vai ao ar ligada pela nutricionista.
+
+### D37 — Ligar pela nutricionista e publicar o consentimento como 1.0 final
+
+**Pergunta:** a IA Nutri nasce pausada até as consultas externas (D2) e o consentimento do paciente fica provisório até o advogado e a psicóloga revisarem (D11)?
+
+**Decisão do dono (14/10/2026): não.**
+- A IA Nutri liga como as outras IAs: o suporte libera o consultório (a mesma liberação da leitura de laudos), a nutricionista aceita o aditivo 1.2 e ativa, libera paciente por paciente (D6) e o paciente consente no app (D26).
+- O consentimento do paciente é publicado como **1.0 final**, sem a validação do advogado e da psicóloga, como a A-D27 fez com a autorização de IA dos laudos. O protocolo do "Sinal de risco" para a nutricionista também sai como texto final. O aditivo 1.2 continua final, como já estava.
+- A pausa da plataforma fica só como **desligamento de emergência** (RN-185): nasce desligada, e o admin tem "Pausar" e "Retomar".
+
+**Justificativa:** quem decide se o paciente usa é a nutricionista, que conhece o paciente (D6). Os textos seguem o caminho que o dono já aceitou na A-D27. Esperar o CRN-3 (até 8 semanas), o advogado, o RIPD, a psicóloga e a data de 12/11/2026 atrasaria a função sem prazo certo. A pausa de emergência e a desativação pelo paciente continuam disponíveis a qualquer momento.
+
+**Consequências (risco jurídico assumido pelo dono, como na A-D27):**
+1. O consentimento vai ao ar sem o advogado (texto livre de saúde do paciente indo aos EUA) e os textos de risco sem a psicóloga. Fica anotado no backlog (P15-B11) e o texto 1.0 entra na lista do advogado (P14A-16).
+2. CRN-3, advogado, RIPD, psicóloga e a data de 12/11/2026 **deixam de ser condição para ligar** — no código e no roteiro do dono — e viram **pendências registradas**. Quando o advogado ou a psicóloga mudarem uma frase do consentimento, sobe a versão (ex.: 1.1) e cada paciente lê e consente de novo. Mudança só no protocolo da nutricionista não pede novo consentimento.
+3. Se o CRN-3 responder "não" ao modo (d) da D1, a IA Nutri é pausada (emergência) e a decisão volta ao dono. Sem resposta em 8 semanas, também volta ao dono.
+4. Até 11/11/2026 vale a Política de Uso antiga da Anthropic, ambígua para um plano clínico (D2, R-160). A IA Nutri pode funcionar nesse intervalo. Em 12/11/2026, conferir a versão nova.
+5. A condição da D2 — "só ligar depois que o DPA e o termo do paciente deixarem de ser provisórios, **ou com uma decisão sua de seguir assim, anotada como na A-D27**" — fica atendida por esta decisão. O DPA e o termo do paciente continuam provisórios (0.1) no sistema.
+6. A avaliação da IA (D5, RN-184) passa a ser feita **antes do merge**: depois do deploy, nada no código segura a ativação.
+7. O nome "IA Nutri" vai ao ar (D28). Se a Debby escolher outro depois, o consentimento ganha versão nova e o paciente consente de novo.
+8. No dia do deploy, quem já viu os manuais guiados do app e do painel recebe o aviso de novidade.
+9. A D36 (Código de Ética em 23/01/2027) continua: reler em dezembro; o botão de pausa existe.
+
+**Depende de terceiro:** não para ligar. Ficam pendentes: CRN-3, advogado, RIPD, psicóloga e a conferência da Política de Uso da Anthropic.
 
 ## Resumo
 
 1. A parte da IA Nutri na spec foi revista contra o sistema de hoje. Muita coisa mudou desde 03/10.
-2. Há **28 decisões**: 17 antigas (revistas) e 11 novas (D26 a D36).
+2. Há **28 decisões**: 17 antigas (revistas) e 11 novas (D26 a D36). Em 14/10/2026, o dono acrescentou a **D37** (ligar pela nutricionista e consentimento 1.0 final), que revê a D1, a D2, a D11 e a D28.
 3. Três delas são técnicas (D30, D31, D35). Pode aprovar a recomendação sem estudar.
 4. O ponto mais urgente: os textos legais em uso dizem "a IA não fala com você". A IA Nutri fala. Isso precisa ser corrigido antes (D27).
 5. A IA Nutri só pode começar **depois da 14B-2**, porque usa peças que a 14B cria.
 6. Com o modelo mais barato (Haiku 5.5), a IA Nutri custa **centavos por paciente por mês** e cabe no teto atual de US$ 50.
-7. Antes de ligar com paciente real, recomendo ouvir o **CRN-3** e o **advogado**. Sem confirmação por escrito da Anthropic, a IA Nutri só liga com paciente real **a partir de 12/11/2026**, quando a política nova dela entra em vigor (D2).
+7. Antes de ligar com paciente real, recomendo ouvir o **CRN-3** e o **advogado**. Sem confirmação por escrito da Anthropic, a IA Nutri só liga com paciente real **a partir de 12/11/2026**, quando a política nova dela entra em vigor (D2). **Revisto em 14/10/2026 (D37):** a IA Nutri liga pela nutricionista desde o deploy; essas consultas e a data viram pendências.
 8. A Debby precisa escolher o nome que o paciente vê e revisar os textos.
-9. Não há custo mensal novo além do uso da IA, dentro da cota. Há **custos pontuais de terceiros** a orçar antes de ligar: advogado (pode ir junto com o P14A-16), RIPD e revisão de um psicólogo (D2, D11). A tabela final marca quais decisões geram esse custo.
+9. Não há custo mensal novo além do uso da IA, dentro da cota. Há **custos pontuais de terceiros** a orçar (desde a D37, como pendências, não antes de ligar): advogado (pode ir junto com o P14A-16), RIPD e revisão de um psicólogo (D2, D11). A tabela final marca quais decisões geram esse custo.
 10. No fim há uma tabela com todas as recomendações, para aprovar de uma vez.
 
 ## O que já vem decidido de fora (não precisa decidir de novo)
@@ -97,6 +129,8 @@ Decidir nesta ordem destrava o resto:
 
 **Depende de terceiro:** Debby, advogado e psicólogo. **Custo pontual:** honorários do advogado e do psicólogo.
 
+**Revista em 14/10/2026 (D37):** o dono publicou o consentimento e o protocolo de risco como versão 1.0 final, sem o advogado e a psicóloga, como na A-D27 — na prática, a opção (b). A revisão do advogado e da psicóloga continua pedida, mas como pendência: o texto 1.0 entra na lista do P14A-16; frase mudada → versão nova e novo consentimento. O risco fica anotado no backlog (P15-B11).
+
 ### D2 — Consultas externas antes de ligar
 
 **Pergunta:** quem precisamos ouvir antes de ligar a IA Nutri com paciente real?
@@ -121,6 +155,8 @@ Decidir nesta ordem destrava o resto:
 **Se escolher outra:** com (a), podemos ficar parados esperando a Anthropic. Com (c) ou (d), fica sem a opinião do conselho da profissão.
 
 **Depende de terceiro:** CRN-3, advogado e (opcional) Anthropic. **Custo pontual:** honorários do advogado e o RIPD.
+
+**Revista em 14/10/2026 (D37):** as consultas continuam (CRN-3, advogado, RIPD e o pedido de confirmação à Anthropic), mas **deixam de ser condição para ligar**: viram pendências registradas. A data de 12/11/2026 também deixa de ser condição — a IA Nutri pode funcionar antes dela, sob a política antiga da Anthropic (risco assumido pelo dono). A condição sobre o DPA e o termo do paciente provisórios fica atendida pela decisão expressa do dono, anotada na D37 como na A-D27. Resposta que muda o consentimento → versão nova e novo consentimento; "não" do CRN-3 ao modo (d) → pausa de emergência e decisão do dono.
 
 
 ### D36 — A IA Nutri quando o novo Código de Ética entrar em vigor (23/01/2027)
@@ -155,6 +191,8 @@ Decidir nesta ordem destrava o resto:
 **Recomendação: (d)**, se o CRN-3 aceitar. É rápido para o paciente e não cria trabalho novo para a Debby. O paciente só lê o que ela escreveu.
 
 **Se o CRN-3 disser não:** modo (c), ou não ligar. **Se não responder em 8 semanas:** a decisão volta para o dono (consulta a conselho pode levar meses); a IA Nutri não liga sozinha no modo (d).
+
+**Revista em 14/10/2026 (D37):** o dono liga o modo (d) sem esperar o CRN-3 (a nutricionista ativa desde o deploy). Se o CRN-3 disser não, a IA Nutri é pausada (emergência) e o dono decide entre o modo (c), que seria um plano novo, e desligar.
 
 **Se escolher outra:** com (c), cada pergunta vira tarefa para a Debby. Com (a), o risco ético e de política é alto.
 
@@ -359,6 +397,8 @@ Decidir nesta ordem destrava o resto:
 
 **Recomendação: (b).** A 14B já chama de "IA Nutri" a ferramenta da nutricionista. Um nome com "Nutri" pode fazer o paciente achar que fala com a Debby. Trocar agora não custa nada.
 
+**Nota de 14/10/2026 (★ DO-4 e D37):** o plano usa "IA Nutri" enquanto a Debby não escolhe, e com a D37 esse é o nome que vai ao ar. Como o nome está no texto do consentimento, trocá-lo depois do deploy é versão nova do consentimento, com novo "sim" de cada paciente.
+
 **Se escolher outra:** com (a), muda o nome da 14B. Com (c), suporte e histórico ficam confusos.
 
 **Depende de terceiro:** a Debby escolhe o nome.
@@ -495,12 +535,13 @@ A coluna "Custo de terceiro" marca as decisões que geram honorários pontuais (
 
 | Decisão | Recomendação | Depende de | Custo de terceiro |
 |---|---|---|---|
+| D37 Ligar e textos (dono, 14/10/2026) | A IA Nutri liga pela nutricionista (sem pausa inicial; pausa só de emergência); consentimento 1.0 final sem o advogado, como a A-D27; consultas viram pendências | — (pendências: CRN-3, advogado, RIPD, psicóloga, Anthropic) | Sim, como pendência (advogado, RIPD, psicóloga) |
 | D27 Textos e ordem | (a) Plano 15 depois da 14B-2; trocar uma frase na 1.1; aditivo 1.2 só para a IA Nutri | — | — |
 | D26 Onde guardar o "sim" | (a) registro próprio | — | — |
-| D11 Revisão dos textos | (a) Debby, advogado e psicólogo (com protocolo de risco para a nutricionista) | Debby, advogado, psicólogo | Sim (advogado, psicólogo) |
-| D2 Consultas externas | (b) CRN-3 (três perguntas), advogado e RIPD; Anthropic como boa prática; sem ela, ligar só a partir de 12/11/2026 | CRN-3, advogado, Anthropic | Sim (advogado, RIPD) |
+| D11 Revisão dos textos | (a) Debby, advogado e psicólogo (com protocolo de risco para a nutricionista). **Revista em 14/10/2026 (D37):** textos publicados como 1.0 final; a revisão vira pendência | Debby, advogado, psicólogo | Sim (advogado, psicólogo) |
+| D2 Consultas externas | (b) CRN-3 (três perguntas), advogado e RIPD; Anthropic como boa prática; sem ela, ligar só a partir de 12/11/2026. **Revista em 14/10/2026 (D37):** não são mais condição para ligar, nem a data | CRN-3, advogado, Anthropic | Sim (advogado, RIPD) |
 | D36 Código de Ética novo | (a) reler em dezembro; pausar ou ir para (c) se for "interação direta" | CRN-3 | — (mesma consulta da D2) |
-| D1 Resposta na hora | (d) na hora só para dúvida do plano; se o CRN-3 disser não, (c) ou não ligar | CRN-3 | — |
+| D1 Resposta na hora | (d) na hora só para dúvida do plano; se o CRN-3 disser não, (c) ou não ligar. **Revista em 14/10/2026 (D37):** (d) liga sem esperar o CRN-3; "não" → pausa de emergência | CRN-3 | — |
 | D21 Quem escreve | (a) o sistema monta com trechos do plano, com frase que não soa como "sim" | — | — |
 | D25 Suplemento do plano | (b) mostrar se está no plano (inclusive "em jejum"; a Debby confirma no peso oculto) | Debby (lista) | — |
 | D9 O que a IA lê | (a) plano e orientações | — | — |
@@ -513,7 +554,7 @@ A coluna "Custo de terceiro" marca as decisões que geram honorários pontuais (
 | D5 Modelo | (c) testar; Haiku 5.5 se passar, Sonnet se perceber melhor os sinais sutis | Debby (teste) | — |
 | D3 Custo | (a) US$ 5 por consultório (ou US$ 7, para não bloquear no pior caso), teto de US$ 50 | — | — |
 | D4 Limite por paciente | (a) 10 por dia, 100 por mês | — | — |
-| D28 Nome | (b) outro nome para o paciente | Debby | — |
+| D28 Nome | (b) outro nome para o paciente. **14/10/2026 (★ DO-4, D37):** vai ao ar como "IA Nutri"; trocar depois = versão nova do consentimento | Debby | — |
 | D29 Lugar no app | (a) dentro de Plano | — | — |
 | D33 Peso oculto | (a) Debby confirma | — | — |
 | D6 Liberação | (a) paciente por paciente | — | — |
