@@ -29,6 +29,8 @@ test('link por e-mail: pedido → página sem login → autorizo → confirmaç�
   await expect(anonimo.getByRole('heading', { name: 'Autorização para uso de inteligência artificial' })).toBeVisible();
   await expect(anonimo.getByText('Consultório E2E').first()).toBeVisible();
   await expect(anonimo.getByText('Esta autorização é pessoal. Se você recebeu este e-mail por engano, não toque em Autorizo.')).toBeVisible(); // F4
+  // Plano 14B-2 (F2): o texto 1.1 da página do link traz os três usos no "Para que serve"
+  await expect(anonimo.getByText(/A IA ajuda a sua nutricionista a: \(1\) ler os laudos .*; \(2\) resumir o seu histórico antes da consulta; \(3\) montar um primeiro rascunho do seu plano alimentar, que ela revisa\./)).toBeVisible();
   expect((await new AxeBuilder({ page: anonimo }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
   await anonimo.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
   await expect(anonimo.getByRole('status').filter({ hasText: /^Autorização registrada\. Você pode retirar quando quiser, pelo link do e-mail de confirmação/ })).toBeVisible();

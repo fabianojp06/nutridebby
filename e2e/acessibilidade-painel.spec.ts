@@ -4,9 +4,11 @@ import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL } from './painel-rotas';
+import { avaliar, pacienteNoPortal } from './portal';
 
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
-// (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente).
+// (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente);
+// 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
@@ -118,6 +120,61 @@ test('Plano 14B-1: Configurações com os modelos sugeridos pela IA, a marca na 
   }
   await nutri.emulateMedia({ colorScheme: 'light' });
   expect(falhas).toEqual([]);
+});
+
+/**
+ * Plano 14B-2 (US-120, US-121): as telas do resumo e do rascunho com a tarefa PRONTA (no laço de cima, o paciente não
+ * autorizou a IA e elas mostram só o aviso). Um paciente que autoriza a versão 1.1 no app, duas antropometrias (a tabela
+ * "Dados usados" aparece) e as duas tarefas pelo sandbox (nenhuma chamada à API real).
+ */
+test('Plano 14B-2: o resumo do histórico e o rascunho de plano com a tarefa pronta, nos três modos e em 768 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const paciente = await pacienteNoPortal(browser, nutri, '10.9.29.31');
+  await paciente.page.goto('/p/perfil/ia');
+  await paciente.page.getByRole('button', { name: 'Autorizo o envio para fora do Brasil' }).click();
+  await expect(paciente.page.getByRole('status').filter({ hasText: 'Autorização registrada. Você pode retirar quando quiser.' })).toBeVisible();
+  await paciente.page.context().close();
+  const p = paciente.prontuario;
+  await avaliar(nutri, p, '2026-08-01', '80');
+  await avaliar(nutri, p, '2026-09-01', '78,5');
+  await nutri.goto(`${p}/resumo-ia`);
+  await nutri.getByRole('button', { name: 'Gerar resumo' }).click();
+  await expect(nutri.getByText(/^Resumo gerado por IA em /)).toBeVisible({ timeout: 90_000 });
+  await nutri.goto(`${p}/plano-alimentar/rascunho-ia`);
+  await nutri.getByLabel('Meta de energia (kcal/dia)').fill('1800');
+  await nutri.getByLabel('Proteína (% da energia)').fill('20');
+  await nutri.getByLabel('Carboidrato (%)').fill('50');
+  await nutri.getByLabel('Lipídio (%)').fill('30');
+  await nutri.getByRole('button', { name: 'Gerar rascunho' }).click();
+  await expect(nutri.getByRole('heading', { name: 'Rascunho sugerido pela IA' })).toBeVisible({ timeout: 120_000 });
+
+  const telas = [
+    { url: `${p}/resumo-ia`, pronta: () => expect(nutri.getByRole('table', { name: 'Dados usados' })).toBeVisible() },
+    { url: `${p}/plano-alimentar/rascunho-ia`, pronta: () => expect(nutri.getByRole('button', { name: 'Usar como rascunho' })).toBeVisible() },
+  ];
+  const falhas: string[] = [];
+  for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+    await escolherTema(nutri, tema);
+    await nutri.emulateMedia({ colorScheme: aparelho });
+    for (const t of telas) {
+      await nutri.goto(t.url);
+      await t.pronta();
+      await nutri.waitForLoadState('networkidle');
+      for (const v of await violacoes(nutri)) falhas.push(`${tema} ${t.url} — ${v}`);
+    }
+  }
+  await nutri.emulateMedia({ colorScheme: 'light' });
+  expect(falhas).toEqual([]);
+  await nutri.setViewportSize({ width: 768, height: 1000 });
+  try {
+    for (const t of telas) {
+      await nutri.goto(t.url);
+      await t.pronta();
+      expect(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), t.url).toBe(true);
+    }
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+  }
 });
 
 test('768 px: nenhuma tela do painel rola na horizontal', async () => {

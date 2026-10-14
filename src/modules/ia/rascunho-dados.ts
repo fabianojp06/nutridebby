@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm';
 import type { Tx } from '@/db/client';
-import { anamneses, type PatientRow } from '@/db/schema';
+import { anamneses, type AnamneseRow, type PatientRow } from '@/db/schema';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
@@ -73,10 +73,27 @@ export function validarMetas(bruto: unknown): { ok: true; metas: MetasDoRascunho
  * Lê dentro do withTenant de quem chama (app no pedido, worker no portão); não devolve nada à tela (sem auditRead).
  */
 export async function montarPedidoDoRascunho(tx: Tx, p: PatientRow, metas: MetasDoRascunho, o: { agora: Date; fuso: string }): Promise<PedidoDoRascunho> {
-  const alvo: AlvoDaMascara = { nome: p.nome, email: p.email, telefone: p.telefoneE164 };
+  const [ana] = metas.considerarAnamnese
+    ? await tx.select().from(anamneses).where(eq(anamneses.patientId, p.id)).orderBy(desc(anamneses.data), desc(anamneses.createdAt)).limit(1)
+    : [];
+  const base = { idade: p.dataNascimento ? idadeEm(p.dataNascimento, hojeNoFuso(o.fuso, o.agora)) : null, sexo: p.sexo ?? null };
+  return pedidoDoRascunho(base, { nome: p.nome, email: p.email, telefone: p.telefoneE164 }, metas, ana ?? null);
+}
+
+/**
+ * A montagem sem banco: a mesma de `montarPedidoDoRascunho`, com a idade já calculada e a anamnese mais recente já lida
+ * (`null` sem ela; ignorada sem "Considerar a anamnese"). A avaliação manual (RN-127, `avaliar-assistente.ts`) monta o
+ * pedido dos prontuários fictícios por aqui — o que ela mede é o que o worker envia.
+ */
+export function pedidoDoRascunho(
+  base: { idade: number | null; sexo: string | null },
+  alvo: AlvoDaMascara,
+  metas: MetasDoRascunho,
+  ana: Pick<AnamneseRow, 'data' | 'templateSnapshot' | 'respostas'> | null,
+): PedidoDoRascunho {
   const dados: Partial<Record<Categoria, unknown>> = {
-    idade: p.dataNascimento ? idadeEm(p.dataNascimento, hojeNoFuso(o.fuso, o.agora)) : null,
-    sexo: p.sexo ?? null,
+    idade: base.idade,
+    sexo: base.sexo,
     metas: {
       meta_kcal: metas.metaKcal,
       proteina_pct: metas.proteinaPct,
@@ -86,14 +103,6 @@ export async function montarPedidoDoRascunho(tx: Tx, p: PatientRow, metas: Metas
       restricoes: textoLivre(metas.restricoes, alvo),
     },
   };
-  if (metas.considerarAnamnese) {
-    const [ana] = await tx
-      .select()
-      .from(anamneses)
-      .where(eq(anamneses.patientId, p.id))
-      .orderBy(desc(anamneses.data), desc(anamneses.createdAt))
-      .limit(1);
-    if (ana) dados.anamnese = { data: ana.data, respostas: respostasMascaradas(ana, alvo) };
-  }
+  if (metas.considerarAnamnese && ana) dados.anamnese = { data: ana.data, respostas: respostasMascaradas(ana, alvo) };
   return { dados, bytes: Buffer.byteLength(JSON.stringify(dados), 'utf8') };
 }

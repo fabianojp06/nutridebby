@@ -92,12 +92,32 @@ describe('conteúdo do manual (P08-10)', () => {
     // revisão da T5F: o paciente nunca vê um modelo; aprovar só o libera para uso com pacientes
     expect(textosModelos.join(' ')).not.toMatch(/aparece\w* para os pacientes/);
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(6);
+    expect(config.versao).toBeGreaterThanOrEqual(6); // 7 desde a 14B-2 (o aditivo 1.1, abaixo)
     expect(config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')?.itens).toContain(
       'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
     );
     // o alvo da seção (data-guia="modelos-ia", em ModelosIa) entra na lista conferida pelo teste dos alvos acima
     expect(config.passos.map((p) => p.alvo)).toContain('modelos-ia');
+  });
+  it('Plano 14B-2: o resumo no prontuário e o rascunho no plano alimentar sem subir a versão (dependem da IA liberada); o aditivo 1.1 em Configurações, com a versão nova', () => {
+    const itens = (id: string) => GUIAS.find((x) => x.id === id)!.ajuda.secoes.flatMap((s) => s.itens);
+    expect(itens('prontuario')).toContain(
+      '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".',
+    );
+    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBe(2);
+    expect(itens('plano-alimentar')).toContain(
+      '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
+    );
+    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(1);
+    // as telas novas ficam no guia do prontuário e no do plano alimentar
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/resumo-ia`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/rascunho-ia`)?.id).toBe('plano-alimentar');
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(7);
+    const ia = itens('configuracoes').join(' ');
+    expect(ia).toContain('O aditivo está na versão 1.1, que inclui o resumo do histórico e o rascunho de plano alimentar.');
+    expect(ia).toContain('"Aceitar a versão atual"');
+    expect(ia).not.toMatch(/A leitura de laudos com IA só aparece/); // o texto da 1.0 saiu
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');

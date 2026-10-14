@@ -4,8 +4,11 @@ import { SECOES_RESUMO, type ResultadoResumo, type SecaoResumo } from './tipos';
 
 const MAX_FRASE = 400;
 const MAX_FRASES_POR_SECAO = 30;
-/** A-D17 / D13: interpretação de exame — a frase da seção "exames" com um destes termos sai (sem acento e sem maiúsculas). */
-const INTERPRETACAO =
+/**
+ * A-D17 / D13: interpretação de exame — a frase da seção "exames" com um destes termos sai (sem acento e sem maiúsculas).
+ * Exportado para a avaliação manual (RN-127), que conta a interpretação em qualquer seção com o mesmo critério.
+ */
+export const INTERPRETACAO =
   /\b(alt[oa]s?|baix[oa]s?|normal|normais|alterad[oa]s?|elevad[oa]s?|reduzid[oa]s?|acima|abaixo|limitrofes?|deficiencias?|excesso|adequad[oa]s?|inadequad[oa]s?)\b/;
 const semAcento = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const respostaSchema = z.object({
