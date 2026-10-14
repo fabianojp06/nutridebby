@@ -1,6 +1,6 @@
 # 2. Banco de dados
 
-Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0112`, `drizzle/meta/_journal.json` com 113 entradas, conferidas no branch do Plano 14A em 09/10/2026, a `0110` (migration de dados do prazo de guarda, JUR-01) no mesmo dia e as `0111`–`0112` (Plano 14B-1, modelos sugeridos pela IA) no branch `plano-14b-ia-nutri` em 10/10/2026; as tabelas e funções dos documentos assinados, `0089`–`0093` e `0104`–`0105`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco), as da IA, `0098`–`0100`, `0107`–`0109` (Plano 14A) e `0111`–`0112` (Plano 14B-1, [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112)), no [cap. 10](10-ia.md#104-banco), e as dos exames enviados, `0101`–`0102`, no [cap. 11](11-exames-enviados.md#113-banco); `0094`–`0097` são do Plano 09: `app_versao_do_schema()` e `admin_actions`; a `0103`, da sessão da equipe; a `0106`, do Plano 16). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
+Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0114`, `drizzle/meta/_journal.json` com 115 entradas, conferidas no branch do Plano 14A em 09/10/2026, a `0110` (migration de dados do prazo de guarda, JUR-01) no mesmo dia as `0111`–`0112` (Plano 14B-1, modelos sugeridos pela IA) no branch `plano-14b-ia-nutri` em 10/10/2026 e as `0113`–`0114` (Plano 14B-2, resumo e rascunho pela IA) no branch `plano-14b-2-resumo-rascunho` em 14/10/2026; as tabelas e funções dos documentos assinados, `0089`–`0093` e `0104`–`0105`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco), as da IA, `0098`–`0100`, `0107`–`0109` (Plano 14A) e `0111`–`0112` (Plano 14B-1, [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112)) e `0113`–`0114` (Plano 14B-2, [§10.13.10](10-ia.md#101310-banco-migrations-0113-e-0114)), no [cap. 10](10-ia.md#104-banco), e as dos exames enviados, `0101`–`0102`, no [cap. 11](11-exames-enviados.md#113-banco); `0094`–`0097` são do Plano 09: `app_versao_do_schema()` e `admin_actions`; a `0103`, da sessão da equipe; a `0106`, do Plano 16). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
 
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
@@ -183,7 +183,7 @@ Legenda da coluna "Proteção":
 | `data_exports` | T, P, PE `insert`/`update`, A `exportacoes`, X `paciente_exportacao_titular`, gatilho `paciente_colunas` | 0035, 0079, 0080, 0085 |
 | `foods` | T, X `taco_leitura` | 0040 |
 | `food_measures` | T | 0043 |
-| `meal_plans` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho`, gatilho `meal_plans_ia_origem` (`app_modelo_ia_origem`, Plano 14B-1) | 0045, 0112 |
+| `meal_plans` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho`, gatilho `meal_plans_ia_origem` (`app_modelo_ia_origem`, Plano 14B-1); Plano 14B-2: o "Usar como rascunho" grava pelo gatilho de sempre, com `ia_origem_em` | 0045, 0112 |
 | `meals` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho` | 0045 |
 | `meal_items` | T, P, A `plano_alimentar`, X `paciente_sem_rascunho` | 0045 |
 | `availability_rules` | T, S, Pub `select` | 0049, 0051 |
@@ -205,7 +205,7 @@ Legenda da coluna "Proteção":
 | `signed_document_notes` | T, P, S, A `documentos`, gatilho `notas_imutaveis` | 0090, 0091, 0105 |
 | `signed_document_receipts` | T, P, PE `insert`, A `documentos`, X `paciente_recibo_proprio`, `recibo_fora_do_paciente`; `REVOKE UPDATE, DELETE` | 0090, 0092 |
 | `document_access_codes` | T, P, PE `insert`/`update` (sem auditoria), X `paciente_codigo_de_assinado`, gatilho `codigo_acesso_regras` | 0090, 0091, 0092 |
-| `ia_tarefas` | T, P, S, A `ia`, gatilhos `ia_tarefas_sem_apagar` (DELETE só do `worker` com o paciente anonimizado) e `ia_tarefas_imutavel` (colunas fixas) | 0099, 0100 |
+| `ia_tarefas` | T, P, S, A `ia`, gatilhos `ia_tarefas_sem_apagar` (DELETE só do `worker` com o paciente anonimizado) e `ia_tarefas_imutavel` (colunas fixas; Plano 14B-2: `carimbo_dados` fixo, salvo a troca do `worker` no portão) | 0099, 0100, 0114 |
 | `ia_uso` | T, S (sem `patient_id`, fora da auditoria); `REVOKE DELETE, TRUNCATE` | 0099 |
 | `ia_geracoes_modelos` (Plano 14B-1) | T, S (sem `patient_id`, fora da auditoria); `REVOKE DELETE, TRUNCATE`; gatilho `ia_geracoes_modelos_imutavel` (colunas fixas); índice único parcial de um pacote em andamento por tenant | 0112 |
 | `ia_autorizacoes` (Plano 14A) | T, P, PE `insert` (sem auditoria, `AUDIT_EXCEPTIONS`), X `paciente_autorizacao_propria` (RESTRICTIVE, só a própria autorização ou retirada, no app com a própria conta ou no link sem conta); `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `ia_autorizacoes_regras` | 0108 |
@@ -280,7 +280,7 @@ Notas privadas e etiquetas são tabelas próprias com `staff_only`, porque uma c
 |---|---|---|---|
 | `foods` | `tenant_id` (**nulo = TACO**), `taco_id`, `nome` (2–120), `grupo`, `kcal`, `proteina_g`, `carboidrato_g`, `lipidio_g`, `fibra_g`, `micros`, `medidas_caseiras`, `origem_food_id` (sem FK) | `taco_id` UNIQUE; CHECK `foods_origem_valida` (`tenant_id` nulo ⇔ `taco_id` presente); alimento próprio completo; faixas | 0038, 0040 |
 | `food_measures` | `food_id`, `nome`, `plural`, `gramas` (0,1–5000) | UNIQUE (`tenant_id`,`food_id`,`nome`); FK `food_id` `CASCADE` | 0041 |
-| `meal_plans` | `patient_id` (nulo = modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id` (sem FK), `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `revisao`, `ultimo_envio`, `publicado_em`, `origem_plan_id`, `mostrar_calorias`, `orientacoes`, `pdf_path`, `pdf_status`, `pdf_pedido_em`; Plano 14B-1: `ia_geracao_id` (origem IA, só em modelo), `aprovado_em`, `aprovado_por` | UNIQUE (`tenant_id`,`id`) e (`tenant_id`,`id`,`patient_id`); um publicado e um rascunho por paciente (índices parciais); modelo ⇔ sem paciente e sempre rascunho; FK `meal_plans_ia_geracao_fk` (`tenant_id`,`ia_geracao_id`); CHECKs `meal_plans_ia_geracao_so_modelo` e `_aprovacao_coerente` | 0044, 0046, 0047, 0111 |
+| `meal_plans` | `patient_id` (nulo = modelo), `is_template`, `titulo`, `meta_kcal`, `energy_calc_id` (sem FK), `status` (`rascunho`/`publicado`/`arquivado`), `versao`, `revisao`, `ultimo_envio`, `publicado_em`, `origem_plan_id`, `mostrar_calorias`, `orientacoes`, `pdf_path`, `pdf_status`, `pdf_pedido_em`; Plano 14B-1: `ia_geracao_id` (origem IA, só em modelo), `aprovado_em`, `aprovado_por`; Plano 14B-2: `ia_origem_em` (o plano do paciente nasceu do rascunho da IA: marca no editor e selo no PDF e no app; "Editar" copia) | UNIQUE (`tenant_id`,`id`) e (`tenant_id`,`id`,`patient_id`); um publicado e um rascunho por paciente (índices parciais); modelo ⇔ sem paciente e sempre rascunho; FK `meal_plans_ia_geracao_fk` (`tenant_id`,`ia_geracao_id`); CHECKs `meal_plans_ia_geracao_so_modelo` e `_aprovacao_coerente`; Plano 14B-2: CHECK `meal_plans_ia_origem_so_paciente` (`ia_origem_em` nunca em modelo) | 0044, 0046, 0047, 0111, 0113 |
 | `meals` | `plan_id`, `patient_id`, `nome`, `horario`, `ordem`, `observacao`, `recipe_content_id` | UNIQUE (`tenant_id`,`plan_id`,`id`); FKs para o plano `CASCADE`; `meals_receita_fk` `SET NULL (recipe_content_id)` | 0044, 0081, 0082 |
 | `meal_items` | `plan_id`, `meal_id`, `patient_id`, `food_id` (FK `RESTRICT`), `quantidade_g` (0,1–5000), `medida`, `medida_caseira_txt`, `substitui_item_id`, `ordem`, `nutrientes` | FK para a refeição e para o item principal da mesma refeição `CASCADE` | 0044 |
 
@@ -335,7 +335,7 @@ Anti-sobreposição (Plano 05, D9): `EXCLUDE USING gist (tenant_id WITH =, tstzr
 
 | Tabela | Papel | Detalhe |
 |---|---|---|
-| `ia_tarefas` | Um pedido à IA: situação (8 estados), exame (FK composta `ON DELETE SET NULL (exam_id)`, na `0099`), quem pediu, a sugestão (`resultado`, só enquanto `pronta`), motivo de falha, modelo e versão das instruções, reserva e custo, `enviado_em`/`saiu_em`, prazo, quem encerrou | [§10.4](10-ia.md#104-banco) |
+| `ia_tarefas` | Um pedido à IA: situação (8 estados), exame (FK composta `ON DELETE SET NULL (exam_id)`, na `0099`), quem pediu, a sugestão (`resultado`, só enquanto `pronta`), motivo de falha, modelo e versão das instruções, reserva e custo, `enviado_em`/`saiu_em`, prazo, quem encerrou. Plano 14B-2: os tipos `resumo_historico` e `rascunho_plano` (CHECK `ia_tarefas_tipo_valido`), `carimbo_dados` (só no resumo, 64 hex, CHECK `ia_tarefas_carimbo_so_resumo`) e o índice único parcial `ia_tarefas_em_andamento_sem_exame_idx` (um resumo e um rascunho em andamento por paciente) | [§10.4](10-ia.md#104-banco), [§10.13.10](10-ia.md#101310-banco-migrations-0113-e-0114) |
 | `ia_uso` | Registro técnico de custo, uma linha por tarefa, sem `patient_id` nem conteúdo; `REVOKE DELETE, TRUNCATE` | idem |
 | `ia_gasto_plataforma` | Contador do mês de Brasília do teto global, **sem `tenant_id`** (§2.9) | idem |
 | `ia_autorizacoes` (Plano 14A) | Um evento por linha da autorização de IA do paciente (`autorizou`, `retirou`, `pedido_email`): versão, usos, destino, canal, quem registrou, `em`/`registrado_em` do relógio do banco, IP e user-agent (app e link), HMAC do e-mail (link), termo em papel (FK `NO ACTION` para `stored_files.caminho`); só de inclusão | [§10.10.1](10-ia.md#10101-banco-ia_autorizacoes) |
@@ -348,7 +348,9 @@ gravado) e o tipo de arquivo `ia_autorizacao_termo`, da `0107`; RLS, política, 
 `app_ia_tarefas_imutavel` refeita, da `0108`; `app_patients_ia_quem` refeita (colunas de ciência congeladas), da `0109`.
 Plano 14B-1: `ia_geracoes_modelos` e as colunas de origem e aprovação de `meal_plans` e `anamnesis_templates`, da `0111`;
 RLS, `staff_only`, `REVOKE`, a FK de `anamnesis_templates` e os gatilhos `app_ia_geracoes_imutavel` e `app_modelo_ia_origem`,
-da `0112` (nenhuma migração de dados, nenhum `DISABLE TRIGGER`).
+da `0112` (nenhuma migração de dados, nenhum `DISABLE TRIGGER`). Plano 14B-2: os tipos novos de `ia_tarefas`, `carimbo_dados`, o
+índice sem exame e `meal_plans.ia_origem_em`, da `0113` (gerada); `app_ia_tarefas_imutavel` refeita com o carimbo, da `0114`
+(custom; nenhuma tabela nova, nenhuma migração de dados, nenhum `DISABLE TRIGGER`).
 
 ---
 
@@ -476,7 +478,7 @@ Detalhe em [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções).
 
 ### 2.6.7 Conteúdo pela audiência e a exceção do plano
 
-A sessão de paciente só vê conteúdo `publicado` **e** da audiência: `todos`; `pacientes` com linha própria em `content_audience`; `etiquetas` pela função `app_conteudo_por_etiqueta` (Plano 07, D2; RN-12). A receita sugerida numa refeição do plano **publicado** do próprio paciente aparece só com `app.receitas_do_plano = 'on'` na transação. Esse GUC é ligado por `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts:45`) apenas por `planoDoPaciente` (`src/modules/portal/plano.ts:57`) e por `conteudoDoPaciente(…, { doPlano: true })`. O teste `src/modules/portal/conteudos.test.ts:160-172` quebra se outro arquivo ligar a exceção (CLAUDE.md regra 2). O portal nunca filtra a audiência à mão.
+A sessão de paciente só vê conteúdo `publicado` **e** da audiência: `todos`; `pacientes` com linha própria em `content_audience`; `etiquetas` pela função `app_conteudo_por_etiqueta` (Plano 07, D2; RN-12). A receita sugerida numa refeição do plano **publicado** do próprio paciente aparece só com `app.receitas_do_plano = 'on'` na transação. Esse GUC é ligado por `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts:45`) apenas por `planoDoPaciente` (`src/modules/portal/plano.ts:59`) e por `conteudoDoPaciente(…, { doPlano: true })`. O teste `src/modules/portal/conteudos.test.ts:160-172` quebra se outro arquivo ligar a exceção (CLAUDE.md regra 2). O portal nunca filtra a audiência à mão.
 
 ### 2.6.8 Funções `SECURITY DEFINER`
 
@@ -514,7 +516,10 @@ das cinco colunas de ciência e recusa; só o contexto vazio passa — RN-128), 
 `app_ia_geracoes_imutavel` (BEFORE UPDATE em `ia_geracoes_modelos`: id, tenant, área, quem pediu, modelo, versão das
 instruções e data do pedido fixos) e `app_modelo_ia_origem` (BEFORE INSERT OR UPDATE em `meal_plans` e
 `anamnesis_templates`: `ia_geracao_id` só pelo `worker`, nunca já aprovado e imutável; a aprovação vai de nula a
-preenchida uma vez, com `aprovado_por = app_current_user()`), na `0112`; testes em `src/db/ia-modelos.test.ts`.
+preenchida uma vez, com `aprovado_por = app_current_user()`), na `0112`; testes em `src/db/ia-modelos.test.ts`. Plano 14B-2:
+`app_ia_tarefas_imutavel` refeita na `0114` a partir da `0108`, linha a linha, com `carimbo_dados` fixo salvo a troca do
+`worker` no portão (`OLD.status = 'processando'`, `OLD.enviado_em` nulo e `NEW.enviado_em` preenchido no mesmo `UPDATE`);
+testes em `src/db/ia-resumo-rascunho.test.ts`.
 
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 
@@ -595,7 +600,7 @@ Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, 
 | `diary_entries` | `diario` | Diário alimentar |
 | `content_audience` | `conteudos` | Público de conteúdo |
 | `signed_documents`, `signed_document_notes`, `signed_document_receipts` | `documentos` | Documentos assinados |
-| `ia_tarefas` | `ia` | Inteligência artificial (Plano 11). O `criar` aparece como **"Pediu leitura à IA"**; o `alterar` com ator nulo (mudanças de situação do worker) fica no `audit_log` mas **fora** da tela, na contagem e na página de `listAccessHistory` |
+| `ia_tarefas` | `ia` | Inteligência artificial (Plano 11). O `criar` aparece como **"Pediu leitura à IA"** (Plano 14B-2: **"Pediu resumo à IA"**, **"Pediu rascunho à IA"** ou, com a tarefa já apagada, "Pediu uso da IA", pelo `tipo` lido em `ia_tarefas`; o `exportar` do portão, "Laudo enviado à IA" ou **"Dados enviados à IA"**, D22); o `alterar` com ator nulo (mudanças de situação do worker) fica no `audit_log` mas **fora** da tela, na contagem e na página de `listAccessHistory` |
 | — (`ia_autorizacoes` fica sem gatilho) | `ia_autorizacao` | Autorização de IA (Plano 14A): só o `ler` de "Ver termo assinado" (`auditRead` em `caminhoDoTermo`, `src/modules/ia/autorizacao.ts`) |
 
 Entidades gravadas só por `recordAudit` (sem tabela de gatilho), do Plano 10A: `perfil_profissional` ("Perfil
@@ -644,7 +649,7 @@ Estas tabelas não têm RLS. A proteção é o código: acesso só pelos arquivo
 | `admin_actions` (Plano 09) | Sem `tenant_id`; trilha da admin, só inclusão | `plataforma/reiniciar-2fa.ts`, `contas.ts`, `metricas.ts` | `drizzle/0095_admin_actions.sql`, `0096` |
 | `backup_runs` | Escrita do script do host; app só lê | Script de backup; `monitoramento.ts` | `drizzle/0014_backup_runs_somente_leitura.sql`; CLAUDE.md regra 10 |
 | `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook; desde o Plano 10A também a verificação pública, o link do documento e o código do 2FA ao assinar | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:28`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
-| `system_heartbeat` | Batimento do worker; marcas dos alertas | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts`, `src/modules/ia/alertas.ts` (`avisarComMarca`: marcas `alerta_ia_credencial` e `alerta_ia_teto`, Plano 11; roda no worker e também no app, pelo teto em `pedirLeituraExame`, `tarefas.ts:117`) | `drizzle/0001_plataforma.sql:13-16` |
+| `system_heartbeat` | Batimento do worker; marcas dos alertas | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts`, `src/modules/ia/alertas.ts` (`avisarComMarca`: marcas `alerta_ia_credencial` e `alerta_ia_teto`, Plano 11; roda no worker e também no app, pelo teto em `pedirLeituraExame`, `tarefas.ts:199`, e, desde o Plano 14B-2, em `falhaDoPedidoDoAssistente`, `tarefas.ts:123`) | `drizzle/0001_plataforma.sql:13-16` |
 | Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:80-81` |
 
 Limite conhecido (P06-12): a negação de escrita da sessão de paciente não alcança estas tabelas (spec §4.1, "Escrita do paciente negada por padrão").

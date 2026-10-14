@@ -1,4 +1,4 @@
-# IA de leitura de laudos e modelos sugeridos — runbooks do dono (Planos 11, 14A e 14B-1)
+# IA de leitura de laudos, modelos sugeridos, resumo e rascunho — runbooks do dono (Planos 11, 14A, 14B-1 e 14B-2)
 
 Copiado sem mudança do plano (`docs/superpowers/plans/2026-10-06-nutridebby-11-ia-laudos.md`, seção "Runbook do dono").
 O porquê de cada passo está no [cap. 10 do manual técnico](../manual-tecnico/10-ia.md); o checklist de marcar fica em
@@ -62,3 +62,24 @@ A 14B-1 não manda dado de paciente: não depende da retenção, de autorizaçã
 3. **Avaliação manual dos pacotes (RN-127) — custo < US$ 10.** Na máquina do dono, com o `.env.avaliacao` da 14A (chave **de dev**) e `IA_AVALIACAO_TAREFA=modelos`, `IA_AVALIACAO_MODELOS=claude-sonnet-5-5`: `pnpm ia:avaliar`. Critério: 7 de 7 com os 3 modelos válidos, itens descartados ≤ 10%, nenhum suplemento ou medicamento, custo de cada pacote ≤ US$ 1,00. Relatório (só métricas) no PR 1.
 4. **Variáveis no Easypanel (regra 6; o dono aplica).** App e worker: `IA_MODELO_ASSISTENTE=claude-sonnet-5-5`. Snapshot antes; reiniciar só com o OK do dono. Conferir no log do worker a linha "IA Nutri" com o `modeloAssistente`.
 5. **Uso.** Com a IA ativa no consultório (aditivo 1.0 aceito), a Debby gera os pacotes das áreas, revisa e aprova os modelos. **Emergência:** `IA_DESLIGADA=1` (os modelos já aprovados continuam usáveis — são da nutricionista).
+
+## Plano 14B-2 — resumo e rascunho
+
+Copiado sem mudança do plano (`docs/superpowers/plans/2026-10-09-nutridebby-14b-ia-nutri.md`, Task 13, "Runbook do dono
+(14B-2)"). O porquê de cada passo está na [§10.13 do manual técnico](../manual-tecnico/10-ia.md#1013-ia-nutri--resumo-e-rascunho-plano-14b-2);
+o checklist de marcar fica em [`go-live.md`](go-live.md#plano-14b-2--resumo-do-histórico-e-rascunho-de-plano-pela-ia). O
+resumo e o rascunho **mandam dado de paciente pseudonimizado**: valem o runbook do Plano 14A, a A-D27 e o da 14B-1, e os
+passos abaixo se somam. A autorização e o aditivo sobem para **1.1** neste PR: toda autorização 1.0 (inclusive a da
+leitura de laudos) e todo aceite do aditivo 1.0 deixam de valer no deploy (RN-109).
+
+### Runbook do dono (14B-2 — resumo e rascunho; o da 14B-1 está em "Entregas")
+
+Nenhum passo é do código; cada um tem dono. Vale tudo do runbook da 14A e da A-D27 (provedor `anthropic` direto, retenção de até 30 dias aceita com `IA_RETENCAO_ACEITA_30_DIAS=1`, liberação). A IA continua **desligada para dado real** depois do merge enquanto `IA_PROVEDOR` não estiver no Easypanel; sem retenção aceita (`ConfigIA.retencao` nulo) o resumo e o rascunho não saem.
+
+1. **Antes do merge (merge = deploy).** O controlador, com o OK do dono (nunca um subagente), confere no banco de produção, só leitura: `select count(*) from ia_autorizacoes where evento = 'autorizou';` (as autorizações 1.0 deixam de valer com a 1.1 — RN-109 — e os pacientes precisam autorizar de novo: o dono decide o dia do merge sabendo quantas são) e `select count(*) from tenants where ia_aditivo_versao is not null;` (com aceite, a nutricionista verá "aceite a versão atual" do aditivo 1.1). Snapshot da VPS no hPanel; OK explícito do dono no PR; as migrations `0113`–`0114` rodam no deploy com `DATABASE_URL_MIGRATOR`.
+2. **Debby — conteúdo.** (a) A lista de palavras comuns de alimentação da máscara (`PALAVRAS_COMUNS_ALIMENTACAO`, PM-7). (b) Os textos novos das telas (desvio 13) e do manual guiado.
+3. **Avaliação manual (RN-127, CS-102, CS-104) — custo < US$ 10.** Na máquina do dono, com o `.env.avaliacao` da 14A (chave **de dev**) e `IA_AVALIACAO_TAREFA=resumo` e depois `rascunho`, `IA_AVALIACAO_MODELOS=claude-sonnet-5-5`: `pnpm ia:avaliar`. Critérios: resumo — citações válidas ≥ 95% das frases mantidas, nenhuma interpretação de exame na saída, a instrução escondida não refletida, custo médio ≤ US$ 0,06 e máximo abaixo da reserva; rascunho — ≥ 8 dos 10 com plano válido, itens descartados ≤ 10% dos sugeridos, nenhum suplemento ou medicamento, custo médio ≤ US$ 0,18. Com o resultado: ajustar `IA_TETO_RASCUNHO_USD` (máximo medido × 1,5, arredondado) e, se preciso, o esforço (`ESFORCO_*`, PR curto com nova `PROMPT_VERSAO_*`). Registrar o relatório (só métricas) no PR.
+4. **Textos 1.1 (A-D27).** A autorização **1.1** e o aditivo **1.1** vão ao ar como versão final, sem advogado, como a 1.0 (risco assumido pelo dono). Entram na lista do **P14A-16** (validação com advogado da OAB): os trechos `[14B]` com as adaptações (b), (c) e (e) do desvio 10 (sexo, cálculos de gasto energético, datas, metas e preferências; a máscara que não reconhece endereço, outros documentos e nomes de terceiros), o e-mail de confirmação com os três usos, a lista de categorias (`campos-enviados.ts`) e o teste que a compara com o texto (parecer 3.2 (ii)), e o B4 (Anvisa, RDC 657/2022, para o resumo e o rascunho). Se o advogado mudar alguma frase, a versão sobe de novo (1.2) e pede nova autorização de todos (RN-109).
+5. **Variáveis no Easypanel (regra 6; o dono aplica).** App e worker: `IA_TETO_RASCUNHO_USD` (do passo 3); `IA_MODELO_ASSISTENTE` já veio da 14B-1. Snapshot antes; reiniciar só com o OK do dono.
+6. **Liberação.** A nutricionista aceita o aditivo 1.1 em Configurações e pede as autorizações (texto 1.1) aos pacientes; o resumo e o rascunho aparecem para quem autorizou. **Emergência:** `IA_DESLIGADA=1` (a retirada continua possível; os modelos já aprovados continuam usáveis).
+7. **Todo mês:** a soma de `ia_uso` (inclui `modelos_area`, `resumo_historico`, `rascunho_plano`) × a fatura do provedor; diferença > 5% abre investigação (RNF-108). Acompanhar o CS-104 (resumos × consultas de retorno no 1º mês).
