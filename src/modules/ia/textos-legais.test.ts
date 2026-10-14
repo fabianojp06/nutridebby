@@ -177,6 +177,30 @@ describe('Plano 14A, A-D27 e Plano 14B — aditivo 1.1 (redação do parecer JUR
   });
 });
 
+/**
+ * D8 (revisão da T6): as frases das categorias valem só na LISTA do "O que é enviado" — entre "No resumo e no rascunho" e
+ * "O seu nome, e-mail" —, no trecho comum aos dois usos ou no do próprio uso ("no rascunho, também …", "no resumo, se a
+ * nutricionista escolher, …"). Palavras como "exames" e "plano" aparecem também no "Para que serve" e não contam.
+ */
+function faltandoNaLista(p4: string) {
+  const ini = p4.indexOf('No resumo e no rascunho');
+  const fim = p4.indexOf('O seu nome, e-mail');
+  if (ini < 0 || fim <= ini) throw new Error('lista do "O que é enviado" não encontrada');
+  const lista = p4.slice(ini, fim);
+  const SO_RASCUNHO = '; no rascunho, também ';
+  const SO_RESUMO = '; no resumo, se a nutricionista escolher, ';
+  const corte = (marca: string) => (lista.includes(marca) ? lista.indexOf(marca) : lista.length);
+  const comum = lista.slice(0, Math.min(corte(SO_RASCUNHO), corte(SO_RESUMO)));
+  const trecho = (marca: string) => {
+    if (!lista.includes(marca)) return '';
+    const resto = lista.slice(lista.indexOf(marca) + marca.length);
+    return resto.split(/; no (?:rascunho|resumo)/)[0];
+  };
+  const doUso = { resumo_historico: `${comum} ${trecho(SO_RESUMO)}`, rascunho_plano: `${comum} ${trecho(SO_RASCUNHO)}` };
+  const faltando = (uso: keyof typeof CATEGORIAS_POR_USO) => CATEGORIAS_POR_USO[uso].filter((c) => !doUso[uso].includes(FRASE_DA_CATEGORIA[c]));
+  return { resumo_historico: faltando('resumo_historico'), rascunho_plano: faltando('rascunho_plano'), datas: !comum.includes('as datas de cada registro') };
+}
+
 describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-2026-013, item 4.1, trechos [14B]; desvio 10; A-D27)', () => {
   const t02 = (d: Parameters<typeof textoDaAutorizacao>[1]) => textoDaAutorizacao('1.1', d)!.paragrafos.map(textoCorrido);
 
@@ -197,8 +221,11 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
     expect(p[2]).toBe('Para que serve. A IA ajuda a sua nutricionista a: (1) ler os laudos dos seus exames e sugerir os valores para o seu prontuário; (2) resumir o seu histórico antes da consulta; (3) montar um primeiro rascunho do seu plano alimentar, que ela revisa. A IA só sugere. A nutricionista confere tudo antes de usar e continua responsável pelo seu atendimento. A IA não faz diagnóstico, não interpreta os seus exames e não receita. Nestes usos, a IA não fala com você.');
     expect(p[4]).toBe(
       'O que é enviado. Na leitura de laudos, vai o laudo inteiro, com o seu nome, a sua data de nascimento e tudo o que estiver impresso nele. Só são retirados os dados escondidos do arquivo, como autor e localização. ' +
-      'No resumo e no rascunho, vão as informações do seu prontuário necessárias para a tarefa: a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela. ' +
-      'O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. No lugar da data de nascimento, vai a sua idade. Nos textos escritos no prontuário, o sistema retira o seu nome, e-mail, telefone e CPF; outros dados escritos ali, como o nome de outras pessoas ou um endereço, podem ir junto. ' +
+      'No resumo e no rascunho, vão as informações do seu prontuário necessárias para a tarefa: a sua idade e o seu sexo, medidas e cálculos de gasto energético, exames, anamnese, orientações, plano, diário alimentar sem as fotos e as datas de cada registro; no rascunho, também as metas, as restrições e as preferências que a nutricionista informar; no resumo, se a nutricionista escolher, as anotações dela. ' +
+      'O seu nome, e-mail, telefone, endereço e documentos do cadastro não vão. No lugar da data de nascimento, vai a sua idade. ' +
+      // revisão da T6: o limite da máscara (RN-115) sobre o próprio nome e as restrições do pedido do rascunho (§5.4), art. 9º, § 1º
+      'Nos textos escritos no prontuário e no pedido do rascunho, o sistema retira o seu nome (completo, com o sobrenome ou só o primeiro nome), e-mail, telefone e CPF. ' +
+      'Podem ir junto: o seu primeiro nome sozinho, quando tem menos de três letras ou também é uma palavra comum de alimentação (como Rosa ou Clara); o seu sobrenome sozinho; apelidos; e outros dados escritos ali, como o nome de outras pessoas ou um endereço. ' +
       'Nada além do que está descrito aqui é enviado. Se isso mudar, pediremos uma nova autorização.',
     );
     expect(p.at(-1)).toBe(`Versão 1.1, de ${AUTORIZACAO_IA_VERSAO_DATA.split('-').reverse().join('/')}.`);
@@ -233,12 +260,16 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
     }
   });
 
-  it('o contrato do que sai (D8): cada categoria de cada uso tem a frase no texto 1.1', () => {
-    const texto = t02({ ...RESP, destino: 'anthropic-us', canal: 'app' }).join(' ');
-    for (const uso of ['resumo_historico', 'rascunho_plano'] as const) {
-      for (const c of CATEGORIAS_POR_USO[uso]) expect(texto, `${uso}: ${c}`).toContain(FRASE_DA_CATEGORIA[c]);
-    }
-    expect(texto).toContain('as datas de cada registro');
+  it('o contrato do que sai (D8): cada categoria de cada uso tem a frase na lista do "O que é enviado" da 1.1 (só ali)', () => {
+    const p4 = t02({ ...RESP, destino: 'anthropic-us', canal: 'app' })[4];
+    expect(faltandoNaLista(p4)).toEqual({ resumo_historico: [], rascunho_plano: [], datas: false });
+    // a guarda percebe a saída de uma categoria da lista, mesmo com a palavra em outro parágrafo ou em outro trecho
+    expect(faltandoNaLista(p4.replace(' exames,', '')).resumo_historico).toEqual(['exames']);
+    expect(faltandoNaLista(p4.replace(' plano,', '')).resumo_historico).toEqual(['plano']);
+    expect(faltandoNaLista(p4.replace('a sua idade e ', '')).rascunho_plano).toEqual(['idade']); // "vai a sua idade" fica de fora da lista
+    expect(faltandoNaLista(p4.replace('as metas, as restrições e as preferências', 'as metas e as preferências')).rascunho_plano).toEqual(['metas']);
+    expect(faltandoNaLista(p4.replace('; no resumo, se a nutricionista escolher, as anotações dela', '')).resumo_historico).toEqual(['notas']);
+    expect(faltandoNaLista(p4.replace(' e as datas de cada registro', '')).datas).toBe(true);
     // toda categoria do contrato é usada por algum uso (nada declarado à toa)
     expect(new Set(Object.values(CATEGORIAS_POR_USO).flat())).toEqual(new Set(CATEGORIAS));
   });
@@ -249,7 +280,8 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
     const a = aditivoIa('anthropic-us').paragrafos.map(textoCorrido);
     expect(a[5]).toContain('A Anthropic guarda o conteúdo enviado por até 30 dias');
     expect(a[1]).toContain('(b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos');
-    expect(a[4]).toContain('com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente). As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido.');
+    expect(a[4]).toContain('com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o sobrenome sozinho, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido.');
+    expect(a[4]).toContain('e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente');
     expect(a[9]).toBe('10. Selo e transparência. O plano alimentar criado a partir do rascunho da IA leva o selo "Elaborado com apoio de IA e revisado pela nutricionista". A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.');
     expect(a.at(-1)).toBe(`Versão 1.1, de ${IA_ADITIVO_VERSAO_DATA.split('-').reverse().join('/')}.`);
     expect(a.join(' ')).not.toMatch(/provis[oó]ri/);
@@ -259,7 +291,7 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
     for (const destino of ['anthropic-us', 'bedrock-eu'] as const) {
       const a = aditivoIa(destino).paragrafos.map(textoCorrido);
       expect(a[1]).toBe('2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.');
-      expect(a[4]).toBe('5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente). As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.');
+      expect(a[4]).toBe('5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o sobrenome sozinho, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.');
     }
   });
 });

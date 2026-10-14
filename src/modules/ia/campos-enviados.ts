@@ -15,7 +15,10 @@ export const CATEGORIAS_POR_USO: Record<Exclude<UsoIA, 'leitura_laudos'>, readon
   rascunho_plano: ['idade', 'sexo', 'anamnese', 'metas'],
 };
 
-/** A frase de cada categoria no texto da autorização 1.1 (parágrafo "O que é enviado"). */
+/**
+ * A frase de cada categoria no texto da autorização 1.1 — na lista do parágrafo "O que é enviado" (entre "No resumo e no
+ * rascunho" e "O seu nome, e-mail"), no trecho comum ou no do próprio uso; o textos-legais.test.ts confere só ali.
+ */
 export const FRASE_DA_CATEGORIA: Record<Categoria, string> = {
   idade: 'a sua idade',
   sexo: 'o seu sexo',
@@ -27,5 +30,5 @@ export const FRASE_DA_CATEGORIA: Record<Categoria, string> = {
   plano: 'plano',
   diario: 'diário alimentar sem as fotos',
   notas: 'as anotações dela',
-  metas: 'as metas e as preferências que a nutricionista informar',
+  metas: 'as metas, as restrições e as preferências que a nutricionista informar',
 };
