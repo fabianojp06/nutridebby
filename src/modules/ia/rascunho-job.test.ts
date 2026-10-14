@@ -11,6 +11,7 @@ import { listAccessHistory, rotuloDaAcao } from '@/modules/plataforma/audit';
 import { processarJobAssistente } from './assistente-job';
 import { CATEGORIAS_POR_USO } from './campos-enviados';
 import { buscaDoTenant } from './ferramentas-alimentos';
+import { custoMaximoDaPrimeiraVolta } from './laco-ferramentas';
 import { expirarTarefasDoTenant, RepetirIaError } from './leitura-job';
 import type { DepsJobAssistente } from './modelos-job';
 import { custoMaximoMicroUsd, custoMicroUsd, MAX_TOKENS_VOLTA } from './precos';
@@ -197,6 +198,34 @@ describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
     expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: id }, jobDeps(f))).toBe('falhou');
     expect(f.chamadas.gerar).toHaveLength(1);
     expect(await tarefa(C, id)).toMatchObject({ status: 'falhou', erro: 'limite_custo', resultado: null });
+    expect(await uso(C, id)).toMatchObject({ situacao: 'confirmado', custoMicroUsd: custoMicroUsd('claude-sonnet-5-5', 'us', USO_FAKE) });
+  });
+
+  it('RN-104/RN-101 (revisão da T10): teto que não comporta nem a 1ª volta → limite_custo NO PORTÃO; nada sai, nada se registra como enviado, estorno', async () => {
+    const C = await cenario();
+    // o custo máximo da 1ª volta deste paciente, pela mesma conta do laço, a partir do que de fato saiu numa 1ª volta
+    const f0 = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk(planoOk())] });
+    expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: await pedir(C) }, jobDeps(f0))).toBe('pronta');
+    const primeira = f0.chamadas.gerar[0];
+    const exato = custoMaximoDaPrimeiraVolta(primeira, (primeira.turnos[0] as unknown as { blocos: { texto: string }[] }).blocos[0].texto);
+    // IA_TETO_RASCUNHO_USD no mínimo do env (0,05) e o custo máximo da 1ª volta − 1: nenhum dos dois comporta a volta
+    for (const teto of [50_000, exato - 1]) {
+      const id = await pedir(C, metas, { ...IA_TESTE, tetoRascunhoMicroUsd: teto });
+      const f = provedorFake({ gerar: [finalOk(planoOk())] });
+      expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: id }, jobDeps(f))).toBe('falhou');
+      expect(f.chamadas.gerar).toHaveLength(0);
+      expect(await tarefa(C, id)).toMatchObject({ status: 'falhou', erro: 'limite_custo', enviadoEm: null, saiuEm: null, destino: null, parametros: null, resultado: null });
+      expect(await saidas(C, id)).toHaveLength(0); // sem "Dados enviados à IA"
+      expect((await uso(C, id)).situacao).toBe('estornado');
+    }
+    // no limite exato a 1ª volta cabe (a conferência do portão não é mais rígida que a do laço); a 2ª não, e o laço para
+    const id = await pedir(C, metas, { ...IA_TESTE, tetoRascunhoMicroUsd: exato });
+    const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk(planoOk())] });
+    expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: id }, jobDeps(f))).toBe('falhou');
+    expect(f.chamadas.gerar).toHaveLength(1);
+    expect(await tarefa(C, id)).toMatchObject({ erro: 'limite_custo' });
+    expect((await tarefa(C, id)).saiuEm).not.toBeNull();
+    expect(await saidas(C, id)).toHaveLength(1);
     expect(await uso(C, id)).toMatchObject({ situacao: 'confirmado', custoMicroUsd: custoMicroUsd('claude-sonnet-5-5', 'us', USO_FAKE) });
   });
 

@@ -10,13 +10,13 @@ import { MAX_VOLTAS_RASCUNHO, PRAZO_LACO_MS, PRAZO_SUGESTAO_DIAS, USO_DA_TAREFA,
 import { acertar, avisarSeChegou80Ia, estornar, marcarIncerto } from './cota';
 import { buscaDoTenant, executarFerramenta, FERRAMENTAS_ALIMENTOS, novoCatalogo } from './ferramentas-alimentos';
 import { ESFORCO_RASCUNHO, instrucaoRascunho, SISTEMA_RASCUNHO } from './instrucoes/rascunho';
-import { ErroNoLaco, rodarLaco, type FimDoLaco } from './laco-ferramentas';
+import { custoMaximoDaPrimeiraVolta, ErroNoLaco, rodarLaco, type FimDoLaco } from './laco-ferramentas';
 import { RepetirIaError, type FimDoJob } from './leitura-job';
 import { motivoDoErro, type DepsJobAssistente } from './modelos-job';
 import { estadoIaComPaciente } from './modo';
 import { SCHEMA_PLANO_IA, validarPlanoIa } from './plano-ia';
 import { MAX_TOKENS_VOLTA } from './precos';
-import { montarPedidoDoRascunho, validarMetas, type MetasDoRascunho, type PedidoDoRascunho } from './rascunho-dados';
+import { montarPedidoDoRascunho, validarMetas, type MetasDoRascunho } from './rascunho-dados';
 import type { ResultadoRascunho } from './tipos';
 
 const USO = USO_DA_TAREFA.rascunho_plano;
@@ -107,12 +107,15 @@ export async function processarRascunho(d: { tenantId: string; tarefaId: string 
   // (3) PORTÃO DO ENVIO (RN-100, RN-108, D4). Numa transação, na ordem de travas da spec (§5.5): paciente FOR SHARE
   // (serializa com a retirada e a exclusão) → tenant FOR SHARE (desativarIa, a admin, a suspensão) → tarefa. O pedido é
   // MONTADO AQUI, com o paciente travado (as metas da tarefa, revalidadas; a anamnese só com "Considerar a anamnese").
+  // RN-104 (como o D12 do resumo): se nem a 1ª volta cabe no teto da tarefa (IA_TETO_RASCUNHO_USD abaixo do custo máximo
+  // de uma volta), `limite_custo` aqui, ANTES da marca — nada sai, a reserva é estornada e nada se registra como enviado.
   // Grava `enviado_em`, `saiu_em` (primeira saída, nunca volta a nulo) e `destino` só se a tarefa ainda está "processando"
   // e sem envio; grava "Dados enviados à IA" (exportar/ia, ator nulo, sem conteúdo). A reserva NÃO desce: ela é o teto do
   // laço (D5). Só depois do commit o pedido sai.
+  const pedidoDoLaco = { finalidade: 'rascunho', modelo, geo: deps.geo, sistema: SISTEMA_RASCUNHO, ferramentas: FERRAMENTAS_ALIMENTOS, schema: SCHEMA_PLANO_IA, maxTokens: MAX_TOKENS_VOLTA, esforco: ESFORCO_RASCUNHO } as const;
   const portao = await withTenant(
     ctx,
-    async (tx): Promise<MotivoFalha | 'ignorada' | { pedido: PedidoDoRascunho; metas: MetasDoRascunho }> => {
+    async (tx): Promise<MotivoFalha | 'ignorada' | { inicio: string; metas: MetasDoRascunho }> => {
       const [p] = await tx.select().from(patients).where(eq(patients.id, t.patientId)).for('share');
       const [tn] = await tx.select().from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       if (!tn || estadoIaComPaciente(tn, deps) !== 'ativa' || !deps.destino) return 'ia_desligada';
@@ -125,6 +128,8 @@ export async function processarRascunho(d: { tenantId: string; tarefaId: string 
       const v = validarMetas(t.parametros);
       if (!v.ok) return 'resposta_invalida'; // metas fora do formato (nunca pelo app): nada sai
       const pedido = await montarPedidoDoRascunho(tx, p, v.metas, { agora: agora(), fuso: tn.fuso });
+      const inicio = `${instrucaoRascunho}\n${JSON.stringify(pedido.dados)}`;
+      if (custoMaximoDaPrimeiraVolta(pedidoDoLaco, inicio) > t.reservaMicroUsd) return 'limite_custo';
       const marcada = await tx
         .update(iaTarefas)
         .set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, updatedAt: agora() })
@@ -132,13 +137,13 @@ export async function processarRascunho(d: { tenantId: string; tarefaId: string 
         .returning({ id: iaTarefas.id });
       if (!marcada.length) return 'ignorada';
       await recordAudit(tx, { acao: 'exportar', entidade: 'ia', entidadeId: t.id, patientId: t.patientId }); // "Dados enviados à IA"
-      return { pedido, metas: v.metas };
+      return { inicio, metas: v.metas };
     },
     deps.db,
   );
   if (portao === 'ignorada') return 'ignorada';
   if (typeof portao === 'string') return falhar(portao);
-  const { pedido, metas } = portao;
+  const { inicio: mensagemInicial, metas } = portao;
 
   // (4) o laço (D4, D5): até 12 voltas, 12 min e o teto da tarefa; ferramentas só de alimentos, no tenant da tarefa
   const cat = novoCatalogo();
@@ -148,8 +153,8 @@ export async function processarRascunho(d: { tenantId: string; tarefaId: string 
   try {
     fim = await rodarLaco({
       provedor,
-      pedido: { finalidade: 'rascunho', modelo, geo: deps.geo, sistema: SISTEMA_RASCUNHO, ferramentas: FERRAMENTAS_ALIMENTOS, schema: SCHEMA_PLANO_IA, maxTokens: MAX_TOKENS_VOLTA, esforco: ESFORCO_RASCUNHO },
-      inicio: `${instrucaoRascunho}\n${JSON.stringify(pedido.dados)}`,
+      pedido: pedidoDoLaco,
+      inicio: mensagemInicial,
       executar: (c) => executarFerramenta(c, cat, buscar),
       limites: { voltas: MAX_VOLTAS_RASCUNHO, tetoMicroUsd: t.reservaMicroUsd, prazoMs: PRAZO_LACO_MS },
       // §5.6: "as voltas seguintes conferem de novo a tarefa e a autorização (leitura simples, sem trava) e param com

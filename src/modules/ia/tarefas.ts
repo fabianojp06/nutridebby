@@ -30,8 +30,8 @@ export type DepsPedido = { ia: ConfigIA; db?: Db; boss?: PgBoss; agora?: Date; a
 const MAX_EM_ANDAMENTO_POR_TENANT = 2; // RN-103
 const MAX_PEDIDOS_POR_HORA = 30; // RN-103
 
-/** `sem_retencao` (Plano 14A, D9) cai no "indisponível", como a emergência. */
-function mensagemDoEstado(e: EstadoIaTenant): string {
+/** `sem_retencao` (Plano 14A, D9) cai no "indisponível", como a emergência. Plano 14B: também no resumo e no rascunho. */
+export function mensagemDoEstado(e: EstadoIaTenant): string {
   return e === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado : MSG_IA.indisponivel;
 }
 /** US-110 (Plano 14A): a mensagem do paciente — sem autorização vigente (US-105), com a autorização retirada, ou indisponível. Plano 14B: também no resumo e no rascunho. */
@@ -49,6 +49,83 @@ export async function conferirLimites(tx: Tx, usuaria: string, agora: Date): Pro
     .from(iaTarefas)
     .where(and(eq(iaTarefas.pedidoPor, usuaria), gte(iaTarefas.criadoEm, new Date(agora.getTime() - 3_600_000))));
   if (naHora >= MAX_PEDIDOS_POR_HORA) throw new PedidoIaError(MSG_IA.muitosPedidos);
+}
+
+/**
+ * Plano 14B (RN-100, US-120, US-121): o atalho barato do pedido do assistente (resumo e rascunho), antes da transação — a
+ * IA do consultório pela cópia da action (a decisão vale sob a trava D16, em `criarTarefaDoAssistente`), a usuária da
+ * sessão e o id do paciente. Devolve a usuária.
+ */
+export function usuariaDoPedido(ctx: TenantContext, tenant: TenantRow, patientId: string, ia: ConfigIA): string {
+  const estado = estadoIaComPaciente(tenant, ia);
+  if (estado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estado));
+  if (!ctx.actorUserId || !idValido(patientId)) throw new PedidoIaError(MSG_IA.indisponivel);
+  return ctx.actorUserId;
+}
+
+/** A tarefa do assistente que o pedido cria (o que muda entre o resumo e o rascunho). */
+export type TarefaDoAssistente = {
+  tipo: 'resumo_historico' | 'rascunho_plano';
+  /** dado de saúde (as notas do resumo, as metas do rascunho): fica até a tarefa ser esvaziada (CHECK ia_tarefas_conteudo_esvaziado) */
+  parametros: Record<string, unknown>;
+  /** só o resumo (CHECK ia_tarefas_carimbo_so_resumo) */
+  carimbo: string | null;
+  microUsd: number;
+  promptVersao: string;
+  /** com o tenant travado e os limites conferidos, antes da reserva ("Gerar de novo" do resumo descarta as prontas aqui) */
+  antesDaReserva?: () => Promise<void>;
+};
+
+/**
+ * Plano 14B (RN-100, RN-103, RN-104, D16): a parte comum do pedido do resumo e do rascunho, dentro da transação de quem
+ * chama — que JÁ travou o paciente (carregarPacienteParaEscrita) e conferiu a autorização para o uso da tarefa. Continua a
+ * ordem de travas: tenant (FOR NO KEY UPDATE, D16: decide com a linha travada, não com a cópia da action) → limites
+ * (RN-103) → `antesDaReserva` (tarefas prontas) → (cota) ia_uso → plataforma; a tarefa e o job `ia-assistente` na MESMA
+ * transação (o job só existe se a tarefa existir). RN-108 (D14): `criado_em` pelo relógio do banco, depois da trava do
+ * paciente. O gatilho de auditoria grava o `criar` da entidade `ia` com o ator e o IP. Nada sai ao provedor aqui.
+ */
+export async function criarTarefaDoAssistente(
+  tx: Tx,
+  ctx: TenantContext,
+  patientId: string,
+  o: TarefaDoAssistente,
+  x: { ia: ConfigIA; boss: PgBoss; usuaria: string; agora: Date },
+): Promise<string> {
+  const [tn] = await tx
+    .select({ status: tenants.status, iaLiberada: tenants.iaLiberada, iaAtivadaEm: tenants.iaAtivadaEm, iaAditivoVersao: tenants.iaAditivoVersao })
+    .from(tenants)
+    .where(eq(tenants.id, ctx.tenantId))
+    .for('no key update');
+  const travado = tn ? estadoIaComPaciente(tn, x.ia) : 'suspensa';
+  if (travado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(travado));
+  await conferirLimites(tx, x.usuaria, x.agora);
+  await o.antesDaReserva?.();
+  const tarefaId = randomUUID();
+  const modelo = x.ia.modeloAssistente;
+  await reservar(tx, { tenantId: ctx.tenantId, tarefaId, tipo: o.tipo, modelo, promptVersao: o.promptVersao, microUsd: o.microUsd, agora: x.agora, tetoGlobalMicroUsd: x.ia.tetoGlobalMicroUsd });
+  await tx.insert(iaTarefas).values({
+    id: tarefaId, tenantId: ctx.tenantId, patientId, tipo: o.tipo, status: 'na_fila', pedidoPor: x.usuaria, parametros: o.parametros,
+    carimboDados: o.carimbo, modelo, promptVersao: o.promptVersao, reservaMicroUsd: o.microUsd, criadoEm: sql`clock_timestamp()`, updatedAt: x.agora,
+  });
+  const job = await x.boss.send('ia-assistente', { tenantId: ctx.tenantId, tarefaId }, { db: fromDrizzle(tx, sql) });
+  if (!job) throw new Error('A fila recusou o pedido de IA');
+  return tarefaId;
+}
+
+/**
+ * Plano 14B: o `catch` do pedido do assistente — um pedido em andamento do mesmo tipo e paciente (o índice único) vira
+ * `emAndamento`; a cota vira "cota acabou"; o teto da plataforma avisa os admins e vira "indisponível". O resto sobe.
+ */
+export async function falhaDoPedidoDoAssistente(e: unknown, emAndamento: string, deps: DepsPedido, db: Db, agora: Date): Promise<never> {
+  if (uniqueViolation(e) === 'ia_tarefas_em_andamento_sem_exame_idx') throw new PedidoIaError(emAndamento);
+  if (e instanceof CotaIaError) {
+    if (e.motivo === 'teto_plataforma') {
+      const avisar = deps.avisarTeto ?? ((a: Date) => avisarTetoGlobal(db, a, getEnv().APP_URL));
+      await avisar(agora).catch((err: unknown) => logger.error({ err: err instanceof Error ? err.name : 'erro' }, 'falha ao avisar os admins do teto da IA'));
+    }
+    throw new PedidoIaError(e.motivo === 'cota' ? MSG_IA.cotaAcabou : MSG_IA.indisponivel);
+  }
+  throw e;
 }
 
 /**

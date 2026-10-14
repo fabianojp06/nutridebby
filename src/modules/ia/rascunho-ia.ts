@@ -1,32 +1,21 @@
-import { randomUUID } from 'node:crypto';
-import { and, eq, gt, inArray, sql } from 'drizzle-orm';
-import { fromDrizzle } from 'pg-boss';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { uniqueViolation } from '@/db/errors';
 import { foods, iaTarefas, mealPlans, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { getEnv } from '@/env';
 import { getBoss } from '@/jobs/boss';
-import { logger } from '@/lib/logger';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { criarRascunhoTx, gravarConteudoRascunhoTx } from '@/modules/plano-alimentar/rascunho';
 import type { ItemPlano, PlanoCompleto, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 import { auditRead } from '@/modules/plataforma/audit';
-import { avisarTetoGlobal } from './alertas';
 import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente } from './autorizacao';
 import { MSG_IA, MSG_RASCUNHO_IA, USO_DA_TAREFA, type DestinoIA } from './constantes';
-import { CotaIaError, reservar } from './cota';
 import { PROMPT_VERSAO_RASCUNHO } from './instrucoes/rascunho';
-import { estadoIaComPaciente, type EstadoIaTenant } from './modo';
 import { validarMetas } from './rascunho-dados';
-import { conferirLimites, mensagemDoPaciente, PedidoIaError, type DepsPedido } from './tarefas';
+import { criarTarefaDoAssistente, falhaDoPedidoDoAssistente, mensagemDoPaciente, PedidoIaError, usuariaDoPedido, type DepsPedido } from './tarefas';
 import type { ResultadoRascunho } from './tipos';
 
 const USO = USO_DA_TAREFA.rascunho_plano;
-
-/** `sem_retencao` (Plano 14A, D9) cai no "indisponível", como a emergência. */
-const mensagemDoEstado = (e: EstadoIaTenant): string => (e === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado : MSG_IA.indisponivel);
 
 /** US-121: metas fora do formulário — erros por campo (chaves de `validarMetas`), nada criado. */
 export class MetasError extends Error {
@@ -72,7 +61,8 @@ export function metasPadrao(calculos: { kcal: number }[], ultimo: Pick<PlanoComp
 /**
  * US-121 "Gerar rascunho" (RN-100, RN-103, RN-104): valida as metas e cria a tarefa na fila. A reserva é o teto do
  * rascunho (`IA_TETO_RASCUNHO_USD`, D5): o laço nunca passa dele. Ordem de travas, a do resumo: paciente
- * (carregarPacienteParaEscrita) → tenant (FOR NO KEY UPDATE, D16) → (cota) ia_uso → plataforma. Nada do prontuário é lido
+ * (carregarPacienteParaEscrita) → tenant (FOR NO KEY UPDATE, D16) → (cota) ia_uso → plataforma (do tenant em diante,
+ * `criarTarefaDoAssistente`, comum com o resumo). Nada do prontuário é lido
  * aqui (o pedido é montado no portão do worker, com o paciente travado); as metas (dado de saúde) ficam em `parametros` até
  * a tarefa ser esvaziada. O gatilho de auditoria grava o `criar` da entidade `ia` com o ator e o IP ("Pediu rascunho à IA").
  */
@@ -81,10 +71,7 @@ export async function pedirRascunhoIa(ctx: TenantContext, tenant: TenantRow, pat
   if (!v.ok) throw new MetasError(v.erros);
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
-  const estado = estadoIaComPaciente(tenant, deps.ia); // atalho barato; a decisão vale sob a trava D16, abaixo
-  if (estado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(estado));
-  if (!ctx.actorUserId || !idValido(patientId)) throw new PedidoIaError(MSG_IA.indisponivel);
-  const usuaria = ctx.actorUserId;
+  const usuaria = usuariaDoPedido(ctx, tenant, patientId, deps.ia); // atalho barato; a decisão vale sob a trava D16
   const boss = deps.boss ?? (await getBoss());
   try {
     return await withTenant(
@@ -95,42 +82,18 @@ export async function pedirRascunhoIa(ctx: TenantContext, tenant: TenantRow, pat
         const situacao = await autorizacaoDoPaciente(tx, p.id, deps.ia.destino);
         const motivo = motivoDoPaciente(p, situacao, USO);
         if (motivo) throw new PedidoIaError(mensagemDoPaciente(motivo, situacao));
-        // D16: decide com a linha travada do tenant de `ctx`, não com a cópia da action
-        const [tn] = await tx
-          .select({ status: tenants.status, iaLiberada: tenants.iaLiberada, iaAtivadaEm: tenants.iaAtivadaEm, iaAditivoVersao: tenants.iaAditivoVersao })
-          .from(tenants)
-          .where(eq(tenants.id, ctx.tenantId))
-          .for('no key update');
-        const travado = tn ? estadoIaComPaciente(tn, deps.ia) : 'suspensa';
-        if (travado !== 'ativa') throw new PedidoIaError(mensagemDoEstado(travado));
-        await conferirLimites(tx, usuaria, agora);
-        const tarefaId = randomUUID();
-        const modelo = deps.ia.modeloAssistente;
-        const microUsd = deps.ia.tetoRascunhoMicroUsd;
-        await reservar(tx, { tenantId: ctx.tenantId, tarefaId, tipo: 'rascunho_plano', modelo, promptVersao: PROMPT_VERSAO_RASCUNHO, microUsd, agora, tetoGlobalMicroUsd: deps.ia.tetoGlobalMicroUsd });
-        await tx.insert(iaTarefas).values({
-          id: tarefaId, tenantId: ctx.tenantId, patientId: p.id, tipo: 'rascunho_plano', status: 'na_fila', pedidoPor: usuaria,
-          // as metas são dado de saúde: ficam até a tarefa ser esvaziada (CHECK ia_tarefas_conteudo_esvaziado)
-          parametros: v.metas,
-          // RN-108 (D14): criado_em pelo relógio do banco, depois da trava do paciente (como a leitura e o resumo)
-          carimboDados: null, modelo, promptVersao: PROMPT_VERSAO_RASCUNHO, reservaMicroUsd: microUsd, criadoEm: sql`clock_timestamp()`, updatedAt: agora,
-        });
-        const job = await boss.send('ia-assistente', { tenantId: ctx.tenantId, tarefaId }, { db: fromDrizzle(tx, sql) });
-        if (!job) throw new Error('A fila recusou o pedido de IA');
-        return tarefaId;
+        return criarTarefaDoAssistente(
+          tx,
+          ctx,
+          p.id,
+          { tipo: 'rascunho_plano', parametros: v.metas, carimbo: null, microUsd: deps.ia.tetoRascunhoMicroUsd, promptVersao: PROMPT_VERSAO_RASCUNHO },
+          { ia: deps.ia, boss, usuaria, agora },
+        );
       },
       db,
     );
   } catch (e) {
-    if (uniqueViolation(e) === 'ia_tarefas_em_andamento_sem_exame_idx') throw new PedidoIaError(MSG_RASCUNHO_IA.emAndamento);
-    if (e instanceof CotaIaError) {
-      if (e.motivo === 'teto_plataforma') {
-        const avisar = deps.avisarTeto ?? ((a: Date) => avisarTetoGlobal(db, a, getEnv().APP_URL));
-        await avisar(agora).catch((err: unknown) => logger.error({ err: err instanceof Error ? err.name : 'erro' }, 'falha ao avisar os admins do teto da IA'));
-      }
-      throw new PedidoIaError(e.motivo === 'cota' ? MSG_IA.cotaAcabou : MSG_IA.indisponivel);
-    }
-    throw e;
+    return falhaDoPedidoDoAssistente(e, MSG_RASCUNHO_IA.emAndamento, deps, db, agora);
   }
 }
 

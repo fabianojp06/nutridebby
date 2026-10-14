@@ -118,7 +118,7 @@ describe('pedirRascunhoIa (US-121, RN-100, RN-104)', () => {
     const id = await pedirRascunhoIa(C.T.ctx, C.tenant, C.p.id, metas, deps);
     const t = await tarefa(C, id);
     expect(t).toMatchObject({
-      tipo: 'rascunho_plano', status: 'na_fila', pedidoPor: C.T.nutriId, modelo: 'claude-sonnet-5-5', promptVersao: 'rascunho-2026-10-09', reservaMicroUsd: 1_000_000, carimboDados: null,
+      tipo: 'rascunho_plano', status: 'na_fila', pedidoPor: C.T.nutriId, modelo: 'claude-sonnet-5-5', promptVersao: 'rascunho-2026-10-14', reservaMicroUsd: 1_000_000, carimboDados: null,
       parametros: { metaKcal: 1800, proteinaPct: 20, carboidratoPct: 50, lipidioPct: 30, restricoes: 'Sem lactose.', considerarAnamnese: true },
     });
     expect(await uso(C, id)).toMatchObject({ situacao: 'reservado', custoMicroUsd: 1_000_000, tipo: 'rascunho_plano' });
