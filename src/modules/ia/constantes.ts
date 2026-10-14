@@ -339,3 +339,23 @@ export const MSG_RASCUNHO_IA = {
   limite: 'A IA não conseguiu montar um rascunho com essas metas. Ajuste as metas ou monte o plano no editor.',
   emAndamento: 'O rascunho deste paciente já está sendo preparado.', // novo
 } as const;
+
+/** Plano 14B (US-120, US-122): textos do resumo, com o texto exato da spec (os "novo" vão à Debby, desvio 13). */
+export const MSG_RESUMO = {
+  botao: 'Resumo do histórico (IA)',
+  incluirNotas: 'Incluir notas privadas',
+  gerar: 'Gerar resumo',
+  preparando: 'Preparando o resumo… isso leva até 1 minuto.',
+  titulo: (dataHora: string) => `Resumo gerado por IA em ${dataHora} — não substitui a leitura do prontuário`,
+  faixa: 'Sugestão gerada por inteligência artificial. Ela pode errar: confira com o prontuário. A responsabilidade pelas decisões é da nutricionista.',
+  secoes: { evolucao: 'Evolução das medidas', exames: 'Exames (valores registrados)', habitos: 'Hábitos, anamnese e diário', condutas: 'Condutas anteriores' },
+  dadosUsados: 'Dados usados',
+  retiradas: (n: number) => `${n} frases sem fonte foram retiradas.`,
+  vazio: 'Ainda não há histórico para resumir.',
+  gerarDeNovo: 'Gerar de novo', // novo
+  copiar: 'Copiar texto',
+  copiado: 'Texto copiado.', // novo
+  descartar: 'Descartar resumo',
+  falha: 'Não foi possível gerar agora. Tente de novo em alguns minutos.',
+  emAndamento: 'O resumo deste paciente já está sendo preparado.', // novo
+} as const;

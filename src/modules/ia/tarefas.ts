@@ -34,14 +34,14 @@ const MAX_PEDIDOS_POR_HORA = 30; // RN-103
 function mensagemDoEstado(e: EstadoIaTenant): string {
   return e === 'aditivo_desatualizado' ? MSG_IA.aditivoDesatualizado : MSG_IA.indisponivel;
 }
-/** US-110 (Plano 14A): a mensagem do paciente — sem autorização vigente (US-105), com a autorização retirada, ou indisponível. */
-function mensagemDoPaciente(motivo: MotivoFalha, s: SituacaoAutorizacao): string {
+/** US-110 (Plano 14A): a mensagem do paciente — sem autorização vigente (US-105), com a autorização retirada, ou indisponível. Plano 14B: também no resumo e no rascunho. */
+export function mensagemDoPaciente(motivo: MotivoFalha, s: SituacaoAutorizacao): string {
   if (motivo === 'sem_autorizacao') return s.tipo === 'retirada' ? MSG_IA.retirouAutorizacao : MSG_IA.semAutorizacao;
   return MSG_FALHA[motivo];
 }
 
-/** RN-103, com a linha do tenant já travada (D16): duas abas não passam do limite. */
-async function conferirLimites(tx: Tx, usuaria: string, agora: Date): Promise<void> {
+/** RN-103, com a linha do tenant já travada (D16): duas abas não passam do limite. Plano 14B: também no resumo e no rascunho. */
+export async function conferirLimites(tx: Tx, usuaria: string, agora: Date): Promise<void> {
   const [{ andamento }] = await tx.select({ andamento: count() }).from(iaTarefas).where(inArray(iaTarefas.status, [...EM_ANDAMENTO]));
   if (andamento >= MAX_EM_ANDAMENTO_POR_TENANT) throw new PedidoIaError(MSG_IA.muitosPedidos);
   const [{ naHora }] = await tx
