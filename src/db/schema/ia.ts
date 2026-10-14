@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { AREAS_MODELOS_IA, STATUS_GERACAO } from '../../modules/ia/constantes'; // relativo: o drizzle-kit não resolve o alias @/
-import type { ResultadoLeitura } from '@/modules/ia/tipos';
+import type { ResultadoIa } from '@/modules/ia/tipos';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
@@ -26,7 +26,7 @@ export const iaTarefas = pgTable(
     pedidoPor: uuid('pedido_por').notNull(),
     /** Plano 14 (opções do resumo e do rascunho); nulo na leitura. */
     parametros: jsonb('parametros'),
-    resultado: jsonb('resultado').$type<ResultadoLeitura>(),
+    resultado: jsonb('resultado').$type<ResultadoIa>(),
     /** Motivo da RN-112, só em `falhou`. */
     erro: text('erro'),
     modelo: text('modelo').notNull(),
@@ -50,11 +50,13 @@ export const iaTarefas = pgTable(
     linhasAplicadas: integer('linhas_aplicadas'),
     /** RN-114 / ECF.17.03: a data do exame antes de "Usar esta data ao salvar". */
     exameDataAnterior: date('exame_data_anterior', { mode: 'string' }),
+    /** Plano 14B (RN-120, D11): SHA-256 dos registros usados no resumo + a escolha das notas ("Reaproveitar"). Fixo depois de gravado (0114). */
+    carimboDados: text('carimbo_dados'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'ia_tarefas_paciente_fk' }),
-    check('ia_tarefas_tipo_valido', sql`${t.tipo} in ('leitura_exame')`),
+    check('ia_tarefas_tipo_valido', sql`${t.tipo} in ('leitura_exame', 'resumo_historico', 'rascunho_plano')`),
     check('ia_tarefas_status_valido', sql`${t.status} in ('na_fila', 'processando', 'pronta', 'falhou', 'aplicada', 'descartada', 'expirada', 'cancelada')`),
     check('ia_tarefas_exame_so_na_leitura', sql`${t.examId} is null or ${t.tipo} = 'leitura_exame'`),
     check('ia_tarefas_resultado_so_pronta', sql`${t.resultado} is null or ${t.status} = 'pronta'`),
@@ -65,6 +67,9 @@ export const iaTarefas = pgTable(
     check('ia_tarefas_reserva_valida', sql`${t.reservaMicroUsd} >= 0`),
     check('ia_tarefas_destino_valido', sql`${t.destino} is null or (${t.destino} in ('anthropic-us', 'bedrock-eu', 'teste') and ${t.saiuEm} is not null)`),
     uniqueIndex('ia_tarefas_em_andamento_idx').on(t.tenantId, t.patientId, t.tipo, t.examId).where(sql`${t.status} in ('na_fila', 'processando')`),
+    check('ia_tarefas_carimbo_so_resumo', sql`(${t.tipo} = 'resumo_historico') = (${t.carimboDados} is not null) and (${t.carimboDados} is null or ${t.carimboDados} ~ '^[0-9a-f]{64}$')`),
+    // RN-103 (C2): o índice de cima inclui exam_id, nulo no resumo e no rascunho (nulos não colidem) — este cobre os tipos sem exame
+    uniqueIndex('ia_tarefas_em_andamento_sem_exame_idx').on(t.tenantId, t.patientId, t.tipo).where(sql`${t.tipo} <> 'leitura_exame' and ${t.status} in ('na_fila', 'processando')`),
     index('ia_tarefas_pedidos_idx').on(t.tenantId, t.pedidoPor, t.criadoEm),
     index('ia_tarefas_status_idx').on(t.tenantId, t.status),
     index('ia_tarefas_exame_idx').on(t.tenantId, t.patientId, t.examId, t.criadoEm),

@@ -1,17 +1,16 @@
 import { z } from 'zod';
-import type { MedidaDoItem } from '@/db/schema';
 import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN } from '@/modules/plano-alimentar/constantes';
 import type { CatalogoDaTarefa } from './ferramentas-alimentos';
+import type { ItemIa, PlanoIa, RefeicaoIa } from './tipos';
 
 /**
  * Plano 14B (RN-121, RN-124, D14): o plano que a IA sugere, revalidado contra o catálogo da tarefa. O resultado guarda
  * só ids REAIS de alimento e gramas — nunca nome nem número do modelo; totais, indicador e macros são sempre do calculo.ts.
+ * Os tipos moram em `tipos.ts` (o schema do banco os usa em `ia_tarefas.resultado`); daqui, só reexportados.
  */
-export type ItemIa = { foodId: string; quantidadeG: number; medida: MedidaDoItem | null; substitui: number | null };
-export type RefeicaoIa = { nome: string; horario: string; itens: ItemIa[] };
-export type PlanoIa = { titulo: string; metaKcal: number | null; orientacoes: string; refeicoes: RefeicaoIa[]; descartados: number };
+export type { ItemIa, PlanoIa, RefeicaoIa } from './tipos';
 
 const MAX_TITULO = 120;
 const MAX_NOME_REFEICAO = 60;

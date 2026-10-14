@@ -39,7 +39,10 @@ export async function exameComLaudo(
   return criarExame(ctx, tenant, patientId, { titulo: 'Hemograma', data: o.data ?? '2026-09-01', valores: o.valores ?? [], arquivo: o.conteudo ?? PDF_MINIMO }, { db, dataDir: o.dataDir, now: o.now ?? new Date('2026-10-01T15:00:00Z') });
 }
 
-/** Tarefa gravada direto (sem reserva nem fila), para testes de banco e de tela. */
+/** Plano 14B (RN-120, D11): um carimbo fictício (64 hex) — o CHECK ia_tarefas_carimbo_so_resumo (0113) o exige no resumo. */
+export const CARIMBO_TESTE = '0'.repeat(64);
+
+/** Tarefa gravada direto (sem reserva nem fila), para testes de banco e de tela. No resumo, `carimboDados` padrão = CARIMBO_TESTE. */
 export async function tarefaNoBanco(db: Db, ctx: TenantContext, patientId: string, examId: string | null, o: Partial<typeof iaTarefas.$inferInsert> = {}): Promise<string> {
   const [t] = await withTenant(
     ctx,
@@ -56,6 +59,7 @@ export async function tarefaNoBanco(db: Db, ctx: TenantContext, patientId: strin
           modelo: 'claude-opus-5-5',
           promptVersao: 'teste',
           reservaMicroUsd: 0,
+          carimboDados: o.tipo === 'resumo_historico' ? CARIMBO_TESTE : null,
           ...o,
         })
         .returning({ id: iaTarefas.id }),

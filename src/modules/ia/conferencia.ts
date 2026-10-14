@@ -9,6 +9,7 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { autorizacaoDaTarefa, vigentePara } from './autorizacao';
 import { MAX_LINHAS_SUGESTAO, MAX_VALORES_EXAME, MSG_IA, USO_DA_TAREFA, type DestinoIA } from './constantes';
 import { jaLancado, nomeDaSerie } from './correspondencia';
+import { ehLeitura } from './tipos';
 import { lerValorLaudo, type ValorLido } from './valor-laudo';
 
 export type LinhaConferencia = {
@@ -50,7 +51,8 @@ export async function abrirSugestao(ctx: TenantContext, patientId: string, taref
         .select()
         .from(iaTarefas)
         .where(and(eq(iaTarefas.id, tarefaId), eq(iaTarefas.patientId, patientId), eq(iaTarefas.status, 'pronta'), gt(iaTarefas.expiraEm, agora)));
-      if (!t?.resultado || !t.examId || !t.expiraEm) return null;
+      // a leitura só lê o resultado da leitura (o resumo e o rascunho do Plano 14B têm `tipo` e nunca têm exame)
+      if (!t || !ehLeitura(t.resultado) || !t.examId || !t.expiraEm) return null;
       const doPaciente = await tx.select().from(exams).where(eq(exams.patientId, patientId));
       const exame = doPaciente.find((e) => e.id === t.examId);
       if (!exame) return null;
@@ -122,7 +124,7 @@ export async function aplicarSugestao(
       }
       const [e] = await tx.select().from(exams).where(and(eq(exams.id, ref.examId), eq(exams.patientId, p.id))).for('update');
       const [t] = await tx.select().from(iaTarefas).where(eq(iaTarefas.id, tarefaId)).for('update');
-      if (!e || !t || t.status !== 'pronta' || !t.resultado || t.examId !== e.id || !t.expiraEm || t.expiraEm <= agora) {
+      if (!e || !t || t.status !== 'pronta' || !ehLeitura(t.resultado) || t.examId !== e.id || !t.expiraEm || t.expiraEm <= agora) {
         throw new ConferenciaError({ geral: MSG_IA.indisponivelSugestao });
       }
       const erros: Record<string, string> = {};

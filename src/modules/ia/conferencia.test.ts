@@ -79,6 +79,18 @@ describe('US-111 — abrir a sugestão', () => {
     await aplicarSugestao(P.T.ctx, fuso, P.p.id, P.tarefaId, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' });
     expect(await abrirSugestao(P.T.ctx, P.p.id, P.tarefaId, { db: app.db, agora })).toBeNull();
   });
+
+  it('Plano 14B: o resumo e o rascunho prontos não abrem nem se aplicam como leitura de laudo', async () => {
+    const T = await novoTenant(app.db);
+    const p = await pacienteAutorizado(app.db, T.ctx);
+    const expiraEm = new Date(agora.getTime() + 86_400_000);
+    const resumo = await tarefaNoBanco(app.db, T.ctx, p.id, null, { tipo: 'resumo_historico', status: 'pronta', expiraEm, resultado: { tipo: 'resumo', versao: 1, secoes: [], retiradas: 0, fontes: [], tabela: [] } });
+    const rascunho = await tarefaNoBanco(app.db, T.ctx, p.id, null, { tipo: 'rascunho_plano', status: 'pronta', expiraEm, resultado: { tipo: 'rascunho', versao: 1, plano: { titulo: 'T', metaKcal: null, orientacoes: '', refeicoes: [], descartados: 0 } } });
+    for (const id of [resumo, rascunho]) {
+      expect(await abrirSugestao(T.ctx, p.id, id, { db: app.db, agora })).toBeNull();
+      expect(await erros(aplicarSugestao(T.ctx, fuso, p.id, id, { linhas: [linha(0, '92')], usarData: false }, { db: app.db, agora, destino: 'teste' }))).toEqual({ geral: MSG_IA.indisponivelSugestao });
+    }
+  });
 });
 
 describe('US-111 / RN-114 — salvar os valores selecionados', () => {

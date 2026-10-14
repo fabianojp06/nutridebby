@@ -792,6 +792,20 @@
       "when": 1791633340362,
       "tag": "0112_rls_ia_modelos_sugeridos",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1791940509118,
+      "tag": "0113_ia_resumo_rascunho",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1791940514578,
+      "tag": "0114_rls_ia_resumo_rascunho",
+      "breakpoints": true
     }
   ]
 }

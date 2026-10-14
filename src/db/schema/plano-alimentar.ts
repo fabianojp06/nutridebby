@@ -48,6 +48,8 @@ export const mealPlans = pgTable(
     /** Plano 14B (US-123 (g), RN-125): quem aprovou o modelo sugerido e quando (imutáveis depois de gravados). */
     aprovadoEm: timestamp('aprovado_em', { withTimezone: true }),
     aprovadoPor: uuid('aprovado_por'),
+    /** Plano 14B (RN-117, A-D13): o plano do paciente veio do rascunho da IA — o selo do art. 37 no PDF e no app. "Editar" copia. */
+    iaOrigemEm: timestamp('ia_origem_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -70,6 +72,7 @@ export const mealPlans = pgTable(
     check('meal_plans_ia_geracao_so_modelo', sql`${t.iaGeracaoId} is null or ${t.isTemplate}`),
     check('meal_plans_aprovacao_coerente', sql`(${t.aprovadoEm} is null) = (${t.aprovadoPor} is null) and (${t.aprovadoEm} is null or ${t.iaGeracaoId} is not null)`),
     foreignKey({ columns: [t.tenantId, t.iaGeracaoId], foreignColumns: [iaGeracoesModelos.tenantId, iaGeracoesModelos.id], name: 'meal_plans_ia_geracao_fk' }),
+    check('meal_plans_ia_origem_so_paciente', sql`${t.iaOrigemEm} is null or not ${t.isTemplate}`),
   ],
 );
 
