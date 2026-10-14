@@ -50,7 +50,7 @@ export const iaTarefas = pgTable(
     linhasAplicadas: integer('linhas_aplicadas'),
     /** RN-114 / ECF.17.03: a data do exame antes de "Usar esta data ao salvar". */
     exameDataAnterior: date('exame_data_anterior', { mode: 'string' }),
-    /** Plano 14B (RN-120, D11): SHA-256 dos registros usados no resumo + a escolha das notas ("Reaproveitar"). Fixo depois de gravado (0114). */
+    /** Plano 14B (RN-120, D11): SHA-256 dos registros usados no resumo + a escolha das notas ("Reaproveitar"). Gravado no pedido; o worker o troca pelo do pedido montado no portão, junto com enviado_em — fora disso, fixo (0114). */
     carimboDados: text('carimbo_dados'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

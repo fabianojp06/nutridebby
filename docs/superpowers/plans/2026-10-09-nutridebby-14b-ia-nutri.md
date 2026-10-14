@@ -3014,16 +3014,26 @@ pnpm db:generate --name ia_resumo_rascunho
 pnpm drizzle-kit generate --custom --name rls_ia_resumo_rascunho
 ```
 
-Conferir a gerada (CHECK trocado com `DROP CONSTRAINT`/`ADD CONSTRAINT`, as colunas, o índice; nada mais). Em `drizzle/0114_rls_ia_resumo_rascunho.sql`, a função de 0108 linha a linha, com `carimbo_dados` entre as colunas fixas:
+Conferir a gerada (CHECK trocado com `DROP CONSTRAINT`/`ADD CONSTRAINT`, as colunas, o índice; nada mais). Em `drizzle/0114_rls_ia_resumo_rascunho.sql`, a função de 0108 linha a linha, com `carimbo_dados` fixo salvo na troca do portão (revisão da T7: o carimbo é gravado no pedido, mas o que sai é remontado no portão; o worker grava ali o carimbo do pedido montado, no mesmo UPDATE que marca `enviado_em` — T9, passo do portão):
 
 ```sql
--- Plano 14B (RN-120, D11): app_ia_tarefas_imutavel (0108) + carimbo_dados entre as colunas fixas (gravado no pedido; o
--- "Reaproveitar" compara com ele). O resto é o da 0108, linha a linha.
+-- Plano 14B (RN-120, D11): app_ia_tarefas_imutavel (0108) + carimbo_dados entre as colunas fixas (o "Reaproveitar"
+-- compara com ele). O resto é o da 0108, linha a linha. Os tipos novos (resumo_historico, rascunho_plano) herdam, sem
+-- mudança, a RLS e o staff_only, a auditoria (entidade `ia`) e o ia_tarefas_sem_apagar da 0099.
+-- O carimbo é gravado no pedido, mas o que sai é remontado no portão do worker (D12, paciente travado): para o
+-- "Reaproveitar" nunca devolver um resumo feito com dados diferentes dos do carimbo, o worker grava o carimbo do pedido
+-- montado no mesmo UPDATE que marca enviado_em — a única troca aceita (contexto worker, tarefa em processando ainda não
+-- enviada, enviado_em preenchido junto). Fora disso, o carimbo é fixo.
 CREATE OR REPLACE FUNCTION app_ia_tarefas_imutavel() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.tipo, NEW.pedido_por, NEW.modelo, NEW.prompt_versao, NEW.criado_em, NEW.carimbo_dados)
-     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.tipo, OLD.pedido_por, OLD.modelo, OLD.prompt_versao, OLD.criado_em, OLD.carimbo_dados) THEN
+  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.tipo, NEW.pedido_por, NEW.modelo, NEW.prompt_versao, NEW.criado_em)
+     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.tipo, OLD.pedido_por, OLD.modelo, OLD.prompt_versao, OLD.criado_em) THEN
+    RAISE EXCEPTION 'coluna fixa da tarefa de IA' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.carimbo_dados IS DISTINCT FROM OLD.carimbo_dados
+     AND NOT (app_current_role() IS NOT DISTINCT FROM 'worker' AND OLD.status = 'processando'
+              AND OLD.enviado_em IS NULL AND NEW.enviado_em IS NOT NULL) THEN
     RAISE EXCEPTION 'coluna fixa da tarefa de IA' USING ERRCODE = '42501';
   END IF;
   IF NEW.exam_id IS NOT NULL AND NEW.exam_id IS DISTINCT FROM OLD.exam_id THEN
@@ -3651,6 +3661,10 @@ describe('pedirResumo (US-120, RN-100, RN-103, D12)', () => {
     expect((await tarefa(C, a.tarefaId)).status).toBe('descartada');
   });
 
+  // Revisão da T7 (RN-120): acrescentar aqui o caso "registro lançado com a tarefa na fila e apagado depois do resumo":
+  // pedirResumo (carimbo C0) → lançar uma antropometria (pelo módulo, como o prontuarioCompleto) → processarResumo (o
+  // portão monta com ela e grava o carimbo C1 do pedido que saiu: expect(t.carimboDados).not.toBe(C0)) → apagar a
+  // antropometria → pedirResumo com a mesma escolha devolve reaproveitada: false (o carimbo da pronta é C1, não C0).
   it('um resumo em andamento por paciente (RN-103)', async () => {
     const C = await cenario();
     await pedirResumo(C.T.ctx, C.tenant, C.p.id, { notasPrivadas: false, gerarDeNovo: false }, deps);
@@ -4030,7 +4044,10 @@ export async function processarResumo(d: { tenantId: string; tarefaId: string },
     if (pedido.vazio) return 'nada_encontrado';
     const teto = custoMaximoMicroUsd(t.modelo as ModeloIA, deps.geo, tokensDeBytes(pedido.bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_RESUMO);
     if (teto > t.reservaMicroUsd) return 'limite_custo'; // D12: a reserva nunca sobe
-    const marcada = await tx.update(iaTarefas).set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, updatedAt: agora() })
+    // revisão da T7 (RN-120): o carimbo passa a ser o do pedido que sai — o "Reaproveitar" compara com o que foi de fato
+    // enviado (um registro lançado depois do pedido e apagado depois do resumo não deixa o resumo velho passar por atual).
+    // A 0114 só aceita esta troca do worker, em processando, sem enviado_em, junto com enviado_em.
+    const marcada = await tx.update(iaTarefas).set({ enviadoEm: agora(), saiuEm: t.saiuEm ?? agora(), destino: t.destino ?? deps.destino, carimboDados: pedido.carimbo, updatedAt: agora() })
       .where(and(eq(iaTarefas.id, t.id), eq(iaTarefas.status, 'processando'), isNull(iaTarefas.enviadoEm))).returning({ id: iaTarefas.id });
     if (!marcada.length) return 'ignorada';
     await reduzirReserva(tx, t.id, teto, agora());
