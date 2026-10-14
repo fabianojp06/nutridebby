@@ -1,8 +1,11 @@
 import Link from 'next/link';
 import { criarDeModeloAction } from '@/app/painel/planos/modelos/actions';
+import { BotaoLink } from '@/components/ui/botao';
+import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
 import { listarModelosUsaveis } from '@/modules/plano-alimentar/modelos';
+import { iaDoAssistente } from '../ia-assistente';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
 import { CriarDeModelo } from './criar-de-modelo';
@@ -20,6 +23,8 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   const publicado = planos.find((p) => p.status === 'publicado');
   const bloqueado = paciente.status === 'bloqueado'; // US-018: só consulta, sem criar nem editar versões
   const modelos = rascunho || bloqueado ? [] : await listarModelosUsaveis(ctx); // "Criar a partir de modelo" só aparece sem rascunho; sugestão da IA só aprovada (US-123)
+  // US-121 (Plano 14B): com a IA presente e o paciente ativo; sem poder pedir, o motivo (texto da aba Exames, uso rascunho_plano)
+  const ia = await iaDoAssistente(ctx, tenant, paciente, 'rascunho_plano');
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold">Plano alimentar</h2>
@@ -33,8 +38,10 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
             <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
           )}
           {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
+          {ia?.podePedir && <BotaoLink href={`/painel/pacientes/${paciente.id}/plano-alimentar/rascunho-ia`} variante="secundario">{MSG_RASCUNHO_IA.botao}</BotaoLink>}
         </div>
       )}
+      {ia && !ia.podePedir && <p className="text-sm text-suave">{ia.aviso}</p>}
       {planos.length === 0 ? (
         <p>Nenhum plano ainda.</p>
       ) : (

@@ -23,10 +23,12 @@ afterAll(async () => {
 const SP = 'America/Sao_Paulo';
 
 /** Plano publicado com café (07:00, pão + substituição) e almoço (12:30, arroz 100 g). */
-async function planoPublicado() {
+async function planoPublicado(o: { iaOrigemEm?: Date } = {}) {
   const T = await novoTenant(app.db);
   const p = await novoPaciente(app.db, T.ctx);
   const { id } = await criarRascunho(T.ctx, p.id, { db: app.db });
+  // Plano 14B (RN-117): a marca de "Usar como rascunho" (o caminho real está em rascunho-ia.test.ts)
+  if (o.iaOrigemEm) await withTenant(T.ctx, (tx) => tx.update(mealPlans).set({ iaOrigemEm: o.iaOrigemEm }).where(eq(mealPlans.id, id)), app.db);
   const [r] = await withTenant(T.ctx, (tx) => tx.select({ revisao: mealPlans.revisao }).from(mealPlans).where(eq(mealPlans.id, id)), app.db);
   const [cafe, almoco, pao, sub, arroz] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
   await salvarRascunho(
@@ -70,6 +72,12 @@ describe('Meu plano (US-041)', () => {
     // Plano 16 (RN-213): o total da refeição (sem as substituições), só com "mostrar calorias"
     expect(plano!.refeicoes.map((r) => r.kcal)).toEqual(['64 kcal', '128 kcal']);
     expect(plano!.mostrarCalorias).toBe(true);
+    expect(plano!.seloIa).toBe(false); // RN-117: plano feito à mão, sem selo
+  });
+
+  it('selo (RN-117, A-D13): o plano publicado que nasceu do rascunho da IA tem seloIa', async () => {
+    const { T, p } = await planoPublicado({ iaOrigemEm: new Date('2026-10-05T12:00:00Z') });
+    expect(await planoDoPaciente(ctxPaciente(T.tenantId, p.id), SP, { db: app.db })).toMatchObject({ seloIa: true });
   });
 
   it('próxima refeição no fuso do tenant: 10:00 de Brasília → almoço; 21:00 → o café do dia seguinte', async () => {

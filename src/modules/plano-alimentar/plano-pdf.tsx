@@ -2,6 +2,7 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
 import { paraWinAnsi } from '@/modules/pacientes/prontuario-pdf';
 import { diferencaKcalDoItem, gTexto, kcalTexto, nutrientesDoItem, quantidadeDoItem, totalDoDia, totalDosItens } from './calculo';
+import { MSG_PLANO } from './constantes';
 import type { PlanoCompleto, RefeicaoPlano } from './tipos';
 
 /** Só o worker importa este arquivo (US-026; fora do grafo do Next — guarda em exportacao.test.ts). */
@@ -47,6 +48,8 @@ function Plano({ d }: { d: DadosPdfPlano }) {
           {d.logo && <Image style={s.logo} src={{ data: d.logo, format: 'png' }} />}
         </View>
         <Text style={s.titulo}>{plano.titulo}</Text>
+        {/* RN-117 / art. 37 (A-D13): o plano veio do rascunho da IA e foi revisado e publicado pela nutricionista */}
+        {plano.iaOrigemEm && <Text style={{ fontStyle: 'italic', marginBottom: 4 }}>{w(MSG_PLANO.seloIa)}</Text>}
         <Text>Paciente: {d.paciente}</Text>
         <Text>Data: {d.data}</Text>
         {plano.mostrarCalorias && (
