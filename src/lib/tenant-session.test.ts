@@ -62,6 +62,16 @@ describe('requireNutri', () => {
     await db.update(tenants).set({ dpaVersao: '0.0-antiga' }).where(eq(tenants.id, tenant.id));
     await expect(requireNutri('/painel')).rejects.toMatchObject({ url: '/painel/dpa' });
   });
+
+  it('P08-06: o consultório com o DPA 0.1 provisório aceito vai a /painel/dpa (API: 403); aceitar o 1.0 libera', async () => {
+    const { tenant, nutri } = await nutriComTenant();
+    await db.update(tenants).set({ dpaVersao: '0.1-provisorio', dpaAceitoEm: new Date('2026-10-01T10:00:00Z') }).where(eq(tenants.id, tenant.id));
+    await expect(requireNutri('/painel')).rejects.toMatchObject({ url: '/painel/dpa' });
+    const api = await requireApiNutri(new Request('http://localhost:3000/api/painel/marca/logo', { method: 'POST', headers: { cookie: nutri.cookie } }));
+    expect(api.ok ? null : api.response.status).toBe(403);
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    await expect(requireNutri('/painel')).resolves.toMatchObject({ tenant: { id: tenant.id, dpaVersao: '1.0' } });
+  });
 });
 
 describe('requireNutri lê o tenant uma vez só (F8)', () => {

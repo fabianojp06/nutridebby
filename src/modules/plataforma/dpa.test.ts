@@ -6,7 +6,7 @@ import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { consents, tenants, user } from '@/db/schema';
 import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
-import { registrarAceiteAditivoIa, registrarAceiteDpa } from './dpa';
+import { DPA_TERMO, DPA_VERSAO, registrarAceiteAditivoIa, registrarAceiteDpa } from './dpa';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -55,6 +55,27 @@ describe('registrarAceiteDpa (T6-R2b)', () => {
 
     const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
     expect(tenant.dpaAceitoEm?.toISOString()).toBe(t1.toISOString());
+  });
+});
+
+describe('P08-06: do DPA 0.1 provisório para o 1.0', () => {
+  it('o consultório com o 0.1 aceito grava o aceite do 1.0 numa linha nova; a do 0.1 fica como prova', async () => {
+    const { tenantId, userId } = await tenantComNutri();
+    const t1 = new Date('2026-10-01T10:00:00Z');
+    await app.db.insert(consents).values({ userId, termoVersao: 'dpa-0.1-provisorio', aceitoEm: t1, ip: '203.0.113.1' });
+    await app.db.update(tenants).set({ dpaVersao: '0.1-provisorio', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
+
+    const t2 = new Date('2026-10-16T10:00:00Z');
+    await registrarAceiteDpa(app.db, { userId, tenantId, ip: '203.0.113.2', now: t2 });
+
+    expect([DPA_VERSAO, DPA_TERMO]).toEqual(['1.0', 'dpa-1.0']);
+    const linhas = await app.db.select().from(consents).where(eq(consents.userId, userId));
+    expect(linhas.map((l) => [l.termoVersao, l.ip, l.aceitoEm.toISOString()]).sort()).toEqual([
+      ['dpa-0.1-provisorio', '203.0.113.1', t1.toISOString()],
+      ['dpa-1.0', '203.0.113.2', t2.toISOString()],
+    ]);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    expect(tenant).toMatchObject({ dpaVersao: '1.0', dpaAceitoEm: t2 });
   });
 });
 
