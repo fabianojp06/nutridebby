@@ -5,6 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { DESTINO_ROTULO, type DestinoIA } from '../constantes';
 import { estornar, marcarIncerto } from '../cota';
 import { MSG_IA_NUTRI, RISCO_REVOGADO_MAX_DIAS, ROTULO_CATEGORIA, type CategoriaConversa } from './constantes';
+import { registrarSaida } from './saida';
 import { TEXTOS_FIXOS, type CodigoTextoFixo } from './textos';
 
 /** D22: a pergunta com risco que a nutricionista ainda não abriu fica (proteção da vida; a confirmar com o advogado). */
@@ -28,8 +29,11 @@ async function conciliarReservas(tx: Tx, tenantId: string, patientId: string, ag
   await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).for('no key update');
   const pendentes = await daCota().for('update', { of: iaNutriMensagens });
   for (const m of pendentes) {
-    if (m.enviadoEm) await marcarIncerto(tx, m.id, agora);
-    else await estornar(tx, m.id, agora);
+    if (m.enviadoEm) {
+      // a linha vai ser apagada: a saída que pode ter havido fica registrada antes (RN-109; re-revisão do /code-review)
+      await registrarSaida(tx, { mensagemId: m.id, patientId, agora });
+      await marcarIncerto(tx, m.id, agora);
+    } else await estornar(tx, m.id, agora);
   }
 }
 

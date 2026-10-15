@@ -5,7 +5,6 @@ import { iaNutriMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
-import { recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa, type PausaIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { avisarCredencialInvalida, avisarTetoGlobal } from '../alertas';
 import type { DestinoIA, ModeloIA, RegiaoIA } from '../constantes';
@@ -305,9 +304,9 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [m] = await tx.select().from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId)).for('update');
       if (!m) {
-        // a linha saiu no meio da chamada (exclusão, anonimização, retenção), mas o pedido saiu e voltou: a trilha da saída fica
-        // no audit_log, que sobrevive à exclusão (re-revisão do /code-review, RN-109; sem a linha não há saiu_em a gravar)
-        await recordAudit(tx, { acao: 'exportar', entidade: 'ia_nutri', entidadeId: d.mensagemId, patientId: pacienteId });
+        // a linha saiu no meio da chamada (exclusão, anonimização, retenção), mas o pedido saiu e voltou: registrarSaida deixa a
+        // trilha no audit_log, uma vez (re-revisão do /code-review, RN-109)
+        await registrarSaida(tx, { mensagemId: d.mensagemId, patientId: pacienteId, agora: agora() });
         await marcarIncerto(tx, d.mensagemId, agora()); // o pedido saiu: a reserva fica como custo (RN-182)
         return 'falhou';
       }

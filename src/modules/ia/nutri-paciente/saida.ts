@@ -24,22 +24,24 @@ export async function registrarSaida(tx: Tx, o: { mensagemId: string; patientId:
     .set({
       saiuEm: sql`${m.enviadoEm}`,
       // nomes qualificados à mão: dentro da subconsulta, uma coluna sem tabela seria a de `c`
-      // re-revisão: o enviado_em vem do relógio do worker e o registrado_em do banco — com desvio, cai no último aceite anterior
-      // à pergunta e, por fim, no último aceite (a saída nunca fica sem destino; o gatilho o fixa depois de gravado)
-      destino: sql`coalesce(
-                     (select c.destino from ia_nutri_consentimentos c
-                       where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
-                         and c.evento = 'aceite' and c.registrado_em <= ia_nutri_mensagens.enviado_em
-                       order by c.registrado_em desc, c.id desc limit 1),
-                     (select c.destino from ia_nutri_consentimentos c
-                       where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
-                         and c.evento = 'aceite'
-                       order by (c.registrado_em <= ia_nutri_mensagens.created_at) desc, c.registrado_em desc, c.id desc limit 1))`,
+      // o destino do último aceite ANTES da pergunta (o portão só deixa sair com o último evento sendo um aceite anterior a
+      // created_at — os dois lados no relógio do banco); sem nenhum (dado montado à mão), o último aceite: nunca nulo
+      destino: sql`(select c.destino from ia_nutri_consentimentos c
+                     where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
+                       and c.evento = 'aceite'
+                     order by (c.registrado_em <= ia_nutri_mensagens.created_at) desc, c.registrado_em desc, c.id desc limit 1)`,
       updatedAt: o.agora,
     })
     .where(and(eq(m.id, o.mensagemId), eq(m.autor, 'paciente'), isNotNull(m.enviadoEm), isNull(m.saiuEm)))
     .returning({ id: m.id });
-  if (!r.length) return false;
+  if (!r.length) {
+    // a linha saiu no meio da chamada (exclusão, anonimização, retenção) e o pedido pode ter saído: sem saiu_em a gravar, a
+    // trilha fica no audit_log, que sobrevive à exclusão — uma vez (quem apagou já pode ter registrado)
+    const [existe] = await tx.select({ id: m.id }).from(m).where(eq(m.id, o.mensagemId));
+    if (existe) return false;
+    const ja = await tx.execute(sql`select 1 from audit_log where entidade = 'ia_nutri' and acao = 'exportar' and entidade_id = ${o.mensagemId} limit 1`);
+    if (ja.rows.length) return false;
+  }
   await recordAudit(tx, { acao: 'exportar', entidade: 'ia_nutri', entidadeId: o.mensagemId, patientId: o.patientId }); // "Pergunta enviada à IA"
   return true;
 }

@@ -25,6 +25,7 @@ import { montarContexto } from './contexto';
 import { perguntar } from './conversa';
 import { PROMPT_VERSAO_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
 import { processarPerguntaIaNutri } from './job';
+import { apagarIaNutriDoTitular } from './lgpd';
 import { bloquearPaciente, desativarIaNutri } from './participacao';
 import { expirarPerguntasDoTenant } from './varredura';
 
@@ -277,6 +278,33 @@ describe('processarPerguntaIaNutri (§4.2 do worker)', () => {
       expect(await comoWorker(T, sql`select id from ia_nutri_mensagens where id = ${mensagemId}`)).toEqual([]);
       expect(await exportar(T, mensagemId!)).toBe(1);
       expect((await uso(T, mensagemId!)).situacao).toBe('incerto');
+    });
+
+    it('re-revisão: a linha apagada no meio da chamada e o provedor falhando com o pedido enviado (repetir) também deixa UM "Pergunta enviada à IA"', async () => {
+      const { T, p, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const apagar = async () => {
+        await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
+        await comoWorker(T, sql`delete from ia_nutri_mensagens where patient_id = ${p.id}`);
+      };
+      const fake = provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'r1')] });
+      await expect(processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(comEfeito(fake, apagar)))).rejects.toBeInstanceOf(RepetirIaError);
+      expect(await exportar(T, mensagemId!)).toBe(1);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { ultimaTentativa: true }))).toBe('ignorada');
+      expect(await exportar(T, mensagemId!)).toBe(1);
+    });
+
+    it('re-revisão: a exclusão atendida com a pergunta que saiu e o job caído registra a saída antes de apagar; a nova tentativa não duplica', async () => {
+      const { T, p } = await pronto();
+      const agora = new Date();
+      const id = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'processando', enviadoEm: agora, reservaMicroUsd: 5500 });
+      await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => reservar(tx, { tenantId: T.tenantId, tarefaId: id, tipo: 'conversa_paciente', modelo: 'claude-haiku-5-5', promptVersao: PROMPT_VERSAO_CONVERSA, microUsd: 5500, agora, tetoGlobalMicroUsd: 50_000_000_000 }), app.db);
+      await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
+      await apagarIaNutriDoTitular({ tenantId: T.tenantId, role: 'worker' }, p.id, app.db);
+      expect(await comoWorker(T, sql`select id from ia_nutri_mensagens where id = ${id}`)).toEqual([]);
+      expect(await exportar(T, id)).toBe(1);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: id }, depsDe(provedorFake({ gerar: [finalOk(SUBSTITUICAO)] })))).toBe('ignorada');
+      expect(await exportar(T, id)).toBe(1);
     });
 
     it('a varredura encerra a pergunta que saiu e não voltou (job caído): saiu_em, destino e "Pergunta enviada à IA"; a que não saiu, nada', async () => {
