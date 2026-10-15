@@ -4739,12 +4739,12 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
   useEffect(() => { if (aviso === MSG_IA_NUTRI.respostaChegou) ultimaRef.current?.scrollIntoView({ block: 'nearest' }); }, [aviso]);
 
   /**
-   * Depois de qualquer envio: o texto no status e o foco nele. SEM `router.refresh()` (/code-review do PR #37): perguntar e
+   * Depois de qualquer envio: o texto no status e o foco nele. Sem refresh do roteador aqui (/code-review do PR #37): perguntar e
    * enviar direto já chamam `revalidatePath('/p/plano/ia')`, que numa Server Action atualiza a tela na mesma ida (Next 16,
    * `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/revalidatePath.md`, "Updates the UI immediately") — o
    * refresh a mais relia a conversa outra vez, e cada leitura grava um "Visualizou — IA Nutri" (auditRead de
    * conversaDoPaciente). Avaliar e encaminhar não releem nada: `marcar` muda o item pelo estado local. O único
-   * `router.refresh()` do arquivo é o da consulta automática, quando a resposta chega.
+   * refresh do roteador no arquivo é o da consulta automática, quando a resposta chega.
    */
   const concluir = (r: RetornoConversa, marcar?: { avaliada?: string; encaminhada?: string }) => {
     if (r.limpar) setTexto('');
@@ -4844,7 +4844,7 @@ async function origem() {
 
 /**
  * US-172: a pergunta. `tenantId` = o consultório que a tela mostrou (troca de vínculo em outra aba → nada gravado). Sem
- * redirect: devolve o retorno e a tela faz `router.refresh()` (a conversa mostra a pergunta e "Pensando…", ou o texto fixo
+ * redirect: devolve o retorno; o `revalidatePath('/p/plano/ia')` da própria action atualiza a tela na mesma ida (a conversa mostra a pergunta e "Pensando…", ou o texto fixo
  * do risco na hora; com risco sem mensagem gravada — teto do dia ou IA Nutri indisponível —, o texto fixo vem no retorno).
  */
 export async function perguntarAction(tenantId: string, fd: FormData): Promise<RetornoConversa> {
