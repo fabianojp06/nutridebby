@@ -237,6 +237,7 @@ export type DadosExportacao = {
    * motivo técnico, modelo nem custo. Cópia integral do que é do titular (LGPD art. 19, § 3º; revisão da T10): IP e
    * user-agent dos consentimentos, a avaliação das respostas, e nas perguntas enviadas à nutricionista a data e a situação
    * da dúvida. Datas em ISO 8601, como os outros blocos; `enviadaEm` e `destino` só nas perguntas que saíram ao provedor.
+   * Na equipe, a pergunta com risco de quem desativou a IA Nutri vem sem o texto (D22: lê-se uma vez, pela fila).
    */
   iaNutri: IaNutriExportado;
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
@@ -406,8 +407,8 @@ export async function montarDados(
     .from(iaAutorizacoes)
     .where(eq(iaAutorizacoes.patientId, patientId))
     .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
-  // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos)
-  const iaNutri = await iaNutriParaExportacao(tx, patientId);
+  // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos; na equipe, sem o texto da D22)
+  const iaNutri = await iaNutriParaExportacao(tx, patientId, escopo);
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
   // termos — sem texto do usuário (regra 9)
   let nTermo = 0;

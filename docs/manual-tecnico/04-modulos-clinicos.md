@@ -541,7 +541,8 @@ dois escopos: os consentimentos da IA Nutri com IP e user-agent ("Autorizou", "D
 pela nutricionista)") e as mensagens com rótulos legíveis (autor, texto ou o texto fixo traduzido, categoria, risco,
 avaliação, `enviadaEm`/`destino` só da pergunta que saiu, data e situação da dúvida enviada à nutricionista), datas ISO
 8601 (LGPD art. 19, § 3º); nunca fontes, motivo técnico, modelo, versão das instruções ou custo; o esqueleto da
-revogação fica de fora.
+revogação fica de fora. No escopo da equipe, a pergunta com risco de quem desativou a IA Nutri vai sem o texto (D22: lida
+uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)).
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, iaUso, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -98,6 +98,8 @@ export type IaNutriExportado = {
     /** Só na pergunta enviada à nutricionista. */
     enviadaANutricionistaEm?: string;
     situacaoDaDuvida?: string;
+    /** Só no escopo da equipe, na pergunta com risco de quem desativou a IA Nutri (D22): o texto fica na fila, não aqui. */
+    aviso?: string;
   }[];
 };
 
@@ -108,8 +110,13 @@ export type IaNutriExportado = {
  * situação da dúvida. Datas em ISO 8601 (com a hora), como os outros blocos do `dados.json`. Nunca fontes, motivo técnico,
  * modelo, versão do prompt ou custo (dados técnicos do controlador). O esqueleto da revogação (sem texto, texto fixo nem
  * risco, D32) fica de fora; o aviso mínimo da D22 (só o risco) entra. Na mesma data, a pergunta antes da resposta.
+ *
+ * Revisão final (D22): no escopo da equipe, a mensagem de quem desativou a IA Nutri (`revogada_em`) sai **sem** o texto —
+ * como na `conversaNaFicha`, o banco nem o devolve —, com o risco e o aviso de que se lê pela fila: o texto da pergunta com
+ * risco é mostrado uma vez por `abrirDuvida` (que audita, marca aberta e apaga), e a exportação não é esse caminho. O
+ * titular recebe o próprio texto (art. 18, II).
  */
-export async function iaNutriParaExportacao(tx: Tx, patientId: string): Promise<IaNutriExportado> {
+export async function iaNutriParaExportacao(tx: Tx, patientId: string, escopo: 'equipe' | 'titular'): Promise<IaNutriExportado> {
   const consentimentos = (
     await tx.select().from(iaNutriConsentimentos).where(eq(iaNutriConsentimentos.patientId, patientId)).orderBy(asc(iaNutriConsentimentos.registradoEm), asc(iaNutriConsentimentos.id))
   ).map((c) => ({
@@ -120,9 +127,15 @@ export async function iaNutriParaExportacao(tx: Tx, patientId: string): Promise<
     ip: c.ip,
     userAgent: c.userAgent,
   }));
+  const daEquipe = escopo === 'equipe';
   const mensagens = (
     await tx
-      .select()
+      .select({
+        ...getTableColumns(iaNutriMensagens),
+        texto: daEquipe ? sql<string | null>`case when ${iaNutriMensagens.revogadaEm} is null then ${iaNutriMensagens.texto} end` : iaNutriMensagens.texto,
+        textoFixo: daEquipe ? sql<string | null>`case when ${iaNutriMensagens.revogadaEm} is null then ${iaNutriMensagens.textoFixo} end` : iaNutriMensagens.textoFixo,
+        revogadaComTexto: sql<boolean>`(${iaNutriMensagens.revogadaEm} is not null and ${iaNutriMensagens.texto} is not null)`,
+      })
       .from(iaNutriMensagens)
       .where(and(eq(iaNutriMensagens.patientId, patientId), sql`(${iaNutriMensagens.texto} is not null or ${iaNutriMensagens.textoFixo} is not null or ${iaNutriMensagens.risco} is not null)`))
       .orderBy(asc(iaNutriMensagens.createdAt), sql`${iaNutriMensagens.autor} <> 'paciente'`, asc(iaNutriMensagens.id))
@@ -137,6 +150,7 @@ export async function iaNutriParaExportacao(tx: Tx, patientId: string): Promise<
     ...(m.encaminhadaEm
       ? { enviadaANutricionistaEm: m.encaminhadaEm.toISOString(), situacaoDaDuvida: SITUACAO_DA_DUVIDA[(m.resolucao as 'vista' | 'encerrada' | null) ?? 'aberta'] }
       : {}),
+    ...(daEquipe && m.revogadaComTexto ? { aviso: MSG_IA_NUTRI.riscoRevogadoNaFicha } : {}),
   }));
   return { consentimentos, mensagens };
 }

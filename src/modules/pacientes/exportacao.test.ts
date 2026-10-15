@@ -1184,6 +1184,24 @@ describe('Plano 15 (§7.6 "Exportação", US-018, US-046, RN-109) — a IA Nutri
     }
   });
 
+  it('D22 (revisão final): a pergunta com risco de quem desativou a IA Nutri, ainda na fila — o titular recebe o texto; a equipe não (só o selo), e a exportação não abre nem apaga a dúvida', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p } = await pacienteComConta(app.db, T);
+    const quando = new Date('2026-10-02T01:30:00Z');
+    const id = await mensagemNoBanco(app.db, T.tenantId, p.id, {
+      status: 'respondida', texto: 'Fico dias sem comer', risco: 'transtorno_alimentar', contouNoLimite: false, revogadaEm: quando, encaminhadaEm: quando, createdAt: quando,
+    });
+    const base = { data: quando.toISOString(), autor: MSG_IA_NUTRI.autorPaciente, categoria: null, risco: 'Sinal de risco (alimentação)', enviadaANutricionistaEm: quando.toISOString(), situacaoDaDuvida: 'Aguardando a nutricionista' };
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    expect(equipe.dados.iaNutri.mensagens).toEqual([{ ...base, texto: null, aviso: MSG_IA_NUTRI.riscoRevogadoNaFicha }]);
+    expect(JSON.stringify(equipe.dados)).not.toContain('Fico dias sem comer');
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(titular.dados.iaNutri.mensagens).toEqual([{ ...base, texto: 'Fico dias sem comer' }]);
+    // a exportação não é a leitura única da D22: a linha continua com o texto, sem aberta_pela_nutri_em
+    const [m] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select texto, aberta_pela_nutri_em from ia_nutri_mensagens where id = ${id}`), app.db)).rows;
+    expect(m).toEqual({ texto: 'Fico dias sem comer', aberta_pela_nutri_em: null });
+  });
+
   it('paciente sem IA Nutri: iaNutri com as listas vazias', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
