@@ -60,6 +60,9 @@ export const QUEUES = {
   // Plano 14A (RN-108, D14): a retirada da autorização pelo paciente (app ou link) — cancela a fila e esvazia as sugestões no
   // contexto worker (a sessão de paciente não alcança ia_tarefas). Payload { tenantId, patientId, retiradaId } (só ids).
   'ia-retirada': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-182, D30): a revogação da IA Nutri pelo paciente (ou pela nutricionista a pedido dele, DP-17) — o estorno das
+  // reservas no contexto worker (a sessão de paciente não alcança ia_uso). Payload { tenantId, patientId, revogacaoId } (só ids).
+  'ia-nutri-revogacao': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // Plano 14B (D3): resumo do histórico, rascunho de plano e pacote de modelos sugeridos. Payload { tenantId, tarefaId } ou
   // { tenantId, geracaoId } (só ids). O laço de ferramentas tem prazo de 12 min (PRAZO_LACO_MS); 900 s fica acima dele e
   // abaixo dos 15 min da varredura. Só a 1ª volta repete (D4); as seguintes terminam sem repetir.

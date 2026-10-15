@@ -21,6 +21,7 @@ import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autoriza
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
 import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos-job';
 import { configIA } from '@/modules/ia/modo';
+import { processarRevogacaoIaNutri, type DadosRevogacaoIaNutri } from '@/modules/ia/nutri-paciente/revogacao-job';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -255,6 +256,10 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   // Plano 14A (RN-108): a retirada pelo paciente — o job nasce na transação da retirada (app ou link)
   await work<DadosRetiradaIa>('ia-retirada', async ([job]) => {
     await processarRetiradaIa(job.data, { db: getDb(), destino: ia.destino });
+  });
+  // Plano 15 (RN-182, D30): a revogação da IA Nutri — o job nasce na transação da revogação (app ou ficha, DP-17)
+  await work<DadosRevogacaoIaNutri>('ia-nutri-revogacao', async ([job]) => {
+    await processarRevogacaoIaNutri(job.data, { db: getDb() });
   });
   // Plano 14B (D3): a fila do resumo, do rascunho e dos modelos sugeridos — o mesmo provedor; o modelo é o do assistente
   // (A-D3). Um job por vez (padrão do boss.work); expira em 900 s, acima do prazo do laço (12 min)
