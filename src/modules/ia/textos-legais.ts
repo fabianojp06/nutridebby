@@ -14,7 +14,8 @@ import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from './nutri-p
  * "provisorio", como a 1.0 publicada pelo dono sem o advogado; os trechos adaptados (desvio 10) estão na lista do P14A-16.
  *
  * D27 / DP-3 (Plano 15): o aditivo 1.2 traz a finalidade (e), a IA Nutri do paciente. Versão final, na linha da A-D27 (as
- * frases novas dos itens 2, 5, 6, 7, 8 e 9 vão ao P14A-16). Só a IA Nutri exige a 1.2 (IA_NUTRI_ADITIVO_VERSAO_MIN); as
+ * frases novas dos itens 2 a 9 vão ao P14A-16). D26: a IA Nutri depende só do consentimento próprio do paciente, nunca da
+ * autorização dos usos (a) a (c) — os itens 3, 4, 5 e 8 dizem as duas bases separadas (revisão da T4). Só a IA Nutri exige a 1.2 (IA_NUTRI_ADITIVO_VERSAO_MIN); as
  * outras funções seguem com o mínimo 1.1 — quem aceitou a 1.1 não aceita de novo para laudos, resumo, rascunho e modelos.
  */
 export const IA_ADITIVO_VERSAO = '1.2';
@@ -177,10 +178,18 @@ export const LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI =
   'com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente e os nomes da equipe e do consultório), com os limites descritos no texto do consentimento: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos, endereços e outros documentos escritos no texto e dados de terceiros podem ir junto.';
 
 /**
+ * US-171: o texto do botão de aceite, citado no parágrafo da transferência do consentimento (art. 33, VIII). A tela (T7,
+ * `MSG_IA_NUTRI.autorizo`) usa esta constante: o botão e a frase do texto não podem divergir.
+ */
+export const BOTAO_AUTORIZO_IA_NUTRI = `Autorizo o uso da ${NOME_IA_NUTRI}`;
+
+/**
  * US-171 (spec v0.4): o texto inteiro, em destaque, na variante do destino em uso (as da 14A/A-D27: para onde vai,
  * retenção, exceção e riscos). D7 = (a), D10 = (a), D22 = (a): as frases condicionais da US-171 entram todas. DP-17: a
  * desativação também "pedindo à sua nutricionista". O "O que é enviado" é montado pelas frases de
- * FRASE_DA_CATEGORIA_IA_NUTRI (o contrato do que sai, campos-enviados.ts).
+ * FRASE_DA_CATEGORIA_IA_NUTRI (o contrato do que sai, campos-enviados.ts). Revisão da T4 (normas-cfn-lgpd): a guarda da
+ * mensagem com sinal de risco vale também para o pedido de exclusão (item 6 do aditivo; apagarIaNutriDoTitular, T10;
+ * art. 9º, II) e, nos destinos que saem do Brasil, o parágrafo final liga o toque no botão à transferência (art. 33, VIII).
  */
 const CONSENTIMENTOS_IA_NUTRI: Record<string, (d: Responsavel & { destino: DestinoIA }) => TextoLegal> = {
   '1.0': (d) => ({
@@ -200,8 +209,11 @@ const CONSENTIMENTOS_IA_NUTRI: Record<string, (d: Responsavel & { destino: Desti
       [n(`Se você escrever algo que indique risco à sua saúde, a ${NOME_IA_NUTRI} mostra contatos de ajuda e avisa a sua nutricionista.`)],
       [b(`Em emergência, não use a ${NOME_IA_NUTRI}: ligue para o SAMU (192) ou o CVV (188).`)],
       [n(`Você pode desativar a ${NOME_IA_NUTRI} quando quiser em Eu › Privacidade ou pedindo à sua nutricionista; as conversas são apagadas na hora.`)],
-      [n(`Se você desativar a ${NOME_IA_NUTRI}, uma mensagem com sinal de risco que sua nutricionista ainda não leu fica guardada até ela ler, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias.`)],
+      [n(`Se você desativar a ${NOME_IA_NUTRI} ou pedir a exclusão dos seus dados, uma mensagem com sinal de risco que sua nutricionista ainda não leu fica guardada até ela ler, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias.`)],
       [n('Recusar ou desativar não muda o seu atendimento nem a autorização de IA para os seus exames.')],
+      // art. 33, VIII ("distinguindo claramente esta de outras finalidades"), no molde do último parágrafo da autorização
+      // da 14A: o toque no botão é o consentimento para a transferência; no destino de teste nada sai do Brasil
+      ...(d.destino === 'teste' ? [] : [[n(`Ao tocar em "${BOTAO_AUTORIZO_IA_NUTRI}", você autoriza o envio do seu plano, das orientações e das suas perguntas para fora do Brasil, ao destino acima, só para responder às suas dúvidas sobre o plano.`)]]),
       [n(`Versão 1.0, de ${dataBr(IA_NUTRI_TERMO_VERSAO_DATA)}.`)],
     ],
   }),
@@ -324,7 +336,7 @@ const SUBOPERADORA: Record<DestinoIA, string> = {
 };
 const MECANISMO: Record<DestinoIA, string> = {
   'anthropic-us': 'A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma.',
-  'bedrock-eu': 'A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente.',
+  'bedrock-eu': 'A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente (na IA Nutri, o consentimento próprio dele).',
   teste: 'Ambiente de teste: nenhum dado de paciente sai para fornecedor.',
 };
 const SALVO: Record<DestinoIA, string> = {
@@ -350,7 +362,8 @@ function retencaoDoAditivo(destino: DestinoIA, operador: string): string {
  * US-101 (Plano 14A), A-D27 e Plano 14B (D21): o aditivo na redação do parecer JUR-2026-013, item 4.2, com os trechos
  * [14B] (finalidades (b)–(d), item 5 e o selo do item 10), com as variantes do destino (RN-109) e as adaptações da §18.5:
  * (d) a frase do "nenhum operador" e do registro de chamadas só na variante do Bedrock; na Anthropic direta, a retenção de
- * até 30 dias (cláusulas 6 e 8). Plano 15 (D27): a 1.2, com a finalidade (e) da IA Nutri nos itens 2, 5, 6, 7, 8 e 9.
+ * até 30 dias (cláusulas 6 e 8). Plano 15 (D27): a 1.2, com a finalidade (e) da IA Nutri nos itens 2 a 9 (D26: nos itens 3,
+ * 4, 5 e 8, o consentimento da IA Nutri como base própria, independente da autorização — revisão da T4).
  * Sempre a versão atual (não há mapa por versão): quem aceitou uma versão abaixo do mínimo aceita de novo.
  */
 export function aditivoIa(destino: DestinoIA): TextoLegal {
@@ -362,16 +375,16 @@ export function aditivoIa(destino: DestinoIA): TextoLegal {
       // D27 (Plano 15): a finalidade (e) da IA Nutri; "Nos usos (a) a (d)" restringe a conferência prévia aos usos da
       // nutricionista; no uso (e) o paciente lê sem revisão prévia (modo (d) da D1) — revisão do plano, 14/10/2026 (art. 6º, VI)
       '2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar; (e) responder, no app do paciente, dúvidas sobre o plano alimentar publicado e as orientações que a CONTROLADORA publicou, só para o paciente que ela liberar e que consentir, mostrando trechos do plano e nunca texto escrito pela IA. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nos usos (a) a (d), a IA não fala com o paciente, nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA, e ela avalia criticamente cada sugestão. No uso (e), o paciente lê, sem revisão prévia da CONTROLADORA, só trechos do plano e das orientações que ela publicou e textos fixos da plataforma; a CONTROLADORA decide quem é liberado e acompanha o uso como no item 7. Em todos os usos, ela responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.',
-      `3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: ${FORNECEDOR[destino]}. ${SUBOPERADORA[destino]} atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes.`,
-      `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.`,
+      `3. Fornecedor e país. O fornecedor em uso aparece no painel, no texto da autorização do paciente e no do consentimento da IA Nutri: ${FORNECEDOR[destino]}. ${SUBOPERADORA[destino]} atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes e, na IA Nutri, um novo consentimento.`,
+      `4. Transferência internacional. ${MECANISMO[destino]} Em qualquer caso, nenhum dado de paciente vai à IA sem a manifestação vigente dele, registrada na plataforma com a versão, o destino, a data e o canal: nos usos (a) a (c), a autorização, que registra também os usos; na IA Nutri, o consentimento próprio dele, independente da autorização.`,
       // P14A-16: adaptação (e) do desvio 10 — "documentos do cadastro", as restrições do rascunho e o limite da máscara, como no texto da autorização;
       // Plano 15 (art. 9º, § 1º): o que vai na conversa da IA Nutri, com o limite da máscara dito no consentimento
-      `5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. Na IA Nutri, o plano publicado, as orientações dos últimos atendimentos e as perguntas do paciente, ${LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI} A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.`,
+      `5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. Na IA Nutri, o plano publicado, as orientações dos últimos atendimentos e as perguntas do paciente, ${LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI} A OPERADORA não envia nada além do que o texto da autorização ou, na IA Nutri, o do consentimento descreve. Qualquer mudança gera nova versão e nova autorização ou, na IA Nutri, novo consentimento.`,
       retencaoDoAditivo(destino, operador),
       // Revisão do plano (14/10/2026): os incisos (a) e (d) valem para os usos (a) a (d); os deveres da finalidade (e) (D6, D7,
       // D11, RN-185) ficam escritos, e o consentimento da IA Nutri é do próprio paciente, no app
       '7. Deveres da CONTROLADORA. Nos usos (a) a (d), antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. No uso (e), a CONTROLADORA: libera a IA Nutri paciente por paciente, avaliando se a ferramenta é adequada para ele, inclusive para quem está com o peso oculto no app; sabe que o consentimento é dado pelo próprio paciente, no app, e registra a desativação quando ele pedir; lê as dúvidas encaminhadas e as mensagens com sinal de risco e segue o protocolo de risco mostrado na fila; revisa todo mês uma amostra das conversas e as respostas marcadas como "Não ajudou"; e cumpre os deveres (b), (e) e (f). Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo.',
-      `8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente sem autorização vigente para aquele uso e destino, de paciente bloqueado, arquivado ou anonimizado, ${destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada'}, nem quando o limite mensal de custo do consultório foi atingido. Na IA Nutri, também sem a liberação do paciente pela CONTROLADORA, sem o consentimento próprio dele ou com a IA Nutri pausada pela OPERADORA.`,
+      `8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente: nos usos (a) a (c), sem autorização vigente para aquele uso e destino; na IA Nutri, sem o consentimento próprio dele vigente para aquele destino (a autorização não é exigida), sem a liberação do paciente pela CONTROLADORA ou com a IA Nutri pausada pela OPERADORA; em qualquer uso, de paciente bloqueado, arquivado ou anonimizado, ${destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada'}, nem quando o limite mensal de custo do consultório foi atingido.`,
       '9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor. Na IA Nutri, a CONTROLADORA lê as conversas dos pacientes liberados e trata as dúvidas encaminhadas fora da plataforma ou na consulta.',
       '10. Selo e transparência. O plano alimentar criado a partir do rascunho da IA leva o selo "Elaborado com apoio de IA e revisado pela nutricionista". A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.',
       '11. Desativação e limite. A CONTROLADORA pode desativar a IA a qualquer momento. A OPERADORA pode suspendê-la por motivo de segurança, mudança do fornecedor ou de norma, avisando a CONTROLADORA. O uso tem um limite mensal de custo por consultório, informado no painel.',
