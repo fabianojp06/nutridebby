@@ -43,7 +43,7 @@ contagens (passo 6).
   ligar "Não mostrar peso no app" na aba Evolução e conferir que o app não mostra peso nem IMC em lugar nenhum (Hoje,
   Jornada, Todas as medidas, Plano); desligar. Conferir no modo escuro e com a fonte do celular no máximo.
 - [ ] **4. Antes do merge (merge = deploy).** Snapshot da VPS no hPanel; OK explícito do dono no PR; conferir no PR o job
-  `image` (≤ 265 MB) e o total de `woff2` impresso pelo `e2e/fontes-portal.spec.ts` (≤ 160 KB; na T2, ≈ 123,2 KB).
+  `image` (≤ 300 MB desde 15/10/2026; antes 265 MB) e o total de `woff2` impresso pelo `e2e/fontes-portal.spec.ts` (≤ 160 KB; na T2, ≈ 123,2 KB).
 - [ ] **5. Depois do deploy.** O manifest do PWA não muda (`id`/`start_url` = `/p/inicio`): quem já instalou continua
   com o mesmo app; o service worker renova a cópia do plano pelo `x-nd-build`. Avisar os pacientes, se a Debby quiser, de
   que o app mudou (o próprio app mostra o aviso uma vez).

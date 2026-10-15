@@ -32,7 +32,7 @@ flowchart LR
   PR --> MU[mudancas<br/>só documentação?]
   MU -->|tem código| T[test<br/>Vitest + Testcontainers<br/>guardas de RLS/auditoria/isolamento]
   MU -->|tem código| E[e2e<br/>migrate, seed, build,<br/>Playwright + axe]
-  MU -->|tem código| I[image<br/>docker build + orçamento 265 MB]
+  MU -->|tem código| I[image<br/>docker build + orçamento 300 MB]
   Q & T & E & I --> V{CI verde}
   V -->|revisões + OK do dono| M[merge na main]
   M --> D[deploy.yml<br/>decidir: CI já passou no PR?<br/>senão, CI de novo → GHCR → webhooks do Easypanel]

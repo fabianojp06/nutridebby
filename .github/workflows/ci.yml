@@ -191,9 +191,11 @@ jobs:
           push: false
           load: true
           tags: nutridebby:ci
-      - name: Orçamento da imagem (GHCR grátis = 500 MB para as 2 versões mantidas)
+      - name: Orçamento da imagem (GitHub Pro = 2 GB de pacotes para as 2 versões mantidas)
         # M1: pipefail — falha do `docker save` não pode virar 0 MB aprovado; MB arredondado para cima
         # Plano 12 (D-R2, aprovada pelo dono em 07/10/2026): o limite sobe de 260 para 265 MB (o PDFium em WASM da rasterização)
+        # Plano 15 (15/10/2026): o dono assinou o GitHub Pro (2 GB de pacotes); a imagem chegou a 266 MB e o limite sobe para
+        # 300 MB — duas versões mantidas (600 MB) seguem bem abaixo dos 2 GB, sem custo
         shell: bash
         run: |
           set -euo pipefail
@@ -208,8 +210,8 @@ jobs:
           bytes=$(tar -C "$d" -cf - . | gzip -6 | wc -c)
           rm -rf "$d"
           mb=$(( (bytes + 1024 * 1024 - 1) / 1024 / 1024 ))
-          echo "Imagem comprimida: ${mb} MB (limite 265 MB)"
-          test "$mb" -le 265 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 265 MB"; exit 1; }
+          echo "Imagem comprimida: ${mb} MB (limite 300 MB)"
+          test "$mb" -le 300 || { echo "::error::Imagem com ${mb} MB passa do orçamento de 300 MB"; exit 1; }
       - name: O worker carrega o pdf-lib e o SDK da IA na imagem podada (Plano 11)
         # O Dockerfile apaga partes do pdf-lib e do @anthropic-ai/sdk que não rodam; aqui, o preparo do PDF (thread com o
         # DecodeStream do pdf-lib) e o cliente do SDK sobem como no worker. Nenhuma chamada sai (sem rede para o provedor).

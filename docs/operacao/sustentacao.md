@@ -39,7 +39,7 @@ Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" 
 - [ ] M2 `docker system df`: recuperável ___ GB (limpeza só com OK do dono) — Claude
 - [ ] M3 `df -h /` ___ % · `/srv/nutri/data` ___ · pasta do banco ___ (`du` dentro do `nutri_db`) — Claude
 - [ ] M4 `/admin`: nenhum consultório > 80% de armazenamento nem da "Cota de WhatsApp" — dono
-- [ ] M5 Cotas: Resend ___ / 3 000 · R2 ___ / 10 GB · GHCR ___ / 500 MB · Actions ___ / 2 000 min · Sentry ___ / 5 000 — dono
+- [ ] M5 Cotas: Resend ___ / 3 000 · R2 ___ / 10 GB · GHCR ___ / 2 GB · Actions ___ / 3 000 min (GitHub Pro desde 15/10/2026) · Sentry ___ / 5 000 — dono
 - [ ] M6 Cobrança: hPanel, Cloudflare, GitHub e, depois da liberação da IA, Anthropic sem surpresa; cartão válido; alertas do Monarx no hPanel — dono
 - [ ] M7 Certificado TLS vence em ___ (≥ 20 dias) — Claude
 - [ ] M8 Pacotes pendentes ___ (`apt list --upgradable`); Docker/containerd ou kernel parado há mais de 30 dias? kernel em uso = instalado? (atualizar o Docker reinicia todos os contêineres: só o dono, com snapshot) — Claude → dono
