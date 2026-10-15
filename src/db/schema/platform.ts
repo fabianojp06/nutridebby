@@ -50,6 +50,14 @@ export const tenants = pgTable(
     examesPacienteAtivadoEm: timestamp('exames_paciente_ativado_em', { withTimezone: true }),
     /** RN-168: último e-mail "exames novos" à nutricionista (no máximo 1 a cada 6 h). */
     examesAvisoEm: timestamp('exames_aviso_em', { withTimezone: true }),
+    /** Plano 15 (US-170): a nutricionista ativou a IA Nutri para pacientes. Nulo = desligada. Paciente, público e conta não mudam (gatilho, 0116). */
+    iaNutriAtivadaEm: timestamp('ia_nutri_ativada_em', { withTimezone: true }),
+    /** D3 (dono, 10/10/2026): cota da IA Nutri em US$ por mês, escopo `paciente` (RN-179); só a admin muda (tenants_interruptores_da_admin, 0116). */
+    iaNutriCotaMensalUsd: numeric('ia_nutri_cota_mensal_usd', { precision: 7, scale: 2, mode: 'number' }).notNull().default(7),
+    /** US-176: AAAA-MM do último e-mail de 80% da cota da IA Nutri (um por mês). */
+    iaNutriAvisoMes: text('ia_nutri_aviso_mes'),
+    /** D10 = (a): último e-mail de sinal de risco à nutricionista (no máximo 1 a cada 15 min). */
+    iaNutriRiscoAvisoEm: timestamp('ia_nutri_risco_aviso_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -66,6 +74,7 @@ export const tenants = pgTable(
     check('tenants_fitoterapia_junta', sql`(${t.fitoterapiaRegistro} is null) = (${t.fitoterapiaDeclaradaEm} is null) and (${t.fitoterapiaRegistro} is null) = (${t.fitoterapiaTermoVersao} is null)`),
     check('tenants_fitoterapia_tamanho', sql`${t.fitoterapiaRegistro} is null or char_length(${t.fitoterapiaRegistro}) between 1 and 60`),
     check('tenants_ia_cota_valida', sql`${t.iaCotaMensalUsd} between 0 and 1000`),
+    check('tenants_ia_nutri_cota_valida', sql`${t.iaNutriCotaMensalUsd} between 0 and 1000`),
   ],
 );
 
@@ -158,7 +167,8 @@ export const backupRuns = pgTable(
  * P09-02 (b): ações sensíveis do admin sobre contas — hoje só o reinício do 2FA e, pelo painel, o código do 2FA da
  * própria admin recusado ao pedir esse reinício (code review do PR #22, item 1: a recusa fica registrada como a da
  * assinatura do Plano 10A; sem conta-alvo, porque o código é conferido antes de procurar o e-mail), e as ações de IA do
- * Plano 11 (liberar, bloquear e ajustar a cota de um consultório: `alvo_tenant_id`, sem conta-alvo). Sem tenant_id (fora
+ * Plano 11 (liberar, bloquear e ajustar a cota de um consultório: `alvo_tenant_id`, sem conta-alvo) e as da IA Nutri do
+ * Plano 15 (ajustar a cota do consultório; pausar e retomar em todos, sem alvo — DO-5: a trilha é só esta). Sem tenant_id (fora
  * da RLS; o admin não toca tabela 🔒). Para a aplicação, só INSERT e SELECT (0096). Sem e-mail: a conta é o id e o papel.
  */
 export const adminActions = pgTable(
@@ -177,12 +187,12 @@ export const adminActions = pgTable(
     criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check('admin_actions_acao_valida', sql`${t.acao} in ('reiniciar_2fa', 'codigo_2fa_recusado', 'liberar_ia', 'bloquear_ia', 'ajustar_cota_ia')`),
+    check('admin_actions_acao_valida', sql`${t.acao} in ('reiniciar_2fa', 'codigo_2fa_recusado', 'liberar_ia', 'bloquear_ia', 'ajustar_cota_ia', 'ajustar_cota_ia_nutri', 'pausar_ia_nutri', 'retomar_ia_nutri')`),
     check(
       'admin_actions_alvo_coerente',
       sql`((${t.acao} = 'reiniciar_2fa') = (${t.alvoUserId} is not null and ${t.alvoPapel} is not null))
-          and ((${t.acao} in ('liberar_ia', 'bloquear_ia', 'ajustar_cota_ia')) = (${t.alvoTenantId} is not null))
-          and ((${t.acao} in ('liberar_ia', 'bloquear_ia', 'ajustar_cota_ia')) <= (${t.alvoUserId} is null and ${t.alvoPapel} is null))`,
+          and ((${t.acao} in ('liberar_ia', 'bloquear_ia', 'ajustar_cota_ia', 'ajustar_cota_ia_nutri')) = (${t.alvoTenantId} is not null))
+          and ((${t.acao} in ('liberar_ia', 'bloquear_ia', 'ajustar_cota_ia', 'ajustar_cota_ia_nutri', 'pausar_ia_nutri', 'retomar_ia_nutri')) <= (${t.alvoUserId} is null and ${t.alvoPapel} is null))`,
     ),
     check('admin_actions_origem_valida', sql`${t.origem} in ('admin', 'cli')`),
     check('admin_actions_autor_coerente', sql`(${t.origem} = 'cli') = (${t.adminUserId} is null)`),
