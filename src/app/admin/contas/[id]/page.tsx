@@ -100,7 +100,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
             <Item rotulo="Tarefas de IA da nutricionista no mês">{ia?.tarefasMes ?? 0}</Item>
             {/* Plano 15 (DP-11, desvio 7): a IA Nutri numa linha própria, contra a cota dela — só contagens e valores; o gasto em
                 US$ como na linha da nutricionista: a conferência mensal (RNF-108) soma as duas contra a fatura (revisão final) */}
-            <Item rotulo="Uso da IA Nutri (pacientes) no mês">{`${dinheiro((iaNutri?.custoMesMicroUsd ?? 0) / 1_000_000)} de ${dinheiro(c.iaNutriCotaMensalUsd)} · ${iaNutri?.perguntasMes ?? 0} perguntas · ${pctIaNutri}% do limite`}</Item>
+            <Item rotulo="Uso da IA Nutri (pacientes) no mês">{`${dinheiro((iaNutri?.custoMesMicroUsd ?? 0) / 1_000_000)} de ${dinheiro(c.iaNutriCotaMensalUsd)} · ${iaNutri?.perguntasMes ?? 0} ${(iaNutri?.perguntasMes ?? 0) === 1 ? 'pergunta' : 'perguntas'} · ${pctIaNutri}% do limite`}</Item>
           </dl>
         </Cartao>
         <Cartao id="liberacoes" titulo="Liberações">
