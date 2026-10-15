@@ -820,6 +820,13 @@
       "when": 1792024972579,
       "tag": "0116_rls_ia_nutri",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1792026996404,
+      "tag": "0117_ia_nutri_funcoes",
+      "breakpoints": true
     }
   ]
 }

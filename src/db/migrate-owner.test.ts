@@ -390,6 +390,67 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     });
   });
 
+  // Plano 15 (P15-02): as funções SECURITY DEFINER da 0117 trocam o papel para worker e passam pela RLS FORCE; só aqui
+  // (dono sem superusuário, como em produção) uma troca de contexto errada aparece.
+  it('Plano 15: a IA Nutri nasce NÃO pausada e as funções da 0117 rodam pelo app com o migrator sem superusuário', async () => {
+    const pausa = await owner.query(`select pausada_em, pausada_por from ia_nutri_pausa`);
+    expect(pausa.rows).toEqual([{ pausada_em: null, pausada_por: null }]); // DP-1 / ★ DO-1 = não: a pausa é só de emergência
+    const { rows } = await owner.query(
+      `select p.proname, pg_get_userbyid(p.proowner) as dono, p.prosecdef from pg_proc p
+        where p.proname in ('app_ia_nutri_perguntar','app_ia_nutri_enviar_a_nutri','app_ia_nutri_revogar','app_anonimizar_consentimentos_ia_nutri','admin_metricas_ia_nutri') order by 1`,
+    );
+    expect(rows).toHaveLength(5);
+    expect(rows.every((r) => r.dono === 'nutri_owner' && r.prosecdef)).toBe(true);
+    // a função de métricas roda pelo login do app (lê ia_uso e ia_nutri_mensagens com a RLS forçada)
+    await expect(app.query('select * from admin_metricas_ia_nutri()')).resolves.toBeTruthy();
+  });
+
+  it('Plano 15: perguntar, enviar à nutricionista, revogar e anonimizar o consentimento sob FORCE RLS, com o dono sem superusuário', async () => {
+    const c = await app.connect();
+    const conta = '00000000-0000-4000-8000-0000000000c1';
+    const nutri = '00000000-0000-4000-8000-0000000000a1';
+    const ctx = async (t: string, role: string, o: { patient?: string; user?: string } = {}) => {
+      await c.query('begin');
+      await c.query(
+        `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+        [t, role, o.patient ?? '', o.user ?? ''],
+      );
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao) values ('ia-nutri-dono', 'N') returning id`)).rows[0].id as string;
+      await ctx(t, 'worker');
+      const p = (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Pac', '1990-01-01', 'F', 'pac@ia-nutri.dev') returning id`, [t])).rows[0].id as string;
+      await c.query(`insert into ia_nutri_participacoes (tenant_id, patient_id, liberada_em, liberada_por) values ($1, $2, now(), $3)`, [t, p, nutri]);
+      await c.query('commit');
+      await ctx(t, 'paciente', { patient: p, user: conta });
+      await c.query(`insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, versao, destino, canal, registrado_por, ip) values ($1, $2, 'aceite', '1.0', 'teste', 'app', $3, '198.51.100.9')`, [t, p, conta]);
+      // sem plano publicado: a função lê paciente, participação, consentimento, mensagens e meal_plans sob a RLS forçada
+      expect((await c.query(`select codigo from app_ia_nutri_perguntar('oi', null, null, '1.0', 'teste')`)).rows[0].codigo).toBe('sem_plano');
+      // o ramo de risco grava (INSERT sob a RLS forçada, como worker) e o papel volta
+      expect((await c.query(`select codigo from app_ia_nutri_perguntar('quero sumir', 'emergencia', 'risco_emergencia', '1.0', 'teste')`)).rows[0].codigo).toBe('risco');
+      expect((await c.query(`select codigo from app_ia_nutri_enviar_a_nutri('Posso trocar o jantar?', '1.0', 'teste')`)).rows[0].codigo).toBe('encaminhada');
+      expect((await c.query(`select current_setting('app.role', true) as r, current_setting('app.patient_id', true) as p`)).rows[0]).toEqual({ r: 'paciente', p });
+      expect((await c.query(`select revogacao_id from app_ia_nutri_revogar('198.51.100.9', 'teste')`)).rows[0].revogacao_id).not.toBeNull();
+      await c.query('commit');
+      await ctx(t, 'worker');
+      // as três mensagens (pergunta com risco, texto fixo e a dúvida enviada direto) passaram pela revogação sob a RLS forçada
+      const { rows: ms } = await c.query(`select autor, texto is not null as com_texto, revogada_em is not null as rev from ia_nutri_mensagens where patient_id = $1 order by created_at, autor`, [p]);
+      expect(ms).toEqual([
+        { autor: 'paciente', com_texto: true, rev: true }, // D22: a pergunta com risco não aberta fica com o texto
+        { autor: 'sistema', com_texto: false, rev: true },
+        { autor: 'paciente', com_texto: false, rev: true },
+      ]);
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01' where id = $1`, [p]);
+      await c.query('select app_anonimizar_consentimentos_ia_nutri($1)', [p]);
+      const { rows: cs } = await c.query(`select evento, ip, registrado_por from ia_nutri_consentimentos where patient_id = $1 order by registrado_em`, [p]);
+      expect(cs).toEqual([{ evento: 'aceite', ip: null, registrado_por: null }, { evento: 'revogacao', ip: null, registrado_por: null }]);
+      await c.query('commit');
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
+  });
+
   // JUR-01 (dono, 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo de guarda conta do último registro do
   // prontuário — no pedido de exclusão, o próprio bloqueio. A 0110 recalcula quem já está bloqueado: data do bloqueio no
   // fuso do tenant + 20 anos, só para mais (GREATEST), com o gatilho de auditoria ligado, sob FORCE RLS (dono sem
