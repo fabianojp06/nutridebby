@@ -46,7 +46,7 @@ Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" 
 - [ ] M9 GitGuardian sem incidente real aberto — dono
 - [ ] M10 Pendências de vigilância: P02-11 backup (falta o passo do dono: chaves e timer) · E-07 Sentry · P08-02 monitor externo · Dependabot — Claude lembra
 - [ ] M11 `pnpm audit --prod --audit-level high` em dev: ___ avisos; crítico/alto em next, react, better-auth, pg-boss, drizzle-orm ou Node 24 = incidente, PR em até 72 h — Claude → dono
-- [ ] M12 (Plano 11, depois da liberação da IA) IA: soma da coluna "Uso de IA no mês" do `/admin` US$ ___ × Console da Anthropic (workspace de produção) US$ ___ (diferença ≤ 5%); consultório perto de 100% da cota? soma ___ % do teto da plataforma e do limite do workspace; ZDR ainda concedida e região só `us` (em dúvida: `IA_DESLIGADA=1` e "Bloquear") — dono
+- [ ] M12 (Plano 11, depois da liberação da IA) IA: soma das linhas "Uso de IA da nutricionista no mês" e "Uso da IA Nutri (pacientes) no mês" da página de cada conta no `/admin` US$ ___ × Console da Anthropic (workspace de produção) US$ ___ (diferença ≤ 5%); consultório perto de 100% da cota? soma ___ % do teto da plataforma e do limite do workspace; ZDR ainda concedida e região só `us` (em dúvida: `IA_DESLIGADA=1` e "Bloquear") — dono
 - [ ] Comentário final com os números e issue fechada; issue do mês seguinte aberta
 
 ## Trimestral — janeiro, abril, julho e outubro ([§8.3.4](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#834-trimestral))
