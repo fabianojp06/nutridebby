@@ -6,6 +6,8 @@ const s = vi.hoisted(() => ({
   ctx: { tenantId: 't1', role: 'paciente', patientId: 'p1', actorUserId: 'u1' } as Record<string, unknown>,
   autorizar: vi.fn(),
   retirar: vi.fn(),
+  desativarNutri: vi.fn(),
+  semProvedor: false,
   revalidados: [] as string[],
 }));
 vi.mock('server-only', () => ({}));
@@ -19,22 +21,24 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/ip', () => ({ clientIp: () => '10.9.27.36' }));
 vi.mock('@/env', () => ({
-  getEnv: () => ({ APP_URL: 'http://app.test', TRUSTED_PROXIES: [], IA_PROVEDOR: 'sandbox', IA_RETENCAO_ZERO: '1', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 }),
+  getEnv: () => ({ APP_URL: 'http://app.test', TRUSTED_PROXIES: [], IA_PROVEDOR: s.semProvedor ? undefined : 'sandbox', IA_RETENCAO_ZERO: '1', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 }),
 }));
 vi.mock('@/modules/ia/autorizacao', async (orig) => ({
   AutorizacaoError: (await orig<typeof import('@/modules/ia/autorizacao')>()).AutorizacaoError,
   autorizarNoApp: s.autorizar,
   retirarNoApp: s.retirar,
 }));
+vi.mock('@/modules/ia/nutri-paciente/consentimento', () => ({ desativarNoApp: s.desativarNutri }));
 const { AutorizacaoError } = await import('@/modules/ia/autorizacao');
 const { MSG_AUTORIZACAO } = await import('@/modules/ia/constantes');
 const { textoExibido } = await import('@/modules/ia/textos-legais');
 const LIDO = textoExibido('teste');
-const { autorizarIaAction, retirarIaAction } = await import('./actions');
+const { autorizarIaAction, desativarIaNutriAction, retirarIaAction } = await import('./actions');
 
 beforeEach(() => {
   s.autorizar.mockReset();
   s.retirar.mockReset();
+  s.desativarNutri.mockReset();
   s.revalidados = [];
 });
 
@@ -72,5 +76,30 @@ describe('ações de IA em Eu › Privacidade (US-106, US-109)', () => {
     expect(s.revalidados).toEqual(['/p/perfil']);
     s.retirar.mockResolvedValue('nada_a_retirar');
     expect(await retirarIaAction()).toEqual({});
+  });
+});
+
+describe('"Desativar a IA Nutri e apagar as conversas" em Eu › Privacidade (US-177, RN-182)', () => {
+  it('"IA Nutri desativada." e Eu recarregada; a origem da requisição vai junto; nada a desativar → sem texto', async () => {
+    s.desativarNutri.mockResolvedValue('desativada');
+    expect(await desativarIaNutriAction()).toEqual({ ok: 'IA Nutri desativada.' });
+    const [ctx, deps] = s.desativarNutri.mock.calls[0];
+    expect(ctx).toBe(s.ctx);
+    expect(deps).toMatchObject({ appUrl: 'http://app.test', ip: '10.9.27.36', userAgent: 'Navegador/1.0' });
+    expect(s.revalidados).toEqual(['/p/perfil']);
+    s.desativarNutri.mockResolvedValue('nada_a_desativar');
+    expect(await desativarIaNutriAction()).toEqual({});
+  });
+
+  it('sem IA_PROVEDOR (modo ausente) a desativação NÃO é recusada pela ação (LGPD art. 8º, § 5º; aviso da T7)', async () => {
+    s.semProvedor = true;
+    try {
+      s.desativarNutri.mockResolvedValue('desativada');
+      expect(await desativarIaNutriAction()).toEqual({ ok: 'IA Nutri desativada.' });
+      expect(s.desativarNutri).toHaveBeenCalledTimes(1);
+      expect(s.desativarNutri.mock.calls[0][1]).toMatchObject({ ia: { modo: 'ausente' } });
+    } finally {
+      s.semProvedor = false;
+    }
   });
 });

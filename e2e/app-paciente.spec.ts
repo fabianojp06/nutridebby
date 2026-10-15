@@ -25,7 +25,7 @@ test('Hoje: a refeição que vem aí; "Comi assim" com "Desfazer"; depois do pra
   await expect(item).toBeVisible();
   await expect(item).not.toContainText('Sua nutricionista'); // RN-194: o lembrete é do app do consultório
   await expect(item).toContainText('Aviso do app'); // autor visível no texto (§11.1)
-  await expect(p.page.getByText('Este app não é um canal de conversa', { exact: false })).toBeVisible();
+  await expect(p.page.getByText('O mural não é uma conversa com a sua nutricionista', { exact: false })).toBeVisible();
   await expect(p.page.locator('main textarea, main input[type="text"]')).toHaveCount(0); // C-191
 
   await item.getByRole('button', { name: 'Comi assim' }).click();

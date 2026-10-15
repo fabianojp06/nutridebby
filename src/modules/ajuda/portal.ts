@@ -1,13 +1,18 @@
+import { NOME_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import type { ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
+import { MSG_MURAL } from '@/modules/portal/mural-regras';
 import type { Guia } from './conteudo';
 
 /**
  * Plano 16 (RN-212, US-199): o manual guiado do portal, no modelo do painel (P08-10). Fora de GUIAS: aqueles casam por rota
  * do painel; este só abre em Hoje. Texto RASCUNHO até a Debby revisar (G-D10 ★). Sobe a versão quando o texto mudar de
- * verdade (o aviso volta uma vez).
+ * verdade (o aviso volta uma vez, com `avisoDoGuia`). Versão 2 (Plano 15, ★ DO-6 ajustada à DO-1 = não): a IA Nutri vai ao
+ * ar ligada pela nutricionista e o guia muda para todos — mural, privacidade e "Onde fica cada coisa" (emendas à spec G,
+ * C-191, C-192, C-197, RN-193, RN-194, RN-209; os textos já dizem "quando liberada").
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 1,
+  versao: 2,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -19,7 +24,7 @@ export const GUIA_PORTAL: Guia = {
           'Hoje: o que importa no dia — a próxima refeição, o que você registrou, os comentários da sua nutricionista e os avisos do consultório. O diário completo fica em "Ver todo o diário".',
           // RN-203/RN-214: igual para todos e sem a palavra "peso" (quem tem o peso oculto não pode ler aqui que ele existe)
           'Jornada: suas consultas, as medidas e as orientações de cada atendimento, "Todas as medidas" e "Minhas consultas".',
-          'Plano: as refeições do dia, o PDF, a lista de compras e os conteúdos.',
+          `Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a ${NOME_IA_NUTRI}.`,
           'Exames: enviar um exame e acompanhar os que você enviou (quando o consultório recebe exames pelo app).',
           'Eu: sua conta, documentos, notificações, privacidade, este manual e o Sair.',
         ],
@@ -27,11 +32,12 @@ export const GUIA_PORTAL: Guia = {
       {
         titulo: 'Perguntas comuns',
         itens: [
-          'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta: dúvidas, anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
+          // Plano 15 (D34): a mesma redação do rodapé do mural (um lugar só)
+          MSG_MURAL.rodape,
           '"Comi assim" registra a refeição no seu diário, sem escrever. Você tem 10 segundos para desfazer.',
           'Sem internet, o app mostra a última versão do seu plano.',
-          // Plano 14A (desvio 11): sem subir a versão — a autorização depende da IA ligada no consultório
-          'Se o seu consultório usar inteligência artificial, o pedido de autorização aparece em Eu, no cartão Privacidade. Autorizar é opcional: recusar ou retirar não muda nada no seu atendimento.',
+          // Plano 14A (desvio 11) e Plano 15 (§7.8): dois pedidos separados — a autorização dos exames e o consentimento da IA Nutri
+          `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
         ],
       },
     ],
@@ -46,12 +52,27 @@ export const GUIA_PORTAL: Guia = {
   ],
 };
 
-/** US-199. G-D17 = a (R7): `boasVindas` para quem não tem acesso ao app antes de hoje (`jaUsavaOApp`); `pergunta` para quem já usava. */
+/**
+ * US-199. G-D17 = a (R7): `boasVindas` para quem não tem acesso ao app antes de hoje (`jaUsavaOApp`); `pergunta` para quem já
+ * usava. Plano 15 (§7.8): `atualizado` para quem já viu uma versão anterior do guia (novo, à Debby).
+ */
 export const AVISO_PORTAL = {
   pergunta: 'O app mudou. Quer ver onde ficou cada coisa?',
   boasVindas: 'Boas-vindas ao app do seu acompanhamento. Quer ver como funciona?',
+  atualizado: 'O manual do app foi atualizado. Quer ver o que há de novo?',
   ver: 'Ver como funciona',
   agoraNao: 'Agora não',
   reverTour: 'Ver o tour de novo',
   comoUsar: 'Como usar o app',
 } as const;
+
+/**
+ * §7.8 (Plano 15): quem já viu uma versão ANTERIOR do guia recebe "atualizado" (em qualquer consultório: as frases do mural,
+ * da privacidade e de "Onde fica cada coisa" mudaram para todos); "O app mudou" só para quem já usava o app e nunca viu o
+ * guia (Plano 16, G-D17). `v` = a versão vista, o mesmo campo que `precisaDoGuia` lê.
+ */
+export function avisoDoGuia(progresso: ProgressoGuia, jaUsava: boolean, guia: { id: string; versao: number } = GUIA_PORTAL): string {
+  const visto = progresso[guia.id]?.v ?? 0;
+  if (visto > 0 && visto < guia.versao) return AVISO_PORTAL.atualizado;
+  return jaUsava ? AVISO_PORTAL.pergunta : AVISO_PORTAL.boasVindas;
+}

@@ -1,8 +1,12 @@
 import Link from 'next/link';
+import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { daquiA } from '@/modules/portal/datas-portal';
 import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
+import { configIA } from '@/modules/ia/modo';
+import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { entradaDoPaciente } from '@/modules/ia/nutri-paciente/estado';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline } from '@/modules/portal/plano';
 import { Faixa } from '@/components/portal/faixa';
@@ -10,22 +14,30 @@ import { MSG_G } from '@/components/portal/textos';
 import { GuardarPlano } from '../../plano-guardado';
 import { molduraDaSecao } from '../../moldura';
 import { AbrirRefeicaoDaUrl } from './abrir-refeicao-da-url';
+import { AvisoIaNutri } from './aviso-ia-nutri';
 import { RefeicaoDetalhe } from './refeicao-detalhe';
 
 export const dynamic = 'force-dynamic';
+
+const PILULA = 'inline-flex min-h-11 items-center rounded-full border border-borda bg-cartao px-4';
 
 /**
  * Plano 16 (US-196, F-Plano): as refeições em sanfona, a próxima aberta e destacada, tudo dentro da página. Sem
  * `respostasDeHoje` aqui: /p/plano é a cópia offline guardada no aparelho e "offline só o plano (sem diário…)" (§4.8, §10,
  * §11.7) — a marca "No diário" fica no mural e na refeição aberta (que não são guardadas); na sanfona o "Comi assim"
  * aparece sempre e, se a refeição já tiver resposta hoje, o toque devolve o registro existente (idempotente).
+ * Plano 15 (US-170, §4.2, §7.8): "Tirar dúvida sobre o plano" e "Perguntar sobre esta refeição" com a entrada da IA Nutri em
+ * conversa, decidir, texto_mudou ou indisponível. /p/plano é a cópia offline (D6 do Plano 06): o link pode ficar na cópia
+ * depois de um bloqueio até ela se renovar — o toque mostra "A IA Nutri não está disponível no momento." (US-170, "link
+ * antigo"). `?ia-nutri=indisponivel` (só esse valor) = o aceite recusado pelo bloqueio, o consultório desligado ou a pausa.
  */
 export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) {
   const acesso = await requirePaciente('/p/plano');
   const { ctx, tenant, vinculo } = acesso;
   const moldura = await molduraDaSecao(acesso);
-  const plano = await planoDoPaciente(ctx, tenant.fuso);
-  const { pdf } = await searchParams;
+  const [plano, entrada] = await Promise.all([planoDoPaciente(ctx, tenant.fuso), entradaDoPaciente(ctx, tenant, configIA(getEnv()))]);
+  const comIaNutri = entrada === 'conversa' || entrada === 'decidir' || entrada === 'texto_mudou' || entrada === 'indisponivel';
+  const { pdf, 'ia-nutri': iaNutri } = await searchParams;
   const agora = new Date();
   const minutosAgora = partesNoFuso(agora, tenant.fuso).minutos;
   const minutosAte = (horario: string) => {
@@ -41,6 +53,7 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
             novo se a versão ou o dono mudarem, ou 1 vez por dia */}
         <GuardarPlano dono={vinculo.patientId} versao={versaoDaCopiaOffline(plano)} />
         <AbrirRefeicaoDaUrl />
+        {iaNutri === 'indisponivel' && <AvisoIaNutri texto={MSG_IA_NUTRI.naoDisponivel} />}
         {!plano ? (
           <p role="status">{MSG_PLANO_PACIENTE.semPlano}</p>
         ) : (
@@ -52,11 +65,13 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
             {pdf === 'preparando' && <p role="status">{MSG_PLANO_PACIENTE.pdfPreparando}</p>}
             <p className="flex flex-wrap gap-2">
               {plano.pdf !== 'indisponivel' && (
-                <a href="/api/p/plano/pdf" className="inline-flex min-h-11 items-center rounded-full border border-borda bg-cartao px-4">Baixar PDF</a>
+                <a href="/api/p/plano/pdf" className={PILULA}>Baixar PDF</a>
               )}
               {/* D3 (Plano 07): a lista de compras é derivada do plano publicado; G-D8 ★ = a: os conteúdos também moram aqui */}
-              <Link href="/p/compras" className="inline-flex min-h-11 items-center rounded-full border border-borda bg-cartao px-4">Lista de compras</Link>
-              <Link href="/p/conteudos" className="inline-flex min-h-11 items-center rounded-full border border-borda bg-cartao px-4">Conteúdos</Link>
+              <Link href="/p/compras" className={PILULA}>Lista de compras</Link>
+              <Link href="/p/conteudos" className={PILULA}>Conteúdos</Link>
+              {/* Plano 15 (§4.2): a conversa mora em Plano */}
+              {comIaNutri && <Link href="/p/plano/ia" className={PILULA}>{MSG_IA_NUTRI.linkPlano}</Link>}
             </p>
             <ol className="space-y-3">
               {plano.refeicoes.map((r) => {
@@ -70,7 +85,7 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
                         {proxima && r.horario && <span className="ml-3 inline-block rounded-full bg-p-marco px-2 text-sm font-semibold text-p-marco-texto">{`Próxima, ${daquiA(minutosAte(r.horario))}`}</span>}
                       </summary>
                       <div className="px-3 pb-3">
-                        <RefeicaoDetalhe refeicao={r} respondida={false} />
+                        <RefeicaoDetalhe refeicao={r} respondida={false} perguntarSobre={comIaNutri} />
                       </div>
                     </details>
                   </li>
