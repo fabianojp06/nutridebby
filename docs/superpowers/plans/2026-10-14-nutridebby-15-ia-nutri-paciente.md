@@ -43,9 +43,9 @@
 | DP-6 | Aviso de risco à nutricionista (D10 = a) | Fila nova `ia-nutri-risco` (payload `{ tenantId }`), enfileirada pelo módulo na mesma transação da pergunta com risco (e pelo job quando o modelo classifica `risco`): o worker trava o tenant (`FOR NO KEY UPDATE`), confere `tenants.ia_nutri_risco_aviso_em` (no máximo 1 e-mail a cada 15 min por tenant) e manda o e-mail genérico por `avisarNutri`. **Dentro da janela, o aviso é adiado, nunca descartado:** o job se reenfileira com `startAfter` = o que falta da janela e `singletonKey: tenantId` (no máximo um pendente por tenant). A sessão de paciente não escreve em `tenants` (desvio 3) |
 | DP-7 | Escopo da cota sem mudar os chamadores | `escopoDoTipo(tipo)`: `conversa_paciente` → `paciente`; qualquer outro → `nutri`. `reservar` deriva o escopo de `Reserva.tipo` (os chamadores da leitura, do resumo, do rascunho e dos modelos não mudam); `gastoDoMes(tx, mes, escopo)` filtra por `TIPOS_DO_ESCOPO`; `situacaoDaCotaIa(…, escopo = 'nutri')` e `avisarSeChegou80Ia(…, escopo = 'nutri')` ganham o parâmetro com padrão. Cota do escopo `paciente` = `tenants.ia_nutri_cota_mensal_usd` (padrão **7**, D3), marca do aviso de 80% = `tenants.ia_nutri_aviso_mes` |
 | DP-8 | Reserva da pergunta | Reservada no passo 1 do job pelo teto fixo `custoMaximoMicroUsd(modeloPaciente, geo, TOKENS_ENTRADA_TETO_CONVERSA, MAX_TOKENS_CONVERSA)` (40.000 de entrada — cobre o plano, 5 orientações de até 5.000 caracteres, 6 mensagens e o tokenizador do Haiku 5.5 — e 2.000 de saída com o raciocínio de esforço `low`); no portão, o teto pelos bytes do **corpo exato que sai** (`ContextoDaConversa.corpo`, montado uma vez em `contexto.ts`, mais `SISTEMA_CONVERSA`: `tokensDeBytes(bytes) + TOKENS_INSTRUCOES_TETO`) desce a reserva por `reduzirReserva`; acima da reserva → texto fixo de falha, sem enviar (como a D12 da 14B). O histórico leva das respostas `ia` só `tipo_resposta` e os índices citados, nunca o texto montado |
-| DP-9 | Fila e tentativas (RN-180) | `ia-paciente`: `retryLimit 1`, `retryDelay 5`, `retryBackoff false`, `expireInSeconds 120`, `deleteAfterSeconds 86400`; `localConcurrency: 2` no `work`. No máximo 3 perguntas em andamento por tenant: conferido no passo 1 (contagem de `processando` do tenant, com o tenant travado pela reserva); acima disso, o job relança uma vez (`RepetirIaError`) e, na última tentativa, termina com o texto fixo de falha |
+| DP-9 | Fila e tentativas (RN-180) | `ia-paciente`: `retryLimit 1`, `retryDelay 5`, `retryBackoff false`, `expireInSeconds 120`, `deleteAfterSeconds 86400`; `localConcurrency: 2` no `work`. No máximo 3 perguntas em andamento por tenant: conferido no passo 1 (contagem de `processando` do tenant, com o tenant travado `FOR NO KEY UPDATE` **antes** da contagem — a mesma trava da reserva, pega mais cedo; /code-review do PR #37); acima disso, o job relança uma vez (`RepetirIaError`) e, na última tentativa, termina com o texto fixo de falha |
 | DP-10 | Varreduras | `expirar-ia-paciente` a cada minuto (pergunta `na_fila`/`processando` há mais de 3 min → `falhou` com `motivo_tecnico = 'interrompida'`; reserva estornada se não saiu, `incerto` se saiu; e a conciliação de `ia_uso` `reservado` de pergunta já `falhou`/`cancelada`). `ia-nutri-retencao` todo dia às 04:15 (D8 = 180 dias; D22 = até 30 dias; aviso à admin de risco não aberto há mais de 72 h, uma vez por dia). **Ordem de travas de todo caminho que grava filha de `patients` (mensagem, notificação):** o paciente primeiro (`FOR UPDATE`/`FOR SHARE`, ou `SKIP LOCKED` na varredura), depois a mensagem e o tenant, depois `ia_uso`, depois a plataforma; a varredura lista as candidatas sem trava e trava paciente → mensagem para cada uma |
-| DP-11 | Métricas do admin | Função nova `admin_metricas_ia_nutri()` (`tenant_id`, `perguntas_mes`, `usos_mes`, `custo_mes_micro_usd` do escopo `paciente`, com o mesmo filtro de situação da 0099), no molde da `admin_metricas_ia()` (0099), que fica como está (soma tudo). Trocar o tipo de retorno da 0099 exigiria `DROP FUNCTION` com o app antigo chamando na janela do deploy; por isso `metricasDeIaPorTenant` (TS) **subtrai** por tenant `usos_mes` e `custo_mes_micro_usd` da IA Nutri, e Admin › conta mostra a IA da nutricionista contra a cota dela e a IA Nutri numa linha própria (desvio 7) |
+| DP-11 | Métricas do admin | Função nova `admin_metricas_ia_nutri()` (`tenant_id`, `perguntas_mes`, `usos_mes` e `custo_mes_micro_usd` do escopo `paciente`, `nutri_tarefas_mes` e `nutri_custo_mes_micro_usd` do escopo `nutri` — os dois escopos de `ia_uso` no **mesmo** `SELECT`, com o filtro de situação da 0099), no molde da `admin_metricas_ia()` (0099), que fica como está (soma tudo; o app antigo a chama na janela do deploy — trocar o tipo de retorno exigiria `DROP FUNCTION`). O TS (`metricasDeIaPorEscopo`) lê **só** a função nova, numa chamada: nada de subtrair duas leituras feitas em momentos diferentes (/code-review do PR #37: dava número negativo). Admin › conta mostra a IA da nutricionista contra a cota dela e a IA Nutri numa linha própria (desvio 7) |
 | DP-12 | Respostas do sandbox | O `gerar` do sandbox com `finalidade: 'conversa_paciente'` decide por **marcadores na pergunta** (não por hash): `SANDBOX-FONTE-INEXISTENTE`, `SANDBOX-TEXTO-LIVRE`, `SANDBOX-RECUSA`, `SANDBOX-RISCO`, `SANDBOX-SUPLEMENTO`; sem marcador, "lugar"/"troc"/"substitu" → `substituicao` com o primeiro `#S`; "hora"/"horário" → `horario` com o primeiro `#R`; senão `fora_do_escopo`. Determinístico e legível no E2E (desvio 4) |
 | DP-13 | "Dúvida vista" na conversa | Sem mensagem nova: a tela do paciente mostra o aviso do app "Sua dúvida foi vista no consultório." depois da pergunta cuja `resolucao = 'vista'` (D24 = b) |
 | DP-14 | Escrita da equipe em `ia_nutri_mensagens` | O app nunca insere mensagem pela sessão `nutri` (só a função, como `worker`, e o job). O banco não recusa o INSERT da equipe (como em `ia_tarefas`): a fábrica do teste de isolamento roda como `nutri`; a garantia que importa — o paciente não grava pergunta fora da função nem mensagem de outro autor — é a `paciente_sem_insert` |
@@ -73,7 +73,7 @@
 4. **Sandbox por marcadores** (DP-12), não "por hash da pergunta" (RNF-168): o resultado é o mesmo (respostas fixas, inclusive as inválidas), e o E2E fica legível.
 5. **Textos novos** (sem texto na spec; vão à revisão de interface e à Debby): `MSG_IA_NUTRI.pausada` no painel ("A IA Nutri está pausada pelo suporte.", só na pausa de emergência), `MSG_IA_NUTRI.desativada` ("IA Nutri desativada para pacientes. As dúvidas já enviadas continuam na fila."), os rótulos da aba "IA Nutri" da ficha ("Liberar a IA Nutri para este paciente", "IA Nutri: liberada — aguardando o aceite do paciente" é da spec; "IA Nutri: liberada e em uso", "IA Nutri: bloqueada" são novos), o selo da fila "Sinal de risco — o paciente desativou a IA Nutri" (spec) e "Aviso: houve sinal de risco" (aviso mínimo da D22, novo), o título da fila "Dúvidas dos pacientes" (spec), "Abrir dúvida" e "Marcar como vista" (spec), o título da tela de consentimento "Antes de usar a {NOME}" (spec), o link "Tirar dúvida sobre o plano" (spec §4.2), "Perguntar sobre esta refeição" (spec §7.8), o convite "A {NOME} está disponível para você." (spec §7.8) e o rótulo do bloco de Eu › Privacidade "{NOME}" (spec). Também novos (revisão do plano, 14/10/2026): `MSG_IA_NUTRI.avisoAtivacaoFila` (o que a ativação liga: aba "IA Nutri" na ficha, dúvidas e sinais de risco na fila e o que se espera da nutricionista — US-170, D7), `MSG_IA_NUTRI.protocoloRisco` (protocolo do "Sinal de risco" a partir da D11, publicado como texto final pelo dono, sem a psicóloga — DP-18, D37), `MSG_IA_NUTRI.riscoApagadoAoAbrir`, `MSG_IA_NUTRI.comoFuncionaTexto`, `MSG_IA_NUTRI.respostaChegou` ("A resposta chegou."), `MSG_IA_NUTRI.avaliado` ("Obrigado pela avaliação."), `MSG_IA_NUTRI.enviarDireto` ("Enviar direto para minha nutricionista"), `MSG_IA_NUTRI.desativarPelaNutri` e `MSG_IA_NUTRI.desativadaPelaNutri`, `AVISO_PORTAL.atualizado` ("O manual do app foi atualizado. Quer ver o que há de novo?"), a frase do peso oculto sobre os termos do plano (D25), o limite da máscara no consentimento e no item 5 do aditivo (art. 9º, § 1º), e as frases novas do aditivo 1.2 nos itens 2, 6 e 7.
 6. **Rótulos do Histórico de acessos**: `ia_nutri` = "IA Nutri (conversa com o paciente)" e `ia_nutri_liberacao` = "IA Nutri — liberação" (spec §13.2) usam o nome **de trabalho**, não a constante do paciente: o histórico é da equipe e não muda com a D28. O `criar` de `ia_nutri_duvida` ("Enviou dúvida à nutricionista", DP-16) é rótulo novo.
-7. **Métricas do admin** (DP-11): a spec (§13.2) fala das métricas da IA Nutri no admin sem dizer onde; o plano usa uma função nova (`admin_metricas_ia_nutri`) e corrige no TS a soma da 0099 (que passaria a contar a conversa do paciente na cota da nutricionista).
+7. **Métricas do admin** (DP-11): a spec (§13.2) fala das métricas da IA Nutri no admin sem dizer onde; o plano usa uma função nova (`admin_metricas_ia_nutri`), que separa os dois escopos de `ia_uso` numa leitura só, e o TS deixa de ler a 0099 (que passaria a contar a conversa do paciente na cota da nutricionista).
 8. **Envio direto à nutricionista** (DP-16): a spec diz "no menu da conversa"; o plano põe o botão "Enviar direto para minha nutricionista" no próprio formulário da conversa, ao lado de "Perguntar" (o app G não tem menu de três pontos na conversa).
 9. **Revogação registrada pela nutricionista** (DP-17): a spec (RN-171) prevê o consentimento e a revogação só no app; o plano acrescenta o canal `nutricionista` só para a revogação, para atender o pedido do paciente que não entra no app (arquivado ou bloqueado). O **consultório suspenso** (RN-15) fica fora: a suspensão revoga as sessões da equipe e barra o paciente, então nenhum dos dois registra a revogação; o pedido é atendido quando a conta volta ou pelo suporte (P15-B10). O consentimento diz "…em Eu › Privacidade ou pedindo à sua nutricionista".
 
@@ -104,7 +104,7 @@ As entradas e condições que a spec implica e que um teste de tarefa poderia n�
 **IA — base e textos (T3, T4, T5):**
 - `src/modules/ia/constantes.ts` (`MODELOS_IA` + `claude-haiku-5-5`; `FINALIDADES_IA` + `conversa_paciente`), `src/modules/ia/precos.ts` (`PRECOS_IA`, `PRECOS_IA_DATA`, `TOKENS_ENTRADA_TETO_CONVERSA`, `MAX_TOKENS_CONVERSA`), `src/modules/ia/provedor.ts` (`PedidoGeracao.prazoMs`), `src/modules/ia/provedor-anthropic.ts`, `src/modules/ia/provedor-bedrock.ts`, `src/modules/ia/provedor-sandbox.ts`, `src/modules/ia/modo.ts` (`ConfigIA.modeloPaciente`, `ConfigIA.nutriDesligada`), `src/env.ts` (`IA_MODELO_PACIENTE`, `IA_NUTRI_DESLIGADA`).
 - `src/modules/ia/textos-legais.ts` (aditivo 1.2, `IA_NUTRI_ADITIVO_VERSAO_MIN`, `IA_NUTRI_TERMO_VERSAO`, `IA_NUTRI_TERMO_VERSAO_MIN`, `textoDoConsentimentoIaNutri`, `conferirTextoExibidoIaNutri`), `src/modules/ia/campos-enviados.ts` (`perguntas`, `CATEGORIAS_DA_IA_NUTRI`, `FRASE_DA_CATEGORIA_IA_NUTRI`).
-- `src/modules/ia/cota.ts` (escopo), `src/modules/plataforma/metricas.ts` (`ajustarCotaIaNutri`, `metricasDeIaNutriPorTenant`), `src/modules/plataforma/ia-nutri-pausa.ts` (novo).
+- `src/modules/ia/cota.ts` (escopo), `src/modules/plataforma/metricas.ts` (`ajustarCotaIaNutri`, `metricasDeIaPorEscopo`, `metricasDeIaNutriPorTenant`), `src/modules/plataforma/ia-nutri-pausa.ts` (novo).
 
 **IA Nutri do paciente (T6–T10), pasta nova `src/modules/ia/nutri-paciente/`:**
 - `constantes.ts` — limites, estados, `NOME_IA_NUTRI`, `MSG_IA_NUTRI`, tipos (sem imports de banco: os componentes `'use client'` importam daqui).
@@ -905,7 +905,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `app_ia_nutri_enviar_a_nutri(p_texto text, p_versao_min text, p_destino text) → TABLE (codigo text, mensagem_id uuid)`; `codigo` ∈ `encaminhada`, `limite`, `indisponivel` (DP-16: sem sinal de risco — o módulo manda o texto com risco para `app_ia_nutri_perguntar`).
   - `app_ia_nutri_revogar(p_ip text, p_user_agent text, p_patient uuid DEFAULT NULL) → TABLE (revogacao_id uuid, canceladas int)` (nulo/0 = nada a revogar; sessão de paciente com `p_patient` nulo, canal `app`; sessão `nutri` com `p_patient`, canal `nutricionista` — DP-17).
   - `app_anonimizar_consentimentos_ia_nutri(p_patient uuid) → void`.
-  - `admin_metricas_ia_nutri() → TABLE (tenant_id uuid, perguntas_mes bigint, usos_mes bigint, custo_mes_micro_usd bigint)`.
+  - `admin_metricas_ia_nutri() → TABLE (tenant_id uuid, perguntas_mes bigint, usos_mes bigint, custo_mes_micro_usd bigint, nutri_tarefas_mes bigint, nutri_custo_mes_micro_usd bigint)` (os dois escopos de `ia_uso` no MESMO `SELECT`, DP-11).
 
 - [ ] **Step 1: Escrever os testes que falham.** `src/db/ia-nutri-funcoes.test.ts` (harness da T1; `pacienteComConta` de `test/portal.ts`; `planoPublicado` de `test/plano.ts`; `stopBoss()` + `closeDb()` no `afterAll`, porque a publicação enfileira o PDF). Uma chamada da função pela sessão de paciente:
 
@@ -960,12 +960,17 @@ describe('0117: app_ia_nutri_perguntar (RN-178, RN-179)', () => {
     const [{ n }] = (await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select count(*)::int as n from ia_nutri_mensagens where patient_id = ${p.id}`), app.db)).rows as { n: number }[];
     expect(n).toBe(1);
   });
-  it('a pergunta presa há mais de 3 min vira falhou (interrompida) e a nova entra', async () => {
+  it('a pergunta presa há mais de 3 min vira falhou (interrompida), ganha a resposta de texto fixo "falha" e a nova entra', async () => {
     const { T, p, ctxP } = await pronto();
-    await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'processando', createdAt: new Date(Date.now() - 4 * 60_000) });
+    const presa = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'processando', createdAt: new Date(Date.now() - 4 * 60_000) });
     expect((await perguntar(ctxP, 'De novo')).codigo).toBe('ok');
-    const linhas = (await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select status, motivo_tecnico from ia_nutri_mensagens where patient_id = ${p.id} order by created_at`), app.db)).rows;
-    expect(linhas).toEqual([{ status: 'falhou', motivo_tecnico: 'interrompida' }, { status: 'na_fila', motivo_tecnico: null }]);
+    const linhas = (await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select autor, status, texto_fixo, motivo_tecnico, responde_a from ia_nutri_mensagens where patient_id = ${p.id} order by created_at, autor`), app.db)).rows;
+    // /code-review do PR #37: a mesma resposta que a varredura grava (a varredura não volta a uma pergunta já `falhou`)
+    expect(linhas).toEqual([
+      { autor: 'paciente', status: 'falhou', texto_fixo: null, motivo_tecnico: 'interrompida', responde_a: null },
+      { autor: 'ia', status: null, texto_fixo: 'falha', motivo_tecnico: 'interrompida', responde_a: presa },
+      { autor: 'paciente', status: 'na_fila', texto_fixo: null, motivo_tecnico: null, responde_a: null },
+    ]);
   });
   it('limite do dia (10) e do mês (100): conta só contou_no_limite; risco não conta e não chama o modelo', async () => {
     const { T, p, ctxP } = await pronto();
@@ -1087,11 +1092,13 @@ describe('0117: app_anonimizar_consentimentos_ia_nutri e admin_metricas_ia_nutri
     const [c] = (await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(sql`select evento, versao, destino, registrado_por, ip, user_agent from ia_nutri_consentimentos where patient_id = ${p.id}`), app.db)).rows;
     expect(c).toEqual({ evento: 'aceite', versao: '1.0', destino: 'teste', registrado_por: null, ip: null, user_agent: null });
   });
-  it('admin_metricas_ia_nutri: perguntas ao modelo e custo do escopo paciente no mês; recusa dentro de withTenant', async () => {
+  it('admin_metricas_ia_nutri: perguntas ao modelo e os dois escopos de ia_uso no mês, numa linha; recusa dentro de withTenant', async () => {
     const { T, p } = await pronto();
     await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
     const r = await app.db.execute(sql`select * from admin_metricas_ia_nutri()`);
-    expect((r.rows as { tenant_id: string; perguntas_mes: string }[]).find((x) => x.tenant_id === T.tenantId)?.perguntas_mes).toBe('1');
+    const linha = (r.rows as Record<string, string>[]).find((x) => x.tenant_id === T.tenantId);
+    // /code-review do PR #37: os dois escopos na mesma linha (o TS não subtrai mais a 0099)
+    expect(linha).toEqual({ tenant_id: T.tenantId, perguntas_mes: '1', usos_mes: '0', custo_mes_micro_usd: '0', nutri_tarefas_mes: '0', nutri_custo_mes_micro_usd: '0' });
     await expect(withTenant(T.ctx, (tx) => tx.execute(sql`select * from admin_metricas_ia_nutri()`), app.db)).rejects.toMatchObject({ cause: { code: '55000' } });
   });
 });
@@ -1234,9 +1241,16 @@ BEGIN
       v_codigo := 'sem_plano';
     ELSE
       -- RN-178: a presa há mais de 3 min (45 s × 2 tentativas) vira falhou SÓ pelo tempo (a função não lê pgboss.job);
-      -- a reserva dela (se houve) é conciliada pela varredura expirar-ia-paciente
-      UPDATE public.ia_nutri_mensagens m SET status = 'falhou', motivo_tecnico = 'interrompida', updated_at = v_agora
-       WHERE m.tenant_id = v_tenant AND m.patient_id = v_patient AND m.status IN ('na_fila', 'processando') AND m.created_at <= v_agora - interval '3 minutes';
+      -- a reserva dela (se houve) é conciliada pela varredura expirar-ia-paciente. /code-review do PR #37: com a resposta
+      -- `ia` de texto fixo `falha` (motivo `interrompida`), como a varredura grava — a varredura só olha na_fila/processando
+      -- e nunca voltaria a esta pergunta; sem a resposta, o paciente não leria "Não consegui responder agora…"
+      WITH presas AS (
+        UPDATE public.ia_nutri_mensagens m SET status = 'falhou', motivo_tecnico = 'interrompida', updated_at = v_agora
+         WHERE m.tenant_id = v_tenant AND m.patient_id = v_patient AND m.status IN ('na_fila', 'processando') AND m.created_at <= v_agora - interval '3 minutes'
+        RETURNING m.id, m.sessao_inicio, m.modelo, m.prompt_versao, m.expira_em
+      )
+      INSERT INTO public.ia_nutri_mensagens (tenant_id, patient_id, sessao_inicio, autor, texto_fixo, motivo_tecnico, responde_a, modelo, prompt_versao, expira_em, created_at, updated_at)
+        SELECT v_tenant, v_patient, x.sessao_inicio, 'ia', 'falha', 'interrompida', x.id, x.modelo, x.prompt_versao, x.expira_em, v_agora, v_agora FROM presas x;
       IF EXISTS (SELECT 1 FROM public.ia_nutri_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = v_patient AND m.status IN ('na_fila', 'processando')) THEN
         v_codigo := 'em_andamento';
       ELSE
@@ -1453,11 +1467,12 @@ REVOKE ALL ON FUNCTION app_anonimizar_consentimentos_ia_nutri(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_anonimizar_consentimentos_ia_nutri(uuid) TO nutri_app_role;
 --> statement-breakpoint
 -- §3 / DP-11 (molde de admin_metricas_ia, 0099): por tenant, só contagens e somas do mês — perguntas que foram ao modelo
--- (contou_no_limite), as linhas de ia_uso e o custo do escopo paciente (o mesmo filtro de situação da 0099: o TS subtrai
--- usos_mes e custo_mes_micro_usd da admin_metricas_ia() para a IA da nutricionista). Fora de withTenant (o admin); o
--- contexto worker é local a cada volta.
+-- (contou_no_limite) e, de ia_uso, os DOIS escopos (paciente = conversa_paciente; nutri = o resto) com o mesmo filtro de
+-- situação da 0099, num SELECT só por tenant: o TS lê a IA da nutricionista daqui, sem subtrair duas chamadas separadas
+-- (/code-review do PR #37: duas leituras em momentos diferentes davam número negativo). A 0099 fica como está (o app
+-- antigo a chama na janela do deploy). Fora de withTenant (o admin); o contexto worker é local a cada volta.
 CREATE OR REPLACE FUNCTION admin_metricas_ia_nutri()
-RETURNS TABLE (tenant_id uuid, perguntas_mes bigint, usos_mes bigint, custo_mes_micro_usd bigint)
+RETURNS TABLE (tenant_id uuid, perguntas_mes bigint, usos_mes bigint, custo_mes_micro_usd bigint, nutri_tarefas_mes bigint, nutri_custo_mes_micro_usd bigint)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
@@ -1479,9 +1494,12 @@ BEGIN
     tenant_id := t.id;
     SELECT count(*) INTO perguntas_mes FROM public.ia_nutri_mensagens m
      WHERE m.tenant_id = t.id AND m.autor = 'paciente' AND m.contou_no_limite AND m.created_at >= v_inicio;
-    SELECT count(*), coalesce(sum(u.custo_micro_usd) FILTER (WHERE u.situacao IN ('reservado', 'confirmado', 'incerto')), 0)::bigint
-      INTO usos_mes, custo_mes_micro_usd
-      FROM public.ia_uso u WHERE u.tenant_id = t.id AND u.mes = v_mes AND u.tipo = 'conversa_paciente';
+    SELECT count(*) FILTER (WHERE u.tipo = 'conversa_paciente'),
+           coalesce(sum(u.custo_micro_usd) FILTER (WHERE u.tipo = 'conversa_paciente' AND u.situacao IN ('reservado', 'confirmado', 'incerto')), 0)::bigint,
+           count(*) FILTER (WHERE u.tipo <> 'conversa_paciente'),
+           coalesce(sum(u.custo_micro_usd) FILTER (WHERE u.tipo <> 'conversa_paciente' AND u.situacao IN ('reservado', 'confirmado', 'incerto')), 0)::bigint
+      INTO usos_mes, custo_mes_micro_usd, nutri_tarefas_mes, nutri_custo_mes_micro_usd
+      FROM public.ia_uso u WHERE u.tenant_id = t.id AND u.mes = v_mes;
     RETURN NEXT;
   END LOOP;
   PERFORM set_config('app.tenant_id', '', true);
@@ -1904,7 +1922,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `ia_uso`, `tenants.iaNutriCotaMensalUsd`, `tenants.iaNutriAvisoMes`, `admin_metricas_ia_nutri()` (T2), `iaNutriPausa` (T1), `adminActions`.
 - Produces:
   - `cota.ts`: `type EscopoCota = 'nutri' | 'paciente'`; `TIPOS_DO_ESCOPO = { paciente: ['conversa_paciente'] }`; `escopoDoTipo(tipo)`; `gastoDoMes(tx, mes, escopo = 'nutri')`; `reservar` deriva o escopo de `r.tipo` e confere a cota da coluna do escopo; `situacaoDaCotaIa(ctx, tenant, agora?, db?, escopo = 'nutri')` com `tenant: Pick<TenantRow, 'fuso' | 'iaCotaMensalUsd' | 'iaNutriCotaMensalUsd'>`; `avisarSeChegou80Ia(db, tenantId, agora, appUrl, escopo = 'nutri')` (no escopo `paciente`, marca `iaNutriAvisoMes` e manda `{ tipo: 'cota_ia_nutri', para, link }`).
-  - `metricas.ts`: `ajustarCotaIaNutri(tenantId, valor, adminId, db?)`; `metricasDeIaNutriPorTenant(db?) → Map<string, { perguntasMes: number; usosMes: number; custoMesMicroUsd: number }>`; `metricasDeIaPorTenant` passa a devolver só a IA da nutricionista (subtrai a da IA Nutri, DP-11).
+  - `metricas.ts`: `ajustarCotaIaNutri(tenantId, valor, adminId, db?)`; `type MetricasIaNutriTenant = { perguntasMes: number; usosMes: number; custoMesMicroUsd: number }`; `metricasDeIaPorEscopo(db?) → Map<string, { nutri: MetricasIaTenant; paciente: MetricasIaNutriTenant }>` (UMA chamada a `admin_metricas_ia_nutri()`); `metricasDeIaNutriPorTenant(db?) → Map<string, MetricasIaNutriTenant>` e `metricasDeIaPorTenant(db?)` (só a IA da nutricionista) derivam dela — nenhuma lê mais a 0099 nem subtrai (DP-11).
   - `ia-nutri-pausa.ts`: `type PausaIaNutri = { pausadaEm: Date | null }`; `lerPausa(q: Queryable): Promise<PausaIaNutri>`; `pausarIaNutri(adminId, db?)`; `retomarIaNutri(adminId, db?)` (fora de withTenant; trilha em `admin_actions`: `pausar_ia_nutri`/`retomar_ia_nutri`; log só com o id do admin).
   - E-mail: `{ tipo: 'cota_ia_nutri'; para: string; link: string }` em `EmailMessage`.
 
@@ -1939,7 +1957,7 @@ describe('Plano 15 (D3, DP-7): cota por escopo', () => {
 
 Em `ia-nutri-pausa.test.ts`: um **cluster próprio** (`novoPostgres()` de `test/postgres-teste.ts` + `runMigrations`, como `src/db/migrate-owner.test.ts`), porque a linha da pausa é uma só e os outros arquivos rodam em paralelo no banco comum, que nunca é pausado (T1). Nele: a linha nasce **não pausada** e `lerPausa` devolve `{ pausadaEm: null }` (DP-1, ★ DO-1 = não — a IA Nutri liga pela nutricionista); `pausarIaNutri(adminId, db)` (emergência) grava `pausada_em` e `pausada_por = adminId` e `lerPausa` passa a devolver a data; `retomarIaNutri(adminId, db)` volta os dois a nulo; cada um grava a sua linha em `admin_actions` (`pausar_ia_nutri`, `retomar_ia_nutri`, sem alvo — a única trilha, ★ DO-5); `lerPausa` dentro de `withTenant` (nutri, paciente, worker) lê a linha; um `update ia_nutri_pausa` dentro de `withTenant` é recusado (42501); sem a linha (apagada pelo dono no teste), `lerPausa` devolve pausada (falha fechada).
 
-Em `metricas.test.ts`: `ajustarCotaIaNutri(T.tenantId, '9,50', adminId)` grava `ia_nutri_cota_mensal_usd = 9.5` e `admin_actions.acao = 'ajustar_cota_ia_nutri'`; valor inválido → `CotaIaAdminError(MSG_COTA_IA)`; `metricasDeIaNutriPorTenant()` lê a função da T2; **DP-11:** uma reserva `leitura_exame` e uma `conversa_paciente` no mesmo tenant → `metricasDeIaPorTenant()` mostra só a da leitura (`tarefasMes: 1`, custo da leitura) e `metricasDeIaNutriPorTenant()` só a da conversa (`usosMes: 1`).
+Em `metricas.test.ts`: `ajustarCotaIaNutri(T.tenantId, '9,50', adminId)` grava `ia_nutri_cota_mensal_usd = 9.5` e `admin_actions.acao = 'ajustar_cota_ia_nutri'`; valor inválido → `CotaIaAdminError(MSG_COTA_IA)`; `metricasDeIaNutriPorTenant()` lê a função da T2; **DP-11:** uma reserva `leitura_exame` e uma `conversa_paciente` no mesmo tenant → `metricasDeIaPorTenant()` mostra só a da leitura (`tarefasMes: 1`, custo da leitura) e `metricasDeIaNutriPorTenant()` só a da conversa (`usosMes: 1`); **/code-review do PR #37:** um tenant só com `conversa_paciente` → `metricasDeIaPorTenant()` dá `{ tarefasMes: 0, custoMesMicroUsd: 0 }` (nunca negativo), e `metricasDeIaPorEscopo(app.db)` faz **uma** chamada ao banco, à `admin_metricas_ia_nutri()`, e nenhuma à `admin_metricas_ia()` (`vi.spyOn(app.db, 'execute')`: uma chamada, e o SQL dela não contém `admin_metricas_ia()`). O caso existente (`metricas.test.ts:167`, `metricasDeIaPorTenant` → `{ tarefasMes: 0, custoMesMicroUsd: 0 }`) continua passando.
 
 O caso existente de `cota.test.ts` (linha ~110) que chama `situacaoDaCotaIa(T.ctx, { fuso: 'America/Sao_Paulo', iaCotaMensalUsd: 15 }, …)` ganha `iaNutriCotaMensalUsd: 7` no objeto (o `Pick` do `tenant` cresce); o resultado esperado não muda.
 
@@ -2028,17 +2046,31 @@ export async function retomarIaNutri(adminId: string, db: Db = getDb()): Promise
 }
 ```
 
-(Conferir que `Queryable` é exportado por `src/db/client.ts` — é o tipo que `registrarAceiteAditivoIa` usa; senão, usar `Db | Tx`.) `metricas.ts`: `ajustarCotaIaNutri` no molde de `ajustarCotaIa` (mesmo `cotaIaSchema`, `iaNutriCotaMensalUsd`, ação `ajustar_cota_ia_nutri`, log `cotaIaNutriUsd`) e `metricasDeIaNutriPorTenant` no molde de `metricasDeIaPorTenant` (`select * from admin_metricas_ia_nutri()`), e `metricasDeIaPorTenant` desconta a IA Nutri (a 0099 soma todo `ia_uso`):
+(Conferir que `Queryable` é exportado por `src/db/client.ts` — é o tipo que `registrarAceiteAditivoIa` usa; senão, usar `Db | Tx`.) `metricas.ts`: `ajustarCotaIaNutri` no molde de `ajustarCotaIa` (mesmo `cotaIaSchema`, `iaNutriCotaMensalUsd`, ação `ajustar_cota_ia_nutri`, log `cotaIaNutriUsd`) e as métricas da IA lidas **numa chamada só** da função da T2, que separa os dois escopos no mesmo `SELECT` (a 0099 soma todo `ia_uso` e não é mais lida pelo app):
 
 ```ts
-/** US-100 (A-06) e DP-11 (Plano 15): a IA da NUTRICIONISTA, comparada com a cota dela — a 0099 soma todo ia_uso; a IA Nutri (escopo paciente) sai aqui. */
+export type MetricasIaNutriTenant = { perguntasMes: number; usosMes: number; custoMesMicroUsd: number };
+type LinhaMetricasIa = { tenant_id: string; perguntas_mes: string; usos_mes: string; custo_mes_micro_usd: string; nutri_tarefas_mes: string; nutri_custo_mes_micro_usd: string };
+
+/**
+ * US-100 (A-06) e DP-11 (Plano 15): a IA da NUTRICIONISTA (comparada com a cota dela) e a IA Nutri (escopo paciente), de UMA
+ * chamada à admin_metricas_ia_nutri() — os dois escopos saem do mesmo SELECT por tenant. /code-review do PR #37: subtrair a
+ * IA Nutri de uma segunda chamada (à 0099) lia dois momentos diferentes e podia dar "-1 tarefa" ou custo negativo.
+ */
+export async function metricasDeIaPorEscopo(db: Db = getDb()): Promise<Map<string, { nutri: MetricasIaTenant; paciente: MetricasIaNutriTenant }>> {
+  const r = await db.execute<LinhaMetricasIa>(sql`select * from admin_metricas_ia_nutri()`);
+  return new Map(r.rows.map((x) => [x.tenant_id, {
+    nutri: { tarefasMes: Number(x.nutri_tarefas_mes), custoMesMicroUsd: Number(x.nutri_custo_mes_micro_usd) },
+    paciente: { perguntasMes: Number(x.perguntas_mes), usosMes: Number(x.usos_mes), custoMesMicroUsd: Number(x.custo_mes_micro_usd) },
+  }]));
+}
+/** US-100: só a IA da nutricionista (os chamadores atuais não mudam). */
 export async function metricasDeIaPorTenant(db: Db = getDb()): Promise<Map<string, MetricasIaTenant>> {
-  const r = await db.execute<{ tenant_id: string; tarefas_mes: string; custo_mes_micro_usd: string }>(sql`select * from admin_metricas_ia()`);
-  const nutri = await metricasDeIaNutriPorTenant(db);
-  return new Map(r.rows.map((x) => {
-    const p = nutri.get(x.tenant_id);
-    return [x.tenant_id, { tarefasMes: Number(x.tarefas_mes) - (p?.usosMes ?? 0), custoMesMicroUsd: Number(x.custo_mes_micro_usd) - (p?.custoMesMicroUsd ?? 0) }];
-  }));
+  return new Map([...(await metricasDeIaPorEscopo(db))].map(([id, m]) => [id, m.nutri]));
+}
+/** Plano 15 (§3): só a IA Nutri. */
+export async function metricasDeIaNutriPorTenant(db: Db = getDb()): Promise<Map<string, MetricasIaNutriTenant>> {
+  return new Map([...(await metricasDeIaPorEscopo(db))].map(([id, m]) => [id, m.paciente]));
 }
 ```
 
@@ -2252,7 +2284,7 @@ it.each(['quanto de arroz no almoço?', 'posso trocar a banana pela maçã?', 'q
 it('sem acento e sem diferença de maiúsculas; nada vai a log (a função é pura)', () => expect(detectarRisco('QUERO MORRER')).not.toBeNull());
 ```
 
-`termos-sensiveis.test.ts`: `perguntaComCondicao('posso comer o lanche da tarde mesmo com diarreia?')` e `('posso tomar o whey estando grávida?')` → `true`; `('posso trocar a banana pela maçã?')` → `false`; `perguntaComCondicao('posso comer a ceia antes de dormir?')` → `false` ("dor" não casa "dormir"); `termosNaPergunta('quanto de whey eu tomo depois do treino?')` → `['whey']`; `temTermo('Whey protein — 30 g', 'whey')` → `true`.
+`termos-sensiveis.test.ts`: `perguntaComCondicao('posso comer o lanche da tarde mesmo com diarreia?')` e `('posso tomar o whey estando grávida?')` → `true`; `('posso trocar a banana pela maçã?')` → `false`; `perguntaComCondicao('posso comer a ceia antes de dormir?')` → `false` ("dor" não casa "dormir"); `termosNaPergunta('quanto de whey eu tomo depois do treino?')` → `['whey']`; `temTermo('Whey protein — 30 g', 'whey')` → `true`. **/code-review do PR #37 (Review Focus 4):** `perguntaComCondicao('posso comer a ceia mesmo com dores de cabeça?')` e `('posso comer pão se a barriga dói?')` → `true`; `termosNaPergunta('posso tomar vitamina D3 junto do café?')` → `['vitamina d']`; `termosNaPergunta('posso tomar ômega-3?')` → `['omega 3']`; `termosNaPergunta('quais suplementos eu tomo?')` → `['suplemento']`; `termosNaPergunta('quantas cápsulas de vitamina D3?')` → `['capsula', 'vitamina d']`; `temTermo('Vitamina D3 — 1 cápsula', 'vitamina d')` → `true`; `temTermo('a vitamina de banana leva leite?', 'vitamina d')` → `false`; `temTermo('suplementação', 'suplemento')` → `false`; e, em `validar-resposta.test.ts`, o caso "posso X se tenho Y" ganha a pergunta `'posso comer o almoço mesmo com dores no estômago?'` (modelo dizendo `plano`) → `sintoma_ou_exame` (`condicao`).
 
 - [ ] **Step 3: Implementar o filtro e os termos.** `sinais-risco.ts`:
 
@@ -2304,8 +2336,14 @@ export const TERMOS_SENSIVEIS: readonly string[] = [
   'fitoterapico', 'capsula', 'colageno', 'bcaa', 'glutamina', 'multivitaminico', 'vitamina d', 'omega 3', 'remedio',
   'medicamento', 'sibutramina', 'ozempic', 'semaglutida', 'tirzepatida', 'orlistate', 'anfepramona', 'cafeina em capsula',
 ];
-const comBorda = (termo: string) => new RegExp(`(?<![a-z0-9])${termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`);
-export const temTermo = (texto: string, termo: string): boolean => comBorda(termo).test(normalizar(texto));
+/**
+ * /code-review do PR #37: a borda depois do termo aceita o plural (`s`/`es`: "suplementos", "cápsulas", "remédios") e
+ * números colados ("vitamina D3", "ômega-3" → "omega 3"), mas nunca outra letra ("vitamina de banana" não é "vitamina d").
+ * Hífen, barra e sublinhado viram espaço nos dois lados (pergunta e trecho).
+ */
+const semSeparador = (s: string): string => normalizar(s).replace(/[-_/]+/g, ' ');
+const comBorda = (termo: string) => new RegExp(`(?<![a-z0-9])${termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:e?s)?\\d*(?![a-z0-9])`);
+export const temTermo = (texto: string, termo: string): boolean => comBorda(termo).test(semSeparador(texto));
 export const termosNaPergunta = (pergunta: string): string[] => TERMOS_SENSIVEIS.filter((t) => temTermo(pergunta, t));
 
 /**
@@ -2314,8 +2352,9 @@ export const termosNaPergunta = (pergunta: string): string[] => TERMOS_SENSIVEIS
  * com marcador de condição de saúde, gravidez ou remédio.
  */
 const PERMISSAO = /\b(posso|pode|devo|da (pra|para)|tem problema)\b/;
-// radicais (gripad, enjoad…) casam o começo da palavra; as palavras curtas têm fim de palavra ("dor" não casa "dormir")
-const CONDICAO = /\b(diarreia|febre|gripe|gripad|resfriad|enjoo|enjoad|nausea|vomit|dor(?![a-z])|doendo|azia|refluxo|intestino preso|constipad|gastrite|gravida|gestante|gravidez|amamenta|menstrua|alergi|intoleran|diabet|pressao (alta|baixa)|hipertens|colesterol|glicose|tireoide|cirurgia|operad|remedio|medicamento|antibiotico|tratamento|doente|exames?(?![a-z]))/;
+// radicais (gripad, enjoad…) casam o começo da palavra; as palavras curtas têm fim de palavra ("dor" não casa "dormir"),
+// com o plural e o verbo (/code-review do PR #37: "dores", "dói")
+const CONDICAO = /\b(diarreia|febre|gripe|gripad|resfriad|enjoo|enjoad|nausea|vomit|dor(es)?(?![a-z])|doi(?![a-z])|doendo|azia|refluxo|intestino preso|constipad|gastrite|gravida|gestante|gravidez|amamenta|menstrua|alergi|intoleran|diabet|pressao (alta|baixa)|hipertens|colesterol|glicose|tireoide|cirurgia|operad|remedio|medicamento|antibiotico|tratamento|doente|exames?(?![a-z]))/;
 export const perguntaComCondicao = (pergunta: string): boolean => {
   const t = normalizar(pergunta);
   return PERMISSAO.test(t) && CONDICAO.test(t);
@@ -2519,8 +2558,8 @@ it.each([
   - `aceitarNoApp(ctxP, textoExibidoIaNutri('teste'), deps)` → `'registrado'` e a linha `aceite` com `versao = IA_NUTRI_TERMO_VERSAO`, `destino = 'teste'`, `canal = 'app'`, `registrado_por = conta`, IP e user-agent (cortado em 300); de novo → `'ja_vigente'` (nada novo); `exibido` de outro destino ou versão → `IaNutriError(MSG_IA_NUTRI.textoMudouNoToque)` e nada gravado; paciente não liberado ou IA Nutri pausada (`deps.pausa = PAUSADA`) → `IaNutriError(MSG_IA_NUTRI.naoDisponivel)`; sessão de paciente sem conta → `Error('aceitarNoApp: só a sessão de paciente com conta')`.
   - `desativarNoApp(ctxP, deps)` → `'desativada'`, a linha `revogacao` e o job `ia-nutri-revogacao` na fila com `{ tenantId, patientId, revogacaoId }` (só ids: `findJobs('ia-nutri-revogacao')`); sem consentimento → `'nada_a_desativar'` sem job; **funciona com o paciente bloqueado pela nutricionista, com o consultório desligado e com `pausa: PAUSADA`** (Review Focus 5).
   - `desativarPelaNutri(T.ctx, p.id, { db })` (DP-17) com o paciente **arquivado** e consentimento vigente → `'desativada'`, a linha `revogacao` com `canal = 'nutricionista'` e `registrado_por = T.nutriId`, o conteúdo apagado e o job `ia-nutri-revogacao`; sem consentimento → `'nada_a_desativar'`; `entradaDoPaciente` depois → `decidir` (se o paciente voltar a ativo).
-  - `blocoIaNutriDoApp`: nulo sem nada (nunca liberado, sem conversa, sem evento); com consentimento vigente e o paciente bloqueado → `{ podeDesativar: true, podeDecidir: false }`; com conversa guardada e a IA Nutri desativada no consultório → aparece com `temConversa: true`; liberado sem consentimento → `podeDecidir: true`; **depois de desativar, com o paciente bloqueado (nada a decidir nem a desativar) → o bloco continua, com `situacao = MSG_IA_NUTRI.situacaoDesativada(data)`** (a confirmação não some, Review Focus 5).
-  - `ativarIaNutri(T.ctx, { ia: IA_TESTE })` → grava `ia_nutri_ativada_em` **também com o ambiente de produção** (`vi.mock('@/env')` com `emProducao` → `true`, molde de `contas.test.ts`): o consentimento é 1.0 final e o protocolo é final, não há trava de texto (★ DO-2 trocada, D37 — a regra nova presa no teste); ativar de novo não muda a data (`coalesce`); com o aditivo 1.1 → `IaNutriError(MSG_IA_NUTRI.aditivoNovo)`; com a IA do consultório não liberada pelo suporte (`ia_liberada = false`) → `IaNutriError(MSG_IA_NUTRI.naoDisponivel)`; `desativarIaNutri` → nulo.
+  - `blocoIaNutriDoApp`: nulo sem nada (nunca liberado, sem conversa, sem evento); com consentimento vigente e o paciente bloqueado → `{ podeDesativar: true, podeDecidir: false }`; com conversa guardada e a IA Nutri desativada no consultório → aparece com `temConversa: true`; liberado sem consentimento → `podeDecidir: true`; **depois de desativar, com o paciente bloqueado (nada a decidir nem a desativar) → o bloco continua, com `situacao = MSG_IA_NUTRI.situacaoDesativada(data)`** (a confirmação não some, Review Focus 5); **/code-review do PR #37: pergunta de risco (`perguntar` com "quero sumir") → `desativarNoApp` → `blocoIaNutriDoApp` dá `podeDesativar: false` (a pergunta guardada pela D22, com texto, não traz o botão de volta) e `situacao = situacaoDesativada`; um segundo `desativarNoApp` continua `'nada_a_desativar'`**.
+  - `ativarIaNutri(T.ctx, { ia: IA_TESTE })` → grava `ia_nutri_ativada_em` **também com o ambiente de produção** (`vi.mock('@/env')` com `emProducao` → `true`, molde de `contas.test.ts`): o consentimento é 1.0 final e o protocolo é final, não há trava de texto (★ DO-2 trocada, D37 — a regra nova presa no teste); ativar de novo não muda a data (`coalesce`); com o aditivo 1.1 → `IaNutriError(MSG_IA_NUTRI.aditivoNovo)`; **com o aditivo 1.1 e a IA Nutri em estado `pausada`** (`ia: { ...IA_TESTE, nutriDesligada: true }` — o mesmo estado da pausa de emergência, sem mexer na linha comum de `ia_nutri_pausa`) → `IaNutriError(MSG_IA_NUTRI.aditivoNovo)` e `ia_nutri_ativada_em` continua nulo (/code-review do PR #37: aba antiga ou POST direto durante a pausa); com o aditivo 1.2 e `nutriDesligada: true` → grava `ia_nutri_ativada_em` (a pausa não impede ativar); com a IA do consultório não liberada pelo suporte (`ia_liberada = false`) → `IaNutriError(MSG_IA_NUTRI.naoDisponivel)`; `desativarIaNutri` → nulo.
   - `liberarPaciente(T.ctx, p.id, { confirmarPesoOculto: false })` com `peso_oculto_no_app_em` preenchido → `ConfirmarPesoOcultoError`; com `true` → liberado (`liberada_por = T.nutriId`); liberar de novo depois de bloquear → `bloqueada_em` nula; `situacaoNaFicha` → `aguardando` (sem consentimento), `em_uso` (com), `bloqueada`; a liberação aparece no histórico como entidade `ia_nutri_liberacao` (auditoria do gatilho).
   - `revogacao-job.test.ts`: duas perguntas canceladas pela revogação — uma sem `enviado_em` com `ia_uso` `reservado` → `estornado` e o contador da plataforma desce; outra com `enviado_em` → `incerto`; rodar duas vezes não muda nada (idempotente); revogação inexistente → 0.
 
@@ -2623,7 +2662,10 @@ export async function blocoIaNutriDoApp(ctx: TenantContext, tenant: TenantRow, i
         .limit(1);
       const entrada = await entradaNaTransacao(tx, pid, tenant, ia, pausa);
       const podeDecidir = entrada === 'decidir' || entrada === 'texto_mudou';
-      const podeDesativar = ev?.evento === 'aceite' || !!conversa;
+      // /code-review do PR #37: só com o consentimento vigente (o último evento é o aceite) — é o único caso em que
+      // app_ia_nutri_revogar faz alguma coisa. Depois da revogação, a pergunta de risco não aberta guardada com o texto (D22)
+      // é "conversa", mas o botão "Desativar … e apagar as conversas" voltaria por até 30 dias e daria `nada_a_desativar`.
+      const podeDesativar = ev?.evento === 'aceite';
       if (!podeDecidir && !podeDesativar && !ev) return null;
       const data = ev ? formatarDataNoFuso(ev.registradoEm, tenant.fuso) : '';
       const situacao = ev?.evento === 'aceite' ? MSG_IA_NUTRI.situacaoVigente(data) : ev ? MSG_IA_NUTRI.situacaoDesativada(data) : MSG_IA_NUTRI.situacaoNunca;
@@ -2648,6 +2690,7 @@ import { logger } from '@/lib/logger';
 import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
 import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
 import type { ConfigIA } from '../modo';
+import { IA_NUTRI_ADITIVO_VERSAO_MIN, versaoAtende } from '../textos-legais';
 import { MSG_IA_NUTRI } from './constantes';
 import { consentimentoVigente, estadoIaNutriDoTenant, ultimoEvento } from './estado';
 
@@ -2665,7 +2708,11 @@ export class ConfirmarPesoOcultoError extends Error {
 /**
  * US-170 "Ligar no consultório": só com a IA do consultório liberada pelo suporte e ativa (`ia_liberada`, como as outras
  * IAs) e o aditivo 1.2. Sem trava de texto em produção: o consentimento e o protocolo de risco são finais (★ DO-1 = não,
- * ★ DO-2 trocada, D37 — a IA Nutri liga pela definição da nutricionista). A pausa de emergência não impede ativar.
+ * ★ DO-2 trocada, D37 — a IA Nutri liga pela definição da nutricionista). A pausa de emergência não impede ativar, mas o
+ * aditivo é conferido À PARTE (/code-review do PR #37): `estadoIaNutriDoTenant` devolve `pausada` (pausa,
+ * IA_NUTRI_DESLIGADA ou sem destino) ANTES de olhar o aditivo, e uma aba antiga ou um POST direto durante a pausa gravaria a
+ * ativação num consultório só com a 1.1 — que, ao aceitar a 1.2, iria direto a `ativa` sem a tela de ativação (o aviso da
+ * fila e o protocolo de risco, US-170, D7).
  */
 export async function ativarIaNutri(ctx: TenantContext, deps: { ia: ConfigIA; db?: Db }): Promise<void> {
   await withTenant(
@@ -2673,8 +2720,8 @@ export async function ativarIaNutri(ctx: TenantContext, deps: { ia: ConfigIA; db
     async (tx) => {
       const [t] = await tx.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).for('no key update');
       const e = t ? estadoIaNutriDoTenant(t, deps.ia, await lerPausa(tx)) : 'sem_ia';
-      if (e === 'aditivo_desatualizado') throw new IaNutriError(MSG_IA_NUTRI.aditivoNovo);
-      if (e === 'sem_ia') throw new IaNutriError(MSG_IA_NUTRI.naoDisponivel);
+      if (!t || e === 'sem_ia') throw new IaNutriError(MSG_IA_NUTRI.naoDisponivel);
+      if (e === 'aditivo_desatualizado' || !versaoAtende(t.iaAditivoVersao, IA_NUTRI_ADITIVO_VERSAO_MIN)) throw new IaNutriError(MSG_IA_NUTRI.aditivoNovo);
       await tx.update(tenants).set({ iaNutriAtivadaEm: sql`coalesce(${tenants.iaNutriAtivadaEm}, now())`, updatedAt: new Date() }).where(eq(tenants.id, ctx.tenantId));
     },
     deps.db ?? getDb(),
@@ -2976,6 +3023,14 @@ describe('avaliar e encaminhar (US-172, US-174, RN-177)', () => {
   it('avalia a resposta uma vez; a segunda devolve false; resposta já esvaziada (sem texto) → false, sem erro', async () => { /* mensagemNoBanco autor ia com texto; avaliar → true; de novo → false; autor ia com texto e texto_fixo nulos → false (o where barra antes do gatilho) */ });
   it('encaminha a própria pergunta respondida ou que falhou; com 3 dúvidas abertas (risco não conta) → limite; já encaminhada, na fila ou processando → nao_pode', async () => { /* … */ });
   it('encaminha a pergunta com resposta MONTADA (US-172 "Dúvida respondida pelo plano")', async () => { /* pergunta respondida + mensagem ia com texto montado → 'encaminhada' */ });
+  it('/code-review do PR #37: id ou valor forjados no cliente → false / nao_pode, nunca erro do banco (22P02, 23514)', async () => {
+    const { T, p, ctxP } = await pronto();
+    const resposta = await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…' });
+    expect(await avaliar(ctxP, 'abc', 'ajudou', app.db)).toBe(false);
+    expect(await avaliar(ctxP, resposta, 'otimo' as 'ajudou', app.db)).toBe(false);
+    expect(await encaminhar(ctxP, 'abc', app.db)).toBe('nao_pode');
+    expect(await avaliar(ctxP, resposta, 'ajudou', app.db)).toBe(true); // o caminho válido continua
+  });
 });
 
 describe('enviarANutri (DP-16, §7.5)', () => {
@@ -3025,10 +3080,11 @@ import { getDb, type Db } from '@/db/client';
 import { iaNutriMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { idValido } from '@/modules/pacientes/base';
 import { auditRead, recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
 import { IA_NUTRI_TERMO_VERSAO_MIN } from '../textos-legais';
-import { LIMITE_DUVIDAS_ABERTAS, MAX_PERGUNTA, MSG_IA_NUTRI, ROTULO_CATEGORIA, type Autor, type CategoriaConversa, type CodigoPergunta, type StatusPergunta } from './constantes';
+import { AVALIACOES, LIMITE_DUVIDAS_ABERTAS, MAX_PERGUNTA, MSG_IA_NUTRI, ROTULO_CATEGORIA, type Autor, type CategoriaConversa, type CodigoPergunta, type StatusPergunta } from './constantes';
 import type { DepsIaNutri } from './deps';
 import { estadoIaNutriDoTenant } from './estado';
 import { IaNutriError } from './participacao';
@@ -3116,6 +3172,8 @@ export async function enviarANutri(ctx: TenantContext, textoBruto: string, deps:
 /** US-172 "Ajudou / Não ajudou": uma vez, numa resposta da IA com conteúdo (o gatilho confere as colunas). Fica só no NutriDebby (§7.6). */
 export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'ajudou' | 'nao_ajudou', db: Db = getDb()): Promise<boolean> {
   if (!comConta(ctx)) throw new Error('avaliar: só a sessão de paciente com conta');
+  // /code-review do PR #37: id e valor vêm do cliente (argumentos da Server Action) — fora do formato → false, nunca 22P02/23514
+  if (!idValido(mensagemId) || !(AVALIACOES as readonly string[]).includes(valor)) return false;
   const r = await withTenant(
     ctx,
     (tx) => tx.update(iaNutriMensagens).set({ avaliacao: valor, updatedAt: new Date() })
@@ -3130,6 +3188,7 @@ export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'aj
 /** US-174 / RN-177 (D24 = b): a PERGUNTA (não a resposta da IA) vai à fila; até 3 abertas por paciente (risco não conta). */
 export async function encaminhar(ctx: TenantContext, perguntaId: string, db: Db = getDb()): Promise<'encaminhada' | 'limite' | 'nao_pode'> {
   if (!comConta(ctx)) throw new Error('encaminhar: só a sessão de paciente com conta');
+  if (!idValido(perguntaId)) return 'nao_pode'; // /code-review do PR #37: id do cliente fora do formato, nunca 22P02
   return withTenant(
     ctx,
     async (tx) => {
@@ -3315,7 +3374,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Files:**
 - Create: `src/modules/ia/nutri-paciente/contexto.ts`, `job.ts`, `varredura.ts`
 - Modify: `src/modules/portal/plano.ts` (exportar `kcalDo`), `src/db/tenant.ts` (`SEM_CONTA_PERMITIDOS`), `src/worker/index.ts` (`ia-paciente` com `localConcurrency: 2`, `expirar-ia-paciente` de minuto em minuto), `src/jobs/queues.ts` (`expirar-ia-paciente`), `CLAUDE.md` (regra 1: `contexto.ts` lê `user`) — o texto final da regra fica para a T14, aqui só a linha
-- Test: `src/modules/ia/nutri-paciente/contexto.test.ts`, `job.test.ts`, `varredura.test.ts`; `src/db/sem-conta-guarda.test.ts` (já confere a lista); Create: `test/ia-nutri-conversa.ts` (o harness `pronto`, `depsApp`, `comoWorker` — Step 2)
+- Test: `src/modules/ia/nutri-paciente/contexto.test.ts`, `job.test.ts`, `varredura.test.ts`; `src/db/sem-conta-guarda.test.ts` (já confere a lista); Create: `test/ia-nutri-conversa.ts` (o harness `pronto`, `outroPacientePronto`, `depsApp`, `comoWorker` — Step 2)
 
 **Interfaces:**
 - Consumes: `lerPlanoNaTransacao(tx, planId, { auditar: false, comMedidas: false })` (`src/modules/plano-alimentar/carregar.ts`); `quantidadeDoItem`, `kcalDo` (`src/modules/portal/plano.ts`); `mascarar`, `AlvoDaMascara` (T6); `CATEGORIAS_DA_IA_NUTRI` (T4); `validarSaida`, `conferirTermos`, `montarResposta`, `Trecho`, `SISTEMA_CONVERSA`, `INSTRUCAO_CONVERSA`, `SCHEMA_CONVERSA`, `PROMPT_VERSAO_CONVERSA`, `ESFORCO_CONVERSA` (T6); `estadoIaNutriDoTenant`, `liberadoNaTransacao`, `ultimoEvento`, `consentimentoVigente` (T7); `reservar`, `reduzirReserva`, `acertar`, `estornar`, `marcarIncerto`, `avisarSeChegou80Ia(…, 'paciente')`, `CotaIaError` (T5); `custoMaximoMicroUsd`, `custoMicroUsd`, `tokensDeBytes`, `TOKENS_INSTRUCOES_TETO`, `TOKENS_ENTRADA_TETO_CONVERSA`, `MAX_TOKENS_CONVERSA` (`precos.ts`); `ErroProvedor`, `ProvedorIA` (`provedor.ts`); `RepetirIaError` (`leitura-job.ts`); `avisarCredencialInvalida`, `avisarTetoGlobal` (`alertas.ts`); `recordAudit`; `lerPausa`.
@@ -3389,7 +3448,7 @@ it('relerTrechos: só o plano publicado com o MESMO id; id de outro paciente ou 
 });
 ```
 
-(`editarEPublicarDeNovo` = `editarPublicado` + `publicarPlano` pelos serviços de verdade, como em `src/modules/plano-alimentar/publicacao.test.ts`. O harness da T9, em `test/ia-nutri-conversa.ts` (só testes, ao lado de `test/ia-nutri.ts`), define e exporta: `pronto()` — `novoTenant` + `iaNutriPronta` + `pacienteComConta` + `liberarNoBanco` + `aceiteNoBanco` + um plano publicado com as duas refeições do caso acima ("Almoço 12:30" com "Arroz branco — 1 colher de servir" e "Lanche da tarde 16:00" com "Banana prata — 1 unidade" e a substituição "Maçã — 1 unidade média (130 g)"), as orientações e os dois atendimentos; devolve `{ T, p, ctxP }`; `depsApp: DepsIaNutri = { ia: IA_TESTE, appUrl: 'https://app.teste', pausa: SEM_PAUSA, db: app.db }`; `comoWorker(T, consulta)` = `withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(consulta), app.db)` devolvendo `.rows`; e `depsDoJob(provedor, extra?)` (as dependências do job, Step 4) e `finalOk(json)` (a resposta `final` do `provedorFake` com o JSON da conversa).)
+(`editarEPublicarDeNovo` = `editarPublicado` + `publicarPlano` pelos serviços de verdade, como em `src/modules/plano-alimentar/publicacao.test.ts`. O harness da T9, em `test/ia-nutri-conversa.ts` (só testes, ao lado de `test/ia-nutri.ts`), define e exporta: `pronto()` — `novoTenant` + `iaNutriPronta` + `pacienteComConta` + `liberarNoBanco` + `aceiteNoBanco` + um plano publicado com as duas refeições do caso acima ("Almoço 12:30" com "Arroz branco — 1 colher de servir" e "Lanche da tarde 16:00" com "Banana prata — 1 unidade" e a substituição "Maçã — 1 unidade média (130 g)"), as orientações e os dois atendimentos; devolve `{ T, p, ctxP }`; `outroPacientePronto(T)` — um segundo paciente **do mesmo tenant**, com `pacienteComConta` + `liberarNoBanco` + `aceiteNoBanco` + o mesmo plano publicado, devolvendo `{ p, ctxP }` (o caso da DP-9 no `job.test.ts`); `depsApp: DepsIaNutri = { ia: IA_TESTE, appUrl: 'https://app.teste', pausa: SEM_PAUSA, db: app.db }`; `comoWorker(T, consulta)` = `withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.execute(consulta), app.db)` devolvendo `.rows`; e `depsDoJob(provedor, extra?)` (as dependências do job, Step 4) e `finalOk(json)` (a resposta `final` do `provedorFake` com o JSON da conversa).)
 
 - [ ] **Step 3: Implementar `contexto.ts`.**
 
@@ -3635,11 +3694,56 @@ it('cota da IA Nutri esgotada → texto fixo indisponivel, pergunta falhou (cota
 });
 it('erro antes do envio: repete uma vez (RepetirIaError) e, na última tentativa, falha com estorno; incerto: sem reenvio', async () => { /* … */ });
 it('nova tentativa que encontra enviado_em → resultado incerto, reserva mantida, sem chamar o provedor (D4 do Plano 11)', async () => { /* … */ });
-it('paciente bloqueado pela nutricionista, consultório desligado ou pausa no meio (passo 1 e passo 6) → cancelada sem resposta', async () => { /* … */ });
+it('paciente bloqueado pela nutricionista, consultório desligado ou pausa no meio (passo 1 e passo 6), sem risco → cancelada sem resposta', async () => { /* … */ });
+it('/code-review do PR #37: risco percebido pelo modelo com o paciente BLOQUEADO no meio da chamada → na fila (risco modelo), texto fixo de transtorno e o aviso', async () => {
+  const { T, p, ctxP } = await pronto();
+  const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp); // o filtro não pega: só o modelo
+  const fake = provedorFake({ gerar: [finalOk({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] })] });
+  const prov = comEfeito(fake, () => bloquearPaciente(T.ctx, p.id, app.db));
+  expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('respondida');
+  const [q] = await comoWorker(T, sql`select status, risco, encaminhada_em is not null as fila from ia_nutri_mensagens where id = ${mensagemId}`);
+  expect(q).toEqual({ status: 'respondida', risco: 'modelo', fila: true });
+  expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: 'risco_transtorno', motivo_tecnico: null }]);
+  expect((await (await getBoss()).findJobs('ia-nutri-risco')).some((j) => (j.data as { tenantId: string }).tenantId === T.tenantId)).toBe(true);
+});
+it('/code-review do PR #37: risco percebido pelo modelo depois da REVOGAÇÃO → só o aviso mínimo na fila (D22 b), sem texto e sem mensagem `ia`', async () => {
+  const { T, ctxP } = await pronto();
+  const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp);
+  const fake = provedorFake({ gerar: [finalOk({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] })] });
+  const prov = comEfeito(fake, () => desativarNoApp(ctxP, depsApp));
+  expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('falhou');
+  // o que o seloDe da fila (T11) lê como `aviso_minimo`: risco, revogada, sem texto, encaminhada e não resolvida
+  const [q] = await comoWorker(T, sql`select status, texto, risco, revogada_em is not null as rev, encaminhada_em is not null as fila, resolvida_em from ia_nutri_mensagens where id = ${mensagemId}`);
+  expect(q).toEqual({ status: 'cancelada', texto: null, risco: 'modelo', rev: true, fila: true, resolvida_em: null });
+  expect(await respostaDaIa(T, mensagemId!)).toEqual([]);
+  const [uso] = await comoWorker(T, sql`select situacao from ia_uso where tarefa_id = ${mensagemId}`);
+  expect(uso.situacao).toBe('incerto');
+});
 it('máscara no que sai: nem o nome do paciente, nem o CPF da pergunta, nem o nome da nutricionista', async () => {
   // fake.chamadas.gerar[0].turnos[0].blocos[0].texto não contém o nome nem "123.456.789-09" nem "Debby"
 });
 it('3 perguntas processando no tenant → a 4ª relança (RepetirIaError); na última tentativa, "Não consegui responder agora…"', async () => { /* … */ });
+it('DP-9 (/code-review do PR #37): dois jobs AO MESMO TEMPO com 2 já processando no tenant → só um passa do passo 1', async () => {
+  const { T, ctxP } = await pronto();
+  const outro = await outroPacientePronto(T); // mesmo tenant, liberado, com consentimento e o mesmo plano
+  for (let i = 0; i < 2; i++) await mensagemNoBanco(app.db, T.tenantId, (await novoPaciente(app.db, T.ctx)).id, { status: 'processando' });
+  const a = (await perguntar(ctxP, 'quanto de arroz no almoço?', depsApp)).mensagemId!;
+  const b = (await perguntar(outro.ctxP, 'quanto de arroz no almoço?', depsApp)).mensagemId!;
+  // quem passa do passo 1 fica `processando`, parado dentro do `gerar` até o fim do teste
+  let soltar!: () => void;
+  const portao = new Promise<void>((r) => { soltar = r; });
+  const fake = provedorFake({ gerar: [finalOk({ categoria: 'plano', tipo_resposta: 'quantidade', fontes: ['#I1'] })] });
+  const prov = comEfeito(fake, () => portao);
+  const ja = processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: a }, depsDe(prov));
+  const jb = processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: b }, depsDe(prov));
+  // sem a trava antes da contagem, os dois passariam e ficariam presos no portão: a corrida nunca terminaria (o teste cai no tempo)
+  const primeiro = await Promise.race([ja.then(() => 'passou', (e: unknown) => e), jb.then(() => 'passou', (e: unknown) => e)]);
+  expect(primeiro).toBeInstanceOf(RepetirIaError);
+  soltar();
+  const fins = await Promise.allSettled([ja, jb]);
+  expect(fins.filter((f) => f.status === 'fulfilled').map((f) => (f as PromiseFulfilledResult<string>).value)).toEqual(['respondida']);
+  expect(fake.chamadas.gerar).toHaveLength(1);
+});
 ```
 
 `varredura.test.ts`: pergunta `processando` há 4 min sem `enviado_em` e com `ia_uso reservado` → `falhou`/`interrompida`, mensagem `ia` com `texto_fixo = 'falha'`, uso `estornado`; com `enviado_em` → uso `incerto`; pergunta `cancelada` (revogação) com `ia_uso reservado` e sem `enviado_em` → `estornado` (conciliação); pergunta `processando` de 1 min → intocada.
@@ -3663,7 +3767,7 @@ import { RepetirIaError } from '../leitura-job';
 import type { ModoIA, RetencaoIA } from '../modo';
 import { custoMaximoMicroUsd, custoMicroUsd, MAX_TOKENS_CONVERSA, TOKENS_ENTRADA_TETO_CONVERSA, TOKENS_INSTRUCOES_TETO, tokensDeBytes } from '../precos';
 import { ErroProvedor, type ProvedorIA, type RespostaGeracao } from '../provedor';
-import { LIMITE_RISCO_NA_FILA_DIA, PRAZO_CONVERSA_MS, type CategoriaConversa, type MotivoTecnico } from './constantes';
+import { LIMITE_RISCO_NA_FILA_DIA, PRAZO_CONVERSA_MS, RETENCAO_DIAS, type CategoriaConversa, type MotivoTecnico } from './constantes';
 import { montarContexto, relerTrechos, type ContextoDaConversa } from './contexto';
 import { consentimentoVigente, estadoIaNutriDoTenant, liberadoNaTransacao, ultimoEvento } from './estado';
 import { ESFORCO_CONVERSA, PROMPT_VERSAO_CONVERSA, SCHEMA_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
@@ -3721,7 +3825,8 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
     return o.status === 'respondida' ? 'respondida' : 'falhou';
   };
 
-  // (1) pega a pergunta, reconfere e reserva (paciente FOR UPDATE → tenant FOR NO KEY UPDATE pela reserva → mensagem)
+  // (1) pega a pergunta, reconfere e reserva (paciente FOR UPDATE → mensagem FOR UPDATE → tenant FOR NO KEY UPDATE, ANTES da
+  // contagem das 3 em andamento — a mesma trava que a reserva pega logo depois, na mesma transação)
   const passo1 = await withTenant(ctx, async (tx) => {
     const [m0] = await tx.select({ patientId: iaNutriMensagens.patientId }).from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId));
     if (!m0) return { fim: 'ignorada' as const };
@@ -3732,6 +3837,11 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
     if (m.enviadoEm) return { fim: 'incerto' as const }; // D4 do Plano 11: nunca reenviar
     if (!(await conferir(tx, m.createdAt))) return { fim: 'cancelada' as const };
     if (!deps.provedor || !deps.provedor.aceita(modelo, deps.geo)) return { fim: 'indisponivel' as const };
+    // DP-9 / RN-180 (/code-review do PR #37): a contagem SERIALIZADA pelo tenant — sem a trava antes, dois jobs de pacientes
+    // diferentes liam n = 2 ao mesmo tempo e o consultório ficava com 4 chamadas. Com ela, o segundo espera o primeiro gravar
+    // `processando` e, no READ COMMITTED, a contagem seguinte já o vê. A ordem não muda: a reserva já travava o tenant depois
+    // da mensagem.
+    await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, d.tenantId)).for('no key update');
     const [{ n }] = await tx.select({ n: count() }).from(iaNutriMensagens).where(and(eq(iaNutriMensagens.status, 'processando'), sql`${iaNutriMensagens.id} <> ${m.id}`));
     if (n >= MAX_EM_ANDAMENTO_POR_TENANT) return { fim: 'cheio' as const };
     if (m.status === 'na_fila') {
@@ -3829,9 +3939,22 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
     await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, pacienteId)).for('share');
     await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
     const [m] = await tx.select().from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId)).for('update');
-    const valido = m?.status === 'processando' && (await conferir(tx, m.createdAt));
-    if (!m || !valido) {
-      if (m?.status === 'processando') await tx.update(iaNutriMensagens).set({ status: 'cancelada', motivoTecnico: 'indisponivel', updatedAt: agora() }).where(eq(iaNutriMensagens.id, m.id));
+    if (!m) {
+      await marcarIncerto(tx, d.mensagemId, agora()); // o pedido saiu: a reserva fica como custo (RN-182)
+      return 'falhou';
+    }
+    const valido = m.status === 'processando' && (await conferir(tx, m.createdAt));
+    // /code-review do PR #37 (RN-174, D22): o sinal de risco do MODELO não se perde porque a RN-170 deixou de valer durante a
+    // chamada. (a) A pergunta ainda está `processando` (bloqueio, paciente arquivado, IA Nutri desativada no consultório,
+    // pausa, consentimento com texto novo): segue o caminho do risco abaixo — o texto fixo de transtorno ao paciente (ele
+    // continua lendo a conversa, Review Focus 5), a pergunta na fila com risco `modelo` e o aviso à nutricionista. (b) A
+    // revogação já esvaziou a pergunta (`cancelada`, `revogada_em`, sem texto): só o aviso mínimo da D22 b ("Aviso: houve
+    // sinal de risco" — risco `modelo`, sem texto, na fila, até o prazo da D8, como a retenção faz depois dos 30 dias), sem
+    // mensagem `ia` e sem trazer de volta nada do que o paciente mandou apagar.
+    const riscoNoMeio = !valido && res.risco && m.status === 'processando';
+    const riscoRevogado = !valido && res.risco && m.status === 'cancelada' && m.revogadaEm !== null && m.texto === null;
+    if (!valido && !riscoNoMeio && !riscoRevogado) {
+      if (m.status === 'processando') await tx.update(iaNutriMensagens).set({ status: 'cancelada', motivoTecnico: 'indisponivel', updatedAt: agora() }).where(eq(iaNutriMensagens.id, m.id));
       await marcarIncerto(tx, d.mensagemId, agora()); // o pedido saiu: a reserva fica como custo (RN-182)
       return 'falhou';
     }
@@ -3841,6 +3964,22 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       encaminhar = n < LIMITE_RISCO_NA_FILA_DIA;
       avisarRisco = encaminhar;
     }
+    const enviarAvisoDeRisco = async () => {
+      if (!avisarRisco) return;
+      const job = await (deps.boss ?? (await getBoss())).send('ia-nutri-risco', { tenantId: d.tenantId }, { db: fromDrizzle(tx, sql) });
+      if (!job) throw new Error('A fila recusou o aviso de risco da IA Nutri');
+    };
+    if (riscoRevogado) {
+      if (encaminhar) {
+        await tx.update(iaNutriMensagens).set({
+          risco: 'modelo', encaminhadaEm: sql`now()`,
+          expiraEm: sql`${iaNutriMensagens.createdAt} + make_interval(days => ${RETENCAO_DIAS})`, updatedAt: agora(),
+        }).where(eq(iaNutriMensagens.id, m.id));
+      }
+      await marcarIncerto(tx, d.mensagemId, agora()); // como na revogação sem risco (Review Focus 2)
+      await enviarAvisoDeRisco();
+      return 'falhou';
+    }
     // coalesce: nunca sobrescreve um encaminhamento que já exista (o gatilho só deixa encaminhar respondida/falhou, mas por segurança)
     await tx.update(iaNutriMensagens).set({ status: 'respondida', ...(res.risco ? { risco: 'modelo', encaminhadaEm: encaminhar ? sql`coalesce(${iaNutriMensagens.encaminhadaEm}, now())` : sql`${iaNutriMensagens.encaminhadaEm}` } : {}), updatedAt: agora() }).where(eq(iaNutriMensagens.id, m.id));
     await tx.insert(iaNutriMensagens).values({
@@ -3848,10 +3987,7 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       tipoResposta: res.tipo, fontes: res.fontes, motivoTecnico: res.motivo, respondeA: m.id, modelo, promptVersao: PROMPT_VERSAO_CONVERSA, expiraEm: m.expiraEm,
     });
     await acertar(tx, { tarefaId: m.id, custoMicroUsd: custo, uso: r.uso, recusaCategoria: r.tipo === 'recusa' ? r.categoria : null, requestId: r.requestId, agora: agora() });
-    if (avisarRisco) {
-      const job = await (deps.boss ?? (await getBoss())).send('ia-nutri-risco', { tenantId: d.tenantId }, { db: fromDrizzle(tx, sql) });
-      if (!job) throw new Error('A fila recusou o aviso de risco da IA Nutri');
-    }
+    await enviarAvisoDeRisco();
     return 'respondida';
   }, deps.db);
   logger.info({ mensagemId: d.mensagemId, tenantId: d.tenantId, finalidade: 'conversa_paciente', modelo, promptVersao: PROMPT_VERSAO_CONVERSA, tokensEntrada: r.uso.entrada, tokensSaida: r.uso.saida, custoMicroUsd: custo, duracaoMs: Date.now() - inicio, motivoTecnico: res.motivo, requestId: r.requestId }, 'pergunta da IA Nutri');
@@ -4148,7 +4284,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test: `src/modules/ia/nutri-paciente/duvidas.test.ts`; `src/app/painel/configuracoes/ia-secao.test.ts`; `src/app/painel/navegacao.test.ts`; `src/app/painel/acoes-de-paciente.test.ts` (as actions novas na guarda); `src/modules/ajuda/conteudo.test.ts` (o texto da IA de Configurações, linha ~118, e as rotas novas); `src/modules/notificacoes/mensagens.test.ts` (snapshot do push); `src/app/admin/actions.test.ts`; `src/app/painel/rotas-axe.test.ts` (compara `ROTAS_DO_PAINEL` com cada `page.tsx` de `src/app/painel`: quebra sem as três chaves novas — `/painel/duvidas`, `/painel/duvidas/[id]`, `/painel/pacientes/[id]/ia-nutri`)
 
 **Interfaces:**
-- Consumes: `ativarIaNutri`, `desativarIaNutri`, `liberarPaciente`, `bloquearPaciente`, `situacaoNaFicha`, `temParticipacao`, `desativarPelaNutri`, `IaNutriError`, `ConfirmarPesoOcultoError`, `estadoIaNutriDoTenant` (T7); `enviarANutri` (T8, para o preparo do axe); `situacaoDaCotaIa(…, 'paciente')`, `ajustarCotaIaNutri`, `metricasDeIaNutriPorTenant`, `pausarIaNutri`, `retomarIaNutri`, `lerPausa` (T5); `textoDoConsentimentoIaNutri`, `TEXTOS_FIXOS`, `MSG_IA_NUTRI`, `ROTULO_CATEGORIA` (T4, T6, T8); `IaAtivarForm` e `ativarIaAction` (aditivo, já existem); `auditRead`.
+- Consumes: `ativarIaNutri`, `desativarIaNutri`, `liberarPaciente`, `bloquearPaciente`, `situacaoNaFicha`, `temParticipacao`, `desativarPelaNutri`, `IaNutriError`, `ConfirmarPesoOcultoError`, `estadoIaNutriDoTenant` (T7); `enviarANutri` (T8, para o preparo do axe); `situacaoDaCotaIa(…, 'paciente')`, `ajustarCotaIaNutri`, `metricasDeIaPorEscopo`, `pausarIaNutri`, `retomarIaNutri`, `lerPausa` (T5); `textoDoConsentimentoIaNutri`, `TEXTOS_FIXOS`, `MSG_IA_NUTRI`, `ROTULO_CATEGORIA` (T4, T6, T8); `IaAtivarForm` e `ativarIaAction` (aditivo, já existem); `auditRead`.
 - Produces: `duvidas.ts`: `type ItemDaFila = { id: string; patientId: string; paciente: string; criadaEm: Date; selo: 'risco' | 'risco_revogado' | 'aviso_minimo' | null }`; `filaDeDuvidas(ctx, db?)`; `contadorDeDuvidas(ctx, db?)`; `type DuvidaAberta = { id: string; patientId: string; paciente: string; criadaEm: Date; texto: string | null; resposta: { texto: string | null; textoFixo: CodigoTextoFixo | null; categoria: string | null } | null; selo: ItemDaFila['selo']; resolvida: boolean }`; `abrirDuvida(ctx, id, db?)`; `marcarComoVista(ctx, id, deps: { db?: Db; agora?: Date })`; `type MensagemNaFicha = { id: string; criadaEm: Date; autor: Autor; texto: string | null; textoFixo: CodigoTextoFixo | null; categoria: string | null; risco: boolean; avaliacao: 'ajudou' | 'nao_ajudou' | null; duvida: 'aberta' | 'vista' | 'encerrada' | null }`; `conversaNaFicha(ctx, patientId, db?)`; `avisarDuvidaVista(tx, o: { tenantId; patientId }, agora)`; `ITEM_DUVIDAS`.
 
 - [ ] **Step 1: Testes que falham — o lado da equipe.** `duvidas.test.ts`:
@@ -4410,7 +4546,7 @@ export const CONFIRMAR_RETOMAR_IA_NUTRI =
   'Retomar a IA Nutri em todos os consultórios? Ela volta a responder aos pacientes liberados e que consentiram, nos consultórios que a ativaram. Retome só depois de resolver o motivo da pausa.';
 ```
 
-com as actions `pausarIaNutriAction`/`retomarIaNutriAction` em `src/app/admin/actions.ts` (a guarda de admin que as outras actions usam, na primeira linha; cada uma grava só a sua linha de `admin_actions`, por `pausarIaNutri`/`retomarIaNutri` — sem coluna nova, ★ DO-5); `actions.test.ts` confere que `CONFIRMAR_PAUSAR_IA_NUTRI` diz "emergência" e que `CONFIRMAR_RETOMAR_IA_NUTRI` fala do motivo da pausa e **não** cita condição do runbook (nem "CRN-3", "advogado", "RIPD", "12/11/2026" nem "provisorio") — a regra nova da ★ DO-5 presa no teste. `src/app/admin/contas/[id]/page.tsx` (DP-11): o item "Uso de IA no mês" passa a "Uso de IA da nutricionista no mês" (e "Tarefas de IA da nutricionista no mês"), com os números de `metricasDeIaPorTenant` já sem a IA Nutri; um item novo "IA Nutri (pacientes): {n} perguntas no mês · {p}% do limite de US$ {cota}" (de `metricasDeIaNutriPorTenant`) e o `IaNutriCotaForm` (molde de `ia-cota-form.tsx`, chama `ajustarCotaIaNutriAction`). `src/app/admin/sem-tabelas-tenant.test.ts`: as importações novas passam pela guarda.
+com as actions `pausarIaNutriAction`/`retomarIaNutriAction` em `src/app/admin/actions.ts` (a guarda de admin que as outras actions usam, na primeira linha; cada uma grava só a sua linha de `admin_actions`, por `pausarIaNutri`/`retomarIaNutri` — sem coluna nova, ★ DO-5); `actions.test.ts` confere que `CONFIRMAR_PAUSAR_IA_NUTRI` diz "emergência" e que `CONFIRMAR_RETOMAR_IA_NUTRI` fala do motivo da pausa e **não** cita condição do runbook (nem "CRN-3", "advogado", "RIPD", "12/11/2026" nem "provisorio") — a regra nova da ★ DO-5 presa no teste. `src/app/admin/contas/[id]/page.tsx` (DP-11): o item "Uso de IA no mês" passa a "Uso de IA da nutricionista no mês" (e "Tarefas de IA da nutricionista no mês"), com os números do escopo `nutri`; um item novo "IA Nutri (pacientes): {n} perguntas no mês · {p}% do limite de US$ {cota}" (escopo `paciente`) — os dois de **uma** chamada a `metricasDeIaPorEscopo()` no `Promise.all` da página, no lugar de `metricasDeIaPorTenant()` (DP-11) e o `IaNutriCotaForm` (molde de `ia-cota-form.tsx`, chama `ajustarCotaIaNutriAction`). `src/app/admin/sem-tabelas-tenant.test.ts`: as importações novas passam pela guarda.
 
 - [ ] **Step 7b: As rotas novas no axe do painel.** `e2e/painel-rotas.ts`: `IdsDoPainel` ganha `duvida: string`; `ROTAS_DO_PAINEL` ganha `'/painel/duvidas': () => '/painel/duvidas'`, `'/painel/duvidas/[id]': (i) => \`/painel/duvidas/${i.duvida}\`` e `'/painel/pacientes/[id]/ia-nutri': (i) => \`/painel/pacientes/${i.paciente}/ia-nutri\``. `prepararTelasComId` (`e2e/painel.ts`) cria a dúvida: com a **segunda** paciente da IA Nutri do seed (liberada e com consentimento, T13 — a primeira autoriza pela UI no E2E), entra no portal, escreve uma pergunta e toca "Enviar direto para minha nutricionista" (DP-16 — sem depender do worker), e lê o id da linha **da segunda paciente** em `/painel/duvidas` (a linha localizada pelo nome dela — `getByRole('listitem').filter({ hasText: segunda.nome })` ou o elemento da linha que a T11 usar — e o `href` de "Abrir dúvida" dentro dela; nunca "a primeira linha": a fila põe o risco no topo, e o `ia-nutri-paciente.spec.ts` deixa mensagens de risco da primeira paciente). Abrir essa dúvida no axe grava `aberta_pela_nutri_em` — não apaga nada (é a dúvida direta, sem risco). O banco do E2E não é limpo entre execuções: o seed (T13) apaga as mensagens das duas pacientes da IA Nutri e recria as 10 perguntas da segunda a cada execução, para o limite de 3 dúvidas abertas nunca ser atingido pelas execuções anteriores. O axe das três rotas roda em `e2e/acessibilidade-painel.spec.ts`, nos três modos (claro, escuro, igual ao aparelho), e não em `acessibilidade.spec.ts` (T13). O código entra aqui (o `rotas-axe.test.ts` do Vitest exige as chaves já nesta tarefa e o `tsc` exige o `duvida` preenchido); o E2E só **roda** na T13, depois da T12 (o botão do portal) e do seed.
 
@@ -4443,7 +4579,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 1: Testes que falham.**
   - `page.test.ts` (o molde de `src/app/p/(portal)/perfil/page.test.ts`, que renderiza a página do servidor com a sessão de teste): entrada `conversa` → o campo "Sua dúvida" com o contador por `aria-describedby`, a mensagem de abertura (`MSG_IA_NUTRI.avisoInicio`) antes da primeira mensagem de cada sessão, o rodapé `MSG_IA_NUTRI.rodapeResposta` em cada resposta, "Ajudou"/"Não ajudou", a linha `MSG_IA_NUTRI.emergencia` com `tel:192` e `tel:188`, e "Voltar para Plano"; **conversa vazia → `MSG_IA_NUTRI.avisoInicio` visível antes de perguntar e "Como a IA Nutri funciona" aberto (`<details open>`) com `comoFuncionaTexto`; última mensagem há mais de 30 min → o aviso de abertura no fim da lista, antes do campo; com mensagens → o `<details>` fechado**; **"Enviar para minha nutricionista" abaixo de uma resposta MONTADA (US-172) e abaixo de um texto fixo de recusa; nenhum abaixo da resposta de risco**; a pergunta com `duvida = 'aberta'` e `risco = false` → `MSG_IA_NUTRI.encaminhada` abaixo dela (persistente); a pergunta com `duvida = 'aberta'` e `risco = true` (a de risco vai à fila sozinha) → **sem** `MSG_IA_NUTRI.encaminhada` (só o texto fixo de risco); `duvida = 'vista'` → "Sua dúvida foi vista no consultório."; os dois botões do formulário ("Perguntar" e "Enviar direto para minha nutricionista", DP-16); `?sobre=<id de uma refeição do plano>` → o campo começa com "Sobre {nome da refeição}: "; `?sobre=texto qualquer` e `?sobre=<uuid de outra refeição>` → o texto não aparece no HTML e o campo começa vazio; entrada `decidir` → redireciona para `/p/plano/ia/autorizar?de=plano`; `sem_plano` → `MSG_IA_NUTRI.semPlano`; `indisponivel` e `nenhuma` com conversa guardada → `MSG_IA_NUTRI.naoDisponivel` e a conversa só para ler (sem o campo); os números 188 e 192 dos textos de risco viram links `tel:` com `min-h-11`.
   - `conversa` (componente ou funções puras): `encaminharNoItem` devolve o id da pergunta no item da resposta (montada ou texto fixo) e na própria pergunta que falhou sem resposta; depois de `perguntarAction` com `ok` e com `risco`, o campo fica vazio e o foco está na região `role="status"`; a região de status passa a "A resposta chegou." quando a situação vai de `processando` a `respondida`; com `useOnline() === false`, "Sem conexão. Pergunte quando voltar." está na mesma região (não num `<p>` à parte).
-  - `actions.test.ts`: `perguntarAction` devolve o texto certo para cada código (`limite_dia` → `MSG_IA_NUTRI.limiteDia`; `limite_mes` → `limiteMes`; `em_andamento` → `emAndamento`; `indisponivel` → `naoDisponivel`; `sem_plano` → `semPlano`), `{ limpar: true }` no `ok` e no `risco`, o `textoFixo` no `risco` sem mensagem gravada, e nada da pergunta volta no retorno; `enviarANutriAction` → `encaminhada` (com o limite do dia atingido), `limiteDuvidas` ou `naoDisponivel`; `encaminharAction` → `encaminhada` ou `limiteDuvidas`; `avaliarAction` → `avaliado`; `aceitarIaNutriAction` com o texto de outro destino → redireciona para `…/autorizar?de=plano&mudou=1`; **com o paciente bloqueado, o consultório desligado ou a pausa (`naoDisponivel`) → `/p/plano?ia-nutri=indisponivel`, e `plano/page.test.ts` mostra `MSG_IA_NUTRI.naoDisponivel` com `role="status"` com esse parâmetro (e nada com outro valor)**; `desativarIaNutriAction` → `{ ok: MSG_IA_NUTRI.desativada }`; todas com `requirePaciente` na primeira linha.
+  - `actions.test.ts`: `perguntarAction` devolve o texto certo para cada código (`limite_dia` → `MSG_IA_NUTRI.limiteDia`; `limite_mes` → `limiteMes`; `em_andamento` → `emAndamento`; `indisponivel` → `naoDisponivel`; `sem_plano` → `semPlano`), `{ limpar: true }` no `ok` e no `risco`, o `textoFixo` no `risco` sem mensagem gravada, e nada da pergunta volta no retorno; `enviarANutriAction` → `encaminhada` (com o limite do dia atingido), `limiteDuvidas` ou `naoDisponivel`; `encaminharAction` → `encaminhada` ou `limiteDuvidas`, e com `perguntaId = 'abc'` → `{ aviso: MSG_IA_NUTRI.naoDisponivel }` (sem erro 500); `avaliarAction` → `avaliado`, e com `valor = 'otimo'` ou `mensagemId = 'abc'` → `{ aviso: MSG_IA_NUTRI.naoDisponivel }` (sem erro 500, /code-review do PR #37); `aceitarIaNutriAction` com o texto de outro destino → redireciona para `…/autorizar?de=plano&mudou=1`; **com o paciente bloqueado, o consultório desligado ou a pausa (`naoDisponivel`) → `/p/plano?ia-nutri=indisponivel`, e `plano/page.test.ts` mostra `MSG_IA_NUTRI.naoDisponivel` com `role="status"` com esse parâmetro (e nada com outro valor)**; `desativarIaNutriAction` → `{ ok: MSG_IA_NUTRI.desativada }`; todas com `requirePaciente` na primeira linha. **/code-review do PR #37 (auditRead a cada releitura):** com `vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))`, `perguntarAction` e `enviarANutriAction` chamam `revalidatePath('/p/plano/ia')` uma vez e `avaliarAction`/`encaminharAction` **nenhuma** (e devolvem `feito: true` quando gravam); e uma guarda de fonte (molde de `src/lib/consulta-automatica.test.ts`, `readFileSync`): `conversa.tsx` tem **exatamente um** `router.refresh()` — o da consulta automática, quando a resposta chega. Com isso, uma pergunta respondida e avaliada grava duas leituras da conversa (o envio e a chegada da resposta), não seis.
   - `perfil/page.test.ts`: o bloco "{NOME}" ao lado do bloco "Uso de inteligência artificial (IA)"; com o paciente bloqueado pela nutricionista e consentimento vigente → o bloco com "Desativar a {NOME} e apagar as conversas" e "Ler as conversas" (Review Focus 5); **depois de desativar, com o paciente bloqueado → o bloco continua com "Você desativou em {data}." e a região de status com "IA Nutri desativada."**; sem nada → sem bloco; os dois botões (retirar a autorização da 14A e desativar a IA Nutri) são diferentes e os dois têm `min-h-11` e borda.
   - `mural-regras.test.ts` e o teste do guia: o rodapé e a frase não dizem mais "Este app não é um canal de conversa" sem ressalva; a frase de privacidade fala em dois pedidos separados; a `versao` do `GUIA_PORTAL` **é 2** (★ DO-6 ajustada à DO-1 = não); `avisoDoGuia` (com o `GUIA_PORTAL` real) devolve `AVISO_PORTAL.boasVindas` para quem nunca usou, `AVISO_PORTAL.pergunta` ("O app mudou…") só para quem já usava e nunca viu o guia, e `AVISO_PORTAL.atualizado` para quem já viu a versão 1 — nunca "O app mudou" de novo para quem já viu o guia.
 
@@ -4565,6 +4701,9 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
   const [texto, setTexto] = useState(textoInicial ?? '');
   const [aviso, setAviso] = useState('');
   const [textoFixoSemMensagem, setTextoFixoSemMensagem] = useState<CodigoTextoFixo | null>(null);
+  // /code-review do PR #37: avaliar e encaminhar mudam o item AQUI, sem reler a conversa (cada releitura é um auditRead)
+  const [avaliadas, setAvaliadas] = useState<ReadonlySet<string>>(new Set());
+  const [encaminhadas, setEncaminhadas] = useState<ReadonlySet<string>>(new Set());
   const [enviando, iniciar] = useTransition();
   const status = useRef<HTMLParagraphElement>(null);
   const ultimaRef = useRef<HTMLLIElement>(null);
@@ -4599,13 +4738,21 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
   // a resposta nova aparece no fim da lista: rolar até ela quando chega (sem tirar o foco da região de status)
   useEffect(() => { if (aviso === MSG_IA_NUTRI.respostaChegou) ultimaRef.current?.scrollIntoView({ block: 'nearest' }); }, [aviso]);
 
-  /** Depois de qualquer envio: o texto no status, o foco nele, a lista do servidor de novo. */
-  const concluir = (r: RetornoConversa) => {
+  /**
+   * Depois de qualquer envio: o texto no status e o foco nele. SEM `router.refresh()` (/code-review do PR #37): perguntar e
+   * enviar direto já chamam `revalidatePath('/p/plano/ia')`, que numa Server Action atualiza a tela na mesma ida (Next 16,
+   * `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/revalidatePath.md`, "Updates the UI immediately") — o
+   * refresh a mais relia a conversa outra vez, e cada leitura grava um "Visualizou — IA Nutri" (auditRead de
+   * conversaDoPaciente). Avaliar e encaminhar não releem nada: `marcar` muda o item pelo estado local. O único
+   * `router.refresh()` do arquivo é o da consulta automática, quando a resposta chega.
+   */
+  const concluir = (r: RetornoConversa, marcar?: { avaliada?: string; encaminhada?: string }) => {
     if (r.limpar) setTexto('');
     setTextoFixoSemMensagem(r.textoFixo ?? null);
     setAviso(r.aviso ?? (r.limpar ? MSG_IA_NUTRI.pensando : ''));
+    if (r.feito && marcar?.avaliada) setAvaliadas((s) => new Set(s).add(marcar.avaliada!));
+    if (r.feito && marcar?.encaminhada) setEncaminhadas((s) => new Set(s).add(marcar.encaminhada!));
     status.current?.focus();
-    router.refresh();
   };
   const enviar = (acao: typeof perguntarAction | typeof enviarANutriAction) => {
     const fd = new FormData();
@@ -4628,14 +4775,14 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
               {m.textoFixo && <TextoFixo codigo={m.textoFixo} />}
               {!m.texto && !m.textoFixo && <p className="text-suave">{MSG_IA_NUTRI.apagada}</p>}
               {m.autor === 'ia' && (m.texto || m.textoFixo) && <p className="text-sm text-suave">{MSG_IA_NUTRI.rodapeResposta}</p>}
-              {m.autor === 'ia' && (m.texto || m.textoFixo) && (m.avaliacao
+              {m.autor === 'ia' && (m.texto || m.textoFixo) && (m.avaliacao || avaliadas.has(m.id)
                 ? <p className="text-sm">{MSG_IA_NUTRI.avaliado}</p>
-                : <Avaliar tenantId={tenantId} mensagemId={m.id} aoConcluir={concluir} />)}
+                : <Avaliar tenantId={tenantId} mensagemId={m.id} aoConcluir={(r) => concluir(r, { avaliada: m.id })} />)}
               {/* US-174: o estado da dúvida fica na conversa (também depois de recarregar) */}
               {/* a pergunta com risco já está na fila e o texto fixo de risco fala do consultório: sem o "Pronto!…" sob ela (D11) */}
-              {m.autor === 'paciente' && m.duvida === 'aberta' && !m.risco && <p className="rounded-xl border border-borda p-3 text-sm">{MSG_IA_NUTRI.encaminhada}</p>}
+              {m.autor === 'paciente' && (m.duvida === 'aberta' || (m.duvida === null && encaminhadas.has(m.id))) && !m.risco && <p className="rounded-xl border border-borda p-3 text-sm">{MSG_IA_NUTRI.encaminhada}</p>}
               {m.autor === 'paciente' && m.duvida === 'vista' && <p className="rounded-xl border border-borda p-3 text-sm">{MSG_IA_NUTRI.duvidaVista}</p>}
-              {encaminharId && <Encaminhar tenantId={tenantId} perguntaId={encaminharId} aoConcluir={concluir} />}
+              {encaminharId && !encaminhadas.has(encaminharId) && <Encaminhar tenantId={tenantId} perguntaId={encaminharId} aoConcluir={(r) => concluir(r, { encaminhada: encaminharId })} />}
             </li>
           );
         })}
@@ -4662,7 +4809,7 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
 }
 ```
 
-com os componentes pequenos `Avaliar` (dois botões `min-h-11` "Ajudou"/"Não ajudou" que chamam `avaliarAction(tenantId, mensagemId, valor)` numa transição e entregam o retorno a `aoConcluir`) e `Encaminhar` (um botão `min-h-11` `MSG_IA_NUTRI.encaminhar` → `encaminharAction(tenantId, perguntaId)` → `aoConcluir`): o retorno vai para a região de status do `Conversa`, que continua montada quando o botão some (o `router.refresh()` traz `avaliacao`/`duvida` novos), e o foco vai para ela. `criadaEm` chega como `Date` pela serialização do RSC — se chegar como string, converter com `new Date(...)`. O `COM_ENCAMINHAR` (T6) não decide mais a tela: fica como a lista dos textos fixos que perguntam "Quer enviar…?" (o `textos.test.ts` confere que todos eles estão nela).
+com os componentes pequenos `Avaliar` (dois botões `min-h-11` "Ajudou"/"Não ajudou" que chamam `avaliarAction(tenantId, mensagemId, valor)` numa transição e entregam o retorno a `aoConcluir`) e `Encaminhar` (um botão `min-h-11` `MSG_IA_NUTRI.encaminhar` → `encaminharAction(tenantId, perguntaId)` → `aoConcluir`): o retorno vai para a região de status do `Conversa`, que continua montada quando o botão some (o botão some pelo estado local `avaliadas`/`encaminhadas` quando o retorno traz `feito: true` — sem reler a conversa; a próxima leitura do servidor já traz `avaliacao`/`duvida`), e o foco vai para ela. `criadaEm` chega como `Date` pela serialização do RSC — se chegar como string, converter com `new Date(...)`. O `COM_ENCAMINHAR` (T6) não decide mais a tela: fica como a lista dos textos fixos que perguntam "Quer enviar…?" (o `textos.test.ts` confere que todos eles estão nela).
 
 `actions.ts` do portal:
 
@@ -4681,8 +4828,11 @@ import { MSG_IA_NUTRI, type CodigoPergunta } from '@/modules/ia/nutri-paciente/c
 import { IaNutriError } from '@/modules/ia/nutri-paciente/participacao';
 import type { CodigoTextoFixo } from '@/modules/ia/nutri-paciente/textos';
 
-/** O que a conversa recebe de volta: nunca o texto da pergunta. `limpar` = a pergunta foi gravada (o campo esvazia). */
-export type RetornoConversa = { aviso?: string; limpar?: boolean; textoFixo?: CodigoTextoFixo | null };
+/**
+ * O que a conversa recebe de volta: nunca o texto da pergunta. `limpar` = a pergunta foi gravada (o campo esvazia); `feito`
+ * = a avaliação ou o encaminhamento foi gravado (a tela muda o item sem reler a conversa, /code-review do PR #37).
+ */
+export type RetornoConversa = { aviso?: string; limpar?: boolean; textoFixo?: CodigoTextoFixo | null; feito?: boolean };
 const MSG_DO_CODIGO: Partial<Record<CodigoPergunta, string>> = {
   limite_dia: MSG_IA_NUTRI.limiteDia, limite_mes: MSG_IA_NUTRI.limiteMes, em_andamento: MSG_IA_NUTRI.emAndamento,
   indisponivel: MSG_IA_NUTRI.naoDisponivel, sem_plano: MSG_IA_NUTRI.semPlano,
@@ -4731,7 +4881,7 @@ export async function enviarANutriAction(tenantId: string, fd: FormData): Promis
 }
 ```
 
-(`clientIp` é o helper que `perfil/actions.ts` usa. `avaliarAction(tenantId, mensagemId, valor): Promise<RetornoConversa>` e `encaminharAction(tenantId, perguntaId): Promise<RetornoConversa>` no mesmo molde: `requirePaciente` na primeira linha, conferência do tenant, `revalidatePath('/p/plano/ia')`, e o retorno `{ aviso: MSG_IA_NUTRI.avaliado }` / `{ aviso: MSG_IA_NUTRI.encaminhada }` ou `{ aviso: MSG_IA_NUTRI.limiteDuvidas }`.) `aceitarIaNutriAction(tenantId, exibido, de)`: `aceitarNoApp` → `redirect('/p/plano/ia')`; `IaNutriError` com `textoMudouNoToque` → `redirect(\`/p/plano/ia/autorizar?de=${de}&mudou=1\`)`; **outra `IaNutriError` → `redirect('/p/plano?ia-nutri=indisponivel')`** (parâmetro de lista fechada; nunca redirect silencioso — recorrência da revisão final da 14A): `plano/page.tsx` lê `ia-nutri` (só o valor `indisponivel`) e mostra `MSG_IA_NUTRI.naoDisponivel` no topo, num `<p role="status" tabIndex={-1}>` que recebe o foco ao abrir (componente cliente pequeno, molde do aviso de retorno de Eu). Os `redirect` ficam fora do `try` (ou relançam o erro de redirect), como nas outras actions do portal.
+(`clientIp` é o helper que `perfil/actions.ts` usa. `avaliarAction(tenantId, mensagemId, valor): Promise<RetornoConversa>` e `encaminharAction(tenantId, perguntaId): Promise<RetornoConversa>` no mesmo molde: `requirePaciente` na primeira linha, conferência do tenant, **sem `revalidatePath`** (/code-review do PR #37: reler a página relê a conversa, e cada leitura grava um `auditRead`; a tela muda o item pelo estado local), e o retorno `{ feito: true, aviso: MSG_IA_NUTRI.avaliado }` / `{ feito: true, aviso: MSG_IA_NUTRI.encaminhada }`, `{ aviso: MSG_IA_NUTRI.limiteDuvidas }`, e `false`/`nao_pode` → `{ aviso: MSG_IA_NUTRI.naoDisponivel }`.) `aceitarIaNutriAction(tenantId, exibido, de)`: `aceitarNoApp` → `redirect('/p/plano/ia')`; `IaNutriError` com `textoMudouNoToque` → `redirect(\`/p/plano/ia/autorizar?de=${de}&mudou=1\`)`; **outra `IaNutriError` → `redirect('/p/plano?ia-nutri=indisponivel')`** (parâmetro de lista fechada; nunca redirect silencioso — recorrência da revisão final da 14A): `plano/page.tsx` lê `ia-nutri` (só o valor `indisponivel`) e mostra `MSG_IA_NUTRI.naoDisponivel` no topo, num `<p role="status" tabIndex={-1}>` que recebe o foco ao abrir (componente cliente pequeno, molde do aviso de retorno de Eu). Os `redirect` ficam fora do `try` (ou relançam o erro de redirect), como nas outras actions do portal.
 
 - [ ] **Step 4: A tela de decisão.** `autorizar/page.tsx` (molde de `src/app/p/(portal)/perfil/ia/page.tsx`): `requirePaciente('/p/plano/ia/autorizar')`; `de` só da lista fechada `{ plano: '/p/plano', refeicao: '/p/plano', hoje: '/p/inicio', eu: '/p/perfil#eu-ia-nutri' }` (outro valor → `plano`), nunca URL livre; a entrada tem de ser `decidir` ou `texto_mudou` (senão volta para a origem); `mudou=1` ou entrada `texto_mudou` → `<p role="status">` com `MSG_IA_NUTRI.textoMudou` (ou `textoMudouNoToque` quando veio do toque); `CabecalhoDetalhe` com o título do texto ("Antes de usar a {NOME}") e "Voltar para Plano"; `TextoLegalView` com `textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...responsavelDoTenant(tenant), destino })`; o formulário `aceitarIaNutriAction.bind(null, tenant.id, textoExibidoIaNutri(destino), de)` com o botão `MSG_IA_NUTRI.autorizo` e o link "Agora não" para a origem. Sem caixa de seleção (padrão da 14A).
 
@@ -4921,6 +5071,7 @@ Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da 
 - **Revisão do plano (14/10/2026, workflow):** os achados confirmados das lentes cobertura da spec, banco/RLS, normas, interface, executabilidade e segurança da IA foram aplicados nas tarefas (DP-16 a DP-18, desvios 7 a 9, ★ DO-5 e DO-6); os Minor que não couberam estão em P15-B6 a P15-B9.
 - **Decisões do dono (14/10/2026, D37 do caderno):** ★ DO-1 = não (a IA Nutri liga pela nutricionista; a linha de `ia_nutri_pausa` nasce não pausada e a pausa é só de emergência — T1, T2, T5, T11, runbook); ★ DO-2 trocada (consentimento 1.0 final e protocolo final, sem trava de produção — DP-2, DP-18, T4, T6, T7, T11; `textosEmRevisao` e `PROTOCOLO_RISCO_PROVISORIO` saíram); ★ DO-3 a DO-5 como recomendado ("Retomar" é a volta da pausa de emergência; a confirmação não lista condições — T11); ★ DO-6 ajustada (guia do portal 1 → 2 e `boas-vindas` 2 → 3 neste PR — T11, T12). Também corrigido: `lerPausa` lia `pausada_em` nulo como pausada (`?? new Date(0)`), o que, com a linha não pausada, desligaria a IA Nutri em todo lugar (T5).
 - **Re-revisão do plano (14/10/2026):** 12 achados (1 Important, 11 Minor), todos confirmados no plano e no código. Important: o histórico da conversa leva do paciente só a pergunta que passou pelo portão (`enviado_em`) e sem risco — a dúvida enviada direto à nutricionista (DP-16) e a pergunta que não saiu ficam de fora (T9, `contexto.test.ts`; T13, `logs.test.ts`). Minor resolvidos nas tarefas: a recusa da DP-17 é de RLS na sessão de paciente e o CHECK provado pelo dono (T1); `responde_a` a nulo só dentro da ação referencial (`pg_trigger_depth()`, T1); o limite da máscara inteiro (endereço, documentos, dados de terceiros; T4); `ProgressoGuia.v` (T12); `novoPaciente(app.db, T.ctx)` e `{ T, p, q }` (T1); a cerca de código da T5; `corpoDaConversa` única para o job e o avaliador (T9, T13); o seed do E2E zera a IA Nutri das duas pacientes e o axe localiza a dúvida pelo nome (T11, T13); sem "Pronto!…" sob a pergunta de risco (`MensagemDoPaciente.risco`, T8, T12; o "vista" sob o risco vai à psicóloga — hoje no passo 5 do runbook, como pendência); a versão do guia `boas-vindas` ficava em 2 até um PR curto (★ DO-6 — revista pelo dono em 14/10/2026: sobe para 3 neste PR). Para o backlog: o consultório suspenso na DP-17 (P15-B10).
+- **/code-review high do PR #37 (14–15/10/2026):** 10 achados, conferidos no plano e no código. Resolvidos, cada um com o teste na tarefa dona: (2) o risco percebido pelo modelo não se perde quando a RN-170 cai durante a chamada — pergunta ainda `processando` segue o caminho do risco (texto fixo, fila, aviso); pergunta esvaziada pela revogação vira o aviso mínimo da D22 b (T9, passo 6 e dois casos em `job.test.ts`); (3) a pergunta presa marcada por `app_ia_nutri_perguntar` ganha a resposta de texto fixo `falha`, como na varredura (T2); (4) `ativarIaNutri` confere o aditivo 1.2 à parte do estado, que devolve `pausada` antes (T7); (5) `podeDesativar` só com o aceite vigente — a pergunta de risco guardada pela D22 não traz o botão de volta (T7); (6) o tenant travado antes da contagem das 3 em andamento (T9, DP-9, caso de dois jobs simultâneos); (7) as métricas da IA saem de **uma** chamada à `admin_metricas_ia_nutri()`, com os dois escopos no mesmo `SELECT` — sem subtrair a 0099 (T2, T5, T11, DP-11, desvio 7); (8) a conversa do portal relê a página só no envio e na chegada da resposta (sem `router.refresh()` depois da action com `revalidatePath`; avaliar e encaminhar sem releitura), duas leituras auditadas por pergunta em vez de seis (T12); (9) `avaliar` e `encaminhar` validam o id e o valor vindos do cliente (T8); (10) "dores"/"dói" na condição e plural, número colado e hífen nos termos sensíveis ("vitamina D3", "ômega-3", "suplementos") (T6). O item 1 (descrição do PR) já estava na Checagem final, que exige o destaque "a IA Nutri vai ao ar com o merge…" no PR do código.
 
 ## Pontos menores (backlog do Plano 15)
 
