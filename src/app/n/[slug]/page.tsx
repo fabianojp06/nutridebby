@@ -7,7 +7,8 @@ import { MSG_AGENDA, MSG_PUBLICO } from '@/modules/agenda/constantes';
 import { somarDias } from '@/modules/agenda/fuso';
 import { formatarData } from '@/modules/pacientes/datas';
 import { telaDoPortal } from '@/modules/portal/link-portal';
-import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_PARAGRAFOS } from '@/modules/pacientes/termo-paciente-textos';
 import { AgendarForm } from './agendar-form';
 
 export const dynamic = 'force-dynamic';

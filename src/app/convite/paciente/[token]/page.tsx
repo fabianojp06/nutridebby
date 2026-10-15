@@ -6,7 +6,8 @@ import { getAuth } from '@/lib/auth';
 import { SUSPENDED_PATH } from '@/lib/session-rules';
 import { normalizeEmail } from '@/lib/text';
 import { inspecionarConvitePaciente, MSG_CONVITE_PACIENTE } from '@/modules/pacientes/convite-paciente';
-import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_PARAGRAFOS } from '@/modules/pacientes/termo-paciente-textos';
 import { aceitarConvitePacienteAction, vincularContaAction } from './actions';
 import { AceiteForm } from './form';
 

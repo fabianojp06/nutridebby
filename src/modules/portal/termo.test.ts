@@ -5,7 +5,7 @@ import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { consents } from '@/db/schema';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
-import { aceitarTermo, termoAceito } from './termo';
+import { aceitarTermo, aceitouVersaoAnterior, termoAceito } from './termo';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -40,5 +40,18 @@ describe('termo do paciente por consultório', () => {
       ['termo-paciente-1.0', '203.0.113.7'],
     ]);
     expect(linhas.find((l) => l.termoVersao === 'termo-paciente-0.1-provisorio')?.aceitoEm.toISOString()).toBe(antigo.toISOString());
+  });
+
+  it('P08-06: "o termo mudou" só para quem aceitou outra versão do termo neste consultório (nem primeiro acesso, nem DPA, nem outro consultório)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const { userId } = await pacienteComConta(app.db, A, { semTermo: true });
+    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
+    await app.db.insert(consents).values({ userId, tenantId: A.tenantId, termoVersao: 'ia-aditivo-1.2', ip: null });
+    await aceitarTermo({ userId, tenantId: A.tenantId, ip: null }, app.db);
+    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
+    await app.db.insert(consents).values({ userId, tenantId: B.tenantId, termoVersao: 'termo-paciente-0.1-provisorio', ip: null });
+    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
+    expect(await aceitouVersaoAnterior(userId, B.tenantId, app.db)).toBe(true);
   });
 });

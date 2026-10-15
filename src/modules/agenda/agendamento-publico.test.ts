@@ -125,7 +125,7 @@ describe('página pública (US-032, RN-16)', () => {
     const [c] = await consultasDe(T, p.id);
     expect(c).toMatchObject({ origem: 'paciente', status: 'agendada', inicio: em('2026-10-16', '09:00'), modalidade: 'presencial' });
     const [aceite] = await app.db.select().from(consents).where(eq(consents.patientId, p.id));
-    expect(aceite).toMatchObject({ userId: null, tenantId: T.tenantId, termoVersao: TERMO_PACIENTE });
+    expect(aceite).toMatchObject({ userId: null, tenantId: T.tenantId, termoVersao: 'termo-paciente-1.0' });
     const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
     expect((await emailsNaFila('aviso_agenda', nutri.email)).map((m) => m.evento)).toEqual(['novo_paciente_publico']);
     // o pedido fica concluído e apontando para a consulta; repetir não marca outra

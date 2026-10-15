@@ -1,15 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { aditivoIa, textoCorrido } from '@/modules/ia/textos-legais';
 import {
   TERMO_PACIENTE,
-  TERMO_PACIENTE_PARAGRAFOS,
+  TERMO_PACIENTE_MUDOU,
   TERMO_PACIENTE_ROTULO,
-  TERMO_PACIENTE_TEXTOS,
   TERMO_PACIENTE_TITULO,
   TERMO_PACIENTE_VERSAO,
   TERMO_PACIENTE_VERSAO_DATA,
 } from '@/modules/pacientes/termo-paciente';
-import { DPA_PARAGRAFOS, DPA_ROTULO, DPA_TERMO, DPA_TEXTOS, DPA_TITULO, DPA_VERSAO, DPA_VERSAO_DATA } from './dpa';
+import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TEXTOS } from '@/modules/pacientes/termo-paciente-textos';
+import { DPA_MUDOU, DPA_PARAGRAFOS, DPA_ROTULO, DPA_TERMO, DPA_TEXTOS, DPA_TITULO, DPA_VERSAO, DPA_VERSAO_DATA } from './dpa';
+import { EMAIL_PRIVACIDADE } from './privacidade';
 
 /**
  * P08-06 (15/10/2026): o Termo de Uso e Privacidade do paciente e o DPA da nutricionista saem da 0.1 provisória para a
@@ -37,10 +40,21 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
     expect(texto).not.toMatch(/sentry|R2\b/i);
   });
 
-  it('não afirma o país do servidor nem o da cópia de segurança (região a confirmar): diz que podem ficar em outro país', () => {
+  it('servidor no Brasil e cópia de segurança fora, criptografada (Hostinger em Campinas/SP, conferido em 15/10/2026)', () => {
     const texto = TERMO_PACIENTE_PARAGRAFOS.join(' ');
-    expect(texto).toContain('O servidor e a cópia de segurança podem ficar em outro país.');
-    expect(texto).not.toMatch(/servidor[^.]*(no Brasil|em São Paulo|na Europa|nos Estados Unidos)/i);
+    expect(texto).toContain('Hostinger (servidor, no Brasil)');
+    expect(texto).toContain('O servidor fica no Brasil. A cópia de segurança fica fora do Brasil, criptografada antes de sair, e a Backblaze não tem a chave para abri-la.');
+    expect(texto).not.toMatch(/podem ficar em outro país/);
+  });
+
+  it('cita o canal de privacidade da operadora no parágrafo dela', () => {
+    expect(EMAIL_PRIVACIDADE).toBe('privacidade@wsscloud.tech');
+    expect(TERMO_PACIENTE_PARAGRAFOS[2]).toContain(OPERADORA);
+    expect(TERMO_PACIENTE_PARAGRAFOS[2]).toContain('Para falar com a operadora sobre privacidade, escreva para privacidade@wsscloud.tech.');
+  });
+
+  it('aviso de /p/termo para quem aceitou uma versão anterior', () => {
+    expect(TERMO_PACIENTE_MUDOU).toBe('O termo mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o app.');
   });
 
   it('o mapa guarda a 0.1 provisória (o que quem aceitou leu) e a 1.0 em vigor é a mostrada', () => {
@@ -59,7 +73,8 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     expect(DPA_TERMO).toBe('dpa-1.0');
     expect(DPA_VERSAO_DATA).toBe('2026-10-15');
     for (const t of [DPA_TITULO, DPA_ROTULO, ...DPA_PARAGRAFOS]) expect(t).not.toMatch(/provis/i);
-    expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA) (versão 1.0)');
+    expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA), versão 1.0');
+    expect(DPA_MUDOU).toBe('O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel.');
     expect(DPA_PARAGRAFOS).toHaveLength(16);
     expect(DPA_PARAGRAFOS.at(-1)).toBe('Versão 1.0, de 15/10/2026.');
     expect(DPA_PARAGRAFOS.join(' ')).not.toContain('{data}');
@@ -74,9 +89,22 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     for (const s of ['Hostinger', 'Resend', 'Cloudflare', 'Backblaze', 'Google, Apple, Mozilla e Microsoft', 'YouTube', 'Vimeo', 'aditivo de IA']) expect(c8).toContain(s);
     const texto = DPA_PARAGRAFOS.join(' ');
     expect(texto).not.toMatch(/sentry|R2\b|Anthropic/i);
-    // região do servidor e do B2 a confirmar: o texto não afirma o país, diz que podem ficar fora do Brasil
-    expect(c8).toContain('Hostinger (servidor, banco de dados e arquivos; o servidor pode ficar fora do Brasil)');
-    expect(c8).toContain('a cópia pode ficar fora do Brasil');
+    // servidor no Brasil (Campinas/SP, conferido em 15/10/2026); a Backblaze não tem região no Brasil
+    expect(c8).toContain('Hostinger (servidor, banco de dados e arquivos, no Brasil)');
+    expect(c8).toContain('guarda da cópia de segurança, fora do Brasil, criptografada antes do envio; a Backblaze não tem a chave para abri-la');
+    expect(DPA_PARAGRAFOS[6]).toContain('O servidor é contratado da Hostinger e fica no Brasil.');
+    // canal de privacidade: pedidos de titular (cláusula 5) e avisos à OPERADORA (cláusula 15)
+    expect(DPA_PARAGRAFOS[4]).toMatch(/^5\. Direitos dos titulares\./);
+    expect(DPA_PARAGRAFOS[4]).toContain('inclusive pelo e-mail privacidade@wsscloud.tech');
+    expect(DPA_PARAGRAFOS[14]).toMatch(/^15\. Outros textos e mudanças\./);
+    expect(DPA_PARAGRAFOS[14]).toContain('os da CONTROLADORA à OPERADORA vão a privacidade@wsscloud.tech');
+  });
+
+  it('o aditivo de IA remete à lista de suboperadores do DPA, que remete o fornecedor de IA ao aditivo', () => {
+    const c3 = textoCorrido(aditivoIa('anthropic-us').paragrafos[2]);
+    expect(c3).toMatch(/^3\. Fornecedor e país\./);
+    expect(c3).toContain('além das listadas no DPA');
+    expect(DPA_PARAGRAFOS[7]).toContain('O fornecedor de inteligência artificial, quando a CONTROLADORA ativa a IA, está descrito no aditivo de IA.');
     expect(DPA_PARAGRAFOS[9]).toContain('o país onde cada suboperador trata os dados');
   });
 
@@ -102,5 +130,20 @@ describe('telas de aceite mostram o texto inteiro (P08-06)', () => {
     const linha = readFileSync(arquivo, 'utf8').split('\n').find((l) => l.includes('<section') && l.includes(marca));
     expect(linha).toBeDefined();
     expect(linha).not.toMatch(/max-h-|overflow-y-auto|tabIndex/);
+  });
+});
+
+describe('textos fora do bundle do navegador (P08-06)', () => {
+  // os formulários de cliente importam o rótulo de `termo-paciente.ts`; o mapa com todas as versões fica em
+  // `termo-paciente-textos.ts`, que só páginas (servidor) importam
+  const arquivos = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? arquivos(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []));
+  it('nenhum arquivo "use client" importa termo-paciente-textos', () => {
+    const cliente = arquivos('src').filter((f) => /^\s*['"]use client['"]/.test(readFileSync(f, 'utf8')));
+    expect(cliente.length).toBeGreaterThan(0);
+    for (const f of cliente) expect(readFileSync(f, 'utf8'), f).not.toContain('termo-paciente-textos');
+  });
+  it('termo-paciente.ts (importado pelos formulários) não tem o texto do termo', () => {
+    expect(readFileSync('src/modules/pacientes/termo-paciente.ts', 'utf8')).not.toContain('paragrafos: [');
   });
 });
