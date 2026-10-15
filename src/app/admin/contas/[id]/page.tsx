@@ -120,7 +120,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                 </ConfirmarBotao>
               </form>
             </div>
-            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos da versão em vigor (1.1 desde a 14B-2), a avaliação e o backup */}
+            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos da versão em vigor (o aditivo 1.2 desde o Plano 15), a avaliação e o backup */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda pt-4">
               <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
               <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
