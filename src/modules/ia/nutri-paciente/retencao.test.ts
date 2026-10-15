@@ -80,7 +80,7 @@ describe('expurgarIaNutri (RN-181, D8 = 180 dias, D22, D32)', () => {
   it('(b) pergunta vencida com dúvida aberta → texto nulo, a linha fica; resolvida, sai na volta seguinte', async () => {
     const { T, ctxP } = await pronto();
     const { pergunta, resposta } = await perguntaRespondida(T, ctxP);
-    expect(await encaminhar(ctxP, pergunta, app.db)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, pergunta, depsApp)).toBe('encaminhada');
     await vencer(T, pergunta);
     await vencer(T, resposta);
     expect(await expurgar(T)).toEqual({ apagadas: 1, esvaziadas: 1, riscosNaoAbertos: 0 });

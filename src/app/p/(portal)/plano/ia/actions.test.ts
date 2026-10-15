@@ -126,6 +126,10 @@ describe('avaliarAction e encaminharAction (US-172, US-174)', () => {
     s.encaminhar.mockResolvedValueOnce('limite');
     expect(await encaminharAction('t1', ID)).toEqual({ aviso: MSG_IA_NUTRI.limiteDuvidas });
     expect(await encaminharAction('t1', 'abc')).toEqual({ aviso: MSG_IA_NUTRI.naoDisponivel });
+    // /code-review do PR #37 (RN-170): a conferência do consultório usa a configuração do servidor (a mesma de perguntar)
+    const [ctx, id, deps] = s.encaminhar.mock.calls[0];
+    expect([ctx, id]).toEqual([s.ctx, ID]);
+    expect(deps).toMatchObject({ ia: { modo: 'sandbox', destino: 'teste' }, appUrl: 'http://app.test' });
   });
 
   it('outro consultório na tela: nada gravado', async () => {

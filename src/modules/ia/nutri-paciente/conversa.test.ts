@@ -10,6 +10,7 @@ import { closeDb } from '@/db/client';
 import { iaNutriMensagens, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
+import { desativarNoApp } from './consentimento';
 import { MSG_IA_NUTRI } from './constantes';
 import { avaliar, conversaDoPaciente, encaminhar, enviarANutri, perguntar, situacoesDasPerguntas, type DepsIaNutri } from './conversa';
 
@@ -129,6 +130,19 @@ describe('perguntar (US-172, RN-178, RN-179, RN-183)', () => {
     expect(await perguntar(ctxP, frase, deps)).toEqual(semEnvio);
   });
 
+  it('/code-review do PR #37: transtorno alimentar gravado FORA da fila (já 10 na fila hoje) → o texto de emergência na tela e na mensagem do sistema, nunca "Sua mensagem foi enviada ao consultório"', async () => {
+    const { T, p, ctxP } = await pronto();
+    for (let i = 0; i < 10; i++) await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', risco: 'transtorno_alimentar', encaminhadaEm: new Date(), contouNoLimite: false });
+    const r = await perguntar(ctxP, 'depois do jantar eu vomito pra não engordar', deps);
+    expect(r).toMatchObject({ codigo: 'risco', textoFixo: 'risco_emergencia' });
+    expect(r.mensagemId).not.toBeNull(); // gravada (o histórico do paciente e o teto de 50), mas fora da fila
+    const ms = await mensagens(T, p.id);
+    expect(ms.find((m) => m.id === r.mensagemId)).toMatchObject({ risco: 'transtorno_alimentar', encaminhadaEm: null });
+    expect(ms.find((m) => m.autor === 'sistema' && m.respondeA === r.mensagemId)).toMatchObject({ textoFixo: 'risco_emergencia' });
+    // a de emergência não muda: o texto dela já não promete envio
+    expect(await perguntar(ctxP, 'quero sumir', deps)).toMatchObject({ codigo: 'risco', textoFixo: 'risco_emergencia' });
+  });
+
   it('sinal de risco sem a parte do paciente (participação bloqueada) → o texto fixo mesmo assim, nada gravado', async () => {
     const { T, p, ctxP } = await pronto();
     await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
@@ -189,7 +203,7 @@ describe('avaliar e encaminhar (US-172, US-174, RN-177)', () => {
     const resposta = await mensagemNoBanco(app.db, b.T.tenantId, b.p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…' });
     expect(await avaliar(a.ctxP, resposta, 'ajudou', app.db)).toBe(false);
     const pergunta = await mensagemNoBanco(app.db, b.T.tenantId, b.p.id, { status: 'respondida' });
-    expect(await encaminhar(a.ctxP, pergunta, app.db)).toBe('nao_pode');
+    expect(await encaminhar(a.ctxP, pergunta, deps)).toBe('nao_pode');
   });
 
   it('encaminha a própria pergunta respondida ou que falhou; com 3 dúvidas abertas (risco não conta) → limite; já encaminhada, na fila ou processando → nao_pode', async () => {
@@ -199,24 +213,24 @@ describe('avaliar e encaminhar (US-172, US-174, RN-177)', () => {
     const falhou = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'falhou' });
     const terceira = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
     const quarta = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
-    expect(await encaminhar(ctxP, respondida, app.db)).toBe('encaminhada');
-    expect(await encaminhar(ctxP, respondida, app.db)).toBe('nao_pode'); // já encaminhada
-    expect(await encaminhar(ctxP, falhou, app.db)).toBe('encaminhada');
-    expect(await encaminhar(ctxP, terceira, app.db)).toBe('encaminhada');
-    expect(await encaminhar(ctxP, quarta, app.db)).toBe('limite');
+    expect(await encaminhar(ctxP, respondida, deps)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, respondida, deps)).toBe('nao_pode'); // já encaminhada
+    expect(await encaminhar(ctxP, falhou, deps)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, terceira, deps)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, quarta, deps)).toBe('limite');
     // resolvida pela nutricionista → abre vaga
     await withTenant(T.ctx, (tx) => tx.update(iaNutriMensagens).set({ resolvidaEm: new Date(), resolvidaPor: T.nutriId, resolucao: 'vista' }).where(eq(iaNutriMensagens.id, respondida)), app.db);
-    expect(await encaminhar(ctxP, quarta, app.db)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, quarta, deps)).toBe('encaminhada');
 
     const outro = await pronto();
     const naFila = await mensagemNoBanco(app.db, outro.T.tenantId, outro.p.id, { status: 'na_fila' });
-    expect(await encaminhar(outro.ctxP, naFila, app.db)).toBe('nao_pode');
+    expect(await encaminhar(outro.ctxP, naFila, deps)).toBe('nao_pode');
     await withTenant({ tenantId: outro.T.tenantId, role: 'worker' }, (tx) => tx.update(iaNutriMensagens).set({ status: 'processando' }).where(eq(iaNutriMensagens.id, naFila)), app.db);
-    expect(await encaminhar(outro.ctxP, naFila, app.db)).toBe('nao_pode');
+    expect(await encaminhar(outro.ctxP, naFila, deps)).toBe('nao_pode');
     const comRisco = await mensagemNoBanco(app.db, outro.T.tenantId, outro.p.id, { status: 'respondida', risco: 'transtorno_alimentar', contouNoLimite: false });
-    expect(await encaminhar(outro.ctxP, comRisco, app.db)).toBe('nao_pode');
+    expect(await encaminhar(outro.ctxP, comRisco, deps)).toBe('nao_pode');
     const resposta = await mensagemNoBanco(app.db, outro.T.tenantId, outro.p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…' });
-    expect(await encaminhar(outro.ctxP, resposta, app.db)).toBe('nao_pode'); // a resposta da IA não vai à fila: a pergunta vai
+    expect(await encaminhar(outro.ctxP, resposta, deps)).toBe('nao_pode'); // a resposta da IA não vai à fila: a pergunta vai
     const ms = await mensagens(outro.T, outro.p.id);
     expect(ms.every((m) => m.encaminhadaEm === null)).toBe(true);
   });
@@ -225,7 +239,7 @@ describe('avaliar e encaminhar (US-172, US-174, RN-177)', () => {
     const { T, p, ctxP } = await pronto();
     const pergunta = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
     await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano, no almoço: 4 colheres de arroz.', categoria: 'plano', tipoResposta: 'quantidade', respondeA: pergunta });
-    expect(await encaminhar(ctxP, pergunta, app.db)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, pergunta, deps)).toBe('encaminhada');
     const [m] = (await mensagens(T, p.id)).filter((x) => x.id === pergunta);
     expect(m.encaminhadaEm).not.toBeNull();
   });
@@ -236,9 +250,39 @@ describe('avaliar e encaminhar (US-172, US-174, RN-177)', () => {
     expect(await avaliar(ctxP, 'abc', 'ajudou', app.db)).toBe(false);
     expect(await avaliar(ctxP, resposta, 'otimo' as 'ajudou', app.db)).toBe(false);
     expect(await avaliar(ctxP, 42 as unknown as string, 'ajudou', app.db)).toBe(false);
-    expect(await encaminhar(ctxP, 'abc', app.db)).toBe('nao_pode');
-    expect(await encaminhar(ctxP, null as unknown as string, app.db)).toBe('nao_pode');
+    expect(await encaminhar(ctxP, 'abc', deps)).toBe('nao_pode');
+    expect(await encaminhar(ctxP, null as unknown as string, deps)).toBe('nao_pode');
     expect(await avaliar(ctxP, resposta, 'ajudou', app.db)).toBe(true); // o caminho válido continua
+  });
+
+  it('/code-review do PR #37 (RN-170, aba antiga): encaminhar com a IA Nutri pausada, desativada no consultório, a participação bloqueada ou o consentimento de outro destino → nao_pode, nada gravado', async () => {
+    const { T, p, ctxP } = await pronto();
+    const pergunta = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
+    expect(await encaminhar(ctxP, pergunta, { ...deps, pausa: PAUSADA })).toBe('nao_pode');
+    expect(await encaminhar(ctxP, pergunta, { ...deps, ia: { ...IA_TESTE, nutriDesligada: true } })).toBe('nao_pode');
+    expect(await encaminhar(ctxP, pergunta, { ...deps, ia: { ...IA_TESTE, destino: 'anthropic-us' } })).toBe('nao_pode'); // o aceite foi para outro destino (RN-109)
+    await app.db.update(tenants).set({ iaNutriAtivadaEm: null }).where(eq(tenants.id, T.tenantId));
+    expect(await encaminhar(ctxP, pergunta, deps)).toBe('nao_pode');
+    await iaNutriPronta(app.db, T.tenantId);
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
+    expect(await encaminhar(ctxP, pergunta, deps)).toBe('nao_pode');
+    expect((await mensagens(T, p.id)).find((m) => m.id === pergunta)?.encaminhadaEm).toBeNull();
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = null where patient_id = ${p.id}`), app.db);
+    expect(await encaminhar(ctxP, pergunta, deps)).toBe('encaminhada'); // de volta à RN-170: o caminho válido continua
+  });
+
+  it('/code-review do PR #37 (aba antiga): avaliar com a participação bloqueada ou depois da desativação → false, nada gravado', async () => {
+    const { T, p, ctxP } = await pronto();
+    const resposta = await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…' });
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
+    expect(await avaliar(ctxP, resposta, 'ajudou', app.db)).toBe(false);
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = null where patient_id = ${p.id}`), app.db);
+    // pausa ou consultório desligado não impedem avaliar uma resposta já dada (a spec não pede; só bloqueio e desativação)
+    expect(await avaliar(ctxP, resposta, 'ajudou', app.db)).toBe(true);
+    const outra = await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…' });
+    expect(await desativarNoApp(ctxP, deps)).toBe('desativada');
+    expect(await avaliar(ctxP, outra, 'nao_ajudou', app.db)).toBe(false);
+    expect((await mensagens(T, p.id)).find((m) => m.id === outra)?.avaliacao).toBeNull();
   });
 });
 
@@ -356,7 +400,7 @@ describe('nenhuma escrita da conversa fora da sessão do paciente', () => {
     const { T, p } = await pronto();
     const m = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
     await expect(avaliar(T.ctx, m, 'ajudou', app.db)).rejects.toThrow(/sessão de paciente/);
-    await expect(encaminhar(T.ctx, m, app.db)).rejects.toThrow(/sessão de paciente/);
+    await expect(encaminhar(T.ctx, m, deps)).rejects.toThrow(/sessão de paciente/);
     await expect(enviarANutri(T.ctx, 'oi', deps)).rejects.toThrow(/sessão de paciente/);
     await expect(situacoesDasPerguntas(T.ctx, app.db)).rejects.toThrow(/sessão de paciente/);
     const linhas = await withTenant(T.ctx, (tx) => tx.select().from(iaNutriMensagens).where(and(eq(iaNutriMensagens.id, m))), app.db);

@@ -10,10 +10,10 @@ import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
 import { IA_NUTRI_TERMO_VERSAO_MIN } from '../textos-legais';
 import { AVALIACOES, LIMITE_DUVIDAS_ABERTAS, MAX_PERGUNTA, MSG_IA_NUTRI, ROTULO_CATEGORIA, type Autor, type CategoriaConversa, type CodigoPergunta, type StatusPergunta } from './constantes';
 import type { DepsIaNutri } from './deps';
-import { estadoIaNutriDoTenant } from './estado';
+import { consentimentoVigente, estadoIaNutriDoTenant, liberadoNaTransacao, ultimoEvento } from './estado';
 import { IaNutriError } from './participacao';
 import { detectarRisco } from './sinais-risco';
-import { COM_ENCAMINHAR, type CodigoTextoFixo } from './textos';
+import { COM_ENCAMINHAR, textoDoRiscoSemEnvio, type CodigoTextoFixo } from './textos';
 
 export type { DepsIaNutri } from './deps';
 export type ResultadoPergunta = { codigo: CodigoPergunta; mensagemId: string | null; textoFixo: CodigoTextoFixo | null };
@@ -29,15 +29,6 @@ function textoDaPergunta(textoBruto: unknown): string {
 }
 
 /**
- * Revisão final (US-173, RN-174; LGPD art. 6º, VI): sem a mensagem gravada (IA Nutri indisponível, parte do paciente
- * recusada ou acima de LIMITE_RISCO_GRAVADO_DIA), nada foi ao consultório — o texto de transtorno alimentar ("Sua mensagem foi
- * enviada ao consultório") seria falso; vai o de emergência, que traz o 188 e o 192 sem prometer encaminhamento.
- */
-function textoDoRiscoSemEnvio(c: CodigoTextoFixo): CodigoTextoFixo {
-  return c === 'risco_transtorno' ? 'risco_emergencia' : c;
-}
-
-/**
  * US-172 / §4.2 (passos do app): (1) o filtro de risco, antes de gravar e de chamar o provedor; (2) a parte do consultório
  * da RN-170 (IA, retenção, aditivo 1.2, ativação, pausa, IA_NUTRI_DESLIGADA); (3) a função fechada (a parte do paciente, uma
  * por vez, limites e a gravação); (4) com `ok`, "Perguntou à IA" e o job `ia-paciente` NA MESMA transação (a função não
@@ -49,7 +40,8 @@ export async function perguntar(ctx: TenantContext, textoBruto: string, deps: De
   const risco = detectarRisco(texto);
   const boss = deps.boss ?? (await getBoss()); // fora da transação: o produtor tem pool próprio (boss.test.ts)
   // RN-174: o texto fixo de risco aparece SEMPRE que o filtro acha — também se a IA Nutri ficou indisponível entre a tela e o
-  // envio (nesse caso nada é gravado nem enfileirado, e a tela mostra o texto pelo código devolvido)
+  // envio (nesse caso nada é gravado nem enfileirado, e a tela mostra o texto pelo código devolvido). Sem a mensagem gravada
+  // (indisponível, parte do paciente recusada ou acima de LIMITE_RISCO_GRAVADO_DIA), nada foi ao consultório: o de emergência
   const soTextoDeRisco: ResultadoPergunta | null = risco ? { codigo: 'risco', mensagemId: null, textoFixo: textoDoRiscoSemEnvio(risco.textoFixo) } : null;
   const indisponivel: ResultadoPergunta = soTextoDeRisco ?? { codigo: 'indisponivel', mensagemId: null, textoFixo: null };
   return withTenant(
@@ -78,7 +70,16 @@ export async function perguntar(ctx: TenantContext, textoBruto: string, deps: De
         if (!job) throw new Error('A fila recusou o aviso de risco da IA Nutri');
       }
       if (codigo === 'risco' && !mensagemId) return soTextoDeRisco ?? indisponivel; // acima do teto do dia: nada gravado
-      return { codigo, mensagemId, textoFixo: codigo === 'risco' ? (risco?.textoFixo ?? null) : null };
+      if (codigo === 'risco') {
+        // /code-review do PR #37: o texto fixo que a função GRAVOU na mensagem `sistema` — gravada fora da fila (já 10 na fila
+        // hoje), o de transtorno vira o de emergência lá (0117); a tela mostra o mesmo que a conversa relida vai mostrar
+        const [aviso] = await tx
+          .select({ textoFixo: iaNutriMensagens.textoFixo })
+          .from(iaNutriMensagens)
+          .where(and(eq(iaNutriMensagens.respondeA, mensagemId!), eq(iaNutriMensagens.autor, 'sistema')));
+        return { codigo, mensagemId, textoFixo: (aviso?.textoFixo as CodigoTextoFixo | null | undefined) ?? textoDoRiscoSemEnvio(risco!.textoFixo) };
+      }
+      return { codigo, mensagemId, textoFixo: null };
     },
     deps.db ?? getDb(),
   );
@@ -111,15 +112,21 @@ export async function enviarANutri(ctx: TenantContext, textoBruto: string, deps:
   );
 }
 
-/** US-172 "Ajudou / Não ajudou": uma vez, numa resposta da IA com conteúdo (o gatilho confere as colunas). Fica só no NutriDebby (§7.6). */
+/**
+ * US-172 "Ajudou / Não ajudou": uma vez, numa resposta da IA com conteúdo (o gatilho confere as colunas). Fica só no NutriDebby
+ * (§7.6). /code-review do PR #37 (aba antiga): a spec não pede a RN-170 inteira para avaliar uma resposta já dada (pausa ou
+ * consultório desligado não impedem); recusa só com a participação bloqueada ou o consentimento desativado (último evento
+ * ≠ aceite) — a conversa só para ler já esconde "Ajudou".
+ */
 export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'ajudou' | 'nao_ajudou', db: Db = getDb()): Promise<boolean> {
   if (!comConta(ctx)) throw new Error('avaliar: só a sessão de paciente com conta');
   // /code-review do PR #37: id e valor vêm do cliente (argumentos da Server Action) — fora do formato → false, nunca 22P02/23514
   if (!idValido(mensagemId) || !(AVALIACOES as readonly unknown[]).includes(valor)) return false;
   const r = await withTenant(
     ctx,
-    (tx) =>
-      tx
+    async (tx) => {
+      if (!(await liberadoNaTransacao(tx, ctx.patientId!)) || (await ultimoEvento(tx, ctx.patientId!))?.evento !== 'aceite') return [];
+      return tx
         .update(iaNutriMensagens)
         .set({ avaliacao: valor, updatedAt: new Date() })
         .where(
@@ -131,21 +138,32 @@ export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'aj
             or(isNotNull(iaNutriMensagens.texto), isNotNull(iaNutriMensagens.textoFixo)), // esvaziada → false, nunca 42501
           ),
         )
-        .returning({ id: iaNutriMensagens.id }),
+        .returning({ id: iaNutriMensagens.id });
+    },
     db,
   );
   return r.length > 0;
 }
 
-/** US-174 / RN-177 (D24 = b): a PERGUNTA (não a resposta da IA) vai à fila; até 3 abertas por paciente (risco não conta). */
-export async function encaminhar(ctx: TenantContext, perguntaId: string, db: Db = getDb()): Promise<'encaminhada' | 'limite' | 'nao_pode'> {
+/**
+ * US-174 / RN-177 (D24 = b): a PERGUNTA (não a resposta da IA) vai à fila; até 3 abertas por paciente (risco não conta).
+ * /code-review do PR #37 (aba antiga): a mesma RN-170 de `enviarANutri` — a parte do consultório (estadoIaNutriDoTenant, com
+ * a pausa) e, com o paciente travado, a do paciente (ativo, não anonimizado, participação liberada, consentimento vigente na
+ * versão e no destino em uso); fora dela → `nao_pode` ("A IA Nutri não está disponível no momento.").
+ */
+export async function encaminhar(ctx: TenantContext, perguntaId: string, deps: DepsIaNutri): Promise<'encaminhada' | 'limite' | 'nao_pode'> {
   if (!comConta(ctx)) throw new Error('encaminhar: só a sessão de paciente com conta');
   if (!idValido(perguntaId)) return 'nao_pode'; // /code-review do PR #37: id do cliente fora do formato, nunca 22P02
   return withTenant(
     ctx,
     async (tx) => {
-      // a mesma trava das funções fechadas: duas abas encaminhando ao mesmo tempo não passam do limite
-      await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, ctx.patientId!)).for('update');
+      // a mesma trava das funções fechadas: duas abas encaminhando ao mesmo tempo não passam do limite (e a revogação, o
+      // bloqueio e o arquivamento, que travam o paciente, ficam de um lado ou do outro da conferência)
+      const [p] = await tx.select({ status: patients.status, anon: patients.anonimizadoEm }).from(patients).where(eq(patients.id, ctx.patientId!)).for('update');
+      const [t] = await tx.select().from(tenants).where(eq(tenants.id, ctx.tenantId));
+      const pausa = deps.pausa ?? (await lerPausa(tx));
+      if (!p || p.status !== 'ativo' || p.anon || !t || estadoIaNutriDoTenant(t, deps.ia, pausa) !== 'ativa') return 'nao_pode';
+      if (!(await liberadoNaTransacao(tx, ctx.patientId!)) || !consentimentoVigente(await ultimoEvento(tx, ctx.patientId!), deps.ia.destino)) return 'nao_pode';
       const [{ n }] = await tx
         .select({ n: count() })
         .from(iaNutriMensagens)
@@ -169,7 +187,7 @@ export async function encaminhar(ctx: TenantContext, perguntaId: string, db: Db 
         .returning({ id: iaNutriMensagens.id });
       return r.length ? 'encaminhada' : 'nao_pode';
     },
-    db,
+    deps.db ?? getDb(),
   );
 }
 

@@ -120,7 +120,7 @@ describe('iaNutriParaExportacao (§7.6 "Exportação", US-018, US-046, RN-109)',
     const pergunta = await perguntaRespondida(T, ctxP);
     const [resposta] = await comoWorker(T, sql`select id from ia_nutri_mensagens where responde_a = ${pergunta}`);
     expect(await avaliar(ctxP, resposta.id as string, 'ajudou', app.db)).toBe(true);
-    expect(await encaminhar(ctxP, pergunta, app.db)).toBe('encaminhada');
+    expect(await encaminhar(ctxP, pergunta, depsApp)).toBe('encaminhada');
     await perguntar(ctxP, RISCO, depsApp);
     const d = await withTenant(T.ctx, (tx) => iaNutriParaExportacao(tx, p.id, 'titular'), app.db);
     const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

@@ -202,9 +202,12 @@ describe('0117: app_ia_nutri_perguntar (RN-178, RN-179)', () => {
     expect(linhas).toHaveLength(11);
     expect(linhas.slice(0, 10).every((l) => l.fila)).toBe(true);
     expect(linhas[10]).toEqual({ id: r.mensagem_id, fila: false });
-    // o texto fixo do grupo também é gravado para a 11ª
-    const [{ n }] = (await withTenant(worker(T.tenantId), (tx) => tx.execute(sql`select count(*)::int as n from ia_nutri_mensagens where patient_id = ${p.id} and autor = 'sistema' and texto_fixo = 'risco_transtorno'`), app.db)).rows as { n: number }[];
-    expect(n).toBe(11);
+    // a 11ª também ganha a mensagem `sistema`, mas com o texto de EMERGÊNCIA: fora da fila, nada foi ao consultório, e o de
+    // transtorno diz "Sua mensagem foi enviada ao consultório" (/code-review do PR #37)
+    const fixos = (await withTenant(worker(T.tenantId), (tx) => tx.execute(sql`select responde_a, texto_fixo from ia_nutri_mensagens where patient_id = ${p.id} and autor = 'sistema'`), app.db)).rows as { responde_a: string; texto_fixo: string }[];
+    expect(fixos).toHaveLength(11);
+    expect(fixos.filter((f) => f.texto_fixo === 'risco_transtorno').map((f) => f.responde_a).sort()).toEqual(linhas.slice(0, 10).map((l) => l.id).sort());
+    expect(fixos.find((f) => f.responde_a === r.mensagem_id)?.texto_fixo).toBe('risco_emergencia');
   });
   it('acima de 50 mensagens de risco no dia: "risco" com o texto fixo, mas nada gravado (mensagem_id nulo)', async () => {
     const { T, p, ctxP } = await pronto();

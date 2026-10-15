@@ -5,7 +5,6 @@ import { iaNutriMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
-import { recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa, type PausaIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { avisarCredencialInvalida, avisarTetoGlobal } from '../alertas';
 import type { DestinoIA, ModeloIA, RegiaoIA } from '../constantes';
@@ -19,7 +18,8 @@ import { montarContexto, relerTrechos, type ContextoDaConversa } from './context
 import { consentimentoVigente, estadoIaNutriDoTenant, liberadoNaTransacao, ultimoEvento } from './estado';
 import { ESFORCO_CONVERSA, PROMPT_VERSAO_CONVERSA, SCHEMA_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
 import { conferirTermos, montarResposta } from './montar-resposta';
-import type { CodigoTextoFixo } from './textos';
+import { registrarSaida } from './saida';
+import { textoDoRiscoSemEnvio, type CodigoTextoFixo } from './textos';
 import { validarSaida } from './validar-resposta';
 
 export type DadosJobIaPaciente = { tenantId: string; mensagemId: string };
@@ -77,8 +77,9 @@ const configDoJob = (deps: DepsJobIaPaciente): Pick<ConfigIA, 'modo' | 'destino'
  * Plano 15 (§4.2 do worker, RN-170, RN-172, RN-175, RN-179, RN-180, D21, D30): fila `ia-paciente` (só o worker importa —
  * guarda de grafo, T13). (1) trava o paciente, reconfere a RN-170 e RESERVA a cota no escopo `paciente` → (2) contexto na
  * sessão de paciente (contexto.ts) → (3) PORTÃO DO ENVIO (paciente → tenant → mensagem): reconfere, desce a reserva pelo
- * pedido montado, grava enviado_em/saiu_em/destino e "Pergunta enviada à IA" → (4) `gerar`, sem ferramentas, 45 s → (5)
- * valida e relê os trechos → (6) grava com as mesmas travas, conferindo de novo a RN-170 e a revogação. Nada de conteúdo
+ * pedido montado e grava `enviado_em` → (4) `gerar`, sem ferramentas, 45 s → (5) valida e relê os trechos → (6) grava com as
+ * mesmas travas, conferindo de novo a RN-170 e a revogação. A saída (`saiu_em`, `destino` e "Pergunta enviada à IA") é
+ * registrada por `registrarSaida` (saida.ts) só quando o pedido pode ter saído — nunca com `nao_enviado`. Nada de conteúdo
  * (pergunta, contexto, trecho, resposta, categoria) em log: só ids, códigos, modelo, tokens, custo e duração.
  */
 export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: DepsJobIaPaciente): Promise<Fim> {
@@ -99,12 +100,17 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
     return consentimentoVigente(ev, deps.destino) && !!ev && ev.registradoEm < criadaEm;
   };
 
-  /** Termina com um texto fixo (mensagem `ia`) ou sem resposta (cancelada); reserva estornada (não saiu) ou incerta (saiu). */
-  const encerrar = async (o: { status: 'falhou' | 'cancelada'; textoFixo: CodigoTextoFixo | null; motivo: MotivoTecnico; reserva: 'estornar' | 'manter' | 'nenhuma' }): Promise<Fim> => {
+  /**
+   * Termina com um texto fixo (mensagem `ia`) ou sem resposta (cancelada); reserva estornada (não saiu) ou incerta (saiu).
+   * `saiu`: o pedido pode ter saído ao provedor — registra a saída (saida.ts) na mesma transação, também se a pergunta já
+   * terminou por fora (a transferência aconteceu do mesmo jeito).
+   */
+  const encerrar = async (o: { status: 'falhou' | 'cancelada'; textoFixo: CodigoTextoFixo | null; motivo: MotivoTecnico; reserva: 'estornar' | 'manter' | 'nenhuma'; saiu?: boolean }): Promise<Fim> => {
     await withTenant(
       ctx,
       async (tx) => {
         await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, pacienteId)).for('share');
+        if (o.saiu) await registrarSaida(tx, { mensagemId: d.mensagemId, patientId: pacienteId, agora: agora() });
         const [m] = await tx
           .update(iaNutriMensagens)
           .set({ status: o.status, motivoTecnico: o.motivo, updatedAt: agora() })
@@ -173,8 +179,8 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       break;
     case 'ignorada':
       return 'ignorada';
-    case 'incerto':
-      return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: 'resultado_incerto', reserva: 'manter' });
+    case 'incerto': // a execução anterior passou do portão e caiu no meio da chamada: o pedido pode ter saído
+      return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: 'resultado_incerto', reserva: 'manter', saiu: true });
     case 'cancelada':
       return encerrar({ status: 'cancelada', textoFixo: null, motivo: 'indisponivel', reserva: 'estornar' });
     case 'indisponivel':
@@ -207,12 +213,10 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       // DP-8: os bytes do corpo exato que sai (c.corpo) mais as instruções — nada sai além do que foi medido
       const teto = custoMaximoMicroUsd(modelo, deps.geo, tokensDeBytes(c.bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_CONVERSA);
       if (teto > m.reservaMicroUsd) return 'limite_custo'; // a reserva nunca sobe (RN-104)
-      await tx
-        .update(iaNutriMensagens)
-        .set({ enviadoEm: agora(), saiuEm: m.saiuEm ?? agora(), destino: m.destino ?? deps.destino, reservaMicroUsd: teto, updatedAt: agora() })
-        .where(eq(iaNutriMensagens.id, m.id));
+      // /code-review do PR #37 (RN-109): só a marca de "pode ter sido processado" (nunca reenviar); `saiu_em`, `destino` e
+      // "Pergunta enviada à IA" esperam o resultado (registrarSaida) — com `nao_enviado`, nada saiu e nada fica registrado
+      await tx.update(iaNutriMensagens).set({ enviadoEm: agora(), reservaMicroUsd: teto, updatedAt: agora() }).where(eq(iaNutriMensagens.id, m.id));
       await reduzirReserva(tx, m.id, teto, agora());
-      await recordAudit(tx, { acao: 'exportar', entidade: 'ia_nutri', entidadeId: m.id, patientId: pacienteId }); // "Pergunta enviada à IA"
       return 'ok';
     },
     deps.db,
@@ -245,10 +249,15 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       'provedor de IA recusou ou falhou',
     );
     if (tipo === 'nao_enviado' || tipo === 'repetir') {
-      // nada foi processado: `enviado_em` volta a nulo antes de repetir (a mesma pergunta pode passar de novo pelo portão)
+      // nada foi processado: `enviado_em` volta a nulo antes de repetir (a mesma pergunta pode passar de novo pelo portão).
+      // `repetir` (429, 529, 5xx): o pedido CHEGOU ao provedor — a saída fica registrada (uma vez só, mesmo que a nova tentativa
+      // saia de novo); `nao_enviado` (DNS, conexão recusada): nada saiu, nada registrado (/code-review do PR #37, RN-109)
       await withTenant(
         ctx,
-        (tx) => tx.update(iaNutriMensagens).set({ enviadoEm: null, updatedAt: agora() }).where(and(eq(iaNutriMensagens.id, d.mensagemId), eq(iaNutriMensagens.status, 'processando'))),
+        async (tx) => {
+          if (tipo === 'repetir') await registrarSaida(tx, { mensagemId: d.mensagemId, patientId: pacienteId, agora: agora() });
+          await tx.update(iaNutriMensagens).set({ enviadoEm: null, updatedAt: agora() }).where(and(eq(iaNutriMensagens.id, d.mensagemId), eq(iaNutriMensagens.status, 'processando')));
+        },
         deps.db,
       );
       if (!deps.ultimaTentativa) throw new RepetirIaError(`provedor: ${tipo}`);
@@ -256,7 +265,10 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
     }
     if (tipo === 'credencial') await avisarCredencialInvalida(deps.db, agora(), deps.appUrl).catch(() => undefined);
     if (tipo === 'limite_de_gasto') await avisarTetoGlobal(deps.db, agora(), deps.appUrl).catch(() => undefined);
-    return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: tipo === 'incerto' ? 'resultado_incerto' : 'provedor_indisponivel', reserva: tipo === 'incerto' ? 'manter' : 'estornar' });
+    // o provedor respondeu com um status (credencial, limite de gasto, pedido inválido…) ou o resultado é incerto: o pedido
+    // saiu (ou pode ter saído) e a saída fica registrada; a recusa local, sem status (defesa do provedor), não saiu
+    const saiu = tipo === 'incerto' || (e instanceof ErroProvedor && e.status !== null);
+    return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: tipo === 'incerto' ? 'resultado_incerto' : 'provedor_indisponivel', reserva: tipo === 'incerto' ? 'manter' : 'estornar', saiu });
   }
 
   // (5) valida a saída e relê os trechos (sessão de paciente; mesmo plano publicado). Nenhuma palavra do modelo chega ao
@@ -289,6 +301,8 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
         await marcarIncerto(tx, d.mensagemId, agora()); // o pedido saiu: a reserva fica como custo (RN-182)
         return 'falhou';
       }
+      // o pedido saiu e voltou: a saída fica registrada (uma vez), qualquer que seja o destino da resposta abaixo
+      await registrarSaida(tx, { mensagemId: m.id, patientId: pacienteId, agora: agora() });
       const valido = m.status === 'processando' && (await conferir(tx, m.createdAt));
       // /code-review do PR #37 (RN-174, D22): o sinal de risco do MODELO não se perde porque a RN-170 deixou de valer durante a
       // chamada. (a) A pergunta ainda está `processando` (bloqueio, paciente arquivado, IA Nutri desativada no consultório,
@@ -329,6 +343,9 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
           );
         encaminhar = n < LIMITE_RISCO_NA_FILA_DIA;
       }
+      // /code-review do PR #37 (RN-174): fora da fila (já 10 hoje) e sem encaminhamento anterior, nada vai ao consultório — o
+      // texto de transtorno ("Sua mensagem foi enviada ao consultório") seria falso; vai o de emergência (188 e 192)
+      if (res.risco && !encaminhar && !m.encaminhadaEm && res.textoFixo) res = { ...res, textoFixo: textoDoRiscoSemEnvio(res.textoFixo) };
       /** D10 / DP-6: o e-mail genérico de risco às nutricionistas, na mesma transação (só o id do tenant na fila). */
       const enviarAvisoDeRisco = async () => {
         if (!encaminhar) return;

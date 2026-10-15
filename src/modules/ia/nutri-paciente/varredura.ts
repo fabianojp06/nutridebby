@@ -6,10 +6,11 @@ import { logger } from '@/lib/logger';
 import { estornar, marcarIncerto } from '../cota';
 import { PERGUNTA_PRESA_MS } from './constantes';
 import { PROMPT_VERSAO_CONVERSA } from './instrucoes';
+import { registrarSaida } from './saida';
 
 /**
  * RN-180 / DP-10: num tenant — pergunta na_fila/processando há mais de 3 min → falhou (interrompida) com o texto fixo de
- * falha; a reserva estornada (não saiu) ou incerta (saiu). E a conciliação: pergunta já falhou ou cancelada (a função, a
+ * falha; a reserva estornada (não saiu) ou incerta (saiu, com a saída registrada — saida.ts). E a conciliação: pergunta já falhou ou cancelada (a função, a
  * revogação, o job) com ia_uso ainda `reservado` → estorno/incerto.
  * ORDEM DE TRAVAS (DP-10): a mensagem `ia` é filha de `patients` (o INSERT pede KEY SHARE no paciente), e perguntar,
  * revogar e o passo 1 do job travam o paciente ANTES das mensagens. Por isso a varredura lista as presas SEM trava e, para
@@ -45,19 +46,25 @@ export async function expirarPerguntasDoTenant(db: Db, tenantId: string, agora: 
           sessaoInicio: sql<Date>`(select q.sessao_inicio from ia_nutri_mensagens q where q.id = ${m.id})`,
           expiraEm: sql<Date>`(select q.expira_em from ia_nutri_mensagens q where q.id = ${m.id})`,
         });
-        if (m.enviadoEm) await marcarIncerto(tx, m.id, agora);
-        else await estornar(tx, m.id, agora);
+        if (m.enviadoEm) {
+          await registrarSaida(tx, { mensagemId: m.id, patientId: m.patientId, agora }); // passou do portão: pode ter saído
+          await marcarIncerto(tx, m.id, agora);
+        } else await estornar(tx, m.id, agora);
         presas += 1;
       }
       const pendentes = await tx
-        .select({ id: iaNutriMensagens.id, enviadoEm: iaNutriMensagens.enviadoEm })
+        .select({ id: iaNutriMensagens.id, patientId: iaNutriMensagens.patientId, enviadoEm: iaNutriMensagens.enviadoEm })
         .from(iaNutriMensagens)
         .innerJoin(iaUso, and(eq(iaUso.tarefaId, iaNutriMensagens.id), eq(iaUso.situacao, 'reservado')))
         .where(inArray(iaNutriMensagens.status, ['falhou', 'cancelada']))
         .for('update', { of: iaNutriMensagens, skipLocked: true });
       for (const m of pendentes) {
-        if (m.enviadoEm) await marcarIncerto(tx, m.id, agora);
-        else await estornar(tx, m.id, agora);
+        if (m.enviadoEm) {
+          // encerrada por fora (app_ia_nutri_perguntar, revogação) depois do portão: a saída registrada (só a mensagem e o
+          // audit_log, que não é filho de `patients`: nada de trava no paciente aqui, DP-10)
+          await registrarSaida(tx, { mensagemId: m.id, patientId: m.patientId, agora });
+          await marcarIncerto(tx, m.id, agora);
+        } else await estornar(tx, m.id, agora);
       }
       return presas + pendentes.length;
     },

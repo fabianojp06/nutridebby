@@ -168,6 +168,112 @@ describe('processarPerguntaIaNutri (§4.2 do worker)', () => {
     expect((await jobsDeRisco(T.tenantId)).map((j) => j.data)).toEqual([{ tenantId: T.tenantId }]); // só o id do tenant
   });
 
+  it('/code-review do PR #37: risco percebido pelo modelo com 10 já na fila de risco hoje → fora da fila, sem aviso, e o texto de emergência (nunca "Sua mensagem foi enviada ao consultório")', async () => {
+    const { T, p, ctxP } = await pronto();
+    for (let i = 0; i < 10; i++) await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', risco: 'transtorno_alimentar', encaminhadaEm: new Date(), contouNoLimite: false });
+    const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp);
+    const fake = provedorFake({ gerar: [finalOk({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] })] });
+    expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake))).toBe('respondida');
+    const [q] = await comoWorker(T, sql`select status, risco, encaminhada_em is not null as fila from ia_nutri_mensagens where id = ${mensagemId}`);
+    expect(q).toEqual({ status: 'respondida', risco: 'modelo', fila: false });
+    expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: 'risco_emergencia', motivo_tecnico: null }]);
+    expect(await jobsDeRisco(T.tenantId)).toEqual([]);
+  });
+
+  describe('/code-review do PR #37 (RN-109): a saída ao provedor só fica registrada quando pode ter havido', () => {
+    const exportar = async (T: TenantDeTeste, id: string) =>
+      (await comoWorker(T, sql`select count(*)::int as n from audit_log where entidade = 'ia_nutri' and acao = 'exportar' and entidade_id = ${id}`))[0].n;
+
+    it('nao_enviado (nada saiu): sem saiu_em, destino nem "Pergunta enviada à IA"; a nova tentativa que sai grava uma vez', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [new ErroProvedor('nao_enviado', null, null), finalOk(SUBSTITUICAO)] });
+      await expect(processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake))).rejects.toBeInstanceOf(RepetirIaError);
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'processando', enviado_em: null, saiu_em: null, destino: null });
+      expect(await exportar(T, mensagemId!)).toBe(0);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { ultimaTentativa: true }))).toBe('respondida');
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'respondida', saiu_em: expect.any(String), destino: 'teste' });
+      expect(await exportar(T, mensagemId!)).toBe(1);
+    });
+
+    it('nao_enviado na última tentativa: falhou, estorno e nenhum registro de saída', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [new ErroProvedor('nao_enviado', null, null)] });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { ultimaTentativa: true }))).toBe('falhou');
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'falhou', motivo_tecnico: 'provedor_indisponivel', enviado_em: null, saiu_em: null, destino: null });
+      expect(await exportar(T, mensagemId!)).toBe(0);
+      expect((await uso(T, mensagemId!)).situacao).toBe('estornado');
+      // recusa local do provedor (sem status, nada enviado) × recusa do servidor (400: o pedido chegou)
+      for (const [erro, saiu] of [[new ErroProvedor('pedido_invalido', null, null), false], [new ErroProvedor('pedido_invalido', 400, 'r9'), true]] as const) {
+        const outro = await pronto();
+        const r = await perguntar(outro.ctxP, BANANA, depsApp);
+        expect(await processarPerguntaIaNutri({ tenantId: outro.T.tenantId, mensagemId: r.mensagemId! }, depsDe(provedorFake({ gerar: [erro] })))).toBe('falhou');
+        expect((await pergunta(outro.T, r.mensagemId!)).saiu_em === null, String(erro.status)).toBe(!saiu);
+        expect(await exportar(outro.T, r.mensagemId!)).toBe(saiu ? 1 : 0);
+      }
+    });
+
+    it('repetir (o pedido chegou ao provedor): saiu_em, destino e UM "Pergunta enviada à IA" — a nova tentativa não duplica nem reescreve', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [new ErroProvedor('repetir', 529, 'r1'), finalOk(SUBSTITUICAO)] });
+      await expect(processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake))).rejects.toBeInstanceOf(RepetirIaError);
+      const antes = await pergunta(T, mensagemId!);
+      expect(antes).toMatchObject({ status: 'processando', enviado_em: null, saiu_em: expect.any(String), destino: 'teste' });
+      expect(await exportar(T, mensagemId!)).toBe(1);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { ultimaTentativa: true }))).toBe('respondida');
+      expect((await pergunta(T, mensagemId!)).saiu_em).toEqual(antes.saiu_em); // a primeira saída
+      expect(await exportar(T, mensagemId!)).toBe(1);
+    });
+
+    it('incerto, ou a nova tentativa que encontra enviado_em (o job caiu no meio da chamada): saiu_em = o envio, destino e "Pergunta enviada à IA"', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const incerto = provedorFake({ gerar: [new ErroProvedor('incerto', 500, 'r3')] });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(incerto))).toBe('falhou');
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'falhou', saiu_em: expect.any(String), destino: 'teste' });
+      expect(await exportar(T, mensagemId!)).toBe(1);
+
+      const outro = await pronto();
+      const agora = new Date();
+      const id = await mensagemNoBanco(app.db, outro.T.tenantId, outro.p.id, { status: 'processando', enviadoEm: agora, reservaMicroUsd: 5500 });
+      await withTenant({ tenantId: outro.T.tenantId, role: 'worker' }, (tx) => reservar(tx, { tenantId: outro.T.tenantId, tarefaId: id, tipo: 'conversa_paciente', modelo: 'claude-haiku-5-5', promptVersao: PROMPT_VERSAO_CONVERSA, microUsd: 5500, agora, tetoGlobalMicroUsd: 50_000_000_000 }), app.db);
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      expect(await processarPerguntaIaNutri({ tenantId: outro.T.tenantId, mensagemId: id }, depsDe(fake))).toBe('falhou');
+      expect(fake.chamadas.gerar).toHaveLength(0);
+      const q = await pergunta(outro.T, id);
+      expect(q).toMatchObject({ status: 'falhou', motivo_tecnico: 'resultado_incerto', destino: 'teste' });
+      expect(q.saiu_em).toEqual(q.enviado_em);
+      expect(await exportar(outro.T, id)).toBe(1);
+    });
+
+    it('a varredura encerra a pergunta que saiu e não voltou (job caído): saiu_em, destino e "Pergunta enviada à IA"; a que não saiu, nada', async () => {
+      const { T, p } = await pronto();
+      const velha = new Date(Date.now() - 5 * 60_000);
+      const envio = new Date(); // depois do aceite de pronto() (o portão só deixa sair com o aceite já gravado)
+      const saiu = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'processando', enviadoEm: envio, createdAt: velha, reservaMicroUsd: 5500 });
+      const outro = await pronto();
+      const naoSaiu = await mensagemNoBanco(app.db, outro.T.tenantId, outro.p.id, { status: 'processando', createdAt: velha, reservaMicroUsd: 5500 });
+      // encerrada pela função de perguntar (falhou/interrompida) com a reserva ainda pendente: a conciliação registra também
+      const terceiro = await pronto();
+      const pelaFuncao = await mensagemNoBanco(app.db, terceiro.T.tenantId, terceiro.p.id, { status: 'falhou', motivoTecnico: 'interrompida', enviadoEm: new Date(), createdAt: velha, reservaMicroUsd: 5500 });
+      await withTenant({ tenantId: terceiro.T.tenantId, role: 'worker' }, (tx) => reservar(tx, { tenantId: terceiro.T.tenantId, tarefaId: pelaFuncao, tipo: 'conversa_paciente', modelo: 'claude-haiku-5-5', promptVersao: PROMPT_VERSAO_CONVERSA, microUsd: 5500, agora: velha, tetoGlobalMicroUsd: 50_000_000_000 }), app.db);
+      await expirarPerguntasDoTenant(app.db, T.tenantId, new Date());
+      await expirarPerguntasDoTenant(app.db, outro.T.tenantId, new Date());
+      await expirarPerguntasDoTenant(app.db, terceiro.T.tenantId, new Date());
+      expect(await pergunta(terceiro.T, pelaFuncao)).toMatchObject({ status: 'falhou', saiu_em: expect.any(String), destino: 'teste' });
+      expect(await exportar(terceiro.T, pelaFuncao)).toBe(1);
+      expect((await uso(terceiro.T, pelaFuncao)).situacao).toBe('incerto');
+      const q = await pergunta(T, saiu);
+      expect(q).toMatchObject({ status: 'falhou', destino: 'teste' });
+      expect(q.saiu_em).toEqual(q.enviado_em);
+      expect(await exportar(T, saiu)).toBe(1);
+      expect(await pergunta(outro.T, naoSaiu)).toMatchObject({ status: 'falhou', saiu_em: null, destino: null });
+      expect(await exportar(outro.T, naoSaiu)).toBe(0);
+    });
+  });
+
   it('cota da IA Nutri esgotada → texto fixo indisponivel, pergunta falhou (cota), nada sai ao provedor', async () => {
     const { T, ctxP } = await pronto({ cotaUsd: 0 });
     const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);

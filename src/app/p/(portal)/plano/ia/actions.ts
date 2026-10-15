@@ -98,11 +98,15 @@ export async function avaliarAction(tenantId: string, mensagemId: string, valor:
   return (await avaliar(ctx, mensagemId, valor)) ? { feito: true, aviso: MSG_IA_NUTRI.avaliado } : { aviso: MSG_IA_NUTRI.naoDisponivel };
 }
 
-/** US-174 / RN-177: "Enviar para minha nutricionista" abaixo da resposta (ou da pergunta que falhou). Sem `revalidatePath`, como avaliar. */
+/**
+ * US-174 / RN-177: "Enviar para minha nutricionista" abaixo da resposta (ou da pergunta que falhou). Sem `revalidatePath`, como
+ * avaliar. A RN-170 (/code-review do PR #37: aba antiga depois de pausa, bloqueio ou desativação) com a configuração do
+ * servidor, como perguntar; fora dela → "A IA Nutri não está disponível no momento.".
+ */
 export async function encaminharAction(tenantId: string, perguntaId: string): Promise<RetornoConversa> {
   const { ctx } = await requirePaciente('/p/plano/ia');
   if (ctx.tenantId !== tenantId) redirect('/p/plano/ia');
-  const r = await encaminhar(ctx, perguntaId);
+  const r = await encaminhar(ctx, perguntaId, await depsDaConversa());
   if (r === 'encaminhada') return { feito: true, aviso: MSG_IA_NUTRI.encaminhada };
   return { aviso: r === 'limite' ? MSG_IA_NUTRI.limiteDuvidas : MSG_IA_NUTRI.naoDisponivel };
 }

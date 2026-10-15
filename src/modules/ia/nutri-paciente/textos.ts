@@ -20,6 +20,16 @@ export const TEXTOS_FIXOS: Record<CodigoTextoFixo, string> = {
   indisponivel: `A ${NOME_IA_NUTRI} está indisponível no momento. Você pode enviar sua dúvida para sua nutricionista.`,
 };
 /** Os textos fixos que aparecem com o botão "Enviar para minha nutricionista" (US-174, US-172 "Falha", US-176 "Cota"). */
+/**
+ * Revisão final e /code-review do PR #37 (US-173, RN-174; LGPD art. 6º, VI): quando a mensagem NÃO foi ao consultório (nada
+ * gravado, ou gravada fora da fila acima de LIMITE_RISCO_NA_FILA_DIA — pelo filtro ou pelo modelo), o texto de transtorno
+ * alimentar ("Sua mensagem foi enviada ao consultório") seria falso; vai o de emergência, que traz o 188 e o 192 sem prometer
+ * encaminhamento. A 0117 faz a mesma troca na mensagem `sistema` que grava fora da fila.
+ */
+export function textoDoRiscoSemEnvio(c: CodigoTextoFixo): CodigoTextoFixo {
+  return c === 'risco_transtorno' ? 'risco_emergencia' : c;
+}
+
 export const COM_ENCAMINHAR: ReadonlySet<CodigoTextoFixo> = new Set(['fora_do_escopo', 'mudanca_plano', 'sintoma_ou_exame', 'suplemento_ou_remedio', 'peso_ou_dieta_restritiva', 'nao_encontrei', 'falha', 'indisponivel']);
 /** US-174: o texto fixo de cada categoria que não é `plano`; `risco` do modelo → o de transtorno alimentar (US-173). */
 export const TEXTO_DA_CATEGORIA: Record<Exclude<CategoriaConversa, 'plano'>, CodigoTextoFixo> = {

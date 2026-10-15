@@ -114,6 +114,9 @@ BEGIN
     -- RN-174 / RN-178: grava a pergunta com risco (na fila, até 10 por dia) e o texto fixo do grupo; sem job, sem limite, sem
     -- cota. Acima de 50 gravadas no dia (LIMITE_RISCO_GRAVADO_DIA), devolve `risco` sem gravar: a tela mostra o texto fixo
     -- pelo código que o módulo devolve, e nenhuma linha ou job a mais nasce de um paciente que repete o texto.
+    -- /code-review do PR #37: a gravada FORA da fila (já 10 na fila hoje) não foi ao consultório — o texto de transtorno
+    -- ("Sua mensagem foi enviada ao consultório") seria falso; vai o de emergência (188 e 192, sem prometer envio). O módulo
+    -- devolve à tela o texto fixo que ficou gravado aqui.
     SELECT count(*) FILTER (WHERE m.encaminhada_em IS NOT NULL), count(*) INTO v_hoje, v_no_mes
       FROM public.ia_nutri_mensagens m
      WHERE m.tenant_id = v_tenant AND m.patient_id = v_patient AND m.autor = 'paciente' AND m.risco IS NOT NULL
@@ -123,7 +126,9 @@ BEGIN
         VALUES (v_tenant, v_patient, v_sessao, 'paciente', p_texto, 'respondida', p_risco, CASE WHEN v_hoje < 10 THEN v_agora END, false, v_agora + interval '180 days', v_agora, v_agora)
         RETURNING id INTO v_id;
       INSERT INTO public.ia_nutri_mensagens (tenant_id, patient_id, sessao_inicio, autor, texto_fixo, responde_a, expira_em, created_at, updated_at)
-        VALUES (v_tenant, v_patient, v_sessao, 'sistema', p_texto_fixo, v_id, v_agora + interval '180 days', v_agora, v_agora);
+        VALUES (v_tenant, v_patient, v_sessao, 'sistema',
+                CASE WHEN v_hoje >= 10 AND p_texto_fixo = 'risco_transtorno' THEN 'risco_emergencia' ELSE p_texto_fixo END,
+                v_id, v_agora + interval '180 days', v_agora, v_agora);
     END IF;
     v_codigo := 'risco';
   ELSIF v_codigo IS NULL THEN

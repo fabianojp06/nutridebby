@@ -136,7 +136,7 @@ describe('montarContexto (§7.3, RNF-163)', () => {
     expect(nada.chamadas.gerar).toHaveLength(0);
     const saiu = (await perguntar(ctxP, 'o que posso comer no lugar da banana à tarde?', depsApp)).mensagemId!;
     await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: saiu }, depsDoJob(provedorFake({ gerar: [finalOk({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S1'] })] })));
-    expect(await encaminhar(ctxP, saiu)).toBe('encaminhada'); // encaminhada DEPOIS de sair: continua no histórico
+    expect(await encaminhar(ctxP, saiu, depsApp)).toBe('encaminhada'); // encaminhada DEPOIS de sair: continua no histórico
     const { mensagemId } = await perguntar(ctxP, 'quanto de arroz no almoço?', depsApp);
     const c = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId! }))!;
     const h = historicoDe(c);
