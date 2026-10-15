@@ -260,7 +260,8 @@ export async function definirDocumentosLiberados(db: Db, tenantId: string, liber
 
 /**
  * Plano 11 (US-100, A-06, D6) e A-D27 (09/10/2026): a admin libera a IA do consultório só depois da retenção aceita (zero, ou
- * 30 dias na Anthropic direta), dos textos 1.0 (publicados sem advogado por decisão do dono) e da avaliação (runbook).
+ * 30 dias na Anthropic direta), dos textos da versão em vigor (1.0 e, desde a 14B-2, 1.1, publicados sem advogado por decisão
+ * do dono) e da avaliação (runbook).
  * Trilha em admin_actions (NGS1.07.03); só tenants e admin_actions (nenhuma tabela 🔒).
  */
 export class IaProvisoriaError extends Error {

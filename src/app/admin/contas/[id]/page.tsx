@@ -9,6 +9,7 @@ import { Selo } from '@/components/ui/selo';
 import { formatarBytes } from '@/lib/format';
 import { requireUser } from '@/lib/session';
 import { textoTaxa } from '@/modules/agenda/presenca';
+import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { contaPorId, MSG } from '@/modules/plataforma/contas';
 import { metricasDeExamesEnviadosPorTenant, metricasDeIaPorEscopo, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
@@ -119,7 +120,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                 </ConfirmarBotao>
               </form>
             </div>
-            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos 1.0, a avaliação e o backup */}
+            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos da versão em vigor (1.1 desde a 14B-2), a avaliação e o backup */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda pt-4">
               <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
               <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
@@ -128,7 +129,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                   mensagem={
                     c.iaLiberada
                       ? `Bloquear a IA de ${c.nomeExibicao}? Novas leituras deixam de ser aceitas; o que está na fila falha sem envio.`
-                      : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção configurada (zero, ou a de até 30 dias aceita na Anthropic direta), os textos 1.0 publicados, a avaliação aprovada e o backup no host (runbook da IA).`
+                      : `Liberar a IA para ${c.nomeExibicao}? Só com a retenção configurada (zero, ou a de até 30 dias aceita na Anthropic direta), os textos ${IA_ADITIVO_VERSAO} publicados, a avaliação aprovada e o backup no host (runbook da IA).`
                   }
                 >
                   {c.iaLiberada ? 'Bloquear' : 'Liberar'}<span className="sr-only">{` a IA de ${c.nomeExibicao}`}</span>
