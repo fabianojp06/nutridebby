@@ -27,6 +27,12 @@ describe('modo e estado da IA (spec v0.3 §5.9, RN-100)', () => {
     expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: null }, 'anthropic')).toBe('aditivo_desatualizado');
     expect(estadoIaDoTenant(tenant, 'fake')).toBe('ativa');
   });
+
+  it('Plano 15 (D27, DP-3): o aditivo 1.2 não pede novo aceite das outras funções — quem aceitou a 1.1 continua ativa; a 1.0 não', () => {
+    expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: '1.1' }, 'anthropic')).toBe('ativa');
+    expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: '1.2' }, 'anthropic')).toBe('ativa');
+    expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: '1.0' }, 'anthropic')).toBe('aditivo_desatualizado');
+  });
 });
 
 describe('Plano 14A — destino, retenção zero e estado com dado de paciente (RN-100, RN-109, A-D4)', () => {

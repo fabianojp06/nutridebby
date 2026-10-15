@@ -19,7 +19,7 @@ import {
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
-import { CATEGORIAS_POR_USO } from './campos-enviados';
+import { CATEGORIAS, CATEGORIAS_DA_IA_NUTRI, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA, FRASE_DA_CATEGORIA_IA_NUTRI } from './campos-enviados';
 import { montarPedidoDoRascunho, validarMetas } from './rascunho-dados';
 import { montarPedidoDoResumo } from './resumo-dados';
 
@@ -183,5 +183,21 @@ describe('F2 (parecer 3.2 (ii)) / D8: o que sai bate com o texto da autorizaçã
     expect(JSON.stringify(com.dados)).toContain('[removido] não come carne.');
     expect(JSON.stringify(com.dados)).toContain('[removido] trabalha à noite.');
     expect(com.bytes).toBe(Buffer.byteLength(JSON.stringify(com.dados), 'utf8'));
+  });
+});
+
+describe('Plano 15 (§7.3): o contrato do que sai na conversa da IA Nutri', () => {
+  it('CATEGORIAS_DA_IA_NUTRI é exatamente plano, orientações e perguntas, todas em CATEGORIAS', () => {
+    expect(CATEGORIAS_DA_IA_NUTRI).toEqual(['plano', 'orientacoes', 'perguntas']);
+    for (const c of CATEGORIAS_DA_IA_NUTRI) expect(CATEGORIAS).toContain(c);
+    expect(Object.keys(FRASE_DA_CATEGORIA_IA_NUTRI).sort()).toEqual([...CATEGORIAS_DA_IA_NUTRI].sort());
+  });
+  it('CATEGORIAS_POR_USO da 14B não muda: "perguntas" não está em nenhum uso da nutricionista (a autorização 1.1 não muda)', () => {
+    expect(CATEGORIAS_POR_USO).toEqual({
+      resumo_historico: ['idade', 'sexo', 'medidas', 'gasto', 'exames', 'anamnese', 'orientacoes', 'plano', 'diario', 'notas'],
+      rascunho_plano: ['idade', 'sexo', 'anamnese', 'metas'],
+    });
+    expect(Object.values(CATEGORIAS_POR_USO).flat()).not.toContain('perguntas');
+    expect(FRASE_DA_CATEGORIA.perguntas).toBe(FRASE_DA_CATEGORIA_IA_NUTRI.perguntas);
   });
 });
