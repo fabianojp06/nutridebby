@@ -25,6 +25,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { cancelarFuturasPelaExclusao } from '@/modules/agenda/cancelamento';
 import { cancelarTarefas } from '@/modules/ia/cancelar';
+import { apagarIaNutriDoTitular, limparIaNutriNaAnonimizacao } from '@/modules/ia/nutri-paciente/lgpd';
 import { anonimizarDocumentosDoPaciente, pdfsDeDocumentosRestantes } from '@/modules/documentos/lgpd-documentos';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
 import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
@@ -341,7 +342,9 @@ export type DadosExclusaoAtendida = { tenantId: string; patientId: string };
  * o job tenta de novo (o erro devolvido ao pg-boss leva só o código, nunca o caminho — RNF-11, F-1). Na última
  * tentativa o aviso sai assim mesmo: o titular não fica sem a resposta ao pedido, e a varredura diária
  * (apagarFotosDosBloqueados) termina as fotos. Plano 12 (§13.3): os envios de exame não aceitos saem do mesmo jeito
- * (apagarEnviosDoTitular; rede de segurança: apagarEnviosDosBloqueados). Só para quem está bloqueado e ainda identificado.
+ * (apagarEnviosDoTitular; rede de segurança: apagarEnviosDosBloqueados). Plano 15 (§7.6): as conversas da IA Nutri e a
+ * participação também (apagarIaNutriDoTitular), menos a pergunta com risco não aberta (D22). Só para quem está bloqueado e
+ * ainda identificado.
  */
 export async function concluirExclusaoAtendida(
   data: DadosExclusaoAtendida,
@@ -374,6 +377,14 @@ export async function concluirExclusaoAtendida(
     const motivo = motivoDoErro(err);
     logger.error({ motivo, tenantId: data.tenantId, definitivo: deps.ultimaTentativa }, 'falha ao apagar os envios de exame antes do aviso da exclusão');
     if (!deps.ultimaTentativa) throw new Error(`falha ao apagar os envios de exame (${motivo})`);
+  }
+  // Plano 15 (§7.6): as conversas da IA Nutri saem antes do aviso, menos a pergunta com risco não aberta (D22)
+  try {
+    await apagarIaNutriDoTitular(ctx, data.patientId, db);
+  } catch (err) {
+    const motivo = motivoDoErro(err);
+    logger.error({ motivo, tenantId: data.tenantId, definitivo: deps.ultimaTentativa }, 'falha ao apagar as conversas da IA Nutri antes do aviso da exclusão');
+    if (!deps.ultimaTentativa) throw new Error(`falha ao apagar as conversas da IA Nutri (${motivo})`);
   }
   const tenant = await buscarTenant(db, data.tenantId);
   await enqueueEmail(
@@ -527,6 +538,8 @@ export async function anonimizarVencidos(
             await tx.execute(sql`select app_anonimizar_aceites(${id})`);
             // Plano 14A (US-113): as autorizações de IA ficam (prova), sem IP, user-agent, HMAC e, no canal app, sem a conta
             await tx.execute(sql`select app_anonimizar_autorizacoes_ia(${id})`);
+            // Plano 15: os consentimentos da IA Nutri ficam (prova), sem IP, user-agent e conta
+            await tx.execute(sql`select app_anonimizar_consentimentos_ia_nutri(${id})`);
             const r = await tx
               .update(patients)
               .set({
@@ -557,6 +570,9 @@ export async function anonimizarVencidos(
             // Plano 11 (§5.3, RNF-110): a única exclusão de ia_tarefas — no contexto worker (gatilho ia_tarefas_sem_apagar).
             // O registro técnico sem titular continua em ia_uso; o que foi aplicado já está em exams.valores (prontuário).
             if (r.length) await tx.delete(iaTarefas).where(eq(iaTarefas.patientId, id));
+            // Plano 15 (§13.3): as conversas da IA Nutri que sobraram (a pergunta com risco da D22) e a participação — contexto
+            // worker, titular já anonimizado (gatilho ia_nutri_mensagens_sem_apagar)
+            if (r.length) await limparIaNutriNaAnonimizacao(tx, id);
             // Plano 12 (§13.3): as linhas de envio que sobraram (as dos aceitos: o exame já é o prontuário) — contexto worker,
             // titular já anonimizado (gatilho exam_submissions_sem_apagar)
             if (r.length) await tx.delete(examSubmissions).where(eq(examSubmissions.patientId, id));

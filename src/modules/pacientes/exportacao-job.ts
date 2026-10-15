@@ -48,11 +48,12 @@ import {
 } from '@/modules/plataforma/tenant-status';
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
 import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules/ia/constantes';
+import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri-paciente/lgpd';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
-import { hojeNoFuso } from './datas';
+import { formatarDataNoFuso, hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
 import { FORMULAS_TMB, kcal } from './formulas';
 import { formatarTelefone } from './telefone';
@@ -231,6 +232,12 @@ export type DadosExportacao = {
     exame: { data: string; titulo: string } | null;
     pdf: string | null;
   }[];
+  /**
+   * Plano 15 (§7.6, RN-109): a conversa com a IA Nutri e os consentimentos — o titular e a equipe recebem; nunca índices,
+   * motivo técnico, modelo nem custo. Datas no fuso do consultório (dd/mm/aaaa); `enviadaEm` e `destino` só nas perguntas
+   * que saíram ao provedor.
+   */
+  iaNutri: IaNutriExportado;
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
 };
@@ -398,6 +405,8 @@ export async function montarDados(
     .from(iaAutorizacoes)
     .where(eq(iaAutorizacoes.patientId, patientId))
     .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
+  // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos)
+  const iaNutri = await iaNutriParaExportacao(tx, patientId, (d) => formatarDataNoFuso(d, fuso));
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
   // termos — sem texto do usuário (regra 9)
   let nTermo = 0;
@@ -560,6 +569,7 @@ export async function montarDados(
         pdf: null,
       };
     }),
+    iaNutri,
     laudosForaDoZip: false,
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos

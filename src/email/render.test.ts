@@ -257,6 +257,13 @@ describe('Plano 11 — e-mails da IA', () => {
     expect(c.text).not.toMatch(/sk-ant-/);
     expect(renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'teto', painelUrl: 'https://x.dev/admin' }).text).toContain('teto mensal');
   });
+  it('Plano 15 (D22, RN-182): alerta_ia risco_ia_nutri — só o aviso, sem consultório, paciente, contagem nem texto (desvio 5)', () => {
+    const r = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'risco_ia_nutri', painelUrl: 'https://x.dev/admin' });
+    expect(r.subject).toBe('IA do NutriDebby: atenção');
+    expect(r.text).toContain('Há mensagens com sinal de risco na IA Nutri que nenhuma nutricionista abriu há mais de 72 horas. Avise os consultórios pelo canal de suporte.');
+    expect(r.html).toContain('href="https://x.dev/admin"');
+    expect(r.text).not.toMatch(/laudo|teto|ANTHROPIC|\d+ mensage/);
+  });
 });
 
 describe('Plano 14A — e-mails da autorização de IA', () => {

@@ -73,6 +73,9 @@ export const QUEUES = {
   // D10 / DP-6: o e-mail de sinal de risco às nutricionistas (no máximo 1 a cada 15 min por tenant; dentro da janela, um job
   // adiado por tenant, com singletonKey = tenant e a consulta de pendentes, R7). Payload { tenantId }.
   'ia-nutri-risco': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-181, D22): retenção das conversas da IA Nutri, todo dia às 04:15 (180 dias; o aviso mínimo da D22; o e-mail
+  // aos admins do risco não aberto há mais de 72 h, uma vez por dia)
+  'ia-nutri-retencao': { retryLimit: 2, retryDelay: 600, expireInSeconds: 600 },
   // Plano 14B (D3): resumo do histórico, rascunho de plano e pacote de modelos sugeridos. Payload { tenantId, tarefaId } ou
   // { tenantId, geracaoId } (só ids). O laço de ferramentas tem prazo de 12 min (PRAZO_LACO_MS); 900 s fica acima dele e
   // abaixo dos 15 min da varredura. Só a 1ª volta repete (D4); as seguintes terminam sem repetir.

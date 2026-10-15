@@ -23,6 +23,7 @@ import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos
 import { configIA } from '@/modules/ia/modo';
 import { processarPerguntaIaNutri, type DadosJobIaPaciente } from '@/modules/ia/nutri-paciente/job';
 import { processarRevogacaoIaNutri, type DadosRevogacaoIaNutri } from '@/modules/ia/nutri-paciente/revogacao-job';
+import { expurgarIaNutri } from '@/modules/ia/nutri-paciente/retencao';
 import { avisarRiscoIaNutri } from '@/modules/ia/nutri-paciente/risco-job';
 import { expirarPerguntasIaNutri } from '@/modules/ia/nutri-paciente/varredura';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
@@ -292,6 +293,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await boss.schedule('expirar-ia-paciente', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-ia-paciente', async () => {
     await expirarPerguntasIaNutri(getDb(), new Date());
+  });
+  // Plano 15 (RN-181, D22, DP-10): a retenção das conversas da IA Nutri — depois da anonimização das 04:00 (retencao-lgpd)
+  await boss.schedule('ia-nutri-retencao', '15 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('ia-nutri-retencao', async () => {
+    await expurgarIaNutri(getDb(), new Date(), env.APP_URL);
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).

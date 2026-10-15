@@ -28,3 +28,15 @@ export function avisarTetoGlobal(db: Db, agora: Date, appUrl: string): Promise<n
     tipo: 'alerta_ia', para, motivo: 'teto', painelUrl: urlDoApp(appUrl, '/admin'),
   }));
 }
+
+/**
+ * Plano 15 (D22, RN-182): pergunta com sinal de risco da IA Nutri que nenhuma nutricionista abriu há mais de 72 h — o e-mail
+ * só diz que há (sem consultório, paciente, contagem nem texto: regra 3), no máximo um por dia. `quantos` só decide se há o
+ * que avisar; nunca vai ao e-mail.
+ */
+export async function avisarRiscoNaoAberto(db: Db, agora: Date, appUrl: string, quantos: number): Promise<number> {
+  if (quantos <= 0) return 0;
+  return avisarComMarca(db, 'alerta_ia_nutri_risco', agora, (u) => !u || agora.getTime() - u.getTime() >= 86_400_000, (para) => ({
+    tipo: 'alerta_ia', para, motivo: 'risco_ia_nutri', painelUrl: urlDoApp(appUrl, '/admin'),
+  }));
+}

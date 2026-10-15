@@ -411,7 +411,10 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         'IA do NutriDebby: atenção',
         msg.motivo === 'credencial'
           ? ['O provedor de IA recusou a credencial do worker (chave ausente, inválida ou sem pagamento). As leituras de laudo estão falhando.', 'Confira a variável ANTHROPIC_API_KEY do worker no Easypanel e o faturamento no Console do provedor.']
-          : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
+          : msg.motivo === 'risco_ia_nutri'
+            ? // Plano 15 (D22, RN-182; desvio 5: texto novo): sem consultório, paciente, contagem nem texto (regra 3)
+              ['Há mensagens com sinal de risco na IA Nutri que nenhuma nutricionista abriu há mais de 72 horas. Avise os consultórios pelo canal de suporte.']
+            : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
         { href: msg.painelUrl, rotulo: 'Abrir o painel do admin' },
       );
     case 'autorizacao_ia':

@@ -68,7 +68,7 @@ export type EmailMessage =
    */
   | { tipo: 'cota_ia_nutri'; para: string; link: string }
   /** Plano 11 (RN-105): aos admins — credencial do provedor inválida (1 por hora) ou teto/limite de gasto atingido (1 por mês). */
-  | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
+  | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto' | 'risco_ia_nutri'; painelUrl: string }
   /** Plano 14A (US-105, US-107): o pedido de autorização de IA — `link` = /autorizacao-ia/<token> (sem login, 7 dias). Sem dado de saúde. */
   | { tipo: 'autorizacao_ia'; para: string; consultorio: string; link: string }
   /**

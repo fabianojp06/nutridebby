@@ -68,6 +68,11 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   exames_enviados: 'Exames enviados pelo paciente',
   peso_no_app: 'Peso oculto no app',
   ia_autorizacao: 'Autorização de IA',
+  // Plano 15 (RN-183, desvio 6): o nome de trabalho — o histórico é da equipe e não muda com o nome escolhido (D28)
+  ia_nutri: 'IA Nutri (conversa com o paciente)',
+  ia_nutri_liberacao: 'IA Nutri — liberação',
+  ia_nutri_pergunta: 'IA Nutri (conversa com o paciente)',
+  ia_nutri_duvida: 'IA Nutri (conversa com o paciente)',
 };
 
 export type AccessHistoryItem = {
@@ -99,12 +104,23 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   // Plano 16 (Desvio 5): a decisão "Não mostrar peso no app" (`criar` = ligou, `excluir` = desligou, peso-oculto.ts)
   if (i.entidade === 'peso_no_app' && i.acao === 'criar') return 'Ligou';
   if (i.entidade === 'peso_no_app' && i.acao === 'excluir') return 'Desligou';
+  // Plano 15 (RN-183): a pergunta (recordAudit do módulo), o envio direto à nutricionista (DP-16) e a saída ao provedor
+  // (recordAudit do worker no portão, ator nulo)
+  if (i.entidade === 'ia_nutri_pergunta' && i.acao === 'criar') return 'Perguntou à IA';
+  if (i.entidade === 'ia_nutri_duvida' && i.acao === 'criar') return 'Enviou dúvida à nutricionista';
+  if (i.entidade === 'ia_nutri' && i.acao === 'exportar') return 'Pergunta enviada à IA';
   return ACAO_ROTULO[i.acao];
 }
 
-/** RN-101: as mudanças de situação feitas pelo worker (ator nulo) na entidade `ia` ficam no audit_log, mas fora da tela. */
+/**
+ * RN-101 e RN-183 (Plano 15): ficam no audit_log, mas fora da tela (e da contagem) — os `alterar` do worker (ator nulo) em
+ * `ia` e `ia_nutri`, e o `criar` do gatilho em `ia_nutri` (nasce da pergunta, da resposta do worker e da mensagem do filtro
+ * de risco; o "Perguntou à IA" é o `criar` de `ia_nutri_pergunta`, gravado pelo módulo).
+ */
 const visivelNoHistorico = (patientId: string) =>
-  sql`${auditLog.patientId} = ${patientId} and not (${auditLog.entidade} = 'ia' and ${auditLog.acao} = 'alterar' and ${auditLog.actorUserId} is null)`;
+  sql`${auditLog.patientId} = ${patientId}
+      and not (${auditLog.entidade} in ('ia', 'ia_nutri') and ${auditLog.acao} = 'alterar' and ${auditLog.actorUserId} is null)
+      and not (${auditLog.entidade} = 'ia_nutri' and ${auditLog.acao} = 'criar')`;
 
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
