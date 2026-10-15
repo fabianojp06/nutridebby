@@ -120,7 +120,8 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
       blocoNutri.valor = vigente;
       const html = renderToStaticMarkup(await eu());
       expect(html).toMatch(/<button[^>]*>Desativar a IA Nutri e apagar as conversas<\/button>/);
-      expect(html).toMatch(/<a[^>]*href="\/p\/plano\/ia"[^>]*>Ler as conversas<\/a>/);
+      // `?ler=1`: com o texto mudado (ou depois de desativar com a mensagem de risco guardada), a conversa abre só para ler (revisão da T12, I5)
+      expect(html).toMatch(/<a[^>]*href="\/p\/plano\/ia\?ler=1"[^>]*>Ler as conversas<\/a>/);
       expect(html).not.toContain('href="/p/plano/ia/autorizar');
     });
 

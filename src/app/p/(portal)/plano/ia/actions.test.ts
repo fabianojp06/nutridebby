@@ -73,7 +73,7 @@ describe('perguntarAction (US-172)', () => {
     }
   });
 
-  it('ok → { limpar: true }; risco gravado → limpa sem texto fixo (a conversa relida o mostra); risco sem mensagem → o texto fixo no retorno', async () => {
+  it('ok → { limpar: true }; risco gravado → limpa sem texto fixo (a conversa relida o mostra); risco sem mensagem → o texto fixo no retorno; risco sempre com "A resposta chegou." e a marca para o foco ir ao texto fixo (revisão da T12, I1)', async () => {
     s.perguntar.mockResolvedValueOnce({ codigo: 'ok', mensagemId: ID, textoFixo: null });
     expect(await perguntarAction('t1', fd(PERGUNTA))).toEqual({ limpar: true });
     const [ctx, texto, deps] = s.perguntar.mock.calls[0];
@@ -81,9 +81,9 @@ describe('perguntarAction (US-172)', () => {
     expect(texto).toBe(PERGUNTA);
     expect(deps).toMatchObject({ appUrl: 'http://app.test', ip: '10.9.29.56', userAgent: 'Navegador/1.0', ia: { destino: 'teste' } });
     s.perguntar.mockResolvedValueOnce({ codigo: 'risco', mensagemId: ID, textoFixo: 'risco_emergencia' });
-    expect(await perguntarAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: null, aviso: '' });
+    expect(await perguntarAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: null, aviso: MSG_IA_NUTRI.respostaChegou, risco: true });
     s.perguntar.mockResolvedValueOnce({ codigo: 'risco', mensagemId: null, textoFixo: 'risco_emergencia' });
-    expect(await perguntarAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: 'risco_emergencia', aviso: '' });
+    expect(await perguntarAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: 'risco_emergencia', aviso: MSG_IA_NUTRI.respostaChegou, risco: true });
   });
 
   it('a pergunta longa (IaNutriError) volta como aviso; outro erro sobe', async () => {
@@ -108,7 +108,7 @@ describe('enviarANutriAction (DP-16)', () => {
     s.enviarANutri.mockResolvedValueOnce({ codigo: 'indisponivel', mensagemId: null, textoFixo: null });
     expect(await enviarANutriAction('t1', fd(PERGUNTA))).toEqual({ aviso: MSG_IA_NUTRI.naoDisponivel });
     s.enviarANutri.mockResolvedValueOnce({ codigo: 'risco', mensagemId: null, textoFixo: 'sintoma_agudo' });
-    expect(await enviarANutriAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: 'sintoma_agudo', aviso: '' });
+    expect(await enviarANutriAction('t1', fd('x'))).toEqual({ limpar: true, textoFixo: 'sintoma_agudo', aviso: MSG_IA_NUTRI.respostaChegou, risco: true });
   });
 });
 

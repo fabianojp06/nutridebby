@@ -17,7 +17,18 @@ import { origemIaNutri } from './origem';
  * O que a conversa recebe de volta: nunca o texto da pergunta. `limpar` = a pergunta foi gravada (o campo esvazia); `feito`
  * = a avaliação ou o encaminhamento foi gravado (a tela muda o item sem reler a conversa, /code-review do PR #37).
  */
-export type RetornoConversa = { aviso?: string; limpar?: boolean; textoFixo?: CodigoTextoFixo | null; feito?: boolean };
+export type RetornoConversa = { aviso?: string; limpar?: boolean; textoFixo?: CodigoTextoFixo | null; feito?: boolean; risco?: boolean };
+
+/**
+ * Revisão da T12 (I1): o sinal de risco — "A resposta chegou." na região de status e o foco no texto fixo (com o 188 e o
+ * 192), que o leitor de tela lê; nunca a região vazia. Gravada a mensagem, o texto fixo vem na conversa relida.
+ */
+const retornoDoRisco = (textoFixo: CodigoTextoFixo | null, mensagemId: string | null): RetornoConversa => ({
+  limpar: true,
+  textoFixo: mensagemId ? null : textoFixo,
+  aviso: MSG_IA_NUTRI.respostaChegou,
+  risco: true,
+});
 
 const MSG_DO_CODIGO: Partial<Record<CodigoPergunta, string>> = {
   limite_dia: MSG_IA_NUTRI.limiteDia,
@@ -51,7 +62,7 @@ export async function perguntarAction(tenantId: string, fd: FormData): Promise<R
     const r = await perguntar(ctx, String(fd.get('texto') ?? ''), await depsDaConversa());
     revalidatePath('/p/plano/ia');
     if (r.codigo === 'ok') return { limpar: true };
-    if (r.codigo === 'risco') return { limpar: true, textoFixo: r.mensagemId ? null : r.textoFixo, aviso: '' };
+    if (r.codigo === 'risco') return retornoDoRisco(r.textoFixo, r.mensagemId);
     return { aviso: MSG_DO_CODIGO[r.codigo] ?? MSG_IA_NUTRI.naoDisponivel };
   } catch (e) {
     if (e instanceof IaNutriError) return { aviso: e.mensagem };
@@ -67,7 +78,7 @@ export async function enviarANutriAction(tenantId: string, fd: FormData): Promis
     const r = await enviarANutri(ctx, String(fd.get('texto') ?? ''), await depsDaConversa());
     revalidatePath('/p/plano/ia');
     if (r.codigo === 'encaminhada') return { limpar: true, aviso: MSG_IA_NUTRI.encaminhada };
-    if (r.codigo === 'risco') return { limpar: true, textoFixo: r.mensagemId ? null : r.textoFixo, aviso: '' };
+    if (r.codigo === 'risco') return retornoDoRisco(r.textoFixo, r.mensagemId);
     return { aviso: r.codigo === 'limite' ? MSG_IA_NUTRI.limiteDuvidas : MSG_IA_NUTRI.naoDisponivel };
   } catch (e) {
     if (e instanceof IaNutriError) return { aviso: e.mensagem };

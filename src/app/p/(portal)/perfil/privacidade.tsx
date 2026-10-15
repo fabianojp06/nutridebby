@@ -95,7 +95,7 @@ export function Privacidade({ ia, iaNutri }: { ia: BlocoIaNaTela | null; iaNutri
           )}
           {iaNutri.temConversa && (
             <p>
-              <Link href="/p/plano/ia" className={LINK_DO_BLOCO}>
+              <Link href="/p/plano/ia?ler=1" className={LINK_DO_BLOCO}>
                 {MSG_IA_NUTRI.lerConversas}
               </Link>
             </p>

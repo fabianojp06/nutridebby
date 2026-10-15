@@ -3,12 +3,14 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { CONSULTA_LENTA_MS, CONSULTA_RAPIDA_MS, MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { redirect } from 'next/navigation';
+import { CONSULTA_LENTA_MS, CONSULTA_RAPIDA_MS, MAX_PERGUNTA, MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 import type { MensagemDoPaciente } from '@/modules/ia/nutri-paciente/conversa';
 
 // (Os testes do projeto são `.ts`, sem JSX: createElement. Sem DOM: a lógica pura da tela e o HTML do servidor.)
 const s = vi.hoisted(() => ({ online: true }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => {} }) }));
 vi.mock('@/components/portal/online', () => ({ useOnline: () => s.online }));
 vi.mock('./actions', () => ({
   perguntarAction: async () => ({}),
@@ -16,7 +18,9 @@ vi.mock('./actions', () => ({
   avaliarAction: async () => ({}),
   encaminharAction: async () => ({}),
 }));
-const { Conversa, chegouResposta, encaminharNoItem, estadoDoRetorno, proximoIntervalo, textoDoStatus } = await import('./conversa');
+const { Conversa, MENSAGENS_NA_TELA, alvoDoFoco, chamar, chegouResposta, encaminharNoItem, estadoDoRetorno, inicioVisivel, proximoIntervalo, textoDoStatus } = await import('./conversa');
+const tela = (o: { mensagens?: MensagemDoPaciente[]; textoInicial?: string | null; podePerguntar?: boolean } = {}) =>
+  renderToStaticMarkup(createElement(Conversa, { tenantId: 't1', mensagens: o.mensagens ?? [], podePerguntar: o.podePerguntar ?? true, sessaoNova: false, textoInicial: o.textoInicial ?? null }));
 
 let n = 0;
 const msg = (o: Partial<MensagemDoPaciente>): MensagemDoPaciente => ({
@@ -57,9 +61,86 @@ describe('a conversa no app (US-172, RNF-160, RNF-167)', () => {
   });
 
   it('depois de perguntar (ok ou risco) o campo esvazia; no risco sem mensagem gravada, o texto fixo vem no retorno; "Pensando…" só no ok', () => {
-    expect(estadoDoRetorno({ limpar: true })).toEqual({ limpar: true, aviso: MSG_IA_NUTRI.pensando, textoFixo: null });
-    expect(estadoDoRetorno({ limpar: true, textoFixo: 'risco_emergencia', aviso: '' })).toEqual({ limpar: true, aviso: '', textoFixo: 'risco_emergencia' });
-    expect(estadoDoRetorno({ aviso: MSG_IA_NUTRI.limiteDia })).toEqual({ limpar: false, aviso: MSG_IA_NUTRI.limiteDia, textoFixo: null });
+    expect(estadoDoRetorno({ limpar: true })).toEqual({ limpar: true, aviso: MSG_IA_NUTRI.pensando, textoFixo: null, focarTextoFixo: false });
+    expect(estadoDoRetorno({ limpar: true, textoFixo: 'risco_emergencia', aviso: MSG_IA_NUTRI.respostaChegou, risco: true })).toEqual({
+      limpar: true,
+      aviso: MSG_IA_NUTRI.respostaChegou,
+      textoFixo: 'risco_emergencia',
+      focarTextoFixo: true,
+    });
+    expect(estadoDoRetorno({ aviso: MSG_IA_NUTRI.limiteDia })).toEqual({ limpar: false, aviso: MSG_IA_NUTRI.limiteDia, textoFixo: null, focarTextoFixo: false });
+  });
+
+  it('revisão da T12 (I1): no risco, o foco vai para o texto fixo — o sem mensagem gravada, ou a mensagem NOVA com texto fixo no fim da conversa relida (espera enquanto ela não chega); o contêiner é focável', () => {
+    const antes = msg({ autor: 'ia', textoFixo: 'nao_encontrei' });
+    const pergunta = msg({ texto: 'x', status: 'respondida', risco: true });
+    const aviso = msg({ autor: 'sistema', textoFixo: 'risco_emergencia' });
+    const foco = { tipo: 'texto_fixo' as const, depoisDe: antes.id };
+    expect(alvoDoFoco(foco, [antes], true)).toEqual({ tipo: 'fixo_sem_mensagem' });
+    expect(alvoDoFoco(foco, [antes], false)).toBeNull(); // a conversa relida ainda não chegou: o texto fixo antigo não conta
+    expect(alvoDoFoco(foco, [antes, pergunta, aviso], false)).toEqual({ tipo: 'mensagem', id: aviso.id });
+    expect(alvoDoFoco({ tipo: 'avaliada', id: 'm1' }, [], false)).toEqual({ tipo: 'avaliada', id: 'm1' });
+    const html = tela({ mensagens: [pergunta, aviso] });
+    // o leitor de tela lê o bloco inteiro (autor e o texto com o 188 e o 192) quando o foco chega nele
+    expect(html).toMatch(new RegExp(`<div id="[^"]*-mensagem-${aviso.id}" tabindex="-1"[^>]*><p[^>]*>Aviso do app</p><p[^>]*>Sinto muito`));
+    expect(html).toContain('href="tel:192"');
+  });
+
+  it('revisão da T12 (I2): a action que rejeita (rede que cai, erro 500) vira aviso na região — "não disponível" com rede, "Sem conexão" sem; o redirect do Next segue', async () => {
+    const falha = () => Promise.reject(new Error('fetch failed'));
+    expect(await chamar(falha, () => true)).toEqual({ aviso: MSG_IA_NUTRI.naoDisponivel });
+    expect(await chamar(falha, () => false)).toEqual({ aviso: MSG_IA_NUTRI.semConexao });
+    expect(await chamar(async () => ({ limpar: true }), () => true)).toEqual({ limpar: true });
+    let erroDoRedirect: unknown;
+    try {
+      redirect('/p/plano/ia');
+    } catch (e) {
+      erroDoRedirect = e;
+    }
+    await expect(chamar(() => Promise.reject(erroDoRedirect), () => true)).rejects.toBe(erroDoRedirect);
+    // sem `limpar`, o campo não esvazia: o texto digitado continua
+    expect(estadoDoRetorno(await chamar(falha, () => true)).limpar).toBe(false);
+    // os três pontos que chamam actions passam por `chamar`
+    const fonte = readFileSync(path.resolve('src/app/p/(portal)/plano/ia/conversa.tsx'), 'utf8');
+    for (const a of ['acao(tenantId, fd)', 'avaliarAction(tenantId, mensagemId, valor)', 'encaminharAction(tenantId, perguntaId)']) expect(fonte, a).toContain(`chamar(() => ${a})`);
+  });
+
+  it('revisão da T12 (I3, US-172 "Pergunta longa"): sem maxLength; acima de 500 caracteres (contados por ponto de código) o texto da spec ao lado do contador, ligado ao campo, e os dois botões desabilitados', () => {
+    let html = tela({ textoInicial: 'a'.repeat(MAX_PERGUNTA) });
+    expect(html).not.toMatch(/maxlength/i);
+    expect(html).not.toContain(MSG_IA_NUTRI.longa);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Perguntar<\/button>/);
+    html = tela({ textoInicial: '🍎'.repeat(MAX_PERGUNTA + 1) });
+    expect(html).toContain(`${MAX_PERGUNTA + 1} de 500 caracteres`);
+    const ids = /<textarea[^>]*aria-describedby="([^"]+)"/.exec(html)?.[1].split(' ') ?? [];
+    expect(ids).toHaveLength(2);
+    expect(html).toMatch(new RegExp(`<p id="${ids[1]}" class="[^"]*text-erro[^"]*">${MSG_IA_NUTRI.longa}</p>`));
+    expect(html).toMatch(/<textarea[^>]*aria-invalid="true"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Perguntar<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Enviar direto para minha nutricionista<\/button>/);
+  });
+
+  it('revisão da T12 (I4): só as 20 últimas mensagens, sem começar por uma resposta solta, e "Mostrar mensagens anteriores" (44 px) antes da lista', () => {
+    const conversa = Array.from({ length: 30 }, (_, i) => (i % 2 === 0 ? msg({ texto: `Pergunta ${i}`, status: 'respondida' }) : msg({ autor: 'ia', texto: `Resposta ${i}` })));
+    expect(inicioVisivel(conversa, MENSAGENS_NA_TELA)).toBe(10);
+    expect(inicioVisivel(conversa, 19)).toBe(10); // 11 seria a resposta da pergunta 10: começa na pergunta
+    expect(inicioVisivel(conversa.slice(0, 8), MENSAGENS_NA_TELA)).toBe(0);
+    let html = tela({ mensagens: conversa });
+    expect(html).not.toContain('>Pergunta 8<');
+    expect(html).toContain('>Pergunta 10<');
+    expect(html).toContain('>Resposta 29<');
+    expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*min-h-11[^"]*">${MSG_IA_NUTRI.mostrarAnteriores}</button><ol`));
+    html = tela({ mensagens: conversa.slice(0, 8) });
+    expect(html).not.toContain(MSG_IA_NUTRI.mostrarAnteriores);
+  });
+
+  it('revisão da T12 (I4): "Obrigado pela avaliação." e "Pronto!…" são focáveis — o foco fica no lugar do item, não no fim da página', () => {
+    const p = msg({ texto: 'a', status: 'respondida', duvida: 'aberta' });
+    const r = msg({ autor: 'ia', texto: 'b', avaliacao: 'ajudou' });
+    const html = tela({ mensagens: [p, r] });
+    expect(html).toMatch(new RegExp(`<p id="[^"]*-avaliada-${r.id}" tabindex="-1"[^>]*>${MSG_IA_NUTRI.avaliado}</p>`));
+    expect(html).toMatch(new RegExp(`<p id="[^"]*-encaminhada-${p.id}" tabindex="-1"[^>]*>${MSG_IA_NUTRI.encaminhada}</p>`));
+    expect(TEXTOS_FIXOS.risco_emergencia).toContain('192');
   });
 
   it('"A resposta chegou." quando a pergunta em andamento termina (e só então)', () => {

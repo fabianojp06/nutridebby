@@ -75,6 +75,7 @@ export const MSG_IA_NUTRI = {
   respostaChegou: 'A resposta chegou.', // novo (região de status, RNF-167)
   autorSistema: 'Aviso do app',
   apagada: 'Mensagem apagada.', // novo
+  mostrarAnteriores: 'Mostrar mensagens anteriores', // novo (revisão da T12, I4: a conversa mostra as 20 últimas; à Debby)
   emergencia: 'Em emergência: SAMU 192 · CVV 188',
   linkPlano: 'Tirar dúvida sobre o plano',
   linkRefeicao: 'Perguntar sobre esta refeição',

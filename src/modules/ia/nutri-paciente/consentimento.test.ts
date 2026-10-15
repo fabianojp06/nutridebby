@@ -18,7 +18,7 @@ import { IA_NUTRI_TERMO_VERSAO, textoExibidoIaNutri } from '../textos-legais';
 import { aceitarNoApp, desativarNoApp, desativarPelaNutri } from './consentimento';
 import { MSG_IA_NUTRI } from './constantes';
 import type { DepsIaNutri } from './deps';
-import { blocoIaNutriDoApp, entradaDoPaciente } from './estado';
+import { blocoIaNutriDoApp, entradaDoPaciente, temConversaGuardada } from './estado';
 import { IaNutriError } from './participacao';
 import type { DadosRevogacaoIaNutri } from './revogacao-job';
 
@@ -268,5 +268,22 @@ describe('§7.6, RN-182 — blocoIaNutriDoApp (Eu › Privacidade)', () => {
     const b = await c.bloco();
     expect(b).toMatchObject({ podeDesativar: false, temConversa: true, situacao: MSG_IA_NUTRI.situacaoDesativada(formatarDataNoFuso(rev.registradoEm, (await c.tenant()).fuso)) });
     expect(await desativarNoApp(c.P, c.deps())).toBe('nada_a_desativar');
+    // revisão da T12 (I5): "Ler as conversas" continua valendo com a entrada `decidir` (a mensagem de risco guardada, D22)
+    expect(await c.entrada()).toBe('decidir');
+    expect(await temConversaGuardada(c.P, { db: app.db })).toBe(true);
+  });
+});
+
+describe('revisão da T12 (I5, LGPD art. 18, II) — temConversaGuardada', () => {
+  it('sem mensagem → false; com mensagem guardada e o texto de agora já outro (texto_mudou) → true; sem auditRead; só a sessão de paciente', async () => {
+    const c = await cenario({ aceite: true });
+    expect(await temConversaGuardada(c.P, { db: app.db })).toBe(false);
+    await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });
+    expect(await c.entrada({ ...IA_TESTE, destino: 'anthropic-us' })).toBe('texto_mudou');
+    const auditoria = async () => Number((await withTenant(c.T.ctx, (tx) => tx.execute(sql`select count(*)::int as n from audit_log where tenant_id = ${c.T.tenantId} and acao = 'ler'`), app.db)).rows[0].n);
+    const antes = await auditoria();
+    expect(await temConversaGuardada(c.P, { db: app.db })).toBe(true);
+    expect(await auditoria()).toBe(antes);
+    expect(await temConversaGuardada(c.T.ctx, { db: app.db })).toBe(false);
   });
 });

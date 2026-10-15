@@ -8,7 +8,7 @@ import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 // Só a montagem da página (sessão, entrada, conversa e plano simulados). As regras da entrada (T7) e da projeção fechada
 // (T8) têm os testes delas em src/modules/ia/nutri-paciente, contra o Postgres.
 const OUTRA = '00000000-0000-4000-8000-0000000000c2';
-const s = vi.hoisted(() => ({ entrada: 'conversa' as string, mensagens: [] as unknown[], conversa: 0 }));
+const s = vi.hoisted(() => ({ entrada: 'conversa' as string, mensagens: [] as unknown[], conversa: 0, guardada: false }));
 vi.mock('next/navigation', async (orig) => ({
   ...(await orig<typeof import('next/navigation')>()),
   useRouter: () => ({ refresh: () => {} }),
@@ -20,7 +20,7 @@ vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'sandbox', IA_MODELO_LEI
 vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: { role: 'paciente' }, tenant: { id: 't1', fuso: 'America/Sao_Paulo' }, vinculo: { patientId: 'p1' } }),
 }));
-vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => s.entrada }));
+vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => s.entrada, temConversaGuardada: async () => s.guardada }));
 vi.mock('@/modules/ia/nutri-paciente/conversa', () => ({
   conversaDoPaciente: async () => {
     s.conversa += 1;
@@ -61,6 +61,7 @@ beforeEach(() => {
   s.entrada = 'conversa';
   s.mensagens = [];
   s.conversa = 0;
+  s.guardada = false;
 });
 
 describe('/p/plano/ia — a conversa (US-172, §7.8, RN-173, RNF-167)', () => {
@@ -153,12 +154,42 @@ describe('/p/plano/ia — a conversa (US-172, §7.8, RN-173, RNF-167)', () => {
     expect(html).toMatch(/<textarea[^>]*><\/textarea>/);
   });
 
-  it('sem consentimento → a tela de decisão; texto mudou → a tela com "mudou"', async () => {
-    entrada('decidir');
-    await expect(pagina()).rejects.toThrow('redirect /p/plano/ia/autorizar?de=plano');
-    entrada('texto_mudou');
-    await expect(pagina()).rejects.toThrow('redirect /p/plano/ia/autorizar?de=plano&mudou=1');
+  it('vindo de Plano para perguntar: sem consentimento → a tela de decisão; texto mudou → a tela com "mudou" (nada lido, mesmo com conversa guardada)', async () => {
+    for (const guardada of [false, true]) {
+      s.guardada = guardada;
+      entrada('decidir');
+      await expect(pagina()).rejects.toThrow('redirect /p/plano/ia/autorizar?de=plano');
+      entrada('texto_mudou');
+      await expect(pagina()).rejects.toThrow('redirect /p/plano/ia/autorizar?de=plano&mudou=1');
+    }
     expect(s.conversa).toBe(0); // nada lido (nem auditRead) antes do consentimento
+  });
+
+  it('revisão da T12 (I5, §7.6, RN-182, LGPD art. 18, II): "Ler as conversas" de Eu (?ler=1) sem conversa guardada → a tela de decisão, com a origem em Eu, sem ler nada', async () => {
+    for (const e of ['decidir', 'texto_mudou'] as const) {
+      entrada(e);
+      await expect(pagina({ ler: '1' }), e).rejects.toThrow(`redirect /p/plano/ia/autorizar?de=eu${e === 'texto_mudou' ? '&mudou=1' : ''}`);
+    }
+    expect(s.conversa).toBe(0);
+  });
+
+  it('revisão da T12 (I5): ?ler=1 com conversa guardada e o texto mudado (ou desativada com a mensagem de risco da D22) → a conversa só para ler, com o aviso, "Ler e decidir" e "Voltar" para Eu', async () => {
+    s.guardada = true;
+    for (const e of ['texto_mudou', 'decidir'] as const) {
+      entrada(e);
+      s.mensagens = [msg({ texto: 'Guardada', status: 'respondida', podeEncaminhar: true }), msg({ autor: 'ia', texto: 'Resposta guardada' })];
+      const html = await pagina({ ler: '1' });
+      expect(html, e).toContain('Guardada');
+      expect(html, e).toContain('Resposta guardada');
+      expect(html, e).not.toContain('<textarea');
+      expect(html, e).not.toContain('>Ajudou<');
+      expect(html, e).not.toContain('>Enviar para minha nutricionista<');
+      expect(html, e).toMatch(/<a [^>]*href="\/p\/plano\/ia\/autorizar\?de=eu"[^>]*>Ler e decidir<\/a>/);
+      expect(html, e).toMatch(/<a [^>]*href="\/p\/perfil#eu-ia-nutri"/); // "Voltar" para Eu
+      if (e === 'texto_mudou') expect(html).toMatch(new RegExp(`role="status"[^>]*>${MSG_IA_NUTRI.textoMudou}<`));
+      else expect(html).not.toContain(MSG_IA_NUTRI.textoMudou);
+    }
+    expect(s.conversa).toBe(2); // o titular lendo os próprios dados: a leitura normal (com o auditRead dela)
   });
 
   it('sem plano publicado: "A IA Nutri fica disponível quando…" (DP-5)', async () => {

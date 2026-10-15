@@ -78,6 +78,27 @@ export async function entradaDoPaciente(ctx: TenantContext, tenant: TenantRow, i
   return withTenant(ctx, async (tx) => entradaNaTransacao(tx, pid, tenant, ia, o.pausa ?? (await lerPausa(tx))), o.db ?? getDb());
 }
 
+/** Há mensagem guardada com conteúdo (texto ou texto fixo) — só a existência, sem ler o conteúdo e sem auditRead. */
+async function conversaGuardadaNaTransacao(tx: Tx, patientId: string): Promise<boolean> {
+  const [m] = await tx
+    .select({ id: iaNutriMensagens.id })
+    .from(iaNutriMensagens)
+    .where(and(eq(iaNutriMensagens.patientId, patientId), or(isNotNull(iaNutriMensagens.texto), isNotNull(iaNutriMensagens.textoFixo))))
+    .limit(1);
+  return !!m;
+}
+
+/**
+ * Revisão da T12 (I5, §7.6, RN-182, LGPD art. 18, II): a mesma conferência do `temConversa` de Eu › Privacidade, para o
+ * "Ler as conversas" (`/p/plano/ia?ler=1`) com a entrada `decidir`/`texto_mudou` — o titular lê o que está guardado sem
+ * precisar aceitar o texto de agora. Só existência: nenhum conteúdo lido, nenhum auditRead (a leitura da conversa grava o dela).
+ */
+export async function temConversaGuardada(ctx: TenantContext, o: { db?: Db } = {}): Promise<boolean> {
+  if (ctx.role !== 'paciente' || !ctx.patientId) return false;
+  const pid = ctx.patientId;
+  return withTenant(ctx, (tx) => conversaGuardadaNaTransacao(tx, pid), o.db ?? getDb());
+}
+
 export type BlocoIaNutriApp = { situacao: string; podeDecidir: boolean; podeDesativar: boolean; temConversa: boolean };
 
 /**
@@ -97,11 +118,7 @@ export async function blocoIaNutriDoApp(ctx: TenantContext, tenant: TenantRow, i
     async (tx) => {
       const pausa = o.pausa ?? (await lerPausa(tx));
       const ev = await ultimoEvento(tx, pid);
-      const [conversa] = await tx
-        .select({ id: iaNutriMensagens.id })
-        .from(iaNutriMensagens)
-        .where(and(eq(iaNutriMensagens.patientId, pid), or(isNotNull(iaNutriMensagens.texto), isNotNull(iaNutriMensagens.textoFixo))))
-        .limit(1);
+      const conversa = await conversaGuardadaNaTransacao(tx, pid);
       const entrada = await entradaNaTransacao(tx, pid, tenant, ia, pausa);
       const podeDecidir = entrada === 'decidir' || entrada === 'texto_mudou';
       // /code-review do PR #37: só com o consentimento vigente (o último evento é o aceite) — é o único caso em que
@@ -111,7 +128,7 @@ export async function blocoIaNutriDoApp(ctx: TenantContext, tenant: TenantRow, i
       if (!podeDecidir && !podeDesativar && !ev && !conversa) return null;
       const data = ev ? formatarDataNoFuso(ev.registradoEm, tenant.fuso) : '';
       const situacao = ev?.evento === 'aceite' ? MSG_IA_NUTRI.situacaoVigente(data) : ev ? MSG_IA_NUTRI.situacaoDesativada(data) : MSG_IA_NUTRI.situacaoNunca;
-      return { situacao, podeDecidir, podeDesativar, temConversa: !!conversa };
+      return { situacao, podeDecidir, podeDesativar, temConversa: conversa };
     },
     o.db ?? getDb(),
   );
