@@ -224,6 +224,20 @@ describe('Plano 11 — e-mails da IA', () => {
     expect(r.text).toContain('https://x.dev/painel/configuracoes');
     expect(r.text).not.toMatch(/US\$/);
   });
+  it('cota_ia_nutri (Plano 15, US-176): 80% da IA Nutri, à equipe; sem nome de paciente, conversa nem valores em US$', () => {
+    const r = renderEmail({ tipo: 'cota_ia_nutri', para: 'd@x.dev', link: 'https://x.dev/painel/configuracoes' });
+    expect(r.subject).toBe('Os pacientes já usaram 80% do limite da IA Nutri deste mês');
+    expect(r.text).toBe(
+      [
+        'Os pacientes já usaram 80% do limite da IA Nutri deste mês.',
+        'Quando chegar a 100%, a IA Nutri fica indisponível para os pacientes até o dia 1º ou até o suporte ampliar o limite. A leitura de laudos e as outras funções de IA não mudam.',
+        'Ver o uso da IA: https://x.dev/painel/configuracoes',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/painel/configuracoes"');
+    expect(r.html).toContain('Os pacientes já usaram 80% do limite da IA Nutri deste mês.');
+    expect(`${r.subject}${r.text}${r.html}`).not.toMatch(/US\$|paciente:|pergunt/i);
+  });
   it('alerta_ia: credencial cita só o NOME da variável; teto não cita valores', () => {
     const c = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'credencial', painelUrl: 'https://x.dev/admin' });
     expect(c.text).toContain('ANTHROPIC_API_KEY');

@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { envioNoBanco } from '../../../test/exames-enviados';
+import { iaNutriPronta } from '../../../test/ia-nutri';
 import { adminActions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { CONTA_COTA } from '@/modules/notificacoes/whatsapp/cota';
-import { ajustarCotaIa, ajustarCotaWhatsapp, CotaWhatsappError, metricasDeExamesEnviadosPorTenant, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant, MSG_COTA_IA, MSG_METRICAS, salvarMetricasBase } from './metricas';
+import { reservar } from '@/modules/ia/cota';
+import { ajustarCotaIa, ajustarCotaIaNutri, ajustarCotaWhatsapp, CotaIaAdminError, CotaWhatsappError, metricasDeExamesEnviadosPorTenant, metricasDeIaNutriPorTenant, metricasDeIaPorEscopo, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant, MSG_COTA_IA, MSG_METRICAS, salvarMetricasBase } from './metricas';
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -167,6 +170,63 @@ describe('Plano 11 (US-100) — limite de IA do consultório', () => {
   it('metricasDeIaPorTenant lê só a função SECURITY DEFINER (contagens e somas)', async () => {
     const T = await novoTenant(app.db);
     expect((await metricasDeIaPorTenant(app.db)).get(T.tenantId)).toEqual({ tarefasMes: 0, custoMesMicroUsd: 0 });
+  });
+});
+
+describe('Plano 15 (§3, DP-11) — cota e métricas da IA Nutri no admin', () => {
+  // mês corrente: a função do banco conta o mês de agora no fuso do tenant; teto alto (o contador global é de todos os testes)
+  const uso = (tenantId: string, tipo: string, microUsd: number) =>
+    withTenant({ tenantId, role: 'worker' }, (tx) => reservar(tx, { tenantId, tarefaId: randomUUID(), tipo, modelo: 'claude-haiku-5-5', promptVersao: 'p', microUsd, agora: new Date(), tetoGlobalMicroUsd: 1e12 }), app.db);
+
+  it('ajustarCotaIaNutri grava ia_nutri_cota_mensal_usd e ajustar_cota_ia_nutri; inválido → CotaIaAdminError(MSG_COTA_IA); log sem nada além do valor e dos ids', async () => {
+    const T = await novoTenant(app.db);
+    const admin = randomUUID();
+    const info = vi.spyOn(logger, 'info');
+    await ajustarCotaIaNutri(T.tenantId, '9,50', admin, app.db);
+    expect(info).toHaveBeenCalledWith({ tenantId: T.tenantId, adminId: admin, cotaIaNutriUsd: 9.5 }, 'limite da IA Nutri ajustado');
+    info.mockRestore();
+    const [t] = await app.db.select({ c: tenants.iaNutriCotaMensalUsd, nutri: tenants.iaCotaMensalUsd }).from(tenants).where(eq(tenants.id, T.tenantId));
+    expect(t).toEqual({ c: 9.5, nutri: 15 }); // a cota da nutricionista não muda
+    for (const ruim of ['1000,01', '-1', 'abc', '', '12,345']) {
+      await expect(ajustarCotaIaNutri(T.tenantId, ruim, admin, app.db), ruim).rejects.toSatisfy((e: unknown) => e instanceof CotaIaAdminError && e.message === MSG_COTA_IA);
+    }
+    const acoes = await app.db.select({ acao: adminActions.acao, admin: adminActions.adminUserId, origem: adminActions.origem }).from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId));
+    expect(acoes).toEqual([{ acao: 'ajustar_cota_ia_nutri', admin, origem: 'admin' }]);
+    await expect(ajustarCotaIaNutri(randomUUID(), '5', admin, app.db)).rejects.toBeInstanceOf(ContaNaoEncontradaError);
+  });
+
+  it('DP-11: a leitura vai para a IA da nutricionista e a conversa do paciente para a IA Nutri, sem misturar', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId);
+    await uso(T.tenantId, 'leitura_exame', 171_600);
+    await uso(T.tenantId, 'conversa_paciente', 5_500);
+    expect((await metricasDeIaPorTenant(app.db)).get(T.tenantId)).toEqual({ tarefasMes: 1, custoMesMicroUsd: 171_600 });
+    expect((await metricasDeIaNutriPorTenant(app.db)).get(T.tenantId)).toEqual({ perguntasMes: 0, usosMes: 1, custoMesMicroUsd: 5_500 });
+    expect((await metricasDeIaPorEscopo(app.db)).get(T.tenantId)).toEqual({
+      nutri: { tarefasMes: 1, custoMesMicroUsd: 171_600 },
+      paciente: { perguntasMes: 0, usosMes: 1, custoMesMicroUsd: 5_500 },
+    });
+  });
+
+  it('/code-review do PR #37: um tenant só com conversa_paciente não dá número negativo na IA da nutricionista', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId);
+    await uso(T.tenantId, 'conversa_paciente', 5_500);
+    expect((await metricasDeIaPorTenant(app.db)).get(T.tenantId)).toEqual({ tarefasMes: 0, custoMesMicroUsd: 0 });
+  });
+
+  it('metricasDeIaPorEscopo faz UMA chamada ao banco, à admin_metricas_ia_nutri(), e nenhuma à admin_metricas_ia()', async () => {
+    const T = await novoTenant(app.db);
+    const execute = vi.spyOn(app.db, 'execute');
+    try {
+      expect((await metricasDeIaPorEscopo(app.db)).get(T.tenantId)).toEqual({ nutri: { tarefasMes: 0, custoMesMicroUsd: 0 }, paciente: { perguntasMes: 0, usosMes: 0, custoMesMicroUsd: 0 } });
+      expect(execute).toHaveBeenCalledTimes(1);
+      const consulta = new PgDialect().sqlToQuery(execute.mock.calls[0][0] as SQL).sql;
+      expect(consulta).toContain('admin_metricas_ia_nutri()');
+      expect(consulta).not.toContain('admin_metricas_ia()');
+    } finally {
+      execute.mockRestore();
+    }
   });
 });
 

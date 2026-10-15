@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { iaGastoPlataforma, iaTarefas, iaUso, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -30,14 +30,30 @@ export class CotaIaError extends Error {
   }
 }
 
-/** Soma do mês do tenant (a RLS restringe ao tenant do withTenant). */
-export async function gastoDoMes(tx: Tx, mes: string): Promise<number> {
+/**
+ * Plano 15 (D3, DP-7, RN-179): a cota tem ESCOPO — `paciente` (a IA Nutri, tipo conversa_paciente, contra
+ * tenants.ia_nutri_cota_mensal_usd) e `nutri` (o resto, contra tenants.ia_cota_mensal_usd). O teto global continua um
+ * contador só (ia_gasto_plataforma). O escopo vem do `tipo` da reserva: os chamadores da 14A/14B não mudam.
+ */
+export type EscopoCota = 'nutri' | 'paciente';
+export const TIPOS_DO_ESCOPO: { readonly paciente: readonly string[] } = { paciente: ['conversa_paciente'] };
+export const escopoDoTipo = (tipo: string): EscopoCota => (TIPOS_DO_ESCOPO.paciente.includes(tipo) ? 'paciente' : 'nutri');
+
+/** Soma do mês do tenant no escopo (a RLS restringe ao tenant do withTenant). */
+export async function gastoDoMes(tx: Tx, mes: string, escopo: EscopoCota = 'nutri'): Promise<number> {
+  const doEscopo = escopo === 'paciente' ? inArray(iaUso.tipo, [...TIPOS_DO_ESCOPO.paciente]) : notInArray(iaUso.tipo, [...TIPOS_DO_ESCOPO.paciente]);
   const [r] = await tx
     .select({ n: sql<string>`coalesce(sum(${iaUso.custoMicroUsd}), 0)` })
     .from(iaUso)
-    .where(and(eq(iaUso.mes, mes), inArray(iaUso.situacao, [...CONTAM])));
+    .where(and(eq(iaUso.mes, mes), inArray(iaUso.situacao, [...CONTAM]), doEscopo));
   return Number(r.n);
 }
+
+/** A cota (US$) e a marca do aviso de 80% de cada escopo, nas colunas de `tenants`. */
+const COLUNAS_DO_ESCOPO = {
+  nutri: { cota: tenants.iaCotaMensalUsd, aviso: tenants.iaAvisoMes },
+  paciente: { cota: tenants.iaNutriCotaMensalUsd, aviso: tenants.iaNutriAvisoMes },
+} as const;
 
 /** Soma `delta` ao contador global do mês; com teto, só se couber (senão, CotaIaError("teto_plataforma")). */
 async function somarNaPlataforma(tx: Tx, mes: string, delta: number, teto: number | null, agora: Date): Promise<void> {
@@ -55,19 +71,27 @@ async function somarNaPlataforma(tx: Tx, mes: string, delta: number, teto: numbe
   if (!r.length) throw new CotaIaError('teto_plataforma');
 }
 
-async function travarTenant(tx: Tx, tenantId: string) {
-  const [t] = await tx.select({ cota: tenants.iaCotaMensalUsd, fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, tenantId)).for('no key update');
+async function travarTenant(tx: Tx, tenantId: string, escopo: EscopoCota) {
+  const [t] = await tx
+    .select({ cota: COLUNAS_DO_ESCOPO[escopo].cota, fuso: tenants.fuso })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .for('no key update');
   if (!t) throw new Error('tenant não encontrado');
   return t;
 }
 
 export type Reserva = { tenantId: string; tarefaId: string; tipo: string; modelo: string; promptVersao: string; microUsd: number; agora: Date; tetoGlobalMicroUsd: number };
 
-/** App, na transação que cria a tarefa (US-102: sem saldo, a tarefa não nasce e nada sai ao provedor). */
+/**
+ * App, na transação que cria a tarefa (US-102: sem saldo, a tarefa não nasce e nada sai ao provedor). Plano 15 (DP-7): a
+ * cota conferida é a do escopo do `tipo` (conversa_paciente → a da IA Nutri); o teto global é o mesmo para os dois.
+ */
 export async function reservar(tx: Tx, r: Reserva): Promise<void> {
-  const t = await travarTenant(tx, r.tenantId);
+  const escopo = escopoDoTipo(r.tipo);
+  const t = await travarTenant(tx, r.tenantId, escopo);
   const mes = mesNoFuso(r.agora, t.fuso);
-  if ((await gastoDoMes(tx, mes)) + r.microUsd > usdParaMicro(t.cota)) throw new CotaIaError('cota');
+  if ((await gastoDoMes(tx, mes, escopo)) + r.microUsd > usdParaMicro(t.cota)) throw new CotaIaError('cota');
   await somarNaPlataforma(tx, mesNoFuso(r.agora, FUSO_DA_PLATAFORMA), r.microUsd, r.tetoGlobalMicroUsd, r.agora);
   await tx.insert(iaUso).values({
     tenantId: r.tenantId, tarefaId: r.tarefaId, tipo: r.tipo, modelo: r.modelo, promptVersao: r.promptVersao,
@@ -131,35 +155,44 @@ function nivel(usado: number, cota: number): SituacaoCotaIa['nivel'] {
   return usado >= Math.ceil(cota * 0.8) ? 'aviso' : 'ok';
 }
 
-/** US-101/US-102: "Uso da IA neste mês: {p}% do limite" (a nutricionista vê só a porcentagem). */
+/**
+ * US-101/US-102: "Uso da IA neste mês: {p}% do limite" (a nutricionista vê só a porcentagem). Plano 15 (DP-7): `escopo`
+ * `paciente` mede a IA Nutri contra a cota dela; o padrão (`nutri`) é o de sempre, sem a conversa do paciente.
+ */
 export async function situacaoDaCotaIa(
   ctx: TenantContext,
-  tenant: Pick<TenantRow, 'fuso' | 'iaCotaMensalUsd'>,
+  tenant: Pick<TenantRow, 'fuso' | 'iaCotaMensalUsd' | 'iaNutriCotaMensalUsd'>,
   agora: Date = new Date(),
   db: Db = getDb(),
+  escopo: EscopoCota = 'nutri',
 ): Promise<SituacaoCotaIa> {
-  const usado = await withTenant(ctx, (tx) => gastoDoMes(tx, mesNoFuso(agora, tenant.fuso)), db);
-  const cota = usdParaMicro(tenant.iaCotaMensalUsd);
+  const usado = await withTenant(ctx, (tx) => gastoDoMes(tx, mesNoFuso(agora, tenant.fuso), escopo), db);
+  const cota = usdParaMicro(escopo === 'paciente' ? tenant.iaNutriCotaMensalUsd : tenant.iaCotaMensalUsd);
   return { usadoMicroUsd: usado, cotaMicroUsd: cota, percentual: cota > 0 ? Math.min(100, Math.floor((usado * 100) / cota)) : 100, nivel: nivel(usado, cota) };
 }
 
-/** US-102: um e-mail à nutricionista por mês ao chegar a 80% (molde de avisarSeChegou80 do WhatsApp). Transação própria. */
-export async function avisarSeChegou80Ia(db: Db, tenantId: string, agora: Date, appUrl: string): Promise<void> {
+/**
+ * US-102: um e-mail à nutricionista por mês ao chegar a 80% (molde de avisarSeChegou80 do WhatsApp). Transação própria.
+ * Plano 15 (DP-7, US-176): cada escopo tem a sua marca (`ia_aviso_mes` × `ia_nutri_aviso_mes`) e o seu e-mail
+ * (`cota_ia` × `cota_ia_nutri`); o padrão (`nutri`) é o de sempre.
+ */
+export async function avisarSeChegou80Ia(db: Db, tenantId: string, agora: Date, appUrl: string, escopo: EscopoCota = 'nutri'): Promise<void> {
+  const { cota, aviso } = COLUNAS_DO_ESCOPO[escopo];
   await withTenant(
     { tenantId, role: 'worker' },
     async (tx) => {
-      const [t] = await tx.select({ cota: tenants.iaCotaMensalUsd, fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, tenantId));
+      const [t] = await tx.select({ cota, fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, tenantId));
       if (!t) return;
       const mes = mesNoFuso(agora, t.fuso);
-      if (nivel(await gastoDoMes(tx, mes), usdParaMicro(t.cota)) === 'ok') return;
+      if (nivel(await gastoDoMes(tx, mes, escopo), usdParaMicro(t.cota)) === 'ok') return;
       const [marcou] = await tx
         .update(tenants)
-        .set({ iaAvisoMes: mes })
-        .where(and(eq(tenants.id, tenantId), or(isNull(tenants.iaAvisoMes), ne(tenants.iaAvisoMes, mes))))
+        .set(escopo === 'paciente' ? { iaNutriAvisoMes: mes } : { iaAvisoMes: mes })
+        .where(and(eq(tenants.id, tenantId), or(isNull(aviso), ne(aviso, mes))))
         .returning({ id: tenants.id });
-      if (!marcou) return; // já avisado neste mês
+      if (!marcou) return; // já avisado neste mês (neste escopo)
       const link = urlDoApp(appUrl, '/painel/configuracoes');
-      await avisarNutri(tx, tenantId, (para) => ({ tipo: 'cota_ia', para, link }));
+      await avisarNutri(tx, tenantId, (para) => (escopo === 'paciente' ? { tipo: 'cota_ia_nutri', para, link } : { tipo: 'cota_ia', para, link }));
     },
     db,
   );

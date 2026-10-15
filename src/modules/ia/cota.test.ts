@@ -8,13 +8,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { exameComLaudo, tarefaNoBanco } from '../../../test/ia';
+import { iaNutriPronta } from '../../../test/ia-nutri';
 import { excluirExame } from '@/modules/pacientes/exames';
 import { closeDb } from '@/db/client';
 import { iaGastoPlataforma, iaTarefas, iaUso, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { cancelarTarefas } from './cancelar';
-import { acertar, avisarSeChegou80Ia, CotaIaError, estornar, marcarIncerto, mesNoFuso, reduzirReserva, reservar, situacaoDaCotaIa } from './cota';
+import { acertar, avisarSeChegou80Ia, CotaIaError, escopoDoTipo, estornar, gastoDoMes, marcarIncerto, mesNoFuso, reduzirReserva, reservar, situacaoDaCotaIa, TIPOS_DO_ESCOPO } from './cota';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-ia-cota-'));
@@ -107,7 +108,7 @@ describe('cota da IA (RN-104, US-102) e teto da plataforma (D3)', () => {
     expect(linhas.find((l) => l.tarefaId === r1.tarefaId)).toMatchObject({ situacao: 'confirmado', custoMicroUsd: 171_600, requestId: 'req_1', tokensEntrada: 1000, inferenceGeo: 'us' });
     expect(linhas.find((l) => l.tarefaId === r2.tarefaId)).toMatchObject({ situacao: 'incerto', custoMicroUsd: 900_000 });
     expect(await plataforma(agora)).toBe(171_600 + 900_000);
-    const s = await situacaoDaCotaIa(T.ctx, { fuso: 'America/Sao_Paulo', iaCotaMensalUsd: 15 }, agora, app.db);
+    const s = await situacaoDaCotaIa(T.ctx, { fuso: 'America/Sao_Paulo', iaCotaMensalUsd: 15, iaNutriCotaMensalUsd: 7 }, agora, app.db);
     expect(s).toMatchObject({ usadoMicroUsd: 1_071_600, cotaMicroUsd: 15_000_000, percentual: 7, nivel: 'ok' });
   });
 
@@ -159,5 +160,93 @@ describe('cota da IA (RN-104, US-102) e teto da plataforma (D3)', () => {
     expect(await emailsNaFila('cota_ia', nutri.email)).toEqual([{ tipo: 'cota_ia', para: nutri.email, link: 'https://nutri.exemplo.com/painel/configuracoes' }]);
     const [t] = await app.db.select({ m: tenants.iaAvisoMes }).from(tenants).where(eq(tenants.id, T.tenantId));
     expect(t.m).toBe(mesNoFuso(agora, 'America/Sao_Paulo'));
+  });
+});
+
+describe('Plano 15 (D3, DP-7): cota por escopo', () => {
+  const conversa = (T: { tenantId: string }, microUsd: number, agora: Date, teto = TETO) => ({ ...reserva(T, microUsd, agora, teto), tipo: 'conversa_paciente', modelo: 'claude-haiku-5-5' });
+
+  it('o escopo vem do tipo: só conversa_paciente é do paciente; a leitura, o resumo, o rascunho e os modelos ficam na nutricionista', () => {
+    expect(TIPOS_DO_ESCOPO.paciente).toEqual(['conversa_paciente']);
+    expect(escopoDoTipo('conversa_paciente')).toBe('paciente');
+    for (const tipo of ['leitura_exame', 'resumo_historico', 'rascunho_plano', 'modelos_area', 'qualquer']) expect(escopoDoTipo(tipo)).toBe('nutri');
+  });
+
+  it('o gasto do escopo nutri não conta a conversa do paciente, e vice-versa', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId);
+    const agora = agoraNovo();
+    await withTenant({ tenantId: T.tenantId, role: 'worker' }, async (tx) => {
+      await reservar(tx, reserva(T, 1_000_000, agora));
+      await reservar(tx, conversa(T, 5_500, agora));
+      const mes = mesNoFuso(agora, 'America/Sao_Paulo');
+      expect(await gastoDoMes(tx, mes)).toBe(1_000_000);
+      expect(await gastoDoMes(tx, mes, 'nutri')).toBe(1_000_000);
+      expect(await gastoDoMes(tx, mes, 'paciente')).toBe(5_500);
+    }, app.db);
+  });
+
+  it('a cota do escopo paciente é a ia_nutri_cota_mensal_usd: esgotada → CotaIaError("cota"), sem linha; a da leitura não muda', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId, { cotaUsd: 0.01 });
+    const agora = agoraNovo();
+    const W = { tenantId: T.tenantId, role: 'worker' } as const;
+    await withTenant(W, (tx) => reservar(tx, conversa(T, 10_000, agora)), app.db); // a cota exata (US$ 0,01) cabe
+    await expect(withTenant(W, (tx) => reservar(tx, conversa(T, 1, agora)), app.db)).rejects.toMatchObject({ name: 'CotaIaError', motivo: 'cota' });
+    await withTenant(W, (tx) => reservar(tx, reserva(T, 10_001, agora)), app.db); // a leitura conta contra a cota da nutricionista (US$ 15)
+    const linhas = await withTenant(W, (tx) => tx.select({ tipo: iaUso.tipo }).from(iaUso), app.db);
+    expect(linhas.map((l) => l.tipo).sort()).toEqual(['conversa_paciente', 'leitura_exame']);
+  });
+
+  it('a cota da nutricionista esgotada não barra a conversa do paciente', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId);
+    await app.db.update(tenants).set({ iaCotaMensalUsd: 0 }).where(eq(tenants.id, T.tenantId));
+    const agora = agoraNovo();
+    const W = { tenantId: T.tenantId, role: 'worker' } as const;
+    await expect(withTenant(W, (tx) => reservar(tx, reserva(T, 1, agora)), app.db)).rejects.toMatchObject({ motivo: 'cota' });
+    await withTenant(W, (tx) => reservar(tx, conversa(T, 5_500, agora)), app.db);
+  });
+
+  it('o teto global é um contador só para os dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId);
+    const agora = agoraNovo();
+    const W = { tenantId: T.tenantId, role: 'worker' } as const;
+    await withTenant(W, (tx) => reservar(tx, reserva(T, 3_000_000, agora, 5_000_000)), app.db);
+    await expect(withTenant(W, (tx) => reservar(tx, conversa(T, 2_000_001, agora, 5_000_000)), app.db)).rejects.toMatchObject({ name: 'CotaIaError', motivo: 'teto_plataforma' });
+    await withTenant(W, (tx) => reservar(tx, conversa(T, 2_000_000, agora, 5_000_000)), app.db);
+    expect(await plataforma(agora)).toBe(5_000_000);
+  });
+
+  it('situacaoDaCotaIa e o aviso de 80% por escopo: um e-mail por mês em cada escopo, marcas separadas', async () => {
+    const T = await novoTenant(app.db);
+    await iaNutriPronta(app.db, T.tenantId, { cotaUsd: 0.01 });
+    await app.db.update(tenants).set({ iaCotaMensalUsd: 1 }).where(eq(tenants.id, T.tenantId));
+    const agora = agoraNovo();
+    const mes = mesNoFuso(agora, 'America/Sao_Paulo');
+    const W = { tenantId: T.tenantId, role: 'worker' } as const;
+    const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
+    const marcas = async () => (await app.db.select({ nutri: tenants.iaAvisoMes, paciente: tenants.iaNutriAvisoMes }).from(tenants).where(eq(tenants.id, T.tenantId)))[0];
+    const tenant = { fuso: 'America/Sao_Paulo', iaCotaMensalUsd: 1, iaNutriCotaMensalUsd: 0.01 };
+
+    await withTenant(W, (tx) => reservar(tx, conversa(T, 8_000, agora)), app.db); // 80% da cota do paciente
+    expect(await situacaoDaCotaIa(T.ctx, tenant, agora, app.db, 'paciente')).toEqual({ usadoMicroUsd: 8_000, cotaMicroUsd: 10_000, percentual: 80, nivel: 'aviso' });
+    expect(await situacaoDaCotaIa(T.ctx, tenant, agora, app.db)).toEqual({ usadoMicroUsd: 0, cotaMicroUsd: 1_000_000, percentual: 0, nivel: 'ok' });
+
+    await avisarSeChegou80Ia(app.db, T.tenantId, agora, 'https://nutri.exemplo.com'); // escopo nutri: 0% → nada
+    await avisarSeChegou80Ia(app.db, T.tenantId, agora, 'https://nutri.exemplo.com', 'paciente');
+    await avisarSeChegou80Ia(app.db, T.tenantId, agora, 'https://nutri.exemplo.com', 'paciente'); // já avisado neste mês
+    expect(await emailsNaFila('cota_ia_nutri', nutri.email)).toEqual([{ tipo: 'cota_ia_nutri', para: nutri.email, link: 'https://nutri.exemplo.com/painel/configuracoes' }]);
+    expect(await emailsNaFila('cota_ia', nutri.email)).toEqual([]);
+    expect(await marcas()).toEqual({ nutri: null, paciente: mes });
+
+    await withTenant(W, (tx) => reservar(tx, reserva(T, 800_000, agora)), app.db); // 80% da cota da nutricionista
+    await avisarSeChegou80Ia(app.db, T.tenantId, agora, 'https://nutri.exemplo.com');
+    await avisarSeChegou80Ia(app.db, T.tenantId, agora, 'https://nutri.exemplo.com', 'paciente');
+    expect(await emailsNaFila('cota_ia', nutri.email)).toHaveLength(1);
+    expect(await emailsNaFila('cota_ia_nutri', nutri.email)).toHaveLength(1);
+    expect(await marcas()).toEqual({ nutri: mes, paciente: mes });
+    expect(await situacaoDaCotaIa(T.ctx, tenant, agora, app.db, 'paciente')).toMatchObject({ usadoMicroUsd: 8_000, nivel: 'aviso' }); // a leitura não entra
   });
 });

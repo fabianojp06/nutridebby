@@ -62,6 +62,11 @@ export type EmailMessage =
   | { tipo: 'aviso_2fa_reiniciado'; para: string }
   /** Plano 11 (US-102): 80% da cota de IA do mês, uma vez por mês; `link` = /painel/configuracoes. Sem valores em US$. */
   | { tipo: 'cota_ia'; para: string; link: string }
+  /**
+   * Plano 15 (US-176, DP-7): os pacientes usaram 80% da cota da IA Nutri do mês (escopo `paciente`), uma vez por mês, à
+   * equipe; `link` = /painel/configuracoes. Sem nome de paciente, texto de conversa nem valores em US$.
+   */
+  | { tipo: 'cota_ia_nutri'; para: string; link: string }
   /** Plano 11 (RN-105): aos admins — credencial do provedor inválida (1 por hora) ou teto/limite de gasto atingido (1 por mês). */
   | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
   /** Plano 14A (US-105, US-107): o pedido de autorização de IA — `link` = /autorizacao-ia/<token> (sem login, 7 dias). Sem dado de saúde. */

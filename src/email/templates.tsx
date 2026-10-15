@@ -396,6 +396,16 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ],
         { href: msg.link, rotulo: 'Ver o uso da IA' },
       );
+    case 'cota_ia_nutri':
+      // e-mail da equipe: o nome de trabalho "IA Nutri" (desvio 6), não a constante que o paciente vê
+      return simples(
+        'Os pacientes já usaram 80% do limite da IA Nutri deste mês',
+        [
+          'Os pacientes já usaram 80% do limite da IA Nutri deste mês.',
+          'Quando chegar a 100%, a IA Nutri fica indisponível para os pacientes até o dia 1º ou até o suporte ampliar o limite. A leitura de laudos e as outras funções de IA não mudam.',
+        ],
+        { href: msg.link, rotulo: 'Ver o uso da IA' },
+      );
     case 'alerta_ia':
       return simples(
         'IA do NutriDebby: atenção',
