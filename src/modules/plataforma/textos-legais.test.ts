@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { aditivoIa, textoCorrido } from '@/modules/ia/textos-legais';
+import { formatarData } from '@/modules/pacientes/datas';
 import {
   TERMO_PACIENTE,
   TERMO_PACIENTE_MUDOU,
@@ -20,6 +21,10 @@ import { EMAIL_PRIVACIDADE } from './privacidade';
  * ficam no mapa, para mostrar o que quem aceitou nelas leu.
  */
 const OPERADORA = 'WEB SMART SISTEMAS+13 LTDA, CNPJ 66.657.250/0001-07';
+// a data da versão é fixada uma vez (TERMO_PACIENTE_VERSAO_DATA e DPA_VERSAO_DATA); o resto deriva dela, para a troca
+// da data no dia do deploy mexer só nessas duas linhas
+const DATA_TERMO = formatarData(TERMO_PACIENTE_VERSAO_DATA);
+const DATA_DPA = formatarData(DPA_VERSAO_DATA);
 
 describe('Termo de Uso e Privacidade do paciente 1.0', () => {
   it('versão 1.0, sem nada de provisório no que é mostrado, com a data no rodapé', () => {
@@ -29,7 +34,7 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
     for (const t of [TERMO_PACIENTE_TITULO, TERMO_PACIENTE_ROTULO, ...TERMO_PACIENTE_PARAGRAFOS]) expect(t).not.toMatch(/provis/i);
     expect(TERMO_PACIENTE_ROTULO).toBe('Li e aceito o Termo de Uso e Privacidade (versão 1.0)');
     expect(TERMO_PACIENTE_PARAGRAFOS).toHaveLength(16);
-    expect(TERMO_PACIENTE_PARAGRAFOS.at(-1)).toBe('Versão 1.0, de 15/10/2026.');
+    expect(TERMO_PACIENTE_PARAGRAFOS.at(-1)).toBe(`Versão 1.0, de ${DATA_TERMO}.`);
     expect(TERMO_PACIENTE_PARAGRAFOS.join(' ')).not.toContain('{data}');
   });
 
@@ -54,12 +59,12 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
   });
 
   it('aviso de /p/termo para quem aceitou uma versão anterior', () => {
-    expect(TERMO_PACIENTE_MUDOU).toBe('O termo mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o app.');
+    expect(TERMO_PACIENTE_MUDOU).toBe(`O termo mudou (versão 1.0, de ${DATA_TERMO}). Leia e aceite para continuar usando o app.`);
   });
 
   it('o mapa guarda a 0.1 provisória (o que quem aceitou leu) e a 1.0 em vigor é a mostrada', () => {
     expect(Object.keys(TERMO_PACIENTE_TEXTOS).sort()).toEqual(['0.1-provisorio', '1.0']);
-    expect(TERMO_PACIENTE_TEXTOS[TERMO_PACIENTE_VERSAO]).toEqual({ data: '2026-10-15', paragrafos: TERMO_PACIENTE_PARAGRAFOS });
+    expect(TERMO_PACIENTE_TEXTOS[TERMO_PACIENTE_VERSAO]).toEqual({ data: TERMO_PACIENTE_VERSAO_DATA, paragrafos: TERMO_PACIENTE_PARAGRAFOS });
     const antiga = TERMO_PACIENTE_TEXTOS['0.1-provisorio'];
     expect(antiga.data).toBe('2026-09-30');
     expect(antiga.paragrafos[0]).toBe('Versão provisória, a ser substituída pelo texto revisado por advogado antes do uso com pacientes reais.');
@@ -74,9 +79,9 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     expect(DPA_VERSAO_DATA).toBe('2026-10-15');
     for (const t of [DPA_TITULO, DPA_ROTULO, ...DPA_PARAGRAFOS]) expect(t).not.toMatch(/provis/i);
     expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA), versão 1.0');
-    expect(DPA_MUDOU).toBe('O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel.');
+    expect(DPA_MUDOU).toBe(`O contrato de tratamento de dados mudou (versão 1.0, de ${DATA_DPA}). Leia e aceite para continuar usando o painel.`);
     expect(DPA_PARAGRAFOS).toHaveLength(16);
-    expect(DPA_PARAGRAFOS.at(-1)).toBe('Versão 1.0, de 15/10/2026.');
+    expect(DPA_PARAGRAFOS.at(-1)).toBe(`Versão 1.0, de ${DATA_DPA}.`);
     expect(DPA_PARAGRAFOS.join(' ')).not.toContain('{data}');
     // cláusulas numeradas de 1 a 15, na ordem (o aditivo de IA remete a elas)
     expect(DPA_PARAGRAFOS.slice(0, 15).map((p) => Number(p.split('.')[0]))).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
@@ -110,7 +115,7 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
 
   it('o mapa guarda a 0.1 provisória e a 1.0 em vigor é a mostrada', () => {
     expect(Object.keys(DPA_TEXTOS).sort()).toEqual(['0.1-provisorio', '1.0']);
-    expect(DPA_TEXTOS[DPA_VERSAO]).toEqual({ data: '2026-10-15', paragrafos: DPA_PARAGRAFOS });
+    expect(DPA_TEXTOS[DPA_VERSAO]).toEqual({ data: DPA_VERSAO_DATA, paragrafos: DPA_PARAGRAFOS });
     const antiga = DPA_TEXTOS['0.1-provisorio'];
     expect(antiga.data).toBe('2026-09-28');
     expect(antiga.paragrafos.at(-1)).toBe('Versão provisória 0.1, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.');
@@ -145,5 +150,19 @@ describe('textos fora do bundle do navegador (P08-06)', () => {
   });
   it('termo-paciente.ts (importado pelos formulários) não tem o texto do termo', () => {
     expect(readFileSync('src/modules/pacientes/termo-paciente.ts', 'utf8')).not.toContain('paragrafos: [');
+  });
+});
+
+describe('o aceite grava só a versão que a pessoa leu (P08-06, /code-review do PR #38)', () => {
+  // o formulário manda a versão mostrada (campo `versao`); com a página aberta durante um deploy de versão nova, a action
+  // recusa em vez de gravar o aceite de um texto que a pessoa não viu (a página pública já guarda a versão no pedido)
+  it.each([
+    ['src/app/p/termo/termo-form.tsx', 'src/app/p/termo/actions.ts', 1],
+    ['src/app/convite/paciente/[token]/form.tsx', 'src/app/convite/paciente/[token]/actions.ts', 2],
+    ['src/app/painel/dpa/form.tsx', 'src/app/painel/actions.ts', 1],
+    ['src/app/convite/[token]/form.tsx', 'src/app/convite/[token]/actions.ts', 1],
+  ])('%s manda a versão e a action confere', (formulario, acao, conferencias) => {
+    expect(readFileSync(formulario, 'utf8')).toContain('<input type="hidden" name="versao" value={');
+    expect(readFileSync(acao, 'utf8').split('leuAVersaoEmVigor(formData,').length - 1).toBe(conferencias);
   });
 });

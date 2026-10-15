@@ -5,7 +5,7 @@ import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { consents } from '@/db/schema';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
-import { aceitarTermo, aceitouVersaoAnterior, termoAceito } from './termo';
+import { aceitarTermo, situacaoDoTermo, termoAceito } from './termo';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -46,12 +46,12 @@ describe('termo do paciente por consultório', () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);
     const { userId } = await pacienteComConta(app.db, A, { semTermo: true });
-    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
+    expect(await situacaoDoTermo(userId, A.tenantId, app.db)).toEqual({ aceito: false, anterior: false });
     await app.db.insert(consents).values({ userId, tenantId: A.tenantId, termoVersao: 'ia-aditivo-1.2', ip: null });
     await aceitarTermo({ userId, tenantId: A.tenantId, ip: null }, app.db);
-    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
+    expect(await situacaoDoTermo(userId, A.tenantId, app.db)).toEqual({ aceito: true, anterior: false });
     await app.db.insert(consents).values({ userId, tenantId: B.tenantId, termoVersao: 'termo-paciente-0.1-provisorio', ip: null });
-    expect(await aceitouVersaoAnterior(userId, A.tenantId, app.db)).toBe(false);
-    expect(await aceitouVersaoAnterior(userId, B.tenantId, app.db)).toBe(true);
+    expect(await situacaoDoTermo(userId, A.tenantId, app.db)).toEqual({ aceito: true, anterior: false });
+    expect(await situacaoDoTermo(userId, B.tenantId, app.db)).toEqual({ aceito: false, anterior: true });
   });
 });

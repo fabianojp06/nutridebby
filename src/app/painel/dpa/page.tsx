@@ -22,7 +22,7 @@ export default async function DpaPage() {
       <section aria-label={DPA_TITULO} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3 text-sm">
         {DPA_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}
       </section>
-      {atual ? <p role="status">Você já aceitou esta versão do contrato.</p> : <DpaForm rotulo={DPA_ROTULO} />}
+      {atual ? <p role="status">Você já aceitou esta versão do contrato.</p> : <DpaForm rotulo={DPA_ROTULO} versao={DPA_VERSAO} />}
     </main>
   );
 }

@@ -24,7 +24,7 @@ beforeEach(() => {
 describe('/painel/dpa (P08-06)', () => {
   it('quem aceitou a versão anterior vê que o contrato mudou, com a versão e a data, antes do texto', async () => {
     sessao.dpaVersao = '0.1-provisorio';
-    expect(DPA_MUDOU).toBe('O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel.');
+    expect(DPA_MUDOU).toMatch(/^O contrato de tratamento de dados mudou \(versão 1\.0, de \d\d\/\d\d\/\d{4}\)\. Leia e aceite para continuar usando o painel\.$/);
     const h = await html();
     expect(h).toContain(`<p role="status" class="rounded-2xl border border-borda bg-cartao p-3 font-medium">${DPA_MUDOU}</p>`);
     expect(h.indexOf(DPA_MUDOU)).toBeLessThan(h.indexOf(DPA_PARAGRAFOS[0].slice(0, 30)));

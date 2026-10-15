@@ -4,14 +4,17 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getDb } from '@/db/client';
 import { DPA_PATH, requireNutri } from '@/lib/tenant-session';
-import { DPA_NAO_ACEITO, registrarAceiteDpa } from '@/modules/plataforma/dpa';
+import { DPA_NAO_ACEITO, DPA_VERSAO, registrarAceiteDpa } from '@/modules/plataforma/dpa';
 import { atualizarPerfil, PerfilError, type ErrosPerfil } from '@/modules/plataforma/marca';
+import { leuAVersaoEmVigor, MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 
 export type DpaState = { erro?: string };
 
 export async function aceitarDpaAction(_prev: DpaState, formData: FormData): Promise<DpaState> {
   const { data, tenant, ctx } = await requireNutri(DPA_PATH, { permitirDpaPendente: true });
   if (formData.get('dpa') !== 'on') return { erro: DPA_NAO_ACEITO };
+  // P08-06: o DPA mudou com a página aberta → não grava aceite de um texto que ela não leu
+  if (!leuAVersaoEmVigor(formData, DPA_VERSAO)) return { erro: MSG_TEXTO_ATUALIZADO };
   await getDb().transaction((tx) => registrarAceiteDpa(tx, { userId: data.user.id, tenantId: tenant.id, ip: ctx.ip ?? null }));
   // T14: o layout do painel (cabeçalho mínimo com o DPA pendente) é reaproveitado na navegação; sem isto o menu só
   // apareceria depois de recarregar a página

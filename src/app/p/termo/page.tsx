@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { requirePaciente, TERMO_PATH, voltaDoTermo } from '@/lib/paciente-session';
 import { TERMO_PACIENTE_MUDOU, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
 import { TERMO_PACIENTE_PARAGRAFOS } from '@/modules/pacientes/termo-paciente-textos';
-import { aceitouVersaoAnterior, termoAceito } from '@/modules/portal/termo';
+import { situacaoDoTermo } from '@/modules/portal/termo';
 import { CabecalhoSair } from '@/components/portal/cabecalho-sair';
 import { TermoForm } from './termo-form';
 
@@ -16,9 +16,9 @@ export default async function NovoTermo({ searchParams }: PageProps<'/p/termo'>)
   const { volta: pedida } = await searchParams;
   // S-1: o destino que levou ao termo (link da exportação, push) — só página do portal, sem o `?v=`
   const volta = voltaDoTermo(typeof pedida === 'string' ? pedida : null);
-  if (await termoAceito(data.user.id, tenant.id)) redirect(volta);
   // P08-06: quem já aceitou uma versão anterior volta ao termo sem aviso de por quê; o aviso diz que o termo mudou
-  const mudou = await aceitouVersaoAnterior(data.user.id, tenant.id);
+  const { aceito, anterior: mudou } = await situacaoDoTermo(data.user.id, tenant.id);
+  if (aceito) redirect(volta);
   return (
     <>
       <CabecalhoSair />

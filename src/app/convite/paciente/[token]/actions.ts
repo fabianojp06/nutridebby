@@ -7,10 +7,14 @@ import { logger } from '@/lib/logger';
 import { requestIp } from '@/lib/request-ip';
 import { requireUser } from '@/lib/session';
 import { aceitarConvitePaciente, ConvitePacienteError, vincularContaExistente } from '@/modules/pacientes/convite-paciente';
+import { TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
+import { leuAVersaoEmVigor, MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 
 export type AceitePacienteState = { erro?: string; campo?: 'senha' | 'confirmacao' | 'termo' };
 
 export async function aceitarConvitePacienteAction(token: string, _prev: AceitePacienteState, formData: FormData): Promise<AceitePacienteState> {
+  // P08-06: o termo mudou com a página aberta → não grava aceite de um texto que a pessoa não leu
+  if (!leuAVersaoEmVigor(formData, TERMO_PACIENTE_VERSAO)) return { erro: MSG_TEXTO_ATUALIZADO, campo: 'termo' };
   const senha = String(formData.get('senha') ?? '');
   let email: string;
   try {
@@ -40,6 +44,7 @@ export async function aceitarConvitePacienteAction(token: string, _prev: AceiteP
 
 export async function vincularContaAction(token: string, _prev: AceitePacienteState, formData: FormData): Promise<AceitePacienteState> {
   const { user } = await requireUser(['paciente'], `/convite/paciente/${token}`);
+  if (!leuAVersaoEmVigor(formData, TERMO_PACIENTE_VERSAO)) return { erro: MSG_TEXTO_ATUALIZADO, campo: 'termo' };
   try {
     await vincularContaExistente({
       token,

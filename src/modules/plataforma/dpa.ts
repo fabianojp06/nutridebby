@@ -2,8 +2,9 @@ import { eq, sql } from 'drizzle-orm';
 import type { Queryable } from '@/db/client';
 import { consents, tenants } from '@/db/schema';
 import { IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
-import { dataBr, type TextoVersionado } from '@/modules/pacientes/termo-paciente';
+import { formatarData } from '@/modules/pacientes/datas';
 import { EMAIL_PRIVACIDADE } from './privacidade';
+import type { TextoVersionado } from './textos-versionados';
 
 /**
  * US-002. Contrato de tratamento de dados (DPA) da nutricionista. P08-06 (15/10/2026): a 1.0 definitiva substitui a 0.1
@@ -20,7 +21,7 @@ export const DPA_ROTULO = `Li e aceito o contrato de tratamento de dados (DPA), 
 export const DPA_NAO_ACEITO = 'Para continuar, aceite o contrato de tratamento de dados (DPA).';
 
 /** Aviso de /painel/dpa para quem já aceitou uma versão anterior (P08-06; a spec não tem texto para este caso). */
-export const DPA_MUDOU = `O contrato de tratamento de dados mudou (versão ${DPA_VERSAO}, de ${dataBr(DPA_VERSAO_DATA)}). Leia e aceite para continuar usando o painel.`;
+export const DPA_MUDOU = `O contrato de tratamento de dados mudou (versão ${DPA_VERSAO}, de ${formatarData(DPA_VERSAO_DATA)}). Leia e aceite para continuar usando o painel.`;
 
 /**
  * As versões do DPA, como em `textos-legais.ts` da IA: a antiga fica para mostrar o que quem aceitou nela leu (a linha
@@ -59,7 +60,7 @@ export const DPA_TEXTOS: Readonly<Record<string, TextoVersionado>> = {
       '13. Fim do contrato. Como a guarda do prontuário é da CONTROLADORA, ela tem 30 dias depois do fim do contrato para baixar os dados: pela exportação do painel, paciente por paciente, ou por pedido de exportação completa à OPERADORA. Antes de eliminar, a OPERADORA avisa a CONTROLADORA por e-mail que a guarda do prontuário pelo prazo das normas do CFN continua sendo dever dela. Depois, a OPERADORA elimina os dados do servidor e confirma a eliminação por escrito. As cópias de segurança saem no ciclo de substituição, em até 6 meses. Fica só o que a lei obriga a guardar, como a prova dos aceites.',
       '14. Responsabilidade. Cada parte responde pelos danos que causar, nos termos da LGPD. A OPERADORA responde junto com a CONTROLADORA (responsabilidade solidária) quando descumprir a lei ou as instruções lícitas da CONTROLADORA (art. 42, § 1º, I). Nada neste contrato limita os direitos dos titulares.',
       `15. Outros textos e mudanças. O uso de inteligência artificial tem aditivo próprio, aceito à parte; este contrato vale no que o aditivo não tratar. Os avisos à CONTROLADORA vão ao e-mail da conta, e os da CONTROLADORA à OPERADORA vão a ${EMAIL_PRIVACIDADE}. Mudança neste contrato gera versão nova, e o painel pede novo aceite.`,
-      `Versão 1.0, de ${dataBr(DPA_VERSAO_DATA)}.`,
+      `Versão 1.0, de ${formatarData(DPA_VERSAO_DATA)}.`,
     ],
   },
 };

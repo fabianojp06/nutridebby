@@ -1,5 +1,7 @@
 import { EMAIL_PRIVACIDADE } from '@/modules/plataforma/privacidade';
-import { dataBr, TERMO_PACIENTE_VERSAO, TERMO_PACIENTE_VERSAO_DATA, type TextoVersionado } from './termo-paciente';
+import type { TextoVersionado } from '@/modules/plataforma/textos-versionados';
+import { formatarData } from './datas';
+import { TERMO_PACIENTE_VERSAO, TERMO_PACIENTE_VERSAO_DATA } from './termo-paciente';
 
 /**
  * As versões do termo, como em `textos-legais.ts` da IA: a antiga fica para mostrar o que quem aceitou nela leu (a linha
@@ -36,7 +38,7 @@ export const TERMO_PACIENTE_TEXTOS: Readonly<Record<string, TextoVersionado>> = 
       'Você pode, sem custo: saber se seus dados são tratados; receber uma cópia (botão "Baixar meus dados", em Eu › Privacidade), que também serve para levar os dados a outro profissional; corrigir dados; pedir anonimização, bloqueio (o dado fica guardado, mas sem uso) ou exclusão; saber com quem os dados são compartilhados; se opor a um uso que descumpra a lei; e retirar as autorizações dadas em outras telas. A cópia e a exclusão você pede no app, em Eu › Privacidade; o link da cópia chega por e-mail e vale 24 horas. Para o resto, fale com a sua nutricionista. Ela responde em até 15 dias, com a resposta completa. Você também pode reclamar à ANPD, a Autoridade Nacional de Proteção de Dados.',
       'Para pedir a exclusão, use o botão "Pedir exclusão dos meus dados", em Eu › Privacidade, ou fale com a sua nutricionista. Ela responde em até 15 dias. Algumas coisas saem logo: as fotos do diário, os exames enviados pelo app que ainda não foram aceitos, a autorização do WhatsApp, as notificações no aparelho, as marcas de acesso ao app e as conversas com a IA Nutri. As consultas futuras são canceladas. O prontuário fica bloqueado (guardado, sem uso) por 20 anos contados do bloqueio, como pedem as normas do CFN. Depois disso, os anexos são apagados e o cadastro é anonimizado, ou seja, deixa de identificar você.',
       'O app usa só os cookies necessários (pequenos arquivos que o navegador guarda): o do login, o do consultório escolhido e o do link de documento. Para abrir sem internet, o app guarda no seu aparelho uma cópia do seu plano alimentar, que sai quando você toca em Sair; por isso, em aparelho de outra pessoa, saia sempre. Algumas preferências, como a lista de compras, também ficam só no seu aparelho. Não há propaganda nem ferramentas de outras empresas para medir o seu uso. Os vídeos do YouTube e do Vimeo só carregam quando você toca neles; nessa hora, esses sites recebem o seu IP.',
-      `Versão 1.0, de ${dataBr(TERMO_PACIENTE_VERSAO_DATA)}.`,
+      `Versão 1.0, de ${formatarData(TERMO_PACIENTE_VERSAO_DATA)}.`,
     ],
   },
 };
