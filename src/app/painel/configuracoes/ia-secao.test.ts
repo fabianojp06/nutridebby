@@ -141,6 +141,24 @@ describe('Configurações > IA Nutri (pacientes) (US-170)', () => {
     expect(h).toContain(MSG_IA_NUTRI.desativarConsultorio);
   });
 
+  it('revisão da T11 (I1): sem o perfil profissional completo (sem CRN), o aviso com o link para "Perfil e marca" — desativada e ativada; com o perfil, nada', async () => {
+    const aviso = MSG_IA_NUTRI.perfilIncompleto;
+    const link = `<a class="underline" href="/painel/configuracoes/perfil#documentos">${MSG_IA_NUTRI.completarPerfil}</a>`;
+    for (const t of [{ ...ativa, crn: null }, { ...ativa, crn: null, iaNutriAtivadaEm: new Date() }, { ...ativa, contatoEmail: null }]) {
+      const h = await nutri(t);
+      expect(h).toContain(aviso);
+      expect(h).toContain(link);
+      expect(h).not.toMatch(/<h4 id="consentimento-ia-nutri"/); // o consentimento não tem como ser mostrado
+    }
+    // o botão de ativar continua (D37: sem portão), depois do aviso
+    const h = await nutri({ ...ativa, crn: null });
+    expect(h.indexOf(aviso)).toBeLessThan(h.indexOf(MSG_IA_NUTRI.ativar));
+    expect(await nutri(ativa)).not.toContain(aviso);
+    expect(await nutri({ ...ativa, iaNutriAtivadaEm: new Date() })).not.toContain(aviso);
+    // aditivo desatualizado: o aviso do aditivo vem primeiro, sem o do perfil
+    expect(await nutri({ ...comAditivo('1.1'), crn: null })).not.toContain(aviso);
+  });
+
   it('o retorno das actions aparece dentro da subseção, na região role="status" sempre montada logo abaixo do título', async () => {
     expect(await nutri(ativa, { retorno: 'ativada' })).toContain(`<h3 id="ia-nutri-titulo" class="font-semibold">IA Nutri (pacientes)</h3><p role="status">${MSG_IA_NUTRI.ativada}</p>`);
     expect(await nutri(ativa)).toContain('<h3 id="ia-nutri-titulo" class="font-semibold">IA Nutri (pacientes)</h3><p role="status"></p>');

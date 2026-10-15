@@ -213,8 +213,51 @@ describe('conversaNaFicha (US-175 "Ver a conversa", D7 = a)', () => {
       ['paciente', 'quero sumir', null, null, true, null, 'vista'],
       ['sistema', null, 'risco_emergencia', null, false, null, null],
     ]);
-    for (const m of ms) expect(Object.keys(m).sort()).toEqual(['autor', 'avaliacao', 'categoria', 'criadaEm', 'duvida', 'id', 'risco', 'texto', 'textoFixo']);
+    for (const m of ms) expect(Object.keys(m).sort()).toEqual(['autor', 'avaliacao', 'categoria', 'criadaEm', 'duvida', 'id', 'risco', 'seloRevogada', 'texto', 'textoFixo']);
+    expect(ms.every((m) => m.seloRevogada === null)).toBe(true);
     expect(await leituras(T, null)).toEqual([{ acao: 'ler', entidade: 'ia_nutri', entidade_id: null, actor_user_id: T.nutriId }]);
     expect(await conversaNaFicha(T.ctx, 'abc', app.db)).toEqual([]);
+  });
+
+  it('paciente de outro consultório (id válido): nada, e nenhum "ler" com o id dele', async () => {
+    const { T } = await consultorio();
+    const outro = await consultorio();
+    await mensagemNoBanco(app.db, outro.T.tenantId, outro.bia.id, encaminhada({ texto: 'de outro consultório' }));
+    expect(await conversaNaFicha(T.ctx, outro.bia.id, app.db)).toEqual([]);
+    const ls = await withTenant(T.ctx, (tx) => tx.execute(sql`select 1 from audit_log where entidade = 'ia_nutri' and patient_id = ${outro.bia.id}`), app.db);
+    expect(ls.rows).toEqual([]);
+  });
+
+  it('revisão da T11 (I2, D22): perguntar com risco → desativarNoApp → a ficha não traz o texto (só o selo), não abre a dúvida; abrirDuvida ainda devolve o texto e apaga', async () => {
+    const { T, p, ctxP } = await pronto();
+    const { mensagemId } = await perguntar(ctxP, RISCO, depsApp);
+    expect(await desativarNoApp(ctxP, depsApp)).toBe('desativada');
+    for (let i = 0; i < 2; i++) {
+      const ms = await conversaNaFicha(T.ctx, p.id, app.db);
+      expect(JSON.stringify(ms)).not.toContain(RISCO);
+      // o esqueleto da revogação (a resposta `sistema`, D32) fica de fora; só a pergunta de risco na fila, sem texto
+      expect(ms.map((m) => [m.id, m.autor, m.texto, m.textoFixo, m.risco, m.duvida, m.seloRevogada])).toEqual([[mensagemId, 'paciente', null, null, true, 'aberta', 'risco_revogado']]);
+    }
+    expect((await linha(T, mensagemId!))?.abertaPelaNutriEm).toBeNull(); // ler a ficha não é abrir a dúvida
+    expect((await filaDeDuvidas(T.ctx, app.db)).map((f) => [f.id, f.selo])).toEqual([[mensagemId, 'risco_revogado']]);
+    expect(await abrirDuvida(T.ctx, mensagemId!, app.db)).toMatchObject({ texto: RISCO, selo: 'risco_revogado' });
+    expect(await linha(T, mensagemId!)).toBeNull();
+    expect(await conversaNaFicha(T.ctx, p.id, app.db)).toEqual([]);
+  });
+
+  it('o mesmo depois do pedido de exclusão atendido (apagarIaNutriDoTitular); o aviso mínimo (sem texto) vem com o seu selo', async () => {
+    const { T, p, ctxP } = await pronto();
+    const { mensagemId } = await perguntar(ctxP, RISCO, depsApp);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2046-09-30' }).where(eq(patients.id, p.id)), app.db);
+    await apagarIaNutriDoTitular({ tenantId: T.tenantId, role: 'worker' }, p.id, app.db);
+    const ms = await conversaNaFicha(T.ctx, p.id, app.db);
+    expect(JSON.stringify(ms)).not.toContain(RISCO);
+    expect(ms.map((m) => [m.id, m.seloRevogada])).toEqual([[mensagemId, 'risco_revogado']]);
+    expect(await abrirDuvida(T.ctx, mensagemId!, app.db)).toMatchObject({ texto: RISCO });
+    expect(await linha(T, mensagemId!)).toBeNull();
+
+    const c = await consultorio();
+    const minimo = await mensagemNoBanco(app.db, c.T.tenantId, c.bia.id, encaminhada({ risco: 'emergencia', revogadaEm: new Date(), texto: null }));
+    expect((await conversaNaFicha(c.T.ctx, c.bia.id, app.db)).map((m) => [m.id, m.texto, m.seloRevogada])).toEqual([[minimo, null, 'aviso_minimo']]);
   });
 });

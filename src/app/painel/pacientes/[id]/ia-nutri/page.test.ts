@@ -84,4 +84,30 @@ describe('/painel/pacientes/[id]/ia-nutri (US-170, DP-17)', () => {
       expect(lista, t).toContain(t);
     expect(lista).toContain('Na fila');
   });
+
+  it('revisão da T11 (I1): sem o CRN no perfil, o aviso com o link para "Perfil e marca" perto da situação; com o perfil, nada', async () => {
+    const { T, paciente } = await cenario();
+    expect(await pagina(T, paciente)).not.toContain(MSG_IA_NUTRI.perfilIncompleto);
+    await db.update(tenants).set({ crn: null }).where(eq(tenants.id, T.tenantId));
+    const h = await pagina(T, paciente);
+    expect(h).toContain(MSG_IA_NUTRI.perfilIncompleto);
+    expect(h).toContain(`<a class="underline" href="/painel/configuracoes/perfil#documentos">${MSG_IA_NUTRI.completarPerfil}</a>`);
+    expect(h.indexOf(MSG_IA_NUTRI.liberadaAguardando)).toBeLessThan(h.indexOf(MSG_IA_NUTRI.perfilIncompleto));
+  });
+
+  it('revisão da T11 (I2, D22): a pergunta com risco de quem desativou aparece sem o texto, com o selo e "Abrir dúvida"; o esqueleto da revogação não aparece', async () => {
+    const { T, paciente } = await cenario({ aceite: true });
+    const t0 = Date.now() - 60_000;
+    const revogadaEm = new Date();
+    const r = await mensagemNoBanco(db, T.tenantId, paciente.id, { createdAt: new Date(t0), status: 'respondida', risco: 'transtorno_alimentar', texto: 'vomito depois do jantar', encaminhadaEm: new Date(), revogadaEm });
+    await mensagemNoBanco(db, T.tenantId, paciente.id, { createdAt: new Date(t0 + 1000), status: 'respondida', texto: null, revogadaEm });
+    const h = await pagina(T, paciente);
+    const lista = h.slice(h.indexOf('<ol'), h.indexOf('</ol>'));
+    expect(lista.match(/<li/g)).toHaveLength(1);
+    expect(lista).not.toContain('vomito');
+    expect(lista).toContain(MSG_IA_NUTRI.riscoRevogadoNaFicha);
+    expect(lista).toContain(MSG_IA_NUTRI.seloRiscoRevogado);
+    expect(lista).toContain(`href="/painel/duvidas/${r}"`);
+    expect(lista).not.toContain(MSG_IA_NUTRI.apagada);
+  });
 });

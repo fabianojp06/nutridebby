@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { iaNutriMensagens, notifications, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -36,6 +36,11 @@ export type MensagemNaFicha = {
   risco: boolean;
   avaliacao: 'ajudou' | 'nao_ajudou' | null;
   duvida: 'aberta' | 'vista' | 'encerrada' | null;
+  /**
+   * D22 (revisão da T11, I2): a pergunta com sinal de risco de quem desativou a IA Nutri, ainda na fila — vem SEM o texto; a
+   * ficha mostra o selo e "Abrir dúvida" (o único caminho que audita a leitura e apaga a mensagem). Nulo nas demais.
+   */
+  seloRevogada: Extract<SeloDaDuvida, 'risco_revogado' | 'aviso_minimo'> | null;
 };
 
 /** A pergunta encaminhada à nutricionista e ainda não resolvida (o índice parcial ia_nutri_mensagens_fila_idx). */
@@ -161,7 +166,10 @@ export async function avisarDuvidaVista(tx: Tx, o: { tenantId: string; patientId
 /**
  * US-175 "Ver a conversa" (D7 = a): a aba "IA Nutri" da ficha — auditada (ler, entidade `ia_nutri`). Projeção fechada: nunca
  * fontes, modelo, versão do prompt, custo nem motivo técnico. Mesma ordem da tela do paciente (a pergunta antes da resposta
- * gravada no mesmo instante).
+ * gravada no mesmo instante). Revisão da T11 (I2), D22 e D32: as linhas de quem desativou a IA Nutri (`revogada_em`) não
+ * entram — o esqueleto guardado só para os limites do mês não é conversa —, salvo a pergunta com sinal de risco ainda na
+ * fila, que vem sem o texto (o banco nem o devolve) e com `seloRevogada`: o texto só é lido uma vez, por `abrirDuvida`, que
+ * audita e apaga. Ler pela ficha não abre a dúvida (não grava `aberta_pela_nutri_em`).
  */
 export async function conversaNaFicha(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<MensagemNaFicha[]> {
   if (!idValido(patientId)) return [];
@@ -176,16 +184,19 @@ export async function conversaNaFicha(ctx: TenantContext, patientId: string, db:
           id: iaNutriMensagens.id,
           criadaEm: iaNutriMensagens.createdAt,
           autor: iaNutriMensagens.autor,
-          texto: iaNutriMensagens.texto,
-          textoFixo: iaNutriMensagens.textoFixo,
+          // D22: o texto de quem desativou nunca sai do banco por aqui
+          texto: sql<string | null>`case when ${iaNutriMensagens.revogadaEm} is null then ${iaNutriMensagens.texto} end`,
+          textoFixo: sql<string | null>`case when ${iaNutriMensagens.revogadaEm} is null then ${iaNutriMensagens.textoFixo} end`,
+          revogadaComTexto: sql<boolean>`(${iaNutriMensagens.revogadaEm} is not null and ${iaNutriMensagens.texto} is not null)`,
           categoria: iaNutriMensagens.categoria,
           risco: iaNutriMensagens.risco,
           avaliacao: iaNutriMensagens.avaliacao,
           encaminhadaEm: iaNutriMensagens.encaminhadaEm,
           resolucao: iaNutriMensagens.resolucao,
+          revogadaEm: iaNutriMensagens.revogadaEm,
         })
         .from(iaNutriMensagens)
-        .where(eq(iaNutriMensagens.patientId, patientId))
+        .where(and(eq(iaNutriMensagens.patientId, patientId), or(isNull(iaNutriMensagens.revogadaEm), and(aberta, isNotNull(iaNutriMensagens.risco)))))
         .orderBy(asc(iaNutriMensagens.createdAt), sql`case ${iaNutriMensagens.autor} when 'paciente' then 0 else 1 end`, asc(iaNutriMensagens.id));
       await auditRead(tx, { entidade: 'ia_nutri', entidadeId: null, patientId });
       return ms.map(
@@ -199,6 +210,7 @@ export async function conversaNaFicha(ctx: TenantContext, patientId: string, db:
           risco: !!m.risco,
           avaliacao: (m.avaliacao as 'ajudou' | 'nao_ajudou' | null) ?? null,
           duvida: situacaoDaDuvida(m),
+          seloRevogada: !m.revogadaEm ? null : m.revogadaComTexto ? 'risco_revogado' : 'aviso_minimo',
         }),
       );
     },

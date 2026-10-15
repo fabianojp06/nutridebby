@@ -113,6 +113,9 @@ export const MSG_IA_NUTRI = {
     '3. Registre no prontuário o que foi feito.',
     '4. Toque em "Marcar como vista" só depois do contato.',
   ],
+  // novo (revisão da T11, I2; à Debby): na aba da ficha, a pergunta com sinal de risco de quem desativou a IA Nutri não
+  // mostra o texto — ele é lido uma vez, pela fila (D22)
+  riscoRevogadoNaFicha: 'O paciente desativou a IA Nutri. Abra a dúvida para ler esta mensagem: ela é mostrada uma vez e depois apagada.',
   riscoApagadoAoAbrir: 'O paciente desativou a IA Nutri. Esta mensagem foi mostrada agora e já foi apagada: anote o que for preciso antes de sair da página.', // novo (D22)
   desativarPelaNutri: 'Registrar desativação a pedido do paciente', // novo (DP-17)
   confirmarDesativarPelaNutri: 'Registrar que o paciente pediu para desativar a IA Nutri? As conversas dele com a IA Nutri serão apagadas (uma mensagem com sinal de risco ainda não aberta fica até ser aberta, por no máximo 30 dias).', // novo
@@ -122,6 +125,10 @@ export const MSG_IA_NUTRI = {
   desativarConsultorio: 'Desativar a IA Nutri para pacientes',
   desativadaConsultorio: 'IA Nutri desativada para pacientes. As dúvidas já enviadas continuam na fila.', // novo
   aditivoNovo: 'Para usar a IA Nutri, leia e aceite a nova versão do aditivo de IA.',
+  // novo (revisão da T11, I1; à Debby), como MSG_IA.perfilIncompleto da 14A: sem nome completo, CRN ou e-mail de contato a
+  // entrada do paciente fica em "nenhuma" (o consentimento cita a responsável) — a nutricionista precisa saber por quê
+  perfilIncompleto: 'Complete seu perfil profissional (nome completo, CRN e e-mail de contato) em Configurações › Perfil e marca: sem isso, a IA Nutri não aparece para os pacientes.',
+  completarPerfil: 'Completar perfil', // como o link dos documentos (parecer e receita)
   pausada: 'A IA Nutri está pausada pelo suporte.', // novo (DP-1: só na pausa de emergência da plataforma)
   usoDoMes: (p: number) => `Uso da IA Nutri neste mês: ${p}% do limite`,
   cotaAcabou: 'O limite da IA Nutri deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite.',

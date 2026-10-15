@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { TextoLegalView } from '@/components/texto-legal';
@@ -33,7 +34,10 @@ const TEXTOS_QUE_O_PACIENTE_LE: readonly CodigoTextoFixo[] = ['risco_emergencia'
  * quando quiser (★ DO-1 = não, D37). Na pausa de EMERGÊNCIA da plataforma (ou sem a retenção aceita), num consultório que
  * NUNCA ativou → nada (a subseção volta quando o suporte retoma; o mesmo erro corrigido na 14B-2). O retorno das actions
  * (`?ia-nutri=`) aparece aqui dentro, na região `role="status"` sempre montada logo abaixo do título (o `#ia-nutri-titulo` da
- * URL leva a ela). `pausa` só vem dos testes (a linha do banco comum nunca é pausada, T1).
+ * URL leva a ela). Sem o perfil profissional completo (responsavelDoTenant nulo), o paciente não vê a entrada
+ * (entradaNaTransacao → "nenhuma") e o consentimento não tem como ser mostrado: o aviso com o link para "Perfil e marca"
+ * aparece logo abaixo da região de status (revisão da T11, I1; a ativação não é recusada — D37, sem portão). `pausa` só vem
+ * dos testes (a linha do banco comum nunca é pausada, T1).
  */
 export async function IaNutriSecao({ tenant, ctx, retorno = null, pausa }: { tenant: TenantRow; ctx: TenantContext; retorno?: RetornoIaNutri | null; pausa?: PausaIaNutri }) {
   const ia = configIA(getEnv());
@@ -73,6 +77,14 @@ export async function IaNutriSecao({ tenant, ctx, retorno = null, pausa }: { ten
           <Aviso tipo="aviso" papel="nenhum">{MSG_IA_NUTRI.aditivoNovo}</Aviso>
           <IaAtivarForm versao={IA_ADITIVO_VERSAO} rotulo="Aceitar a versão atual" />
         </>
+      )}
+      {!resp && (estado === 'desativada' || estado === 'ativa') && (
+        <Aviso tipo="aviso" papel="nenhum">
+          {MSG_IA_NUTRI.perfilIncompleto}{' '}
+          <Link href="/painel/configuracoes/perfil#documentos" className="underline">
+            {MSG_IA_NUTRI.completarPerfil}
+          </Link>
+        </Aviso>
       )}
       {estado === 'desativada' && (
         <>
