@@ -238,6 +238,19 @@ describe('Plano 11 — e-mails da IA', () => {
     expect(r.html).toContain('Os pacientes já usaram 80% do limite da IA Nutri deste mês.');
     expect(`${r.subject}${r.text}${r.html}`).not.toMatch(/US\$|paciente:|pergunt/i);
   });
+  it('risco_ia_nutri (Plano 15, D10, RNF-166): o texto da spec, genérico — sem paciente, conversa, categoria nem "risco"', () => {
+    const r = renderEmail({ tipo: 'risco_ia_nutri', para: 'd@x.dev', link: 'https://x.dev/painel/duvidas' });
+    expect(r.subject).toBe('Há uma mensagem de paciente que precisa da sua atenção.');
+    expect(r.text).toBe(
+      [
+        'Há uma mensagem de paciente que precisa da sua atenção.',
+        'Abra as dúvidas dos pacientes no NutriDebby.',
+        'Abrir as dúvidas dos pacientes: https://x.dev/painel/duvidas',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/painel/duvidas"');
+    expect(`${r.subject}${r.text}${r.html}`).not.toMatch(/risco|emerg|transtorno|sintoma|pergunt|paciente:/i);
+  });
   it('alerta_ia: credencial cita só o NOME da variável; teto não cita valores', () => {
     const c = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'credencial', painelUrl: 'https://x.dev/admin' });
     expect(c.text).toContain('ANTHROPIC_API_KEY');

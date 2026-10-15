@@ -441,6 +441,13 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         { href: msg.link, rotulo: MSG_AUTORIZACAO.retirarALink },
       );
     }
+    case 'risco_ia_nutri':
+      // D10 / RNF-166: genérico — nem paciente, nem texto, nem categoria (o assunto é o texto da spec)
+      return simples(
+        'Há uma mensagem de paciente que precisa da sua atenção.',
+        ['Há uma mensagem de paciente que precisa da sua atenção.', 'Abra as dúvidas dos pacientes no NutriDebby.'],
+        { href: msg.link, rotulo: 'Abrir as dúvidas dos pacientes' },
+      );
     case 'exames_recebidos':
       // RN-168 / C-05: genérico — nem paciente, nem exame, nem arquivo
       return simples(

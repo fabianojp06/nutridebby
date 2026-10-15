@@ -141,3 +141,14 @@ export const MSG_IA_NUTRI = {
   filaVazia: 'Nenhuma dúvida aguardando.', // novo
   vista: 'Dúvida marcada como vista.', // novo
 } as const;
+
+/** §13.1 (projeção) e §7.6 (exportação): o rótulo legível da categoria (novo, vai à Debby). */
+export const ROTULO_CATEGORIA: Record<CategoriaConversa, string> = {
+  plano: 'Dúvida sobre o plano',
+  fora_do_escopo: 'Fora do que a IA responde',
+  mudanca_plano: 'Pedido de mudança no plano',
+  sintoma_ou_exame: 'Sintoma ou exame',
+  suplemento_ou_remedio: 'Suplemento ou remédio',
+  peso_ou_dieta_restritiva: 'Assunto para a consulta',
+  risco: 'Sinal de risco',
+};

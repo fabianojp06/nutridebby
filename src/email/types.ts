@@ -80,7 +80,12 @@ export type EmailMessage =
    * Plano 12 (RN-168, D16 = a): exames novos enviados por pacientes, às nutricionistas do tenant (no máximo 1 a cada 6 h);
    * `pendentesAntigos` = há envio aguardando há mais de 30 dias (US-165). Sem nome de paciente, de exame nem arquivo (C-05).
    */
-  | { tipo: 'exames_recebidos'; para: string; link: string; pendentesAntigos: boolean };
+  | { tipo: 'exames_recebidos'; para: string; link: string; pendentesAntigos: boolean }
+  /**
+   * Plano 15 (D10 = a, DP-6, RNF-166): pergunta com sinal de risco na fila "Dúvidas dos pacientes", às nutricionistas do
+   * tenant (no máximo 1 a cada 15 min); `link` = /painel/duvidas. Genérico: sem nome de paciente, texto nem categoria (C-05).
+   */
+  | { tipo: 'risco_ia_nutri'; para: string; link: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

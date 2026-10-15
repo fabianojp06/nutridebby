@@ -22,6 +22,7 @@ import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/
 import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos-job';
 import { configIA } from '@/modules/ia/modo';
 import { processarRevogacaoIaNutri, type DadosRevogacaoIaNutri } from '@/modules/ia/nutri-paciente/revogacao-job';
+import { avisarRiscoIaNutri } from '@/modules/ia/nutri-paciente/risco-job';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -260,6 +261,11 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   // Plano 15 (RN-182, D30): a revogação da IA Nutri — o job nasce na transação da revogação (app ou ficha, DP-17)
   await work<DadosRevogacaoIaNutri>('ia-nutri-revogacao', async ([job]) => {
     await processarRevogacaoIaNutri(job.data, { db: getDb() });
+  });
+  // Plano 15 (D10, DP-6): o e-mail genérico de sinal de risco às nutricionistas — o job nasce na transação da pergunta com
+  // risco (e no job ia-paciente quando o modelo classifica `risco`, T9); dentro da janela de 15 min, ele se adia
+  await work<{ tenantId: string }>('ia-nutri-risco', async ([job]) => {
+    await avisarRiscoIaNutri(job.data, { db: getDb(), appUrl: env.APP_URL, boss });
   });
   // Plano 14B (D3): a fila do resumo, do rascunho e dos modelos sugeridos — o mesmo provedor; o modelo é o do assistente
   // (A-D3). Um job por vez (padrão do boss.work); expira em 900 s, acima do prazo do laço (12 min)
