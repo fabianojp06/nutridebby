@@ -166,8 +166,9 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
  * Plano 12: exam_submissions — gatilho exam_submissions_sem_apagar (0102): só o worker apaga, com o titular bloqueado ou anonimizado.
- * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_sem_apagar (0116): só o worker apaga (e a equipe, só a pergunta com
- * risco de quem revogou, depois de aberta — D22; a fábrica não grava essa).
+ * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_sem_apagar (0116): só o worker apaga, com a mensagem vencida, o
+ * titular bloqueado ou anonimizado, ou na revogação (e a equipe, só a pergunta com risco de quem revogou, depois de aberta —
+ * D22; a fábrica não grava essa).
  */
 const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens']);
 /**

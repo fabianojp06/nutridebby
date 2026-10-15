@@ -117,7 +117,7 @@ describe('0116: ia_nutri_mensagens — colunas por papel (RNF-164)', () => {
     await expect(mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', destino: 'teste' })).rejects.toSatisfy(violaCheck('ia_nutri_mensagens_destino_valido'));
     await expect(mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'nutri' as never, status: null })).rejects.toSatisfy(violaCheck('ia_nutri_mensagens_autor_valido'));
   });
-  it('D22: a equipe apaga só a pergunta com risco de quem revogou, depois de aberta — com a mensagem `sistema` apontando para ela; o worker apaga', async () => {
+  it('D22: a equipe apaga só a pergunta com risco de quem revogou, depois de aberta — com a mensagem `sistema` apontando para ela', async () => {
     const { T, p, q } = await cenario();
     const aberta = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', risco: 'emergencia', encaminhadaEm: new Date(), revogadaEm: new Date(), abertaPelaNutriEm: new Date(), contouNoLimite: false });
     // como grava app_ia_nutri_perguntar (0117): a mensagem do texto fixo responde à pergunta com risco
@@ -131,7 +131,43 @@ describe('0116: ia_nutri_mensagens — colunas por papel (RNF-164)', () => {
     await expect(q(sql`update ia_nutri_mensagens set responde_a = ${comum} where id = ${sistema}`)).rejects.toSatisfy(negadoPor('a equipe só abre e resolve'));
     const resposta = await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, texto: 'No seu plano está assim:', respondeA: comum, contouNoLimite: false });
     await expect(q(sql`update ia_nutri_mensagens set responde_a = null where id = ${resposta}`)).rejects.toSatisfy(negadoPor('a equipe só abre e resolve'));
-    await q(sql`delete from ia_nutri_mensagens where id = ${comum}`, worker(T.tenantId));
+  });
+  it('§13.1: o worker só apaga com o estado — vencida, titular bloqueado ou anonimizado, ou dentro da revogação; nunca a mensagem de paciente ativo', async () => {
+    const { T, p, q } = await cenario();
+    const w = worker(T.tenantId);
+    const apagar = (id: string) => q(sql`delete from ia_nutri_mensagens where id = ${id}`, w);
+    const existe = async (id: string) => ((await q(sql`select 1 from ia_nutri_mensagens where id = ${id}`, w)).rowCount ?? 0) > 0;
+    // paciente ativo: a pergunta comum, o esqueleto da revogação (D32: vale até o fim do mês) e a pergunta com risco não aberta (D22)
+    const comum = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
+    const esqueleto = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', texto: null, revogadaEm: new Date(), expiraEm: new Date(Date.now() + 86_400_000) });
+    const risco = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', risco: 'emergencia', encaminhadaEm: new Date(), revogadaEm: new Date(), contouNoLimite: false });
+    for (const id of [comum, esqueleto, risco]) {
+      await expect(apagar(id)).rejects.toSatisfy(negadoPor('não é apagada por este caminho'));
+      expect(await existe(id)).toBe(true);
+    }
+    // retenção: a mensagem vencida (o relógio é o do banco)
+    await q(sql`update ia_nutri_mensagens set expira_em = now() - interval '1 second' where id = ${esqueleto}`, w);
+    await apagar(esqueleto);
+    expect(await existe(esqueleto)).toBe(false);
+    // dentro de app_ia_nutri_revogar (marcador local da transação)
+    await withTenant(w, async (tx) => {
+      await tx.execute(sql`select set_config('app.ia_nutri_revogando', '1', true)`);
+      await tx.execute(sql`delete from ia_nutri_mensagens where id = ${comum}`);
+    }, app.db);
+    expect(await existe(comum)).toBe(false);
+    // exclusão atendida: o titular bloqueado
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
+    await apagar(risco);
+    expect(await existe(risco)).toBe(false);
+    // anonimização: o titular anonimizado
+    const anon = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), anonimizadoEm: new Date() });
+    const daAnon = await mensagemNoBanco(app.db, T.tenantId, anon.id, { status: 'respondida' });
+    await apagar(daAnon);
+    expect(await existe(daAnon)).toBe(false);
+    // sem contexto (migrations, seed) passa
+    const semCtx = await mensagemNoBanco(app.db, T.tenantId, (await novoPaciente(app.db, T.ctx)).id, { status: 'respondida' });
+    await dono.db.execute(sql`delete from ia_nutri_mensagens where id = ${semCtx}`);
+    expect(await existe(semCtx)).toBe(false);
   });
 });
 

@@ -122,15 +122,27 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER ia_nutri_mensagens_regras BEFORE UPDATE ON ia_nutri_mensagens FOR EACH ROW EXECUTE FUNCTION app_ia_nutri_mensagens_regras();
 --> statement-breakpoint
--- RN-182 / D22: DELETE só pelo worker (retenção, exclusão atendida, anonimização) e, na sessão `nutri`, só da pergunta com
--- risco de quem revogou, depois de aberta (D22: apagada ao abrir). O paciente nunca apaga (a revogação esvazia pela função).
+-- RN-182 / D22 (spec §13.1): DELETE só pelo worker com o estado que o justifica — a mensagem vencida (retenção), o titular
+-- bloqueado (exclusão atendida) ou anonimizado (anonimização), ou dentro de app_ia_nutri_revogar (marcador local) — e, na
+-- sessão `nutri`, só da pergunta com risco de quem revogou, depois de aberta (D22: apagada ao abrir). O papel worker também
+-- roda no processo web (agendamento público, webhook do WhatsApp, link de documento, acesso do portal, e as funções da 0117
+-- dentro da sessão de paciente), como dizem a 0099 e a 0102: sem o estado, um WHERE errado apagaria a conversa de um paciente
+-- ativo, o esqueleto das revogadas (D32 / RNF-164: os limites do mês) e a pergunta com risco não aberta (D22). O paciente
+-- nunca apaga (a revogação esvazia pela função). Sem contexto (migrations, seed) passa.
 CREATE OR REPLACE FUNCTION app_ia_nutri_mensagens_sem_apagar() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 DECLARE
   r text := coalesce(app_current_role(), '');
 BEGIN
-  IF r IN ('', 'worker') THEN
+  IF r = '' THEN
+    RETURN OLD;
+  END IF;
+  IF r = 'worker'
+     AND (OLD.expira_em <= now()
+          OR EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
+                        AND (p.status = 'bloqueado' OR p.anonimizado_em IS NOT NULL))
+          OR current_setting('app.ia_nutri_revogando', true) = '1') THEN
     RETURN OLD;
   END IF;
   IF r = 'nutri' AND OLD.autor = 'paciente' AND OLD.risco IS NOT NULL AND OLD.revogada_em IS NOT NULL AND OLD.aberta_pela_nutri_em IS NOT NULL THEN
