@@ -148,6 +148,7 @@ export const MSG_IA_NUTRI = {
   haHoras: (n: number) => (n < 1 ? 'há menos de 1 hora' : n === 1 ? 'há 1 hora' : `há ${n} horas`), // singular e "menos de 1": confirmar com a Debby
   marcarVista: 'Marcar como vista',
   naoAjudouSelo: 'O paciente marcou: não ajudou',
+  ajudouSelo: 'O paciente marcou: ajudou', // novo (US-175: a nutricionista vê as duas avaliações; revisão final)
   filaVazia: 'Nenhuma dúvida aguardando.', // novo
   vista: 'Dúvida marcada como vista.', // novo
 } as const;

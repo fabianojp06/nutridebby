@@ -85,6 +85,18 @@ describe('/painel/pacientes/[id]/ia-nutri (US-170, DP-17)', () => {
     expect(lista).toContain('Na fila');
   });
 
+  it('revisão final (US-175): a resposta marcada "Ajudou" também ganha o selo; a sem avaliação, nenhum', async () => {
+    const { T, paciente } = await cenario({ aceite: true });
+    const t0 = Date.now() - 60_000;
+    const q = await mensagemNoBanco(db, T.tenantId, paciente.id, { createdAt: new Date(t0), status: 'respondida', texto: 'Posso trocar o arroz?' });
+    await mensagemNoBanco(db, T.tenantId, paciente.id, { autor: 'ia', status: null, createdAt: new Date(t0 + 1000), texto: 'No seu plano está assim: arroz 100 g', respondeA: q, avaliacao: 'ajudou', contouNoLimite: false });
+    const h = await pagina(T, paciente);
+    const lista = h.slice(h.indexOf('<ol'), h.indexOf('</ol>'));
+    expect(MSG_IA_NUTRI.ajudouSelo).toBe('O paciente marcou: ajudou');
+    expect(lista.match(new RegExp(MSG_IA_NUTRI.ajudouSelo, 'g'))).toHaveLength(1);
+    expect(lista).not.toContain(MSG_IA_NUTRI.naoAjudouSelo);
+  });
+
   it('revisão da T11 (I1): sem o CRN no perfil, o aviso com o link para "Perfil e marca" perto da situação; com o perfil, nada', async () => {
     const { T, paciente } = await cenario();
     expect(await pagina(T, paciente)).not.toContain(MSG_IA_NUTRI.perfilIncompleto);

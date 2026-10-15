@@ -118,11 +118,11 @@ export default async function IaNutriPage({ params, searchParams }: PageProps<'/
                 ) : (
                   <>
                     <p className="wrap-break-word whitespace-pre-line">{m.texto ?? (m.textoFixo ? TEXTOS_FIXOS[m.textoFixo] : MSG_IA_NUTRI.apagada)}</p>
-                    {(m.categoria || m.risco || m.avaliacao === 'nao_ajudou' || m.duvida) && (
+                    {(m.categoria || m.risco || m.avaliacao || m.duvida) && (
                       <p className="flex flex-wrap gap-2">
                         {m.risco && <Selo>{MSG_IA_NUTRI.seloRisco}</Selo>}
                         {m.categoria && !m.risco && <Selo>{m.categoria}</Selo>}
-                        {m.avaliacao === 'nao_ajudou' && <Selo>{MSG_IA_NUTRI.naoAjudouSelo}</Selo>}
+                        {m.avaliacao && <Selo>{m.avaliacao === 'nao_ajudou' ? MSG_IA_NUTRI.naoAjudouSelo : MSG_IA_NUTRI.ajudouSelo}</Selo>}
                         {m.duvida && <Selo>{DUVIDA[m.duvida]}</Selo>}
                       </p>
                     )}
