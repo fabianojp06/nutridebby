@@ -51,7 +51,9 @@ export default async function IaNutri({ searchParams }: PageProps<'/p/plano/ia'>
   if (aDecidir && !(ler && (await temConversaGuardada(ctx)))) {
     redirect(`/p/plano/ia/autorizar?de=${ler ? 'eu' : 'plano'}${entrada === 'texto_mudou' ? '&mudou=1' : ''}`);
   }
-  const mensagens = await conversaDoPaciente(ctx);
+  // /code-review do PR #37: "nenhuma" (nunca liberada, IA Nutri fora do consultório) sem conversa guardada → nada a ler
+  // (nem o auditRead de uma leitura vazia); com conversa guardada, só para ler, como antes
+  const mensagens = entrada === 'nenhuma' && !(await temConversaGuardada(ctx)) ? [] : await conversaDoPaciente(ctx);
   const podePerguntar = entrada === 'conversa';
   const ultima = mensagens.at(-1);
   const agora = new Date(); // o relógio do servidor, como em /p/plano

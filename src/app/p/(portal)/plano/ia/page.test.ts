@@ -177,6 +177,7 @@ describe('/p/plano/ia — a conversa (US-172, §7.8, RN-173, RNF-167)', () => {
     s.guardada = true;
     for (const e of ['texto_mudou', 'decidir'] as const) {
       entrada(e);
+      s.guardada = true;
       s.mensagens = [msg({ texto: 'Guardada', status: 'respondida', podeEncaminhar: true }), msg({ autor: 'ia', texto: 'Resposta guardada' })];
       const html = await pagina({ ler: '1' });
       expect(html, e).toContain('Guardada');
@@ -202,6 +203,7 @@ describe('/p/plano/ia — a conversa (US-172, §7.8, RN-173, RNF-167)', () => {
   it('indisponível (bloqueado, consultório desligado, pausa) ou "nenhuma" com conversa guardada (também sem IA_PROVEDOR): "não está disponível" e a conversa só para ler', async () => {
     for (const e of ['indisponivel', 'nenhuma'] as const) {
       entrada(e);
+      s.guardada = true;
       s.mensagens = [msg({ texto: 'Guardada', status: 'respondida', podeEncaminhar: true }), msg({ autor: 'ia', texto: 'Resposta guardada' })];
       const html = await pagina();
       expect(html, e).toMatch(new RegExp(`role="status"[^>]*>${MSG_IA_NUTRI.naoDisponivel}<`));
@@ -214,5 +216,22 @@ describe('/p/plano/ia — a conversa (US-172, §7.8, RN-173, RNF-167)', () => {
       expect(html, e).not.toContain('>Enviar para minha nutricionista<');
       expect(html, e).not.toContain(MSG_IA_NUTRI.avisoInicio + '</li>'); // sem campo, sem abertura de sessão nova no fim
     }
+  });
+
+  it('/code-review do PR #37: "nenhuma" (nunca liberada, ou sem a IA Nutri no consultório) sem conversa guardada → "não está disponível" sem ler a conversa (nenhum auditRead)', async () => {
+    entrada('nenhuma');
+    s.mensagens = [msg({ texto: 'Não deveria ser lida' })];
+    const html = await pagina();
+    expect(s.conversa).toBe(0);
+    expect(html).toMatch(new RegExp(`role="status"[^>]*>${MSG_IA_NUTRI.naoDisponivel}<`));
+    expect(html).not.toContain('Não deveria ser lida');
+    // com conversa guardada, lê (só para ler); nas outras entradas, lê como antes
+    s.guardada = true;
+    await pagina();
+    expect(s.conversa).toBe(1);
+    s.guardada = false;
+    entrada('indisponivel');
+    await pagina();
+    expect(s.conversa).toBe(2);
   });
 });
