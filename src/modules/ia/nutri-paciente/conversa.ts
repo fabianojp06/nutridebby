@@ -29,6 +29,15 @@ function textoDaPergunta(textoBruto: unknown): string {
 }
 
 /**
+ * Revisão final (US-173, RN-174; LGPD art. 6º, VI): sem a mensagem gravada (IA Nutri indisponível, parte do paciente
+ * recusada ou acima de LIMITE_RISCO_GRAVADO_DIA), nada foi ao consultório — o texto de transtorno alimentar ("Sua mensagem foi
+ * enviada ao consultório") seria falso; vai o de emergência, que traz o 188 e o 192 sem prometer encaminhamento.
+ */
+function textoDoRiscoSemEnvio(c: CodigoTextoFixo): CodigoTextoFixo {
+  return c === 'risco_transtorno' ? 'risco_emergencia' : c;
+}
+
+/**
  * US-172 / §4.2 (passos do app): (1) o filtro de risco, antes de gravar e de chamar o provedor; (2) a parte do consultório
  * da RN-170 (IA, retenção, aditivo 1.2, ativação, pausa, IA_NUTRI_DESLIGADA); (3) a função fechada (a parte do paciente, uma
  * por vez, limites e a gravação); (4) com `ok`, "Perguntou à IA" e o job `ia-paciente` NA MESMA transação (a função não
@@ -41,7 +50,7 @@ export async function perguntar(ctx: TenantContext, textoBruto: string, deps: De
   const boss = deps.boss ?? (await getBoss()); // fora da transação: o produtor tem pool próprio (boss.test.ts)
   // RN-174: o texto fixo de risco aparece SEMPRE que o filtro acha — também se a IA Nutri ficou indisponível entre a tela e o
   // envio (nesse caso nada é gravado nem enfileirado, e a tela mostra o texto pelo código devolvido)
-  const soTextoDeRisco: ResultadoPergunta | null = risco ? { codigo: 'risco', mensagemId: null, textoFixo: risco.textoFixo } : null;
+  const soTextoDeRisco: ResultadoPergunta | null = risco ? { codigo: 'risco', mensagemId: null, textoFixo: textoDoRiscoSemEnvio(risco.textoFixo) } : null;
   const indisponivel: ResultadoPergunta = soTextoDeRisco ?? { codigo: 'indisponivel', mensagemId: null, textoFixo: null };
   return withTenant(
     ctx,
@@ -68,6 +77,7 @@ export async function perguntar(ctx: TenantContext, textoBruto: string, deps: De
         const job = await boss.send('ia-nutri-risco', { tenantId: ctx.tenantId }, { db: fromDrizzle(tx, sql) });
         if (!job) throw new Error('A fila recusou o aviso de risco da IA Nutri');
       }
+      if (codigo === 'risco' && !mensagemId) return soTextoDeRisco ?? indisponivel; // acima do teto do dia: nada gravado
       return { codigo, mensagemId, textoFixo: codigo === 'risco' ? (risco?.textoFixo ?? null) : null };
     },
     deps.db ?? getDb(),

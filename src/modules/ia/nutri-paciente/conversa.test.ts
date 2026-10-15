@@ -113,6 +113,22 @@ describe('perguntar (US-172, RN-178, RN-179, RN-183)', () => {
     expect(await jobsDeRisco(T.tenantId)).toEqual([]);
   });
 
+  it('transtorno alimentar sem nada gravado (indisponível, bloqueada ou acima do teto do dia) → o texto de emergência, nunca "Sua mensagem foi enviada ao consultório" (revisão final)', async () => {
+    const { T, p, ctxP } = await pronto();
+    const frase = 'depois do jantar eu vomito pra não engordar';
+    const semEnvio = { codigo: 'risco', mensagemId: null, textoFixo: 'risco_emergencia' };
+    expect(await perguntar(ctxP, frase, { ...deps, pausa: PAUSADA })).toEqual(semEnvio);
+    expect(await enviarANutri(ctxP, frase, { ...deps, pausa: PAUSADA })).toEqual(semEnvio);
+    expect(await perguntar(ctxP, frase, { ...deps, ia: { ...IA_TESTE, nutriDesligada: true } })).toEqual(semEnvio);
+    expect(await mensagens(T, p.id)).toHaveLength(0);
+    // gravada: o texto de transtorno (a mensagem foi mesmo ao consultório)
+    expect(await perguntar(ctxP, frase, deps)).toMatchObject({ codigo: 'risco', textoFixo: 'risco_transtorno' });
+    for (let i = 0; i < 49; i++) await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', risco: 'transtorno_alimentar', contouNoLimite: false });
+    expect(await perguntar(ctxP, frase, deps)).toEqual(semEnvio); // acima do teto do dia: nada gravado
+    await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
+    expect(await perguntar(ctxP, frase, deps)).toEqual(semEnvio);
+  });
+
   it('sinal de risco sem a parte do paciente (participação bloqueada) → o texto fixo mesmo assim, nada gravado', async () => {
     const { T, p, ctxP } = await pronto();
     await withTenant(T.ctx, (tx) => tx.execute(sql`update ia_nutri_participacoes set bloqueada_em = now() where patient_id = ${p.id}`), app.db);
