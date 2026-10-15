@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../../test/db';
 import { IA_TESTE } from '../../../../test/ia';
@@ -70,12 +70,21 @@ describe('job ia-nutri-revogacao (RN-182, D30)', () => {
     expect(await c.situacao(naoSaiu)).toBe('estornado');
     expect(await c.situacao(saiu)).toBe('incerto');
     expect(await plataforma()).toBe(antes + 4_000);
+    // re-revisão do /code-review (RN-109): a que saiu e cujo job não volta (cancelada) tem a saída registrada aqui, uma vez
+    const saida = async (id: string) =>
+      withTenant({ tenantId: c.T.tenantId, role: 'worker' }, async (tx) => ({
+        linha: (await tx.execute(sql`select saiu_em = enviado_em as igual, saiu_em, destino from ia_nutri_mensagens where id = ${id}`)).rows[0],
+        exportar: Number((await tx.execute(sql`select count(*)::int as n from audit_log where entidade = 'ia_nutri' and acao = 'exportar' and entidade_id = ${id}`)).rows[0].n),
+      }), app.db);
+    expect(await saida(saiu)).toEqual({ linha: { igual: true, saiu_em: expect.anything(), destino: 'teste' }, exportar: 1 });
+    expect(await saida(naoSaiu)).toEqual({ linha: { igual: null, saiu_em: null, destino: null }, exportar: 0 });
 
     // rodar de novo (e o job da primeira revogação, atrasado) não muda nada
     expect(await processarRevogacaoIaNutri(dados(r2), { db: app.db })).toBe(0);
     expect(await processarRevogacaoIaNutri(dados(r1), { db: app.db })).toBe(0);
     expect([await c.situacao(naoSaiu), await c.situacao(saiu)]).toEqual(['estornado', 'incerto']);
     expect(await plataforma()).toBe(antes + 4_000);
+    expect((await saida(saiu)).exportar).toBe(1);
   });
 
   it('só as canceladas criadas antes da revogação: a revogação de antes não toca a pergunta de depois', async () => {

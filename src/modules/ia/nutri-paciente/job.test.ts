@@ -248,6 +248,37 @@ describe('processarPerguntaIaNutri (§4.2 do worker)', () => {
       expect(await exportar(outro.T, id)).toBe(1);
     });
 
+    it('re-revisão: a nova tentativa que encontra a pergunta já encerrada por fora (cancelada) com enviado_em registra a saída uma vez e ignora', async () => {
+      const { T, p } = await pronto();
+      const id = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'cancelada', enviadoEm: new Date(), reservaMicroUsd: 5500 });
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: id }, depsDe(fake))).toBe('ignorada');
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: id }, depsDe(fake))).toBe('ignorada');
+      expect(fake.chamadas.gerar).toHaveLength(0);
+      const q = await pergunta(T, id);
+      expect(q).toMatchObject({ status: 'cancelada', destino: 'teste' });
+      expect(q.saiu_em).toEqual(q.enviado_em);
+      expect(await exportar(T, id)).toBe(1);
+      // a cancelada que não saiu continua sem registro
+      const naoSaiu = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'cancelada', reservaMicroUsd: 5500 });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: naoSaiu }, depsDe(fake))).toBe('ignorada');
+      expect(await exportar(T, naoSaiu)).toBe(0);
+    });
+
+    it('re-revisão: a linha apagada no meio da chamada (exclusão com o titular bloqueado) deixa o "Pergunta enviada à IA" no audit_log', async () => {
+      const { T, p, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const apagar = async () => {
+        await withTenant(T.ctx, (tx) => tx.execute(sql`update patients set status = 'bloqueado' where id = ${p.id}`), app.db);
+        await comoWorker(T, sql`delete from ia_nutri_mensagens where patient_id = ${p.id}`);
+      };
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(comEfeito(fake, apagar)))).toBe('falhou');
+      expect(await comoWorker(T, sql`select id from ia_nutri_mensagens where id = ${mensagemId}`)).toEqual([]);
+      expect(await exportar(T, mensagemId!)).toBe(1);
+      expect((await uso(T, mensagemId!)).situacao).toBe('incerto');
+    });
+
     it('a varredura encerra a pergunta que saiu e não voltou (job caído): saiu_em, destino e "Pergunta enviada à IA"; a que não saiu, nada', async () => {
       const { T, p } = await pronto();
       const velha = new Date(Date.now() - 5 * 60_000);

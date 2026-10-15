@@ -4,6 +4,7 @@ import { iaNutriConsentimentos, iaNutriMensagens, iaUso, patients, tenants } fro
 import { withTenant } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { estornar, marcarIncerto } from '../cota';
+import { registrarSaida } from './saida';
 
 export type DadosRevogacaoIaNutri = { tenantId: string; patientId: string; revogacaoId: string };
 
@@ -35,7 +36,12 @@ export async function processarRevogacaoIaNutri(d: DadosRevogacaoIaNutri, deps: 
         .orderBy(iaNutriMensagens.id)
         .for('update', { of: iaNutriMensagens });
       for (const m of canceladas) {
-        if (m.enviadoEm) await marcarIncerto(tx, m.id, agora);
+        if (m.enviadoEm) {
+          // re-revisão do /code-review (RN-109): o pedido pode ter saído e o job dele não volta mais (a pergunta está cancelada) —
+          // a saída fica registrada aqui, uma vez, antes de a reserva virar custo
+          await registrarSaida(tx, { mensagemId: m.id, patientId: p.id, agora });
+          await marcarIncerto(tx, m.id, agora);
+        }
         else await estornar(tx, m.id, agora);
       }
       return canceladas.length;

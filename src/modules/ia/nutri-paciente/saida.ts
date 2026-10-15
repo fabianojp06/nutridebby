@@ -24,10 +24,17 @@ export async function registrarSaida(tx: Tx, o: { mensagemId: string; patientId:
     .set({
       saiuEm: sql`${m.enviadoEm}`,
       // nomes qualificados à mão: dentro da subconsulta, uma coluna sem tabela seria a de `c`
-      destino: sql`(select c.destino from ia_nutri_consentimentos c
-                     where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
-                       and c.evento = 'aceite' and c.registrado_em <= ia_nutri_mensagens.enviado_em
-                     order by c.registrado_em desc, c.id desc limit 1)`,
+      // re-revisão: o enviado_em vem do relógio do worker e o registrado_em do banco — com desvio, cai no último aceite anterior
+      // à pergunta e, por fim, no último aceite (a saída nunca fica sem destino; o gatilho o fixa depois de gravado)
+      destino: sql`coalesce(
+                     (select c.destino from ia_nutri_consentimentos c
+                       where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
+                         and c.evento = 'aceite' and c.registrado_em <= ia_nutri_mensagens.enviado_em
+                       order by c.registrado_em desc, c.id desc limit 1),
+                     (select c.destino from ia_nutri_consentimentos c
+                       where c.tenant_id = ia_nutri_mensagens.tenant_id and c.patient_id = ia_nutri_mensagens.patient_id
+                         and c.evento = 'aceite'
+                       order by (c.registrado_em <= ia_nutri_mensagens.created_at) desc, c.registrado_em desc, c.id desc limit 1))`,
       updatedAt: o.agora,
     })
     .where(and(eq(m.id, o.mensagemId), eq(m.autor, 'paciente'), isNotNull(m.enviadoEm), isNull(m.saiuEm)))

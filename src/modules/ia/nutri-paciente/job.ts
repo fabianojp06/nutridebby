@@ -5,6 +5,7 @@ import { iaNutriMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
+import { recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa, type PausaIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { avisarCredencialInvalida, avisarTetoGlobal } from '../alertas';
 import type { DestinoIA, ModeloIA, RegiaoIA } from '../constantes';
@@ -143,7 +144,13 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       pacienteId = m0.patientId;
       await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, pacienteId)).for('update');
       const [m] = await tx.select().from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId)).for('update');
-      if (!m || m.autor !== 'paciente' || (m.status !== 'na_fila' && m.status !== 'processando')) return { fim: 'ignorada' };
+      if (!m || m.autor !== 'paciente') return { fim: 'ignorada' };
+      if (m.status !== 'na_fila' && m.status !== 'processando') {
+        // re-revisão do /code-review (RN-109): encerrada por fora (revogação, varredura) depois de o pedido poder ter saído e
+        // sem o registro — o job caiu no meio da chamada; a saída fica registrada (idempotente) antes de ignorar
+        if (m.enviadoEm && !m.saiuEm) await registrarSaida(tx, { mensagemId: m.id, patientId: pacienteId, agora: agora() });
+        return { fim: 'ignorada' };
+      }
       if (m.enviadoEm) return { fim: 'incerto' }; // D4 do Plano 11: nunca reenviar
       if (!(await conferir(tx, m.createdAt))) return { fim: 'cancelada' };
       if (!deps.provedor || !deps.provedor.aceita(modelo, deps.geo)) return { fim: 'indisponivel' };
@@ -298,6 +305,9 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [m] = await tx.select().from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId)).for('update');
       if (!m) {
+        // a linha saiu no meio da chamada (exclusão, anonimização, retenção), mas o pedido saiu e voltou: a trilha da saída fica
+        // no audit_log, que sobrevive à exclusão (re-revisão do /code-review, RN-109; sem a linha não há saiu_em a gravar)
+        await recordAudit(tx, { acao: 'exportar', entidade: 'ia_nutri', entidadeId: d.mensagemId, patientId: pacienteId });
         await marcarIncerto(tx, d.mensagemId, agora()); // o pedido saiu: a reserva fica como custo (RN-182)
         return 'falhou';
       }
