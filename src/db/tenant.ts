@@ -22,7 +22,8 @@ export type TenantContext = {
   actorUserId?: string;
   /**
    * N7 (Plano 08): paciente agindo **sem sessão de login** (link assinado da consulta, resposta pelo WhatsApp, leitura do
-   * convite antes da conta existir). Mantém a RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
+   * convite antes da conta existir) e a leitura do contexto da IA Nutri no worker, sem escrita (Plano 15, §4.2). Mantém a
+   * RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
    * Só os arquivos de `SEM_CONTA_PERMITIDOS` usam (guarda em sem-conta-guarda.test.ts).
    */
   semConta?: true;
@@ -35,6 +36,7 @@ export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/agenda/acoes-link.ts',
   'src/modules/documentos/link-documento.ts',
   'src/modules/ia/autorizacao-link.ts',
+  'src/modules/ia/nutri-paciente/contexto.ts',
   'src/modules/notificacoes/whatsapp/webhook.ts',
   'src/modules/pacientes/convite-paciente.ts',
 ];

@@ -65,8 +65,11 @@ export const QUEUES = {
   'ia-nutri-revogacao': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // Plano 15 (§4.2, RN-180, DP-9): a pergunta do paciente à IA Nutri. Payload { tenantId, mensagemId } (só ids). Uma nova
   // tentativa em 5 s só antes do envio; 120 s acima do pior caso (reserva + contexto + chamada de 45 s + gravação). O
-  // handler é registrado no worker pela T9 (job.ts).
+  // handler é o processarPerguntaIaNutri (job.ts), duas por vez no worker (localConcurrency: 2).
   'ia-paciente': { retryLimit: 1, retryDelay: 5, retryBackoff: false, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-180, DP-10): de minuto em minuto — a expirar-ia de 15 min não serve para quem espera na tela. Pergunta
+  // presa há mais de 3 min → falhou (interrompida) e a conciliação das reservas de ia_uso
+  'expirar-ia-paciente': { retryLimit: 0, expireInSeconds: 50 },
   // D10 / DP-6: o e-mail de sinal de risco às nutricionistas (no máximo 1 a cada 15 min por tenant; dentro da janela, um job
   // adiado por tenant, com singletonKey = tenant e a consulta de pendentes, R7). Payload { tenantId }.
   'ia-nutri-risco': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },

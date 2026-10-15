@@ -21,8 +21,10 @@ import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autoriza
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
 import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos-job';
 import { configIA } from '@/modules/ia/modo';
+import { processarPerguntaIaNutri, type DadosJobIaPaciente } from '@/modules/ia/nutri-paciente/job';
 import { processarRevogacaoIaNutri, type DadosRevogacaoIaNutri } from '@/modules/ia/nutri-paciente/revogacao-job';
 import { avisarRiscoIaNutri } from '@/modules/ia/nutri-paciente/risco-job';
+import { expirarPerguntasIaNutri } from '@/modules/ia/nutri-paciente/varredura';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -277,6 +279,19 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
       modeloAssistente: ia.modeloAssistente, tetoRascunhoMicroUsd: ia.tetoRascunhoMicroUsd,
       appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit, abortado: () => job.signal.aborted,
     });
+  });
+  // Plano 15 (§4.2, RN-180): a IA Nutri do paciente — fila própria, duas por vez (uma pergunta não espera atrás de um
+  // laudo); o modelo é o do paciente (D5). A varredura de minuto em minuto é a rede de segurança (presa → falhou)
+  await work('ia-paciente', { includeMetadata: true, localConcurrency: 2 }, async ([job]: JobWithMetadata<DadosJobIaPaciente>[]) => {
+    await processarPerguntaIaNutri(job.data, {
+      db: getDb(), modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, destino: ia.destino, retencao: ia.retencao,
+      modeloPaciente: ia.modeloPaciente, nutriDesligada: ia.nutriDesligada, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
+      abortado: () => job.signal.aborted, boss,
+    });
+  });
+  await boss.schedule('expirar-ia-paciente', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('expirar-ia-paciente', async () => {
+    await expirarPerguntasIaNutri(getDb(), new Date());
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).
