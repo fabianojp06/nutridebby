@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -71,6 +73,16 @@ describe('/painel/duvidas (US-175 "Fila")', () => {
   it('vazia → "Nenhuma dúvida aguardando."', async () => {
     await consultorio();
     expect(await fila()).toContain(MSG_IA_NUTRI.filaVazia);
+  });
+
+  it('/code-review do PR #37 (D22): todo <Link> para /painel/duvidas/[id] tem prefetch={false} — abrir grava aberta_pela_nutri_em, audita e apaga a de risco revogada', () => {
+    const raiz = path.join(process.cwd(), 'src');
+    const arquivos = readdirSync(raiz, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'));
+    const links = arquivos.flatMap((f) =>
+      (readFileSync(path.join(raiz, f), 'utf8').match(/<Link\b[^>]*>/g) ?? []).filter((l) => l.includes('/painel/duvidas/')).map((l) => [f, l] as const),
+    );
+    expect(links.length).toBeGreaterThanOrEqual(2); // a fila e a aba "IA Nutri" da ficha
+    for (const [f, l] of links) expect(l, f).toContain('prefetch={false}');
   });
 });
 

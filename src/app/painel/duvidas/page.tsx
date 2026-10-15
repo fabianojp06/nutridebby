@@ -43,7 +43,8 @@ export default async function Duvidas({ searchParams }: PageProps<'/painel/duvid
                 <td>{MSG_IA_NUTRI.haHoras(horasDesde(d.criadaEm, agora))}</td>
                 <td>{d.selo ? <Selo>{ROTULO_DO_SELO[d.selo]}</Selo> : null}</td>
                 <td>
-                  <Link href={`/painel/duvidas/${d.id}`} className="inline-flex min-h-11 items-center text-link underline">
+                  {/* abrir grava aberta_pela_nutri_em, audita e apaga a de risco revogada (D22): nada de prefetch */}
+                  <Link href={`/painel/duvidas/${d.id}`} prefetch={false} className="inline-flex min-h-11 items-center text-link underline">
                     Abrir dúvida
                     <span className="sr-only">{` de ${d.paciente}`}</span>
                   </Link>

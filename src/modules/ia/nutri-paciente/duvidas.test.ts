@@ -183,6 +183,15 @@ describe('marcarComoVista (US-175, D24 = b)', () => {
     expect(await contadorDeDuvidas(T.ctx, app.db)).toBe(0);
   });
 
+  it('/code-review do PR #37 (D22): a risco_revogado AINDA NÃO ABERTA, por POST direto → false; continua na fila, com o texto, até "Abrir dúvida"', async () => {
+    const { T, bia } = await consultorio();
+    const r = await mensagemNoBanco(app.db, T.tenantId, bia.id, encaminhada({ risco: 'transtorno_alimentar', revogadaEm: new Date(), texto: RISCO }));
+    expect(await marcarComoVista(T.ctx, r, { db: app.db })).toBe(false);
+    expect(await linha(T, r)).toMatchObject({ resolvidaEm: null, abertaPelaNutriEm: null, texto: RISCO });
+    expect((await filaDeDuvidas(T.ctx, app.db)).map((d) => [d.id, d.selo])).toEqual([[r, 'risco_revogado']]);
+    expect(await avisos(T, bia.id)).toEqual([]);
+  });
+
   it('id de outro consultório ou inválido → false', async () => {
     const { T } = await consultorio();
     const outro = await consultorio();

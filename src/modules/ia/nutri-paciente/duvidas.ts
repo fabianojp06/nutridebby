@@ -128,7 +128,8 @@ export async function abrirDuvida(ctx: TenantContext, id: string, db: Db = getDb
  * nenhum texto livre da nutricionista vai pela plataforma. Ordem DP-10: lê o paciente da mensagem, trava o paciente (FOR
  * SHARE) e só então o UPDATE e o INSERT em notifications (filha de patients) — sem ciclo com a revogação, que trava o
  * paciente antes das mensagens. O aviso mínimo de quem desativou a IA Nutri (D22 b) resolve sem push: a conversa dele foi
- * apagada e não há o que ver no app. Já resolvida, apagada ou de outro consultório → false.
+ * apagada e não há o que ver no app. Já resolvida, apagada, de outro consultório ou a de risco de quem desativou ainda não
+ * aberta (D22: só "Abrir dúvida" a tira da fila) → false.
  */
 export async function marcarComoVista(ctx: TenantContext, id: string, deps: { db?: Db; agora?: Date } = {}): Promise<boolean> {
   if (!idValido(id)) return false;
@@ -144,7 +145,9 @@ export async function marcarComoVista(ctx: TenantContext, id: string, deps: { db
       const [m] = await tx
         .update(iaNutriMensagens)
         .set({ abertaPelaNutriEm: sql`coalesce(${iaNutriMensagens.abertaPelaNutriEm}, now())`, resolvidaEm: agora, resolvidaPor: nutri, resolucao: 'vista', updatedAt: agora })
-        .where(and(eq(iaNutriMensagens.id, id), aberta))
+        // /code-review do PR #37 (D22): a de risco de quem desativou, ainda com o texto, só sai da fila por "Abrir dúvida" (que
+        // mostra uma vez, audita e apaga) — nunca por um POST direto que a resolveria sem ninguém ler
+        .where(and(eq(iaNutriMensagens.id, id), aberta, or(isNull(iaNutriMensagens.revogadaEm), isNull(iaNutriMensagens.texto))))
         .returning({ patientId: iaNutriMensagens.patientId, revogadaEm: iaNutriMensagens.revogadaEm });
       if (!m) return false;
       if (!m.revogadaEm) await avisarDuvidaVista(tx, { tenantId: ctx.tenantId, patientId: m.patientId }, agora);
