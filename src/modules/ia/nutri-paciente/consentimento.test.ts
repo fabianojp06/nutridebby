@@ -203,11 +203,28 @@ describe('DP-17 — desativarPelaNutri (a pedido do paciente, na ficha)', () => 
 });
 
 describe('§7.6, RN-182 — blocoIaNutriDoApp (Eu › Privacidade)', () => {
-  it('nulo sem nada (nunca liberado, sem conversa, sem evento) e sem IA_PROVEDOR', async () => {
+  // como configIA sem IA_PROVEDOR: modo 'ausente' e destino nulo
+  const SEM_PROVEDOR: ConfigIA = { ...IA_TESTE, modo: 'ausente', destino: null, retencao: null };
+
+  it('nulo sem nada (nunca liberado, sem conversa, sem evento), também sem IA_PROVEDOR', async () => {
     const c = await cenario({ liberar: false });
     expect(await c.bloco()).toBeNull();
-    const comAceite = await cenario({ aceite: true });
-    expect(await comAceite.bloco({ ...IA_TESTE, modo: 'ausente' })).toBeNull();
+    expect(await c.bloco(SEM_PROVEDOR)).toBeNull();
+  });
+
+  it('revisão da T7: sem IA_PROVEDOR, o consentimento vigente com conversa guardada mantém o bloco (revogação a qualquer momento, LGPD art. 8º, § 5º) e desativar funciona', async () => {
+    const c = await cenario({ aceite: true });
+    await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });
+    const [e] = await c.eventos();
+    expect(await c.bloco(SEM_PROVEDOR)).toEqual({ situacao: MSG_IA_NUTRI.situacaoVigente(formatarDataNoFuso(e.registradoEm, (await c.tenant()).fuso)), podeDecidir: false, podeDesativar: true, temConversa: true });
+    expect(await desativarNoApp(c.P, c.deps({ ia: SEM_PROVEDOR }))).toBe('desativada');
+    const rev = (await c.eventos()).at(-1)!;
+    expect(await c.bloco(SEM_PROVEDOR)).toEqual({ situacao: MSG_IA_NUTRI.situacaoDesativada(formatarDataNoFuso(rev.registradoEm, (await c.tenant()).fuso)), podeDecidir: false, podeDesativar: false, temConversa: false });
+  });
+
+  it('sem IA_PROVEDOR, liberado e sem nenhum evento nem conversa → nulo (nada a decidir com a IA fora do ar)', async () => {
+    const c = await cenario();
+    expect(await c.bloco(SEM_PROVEDOR)).toBeNull();
   });
 
   it('liberado sem consentimento → podeDecidir, "Você ainda não autorizou…"', async () => {

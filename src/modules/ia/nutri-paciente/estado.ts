@@ -84,10 +84,13 @@ export type BlocoIaNutriApp = { situacao: string; podeDecidir: boolean; podeDesa
  * §7.6, §7.8, RN-182: o bloco de Eu › Privacidade. Aparece sempre que houver qualquer evento de consentimento (vigente ou
  * desativado — a confirmação "Você desativou em …" não some com o bloco) ou conversa guardada — também com o paciente
  * bloqueado, o consultório desligado ou a plataforma pausada (revogação gratuita e facilitada, LGPD art. 8º, § 5º) — e,
- * para decidir, quando a entrada diz "decidir"/"texto_mudou".
+ * para decidir, quando a entrada diz "decidir"/"texto_mudou". Também sem IA_PROVEDOR (modo `ausente`, revisão da T7): o
+ * consentimento e as conversas guardadas não somem com a configuração, então a porta para ler e desativar também não; a
+ * entrada cai em "nenhuma" e o bloco só mostra a situação, "Desativar…" e o acesso para ler. A rota de "Desativar" (T12) não
+ * recusa no modo ausente (desativarNoApp não confere o modo).
  */
 export async function blocoIaNutriDoApp(ctx: TenantContext, tenant: TenantRow, ia: ConfigIA, o: { db?: Db; pausa?: PausaIaNutri } = {}): Promise<BlocoIaNutriApp | null> {
-  if (ia.modo === 'ausente' || ctx.role !== 'paciente' || !ctx.patientId) return null;
+  if (ctx.role !== 'paciente' || !ctx.patientId) return null;
   const pid = ctx.patientId;
   return withTenant(
     ctx,

@@ -2645,10 +2645,11 @@ export type BlocoIaNutriApp = { situacao: string; podeDecidir: boolean; podeDesa
  * §7.6, §7.8, RN-182: o bloco de Eu › Privacidade. Aparece sempre que houver qualquer evento de consentimento (vigente ou
  * desativado — a confirmação "IA Nutri desativada." não some com o bloco) ou conversa guardada — também com o paciente
  * bloqueado, o consultório desligado ou a plataforma pausada (revogação gratuita e facilitada, LGPD art. 8º, § 5º) — e,
- * para decidir, quando a entrada diz "decidir"/"texto_mudou".
+ * para decidir, quando a entrada diz "decidir"/"texto_mudou". Também sem IA_PROVEDOR (modo `ausente`, revisão da T7): a
+ * entrada cai em "nenhuma" e o bloco só mostra a situação, "Desativar…" e o acesso para ler (P15-B12 leva o mesmo à 14A).
  */
 export async function blocoIaNutriDoApp(ctx: TenantContext, tenant: TenantRow, ia: ConfigIA, o: { db?: Db; pausa?: PausaIaNutri } = {}): Promise<BlocoIaNutriApp | null> {
-  if (ia.modo === 'ausente' || !ctx.patientId) return null;
+  if (ctx.role !== 'paciente' || !ctx.patientId) return null;
   const pid = ctx.patientId;
   return withTenant(
     ctx,
@@ -5088,6 +5089,7 @@ Nenhum passo é do código; cada um tem dono. Vale tudo dos runbooks da 14A, da 
 | P15-B9 | Varredura: com muitos consultórios, a lista de candidatas sem trava + a trava por paciente dá uma consulta por presa; medir em carga (P08-03) junto do P15-B4 |
 | P15-B10 | DP-17 no consultório suspenso (RN-15, re-revisão): nem o paciente nem a nutricionista entram, então ninguém registra a revogação pedida pelo paciente (LGPD art. 8º, § 5º). Hoje o pedido espera a reativação ou o suporte. Se o dono quiser um caminho durante a suspensão: uma ação do admin que só enfileira um job do worker (`app_ia_nutri_revogar` não roda no worker hoje — exigiria um ramo `worker` com canal próprio, ex. `suporte`, e o CHECK de `canal`), sem o admin tocar tabela 🔒 (regra 1). Os textos (desvio 9, docstring de `desativarPelaNutri`) já não prometem esse caso |
 | P15-B11 | Pendências da D37 (dono, 14/10/2026), registradas e **não** portões: resposta do CRN-3 (D1, D2; "não" → pausa de emergência), parecer do advogado sobre o consentimento 1.0 e o aditivo 1.2 (na lista do P14A-16), RIPD da F3-02, revisão da psicóloga (textos de risco e protocolo), Política de Uso da Anthropic a partir de 12/11/2026, nome escolhido pela Debby (D28). Frase do consentimento mudada → versão nova (`IA_NUTRI_TERMO_VERSAO` e o mínimo) e novo consentimento de cada paciente |
+| P15-B12 | 14A: `blocoIaDoApp` (`src/modules/ia/autorizacao.ts`) some sem IA_PROVEDOR (`ia.modo === 'ausente'`), também com a autorização vigente — o titular perde no app o caminho de retirar (LGPD art. 8º, § 5º; art. 18, IX). Na IA Nutri o bloco já não some (revisão da T7, rodada 1). Fazer o mesmo na 14A: tirar o modo `ausente` do retorno antecipado (o bloco aparece com algum registro do paciente, sem "Ler e decidir") e conferir que a action de retirar não recusa no modo ausente |
 
 ## Dependências e paralelismo
 
