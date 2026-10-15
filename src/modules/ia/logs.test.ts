@@ -220,18 +220,20 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
   const emailsDoTenant = async (tenantId: string) =>
     (await (await getBoss()).findJobs('email')).map((j) => j.data as EmailJobData).filter((d) => d.tenantId === tenantId).map((d) => openSecret(d.selado, EMAIL_FINALIDADE));
 
-  it('IA Nutri do paciente (RNF-165): nome, orientação de atendimento, observação da refeição e pergunta marcadores não vão a log, fila, notificação nem e-mail; o pedido leva [removido] no lugar do nome', async () => {
+  it('IA Nutri do paciente (RNF-165): nome, orientação de atendimento, observação da refeição e pergunta marcadores vão ao provedor, mas não a log, fila, notificação nem e-mail; o pedido leva [removido] no lugar do nome', async () => {
     const db = appDaConversa.db;
     const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
     try {
       const T = await novoTenant(db);
       await iaNutriPronta(db, T.tenantId);
-      const { paciente: p, userId } = await pacienteComConta(db, T, { nome: `${MARCADOR} Souza` });
+      // o marcador no meio do nome (não como primeiro nome): sozinho, a máscara não o apaga, e o dado de saúde do corpo do
+      // pedido chega ao provedor com ele — é isso que torna sensível a checagem do log
+      const { paciente: p, userId } = await pacienteComConta(db, T, { nome: `Joana ${MARCADOR} Souza` });
       const ctxP = ctxPaciente(T.tenantId, p.id, userId);
       await liberarNoBanco(db, T.ctx, p.id);
       await aceiteNoBanco(db, ctxP);
       await planoPublicado(db, T, p.id, { refeicoes: [{ nome: 'Almoço', horario: '12:30', observacao: `Sem sal ${MARCADOR}`, itens: [{ gramas: 100, taco: TACO_ARROZ }] }] });
-      await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-01', orientacoesPaciente: `Caminhe ${MARCADOR} todo dia.` }), db);
+      await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-01', orientacoesPaciente: `Caminhe ${MARCADOR} todo dia, Joana Souza.` }), db);
 
       // uma resposta montada (o trecho relido traz a observação marcadora, só ao paciente) e um risco percebido pelo modelo
       const fake = provedorFake({ gerar: [finalOk({ categoria: 'plano', tipo_resposta: 'refeicao', fontes: ['#R1'] }), finalOk({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] })] });
@@ -251,10 +253,12 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       expect(revogacao).toBeDefined();
       await processarRevogacaoIaNutri(revogacao!.data as { tenantId: string; patientId: string; revogacaoId: string }, { db });
 
-      // o pedido ao provedor: o nome (e o primeiro nome, onde aparecer) vira [removido]
+      // o pedido ao provedor: o dado de saúde (pergunta, observação, orientação, histórico) sai com o marcador; o nome
+      // ("Joana Souza" na orientação) vira [removido]
       const pedido = JSON.stringify(fake.chamadas.gerar);
+      expect(pedido).toContain(MARCADOR);
       expect(pedido).toContain('[removido]');
-      expect(pedido).not.toContain('Souza');
+      expect(pedido).not.toMatch(/Joana|Souza/);
       // log, filas (só ids), notificações e e-mails
       const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
       expect(logs).not.toContain('MARCADOR');
