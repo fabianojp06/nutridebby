@@ -25,9 +25,9 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
   });
 
   for (const arquivo of ['src/modules/ia/provedor-anthropic.ts', 'src/modules/ia/provedor-bedrock.ts']) {
-    it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
+    it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, cache_control (D35), fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
       const codigo = readFileSync(arquivo, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
+      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /cache_control/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
         // ferramentas de servidor do SDK (ToolUnion) e o contêiner delas: nada sai para busca, navegador ou execução de terceiro
         /web_search|web_fetch|browser_toolset|computer_|memory_20|bash_20|text_editor|tool_search|\bcontainer\b/]) {
         expect(codigo, String(proibido)).not.toMatch(proibido);
@@ -49,6 +49,11 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       expect(codigo).toMatch(/logLevel:\s*'off'/);
     });
   }
+  it('D35 (Plano 15): o módulo comum que monta as mensagens dos dois provedores também não usa cache_control', () => {
+    const codigo = readFileSync('src/modules/ia/geracao-formato.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(codigo).not.toMatch(/cache_control/);
+  });
+
   it('RNF-105 no Bedrock: credenciais explícitas, sem inference_geo e sem S3', () => {
     const codigo = readFileSync('src/modules/ia/provedor-bedrock.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     expect(codigo).not.toMatch(/inference_geo/);

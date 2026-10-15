@@ -5,11 +5,14 @@ import type { UsoTokens } from './provedor';
  * Spec v0.3 §6 / RNF-109: tabela versionada (US$ por milhão de tokens). 1 token × US$ 1/M = 1 micro-dólar: o custo em
  * micro-dólares é a soma tokens × preço, arredondada para cima. Mudou o preço: nova data aqui e conferência na fatura.
  */
-export const PRECOS_IA_DATA = '2026-10-06';
+// Plano 15 (D5): Haiku 5.5 — US$ 0,10 / 0,50 por milhão (referência da API, conferida em 09/10/2026, §8 da spec); cache
+// 1,25× e 0,1× da entrada, como os outros, sem uso (D35)
+export const PRECOS_IA_DATA = '2026-10-09';
 // Plano 14A (R-117): a tabela vale também para o Bedrock até o dono conferir a página de preços da AWS — runbook, passo 3
 export const PRECOS_IA: Record<ModeloIA, { entrada: number; saida: number; cacheGravacao: number; cacheLeitura: number }> = {
   'claude-opus-5-5': { entrada: 4, saida: 20, cacheGravacao: 5, cacheLeitura: 0.2 },
   'claude-sonnet-5-5': { entrada: 2, saida: 10, cacheGravacao: 2.5, cacheLeitura: 0.2 },
+  'claude-haiku-5-5': { entrada: 0.1, saida: 0.5, cacheGravacao: 0.125, cacheLeitura: 0.01 },
 };
 /** `inference_geo: "us"` custa 1,1× (modelos 4.6+); o perfil geográfico `eu.` do Bedrock tem o prêmio de 10% do endpoint regional (§5.5). */
 export const MULTIPLICADOR_GEO: Record<RegiaoIA, number> = { us: 1.1, global: 1, eu: 1.1 };
@@ -23,6 +26,13 @@ export const MAX_TOKENS_LEITURA = 16_000;
 /** Plano 14B (D2): saída + raciocínio de cada volta do laço e do resumo — sem streaming, dentro do timeout de 120 s. */
 export const MAX_TOKENS_VOLTA = 16_000;
 export const MAX_TOKENS_RESUMO = 8_000;
+/**
+ * Plano 15 (DP-8, §8): o teto da pergunta da IA Nutri — plano + 5 orientações de até 5.000 caracteres + 6 mensagens +
+ * instruções, com folga para o tokenizador do Haiku 5.5 (≈ 30% mais tokens); saída = {categoria, tipo_resposta, fontes} +
+ * o raciocínio de esforço `low` (D31). O portão desce a reserva pelo pedido montado.
+ */
+export const TOKENS_ENTRADA_TETO_CONVERSA = 40_000;
+export const MAX_TOKENS_CONVERSA = 2_000;
 /** D5/D12: estimativa conservadora de tokens de um texto já montado (2 bytes UTF-8 por token; o português dá ≈ 4). */
 export const tokensDeBytes = (bytes: number): number => Math.ceil(bytes / 2);
 

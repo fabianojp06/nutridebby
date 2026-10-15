@@ -356,6 +356,48 @@ describe('Plano 11 — variáveis da IA (spec v0.3 §12)', () => {
   });
 });
 
+describe('Plano 15 — IA_MODELO_PACIENTE e IA_NUTRI_DESLIGADA (§14, D5, RN-185)', () => {
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  const bedrock = { IA_PROVEDOR: 'bedrock-eu', IA_BEDROCK_REGIAO: 'eu-central-1', IA_MODELO_LEITURA: 'claude-sonnet-5-5' };
+  const AWS = { AWS_ACCESS_KEY_ID: 'AKIA' + 'A'.repeat(16), AWS_SECRET_ACCESS_KEY: 'x'.repeat(40) };
+
+  it('IA_MODELO_PACIENTE: opcional e sem padrão no esquema (o padrão por provedor é do configIA), no app e no worker', () => {
+    expect(parseEnv(base).IA_MODELO_PACIENTE).toBeUndefined();
+    expect(parseWorkerEnv(w).IA_MODELO_PACIENTE).toBeUndefined();
+    expect(parseEnv({ ...base, IA_MODELO_PACIENTE: '' }).IA_MODELO_PACIENTE).toBeUndefined();
+    expect(parseEnv({ ...base, IA_MODELO_PACIENTE: 'claude-haiku-5-5' }).IA_MODELO_PACIENTE).toBe('claude-haiku-5-5');
+    expect(parseWorkerEnv({ ...w, IA_MODELO_PACIENTE: 'claude-sonnet-5-5' }).IA_MODELO_PACIENTE).toBe('claude-sonnet-5-5');
+    expect(() => parseEnv({ ...base, IA_MODELO_PACIENTE: 'claude-haiku-4-5' })).toThrow(/IA_MODELO_PACIENTE deve ser um destes: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5/);
+    expect(() => parseWorkerEnv({ ...w, IA_MODELO_PACIENTE: 'claude-fable-5-1' })).toThrow(/IA_MODELO_PACIENTE deve ser um destes/);
+  });
+
+  it('com bedrock-eu: sem a variável o app e o worker sobem (o Sonnet 5.5 é o padrão); o Haiku escrito é recusado', () => {
+    expect(parseEnv({ ...base, ...bedrock }).IA_MODELO_PACIENTE).toBeUndefined();
+    expect(parseWorkerEnv({ ...w, ...bedrock, ...AWS }).IA_MODELO_PACIENTE).toBeUndefined();
+    expect(parseEnv({ ...base, ...bedrock, IA_MODELO_PACIENTE: 'claude-sonnet-5-5' }).IA_MODELO_PACIENTE).toBe('claude-sonnet-5-5');
+    const msg = 'Com IA_PROVEDOR=bedrock-eu, IA_MODELO_PACIENTE deve ser um destes: claude-sonnet-5-5';
+    expect(() => parseEnv({ ...base, ...bedrock, IA_MODELO_PACIENTE: 'claude-haiku-5-5' })).toThrow(msg);
+    expect(() => parseWorkerEnv({ ...w, ...bedrock, ...AWS, IA_MODELO_PACIENTE: 'claude-haiku-5-5' })).toThrow(msg);
+  });
+
+  it('IA_NUTRI_DESLIGADA: 0 ou 1, ausente por padrão, no app e no worker', () => {
+    expect(parseEnv(base).IA_NUTRI_DESLIGADA).toBeUndefined();
+    expect(parseWorkerEnv(w).IA_NUTRI_DESLIGADA).toBeUndefined();
+    expect(parseEnv({ ...base, IA_NUTRI_DESLIGADA: '' }).IA_NUTRI_DESLIGADA).toBeUndefined();
+    expect(parseEnv({ ...base, IA_NUTRI_DESLIGADA: '1' }).IA_NUTRI_DESLIGADA).toBe('1');
+    expect(parseWorkerEnv({ ...w, IA_NUTRI_DESLIGADA: '0' }).IA_NUTRI_DESLIGADA).toBe('0');
+    expect(() => parseEnv({ ...base, IA_NUTRI_DESLIGADA: '2' })).toThrow('IA_NUTRI_DESLIGADA deve ser 0 ou 1');
+    expect(() => parseWorkerEnv({ ...w, IA_NUTRI_DESLIGADA: 'sim' })).toThrow('IA_NUTRI_DESLIGADA deve ser 0 ou 1');
+  });
+
+  it('R13: o Haiku 5.5 é só da IA Nutri do paciente — IA_MODELO_LEITURA e IA_MODELO_ASSISTENTE não o aceitam', () => {
+    expect(() => parseEnv({ ...base, IA_MODELO_LEITURA: 'claude-haiku-5-5' })).toThrow('IA_MODELO_LEITURA deve ser um destes: claude-opus-5-5, claude-sonnet-5-5');
+    expect(() => parseWorkerEnv({ ...w, IA_MODELO_LEITURA: 'claude-haiku-5-5' })).toThrow(/IA_MODELO_LEITURA/);
+    expect(() => parseEnv({ ...base, IA_MODELO_ASSISTENTE: 'claude-haiku-5-5' })).toThrow('IA_MODELO_ASSISTENTE deve ser um destes: claude-opus-5-5, claude-sonnet-5-5');
+    expect(() => parseWorkerEnv({ ...w, IA_MODELO_ASSISTENTE: 'claude-haiku-5-5' })).toThrow(/IA_MODELO_ASSISTENTE/);
+  });
+});
+
 describe('Plano 14A — bedrock-eu, retenção zero e variáveis que o SDK leria sozinho (spec §12, INT-08, RNF-103)', () => {
   const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3000', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
   const prodWorker = { ...w, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', EMAIL_TRANSPORT: 'mailpit' };

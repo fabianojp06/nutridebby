@@ -258,7 +258,8 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   });
   // Plano 14B (D3): a fila do resumo, do rascunho e dos modelos sugeridos — o mesmo provedor; o modelo é o do assistente
   // (A-D3). Um job por vez (padrão do boss.work); expira em 900 s, acima do prazo do laço (12 min)
-  logger.info({ modeloAssistente: ia.modeloAssistente }, 'IA Nutri');
+  // Plano 15: o modelo da IA Nutri do paciente e a segunda barreira (só nomes de modelo e o booleano)
+  logger.info({ modeloAssistente: ia.modeloAssistente, modeloPaciente: ia.modeloPaciente, nutriDesligada: ia.nutriDesligada }, 'IA Nutri');
   await work('ia-assistente', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobAssistente>[]) => {
     await processarJobAssistente(job.data, {
       db: getDb(), modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, destino: ia.destino, retencao: ia.retencao,

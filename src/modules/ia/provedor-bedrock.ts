@@ -133,18 +133,22 @@ export function provedorBedrock(o: { regiao: RegiaoBedrock; accessKeyId: string;
       // D3: como na leitura, nada sai para modelo fora do perfil eu. nem com região que não é a da UE
       if (!perfil || !aceitaBedrock(p.modelo, p.geo)) throw new ErroProvedor('pedido_invalido', null, null);
       const { data: r, response } = await cliente.messages
-        .create({
-          model: perfil,
-          max_tokens: p.maxTokens,
-          system: p.sistema,
-          // D1: o histórico e a classificação da resposta são os do módulo comum (os mesmos da API direta)
-          messages: mensagensDaGeracao(p.turnos) as MensagemDoPedido[],
-          output_config: { effort: p.esforco, format: { type: 'json_schema', schema: p.schema } },
-          // RNF-105: só ferramentas do cliente, strict, com a escolha automática (forçar dá 400 nos modelos 5.5)
-          ...(p.ferramentas.length
-            ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as EsquemaDaFerramenta, strict: true })), tool_choice: { type: 'auto' } as const }
-            : {}),
-        })
+        .create(
+          {
+            model: perfil,
+            max_tokens: p.maxTokens,
+            system: p.sistema,
+            // D1: o histórico e a classificação da resposta são os do módulo comum (os mesmos da API direta)
+            messages: mensagensDaGeracao(p.turnos) as MensagemDoPedido[],
+            output_config: { effort: p.esforco, format: { type: 'json_schema', schema: p.schema } },
+            // RNF-105: só ferramentas do cliente, strict, com a escolha automática (forçar dá 400 nos modelos 5.5)
+            ...(p.ferramentas.length
+              ? { tools: p.ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema as EsquemaDaFerramenta, strict: true })), tool_choice: { type: 'auto' } as const }
+              : {}),
+          },
+          // Plano 15 (RN-180): o prazo por pedido é opção do SDK (não vai no corpo); maxRetries continua 0
+          p.prazoMs ? { timeout: p.prazoMs } : undefined,
+        )
         .withResponse()
         .then(
           (x) => x,

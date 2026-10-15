@@ -28,6 +28,10 @@ export type ConfigIA = {
   /** Plano 14B (RN-121, D5): o teto por tarefa de rascunho (IA_TETO_RASCUNHO_USD), em micro-dólares. */
   tetoRascunhoMicroUsd: number;
   retencao: RetencaoIA;
+  /** Plano 15 (D5): o modelo da IA Nutri do paciente (IA_MODELO_PACIENTE; sem ela, Haiku 5.5 na Anthropic direta e Sonnet 5.5 no Bedrock). */
+  modeloPaciente: ModeloIA;
+  /** Plano 15 (RN-185): IA_NUTRI_DESLIGADA=1 — a segunda barreira (exige redeploy); a primeira é a pausa no banco. */
+  nutriDesligada: boolean;
 };
 export type AmbienteIA = {
   IA_PROVEDOR?: ProvedorConfigurado;
@@ -39,6 +43,9 @@ export type AmbienteIA = {
   IA_INFERENCE_GEO: GeoIA;
   IA_TETO_GLOBAL_MENSAL_USD: number;
   IA_TETO_RASCUNHO_USD: number;
+  /** Plano 15 (§14): opcional, sem padrão no esquema — o padrão depende do provedor (configIA). */
+  IA_MODELO_PACIENTE?: ModeloIA;
+  IA_NUTRI_DESLIGADA?: '0' | '1';
 };
 
 export function configIA(e: AmbienteIA): ConfigIA {
@@ -53,6 +60,9 @@ export function configIA(e: AmbienteIA): ConfigIA {
     tetoGlobalMicroUsd: usdParaMicro(e.IA_TETO_GLOBAL_MENSAL_USD),
     tetoRascunhoMicroUsd: usdParaMicro(e.IA_TETO_RASCUNHO_USD),
     retencao: retencaoDoAmbiente(e),
+    // D5: o Haiku 5.5 não está no perfil eu. do Bedrock (MODELOS_BEDROCK_EU) — lá o padrão é o Sonnet 5.5
+    modeloPaciente: e.IA_MODELO_PACIENTE ?? (e.IA_PROVEDOR === 'bedrock-eu' ? 'claude-sonnet-5-5' : 'claude-haiku-5-5'),
+    nutriDesligada: e.IA_NUTRI_DESLIGADA === '1',
   };
 }
 

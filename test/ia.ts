@@ -163,7 +163,7 @@ export async function termoNoDisco(db: Db, ctx: TenantContext, patientId: string
 }
 
 /** Plano 14A: a configuração dos testes da IA — provedor falso (destino `teste`), retenção zero ligada, teto da plataforma folgado. */
-export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', modeloAssistente: 'claude-sonnet-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, tetoRascunhoMicroUsd: 1_000_000, retencao: 'zero' };
+export const IA_TESTE: ConfigIA = { modo: 'fake', destino: 'teste', modelo: 'claude-opus-5-5', modeloAssistente: 'claude-sonnet-5-5', geo: 'us', tetoGlobalMicroUsd: 50_000_000_000, tetoRascunhoMicroUsd: 1_000_000, retencao: 'zero', modeloPaciente: 'claude-haiku-5-5', nutriDesligada: false };
 
 /**
  * Plano 14B: um prontuário com tudo o que a RN-120 lê — 4 atendimentos com orientações e notas, 6 antropometrias,

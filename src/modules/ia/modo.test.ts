@@ -67,3 +67,25 @@ describe('Plano 14A — destino, retenção zero e estado com dado de paciente (
     expect(estadoIaDoTenant({ ...tenant, iaAditivoVersao: '0.1-provisorio' }, 'bedrock-eu')).toBe('aditivo_desatualizado');
   });
 });
+
+describe('Plano 15 (D5, RN-185) — o modelo da IA Nutri do paciente e a segunda barreira', () => {
+  it('IA_MODELO_PACIENTE e IA_NUTRI_DESLIGADA=1 chegam à configuração', () => {
+    expect(configIA({ ...base, IA_PROVEDOR: 'anthropic', IA_MODELO_PACIENTE: 'claude-haiku-5-5', IA_NUTRI_DESLIGADA: '1' })).toMatchObject({ modeloPaciente: 'claude-haiku-5-5', nutriDesligada: true });
+    expect(configIA({ ...base, IA_PROVEDOR: 'anthropic', IA_MODELO_PACIENTE: 'claude-sonnet-5-5', IA_NUTRI_DESLIGADA: '0' })).toMatchObject({ modeloPaciente: 'claude-sonnet-5-5', nutriDesligada: false });
+  });
+
+  it('sem IA_NUTRI_DESLIGADA a IA Nutri não está desligada pela variável', () => {
+    expect(configIA(base).nutriDesligada).toBe(false);
+    expect(configIA({ ...base, IA_PROVEDOR: 'sandbox' }).nutriDesligada).toBe(false);
+  });
+
+  it.each([
+    [undefined, 'claude-haiku-5-5'],
+    ['anthropic', 'claude-haiku-5-5'],
+    ['sandbox', 'claude-haiku-5-5'],
+    ['fake', 'claude-haiku-5-5'],
+    ['bedrock-eu', 'claude-sonnet-5-5'],
+  ] as const)('sem IA_MODELO_PACIENTE, o padrão com IA_PROVEDOR=%s é %s (o Haiku 5.5 fora do perfil eu.)', (provedor, modelo) => {
+    expect(configIA({ ...base, ...(provedor ? { IA_PROVEDOR: provedor } : {}) }).modeloPaciente).toBe(modelo);
+  });
+});

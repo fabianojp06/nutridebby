@@ -2,8 +2,14 @@
  * Plano 11 (spec v0.3): constantes da IA usadas pelo app, pelo worker e pelos componentes 'use client'. Sem imports.
  * Textos com o texto exato da spec (US-101 a US-112, RN-112).
  */
-export const MODELOS_IA = ['claude-opus-5-5', 'claude-sonnet-5-5'] as const;
+/** Plano 15 (D5): o Haiku 5.5 só na IA Nutri do paciente e só na Anthropic direta — fora de MODELOS_BEDROCK_EU até ser conferido. */
+export const MODELOS_IA = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
 export type ModeloIA = (typeof MODELOS_IA)[number];
+/**
+ * Plano 15 (revisão do plano, R13): os modelos da leitura de laudo e do assistente da nutricionista (IA_MODELO_LEITURA,
+ * IA_MODELO_ASSISTENTE) — sem o Haiku 5.5, que não foi avaliado para essas tarefas.
+ */
+export const MODELOS_DA_NUTRICIONISTA = ['claude-opus-5-5', 'claude-sonnet-5-5'] as const satisfies readonly ModeloIA[];
 export const GEOS_IA = ['us', 'global'] as const;
 export type GeoIA = (typeof GEOS_IA)[number];
 /** Plano 14A (§5.5, D5): a região efetiva da chamada — `us`/`global` na API direta (IA_INFERENCE_GEO), `eu` no perfil eu. do Bedrock. */
@@ -278,8 +284,11 @@ export const MSG_AUTORIZACAO = {
   naoVigente: 'Esta autorização já não está em vigor.',
 } as const;
 
-/** Plano 14B: para que serve cada chamada de `gerar` (o sandbox e o log usam; nada de conteúdo). */
-export const FINALIDADES_IA = ['resumo', 'rascunho', 'modelos'] as const;
+/**
+ * Plano 14B: para que serve cada chamada de `gerar` (o sandbox e o log usam; nada de conteúdo). Plano 15: `conversa_paciente`
+ * = a IA Nutri do paciente (sem ferramentas, esforço `low`, prazo de 45 s).
+ */
+export const FINALIDADES_IA = ['resumo', 'rascunho', 'modelos', 'conversa_paciente'] as const;
 export type FinalidadeIA = (typeof FINALIDADES_IA)[number];
 /** RN-121 / RN-124 / D5–D6: voltas do laço de ferramentas (rascunho; pacote = 12 por modelo de plano × 2) e prazo total. */
 export const MAX_VOLTAS_RASCUNHO = 12;
