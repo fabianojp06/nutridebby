@@ -8,7 +8,8 @@ import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publica
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
-// dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento).
+// dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento); Plano 15 (T13): 10.9.29.64 (a paciente
+// liberada para a IA Nutri e sem o consentimento, da tela "Antes de usar a IA Nutri").
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios, o "3" sem o termo
 test.describe.configure({ mode: 'serial' });
@@ -21,7 +22,7 @@ let refeicaoId = ''; // Plano 16: a refeição do plano, para o axe da refeiçã
 const LINK_LONGO = 'https://exemplo.com.br/receitas/lanche-integral-com-frutas-vermelhas-e-aveia-em-flocos-finos';
 
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(180_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado)
+  test.setTimeout(240_000); // a receita passa pelo worker duas vezes (o PDF preparado e o PDF digitalizado); a IA Nutri, uma
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.21', devices['Desktop Chrome']); // o painel, em tela de computador
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.10.22');
@@ -50,7 +51,51 @@ test.beforeAll(async ({ browser }) => {
   // Plano 10A (T16, RNF-144): uma receita emitida, para /p/documentos não sair vazia (assinar exige 2FA: a conta E2E_DOCS)
   docs = await entrarComoDocs(browser, '10.9.14.79', devices['Desktop Chrome']);
   codigoDaReceita = await emitirReceita(docs, paciente.prontuario);
+  await conversaComMensagensReais();
 });
+
+/**
+ * Plano 15 (T13, RNF-167): /p/plano/ia com mensagens reais — a nutricionista libera a paciente na aba "IA Nutri" da ficha (o
+ * consultório do E2E tem a IA Nutri ativada no seed), a paciente autoriza, pergunta o horário do almoço (resposta montada
+ * pelo sandbox e o worker: IA_PROVEDOR=sandbox), manda um sinal de risco (texto fixo na hora) e uma dúvida direto à
+ * nutricionista; a nutricionista abre as duas na fila e marca como vistas ("Sua dúvida foi vista no consultório.").
+ */
+async function conversaComMensagensReais() {
+  await liberarIaNutri(paciente.prontuario);
+  const page = paciente.page;
+  await page.goto('/p/plano/ia/autorizar?de=plano');
+  await page.getByRole('button', { name: 'Autorizo o uso da IA Nutri' }).click();
+  await expect(page).toHaveURL(/\/p\/plano\/ia$/);
+  await page.waitForLoadState('networkidle'); // o campo é controlado pelo React (hidratado antes de preencher)
+  const status = page.getByRole('main').getByRole('status');
+  const enviar = async (texto: string, botao: string) => {
+    await page.getByLabel('Sua dúvida').fill(texto);
+    await page.getByRole('button', { name: botao, exact: true }).click();
+  };
+  await enviar('a que horas é o almoço?', 'Perguntar');
+  await expect(status).toHaveText('A resposta chegou.', { timeout: 60_000 });
+  await expect(page.getByRole('list', { name: 'Conversa' })).toContainText('No seu plano, o horário é:');
+  await enviar('depois do jantar eu vomito pra não engordar', 'Perguntar');
+  await expect(page.getByText(/^Que bom que você contou\./).first()).toBeVisible();
+  await enviar('posso trocar o almoço por uma salada?', 'Enviar direto para minha nutricionista');
+  await expect(status).toHaveText('Pronto! Sua pergunta foi enviada ao consultório. Quando houver novidade, ela aparece aqui.');
+  for (let i = 0; i < 2; i++) {
+    await nutri.goto('/painel/duvidas');
+    await nutri.getByRole('row').filter({ hasText: paciente.nome }).first().getByRole('link', { name: `Abrir dúvida de ${paciente.nome}` }).click();
+    await nutri.getByRole('button', { name: 'Marcar como vista' }).click();
+    await expect(nutri).toHaveURL(/\/painel\/duvidas\?vista=1$/);
+  }
+  await page.goto('/p/plano/ia');
+  await expect(page.getByText('Sua dúvida foi vista no consultório.')).toHaveCount(2);
+}
+
+/** A aba "IA Nutri" da ficha: "Liberar a IA Nutri para este paciente" (US-170). */
+async function liberarIaNutri(prontuario: string) {
+  await nutri.goto(`${prontuario}/ia-nutri`);
+  await nutri.getByLabel('Liberar a IA Nutri para este paciente').check();
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'IA Nutri: liberada' })).toBeVisible();
+}
 test.afterAll(async () => {
   await docs?.context().close();
   await paciente?.page.context().close();
@@ -70,7 +115,9 @@ async function semViolacoes(page: Page, url: string) {
   expect(await violacoes(page), url).toEqual([]);
 }
 
-const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/documentos', '/p/exames', '/p/ajuda'];
+// Plano 15: /p/plano/ia com a conversa (resposta montada, texto fixo de risco e dúvidas vistas); "Antes de usar a IA Nutri"
+// (/p/plano/ia/autorizar) só abre sem o consentimento — teste próprio, com outra paciente, abaixo
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/plano/ia', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/documentos', '/p/exames', '/p/ajuda'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -201,7 +248,7 @@ test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G r
   await paciente.page.setViewportSize({ width: 320, height: 780 });
   try {
     // todas as telas do portal que esta paciente abre (termo, escolher e sem-acesso: testes próprios do arquivo)
-    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
+    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/plano/ia', '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
       await paciente.page.goto(url);
       await paciente.page.waitForLoadState('networkidle');
       expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
@@ -351,13 +398,59 @@ test('nenhuma tela do portal põe <form> dentro de <p> no HTML do servidor (hidr
   }
 });
 
-test('alvo de toque ≥ 44 px (RNF-10): a barra de ações e "Ver todo o diário" em Hoje e as semanas do agendamento', async () => {
+test('alvo de toque ≥ 44 px (RNF-10): a barra de ações e "Ver todo o diário" em Hoje, as semanas do agendamento, os botões da conversa da IA Nutri e o "Desativar…" de Eu', async () => {
   const altura = async (l: ReturnType<Page['getByRole']>) => (await l.boundingBox())?.height ?? 0;
   await paciente.page.goto('/p/inicio');
   for (const link of [paciente.page.getByRole('navigation', { name: 'Ações' }).getByRole('link').first(), paciente.page.getByRole('link', { name: 'Ver todo o diário' })])
     expect(await altura(link)).toBeGreaterThanOrEqual(44);
   await paciente.page.goto('/p/agenda/nova');
   expect(await altura(paciente.page.getByRole('navigation', { name: 'Semana' }).getByRole('link', { name: 'Próxima semana' }))).toBeGreaterThanOrEqual(44);
+  // Plano 15 (RNF-167): a conversa (a resposta montada do preparo ainda tem a avaliação e o encaminhamento) e Eu
+  await paciente.page.goto('/p/plano/ia');
+  await paciente.page.waitForLoadState('networkidle'); // o campo é controlado pelo React: preenchido antes da hidratação, voltaria vazio
+  await paciente.page.getByLabel('Sua dúvida').fill('quanto de chuchu no almoço?'); // os botões do formulário só se habilitam com texto
+  for (const nome of ['Perguntar', 'Enviar direto para minha nutricionista', 'Ajudou', 'Não ajudou', 'Enviar para minha nutricionista']) {
+    expect(await altura(paciente.page.getByRole('button', { name: nome, exact: true }).first()), nome).toBeGreaterThanOrEqual(44);
+  }
+  expect(await altura(paciente.page.getByRole('link', { name: 'Voltar para Plano' })), 'Voltar para Plano').toBeGreaterThanOrEqual(44);
+  await paciente.page.goto('/p/perfil');
+  expect(await altura(paciente.page.getByRole('button', { name: 'Desativar a IA Nutri e apagar as conversas' }))).toBeGreaterThanOrEqual(44);
+  expect(await altura(paciente.page.getByRole('link', { name: 'Ler as conversas' }))).toBeGreaterThanOrEqual(44);
+});
+
+// Plano 15 (US-171, RNF-167): "Antes de usar a IA Nutri" só abre para quem foi liberada e ainda não decidiu — outra paciente,
+// liberada e sem o consentimento. Claro, aparelho escuro, 360 px e 320 px com o texto a 200%.
+test('IA Nutri: axe em "Antes de usar a IA Nutri" (/p/plano/ia/autorizar), claro e escuro, a 360 px e a 320 px com o texto a 200%', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const semAceite = await pacienteNoPortal(browser, nutri, '10.9.29.64');
+  try {
+    await liberarIaNutri(semAceite.prontuario);
+    const page = semAceite.page;
+    const url = '/p/plano/ia/autorizar?de=plano';
+    const tela = page.getByRole('heading', { level: 1, name: 'Antes de usar a IA Nutri' });
+    for (const modo of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: modo });
+      await page.goto(url);
+      await expect(tela, modo).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      expect(await violacoes(page), modo).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    for (const largura of [360, 320]) {
+      await page.setViewportSize({ width: largura, height: 780 });
+      await page.goto(url);
+      await expect(tela).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      expect(await violacoes(page), `${largura} px`).toEqual([]);
+      if (largura === 320) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${largura} px`).toBe(true);
+    }
+    for (const nome of ['Autorizo o uso da IA Nutri', 'Agora não']) {
+      expect((await page.getByRole(nome === 'Agora não' ? 'link' : 'button', { name: nome }).boundingBox())?.height ?? 0, nome).toBeGreaterThanOrEqual(44);
+    }
+  } finally {
+    await semAceite.page.context().close();
+  }
 });
 
 test('axe sem violações na página da consulta', async () => {

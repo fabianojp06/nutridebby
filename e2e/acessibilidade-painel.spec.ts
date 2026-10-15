@@ -214,11 +214,12 @@ test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é a
   await expect(menu.getByRole('link', { name: 'Agenda', exact: true })).toHaveAttribute('aria-current', 'page');
   const rotulos: string[] = [];
   await menu.getByRole('link', { name: 'Início' }).focus();
-  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; o contador " (n)" depende
-  // dos envios que as outras specs deixaram no banco de dev e sai da comparação
-  for (let i = 0; i < 7; i++) {
+  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 15 (US-175): e ativa a
+  // IA Nutri, então "Dúvidas dos pacientes" vem antes de "Conteúdos". Os contadores " (n)" dependem do que as outras specs
+  // deixaram no banco de dev e saem da comparação
+  for (let i = 0; i < 8; i++) {
     rotulos.push((await nutri.evaluate(() => document.activeElement?.textContent ?? '')).trim().replace(/ \(\d+\)$/, ''));
     await nutri.keyboard.press('Tab');
   }
-  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Conteúdos', 'Configurações']);
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Configurações']);
 });

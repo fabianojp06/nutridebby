@@ -28,6 +28,8 @@ const CAMINHOS: Caminho[] = [
   { funcao: 'Baixar PDF do plano', toques: [{ nome: 'Plano', em: 'Seções' }], ve: { papel: 'link', nome: 'Baixar PDF' } },
   { funcao: 'Lista de compras', toques: [{ nome: 'Plano', em: 'Seções' }, { nome: 'Lista de compras' }], destino: /\/p\/compras/ },
   { funcao: 'Conteúdos', toques: [{ nome: 'Plano', em: 'Seções' }, { nome: 'Conteúdos' }], destino: /\/p\/conteudos$/ },
+  // Plano 15 (§4.2, D29): a conversa com a IA Nutri mora em Plano (a paciente deste spec foi liberada e autorizou no beforeAll)
+  { funcao: 'IA Nutri (tirar dúvida sobre o plano)', toques: [{ nome: 'Plano', em: 'Seções' }, { nome: 'Tirar dúvida sobre o plano' }], destino: /\/p\/plano\/ia$/, ve: { papel: 'heading', nome: 'IA Nutri' } },
   { funcao: 'Meus exames', toques: [{ nome: 'Exames', em: 'Seções' }], destino: /\/p\/exames$/ },
   { funcao: 'Conectado como', toques: [{ nome: 'Eu', em: 'Seções' }], ve: { papel: 'heading', nome: 'Conta' } }, // e o e-mail: teste próprio abaixo
   { funcao: 'Meus documentos', toques: [{ nome: 'Eu', em: 'Seções' }, { nome: 'Ver meus documentos' }], destino: /\/p\/documentos$/ },
@@ -46,6 +48,14 @@ test.beforeAll(async ({ browser }) => {
   paciente = await pacienteNoPortal(browser, nutri, '10.9.19.77');
   await publicarPlanoDoDia(nutri, paciente.prontuario);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, -1); // a próxima consulta (Jornada › "Ver a consulta"); semana −1: só deste spec (R16)
+  // Plano 15: a IA Nutri (ativada no consultório do E2E pelo seed) liberada na ficha e autorizada pela paciente
+  await nutri.goto(`${paciente.prontuario}/ia-nutri`);
+  await nutri.getByLabel('Liberar a IA Nutri para este paciente').check();
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'IA Nutri: liberada' })).toBeVisible();
+  await paciente.page.goto('/p/plano/ia/autorizar?de=plano');
+  await paciente.page.getByRole('button', { name: 'Autorizo o uso da IA Nutri' }).click();
+  await expect(paciente.page).toHaveURL(/\/p\/plano\/ia$/);
 });
 test.afterAll(async () => {
   await paciente?.page.context().close();
@@ -88,6 +98,7 @@ test('as rotas antigas continuam (C-195): os destinos do push e do e-mail abrem;
   const secoes: [string, string | null, string | null][] = [
     ['/p/diario', null, 'Voltar para Hoje'],
     ['/p/plano', 'Plano', null],
+    ['/p/plano/ia', null, 'Voltar para Plano'], // Plano 15: a conversa é tela de detalhe de Plano (a seção fica marcada para quem volta)
     ['/p/conteudos', null, 'Voltar para Plano'],
     ['/p/compras', null, 'Voltar para Plano'],
     ['/p/documentos', null, 'Voltar para Eu'],

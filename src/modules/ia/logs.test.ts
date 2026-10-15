@@ -3,19 +3,33 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoTenant } from '../../../test/pacientes';
+import { ctxPaciente, novoTenant } from '../../../test/pacientes';
 import { exameComLaudo, IA_TESTE, iaPronta, pacienteAutorizado, pdfDeTeste, prontuarioCompleto } from '../../../test/ia';
+import { aceiteNoBanco, iaNutriPronta, liberarNoBanco } from '../../../test/ia-nutri';
+import { app as appDaConversa, comoWorker, depsApp, depsDoJob, pronto, TACO_ARROZ } from '../../../test/ia-nutri-conversa';
+import { planoPublicado } from '../../../test/plano';
+import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { tenants, type TenantRow } from '@/db/schema';
+import { consultations, tenants, type TenantRow } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
+import { EMAIL_FINALIDADE } from '@/email/queue';
+import type { EmailJobData } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
+import { openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { filtrarEvento } from '@/lib/sentry-filtro';
 import { erroSemDetalhe } from '@/worker/sem-detalhe';
 import { processarTarefaIA, RepetirIaError } from './leitura-job';
 import { processarGeracaoModelos } from './modelos-job';
 import { pedirModelos } from './modelos-sugeridos';
+import { desativarNoApp } from './nutri-paciente/consentimento';
+import { enviarANutri, perguntar } from './nutri-paciente/conversa';
+import { abrirDuvida, marcarComoVista } from './nutri-paciente/duvidas';
+import { processarPerguntaIaNutri } from './nutri-paciente/job';
+import { processarRevogacaoIaNutri } from './nutri-paciente/revogacao-job';
+import { avisarRiscoIaNutri } from './nutri-paciente/risco-job';
 import { ErroProvedor } from './provedor';
 import { finalOk, pedeFerramenta, provedorFake, respostaOk } from './provedor-fake';
 import { pedirRascunhoIa } from './rascunho-ia';
@@ -30,6 +44,7 @@ afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await appDaConversa.pool.end(); // o harness da IA Nutri (test/ia-nutri-conversa.ts) tem o pool dele
   rmSync(dataDir, { recursive: true, force: true });
 });
 const MARCADOR = 'MARCADOR-SAUDE-123';
@@ -190,6 +205,113 @@ describe('RNF-104 / CS-103: nada de dado de saúde em log, fila, saída do job o
       const jobs = await (await getBoss()).findJobs('ia-assistente');
       expect(JSON.stringify(jobs.map((j) => j.data))).not.toContain('MARCADOR');
       expect(JSON.stringify(jobs.map((j) => j.output ?? null))).not.toContain('MARCADOR');
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  /** Plano 15: as filas da IA Nutri levam só ids (RNF-165); o e-mail vai selado e é aberto aqui para conferir o conteúdo. */
+  const FILAS_DA_IA_NUTRI = ['ia-paciente', 'ia-nutri-risco', 'ia-nutri-revogacao'] as const;
+  const jobsDaIaNutri = async (tenantId: string) => {
+    const boss = await getBoss();
+    const todos = (await Promise.all(FILAS_DA_IA_NUTRI.map(async (f) => (await boss.findJobs(f)).map((j) => ({ fila: f, data: j.data as Record<string, unknown> }))))).flat();
+    return todos.filter((j) => j.data.tenantId === tenantId);
+  };
+  const emailsDoTenant = async (tenantId: string) =>
+    (await (await getBoss()).findJobs('email')).map((j) => j.data as EmailJobData).filter((d) => d.tenantId === tenantId).map((d) => openSecret(d.selado, EMAIL_FINALIDADE));
+
+  it('IA Nutri do paciente (RNF-165): nome, orientação de atendimento, observação da refeição e pergunta marcadores não vão a log, fila, notificação nem e-mail; o pedido leva [removido] no lugar do nome', async () => {
+    const db = appDaConversa.db;
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const T = await novoTenant(db);
+      await iaNutriPronta(db, T.tenantId);
+      const { paciente: p, userId } = await pacienteComConta(db, T, { nome: `${MARCADOR} Souza` });
+      const ctxP = ctxPaciente(T.tenantId, p.id, userId);
+      await liberarNoBanco(db, T.ctx, p.id);
+      await aceiteNoBanco(db, ctxP);
+      await planoPublicado(db, T, p.id, { refeicoes: [{ nome: 'Almoço', horario: '12:30', observacao: `Sem sal ${MARCADOR}`, itens: [{ gramas: 100, taco: TACO_ARROZ }] }] });
+      await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-01', orientacoesPaciente: `Caminhe ${MARCADOR} todo dia.` }), db);
+
+      // uma resposta montada (o trecho relido traz a observação marcadora, só ao paciente) e um risco percebido pelo modelo
+      const fake = provedorFake({ gerar: [finalOk({ categoria: 'plano', tipo_resposta: 'refeicao', fontes: ['#R1'] }), finalOk({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] })] });
+      const { mensagemId: m1 } = await perguntar(ctxP, `o que tem no almoço? ${MARCADOR}`, depsApp);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: m1! }, depsDoJob(fake))).toBe('respondida');
+      const { mensagemId: m2 } = await perguntar(ctxP, `ando meio desanimada ${MARCADOR}`, depsApp);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: m2! }, depsDoJob(fake))).toBe('respondida');
+      const [resposta] = await comoWorker(T, sql`select texto from ia_nutri_mensagens where responde_a = ${m1}`);
+      expect(resposta.texto).toContain(MARCADOR); // conferência do cenário: a observação chegou à resposta montada (no banco)
+      // o aviso de risco por e-mail às nutricionistas, a dúvida vista (push neutro ao paciente) e a desativação (estorno)
+      expect(await avisarRiscoIaNutri({ tenantId: T.tenantId }, { db, appUrl: 'https://app.teste' })).toBe('enviado');
+      expect(await abrirDuvida(T.ctx, m2!, db)).not.toBeNull();
+      expect(await marcarComoVista(T.ctx, m2!, { db })).toBe(true);
+      expect(await desativarNoApp(ctxP, depsApp)).toBe('desativada');
+      const jobs = await jobsDaIaNutri(T.tenantId);
+      const revogacao = jobs.find((j) => j.fila === 'ia-nutri-revogacao');
+      expect(revogacao).toBeDefined();
+      await processarRevogacaoIaNutri(revogacao!.data as { tenantId: string; patientId: string; revogacaoId: string }, { db });
+
+      // o pedido ao provedor: o nome (e o primeiro nome, onde aparecer) vira [removido]
+      const pedido = JSON.stringify(fake.chamadas.gerar);
+      expect(pedido).toContain('[removido]');
+      expect(pedido).not.toContain('Souza');
+      // log, filas (só ids), notificações e e-mails
+      const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
+      expect(logs).not.toContain('MARCADOR');
+      expect(jobs.map((j) => j.fila).sort()).toEqual(expect.arrayContaining(['ia-nutri-revogacao', 'ia-nutri-risco', 'ia-paciente']));
+      for (const j of jobs) {
+        expect(Object.keys(j.data).every((k) => ['tenantId', 'mensagemId', 'patientId', 'revogacaoId'].includes(k)), `${j.fila}: ${Object.keys(j.data)}`).toBe(true);
+        expect(JSON.stringify(j.data), j.fila).not.toContain('MARCADOR');
+      }
+      const notificacoes = await comoWorker(T, sql`select row_to_json(n)::text as linha from notifications n where patient_id = ${p.id}`);
+      expect(notificacoes.length).toBeGreaterThan(0);
+      expect(JSON.stringify(notificacoes)).not.toContain('MARCADOR');
+      const emails = await emailsDoTenant(T.tenantId);
+      expect(emails.length).toBeGreaterThan(0);
+      expect(emails.join('\n')).not.toContain('MARCADOR');
+      expect(emails.join('\n')).not.toContain('Souza');
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  it('RN-174 (Review Focus 6): a pergunta barrada pelo filtro de risco nunca vai ao provedor no histórico da pergunta seguinte da mesma sessão', async () => {
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const { T, ctxP } = await pronto();
+      const barrada = await perguntar(ctxP, `não aguento mais, quero sumir ${MARCADOR}`, depsApp);
+      expect(barrada.codigo).toBe('risco');
+      const { mensagemId } = await perguntar(ctxP, 'quanto de arroz no almoço?', depsApp);
+      const fake = provedorFake();
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDoJob(fake))).toBe('respondida');
+      expect(fake.chamadas.gerar).toHaveLength(1);
+      expect(JSON.stringify(fake.chamadas.gerar)).not.toContain(MARCADOR);
+      expect(JSON.stringify(fake.chamadas.gerar)).not.toContain('quero sumir');
+      expect(JSON.stringify(espioes.map((s) => s.mock.calls))).not.toContain('MARCADOR');
+      expect(JSON.stringify(await jobsDaIaNutri(T.tenantId))).not.toContain('MARCADOR');
+    } finally {
+      for (const s of espioes) s.mockRestore();
+    }
+  });
+
+  it('DP-16: a dúvida enviada direto à nutricionista (sem IA) nunca vai ao provedor no histórico da pergunta seguinte da mesma sessão', async () => {
+    const DIRETO = 'MARCADOR-DIRETO-456';
+    const espioes = (['info', 'warn', 'error', 'debug'] as const).map((n) => vi.spyOn(logger, n));
+    try {
+      const { T, ctxP } = await pronto();
+      const direta = await enviarANutri(ctxP, `posso trocar o jantar de dia? ${DIRETO}`, depsApp);
+      expect(direta.codigo).toBe('encaminhada');
+      const { mensagemId } = await perguntar(ctxP, 'quanto de arroz no almoço?', depsApp);
+      const fake = provedorFake();
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDoJob(fake))).toBe('respondida');
+      expect(fake.chamadas.gerar).toHaveLength(1);
+      expect(JSON.stringify(fake.chamadas.gerar)).not.toContain(DIRETO);
+      expect(JSON.stringify(fake.chamadas.gerar)).not.toContain('trocar o jantar');
+      expect(JSON.stringify(espioes.map((s) => s.mock.calls))).not.toContain('MARCADOR');
+      // conferência do cenário: a dúvida está na fila da nutricionista com o texto
+      const [linha] = await comoWorker(T, sql`select texto, encaminhada_em from ia_nutri_mensagens where id = ${direta.mensagemId}`);
+      expect(linha.texto).toContain(DIRETO);
+      expect(linha.encaminhada_em).not.toBeNull();
     } finally {
       for (const s of espioes) s.mockRestore();
     }
