@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { getDb } from '@/db/client';
 import { CONVITE_EXPIRADO, CONVITE_INVALIDO, inspecionarConvite } from '@/modules/plataforma/convites';
-import { DPA_PARAGRAFOS, DPA_TITULO } from '@/modules/plataforma/dpa';
+import { DPA_PARAGRAFOS, DPA_ROTULO, DPA_TITULO } from '@/modules/plataforma/dpa';
 import { ConviteForm } from './form';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ export default async function ConvitePage({ params }: PageProps<'/convite/[token
         <h2 id="dpa-titulo" className="font-semibold">{DPA_TITULO}</h2>
         {DPA_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}
       </section>
-      <ConviteForm token={token} />
+      <ConviteForm token={token} rotuloDpa={DPA_ROTULO} />
     </main>
   );
 }

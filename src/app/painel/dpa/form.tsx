@@ -5,7 +5,8 @@ import { aceitarDpaAction, type DpaState } from '../actions';
 
 const ERRO_ID = 'erro-dpa';
 
-export function DpaForm() {
+/** `rotulo` vem da página (servidor): o módulo do DPA importa o banco e não entra no bundle do navegador. */
+export function DpaForm({ rotulo }: { rotulo: string }) {
   const [state, action, pendente] = useActionState<DpaState, FormData>(aceitarDpaAction, {});
   return (
     <form action={action} className="space-y-3">
@@ -18,7 +19,7 @@ export function DpaForm() {
           aria-invalid={state.erro ? true : undefined}
           aria-describedby={state.erro ? ERRO_ID : undefined}
         />
-        <label htmlFor="dpa">Li e aceito o contrato de tratamento de dados (DPA)</label>
+        <label htmlFor="dpa">{rotulo}</label>
       </div>
       {state.erro && (
         <p id={ERRO_ID} role="alert" className="text-erro">

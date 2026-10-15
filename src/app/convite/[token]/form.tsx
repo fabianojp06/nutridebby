@@ -5,7 +5,8 @@ import { aceitarConviteAction, type AceiteState } from './actions';
 
 const ERRO_ID = 'erro-convite';
 
-export function ConviteForm({ token }: { token: string }) {
+/** `rotuloDpa` vem da página (servidor): o módulo do DPA importa o banco e não entra no bundle do navegador. */
+export function ConviteForm({ token, rotuloDpa }: { token: string; rotuloDpa: string }) {
   const [state, action, pendente] = useActionState<AceiteState, FormData>(aceitarConviteAction.bind(null, token), {});
   const [senha, setSenha] = useState('');
   const [confirmacao, setConfirmacao] = useState('');
@@ -51,7 +52,7 @@ export function ConviteForm({ token }: { token: string }) {
           aria-invalid={dpaInvalido ? true : undefined}
           aria-describedby={dpaInvalido ? ERRO_ID : undefined}
         />
-        <label htmlFor="dpa">Li e aceito o contrato de tratamento de dados (DPA)</label>
+        <label htmlFor="dpa">{rotuloDpa}</label>
       </div>
       {state.erro && (
         <p id={ERRO_ID} role="alert" className="text-red-700">
