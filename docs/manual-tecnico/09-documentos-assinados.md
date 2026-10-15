@@ -145,7 +145,7 @@ Chaves e restrições que importam:
 | `STAFF_ONLY` | `signed_document_notes` | `src/db/rls-guard.ts:113` |
 | `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:197-198` |
 | `AUDIT_EXCEPTIONS` | `document_access_codes` | `src/db/audit-guard.ts:15` |
-| `SEM_CONTA_PERMITIDOS` | `src/modules/documentos/link-documento.ts` (quatro arquivos) | `src/db/tenant.ts:34` |
+| `SEM_CONTA_PERMITIDOS` | `src/modules/documentos/link-documento.ts` (seis arquivos desde o Plano 15) | `src/db/tenant.ts:35` |
 | `ENTIDADE_ROTULO` | `documentos` ("Documentos assinados"), `perfil_profissional` ("Perfil profissional"), `tentativa_assinatura` ("Tentativa de assinatura com código recusado") | `src/modules/plataforma/audit.ts:64-66` |
 | `FABRICAS`, `SO_INSERE`, `IMUTAVEIS`, `SO_APAGA`, `ULTIMAS` | As 4 tabelas com RLS; recibo só insere; documento, notas e códigos imutáveis; só rascunho é apagado; `signed_documents` e `stored_files` por último (D19) | `test/isolamento.test.ts` |
 | Script de restauração | `document_verifications` fora da conta das tabelas sem RLS (teste compara a lista do script com `RLS_EXCEPTIONS`) | `scripts/backup/nutri-restauracao-teste.sh`; `src/db/rls-guard.test.ts` |
@@ -280,8 +280,8 @@ sempre por `signFileUrl` (5 min) com a URL nascendo no clique (303).
 |---|---|---|---|---|
 | `documento-pdf` | `prepararParaAssinatura`, `pedirNovoPdfDocumento` | PDF preparado (`gerarPdfDoDocumento`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
 | `documento-digitalizado` | `receberDigitalizada` | PDF das fotos e assinatura (`montarPdfDigitalizado`) | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
-| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:210`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
-| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:111-112`) | — | `{}` |
+| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:215`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
+| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:116-117`) | — | `{}` |
 
 ## 9.9 Manual guiado
 

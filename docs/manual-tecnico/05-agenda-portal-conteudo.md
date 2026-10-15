@@ -924,7 +924,11 @@ sequenceDiagram
   sobre fundo branco, Documentos, Notificações, Instalar o app, Privacidade, "Como usar o app" e "Sair"; "Trocar de
   nutricionista" com 2+ vínculos). Privacidade abre com o texto da RN-214 ("Algumas informações do acompanhamento podem não
   aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados
-  (Baixar meus dados)."), o mesmo para todo paciente. Notificações (P06 D20): "Receber lembretes por WhatsApp"
+  (Baixar meus dados)."), o mesmo para todo paciente. Desde o Plano 15, o bloco "IA Nutri" fica ao lado do de "Uso de inteligência
+  artificial (IA)" da 14A, com a situação ("Você autorizou em …", "Você desativou em …"), "Desativar a IA Nutri e apagar
+  as conversas" (só com o aceite vigente) e "Ler as conversas"; aparece com qualquer evento de consentimento ou conversa
+  guardada, também com o paciente bloqueado, o consultório desligado, a pausa ou sem `IA_PROVEDOR` (`blocoIaNutriDoApp`,
+  [§10.14.6](10-ia.md#10146-consentimento-revogação-e-o-esqueleto-rn-171-rn-182-d22-d26-d32-dp-17)). Notificações (P06 D20): "Receber lembretes por WhatsApp"
   (`preferenciaWhatsapp`, `src/modules/portal/perfil.ts`). Desmarcar grava `whatsapp_optout_em`; marcar exige telefone
   e grava opt-in com origem `paciente`. O gatilho `paciente_colunas` (migration `0085`) só deixa a sessão de paciente
   mudar essas colunas, `user_id` (aceite do convite) e `updated_at`.
@@ -933,8 +937,12 @@ sequenceDiagram
 
 Hoje é **leitura**: nenhuma tabela nova, nada gravado para o mural existir (spec §4.3, C-191). O mural não é chat
 (RN-193): não tem campo de texto (o E2E confere que o `main` de Hoje não tem `textarea` nem `input` de texto) e o rodapé
-fixo (`MSG_MURAL.rodape`) diz que os registros do diário ficam visíveis para a nutricionista, que o app não é canal de
-conversa nem tem prazo de resposta, e manda ligar 192 em emergência.
+fixo (`MSG_MURAL.rodape`) diz que os registros do diário ficam visíveis para a nutricionista, que o mural não é uma
+conversa com a nutricionista nem tem prazo de resposta, que a IA Nutri, quando liberada, é um programa e responde só
+sobre o plano (Plano 15, D34: a frase antiga "Este app não é um canal de conversa" deixou de ser verdade; emenda à spec
+G, C-191/RN-193), e manda ligar 192 em emergência. A IA Nutri é tela própria dentro de Plano (`/p/plano/ia`), nunca
+conversa no mural ([§10.14.10](10-ia.md#101410-telas-textos-fixos-e-manual-guiado)); o único item dela em Hoje é o
+convite único "A IA Nutri está disponível para você." ("Aviso do app", com "Agora não" por 30 dias).
 
 ```mermaid
 flowchart LR
@@ -1359,15 +1367,18 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 14 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
-`documentos`, `prontuario`, `agenda`, `horarios`, `diarios`, `conteudos`, `alimentos`, `modelos`, `configuracoes`, `whatsapp`
-e `seguranca`). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 17 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`documentos`, `ia-nutri`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
+`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
 (`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
 `configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
 seção da tela tem `data-guia="ia-secao"`, mas nenhum passo aponta para ela, porque ela só aparece com a IA configurada); no `prontuario`, a pergunta comum
 sobre "Ler valores com IA" entrou **sem** subir a versão (o recurso depende da liberação pela admin e os passos do tour não
-mudaram; comentário no arquivo). Nenhuma tela nova do painel: a IA mora em telas que já tinham guia.
+mudaram; comentário no arquivo). Nenhuma tela nova do painel: a IA mora em telas que já tinham guia. Plano 15 (★ DO-6):
+os guias novos `ia-nutri` (aba "IA Nutri" da ficha, antes do `prontuario`, cujo padrão casa qualquer aba) e `duvidas`
+(fila "Dúvidas dos pacientes"), na versão 1; `boas-vindas` na **v3** (o passo do menu cita "Dúvidas dos pacientes") e
+`configuracoes` na **v8** (o aditivo 1.2 e o passo `ia-nutri-secao`) — [§10.14.10](10-ia.md#101410-telas-textos-fixos-e-manual-guiado).
 
 | Campo | Papel |
 |---|---|
@@ -1402,7 +1413,10 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 ### 5.8.4 Manual guiado do portal (Plano 16, T14, US-199, RN-212, PM-G10)
 
 - **Conteúdo:** `GUIA_PORTAL` (`src/modules/ajuda/portal.ts`), fora de `GUIAS` (que é do painel e casa por rota do
-  painel): id `portal-novidades`, versão 1, título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
+  painel): id `portal-novidades`, versão **2** desde o Plano 15 (★ DO-6: a IA Nutri vai ao ar ligada pela nutricionista e as
+  frases do mural, de Plano — "…e, quando liberada, a IA Nutri" — e dos dois pedidos de IA, um para os exames em Eu ›
+  Privacidade e outro para a IA Nutri em Plano, mudaram para todos; a regra de privacidade é a mesma redação do rodapé do
+  mural, `MSG_MURAL.rodape`), título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
   `faixa`, `mural`, `respostas`, `acoes` e `secao-eu` (`data-guia` na `Faixa`, no `main` de Hoje, no primeiro item de
   refeição do mural, na `BarraDeAcoes` e no link de Eu da `NavSecoes`). O passo "Responder à refeição" tem texto que
   independe do item (fora da janela de 90 min não há alvo). Ajuda, passos e aviso não falam de peso nem de IMC (teste em
@@ -1412,7 +1426,9 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
   coisa?" para quem já usava o app e "Boas-vindas ao app do seu acompanhamento. Quer ver como funciona?" para quem entra
   pela primeira vez (G-D17 = a: `jaUsavaOApp(ctx, hoje)`, `src/modules/portal/acesso.ts`, que olha se há `access_events`
   do paciente antes de hoje, pela RLS do paciente e sem `auditRead`). "Ver como funciona" abre o tour; "Agora não" grava
-  "dispensado".
+  "dispensado". Desde o Plano 15, quem já viu uma versão **anterior** do guia (`ProgressoGuia.v` < `GUIA_PORTAL.versao`)
+  recebe "O manual do app foi atualizado. Quer ver o que há de novo?" (`AVISO_PORTAL.atualizado`, `avisoDoGuia`), nunca
+  "O app mudou" de novo (spec C §7.8); o aviso vale para todo paciente que viu a versão 1, em qualquer consultório.
 - **Tour:** o mesmo `Tour` do painel, agora em `src/components/guia/tour.tsx`, com duas props novas: `focoAoFechar`
   (padrão o botão "Ajuda" do painel; no portal, o link de Eu) e `folhaEvitaAlvo` (padrão `false`; no portal, a folha sobe
   para o topo quando o alvo encosta no rodapé, para não cobrir a barra de ações — conferido no E2E). Reabre por
