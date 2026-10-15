@@ -7,7 +7,7 @@ import { MSG_AGENDA, MSG_PUBLICO } from '@/modules/agenda/constantes';
 import { somarDias } from '@/modules/agenda/fuso';
 import { formatarData } from '@/modules/pacientes/datas';
 import { telaDoPortal } from '@/modules/portal/link-portal';
-import { TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_TITULO, TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
 import { TERMO_PACIENTE_PARAGRAFOS } from '@/modules/pacientes/termo-paciente-textos';
 import { AgendarForm } from './agendar-form';
 
@@ -59,7 +59,7 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
           proxima: p.semana < p.ultima ? somarDias(p.semana, 7) : null,
         }}
         horarios={p.horarios}
-        termo={{ titulo: TERMO_PACIENTE_TITULO, paragrafos: [...TERMO_PACIENTE_PARAGRAFOS], rotulo: TERMO_PACIENTE_ROTULO }}
+        termo={{ titulo: TERMO_PACIENTE_TITULO, paragrafos: [...TERMO_PACIENTE_PARAGRAFOS], rotulo: TERMO_PACIENTE_ROTULO, versao: TERMO_PACIENTE_VERSAO }}
       />
     </main>
   );

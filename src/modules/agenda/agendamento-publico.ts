@@ -12,7 +12,8 @@ import { normalizeEmail, normalizarTexto } from '@/lib/text';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, type ResultadoTurnstile } from '@/lib/turnstile';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { normalizarTelefone } from '@/modules/pacientes/telefone';
-import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE, TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
+import { MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 import { buscarTenantPorSlug, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, semanaDaJanela, type HorarioEscolhido } from './agendamento-paciente';
 import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA, MSG_PUBLICO } from './constantes';
@@ -108,6 +109,9 @@ function validarPedido(input: Record<string, unknown>): DadosDoPedido {
   if (whatsapp && !telefone && !erros.telefone) erros.telefone = MSG_PUBLICO.telefoneWhatsapp;
   if (input.maiorDeIdade !== true) erros.maiorDeIdade = MSG_PUBLICO.maioridade; // RN-17
   if (input.aceitouTermo !== true) erros.aceitouTermo = MSG_PUBLICO.termo;
+  // P08-06: o pedido grava a versão em vigor; se a página foi aberta com outra (deploy no meio), o aceite seria de um texto
+  // que a pessoa não leu → 422 no campo do termo (antes do Turnstile, que não é gasto), para recarregar a página
+  else if (input.termoVersao !== TERMO_PACIENTE_VERSAO) erros.aceitouTermo = MSG_TEXTO_ATUALIZADO;
   if (Object.keys(erros).length) throw new PublicoError(422, erros);
   return { nome, email, telefone, whatsapp };
 }

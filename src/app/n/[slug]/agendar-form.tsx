@@ -15,7 +15,7 @@ type Props = {
   temOnline: boolean;
   semana: { rotulo: string; anterior: string | null; proxima: string | null };
   horarios: HorarioVisivel[];
-  termo: { titulo: string; paragrafos: string[]; rotulo: string };
+  termo: { titulo: string; paragrafos: string[]; rotulo: string; versao: string };
 };
 type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[] };
 type Dados = { nome: string; email: string; telefone: string; whatsapp: boolean; maiorDeIdade: boolean; aceitouTermo: boolean };
@@ -85,7 +85,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
     };
     setDados(d);
     setEnviando(true);
-    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, inicio: f.get('inicio'), modalidade, turnstileToken: token });
+    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, termoVersao: termo.versao, inicio: f.get('inicio'), modalidade, turnstileToken: token });
     setEnviando(false);
     if (status === 200 && r.pedido) {
       setPedido(r.pedido);

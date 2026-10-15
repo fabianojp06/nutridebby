@@ -11,6 +11,7 @@ import { stopBoss } from '@/jobs/boss';
 import { agendarLembretes, avisarPaciente } from '@/modules/notificacoes/agendar';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
+import { MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 import {
   carregarPaginaPublica,
   confirmarCodigo,
@@ -50,6 +51,7 @@ const pedido = (inicio = em('2026-10-16', '09:00'), extra: Record<string, unknow
   telefone: '(11) 91234-5678',
   maiorDeIdade: true,
   aceitouTermo: true,
+  termoVersao: '1.0',
   whatsapp: true,
   inicio: inicio.toISOString(),
   modalidade: 'presencial',
@@ -404,6 +406,10 @@ describe('página pública (US-032, RN-16)', () => {
       erros: { nome: MSG_PUBLICO.nome, email: MSG_PUBLICO.email, telefone: MSG_PUBLICO.telefone, maiorDeIdade: MSG_PUBLICO.maioridade, aceitouTermo: MSG_PUBLICO.termo },
     });
     expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { telefone: '', whatsapp: true }), deps()))).toEqual({ status: 422, erros: { telefone: MSG_PUBLICO.telefoneWhatsapp } });
+    // P08-06: página aberta com outra versão do termo (deploy no meio) ou sem a versão → 422 no termo, nada gravado
+    for (const termoVersao of ['0.1-provisorio', undefined]) {
+      expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { termoVersao }), deps()))).toEqual({ status: 422, erros: { aceitouTermo: MSG_TEXTO_ATUALIZADO } });
+    }
     const e = pedido();
     let turnstileChamado = 0;
     const contar = (r: 'invalido' | 'indisponivel') => async () => {
