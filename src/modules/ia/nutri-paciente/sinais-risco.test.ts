@@ -33,9 +33,33 @@ describe('detectarRisco (RN-174, §7.4 item 1): o filtro determinístico antes d
     ['fico dias sem comer', 'transtorno_alimentar', 'risco_transtorno'],
     ['fico o dia todo sem comer', 'transtorno_alimentar', 'risco_transtorno'],
     ['passei um dia sem comer', 'transtorno_alimentar', 'risco_transtorno'],
+    // revisão da T6 (rodada 2): as formas que a sondagem da rodada 1 ainda deixava passar
+    ['quero tirar a própria vida', 'emergencia', 'risco_emergencia'],
+    ['penso em tirar minha vida', 'emergencia', 'risco_emergencia'],
+    ['minha vida não tem sentido', 'emergencia', 'risco_emergencia'],
+    ['a vida não faz mais sentido', 'emergencia', 'risco_emergencia'],
+    ['queria estar morta', 'emergencia', 'risco_emergencia'],
+    ['às vezes queria ficar morto', 'emergencia', 'risco_emergencia'],
+    ['tenho vontade de sumir', 'emergencia', 'risco_emergencia'],
+    ['queria desaparecer', 'emergencia', 'risco_emergencia'],
+    ['meu peito dói', 'emergencia', 'sintoma_agudo'],
+    ['estou com o peito doendo', 'emergencia', 'sintoma_agudo'],
+    ['sinto o peito apertado', 'emergencia', 'sintoma_agudo'],
+    ['estou com dificuldade para respirar', 'emergencia', 'sintoma_agudo'],
+    ['dificuldade de respirar desde cedo', 'emergencia', 'sintoma_agudo'],
+    ['está custando a respirar', 'emergencia', 'sintoma_agudo'],
+    ['não consigo respirar direito', 'emergencia', 'sintoma_agudo'],
+    ['tive uma crise alérgica', 'emergencia', 'sintoma_agudo'],
   ])('%s → %s', (texto, risco, textoFixo) => expect(detectarRisco(texto)).toEqual({ risco, textoFixo }));
 
-  it.each(['quanto de arroz no almoço?', 'posso trocar a banana pela maçã?', 'que horas é o jantar?', 'a vitamina de banana leva leite?'])(
+  it.each([
+    'quanto de arroz no almoço?',
+    'posso trocar a banana pela maçã?',
+    'que horas é o jantar?',
+    'a vitamina de banana leva leite?',
+    'posso trocar o peito de frango por peixe?',
+    'quantas gramas de peito de peru no lanche?',
+  ])(
     'sem risco: %s',
     (t) => expect(detectarRisco(t)).toBeNull(),
   );
