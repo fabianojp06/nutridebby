@@ -7,16 +7,20 @@ import { MSG_IA } from '@/modules/ia/constantes';
 import { situacaoDaCotaIa } from '@/modules/ia/cota';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { aditivoIa, IA_ADITIVO_VERSAO, textoCorrido } from '@/modules/ia/textos-legais';
+import type { PausaIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { desativarIaAction } from './actions';
 import { IaAtivarForm } from './ia-ativar-form';
+import { IaNutriSecao, type RetornoIaNutri } from './ia-nutri-secao';
 import { ModelosIa } from './modelos-ia';
 
 /**
  * US-101 / US-102: seção "Inteligência artificial (IA)" de Configurações. Sem IA_PROVEDOR, a seção não existe.
  * `ativada`: a página recebeu `?ia=ativada` do `ativarIaAction`; a confirmação só aparece se a IA está mesmo ativa.
  * `modelosPedido`: a página recebeu `?modelos=pedido` do `pedirModelosAction` (US-123 "Gerar"); vai para `ModelosIa`.
+ * Plano 15 (US-170): com a IA ativa, a subseção "IA Nutri (pacientes)" por último (depois dos modelos e de "Desativar a IA"); `iaNutriRetorno` é o `?ia-nutri=`
+ * (lista fechada) e `pausa` só vem dos testes.
  */
-export async function IaSecao({ tenant, ctx, ativada = false, modelosPedido = false }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean; modelosPedido?: boolean }) {
+export async function IaSecao({ tenant, ctx, ativada = false, modelosPedido = false, iaNutriRetorno = null, pausa }: { tenant: TenantRow; ctx: TenantContext; ativada?: boolean; modelosPedido?: boolean; iaNutriRetorno?: RetornoIaNutri | null; pausa?: PausaIaNutri }) {
   const { modo, destino } = configIA(getEnv());
   const estado = estadoIaDoTenant(tenant, modo);
   if (estado === 'ausente' || estado === 'suspensa' || !destino) return null;
@@ -52,6 +56,8 @@ export async function IaSecao({ tenant, ctx, ativada = false, modelosPedido = fa
           <form action={desativarIaAction}>
             <ConfirmarBotao mensagem="Desativar a IA? As leituras na fila são canceladas e as sugestões ainda não salvas são descartadas.">Desativar a IA</ConfirmarBotao>
           </form>
+          {/* a última subseção: o "Desativar a IA" acima continua sendo da IA do consultório, não da IA Nutri */}
+          <IaNutriSecao tenant={tenant} ctx={ctx} retorno={iaNutriRetorno} pausa={pausa} />
         </>
       )}
     </section>

@@ -11,11 +11,17 @@ export const ITENS_DO_MENU = [
 /** Plano 12 (D11): "Exames recebidos" — 5º item, só com o recebimento ligado ou com envio aguardando (o layout decide). */
 export const ITEM_EXAMES = { href: '/painel/exames-recebidos', rotulo: 'Exames recebidos' } as const;
 
-export function itensDoMenu(o: { exames: boolean }): { href: string; rotulo: string }[] {
-  return o.exames ? [...ITENS_DO_MENU.slice(0, 4), ITEM_EXAMES, ...ITENS_DO_MENU.slice(4)] : [...ITENS_DO_MENU];
+/** Plano 15 (US-175): "Dúvidas dos pacientes" — com a IA Nutri ativada ou com dúvida aberta (o layout decide), antes de "Conteúdos". */
+export const ITEM_DUVIDAS = { href: '/painel/duvidas', rotulo: 'Dúvidas dos pacientes' } as const;
+
+export function itensDoMenu(o: { exames: boolean; duvidas?: boolean }): { href: string; rotulo: string }[] {
+  const base = o.exames ? [...ITENS_DO_MENU.slice(0, 4), ITEM_EXAMES, ...ITENS_DO_MENU.slice(4)] : [...ITENS_DO_MENU];
+  if (!o.duvidas) return base;
+  const i = base.findIndex((x) => x.href === '/painel/conteudos');
+  return [...base.slice(0, i), ITEM_DUVIDAS, ...base.slice(i)];
 }
 
-/** US-162: "Exames recebidos (3)"; sem pendentes, só o nome. */
+/** US-162: "Exames recebidos (3)"; US-175: "Dúvidas dos pacientes (2)"; sem pendentes, só o nome. */
 export const rotuloDoItem = (rotulo: string, contador: number): string => (contador > 0 ? `${rotulo} (${contador})` : rotulo);
 
 /** Telas que moram no hub "Configurações" (o item fica marcado nelas). */
@@ -25,7 +31,7 @@ const dentro = (caminho: string, base: string) => caminho === base || caminho.st
 export function itemAtual(caminho: string): string | null {
   if (caminho === '/painel') return '/painel';
   if (DO_HUB.some((b) => dentro(caminho, b))) return '/painel/configuracoes';
-  return [...ITENS_DO_MENU, ITEM_EXAMES].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
+  return [...ITENS_DO_MENU, ITEM_EXAMES, ITEM_DUVIDAS].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { classeDoItem, iniciais, ITEM_EXAMES, ITENS_DO_MENU, itemAtual, itensDoMenu, rotuloDoItem } from './navegacao';
+import { classeDoItem, iniciais, ITEM_DUVIDAS, ITEM_EXAMES, ITENS_DO_MENU, itemAtual, itensDoMenu, rotuloDoItem } from './navegacao';
 
 describe('menu do painel (D20)', () => {
   it('iniciais: duas primeiras palavras, maiúsculas', () => {
@@ -39,5 +39,14 @@ describe('menu do painel (D20)', () => {
     expect(rotuloDoItem(ITEM_EXAMES.rotulo, 0)).toBe('Exames recebidos');
     expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
     expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
+  });
+  it('Plano 15 (US-175): "Dúvidas dos pacientes" entra antes de "Conteúdos" só quando pedido, com ou sem "Exames recebidos"; marca as subpáginas', () => {
+    expect(itensDoMenu({ exames: false, duvidas: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Configurações']);
+    expect(itensDoMenu({ exames: false, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Dúvidas dos pacientes', 'Conteúdos', 'Configurações']);
+    expect(itensDoMenu({ exames: true, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Configurações']);
+    expect(rotuloDoItem(ITEM_DUVIDAS.rotulo, 2)).toBe('Dúvidas dos pacientes (2)');
+    expect(itemAtual('/painel/duvidas')).toBe('/painel/duvidas');
+    expect(itemAtual('/painel/duvidas/123')).toBe('/painel/duvidas');
+    expect(itemAtual('/painel/duvidasx')).toBeNull();
   });
 });

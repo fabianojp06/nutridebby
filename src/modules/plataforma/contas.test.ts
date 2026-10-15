@@ -351,11 +351,11 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     expect(t.l).toBe(false);
   });
 
-  it('listarContas mostra IA liberada, ativada e a cota', async () => {
+  it('listarContas mostra IA liberada, ativada, a cota e a cota da IA Nutri', async () => {
     const T = await novoTenant(app.db);
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID());
     const [t] = await app.db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, T.tenantId));
-    expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
+    expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15, iaNutriCotaMensalUsd: 7 }); // Plano 15 (D3): US$ 7 por padrão
   });
 });
 

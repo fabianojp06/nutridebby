@@ -125,6 +125,8 @@ export const MSG_IA_NUTRI = {
   pausada: 'A IA Nutri está pausada pelo suporte.', // novo (DP-1: só na pausa de emergência da plataforma)
   usoDoMes: (p: number) => `Uso da IA Nutri neste mês: ${p}% do limite`,
   cotaAcabou: 'O limite da IA Nutri deste mês acabou. Ele renova no dia 1º ou quando o suporte ampliar o limite.',
+  aviso80: 'Os pacientes já usaram 80% do limite da IA Nutri deste mês.', // novo (o assunto do e-mail de 80%, T5)
+  confirmarDesativarConsultorio: 'Desativar a IA Nutri para pacientes? A fila de dúvidas continua.',
   liberar: 'Liberar a IA Nutri para este paciente',
   // D33 e D25 (a frase dos termos é nova, à Debby): a IA Nutri mostra os trechos do plano como estão
   pesoOculto: 'Este paciente está com o peso oculto no app. A IA Nutri não fala de peso, mas mostra os trechos do plano como estão escritos, inclusive termos como "jejum". Confirme se ela é adequada para ele.',

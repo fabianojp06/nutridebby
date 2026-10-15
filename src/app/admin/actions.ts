@@ -8,7 +8,8 @@ import { getDb } from '@/db/client';
 import { emProducao, getEnv } from '@/env';
 import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
-import { ajustarCotaIa, ajustarCotaWhatsapp, CotaIaAdminError, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
+import { pausarIaNutri, retomarIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
+import { ajustarCotaIa, ajustarCotaIaNutri, ajustarCotaWhatsapp, CotaIaAdminError, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
 import { MSG_2FA, Reiniciar2faError, reiniciarPeloAdmin } from '@/modules/plataforma/reiniciar-2fa';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
@@ -144,6 +145,37 @@ export async function ajustarCotaIaAction(tenantId: string, _prev: CotaState, fo
   }
   revalidarAdmin();
   return { ok: true };
+}
+
+/** Plano 15 (D3, §13.2): "Limite da IA Nutri (US$/mês)" — a cota própria da IA Nutri do consultório (escopo `paciente`). */
+export async function ajustarCotaIaNutriAction(tenantId: string, _prev: CotaState, formData: FormData): Promise<CotaState> {
+  const { user } = await requireUser(['admin'], '/admin');
+  if (!uuid.safeParse(tenantId).success) return { erro: 'Conta inválida' };
+  try {
+    await ajustarCotaIaNutri(tenantId, String(formData.get('cotaIaNutri') ?? ''), user.id);
+  } catch (e) {
+    if (e instanceof CotaIaAdminError) return { erro: e.message };
+    if (e instanceof ContaNaoEncontradaError) return { erro: MSG_CONTA_NAO_ENCONTRADA };
+    throw e;
+  }
+  revalidarAdmin();
+  return { ok: true };
+}
+
+/**
+ * Plano 15 (RN-185, DP-1, ★ DO-1 = não, ★ DO-5): o desligamento de EMERGÊNCIA da IA Nutri em todos os consultórios e a
+ * volta dele. Só a linha de `admin_actions` (quem e quando), sem coluna nova. A confirmação fica no botão (`textos.ts`).
+ */
+export async function pausarIaNutriAction(): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin/servidor');
+  await pausarIaNutri(user.id);
+  revalidarAdmin();
+}
+
+export async function retomarIaNutriAction(): Promise<void> {
+  const { user } = await requireUser(['admin'], '/admin/servidor');
+  await retomarIaNutri(user.id);
+  revalidarAdmin();
 }
 
 export type MetricasState = { ok?: boolean; erro?: string; campo?: 'taxaBase' | 'goLiveEm' };

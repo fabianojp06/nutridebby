@@ -73,7 +73,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBe(2);
+    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 15 (abaixo)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Exames recebidos" aparece também');
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(guiaDaRota(`/painel/exames-recebidos/${UUID}`)?.id).toBe('exames-recebidos');
@@ -113,11 +113,34 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/resumo-ia`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/rascunho-ia`)?.id).toBe('plano-alimentar');
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(7);
+    expect(config.versao).toBeGreaterThanOrEqual(7); // 8 desde o Plano 15 (o aditivo 1.2, abaixo)
     const ia = itens('configuracoes').join(' ');
-    expect(ia).toContain('O aditivo está na versão 1.1, que inclui o resumo do histórico e o rascunho de plano alimentar.');
     expect(ia).toContain('"Aceitar a versão atual"');
     expect(ia).not.toMatch(/A leitura de laudos com IA só aparece/); // o texto da 1.0 saiu
+  });
+  it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(8);
+    const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
+    expect(ia).toContain(
+      'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
+    );
+    expect(ia).toContain('IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".');
+    expect(ia.join(' ')).not.toContain('A autorização que o paciente deu na versão anterior também não vale mais');
+    expect(ia.join(' ')).not.toContain('versão 1.1, que inclui');
+    expect(config.passos.map((p) => p.alvo)).toContain('ia-nutri-secao');
+  });
+  it('Plano 15 (★ DO-6): o passo do menu do boas-vindas cita "Dúvidas dos pacientes" e a versão sobe para 3 neste PR', () => {
+    const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
+    expect(g.versao).toBe(3);
+    expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Dúvidas dos pacientes" aparece também, com o número das abertas.');
+  });
+  it('Plano 15: a fila "Dúvidas dos pacientes" e a aba "IA Nutri" da ficha têm guia próprio (a aba antes do guia do prontuário)', () => {
+    expect(guiaDaRota('/painel/duvidas')?.id).toBe('duvidas');
+    expect(guiaDaRota(`/painel/duvidas/${UUID}`)?.id).toBe('duvidas');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri`)?.id).toBe('ia-nutri');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri-x`)?.id).toBe('prontuario');
+    expect(GUIAS.find((x) => x.id === 'duvidas')!.passos.map((p) => p.alvo)).toEqual(['fila-duvidas']);
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');

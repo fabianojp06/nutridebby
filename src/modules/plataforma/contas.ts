@@ -134,6 +134,8 @@ export type ContaResumo = {
   iaLiberada: boolean;
   iaAtivada: boolean;
   iaCotaMensalUsd: number;
+  /** Plano 15 (D3): a cota própria da IA Nutri do paciente (US$/mês). */
+  iaNutriCotaMensalUsd: number;
 };
 
 /** P09-07: 50 consultórios por página; a busca vai até 100 caracteres. */
@@ -147,7 +149,7 @@ type LinhaConta = {
   tenant_id: string; slug: string; nome_exibicao: string; status: 'ativa' | 'suspensa'; crn: string | null;
   created_at: Date; email: string | null; tem_senha: boolean; convite_expira: Date | null; wa_cota_mensal: number;
   taxa_faltas_base: string | null; go_live_em: string | null; documentos_liberados: boolean;
-  ia_liberada: boolean; ia_ativada: boolean; ia_cota_mensal_usd: string;
+  ia_liberada: boolean; ia_ativada: boolean; ia_cota_mensal_usd: string; ia_nutri_cota_mensal_usd: string;
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const cursor = (v: unknown): string | null => (typeof v === 'string' && UUID_RE.test(v) ? v : null);
@@ -161,7 +163,7 @@ const cursor = (v: unknown): string | null => (typeof v === 'string' && UUID_RE.
 const LINHA_DA_CONTA = sql`
     select t.id as tenant_id, t.slug, t.nome_exibicao, t.status, t.crn, t.created_at, t.wa_cota_mensal, u.email,
            t.taxa_faltas_base, to_char(t.go_live_em, 'YYYY-MM-DD') as go_live_em, t.documentos_liberados,
-           t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd,
+           t.ia_liberada, t.ia_ativada_em is not null as ia_ativada, t.ia_cota_mensal_usd, t.ia_nutri_cota_mensal_usd,
            exists (select 1 from account a where a.user_id = u.id and a.provider_id = 'credential') as tem_senha,
            (select max(i.expira_em) from invites i where i.user_id = u.id and i.usado_em is null) as convite_expira
       from tenants t
@@ -177,6 +179,7 @@ function paraResumo(row: LinhaConta, now: Date): ContaResumo {
     taxaFaltasBase: row.taxa_faltas_base === null ? null : Number(row.taxa_faltas_base), goLiveEm: row.go_live_em,
     documentosLiberados: row.documentos_liberados,
     iaLiberada: row.ia_liberada, iaAtivada: row.ia_ativada, iaCotaMensalUsd: Number(row.ia_cota_mensal_usd),
+    iaNutriCotaMensalUsd: Number(row.ia_nutri_cota_mensal_usd),
   };
 }
 

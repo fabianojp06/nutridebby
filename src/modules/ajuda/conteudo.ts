@@ -19,7 +19,7 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 2, // Plano 12: o passo do menu passou a citar "Exames recebidos"
+    versao: 3, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -31,7 +31,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos e Configurações ficam sempre aqui no topo. Quando você liga o recebimento de exames pelo app, "Exames recebidos" aparece também, com o número dos que aguardam.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos e Configurações ficam sempre no topo. Com o recebimento de exames pelo app ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -121,6 +121,27 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    // Plano 15 (US-170, US-175, DP-17): antes do guia `prontuario`, cujo padrão casa qualquer aba da ficha (o primeiro que casa ganha)
+    id: 'ia-nutri',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}/ia-nutri$`),
+    titulo: 'IA Nutri do paciente',
+    ajuda: {
+      resumo: 'Libere a IA Nutri paciente por paciente. Depois, o paciente lê o texto e decide no app. Aqui você lê as conversas dele com a IA e registra a desativação quando ele pedir.',
+      secoes: [
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Marque "Liberar a IA Nutri para este paciente" e salve. Para bloquear de novo, desmarque: a entrada some do app dele, e as conversas ficam até o prazo.',
+            'Se o paciente estiver com o peso oculto no app, o sistema pede a sua confirmação antes de liberar.',
+            'Se o paciente pedir para desativar e não conseguir pelo app (por exemplo, arquivado), use "Registrar desativação a pedido do paciente": as conversas dele com a IA Nutri são apagadas.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'ia-nutri-aba', titulo: 'IA Nutri do paciente', texto: 'Libere a IA Nutri paciente por paciente. Depois, o paciente lê o texto e decide no app. Aqui você lê as conversas dele com a IA e registra a desativação quando ele pedir.' }],
+  },
+  {
     id: 'prontuario',
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
@@ -197,6 +218,26 @@ export const GUIAS: readonly Guia[] = [
     passos: [{ alvo: 'fila-exames', titulo: 'Exames dos pacientes', texto: 'Os mais antigos ficam no topo. Abra um envio para conferir as páginas e aceitar ou recusar.' }],
   },
   {
+    id: 'duvidas',
+    versao: 1,
+    padrao: /^\/painel\/duvidas(\/.*)?$/,
+    titulo: 'Dúvidas dos pacientes',
+    ajuda: {
+      resumo: 'Aqui chegam as perguntas que os pacientes enviaram pela IA Nutri e as mensagens com sinal de risco, que ficam no topo. Abra a dúvida para ler, siga o protocolo nas de risco e toque em "Marcar como vista": o paciente vê no app que a dúvida foi vista. A resposta você dá na consulta ou pelo canal que já usa.',
+      secoes: [
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Abrir uma dúvida fica registrado no "Histórico de acessos" do paciente.',
+            'A mensagem com sinal de risco de um paciente que desativou a IA Nutri é mostrada uma vez e apagada ao abrir: anote o que for preciso antes de sair da página.',
+            'A conversa inteira do paciente com a IA fica na aba "IA Nutri" da ficha dele.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'fila-duvidas', titulo: 'Dúvidas dos pacientes', texto: 'As mensagens com sinal de risco ficam no topo, depois as mais antigas. Abra a dúvida para ler e, depois de tratar, toque em "Marcar como vista".' }],
+  },
+  {
     id: 'diarios',
     versao: 1,
     padrao: /^\/painel\/diarios(\/.*)?$/,
@@ -239,7 +280,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 7, // Plano 14B-2: o aditivo 1.1 (o resumo do histórico e o rascunho de plano); a 6 foi a dos modelos sugeridos pela IA (Plano 14B-1)
+    versao: 8, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
@@ -258,11 +299,12 @@ export const GUIAS: readonly Guia[] = [
           titulo: 'Inteligência artificial (IA)',
           itens: [
             'A IA (leitura de laudos, resumo do histórico e rascunho de plano) só aparece depois que o suporte libera o seu consultório; para ativar, você aceita o aditivo de inteligência artificial.',
-            'O aditivo está na versão 1.1, que inclui o resumo do histórico e o rascunho de plano alimentar. Quem aceitou a versão anterior vê "Aceitar a versão atual" e precisa aceitar de novo para continuar usando a IA. A autorização que o paciente deu na versão anterior também não vale mais: peça uma nova (a aba Privacidade do paciente avisa).',
+            'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
             'A IA só sugere: você confere cada valor antes de salvar. Nada entra no prontuário sem você marcar e salvar.',
             'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
             'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
+            'IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".',
           ],
         },
       ],
@@ -273,6 +315,8 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
       { alvo: 'modelos-ia', titulo: 'Modelos sugeridos pela IA', texto: 'Com a IA ativa, escolha a área e clique em "Gerar modelos": a IA prepara 2 modelos de plano e 1 de anamnese, sem nenhum dado de paciente. Revise e aprove cada um antes de usar com pacientes.' },
+      // Plano 15: a subseção só aparece com a IA ativa no consultório (como a dos modelos)
+      { alvo: 'ia-nutri-secao', titulo: 'IA Nutri para pacientes', texto: 'Com a IA ativa, a IA Nutri responde dúvidas dos pacientes sobre o plano publicado. Ative aqui, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".' },
     ],
   },
   {

@@ -7,6 +7,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { ativarIa, AtivacaoIaError, desativarIa } from '@/modules/ia/ativacao';
 import { pedirModelos } from '@/modules/ia/modelos-sugeridos';
 import { configIA } from '@/modules/ia/modo';
+import { ativarIaNutri, desativarIaNutri, IaNutriError } from '@/modules/ia/nutri-paciente/participacao';
 import { PedidoIaError } from '@/modules/ia/tarefas';
 import { definirRecebimentoDeExames } from '@/modules/plataforma/recebimento-exames';
 
@@ -61,4 +62,28 @@ export async function definirRecebimentoAction(fd: FormData): Promise<void> {
   await definirRecebimentoDeExames(ctx, fd.get('receberExames') === 'on');
   revalidatePath('/painel', 'layout'); // o menu ("Exames recebidos") depende do recebimento ligado
   redirect('/painel/configuracoes?exames=salvo');
+}
+
+/**
+ * US-170 "Ligar no consultório": a usuária e o consultório vêm da sessão; sem trava de texto (★ DO-2 trocada, D37). O retorno
+ * vai pela URL (`?ia-nutri=`, lista fechada) e aparece dentro da subseção, na região `role="status"` (a âncora leva a ela).
+ */
+export async function ativarIaNutriAction(): Promise<void> {
+  const { ctx } = await requireNutri('/painel/configuracoes');
+  try {
+    await ativarIaNutri(ctx, { ia: configIA(getEnv()) });
+  } catch (e) {
+    if (e instanceof IaNutriError) redirect('/painel/configuracoes?ia-nutri=indisponivel#ia-nutri-titulo');
+    throw e;
+  }
+  revalidatePath('/painel', 'layout'); // o menu ("Dúvidas dos pacientes") depende da ativação
+  redirect('/painel/configuracoes?ia-nutri=ativada#ia-nutri-titulo');
+}
+
+/** US-170 "Desligar no consultório": nenhuma pergunta nova; a fila de dúvidas continua. */
+export async function desativarIaNutriAction(): Promise<void> {
+  const { ctx } = await requireNutri('/painel/configuracoes');
+  await desativarIaNutri(ctx);
+  revalidatePath('/painel', 'layout');
+  redirect('/painel/configuracoes?ia-nutri=desativada#ia-nutri-titulo');
 }

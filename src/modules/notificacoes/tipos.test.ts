@@ -18,7 +18,7 @@ describe('situação do lembrete em texto', () => {
 
 describe('ROTULO_TIPO (W-1)', () => {
   it('tem rótulo para todo tipo do CHECK de notifications', () => {
-    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado'])
+    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista'])
       expect(ROTULO_TIPO[t as keyof typeof ROTULO_TIPO], t).toBeTruthy();
   });
 });
