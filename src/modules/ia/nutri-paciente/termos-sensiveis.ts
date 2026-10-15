@@ -25,10 +25,12 @@ export const termosNaPergunta = (pergunta: string): string[] => TERMOS_SENSIVEIS
  * classificar como sintoma_ou_exame e, como defesa a mais (Review Focus 4), o código também recusa: pergunta de permissão
  * com marcador de condição de saúde, gravidez ou remédio.
  */
-const PERMISSAO = /\b(posso|pode|devo|da (pra|para)|tem problema)\b/;
+// revisão da T6 (rodada 1): também "faz mal", "é seguro", "tudo bem", "tem perigo", "consigo", "prejudica", "atrapalha"
+const PERMISSAO = /\b(posso|pode|devo|da (pra|para)|tem problema|faz mal|e seguro|tudo bem|tem perigo|consigo|prejudica|atrapalha)\b/;
 // radicais (gripad, enjoad…) casam o começo da palavra; as palavras curtas têm fim de palavra ("dor" não casa "dormir"),
-// com o plural e o verbo (/code-review do PR #37: "dores", "dói")
-const CONDICAO = /\b(diarreia|febre|gripe|gripad|resfriad|enjoo|enjoad|nausea|vomit|dor(es)?(?![a-z])|doi(?![a-z])|doendo|azia|refluxo|intestino preso|constipad|gastrite|gravida|gestante|gravidez|amamenta|menstrua|alergi|intoleran|diabet|pressao (alta|baixa)|hipertens|colesterol|glicose|tireoide|cirurgia|operad|remedio|medicamento|antibiotico|tratamento|doente|exames?(?![a-z]))/;
+// com o plural e o verbo (/code-review do PR #37: "dores", "dói"); "doença", "cólica", "celíaca", "lactose"… desde a
+// revisão da T6 (rodada 1)
+const CONDICAO = /\b(diarreia|febre|gripe|gripad|resfriad|enjoo|enjoad|nausea|vomit|dor(es)?(?![a-z])|doi(?![a-z])|doendo|azia|refluxo|intestino preso|constipad|gastrite|gravida|gestante|gravidez|amamenta|menstrua|alergi|intoleran|diabet|pressao (alta|baixa)|hipertens|colesterol|glicose|tireoide|cirurgia|operad|remedio|medicamento|antibiotico|tratamento|doente|doenca|colica|tontura|inchac|inchad|prisao de ventre|virose|infec|anemi|insulina|celiac|lactose|gestac|lactante|exames?(?![a-z]))/;
 export const perguntaComCondicao = (pergunta: string): boolean => {
   const t = normalizar(pergunta);
   return PERMISSAO.test(t) && CONDICAO.test(t);

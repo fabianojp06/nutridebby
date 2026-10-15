@@ -37,6 +37,7 @@ describe('validarSaida (RN-175, D21 = a): o JSON fixo, sem texto livre', () => {
     const esperado = { ok: false, categoria: 'sintoma_ou_exame', textoFixo: 'sintoma_ou_exame', motivo: 'condicao', risco: false };
     expect(validarSaida(saida({ tipo_resposta: 'quantidade', fontes: ['#I1'] }), { enviados, pergunta: 'posso comer o lanche da tarde mesmo com diarreia?' })).toEqual(esperado);
     expect(validarSaida(saida({ tipo_resposta: 'quantidade', fontes: ['#I1'] }), { enviados, pergunta: 'posso comer o almoço mesmo com dores no estômago?' })).toEqual(esperado);
+    expect(validarSaida(saida({ tipo_resposta: 'quantidade', fontes: ['#I1'] }), { enviados, pergunta: 'faz mal comer banana com gastrite?' })).toEqual(esperado);
   });
 
   it('fontes repetidas saem uma vez, na ordem', () =>

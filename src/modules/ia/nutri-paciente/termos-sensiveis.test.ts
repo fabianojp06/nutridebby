@@ -7,6 +7,13 @@ describe('perguntaComCondicao (RN-175, §5.2, Review Focus 4): "posso X se tenho
     'posso tomar o whey estando grávida?',
     'posso comer a ceia mesmo com dores de cabeça?',
     'posso comer pão se a barriga dói?',
+    // revisão da T6 (rodada 1): outras formas de pedir permissão e outros marcadores de condição
+    'faz mal comer banana com gastrite?',
+    'é seguro comer peixe estando grávida?',
+    'posso comer pão com doença celíaca?',
+    'tudo bem jantar com cólica?',
+    'tem perigo tomar leite com intolerância à lactose?',
+    'posso comer doce se uso insulina?',
   ])('com condição: %s', (p) => expect(perguntaComCondicao(p)).toBe(true));
 
   it.each([
