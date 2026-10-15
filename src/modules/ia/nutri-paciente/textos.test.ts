@@ -45,7 +45,8 @@ describe('textos fixos (US-172 a US-176, DP-4): o banco guarda o código, a tela
 describe('MSG_IA_NUTRI (textos de tela)', () => {
   // 74 do plano + 2 da T11 (aviso80 no painel e a confirmação de desativar no consultório) + 3 da revisão da T11
   // (perfilIncompleto e completarPerfil, I1; riscoRevogadoNaFicha, I2) + 1 da revisão da T12 (mostrarAnteriores, I4)
-  it('as 80 chaves, nem mais nem menos (+ mostrarAnteriores, revisão da T12, I4)', () => expect(Object.keys(MSG_IA_NUTRI)).toHaveLength(80));
+  // + 1 da revisão final (ajudouSelo, US-175)
+  it('as 81 chaves, nem mais nem menos (+ ajudouSelo, revisão final)', () => expect(Object.keys(MSG_IA_NUTRI)).toHaveLength(81));
 
   it('D37 / DP-18: o protocolo do "Sinal de risco" é texto final e não há trava de texto na ativação', () => {
     for (const linha of MSG_IA_NUTRI.protocoloRisco) {
