@@ -115,24 +115,30 @@ describe('apagarIaNutriDoTitular (§7.6 pedido de exclusão atendido, D22)', () 
 });
 
 describe('iaNutriParaExportacao (§7.6 "Exportação", US-018, US-046, RN-109)', () => {
-  it('consentimentos e mensagens com rótulos legíveis; o texto fixo traduzido; nunca fontes, motivo técnico, modelo ou reserva', async () => {
+  it('consentimentos e mensagens com rótulos legíveis; o texto fixo traduzido; a avaliação e a dúvida enviada à nutricionista (art. 19, § 3º); nunca fontes, motivo técnico, modelo ou reserva', async () => {
     const { T, p, ctxP } = await pronto();
     const pergunta = await perguntaRespondida(T, ctxP);
     const [resposta] = await comoWorker(T, sql`select id from ia_nutri_mensagens where responde_a = ${pergunta}`);
     expect(await avaliar(ctxP, resposta.id as string, 'ajudou', app.db)).toBe(true);
     expect(await encaminhar(ctxP, pergunta, app.db)).toBe('encaminhada');
     await perguntar(ctxP, RISCO, depsApp);
-    const d = await withTenant(T.ctx, (tx) => iaNutriParaExportacao(tx, p.id, (x) => `D:${x.toISOString().slice(0, 10)}`), app.db);
-    expect(d.consentimentos).toEqual([{ evento: 'Autorizou', versao: '1.0', destino: DESTINO_ROTULO.teste, data: expect.stringMatching(/^D:\d{4}-\d{2}-\d{2}$/) }]);
+    const d = await withTenant(T.ctx, (tx) => iaNutriParaExportacao(tx, p.id), app.db);
+    const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    expect(d.consentimentos).toEqual([{ evento: 'Autorizou', versao: '1.0', destino: DESTINO_ROTULO.teste, data: expect.stringMatching(ISO), ip: null, userAgent: null }]);
     expect(d.mensagens.map((m) => [m.autor, m.categoria, m.risco])).toEqual([
       [MSG_IA_NUTRI.autorPaciente, null, null],
       [MSG_IA_NUTRI.autorIa, ROTULO_CATEGORIA.plano, null],
       [MSG_IA_NUTRI.autorPaciente, null, 'Sinal de risco (alimentação)'],
       [MSG_IA_NUTRI.autorSistema, null, null],
     ]);
-    expect(d.mensagens[0]).toMatchObject({ texto: BANANA, enviadaEm: expect.stringMatching(/^D:/), destino: DESTINO_ROTULO.teste });
+    expect(d.mensagens[0]).toMatchObject({ texto: BANANA, data: expect.stringMatching(ISO), enviadaEm: expect.stringMatching(ISO), destino: DESTINO_ROTULO.teste });
+    expect(d.mensagens[0]).toMatchObject({ enviadaANutricionistaEm: expect.stringMatching(ISO), situacaoDaDuvida: 'Aguardando a nutricionista' });
+    expect(d.mensagens[0]).not.toHaveProperty('avaliacao');
     expect(d.mensagens[1].texto).toMatch(/^No seu plano, as opções de substituição são:/);
+    expect(d.mensagens[1]).toMatchObject({ avaliacao: MSG_IA_NUTRI.ajudou });
+    expect(MSG_IA_NUTRI.ajudou).toBe('Ajudou');
     expect(d.mensagens[1]).not.toHaveProperty('enviadaEm');
+    expect(d.mensagens[1]).not.toHaveProperty('situacaoDaDuvida');
     expect(d.mensagens[2]).toMatchObject({ texto: RISCO });
     expect(d.mensagens[2]).not.toHaveProperty('enviadaEm'); // a pergunta com risco nunca sai ao provedor
     expect(d.mensagens[3].texto).toBe(TEXTOS_FIXOS.risco_transtorno);
@@ -144,9 +150,9 @@ describe('iaNutriParaExportacao (§7.6 "Exportação", US-018, US-046, RN-109)',
     const { T, p, ctxP } = await pronto();
     await perguntaRespondida(T, ctxP);
     await withTenant(ctxP, (tx) => tx.execute(sql`select * from app_ia_nutri_revogar('203.0.113.9', 'Mozilla/5.0')`), app.db);
-    const d = await withTenant(T.ctx, (tx) => iaNutriParaExportacao(tx, p.id, (x) => x.toISOString()), app.db);
+    const d = await withTenant(T.ctx, (tx) => iaNutriParaExportacao(tx, p.id), app.db);
     expect(d.consentimentos.map((c) => c.evento)).toEqual(['Autorizou', 'Desativou']);
-    expect(d.consentimentos[1]).toMatchObject({ versao: null, destino: null });
+    expect(d.consentimentos[1]).toMatchObject({ versao: null, destino: null, ip: '203.0.113.9', userAgent: 'Mozilla/5.0' }); // a prova do titular (art. 19, § 3º)
     expect(d.mensagens).toEqual([]);
   });
 });

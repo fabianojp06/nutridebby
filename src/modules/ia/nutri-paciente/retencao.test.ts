@@ -133,20 +133,24 @@ describe('expurgarIaNutri (RN-181, D8 = 180 dias, D22, D32)', () => {
     so();
     expect(await expurgarIaNutri(app.db, agora, 'https://app.teste')).toEqual({ apagadas: 0, esvaziadas: 0, riscosNaoAbertos: 1 });
     expect(await emailsNaFila('alerta_ia', admin)).toEqual([{ tipo: 'alerta_ia', para: admin, motivo: 'risco_ia_nutri', painelUrl: 'https://app.teste/admin' }]);
-    // a mesma volta repetida (nova tentativa do job) e outra no mesmo dia: nenhum e-mail a mais
-    so();
-    await expurgarIaNutri(app.db, new Date(agora.getTime() + 3_600_000), 'https://app.teste');
-    expect(await emailsNaFila('alerta_ia', admin)).toHaveLength(1);
-    // no dia seguinte, o aviso sai de novo enquanto ninguém abrir
-    so();
-    await expurgarIaNutri(app.db, new Date(agora.getTime() + 25 * 3_600_000), 'https://app.teste');
-    expect(await emailsNaFila('alerta_ia', admin)).toHaveLength(2);
+    // "Um por dia" é o dia de Brasília, não 24 h (revisão da T10): o cron de 04:15 começa com segundos de variação. Datas
+    // fixas (Brasília = UTC-3, sem horário de verão), longe de hoje, para o teste não depender da hora em que roda.
+    const volta = async (iso: string, total: number) => {
+      so();
+      await expurgarIaNutri(app.db, new Date(iso), 'https://app.teste');
+      expect(await emailsNaFila('alerta_ia', admin), iso).toHaveLength(total);
+    };
+    await volta('2030-03-10T07:15:20Z', 2); // outro dia, 04:15:20 em Brasília: sai
+    await volta('2030-03-10T07:25:20Z', 2); // a nova tentativa do job (retryDelay 600 s), no mesmo dia: nada a mais
+    await volta('2030-03-10T22:15:00Z', 2); // 19:15 do mesmo dia: nada a mais
+    await volta('2030-03-11T07:15:05Z', 3); // a volta do dia seguinte 15 s mais cedo (23h59m45s depois): sai de novo
+    await volta('2030-03-12T02:59:00Z', 3); // 23h59 do dia 11 em Brasília (já 12 em UTC): o dia é o de Brasília
     // sem risco pendente, nada
     const [{ beat_at: antes }] = (await app.db.select({ beat_at: systemHeartbeat.beatAt }).from(systemHeartbeat).where(eq(systemHeartbeat.name, MARCA)));
     const vazio = await pronto();
     vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: vazio.T.tenantId, fuso: vazio.T.tenant.fuso }]);
-    expect(await expurgarIaNutri(app.db, new Date(agora.getTime() + 60 * 3_600_000), 'https://app.teste')).toMatchObject({ riscosNaoAbertos: 0 });
-    expect(await emailsNaFila('alerta_ia', admin)).toHaveLength(2);
+    expect(await expurgarIaNutri(app.db, new Date('2030-03-13T07:15:00Z'), 'https://app.teste')).toMatchObject({ riscosNaoAbertos: 0 });
+    expect(await emailsNaFila('alerta_ia', admin)).toHaveLength(3);
     expect((await app.db.select({ beat_at: systemHeartbeat.beatAt }).from(systemHeartbeat).where(eq(systemHeartbeat.name, MARCA)))[0].beat_at).toEqual(antes);
   });
 

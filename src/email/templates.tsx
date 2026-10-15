@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
+import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import type { EmailMessage, RenderedEmail } from './types';
@@ -193,7 +194,9 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const linhas = [
         `Olá, ${msg.nome}!`,
         `${msg.nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.`,
-        'Foram apagados agora: as fotos do diário alimentar, os exames enviados pelo app que ainda não tinham sido aceitos, as autorizações de mensagens por WhatsApp, as notificações no aparelho e os convites de acesso. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
+        `Foram apagados agora: as fotos do diário alimentar, os exames enviados pelo app que ainda não tinham sido aceitos, as autorizações de mensagens por WhatsApp, as notificações no aparelho, os convites de acesso e as conversas com a ${NOME_IA_NUTRI}. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.`,
+        // D22 (LGPD art. 18, § 4º, II: a razão da retenção): no molde da frase do consentimento da IA Nutri
+        `Se houver uma mensagem com sinal de risco enviada à ${NOME_IA_NUTRI} que sua nutricionista ainda não leu, ela fica guardada até ser lida, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, para a sua proteção. Depois disso, o texto é apagado e fica só o registro de que houve o aviso, até ${RETENCAO_DIAS} dias da mensagem.`,
         `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
         'Se tiver dúvidas, fale com a sua nutricionista.',
       ];

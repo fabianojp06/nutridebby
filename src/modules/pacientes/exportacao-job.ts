@@ -53,7 +53,7 @@ import { documentosParaExportacao, type DocumentoExportado } from '@/modules/doc
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
-import { formatarDataNoFuso, hojeNoFuso } from './datas';
+import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
 import { FORMULAS_TMB, kcal } from './formulas';
 import { formatarTelefone } from './telefone';
@@ -234,8 +234,9 @@ export type DadosExportacao = {
   }[];
   /**
    * Plano 15 (§7.6, RN-109): a conversa com a IA Nutri e os consentimentos — o titular e a equipe recebem; nunca índices,
-   * motivo técnico, modelo nem custo. Datas no fuso do consultório (dd/mm/aaaa); `enviadaEm` e `destino` só nas perguntas
-   * que saíram ao provedor.
+   * motivo técnico, modelo nem custo. Cópia integral do que é do titular (LGPD art. 19, § 3º; revisão da T10): IP e
+   * user-agent dos consentimentos, a avaliação das respostas, e nas perguntas enviadas à nutricionista a data e a situação
+   * da dúvida. Datas em ISO 8601, como os outros blocos; `enviadaEm` e `destino` só nas perguntas que saíram ao provedor.
    */
   iaNutri: IaNutriExportado;
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
@@ -406,7 +407,7 @@ export async function montarDados(
     .where(eq(iaAutorizacoes.patientId, patientId))
     .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
   // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos)
-  const iaNutri = await iaNutriParaExportacao(tx, patientId, (d) => formatarDataNoFuso(d, fuso));
+  const iaNutri = await iaNutriParaExportacao(tx, patientId);
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
   // termos — sem texto do usuário (regra 9)
   let nTermo = 0;

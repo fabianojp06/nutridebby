@@ -60,6 +60,13 @@ describe('exclusao_atendida (US-018)', () => {
     // Plano 06: o que o atendimento apaga e encerra também está no aviso ao titular
     for (const t of ['as fotos do diário alimentar', 'os exames enviados pelo app que ainda não tinham sido aceitos', 'as notificações no aparelho', 'Suas consultas futuras foram canceladas', 'não tem mais acesso ao portal deste acompanhamento'])
       expect(r.text).toContain(t);
+    // Plano 15 (D22; LGPD art. 18, § 4º, II — revisão da T10): as conversas com a IA Nutri saem, e a razão de a mensagem
+    // com sinal de risco ainda não lida ficar guardada, com o prazo
+    expect(r.text).toContain('os convites de acesso e as conversas com a IA Nutri.');
+    expect(r.text).toContain(
+      'Se houver uma mensagem com sinal de risco enviada à IA Nutri que sua nutricionista ainda não leu, ela fica guardada até ser lida, por no máximo 30 dias, para a sua proteção. Depois disso, o texto é apagado e fica só o registro de que houve o aviso, até 180 dias da mensagem.',
+    );
+    expect(r.html).toContain('por no máximo 30 dias, para a sua proteção');
   });
 });
 

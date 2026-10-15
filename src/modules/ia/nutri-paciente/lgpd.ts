@@ -78,24 +78,47 @@ export async function limparIaNutriNaAnonimizacao(tx: Tx, patientId: string): Pr
 const AUTOR_ROTULO = { paciente: MSG_IA_NUTRI.autorPaciente, ia: MSG_IA_NUTRI.autorIa, sistema: MSG_IA_NUTRI.autorSistema } as const;
 const RISCO_ROTULO = { emergencia: 'Sinal de risco (emergência)', transtorno_alimentar: 'Sinal de risco (alimentação)', modelo: 'Sinal de risco (percebido pela IA)' } as const;
 
+/** Rótulos legíveis da exportação (a avaliação com os textos dos botões do app). */
+const AVALIACAO_ROTULO = { ajudou: MSG_IA_NUTRI.ajudou, nao_ajudou: MSG_IA_NUTRI.naoAjudou } as const;
+const SITUACAO_DA_DUVIDA = { aberta: 'Aguardando a nutricionista', vista: 'Vista pela nutricionista', encerrada: 'Encerrada' } as const;
+
 export type IaNutriExportado = {
-  consentimentos: { evento: string; versao: string | null; destino: string | null; data: string }[];
-  mensagens: { data: string; autor: string; texto: string | null; categoria: string | null; risco: string | null; enviadaEm?: string; destino?: string | null }[];
+  consentimentos: { evento: string; versao: string | null; destino: string | null; data: string; ip: string | null; userAgent: string | null }[];
+  mensagens: {
+    data: string;
+    autor: string;
+    texto: string | null;
+    categoria: string | null;
+    risco: string | null;
+    /** Só na resposta da IA que o paciente avaliou. */
+    avaliacao?: string;
+    /** Só na pergunta que saiu ao provedor (RN-109). */
+    enviadaEm?: string;
+    destino?: string | null;
+    /** Só na pergunta enviada à nutricionista. */
+    enviadaANutricionistaEm?: string;
+    situacaoDaDuvida?: string;
+  }[];
 };
 
 /**
- * §7.6 "Exportação" (US-018, US-046, RN-109): consentimentos e mensagens, com rótulos legíveis; nunca fontes, motivo técnico,
- * modelo ou custo. O esqueleto da revogação (sem texto, texto fixo nem risco, D32) fica de fora; o aviso mínimo da D22 (só o
- * risco) entra. Na mesma data, a pergunta antes da resposta.
+ * §7.6 "Exportação" (US-018, US-046, RN-109; LGPD art. 19, § 3º — cópia integral no tratamento por consentimento): os
+ * consentimentos (com IP e user-agent, como `aceitesDoTermo` e `autorizacoesIa`; nulos depois da anonimização) e as
+ * mensagens, com rótulos legíveis: a avaliação "Ajudou"/"Não ajudou", e nas perguntas enviadas à nutricionista a data e a
+ * situação da dúvida. Datas em ISO 8601 (com a hora), como os outros blocos do `dados.json`. Nunca fontes, motivo técnico,
+ * modelo, versão do prompt ou custo (dados técnicos do controlador). O esqueleto da revogação (sem texto, texto fixo nem
+ * risco, D32) fica de fora; o aviso mínimo da D22 (só o risco) entra. Na mesma data, a pergunta antes da resposta.
  */
-export async function iaNutriParaExportacao(tx: Tx, patientId: string, formatar: (d: Date) => string): Promise<IaNutriExportado> {
+export async function iaNutriParaExportacao(tx: Tx, patientId: string): Promise<IaNutriExportado> {
   const consentimentos = (
     await tx.select().from(iaNutriConsentimentos).where(eq(iaNutriConsentimentos.patientId, patientId)).orderBy(asc(iaNutriConsentimentos.registradoEm), asc(iaNutriConsentimentos.id))
   ).map((c) => ({
     evento: c.evento === 'aceite' ? 'Autorizou' : c.canal === 'nutricionista' ? 'Desativou (pedido registrado pela nutricionista)' : 'Desativou',
     versao: c.versao,
     destino: c.destino ? DESTINO_ROTULO[c.destino as DestinoIA] : null,
-    data: formatar(c.registradoEm),
+    data: c.registradoEm.toISOString(),
+    ip: c.ip,
+    userAgent: c.userAgent,
   }));
   const mensagens = (
     await tx
@@ -104,12 +127,16 @@ export async function iaNutriParaExportacao(tx: Tx, patientId: string, formatar:
       .where(and(eq(iaNutriMensagens.patientId, patientId), sql`(${iaNutriMensagens.texto} is not null or ${iaNutriMensagens.textoFixo} is not null or ${iaNutriMensagens.risco} is not null)`))
       .orderBy(asc(iaNutriMensagens.createdAt), sql`${iaNutriMensagens.autor} <> 'paciente'`, asc(iaNutriMensagens.id))
   ).map((m) => ({
-    data: formatar(m.createdAt),
+    data: m.createdAt.toISOString(),
     autor: AUTOR_ROTULO[m.autor as keyof typeof AUTOR_ROTULO],
     texto: m.texto ?? (m.textoFixo ? TEXTOS_FIXOS[m.textoFixo as CodigoTextoFixo] : null),
     categoria: m.categoria ? ROTULO_CATEGORIA[m.categoria as CategoriaConversa] : null,
     risco: m.risco ? RISCO_ROTULO[m.risco as keyof typeof RISCO_ROTULO] : null,
-    ...(m.saiuEm ? { enviadaEm: formatar(m.saiuEm), destino: m.destino ? DESTINO_ROTULO[m.destino as DestinoIA] : null } : {}),
+    ...(m.avaliacao ? { avaliacao: AVALIACAO_ROTULO[m.avaliacao as keyof typeof AVALIACAO_ROTULO] } : {}),
+    ...(m.saiuEm ? { enviadaEm: m.saiuEm.toISOString(), destino: m.destino ? DESTINO_ROTULO[m.destino as DestinoIA] : null } : {}),
+    ...(m.encaminhadaEm
+      ? { enviadaANutricionistaEm: m.encaminhadaEm.toISOString(), situacaoDaDuvida: SITUACAO_DA_DUVIDA[(m.resolucao as 'vista' | 'encerrada' | null) ?? 'aberta'] }
+      : {}),
   }));
   return { consentimentos, mensagens };
 }

@@ -172,8 +172,8 @@ test('exportar dados: o worker gera o ZIP, o link chega por e-mail e baixa o arq
 
 test('arquivar tira da lista de ativos e mostra o selo; desarquivar devolve (US-018 "Arquivar")', async () => {
   await nutri.goto(`${prontuario}/privacidade`);
-  // antes de atender a exclusão, a nutricionista lê o que sai na hora (Plano 06: fotos do diário, notificações, portal)
-  await expect(nutri.getByText(/Na hora são apagadas as fotos do diário, os exames enviados pelo app que ainda não foram aceitos, as autorizações de WhatsApp, as notificações no app e os convites/)).toBeVisible();
+  // antes de atender a exclusão, a nutricionista lê o que sai na hora (Plano 06: fotos do diário, notificações, portal; Plano 15: a IA Nutri e a exceção da D22)
+  await expect(nutri.getByText(/Na hora são apagadas as fotos do diário, os exames enviados pelo app que ainda não foram aceitos, as autorizações de WhatsApp, as notificações no app, os convites e as conversas com a IA Nutri \(salvo a mensagem com sinal de risco ainda não aberta, que fica guardada até ser aberta, por no máximo 30 dias, para a proteção do paciente\)/)).toBeVisible();
   nutri.once('dialog', (d) => d.accept());
   await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
   await expect(nutri.locator('header', { hasText: ANA.nome }).getByText('Arquivado', { exact: true })).toBeVisible(); // selo do prontuário
