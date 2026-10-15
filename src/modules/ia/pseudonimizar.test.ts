@@ -51,3 +51,32 @@ describe('mascarar (RN-115, §5.4): o que some e o limite declarado', () => {
     expect(respostaDaAnamnese('Dorme mal')).toBe('Dorme mal');
   });
 });
+
+describe('mascarar com a equipe e o consultório (Plano 15, PM-3, §7.3)', () => {
+  const ana = { nome: 'Ana Souza', email: null, telefone: null };
+
+  it('outrosNomes seguem a regra do nome do paciente; frasesExatas saem inteiras', () =>
+    expect(
+      mascarar('Qualquer dúvida, fale com a Debby ou com a Débora Lima. Consultório Bem Viver.', {
+        ...ana,
+        outrosNomes: ['Debby Silva', 'Débora Lima'],
+        frasesExatas: ['Consultório Bem Viver'],
+      }),
+    ).toBe('Qualquer dúvida, fale com a [removido] ou com a [removido]. [removido].'));
+
+  it('o nome do consultório só sai inteiro (sem acento, maiúsculas e espaços diferentes); parte dele fica', () => {
+    const alvoC = { ...ana, frasesExatas: ['Consultório Bem Viver'] };
+    expect(mascarar('O consultório abre às 8h; quero viver bem.', alvoC)).toBe('O consultório abre às 8h; quero viver bem.');
+    expect(mascarar('Volte ao CONSULTORIO  bem\nviver amanhã.', alvoC)).toBe('Volte ao [removido] amanhã.');
+    expect(mascarar('Consultório Bem Viveres', alvoC)).toBe('Consultório Bem Viveres');
+  });
+
+  it('frase vazia ou só com espaços não apaga nada', () =>
+    expect(mascarar('Ana Souza comeu.', { ...ana, frasesExatas: ['', '   '], outrosNomes: [''] })).toBe('[removido] comeu.'));
+
+  it('sem os campos novos, o resultado não muda', () => {
+    const t = 'A Debby, da Clínica Bem Viver, falou com Ana Souza.';
+    expect(mascarar(t, ana)).toBe(mascarar(t, { ...ana, outrosNomes: [], frasesExatas: [] }));
+    expect(mascarar(t, ana)).toBe('A Debby, da Clínica Bem Viver, falou com [removido].');
+  });
+});
