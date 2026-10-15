@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Queryable } from '@/db/client';
 import { adminActions, iaNutriPausa } from '@/db/schema';
 import { logger } from '@/lib/logger';
@@ -18,19 +18,35 @@ export async function lerPausa(q: Queryable): Promise<PausaIaNutri> {
   return { pausadaEm: l ? l.pausadaEm : new Date(0) };
 }
 
-export async function pausarIaNutri(adminId: string, db: Db = getDb()): Promise<void> {
-  await db.transaction(async (tx) => {
+/**
+ * /code-review do PR #37: idempotentes — pausar a já pausada (ou retomar a já retomada), de uma aba antiga, não reescreve
+ * `pausada_em`/`pausada_por` nem grava outra linha em admin_actions. `true` = mudou.
+ */
+export async function pausarIaNutri(adminId: string, db: Db = getDb()): Promise<boolean> {
+  const mudou = await db.transaction(async (tx) => {
     const agora = new Date();
-    await tx.update(iaNutriPausa).set({ pausadaEm: agora, pausadaPor: adminId, updatedAt: agora }).where(eq(iaNutriPausa.id, true));
-    await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'pausar_ia_nutri', origem: 'admin' });
+    const r = await tx
+      .update(iaNutriPausa)
+      .set({ pausadaEm: agora, pausadaPor: adminId, updatedAt: agora })
+      .where(and(eq(iaNutriPausa.id, true), isNull(iaNutriPausa.pausadaEm)))
+      .returning({ id: iaNutriPausa.id });
+    if (r.length) await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'pausar_ia_nutri', origem: 'admin' });
+    return r.length > 0;
   });
-  logger.info({ adminId }, 'IA Nutri pausada na plataforma pelo admin (emergência)');
+  if (mudou) logger.info({ adminId }, 'IA Nutri pausada na plataforma pelo admin (emergência)');
+  return mudou;
 }
 
-export async function retomarIaNutri(adminId: string, db: Db = getDb()): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx.update(iaNutriPausa).set({ pausadaEm: null, pausadaPor: null, updatedAt: new Date() }).where(eq(iaNutriPausa.id, true));
-    await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'retomar_ia_nutri', origem: 'admin' });
+export async function retomarIaNutri(adminId: string, db: Db = getDb()): Promise<boolean> {
+  const mudou = await db.transaction(async (tx) => {
+    const r = await tx
+      .update(iaNutriPausa)
+      .set({ pausadaEm: null, pausadaPor: null, updatedAt: new Date() })
+      .where(and(eq(iaNutriPausa.id, true), isNotNull(iaNutriPausa.pausadaEm)))
+      .returning({ id: iaNutriPausa.id });
+    if (r.length) await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'retomar_ia_nutri', origem: 'admin' });
+    return r.length > 0;
   });
-  logger.info({ adminId }, 'IA Nutri retomada na plataforma pelo admin (fim da pausa de emergência)');
+  if (mudou) logger.info({ adminId }, 'IA Nutri retomada na plataforma pelo admin (fim da pausa de emergência)');
+  return mudou;
 }

@@ -86,6 +86,21 @@ describe('Plano 15 — pausa de emergência da IA Nutri na plataforma (RN-185)',
     expect(chamadas.map(([dados]) => dados)).toEqual([{ adminId: admin }, { adminId: admin }]);
   });
 
+  it('/code-review do PR #37: idempotente — pausar já pausada (aba antiga) não reescreve pausada_em/pausada_por nem duplica admin_actions; retomar já retomada, o mesmo', async () => {
+    const admin = randomUUID();
+    const outro = randomUUID();
+    expect(await pausarIaNutri(admin, app.db)).toBe(true);
+    const pausada = await linha();
+    expect(await pausarIaNutri(outro, app.db)).toBe(false);
+    expect(await linha()).toMatchObject({ pausadaEm: pausada.pausadaEm, pausadaPor: admin });
+    expect(await acoes(outro)).toEqual([]);
+    expect(await retomarIaNutri(admin, app.db)).toBe(true);
+    expect(await retomarIaNutri(outro, app.db)).toBe(false);
+    expect(await linha()).toMatchObject({ pausadaEm: null, pausadaPor: null });
+    expect(await acoes(outro)).toEqual([]);
+    expect((await acoes(admin)).map((a) => a.acao).sort()).toEqual(['pausar_ia_nutri', 'retomar_ia_nutri']);
+  });
+
   it('dentro de qualquer contexto de tenant o UPDATE da pausa é recusado (42501) e nada muda', async () => {
     for (const ctx of CONTEXTOS) {
       await expect(
