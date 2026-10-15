@@ -26,6 +26,7 @@ import { perguntar } from './conversa';
 import { PROMPT_VERSAO_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
 import { processarPerguntaIaNutri } from './job';
 import { bloquearPaciente, desativarIaNutri } from './participacao';
+import { expirarPerguntasDoTenant } from './varredura';
 
 // Plano 15 (P15-09): o job `ia-paciente` — reserva, contexto, portão do envio, uma chamada, validação, releitura e gravação
 // (spec F3-02 v0.4 §4.2, RN-170, RN-172, RN-174, RN-175, RN-179, RN-180, D4 do Plano 11, DP-8, DP-9, Review Focus 1 e 2)
@@ -288,6 +289,96 @@ describe('processarPerguntaIaNutri (§4.2 do worker)', () => {
     expect(await respostaDaIa(T, mensagemId!)).toEqual([]);
     expect((await uso(T, mensagemId!)).situacao).toBe('incerto');
     expect((await jobsDeRisco(T.tenantId)).length).toBeGreaterThan(0);
+  });
+
+  describe('Revisão da T9: a expiração de 3 min (varredura, app_ia_nutri_perguntar) × a chamada no ar', () => {
+    const RISCO = { categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] };
+    /** A volta da varredura 4 min depois (a pergunta já passou dos 3 min), com a chamada ainda no ar. */
+    const varrerDaqui4Min = (T: TenantDeTeste) => expirarPerguntasDoTenant(app.db, T.tenantId, new Date(Date.now() + 4 * 60_000));
+
+    it('fila atrasada: pergunta com mais de 2 min no portão → nada sai ao provedor, falhou (interrompida), "falha", reserva estornada', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      const daqui = new Date(Date.now() + 2 * 60_000 + 5_000);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { agora: () => daqui }))).toBe('falhou');
+      expect(fake.chamadas.gerar).toHaveLength(0);
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'falhou', motivo_tecnico: 'interrompida', enviado_em: null, saiu_em: null });
+      expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: 'falha', motivo_tecnico: 'interrompida' }]);
+      expect((await uso(T, mensagemId!)).situacao).toBe('estornado');
+      const [{ n }] = await comoWorker(T, sql`select count(*)::int as n from audit_log where entidade = 'ia_nutri' and acao = 'exportar' and entidade_id = ${mensagemId}`);
+      expect(n).toBe(0); // nada de "Pergunta enviada à IA"
+    });
+
+    it('com 1 min 50 s ainda passa pelo portão (o limite é 3 min − 45 s − 15 s de folga)', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      const daqui = new Date(Date.now() + 110_000);
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(fake, { agora: () => daqui }))).toBe('respondida');
+      expect(fake.chamadas.gerar).toHaveLength(1);
+    });
+
+    it('a varredura encerra a pergunta no meio da chamada e o modelo devolve RISCO → na fila (risco modelo), a "falha" vira o texto de transtorno e o aviso sai', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp); // o filtro não pega: só o modelo
+      const fake = provedorFake({ gerar: [finalOk(RISCO)] });
+      let varridas = 0;
+      const prov = comEfeito(fake, async () => {
+        varridas = await varrerDaqui4Min(T);
+      });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('respondida');
+      expect(varridas).toBe(1); // a varredura pegou a pergunta no ar
+      const [q] = await comoWorker(T, sql`select status, motivo_tecnico, risco, encaminhada_em is not null as fila from ia_nutri_mensagens where id = ${mensagemId}`);
+      expect(q).toEqual({ status: 'falhou', motivo_tecnico: 'interrompida', risco: 'modelo', fila: true });
+      // uma resposta só: a de falha trocada pela de transtorno
+      const respostas = await comoWorker(T, sql`select texto, texto_fixo, categoria, motivo_tecnico from ia_nutri_mensagens where responde_a = ${mensagemId}`);
+      expect(respostas).toEqual([{ texto: null, texto_fixo: 'risco_transtorno', categoria: 'risco', motivo_tecnico: null }]);
+      expect((await jobsDeRisco(T.tenantId)).map((j) => j.data)).toEqual([{ tenantId: T.tenantId }]);
+      expect((await uso(T, mensagemId!)).situacao).toBe('incerto'); // a varredura já tinha dado o custo como incerto
+    });
+
+    it('outra execução do job (o pg-boss deu este por expirado) encerra a pergunta como resultado incerto no meio da chamada, com RISCO → o mesmo caminho', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp);
+      const fake = provedorFake({ gerar: [finalOk(RISCO)] });
+      const segunda = provedorFake({ gerar: [] });
+      const prov = comEfeito(fake, () => processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(segunda)));
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('respondida');
+      expect(segunda.chamadas.gerar).toHaveLength(0); // D4 do Plano 11: a segunda não reenviou
+      const [q] = await comoWorker(T, sql`select status, motivo_tecnico, risco, encaminhada_em is not null as fila from ia_nutri_mensagens where id = ${mensagemId}`);
+      expect(q).toEqual({ status: 'falhou', motivo_tecnico: 'resultado_incerto', risco: 'modelo', fila: true });
+      expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: 'risco_transtorno', motivo_tecnico: null }]);
+      expect((await jobsDeRisco(T.tenantId)).length).toBeGreaterThan(0);
+    });
+
+    it('a varredura no meio da chamada, SEM risco → segue a falha da varredura (uma mensagem "falha"), nada da resposta do modelo', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, BANANA, depsApp);
+      const fake = provedorFake({ gerar: [finalOk(SUBSTITUICAO)] });
+      const prov = comEfeito(fake, () => varrerDaqui4Min(T));
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('falhou');
+      expect(await pergunta(T, mensagemId!)).toMatchObject({ status: 'falhou', motivo_tecnico: 'interrompida', risco: null });
+      expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: 'falha', motivo_tecnico: 'interrompida' }]);
+      expect((await uso(T, mensagemId!)).situacao).toBe('incerto');
+      expect(await jobsDeRisco(T.tenantId)).toEqual([]);
+    });
+
+    it('a varredura e depois a REVOGAÇÃO no meio da chamada, com risco → só o aviso mínimo na fila (D22 b), sem texto', async () => {
+      const { T, ctxP } = await pronto();
+      const { mensagemId } = await perguntar(ctxP, 'ando comendo bem pouco de propósito', depsApp);
+      const fake = provedorFake({ gerar: [finalOk(RISCO)] });
+      const prov = comEfeito(fake, async () => {
+        await varrerDaqui4Min(T);
+        await desativarNoApp(ctxP, depsApp);
+      });
+      expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDe(prov))).toBe('falhou');
+      const [q] = await comoWorker(T, sql`select status, texto, risco, revogada_em is not null as rev, encaminhada_em is not null as fila, resolvida_em from ia_nutri_mensagens where id = ${mensagemId}`);
+      expect(q).toEqual({ status: 'falhou', texto: null, risco: 'modelo', rev: true, fila: true, resolvida_em: null });
+      // a mensagem `ia` de falha da varredura virou esqueleto na revogação, e nada volta para ela
+      expect(await respostaDaIa(T, mensagemId!)).toEqual([{ texto: null, texto_fixo: null, motivo_tecnico: null }]);
+      expect((await jobsDeRisco(T.tenantId)).length).toBeGreaterThan(0);
+    });
   });
 
   it('máscara no que sai: nem o nome do paciente, nem o CPF da pergunta, nem o nome da nutricionista', async () => {

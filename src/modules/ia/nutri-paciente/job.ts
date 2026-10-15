@@ -14,7 +14,7 @@ import { RepetirIaError } from '../leitura-job';
 import type { ConfigIA, ModoIA, RetencaoIA } from '../modo';
 import { custoMaximoMicroUsd, custoMicroUsd, MAX_TOKENS_CONVERSA, TOKENS_ENTRADA_TETO_CONVERSA, TOKENS_INSTRUCOES_TETO, tokensDeBytes } from '../precos';
 import { ErroProvedor, type ProvedorIA, type RespostaGeracao } from '../provedor';
-import { LIMITE_RISCO_NA_FILA_DIA, PRAZO_CONVERSA_MS, RETENCAO_DIAS, type CategoriaConversa, type MotivoTecnico } from './constantes';
+import { LIMITE_RISCO_NA_FILA_DIA, PERGUNTA_PRESA_MS, PRAZO_CONVERSA_MS, RETENCAO_DIAS, type CategoriaConversa, type MotivoTecnico } from './constantes';
 import { montarContexto, relerTrechos, type ContextoDaConversa } from './contexto';
 import { consentimentoVigente, estadoIaNutriDoTenant, liberadoNaTransacao, ultimoEvento } from './estado';
 import { ESFORCO_CONVERSA, PROMPT_VERSAO_CONVERSA, SCHEMA_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
@@ -57,6 +57,13 @@ const daPergunta = (perguntaId: string) => ({
 });
 /** RN-180 / DP-9: no máximo 3 perguntas em andamento por consultório. */
 const MAX_EM_ANDAMENTO_POR_TENANT = 3;
+/**
+ * Revisão da T9: a pergunta mais velha que isto não passa pelo portão. A varredura (e `app_ia_nutri_perguntar`) a encerra
+ * aos 3 min (PERGUNTA_PRESA_MS) sem olhar se a chamada está no ar; o que sai do portão até aqui volta (45 s, com folga para
+ * a releitura e o passo 6) antes disso — nada é pago para ser descartado. Fila atrasada → `falhou`/`interrompida`, estorno.
+ */
+const FOLGA_DO_PORTAO_MS = 15_000;
+const IDADE_MAXIMA_NO_PORTAO_MS = PERGUNTA_PRESA_MS - PRAZO_CONVERSA_MS - FOLGA_DO_PORTAO_MS; // 2 min
 
 /** O `ConfigIA` que o estado do consultório precisa, a partir das dependências do job. */
 const configDoJob = (deps: DepsJobIaPaciente): Pick<ConfigIA, 'modo' | 'destino' | 'retencao' | 'nutriDesligada'> => ({
@@ -189,12 +196,13 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
   // (3) PORTÃO DO ENVIO: paciente FOR SHARE → tenant FOR SHARE → mensagem FOR UPDATE → ia_uso → plataforma
   const portao = await withTenant(
     ctx,
-    async (tx): Promise<'ok' | 'cancelada' | 'limite_custo' | 'ignorada'> => {
+    async (tx): Promise<'ok' | 'cancelada' | 'limite_custo' | 'velha' | 'ignorada'> => {
       await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, pacienteId)).for('share');
       await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, d.tenantId)).for('share');
       const [m] = await tx.select().from(iaNutriMensagens).where(eq(iaNutriMensagens.id, d.mensagemId)).for('update');
       if (!m || m.status !== 'processando' || m.enviadoEm) return 'ignorada';
       if (!(await conferir(tx, m.createdAt))) return 'cancelada';
+      if (m.createdAt.getTime() <= agora().getTime() - IDADE_MAXIMA_NO_PORTAO_MS) return 'velha'; // a varredura a encerraria no ar
       if (m.destino && m.destino !== deps.destino) return 'cancelada'; // RN-109: o que já saiu para um destino não sai para outro
       // DP-8: os bytes do corpo exato que sai (c.corpo) mais as instruções — nada sai além do que foi medido
       const teto = custoMaximoMicroUsd(modelo, deps.geo, tokensDeBytes(c.bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_CONVERSA);
@@ -212,6 +220,7 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
   if (portao === 'ignorada') return 'ignorada';
   if (portao === 'cancelada') return encerrar({ status: 'cancelada', textoFixo: null, motivo: 'indisponivel', reserva: 'estornar' });
   if (portao === 'limite_custo') return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: 'limite_custo', reserva: 'estornar' });
+  if (portao === 'velha') return encerrar({ status: 'falhou', textoFixo: 'falha', motivo: 'interrompida', reserva: 'estornar' });
 
   // (4) uma chamada, sem ferramentas, 45 s
   const inicio = Date.now();
@@ -288,8 +297,14 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       // revogação já esvaziou a pergunta (`cancelada`, `revogada_em`, sem texto): só o aviso mínimo da D22 b ("Aviso: houve
       // sinal de risco" — risco `modelo`, sem texto, na fila, até o prazo da D8, como a retenção faz depois dos 30 dias), sem
       // mensagem `ia` e sem trazer de volta nada do que o paciente mandou apagar.
-      const riscoNoMeio = !valido && res.risco && m.status === 'processando';
-      const riscoRevogado = !valido && res.risco && m.status === 'cancelada' && m.revogadaEm !== null && m.texto === null;
+      // (c) Revisão da T9: a pergunta foi encerrada POR FORA com a chamada no ar — a varredura de 3 min ou
+      // `app_ia_nutri_perguntar` (`falhou`/`interrompida`, texto fixo `falha`) ou outra execução deste job depois de o pg-boss
+      // dar o job por expirado (`resultado_incerto`) — e não houve revogação: o risco segue como em (a), a pergunta continua
+      // `falhou` (é o que aconteceu com ela) e a mensagem `ia` de falha vira o texto fixo de transtorno (uma resposta só).
+      // Revogada depois disso (`falhou`, `revogada_em`, sem texto): o aviso mínimo de (b).
+      const encerradaPorFora = m.status === 'falhou' && m.revogadaEm === null && (m.motivoTecnico === 'interrompida' || m.motivoTecnico === 'resultado_incerto');
+      const riscoNoMeio = !valido && res.risco && (m.status === 'processando' || encerradaPorFora);
+      const riscoRevogado = !valido && res.risco && (m.status === 'cancelada' || m.status === 'falhou') && m.revogadaEm !== null && m.texto === null;
       if (!valido && !riscoNoMeio && !riscoRevogado) {
         if (m.status === 'processando') {
           await tx.update(iaNutriMensagens).set({ status: 'cancelada', motivoTecnico: 'indisponivel', updatedAt: agora() }).where(eq(iaNutriMensagens.id, m.id));
@@ -335,15 +350,24 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
       await tx
         .update(iaNutriMensagens)
         .set({
-          status: 'respondida',
+          ...(encerradaPorFora ? {} : { status: 'respondida' as const }),
           ...(res.risco ? { risco: 'modelo', encaminhadaEm: encaminhar ? sql`coalesce(${iaNutriMensagens.encaminhadaEm}, now())` : sql`${iaNutriMensagens.encaminhadaEm}` } : {}),
           updatedAt: agora(),
         })
         .where(eq(iaNutriMensagens.id, m.id));
-      await tx.insert(iaNutriMensagens).values({
-        tenantId: d.tenantId, patientId: pacienteId, ...daPergunta(m.id), autor: 'ia', texto: res.texto, textoFixo: res.textoFixo, categoria: res.categoria,
-        tipoResposta: res.tipo, fontes: res.fontes, motivoTecnico: res.motivo, respondeA: m.id, modelo, promptVersao: PROMPT_VERSAO_CONVERSA,
-      });
+      const resposta = { texto: res.texto, textoFixo: res.textoFixo, categoria: res.categoria, tipoResposta: res.tipo, fontes: res.fontes, motivoTecnico: res.motivo };
+      const trocadas = encerradaPorFora
+        ? await tx
+            .update(iaNutriMensagens)
+            .set({ ...resposta, updatedAt: agora() })
+            .where(and(eq(iaNutriMensagens.respondeA, m.id), eq(iaNutriMensagens.autor, 'ia')))
+            .returning({ id: iaNutriMensagens.id })
+        : [];
+      if (!trocadas.length) {
+        await tx.insert(iaNutriMensagens).values({
+          tenantId: d.tenantId, patientId: pacienteId, ...daPergunta(m.id), autor: 'ia', ...resposta, respondeA: m.id, modelo, promptVersao: PROMPT_VERSAO_CONVERSA,
+        });
+      }
       await acertar(tx, { tarefaId: m.id, custoMicroUsd: custo, uso: r.uso, recusaCategoria: r.tipo === 'recusa' ? r.categoria : null, requestId: r.requestId, agora: agora() });
       await enviarAvisoDeRisco();
       return 'respondida';
