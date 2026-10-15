@@ -863,8 +863,8 @@ flowchart TB
 Fontes de cada ramo: motivos do health (`src/worker/heartbeat.ts:14-25`, `src/app/api/health/route.ts:21-27`); CSP de
 emergência (runbook do Plano 08, passo 6); journal do backup (Plano 02, Tarefa 14, passo 8); correlação pelo
 `request_id` (D2); restauração perdida reaplica exclusões LGPD e registra no relatório de incidente
-(`docs/operacao/restauracao.md:47-48`); o DPA provisório prevê comunicar incidentes à controladora "sem demora
-injustificada" (Plano 02, texto do DPA, linha 3121). O plano formal de resposta a incidente (ANPD e titulares) foi
+(`docs/operacao/restauracao.md:47-48`); o DPA 1.0 (cláusula 11) prevê avisar a controladora em até 24 horas depois de saber do
+incidente (`DPA_PARAGRAFOS`, `dpa.ts`). O plano formal de resposta a incidente (ANPD e titulares) foi
 pedido ao advogado (runbook do Plano 08, passo 2, item k) e ainda não existe no repositório.
 
 Comandos de leitura usados nos runbooks: `docker service ls --filter name=nutri_`,

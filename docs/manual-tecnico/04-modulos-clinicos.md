@@ -70,7 +70,7 @@ Regras e constantes:
 - CRN: `/^CRN-?\d{1,2}\s?\d{3,6}$/i`, gravado em maiúsculas (`contas.ts:14,29`).
 - Slug: `^[a-z0-9-]{3,40}$` (`contas.ts:35`).
 - Ordem de travas usuário → convite em `aceitarConvite` e `reenviarConvite` (T6-R1) para evitar deadlock 40P01 (`convites.ts:62-65`).
-- DPA: `DPA_VERSAO = '0.1-provisorio'` (`dpa.ts:6`). Mudar a versão obriga novo aceite (`requireNutri`).
+- DPA: `DPA_VERSAO = '1.0'` (`dpa.ts:13`, desde 15/10/2026; a 0.1 provisória fica em `DPA_TEXTOS`). Mudar a versão obriga novo aceite (`requireNutri`).
 - RN-15 (tenant suspenso): sessões revogadas na hora; o worker consulta `tenantIsActive` antes de gerar exportação e PDF (`exportacao-job.ts`, `plano-pdf-job.ts:38`).
 
 Decisão (Plano 02, "Suspensão"): status + revogação das sessões + bloqueio no login + checagem por requisição, em vez de só um status lido no login.
@@ -798,4 +798,4 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 Plano × código:
 
 9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:153`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
-10. **DPA e termo do paciente.** Plano 08, D14 previa `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` com o texto do advogado. O código continua com `'0.1-provisorio'` (`dpa.ts:6`, `termo-paciente.ts:5`). A spec v1.11 (Apêndice C) registra que a Tarefa 8 ficou fora, bloqueada no E-09: pendência conhecida, não erro.
+10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:13`, `termo-paciente.ts:7`), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
