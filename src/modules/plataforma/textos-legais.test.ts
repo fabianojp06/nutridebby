@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   TERMO_PACIENTE,
@@ -36,6 +37,12 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
     expect(texto).not.toMatch(/sentry|R2\b/i);
   });
 
+  it('não afirma o país do servidor nem o da cópia de segurança (região a confirmar): diz que podem ficar em outro país', () => {
+    const texto = TERMO_PACIENTE_PARAGRAFOS.join(' ');
+    expect(texto).toContain('O servidor e a cópia de segurança podem ficar em outro país.');
+    expect(texto).not.toMatch(/servidor[^.]*(no Brasil|em São Paulo|na Europa|nos Estados Unidos)/i);
+  });
+
   it('o mapa guarda a 0.1 provisória (o que quem aceitou leu) e a 1.0 em vigor é a mostrada', () => {
     expect(Object.keys(TERMO_PACIENTE_TEXTOS).sort()).toEqual(['0.1-provisorio', '1.0']);
     expect(TERMO_PACIENTE_TEXTOS[TERMO_PACIENTE_VERSAO]).toEqual({ data: '2026-10-15', paragrafos: TERMO_PACIENTE_PARAGRAFOS });
@@ -67,6 +74,10 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     for (const s of ['Hostinger', 'Resend', 'Cloudflare', 'Backblaze', 'Google, Apple, Mozilla e Microsoft', 'YouTube', 'Vimeo', 'aditivo de IA']) expect(c8).toContain(s);
     const texto = DPA_PARAGRAFOS.join(' ');
     expect(texto).not.toMatch(/sentry|R2\b|Anthropic/i);
+    // região do servidor e do B2 a confirmar: o texto não afirma o país, diz que podem ficar fora do Brasil
+    expect(c8).toContain('Hostinger (servidor, banco de dados e arquivos; o servidor pode ficar fora do Brasil)');
+    expect(c8).toContain('a cópia pode ficar fora do Brasil');
+    expect(DPA_PARAGRAFOS[9]).toContain('o país onde cada suboperador trata os dados');
   });
 
   it('o mapa guarda a 0.1 provisória e a 1.0 em vigor é a mostrada', () => {
@@ -76,5 +87,20 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     expect(antiga.data).toBe('2026-09-28');
     expect(antiga.paragrafos.at(-1)).toBe('Versão provisória 0.1, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.');
     expect(antiga.paragrafos).toHaveLength(8);
+  });
+});
+
+describe('telas de aceite mostram o texto inteiro (P08-06)', () => {
+  // O termo 1.0 e o DPA 1.0 têm 16 parágrafos: numa caixa de altura fixa com rolagem própria, no celular, não dá para ler
+  // o que se aceita (como em /p/termo, o texto fica na página).
+  it.each([
+    ['src/app/n/[slug]/agendar-form.tsx', 'termo-titulo'],
+    ['src/app/convite/paciente/[token]/page.tsx', 'termo-titulo'],
+    ['src/app/convite/[token]/page.tsx', 'dpa-titulo'],
+    ['src/app/painel/dpa/page.tsx', 'aria-label={DPA_TITULO}'],
+  ])('%s sem max-h nem overflow na caixa do texto', (arquivo, marca) => {
+    const linha = readFileSync(arquivo, 'utf8').split('\n').find((l) => l.includes('<section') && l.includes(marca));
+    expect(linha).toBeDefined();
+    expect(linha).not.toMatch(/max-h-|overflow-y-auto|tabIndex/);
   });
 });

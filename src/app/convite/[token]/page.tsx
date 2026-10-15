@@ -24,7 +24,7 @@ export default async function ConvitePage({ params }: PageProps<'/convite/[token
     <main className="mx-auto max-w-lg space-y-4 p-6">
       <h1 className="text-2xl font-semibold">Bem-vinda ao NutriDebby</h1>
       <p>{`Defina a senha de ${estado.email} e aceite o contrato para entrar.`}</p>
-      <section aria-labelledby="dpa-titulo" tabIndex={0} className="max-h-64 space-y-2 overflow-y-auto rounded border p-3 text-sm">
+      <section aria-labelledby="dpa-titulo" className="space-y-2 rounded border p-3 text-sm">
         <h2 id="dpa-titulo" className="font-semibold">{DPA_TITULO}</h2>
         {DPA_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}
       </section>

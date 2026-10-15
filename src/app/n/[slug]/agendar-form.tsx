@@ -193,7 +193,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
           <label htmlFor="maiorDeIdade">Tenho 18 anos ou mais</label>
         </div>
         {msg('maiorDeIdade')}
-        <section aria-labelledby="termo-titulo" tabIndex={0} className="max-h-48 space-y-2 overflow-y-auto rounded border p-3 text-sm">
+        <section aria-labelledby="termo-titulo" className="space-y-2 rounded border p-3 text-sm">
           <h3 id="termo-titulo" className="font-semibold">{termo.titulo}</h3>
           {termo.paragrafos.map((p) => (
             <p key={p}>{p}</p>

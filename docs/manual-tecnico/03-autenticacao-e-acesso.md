@@ -543,7 +543,7 @@ Tabela `consents` (`src/db/schema/access.ts`). É prova de aceite: sem `ON DELET
 | `tenant_id` em `consents` | nulo | o consultório do vínculo |
 | Marca extra | `tenants.dpa_aceito_em` e `tenants.dpa_versao` | — |
 | Onde é exigido | `requireNutri` compara `tenant.dpaVersao` com `DPA_VERSAO` | `requirePaciente` chama `termoAceito(userId, tenantId)` (`src/modules/portal/termo.ts:10`) |
-| Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
+| Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`); com uma versão anterior aceita (`tenant.dpaVersao` preenchido e diferente de `DPA_VERSAO`), mostra acima do texto o aviso `DPA_MUDOU` (`role="status"`): "O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel." (texto livre: a spec não tem um para este caso) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
 | Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:204`) |
 | IP | gravado (`clientIp`) | gravado |
 
@@ -564,7 +564,7 @@ de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual"
 laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:24`)
 (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 
-**Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados.
+**Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados, e que as telas de aceite (`/n/[slug]`, `/convite/paciente/[token]`, `/convite/[token]` e `/painel/dpa`) mostram o texto inteiro na página, sem caixa de altura fixa com rolagem própria (como `/p/termo`). A 1.0 não afirma o país do servidor (Hostinger) nem o da cópia de segurança (Backblaze B2): diz que "podem ficar em outro país" (termo) e "pode ficar fora do Brasil" (DPA, cláusula 8), porque a região dos dois ainda não foi confirmada pelo dono; confirmada, a precisão do texto pede versão nova.
 
 ---
 
