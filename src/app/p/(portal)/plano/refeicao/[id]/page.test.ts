@@ -36,6 +36,9 @@ vi.mock('@/modules/portal/plano', async (orig) => ({
     ],
   }),
 }));
+const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
+vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'sandbox', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 }) }));
+vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
 const { default: Refeicao } = await import('./page');
 const pagina = (id: string) => Refeicao({ params: Promise.resolve({ id }) } as never);
 
@@ -53,6 +56,15 @@ describe('/p/plano/refeicao/[id] (US-193, RN-213)', () => {
     expect(html).toContain(`href="/p/diario?refeicao=${ID}&amp;resposta=outra_coisa#registrar"`);
     expect(html).toMatch(/<button[^>]*>Comi assim<\/button>/);
     expect(html).toContain('aria-label="Voltar para Plano"');
+  });
+  it('Plano 15 (§7.8): "Perguntar sobre esta refeição" com ?sobre=<id> só com a entrada da IA Nutri', async () => {
+    expect(renderToStaticMarkup(await pagina(ID))).not.toContain('Perguntar sobre esta refeição');
+    ia.entrada = 'conversa';
+    try {
+      expect(renderToStaticMarkup(await pagina(ID))).toMatch(new RegExp(`<a[^>]*href="/p/plano/ia\\?sobre=${ID}"[^>]*>Perguntar sobre esta refeição</a>`));
+    } finally {
+      ia.entrada = 'nenhuma';
+    }
   });
   it('refeição que não é do plano publicado do paciente → 404 (RN-213)', async () => {
     await expect(pagina('1b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f')).rejects.toThrow('notFound');

@@ -1,4 +1,5 @@
 import { inicioDoDia, paraInstante, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
+import { NOME_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { nomeDoEnvio } from '@/modules/pacientes/exames-enviados-constantes';
 import { horaComFuso, quandoRelativo, quandoRelativoComFuso, separadorDoDia } from './datas-portal';
@@ -18,8 +19,10 @@ export const MAX_CONTEUDOS_NO_MURAL = 3; // RN-199
 export const LIMITE_DIARIO_NO_MURAL = 100;
 
 export const MSG_MURAL = {
-  // correção da revisão do plano (normas, LGPD art. 6º, VI): o diário É visto por ela — o rodapé não pode dizer o contrário
-  rodape: 'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. Este app não é um canal de conversa e não tem prazo de resposta. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
+  // correção da revisão do plano (normas, LGPD art. 6º, VI): o diário É visto por ela — o rodapé não pode dizer o contrário.
+  // Plano 15 (D34, §7.8; emenda à spec G, C-191/C-192/C-197, RN-193/RN-194/RN-209): continua verdadeiro com a IA Nutri — o
+  // mural não é conversa com a nutricionista; a IA Nutri é um programa (nome pela constante, D28)
+  rodape: `Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. O mural não é uma conversa com a sua nutricionista e não tem prazo de resposta. A ${NOME_IA_NUTRI}, quando liberada, é um programa e responde só sobre o seu plano. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.`,
   vazio: 'Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.',
   /** Plano publicado e nada no mural (antes dos 90 min da 1ª refeição, ou refeições sem horário): nunca dizer que ela não publicou. */
   nadaAgora: 'Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma.',

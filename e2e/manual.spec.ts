@@ -178,7 +178,7 @@ test('o manual completo funciona sem JavaScript', async ({ browser }) => {
   await p.goto('/painel/ajuda');
   await expect(p.getByRole('heading', { name: 'Manual do NutriDebby', level: 1 })).toBeVisible();
   for (const t of ['Início', 'Pacientes', 'Prontuário', 'Plano alimentar', 'Agenda', 'Conteúdos', 'WhatsApp']) {
-    await expect(p.getByRole('heading', { name: t, level: 2 })).toBeVisible();
+    await expect(p.getByRole('heading', { name: t, level: 2, exact: true })).toBeVisible();
   }
   await semJs.close();
 });

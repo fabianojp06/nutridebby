@@ -60,6 +60,13 @@ describe('exclusao_atendida (US-018)', () => {
     // Plano 06: o que o atendimento apaga e encerra também está no aviso ao titular
     for (const t of ['as fotos do diário alimentar', 'os exames enviados pelo app que ainda não tinham sido aceitos', 'as notificações no aparelho', 'Suas consultas futuras foram canceladas', 'não tem mais acesso ao portal deste acompanhamento'])
       expect(r.text).toContain(t);
+    // Plano 15 (D22; LGPD art. 18, § 4º, II — revisão da T10): as conversas com a IA Nutri saem, e a razão de a mensagem
+    // com sinal de risco ainda não lida ficar guardada, com o prazo
+    expect(r.text).toContain('os convites de acesso e as conversas com a IA Nutri.');
+    expect(r.text).toContain(
+      'Se houver uma mensagem com sinal de risco enviada à IA Nutri que sua nutricionista ainda não leu, ela fica guardada até ser lida, por no máximo 30 dias, para a sua proteção. Depois disso, o texto é apagado e fica só o registro de que houve o aviso, até 180 dias da mensagem.',
+    );
+    expect(r.html).toContain('por no máximo 30 dias, para a sua proteção');
   });
 });
 
@@ -224,11 +231,45 @@ describe('Plano 11 — e-mails da IA', () => {
     expect(r.text).toContain('https://x.dev/painel/configuracoes');
     expect(r.text).not.toMatch(/US\$/);
   });
+  it('cota_ia_nutri (Plano 15, US-176): 80% da IA Nutri, à equipe; sem nome de paciente, conversa nem valores em US$', () => {
+    const r = renderEmail({ tipo: 'cota_ia_nutri', para: 'd@x.dev', link: 'https://x.dev/painel/configuracoes' });
+    expect(r.subject).toBe('Os pacientes já usaram 80% do limite da IA Nutri deste mês');
+    expect(r.text).toBe(
+      [
+        'Os pacientes já usaram 80% do limite da IA Nutri deste mês.',
+        'Quando chegar a 100%, a IA Nutri fica indisponível para os pacientes até o dia 1º ou até o suporte ampliar o limite. A leitura de laudos e as outras funções de IA não mudam.',
+        'Ver o uso da IA: https://x.dev/painel/configuracoes',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/painel/configuracoes"');
+    expect(r.html).toContain('Os pacientes já usaram 80% do limite da IA Nutri deste mês.');
+    expect(`${r.subject}${r.text}${r.html}`).not.toMatch(/US\$|paciente:|pergunt/i);
+  });
+  it('risco_ia_nutri (Plano 15, D10, RNF-166): o texto da spec, genérico — sem paciente, conversa, categoria nem "risco"', () => {
+    const r = renderEmail({ tipo: 'risco_ia_nutri', para: 'd@x.dev', link: 'https://x.dev/painel/duvidas' });
+    expect(r.subject).toBe('Há uma mensagem de paciente que precisa da sua atenção.');
+    expect(r.text).toBe(
+      [
+        'Há uma mensagem de paciente que precisa da sua atenção.',
+        'Abra as dúvidas dos pacientes no NutriDebby.',
+        'Abrir as dúvidas dos pacientes: https://x.dev/painel/duvidas',
+      ].join('\n\n'),
+    );
+    expect(r.html).toContain('href="https://x.dev/painel/duvidas"');
+    expect(`${r.subject}${r.text}${r.html}`).not.toMatch(/risco|emerg|transtorno|sintoma|pergunt|paciente:/i);
+  });
   it('alerta_ia: credencial cita só o NOME da variável; teto não cita valores', () => {
     const c = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'credencial', painelUrl: 'https://x.dev/admin' });
     expect(c.text).toContain('ANTHROPIC_API_KEY');
     expect(c.text).not.toMatch(/sk-ant-/);
     expect(renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'teto', painelUrl: 'https://x.dev/admin' }).text).toContain('teto mensal');
+  });
+  it('Plano 15 (D22, RN-182): alerta_ia risco_ia_nutri — só o aviso, sem consultório, paciente, contagem nem texto (desvio 5)', () => {
+    const r = renderEmail({ tipo: 'alerta_ia', para: 'a@x.dev', motivo: 'risco_ia_nutri', painelUrl: 'https://x.dev/admin' });
+    expect(r.subject).toBe('IA do NutriDebby: atenção');
+    expect(r.text).toContain('Há mensagens com sinal de risco na IA Nutri que nenhuma nutricionista abriu há mais de 72 horas. Avise os consultórios pelo canal de suporte.');
+    expect(r.html).toContain('href="https://x.dev/admin"');
+    expect(r.text).not.toMatch(/laudo|teto|ANTHROPIC|\d+ mensage/);
   });
 });
 

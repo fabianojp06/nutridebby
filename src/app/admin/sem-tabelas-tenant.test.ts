@@ -11,6 +11,7 @@ const ARQUIVOS_DO_ADMIN = [
     .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
     .map((d) => path.join(d.parentPath, d.name)),
   path.resolve('src/modules/plataforma/contas.ts'),
+  path.resolve('src/modules/plataforma/ia-nutri-pausa.ts'),
   path.resolve('src/modules/plataforma/metricas.ts'),
   path.resolve('src/modules/plataforma/monitoramento.ts'),
   path.resolve('src/modules/plataforma/reiniciar-2fa.ts'),

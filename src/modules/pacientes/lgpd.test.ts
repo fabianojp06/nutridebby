@@ -10,11 +10,12 @@ import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { tarefaNoBanco } from '../../../test/ia';
+import { iaNutriPronta, liberarNoBanco, mensagemNoBanco } from '../../../test/ia-nutri';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { reservar } from '@/modules/ia/cota';
@@ -23,6 +24,7 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { registrarVerificacao, consultarVerificacao } from '@/modules/documentos/verificacao';
 import { anonimizarDocumentosDoPaciente } from '@/modules/documentos/lgpd-documentos';
+import { apagarIaNutriDoTitular } from '@/modules/ia/nutri-paciente/lgpd';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
@@ -45,6 +47,11 @@ vi.mock('@/modules/plataforma/armazenamento', async (importOriginal) => {
 vi.mock('@/modules/documentos/lgpd-documentos', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/documentos/lgpd-documentos')>();
   return { ...real, anonimizarDocumentosDoPaciente: vi.fn(real.anonimizarDocumentosDoPaciente) };
+});
+// Plano 15 (P15-10): a falha simulada da etapa da IA Nutri no job exclusao-atendida
+vi.mock('@/modules/ia/nutri-paciente/lgpd', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/ia/nutri-paciente/lgpd')>();
+  return { ...real, apagarIaNutriDoTitular: vi.fn(real.apagarIaNutriDoTitular) };
 });
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -718,6 +725,80 @@ describe('Plano 14A — a autorização de IA na LGPD (US-113, RNF-111 g)', () =
     for (const l of linhas) expect(l, l.canal).toMatchObject({ ip: null, userAgent: null, emailHmac: null, arquivoPath: null });
     expect(linhas.find((l) => l.canal === 'app')?.registradoPor).toBeNull();
     expect(linhas.find((l) => l.canal === 'papel')?.registradoPor).toBe(T.nutriId);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm).not.toBeNull();
+  });
+});
+
+describe('Plano 15 — a IA Nutri na LGPD (§7.6, §13.3, D22)', () => {
+  /** Paciente com conta, liberado, com o consentimento (IP e user-agent) e uma conversa: pergunta e resposta, e uma pergunta com risco não aberta. */
+  async function comIaNutri(T: TenantDeTeste) {
+    await iaNutriPronta(app.db, T.tenantId);
+    const { paciente: p, userId, email } = await pacienteComConta(app.db, T);
+    await liberarNoBanco(app.db, T.ctx, p.id);
+    await withTenant(ctxPaciente(T.tenantId, p.id, userId), (tx) => tx.insert(iaNutriConsentimentos).values({ tenantId: T.tenantId, patientId: p.id, evento: 'aceite', versao: '1.0', destino: 'teste', canal: 'app', registradoPor: userId, ip: '203.0.113.7', userAgent: 'Mozilla/5.0' }), app.db);
+    const pergunta = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', texto: 'a' });
+    await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, texto: 'b', respondeA: pergunta, contouNoLimite: false });
+    const risco = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', texto: 'a', risco: 'emergencia', encaminhadaEm: new Date(), contouNoLimite: false });
+    await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'sistema', status: null, texto: null, textoFixo: 'risco_emergencia', respondeA: risco, contouNoLimite: false });
+    return { p, email, risco };
+  }
+  const daIaNutri = async (T: TenantDeTeste, patientId: string) =>
+    (
+      await withTenant(
+        { tenantId: T.tenantId, role: 'worker' },
+        (tx) =>
+          tx.execute(sql`select (select count(*) from ia_nutri_participacoes where patient_id = ${patientId})::int as participacoes,
+            (select coalesce(array_agg(id), '{}') from ia_nutri_mensagens where patient_id = ${patientId}) as mensagens`),
+        app.db,
+      )
+    ).rows[0] as { participacoes: number; mensagens: string[] };
+
+  it('exclusão atendida: as conversas e a participação saem ANTES do aviso, menos a pergunta com risco não aberta; falha → nova tentativa sem aviso', async () => {
+    const T = await novoTenant(app.db);
+    const { p, email, risco } = await comIaNutri(T);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, { db: app.db });
+    const [job] = await jobsDaExclusao(p.id);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      vi.mocked(apagarIaNutriDoTitular).mockRejectedValueOnce(new Error('falha simulada'));
+      await expect(concluirExclusaoAtendida(job, { db: app.db, dataDir, ultimaTentativa: false })).rejects.toThrow('falha ao apagar as conversas da IA Nutri');
+      expect(erro).toHaveBeenCalledWith(expect.objectContaining({ tenantId: T.tenantId, definitivo: false }), expect.stringContaining('IA Nutri'));
+    } finally {
+      erro.mockRestore();
+    }
+    expect(await emailsNaFila('exclusao_atendida', email)).toEqual([]);
+    expect((await daIaNutri(T, p.id)).mensagens).toHaveLength(4);
+
+    expect(await concluirExclusaoAtendida(job, { db: app.db, dataDir, ultimaTentativa: false })).toBe('avisado');
+    expect(await daIaNutri(T, p.id)).toEqual({ participacoes: 0, mensagens: [risco] });
+    expect(await emailsNaFila('exclusao_atendida', email)).toHaveLength(1);
+    // o consentimento fica (prova) até a anonimização
+    expect(await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.select().from(iaNutriConsentimentos).where(eq(iaNutriConsentimentos.patientId, p.id)), app.db)).toHaveLength(1);
+  });
+
+  it('exclusão atendida: na última tentativa com a IA Nutri falhando, o aviso sai assim mesmo', async () => {
+    const T = await novoTenant(app.db);
+    const { p, email } = await comIaNutri(T);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, { db: app.db });
+    const [job] = await jobsDaExclusao(p.id);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      vi.mocked(apagarIaNutriDoTitular).mockRejectedValueOnce(new Error('falha simulada'));
+      expect(await concluirExclusaoAtendida(job, { db: app.db, dataDir, ultimaTentativa: true })).toBe('avisado');
+    } finally {
+      erro.mockRestore();
+    }
+    expect(await emailsNaFila('exclusao_atendida', email)).toHaveLength(1);
+  });
+
+  it('anonimização: o consentimento fica sem IP, user-agent e conta; mensagens (também a com risco que sobrou) e participação apagadas', async () => {
+    const T = await novoTenant(app.db);
+    const { p } = await comIaNutri(T);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
+    expect((await anonimizarSo(T)).anonimizados).toBe(1);
+    expect(await daIaNutri(T, p.id)).toEqual({ participacoes: 0, mensagens: [] });
+    const consentimentos = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.select().from(iaNutriConsentimentos).where(eq(iaNutriConsentimentos.patientId, p.id)), app.db);
+    expect(consentimentos).toEqual([expect.objectContaining({ evento: 'aceite', versao: '1.0', destino: 'teste', ip: null, userAgent: null, registradoPor: null })]);
     expect((await ler(T.ctx, p.id)).anonimizadoEm).not.toBeNull();
   });
 });

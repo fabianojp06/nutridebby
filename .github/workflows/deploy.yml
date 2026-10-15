@@ -116,7 +116,7 @@ jobs:
       # Poda logo após o push e antes dos webhooks: se o deploy falhar (ex.: segredos
       # ainda não cadastrados), a poda já rodou. Mantém a imagem recém-publicada e a
       # anterior (a que está rodando), então nunca remove a imagem em uso.
-      - name: Manter só as 2 versões mais recentes da imagem no GHCR (custo zero — 500 MB grátis)
+      - name: Manter só as 2 versões mais recentes da imagem no GHCR (custo zero — 2 GB de pacotes no GitHub Pro)
         uses: actions/delete-package-versions@v5
         with:
           package-name: nutridebby

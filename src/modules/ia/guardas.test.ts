@@ -25,9 +25,9 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
   });
 
   for (const arquivo of ['src/modules/ia/provedor-anthropic.ts', 'src/modules/ia/provedor-bedrock.ts']) {
-    it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
+    it(`RNF-105 (${arquivo}): ferramentas só strict e auto; sem streaming, thinking, cache_control (D35), fallbacks, betas, Batch, Files, código, MCP, URL nem citações`, () => {
       const codigo = readFileSync(arquivo, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
+      for (const proibido of [/\bbatches\b/, /\bfiles\b/, /code_execution/, /mcp_servers/, /\bfallbacks\b/, /\bspeed\b/, /\bbetas?\b/, /\bbeta\./, /citations/, /type:\s*'url'/, /\bthinking\b/, /\bstream\b/, /countTokens|count_tokens/, /CreateModelInvocationJob/, /Mantle/, /cache_control/, /type:\s*'(any|tool)'/, /eager_input_streaming/, /disable_parallel_tool_use/,
         // ferramentas de servidor do SDK (ToolUnion) e o contêiner delas: nada sai para busca, navegador ou execução de terceiro
         /web_search|web_fetch|browser_toolset|computer_|memory_20|bash_20|text_editor|tool_search|\bcontainer\b/]) {
         expect(codigo, String(proibido)).not.toMatch(proibido);
@@ -49,6 +49,26 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       expect(codigo).toMatch(/logLevel:\s*'off'/);
     });
   }
+  it('D35 (Plano 15): o módulo comum que monta as mensagens dos dois provedores também não usa cache_control', () => {
+    const codigo = readFileSync('src/modules/ia/geracao-formato.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(codigo).not.toMatch(/cache_control/);
+  });
+
+  it('RNF-169 (Plano 15): nenhum arquivo da IA Nutri do paciente importa o SDK nem um provedor real (só o worker escolhe o provedor)', () => {
+    const arquivos = readdirSync(path.resolve('src/modules/ia/nutri-paciente'), { withFileTypes: true })
+      .filter((d) => d.isFile() && /\.(ts|tsx)$/.test(d.name))
+      .map((d) => path.join('src/modules/ia/nutri-paciente', d.name));
+    expect(arquivos.length).toBeGreaterThan(10);
+    // o SDK (e subcaminhos) e os módulos dos provedores reais por qualquer caminho (./, ../ ou o alias @/)
+    const proibido = /(?:from\s+|import\(\s*)'(?:@anthropic-ai\/(?:sdk|bedrock-sdk)|[^']*\/provedor-(?:anthropic|bedrock|do-ambiente))(?:'|\/)/;
+    expect(arquivos.filter((f) => proibido.test(readFileSync(f, 'utf8')))).toEqual([]);
+    // a regex reconhece as formas proibidas (o teste não passa por não casar nada)
+    expect(proibido.test("import { provedorFake } from '../provedor-fake';")).toBe(false);
+    for (const amostra of ["import Anthropic from '@anthropic-ai/sdk';", "import { provedorBedrock } from '../provedor-bedrock';", "import { x } from './provedor-anthropic';", "const m = await import('../provedor-do-ambiente');", "import { y } from '@/modules/ia/provedor-do-ambiente';"]) {
+      expect(proibido.test(amostra), amostra).toBe(true);
+    }
+  });
+
   it('RNF-105 no Bedrock: credenciais explícitas, sem inference_geo e sem S3', () => {
     const codigo = readFileSync('src/modules/ia/provedor-bedrock.ts', 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     expect(codigo).not.toMatch(/inference_geo/);
@@ -79,6 +99,16 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       'src/modules/ia/avaliacao/avaliar-assistente.ts',
       'src/modules/ia/avaliacao/catalogo-taco.ts',
       'src/modules/ia/avaliacao/prontuarios-ficticios.ts',
+      // Plano 15 (T13): o worker da IA Nutri do paciente (o contexto na sessão de paciente sem conta, o job com o portão do
+      // envio, a varredura, a revogação, o aviso de risco e a retenção) e a avaliação da conversa (RN-184)
+      'src/modules/ia/nutri-paciente/contexto.ts',
+      'src/modules/ia/nutri-paciente/job.ts',
+      'src/modules/ia/nutri-paciente/varredura.ts',
+      'src/modules/ia/nutri-paciente/revogacao-job.ts',
+      'src/modules/ia/nutri-paciente/risco-job.ts',
+      'src/modules/ia/nutri-paciente/retencao.ts',
+      'src/modules/ia/avaliacao/conversas-ficticias.ts',
+      'src/modules/ia/avaliacao/avaliar-conversa.ts',
     ]) {
       expect(existsSync(proibido), `${proibido} existe (a guarda não confere arquivo que sumiu)`).toBe(true);
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);

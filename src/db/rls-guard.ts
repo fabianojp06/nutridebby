@@ -199,6 +199,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   exam_submissions: { comandos: ['insert', 'update'], motivo: 'US-160/US-161 (Plano 12): o paciente cria o envio "processando" e cancela o próprio "recebido" — políticas paciente_envio_insert/paciente_envio_update e o gatilho exam_submissions_regras (0102)' },
   exam_submission_files: { comandos: ['insert'], motivo: 'US-160 (Plano 12): o paciente registra os originais do próprio envio "processando" (paciente_envio_arquivo, 0102); não lê as páginas' },
   ia_autorizacoes: { comandos: ['insert'], motivo: 'Plano 14A (RN-107, US-106, US-107, US-109): o paciente autoriza ou retira a própria autorização de IA no app (canal app, com a própria conta) ou pelo link do e-mail (canal link, sem conta) — política paciente_autorizacao_propria (0108); UPDATE, DELETE e TRUNCATE revogados' },
+  ia_nutri_mensagens: { comandos: ['update'], motivo: 'Plano 15 (US-172, US-174): o paciente avalia a resposta e encaminha a própria pergunta — só essas colunas, de nulo para valor (gatilho ia_nutri_mensagens_regras, 0116); INSERT só por app_ia_nutri_perguntar (0117)' },
+  ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

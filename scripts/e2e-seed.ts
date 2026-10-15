@@ -1,14 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
-import { eq, inArray, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { account, consents, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
+import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
+import { stopBoss } from '@/jobs/boss';
 import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
+import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
-import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
+import { configIA } from '@/modules/ia/modo';
+import { LIMITE_DIA, RETENCAO_DIAS } from '@/modules/ia/nutri-paciente/constantes';
+import { consentimentoVigente, ultimoEvento } from '@/modules/ia/nutri-paciente/estado';
+import { IA_ADITIVO_VERSAO, IA_NUTRI_TERMO_VERSAO } from '@/modules/ia/textos-legais';
+import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
+import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
@@ -25,6 +32,13 @@ export const E2E_ADMIN_PLATAFORMA = { email: 'admin-plataforma-e2e@nutridebby.te
  * fictício, só do E2E. As specs copiam a credencial (importar este arquivo roda o seed).
  */
 export const E2E_DOCS = { email: 'docs-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+/**
+ * Plano 15 (T13): as duas pacientes da IA Nutri do paciente (ia-nutri-paciente.spec e o preparo do axe do painel,
+ * e2e/painel.ts `IA_NUTRI_2`). O nome da segunda não contém o da primeira (a linha da fila é achada pelo nome). As specs
+ * copiam a credencial (importar este arquivo roda o seed).
+ */
+export const E2E_IA_NUTRI_1 = { email: 'ia-nutri-1-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente IA Nutri Um' };
+export const E2E_IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente IA Nutri Dois' };
 
 const db = getDb();
 
@@ -33,8 +47,10 @@ const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', ende
 // Plano 10A: documentos assinados liberados pelo admin (D20) e o perfil profissional completo (carimbo da receita)
 const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Nutri E2E da Silva', contatoEmail: 'contato-e2e@nutridebby.test', contatoTelefoneE164: '+5511912345678' };
 // Plano 11: a IA liberada pela admin e ativada com o aditivo no consultório do E2E (o CI roda com IA_PROVEDOR=sandbox).
-// Plano 14A: o aditivo atual (IA_ADITIVO_VERSAO, 1.1 desde o Plano 14B) e o perfil de DOCUMENTOS, que o texto da autorização cita.
-const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15 };
+// Plano 14A: o aditivo atual (IA_ADITIVO_VERSAO, 1.2 desde o Plano 15) e o perfil de DOCUMENTOS, que o texto da autorização cita.
+// Plano 15 (T13): a IA Nutri do paciente ativada pela nutricionista (★ DO-1 = não: a linha de ia_nutri_pausa nasce não
+// pausada e o seed não a toca). O consentimento cita a responsável (DOCUMENTOS: nome, CRN e contato).
+const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15, iaNutriAtivadaEm: new Date() };
 // Plano 12 (D18 = a): o recebimento de exames pelo app ligado no consultório do E2E (o axe passa por /p/exames com o formulário)
 const EXAMES_APP = { examesPacienteAtivadoEm: new Date(), examesAvisoEm: null };
 const [consultorio] = await db
@@ -145,5 +161,93 @@ for (const tenantId of [consultorio.id, outros[0]]) {
   await db.insert(consents).values({ userId: multiId, tenantId, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
 }
 
+// Plano 15 (T13): as duas pacientes da IA Nutri, com conta e o termo do app aceito (`consents` é só de inclusão: as contas
+// ficam, como a MULTI), liberadas e com o plano "Lanche da tarde (16:00): Banana prata" e a substituição "Maçã" (publicado
+// uma vez pelos serviços de verdade; o banco do E2E persiste). A cada execução o estado delas volta ao começo: (a) a
+// conversa apagada (o worker só apaga com o marcador da revogação, local à transação — gatilho ia_nutri_mensagens_sem_apagar),
+// (b) a liberação de volta (sem `bloqueada_em`: a variante do passo 6 bloqueia a primeira), (c) a primeira SEM consentimento
+// (revogação com o marcador, se o último evento for o aceite — ia_nutri_consentimentos é só de inclusão), (d) a segunda COM
+// o consentimento (o aceite só pela sessão dela; o gatilho recusa os outros papéis) e (e) as 10 perguntas de hoje da
+// segunda (o limite do dia, passo 6b). O preparo do axe do painel e o passo 6b somam 2 dúvidas diretas abertas: abaixo de 3.
+const destinoIa = configIA(getEnv()).destino ?? 'teste'; // o E2E roda com IA_PROVEDOR=sandbox (destino `teste`)
+const ctxNutri: TenantContext = { tenantId: consultorio.id, role: 'nutri', actorUserId: nutriId };
+const iaNutri: { userId: string; patientId: string }[] = [];
+for (const cred of [E2E_IA_NUTRI_1, E2E_IA_NUTRI_2]) {
+  const senha = await hashPassword(cred.password);
+  const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  const userId = ja?.id ?? randomUUID();
+  if (ja) {
+    await db.update(account).set({ password: senha }).where(eq(account.userId, userId));
+  } else {
+    await db.insert(user).values({ id: userId, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'paciente' });
+    await db.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: senha });
+  }
+  await db.insert(consents).values({ userId, tenantId: consultorio.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+  const [p] = await withTenant(
+    { tenantId: consultorio.id, role: 'worker' },
+    (tx) =>
+      tx
+        .insert(patients)
+        .values({ tenantId: consultorio.id, userId, nome: cred.nome, dataNascimento: '1990-01-01', sexo: 'F', email: cred.email })
+        .onConflictDoUpdate({ target: [patients.tenantId, patients.email], set: { userId, nome: cred.nome, status: 'ativo', updatedAt: new Date() } })
+        .returning({ id: patients.id }),
+    db,
+  );
+  iaNutri.push({ userId, patientId: p.id });
+  const [publicado] = await withTenant(
+    { tenantId: consultorio.id, role: 'worker' },
+    (tx) => tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, p.id), eq(mealPlans.status, 'publicado'))),
+    db,
+  );
+  if (!publicado) {
+    const { id: planId } = await criarRascunho(ctxNutri, p.id, { db });
+    const [r] = await withTenant(ctxNutri, (tx) => tx.select({ revisao: mealPlans.revisao }).from(mealPlans).where(eq(mealPlans.id, planId)), db);
+    const [banana, maca] = [randomUUID(), randomUUID()];
+    const lanche = {
+      id: randomUUID(), nome: 'Lanche da tarde', horario: '16:00', observacao: '',
+      itens: [
+        { id: banana, foodId: idTaco(182), quantidadeG: '86', medida: null, substituiItemId: null }, // Banana, prata, crua
+        { id: maca, foodId: idTaco(222), quantidadeG: '130', medida: null, substituiItemId: banana }, // Maçã, Fuji, com casca, crua
+      ],
+    };
+    await salvarRascunho(ctxNutri, planId, { revisao: r.revisao, envio: randomUUID(), titulo: 'Plano da IA Nutri', metaKcal: '', mostrarCalorias: false, orientacoes: '', refeicoes: [lanche] }, { db });
+    await publicarPlano(ctxNutri, p.id, planId, { db });
+  }
+}
+const [um, dois] = iaNutri;
+await withTenant(
+  { tenantId: consultorio.id, role: 'worker' },
+  async (tx) => {
+    await tx.execute(sql`select set_config('app.ia_nutri_revogando', '1', true)`);
+    await tx.delete(iaNutriMensagens).where(inArray(iaNutriMensagens.patientId, [um.patientId, dois.patientId])); // (a)
+    for (const { patientId } of iaNutri) {
+      await tx
+        .insert(iaNutriParticipacoes)
+        .values({ tenantId: consultorio.id, patientId, liberadaEm: new Date(), liberadaPor: nutriId })
+        .onConflictDoUpdate({ target: [iaNutriParticipacoes.tenantId, iaNutriParticipacoes.patientId], set: { liberadaEm: new Date(), liberadaPor: nutriId, bloqueadaEm: null, updatedAt: new Date() } }); // (b)
+    }
+    if ((await ultimoEvento(tx, um.patientId))?.evento === 'aceite') {
+      await tx.insert(iaNutriConsentimentos).values({ tenantId: consultorio.id, patientId: um.patientId, evento: 'revogacao', canal: 'app', registradoPor: um.userId }); // (c)
+    }
+    const agora = new Date();
+    await tx.insert(iaNutriMensagens).values(
+      Array.from({ length: LIMITE_DIA }, (_, k) => ({
+        tenantId: consultorio.id, patientId: dois.patientId, sessaoInicio: agora, autor: 'paciente', texto: `Pergunta de teste ${k + 1}`, status: 'respondida',
+        contouNoLimite: true, expiraEm: new Date(agora.getTime() + RETENCAO_DIAS * 86_400_000), createdAt: agora,
+      })),
+    ); // (e)
+  },
+  db,
+);
+const vigente = await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => consentimentoVigente(await ultimoEvento(tx, dois.patientId), destinoIa), db);
+if (!vigente) {
+  await withTenant(
+    { tenantId: consultorio.id, role: 'paciente', patientId: dois.patientId, actorUserId: dois.userId },
+    (tx) => tx.insert(iaNutriConsentimentos).values({ tenantId: consultorio.id, patientId: dois.patientId, evento: 'aceite', versao: IA_NUTRI_TERMO_VERSAO, destino: destinoIa, canal: 'app', registradoPor: dois.userId }),
+    db,
+  ); // (d)
+}
+
+await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
 console.log('Seed E2E pronto.');

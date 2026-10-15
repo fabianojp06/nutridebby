@@ -6,6 +6,8 @@ import { MSG_G } from '@/components/portal/textos';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
 import { GUIA_PORTAL } from '@/modules/ajuda/portal';
+import { configIA } from '@/modules/ia/modo';
+import { entradaDoPaciente } from '@/modules/ia/nutri-paciente/estado';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { lerGuia } from '@/modules/plataforma/preferencias';
 import { jaUsavaOApp } from '@/modules/portal/acesso';
@@ -16,6 +18,7 @@ import { MSG_MURAL } from '@/modules/portal/mural-regras';
 import { molduraDaSecao } from '../../moldura';
 import { AtualizarAoVoltar } from './atualizar-ao-voltar';
 import { CartoesDoAparelho } from './cartoes-do-aparelho';
+import { ConviteIaNutri } from './convite-ia-nutri';
 import { GuiaDoPortal } from './guia-do-portal';
 import { MuralLista } from './mural-lista';
 
@@ -26,18 +29,20 @@ export const dynamic = 'force-dynamic';
  * gravado para ele existir; não é chat, RN-193), os cartões do aparelho e a barra de ações. Duas transações curtas: o mural
  * e a mini-jornada (D2). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
  * `userId` de requirePaciente, CLAUDE.md regra 1); `?tour=portal-novidades` abre o tour ("Ver o tour de novo" de /p/ajuda).
+ * Plano 15 (§7.8): o convite da IA Nutri, só com a entrada `decidir` (liberado pela nutricionista e ainda sem decisão).
  */
 export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
   const acesso = await requirePaciente('/p/inicio');
   const { ctx, tenant, vinculo, data } = acesso;
   const agora = new Date();
   const hoje = hojeNoFuso(tenant.fuso, agora);
-  const [moldura, mural, mini, progresso, jaUsava, { tour }] = await Promise.all([
+  const [moldura, mural, mini, progresso, jaUsava, entradaIaNutri, { tour }] = await Promise.all([
     molduraDaSecao(acesso),
     muralDoPaciente(ctx, tenant, agora),
     miniJornadaDoPaciente(ctx, tenant, agora),
     lerGuia(data.user.id),
     jaUsavaOApp(ctx, hoje),
+    entradaDoPaciente(ctx, tenant, configIA(getEnv())),
     searchParams,
   ]);
   return (
@@ -47,6 +52,7 @@ export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
       </Faixa>
       <main data-guia="mural" className="flex-1 space-y-4 p-4">
         <GuiaDoPortal progresso={progresso} abrir={tour === GUIA_PORTAL.id} jaUsava={jaUsava} />
+        {entradaIaNutri === 'decidir' && <ConviteIaNutri dono={vinculo.patientId} />}
         <CartoesDoAparelho conta={data.user.id} dono={vinculo.patientId} chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} />
         <p>
           <Link id="ver-todo-diario" href="/p/diario" className="inline-flex min-h-11 items-center font-semibold text-link underline">{MSG_MURAL.verTodoDiario}</Link>

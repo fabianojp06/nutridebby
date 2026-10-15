@@ -51,6 +51,8 @@ export type PedidoGeracao = {
   schema: Record<string, unknown>;
   maxTokens: number;
   esforco: 'low' | 'medium';
+  /** Plano 15 (RN-180): prazo desta chamada (a IA Nutri: 45 s); sem ele, o do cliente (120 s). */
+  prazoMs?: number;
 };
 export type ChamadaFerramenta = { id: string; nome: string; entrada: unknown };
 export type RespostaGeracao = (

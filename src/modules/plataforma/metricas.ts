@@ -127,12 +127,59 @@ export async function ajustarCotaIa(tenantId: string, valor: string, adminId: st
   logger.info({ tenantId, adminId, cotaIaUsd: r.data }, 'limite de IA ajustado');
 }
 
-export type MetricasIaTenant = { tarefasMes: number; custoMesMicroUsd: number };
+/**
+ * Plano 15 (D3, US-176): limite mensal da IA Nutri (US$, escopo paciente) do consultório, no molde de ajustarCotaIa — mesma
+ * validação e mensagem, trilha `ajustar_cota_ia_nutri` em admin_actions, o valor só no log.
+ */
+export async function ajustarCotaIaNutri(tenantId: string, valor: string, adminId: string, db: Db = getDb()): Promise<void> {
+  const r = cotaIaSchema.safeParse(valor);
+  if (!r.success) throw new CotaIaAdminError(MSG_COTA_IA);
+  await db.transaction(async (tx) => {
+    const up = await tx.update(tenants).set({ iaNutriCotaMensalUsd: r.data, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id });
+    if (!up.length) throw new ContaNaoEncontradaError();
+    await tx.insert(adminActions).values({ adminUserId: adminId, acao: 'ajustar_cota_ia_nutri', alvoTenantId: tenantId, origem: 'admin' });
+  });
+  logger.info({ tenantId, adminId, cotaIaNutriUsd: r.data }, 'limite da IA Nutri ajustado');
+}
 
-/** US-100: só contagens e somas do mês (função SECURITY DEFINER admin_metricas_ia, 0099). */
+export type MetricasIaTenant = { tarefasMes: number; custoMesMicroUsd: number };
+export type MetricasIaNutriTenant = { perguntasMes: number; usosMes: number; custoMesMicroUsd: number };
+type LinhaMetricasIa = {
+  tenant_id: string;
+  perguntas_mes: string;
+  usos_mes: string;
+  custo_mes_micro_usd: string;
+  nutri_tarefas_mes: string;
+  nutri_custo_mes_micro_usd: string;
+};
+
+/**
+ * US-100 (A-06) e DP-11 (Plano 15): a IA da NUTRICIONISTA (comparada com a cota dela) e a IA Nutri (escopo paciente), de UMA
+ * chamada à função SECURITY DEFINER admin_metricas_ia_nutri() (0117) — os dois escopos saem do mesmo SELECT por tenant, só
+ * contagens e somas do mês. /code-review do PR #37: subtrair a IA Nutri de uma segunda chamada (à 0099, que soma tudo) lia
+ * dois momentos diferentes e podia dar "-1 tarefa" ou custo negativo; a 0099 não é mais lida pelo app.
+ */
+export async function metricasDeIaPorEscopo(db: Db = getDb()): Promise<Map<string, { nutri: MetricasIaTenant; paciente: MetricasIaNutriTenant }>> {
+  const r = await db.execute<LinhaMetricasIa>(sql`select * from admin_metricas_ia_nutri()`);
+  return new Map(
+    r.rows.map((x) => [
+      x.tenant_id,
+      {
+        nutri: { tarefasMes: Number(x.nutri_tarefas_mes), custoMesMicroUsd: Number(x.nutri_custo_mes_micro_usd) },
+        paciente: { perguntasMes: Number(x.perguntas_mes), usosMes: Number(x.usos_mes), custoMesMicroUsd: Number(x.custo_mes_micro_usd) },
+      },
+    ]),
+  );
+}
+
+/** US-100: só a IA da nutricionista (os chamadores atuais não mudam; a conversa do paciente fica de fora, DP-11). */
 export async function metricasDeIaPorTenant(db: Db = getDb()): Promise<Map<string, MetricasIaTenant>> {
-  const r = await db.execute<{ tenant_id: string; tarefas_mes: string; custo_mes_micro_usd: string }>(sql`select * from admin_metricas_ia()`);
-  return new Map(r.rows.map((x) => [x.tenant_id, { tarefasMes: Number(x.tarefas_mes), custoMesMicroUsd: Number(x.custo_mes_micro_usd) }]));
+  return new Map([...(await metricasDeIaPorEscopo(db))].map(([id, m]) => [id, m.nutri]));
+}
+
+/** Plano 15 (§3): só a IA Nutri (perguntas que foram ao modelo, usos e custo do mês). */
+export async function metricasDeIaNutriPorTenant(db: Db = getDb()): Promise<Map<string, MetricasIaNutriTenant>> {
+  return new Map([...(await metricasDeIaPorEscopo(db))].map(([id, m]) => [id, m.paciente]));
 }
 
 export type MetricasExamesTenant = { enviadosMes: number; pendentes: number };

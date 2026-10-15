@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PedidoGeracao, PedidoLeitura } from './provedor';
-import { provedorAnthropic } from './provedor-anthropic';
+import { provedorAnthropic, TIMEOUT_MS } from './provedor-anthropic';
 
 const CHAVE = 'sk-ant-api03-' + 'x'.repeat(40);
 const pedido: PedidoLeitura = {
@@ -204,5 +204,47 @@ describe('gerar (Plano 14B, D1): ferramentas strict com auto, saída estruturada
     const { f, chamadas } = fetchFalso([]);
     await expect(provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' }).gerar({ ...pedidoGeracao, geo: 'eu' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
     expect(chamadas).toHaveLength(0);
+  });
+});
+
+describe('Plano 15 (RN-180): o prazo por pedido (prazoMs) — a IA Nutri espera 45 s; sem ele, o prazo do cliente', () => {
+  it('prazoMs: 45_000 aborta a chamada aos 45 s; sem prazoMs, só no TIMEOUT_MS (120 s); numa chamada só, sem nova tentativa', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const sinais: AbortSignal[] = [];
+      const pendurado: typeof fetch = (_u, init) => {
+        sinais.push(init!.signal!);
+        return new Promise<Response>((_, rej) => init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))));
+      };
+      // o SDK arma o prazo só ao chamar o fetch: espera a chamada sair (setImmediate não é falsificado)
+      const saiu = async (n: number) => {
+        while (sinais.length < n) await new Promise((r) => setImmediate(r));
+      };
+      const p = provedorAnthropic({ apiKey: CHAVE, fetch: pendurado, baseURL: 'http://ia.invalid' });
+
+      const comPrazo = p.gerar({ ...pedidoGeracao, finalidade: 'conversa_paciente', ferramentas: [], prazoMs: 45_000 }).catch((e: unknown) => e);
+      await saiu(1);
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(sinais[0].aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sinais[0].aborted).toBe(true);
+      expect(await comPrazo).toMatchObject({ name: 'ErroProvedor', tipo: 'incerto' });
+
+      const semPrazo = p.gerar(pedidoGeracao).catch((e: unknown) => e);
+      await saiu(2);
+      await vi.advanceTimersByTimeAsync(TIMEOUT_MS - 1);
+      expect(sinais[1].aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await semPrazo).toMatchObject({ name: 'ErroProvedor', tipo: 'incerto' });
+      expect(sinais).toHaveLength(2); // maxRetries 0 continua: o prazo por pedido não abre nova tentativa
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('o prazo vai como opção do cliente, nunca no corpo do pedido', async () => {
+    const { f, chamadas } = fetchFalso([() => mensagem('{}')]);
+    await provedorAnthropic({ apiKey: CHAVE, fetch: f, baseURL: 'http://ia.invalid' }).gerar({ ...pedidoGeracao, ferramentas: [], prazoMs: 45_000 });
+    for (const proibido of ['timeout', 'prazoMs', 'prazo_ms']) expect(chamadas[0].corpo).not.toHaveProperty(proibido);
   });
 });

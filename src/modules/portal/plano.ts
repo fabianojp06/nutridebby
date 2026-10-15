@@ -49,7 +49,8 @@ export function proximaRefeicao(horarios: { id: string; horario: string }[], ago
   return (ordem.find((r) => r.horario >= agoraHHMM) ?? ordem[0])?.id ?? null;
 }
 
-const kcalDo = (i: ItemPlano, mostrar: boolean): string | null => {
+/** Plano 15 (§7.3): a IA Nutri mostra o item com a mesma regra da tela (RN-02 por construção). */
+export const kcalDo = (i: ItemPlano, mostrar: boolean): string | null => {
   if (!mostrar) return null;
   const n = nutrientesDoItem(i.porCem, i.quantidadeG);
   return n.semValor.includes('kcal') ? null : `${kcalTexto(n.kcal)} kcal`;

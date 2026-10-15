@@ -120,6 +120,8 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   // Plano 12 (C-05): neutro de propósito, mais que os outros — nem "exame" (a palavra na tela de bloqueio já diz dado de saúde)
   exame_revisado: { corpo: 'Há uma atualização para você no app.', tela: '/p/exames' },
   exame_expirado: { corpo: 'Há uma atualização para você no app.', tela: '/p/exames' },
+  // Plano 15 (D24 = b, RNF-166): neutro de propósito — nem IA, nem dúvida, nem nutricionista
+  duvida_vista: { corpo: 'Há uma atualização para você no app.', tela: '/p/plano/ia' },
 };
 
 /**

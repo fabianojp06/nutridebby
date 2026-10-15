@@ -147,15 +147,30 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
                    values (${t}, ${p}, coalesce(app_current_user(), gen_random_uuid()), 'processando', '2026-01-01') returning id)
         insert into exam_submission_files (tenant_id, patient_id, submission_id, arquivo_path, papel, ordem)
         select ${t}, ${p}, s.id, a.caminho, 'original', 1 from a, s`,
+  // Plano 15 (DP-14): a equipe não insere conversa no app, mas o banco não recusa (como ia_tarefas); a fábrica grava uma
+  // pergunta já respondida, sem risco, para a sessão de paciente ter o que encaminhar (UPDATE_DO_PACIENTE)
+  ia_nutri_participacoes: (t, p) =>
+    sql`insert into ia_nutri_participacoes (tenant_id, patient_id, liberada_em, liberada_por) values (${t}, ${p}, now(), coalesce(app_current_user(), gen_random_uuid()))`,
+  ia_nutri_mensagens: (t, p) =>
+    sql`insert into ia_nutri_mensagens (tenant_id, patient_id, sessao_inicio, autor, texto, status, expira_em)
+        values (${t}, ${p}, now(), 'paciente', 'Iso', 'respondida', now() + interval '180 days')`,
+  // RN-171: o aceite é só do paciente (gatilho); a fábrica grava a revogação com o marcador local (o gatilho exige)
+  ia_nutri_consentimentos: (t, p) =>
+    sql`with m as materialized (select set_config('app.ia_nutri_revogando', '1', true) as x)
+        insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, canal, registrado_por)
+        select ${t}, ${p}, 'revogacao', 'app', coalesce(app_current_user(), gen_random_uuid()) from m`,
 };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes']);
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
  * Plano 12: exam_submissions — gatilho exam_submissions_sem_apagar (0102): só o worker apaga, com o titular bloqueado ou anonimizado.
+ * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_sem_apagar (0116): só o worker apaga, com a mensagem vencida, o
+ * titular bloqueado ou anonimizado, ou na revogação (e a equipe, só a pergunta com risco de quem revogou, depois de aberta —
+ * D22; a fábrica não grava essa).
  */
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos']);
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
@@ -170,7 +185,8 @@ const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos']);
 // Plano 11 (revisão final, Minor 2): ia_tarefas_imutavel (0100) recusa mudar tenant_id/patient_id com 42501 antes da RLS.
 // Plano 12: exam_submissions — gatilho exam_submissions_regras (0102): tenant e paciente são colunas fixas (42501 antes da RLS).
 // Plano 14B: ia_geracoes_modelos_imutavel (0112) recusa mudar tenant_id (coluna fixa) com 42501 antes da RLS.
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions', 'ia_geracoes_modelos']);
+// Plano 15: ia_nutri_mensagens_regras (0116) recusa mudar tenant_id/patient_id (colunas fixas) com 42501 antes da RLS.
+const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens']);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
@@ -182,7 +198,10 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from signed_document_receipts r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
                 and not exists (select 1 from ia_tarefas i where i.tenant_id = patients.tenant_id and i.patient_id = patients.id)
                 and not exists (select 1 from exam_submissions e where e.tenant_id = patients.tenant_id and e.patient_id = patients.id)
-                and not exists (select 1 from ia_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)`,
+                and not exists (select 1 from ia_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)
+                and not exists (select 1 from ia_nutri_participacoes x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
+                and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
+                and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
@@ -309,8 +328,13 @@ const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { cod
 /**
  * O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou.
  * Plano 12: exam_submissions — gatilho exam_submissions_regras (0102); o paciente só cancela o próprio recebido.
+ * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_regras (0116); o paciente encaminha a própria pergunta respondida.
  */
-const UPDATE_DO_PACIENTE: Record<string, SQL> = { data_exports: sql`status = 'falhou'`, exam_submissions: sql`status = 'cancelado'` };
+const UPDATE_DO_PACIENTE: Record<string, SQL> = {
+  data_exports: sql`status = 'falhou'`,
+  exam_submissions: sql`status = 'cancelado'`,
+  ia_nutri_mensagens: sql`encaminhada_em = now()`,
+};
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
   Number(

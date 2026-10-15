@@ -14,7 +14,13 @@ const ativar = vi.fn();
 vi.mock('@/modules/ia/ativacao', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/ativacao')>()), ativarIa: ativar }));
 const pedir = vi.fn();
 vi.mock('@/modules/ia/modelos-sugeridos', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/modelos-sugeridos')>()), pedirModelos: pedir }));
-const { ativarIaAction, pedirModelosAction } = await import('./actions');
+const ativarNutri = vi.fn();
+const desativarNutri = vi.fn();
+vi.mock('@/modules/ia/nutri-paciente/participacao', async (orig) => ({ ...(await orig<typeof import('@/modules/ia/nutri-paciente/participacao')>()), ativarIaNutri: ativarNutri, desativarIaNutri: desativarNutri }));
+const { ativarIaAction, ativarIaNutriAction, desativarIaNutriAction, pedirModelosAction } = await import('./actions');
+const { IaNutriError } = await import('@/modules/ia/nutri-paciente/participacao');
+const { MSG_IA_NUTRI } = await import('@/modules/ia/nutri-paciente/constantes');
+const { revalidatePath } = await import('next/cache');
 const { AtivacaoIaError } = await import('@/modules/ia/ativacao');
 const real = await vi.importActual<typeof import('@/modules/ia/modelos-sugeridos')>('@/modules/ia/modelos-sugeridos');
 const { PedidoIaError } = await import('@/modules/ia/tarefas');
@@ -59,5 +65,25 @@ describe('Configurações > Modelos sugeridos pela IA (US-123)', () => {
     const fd = new FormData();
     fd.set('area', 'diabetes');
     expect(await pedirModelosAction({}, fd)).toEqual({ erro: 'Já há um pacote de modelos em preparo. Aguarde terminar.' });
+  });
+});
+
+describe('Configurações > IA Nutri (pacientes) (US-170)', () => {
+  it('ativar: o consultório da SESSÃO, o retorno na URL com a âncora da subseção e o menu revalidado', async () => {
+    await expect(ativarIaNutriAction()).rejects.toThrow('redirect /painel/configuracoes?ia-nutri=ativada#ia-nutri-titulo');
+    expect(ativarNutri).toHaveBeenCalledWith(sessao.ctx, { ia: expect.objectContaining({ modo: 'fake', destino: 'teste' }) });
+    expect(revalidatePath).toHaveBeenCalledWith('/painel', 'layout');
+  });
+
+  it('IaNutriError (IA indisponível ou aditivo antigo) → ?ia-nutri=indisponivel; outro erro sobe', async () => {
+    ativarNutri.mockRejectedValueOnce(new IaNutriError(MSG_IA_NUTRI.aditivoNovo));
+    await expect(ativarIaNutriAction()).rejects.toThrow('redirect /painel/configuracoes?ia-nutri=indisponivel#ia-nutri-titulo');
+    ativarNutri.mockRejectedValueOnce(new Error('banco caiu'));
+    await expect(ativarIaNutriAction()).rejects.toThrow('banco caiu');
+  });
+
+  it('desativar: o consultório da sessão e ?ia-nutri=desativada', async () => {
+    await expect(desativarIaNutriAction()).rejects.toThrow('redirect /painel/configuracoes?ia-nutri=desativada#ia-nutri-titulo');
+    expect(desativarNutri).toHaveBeenCalledWith(sessao.ctx);
   });
 });

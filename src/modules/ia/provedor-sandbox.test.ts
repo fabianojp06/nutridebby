@@ -61,6 +61,46 @@ describe('provedor sandbox (RNF-107: dev, CI e E2E sem a API real)', () => {
   });
 });
 
+describe('gerar da conversa do paciente (Plano 15, DP-12, RNF-168): respostas fixas por marcador na pergunta', () => {
+  const pedidoConversa = (pergunta: string, indices = ['#R1', '#I1', '#S1', '#O1']): PedidoGeracao => ({
+    finalidade: 'conversa_paciente', modelo: 'claude-haiku-5-5', geo: 'us', sistema: 's', ferramentas: [], schema: {}, maxTokens: 2000, esforco: 'low',
+    turnos: [{ papel: 'usuario', blocos: [{ tipo: 'texto', texto: `instr\n${JSON.stringify({ contexto: { indices }, historico: [], pergunta })}` }] }],
+  });
+
+  it.each([
+    ['o que posso comer no lugar da banana?', { categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S1'] }],
+    ['que horas é o jantar?', { categoria: 'plano', tipo_resposta: 'horario', fontes: ['#R1'] }],
+    ['qual a capital da França?', { categoria: 'fora_do_escopo', tipo_resposta: 'nenhum', fontes: [] }],
+    ['SANDBOX-FONTE-INEXISTENTE', { categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S99'] }],
+    ['SANDBOX-RISCO', { categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] }],
+    ['SANDBOX-SUPLEMENTO', { categoria: 'plano', tipo_resposta: 'quantidade', fontes: ['#I1'] }],
+  ])('%s', async (pergunta, esperado) => {
+    const r = await provedorSandbox().gerar(pedidoConversa(pergunta));
+    expect(r.tipo).toBe('final');
+    expect(JSON.parse((r as { texto: string }).texto)).toEqual(esperado);
+  });
+
+  it('SANDBOX-TEXTO-LIVRE devolve um campo fora do schema; SANDBOX-RECUSA devolve recusa', async () => {
+    expect(JSON.parse(((await provedorSandbox().gerar(pedidoConversa('SANDBOX-TEXTO-LIVRE'))) as { texto: string }).texto)).toHaveProperty('resposta');
+    expect((await provedorSandbox().gerar(pedidoConversa('SANDBOX-RECUSA'))).tipo).toBe('recusa');
+  });
+
+  it('cita o primeiro índice enviado do tipo (nada além dos índices vem do contexto); uso e request-id fixos, bruto com o texto', async () => {
+    const r = await provedorSandbox().gerar(pedidoConversa('posso trocar o arroz?', ['#R2', '#S3', '#S4']));
+    expect(r).toMatchObject({ tipo: 'final', requestId: 'sandbox-gerar', uso: { geo: 'us' } });
+    expect(JSON.parse((r as { texto: string }).texto)).toEqual({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S3'] });
+    expect(r.bruto).toEqual([{ type: 'text', text: (r as { texto: string }).texto }]);
+    // sem índice do tipo no contexto, o "1" do prefixo
+    const semIndice = (await provedorSandbox().gerar(pedidoConversa('que horário?', []))) as { texto: string };
+    expect(JSON.parse(semIndice.texto).fontes).toEqual(['#R1']);
+  });
+
+  it('texto do usuário fora do formato → fora do escopo (sem lançar)', async () => {
+    const p = { ...pedidoConversa('x'), turnos: [{ papel: 'usuario' as const, blocos: [{ tipo: 'texto' as const, texto: 'sem json' }] }] };
+    expect(JSON.parse(((await provedorSandbox().gerar(p)) as { texto: string }).texto)).toEqual({ categoria: 'fora_do_escopo', tipo_resposta: 'nenhum', fontes: [] });
+  });
+});
+
 describe('provedor falso (testes)', () => {
   it('segue o roteiro na ordem e registra as chamadas; erro do roteiro é lançado', async () => {
     const f = provedorFake({ ler: [respostaOk({ documento_reconhecido: true, data_coleta: null, marcadores: [] }), new ErroProvedor('repetir', 529, 'req-1')] });

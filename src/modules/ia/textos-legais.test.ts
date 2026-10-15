@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIAS, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA } from './campos-enviados';
+import { CATEGORIAS, CATEGORIAS_DA_IA_NUTRI, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA, FRASE_DA_CATEGORIA_IA_NUTRI } from './campos-enviados';
+import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from './nutri-paciente/constantes';
 import {
-  aditivoIa, AUTORIZACAO_IA_USOS, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, DATA_DA_VERSAO, DESCRICAO_DO_USO,
-  IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_DATA, IA_ADITIVO_VERSAO_MIN, responsavelDoTenant, textoCorrido, textoDaAutorizacao, versaoAtende,
+  aditivoIa, AUTORIZACAO_IA_USOS, BOTAO_AUTORIZO_IA_NUTRI, AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_DATA, AUTORIZACAO_IA_VERSAO_MIN, conferirTextoExibidoIaNutri, DATA_DA_VERSAO, DESCRICAO_DO_USO,
+  IA_ADITIVO_TERMO, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_DATA, IA_ADITIVO_VERSAO_MIN, IA_NUTRI_ADITIVO_VERSAO_MIN, IA_NUTRI_TERMO_VERSAO, IA_NUTRI_TERMO_VERSAO_DATA,
+  IA_NUTRI_TERMO_VERSAO_MIN, LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI, LIMITE_DA_MASCARA_IA_NUTRI, responsavelDoTenant, textoCorrido, textoDaAutorizacao,
+  textoDoConsentimentoIaNutri, textoExibidoIaNutri, versaoAtende,
 } from './textos-legais';
 
 const RESP = { consultorio: 'Consultório Debby', nutricionista: 'Debora Silva', crn: 'CRN-3 12345', contato: 'contato@debby.test' };
@@ -24,9 +27,9 @@ describe('textos legais da IA (A-D19, A-D20; 1.0 publicada sem advogado pela A-D
     expect(IA_ADITIVO_TERMO).toBe(`ia-aditivo-${IA_ADITIVO_VERSAO}`);
   });
 
-  it('Plano 14B (D21): as quatro versões são 1.1; quem aceitou ou autorizou na 1.0 ou nas provisórias (0.1 e 0.2) fica abaixo do mínimo e aceita de novo', () => {
-    expect([AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN]).toEqual(['1.1', '1.1', '1.1', '1.1']);
-    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.1');
+  it('Plano 14B (D21) e Plano 15 (D27): autorização e mínimos em 1.1, aditivo em 1.2; quem aceitou ou autorizou na 1.0 ou nas provisórias (0.1 e 0.2) fica abaixo do mínimo e aceita de novo', () => {
+    expect([AUTORIZACAO_IA_VERSAO, AUTORIZACAO_IA_VERSAO_MIN, IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN]).toEqual(['1.1', '1.1', '1.2', '1.1']);
+    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.2');
     for (const antiga of ['1.0', '0.1-provisorio', '0.2-provisorio']) {
       expect(versaoAtende(antiga, AUTORIZACAO_IA_VERSAO_MIN), antiga).toBe(false);
       expect(versaoAtende(antiga, IA_ADITIVO_VERSAO_MIN), antiga).toBe(false);
@@ -134,14 +137,17 @@ describe('Plano 14A e A-D27 — texto da autorização 1.0 (redação do parecer
   });
 });
 
-describe('Plano 14A, A-D27 e Plano 14B — aditivo 1.1 (redação do parecer JUR-2026-013, item 4.2, com os trechos [14B]; US-101, C1)', () => {
-  it('a versão é 1.1 e quem aceitou a 1.0 ou as provisórias 0.1 e 0.2 fica desatualizado', () => {
-    expect(IA_ADITIVO_VERSAO).toBe('1.1');
+describe('Plano 14A, A-D27, Plano 14B e Plano 15 — aditivo 1.2 (redação do parecer JUR-2026-013, item 4.2, com os trechos [14B] e a finalidade (e) da D27; US-101, C1)', () => {
+  it('a versão é 1.2; quem aceitou a 1.1 continua em dia para as outras funções (só a IA Nutri pede a 1.2); a 1.0 e as provisórias 0.1 e 0.2 ficam desatualizadas', () => {
+    expect(IA_ADITIVO_VERSAO).toBe('1.2');
     expect(versaoAtende(IA_ADITIVO_VERSAO, IA_ADITIVO_VERSAO_MIN)).toBe(true);
+    expect(versaoAtende(IA_ADITIVO_VERSAO, IA_NUTRI_ADITIVO_VERSAO_MIN)).toBe(true);
+    expect(versaoAtende('1.1', IA_ADITIVO_VERSAO_MIN)).toBe(true);
+    expect(versaoAtende('1.1', IA_NUTRI_ADITIVO_VERSAO_MIN)).toBe(false);
     expect(versaoAtende('1.0', IA_ADITIVO_VERSAO_MIN)).toBe(false);
     expect(versaoAtende('0.1-provisorio', IA_ADITIVO_VERSAO_MIN)).toBe(false);
     expect(versaoAtende('0.2-provisorio', IA_ADITIVO_VERSAO_MIN)).toBe(false);
-    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.1');
+    expect(IA_ADITIVO_TERMO).toBe('ia-aditivo-1.2');
   });
 
   it('fornecedor, mecanismo da transferência e retenção seguem o destino (F1: no Bedrock, a adequação; a autorização como exigência a mais)', () => {
@@ -150,14 +156,17 @@ describe('Plano 14A, A-D27 e Plano 14B — aditivo 1.1 (redação do parecer JUR
     expect(eu.titulo).toBe('Aditivo de inteligência artificial ao contrato de tratamento de dados');
     const pu = us.paragrafos.map(textoCorrido);
     const pe = eu.paragrafos.map(textoCorrido);
-    expect(pe[2]).toBe('3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia. A Amazon Web Services atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes.');
+    expect(pe[2]).toBe('3. Fornecedor e país. O fornecedor em uso aparece no painel, no texto da autorização do paciente e no do consentimento da IA Nutri: Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia. A Amazon Web Services atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes e, na IA Nutri, um novo consentimento.');
     // revisão normativa: o DPA 0.1 não tem cláusulas numeradas nem cita o fornecedor de IA
-    expect(pu[2]).toBe('3. Fornecedor e país. O fornecedor em uso aparece no painel e no texto da autorização do paciente: Anthropic (Claude), com processamento nos Estados Unidos. A Anthropic atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes.');
+    expect(pu[2]).toBe('3. Fornecedor e país. O fornecedor em uso aparece no painel, no texto da autorização do paciente e no do consentimento da IA Nutri: Anthropic (Claude), com processamento nos Estados Unidos. A Anthropic atua como suboperadora da OPERADORA, além das listadas no DPA. A OPERADORA responde pelo fornecedor perante a CONTROLADORA, nos termos do DPA. A troca de fornecedor é avisada à CONTROLADORA com 15 dias de antecedência e torna necessária uma nova autorização de todos os pacientes e, na IA Nutri, um novo consentimento.');
     expect([...pu, ...pe].join(' ')).not.toContain('cláusula 7 do DPA');
-    expect(pe[3]).toBe('4. Transferência internacional. A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente. Em qualquer caso, nenhum dado de paciente vai à IA sem a autorização vigente dele, registrada com a versão, os usos, o destino, a data e o canal.');
-    expect(pu[3]).toContain('A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma.');
+    // D26 (revisão da T4): a IA Nutri tem base própria (o consentimento), independente da autorização dos usos (a) a (c)
+    const qualquerCaso = 'Em qualquer caso, nenhum dado de paciente vai à IA sem a manifestação vigente dele, registrada na plataforma com a versão, o destino, a data e o canal: nos usos (a) a (c), a autorização, que registra também os usos; na IA Nutri, o consentimento próprio dele, independente da autorização.';
+    expect(pe[3]).toBe(`4. Transferência internacional. A transferência se apoia na decisão de adequação da União Europeia (Resolução CD/ANPD nº 32/2026; LGPD, art. 33, I). Além disso, a plataforma exige a autorização de cada paciente (na IA Nutri, o consentimento próprio dele). ${qualquerCaso}`);
+    expect(pu[3]).toBe(`4. Transferência internacional. A transferência se apoia no consentimento específico e em destaque de cada paciente (LGPD, art. 33, VIII), registrado na plataforma. ${qualquerCaso}`);
     // A-D27: na Anthropic direta, a retenção de até 30 dias (nada de retenção zero); no Bedrock, a retenção zero
-    expect(pu[5]).toBe('6. Retenção. O fornecedor não usa o conteúdo para treinar modelos. A Anthropic guarda o conteúdo enviado por até 30 dias, para operar e proteger o serviço (por exemplo, segurança e prevenção de abuso), e depois o apaga. Se os sistemas de segurança dela sinalizarem o conteúdo, ela pode guardá-lo por até 2 anos; se a lei exigir, pelo tempo que a lei exigir. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.');
+    // Plano 15 (D8, D22): a guarda das conversas da IA Nutri, antes do registro técnico
+    expect(pu[5]).toBe('6. Retenção. O fornecedor não usa o conteúdo para treinar modelos. A Anthropic guarda o conteúdo enviado por até 30 dias, para operar e proteger o serviço (por exemplo, segurança e prevenção de abuso), e depois o apaga. Se os sistemas de segurança dela sinalizarem o conteúdo, ela pode guardá-lo por até 2 anos; se a lei exigir, pelo tempo que a lei exigir. A sugestão fica guardada na plataforma por até 7 dias, até ser salva ou descartada. Na IA Nutri, as conversas ficam guardadas na plataforma por 180 dias; a mensagem com sinal de risco de quem desativou a IA Nutri ou pediu a exclusão fica até a CONTROLADORA abri-la, por no máximo 30 dias, e depois só um aviso sem o texto até o fim do prazo; na desativação, o registro sem conteúdo usado para os limites de perguntas fica até o fim do mês. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.');
     expect(pu.join(' ')).not.toContain('retenção zero');
     expect(pu[7]).toContain('sem a retenção da cláusula 6 confirmada pela OPERADORA');
     expect(pe[5]).toContain('enquanto houver retenção zero com o fornecedor');
@@ -166,13 +175,14 @@ describe('Plano 14A, A-D27 e Plano 14B — aditivo 1.1 (redação do parecer JUR
     expect(pe[5]).toContain('nenhum operador do serviço tem acesso ao conteúdo');
     expect(pu[5]).not.toContain('Amazon Web Services');
     expect(pu[6]).toContain('Guarda o original em papel na pasta do paciente e entrega a ele uma via');
-    // Minor (c): sem garantir além do contrato
-    expect(pu[6]).toMatch(/\(f\) mantém o sigilo profissional\. Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo\.$/);
+    // Minor (c): sem garantir além do contrato (desde a 1.2, depois dos deveres do uso (e))
+    expect(pu[6]).toMatch(/\(f\) mantém o sigilo profissional\. No uso \(e\), /);
+    expect(pu[6]).toMatch(/e cumpre os deveres \(b\), \(e\) e \(f\)\. Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo\.$/);
     expect(pu[6]).not.toContain('garantida');
-    // D27 do Plano 15: a IA Nutri do paciente vem depois — "Nestes usos" restringe a frase aos usos da nutricionista
-    expect(pu[1]).toContain('A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente.');
-    expect(pu.at(-1)).toBe('Versão 1.1, de 09/10/2026.');
-    expect(pe.at(-1)).toBe('Versão 1.1, de 09/10/2026.');
+    // D27 do Plano 15: "Nos usos (a) a (d)" restringe a frase aos usos da nutricionista; a (e) é a IA Nutri do paciente
+    expect(pu[1]).toContain('A IA não diagnostica, não interpreta exames e não prescreve. Nos usos (a) a (d), a IA não fala com o paciente,');
+    expect(pu.at(-1)).toBe('Versão 1.2, de 14/10/2026.');
+    expect(pe.at(-1)).toBe('Versão 1.2, de 14/10/2026.');
     expect(pu).toHaveLength(12);
   });
 });
@@ -270,28 +280,152 @@ describe('Plano 14B — autorização 1.1 com os usos da 14B (F2; parecer JUR-20
     expect(faltandoNaLista(p4.replace('as metas, as restrições e as preferências', 'as metas e as preferências')).rascunho_plano).toEqual(['metas']);
     expect(faltandoNaLista(p4.replace('; no resumo, se a nutricionista escolher, as anotações dela', '')).resumo_historico).toEqual(['notas']);
     expect(faltandoNaLista(p4.replace(' e as datas de cada registro', '')).datas).toBe(true);
-    // toda categoria do contrato é usada por algum uso (nada declarado à toa)
-    expect(new Set(Object.values(CATEGORIAS_POR_USO).flat())).toEqual(new Set(CATEGORIAS));
+    // toda categoria do contrato é usada por algum uso ou pela IA Nutri (nada declarado à toa; R4 do pre-flight do Plano 15)
+    expect(new Set([...Object.values(CATEGORIAS_POR_USO).flat(), ...CATEGORIAS_DA_IA_NUTRI])).toEqual(new Set(CATEGORIAS));
   });
 
-  it('aditivo 1.1: finalidades (b)–(d), item 5 com a máscara, selo no item 10, retenção de até 30 dias na anthropic-us', () => {
-    expect(IA_ADITIVO_VERSAO).toBe('1.1');
+  it('aditivo 1.2: finalidades (b)–(e), item 5 com a máscara, selo no item 10, retenção de até 30 dias na anthropic-us', () => {
+    expect(IA_ADITIVO_VERSAO).toBe('1.2');
     expect(IA_ADITIVO_VERSAO_MIN).toBe('1.1');
     const a = aditivoIa('anthropic-us').paragrafos.map(textoCorrido);
     expect(a[5]).toContain('A Anthropic guarda o conteúdo enviado por até 30 dias');
-    expect(a[1]).toContain('(b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos');
+    expect(a[1]).toContain('(b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar; (e) responder, no app do paciente,');
+    expect(a[1]).toContain('nunca texto escrito pela IA. Sem dados de paciente: (d) sugerir modelos');
     expect(a[4]).toContain('com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido.');
     expect(a[4]).toContain('e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente');
     expect(a[9]).toBe('10. Selo e transparência. O plano alimentar criado a partir do rascunho da IA leva o selo "Elaborado com apoio de IA e revisado pela nutricionista". A CONTROLADORA observa as regras do CFN sobre informar o uso de ferramentas automatizadas.');
-    expect(a.at(-1)).toBe(`Versão 1.1, de ${IA_ADITIVO_VERSAO_DATA.split('-').reverse().join('/')}.`);
+    expect(a.at(-1)).toBe(`Versão 1.2, de ${IA_ADITIVO_VERSAO_DATA.split('-').reverse().join('/')}.`);
     expect(a.join(' ')).not.toMatch(/provis[oó]ri/);
   });
 
-  it('aditivo 1.1, itens 2 e 5 inteiros (parecer 4.2 com os trechos [14B]; D27 do Plano 15; adaptação (e) do desvio 10)', () => {
-    for (const destino of ['anthropic-us', 'bedrock-eu'] as const) {
+  it('aditivo 1.2, itens 2, 5, 7, 8 e 9 inteiros (parecer 4.2 com os trechos [14B]; D27 do Plano 15; adaptação (e) do desvio 10)', () => {
+    for (const destino of ['anthropic-us', 'bedrock-eu', 'teste'] as const) {
       const a = aditivoIa(destino).paragrafos.map(textoCorrido);
-      expect(a[1]).toBe('2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nestes usos, a IA não fala com o paciente. Nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA. Ela avalia criticamente cada sugestão e responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.');
-      expect(a[4]).toBe('5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. A OPERADORA não envia nada além do que o texto da autorização descreve. Qualquer mudança gera nova versão e nova autorização.');
+      expect(a[1]).toBe('2. Finalidades. Com dados de paciente: (a) ler o laudo de exame que a CONTROLADORA escolher e sugerir os valores para o prontuário; (b) resumir o histórico do paciente antes da consulta; (c) montar um rascunho de plano alimentar a partir das metas que a CONTROLADORA informar; (e) responder, no app do paciente, dúvidas sobre o plano alimentar publicado e as orientações que a CONTROLADORA publicou, só para o paciente que ela liberar e que consentir, mostrando trechos do plano e nunca texto escrito pela IA. Sem dados de paciente: (d) sugerir modelos de plano alimentar e de anamnese por área de atendimento. A IA não diagnostica, não interpreta exames e não prescreve. Nos usos (a) a (d), a IA não fala com o paciente, nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA, e ela avalia criticamente cada sugestão. No uso (e), o paciente lê, sem revisão prévia da CONTROLADORA, só trechos do plano e das orientações que ela publicou e textos fixos da plataforma; a CONTROLADORA decide quem é liberado e acompanha o uso como no item 7. Em todos os usos, ela responde pela conduta profissional, conforme o Código de Ética e de Conduta do Nutricionista.');
+      expect(a[4]).toBe('5. O que é enviado. Na leitura, só o arquivo do laudo, sem metadados. Os dados impressos nele vão junto. No resumo e no rascunho, os dados do prontuário necessários à tarefa e, no rascunho, as metas, as restrições e as preferências que a CONTROLADORA informar, como descritos no texto da autorização do paciente, sem nome, e-mail, telefone, endereço e documentos do cadastro do paciente, com a idade no lugar da data de nascimento e com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente), com os limites descritos no texto da autorização: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos e dados de terceiros podem ir junto. As anotações privadas da CONTROLADORA só vão quando ela marcar essa opção no pedido. Nos modelos, nenhum dado de paciente. Na IA Nutri, o plano publicado, as orientações dos últimos atendimentos e as perguntas do paciente, com os textos livres mascarados (nome, e-mail, telefone e CPF do paciente e os nomes da equipe e do consultório), com os limites descritos no texto do consentimento: o primeiro nome sozinho, quando tem menos de três letras ou também é palavra comum de alimentação, o segundo nome e os sobrenomes sem o primeiro nome, apelidos, endereços e outros documentos escritos no texto e dados de terceiros podem ir junto. A OPERADORA não envia nada além do que o texto da autorização ou, na IA Nutri, o do consentimento descreve. Qualquer mudança gera nova versão e nova autorização ou, na IA Nutri, novo consentimento.');
+      expect(a[6]).toBe('7. Deveres da CONTROLADORA. Nos usos (a) a (d), antes de usar a IA com os dados de um paciente, a CONTROLADORA: (a) obtém a autorização dele pela plataforma: no app, pelo link enviado por e-mail ou pelo termo impresso, assinado e registrado com a foto ou o PDF de todas as páginas. Guarda o original em papel na pasta do paciente e entrega a ele uma via; (b) não pressiona nem condiciona o atendimento: recusar ou retirar não muda nada; (c) registra a retirada quando o paciente pedir; (d) confere cada sugestão antes de usá-la; (e) só usa a IA com pacientes adultos e com laudos do próprio paciente; (f) mantém o sigilo profissional. No uso (e), a CONTROLADORA: libera a IA Nutri paciente por paciente, avaliando se a ferramenta é adequada para ele, inclusive para quem está com o peso oculto no app; sabe que o consentimento é dado pelo próprio paciente, no app, e registra a desativação quando ele pedir; lê as dúvidas encaminhadas e as mensagens com sinal de risco e segue o protocolo de risco mostrado na fila; revisa todo mês uma amostra das conversas e as respostas marcadas como "Não ajudou"; e cumpre os deveres (b), (e) e (f). Vale a confidencialidade prevista nos contratos da OPERADORA com o fornecedor e neste aditivo.');
+      // D26 (revisão da T4): na IA Nutri, o consentimento no lugar da autorização (nunca "também" a autorização)
+      const retencao = destino === 'anthropic-us' ? 'sem a retenção da cláusula 6 confirmada pela OPERADORA' : 'sem retenção zero confirmada';
+      expect(a[7]).toBe(`8. Bloqueios automáticos. A plataforma não envia à IA dados de paciente: nos usos (a) a (c), sem autorização vigente para aquele uso e destino; na IA Nutri, sem o consentimento próprio dele vigente para aquele destino (a autorização não é exigida), sem a liberação do paciente pela CONTROLADORA ou com a IA Nutri pausada pela OPERADORA; em qualquer uso, de paciente bloqueado, arquivado ou anonimizado, ${retencao}, nem quando o limite mensal de custo do consultório foi atingido.`);
+      expect(a[8]).toBe('9. Registro e direitos do paciente. Cada pedido, cada envio de dados ao fornecedor e cada abertura da sugestão aparecem no histórico de acessos do paciente. O paciente que pedir os seus dados recebe as autorizações, a data de cada envio e o nome e o país do fornecedor. Na IA Nutri, a CONTROLADORA lê as conversas dos pacientes liberados e trata as dúvidas encaminhadas fora da plataforma ou na consulta.');
+      // a guarda das conversas nas duas variantes da cláusula 6 (com retenção zero e com os 30 dias da Anthropic direta)
+      expect(a[5]).toContain(`Na IA Nutri, as conversas ficam guardadas na plataforma por ${RETENCAO_DIAS} dias; a mensagem com sinal de risco de quem desativou a IA Nutri ou pediu a exclusão fica até a CONTROLADORA abri-la, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, e depois só um aviso sem o texto até o fim do prazo; na desativação, o registro sem conteúdo usado para os limites de perguntas fica até o fim do mês. O registro técnico do uso (data, situação e custo, sem conteúdo) é mantido.`);
+      expect(a).toHaveLength(12);
     }
+  });
+});
+
+describe('Plano 15 (D27): aditivo 1.2 — a finalidade da IA Nutri, sem subir o mínimo das outras funções', () => {
+  it('a versão sobe para 1.2; o mínimo das outras funções continua 1.1; o da IA Nutri é 1.2', () => {
+    expect(IA_ADITIVO_VERSAO).toBe('1.2');
+    expect(IA_ADITIVO_VERSAO_MIN).toBe('1.1');
+    expect(IA_NUTRI_ADITIVO_VERSAO_MIN).toBe('1.2');
+  });
+  it.each(['anthropic-us', 'bedrock-eu', 'teste'] as const)('%s: finalidade (e), "Nos usos (a) a (d)" restringe a conferência prévia, o que vai na conversa, a guarda, os deveres da (e) e o rodapé 1.2', (destino) => {
+    const t = aditivoIa(destino).paragrafos.map(textoCorrido).join('\n');
+    expect(t).toContain('(e) responder, no app do paciente, dúvidas sobre o plano alimentar publicado e as orientações que a CONTROLADORA publicou');
+    expect(t).toContain('Nos usos (a) a (d), a IA não fala com o paciente, nada entra no prontuário nem chega ao paciente sem a conferência e a ação da CONTROLADORA, e ela avalia criticamente cada sugestão.');
+    expect(t).toContain('No uso (e), o paciente lê, sem revisão prévia da CONTROLADORA, só trechos do plano e das orientações que ela publicou e textos fixos da plataforma');
+    expect(t).not.toContain('Ela avalia criticamente cada sugestão e responde'); // a frase da 1.1 não vale mais para todos os usos
+    expect(t).toContain(`Na IA Nutri, o plano publicado, as orientações dos últimos atendimentos e as perguntas do paciente, ${LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI}`);
+    expect(t).toContain('Na IA Nutri, as conversas ficam guardadas na plataforma por 180 dias;');
+    expect(t).toContain('Nos usos (a) a (d), antes de usar a IA com os dados de um paciente, a CONTROLADORA:');
+    expect(t).toContain('No uso (e), a CONTROLADORA: libera a IA Nutri paciente por paciente, avaliando se a ferramenta é adequada para ele');
+    expect(t).toContain('Versão 1.2, de 14/10/2026.');
+  });
+});
+
+describe('Plano 15 (RN-171, US-171, D11): o consentimento da IA Nutri', () => {
+  const d = { consultorio: 'Consultório Debby', nutricionista: 'Debby Silva', crn: 'CRN-3 12345', contato: 'debby@ex.com' };
+  it.each(['anthropic-us', 'bedrock-eu', 'teste'] as const)('%s: as frases da US-171, o destino e a retenção do destino, com o nome', (destino) => {
+    const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino })!.paragrafos.map(textoCorrido).join('\n');
+    for (const frase of [
+      `A ${NOME_IA_NUTRI} é uma inteligência artificial, não é a sua nutricionista.`,
+      'Ela só responde dúvidas sobre o seu plano alimentar e as orientações que sua nutricionista publicou. Não faz diagnóstico, não muda o seu plano e não indica suplementos ou remédios.',
+      'Quem é responsável pelos seus dados: Debby Silva, CRN-3 12345, contato: debby@ex.com.',
+      'O que é enviado: o seu plano publicado, as orientações dos últimos atendimentos e o que você escrever nas perguntas.',
+      LIMITE_DA_MASCARA_IA_NUTRI,
+      'Não escreva dados de outras pessoas nem assuntos que não sejam sobre o seu plano.',
+      `No NutriDebby, as conversas ficam guardadas por ${RETENCAO_DIAS} dias e depois são apagadas. Esse prazo é diferente da guarda pelo fornecedor, acima.`,
+      `Sua nutricionista pode ler as suas conversas com a ${NOME_IA_NUTRI}.`,
+      `Se você escrever algo que indique risco à sua saúde, a ${NOME_IA_NUTRI} mostra contatos de ajuda e avisa a sua nutricionista.`,
+      `Em emergência, não use a ${NOME_IA_NUTRI}: ligue para o SAMU (192) ou o CVV (188).`,
+      `Você pode desativar a ${NOME_IA_NUTRI} quando quiser em Eu › Privacidade ou pedindo à sua nutricionista; as conversas são apagadas na hora.`,
+      // revisão da T4 (art. 9º, II): a mensagem de risco também sobrevive ao pedido de exclusão (item 6 do aditivo, T10)
+      `Se você desativar a ${NOME_IA_NUTRI} ou pedir a exclusão dos seus dados, uma mensagem com sinal de risco que sua nutricionista ainda não leu fica guardada até ela ler, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias.`,
+      'Recusar ou desativar não muda o seu atendimento nem a autorização de IA para os seus exames.',
+    ]) expect(t).toContain(frase);
+    if (destino === 'anthropic-us') expect(t).toContain('por até 30 dias');
+    expect(t).not.toContain('sem o seu nome'); // art. 9º, § 1º: a máscara tem limites, ditos no parágrafo próprio
+  });
+  it('o destino e a retenção do fornecedor são os da autorização 1.1 (mesma variante), com o espaço depois de "Por quanto tempo."', () => {
+    const p = (destino: 'anthropic-us' | 'bedrock-eu' | 'teste') => textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino })!.paragrafos.map(textoCorrido);
+    const autorizacao = (destino: 'anthropic-us' | 'bedrock-eu' | 'teste') => textoDaAutorizacao('1.1', { ...d, destino, canal: 'app' })!.paragrafos.map(textoCorrido);
+    for (const destino of ['anthropic-us', 'bedrock-eu', 'teste'] as const) {
+      expect(p(destino), destino).toContain(autorizacao(destino)[5]); // "Para onde vai." do destino
+      const tempo = p(destino).find((x) => x.startsWith('Por quanto tempo.'))!;
+      expect(tempo, destino).toMatch(/^Por quanto tempo\. \S/);
+      // a mesma retenção, exceção e riscos a mais do destino que a autorização diz (frase por frase), sem frase nova
+      const daAutorizacao = autorizacao(destino).join(' ');
+      for (const frase of tempo.slice('Por quanto tempo. '.length).split(/(?<=\.) /)) expect(daAutorizacao, `${destino}: ${frase}`).toContain(frase);
+    }
+    expect(p('anthropic-us').join('\n')).toContain('Se os sistemas de segurança dele sinalizarem o conteúdo, ele pode guardá-lo por até 2 anos');
+    expect(p('teste').join('\n')).toContain('Ambiente de teste: os dados não são enviados a nenhum fornecedor de IA.');
+  });
+  it('título, destaques (art. 33, VIII) e a ordem: a emergência em destaque', () => {
+    const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'anthropic-us' })!;
+    expect(t.titulo).toBe(`Antes de usar a ${NOME_IA_NUTRI}`);
+    const fortes = t.paragrafos.flatMap((p) => p.filter((x) => x.forte).map((x) => x.texto));
+    for (const f of [`A ${NOME_IA_NUTRI} é uma inteligência artificial, não é a sua nutricionista.`, 'Para onde vai.', 'saem do Brasil', 'Por quanto tempo.', `Em emergência, não use a ${NOME_IA_NUTRI}: ligue para o SAMU (192) ou o CVV (188).`]) expect(fortes).toContain(f);
+  });
+  it('o limite da máscara do consentimento e do aditivo é o da autorização 1.1 (pseudonimizar.ts, LIMITE DECLARADO, inteiro)', () => {
+    for (const trecho of ['primeiro nome sozinho', 'menos de três letras', 'palavra comum de alimentação', 'sem o primeiro', 'apelidos', 'o nome de outras pessoas', 'endereço', 'outro documento'])
+      expect(LIMITE_DA_MASCARA_IA_NUTRI).toContain(trecho);
+    for (const trecho of ['primeiro nome sozinho', 'menos de três letras', 'palavra comum de alimentação', 'sobrenomes sem o primeiro nome', 'apelidos', 'endereços', 'outros documentos', 'dados de terceiros'])
+      expect(LIMITE_DA_MASCARA_ADITIVO_IA_NUTRI).toContain(trecho);
+  });
+  it('★ DO-2 trocada (D37): o consentimento é a versão 1.0 final, sem "provisório" nem "em revisão"; o texto exibido é conferido (versão e destino)', () => {
+    expect(IA_NUTRI_TERMO_VERSAO).toBe('1.0');
+    expect(IA_NUTRI_TERMO_VERSAO_MIN).toBe('1.0');
+    expect(IA_NUTRI_TERMO_VERSAO_DATA).toBe('2026-10-14');
+    expect(versaoAtende(IA_NUTRI_TERMO_VERSAO, IA_NUTRI_TERMO_VERSAO_MIN)).toBe(true);
+    const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'teste' })!.paragrafos.map(textoCorrido);
+    expect(t.at(-1)).toBe('Versão 1.0, de 14/10/2026.');
+    expect(t.join('\n')).not.toMatch(/provis|em revisão/i);
+    expect(textoDoConsentimentoIaNutri('0.1-provisorio', { ...d, destino: 'teste' })).toBeNull(); // nunca houve versão provisória da IA Nutri
+    expect(conferirTextoExibidoIaNutri(textoExibidoIaNutri('teste'), 'teste')).toBe(true);
+    expect(textoExibidoIaNutri('bedrock-eu')).toEqual({ versao: '1.0', destino: 'bedrock-eu' });
+    expect(conferirTextoExibidoIaNutri({ versao: IA_NUTRI_TERMO_VERSAO, destino: 'teste' }, 'anthropic-us')).toBe(false);
+    expect(conferirTextoExibidoIaNutri({ versao: '0.0', destino: 'teste' }, 'teste')).toBe(false);
+    expect(conferirTextoExibidoIaNutri('lixo', 'teste')).toBe(false);
+    expect(conferirTextoExibidoIaNutri(null, 'teste')).toBe(false);
+  });
+  it('art. 33, VIII (revisão da T4): nos destinos que saem do Brasil, o toque no botão é o consentimento para a transferência, antes do rodapé; no de teste, não', () => {
+    expect(BOTAO_AUTORIZO_IA_NUTRI).toBe(`Autorizo o uso da ${NOME_IA_NUTRI}`);
+    const frase = `Ao tocar em "${BOTAO_AUTORIZO_IA_NUTRI}", você autoriza o envio do seu plano, das orientações e das suas perguntas para fora do Brasil, ao destino acima, só para responder às suas dúvidas sobre o plano.`;
+    for (const destino of ['anthropic-us', 'bedrock-eu'] as const) {
+      const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino })!.paragrafos.map(textoCorrido);
+      expect(t.at(-2), destino).toBe(frase);
+    }
+    const teste = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'teste' })!.paragrafos.map(textoCorrido);
+    expect(teste.join('\n')).not.toContain('para fora do Brasil');
+    expect(teste.at(-2)).toBe('Recusar ou desativar não muda o seu atendimento nem a autorização de IA para os seus exames.');
+  });
+  it('D26 (revisão da T4): o aditivo nunca põe a autorização dos usos (a) a (c) como condição da IA Nutri', () => {
+    for (const destino of ['anthropic-us', 'bedrock-eu', 'teste'] as const) {
+      const a = aditivoIa(destino).paragrafos.map(textoCorrido);
+      const t = a.join('\n');
+      expect(t, destino).not.toContain('Na IA Nutri, também');
+      expect(t, destino).not.toContain('sem a autorização vigente dele, registrada');
+      expect(a[2], destino).toContain('na IA Nutri, um novo consentimento');
+      expect(a[3], destino).toContain('na IA Nutri, o consentimento próprio dele, independente da autorização');
+      expect(a[4], destino).toContain('o texto da autorização ou, na IA Nutri, o do consentimento descreve');
+      expect(a[7], destino).toContain('na IA Nutri, sem o consentimento próprio dele vigente para aquele destino (a autorização não é exigida)');
+    }
+  });
+  it('cada categoria da IA Nutri tem a sua frase no "O que é enviado" do consentimento (o contrato do que sai)', () => {
+    const t = textoDoConsentimentoIaNutri(IA_NUTRI_TERMO_VERSAO, { ...d, destino: 'teste' })!.paragrafos.map(textoCorrido).join('\n');
+    const oQueVai = t.slice(t.indexOf('O que é enviado:'), t.indexOf(LIMITE_DA_MASCARA_IA_NUTRI));
+    for (const c of CATEGORIAS_DA_IA_NUTRI) expect(oQueVai).toContain(FRASE_DA_CATEGORIA_IA_NUTRI[c]);
   });
 });

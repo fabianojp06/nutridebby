@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PedidoGeracao, PedidoLeitura } from './provedor';
-import { classificarErroBedrock, LIMITE_PEDIDO_BEDROCK_BYTES, PERFIL_BEDROCK_EU, provedorBedrock } from './provedor-bedrock';
+import { classificarErroBedrock, LIMITE_PEDIDO_BEDROCK_BYTES, PERFIL_BEDROCK_EU, provedorBedrock, TIMEOUT_MS } from './provedor-bedrock';
 
 // Nenhuma chamada sai da máquina: todo teste passa um fetch falso. As chaves são de mentira (só o formato).
 const CHAVES = { accessKeyId: 'AKIA' + 'T'.repeat(16), secretAccessKey: 's'.repeat(40) };
@@ -175,5 +175,40 @@ describe('gerar no Bedrock (Plano 14B, D1): ferramentas strict com auto, sem inf
     await expect(novo(f).gerar({ ...pedidoGeracao, modelo: 'claude-opus-5-5' })).rejects.toMatchObject({ name: 'ErroProvedor', tipo: 'pedido_invalido' });
     await expect(novo(f).gerar({ ...pedidoGeracao, geo: 'us' })).rejects.toMatchObject({ tipo: 'pedido_invalido' });
     expect(chamadas).toHaveLength(0);
+  });
+});
+
+describe('Plano 15 (RN-180): o prazo por pedido (prazoMs) também no Bedrock', () => {
+  it('prazoMs: 45_000 aborta a chamada aos 45 s; sem prazoMs, só no TIMEOUT_MS (120 s); numa chamada só', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const sinais: AbortSignal[] = [];
+      const pendurado: typeof fetch = (_u, init) => {
+        sinais.push(init!.signal!);
+        return new Promise<Response>((_, rej) => init?.signal?.addEventListener('abort', () => rej(Object.assign(new Error('abortado'), { name: 'AbortError' }))));
+      };
+      const saiu = async (n: number) => {
+        while (sinais.length < n) await new Promise((r) => setImmediate(r));
+      };
+      const p = novo(pendurado);
+
+      const comPrazo = p.gerar({ ...pedidoGeracao, finalidade: 'conversa_paciente', ferramentas: [], prazoMs: 45_000 }).catch((e: unknown) => e);
+      await saiu(1);
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(sinais[0].aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sinais[0].aborted).toBe(true);
+      expect(await comPrazo).toMatchObject({ name: 'ErroProvedor', tipo: 'incerto' });
+
+      const semPrazo = p.gerar(pedidoGeracao).catch((e: unknown) => e);
+      await saiu(2);
+      await vi.advanceTimersByTimeAsync(TIMEOUT_MS - 1);
+      expect(sinais[1].aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await semPrazo).toMatchObject({ name: 'ErroProvedor', tipo: 'incerto' });
+      expect(sinais).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

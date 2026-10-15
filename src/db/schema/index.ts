@@ -9,4 +9,5 @@ export * from './agenda';
 export * from './portal';
 export * from './documentos';
 export * from './ia';
+export * from './ia-nutri';
 export * from './exames-enviados';

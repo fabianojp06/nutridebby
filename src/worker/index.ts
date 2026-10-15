@@ -21,6 +21,11 @@ import { processarRetiradaIa, type DadosRetiradaIa } from '@/modules/ia/autoriza
 import { expirarTarefasIA, processarTarefaIA, type DadosJobIA } from '@/modules/ia/leitura-job';
 import { expirarGeracoesIA, type DadosJobAssistente } from '@/modules/ia/modelos-job';
 import { configIA } from '@/modules/ia/modo';
+import { processarPerguntaIaNutri, type DadosJobIaPaciente } from '@/modules/ia/nutri-paciente/job';
+import { processarRevogacaoIaNutri, type DadosRevogacaoIaNutri } from '@/modules/ia/nutri-paciente/revogacao-job';
+import { expurgarIaNutri } from '@/modules/ia/nutri-paciente/retencao';
+import { avisarRiscoIaNutri } from '@/modules/ia/nutri-paciente/risco-job';
+import { expirarPerguntasIaNutri } from '@/modules/ia/nutri-paciente/varredura';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
@@ -256,15 +261,43 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await work<DadosRetiradaIa>('ia-retirada', async ([job]) => {
     await processarRetiradaIa(job.data, { db: getDb(), destino: ia.destino });
   });
+  // Plano 15 (RN-182, D30): a revogação da IA Nutri — o job nasce na transação da revogação (app ou ficha, DP-17)
+  await work<DadosRevogacaoIaNutri>('ia-nutri-revogacao', async ([job]) => {
+    await processarRevogacaoIaNutri(job.data, { db: getDb() });
+  });
+  // Plano 15 (D10, DP-6): o e-mail genérico de sinal de risco às nutricionistas — o job nasce na transação da pergunta com
+  // risco (e no job ia-paciente quando o modelo classifica `risco`, T9); dentro da janela de 15 min, ele se adia
+  await work<{ tenantId: string }>('ia-nutri-risco', async ([job]) => {
+    await avisarRiscoIaNutri(job.data, { db: getDb(), appUrl: env.APP_URL, boss });
+  });
   // Plano 14B (D3): a fila do resumo, do rascunho e dos modelos sugeridos — o mesmo provedor; o modelo é o do assistente
   // (A-D3). Um job por vez (padrão do boss.work); expira em 900 s, acima do prazo do laço (12 min)
-  logger.info({ modeloAssistente: ia.modeloAssistente }, 'IA Nutri');
+  // Plano 15: o modelo da IA Nutri do paciente e a segunda barreira (só nomes de modelo e o booleano)
+  logger.info({ modeloAssistente: ia.modeloAssistente, modeloPaciente: ia.modeloPaciente, nutriDesligada: ia.nutriDesligada }, 'IA Nutri');
   await work('ia-assistente', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosJobAssistente>[]) => {
     await processarJobAssistente(job.data, {
       db: getDb(), modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, destino: ia.destino, retencao: ia.retencao,
       modeloAssistente: ia.modeloAssistente, tetoRascunhoMicroUsd: ia.tetoRascunhoMicroUsd,
       appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit, abortado: () => job.signal.aborted,
     });
+  });
+  // Plano 15 (§4.2, RN-180): a IA Nutri do paciente — fila própria, duas por vez (uma pergunta não espera atrás de um
+  // laudo); o modelo é o do paciente (D5). A varredura de minuto em minuto é a rede de segurança (presa → falhou)
+  await work('ia-paciente', { includeMetadata: true, localConcurrency: 2 }, async ([job]: JobWithMetadata<DadosJobIaPaciente>[]) => {
+    await processarPerguntaIaNutri(job.data, {
+      db: getDb(), modo: ia.modo, provedor: provedorIA, geo: ia.geo, tetoGlobalMicroUsd: ia.tetoGlobalMicroUsd, destino: ia.destino, retencao: ia.retencao,
+      modeloPaciente: ia.modeloPaciente, nutriDesligada: ia.nutriDesligada, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit,
+      abortado: () => job.signal.aborted, boss,
+    });
+  });
+  await boss.schedule('expirar-ia-paciente', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('expirar-ia-paciente', async () => {
+    await expirarPerguntasIaNutri(getDb(), new Date());
+  });
+  // Plano 15 (RN-181, D22, DP-10): a retenção das conversas da IA Nutri — depois da anonimização das 04:00 (retencao-lgpd)
+  await boss.schedule('ia-nutri-retencao', '15 4 * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('ia-nutri-retencao', async () => {
+    await expurgarIaNutri(getDb(), new Date(), env.APP_URL);
   });
   // Plano 12 (RN-163, D23 = a): envio de exame do paciente — fotos convertidas, PDF rasterizado num processo filho (sem
   // ambiente, teto de memória vigiado), PDF limpo, páginas e o aviso agrupado. Um por vez (padrão do boss.work, RNF-162).

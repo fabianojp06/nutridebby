@@ -7,6 +7,7 @@ import { AVISO_PORTAL } from '@/modules/ajuda/portal';
 import { blocoIaDoApp, type SituacaoAutorizacao } from '@/modules/ia/autorizacao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA } from '@/modules/ia/modo';
+import { blocoIaNutriDoApp } from '@/modules/ia/nutri-paciente/estado';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
 import { molduraDaSecao } from '../../moldura';
@@ -54,8 +55,9 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
   const acesso = await requirePaciente('/p/perfil');
   const { ctx, data, tenant, vinculo, vinculos } = acesso;
   const busca = await searchParams;
-  const [moldura, whatsapp, bloco] = await Promise.all([molduraDaSecao(acesso), situacaoDoWhatsapp(ctx), blocoIaDoApp(ctx, tenant, configIA(getEnv()))]);
-  const ia = bloco ? blocoNaTela(bloco, tenant.fuso, typeof busca.ia === 'string' ? busca.ia : undefined) : null;
+  const ia = configIA(getEnv());
+  const [moldura, whatsapp, bloco, iaNutri] = await Promise.all([molduraDaSecao(acesso), situacaoDoWhatsapp(ctx), blocoIaDoApp(ctx, tenant, ia), blocoIaNutriDoApp(ctx, tenant, ia)]);
+  const blocoIa = bloco ? blocoNaTela(bloco, tenant.fuso, typeof busca.ia === 'string' ? busca.ia : undefined) : null;
   return (
     <>
       <Faixa {...moldura} atual="/p/perfil" titulo={MSG_G.titulos.eu} />
@@ -94,7 +96,7 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
         <InstalarNoEu />
         <section aria-labelledby="privacidade" className={CARTAO}>
           <h2 id="privacidade" className={H2}>Privacidade</h2>
-          <Privacidade ia={ia} />
+          <Privacidade ia={blocoIa} iaNutri={iaNutri} />
         </section>
         {/* Plano 16 (US-199, RN-212): o manual do portal, que também reabre o tour */}
         <p>

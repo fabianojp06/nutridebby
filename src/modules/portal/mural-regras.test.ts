@@ -160,3 +160,13 @@ describe('comporMural (RN-193 a RN-201)', () => {
     ]);
   });
 });
+
+describe('Plano 15 (D34, §7.8): o rodapé do mural com a IA Nutri', () => {
+  it('não diz mais "Este app não é um canal de conversa" sem ressalva: o mural não é conversa com a nutricionista; a IA Nutri, quando liberada, é um programa', () => {
+    expect(MSG_MURAL.rodape).not.toContain('canal de conversa');
+    expect(MSG_MURAL.rodape).toBe(
+      'Seus registros do diário ficam visíveis para sua nutricionista, que pode comentar quando os ler. O mural não é uma conversa com a sua nutricionista e não tem prazo de resposta. A IA Nutri, quando liberada, é um programa e responde só sobre o seu plano. Dúvidas: anote para a consulta ou use os contatos do consultório. Em emergência, ligue 192.',
+    );
+  });
+});
+

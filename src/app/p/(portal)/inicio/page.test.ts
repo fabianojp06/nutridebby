@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AVISO_PORTAL, GUIA_PORTAL } from '@/modules/ajuda/portal';
 import { MSG_MURAL } from '@/modules/portal/mural-regras';
 
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
@@ -23,6 +24,10 @@ const estado = vi.hoisted(() => ({ jaUsava: true, guia: {} as Record<string, unk
 vi.mock('@/modules/plataforma/preferencias', () => ({ lerGuia: async () => estado.guia }));
 vi.mock('@/modules/portal/acesso', () => ({ jaUsavaOApp: async () => estado.jaUsava }));
 vi.mock('../ajuda/actions', () => ({ marcarGuiaPortalAction: async () => {} }));
+const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
+vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
+// o cartão só existe no cliente (o "Agora não" fica no aparelho): o marcador mostra se a página o põe e com qual vínculo
+vi.mock('./convite-ia-nutri', () => ({ ConviteIaNutri: ({ dono }: { dono: string }) => `[convite IA Nutri de ${dono}]` }));
 const { default: Hoje } = await import('./page');
 
 const pagina = async (busca: Record<string, string> = {}) => renderToStaticMarkup(await Hoje({ searchParams: Promise.resolve(busca) } as never));
@@ -31,6 +36,7 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
   beforeEach(() => {
     estado.jaUsava = true;
     estado.guia = {};
+    ia.entrada = 'nenhuma';
   });
   it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
     const html = await pagina();
@@ -60,7 +66,7 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
 
   it('RN-212: o aviso aparece uma vez por conta (visto, concluído ou dispensado na versão atual: sem aviso); ?tour= abre o tour', async () => {
     for (const marca of ['visto', 'concluido', 'dispensado']) {
-      estado.guia = { 'portal-novidades': { v: 1, estado: marca } };
+      estado.guia = { 'portal-novidades': { v: GUIA_PORTAL.versao, estado: marca } };
       const html = await pagina();
       expect(html, marca).not.toContain('Ver como funciona');
       expect(html, marca).not.toContain('<dialog');
@@ -71,4 +77,23 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     expect(html).not.toContain('Ver como funciona'); // o tour aberto não mostra o aviso por baixo
     expect(await pagina({ tour: 'boas-vindas' })).not.toContain('<dialog'); // só o guia do portal
   });
+
+  it('Plano 15 (★ DO-6, §7.8): quem já viu a versão 1 do guia recebe "O manual do app foi atualizado…", nunca "O app mudou" de novo', async () => {
+    for (const marca of ['visto', 'concluido', 'dispensado']) {
+      estado.guia = { 'portal-novidades': { v: 1, estado: marca } };
+      const html = await pagina();
+      expect(html, marca).toContain(AVISO_PORTAL.atualizado);
+      expect(html, marca).not.toContain('O app mudou');
+    }
+  });
+
+  it('Plano 15 (§7.8): o convite da IA Nutri só com a entrada "decidir", chaveado pelo vínculo', async () => {
+    ia.entrada = 'decidir';
+    expect(await pagina()).toContain('[convite IA Nutri de p1]');
+    for (const e of ['nenhuma', 'conversa', 'texto_mudou', 'indisponivel', 'sem_plano']) {
+      ia.entrada = e;
+      expect(await pagina(), e).not.toContain('[convite IA Nutri');
+    }
+  });
 });
+

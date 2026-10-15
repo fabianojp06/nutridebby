@@ -129,6 +129,12 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
       for (const dado of ['Ana', 'Souza', 'Debby', 'Silva']) expect(p.corpo, dado).not.toContain(dado);
     }
   });
+  it('Plano 15 (D24 = b, RNF-166): a dúvida vista — o mesmo texto neutro, sem "IA", "dúvida" nem "nutricionista"; o toque abre /p/plano/ia do consultório', () => {
+    const p = pushDaNotificacao({ ...ctx('duvida_vista'), consulta: null }, deps)!;
+    expect(p).toEqual({ titulo: 'NutriDebby', corpo: 'Há uma atualização para você no app.', url: `https://app.exemplo.com/p/plano/ia?v=${tenant.id}` });
+    for (const proibido of [/\bIA\b/, /d[úu]vida/i, /nutricionista/i, /nutri\b/i]) expect(JSON.stringify({ titulo: p.titulo, corpo: p.corpo }), String(proibido)).not.toMatch(proibido);
+    for (const dado of ['Ana', 'Souza', 'Debby', 'Silva']) expect(p.corpo, dado).not.toContain(dado);
+  });
   it('nada do paciente, da nutricionista nem da consulta além do horário (nome, endereço, modalidade, link da chamada)', () => {
     for (const c of [ctx('lembrete_24h'), ctx('lembrete_2h'), ctx('consulta_marcada'), ctx('consulta_cancelada'), online(ctx('lembrete_24h'))]) {
       const p = pushDaNotificacao(c, deps)!;

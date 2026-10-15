@@ -59,7 +59,7 @@ Pontos que importam:
 | Opção | Valor no código | Linha | Por quê |
 |---|---|---|---|
 | `baseURL`, `trustedOrigins` | `APP_URL` | 42, 53-55 | Só a própria origem chama os endpoints |
-| `secret` | variável `AUTH_SECRET` (mín. 32 caracteres, `src/env.ts:112`) | 54 | Assina cookies e cifra o segredo do TOTP |
+| `secret` | variável `AUTH_SECRET` (mín. 32 caracteres, `src/env.ts:120`) | 54 | Assina cookies e cifra o segredo do TOTP |
 | `logger` | só nível e mensagem vão ao pino | 59 | O erro do Drizzle carrega SQL e parâmetros (token, senha). RNF-11, regra 3 do CLAUDE.md |
 | `database` | `drizzleAdapter(db, { provider: 'pg', schema: authSchema })` | 60 | Tabelas `user`, `session`, `account`, `verification`, `two_factor`, `rate_limit` (`src/db/schema/auth.ts`) |
 | `verification.storeIdentifier` | `'hashed'` | 64 | Tokens de redefinição e de 2FA ficam só como SHA-256. Plano 02, "Itens adiados do Plano 01", Tarefa 3 |
@@ -80,7 +80,7 @@ Pontos que importam:
 | `hooks.before` | login da equipe sem "lembrar de mim", Turnstile, 2FA da web e política de senha | 163-205 | P12-14, INT-06, RN-145 e US-002 |
 | `plugins` | `twoFactor({ issuer: 'NutriDebby' })`, `nextCookies()` | 172 | 2FA e cookies em Server Actions |
 
-`TRUSTED_PROXIES` é obrigatória quando `NODE_ENV=production`; sem ela o processo não sobe (`src/env.ts:162-167`), porque o limite de tentativas viraria um balde só para todo mundo.
+`TRUSTED_PROXIES` é obrigatória quando `NODE_ENV=production`; sem ela o processo não sobe (`src/env.ts:174-179`), porque o limite de tentativas viraria um balde só para todo mundo.
 
 `src/lib/auth.cli.ts` é uma instância só para o CLI do Better Auth gerar o schema (Plano 01, estrutura de arquivos, linha 85). Ela aponta para um banco inexistente e usa um segredo fixo de mentira. O app nunca a importa.
 
@@ -328,7 +328,7 @@ A conta de paciente não tem tenant. Para abrir o portal é preciso saber **qual
 
 ### Contexto `conta` (Plano 06, D2)
 
-`withConta(userId, fn)` (`src/db/tenant.ts:99`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
+`withConta(userId, fn)` (`src/db/tenant.ts:101`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
 
 Uso restrito (CLAUDE.md, regra 1): `src/modules/portal/vinculos.ts` e a função `app_conta_sem_outro_vinculo` (`drizzle/0079_paciente_titular.sql`), usada na anonimização.
 
@@ -558,7 +558,7 @@ só a preserva enquanto a IA continua ativa (aceite de versão nova do aditivo, 
 `desativarIa` a zera (`src/modules/ia/ativacao.ts:48`) e a reativação grava a data nova. A data do primeiro aceite de cada
 versão fica em `consents.aceito_em` (`onConflictDoNothing`). Diferente do DPA, versão nova do aditivo **não**
 redireciona o painel: a seção de IA em Configurações mostra "Para continuar usando a IA, aceite a versão atual do aditivo
-de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual" (`ia-secao.tsx:35-41`), e cada exame com
+de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual" (`ia-secao.tsx:39-45`), e cada exame com
 laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:24`)
 (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 

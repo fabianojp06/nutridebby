@@ -10,6 +10,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultaDireta } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { tarefaNoBanco } from '../../../test/ia';
+import { mensagemNoBanco } from '../../../test/ia-nutri';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
@@ -19,9 +20,11 @@ import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
-import { auditLog, consents, dataExports, diaryEntries, exams, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
+import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -637,6 +640,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         documentos: [],
         ia: [],
         examesEnviados: [],
+        iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -1083,6 +1087,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         documentos: [],
         ia: [],
         examesEnviados: [],
+        iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
       },
       'Debby Silva',
@@ -1136,3 +1141,72 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     }
   });
 });
+
+describe('Plano 15 (§7.6 "Exportação", US-018, US-046, RN-109) — a IA Nutri no dados.json', () => {
+  it('iaNutri: consentimentos (evento, versão, destino com o rótulo, data, IP e user-agent) e mensagens (data ISO, autor, texto — o fixo traduzido —, categoria, risco, avaliação, nas enviadas ao provedor a data e o destino, nas enviadas à nutricionista a data e a situação da dúvida); nunca fontes, motivo técnico, modelo ou reserva; nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T);
+    const ctxP = ctxPaciente(T.tenantId, p.id, userId);
+    // Revisão da T10 (LGPD art. 19, § 3º): datas em ISO 8601 com a hora, como os outros blocos — a hora não se perde
+    const noite = new Date('2026-10-02T01:30:00Z');
+    const iso = (ms: number) => new Date(noite.getTime() + ms).toISOString();
+    await withTenant(ctxP, (tx) => tx.insert(iaNutriConsentimentos).values({ tenantId: T.tenantId, patientId: p.id, evento: 'aceite', versao: '1.0', destino: 'anthropic-us', canal: 'app', registradoPor: userId, ip: '203.0.113.7', userAgent: 'Mozilla/5.0' }), app.db);
+    const pergunta = await mensagemNoBanco(app.db, T.tenantId, p.id, {
+      status: 'respondida', texto: 'Quanto de arroz no almoço?', createdAt: noite, enviadoEm: noite, saiuEm: noite, destino: 'anthropic-us',
+      modelo: 'claude-haiku-5-5', promptVersao: 'conversa-v1', reservaMicroUsd: 1234,
+    });
+    await mensagemNoBanco(app.db, T.tenantId, p.id, {
+      autor: 'ia', status: null, respondeA: pergunta, contouNoLimite: false, createdAt: new Date(noite.getTime() + 1000),
+      texto: 'No seu plano: arroz, 100 g.', categoria: 'plano', tipoResposta: 'quantidade', fontes: ['#R1-1'], modelo: 'claude-haiku-5-5', avaliacao: 'ajudou',
+    });
+    const falhou = await mensagemNoBanco(app.db, T.tenantId, p.id, {
+      status: 'falhou', texto: 'E o feijão?', motivoTecnico: 'invalida_fonte', createdAt: new Date(noite.getTime() + 2000),
+      encaminhadaEm: new Date(noite.getTime() + 60_000), abertaPelaNutriEm: new Date(noite.getTime() + 120_000), resolvidaEm: new Date(noite.getTime() + 120_000), resolucao: 'vista',
+    });
+    await mensagemNoBanco(app.db, T.tenantId, p.id, { autor: 'ia', status: null, respondeA: falhou, contouNoLimite: false, texto: null, textoFixo: 'nao_encontrei', motivoTecnico: 'invalida_fonte', createdAt: new Date(noite.getTime() + 3000) });
+    await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida', texto: null, risco: 'modelo', contouNoLimite: false, revogadaEm: noite, encaminhadaEm: noite, createdAt: new Date(noite.getTime() + 4000) }); // aviso mínimo (D22)
+    await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'cancelada', texto: null, createdAt: new Date(noite.getTime() + 5000) }); // esqueleto (D32): fora
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.iaNutri.consentimentos, escopo).toEqual([
+        { evento: 'Autorizou', versao: '1.0', destino: DESTINO_ROTULO['anthropic-us'], data: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/), ip: '203.0.113.7', userAgent: 'Mozilla/5.0' },
+      ]); // registrado_em = relógio do banco
+      expect(dados.iaNutri.mensagens, escopo).toEqual([
+        { data: iso(0), autor: MSG_IA_NUTRI.autorPaciente, texto: 'Quanto de arroz no almoço?', categoria: null, risco: null, enviadaEm: iso(0), destino: DESTINO_ROTULO['anthropic-us'] },
+        { data: iso(1000), autor: MSG_IA_NUTRI.autorIa, texto: 'No seu plano: arroz, 100 g.', categoria: 'Dúvida sobre o plano', risco: null, avaliacao: 'Ajudou' },
+        { data: iso(2000), autor: MSG_IA_NUTRI.autorPaciente, texto: 'E o feijão?', categoria: null, risco: null, enviadaANutricionistaEm: iso(60_000), situacaoDaDuvida: 'Vista pela nutricionista' },
+        { data: iso(3000), autor: MSG_IA_NUTRI.autorIa, texto: TEXTOS_FIXOS.nao_encontrei, categoria: null, risco: null },
+        { data: iso(4000), autor: MSG_IA_NUTRI.autorPaciente, texto: null, categoria: null, risco: 'Sinal de risco (percebido pela IA)', enviadaANutricionistaEm: iso(0), situacaoDaDuvida: 'Aguardando a nutricionista' },
+      ]);
+      expect(MSG_IA_NUTRI.autorIa).toBe('IA Nutri — inteligência artificial'); // R8: o mesmo rótulo da conversa
+      const json = JSON.stringify(dados.iaNutri);
+      for (const proibido of ['#R1-1', 'fontes', 'invalida_fonte', 'motivo', 'claude-haiku', 'conversa-v1', '1234', 'reserva', 'quantidade']) expect(json, `${escopo} ${proibido}`).not.toContain(proibido);
+    }
+  });
+
+  it('D22 (revisão final): a pergunta com risco de quem desativou a IA Nutri, ainda na fila — o titular recebe o texto; a equipe não (só o selo), e a exportação não abre nem apaga a dúvida', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p } = await pacienteComConta(app.db, T);
+    const quando = new Date('2026-10-02T01:30:00Z');
+    const id = await mensagemNoBanco(app.db, T.tenantId, p.id, {
+      status: 'respondida', texto: 'Fico dias sem comer', risco: 'transtorno_alimentar', contouNoLimite: false, revogadaEm: quando, encaminhadaEm: quando, createdAt: quando,
+    });
+    const base = { data: quando.toISOString(), autor: MSG_IA_NUTRI.autorPaciente, categoria: null, risco: 'Sinal de risco (alimentação)', enviadaANutricionistaEm: quando.toISOString(), situacaoDaDuvida: 'Aguardando a nutricionista' };
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    expect(equipe.dados.iaNutri.mensagens).toEqual([{ ...base, texto: null, aviso: MSG_IA_NUTRI.riscoRevogadoNaFicha }]);
+    expect(JSON.stringify(equipe.dados)).not.toContain('Fico dias sem comer');
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(titular.dados.iaNutri.mensagens).toEqual([{ ...base, texto: 'Fico dias sem comer' }]);
+    // a exportação não é a leitura única da D22: a linha continua com o texto, sem aberta_pela_nutri_em
+    const [m] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select texto, aberta_pela_nutri_em from ia_nutri_mensagens where id = ${id}`), app.db)).rows;
+    expect(m).toEqual({ texto: 'Fico dias sem comer', aberta_pela_nutri_em: null });
+  });
+
+  it('paciente sem IA Nutri: iaNutri com as listas vazias', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.iaNutri).toEqual({ consentimentos: [], mensagens: [] });
+  });
+});
+

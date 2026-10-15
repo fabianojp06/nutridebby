@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
+import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import type { EmailMessage, RenderedEmail } from './types';
@@ -193,7 +194,9 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const linhas = [
         `Olá, ${msg.nome}!`,
         `${msg.nutri} atendeu o seu pedido de exclusão de dados no NutriDebby.`,
-        'Foram apagados agora: as fotos do diário alimentar, os exames enviados pelo app que ainda não tinham sido aceitos, as autorizações de mensagens por WhatsApp, as notificações no aparelho e os convites de acesso. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.',
+        `Foram apagados agora: as fotos do diário alimentar, os exames enviados pelo app que ainda não tinham sido aceitos, as autorizações de mensagens por WhatsApp, as notificações no aparelho, os convites de acesso e as conversas com a ${NOME_IA_NUTRI}. Suas consultas futuras foram canceladas e você não tem mais acesso ao portal deste acompanhamento. Você não recebe mais lembretes nem mensagens deste acompanhamento.`,
+        // D22 (LGPD art. 18, § 4º, II: a razão da retenção): no molde da frase do consentimento da IA Nutri
+        `Se houver uma mensagem com sinal de risco enviada à ${NOME_IA_NUTRI} que sua nutricionista ainda não leu, ela fica guardada até ser lida, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, para a sua proteção. Depois disso, o texto é apagado e fica só o registro de que houve o aviso, até ${RETENCAO_DIAS} dias da mensagem.`,
         `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
         'Se tiver dúvidas, fale com a sua nutricionista.',
       ];
@@ -396,12 +399,25 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         ],
         { href: msg.link, rotulo: 'Ver o uso da IA' },
       );
+    case 'cota_ia_nutri':
+      // e-mail da equipe: o nome de trabalho "IA Nutri" (desvio 6), não a constante que o paciente vê
+      return simples(
+        'Os pacientes já usaram 80% do limite da IA Nutri deste mês',
+        [
+          'Os pacientes já usaram 80% do limite da IA Nutri deste mês.',
+          'Quando chegar a 100%, a IA Nutri fica indisponível para os pacientes até o dia 1º ou até o suporte ampliar o limite. A leitura de laudos e as outras funções de IA não mudam.',
+        ],
+        { href: msg.link, rotulo: 'Ver o uso da IA' },
+      );
     case 'alerta_ia':
       return simples(
         'IA do NutriDebby: atenção',
         msg.motivo === 'credencial'
           ? ['O provedor de IA recusou a credencial do worker (chave ausente, inválida ou sem pagamento). As leituras de laudo estão falhando.', 'Confira a variável ANTHROPIC_API_KEY do worker no Easypanel e o faturamento no Console do provedor.']
-          : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
+          : msg.motivo === 'risco_ia_nutri'
+            ? // Plano 15 (D22, RN-182; desvio 5: texto novo): sem consultório, paciente, contagem nem texto (regra 3)
+              ['Há mensagens com sinal de risco na IA Nutri que nenhuma nutricionista abriu há mais de 72 horas. Avise os consultórios pelo canal de suporte.']
+            : ['O teto mensal de gasto com IA foi atingido (o da plataforma ou o limite do workspace no Console). As leituras de laudo estão indisponíveis até o mês que vem ou até o teto ser revisto.'],
         { href: msg.painelUrl, rotulo: 'Abrir o painel do admin' },
       );
     case 'autorizacao_ia':
@@ -431,6 +447,13 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         { href: msg.link, rotulo: MSG_AUTORIZACAO.retirarALink },
       );
     }
+    case 'risco_ia_nutri':
+      // D10 / RNF-166: genérico — nem paciente, nem texto, nem categoria (o assunto é o texto da spec)
+      return simples(
+        'Há uma mensagem de paciente que precisa da sua atenção.',
+        ['Há uma mensagem de paciente que precisa da sua atenção.', 'Abra as dúvidas dos pacientes no NutriDebby.'],
+        { href: msg.link, rotulo: 'Abrir as dúvidas dos pacientes' },
+      );
     case 'exames_recebidos':
       // RN-168 / C-05: genérico — nem paciente, nem exame, nem arquivo
       return simples(

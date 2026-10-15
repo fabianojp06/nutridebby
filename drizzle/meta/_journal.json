@@ -806,6 +806,27 @@
       "when": 1791940514578,
       "tag": "0114_rls_ia_resumo_rascunho",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1792024962860,
+      "tag": "0115_ia_nutri",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1792024972579,
+      "tag": "0116_rls_ia_nutri",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1792026996404,
+      "tag": "0117_ia_nutri_funcoes",
+      "breakpoints": true
     }
   ]
 }

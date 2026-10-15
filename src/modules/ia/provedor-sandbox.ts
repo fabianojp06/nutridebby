@@ -47,6 +47,45 @@ const RESUMO_SANDBOX = (indice: string) => ({
   ],
 });
 
+/**
+ * Plano 15 (DP-12, RNF-168): a conversa do paciente — o texto do usuário que o job manda é `"<instrução>\n" +
+ * JSON.stringify({ contexto, historico, pergunta })`; do contexto, só os índices são lidos.
+ */
+type PedidoDaConversa = { contexto: { indices: string[] }; pergunta: string };
+function pedidoDaConversa(p: PedidoGeracao): PedidoDaConversa {
+  const t = p.turnos[0]?.papel === 'usuario' && p.turnos[0].blocos[0]?.tipo === 'texto' ? p.turnos[0].blocos[0].texto : '';
+  try {
+    const x = JSON.parse(t.slice(t.indexOf('\n') + 1)) as Partial<PedidoDaConversa> | null;
+    return { contexto: { indices: Array.isArray(x?.contexto?.indices) ? x.contexto.indices.filter((i) => typeof i === 'string') : [] }, pergunta: typeof x?.pergunta === 'string' ? x.pergunta : '' };
+  } catch {
+    return { contexto: { indices: [] }, pergunta: '' };
+  }
+}
+/** Omit distributivo: `RespostaGeracao` é uma união (final × recusa × …); o Omit comum perderia os campos de cada variante. */
+type SemUso<T> = T extends unknown ? Omit<T, 'uso' | 'requestId'> : never;
+/**
+ * DP-12 (desvio 4 da spec: por marcador, não por hash): SANDBOX-RECUSA, SANDBOX-TEXTO-LIVRE (campo fora do schema),
+ * SANDBOX-FONTE-INEXISTENTE, SANDBOX-RISCO e SANDBOX-SUPLEMENTO; sem marcador, "lugar"/"troc"/"substitu" → substituição com o
+ * primeiro #S, "hora"/"horário" → horário com o primeiro #R, senão fora do escopo.
+ */
+function respostaDaConversa(p: PedidoGeracao): SemUso<RespostaGeracao> {
+  const { contexto, pergunta } = pedidoDaConversa(p);
+  const primeiro = (prefixo: string) => contexto.indices.find((i) => i.startsWith(prefixo)) ?? `${prefixo}1`;
+  const final = (json: unknown) => {
+    const texto = JSON.stringify(json);
+    return { tipo: 'final' as const, texto, bruto: [{ type: 'text', text: texto }] };
+  };
+  if (pergunta.includes('SANDBOX-RECUSA')) return { tipo: 'recusa', categoria: 'sandbox', bruto: [] };
+  if (pergunta.includes('SANDBOX-TEXTO-LIVRE')) return final({ categoria: 'plano', tipo_resposta: 'quantidade', fontes: [primeiro('#I')], resposta: 'Pode comer à vontade.' });
+  if (pergunta.includes('SANDBOX-FONTE-INEXISTENTE')) return final({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S99'] });
+  if (pergunta.includes('SANDBOX-RISCO')) return final({ categoria: 'risco', tipo_resposta: 'nenhum', fontes: [] });
+  if (pergunta.includes('SANDBOX-SUPLEMENTO')) return final({ categoria: 'plano', tipo_resposta: 'quantidade', fontes: [primeiro('#I')] });
+  const q = pergunta.toLowerCase();
+  if (/lugar|troc|substitu/.test(q)) return final({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: [primeiro('#S')] });
+  if (/hora|horário|horario/.test(q)) return final({ categoria: 'plano', tipo_resposta: 'horario', fontes: [primeiro('#R')] });
+  return final({ categoria: 'fora_do_escopo', tipo_resposta: 'nenhum', fontes: [] });
+}
+
 export function provedorSandbox(): ProvedorIA {
   return {
     nome: 'sandbox',
@@ -59,6 +98,9 @@ export function provedorSandbox(): ProvedorIA {
     },
     async gerar(p: PedidoGeracao): Promise<RespostaGeracao> {
       const base = { uso: USO_SANDBOX(p.geo), requestId: 'sandbox-gerar' };
+      // Plano 15 (DP-12, RNF-168): a conversa do paciente — respostas fixas por marcador na pergunta; nada vem do contexto
+      // além dos índices (o primeiro #S, #R, #I, #O enviado)
+      if (p.finalidade === 'conversa_paciente') return { ...respostaDaConversa(p), ...base };
       if (p.finalidade === 'resumo') {
         const primeiro = /"indice":"(#\d+)"/.exec(p.turnos[0]?.papel === 'usuario' && p.turnos[0].blocos[0]?.tipo === 'texto' ? p.turnos[0].blocos[0].texto : '')?.[1] ?? '#1';
         const texto = JSON.stringify(RESUMO_SANDBOX(primeiro));

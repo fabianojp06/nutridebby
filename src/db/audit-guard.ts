@@ -15,6 +15,7 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
   document_access_codes: 'RN-158: código do link de uso único (só HMAC, validade, tentativas); não é dado de saúde — a abertura vira evento auditado em signed_document_receipts',
   ia_autorizacoes:
     'Plano 14A (RN-107, §11): consentimento do titular para a transferência à IA (LGPD art. 33, VIII), não é dado de saúde; prova só de inclusão (UPDATE e DELETE revogados) com quem registrou, quando, canal, IP e user-agent na própria linha, como consents; a abertura do termo em papel chama auditRead (entidade ia_autorizacao)',
+  ia_nutri_consentimentos: 'Plano 15 (RN-171, D26): prova só de inclusão do consentimento da IA Nutri (evento, versão, destino, data, conta, IP e user-agent na própria linha), como ia_autorizacoes e consents; não é dado de saúde',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */

@@ -60,6 +60,22 @@ export const QUEUES = {
   // Plano 14A (RN-108, D14): a retirada da autorização pelo paciente (app ou link) — cancela a fila e esvazia as sugestões no
   // contexto worker (a sessão de paciente não alcança ia_tarefas). Payload { tenantId, patientId, retiradaId } (só ids).
   'ia-retirada': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-182, D30): a revogação da IA Nutri pelo paciente (ou pela nutricionista a pedido dele, DP-17) — o estorno das
+  // reservas no contexto worker (a sessão de paciente não alcança ia_uso). Payload { tenantId, patientId, revogacaoId } (só ids).
+  'ia-nutri-revogacao': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 15 (§4.2, RN-180, DP-9): a pergunta do paciente à IA Nutri. Payload { tenantId, mensagemId } (só ids). Uma nova
+  // tentativa em 5 s só antes do envio; 120 s acima do pior caso (reserva + contexto + chamada de 45 s + gravação). O
+  // handler é o processarPerguntaIaNutri (job.ts), duas por vez no worker (localConcurrency: 2).
+  'ia-paciente': { retryLimit: 1, retryDelay: 5, retryBackoff: false, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-180, DP-10): de minuto em minuto — a expirar-ia de 15 min não serve para quem espera na tela. Pergunta
+  // presa há mais de 3 min → falhou (interrompida) e a conciliação das reservas de ia_uso
+  'expirar-ia-paciente': { retryLimit: 0, expireInSeconds: 50 },
+  // D10 / DP-6: o e-mail de sinal de risco às nutricionistas (no máximo 1 a cada 15 min por tenant; dentro da janela, um job
+  // adiado por tenant, com singletonKey = tenant e a consulta de pendentes, R7). Payload { tenantId }.
+  'ia-nutri-risco': { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60, deleteAfterSeconds: 86_400 },
+  // Plano 15 (RN-181, D22): retenção das conversas da IA Nutri, todo dia às 04:15 (180 dias; o aviso mínimo da D22; o e-mail
+  // aos admins do risco não aberto há mais de 72 h, uma vez por dia)
+  'ia-nutri-retencao': { retryLimit: 2, retryDelay: 600, expireInSeconds: 600 },
   // Plano 14B (D3): resumo do histórico, rascunho de plano e pacote de modelos sugeridos. Payload { tenantId, tarefaId } ou
   // { tenantId, geracaoId } (só ids). O laço de ferramentas tem prazo de 12 min (PRAZO_LACO_MS); 900 s fica acima dele e
   // abaixo dos 15 min da varredura. Só a 1ª volta repete (D4); as seguintes terminam sem repetir.

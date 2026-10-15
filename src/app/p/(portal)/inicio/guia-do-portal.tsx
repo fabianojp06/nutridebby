@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Tour } from '@/components/guia/tour';
 import { precisaDoGuia } from '@/modules/ajuda/conteudo';
-import { AVISO_PORTAL, GUIA_PORTAL } from '@/modules/ajuda/portal';
+import { AVISO_PORTAL, avisoDoGuia, GUIA_PORTAL } from '@/modules/ajuda/portal';
 import { aplicarMarca, type EstadoGuia, type ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { marcarGuiaPortalAction } from '../ajuda/actions';
 
@@ -11,7 +11,8 @@ import { marcarGuiaPortalAction } from '../ajuda/actions';
  * Plano 16 (US-199, RN-212): só o aviso abre sozinho, uma vez por conta (grava "visto" ao aparecer) — "O app mudou…" para
  * quem já usava o app, as boas-vindas para quem entra pela primeira vez (G-D17 = a, `jaUsava`); o tour (<dialog> modal do
  * painel, "{i} de {n}", Voltar/Próximo/Concluir/Pular o tour) abre pelo botão ou por ?tour=portal-novidades (o "Ver o tour
- * de novo" de /p/ajuda). O progresso fica na conta (vale para todos os aparelhos e consultórios, RN-210).
+ * de novo" de /p/ajuda). O progresso fica na conta (vale para todos os aparelhos e consultórios, RN-210). Plano 15 (§7.8):
+ * quem já viu uma versão anterior do guia recebe "O manual do app foi atualizado…" (`avisoDoGuia`), nunca "O app mudou" de novo.
  */
 export function GuiaDoPortal({ progresso: inicial, abrir, jaUsava }: { progresso: ProgressoGuia; abrir: boolean; jaUsava: boolean }) {
   const router = useRouter();
@@ -44,7 +45,7 @@ export function GuiaDoPortal({ progresso: inicial, abrir, jaUsava }: { progresso
       )}
       {mostrarAviso && (
         <aside aria-label="Novidade" className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
-          <p>{jaUsava ? AVISO_PORTAL.pergunta : AVISO_PORTAL.boasVindas}</p>
+          <p>{avisoDoGuia(progresso, jaUsava)}</p>
           <p className="flex flex-wrap gap-2">
             <button
               type="button"

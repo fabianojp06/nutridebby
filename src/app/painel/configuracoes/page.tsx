@@ -3,6 +3,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 import { ExamesSecao } from './exames-secao';
 import { IaSecao } from './ia-secao';
+import { RETORNOS_IA_NUTRI } from './ia-nutri-secao';
 import { TemaForm } from './tema-form';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,11 @@ const CARTOES = [
 /** D20: hub de Configurações. */
 export default async function ConfiguracoesPage({ searchParams }: PageProps<'/painel/configuracoes'>) {
   const { data, tenant, ctx } = await requireNutri('/painel/configuracoes');
-  const { ia, exames, modelos } = await searchParams;
+  const busca = await searchParams;
+  const { ia, exames, modelos } = busca;
+  // Plano 15 (US-170): o retorno das actions da IA Nutri — lista fechada; outro valor (inclusive o antigo `revisao`) → nada
+  const iaNutri = busca['ia-nutri'];
+  const iaNutriRetorno = RETORNOS_IA_NUTRI.find((r) => r === iaNutri) ?? null;
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
@@ -39,7 +44,7 @@ export default async function ConfiguracoesPage({ searchParams }: PageProps<'/pa
         <TemaForm tema={ehTema(data.user.tema) ? data.user.tema : 'sistema'} />
       </section>
       <ExamesSecao ligado={!!tenant.examesPacienteAtivadoEm} salvo={exames === 'salvo'} />
-      <IaSecao tenant={tenant} ctx={ctx} ativada={ia === 'ativada'} modelosPedido={modelos === 'pedido'} />
+      <IaSecao tenant={tenant} ctx={ctx} ativada={ia === 'ativada'} modelosPedido={modelos === 'pedido'} iaNutriRetorno={iaNutriRetorno} />
     </main>
   );
 }

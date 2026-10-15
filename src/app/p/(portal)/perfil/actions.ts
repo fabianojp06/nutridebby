@@ -8,6 +8,8 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { AutorizacaoError, autorizarNoApp, retirarNoApp } from '@/modules/ia/autorizacao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA } from '@/modules/ia/modo';
+import { desativarNoApp } from '@/modules/ia/nutri-paciente/consentimento';
+import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { MSG_MEUS_DADOS, pedirExclusao, pedirMeusDados } from '@/modules/portal/meus-dados';
 import { MSG_PERFIL, PerfilPacienteError, preferenciaWhatsapp } from '@/modules/portal/perfil';
 
@@ -79,4 +81,18 @@ export async function retirarIaAction(): Promise<PerfilState> {
   const r = await retirarNoApp(ctx, await origemDaRequisicao());
   revalidatePath('/p/perfil');
   return r === 'retirada' ? { ok: MSG_AUTORIZACAO.retirada } : {};
+}
+
+/**
+ * US-177 / RN-182 "Desativar a IA Nutri e apagar as conversas": sempre possível — com o paciente bloqueado, o consultório
+ * desligado, a pausa da plataforma ou sem IA_PROVEDOR (LGPD art. 8º, § 5º; desativarNoApp não confere o modo e esta ação
+ * também não). A revogação, o apagamento e o job de estorno na mesma transação (T7). Eu recarrega: o bloco continua, com
+ * "Você desativou em …".
+ */
+export async function desativarIaNutriAction(): Promise<PerfilState> {
+  const { ctx } = await requirePaciente('/p/perfil');
+  const env = getEnv();
+  const r = await desativarNoApp(ctx, { ia: configIA(env), appUrl: env.APP_URL, ...(await origemDaRequisicao()) });
+  revalidatePath('/p/perfil');
+  return r === 'desativada' ? { ok: MSG_IA_NUTRI.desativada } : {};
 }

@@ -103,6 +103,11 @@ test('axe sem violações no aviso e foco visível no "Continuar conectada" (≥
     await page.reload();
     const aviso = avisoDe(page);
     await expect(aviso).toBeVisible({ timeout: 25_000 });
+    // Revisão final do Plano 15: o axe 4.13 empilha, sob cada linha do título, também o que está atrás do diálogo modal
+    // (camada do topo); se a página por baixo muda entre as duas linhas (aqui, a borda entre dois cartões do Início, que
+    // desceu quando "Dúvidas dos pacientes" levou o menu a uma segunda linha), dá "elmPartiallyObscuring", sem ser problema
+    // de contraste: o diálogo é opaco. A página por baixo sai do cálculo; o contraste conferido é o do texto sobre o diálogo.
+    await page.locator('main').evaluate((m) => void (m.style.visibility = 'hidden'));
     const r = await new AxeBuilder({ page }).withTags(TAGS).include('dialog[role="alertdialog"]').analyze();
     expect(r.passes.length, 'o axe rodou regras no aviso').toBeGreaterThan(0);
     const contrasteIncerto = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));

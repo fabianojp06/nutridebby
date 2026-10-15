@@ -2,6 +2,8 @@
 export type IdsDoPainel = {
   paciente: string; consulta: string; alimento: string; modeloAnamnese: string; modeloPlano: string; diario: string;
   anamnese: string; atendimento: string; exportacao: string; plano: string; conteudo: string; documento: string; envio: string;
+  /** Plano 15 (US-175): a dúvida enviada direto pela segunda paciente da IA Nutri do seed. */
+  duvida: string;
 };
 
 /**
@@ -31,6 +33,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/diarios': () => '/painel/diarios',
   '/painel/diarios/[id]': (i) => `/painel/diarios/${i.diario}`,
   '/painel/dpa': () => '/painel/dpa',
+  '/painel/duvidas': () => '/painel/duvidas', // Plano 15 (US-175)
+  '/painel/duvidas/[id]': (i) => `/painel/duvidas/${i.duvida}`,
   '/painel/exames-recebidos': () => '/painel/exames-recebidos',
   '/painel/exames-recebidos/[id]': (i) => `/painel/exames-recebidos/${i.envio}`,
   '/painel/pacientes': () => '/painel/pacientes',
@@ -49,6 +53,7 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/exportacoes/[exportId]': (i) => `/painel/pacientes/${i.paciente}/exportacoes/${i.exportacao}`,
   '/painel/pacientes/[id]/gasto-energetico': (i) => `/painel/pacientes/${i.paciente}/gasto-energetico`,
   '/painel/pacientes/[id]/historico': (i) => `/painel/pacientes/${i.paciente}/historico`,
+  '/painel/pacientes/[id]/ia-nutri': (i) => `/painel/pacientes/${i.paciente}/ia-nutri`, // Plano 15 (US-170, US-175)
   '/painel/pacientes/[id]/plano-alimentar': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar`,
   '/painel/pacientes/[id]/plano-alimentar/[planId]': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar/${i.plano}`, // o editor
   '/painel/pacientes/[id]/plano-alimentar/rascunho-ia': (i) => `/painel/pacientes/${i.paciente}/plano-alimentar/rascunho-ia`, // Plano 14B (US-121)

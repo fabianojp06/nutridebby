@@ -8,7 +8,8 @@ import { avaliar, pacienteNoPortal } from './portal';
 
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
 // (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente);
-// 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2).
+// 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2); 10.9.29.51 (a segunda paciente da IA Nutri, que envia a dúvida
+// direta para a fila, Plano 15).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
@@ -21,7 +22,7 @@ test.beforeAll(async ({ browser }) => {
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.84');
   await expect(nutri).toHaveURL(/\/painel$/);
   errosCsp = vigiarCsp(nutri);
-  const ids = await prepararTelasComId(browser, nutri, '10.9.13.83');
+  const ids = await prepararTelasComId(browser, nutri, '10.9.13.83', '10.9.29.51');
   // a Segurança da conta fica fora do /painel, mas segue o tema da conta (D17, achado 9 do /code-review do PR #12)
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
@@ -213,11 +214,12 @@ test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é a
   await expect(menu.getByRole('link', { name: 'Agenda', exact: true })).toHaveAttribute('aria-current', 'page');
   const rotulos: string[] = [];
   await menu.getByRole('link', { name: 'Início' }).focus();
-  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; o contador " (n)" depende
-  // dos envios que as outras specs deixaram no banco de dev e sai da comparação
-  for (let i = 0; i < 7; i++) {
+  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 15 (US-175): e ativa a
+  // IA Nutri, então "Dúvidas dos pacientes" vem antes de "Conteúdos". Os contadores " (n)" dependem do que as outras specs
+  // deixaram no banco de dev e saem da comparação
+  for (let i = 0; i < 8; i++) {
     rotulos.push((await nutri.evaluate(() => document.activeElement?.textContent ?? '')).trim().replace(/ \(\d+\)$/, ''));
     await nutri.keyboard.press('Tab');
   }
-  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Conteúdos', 'Configurações']);
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Configurações']);
 });

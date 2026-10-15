@@ -12,11 +12,12 @@ import { textoTaxa } from '@/modules/agenda/presenca';
 import { IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { contaPorId, MSG } from '@/modules/plataforma/contas';
-import { metricasDeExamesEnviadosPorTenant, metricasDeIaPorTenant, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
+import { metricasDeExamesEnviadosPorTenant, metricasDeIaPorEscopo, metricasDeSucessoPorTenant, metricasPorTenant } from '@/modules/plataforma/metricas';
 import { definirDocumentosAction, definirIaAction, reativarAction, reenviarConviteAction, suspenderAction } from '../../actions';
 import { Convite } from '../../convite';
 import { CotaForm } from '../../cota-form';
 import { IaCotaForm } from '../../ia-cota-form';
+import { IaNutriCotaForm } from '../../ia-nutri-cota-form';
 import { MetricasForm } from '../../metricas-form';
 
 export const dynamic = 'force-dynamic';
@@ -56,10 +57,13 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
   const c = await contaPorId(id);
   if (!c) redirect('/admin?aviso=nao_encontrada');
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
-  const [metricas, sucesso, iaMetricas, exames] = await Promise.all([metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorTenant(), metricasDeExamesEnviadosPorTenant()]);
+  // DP-11: os dois escopos da IA (nutricionista e IA Nutri) de UMA leitura (admin_metricas_ia_nutri), nunca a diferença de duas
+  const [metricas, sucesso, iaMetricas, exames] = await Promise.all([metricasPorTenant(), metricasDeSucessoPorTenant(), metricasDeIaPorEscopo(), metricasDeExamesEnviadosPorTenant()]);
   const m = metricas.get(c.tenantId);
   const s = sucesso.get(c.tenantId);
-  const ia = iaMetricas.get(c.tenantId);
+  const ia = iaMetricas.get(c.tenantId)?.nutri;
+  const iaNutri = iaMetricas.get(c.tenantId)?.paciente;
+  const pctIaNutri = c.iaNutriCotaMensalUsd > 0 ? Math.round(((iaNutri?.custoMesMicroUsd ?? 0) / 1_000_000 / c.iaNutriCotaMensalUsd) * 100) : 0;
   const ex = exames.get(c.tenantId);
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6">
@@ -92,8 +96,11 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
               <span className="block">{`Aguardando revisão: ${ex?.pendentes ?? 0}`}</span>
             </Item>
             {/* US-100 (A-06): só contagens e valores */}
-            <Item rotulo="Uso de IA no mês">{`${dinheiro((ia?.custoMesMicroUsd ?? 0) / 1_000_000)} de ${dinheiro(c.iaCotaMensalUsd)}`}</Item>
-            <Item rotulo="Tarefas de IA no mês">{ia?.tarefasMes ?? 0}</Item>
+            <Item rotulo="Uso de IA da nutricionista no mês">{`${dinheiro((ia?.custoMesMicroUsd ?? 0) / 1_000_000)} de ${dinheiro(c.iaCotaMensalUsd)}`}</Item>
+            <Item rotulo="Tarefas de IA da nutricionista no mês">{ia?.tarefasMes ?? 0}</Item>
+            {/* Plano 15 (DP-11, desvio 7): a IA Nutri numa linha própria, contra a cota dela — só contagens e valores; o gasto em
+                US$ como na linha da nutricionista: a conferência mensal (RNF-108) soma as duas contra a fatura (revisão final) */}
+            <Item rotulo="Uso da IA Nutri (pacientes) no mês">{`${dinheiro((iaNutri?.custoMesMicroUsd ?? 0) / 1_000_000)} de ${dinheiro(c.iaNutriCotaMensalUsd)} · ${iaNutri?.perguntasMes ?? 0} ${(iaNutri?.perguntasMes ?? 0) === 1 ? 'pergunta' : 'perguntas'} · ${pctIaNutri}% do limite`}</Item>
           </dl>
         </Cartao>
         <Cartao id="liberacoes" titulo="Liberações">
@@ -114,7 +121,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
                 </ConfirmarBotao>
               </form>
             </div>
-            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos da versão em vigor (1.1 desde a 14B-2), a avaliação e o backup */}
+            {/* US-100 (A-06; A-D27, 09/10/2026): liberar só com a retenção aceita, os textos da versão em vigor (o aditivo 1.2 desde o Plano 15), a avaliação e o backup */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda pt-4">
               <p>{`IA: ${c.iaLiberada ? 'liberada' : 'bloqueada'}${c.iaAtivada ? ' · ativada pela nutricionista' : ''}`}</p>
               <form action={definirIaAction.bind(null, c.tenantId, !c.iaLiberada)}>
@@ -136,6 +143,7 @@ export default async function ContaPage({ params, searchParams }: PageProps<'/ad
           <div className="space-y-4">
             <CotaForm tenantId={c.tenantId} cota={c.waCotaMensal} conta={c.nomeExibicao} />
             <IaCotaForm tenantId={c.tenantId} cota={c.iaCotaMensalUsd} conta={c.nomeExibicao} />
+            <IaNutriCotaForm tenantId={c.tenantId} cota={c.iaNutriCotaMensalUsd} conta={c.nomeExibicao} />
           </div>
         </Cartao>
         {/* D15: base do CS-03 (P-15) e início do uso (CS-01) */}

@@ -36,6 +36,9 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
     ],
   }),
 }));
+const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
+vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'sandbox', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 }) }));
+vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
 const { default: MeuPlano } = await import('./page');
 
 describe('/p/plano em sanfona (US-196, F-Plano)', () => {
@@ -70,4 +73,33 @@ describe('/p/plano em sanfona (US-196, F-Plano)', () => {
     const sem = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
     expect(sem).not.toContain('Elaborado com apoio de IA');
   });
+
+  describe('Plano 15 (US-170, §4.2, §7.8): as entradas da IA Nutri', () => {
+    const pagina = async (busca: Record<string, string> = {}) => renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve(busca) } as never));
+    it('"Tirar dúvida sobre o plano" ao lado de "Lista de compras" e "Conteúdos" (mesma classe) e "Perguntar sobre esta refeição" com ?sobre=<id> — com a entrada conversa, decidir, texto_mudou ou indisponível', async () => {
+      for (const e of ['conversa', 'decidir', 'texto_mudou', 'indisponivel']) {
+        ia.entrada = e;
+        const html = await pagina();
+        const conteudos = /<a class="([^"]*)" href="\/p\/conteudos">Conteúdos<\/a>/.exec(html)?.[1];
+        expect(html, e).toMatch(new RegExp(`<a class="${conteudos}" href="/p/plano/ia">Tirar dúvida sobre o plano</a>`));
+        expect(html, e).toMatch(/<a[^>]*href="\/p\/plano\/ia\?sobre=r1"[^>]*>Perguntar sobre esta refeição<\/a>/);
+      }
+    });
+    it('sem entrada (nenhuma, sem plano): nada da IA Nutri', async () => {
+      for (const e of ['nenhuma', 'sem_plano']) {
+        ia.entrada = e;
+        const html = await pagina();
+        expect(html, e).not.toContain('/p/plano/ia');
+        expect(html, e).not.toContain('IA Nutri');
+      }
+    });
+    it('?ia-nutri=indisponivel (o aceite recusado pelo bloqueio, o consultório desligado ou a pausa) → "A IA Nutri não está disponível no momento." numa região de status focável; outro valor → nada', async () => {
+      ia.entrada = 'nenhuma';
+      expect(await pagina({ 'ia-nutri': 'indisponivel' })).toMatch(/<p tabindex="-1" role="status"[^>]*>A IA Nutri não está disponível no momento\.<\/p>/);
+      const outro = await pagina({ 'ia-nutri': '<b>x</b>' });
+      expect(outro).not.toContain('não está disponível');
+      expect(outro).not.toContain('&lt;b&gt;');
+    });
+  });
 });
+

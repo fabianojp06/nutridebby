@@ -331,9 +331,9 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     expect(await app.db.select().from(adminActions).where(eq(adminActions.alvoTenantId, T.tenantId))).toHaveLength(1);
   });
 
-  it('A-D27 (dono, 09/10/2026) e Plano 14B: com os textos finais (1.1), a guarda da D22 deixa liberar em produção', async () => {
+  it('A-D27 (dono, 09/10/2026), Plano 14B e Plano 15: com os textos finais (autorização 1.1, aditivo 1.2), a guarda da D22 deixa liberar em produção', async () => {
     const T = await novoTenant(app.db);
-    expect([AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO]).toEqual(['1.1', '1.1']);
+    expect([AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO]).toEqual(['1.1', '1.2']);
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID(), { producao: true });
     const [t] = await app.db.select({ l: tenants.iaLiberada }).from(tenants).where(eq(tenants.id, T.tenantId));
     expect(t.l).toBe(true);
@@ -351,11 +351,11 @@ describe('Plano 11 (US-100, D6) — liberar a IA de um consultório', () => {
     expect(t.l).toBe(false);
   });
 
-  it('listarContas mostra IA liberada, ativada e a cota', async () => {
+  it('listarContas mostra IA liberada, ativada, a cota e a cota da IA Nutri', async () => {
     const T = await novoTenant(app.db);
     await definirIaLiberada(app.db, T.tenantId, true, randomUUID());
     const [t] = await app.db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, T.tenantId));
-    expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15 });
+    expect((await listarContas(app.db, undefined, { busca: t.slug })).contas.find((c) => c.tenantId === T.tenantId)).toMatchObject({ iaLiberada: true, iaAtivada: false, iaCotaMensalUsd: 15, iaNutriCotaMensalUsd: 7 }); // Plano 15 (D3): US$ 7 por padrão
   });
 });
 

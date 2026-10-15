@@ -8,8 +8,8 @@ import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import type { TenantDeTeste } from './pacientes';
 
-/** `itens[].substitui` = índice do item principal que este substitui (US-024). Todos com o alimento 3 da TACO. */
-export type RefeicaoDeTeste = { nome: string; horario: string; observacao?: string; itens?: { gramas: number; substitui?: number }[] };
+/** `itens[].substitui` = índice do item principal que este substitui (US-024). `taco` = o alimento da TACO (padrão: o 3). */
+export type RefeicaoDeTeste = { nome: string; horario: string; observacao?: string; itens?: { gramas: number; substitui?: number; taco?: number }[] };
 
 /**
  * Plano publicado pela nutricionista (US-022/US-025), pelos serviços de verdade (rascunho → publicar). A publicação troca o
@@ -44,7 +44,7 @@ export async function planoEmRascunho(db: Db, T: TenantDeTeste, patientId: strin
       observacao: ref.observacao ?? '',
       itens: itens.map((it, k) => ({
         id: idsDosItens[k],
-        foodId: idTaco(3),
+        foodId: idTaco(it.taco ?? 3),
         quantidadeG: String(it.gramas),
         medida: null,
         substituiItemId: it.substitui === undefined ? null : idsDosItens[it.substitui],

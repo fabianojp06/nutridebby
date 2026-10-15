@@ -39,14 +39,14 @@ Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" 
 - [ ] M2 `docker system df`: recuperável ___ GB (limpeza só com OK do dono) — Claude
 - [ ] M3 `df -h /` ___ % · `/srv/nutri/data` ___ · pasta do banco ___ (`du` dentro do `nutri_db`) — Claude
 - [ ] M4 `/admin`: nenhum consultório > 80% de armazenamento nem da "Cota de WhatsApp" — dono
-- [ ] M5 Cotas: Resend ___ / 3 000 · R2 ___ / 10 GB · GHCR ___ / 500 MB · Actions ___ / 2 000 min · Sentry ___ / 5 000 — dono
+- [ ] M5 Cotas: Resend ___ / 3 000 · R2 ___ / 10 GB · GHCR ___ / 2 GB · Actions ___ / 3 000 min (GitHub Pro desde 15/10/2026) · Sentry ___ / 5 000 — dono
 - [ ] M6 Cobrança: hPanel, Cloudflare, GitHub e, depois da liberação da IA, Anthropic sem surpresa; cartão válido; alertas do Monarx no hPanel — dono
 - [ ] M7 Certificado TLS vence em ___ (≥ 20 dias) — Claude
 - [ ] M8 Pacotes pendentes ___ (`apt list --upgradable`); Docker/containerd ou kernel parado há mais de 30 dias? kernel em uso = instalado? (atualizar o Docker reinicia todos os contêineres: só o dono, com snapshot) — Claude → dono
 - [ ] M9 GitGuardian sem incidente real aberto — dono
 - [ ] M10 Pendências de vigilância: P02-11 backup (falta o passo do dono: chaves e timer) · E-07 Sentry · P08-02 monitor externo · Dependabot — Claude lembra
 - [ ] M11 `pnpm audit --prod --audit-level high` em dev: ___ avisos; crítico/alto em next, react, better-auth, pg-boss, drizzle-orm ou Node 24 = incidente, PR em até 72 h — Claude → dono
-- [ ] M12 (Plano 11, depois da liberação da IA) IA: soma da coluna "Uso de IA no mês" do `/admin` US$ ___ × Console da Anthropic (workspace de produção) US$ ___ (diferença ≤ 5%); consultório perto de 100% da cota? soma ___ % do teto da plataforma e do limite do workspace; ZDR ainda concedida e região só `us` (em dúvida: `IA_DESLIGADA=1` e "Bloquear") — dono
+- [ ] M12 (Plano 11, depois da liberação da IA) IA: soma das linhas "Uso de IA da nutricionista no mês" e "Uso da IA Nutri (pacientes) no mês" da página de cada conta no `/admin` US$ ___ × Console da Anthropic (workspace de produção) US$ ___ (diferença ≤ 5%); consultório perto de 100% da cota? soma ___ % do teto da plataforma e do limite do workspace; ZDR ainda concedida e região só `us` (em dúvida: `IA_DESLIGADA=1` e "Bloquear") — dono
 - [ ] Comentário final com os números e issue fechada; issue do mês seguinte aberta
 
 ## Trimestral — janeiro, abril, julho e outubro ([§8.3.4](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#834-trimestral))

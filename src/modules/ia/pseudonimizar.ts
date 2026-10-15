@@ -10,10 +10,21 @@
  * pessoas, endereço e outros documentos. Mudou a regra (o `>= 3`, a lista ou as partes do nome) → o texto 1.1 muda junto,
  * e depois do merge isso é versão nova da autorização (RN-109; P14A-16). Pseudonimizar reduz, mas o resultado continua
  * dado pessoal (art. 13, § 4º).
+ *
+ * Plano 15 (PM-3, §7.3): `outrosNomes` (a equipe: a mesma regra do nome do paciente) e `frasesExatas` (o nome do
+ * consultório, só inteiro). O resumo e o rascunho da 14B continuam sem eles (backlog P15-B1).
  */
 import type { Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
 
-export type AlvoDaMascara = { nome: string; email: string | null; telefone: string | null };
+export type AlvoDaMascara = {
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  /** PM-3: os nomes da equipe do consultório — saem pela mesma regra do nome do paciente. */
+  outrosNomes?: readonly string[];
+  /** PM-3: o nome do consultório — sai só inteiro ("Consultório" sozinho não é nome). */
+  frasesExatas?: readonly string[];
+};
 export const LIMITE_TEXTO_LIVRE = 2000;
 const REMOVIDO = '[removido]';
 /** PM-7: primeiros nomes que também são palavra comum de alimentação — sozinhos, ficam; com o sobrenome, saem. Sem acento. */
@@ -53,18 +64,28 @@ const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu;
 const TELEFONE = /(?:\+?55[\s-]?)?(?:\(?\d{2}\)?[\s-]?)?9?\d{4}[\s-]?\d{4}(?!\d)/g;
 const CPF = /(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/g;
 
-/** Troca cada trecho do nome do paciente por um "[removido]" só (as posições vêm da chave sem acento). */
-function tirarNome(texto: string, nome: string): string {
+/** Troca cada trecho que casa algum padrão por um "[removido]" só (as posições vêm da chave sem acento). */
+function apagarPadroes(texto: string, padroes: readonly RegExp[]): string {
+  if (!padroes.length) return texto;
   const original = Array.from(texto);
   const k = chave(original);
   const apagar = new Array<boolean>(original.length).fill(false);
-  for (const re of padroesDoNome(nome)) for (const m of k.matchAll(re)) for (let i = m.index; i < m.index + m[0].length; i++) apagar[i] = true;
+  for (const re of padroes) for (const m of k.matchAll(re)) for (let i = m.index; i < m.index + m[0].length; i++) apagar[i] = true;
   let saida = '';
   for (let i = 0; i < original.length; i++) {
     if (!apagar[i]) saida += original[i];
     else if (i === 0 || !apagar[i - 1]) saida += REMOVIDO;
   }
   return saida;
+}
+
+/** O nome (do paciente ou de alguém da equipe) pelas regras de `padroesDoNome`. */
+const tirarNome = (texto: string, nome: string): string => apagarPadroes(texto, padroesDoNome(nome));
+
+/** A frase inteira, com a mesma chave sem acento do nome; qualquer espaço entre as palavras. Vazia → nada. */
+function trocarFrase(texto: string, frase: string): string {
+  const palavras = semAcento(frase).split(/\s+/).filter(Boolean);
+  return apagarPadroes(texto, palavras.length ? [borda(palavras.map(escapar).join('\\s+'))] : []);
 }
 
 export function mascarar(texto: string, alvo: AlvoDaMascara): string {
@@ -74,7 +95,9 @@ export function mascarar(texto: string, alvo: AlvoDaMascara): string {
   if (alvo.email) t = t.replace(new RegExp(escapar(alvo.email.normalize('NFC')), 'giu'), REMOVIDO);
   t = t.replace(EMAIL, REMOVIDO);
   if (alvo.telefone) t = t.split(alvo.telefone).join(REMOVIDO);
+  for (const f of alvo.frasesExatas ?? []) t = trocarFrase(t, f);
   t = tirarNome(t, alvo.nome);
+  for (const outro of alvo.outrosNomes ?? []) t = tirarNome(t, outro);
   // o CPF antes do telefone: 11 dígitos seguidos seriam lidos como telefone
   return t.replace(CPF, REMOVIDO).replace(TELEFONE, REMOVIDO);
 }

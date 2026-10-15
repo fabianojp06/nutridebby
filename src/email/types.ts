@@ -62,8 +62,13 @@ export type EmailMessage =
   | { tipo: 'aviso_2fa_reiniciado'; para: string }
   /** Plano 11 (US-102): 80% da cota de IA do mês, uma vez por mês; `link` = /painel/configuracoes. Sem valores em US$. */
   | { tipo: 'cota_ia'; para: string; link: string }
+  /**
+   * Plano 15 (US-176, DP-7): os pacientes usaram 80% da cota da IA Nutri do mês (escopo `paciente`), uma vez por mês, à
+   * equipe; `link` = /painel/configuracoes. Sem nome de paciente, texto de conversa nem valores em US$.
+   */
+  | { tipo: 'cota_ia_nutri'; para: string; link: string }
   /** Plano 11 (RN-105): aos admins — credencial do provedor inválida (1 por hora) ou teto/limite de gasto atingido (1 por mês). */
-  | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto'; painelUrl: string }
+  | { tipo: 'alerta_ia'; para: string; motivo: 'credencial' | 'teto' | 'risco_ia_nutri'; painelUrl: string }
   /** Plano 14A (US-105, US-107): o pedido de autorização de IA — `link` = /autorizacao-ia/<token> (sem login, 7 dias). Sem dado de saúde. */
   | { tipo: 'autorizacao_ia'; para: string; consultorio: string; link: string }
   /**
@@ -75,7 +80,12 @@ export type EmailMessage =
    * Plano 12 (RN-168, D16 = a): exames novos enviados por pacientes, às nutricionistas do tenant (no máximo 1 a cada 6 h);
    * `pendentesAntigos` = há envio aguardando há mais de 30 dias (US-165). Sem nome de paciente, de exame nem arquivo (C-05).
    */
-  | { tipo: 'exames_recebidos'; para: string; link: string; pendentesAntigos: boolean };
+  | { tipo: 'exames_recebidos'; para: string; link: string; pendentesAntigos: boolean }
+  /**
+   * Plano 15 (D10 = a, DP-6, RNF-166): pergunta com sinal de risco na fila "Dúvidas dos pacientes", às nutricionistas do
+   * tenant (no máximo 1 a cada 15 min); `link` = /painel/duvidas. Genérico: sem nome de paciente, texto nem categoria (C-05).
+   */
+  | { tipo: 'risco_ia_nutri'; para: string; link: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

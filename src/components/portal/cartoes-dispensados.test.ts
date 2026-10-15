@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DISPENSA_MS, dispensado, dispensar, esquecerCartoesDoAparelho } from './cartoes-dispensados';
+import { CARTAO_IA_NUTRI, DISPENSA_MS, dispensado, dispensar, esquecerCartoesDoAparelho } from './cartoes-dispensados';
 
 // localStorage do navegador, simulado (o ambiente dos testes é o Node)
 const mapa = new Map<string, string>();
@@ -25,6 +25,14 @@ describe('cartões do aparelho dispensados (RN-201)', () => {
     expect(dispensado('conta-a', 'notificacoes', t0 + DISPENSA_MS)).toBe(false);
     expect(dispensado('conta-b', 'notificacoes', t0)).toBe(false);
     expect(dispensado('conta-a', 'instalar', t0)).toBe(false);
+  });
+  it('Plano 15 (§7.8): o convite da IA Nutri é chaveado pelo VÍNCULO (o paciente de dois consultórios decide em cada um)', () => {
+    const t0 = Date.UTC(2026, 9, 15);
+    expect(CARTAO_IA_NUTRI).toBe('ia_nutri');
+    dispensar('paciente-no-consultorio-a', CARTAO_IA_NUTRI, t0);
+    expect(dispensado('paciente-no-consultorio-a', CARTAO_IA_NUTRI, t0 + DISPENSA_MS - 1)).toBe(true);
+    expect(dispensado('paciente-no-consultorio-b', CARTAO_IA_NUTRI, t0)).toBe(false);
+    expect(dispensado('paciente-no-consultorio-a', CARTAO_IA_NUTRI, t0 + DISPENSA_MS)).toBe(false);
   });
   it('o "Sair" e o /entrar apagam as dispensas (e nada mais do aparelho)', () => {
     dispensar('conta-a', 'instalar');

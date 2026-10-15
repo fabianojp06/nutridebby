@@ -4,9 +4,13 @@ import { inject } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tarefaNoBanco } from '../../../test/ia';
+import * as conversa from '../../../test/ia-nutri-conversa';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, iaTarefas, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { provedorFake } from '@/modules/ia/provedor-fake';
+import { perguntar } from '@/modules/ia/nutri-paciente/conversa';
+import { processarPerguntaIaNutri } from '@/modules/ia/nutri-paciente/job';
 import { auditRead, ENTIDADE_ROTULO, HISTORICO_POR_PAGINA, listAccessHistory, recordAudit, rotuloDaAcao } from './audit';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -30,6 +34,7 @@ beforeAll(async () => {
   await app.db.insert(user).values({ id: nutriId, name: 'Debby Silva', email: `aud-${nutriId.slice(0, 8)}@teste.dev`, appRole: 'nutri', tenantId: A });
 });
 afterAll(() => app.pool.end());
+afterAll(conversa.fecharHarnessDaConversa);
 
 const ctxA = (): TenantContext => ({ tenantId: A, role: 'nutri', actorUserId: nutriId, ip: '203.0.113.10' });
 const logDe = (entidadeId: string) =>
@@ -191,5 +196,51 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
     expect(rotuloDaAcao({ acao: 'criar', entidade: 'peso_no_app' })).toBe('Ligou');
     expect(rotuloDaAcao({ acao: 'excluir', entidade: 'peso_no_app' })).toBe('Desligou');
     expect(rotuloDaAcao({ acao: 'alterar', entidade: 'peso_no_app' })).toBe('Alterou');
+  });
+});
+
+describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
+  it('rótulos: "Perguntou à IA", "Enviou dúvida à nutricionista", "Pergunta enviada à IA"; as entidades com o nome de trabalho (desvio 6)', () => {
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia_nutri_pergunta' })).toBe('Perguntou à IA');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia_nutri_duvida' })).toBe('Enviou dúvida à nutricionista');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'ia_nutri' })).toBe('Pergunta enviada à IA');
+    expect(rotuloDaAcao({ acao: 'ler', entidade: 'ia_nutri' })).toBe('Visualizou');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'ia_nutri' })).toBe('Alterou');
+    expect(rotuloDaAcao({ acao: 'excluir', entidade: 'ia_nutri' })).toBe('Excluiu');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia_nutri_liberacao' })).toBe('Criou');
+    expect(ENTIDADE_ROTULO.ia_nutri).toBe('IA Nutri (conversa com o paciente)');
+    expect(ENTIDADE_ROTULO.ia_nutri_liberacao).toBe('IA Nutri — liberação');
+    expect(ENTIDADE_ROTULO.ia_nutri_pergunta).toBe('IA Nutri (conversa com o paciente)');
+    expect(ENTIDADE_ROTULO.ia_nutri_duvida).toBe('IA Nutri (conversa com o paciente)');
+  });
+
+  it('pergunta respondida: "Perguntou à IA" (paciente) e "Pergunta enviada à IA" (Sistema); o criar do gatilho (pergunta, resposta, mensagem `sistema`) e os alterar do worker ficam fora da tela e da contagem', async () => {
+    const { T, p, ctxP } = await conversa.pronto();
+    const { mensagemId } = await perguntar(ctxP, 'o que posso comer no lugar da banana à tarde?', conversa.depsApp);
+    const fake = provedorFake({ gerar: [conversa.finalOk({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S1'] })] });
+    expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, conversa.depsDoJob(fake))).toBe('respondida');
+    const risco = await perguntar(ctxP, 'depois do jantar eu vomito pra não engordar', conversa.depsApp); // pergunta + `sistema`
+    expect(risco.codigo).toBe('risco');
+    // no audit_log está tudo: os criar do gatilho (com e sem ator) e os alterar do worker
+    const brutos = await conversa.comoWorker(T, sql`select acao, actor_user_id is null as sistema, count(*)::int as n from audit_log
+      where patient_id = ${p.id} and entidade = 'ia_nutri' group by 1, 2 order by 1, 2`);
+    expect(brutos).toEqual(expect.arrayContaining([
+      { acao: 'criar', sistema: false, n: 3 }, // as duas perguntas e a mensagem `sistema` (sessão do paciente)
+      { acao: 'criar', sistema: true, n: 1 }, // a resposta, gravada pelo worker
+      expect.objectContaining({ acao: 'alterar', sistema: true }),
+      { acao: 'exportar', sistema: true, n: 1 },
+    ]));
+
+    const h = await listAccessHistory(T.ctx, p.id, 1, conversa.app.db);
+    const daIaNutri = h.itens.filter((i) => i.entidade.startsWith('ia_nutri'));
+    // mais recente primeiro: a pergunta com risco (gravada, a nutricionista a lê), a saída da primeira, a primeira, a liberação
+    expect(daIaNutri.map((i) => [rotuloDaAcao(i), ENTIDADE_ROTULO[i.entidade], i.ator ? i.ator.papel : 'Sistema'])).toEqual([
+      ['Perguntou à IA', 'IA Nutri (conversa com o paciente)', 'paciente'],
+      ['Pergunta enviada à IA', 'IA Nutri (conversa com o paciente)', 'Sistema'],
+      ['Perguntou à IA', 'IA Nutri (conversa com o paciente)', 'paciente'],
+      ['Criou', 'IA Nutri — liberação', 'nutri'], // a nutricionista liberou
+    ]);
+    expect(daIaNutri.map((i) => i.entidadeId).slice(1, 3)).toEqual([mensagemId, mensagemId]);
+    expect(h.total).toBe(h.itens.length); // a contagem também esconde
   });
 });
