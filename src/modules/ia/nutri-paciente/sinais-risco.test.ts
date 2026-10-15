@@ -50,6 +50,15 @@ describe('detectarRisco (RN-174, §7.4 item 1): o filtro determinístico antes d
     ['está custando a respirar', 'emergencia', 'sintoma_agudo'],
     ['não consigo respirar direito', 'emergencia', 'sintoma_agudo'],
     ['tive uma crise alérgica', 'emergencia', 'sintoma_agudo'],
+    // revisão final do branch: conjugações e inversões que a sondagem ainda deixava passar
+    ['eu me mato', 'emergencia', 'risco_emergencia'],
+    ['tô querendo morrer', 'emergencia', 'risco_emergencia'],
+    ['tomei vários remédios pra morrer', 'emergencia', 'risco_emergencia'],
+    ['estou sem comer há 3 dias', 'transtorno_alimentar', 'risco_transtorno'],
+    ['faz 3 dias que não como', 'transtorno_alimentar', 'risco_transtorno'],
+    ['não como nada há dois dias', 'transtorno_alimentar', 'risco_transtorno'],
+    ['vomito depois de comer pra não engordar', 'transtorno_alimentar', 'risco_transtorno'],
+    ['eu vomito tudo que como', 'transtorno_alimentar', 'risco_transtorno'],
   ])('%s → %s', (texto, risco, textoFixo) => expect(detectarRisco(texto)).toEqual({ risco, textoFixo }));
 
   it.each([

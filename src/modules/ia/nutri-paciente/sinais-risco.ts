@@ -12,9 +12,11 @@ export const normalizar = (s: string): string => s.normalize('NFD').replace(/\p{
 // "se matar", "dores no peito", "sem ar", "um dia sem comer"). Falso positivo continua aceito (ex.: "vou morrer de fome").
 // Rodada 2: "tirar a própria vida" (sem "minha"), "a vida não tem sentido", "estar morta", "vontade de sumir/desaparecer",
 // "meu peito dói"/"peito apertado", "dificuldade para respirar" e "crise alérgica" (aceito: "morta de cansaço").
+// Revisão final do branch: "eu me mato", "querendo morrer", "pra morrer", "sem comer há N dias"/"faz N dias que não como",
+// "vomito depois de comer pra não engordar" e "vomito tudo que como" (aceito: "rir pra morrer").
 const AUTOLESAO = [
-  /\b(me|se) matar\b/, /\bsuicid/, /\btirar (a )?(minha )?(propria )?vida\b/, /\bacabar com (a )?minha vida\b/,
-  /\b(quero|queria|vou|vontade de|desejo de|penso em|pensando em) morrer\b/, /\bme machuc/, /\bme cort/, /\bautoles/,
+  /\b(me|se) matar\b/, /\bme mat(o|ei|ando|aria)\b/, /\bsuicid/, /\btirar (a )?(minha )?(propria )?vida\b/, /\bacabar com (a )?minha vida\b/,
+  /\b(quero|queria|querendo|vou|vontade de|desejo de|penso em|pensando em|pra|para) morrer\b/, /\bme machuc/, /\bme cort/, /\bautoles/,
   /\bautomutil/, /\bnao aguento mais\b/, /\b(quero|queria|vontade de) (sumir|desaparecer)\b/, /\bacabar com tudo\b/,
   /\bnao quero (mais )?viver\b/, /\bvida nao (tem|faz) (mais )?sentido\b/, /\b(estar|ficar) mort[oa]\b/,
 ];
@@ -25,10 +27,11 @@ const SINTOMA_AGUDO = [
   /\b(labios?|lingua|rosto) inchad/, /\banafila/, /\breac(ao|oes) alergica/, /\bcrise alergica\b/,
 ];
 const TRANSTORNO = [
-  /\bvomit\w* (pra|para) (nao engordar|emagrecer|compensar)\b/, /\bvomit\w* de proposito\b/, /\b(induz|provoc)\w* (o )?vomito\b/,
+  /\bvomit\w*( \w+){0,4} (pra|para) (nao engordar|emagrecer|compensar)\b/, /\bvomit\w* tudo (o )?que com/, /\bvomit\w* de proposito\b/, /\b(induz|provoc)\w* (o )?vomito\b/,
   /\bdedo na garganta\b/, /\blaxante/, /\bdiuretico\w* (pra|para) (emagrecer|secar)\b/,
   /\b(um|\d+|dois|tres|varios) dias? sem comer\b/, /\b(fico|ficar|fiquei|passo|passei) (\w+ )?dias sem comer\b/,
-  /\b(fico|fiquei|passo|passei) (o dia( todo)?|os dias) sem comer\b/,
+  /\b(fico|fiquei|passo|passei) (o dia( todo)?|os dias) sem comer\b/, /\bsem comer (ha|faz) (\w+ )?dias?\b/,
+  /\b(ha|faz) (\w+ )?dias? (que )?(eu )?(nao como|sem comer)\b/, /\bnao como (nada )?(ha|faz) (\w+ )?dias?\b/,
   /\bcompulsa/, /\bcomo escondid/, /\bodeio (o )?meu corpo\b/, /\bnojo de mim\b/, /\bme sinto (muito )?gord\w* demais\b/,
 ];
 
