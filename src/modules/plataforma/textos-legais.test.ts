@@ -53,9 +53,9 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
   });
 
   it('cita o canal de privacidade da operadora no parágrafo dela', () => {
-    expect(EMAIL_PRIVACIDADE).toBe('privacidade@wsscloud.tech');
+    expect(EMAIL_PRIVACIDADE).toBe('fabianojp06@gmail.com');
     expect(TERMO_PACIENTE_PARAGRAFOS[2]).toContain(OPERADORA);
-    expect(TERMO_PACIENTE_PARAGRAFOS[2]).toContain('Para falar com a operadora sobre privacidade, escreva para privacidade@wsscloud.tech.');
+    expect(TERMO_PACIENTE_PARAGRAFOS[2]).toContain('Para falar com a operadora sobre privacidade, escreva para fabianojp06@gmail.com.');
   });
 
   it('aviso de /p/termo para quem aceitou uma versão anterior', () => {
@@ -100,9 +100,9 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     expect(DPA_PARAGRAFOS[6]).toContain('O servidor é contratado da Hostinger e fica no Brasil.');
     // canal de privacidade: pedidos de titular (cláusula 5) e avisos à OPERADORA (cláusula 15)
     expect(DPA_PARAGRAFOS[4]).toMatch(/^5\. Direitos dos titulares\./);
-    expect(DPA_PARAGRAFOS[4]).toContain('inclusive pelo e-mail privacidade@wsscloud.tech');
+    expect(DPA_PARAGRAFOS[4]).toContain('inclusive pelo e-mail fabianojp06@gmail.com');
     expect(DPA_PARAGRAFOS[14]).toMatch(/^15\. Outros textos e mudanças\./);
-    expect(DPA_PARAGRAFOS[14]).toContain('os da CONTROLADORA à OPERADORA vão a privacidade@wsscloud.tech');
+    expect(DPA_PARAGRAFOS[14]).toContain('os da CONTROLADORA à OPERADORA vão a fabianojp06@gmail.com');
   });
 
   it('o aditivo de IA remete à lista de suboperadores do DPA, que remete o fornecedor de IA ao aditivo', () => {
