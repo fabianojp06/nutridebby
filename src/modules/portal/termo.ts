@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { consents } from '@/db/schema';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
@@ -14,6 +14,18 @@ export async function termoAceito(userId: string, tenantId: string, db: Db = get
     .where(and(eq(consents.userId, userId), eq(consents.tenantId, tenantId), eq(consents.termoVersao, TERMO_PACIENTE)))
     .limit(1);
   return Boolean(c);
+}
+
+/**
+ * P08-06: a situação do termo da conta NESTE consultório, numa consulta só (/p/termo): aceitou a versão em vigor? aceitou
+ * alguma anterior (o aviso "O termo mudou" em vez do primeiro acesso)? Mesmo filtro por conta e tenant de `termoAceito`.
+ */
+export async function situacaoDoTermo(userId: string, tenantId: string, db: Db = getDb()): Promise<{ aceito: boolean; anterior: boolean }> {
+  const linhas = await db
+    .select({ versao: consents.termoVersao })
+    .from(consents)
+    .where(and(eq(consents.userId, userId), eq(consents.tenantId, tenantId), like(consents.termoVersao, 'termo-paciente-%')));
+  return { aceito: linhas.some((l) => l.versao === TERMO_PACIENTE), anterior: linhas.some((l) => l.versao !== TERMO_PACIENTE) };
 }
 
 /** Grava o aceite da versão atual (prova de aceite: só INSERT; repetir não duplica — UNIQUE NULLS NOT DISTINCT). */

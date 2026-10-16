@@ -7,10 +7,14 @@ import { getAuth } from '@/lib/auth';
 import { requestIp } from '@/lib/request-ip';
 import { SUSPENDED_PATH } from '@/lib/session-rules';
 import { aceitarConvite, ConviteError } from '@/modules/plataforma/convites';
+import { DPA_VERSAO } from '@/modules/plataforma/dpa';
+import { leuAVersaoEmVigor, MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 
 export type AceiteState = { erro?: string; campo?: 'senha' | 'confirmacao' | 'dpa' };
 
 export async function aceitarConviteAction(token: string, _prev: AceiteState, formData: FormData): Promise<AceiteState> {
+  // P08-06: o DPA mudou com a página aberta → não grava aceite de um texto que ela não leu
+  if (!leuAVersaoEmVigor(formData, DPA_VERSAO)) return { erro: MSG_TEXTO_ATUALIZADO, campo: 'dpa' };
   const senha = String(formData.get('senha') ?? '');
   let email: string;
   try {

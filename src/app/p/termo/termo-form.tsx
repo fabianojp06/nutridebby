@@ -1,6 +1,6 @@
 'use client';
 import { useActionState, useState } from 'react';
-import { TERMO_PACIENTE_ROTULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_ROTULO, TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
 import { aceitarTermoAction } from './actions';
 
 /** US-011 "Consentimento obrigatório": "Continuar" fica desabilitado até marcar, como no aceite do convite. `volta`: S-1. */
@@ -10,6 +10,8 @@ export function TermoForm({ volta }: { volta: string }) {
   return (
     <form action={enviar} className="space-y-3">
       <input type="hidden" name="volta" value={volta} />
+      {/* P08-06: a versão que a pessoa leu; a action recusa se a versão em vigor mudou com a página aberta */}
+      <input type="hidden" name="versao" value={TERMO_PACIENTE_VERSAO} />
       <div className="flex items-start gap-2">
         <input id="aceite" name="aceite" type="checkbox" checked={marcado} onChange={(e) => setMarcado(e.target.checked)} className="mt-1 size-5" />
         <label htmlFor="aceite">{TERMO_PACIENTE_ROTULO}</label>

@@ -450,7 +450,7 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 | 23 | US-003 | `users.totp_secret_enc` em AES-256-GCM | Tabela `two_factor` do Better Auth, XChaCha20-Poly1305 com chave de `AUTH_SECRET` | Reg. | 3 #2 |
 | 24 | US-002 | Bloqueio por e-mail + IP | Limite por IP + rota (`auth.ts:128`), 5 / 15 min | Reg. | 3 #3, 6 #8 |
 | 25 | RNF-06 | "2FA TOTP para a nutricionista" | 2FA obrigatório só para o admin; opcional para a nutricionista (como a US-003) | Doc | 3 #4 |
-| 26 | US-011; Plano 08, D14 | Termo e DPA na versão `1.0` | `0.1-provisorio` (`termo-paciente.ts:5`, `dpa.ts:6`); depende do texto do advogado (E-09, P08-06) | Pend. | 3 #5, 4 #10 |
+| 26 | US-011; Plano 08, D14 | Termo e DPA na versão `1.0` | **Resolvida (P08-06, 15/10/2026):** `1.0` (`termo-paciente.ts:7`, `dpa.ts:13`), publicada pelo dono sem o advogado; a 0.1 provisória fica no mapa por versão | — | 3 #5, 4 #10 |
 | 27 | US-002 | Paciente vai para `/p` | Vai para `/p/inicio` (`/p` redireciona) | Doc | 3 #6 |
 | 28 | US-003 | 10 códigos de recuperação | Padrão do Better Auth 1.7.6, não fixado no código | Comp. | 3 #7 |
 

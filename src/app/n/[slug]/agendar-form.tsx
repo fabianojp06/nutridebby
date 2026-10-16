@@ -15,7 +15,7 @@ type Props = {
   temOnline: boolean;
   semana: { rotulo: string; anterior: string | null; proxima: string | null };
   horarios: HorarioVisivel[];
-  termo: { titulo: string; paragrafos: string[]; rotulo: string };
+  termo: { titulo: string; paragrafos: string[]; rotulo: string; versao: string };
 };
 type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[] };
 type Dados = { nome: string; email: string; telefone: string; whatsapp: boolean; maiorDeIdade: boolean; aceitouTermo: boolean };
@@ -85,7 +85,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
     };
     setDados(d);
     setEnviando(true);
-    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, inicio: f.get('inicio'), modalidade, turnstileToken: token });
+    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, termoVersao: termo.versao, inicio: f.get('inicio'), modalidade, turnstileToken: token });
     setEnviando(false);
     if (status === 200 && r.pedido) {
       setPedido(r.pedido);
@@ -193,7 +193,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
           <label htmlFor="maiorDeIdade">Tenho 18 anos ou mais</label>
         </div>
         {msg('maiorDeIdade')}
-        <section aria-labelledby="termo-titulo" tabIndex={0} className="max-h-48 space-y-2 overflow-y-auto rounded border p-3 text-sm">
+        <section aria-labelledby="termo-titulo" className="space-y-2 rounded border p-3 text-sm">
           <h3 id="termo-titulo" className="font-semibold">{termo.titulo}</h3>
           {termo.paragrafos.map((p) => (
             <p key={p}>{p}</p>

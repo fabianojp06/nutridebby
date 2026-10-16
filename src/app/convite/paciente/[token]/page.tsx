@@ -6,7 +6,8 @@ import { getAuth } from '@/lib/auth';
 import { SUSPENDED_PATH } from '@/lib/session-rules';
 import { normalizeEmail } from '@/lib/text';
 import { inspecionarConvitePaciente, MSG_CONVITE_PACIENTE } from '@/modules/pacientes/convite-paciente';
-import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_TITULO } from '@/modules/pacientes/termo-paciente';
+import { TERMO_PACIENTE_PARAGRAFOS } from '@/modules/pacientes/termo-paciente-textos';
 import { aceitarConvitePacienteAction, vincularContaAction } from './actions';
 import { AceiteForm } from './form';
 
@@ -26,7 +27,7 @@ function Aviso({ texto }: { texto: string }) {
 
 function Termo() {
   return (
-    <section aria-labelledby="termo-titulo" tabIndex={0} className="max-h-64 space-y-2 overflow-y-auto rounded border p-3 text-sm">
+    <section aria-labelledby="termo-titulo" className="space-y-2 rounded border p-3 text-sm">
       <h2 id="termo-titulo" className="font-semibold">{TERMO_PACIENTE_TITULO}</h2>
       {TERMO_PACIENTE_PARAGRAFOS.map((p) => <p key={p}>{p}</p>)}
     </section>

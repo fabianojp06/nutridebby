@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { patients, tenants } from '@/db/schema';
+import { consents, patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { novoTenant } from '../../test/pacientes';
 import { pacienteComConta } from '../../test/portal';
@@ -104,6 +104,17 @@ describe('requirePaciente (D2, D3, RN-08, RN-15)', () => {
     req.headers.set('x-nd-caminho', `/p/meus-dados/exportacoes/abc?v=${A.tenantId}`);
     await expect(requirePaciente('/p/inicio')).rejects.toMatchObject({ url: '/p/termo?volta=%2Fp%2Fmeus-dados%2Fexportacoes%2Fabc' });
     expect((await requirePaciente('/p/termo', { permitirTermoPendente: true })).tenant.id).toBe(A.tenantId);
+  });
+
+  it('P08-06: com só o aceite da 0.1 provisória, o portal leva ao termo 1.0 e a API dá 403', async () => {
+    const A = await novoTenant(db);
+    const { userId, email } = await pacienteComConta(db, A, { semTermo: true });
+    await db.insert(consents).values({ userId, tenantId: A.tenantId, termoVersao: 'termo-paciente-0.1-provisorio', ip: null });
+    const cookie = await entrar(getAuth(), email);
+    req.headers = new Headers({ cookie });
+    await expect(requirePaciente('/p/plano')).rejects.toMatchObject({ url: '/p/termo?volta=%2Fp%2Fplano' });
+    const r = await requireApiPaciente(new Request('http://x/api/p/acesso', { method: 'POST', headers: { cookie } }));
+    expect(r.ok ? null : r.response.status).toBe(403);
   });
 
   it('nutricionista no portal vai ao aviso de outro papel (P09-03); sem sessão vai para o login', async () => {

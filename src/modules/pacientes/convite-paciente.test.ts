@@ -17,7 +17,7 @@ import { PacienteNaoEncontradoError } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
 import { aceitarConvitePaciente, ConvitePacienteError, inspecionarConvitePaciente, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso, vincularContaExistente } from './convite-paciente';
 import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes } from './pacientes';
-import { MSG_TERMO_NAO_ACEITO, TERMO_PACIENTE } from './termo-paciente';
+import { MSG_TERMO_NAO_ACEITO } from './termo-paciente';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -146,7 +146,7 @@ describe('aceite do convite — conta nova (US-011)', () => {
     const [acc] = await app.db.select().from(account).where(eq(account.userId, u.id));
     expect(await verifyPassword(acc.password!, SENHA)).toBe(true);
     const [cons] = await app.db.select().from(consents).where(eq(consents.userId, u.id));
-    expect(cons).toMatchObject({ termoVersao: TERMO_PACIENTE, tenantId: c.T.tenantId, ip: '203.0.113.30' });
+    expect(cons).toMatchObject({ termoVersao: 'termo-paciente-1.0', tenantId: c.T.tenantId, ip: '203.0.113.30' });
     const p = await lerPaciente(c.T, c.p.id);
     expect(p).toMatchObject({ userId: u.id, whatsappOptinEm: depois, whatsappOptinOrigem: 'paciente', whatsappOptoutEm: null });
     const log = await withTenant(c.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, c.p.id), eq(auditLog.acao, 'alterar'))).orderBy(auditLog.criadoEm), app.db);
