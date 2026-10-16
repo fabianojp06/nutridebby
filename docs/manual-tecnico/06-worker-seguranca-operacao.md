@@ -71,7 +71,7 @@ Princípios que atravessam o capítulo:
 | Role do banco | O mesmo da aplicação (`DATABASE_URL`, sem `BYPASSRLS`) | spec §4.1, linha 127 |
 | Schema da fila | `pgboss`, criado pelas migrations com dono = role da aplicação; o worker usa `createSchema: false` | `src/db/migrate.ts:80-81`, `src/worker/index.ts:49-54` |
 | Filas | Criadas **e atualizadas** a cada subida por `ensureQueues` (`createQueue` + `updateQueue`): o código é a fonte da verdade | `src/jobs/queues.ts:50-55` |
-| Parada | `SIGTERM`/`SIGINT` ouvidos antes de iniciar (`rodarComSinais`): no ar → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; ainda esperando o schema → corta a espera e fecha Sentry e pool; idempotente | `src/worker/sinais.ts`, `src/worker/index.ts` |
+| Parada | `SIGTERM`/`SIGINT` ouvidos antes de iniciar (`rodarComSinais`): no ar → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; ainda esperando o schema → corta a espera e fecha Sentry e pool; idempotente; sai com 128 + sinal (143/130, `CODIGO_DE_SAIDA`), nunca 0: o serviço usa `restart: on-failure` e, com 0, um sinal que não veio do Swarm deixava o worker parado (P15-05, 14 e 15/10/2026) | `src/worker/sinais.ts`, `src/worker/index.ts` |
 | Erro não tratado | O worker **não** usa a integração `OnUnhandledRejection` do Sentry: a rejeição derruba o processo e o Swarm o reinicia | `src/lib/sentry.ts:87-91,110` |
 
 Variáveis do worker (nomes; `src/env.ts`, `serverSchema` e `workerSchema`): `DATABASE_URL`, `LOG_LEVEL`,
