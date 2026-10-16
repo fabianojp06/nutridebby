@@ -3,10 +3,19 @@ import { logger } from '@/lib/logger';
 type Sinal = 'SIGTERM' | 'SIGINT';
 
 /**
+ * P15-05: o worker sai com 128 + número do sinal (como o shell), não com 0. O serviço usa `restart: on-failure` no Swarm:
+ * com 0, um sinal que não veio do Swarm (o worker parou assim em 14/10 e 15/10, ~10 h e ~23 h fora do ar) deixava o
+ * serviço parado. Quando é o próprio Swarm que para a tarefa (deploy, escala a 0), ela já está com `desired=shutdown` e
+ * não volta, qualquer que seja o código.
+ */
+export const CODIGO_DE_SAIDA: Record<Sinal, number> = { SIGTERM: 143, SIGINT: 130 };
+
+/**
  * Code review do PR #22, item 4: o node como PID 1 do container ignora SIGTERM/SIGINT sem ouvinte. Os ouvintes entram
  * ANTES de iniciar — a espera pelo schema (até 5 min) já recebe o sinal pelo AbortSignal e desiste na hora; sem isso,
  * o Swarm esperaria o grace period e mataria o processo. Sinal durante a inicialização: espera ela desistir (ou terminar),
- * fecha o que abriu e sai com 0. Com o worker no ar: `parar` (o do startWorker, idempotente) e sai com 0. Uma falha da
+ * fecha o que abriu e sai com 128 + sinal. Com o worker no ar: `parar` (o do startWorker, idempotente) e sai com 128 + sinal
+ * (`CODIGO_DE_SAIDA`). Uma falha da
  * inicialização sem sinal sobe (o processo sai com erro e o Swarm o reinicia).
  */
 export async function rodarComSinais(deps: {
@@ -23,7 +32,8 @@ export async function rodarComSinais(deps: {
   const aoSinal = (s: Sinal) => {
     if (encerrando) return;
     encerrando = true;
-    logger.info({ signal: s }, 'encerrando worker');
+    const codigo = CODIGO_DE_SAIDA[s];
+    logger.info({ signal: s, codigo }, 'encerrando worker');
     ctrl.abort();
     void (async () => {
       try {
@@ -32,7 +42,7 @@ export async function rodarComSinais(deps: {
       } catch {
         // encerrando de qualquer jeito: o Swarm sobe outro
       } finally {
-        sair(0);
+        sair(codigo);
       }
     })();
   };
