@@ -14,9 +14,8 @@ export const CODIGO_DE_SAIDA: Record<Sinal, number> = { SIGTERM: 143, SIGINT: 13
  * Code review do PR #22, item 4: o node como PID 1 do container ignora SIGTERM/SIGINT sem ouvinte. Os ouvintes entram
  * ANTES de iniciar — a espera pelo schema (até 5 min) já recebe o sinal pelo AbortSignal e desiste na hora; sem isso,
  * o Swarm esperaria o grace period e mataria o processo. Sinal durante a inicialização: espera ela desistir (ou terminar),
- * fecha o que abriu e sai com 128 + sinal. Com o worker no ar: `parar` (o do startWorker, idempotente) e sai com 128 + sinal
- * (`CODIGO_DE_SAIDA`). Uma falha da
- * inicialização sem sinal sobe (o processo sai com erro e o Swarm o reinicia).
+ * fecha o que abriu e sai com 128 + sinal (`CODIGO_DE_SAIDA`). Com o worker no ar: `parar` (o do startWorker, idempotente)
+ * e sai do mesmo jeito. Uma falha da inicialização sem sinal sobe (o processo sai com erro e o Swarm o reinicia).
  */
 export async function rodarComSinais(deps: {
   iniciar: (sinal: AbortSignal) => Promise<() => Promise<void>>;
