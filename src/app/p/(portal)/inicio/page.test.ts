@@ -8,21 +8,24 @@ vi.mock('@/env', () => ({ getEnv: () => ({ VAPID_PUBLIC_KEY: undefined }) }));
 vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, data: { user: { id: 'u1', email: 'marina@ex.com' } }, vinculo: { patientId: 'p1' }, tenant: { fuso: 'America/Sao_Paulo', examesPacienteAtivadoEm: null } }),
 }));
-vi.mock('@/app/p/moldura', () => ({ molduraDaSecao: async () => ({ marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }) }));
+vi.mock('@/app/p/moldura', () => ({ molduraComExames: () => ({ marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }) }));
 vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: true, hoje: [], anteriores: [] }) }));
-vi.mock('@/modules/portal/jornada', () => ({
-  miniJornadaDoPaciente: async () => ({
-    linha1: '−4,2 kg desde março',
-    linha2: { semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' },
-    complemento: '78,6 kg na última consulta',
-    pontos: [82.8, 78.6],
-    podeAgendar: true,
+const estado = vi.hoisted(() => ({ jaUsava: true, guia: {} as Record<string, unknown> }));
+vi.mock('@/modules/portal/hoje', () => ({
+  faixaDeHoje: async () => ({
+    mini: {
+      linha1: '−4,2 kg desde março',
+      linha2: { semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' },
+      complemento: '78,6 kg na última consulta',
+      pontos: [82.8, 78.6],
+      podeAgendar: true,
+    },
+    jaUsava: estado.jaUsava,
+    exames: false,
   }),
 }));
 vi.mock('../agenda/actions', () => ({ confirmarAction: async () => ({}) }));
-const estado = vi.hoisted(() => ({ jaUsava: true, guia: {} as Record<string, unknown> }));
 vi.mock('@/modules/plataforma/preferencias', () => ({ lerGuia: async () => estado.guia }));
-vi.mock('@/modules/portal/acesso', () => ({ jaUsavaOApp: async () => estado.jaUsava }));
 vi.mock('../ajuda/actions', () => ({ marcarGuiaPortalAction: async () => {} }));
 const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));

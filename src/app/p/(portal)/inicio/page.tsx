@@ -10,12 +10,11 @@ import { configIA } from '@/modules/ia/modo';
 import { entradaDoPaciente } from '@/modules/ia/nutri-paciente/estado';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { lerGuia } from '@/modules/plataforma/preferencias';
-import { jaUsavaOApp } from '@/modules/portal/acesso';
 import { dataDaFaixa } from '@/modules/portal/datas-portal';
-import { miniJornadaDoPaciente } from '@/modules/portal/jornada';
+import { faixaDeHoje } from '@/modules/portal/hoje';
 import { muralDoPaciente } from '@/modules/portal/mural';
 import { MSG_MURAL } from '@/modules/portal/mural-regras';
-import { molduraDaSecao } from '../../moldura';
+import { molduraComExames } from '../../moldura';
 import { AtualizarAoVoltar } from './atualizar-ao-voltar';
 import { CartoesDoAparelho } from './cartoes-do-aparelho';
 import { ConviteIaNutri } from './convite-ia-nutri';
@@ -26,8 +25,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Plano 16 (US-191, §4.3): Hoje — a faixa com a saudação e a mini-jornada, o mural do consultório (leitura: nada é
- * gravado para ele existir; não é chat, RN-193), os cartões do aparelho e a barra de ações. Duas transações curtas: o mural
- * e a mini-jornada (D2). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
+ * gravado para ele existir; não é chat, RN-193), os cartões do aparelho e a barra de ações. Duas transações curtas (D2): o
+ * mural e a faixa (mini-jornada, o aviso e a seção "Exames": faixaDeHoje, P08-13). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
  * `userId` de requirePaciente, CLAUDE.md regra 1); `?tour=portal-novidades` abre o tour ("Ver o tour de novo" de /p/ajuda).
  * Plano 15 (§7.8): o convite da IA Nutri, só com a entrada `decidir` (liberado pela nutricionista e ainda sem decisão).
  */
@@ -36,15 +35,14 @@ export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
   const { ctx, tenant, vinculo, data } = acesso;
   const agora = new Date();
   const hoje = hojeNoFuso(tenant.fuso, agora);
-  const [moldura, mural, mini, progresso, jaUsava, entradaIaNutri, { tour }] = await Promise.all([
-    molduraDaSecao(acesso),
+  const [mural, { mini, jaUsava, exames }, progresso, entradaIaNutri, { tour }] = await Promise.all([
     muralDoPaciente(ctx, tenant, agora),
-    miniJornadaDoPaciente(ctx, tenant, agora),
+    faixaDeHoje(ctx, tenant, agora, hoje),
     lerGuia(data.user.id),
-    jaUsavaOApp(ctx, hoje),
     entradaDoPaciente(ctx, tenant, configIA(getEnv())),
     searchParams,
   ]);
+  const moldura = molduraComExames(tenant, exames);
   return (
     <>
       <Faixa {...moldura} atual="/p/inicio" titulo={MSG_G.titulos.hoje(mural.primeiroNome)} subtitulo={dataDaFaixa(hoje)}>

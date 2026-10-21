@@ -29,11 +29,12 @@ export async function registrarAcesso(ctx: TenantContext, fuso: string, o: { db?
  */
 export async function jaUsavaOApp(ctx: TenantContext, hoje: string, db: Db = getDb()): Promise<boolean> {
   const patientId = pacienteDaSessao(ctx, 'jaUsavaOApp');
-  const r = await withTenant(
-    ctx,
-    (tx) => tx.select({ id: accessEvents.id }).from(accessEvents).where(and(eq(accessEvents.patientId, patientId), lt(accessEvents.dia, hoje))).limit(1),
-    db,
-  );
+  return withTenant(ctx, (tx) => jaUsavaOAppNaTransacao(tx, patientId, hoje), db);
+}
+
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje), com o contexto do paciente. */
+export async function jaUsavaOAppNaTransacao(tx: Tx, patientId: string, hoje: string): Promise<boolean> {
+  const r = await tx.select({ id: accessEvents.id }).from(accessEvents).where(and(eq(accessEvents.patientId, patientId), lt(accessEvents.dia, hoje))).limit(1);
   return r.length > 0;
 }
 
