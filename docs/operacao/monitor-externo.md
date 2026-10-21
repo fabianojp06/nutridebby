@@ -89,10 +89,11 @@ printf 'url = "%s/fail"\n' "$(head -n 1 ~/.config/nutri-saude/hc.url | tr -d '\r
 ## Pausar (manutenção planejada)
 
 Uma parada de até ~10 min sem resposta nenhuma (VPS parada, nenhum ping) não avisa (período + tolerância). Mas, com a
-VPS no ar, o `/api/health` dá `/fail` e o alerta sai na hora: depois de ~30 s (as 2 novas tentativas do `curl`) se ele
-continuar com tempo esgotado, DNS que não resolve, conexão recusada ou HTTP 408, 429, 500, 502, 503 ou 504; **sem nova
-tentativa** com qualquer outro código, como o 404 do Traefik com o serviço do app fora, ou outra falha de rede (TLS,
-conexão cortada). Para uma janela maior, ou um reinício do app, do banco ou do worker:
+VPS no ar, o `/api/health` dá `/fail` e o alerta sai na hora: depois das 2 novas tentativas do `curl` (10 s entre elas)
+se ele continuar com DNS que não resolve, conexão recusada ou HTTP 408, 429, 500, 502, 503 ou 504 (~20 s), ou com tempo
+esgotado (até ~65 s: no curl 8.5 o `-m 15` vale para cada uma das 3 tentativas); **sem nova tentativa** com qualquer
+outro código, como o 404 do Traefik com o serviço do app fora, ou outra falha de rede (TLS, conexão cortada). Para uma
+janela maior, ou um reinício do app, do banco ou do worker:
 
 1. **Antes:** `crontab -e` e pôr `#` no começo da linha do `nutri-saude.sh`; no painel do healthchecks.io, *Pause* no
    check. Só o *Pause* não basta: o check pausado volta sozinho no próximo ping (salvo com a retomada manual ligada no

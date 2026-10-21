@@ -59,7 +59,7 @@ O login é global por e-mail e cada conta tem **um único papel** (`appRole`): `
 (`src/lib/session-rules.ts:1`; spec §3, "Modelo de identidade"). O **visitante** não tem conta: usa páginas
 públicas ou links assinados. No banco, o "papel" que vale para a RLS é outro conceito: o `TenantRole` passado ao
 `withTenant` (`src/db/tenant.ts:14`: `nutri`, `paciente`, `worker`, `publico`), mais o contexto `conta` do
-`withConta` (`src/db/tenant.ts:101`).
+`withConta` (`src/db/tenant.ts:109`).
 
 | Perfil | Como entra | Área | Contexto no banco | Regras principais | Onde está no código |
 |---|---|---|---|---|---|
@@ -223,7 +223,7 @@ e `exportacao-job.ts`, `prontuario-pdf.tsx`, `plano-pdf*.tsx`, `@react-pdf/rende
   `DATABASE_URL_MIGRATOR`) e o **app** (`nutri_app`, membro de `nutri_app_role`, `NOSUPERUSER NOBYPASSRLS`;
   `drizzle/0000_base_roles_e_rls.sql:10-19`). O role de login do app é criado e conferido a cada `migrate`
   (`ensureAppLogin`, `src/db/migrate.ts:21`).
-- Toda consulta a tabela com `tenant_id` passa por **`withTenant(ctx, fn)`** (`src/db/tenant.ts:73`), que abre uma
+- Toda consulta a tabela com `tenant_id` passa por **`withTenant(ctx, fn)`** (`src/db/tenant.ts:81`), que abre uma
   transação e define `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id` e `app.ip` com `set_config(…, true)`
   (local à transação; `:79-84`). As políticas RLS leem esses valores. `app_enable_tenant_rls` liga e **força** a RLS
   (`drizzle/0000_base_roles_e_rls.sql:30-34`).

@@ -383,16 +383,16 @@ Tudo é gravado com `set_config(..., true)`, local à transação. Depois do com
 
 ### 2.6.2 `withTenant` e `withConta`
 
-`withTenant(ctx, fn, db?)` (`src/db/tenant.ts:73-95`):
+`withTenant(ctx, fn, db?)` (`src/db/tenant.ts:81-101`):
 
 1. `assertContext(ctx)` valida antes de tocar no banco (`src/db/tenant.ts:46-66`): `tenantId` uuid; papel na lista `ROLES` (o `admin` não existe ali, de propósito); `patientId` obrigatório e exclusivo do `paciente`; `actorUserId` obrigatório para `nutri` e para `paciente` com login; `semConta: true` só para `paciente` sem ator; IP válido.
 2. Abre uma transação e executa um único `select set_config(...)` com os cinco GUCs.
 3. Roda `fn(tx)`.
-4. Qualquer erro passa por `sanitizarErroDeBanco`: o erro do Drizzle leva SQL e parâmetros na mensagem, que não podem chegar a log nem Sentry (RNF-11; `src/db/tenant.ts:89-92`). A mesma sanitização vale para toda consulta, pelo *patch* em `PgPreparedQuery.queryWithCache` (`src/db/client.ts:8-27`).
+4. Qualquer erro passa por `sanitizarErroDeBanco`: o erro do Drizzle leva SQL e parâmetros na mensagem, que não podem chegar a log nem Sentry (RNF-11; `src/db/tenant.ts:97-100`). A mesma sanitização vale para toda consulta, pelo *patch* em `PgPreparedQuery.queryWithCache` (`src/db/client.ts:8-27`).
 
 `semConta` (N7, Plano 08) marca o paciente agindo sem sessão de login (link assinado da consulta, resposta pelo WhatsApp, convite). Só seis arquivos podem usar (desde o Plano 15, também `src/modules/ia/nutri-paciente/contexto.ts`: o contexto da IA Nutri lido pelo worker na sessão do paciente, sem login): `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:35-42`; `src/modules/documentos/link-documento.ts` é o link do documento do Plano 10A e `src/modules/ia/autorizacao-link.ts`, o link da autorização de IA do Plano 14A), conferido por `src/db/sem-conta-guarda.test.ts`.
 
-`withConta(userId, fn, db?)` (`src/db/tenant.ts:101-116`; Plano 06, D2): grava `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id = ''`. Serve para a conta de paciente (sem tenant) achar os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa (CLAUDE.md regra 1).
+`withConta(userId, fn, db?)` (`src/db/tenant.ts:109-124`; Plano 06, D2): grava `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id = ''`. Serve para a conta de paciente (sem tenant) achar os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa (CLAUDE.md regra 1).
 
 ```mermaid
 sequenceDiagram
@@ -762,6 +762,6 @@ flowchart TD
 | 3 | §7, linha de `invites`: `tipo` (`nutri`), sem tenant | `tipo` em (`nutri`,`paciente`), colunas `tenant_id` e `patient_id`, CHECK `invites_alvo`, índice de pendente por paciente | `drizzle/0018_convite_paciente.sql` |
 | 4 | §4.1, item "Tabelas sem `tenant_id`": lista `users`, `consents` e `invites` | As três têm `tenant_id` e estão em `RLS_EXCEPTIONS` (o item "Escrita do paciente negada por padrão" da mesma seção já diz isso) | `drizzle/0003_auth.sql:57`, `drizzle/0018_convite_paciente.sql:4-5`; `src/db/rls-guard.ts:9-15` |
 | 5 | §7 não lista `system_heartbeat`; §4.1 não a cita entre as tabelas fora da RLS | A tabela existe (`name`, `beat_at`) e é usada pelo worker e pelo `/api/health` | `drizzle/0001_plataforma.sql:13-16`; `src/worker/heartbeat.ts` |
-| 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:82-86` |
+| 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:89-94` |
 | 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:119-128` |
 | 8 | `CLAUDE.md`, regra 1: lista das tabelas fora da RLS (`tenants`, `backup_runs`, `public_rate_limits`, `ia_gasto_plataforma`) | `admin_actions` (Plano 09, sem `tenant_id`, só inclusão) também fica fora da RLS e não aparece nessa lista; a regra a cita só no trecho de `reiniciar-2fa.ts`. As escritas de IA nela (`contas.ts`, `metricas.ts`) seguem a mesma proteção (fora de `withTenant`, só a admin) | `drizzle/0095_admin_actions.sql`; `src/modules/plataforma/contas.ts` (`definirIaLiberada`), `metricas.ts` (`ajustarCotaIa`) |
