@@ -340,8 +340,8 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 
 | # | Passo | Onde | Guarda |
 |---|---|---|---|
-| 1 | Primeira linha da página: `await requirePaciente('/p/…')` (`src/lib/paciente-session.ts:111`) | `page.tsx` | **nenhuma** |
-| 2 | Rota em `/api/p/*`: `requireApiPaciente(req)` (`paciente-session.ts:165`); escrita: `mesmaOrigem(req)` antes de tudo (ex.: `src/app/api/p/diario/route.ts:25`) | `route.ts` | `src/app/api/mesma-origem-rotas.test.ts` (só a origem; a sessão, **nenhuma**) |
+| 1 | Primeira linha da página: `await requirePaciente('/p/…')` (`src/lib/paciente-session.ts`, `requirePaciente`) | `page.tsx` | **nenhuma** |
+| 2 | Rota em `/api/p/*`: `requireApiPaciente(req)` (`paciente-session.ts`, `requireApiPaciente`); escrita: `mesmaOrigem(req)` antes de tudo (ex.: `src/app/api/p/diario/route.ts:25`) | `route.ts` | `src/app/api/mesma-origem-rotas.test.ts` (só a origem; a sessão, **nenhuma**) |
 | 3 | Dado de saúde devolvido: `auditRead` na mesma transação (P06 D22) | módulo | nenhuma |
 | 4 | Nada novo no cache offline; toda página do portal marca uma seção (`tambem` em `SECOES_DO_PORTAL`); seção nova exige decisão (§5.5.2, §5.9) | `src/app/sw-regras.ts`, `src/app/p/navegacao.ts` | `src/app/p/navegacao.test.ts` |
 

@@ -26,7 +26,8 @@ desde o Plano 16 ([§5.5.2](05-agenda-portal-conteudo.md#552-rotas-e-seções)):
 
 - **Seção "Exames"** (`/p/exames`, título "Meus exames") na faixa do topo, **condicional** (RN-192, G-D9 = a): aparece com o
   recebimento ligado **ou** quando o paciente tem envio não cancelado (`temEnvioVisivel`, `src/modules/portal/exames-enviados.ts`:
-  só a existência, sem `auditRead`; `secoesDoPortal({ exames })`, `src/app/p/navegacao.ts`). Sem os dois, o portal tem quatro
+  só a existência, sem `auditRead`; em Hoje, `temEnvioVisivelNaTransacao` dentro de `faixaDeHoje`, P08-13;
+  `secoesDoPortal({ exames })`, `src/app/p/navegacao.ts`). Sem os dois, o portal tem quatro
   seções; a rota continua abrindo pelo endereço.
 - **"Enviar exame" na barra "Ações" de Hoje** (`BarraDeAcoes`, `/p/exames#enviar`), só com o recebimento ligado (RN-215).
 - **Item do mural** (§5.5.11, RN-199): envio de hoje, ou mudança de situação depois do envio nos últimos 7 dias (revisão,

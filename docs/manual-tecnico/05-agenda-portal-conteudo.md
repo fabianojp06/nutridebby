@@ -22,9 +22,9 @@ Convenções do capítulo:
 |---|---|---|---|
 | Agenda | `src/modules/agenda/` | Fuso, regras e bloqueios, horários livres, consultas, cancelamento, link assinado, página pública, limites por IP, presença, Início do painel | P05 (e P08 para o Início) |
 | Notificações | `src/modules/notificacoes/` | Planejamento e envio (e-mail, WhatsApp, push), textos, cota, webhook do WhatsApp | P05 (P06 e P07 acrescentam tipos) |
-| Portal | `src/modules/portal/` + `src/lib/paciente-session.ts` | Vínculos da conta, acesso diário, plano, diário (e as respostas à refeição do plano), evolução, lista de compras, pedidos do titular, inscrição de push, conteúdos do paciente, mural de Hoje, Jornada | P06 (P07 para conteúdos; P16 para o mural, as respostas e a Jornada) |
+| Portal | `src/modules/portal/` + `src/lib/paciente-session.ts` | Vínculos da conta, acesso diário, plano, diário (e as respostas à refeição do plano), evolução, lista de compras, pedidos do titular, inscrição de push, conteúdos do paciente, mural e faixa de Hoje (`hoje.ts`, `faixaDeHoje`), Jornada | P06 (P07 para conteúdos; P16 para o mural, as respostas e a Jornada; P08-13 para a faixa de Hoje) |
 | Conteúdo | `src/modules/conteudo/` | Vídeo, oEmbed, capa, markdown, receitas, audiência, aviso, métricas, LGPD do titular | P07 |
-| Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts` | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
+| Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts`, `src/modules/ajuda/precisa-do-guia.ts` (P08-13) | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
 | Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, cor da faixa do portal, componentes base | P08 (P16 para o portal) |
 
 A spec registra a divisão em dois módulos (`agenda` e `notificacoes`) porque o motor de envio também serve o convite do
@@ -692,7 +692,7 @@ A conta de paciente não tem tenant. Ela pode ser paciente de vários consultór
 ```mermaid
 flowchart TD
   A["requirePaciente(path)"] --> B["requireUserComTenant(['paciente'])"]
-  B --> C["vinculosDaConta (withConta: role conta, só SELECT em patients)"]
+  B --> C["vinculosComConsultorio (withConta: role conta, só SELECT em patients; a linha de tenants no join)"]
   C --> D{"escolherVinculo: ?v= válido, cookie nd_vinculo, 1 vínculo"}
   D -- "0 vínculos ativos" --> E["/p/sem-acesso"]
   D -- "2+ e sem escolha" --> F["/p/escolher"]
@@ -705,7 +705,11 @@ flowchart TD
 ```
 
 - `src/lib/paciente-session.ts`: `requirePaciente` (páginas e Server Actions) e `requireApiPaciente` (rotas
-  `/api/p/…`, com 403 e motivo). A regra é a mesma (`acessoDaConta`).
+  `/api/p/…`, com 403 e motivo). A regra é a mesma (`acessoDaConta`). Desde o P08-13 (S-7) o consultório vem no join
+  dos vínculos (`vinculosComConsultorio`, sem reler `tenants`) e, nas páginas, a regra roda **uma vez por requisição**:
+  `acessoDaRequisicao`, um `cache()` do React com a chave conta + `exigirTermo`, divide a leitura entre o layout e a
+  página; o redirect fica com cada chamador; numa Server Action cada chamada relê; a API não usa o cache (§3.8 do
+  capítulo 03; teste em `src/lib/paciente-session.cache.test.ts`).
 - Contexto `conta` (P06 D2): `withConta(userId, fn)` sem `app.tenant_id`; a única política que libera linhas é
   `paciente_por_conta` em `patients` (só `SELECT`). Só `src/modules/portal/vinculos.ts` usa.
 - Cookie `nd_vinculo` (P06 D3): só o `tenantId`, `httpOnly`, `SameSite=Lax`, 30 dias, reconferido a cada requisição.
@@ -739,7 +743,12 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
   título; as telas de detalhe renderizam o `CabecalhoDetalhe` (`src/components/portal/cabecalho-detalhe.tsx`: `Voltar` +
   h1 `#titulo-da-tela`, que recebe o foco no carregamento). A `NavSecoes` recebe `atual` da página (sem `usePathname`: a
   navegação funciona sem JavaScript), marca a seção com `aria-current="page"` e pílula branca, em 5 (ou 4) colunas iguais.
-  `molduraDaSecao` (`src/app/p/moldura.ts`) devolve a marca e as seções. A cor da faixa é `--nd-faixa`, posta pelo
+  `molduraDaSecao` (`src/app/p/moldura.ts`) devolve a marca e as seções (Jornada, Plano, Exames e Eu); com o
+  recebimento desligado, decide o "Exames" numa transação própria (`temEnvioVisivel`). Hoje usa `molduraComExames(tenant, exames)` (mesmo arquivo) com o
+  `exames` que `faixaDeHoje` (`src/modules/portal/hoje.ts`) já decidiu na transação da faixa (P08-13; §5.5.13). A regra
+  RN-192 (`Boolean(tenant.examesPacienteAtivadoEm) || envio não cancelado`) fica escrita nos dois lugares,
+  `molduraDaSecao` e `faixaDeHoje`: mudou uma, mude a outra (o teste `src/app/p/(portal)/inicio/page.test.ts`, "P08-13:
+  a seção "Exames" da moldura é a que a faixa decidiu", confere o repasse). A cor da faixa é `--nd-faixa`, posta pelo
   `src/app/p/(portal)/layout.tsx` com `corDaFaixa` (§5.7.6).
 - **"Voltar" é um link fixo** para o destino (Desvio 13), com o nome "Voltar para {destino}" (`MSG_G.voltarPara`): a seção
   ("Hoje", "Jornada", "Plano", "Eu") ou a lista de que o detalhe faz parte ("Minhas consultas", "Conteúdos"). Nas telas de
@@ -755,7 +764,7 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
 
 | Rota | Função de domínio | Auditoria |
 |---|---|---|
-| `/p/inicio` (Hoje) | `muralDoPaciente` (`portal/mural.ts`), `miniJornadaDoPaciente` (`portal/jornada.ts`), `jaUsavaOApp` (`portal/acesso.ts`) | `auditRead` por entidade (§5.5.11); agenda, conteúdos e documentos sem |
+| `/p/inicio` (Hoje) | `muralDoPaciente` (`portal/mural.ts`) + `faixaDeHoje` (`portal/hoje.ts`: a mini-jornada, o `jaUsava` e o "Exames" numa transação, P08-13) | `auditRead` por entidade (§5.5.11); agenda, conteúdos e documentos sem |
 | `/p/jornada` (nova) | `jornadaDoPaciente` (`portal/jornada.ts`) | `auditRead` de `atendimentos` e `antropometria` (§5.5.13) |
 | `/p/plano` | `planoDoPaciente` (`portal/plano.ts`) | `auditRead` (P06 D22) |
 | `/p/plano/refeicao/<id>` (nova) | `planoDoPaciente` + `respostasDeHoje` (`portal/diario.ts`); 404 fora do plano publicado | `auditRead` (o plano e, com resposta, o diário) |
@@ -947,7 +956,8 @@ convite único "A IA Nutri está disponível para você." ("Aviso do app", com "
 ```mermaid
 flowchart LR
   H["Hoje (inicio/page.tsx)"] --> M["muralDoPaciente (mural.ts): 1 withTenant"]
-  H --> MJ["miniJornadaDoPaciente (jornada.ts): 1 withTenant"]
+  H --> FH["faixaDeHoje (hoje.ts): 1 withTenant"]
+  FH --> MJ["miniJornadaNaTransacao + jaUsavaOAppNaTransacao + temEnvioVisivelNaTransacao"]
   M --> F["FontesDoMural"] --> C["comporMural (mural-regras.ts, puro)"] --> L["MuralLista"]
 ```
 
@@ -974,8 +984,8 @@ flowchart LR
   horário de cada uma." (`MSG_MURAL.nadaAgora`). A decisão é pelo dia, não pelo mural todo.
 - **Auditoria** (RN-200, regra 8): `auditRead` **uma vez por entidade** lida com dado de saúde — `plano_alimentar`
   (dentro de `lerPlanoNaTransacao`, com o id do plano), `diario` e `exames_enviados` (só quando há linhas). Agenda,
-  conteúdos e a contagem de documentos não (P05 D10, P07 D6, 10A D17). A mini-jornada audita `antropometria` na própria
-  transação, só quando lê o peso (Desvio 4). Uma abertura de Hoje gera até quatro "Visualizou" (risco R5; medido na
+  conteúdos e a contagem de documentos não (P05 D10, P07 D6, 10A D17). A mini-jornada audita `antropometria` na transação
+  da faixa (`faixaDeHoje`, P08-13), só quando lê o peso (Desvio 4). Uma abertura de Hoje gera até quatro "Visualizou" (risco R5; medido na
   carga e no runbook, PM-G11).
 - **Por que não há tabela de mensagens.** A spec escolheu um mural composto na hora (spec C, D24 = b): nada a moderar,
   reter, exportar ou anonimizar além do que já existe, e nenhuma promessa de resposta. Item novo no mural = uma fonte nova
@@ -1037,7 +1047,9 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
 
 - **Módulo:** `jornadaDoPaciente(ctx, tenant, agora)` (`src/modules/portal/jornada.ts`) lê numa transação, com o contexto
   do paciente, os atendimentos (data e `orientacoes_paciente` — nunca a nota privada, `staff_only`), as avaliações (sem
-  dobras nem densidade, P06 D14) e as consultas futuras; `auditRead` de `atendimentos` e de `antropometria` (só quando há
+  dobras nem densidade, P06 D14) e as consultas futuras (`futuras`, filtrada também por `patient_id` desde o P08-13: a
+  RLS já restringe ao paciente, e o filtro deixa a consulta usar o índice do paciente, `appointments_paciente_idx`, em vez
+  do do tenant; vale para a Jornada e a mini-jornada); `auditRead` de `atendimentos` e de `antropometria` (só quando há
   linhas); a agenda sem. `montarJornada` (`src/modules/portal/jornada-regras.ts`, puro mas **só servidor** — importa
   `pacientes/evolucao`; os componentes de cliente recebem as strings prontas) monta o título ("Sua jornada desde {mês}",
   com o ano quando a primeira consulta é de outro ano, Desvio 7), os marcos (a próxima consulta primeiro, depois os
@@ -1051,7 +1063,14 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
 - **Gráfico:** "Peso nas consultas" com 2+ pesos; com o peso visível e menos de 2 pesos, "Cintura nas consultas" com 2+
   cinturas; senão nenhum. **Com o peso oculto, nenhum gráfico de medida corporal em destaque** (G-D16 = a: a condição
   `!e.pesoOculto && cinturas.length >= 2`). O `GraficoLinha` não tem o tracejado até a próxima consulta (Desvio 11).
-- **Mini-jornada** (RN-202): `miniJornadaDoPaciente` + `miniJornada`, outra transação curta de Hoje (D2). Com 2+ pesos:
+- **Mini-jornada** (RN-202): `miniJornadaNaTransacao` + `miniJornada` (`jornada.ts`). Desde o P08-13, Hoje a lê dentro de
+  `faixaDeHoje` (`src/modules/portal/hoje.ts`), a segunda transação curta de Hoje (D2, ao lado da do mural): na mesma
+  transação, com o contexto do paciente, a mini-jornada (com o `auditRead` de `antropometria`, só quando lê o peso), o
+  `jaUsava` do aviso (`jaUsavaOAppNaTransacao`, §5.8.4) e, com o recebimento de exames desligado, se há envio visível
+  (`temEnvioVisivelNaTransacao`: a seção "Exames", RN-192, §5.5.2). Antes eram três transações além da do mural (a da
+  moldura, a da mini-jornada e a do `jaUsavaOApp`). `miniJornadaDoPaciente` (transação própria) continua no módulo, agora só usada pelos testes. Teste:
+  `src/modules/portal/hoje.test.ts` (o mesmo resultado das três leituras separadas, a antropometria auditada uma vez, peso
+  oculto sem leitura nem auditoria, só em sessão de paciente). Com 2+ pesos:
   "{diferença} desde {mês}" (ou "Sem mudança de peso desde {mês}") e, só para o leitor de tela, "{peso} kg na última
   consulta" dentro do texto do link (sem `aria-label`, WCAG 2.5.3); senão "{n} consultas desde {mês}" ou "Sua jornada
   começa na primeira consulta."; a segunda linha é o próximo marco. RN-206: número com sinal, sem cor, elogio ou meta. O
@@ -1073,7 +1092,7 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
   no app").
 - **Filtro no módulo, nunca no componente** (CS-194): `evolucaoParaPaciente` lê pela leitura auditada de sempre e tira
   peso e IMC com `semPeso` (`SERIES_DO_PESO = ['peso', 'imc']`, G-D6 = a) antes de devolver; `jornadaDoPaciente` e
-  `miniJornadaDoPaciente` nem leem `peso_kg`/`imc` (`pesoOcultoNaTransacao`). Nenhum componente do portal lê a coluna. O
+  `miniJornadaNaTransacao` (a de Hoje, e a de `miniJornadaDoPaciente`) nem leem `peso_kg`/`imc` (`pesoOcultoNaTransacao`). Nenhum componente do portal lê a coluna. O
   `% de gordura` e as circunferências continuam. O app não diz ao paciente que o peso está oculto. Testes:
   `src/modules/portal/peso-oculto-portal.test.ts` (nenhuma resposta do portal traz peso ou IMC; tela nova que mostre
   medida corporal entra no objeto `respostas` desse teste) e `e2e/app-paciente.spec.ts` (nenhum documento nem RSC de `/p/`
@@ -1278,7 +1297,10 @@ indisponível".
 - **Sem `light-dark()`**: o Safari só o tem a partir da 17.5 e a RNF-09 exige iOS 16.4+.
 - O `data-tema` fica no contêiner do layout, não no `<html>`.
 - Fontes Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/google`, servidas pelo próprio app
-  (`src/app/layout.tsx`).
+  (`src/app/layout.tsx`, o layout raiz), com `preload: false` desde o P08-13: no layout raiz o preload vale para **todas**
+  as rotas, e o portal do paciente (`/p`, que tem fontes próprias, §5.7.6) baixava ~60 KB destas duas no celular antes do
+  primeiro quadro sem usá-las. Fora do `/p` elas baixam quando a página as usa (`display: 'swap'`, com a fonte de reserva
+  ajustada pelo `next/font`).
 
 ### 5.7.2 Cor do consultório (P08 D19, D23)
 
@@ -1355,7 +1377,12 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
   `/p`. Medido na T2: 126 112 bytes (≈ 123,2 KB) no primeiro carregamento; as fontes novas somam ≈ 95,6 KB em
   `.next/static/media` (menos de 0,1 MB na imagem comprimida). O `e2e/fontes-portal.spec.ts` (IP `10.9.19.6`, conta MULTI
   em `/p/escolher`; o plano dizia `10.9.26.1`, a dispatch da T2 deu este) mede de novo a cada execução e imprime o total
-  (no fechamento, 08/10/2026: 123,2 KB em 4 arquivos).
+  (no fechamento, 08/10/2026: 123,2 KB em 4 arquivos — as duas do portal e as duas do painel, pré-carregadas pelo layout
+  raiz). Desde o P08-13 (`preload: false` em Figtree e Bricolage, §5.7.1) o primeiro carregamento do `/p` baixa **só as
+  duas fontes do portal**: ≈ 63 KB em 2 arquivos (os dois `woff2` marcados para preload no build, 34 024 + 30 668 bytes
+  em `.next/static/media`). O E2E agora também limita a **2 arquivos** (`expect(fontes.length, 'só as fontes do
+  portal').toBeLessThanOrEqual(2)`), além dos 160 KB. Para o portal não puxar a Bricolage pelo tour, o `Tour` recebe a
+  fonte do título por prop (`classeTitulo`, §5.8.4).
 - **Disposição (§4.2).** Faixa no topo com as seções, `main` e, em Hoje, a barra "Ações" fixa embaixo; marcos de região
   `header`, `nav "Seções"`, `main`, `nav "Ações"`. Alvos de toque ≥ 44 px (`min-h-11`); WCAG 2.1 AA a 360 e 320 px,
   claro e escuro, sem rolagem horizontal com o texto em 200% (E2E `acessibilidade.spec.ts`); `prefers-reduced-motion`
@@ -1406,7 +1433,9 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 - `marcarGuia` grava com `jsonb_set` numa instrução (duas abas não se apagam). Recusa calada fora das regras: id fora do
   formato, versão fora de 1 a 1000, estado fora da lista.
 - `precisaDoGuia(progresso, guia, estados)`: verdadeiro se não há registro, se a versão gravada é menor ou se o estado
-  não está na lista pedida.
+  não está na lista pedida. Fica em `src/modules/ajuda/precisa-do-guia.ts` desde o P08-13 (reexportada por `conteudo.ts`,
+  então os imports do painel não mudam; o tipo do guia é só `{ id, versao }`): o portal (`GuiaDoPortal`) importa dali,
+  para não levar ao navegador os textos dos guias do painel (`GUIAS`).
 - O seed do E2E marca todos os guias como concluídos nas contas do E2E; a conta do `manual.spec` começa zerada
   (spec §4.3).
 
@@ -1424,14 +1453,17 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 - **Aviso** (`AVISO_PORTAL`): só ele abre sozinho, uma vez por conta, em Hoje (`GuiaDoPortal`,
   `src/app/p/(portal)/inicio/guia-do-portal.tsx`), e grava "visto" ao aparecer — "O app mudou. Quer ver onde ficou cada
   coisa?" para quem já usava o app e "Boas-vindas ao app do seu acompanhamento. Quer ver como funciona?" para quem entra
-  pela primeira vez (G-D17 = a: `jaUsavaOApp(ctx, hoje)`, `src/modules/portal/acesso.ts`, que olha se há `access_events`
-  do paciente antes de hoje, pela RLS do paciente e sem `auditRead`). "Ver como funciona" abre o tour; "Agora não" grava
+  pela primeira vez (G-D17 = a: `jaUsavaOAppNaTransacao(tx, patientId, hoje)`, `src/modules/portal/acesso.ts`, chamada
+  por `faixaDeHoje` na transação da faixa desde o P08-13, §5.5.13; `jaUsavaOApp(ctx, hoje)`, com transação própria,
+  continua no módulo. Olha se há `access_events` do paciente antes de hoje, pela RLS do paciente e sem `auditRead`). "Ver como funciona" abre o tour; "Agora não" grava
   "dispensado". Desde o Plano 15, quem já viu uma versão **anterior** do guia (`ProgressoGuia.v` < `GUIA_PORTAL.versao`)
   recebe "O manual do app foi atualizado. Quer ver o que há de novo?" (`AVISO_PORTAL.atualizado`, `avisoDoGuia`), nunca
   "O app mudou" de novo (spec C §7.8); o aviso vale para todo paciente que viu a versão 1, em qualquer consultório.
-- **Tour:** o mesmo `Tour` do painel, agora em `src/components/guia/tour.tsx`, com duas props novas: `focoAoFechar`
-  (padrão o botão "Ajuda" do painel; no portal, o link de Eu) e `folhaEvitaAlvo` (padrão `false`; no portal, a folha sobe
-  para o topo quando o alvo encosta no rodapé, para não cobrir a barra de ações — conferido no E2E). Reabre por
+- **Tour:** o mesmo `Tour` do painel, agora em `src/components/guia/tour.tsx`, com as props `focoAoFechar`
+  (padrão o botão "Ajuda" do painel; no portal, o link de Eu), `folhaEvitaAlvo` (padrão `false`; no portal, a folha sobe
+  para o topo quando o alvo encosta no rodapé, para não cobrir a barra de ações — conferido no E2E) e, desde o P08-13,
+  `classeTitulo` (a classe do título do passo; padrão `font-titulo text-xl font-semibold`, a Bricolage do painel; o
+  portal passa `font-portal-titulo text-xl font-bold`, a Red Hat Display, e não baixa a Bricolage, §5.7.6). Reabre por
   `/p/inicio?tour=portal-novidades` ("Ver o tour de novo" em `/p/ajuda`, que Eu liga por "Como usar o app").
 - **Progresso e regra 1:** o mesmo `user.guia` da conta (vale em todos os aparelhos e consultórios, RN-210), gravado por
   `marcarGuiaPortalAction` (`src/app/p/(portal)/ajuda/actions.ts`, `requirePaciente` na primeira linha) e lido por

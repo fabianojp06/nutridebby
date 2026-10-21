@@ -770,7 +770,24 @@ mais de 1 min, se o `cursoia_crm` piorar ou se a memória livre do host cair aba
 (`docs/operacao/carga.md:39-48`).
 
 Fim: `docker compose … down -v` e apagar `.env.carga*`, `.sessoes.json`, `resumo.json`. Relatório em
-`docs/operacao/carga-AAAA-MM-DD.md` num PR curto de docs. Estado: as rodadas ainda não rodaram (backlog, linha 303).
+`docs/operacao/carga-AAAA-MM-DD.md` num PR curto de docs.
+
+**Estado (21/10/2026).** A **rodada 1** rodou em 21/10/2026, de dia por decisão do dono, na pilha `nutridebby-carga`
+com a imagem de produção (`0bc1d94`) e os limites padrão (app 1 vCPU/1 GiB); relatório em
+`docs/operacao/carga-2026-10-21.md`. Resultado contra a D4: **reprovada nos tempos**, com **zero falhas** (0% de falhas,
+100% dos checks): p95 das APIs 840 ms (meta 300), p95 das páginas 4.515 ms (meta 800), p95 de `/p/*` 4.825 ms, push com
+50 tenants 783 ms, LCP de `/p/inicio` 4,2 s e de `/p/plano` 3,0 s (meta 2,5 s). Aprovados: falhas, checks e o job
+`notificacoes` (5,9 s, meta 20 s). Gargalo apontado: o app no teto de 1 vCPU enquanto o host tinha CPU ociosa, e a tela
+Hoje pesada no servidor e no celular. Não bloqueia o uso da Debby (1 consultório); bloqueia a venda a outras
+nutricionistas até os ajustes.
+
+O **P08-13** (tela Hoje e portal mais leves) é a resposta da **parte de código**: `requirePaciente` uma vez por
+requisição com o consultório no join dos vínculos (§3.8 do capítulo 03), a faixa de Hoje numa transação (`faixaDeHoje`)
+e as consultas futuras pelo índice do paciente (§5.5.13 do capítulo 05), as fontes do painel sem preload e os textos dos
+guias do painel fora do JS de Hoje (§5.7 e §5.8 do capítulo 05). A medição local antes/depois está no fim do mesmo
+relatório (seção "Depois: P08-13"; não é a rodada 2 e os números não se comparam com os da rodada 1). Continuam
+pendentes a **rodada 2 com 2 vCPU** no app (`CARGA_APP_CPUS=2`, P08-12; a RNF-03 da spec só muda depois dela), o teto de
+lembretes (P08-14) e as linhas de `audit_log` por abertura de Hoje (não medidas na rodada 1).
 
 ---
 

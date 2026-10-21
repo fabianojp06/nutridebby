@@ -303,7 +303,7 @@ Toda página e Server Action da nutricionista começa por `requireNutri(path)`:
 
 Não há `requireAdmin`. Cada página e Server Action do admin chama `requireUser(['admin'], …)` (ex.: `src/app/admin/actions.ts`, `criarContaAction`, `suspenderAction`, `reativarAction`). O admin nunca recebe `TenantContext`.
 
-### `requirePaciente` / `requireApiPaciente` (`src/lib/paciente-session.ts:111`, `:165`)
+### `requirePaciente` / `requireApiPaciente` (`src/lib/paciente-session.ts`, funções `requirePaciente` e `requireApiPaciente`)
 
 Ver 3.8.
 
@@ -334,11 +334,13 @@ Uso restrito (CLAUDE.md, regra 1): `src/modules/portal/vinculos.ts` e a função
 
 Alternativa descartada no D2: uma função `SECURITY DEFINER` que varresse todos os tenants (N consultas por requisição).
 
-### `vinculosDaConta` e `escolherVinculo` (`src/modules/portal/vinculos.ts`)
+### `vinculosDaConta`, `vinculosComConsultorio` e `escolherVinculo` (`src/modules/portal/vinculos.ts`)
 
-`vinculosDaConta(userId)` (linha 16) junta `patients` (contexto `conta`) e `tenants` (sem RLS) e devolve `{ tenantId, patientId, nomeNutri, tenantStatus }`. Sem `todos: true`, ficam de fora prontuários arquivados, bloqueados e anonimizados (RN-08).
+`vinculosDaConta(userId)` junta `patients` (contexto `conta`) e `tenants` (sem RLS) e devolve `{ tenantId, patientId, nomeNutri, tenantStatus }`. Sem `todos: true`, ficam de fora prontuários arquivados, bloqueados e anonimizados (RN-08). Continua sendo a leitura da escolha (`/p/escolher`, `escolherAction`), por `GET /api/p/vinculo` e pela inscrição de push (`src/modules/portal/push-inscricao.ts`).
 
-`escolherVinculo(vinculos, cookie, pedido)` (linha 56):
+`vinculosComConsultorio(userId)` (P08-13, S-7) é a leitura de `requirePaciente`/`requireApiPaciente`: os mesmos vínculos, com o mesmo filtro (RN-08) e a mesma ordem (`nomeExibicao`, depois `id`), e a **linha inteira** de `tenants` no mesmo join, em `{ vinculo, tenant }`. Assim a guarda não relê `tenants` (antes, `buscarTenant` depois da escolha): uma ida ao banco a menos por requisição do portal. A linha só serve para o consultório escolhido: `acessoDaConta` devolve a lista de vínculos já como `Vinculo`, sem os dados dos outros consultórios. O teste em `src/modules/portal/vinculos.test.ts` confere que os vínculos são iguais aos de `vinculosDaConta` e que a linha é a de `tenants`.
+
+`escolherVinculo(vinculos, cookie, pedido)`:
 
 | Situação | Resultado |
 |---|---|
@@ -349,7 +351,7 @@ Alternativa descartada no D2: uma função `SECURITY DEFINER` que varresse todos
 
 ### O cookie `nd_vinculo` (Plano 06, D3)
 
-Definido em `src/lib/paciente-session.ts:21-50`:
+Definido em `src/lib/paciente-session.ts` (`COOKIE_VINCULO`, `OPCOES_COOKIE_VINCULO`, `cookieDoVinculo`, `cookieDoVinculoApagado`, no começo do arquivo):
 
 | Atributo | Valor |
 |---|---|
@@ -360,7 +362,7 @@ Definido em `src/lib/paciente-session.ts:21-50`:
 | `HttpOnly`, `SameSite=Lax` | sim |
 | `Secure` | só quando `APP_URL` começa com `https://` (`cookieVinculoSeguro`) |
 
-O cookie é só uma **preferência**. A cada requisição ele é reconferido contra `vinculosDaConta`. Cookie velho ou forjado com um tenant que não é vínculo ativo da conta não dá acesso a nada. Quem grava:
+O cookie é só uma **preferência**. A cada requisição ele é reconferido contra os vínculos ativos da conta (`vinculosComConsultorio`, em `acessoDaConta`). Cookie velho ou forjado com um tenant que não é vínculo ativo da conta não dá acesso a nada. Quem grava:
 
 | Onde | Quando |
 |---|---|
@@ -371,19 +373,19 @@ O cookie é só uma **preferência**. A cada requisição ele é reconferido con
 
 O `GET` que grava cookie em `/api/p/vinculo` é aceito de propósito (spec RNF-06, v1.11, S-12): links de e-mail chegam como navegação de outro site, e o efeito é só trocar entre vínculos ativos da própria conta.
 
-### `requirePaciente` (linha 111)
+### `requirePaciente`
 
 ```mermaid
 flowchart TD
   A[requirePaciente path] --> B[requireUserComTenant paciente]
-  B --> C[vinculosDaConta via withConta]
+  B --> C[vinculosComConsultorio via withConta<br/>vínculos + linha de tenants no join]
   C --> D{escolherVinculo<br/>cookie nd_vinculo + ?v=}
   D -->|sem_acesso| X1[/p/sem-acesso/]
   D -->|suspensa| X2[/indisponivel/]
   D -->|escolher| X3[/p/escolher?volta=.../]
   D -->|ok| E{?v= válido e diferente<br/>do cookie, 2+ vínculos?}
   E -->|sim| X4[/api/p/vinculo grava cookie e volta/]
-  E -->|não| F{tenant existe<br/>e está ativo?}
+  E -->|não| F{linha do consultório<br/>escolhido existe e está ativa?}
   F -->|não existe| X1
   F -->|suspenso| X2
   F -->|ativo| G{termo atual aceito<br/>neste consultório?}
@@ -391,9 +393,21 @@ flowchart TD
   G -->|sim| OK[ctx: tenantId, role paciente,<br/>patientId, actorUserId, ip]
 ```
 
-A lógica comum fica em `acessoDaConta` (linha 92), usada pela página e pela API, na ordem: vínculo (D3, RN-08) → consultório não suspenso (RN-15) → termo aceito (US-011, D25). A própria tela do termo passa `permitirTermoPendente`.
+A lógica comum fica em `acessoDaConta`, usada pela página e pela API, na ordem: vínculo (D3, RN-08) → consultório não suspenso (RN-15) → termo aceito (US-011, D25). A própria tela do termo passa `permitirTermoPendente`. Desde o P08-13 o consultório sai da linha de `tenants` que veio no join de `vinculosComConsultorio` (a do vínculo escolhido), não de um `buscarTenant` à parte; a checagem "não existe → `/p/sem-acesso`" ficou como defesa, porque a linha vem junto com o vínculo e `escolherVinculo` já barra o suspenso.
 
-`requireApiPaciente` (linha 165) aplica a mesma regra sem regravar o cookie e responde 403. Com vínculo a escolher, o JSON leva `motivo: 'escolher'`, para a tela oferecer o link da escolha (S-4). Os textos: "Acesso negado", "Conta temporariamente indisponível", "Para continuar, aceite o Termo de Uso e Privacidade." (`RECUSA_API`, linha 153).
+**Uma vez por requisição nas páginas (P08-13, S-7).** O layout do portal e a página chamam `requirePaciente` com `path` diferentes na mesma requisição. Para não repetir a leitura, `requirePaciente` chama `acessoDaRequisicao`, um `cache()` do React em volta de `acessoDaConta`:
+
+| Ponto | Como ficou |
+|---|---|
+| Chave do cache | só a conta (`userId`) e `exigirTermo` (primitivos). Com o termo pendente, o portal vai ao termo e a própria tela do termo (`permitirTermoPendente`) entra com outra chave |
+| Cookie, `?v=` e IP | lidos **dentro** da função (`headers()`, `cookies()`, `requestIp()`): são da própria requisição, não entram na chave |
+| O que é guardado | só dados (`atual`, o resultado de `acessoDaConta` e o IP). O `redirect` fica com cada chamador, porque o `path` dele entra no `volta` |
+| Escopo | o `cache` do React vale só dentro de um render (uma requisição). Numa Server Action não guarda nada: cada chamada relê, como antes. Nada passa de uma requisição para a outra (o aceite do termo e a suspensão valem na seguinte) |
+| API | `requireApiPaciente` **não** usa o cache: chama `acessoDaConta` direto, com o cookie e o `?v=` do próprio `Request` |
+
+Os casos estão em `src/lib/paciente-session.cache.test.ts`. No Vitest o `cache` do React só repassa a chamada, então o teste troca o `react` por um `cache` com o escopo de uma requisição simulada.
+
+`requireApiPaciente` aplica a mesma regra sem regravar o cookie e responde 403. Com vínculo a escolher, o JSON leva `motivo: 'escolher'`, para a tela oferecer o link da escolha (S-4). Os textos: "Acesso negado", "Conta temporariamente indisponível", "Para continuar, aceite o Termo de Uso e Privacidade." (`RECUSA_API`, em `paciente-session.ts`).
 
 `ctx.patientId` liga a RLS por paciente. `withTenant` exige `patientId` e `actorUserId` para `role: 'paciente'` (`src/db/tenant.ts`, `assertContext`), salvo os fluxos sem login listados em `SEM_CONTA_PERMITIDOS`.
 
@@ -580,7 +594,7 @@ laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exame
 
 `safeReturnPath` (`src/lib/safe-return.ts:13`) aceita só caminho local e confere de novo **depois** da normalização WHATWG, que pode transformar `/.//evil.com` em `//evil.com`. Plano 01, Review Focus 3; E2E em `e2e/auth.spec.ts` ("?volta externo não redireciona para fora" e "?volta que a normalização vira //host…"). Sem `volta` válido, o login vai para `/inicio`, que redireciona pelo papel (`src/app/inicio/page.tsx`).
 
-No portal, `voltaDoPortal` (`paciente-session.ts:61`) restringe ainda mais: só `/p/…`, nunca a própria escolha e sem o `?v=`.
+No portal, `voltaDoPortal` (`src/lib/paciente-session.ts`) restringe ainda mais: só `/p/…`, nunca a própria escolha e sem o `?v=`.
 
 ---
 
@@ -681,7 +695,7 @@ sequenceDiagram
 | Regras de sessão | `src/lib/session-rules.test.ts`, `src/lib/session.test.ts`, `src/lib/api-auth.test.ts` |
 | Better Auth (hooks, limite, suspensão) | `src/lib/auth.test.ts`, `src/lib/two-factor.test.ts` |
 | Senha e links | `src/lib/password-policy.test.ts`, `src/lib/password-links.test.ts` |
-| Portal | `src/lib/paciente-session.test.ts`, `src/modules/portal/vinculos.test.ts`, `src/modules/portal/termo.test.ts` |
+| Portal | `src/lib/paciente-session.test.ts`, `src/lib/paciente-session.cache.test.ts` (uma leitura por requisição, P08-13), `src/modules/portal/vinculos.test.ts`, `src/modules/portal/termo.test.ts` |
 | Convites, DPA, suspensão, admin | `src/modules/plataforma/primeiro-acesso.test.ts`, `dpa.test.ts`, `suspensao.test.ts`, `admin-bootstrap.test.ts`, `src/modules/pacientes/convite-paciente.test.ts` |
 | Redirecionamento | `src/lib/safe-return.test.ts` |
 | E2E | `e2e/auth.spec.ts`, `e2e/recuperacao.spec.ts`, `e2e/sair.spec.ts`, `e2e/sessao-portal.spec.ts` |
