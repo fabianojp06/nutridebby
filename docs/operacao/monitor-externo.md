@@ -5,8 +5,9 @@ colar a URL do check neste arquivo, no chat, numa issue ou na linha de comando: 
 que o site está no ar).
 
 **No ar desde 20/10/2026, ~13:56**, por decisão do dono, no healthchecks.io (conta do dono), no lugar do UptimeRobot
-da D3 do Plano 08. Faltam o alerta de teste do go-live ([Alerta de teste](#alerta-de-teste-go-live)) e, depois do
-merge deste runbook, reinstalar o script
+da D3 do Plano 08. Faltam, como no [`go-live.md`](go-live.md): o alerta de teste
+([Alerta de teste](#alerta-de-teste-go-live)), conferir que os termos do plano grátis do healthchecks.io permitem uso
+comercial e, depois do merge deste runbook, reinstalar o script
 (passo 3 da [Instalação](#instalação-uma-vez-e-de-novo-a-cada-mudança-do-script)) e ver o `diff` vazio: o instalado
 em 20/10, 11:13, ainda tem o cabeçalho antigo de uma linha e não tem o `--retry-connrefused` (conexão recusada vai
 direto como `/fail`, sem as 2 novas tentativas). Motivo: o incidente de 19–20/10/2026,
