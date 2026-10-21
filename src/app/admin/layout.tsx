@@ -1,3 +1,4 @@
+import { FONTES_DO_PAINEL } from '@/app/fontes-painel';
 import { BotaoSair } from '@/components/botao-sair';
 import { VigiaDeSessao } from '@/components/vigia-sessao';
 import { AbasDoAdmin } from './abas';
@@ -10,7 +11,7 @@ import { AbasDoAdmin } from './abas';
  */
 export default function AdminLayout({ children }: LayoutProps<'/admin'>) {
   return (
-    <div className="min-h-dvh bg-fundo font-sans text-texto">
+    <div className={`${FONTES_DO_PAINEL} min-h-dvh bg-fundo font-sans text-texto`}>
       <header className="border-b border-borda bg-cartao">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 md:px-6">
           <p className="font-titulo text-lg font-semibold">NutriDebby · Administração</p>

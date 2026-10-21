@@ -3,7 +3,7 @@ import type { TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { TenantAgenda } from '@/modules/agenda/consultas';
 import { jaUsavaOAppNaTransacao } from './acesso';
-import { temEnvioVisivelNaTransacao } from './exames-enviados';
+import { examesVisiveis, temEnvioVisivelNaTransacao } from './exames-enviados';
 import { miniJornadaNaTransacao } from './jornada';
 import type { MiniJornada } from './jornada-regras';
 import { pacienteDaSessao } from './sessao';
@@ -26,7 +26,7 @@ export async function faixaDeHoje(
     async (tx) => ({
       mini: await miniJornadaNaTransacao(tx, patientId, tenant, agora),
       jaUsava: await jaUsavaOAppNaTransacao(tx, patientId, hoje),
-      exames: Boolean(tenant.examesPacienteAtivadoEm) || (await temEnvioVisivelNaTransacao(tx, patientId)),
+      exames: await examesVisiveis(tenant, () => temEnvioVisivelNaTransacao(tx, patientId)),
     }),
     db,
   );

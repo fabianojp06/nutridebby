@@ -5,8 +5,8 @@ import './globals.css';
 
 // D24: baixadas no build e servidas pelo próprio app — o navegador não fala com o Google (LGPD, CSP font-src 'self').
 // P08-13: sem preload — no layout raiz o preload vale para todas as rotas, e o portal do paciente (/p, fontes próprias em
-// src/app/p/fontes.ts) baixava ~60 KB destas duas no celular antes do primeiro quadro; fora do /p elas baixam quando a
-// página as usa (swap, com a fonte de reserva ajustada pelo next/font).
+// src/app/p/fontes.ts) baixava ~60 KB destas duas no celular antes do primeiro quadro. O painel e o admin as declaram de
+// novo com preload (src/app/fontes-painel.ts); nas outras páginas elas baixam quando a página as usa (swap).
 const figtree = Figtree({ variable: '--font-figtree', subsets: ['latin'], display: 'swap', preload: false });
 const bricolage = Bricolage_Grotesque({ variable: '--font-bricolage', subsets: ['latin'], display: 'swap', preload: false });
 
