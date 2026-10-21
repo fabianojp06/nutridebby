@@ -353,6 +353,41 @@ describe('P15-02a — a desativação no Histórico de acessos', () => {
     ]);
   });
 
+  it('a avaliação espera a trava do paciente (FOR SHARE): presa atrás de uma transação que trava o paciente FOR UPDATE, confere a participação e o consentimento só depois dela', async () => {
+    const c = await cenario({ aceite: true });
+    const q = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });
+    const resposta = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…', respondeA: q });
+    // a outra transação, como a revogação e o bloqueio: trava o paciente e muda o que a avaliação confere sem tocar na mensagem
+    const outra = await app.pool.connect();
+    let encerrada = false;
+    try {
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.user_id', $2, true)`, [c.T.tenantId, c.T.nutriId]);
+      await outra.query('select id from patients where id = $1 for update', [c.p.id]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const feito = { pronto: false };
+      const resultado = avaliar(c.P, resposta, 'ajudou', app.db).finally(() => {
+        feito.pronto = true;
+      });
+      for (let i = 0; ; i++) {
+        if ((await app.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (feito.pronto) throw new Error('a avaliação terminou sem esperar a trava do paciente');
+        if (i > 500) throw new Error('a avaliação não ficou presa na trava do paciente');
+        await new Promise((res) => setTimeout(res, 10));
+      }
+      // com a avaliação já presa: a participação bloqueada; sem a trava, ela já teria conferido o estado de antes e gravado
+      await outra.query('update ia_nutri_participacoes set bloqueada_em = now() where patient_id = $1', [c.p.id]);
+      await outra.query('commit');
+      encerrada = true;
+      expect(await resultado).toBe(false);
+      const [m] = await withTenant(c.T.ctx, (tx) => tx.select({ avaliacao: iaNutriMensagens.avaliacao }).from(iaNutriMensagens).where(eq(iaNutriMensagens.id, resposta)), app.db);
+      expect(m.avaliacao).toBeNull();
+    } finally {
+      if (!encerrada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+  });
+
   it('sem consentimento → nada_a_desativar, nenhuma linha rotulada (pelo paciente e pela nutricionista)', async () => {
     const c = await cenario();
     expect(await desativarNoApp(c.P, c.deps())).toBe('nada_a_desativar');
