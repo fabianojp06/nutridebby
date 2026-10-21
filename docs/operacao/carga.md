@@ -11,7 +11,9 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
    RNF-03 proíbe construir na VPS). Na raiz do repositório:
    `(umask 077; bash test/carga/gerar-env.sh > .env.carga)` e
    `echo 'CARGA_IMAGEM=ghcr.io/fabianojp06/nutridebby:<sha completo do merge na main>' >> .env.carga.compose`
-   (todo comando `docker compose` da carga lê esse arquivo; sem ele o compose recusa). A imagem já está no host depois
+   (todo comando `docker compose` da carga lê esse arquivo; sem ele o compose recusa; se o host só tiver a tag `latest`,
+   usar o digest, `ghcr.io/fabianojp06/nutridebby@sha256:…`, de
+   `docker image inspect ghcr.io/fabianojp06/nutridebby:latest --format '{{join .RepoDigests " "}}'`). A imagem já está no host depois
    do deploy (`docker images ghcr.io/fabianojp06/nutridebby`). Subir:
    `docker compose -f docker-compose.carga.yml --env-file .env.carga.compose up -d` (o app aplica as migrations ao
    subir; o worker que subir antes delas cai e volta sozinho).
