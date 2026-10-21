@@ -5,8 +5,11 @@ colar a URL do check neste arquivo, no chat, numa issue ou na linha de comando: 
 que o site está no ar).
 
 **No ar desde 20/10/2026, ~13:56**, por decisão do dono, no healthchecks.io (conta do dono), no lugar do UptimeRobot
-da D3 do Plano 08. Falta só o alerta de teste do go-live ([Alerta de teste](#alerta-de-teste-go-live)). Motivo: o
-incidente de 19–20/10/2026, em que a VPS ficou ~25 h congelada sem ninguém saber
+da D3 do Plano 08. Faltam o alerta de teste do go-live ([Alerta de teste](#alerta-de-teste-go-live)) e, depois do
+merge deste runbook, reinstalar o script
+(passo 3 da [Instalação](#instalação-uma-vez-e-de-novo-a-cada-mudança-do-script)) e ver o `diff` vazio: o instalado
+em 20/10, 11:13, tem a mesma lógica, mas ainda o cabeçalho antigo de uma linha. Motivo: o incidente de 19–20/10/2026,
+em que a VPS ficou ~25 h congelada sem ninguém saber
 ([§8.6 do manual técnico](../manual-tecnico/08-sustentacao.md#86-lacunas-o-que-hoje-não-é-vigiado), item 28).
 
 ## Como funciona
@@ -61,7 +64,9 @@ Tudo como `deploy`, na VPS. Nada aqui pede `sudo` nem mexe em serviço.
    impresso; no painel do healthchecks.io, o check fica verde ("up") com o último ping de agora.
 
 Reinstalar depois de mudar o script: só o passo 3 (a URL e o cron continuam). Conferir que o instalado é o versionado:
-`diff infra/monitor/nutri-saude.sh ~/servidor/ferramentas/monitor-saude/nutri-saude.sh` (sem saída).
+`diff infra/monitor/nutri-saude.sh ~/servidor/ferramentas/monitor-saude/nutri-saude.sh` (sem saída). Até a
+reinstalação pendente do topo, o `diff` mostra só o cabeçalho (linhas 2–5 do versionado contra a linha 2 do instalado);
+qualquer outra diferença é divergência de verdade.
 
 ## Alerta de teste (go-live)
 
