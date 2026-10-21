@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { iaNutriConsentimentos, patients, tenants } from '@/db/schema';
-import { withTenant, type TenantContext } from '@/db/tenant';
+import { sessaoDePacienteComConta, withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -16,8 +16,6 @@ import type { DadosRevogacaoIaNutri } from './revogacao-job';
 
 export type { TextoExibidoIaNutri } from '../textos-legais';
 
-/** A sessão de paciente sem conta (link, convite) já é recusada pelo assertContext com ator (tenant.ts): basta exigir o ator. */
-const comConta = (ctx: TenantContext) => ctx.role === 'paciente' && !!ctx.patientId && !!ctx.actorUserId;
 const ua = (s: string | null | undefined) => (s ? s.slice(0, 300) : null);
 const ip = (s: string | null | undefined) => (s ? s.slice(0, 45) : null);
 
@@ -28,7 +26,7 @@ const ip = (s: string | null | undefined) => (s ? s.slice(0, 45) : null);
  * (clique duplo, outra aba) → nada novo.
  */
 export async function aceitarNoApp(ctx: TenantContext, exibido: unknown, deps: DepsIaNutri): Promise<'registrado' | 'ja_vigente'> {
-  if (!comConta(ctx)) throw new Error('aceitarNoApp: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('aceitarNoApp: só a sessão de paciente com conta');
   return withTenant(
     ctx,
     async (tx) => {
@@ -62,7 +60,7 @@ async function enfileirarRevogacao(boss: PgBoss, tx: Tx, d: DadosRevogacaoIaNutr
  * job `ia-nutri-revogacao`, enfileirado NA MESMA transação (a sessão de paciente não alcança ia_uso; regra 1).
  */
 export async function desativarNoApp(ctx: TenantContext, deps: DepsIaNutri): Promise<'desativada' | 'nada_a_desativar'> {
-  if (!comConta(ctx)) throw new Error('desativarNoApp: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('desativarNoApp: só a sessão de paciente com conta');
   const boss = deps.boss ?? (await getBoss());
   return withTenant(
     ctx,

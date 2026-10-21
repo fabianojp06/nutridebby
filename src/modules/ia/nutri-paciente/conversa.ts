@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from '
 import { fromDrizzle } from 'pg-boss';
 import { getDb, type Db } from '@/db/client';
 import { iaNutriMensagens, patients, tenants } from '@/db/schema';
-import { withTenant, type TenantContext } from '@/db/tenant';
+import { sessaoDePacienteComConta, withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead, recordAudit } from '@/modules/plataforma/audit';
@@ -19,8 +19,6 @@ export type { DepsIaNutri } from './deps';
 export type ResultadoPergunta = { codigo: CodigoPergunta; mensagemId: string | null; textoFixo: CodigoTextoFixo | null };
 export type ResultadoEnvioDireto = { codigo: 'encaminhada' | 'limite' | 'indisponivel' | 'risco'; mensagemId: string | null; textoFixo: CodigoTextoFixo | null };
 
-/** A sessão de paciente sem conta (link, convite) já é recusada pelo assertContext com ator (tenant.ts): basta exigir o ator. */
-const comConta = (ctx: TenantContext) => ctx.role === 'paciente' && !!ctx.patientId && !!ctx.actorUserId;
 /** O texto do cliente: sem espaços nas pontas; vazio ou acima de 500 caracteres (contados como o banco conta) → "Escreva sua dúvida em até 500 caracteres." */
 function textoDaPergunta(textoBruto: unknown): string {
   const texto = typeof textoBruto === 'string' ? textoBruto.trim() : '';
@@ -35,7 +33,7 @@ function textoDaPergunta(textoBruto: unknown): string {
  * enfileira: o migrator não alcança o schema pgboss em produção). Nada do texto vai a log, fila ou auditoria.
  */
 export async function perguntar(ctx: TenantContext, textoBruto: string, deps: DepsIaNutri): Promise<ResultadoPergunta> {
-  if (!comConta(ctx)) throw new Error('perguntar: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('perguntar: só a sessão de paciente com conta');
   const texto = textoDaPergunta(textoBruto);
   const risco = detectarRisco(texto);
   const boss = deps.boss ?? (await getBoss()); // fora da transação: o produtor tem pool próprio (boss.test.ts)
@@ -91,7 +89,7 @@ export async function perguntar(ctx: TenantContext, textoBruto: string, deps: De
  * a fila de risco). "Enviou dúvida à nutricionista" na auditoria (`criar` de `ia_nutri_duvida`).
  */
 export async function enviarANutri(ctx: TenantContext, textoBruto: string, deps: DepsIaNutri): Promise<ResultadoEnvioDireto> {
-  if (!comConta(ctx)) throw new Error('enviarANutri: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('enviarANutri: só a sessão de paciente com conta');
   const texto = textoDaPergunta(textoBruto);
   if (detectarRisco(texto)) {
     const r = await perguntar(ctx, texto, deps);
@@ -119,7 +117,7 @@ export async function enviarANutri(ctx: TenantContext, textoBruto: string, deps:
  * ≠ aceite) — a conversa só para ler já esconde "Ajudou".
  */
 export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'ajudou' | 'nao_ajudou', db: Db = getDb()): Promise<boolean> {
-  if (!comConta(ctx)) throw new Error('avaliar: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('avaliar: só a sessão de paciente com conta');
   // /code-review do PR #37: id e valor vêm do cliente (argumentos da Server Action) — fora do formato → false, nunca 22P02/23514
   if (!idValido(mensagemId) || !(AVALIACOES as readonly unknown[]).includes(valor)) return false;
   const r = await withTenant(
@@ -152,7 +150,7 @@ export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'aj
  * versão e no destino em uso); fora dela → `nao_pode` ("A IA Nutri não está disponível no momento.").
  */
 export async function encaminhar(ctx: TenantContext, perguntaId: string, deps: DepsIaNutri): Promise<'encaminhada' | 'limite' | 'nao_pode'> {
-  if (!comConta(ctx)) throw new Error('encaminhar: só a sessão de paciente com conta');
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('encaminhar: só a sessão de paciente com conta');
   if (!idValido(perguntaId)) return 'nao_pode'; // /code-review do PR #37: id do cliente fora do formato, nunca 22P02
   return withTenant(
     ctx,

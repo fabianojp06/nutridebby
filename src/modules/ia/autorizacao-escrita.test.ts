@@ -9,7 +9,7 @@ import { autorizacaoNoBanco, IA_TESTE, iaPronta, PDF_MINIMO } from '../../../tes
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { auditLog, iaAutorizacoes, patients, storedFiles, tenants } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { inicioDoDia } from '@/modules/agenda/fuso';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -106,6 +106,18 @@ describe('US-109 — retirar no app', () => {
     await autorizarNoApp(P, LIDO, deps());
     await app.db.update(tenants).set({ iaAtivadaEm: null }).where(eq(tenants.id, T.tenantId));
     expect(await retirarNoApp(P, deps())).toBe('retirada');
+  });
+});
+
+describe('US-106 / US-109 — só no app', () => {
+  it('autorizarNoApp e retirarNoApp: só a sessão de paciente com conta (nem a da nutri, nem paciente sem ator); nada gravado', async () => {
+    const { T, p, deps, eventos } = await cenario();
+    const semAtor: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: p.id };
+    for (const ctx of [T.ctx, semAtor]) {
+      await expect(autorizarNoApp(ctx, LIDO, deps())).rejects.toThrow('autorizarNoApp: só a sessão de paciente com conta');
+      await expect(retirarNoApp(ctx, deps())).rejects.toThrow('retirarNoApp: só a sessão de paciente com conta');
+    }
+    expect(await eventos()).toHaveLength(0);
   });
 });
 
