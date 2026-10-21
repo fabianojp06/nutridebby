@@ -1,6 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { patients, tenants } from '@/db/schema';
+import { patients, tenants, type TenantRow } from '@/db/schema';
 import { withConta } from '@/db/tenant';
 
 export type Vinculo = { tenantId: string; patientId: string; nomeNutri: string; tenantStatus: 'ativa' | 'suspensa' };
@@ -44,6 +44,34 @@ export async function vinculosDaConta(userId: string, o: { db?: Db; todos?: bool
   return todos
     .filter((v) => v.pacienteStatus === 'ativo' && !v.anonimizado)
     .map(({ tenantId, patientId, nomeNutri, tenantStatus }) => ({ tenantId, patientId, nomeNutri, tenantStatus }));
+}
+
+/** P08-13: um vínculo com acesso ao portal e a linha inteira do consultório (requirePaciente não relê `tenants`). */
+export type VinculoComConsultorio = { vinculo: Vinculo; tenant: TenantRow };
+
+/**
+ * P08-13 (S-7): os vínculos de `vinculosDaConta` (mesmo filtro e ordem), com a linha de `tenants` no mesmo join — uma ida
+ * ao banco a menos por requisição do portal. A linha só serve para o consultório escolhido: quem chama devolve a lista em
+ * `Vinculo`, sem os dados dos outros consultórios.
+ */
+export async function vinculosComConsultorio(userId: string, db: Db = getDb()): Promise<VinculoComConsultorio[]> {
+  const linhas = await withConta(
+    userId,
+    (tx) =>
+      tx
+        .select({ patientId: patients.id, pacienteStatus: patients.status, anonimizadoEm: patients.anonimizadoEm, tenant: tenants })
+        .from(patients)
+        .innerJoin(tenants, eq(tenants.id, patients.tenantId))
+        .where(eq(patients.userId, userId))
+        .orderBy(asc(tenants.nomeExibicao), asc(tenants.id)),
+    db,
+  );
+  return linhas
+    .filter((l) => l.pacienteStatus === 'ativo' && l.anonimizadoEm === null)
+    .map((l) => ({
+      vinculo: { tenantId: l.tenant.id, patientId: l.patientId, nomeNutri: l.tenant.nomeExibicao, tenantStatus: l.tenant.status as Vinculo['tenantStatus'] },
+      tenant: l.tenant,
+    }));
 }
 
 /**
