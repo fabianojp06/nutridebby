@@ -44,6 +44,12 @@ describe('vínculos da conta (D2, §3, RN-08)', () => {
     await pacienteComConta(app.db, B, { userId });
     const { paciente: pc } = await pacienteComConta(app.db, C, { userId });
     await withTenant(C.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, pc.id)), app.db);
+    const D = await novoTenant(app.db, 'Dora');
+    const { paciente: pd } = await pacienteComConta(app.db, D, { userId });
+    await withTenant(D.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, pd.id)), app.db);
+    const E = await novoTenant(app.db, 'Eva');
+    const { paciente: pe } = await pacienteComConta(app.db, E, { userId });
+    await withTenant(E.ctx, (tx) => tx.update(patients).set({ anonimizadoEm: new Date() }).where(eq(patients.id, pe.id)), app.db);
     await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
     await pacienteComConta(app.db, A); // outra conta no mesmo consultório: não entra
     const r = await vinculosComConsultorio(userId, app.db);

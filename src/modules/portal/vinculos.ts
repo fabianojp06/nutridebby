@@ -9,7 +9,7 @@ export type VinculoQualquer = Vinculo & { pacienteStatus: 'ativo' | 'arquivado' 
 /**
  * D2 / §3: os vínculos (consultório, prontuário) da conta de paciente. Sem `todos`, só os que dão acesso ao portal
  * (RN-08: arquivado, bloqueado e anonimizado ficam de fora). Contexto `conta`: só patients da própria conta.
- * `tenants` não tem RLS (nome e status do consultório).
+ * `tenants` não tem RLS (nome e status do consultório; a linha inteira em `vinculosComConsultorio`).
  */
 export async function vinculosDaConta(userId: string, o?: { db?: Db; todos?: false }): Promise<Vinculo[]>;
 export async function vinculosDaConta(userId: string, o: { db?: Db; todos: true }): Promise<VinculoQualquer[]>;
