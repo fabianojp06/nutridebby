@@ -18,7 +18,7 @@ rótulo `incidente`. Horários em BRT (log da VPS em UTC, +3 h). Sem merge das 0
 - D4 Caixa dos admins sem `alerta_backup` / `alerta_disco` — dono
 - D5 Erros novos: Sentry (quando ligado) ou `"level":50` no log do app e do worker — dono / Claude
 - D6 "Seu dia": avisos de armazenamento e WhatsApp; "Pedidos do titular" dentro do prazo — Debby
-- D7 Monitor externo sem alerta (quando configurado) — dono
+- D7 Monitor externo (healthchecks.io, desde 20/10/2026): nenhum e-mail de alerta do check "NutriDebby – site no ar", check "up" com ping há menos de 5 min, `nutri-saude.log` vazio — dono
 
 ## Semanal — um comentário por semana ([§8.3.2](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#832-semanal))
 - [ ] Semana 1: diárias em ___ de 7 dias; S1–S9
@@ -44,7 +44,7 @@ Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" 
 - [ ] M7 Certificado TLS vence em ___ (≥ 20 dias) — Claude
 - [ ] M8 Pacotes pendentes ___ (`apt list --upgradable`); Docker/containerd ou kernel parado há mais de 30 dias? kernel em uso = instalado? (atualizar o Docker reinicia todos os contêineres: só o dono, com snapshot) — Claude → dono
 - [ ] M9 GitGuardian sem incidente real aberto — dono
-- [ ] M10 Pendências de vigilância: P02-11 backup (falta o passo do dono: chaves e timer) · E-07 Sentry · P08-02 monitor externo · Dependabot — Claude lembra
+- [ ] M10 Pendências de vigilância: P02-11 backup (falta o passo do dono: chaves e timer) · E-07 Sentry · alerta de teste do monitor externo (go-live; o monitor está no ar desde 20/10/2026) · P15-08 alarme do runner sem efeito (URL fora do formato) · Dependabot — Claude lembra
 - [ ] M11 `pnpm audit --prod --audit-level high` em dev: ___ avisos; crítico/alto em next, react, better-auth, pg-boss, drizzle-orm ou Node 24 = incidente, PR em até 72 h — Claude → dono
 - [ ] M12 (Plano 11, depois da liberação da IA) IA: soma das linhas "Uso de IA da nutricionista no mês" e "Uso da IA Nutri (pacientes) no mês" da página de cada conta no `/admin` US$ ___ × Console da Anthropic (workspace de produção) US$ ___ (diferença ≤ 5%); consultório perto de 100% da cota? soma ___ % do teto da plataforma e do limite do workspace; ZDR ainda concedida e região só `us` (em dúvida: `IA_DESLIGADA=1` e "Bloquear") — dono
 - [ ] Comentário final com os números e issue fechada; issue do mês seguinte aberta
@@ -66,7 +66,7 @@ Diária sem comentário é registrada pela contagem "diárias em ___ de 7 dias" 
 ## Anual — julho ([§8.3.5](https://github.com/fabianojp06/nutridebby/blob/main/docs/manual-tecnico/08-sustentacao.md#835-anual))
 - [ ] A1 Domínio `wsscloud.tech` (vence 26/09/2027) com renovação automática e cartão válido — dono
 - [ ] A2 Plano da VPS e do Easypanel — dono
-- [ ] A3 Termos e cotas dos planos gratuitos (UptimeRobot, Resend, Sentry, R2, GitHub) — dono
+- [ ] A3 Termos e cotas dos planos gratuitos (healthchecks.io, Resend, Sentry, R2, GitHub) — dono
 - [ ] A4 Textos legais e prazo de guarda com o advogado/CRN — dono
 - [ ] A5 Ensaio de desastre no papel (§6.5.9 e `restauracao.md`; último T11 ok; §1.8 basta para recriar o Easypanel) — dono + Claude
 - [ ] A6 Custos do ano — dono

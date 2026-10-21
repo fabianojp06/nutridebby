@@ -25,6 +25,7 @@ flowchart LR
     DB[("nutri_db<br/>PostgreSQL 16<br/>schema public + schema pgboss")]
     DATA[/"volume /data"/]
     HOST["host: systemd<br/>nutri-backup.timer 03h"]
+    CRON["host: cron do deploy<br/>nutri-saude.sh a cada 5 min"]
   end
   APP -- "boss.send (na transação do negócio)" --> DB
   WK -- "boss.work / boss.schedule" --> DB
@@ -38,12 +39,13 @@ flowchart LR
   WK -- "e-mail (Resend)" --> EXT1["Resend"]
   WK -- "WhatsApp" --> EVO["nutri_evolution"]
   WK -- "web-push" --> PUSH["serviços de push"]
-  UP["UptimeRobot (externo)"] -- "GET /api/health a cada 5 min" --> APP
+  CRON -- "GET /api/health pelo endereço público" --> APP
+  CRON -- "ping se 200, /fail se não" --> HC["healthchecks.io (externo)<br/>sem ping em 10 min = alerta"]
   APP -- "erros filtrados" --> SEN["Sentry SaaS"]
   WK -- "erros filtrados" --> SEN
 ```
 
-Fontes: `src/worker/index.ts`, `src/jobs/boss.ts`, `scripts/backup/*`, spec §4
+Fontes: `src/worker/index.ts`, `src/jobs/boss.ts`, `scripts/backup/*`, `infra/monitor/nutri-saude.sh`, spec §4
 (`docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md:80-110`), D1 e D3 do Plano 08
 (`docs/superpowers/plans/2026-10-04-nutridebby-08-go-live.md:35,37`).
 
@@ -507,9 +509,15 @@ não chega à página (D2). O `tenant_id` também não vai na linha de erro nem 
 Dica do próprio código: um `42501` no log `health: leitura do banco falhou` com `leitura: heartbeat` costuma ser
 migration rodada com o role errado (regra 7) (`route.ts:22-24`).
 
-**Monitor externo (D3):** UptimeRobot gratuito, `GET /api/health` (espera 200 e a palavra `"ok"`) e `/entrar`, a cada
-5 min, alerta por e-mail e celular do dono. Alternativa se o plano grátis não permitir uso comercial: HetrixTools
-(1 min). Uptime Kuma na própria VPS foi descartado: cai junto com ela.
+**Monitor externo (D3; trocado pelo dono em 20/10/2026):** no ar desde 20/10/2026, ~13:56 BRT, no healthchecks.io
+(grátis, conta do dono), no lugar do UptimeRobot que a D3 escolheu. É um *dead man's switch*: o cron do `deploy` roda
+`infra/monitor/nutri-saude.sh` a cada 5 min, consulta este `GET /api/health` pelo endereço público (DNS, Traefik, app,
+banco e heartbeat) e pinga o check "NutriDebby – site no ar" se vier 200, ou manda `/fail` com o código HTTP. Com
+`/fail` (um 503 acima), o e-mail do dono sai na hora; sem ping nenhum (VPS parada ou congelada, como em 19–20/10/2026),
+sai depois de período + tolerância (5 + 5 min). A URL do check fica em `~/.config/nutri-saude/hc.url` do `deploy` (600)
+e chega ao `curl` pela entrada padrão. Ele não olha de fora da rede da VPS nem testa `/entrar`; o UptimeRobot (ou o
+HetrixTools, de 1 min) ainda pode somar-se, grátis. Uptime Kuma na própria VPS foi descartado: cai junto com ela.
+Instalação, alerta de teste e pausa: `docs/operacao/monitor-externo.md`.
 
 ### 6.4.4 Sentry (D1 do Plano 08)
 
@@ -847,7 +855,8 @@ produção.**
 
 ```mermaid
 flowchart TB
-  A["Alerta: UptimeRobot, e-mail de backup/disco, Sentry, usuário"] --> B{"/api/health"}
+  A["Alerta: healthchecks.io, e-mail de backup/disco, Sentry, usuário"] --> B{"/api/health"}
+  B -->|"sem resposta (nem SSH)"| V["VPS parada ou congelada:<br/>hPanel (estado, console); reboot pelo dono"]
   B -->|"503 banco indisponível"| C["docker service ls / logs nutri_db<br/>disco (df), memória (free)"]
   B -->|"503 heartbeat ilegível"| D["log 'health: leitura do banco falhou'<br/>42501 = migration com role errado (regra 7)"]
   B -->|"503 worker sem heartbeat"| E["docker service logs nutri_worker<br/>'worker iniciado'? variável faltando?"]
@@ -857,6 +866,7 @@ flowchart TB
   F -->|"Disco ≥ 70%"| I["df -h; tamanho de /data por tenant;<br/>.tmp órfãos; logs do Swarm"]
   F -->|"Erro no Sentry"| J["request_id da tag → linha 'erro na requisição' no log"]
   C & D & E & G & H & I & J --> K["Correção: PR → revisão → merge com OK (= deploy)<br/>ou volta para a imagem anterior"]
+  V --> L
   K --> L["Registrar o incidente; LGPD: avaliar comunicação à controladora (DPA)"]
 ```
 
@@ -866,6 +876,14 @@ emergência (runbook do Plano 08, passo 6); journal do backup (Plano 02, Tarefa 
 (`docs/operacao/restauracao.md:47-48`); o DPA 1.0 (cláusula 11) prevê avisar a controladora em até 24 horas depois de saber do
 incidente (`DPA_PARAGRAFOS`, `dpa.ts`). O plano formal de resposta a incidente (ANPD e titulares) foi
 pedido ao advogado (runbook do Plano 08, passo 2, item k) e ainda não existe no repositório.
+
+**Sem resposta nenhuma** (nem `/api/health`, nem SSH): a VPS parou ou congelou, e os alertas internos pararam junto; só
+o healthchecks.io avisa, pela falta de ping (§6.4.3). O dono olha o hPanel (estado da VPS, console) e reinicia por ele;
+depois, `uptime -s`, o `/api/health` e o log do worker (crons perdidos, [§8.2.2](08-sustentacao.md#822-cron-perdido-não-volta)).
+Foi o incidente de 19–20/10/2026 (P15-07): às 07:43 BRT de 19/10 o host da Hostinger congelou o disco pelo
+qemu-guest-agent (`guest-fsfreeze`, num backup ou snapshot do lado dela) e não o descongelou; tudo parou ~25 h, até o
+reboot de 20/10 às 09:02 BRT, sem *panic* nem OOM e sem ninguém saber (ainda não havia monitor externo). Chamado
+aberto pelo dono; a prevenção em estudo está no [§8.6](08-sustentacao.md#86-lacunas-o-que-hoje-não-é-vigiado), item 28.
 
 Comandos de leitura usados nos runbooks: `docker service ls --filter name=nutri_`,
 `docker service logs --tail 50 nutri_worker`, `curl -s -o /dev/null -w "%{http_code}\n" https://<domínio>/api/health`
@@ -921,7 +939,7 @@ tabela pede. (6) Atualizar o gerenciador de senhas e registrar o incidente; LGPD
 | Guardar `BACKUP_PASSPHRASE`, salt, `AUTH_SECRET`, `ENCRYPTION_KEY`, `FILE_URL_SECRET`, `VAPID_*`, `EVOLUTION_*`, chaves do R2, Turnstile e Resend no gerenciador de senhas, fora da VPS | `docs/operacao/restauracao.md:6-9`. Sem `AUTH_SECRET` o TOTP não decifra; sem `ENCRYPTION_KEY`, jobs selados e links assinados de consulta não abrem. Troca após vazamento: §6.9.1 |
 | Instalar e reinstalar o backup no host a cada mudança dos scripts; preencher `backup.env` | Regra 10 do projeto |
 | Autorizar cada teste de restauração (lê produção) e devolver a senha do migrator por `\password` | `docs/operacao/restauracao.md` |
-| Configurar Sentry (scrubbers, IP, rate limit) e o monitor externo | `docs/operacao/go-live.md` |
+| Configurar Sentry (scrubbers, IP, rate limit) e o monitor externo (check do healthchecks.io, URL sem expô-la, alerta de teste) | `docs/operacao/go-live.md`; `docs/operacao/monitor-externo.md` |
 | Autorizar e acompanhar a rodada de carga | `docs/operacao/carga.md:3` |
 | Assinar o checklist do go-live | `docs/operacao/go-live.md`, "Assinatura" |
 | Fazer (ou pedir ao Claude, só os itens de leitura) a rotina de sustentação e registrá-la na issue mensal | [Cap. 8](08-sustentacao.md); checklist em `docs/operacao/sustentacao.md` |
@@ -944,7 +962,7 @@ e onde fica o registro estão no [capítulo 8, Sustentação](08-sustentacao.md)
 | Fila serial e ritmo do WhatsApp | Plano 05, D16 | 1 job por vez; 8 msgs/min por tenant | Disparo em massa |
 | Sentry | Plano 08, D1 | SaaS grátis, `@sentry/node` só no servidor/worker, filtro por lista branca, tetos | GlitchTip; SDK no navegador |
 | `request_id` | Plano 08, D2 | Proxy para páginas; `onRequestError` para APIs; não em toda linha | Proxy em `/api` (corta corpo > 10 MB) |
-| Monitor | Plano 08, D3 | UptimeRobot a cada 5 min | HetrixTools; Worker da Cloudflare; Uptime Kuma local |
+| Monitor | Plano 08, D3; trocado pelo dono em 20/10/2026 | healthchecks.io como *dead man's switch*: cron do `deploy` a cada 5 min, ping se o `/api/health` público dá 200, `/fail` se não; sem ping em 10 min = alerta (avisa também VPS congelada) | UptimeRobot a cada 5 min (a escolha da D3; ainda pode somar-se para a visão de fora e o `/entrar`); HetrixTools; Worker da Cloudflare; Uptime Kuma local (cai junto com a VPS) |
 | Carga | Plano 08, D4/D5 | Pilha separada, metas bloqueantes | Só relatório |
 | Roles no backup | Plano 08, D6 | `pg_dumpall --globals-only --no-role-passwords` | Roles à mão na crise |
 | CSP | Plano 08, D7 | Nonce + `strict-dynamic`, valendo direto, modo relatório por variável | Report-Only por uma semana |
@@ -980,7 +998,9 @@ Spec × código (e runbooks). As marcadas como **registradas** já constam como 
 4. **`request_id` e `tenant_id` nos logs — registrada.** RNF-11 pede ambos nos logs; o código põe o `request_id` só
    na linha de erro e no Sentry, e não põe `tenant_id` na linha de erro nem como tag (a tag existe em
    `TAGS_PERMITIDAS`, mas nada a preenche). Backlog.
-5. **Monitor a cada 5 min — registrada** (RNF-04: 1 min / alerta ≤ 2 min; D3).
+5. **Monitor a cada 5 min — registrada** (RNF-04: 1 min / alerta ≤ 2 min; D3). Desde 20/10/2026 o monitor é o
+   healthchecks.io, não o UptimeRobot da D3 e da spec (decisão do dono, §6.4.3): aviso na hora com o health falho e em
+   ~10 min sem ping; a spec não foi mudada.
 6. **CSP `connect-src` e `style-src` — registradas** (RNF-06 original: "próprio + Sentry"; código: `'self'` e
    `'unsafe-inline'` em estilos; D1, D7).
 7. **HSTS sem subdomínios — registrada** (D8).
