@@ -65,10 +65,19 @@ const saidas = async (C: Cenario, tarefaId: string) =>
   withTenant(C.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, tarefaId), eq(auditLog.acao, 'exportar'))), app.db);
 
 describe('processarResumo (US-120, §5.6, RN-108, CS-105)', () => {
-  it('portão: "Dados enviados à IA" (exportar), destino e saiu_em; manda só as categorias do resumo; grava a pronta com fontes e tabela', async () => {
+  it('portão: "Dados enviados à IA" (exportar), destino e saiu_em gravados ANTES da chamada; manda só as categorias do resumo; grava a pronta com fontes e tabela', async () => {
     const C = await cenario();
     const { tarefaId } = await pedir(C);
     const f = provedorFake({ gerar: [finalOk({ secoes: [{ secao: 'evolucao', frases: [{ texto: 'O peso caiu.', fontes: ['#1'] }, { texto: 'Sem fonte.', fontes: [] }] }] })] });
+    const gerarOriginal = f.gerar.bind(f);
+    f.gerar = async (p) => {
+      // no momento da chamada, a saída já está gravada (commit): saiu_em, destino e o "Dados enviados à IA"
+      const t = await tarefa(C, tarefaId);
+      expect(t.saiuEm).not.toBeNull();
+      expect(t.destino).toBe('teste');
+      expect(await saidas(C, tarefaId)).toHaveLength(1);
+      return gerarOriginal(p);
+    };
     expect(await processarResumo({ tenantId: C.T.tenantId, tarefaId }, jobDeps(f))).toBe('pronta');
     const dados = enviado(f);
     for (const k of Object.keys(dados)) expect(CATEGORIAS_POR_USO.resumo_historico).toContain(k);
@@ -249,6 +258,7 @@ describe('processarResumo (US-120, §5.6, RN-108, CS-105)', () => {
     expect(await processarResumo({ tenantId: C.T.tenantId, tarefaId }, jobDeps(lento))).toBe('falhou');
     expect(await tarefa(C, tarefaId)).toMatchObject({ erro: 'sem_autorizacao', resultado: null });
     expect((await uso(C, tarefaId)).situacao).toBe('confirmado');
+    expect(await saidas(C, tarefaId)).toHaveLength(1); // a saída fica registrada
   });
 
   it('tarefa cancelada durante a chamada (retirada + varredura, D15 da 14A) → o resultado não é gravado; a reserva fica incerta', async () => {
@@ -267,6 +277,7 @@ describe('processarResumo (US-120, §5.6, RN-108, CS-105)', () => {
     expect(await processarResumo({ tenantId: C.T.tenantId, tarefaId }, jobDeps(lento))).toBe('falhou');
     expect(await tarefa(C, tarefaId)).toMatchObject({ status: 'cancelada', resultado: null, parametros: null });
     expect((await uso(C, tarefaId)).situacao).toBe('incerto');
+    expect(await saidas(C, tarefaId)).toHaveLength(1);
   });
 });
 

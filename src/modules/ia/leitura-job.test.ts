@@ -189,6 +189,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
     expect(await tarefa(P)).toHaveProperty('saiuEm', expect.any(Date));
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1);
   });
 
   it('D15: a varredura cancela as tarefas de paciente sem autorização vigente (estorno da fila; pronta esvaziada)', async () => {
@@ -246,6 +247,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
     expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1); // a saída fica registrada
   });
 
   it('D14 / D15: a varredura cancela a tarefa de antes da retirada mesmo com o paciente autorizado de novo; a pedida depois fica', async () => {
