@@ -602,7 +602,7 @@ Proteções: `REVOKE UPDATE, DELETE` (append-only, `0002`); `patient_isolation` 
 - `SET search_path = public, pg_temp` e `INSERT INTO public.audit_log`: uma tabela temporária `audit_log` não desvia a auditoria (T4-R2a).
 - Não é `SECURITY DEFINER`: roda com o papel de quem escreve e passa pela RLS do `audit_log`.
 
-Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, `src/modules/plataforma/audit.ts:49-71`):
+Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, `src/modules/plataforma/audit.ts:49-77`):
 
 | Tabela | Entidade | Rótulo |
 |---|---|---|
@@ -623,7 +623,7 @@ Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, 
 | `signed_documents`, `signed_document_notes`, `signed_document_receipts` | `documentos` | Documentos assinados |
 | `ia_tarefas` | `ia` | Inteligência artificial (Plano 11). O `criar` aparece como **"Pediu leitura à IA"** (Plano 14B-2: **"Pediu resumo à IA"**, **"Pediu rascunho à IA"** ou, com a tarefa já apagada, "Pediu uso da IA", pelo `tipo` lido em `ia_tarefas`; o `exportar` do portão, "Laudo enviado à IA" ou **"Dados enviados à IA"**, D22); o `alterar` com ator nulo (mudanças de situação do worker) fica no `audit_log` mas **fora** da tela, na contagem e na página de `listAccessHistory` |
 | — (`ia_autorizacoes` fica sem gatilho) | `ia_autorizacao` | Autorização de IA (Plano 14A): só o `ler` de "Ver termo assinado" (`auditRead` em `caminhoDoTermo`, `src/modules/ia/autorizacao.ts`) |
-| `ia_nutri_mensagens` | `ia_nutri` | IA Nutri (conversa com o paciente), Plano 15. O `criar` do gatilho (pergunta, resposta do worker, mensagem do filtro) e os `alterar` de ator nulo ficam **fora** da tela; o "Perguntou à IA" é o `criar` de `ia_nutri_pergunta` e o "Enviou dúvida à nutricionista", o de `ia_nutri_duvida`, gravados pelo módulo; o `exportar` "Pergunta enviada à IA" (ator nulo) é gravado uma vez por pergunta, só quando o pedido pode ter saído (`registrarSaida`, `saida.ts`; nunca com `nao_enviado`) |
+| `ia_nutri_mensagens` | `ia_nutri` | IA Nutri (conversa com o paciente), Plano 15. O `criar` do gatilho (pergunta, resposta do worker, mensagem do filtro) e os `alterar` de ator nulo ficam **fora** da tela; o "Perguntou à IA" é o `criar` de `ia_nutri_pergunta`, o "Enviou dúvida à nutricionista", o de `ia_nutri_duvida`, e o "Desativou a IA Nutri", o de `ia_nutri_revogacao` (P15-02a; os `alterar` da própria revogação, em nome de quem revogou, ficam **fora** da tela), gravados pelo módulo; o `exportar` "Pergunta enviada à IA" (ator nulo) é gravado uma vez por pergunta, só quando o pedido pode ter saído (`registrarSaida`, `saida.ts`; nunca com `nao_enviado`) |
 | `ia_nutri_participacoes` | `ia_nutri_liberacao` | IA Nutri — liberação (Plano 15): liberar e bloquear o paciente |
 | — (`ia_nutri_consentimentos` fica sem gatilho) | — | Consentimento da IA Nutri (Plano 15): a linha é a prova, em `AUDIT_EXCEPTIONS` |
 

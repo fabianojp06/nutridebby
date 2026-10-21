@@ -6,6 +6,7 @@ import { sessaoDePacienteComConta, withTenant, type TenantContext } from '@/db/t
 import { getBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
 import { conferirTextoExibidoIaNutri, IA_NUTRI_TERMO_VERSAO } from '../textos-legais';
 import { MSG_IA_NUTRI } from './constantes';
@@ -48,6 +49,14 @@ export async function aceitarNoApp(ctx: TenantContext, exibido: unknown, deps: D
   );
 }
 
+/**
+ * P15-02a: "Desativou a IA Nutri" no Histórico de acessos, logo depois da função fechada e só quando ela revogou (como o
+ * "Perguntou à IA" da RN-183). Os `alterar` que a função deixa em ia_nutri (ator = quem revogou) ficam no audit_log e saem
+ * da tela por esta linha (visivelNoHistorico, audit.ts: a janela vai do registrado_em da revogação até ela).
+ */
+const auditarDesativacao = (tx: Tx, revogacaoId: string, patientId: string) =>
+  recordAudit(tx, { acao: 'criar', entidade: 'ia_nutri_revogacao', entidadeId: revogacaoId, patientId });
+
 /** O job de estorno da revogação, na transação dela (como enqueueEmail): payload só com ids (regra 3). */
 async function enfileirarRevogacao(boss: PgBoss, tx: Tx, d: DadosRevogacaoIaNutri): Promise<void> {
   const job = await boss.send('ia-nutri-revogacao', d, { db: fromDrizzle(tx, sql) });
@@ -68,6 +77,7 @@ export async function desativarNoApp(ctx: TenantContext, deps: DepsIaNutri): Pro
       const r = await tx.execute(sql`select * from app_ia_nutri_revogar(${ip(deps.ip)}, ${ua(deps.userAgent)})`);
       const { revogacao_id: revogacaoId } = r.rows[0] as { revogacao_id: string | null; canceladas: number };
       if (!revogacaoId) return 'nada_a_desativar';
+      await auditarDesativacao(tx, revogacaoId, ctx.patientId!);
       await enfileirarRevogacao(boss, tx, { tenantId: ctx.tenantId, patientId: ctx.patientId!, revogacaoId });
       return 'desativada';
     },
@@ -94,6 +104,7 @@ export async function desativarPelaNutri(ctx: TenantContext, patientId: string, 
       const x = await tx.execute(sql`select * from app_ia_nutri_revogar(null, null, ${p.id}::uuid)`);
       const { revogacao_id: revogacaoId } = x.rows[0] as { revogacao_id: string | null };
       if (!revogacaoId) return 'nada_a_desativar' as const;
+      await auditarDesativacao(tx, revogacaoId, p.id);
       await enfileirarRevogacao(boss, tx, { tenantId: ctx.tenantId, patientId: p.id, revogacaoId });
       return 'desativada' as const;
     },

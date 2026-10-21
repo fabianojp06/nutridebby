@@ -123,6 +123,9 @@ export async function avaliar(ctx: TenantContext, mensagemId: string, valor: 'aj
   const r = await withTenant(
     ctx,
     async (tx) => {
+      // P15-02a: o paciente travado (FOR SHARE, ordem DP-10) — a avaliação fica inteira antes ou depois da revogação, e o
+      // seu "Alterou" nunca cai na janela que o Histórico de acessos esconde (visivelNoHistorico, audit.ts)
+      await tx.select({ id: patients.id }).from(patients).where(eq(patients.id, ctx.patientId!)).for('share');
       if (!(await liberadoNaTransacao(tx, ctx.patientId!)) || (await ultimoEvento(tx, ctx.patientId!))?.evento !== 'aceite') return [];
       return tx
         .update(iaNutriMensagens)

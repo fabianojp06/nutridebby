@@ -73,6 +73,7 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   ia_nutri_liberacao: 'IA Nutri — liberação',
   ia_nutri_pergunta: 'IA Nutri (conversa com o paciente)',
   ia_nutri_duvida: 'IA Nutri (conversa com o paciente)',
+  ia_nutri_revogacao: 'IA Nutri (conversa com o paciente)',
 };
 
 export type AccessHistoryItem = {
@@ -109,18 +110,33 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   if (i.entidade === 'ia_nutri_pergunta' && i.acao === 'criar') return 'Perguntou à IA';
   if (i.entidade === 'ia_nutri_duvida' && i.acao === 'criar') return 'Enviou dúvida à nutricionista';
   if (i.entidade === 'ia_nutri' && i.acao === 'exportar') return 'Pergunta enviada à IA';
+  // P15-02a: a desativação (recordAudit do módulo, na transação de app_ia_nutri_revogar) — não "apagou as conversas": a
+  // pergunta com risco não aberta fica guardada até 30 dias (D22/D32)
+  if (i.entidade === 'ia_nutri_revogacao' && i.acao === 'criar') return 'Desativou a IA Nutri';
   return ACAO_ROTULO[i.acao];
 }
 
 /**
  * RN-101 e RN-183 (Plano 15): ficam no audit_log, mas fora da tela (e da contagem) — os `alterar` do worker (ator nulo) em
  * `ia` e `ia_nutri`, e o `criar` do gatilho em `ia_nutri` (nasce da pergunta, da resposta do worker e da mensagem do filtro
- * de risco; o "Perguntou à IA" é o `criar` de `ia_nutri_pergunta`, gravado pelo módulo).
+ * de risco; o "Perguntou à IA" é o `criar` de `ia_nutri_pergunta`, gravado pelo módulo). P15-02a: também os `alterar` de
+ * `ia_nutri` que app_ia_nutri_revogar deixa (um por mensagem, com o ator = quem revogou: app.user_id não muda) — a tela
+ * mostra só o "Desativou a IA Nutri" (`criar` de `ia_nutri_revogacao`, entidade_id = a revogação). Critério da mesma
+ * transação, sem coluna nova: mesmo ator e paciente, entre o registrado_em da revogação (clock_timestamp do gatilho, depois
+ * da trava do paciente) e a linha rotulada (logo depois da função). Quem mais grava `alterar` com ator em ia_nutri_mensagens
+ * trava o paciente antes (FOR SHARE/UPDATE) e fica inteiro antes ou depois dessa janela; o `alterar` de outra ação continua
+ * visível. A exportação do titular (dados.json) não lê o audit_log.
  */
 const visivelNoHistorico = (patientId: string) =>
   sql`${auditLog.patientId} = ${patientId}
       and not (${auditLog.entidade} in ('ia', 'ia_nutri') and ${auditLog.acao} = 'alterar' and ${auditLog.actorUserId} is null)
-      and not (${auditLog.entidade} = 'ia_nutri' and ${auditLog.acao} = 'criar')`;
+      and not (${auditLog.entidade} = 'ia_nutri' and ${auditLog.acao} = 'criar')
+      and not (${auditLog.entidade} = 'ia_nutri' and ${auditLog.acao} = 'alterar' and exists (
+        select 1 from audit_log r
+          join ia_nutri_consentimentos c on c.patient_id = r.patient_id and c.id::text = r.entidade_id
+         where r.patient_id = ${auditLog.patientId} and r.entidade = 'ia_nutri_revogacao' and r.acao = 'criar'
+           and r.actor_user_id = ${auditLog.actorUserId}
+           and ${auditLog.criadoEm} between c.registrado_em and r.criado_em))`;
 
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
