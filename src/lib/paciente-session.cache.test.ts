@@ -144,7 +144,7 @@ describe('requirePaciente: a regra do portal uma vez por requisição (P08-13, S
     expect(r.ctx).toMatchObject({ tenantId: B.A.tenantId, patientId: B.paciente.id, actorUserId: B.userId });
   });
 
-  it('fora de uma requisição (Server Action) e na API: cada chamada relê', async () => {
+  it('fora do escopo simulado (como numa Server Action) e na API: cada chamada relê', async () => {
     const { cookie } = await logado();
     await requirePaciente('/p/inicio');
     await requirePaciente('/p/plano');

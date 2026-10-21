@@ -17,7 +17,7 @@ import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
 import { requireUserComTenant, type SessionData } from './session';
 import { SUSPENDED_PATH } from './session-rules';
 
-/** D3: o vínculo (consultório) escolhido. Só o tenantId; reconferido contra vinculosDaConta a cada requisição. */
+/** D3: o vínculo (consultório) escolhido. Só o tenantId; reconferido contra os vínculos da conta (vinculosComConsultorio) a cada requisição. */
 export const COOKIE_VINCULO = 'nd_vinculo';
 export const ESCOLHER_PATH = '/p/escolher';
 export const SEM_ACESSO_PATH = '/p/sem-acesso';
@@ -93,6 +93,7 @@ async function acessoDaConta(userId: string, o: { cookie: string | undefined; pe
     return { ok: false, motivo: 'trocar', tenantId: r.vinculo.tenantId };
   }
   const tenant = comConsultorio.find((c) => c.vinculo.tenantId === r.vinculo.tenantId)?.tenant;
+  // defesa: o consultório vem da mesma linha do vínculo, e escolherVinculo já barra o suspenso
   if (!tenant) return { ok: false, motivo: 'sem_acesso' };
   if (tenant.status === 'suspensa') return { ok: false, motivo: 'suspensa' };
   if (o.exigirTermo && !(await termoAceito(userId, tenant.id))) return { ok: false, motivo: 'termo' };

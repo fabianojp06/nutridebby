@@ -44,7 +44,8 @@ describe('faixaDeHoje (P08-13, D2 do Plano 16: a faixa de Hoje numa transação)
   it('o mesmo que a mini-jornada, o jaUsavaOApp e o temEnvioVisivel separados; a leitura da antropometria auditada uma vez', async () => {
     const { T, p, outro, ctx } = await comDados();
     await consultaDireta(app.db, T.ctx, p.id, new Date('2026-10-09T17:00:00Z'), 60);
-    await consultaDireta(app.db, T.ctx, outro.id, new Date('2026-10-08T18:00:00Z'), 60); // a do outro paciente não é a próxima
+    // a do outro paciente não é a próxima (a RLS já garante; o filtro por patient_id em `futuras` é só de desempenho, P08-13)
+    await consultaDireta(app.db, T.ctx, outro.id, new Date('2026-10-08T18:00:00Z'), 60);
     await withTenant(T.ctx, (tx) => tx.insert(accessEvents).values({ tenantId: T.tenantId, patientId: p.id, dia: somarDias(hoje, -1) }), app.db);
     await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido' });
     const tenant = await tenantDe(T.tenantId);

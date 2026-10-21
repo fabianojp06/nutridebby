@@ -65,8 +65,9 @@ export async function jornadaDoPaciente(ctx: TenantContext, tenant: TenantAgenda
 }
 
 /**
- * RN-202: a mini-jornada da faixa de Hoje. Com o peso visível, lê só data e peso (auditRead de antropometria); com o peso
- * oculto, não lê a antropometria (conta atendimentos — sem conteúdo, sem auditRead).
+ * RN-202: a mini-jornada da faixa de Hoje, numa transação própria (Hoje usa miniJornadaNaTransacao, dentro de faixaDeHoje,
+ * P08-13). Com o peso visível, lê só data e peso (auditRead de antropometria); com o peso oculto, não lê a antropometria
+ * (conta atendimentos — sem conteúdo, sem auditRead).
  */
 export async function miniJornadaDoPaciente(ctx: TenantContext, tenant: TenantAgenda, agora: Date, db: Db = getDb()): Promise<MiniJornada> {
   const patientId = pacienteDaSessao(ctx, 'miniJornadaDoPaciente');

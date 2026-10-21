@@ -6,6 +6,9 @@ import { withConta } from '@/db/tenant';
 export type Vinculo = { tenantId: string; patientId: string; nomeNutri: string; tenantStatus: 'ativa' | 'suspensa' };
 export type VinculoQualquer = Vinculo & { pacienteStatus: 'ativo' | 'arquivado' | 'bloqueado'; anonimizado: boolean };
 
+/** RN-08: o vínculo dá acesso ao portal (arquivado, bloqueado e anonimizado não). O mesmo filtro nas duas leituras abaixo. */
+const daAcessoAoPortal = (pacienteStatus: string, anonimizado: boolean) => pacienteStatus === 'ativo' && !anonimizado;
+
 /**
  * D2 / §3: os vínculos (consultório, prontuário) da conta de paciente. Sem `todos`, só os que dão acesso ao portal
  * (RN-08: arquivado, bloqueado e anonimizado ficam de fora). Contexto `conta`: só patients da própria conta.
@@ -42,7 +45,7 @@ export async function vinculosDaConta(userId: string, o: { db?: Db; todos?: bool
   }));
   if (o.todos) return todos;
   return todos
-    .filter((v) => v.pacienteStatus === 'ativo' && !v.anonimizado)
+    .filter((v) => daAcessoAoPortal(v.pacienteStatus, v.anonimizado))
     .map(({ tenantId, patientId, nomeNutri, tenantStatus }) => ({ tenantId, patientId, nomeNutri, tenantStatus }));
 }
 
@@ -67,7 +70,7 @@ export async function vinculosComConsultorio(userId: string, db: Db = getDb()): 
     db,
   );
   return linhas
-    .filter((l) => l.pacienteStatus === 'ativo' && l.anonimizadoEm === null)
+    .filter((l) => daAcessoAoPortal(l.pacienteStatus, l.anonimizadoEm !== null))
     .map((l) => ({
       vinculo: { tenantId: l.tenant.id, patientId: l.patientId, nomeNutri: l.tenant.nomeExibicao, tenantStatus: l.tenant.status as Vinculo['tenantStatus'] },
       tenant: l.tenant,

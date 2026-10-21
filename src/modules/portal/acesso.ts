@@ -25,7 +25,8 @@ export async function registrarAcesso(ctx: TenantContext, fuso: string, o: { db?
 /**
  * Plano 16 (G-D17 = a, R7): o paciente já abria o app antes de hoje? Decide só o texto do aviso de Hoje (boas-vindas ou
  * "O app mudou…"). Pela RLS do paciente (só as próprias linhas); `access_events` é registro de uso, sem `auditRead`
- * (AUDIT_EXCEPTIONS). `hoje` no fuso do tenant, como o `dia` gravado por `registrarAcesso`.
+ * (AUDIT_EXCEPTIONS). `hoje` no fuso do tenant, como o `dia` gravado por `registrarAcesso`. Numa transação própria; Hoje
+ * usa jaUsavaOAppNaTransacao, dentro de faixaDeHoje (P08-13).
  */
 export async function jaUsavaOApp(ctx: TenantContext, hoje: string, db: Db = getDb()): Promise<boolean> {
   const patientId = pacienteDaSessao(ctx, 'jaUsavaOApp');
