@@ -353,6 +353,36 @@ describe('P15-02a — a desativação no Histórico de acessos', () => {
     ]);
   });
 
+  it('revisão (security-review): uma linha forjada no audit_log não alarga a janela — com o id do aceite, com o fim no futuro ou de outro ator, os "Alterou" de fora da revogação continuam na tela', async () => {
+    const c = await cenario({ aceite: true });
+    const aceite = (await c.eventos()).at(-1)!;
+    const vista = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida', encaminhadaEm: new Date() });
+    expect(await marcarComoVista(c.T.ctx, vista, { db: app.db })).toBe(true);
+    expect(await desativarPelaNutri(c.T.ctx, c.p.id, { db: app.db })).toBe('desativada');
+    const rev = (await c.eventos()).at(-1)!;
+    expect(rev.evento).toBe('revogacao');
+    // SQL arbitrário na sessão da aplicação: o audit_log aceita o INSERT com ator, entidade e criado_em escolhidos
+    const forjar = (ctx: TenantContext, ator: string, acao: string, entidade: string, entidadeId: string, criadoEm: Date) =>
+      withTenant(ctx, (tx) => tx.execute(sql`insert into audit_log (tenant_id, actor_user_id, acao, entidade, entidade_id, patient_id, criado_em)
+        values (${c.T.tenantId}, ${ator}, ${acao}, ${entidade}, ${entidadeId}, ${c.p.id}, ${criadoEm.toISOString()}::timestamptz)`), app.db);
+    const depoisDaRevogacao = (segundos: number) => new Date(rev.registradoEm.getTime() + segundos * 1000);
+    await forjar(c.T.ctx, c.T.nutriId, 'criar', 'ia_nutri_revogacao', aceite.id, new Date('2100-01-02T00:00:00Z')); // o aceite
+    await forjar(c.T.ctx, c.T.nutriId, 'criar', 'ia_nutri_revogacao', rev.id, new Date('2100-01-01T00:00:00Z')); // fim no futuro
+    await forjar(c.T.ctx, c.T.nutriId, 'alterar', 'ia_nutri', vista, depoisDaRevogacao(120)); // um "Alterou" da nutri 2 min depois
+    await forjar(c.P, c.userId, 'criar', 'ia_nutri_revogacao', rev.id, new Date('2100-01-03T00:00:00Z')); // a revogação da nutri
+    await forjar(c.P, c.userId, 'alterar', 'ia_nutri', vista, depoisDaRevogacao(30)); // um "Alterou" do paciente, dentro do minuto
+    expect(await naTela(c)).toEqual([
+      ['Desativou a IA Nutri', CONVERSA, 'paciente', rev.id], // forjadas: aparecem, mas não escondem nada
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', aceite.id],
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', rev.id],
+      ['Alterou', CONVERSA, 'nutri', vista], // 2 min depois: fora do teto de 1 minuto
+      ['Alterou', CONVERSA, 'paciente', vista], // 30 s depois: a revogação é da nutri, não do paciente
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', rev.id], // a de verdade: os "Alterou" dela continuam fora da tela
+      ['Alterou', CONVERSA, 'nutri', vista], // "Marcar como vista", depois do aceite: o aceite não abre janela
+      ['Criou', 'IA Nutri — liberação', 'nutri', null],
+    ]);
+  });
+
   it('a avaliação espera a trava do paciente (FOR SHARE): presa atrás de uma transação que trava o paciente FOR UPDATE, confere a participação e o consentimento só depois dela', async () => {
     const c = await cenario({ aceite: true });
     const q = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });

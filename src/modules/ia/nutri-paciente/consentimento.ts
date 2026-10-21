@@ -52,7 +52,7 @@ export async function aceitarNoApp(ctx: TenantContext, exibido: unknown, deps: D
 /**
  * P15-02a: "Desativou a IA Nutri" no Histórico de acessos, logo depois da função fechada e só quando ela revogou (como o
  * "Perguntou à IA" da RN-183). Os `alterar` que a função deixa em ia_nutri (ator = quem revogou) ficam no audit_log e saem
- * da tela por esta linha (visivelNoHistorico, audit.ts: a janela vai do registrado_em da revogação até ela).
+ * da tela por esta linha (visivelNoHistorico, audit.ts: janela do registrado_em da revogação até ela, até 1 min).
  */
 const auditarDesativacao = (tx: Tx, revogacaoId: string, patientId: string) =>
   recordAudit(tx, { acao: 'criar', entidade: 'ia_nutri_revogacao', entidadeId: revogacaoId, patientId });

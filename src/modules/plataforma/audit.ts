@@ -126,6 +126,12 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
  * da trava do paciente) e a linha rotulada (logo depois da função). Quem mais grava `alterar` com ator em ia_nutri_mensagens
  * trava o paciente antes (FOR SHARE/UPDATE) e fica inteiro antes ou depois dessa janela; o `alterar` de outra ação continua
  * visível. A exportação do titular (dados.json) não lê o audit_log.
+ * Revisão (security-review do P15-02a): o audit_log aceita INSERT da sessão da aplicação sem gatilho que fixe criado_em ou
+ * o ator, então a linha rotulada não basta para abrir a janela — ela só vale se apontar para uma revogação de verdade
+ * (`evento = 'revogacao'`) registrada pelo mesmo ator (registrado_por nulo só depois da anonimização, 0117) e fecha, no
+ * máximo, 1 minuto depois do registrado_em (que vem do gatilho, clock_timestamp). Com SQL arbitrário, uma linha forjada
+ * esconde no máximo os `alterar` do próprio ator nesse minuto; se uma revogação de verdade passar disso, sobram "Alterou"
+ * na tela (falha para o lado de mostrar).
  */
 const visivelNoHistorico = (patientId: string) =>
   sql`${auditLog.patientId} = ${patientId}
@@ -136,7 +142,8 @@ const visivelNoHistorico = (patientId: string) =>
           join ia_nutri_consentimentos c on c.patient_id = r.patient_id and c.id::text = r.entidade_id
          where r.patient_id = ${auditLog.patientId} and r.entidade = 'ia_nutri_revogacao' and r.acao = 'criar'
            and r.actor_user_id = ${auditLog.actorUserId}
-           and ${auditLog.criadoEm} between c.registrado_em and r.criado_em))`;
+           and c.evento = 'revogacao' and (c.registrado_por = r.actor_user_id or c.registrado_por is null)
+           and ${auditLog.criadoEm} between c.registrado_em and least(r.criado_em, c.registrado_em + interval '1 minute')))`;
 
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
