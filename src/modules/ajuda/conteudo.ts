@@ -1,5 +1,3 @@
-import type { EstadoGuia, ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
-
 /** P08-10 (D26): o manual guiado. Texto RASCUNHO até o dono e a Debby aprovarem (P08-08); espelhado na spec (US-057). Nenhum dado de saúde nos exemplos. */
 export type Passo = { alvo?: string; titulo: string; texto: string };
 export type Guia = {
@@ -365,8 +363,4 @@ export function guiaDaRota(caminho: string): Guia | null {
   return GUIAS.find((g) => g.padrao.test(caminho)) ?? null;
 }
 
-/** true = ainda não está em nenhum dos `estados` na versão atual. */
-export function precisaDoGuia(p: ProgressoGuia, g: Guia, estados: EstadoGuia[]): boolean {
-  const r = p[g.id];
-  return !r || r.v < g.versao || !estados.includes(r.estado);
-}
+export { precisaDoGuia } from './precisa-do-guia';
