@@ -295,7 +295,7 @@ export async function temEnvioVisivel(ctx: TenantContext, db: Db = getDb()): Pro
   return withTenant(ctx, (tx) => temEnvioVisivelNaTransacao(tx, patientId), db);
 }
 
-/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje), com o contexto do paciente. */
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje). Só numa transação de sessão de paciente. */
 export async function temEnvioVisivelNaTransacao(tx: Tx, patientId: string): Promise<boolean> {
   const r = await tx.select({ id: examSubmissions.id }).from(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado'))).limit(1);
   return r.length > 0;

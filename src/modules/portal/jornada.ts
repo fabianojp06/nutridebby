@@ -73,7 +73,7 @@ export async function miniJornadaDoPaciente(ctx: TenantContext, tenant: TenantAg
   return withTenant(ctx, (tx) => miniJornadaNaTransacao(tx, patientId, tenant, agora), db);
 }
 
-/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje), com o contexto do paciente; o auditRead fica nela. */
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje); o auditRead fica nela. Só numa transação de sessão de paciente (o auditRead sai no nome dela). */
 export async function miniJornadaNaTransacao(tx: Tx, patientId: string, tenant: Pick<TenantAgenda, 'fuso'>, agora: Date): Promise<MiniJornada> {
   const semPeso = await pesoOcultoNaTransacao(tx, patientId);
   const pesos = semPeso

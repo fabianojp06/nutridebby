@@ -25,8 +25,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Plano 16 (US-191, §4.3): Hoje — a faixa com a saudação e a mini-jornada, o mural do consultório (leitura: nada é
- * gravado para ele existir; não é chat, RN-193), os cartões do aparelho e a barra de ações. Duas transações curtas (D2): o
- * mural e a faixa (mini-jornada, o aviso e a seção "Exames": faixaDeHoje, P08-13). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
+ * gravado para ele existir; não é chat, RN-193), os cartões do aparelho e a barra de ações. O mural e a faixa em duas
+ * transações curtas (D2; a faixa leva a mini-jornada, o aviso e a seção "Exames": faixaDeHoje, P08-13). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
  * `userId` de requirePaciente, CLAUDE.md regra 1); `?tour=portal-novidades` abre o tour ("Ver o tour de novo" de /p/ajuda).
  * Plano 15 (§7.8): o convite da IA Nutri, só com a entrada `decidir` (liberado pela nutricionista e ainda sem decisão).
  */

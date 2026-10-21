@@ -6,6 +6,7 @@ import { envioNoBanco } from '../../../test/exames-enviados';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { accessEvents, auditLog, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { definirPesoOculto } from '@/modules/pacientes/peso-oculto';
 import { somarDias } from '@/modules/pacientes/datas';
 import { jaUsavaOApp } from './acesso';
 import { temEnvioVisivel } from './exames-enviados';
@@ -61,8 +62,16 @@ describe('faixaDeHoje (P08-13, D2 do Plano 16: a faixa de Hoje numa transação)
     const novo = await novoPaciente(app.db, T.ctx);
     const ctx = ctxPaciente(T.tenantId, novo.id);
     expect(await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).toMatchObject({ jaUsava: false, exames: false, mini: { pontos: [] } });
+    expect(await leituras(T, novo.id)).toEqual({}); // sem peso, nada lido da antropometria
     await app.db.update(tenants).set({ examesPacienteAtivadoEm: new Date() }).where(eq(tenants.id, T.tenantId));
     expect((await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).exames).toBe(true);
+  });
+
+  it('peso oculto (RN-203): a faixa não lê a antropometria nem audita', async () => {
+    const { T, p, ctx } = await comDados();
+    await definirPesoOculto(T.ctx, p.id, true, { db: app.db });
+    expect((await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).mini).toMatchObject({ pontos: [] });
+    expect(await leituras(T, p.id)).toEqual({});
   });
 
   it('só em sessão de paciente', async () => {

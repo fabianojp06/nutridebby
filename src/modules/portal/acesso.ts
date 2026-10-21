@@ -32,7 +32,7 @@ export async function jaUsavaOApp(ctx: TenantContext, hoje: string, db: Db = get
   return withTenant(ctx, (tx) => jaUsavaOAppNaTransacao(tx, patientId, hoje), db);
 }
 
-/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje), com o contexto do paciente. */
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje). Só numa transação de sessão de paciente. */
 export async function jaUsavaOAppNaTransacao(tx: Tx, patientId: string, hoje: string): Promise<boolean> {
   const r = await tx.select({ id: accessEvents.id }).from(accessEvents).where(and(eq(accessEvents.patientId, patientId), lt(accessEvents.dia, hoje))).limit(1);
   return r.length > 0;
