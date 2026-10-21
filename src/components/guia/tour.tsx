@@ -25,6 +25,7 @@ export function Tour({
   aoMarcar,
   focoAoFechar = '[data-guia="ajuda"]',
   folhaEvitaAlvo = false,
+  classeTitulo = 'font-titulo text-xl font-semibold',
 }: {
   guia: Guia;
   aberto: boolean;
@@ -34,6 +35,8 @@ export function Tour({
   focoAoFechar?: string;
   /** Plano 16: abaixo de 640 px, a folha sobe para o topo quando cobriria o alvo (a barra de ações do portal fica embaixo). O painel não usa (G-D3). */
   folhaEvitaAlvo?: boolean;
+  /** P08-13: a fonte do título (como em TextoLegalView) — o portal passa a dele e não baixa a Bricolage do painel. */
+  classeTitulo?: string;
 }) {
   const dialogo = useRef<HTMLDialogElement>(null);
   const titulo = useRef<HTMLHeadingElement>(null);
@@ -115,7 +118,7 @@ export function Tour({
         className={`fixed w-[min(24rem,calc(100vw-1.5rem))] rounded-3xl border border-borda bg-cartao p-5 text-texto shadow-xl max-sm:inset-x-3 ${folhaNoTopo ? 'max-sm:top-3' : 'max-sm:bottom-3'} ${caixa ? '' : 'sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2'}`}
       >
         <p className="text-sm text-suave">{`${i + 1} de ${guia.passos.length}`}</p>
-        <h2 id="tour-titulo" ref={titulo} tabIndex={-1} className="font-titulo text-xl font-semibold">{passo.titulo}</h2>
+        <h2 id="tour-titulo" ref={titulo} tabIndex={-1} className={classeTitulo}>{passo.titulo}</h2>
         <p id="tour-texto" className="mt-2">{passo.texto}</p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {i > 0 && (

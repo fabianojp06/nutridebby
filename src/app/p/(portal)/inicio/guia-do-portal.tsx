@@ -36,6 +36,7 @@ export function GuiaDoPortal({ progresso: inicial, abrir, jaUsava }: { progresso
           aberto
           focoAoFechar='[data-guia="secao-eu"]'
           folhaEvitaAlvo
+          classeTitulo="font-portal-titulo text-xl font-bold"
           aoMarcar={marcar}
           aoFechar={() => {
             setAberto(false);
