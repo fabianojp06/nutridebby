@@ -67,8 +67,10 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     const teto = custoMaximoDoArquivo('claude-opus-5-5', 'us', { tipo: 'pdf', paginas: 2 });
     const lerOriginal = f.lerDocumento.bind(f);
     f.lerDocumento = async (p) => {
-      // no momento da chamada, a saída já está gravada (commit) e a reserva já desceu
-      expect((await tarefa(P)).saiuEm).not.toBeNull();
+      // no momento da chamada, a saída já está gravada (commit): saiu_em, destino e o "Dados enviados à IA"; e a reserva já desceu
+      const t = await tarefa(P);
+      expect(t.saiuEm).not.toBeNull();
+      expect(t.destino).toBe('teste');
       expect((await usoDe(P)).custoMicroUsd).toBe(teto);
       expect(await saidas(P)).toHaveLength(1);
       return lerOriginal(p);
