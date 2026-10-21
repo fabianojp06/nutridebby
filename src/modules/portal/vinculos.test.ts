@@ -5,7 +5,7 @@ import { novoTenant } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { patients, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { escolherVinculo, vinculosDaConta, type Vinculo } from './vinculos';
+import { escolherVinculo, vinculosComConsultorio, vinculosDaConta, type Vinculo } from './vinculos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -34,6 +34,32 @@ describe('vínculos da conta (D2, §3, RN-08)', () => {
     expect(todos.find((x) => x.tenantId === C.tenantId)).toMatchObject({ pacienteStatus: 'arquivado', anonimizado: false });
     expect(todos.find((x) => x.tenantId === D.tenantId)).toMatchObject({ pacienteStatus: 'bloqueado', anonimizado: false });
     expect(todos.find((x) => x.tenantId === E.tenantId)).toMatchObject({ pacienteStatus: 'ativo', anonimizado: true });
+  });
+
+  it('P08-13: vinculosComConsultorio = os mesmos vínculos (filtro e ordem) com a linha inteira do consultório; só da própria conta', async () => {
+    const A = await novoTenant(app.db, 'Zeca Nutri');
+    const B = await novoTenant(app.db, 'Ana Nutri');
+    const C = await novoTenant(app.db, 'Carla');
+    const { userId } = await pacienteComConta(app.db, A);
+    await pacienteComConta(app.db, B, { userId });
+    const { paciente: pc } = await pacienteComConta(app.db, C, { userId });
+    await withTenant(C.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, pc.id)), app.db);
+    const D = await novoTenant(app.db, 'Dora');
+    const { paciente: pd } = await pacienteComConta(app.db, D, { userId });
+    await withTenant(D.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, pd.id)), app.db);
+    const E = await novoTenant(app.db, 'Eva');
+    const { paciente: pe } = await pacienteComConta(app.db, E, { userId });
+    await withTenant(E.ctx, (tx) => tx.update(patients).set({ anonimizadoEm: new Date() }).where(eq(patients.id, pe.id)), app.db);
+    await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, A.tenantId));
+    await pacienteComConta(app.db, A); // outra conta no mesmo consultório: não entra
+    const r = await vinculosComConsultorio(userId, app.db);
+    expect(r.map((c) => c.vinculo)).toEqual(await vinculosDaConta(userId, { db: app.db }));
+    expect(r.map((c) => c.vinculo.nomeNutri)).toEqual(['Ana Nutri', 'Zeca Nutri']);
+    for (const c of r) {
+      const [linha] = await app.db.select().from(tenants).where(eq(tenants.id, c.vinculo.tenantId));
+      expect(c.tenant).toEqual(linha);
+    }
+    expect(r[1].vinculo.tenantStatus).toBe('suspensa');
   });
 
   it('tenant suspenso continua na lista, com o status (a escolha o mostra desabilitado; a sessão decide pelo escolherVinculo)', async () => {

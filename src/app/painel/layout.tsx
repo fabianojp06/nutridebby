@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
+import { FONTES_DO_PAINEL } from '@/app/fontes-painel';
 import { METADADOS_DO_PAINEL } from '@/app/manifesto-painel';
 import { VigiaDeSessao } from '@/components/vigia-sessao';
 import { requireNutri } from '@/lib/tenant-session';
@@ -35,7 +36,7 @@ export default async function PainelLayout({ children }: LayoutProps<'/painel'>)
   const abertas = completo ? await contadorDeDuvidas(ctx) : 0;
   const duvidas = { mostrar: !!tenant.iaNutriAtivadaEm || abertas > 0, pendentes: abertas };
   return (
-    <div data-tema={tema} style={cores} className="min-h-dvh bg-fundo font-sans text-texto">
+    <div data-tema={tema} style={cores} className={`${FONTES_DO_PAINEL} min-h-dvh bg-fundo font-sans text-texto`}>
       <CabecalhoPainel marca={marca} nome={data.user.name} email={data.user.email} tema={tema} completo={completo} progresso={progresso} exames={exames} duvidas={duvidas} />
       {children}
       {/* P12-14: aviso de inatividade e saída automática (30 min sem uso, 8 h de limite) */}

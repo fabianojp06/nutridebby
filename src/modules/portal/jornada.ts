@@ -9,8 +9,9 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { miniJornada, montarJornada, type AvaliacaoDaJornada, type Jornada, type MiniJornada } from './jornada-regras';
 import { pacienteDaSessao } from './sessao';
 
-const futuras = (tx: Tx, agora: Date) =>
-  listarConsultasNaTransacao(tx, and(inArray(appointments.status, [...STATUS_ATIVOS]), gt(appointments.fim, agora)), { ordem: 'asc', limite: 20 });
+// P08-13: o paciente também no filtro (a RLS já restringe; assim a consulta usa o índice do paciente, não o do tenant)
+const futuras = (tx: Tx, patientId: string, agora: Date) =>
+  listarConsultasNaTransacao(tx, and(eq(appointments.patientId, patientId), inArray(appointments.status, [...STATUS_ATIVOS]), gt(appointments.fim, agora)), { ordem: 'asc', limite: 20 });
 // T-1 (Plano 05): o mesmo teto do servidor (RN-16): ativas que ainda vão começar
 const podeAgendar = (lista: Consulta[], agora: Date) => lista.filter((c) => c.inicio > agora).length < MAX_CONSULTAS_FUTURAS_PUBLICO;
 
@@ -44,7 +45,7 @@ export async function jornadaDoPaciente(ctx: TenantContext, tenant: TenantAgenda
       if (atendimentos.length) await auditRead(tx, { entidade: 'atendimentos', entidadeId: null, patientId });
       const avaliacoes = await avaliacoesNaTransacao(tx, patientId, { semPeso, percGordura: tenant.mostrarPercGorduraPaciente });
       if (avaliacoes.length) await auditRead(tx, { entidade: 'antropometria', entidadeId: null, patientId });
-      return { semPeso, atendimentos, avaliacoes, futuras: await futuras(tx, agora) };
+      return { semPeso, atendimentos, avaliacoes, futuras: await futuras(tx, patientId, agora) };
     },
     db,
   );
@@ -64,24 +65,24 @@ export async function jornadaDoPaciente(ctx: TenantContext, tenant: TenantAgenda
 }
 
 /**
- * RN-202: a mini-jornada da faixa de Hoje. Com o peso visível, lê só data e peso (auditRead de antropometria); com o peso
- * oculto, não lê a antropometria (conta atendimentos — sem conteúdo, sem auditRead).
+ * RN-202: a mini-jornada da faixa de Hoje, numa transação própria (Hoje usa miniJornadaNaTransacao, dentro de faixaDeHoje,
+ * P08-13). Com o peso visível, lê só data e peso (auditRead de antropometria); com o peso oculto, não lê a antropometria
+ * (conta atendimentos — sem conteúdo, sem auditRead).
  */
 export async function miniJornadaDoPaciente(ctx: TenantContext, tenant: TenantAgenda, agora: Date, db: Db = getDb()): Promise<MiniJornada> {
   const patientId = pacienteDaSessao(ctx, 'miniJornadaDoPaciente');
-  const d = await withTenant(
-    ctx,
-    async (tx) => {
-      const semPeso = await pesoOcultoNaTransacao(tx, patientId);
-      const pesos = semPeso
-        ? []
-        : await tx.select({ data: anthropometry.data, valor: anthropometry.pesoKg }).from(anthropometry).where(eq(anthropometry.patientId, patientId)).orderBy(asc(anthropometry.data), asc(anthropometry.createdAt));
-      if (pesos.length) await auditRead(tx, { entidade: 'antropometria', entidadeId: null, patientId });
-      const [c] = await tx.select({ n: count(), primeira: min(consultations.data) }).from(consultations).where(eq(consultations.patientId, patientId));
-      return { pesos, atendimentos: c?.n ?? 0, primeira: c?.primeira ?? null, futuras: await futuras(tx, agora) };
-    },
-    db,
-  );
+  return withTenant(ctx, (tx) => miniJornadaNaTransacao(tx, patientId, tenant, agora), db);
+}
+
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje); o auditRead fica nela. Só numa transação de sessão de paciente (o auditRead sai no nome dela). */
+export async function miniJornadaNaTransacao(tx: Tx, patientId: string, tenant: Pick<TenantAgenda, 'fuso'>, agora: Date): Promise<MiniJornada> {
+  const semPeso = await pesoOcultoNaTransacao(tx, patientId);
+  const pesos = semPeso
+    ? []
+    : await tx.select({ data: anthropometry.data, valor: anthropometry.pesoKg }).from(anthropometry).where(eq(anthropometry.patientId, patientId)).orderBy(asc(anthropometry.data), asc(anthropometry.createdAt));
+  if (pesos.length) await auditRead(tx, { entidade: 'antropometria', entidadeId: null, patientId });
+  const [c] = await tx.select({ n: count(), primeira: min(consultations.data) }).from(consultations).where(eq(consultations.patientId, patientId));
+  const d = { pesos, atendimentos: c?.n ?? 0, primeira: c?.primeira ?? null, futuras: await futuras(tx, patientId, agora) };
   return miniJornada(
     { pesos: d.pesos, atendimentos: d.atendimentos, primeiroAtendimento: d.primeira, proxima: d.futuras[0] ? { inicio: d.futuras[0].inicio } : null, podeAgendar: podeAgendar(d.futuras, agora) },
     agora,

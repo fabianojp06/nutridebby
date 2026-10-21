@@ -1,15 +1,14 @@
 import 'server-only';
+import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { MSG_TERMO_NAO_ACEITO } from '@/modules/pacientes/termo-paciente';
-import { buscarTenant } from '@/modules/plataforma/tenant-status';
 import { PARAM_VINCULO } from '@/modules/portal/link-portal';
 import { termoAceito } from '@/modules/portal/termo';
-import { escolherVinculo, vinculosDaConta, type Vinculo } from '@/modules/portal/vinculos';
+import { escolherVinculo, vinculosComConsultorio, type Vinculo } from '@/modules/portal/vinculos';
 import { recusaApi, requireApiUser } from './api-auth';
 import { clientIp } from './ip';
 import { lerCookie } from './ler-cookie';
@@ -18,7 +17,7 @@ import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
 import { requireUserComTenant, type SessionData } from './session';
 import { SUSPENDED_PATH } from './session-rules';
 
-/** D3: o vínculo (consultório) escolhido. Só o tenantId; reconferido contra vinculosDaConta a cada requisição. */
+/** D3: o vínculo (consultório) escolhido. Só o tenantId; reconferido contra os vínculos da conta (vinculosComConsultorio) a cada requisição. */
 export const COOKIE_VINCULO = 'nd_vinculo';
 export const ESCOLHER_PATH = '/p/escolher';
 export const SEM_ACESSO_PATH = '/p/sem-acesso';
@@ -83,20 +82,36 @@ type Acesso =
  * (RN-15) e termo da versão atual aceito neste consultório (US-011), nessa ordem. `pedido` (o `?v=` do link) vale antes
  * do cookie só se for vínculo ativo da conta (escolherVinculo). `regravar` (páginas): pedido válido diferente do cookie →
  * `trocar`, para gravar o cookie ANTES de seguir — as próximas telas (menu, sem `?v=`) e o termo ficam no mesmo consultório.
+ * P08-13: a linha do consultório vem no join dos vínculos (sem reler `tenants`); só a do escolhido sai daqui.
  */
 async function acessoDaConta(userId: string, o: { cookie: string | undefined; pedido?: string; exigirTermo: boolean; regravar: boolean }): Promise<Acesso> {
-  const vinculos = await vinculosDaConta(userId);
+  const comConsultorio = await vinculosComConsultorio(userId);
+  const vinculos = comConsultorio.map((c) => c.vinculo);
   const r = escolherVinculo(vinculos, o.cookie, o.pedido);
   if (r.tipo !== 'ok') return { ok: false, motivo: r.tipo };
   if (o.regravar && vinculos.length > 1 && r.vinculo.tenantId === o.pedido && o.pedido !== o.cookie) {
     return { ok: false, motivo: 'trocar', tenantId: r.vinculo.tenantId };
   }
-  const tenant = await buscarTenant(getDb(), r.vinculo.tenantId);
+  const tenant = comConsultorio.find((c) => c.vinculo.tenantId === r.vinculo.tenantId)?.tenant;
+  // defesa: o consultório vem da mesma linha do vínculo, e escolherVinculo já barra o suspenso
   if (!tenant) return { ok: false, motivo: 'sem_acesso' };
   if (tenant.status === 'suspensa') return { ok: false, motivo: 'suspensa' };
   if (o.exigirTermo && !(await termoAceito(userId, tenant.id))) return { ok: false, motivo: 'termo' };
   return { ok: true, tenant, vinculo: r.vinculo, vinculos };
 }
+
+/**
+ * P08-13 (S-7): a regra do portal uma vez por requisição — o layout e a página chamam requirePaciente com `path`
+ * diferentes e dividem esta leitura. Chave: a conta e `exigirTermo` (primitivos); o cookie, o `?v=` e o IP são da própria
+ * requisição. Só dados: o redirect fica com cada chamador (o `path` dele entra no `volta`). O cache do React é por
+ * requisição; fora de um render (Server Action) não guarda nada e cada chamada relê, como antes.
+ */
+const acessoDaRequisicao = cache(async (userId: string, exigirTermo: boolean) => {
+  const [h, jar] = await Promise.all([headers(), cookies()]);
+  const atual = h.get(CURRENT_PATH_HEADER);
+  const acesso = await acessoDaConta(userId, { cookie: jar.get(COOKIE_VINCULO)?.value, pedido: vinculoDoLink(atual), exigirTermo, regravar: true });
+  return { atual, acesso, ip: await requestIp() };
+});
 
 /**
  * Entrada de toda página e Server Action do portal (o par do requireNutri): sessão de paciente válida (requireUser),
@@ -105,13 +120,7 @@ async function acessoDaConta(userId: string, o: { cookie: string | undefined; pe
  */
 export async function requirePaciente(path: string, o: { permitirTermoPendente?: boolean } = {}): Promise<PacienteAccess> {
   const { data } = await requireUserComTenant(['paciente'], path);
-  const atual = (await headers()).get(CURRENT_PATH_HEADER);
-  const a = await acessoDaConta(data.user.id, {
-    cookie: (await cookies()).get(COOKIE_VINCULO)?.value,
-    pedido: vinculoDoLink(atual),
-    exigirTermo: !o.permitirTermoPendente,
-    regravar: true,
-  });
+  const { atual, acesso: a, ip } = await acessoDaRequisicao(data.user.id, !o.permitirTermoPendente);
   if (!a.ok) {
     switch (a.motivo) {
       case 'sem_acesso':
@@ -139,7 +148,7 @@ export async function requirePaciente(path: string, o: { permitirTermoPendente?:
     tenant: a.tenant,
     vinculo: a.vinculo,
     vinculos: a.vinculos,
-    ctx: { tenantId: a.tenant.id, role: 'paciente', patientId: a.vinculo.patientId, actorUserId: data.user.id, ip: await requestIp() },
+    ctx: { tenantId: a.tenant.id, role: 'paciente', patientId: a.vinculo.patientId, actorUserId: data.user.id, ip },
   };
 }
 

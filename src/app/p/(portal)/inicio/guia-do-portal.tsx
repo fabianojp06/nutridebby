@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Tour } from '@/components/guia/tour';
-import { precisaDoGuia } from '@/modules/ajuda/conteudo';
+import { precisaDoGuia } from '@/modules/ajuda/precisa-do-guia';
 import { AVISO_PORTAL, avisoDoGuia, GUIA_PORTAL } from '@/modules/ajuda/portal';
 import { aplicarMarca, type EstadoGuia, type ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { marcarGuiaPortalAction } from '../ajuda/actions';
@@ -36,6 +36,7 @@ export function GuiaDoPortal({ progresso: inicial, abrir, jaUsava }: { progresso
           aberto
           focoAoFechar='[data-guia="secao-eu"]'
           folhaEvitaAlvo
+          classeTitulo="font-portal-titulo text-xl font-bold"
           aoMarcar={marcar}
           aoFechar={() => {
             setAberto(false);

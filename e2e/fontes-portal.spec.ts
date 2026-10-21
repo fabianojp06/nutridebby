@@ -26,5 +26,7 @@ test('fontes do portal: só do próprio app e até 160 KB de woff2 no primeiro c
   const total = fontes.reduce((s, f) => s + f.bytes, 0);
   console.log(`woff2 no primeiro carregamento de /p/escolher: ${(total / 1024).toFixed(1)} KB em ${fontes.length} arquivo(s)`);
   expect(total).toBeLessThanOrEqual(160 * 1024);
+  // P08-13: só as duas do portal (Red Hat Display e Atkinson); as do painel (layout raiz) não têm preload e não são usadas no /p
+  expect(fontes.length, 'só as fontes do portal').toBeLessThanOrEqual(2);
   await page.context().close();
 });

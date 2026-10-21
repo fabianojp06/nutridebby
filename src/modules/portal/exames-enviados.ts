@@ -292,10 +292,19 @@ export async function cancelarMeuEnvio(
  */
 export async function temEnvioVisivel(ctx: TenantContext, db: Db = getDb()): Promise<boolean> {
   const patientId = pacienteDaSessao(ctx, 'temEnvioVisivel');
-  const r = await withTenant(
-    ctx,
-    (tx) => tx.select({ id: examSubmissions.id }).from(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado'))).limit(1),
-    db,
-  );
+  return withTenant(ctx, (tx) => temEnvioVisivelNaTransacao(tx, patientId), db);
+}
+
+/**
+ * RN-192 num lugar só (molduraDaSecao e faixaDeHoje): "Exames" aparece com o recebimento ligado no consultório ou, desligado,
+ * com envio visível do paciente (`temEnvio` só é chamado nesse caso).
+ */
+export async function examesVisiveis(tenant: { examesPacienteAtivadoEm: Date | null }, temEnvio: () => Promise<boolean>): Promise<boolean> {
+  return Boolean(tenant.examesPacienteAtivadoEm) || (await temEnvio());
+}
+
+/** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje). Só numa transação de sessão de paciente. */
+export async function temEnvioVisivelNaTransacao(tx: Tx, patientId: string): Promise<boolean> {
+  const r = await tx.select({ id: examSubmissions.id }).from(examSubmissions).where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado'))).limit(1);
   return r.length > 0;
 }

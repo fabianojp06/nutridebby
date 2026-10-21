@@ -8,21 +8,31 @@ vi.mock('@/env', () => ({ getEnv: () => ({ VAPID_PUBLIC_KEY: undefined }) }));
 vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, data: { user: { id: 'u1', email: 'marina@ex.com' } }, vinculo: { patientId: 'p1' }, tenant: { fuso: 'America/Sao_Paulo', examesPacienteAtivadoEm: null } }),
 }));
-vi.mock('@/app/p/moldura', () => ({ molduraDaSecao: async () => ({ marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] }) }));
+// a seção "Exames" vem da faixa (faixaDeHoje): o mock guarda o que a página repassou à moldura
+const moldura = vi.hoisted(() => ({ exames: null as boolean | null }));
+vi.mock('@/app/p/moldura', () => ({
+  molduraComExames: (_t: unknown, exames: boolean) => {
+    moldura.exames = exames;
+    return { marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] };
+  },
+}));
 vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: true, hoje: [], anteriores: [] }) }));
-vi.mock('@/modules/portal/jornada', () => ({
-  miniJornadaDoPaciente: async () => ({
-    linha1: '−4,2 kg desde março',
-    linha2: { semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' },
-    complemento: '78,6 kg na última consulta',
-    pontos: [82.8, 78.6],
-    podeAgendar: true,
+const estado = vi.hoisted(() => ({ jaUsava: true, exames: false, guia: {} as Record<string, unknown> }));
+vi.mock('@/modules/portal/hoje', () => ({
+  faixaDeHoje: async () => ({
+    mini: {
+      linha1: '−4,2 kg desde março',
+      linha2: { semFuso: 'Próximo marco: consulta amanhã, 14:00', comFuso: 'Próximo marco: consulta amanhã, 14:00 (horário de Brasília)' },
+      complemento: '78,6 kg na última consulta',
+      pontos: [82.8, 78.6],
+      podeAgendar: true,
+    },
+    jaUsava: estado.jaUsava,
+    exames: estado.exames,
   }),
 }));
 vi.mock('../agenda/actions', () => ({ confirmarAction: async () => ({}) }));
-const estado = vi.hoisted(() => ({ jaUsava: true, guia: {} as Record<string, unknown> }));
 vi.mock('@/modules/plataforma/preferencias', () => ({ lerGuia: async () => estado.guia }));
-vi.mock('@/modules/portal/acesso', () => ({ jaUsavaOApp: async () => estado.jaUsava }));
 vi.mock('../ajuda/actions', () => ({ marcarGuiaPortalAction: async () => {} }));
 const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
@@ -35,6 +45,7 @@ const pagina = async (busca: Record<string, string> = {}) => renderToStaticMarku
 describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
   beforeEach(() => {
     estado.jaUsava = true;
+    estado.exames = false;
     estado.guia = {};
     ia.entrada = 'nenhuma';
   });
@@ -55,6 +66,15 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     expect(html).toContain('O app mudou. Quer ver onde ficou cada coisa?');
     expect(html).toMatch(/<button[^>]*>Ver como funciona<\/button>/);
     expect(html).not.toContain('<dialog');
+  });
+
+  it('P08-13: a seção "Exames" da moldura é a que a faixa decidiu (faixaDeHoje, RN-192)', async () => {
+    estado.exames = true;
+    await pagina();
+    expect(moldura.exames).toBe(true);
+    estado.exames = false;
+    await pagina();
+    expect(moldura.exames).toBe(false);
   });
 
   it('G-D17 = a: quem nunca abriu o app antes de hoje recebe as boas-vindas, não "O app mudou"', async () => {
