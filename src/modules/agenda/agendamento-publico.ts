@@ -263,7 +263,8 @@ async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unkn
       if (ehSobreposicao(e)) return outros(); // RN-03 / D9: ocupado entre a checagem e a gravação — o EXCLUDE decide
       // a nutricionista marcava o mesmo paciente (travado, FOR UPDATE) num horário que se sobrepõe a este: a FK da consulta
       // nova esperou por ela e ela, pelo EXCLUDE desta. O `publico` não trava o paciente antes (não tem a política de
-      // UPDATE); o Postgres desfaz esta transação (40P01) e o horário fica com a nutricionista.
+      // UPDATE); o Postgres desfaz uma das duas (40P01). Se for esta, o horário fica com a nutricionista; se for a dela,
+      // ela repete (repetirSeDeadlock) e recebe o conflito, e o horário fica com o paciente.
       if (deadlockDetectado(e)) return outros();
       // a nutricionista cadastrou o mesmo e-mail ao mesmo tempo: de novo, agora o paciente existe (uma vez só)
       if (tentativa === 0 && uniqueViolation(e) === 'patients_tenant_email_unique') continue;

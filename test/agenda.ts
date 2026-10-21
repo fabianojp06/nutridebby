@@ -93,9 +93,11 @@ async function esperarPresaPor(owner: Pool, pid: number, feito: { pronto: boolea
  * Revisão final (Important 1): duas gravações de faixas que se sobrepõem ao mesmo tempo podem dar 40P01 em vez de 23P01 —
  * o Postgres põe a tupla no índice GiST e só depois procura conflitos (execIndexing.c), então cada uma pode esperar a
  * outra. Sem depender do relógio: a `outra` grava `primeira` (cruza a faixa de `acao`) e segura o `commit`; `acao` grava
- * e fica presa esperando a outra; a outra grava `segunda`, que só cruza a faixa de `acao` → espera `acao`: ciclo. `acao`
- * espera há mais tempo, então é ela que o detector desfaz (deadlock_timeout de 1 s). A outra só confirma depois que a
- * nova tentativa de `acao` fica presa de novo (ou que `acao` termina, sem nova tentativa). Devolve o erro de `acao` (ou null).
+ * e fica presa esperando a outra; a outra grava `segunda`, que só cruza a faixa de `acao` → espera `acao`: ciclo. Quem o
+ * detector desfaz é quem roda a checagem primeiro, e cada espera a roda uma vez só, depois do próprio deadlock_timeout:
+ * a `outra` leva 10 s (local à transação; GRANT só no global-setup), então a vítima é sempre `acao` (1 s), por mais que
+ * o escalonador atrase uma das duas (P15-04). A outra só confirma depois que a nova tentativa de `acao` fica presa de
+ * novo (ou que `acao` termina, sem nova tentativa). Devolve o erro de `acao` (ou null).
  */
 export async function perdeDeadlockNoBanco(
   pools: { app: Pool; owner: Pool },
@@ -113,6 +115,7 @@ export async function perdeDeadlockNoBanco(
   try {
     await outra.query('begin');
     await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+    await outra.query(`select set_config('deadlock_timeout', '10s', true)`); // a vítima do ciclo é `acao` (P15-04)
     await gravar(faixas[0]);
     const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
     const feito = { pronto: false };

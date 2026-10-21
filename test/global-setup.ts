@@ -41,6 +41,10 @@ export async function setup(project: TestProject) {
     SELECT app_enable_tenant_rls('audit_fixture_registros');
     SELECT app_enable_patient_rls('audit_fixture_registros');
     SELECT app_enable_audit('audit_fixture_registros', 'registros_teste');
+
+    -- Só para os testes de deadlock da agenda (P15-04): a sessão "outra" do teste alonga o próprio deadlock_timeout para
+    -- forçar a vítima. Não existe em produção e nunca deve virar migration.
+    GRANT SET ON PARAMETER deadlock_timeout TO nutri_app_role;
   `);
   await owner.end();
 
