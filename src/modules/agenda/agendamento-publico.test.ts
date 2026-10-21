@@ -347,7 +347,9 @@ describe('página pública (US-032, RN-16)', () => {
         await new Promise((res) => setTimeout(res, 10));
       }
       // a nutricionista grava o mesmo horário: espera a pública, que espera por ela. Sem o deadlock_timeout longo daqui, o
-      // detector podia desfazer qualquer uma das duas; com ele, desfaz a pública, e a nutricionista grava e confirma
+      // detector podia desfazer qualquer uma das duas; com ele (10 s aqui, 1 s na pública), desfaz a pública desde que
+      // este insert feche o ciclo dentro de 1 s de quando ela ficou presa (no PG16 cada espera confere uma vez só, depois
+      // do próprio deadlock_timeout), e a nutricionista grava e confirma
       await outra.query(`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values ($1, $2, $3, $4, 'presencial', 'nutri')`, [
         T.tenantId,
         ana.id,

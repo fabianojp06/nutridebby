@@ -94,10 +94,13 @@ async function esperarPresaPor(owner: Pool, pid: number, feito: { pronto: boolea
  * o Postgres põe a tupla no índice GiST e só depois procura conflitos (execIndexing.c), então cada uma pode esperar a
  * outra. Sem depender do relógio: a `outra` grava `primeira` (cruza a faixa de `acao`) e segura o `commit`; `acao` grava
  * e fica presa esperando a outra; a outra grava `segunda`, que só cruza a faixa de `acao` → espera `acao`: ciclo. Quem o
- * detector desfaz é quem roda a checagem primeiro, e cada espera a roda uma vez só, depois do próprio deadlock_timeout:
- * a `outra` leva 10 s (local à transação; GRANT só no global-setup), então a vítima é sempre `acao` (1 s), por mais que
- * o escalonador atrase uma das duas (P15-04). A outra só confirma depois que a nova tentativa de `acao` fica presa de
- * novo (ou que `acao` termina, sem nova tentativa). Devolve o erro de `acao` (ou null).
+ * detector desfaz é quem roda a checagem primeiro, e no PG16 cada espera a roda uma vez só, depois do próprio
+ * deadlock_timeout (sem ciclo naquele instante, não confere de novo). A `outra` leva 10 s (local à transação; GRANT só no
+ * global-setup) e `acao` 1 s: a vítima é `acao` desde que a `outra` comece a esperar (feche o ciclo) dentro de 1 s
+ * contado de quando `acao` ficou presa. Os 10 s tiram a corrida entre as duas checagens, que era o flake do P15-04; um
+ * atraso de mais de 1 s no fechamento do ciclo ainda faria a checagem de `acao` passar em branco e a vítima ser a `outra`
+ * (o teste falha, não passa errado). A outra só confirma depois que a nova tentativa de `acao` fica presa de novo (ou que
+ * `acao` termina, sem nova tentativa). Devolve o erro de `acao` (ou null).
  */
 export async function perdeDeadlockNoBanco(
   pools: { app: Pool; owner: Pool },
