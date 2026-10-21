@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { iaAutorizacoes, patients, tenants, type IaAutorizacaoRow, type PatientRow, type TenantRow } from '@/db/schema';
-import { withTenant, type TenantContext } from '@/db/tenant';
+import { sessaoDePacienteComConta, withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getBoss } from '@/jobs/boss';
 import { inicioDoDia } from '@/modules/agenda/fuso';
@@ -172,9 +172,6 @@ export async function enfileirarConfirmacao(
   const link = urlDoLinkAutorizacao(o.appUrl, assinarLinkRetirada({ tenantId: o.tenantId, patientId: o.patientId, autorizacaoId: o.autorizacaoId }));
   await enqueueEmail({ tipo: 'autorizacao_ia_confirmada', para: o.para, consultorio: o.consultorio, destino: DESTINO_ROTULO[o.destino], versao: AUTORIZACAO_IA_VERSAO, usos: [...AUTORIZACAO_IA_USOS], link }, { tenantId: o.tenantId, tx });
 }
-
-/** A sessão de paciente sem conta (o link) já é recusada pelo assertContext com ator (tenant.ts): basta exigir o ator. */
-const sessaoDePacienteComConta = (ctx: TenantContext) => ctx.role === 'paciente' && !!ctx.patientId && !!ctx.actorUserId;
 
 /**
  * US-106 "Autorizo o envio para fora do Brasil" no app: sessão de paciente com conta; o paciente travado (FOR UPDATE,

@@ -212,6 +212,9 @@ describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
     expect(ENTIDADE_ROTULO.ia_nutri_liberacao).toBe('IA Nutri — liberação');
     expect(ENTIDADE_ROTULO.ia_nutri_pergunta).toBe('IA Nutri (conversa com o paciente)');
     expect(ENTIDADE_ROTULO.ia_nutri_duvida).toBe('IA Nutri (conversa com o paciente)');
+    // P15-02a: a desativação (recordAudit do módulo, consentimento.ts)
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia_nutri_revogacao' })).toBe('Desativou a IA Nutri');
+    expect(ENTIDADE_ROTULO.ia_nutri_revogacao).toBe('IA Nutri (conversa com o paciente)');
   });
 
   it('pergunta respondida: "Perguntou à IA" (paciente) e "Pergunta enviada à IA" (Sistema); o criar do gatilho (pergunta, resposta, mensagem `sistema`) e os alterar do worker ficam fora da tela e da contagem', async () => {

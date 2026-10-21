@@ -67,8 +67,10 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     const teto = custoMaximoDoArquivo('claude-opus-5-5', 'us', { tipo: 'pdf', paginas: 2 });
     const lerOriginal = f.lerDocumento.bind(f);
     f.lerDocumento = async (p) => {
-      // no momento da chamada, a saída já está gravada (commit) e a reserva já desceu
-      expect((await tarefa(P)).saiuEm).not.toBeNull();
+      // no momento da chamada, a saída já está gravada (commit): saiu_em, destino e o "Laudo enviado à IA"; e a reserva já desceu
+      const t = await tarefa(P);
+      expect(t.saiuEm).not.toBeNull();
+      expect(t.destino).toBe('teste');
       expect((await usoDe(P)).custoMicroUsd).toBe(teto);
       expect(await saidas(P)).toHaveLength(1);
       return lerOriginal(p);
@@ -189,6 +191,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
     expect(await tarefa(P)).toHaveProperty('saiuEm', expect.any(Date));
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1);
   });
 
   it('D15: a varredura cancela as tarefas de paciente sem autorização vigente (estorno da fila; pronta esvaziada)', async () => {
@@ -246,6 +249,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
     expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null });
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1); // a saída fica registrada
   });
 
   it('D14 / D15: a varredura cancela a tarefa de antes da retirada mesmo com o paciente autorizado de novo; a pedida depois fica', async () => {
@@ -415,6 +419,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     expect(await processarTarefaIA(P.d, deps(f))).toBe('falhou');
     expect(await tarefa(P)).toMatchObject({ erro: motivo, resultado: null });
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1); // a saída fica registrada
   });
 
   // Revisão da T11 (Important 1): a mudança faz o trabalho dela (inclusive o cancelarTarefas, que ainda vê "processando" e
@@ -478,6 +483,7 @@ describe('job da leitura (US-110 a US-112, RN-100, RN-104, RN-105)', () => {
     await mudanca;
     expect(await tarefa(P)).toMatchObject({ status: 'falhou', erro: motivo, resultado: null });
     expect((await usoDe(P)).situacao).toBe('confirmado');
+    expect(await saidas(P)).toHaveLength(1); // a saída fica registrada
   });
 
   it('varredura (só nos tenants deste teste): processando > 15 min → interrompida (estorno se não enviado; incerto se enviado); na fila > 30 min → interrompida; pronta vencida → expirada e esvaziada', async () => {

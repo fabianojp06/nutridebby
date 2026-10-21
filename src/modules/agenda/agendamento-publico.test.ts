@@ -322,7 +322,7 @@ describe('página pública (US-032, RN-16)', () => {
     }
   });
 
-  it('corrida com a nutricionista marcando o mesmo paciente no mesmo horário (paciente travado): o Postgres desfaz a pública (40P01) → "horário ocupado", sem 500', async () => {
+  it('corrida com a nutricionista marcando o mesmo paciente no mesmo horário (paciente travado): com a pública forçada como vítima do 40P01 → "horário ocupado", sem 500', async () => {
     const T = await consultorio();
     const ana = await novoPaciente(app.db, T.ctx);
     const inicio = em('2026-10-16', '15:00');
@@ -333,6 +333,7 @@ describe('página pública (US-032, RN-16)', () => {
     try {
       await outra.query('begin');
       await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await outra.query(`select set_config('deadlock_timeout', '10s', true)`); // a vítima do ciclo é a pública (P15-04, test/agenda.ts)
       await outra.query('select id from patients where id = $1 for update', [ana.id]); // como carregarPacienteParaEscrita
       const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
       const resultado = confirmarCodigo(T.slug, { pedido: t.pedido, codigo }, deps()).then(
@@ -345,7 +346,10 @@ describe('página pública (US-032, RN-16)', () => {
         if (i > 200) throw new Error('a página pública não ficou presa na trava do paciente');
         await new Promise((res) => setTimeout(res, 10));
       }
-      // a nutricionista grava o mesmo horário: espera a pública, que espera por ela
+      // a nutricionista grava o mesmo horário: espera a pública, que espera por ela. Sem o deadlock_timeout longo daqui, o
+      // detector podia desfazer qualquer uma das duas; com ele (10 s aqui, 1 s na pública), desfaz a pública desde que
+      // este insert feche o ciclo dentro de 1 s de quando ela ficou presa (no PG16 cada espera confere uma vez só, depois
+      // do próprio deadlock_timeout), e a nutricionista grava e confirma
       await outra.query(`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values ($1, $2, $3, $4, 'presencial', 'nutri')`, [
         T.tenantId,
         ana.id,

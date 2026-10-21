@@ -396,12 +396,16 @@ describe('situacoesDasPerguntas (RNF-160)', () => {
 
 // a sessão da nutricionista lê a conversa pela ficha e pela fila (T11), nunca por estas funções
 describe('nenhuma escrita da conversa fora da sessão do paciente', () => {
-  it('avaliar, encaminhar, enviarANutri e situacoesDasPerguntas recusam a sessão nutri', async () => {
+  it('avaliar, encaminhar, enviarANutri e situacoesDasPerguntas recusam a sessão nutri; as três primeiras, também a de paciente sem ator', async () => {
     const { T, p } = await pronto();
     const m = await mensagemNoBanco(app.db, T.tenantId, p.id, { status: 'respondida' });
-    await expect(avaliar(T.ctx, m, 'ajudou', app.db)).rejects.toThrow(/sessão de paciente/);
-    await expect(encaminhar(T.ctx, m, deps)).rejects.toThrow(/sessão de paciente/);
-    await expect(enviarANutri(T.ctx, 'oi', deps)).rejects.toThrow(/sessão de paciente/);
+    // sem ator (e sem semConta): a recusa é a do predicado de conta (tenant.ts), antes do assertContext
+    const semAtor: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: p.id };
+    for (const ctx of [T.ctx, semAtor]) {
+      await expect(avaliar(ctx, m, 'ajudou', app.db)).rejects.toThrow('avaliar: só a sessão de paciente com conta');
+      await expect(encaminhar(ctx, m, deps)).rejects.toThrow('encaminhar: só a sessão de paciente com conta');
+      await expect(enviarANutri(ctx, 'oi', deps)).rejects.toThrow('enviarANutri: só a sessão de paciente com conta');
+    }
     await expect(situacoesDasPerguntas(T.ctx, app.db)).rejects.toThrow(/sessão de paciente/);
     const linhas = await withTenant(T.ctx, (tx) => tx.select().from(iaNutriMensagens).where(and(eq(iaNutriMensagens.id, m))), app.db);
     expect(linhas[0].encaminhadaEm).toBeNull();

@@ -85,10 +85,21 @@ const saidas = async (C: Cenario, tarefaId: string) =>
   withTenant(C.T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entidadeId, tarefaId), eq(auditLog.acao, 'exportar'))), app.db);
 
 describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
-  it('portão: "Dados enviados à IA"; só idade, sexo, metas e anamnese saem; o modelo busca e devolve; item inválido descartado', async () => {
+  it('portão: "Dados enviados à IA", destino e saiu_em gravados ANTES da 1ª volta; só idade, sexo, metas e anamnese saem; o modelo busca e devolve; item inválido descartado', async () => {
     const C = await cenario();
     const id = await pedir(C);
     const f = provedorFake({ gerar: [pedeFerramenta('buscar_alimentos', { termo: 'arroz' }), finalOk(planoOk([{ alimento: 'A1', gramas: 150 }, { alimento: 'A1', gramas: 9000 }]))] });
+    const gerarOriginal = f.gerar.bind(f);
+    f.gerar = async (p) => {
+      // na 1ª volta, a saída já está gravada (commit): saiu_em, destino e o "Dados enviados à IA"
+      if (f.chamadas.gerar.length === 0) {
+        const t = await tarefa(C, id);
+        expect(t.saiuEm).not.toBeNull();
+        expect(t.destino).toBe('teste');
+        expect(await saidas(C, id)).toHaveLength(1);
+      }
+      return gerarOriginal(p);
+    };
     expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: id }, jobDeps(f))).toBe('pronta');
     const dados = enviado(f);
     expect(Object.keys(dados).sort()).toEqual(['anamnese', 'idade', 'metas', 'sexo']);
@@ -148,6 +159,7 @@ describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
     expect(f.chamadas.gerar).toHaveLength(1);
     expect(await tarefa(C, id)).toMatchObject({ status: 'falhou', erro: 'sem_autorizacao', resultado: null, parametros: null, custoMicroUsd: custoMicroUsd('claude-sonnet-5-5', 'us', USO_FAKE) });
     expect(await uso(C, id)).toMatchObject({ situacao: 'confirmado', custoMicroUsd: custoMicroUsd('claude-sonnet-5-5', 'us', USO_FAKE) });
+    expect(await saidas(C, id)).toHaveLength(1); // a 1ª volta saiu: a saída fica registrada
   });
 
   it('IA do consultório desativada ou tarefa cancelada no meio do laço → para na volta seguinte (ia_desligada / interrompida)', async () => {
@@ -162,6 +174,7 @@ describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
     expect(f.chamadas.gerar).toHaveLength(1);
     expect(await tarefa(C, id)).toMatchObject({ erro: 'ia_desligada', resultado: null });
     expect((await uso(C, id)).situacao).toBe('confirmado');
+    expect(await saidas(C, id)).toHaveLength(1);
 
     const D = await cenario();
     const id2 = await pedir(D);
@@ -175,6 +188,7 @@ describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
     expect(g.chamadas.gerar).toHaveLength(1);
     expect(await tarefa(D, id2)).toMatchObject({ status: 'falhou', erro: 'interrompida', resultado: null });
     expect((await uso(D, id2)).situacao).toBe('incerto');
+    expect(await saidas(D, id2)).toHaveLength(1);
   });
 
   it('US-122: 12 voltas sem plano → limite_voltas', async () => {
@@ -339,6 +353,7 @@ describe('processarRascunho (US-121, US-122, §5.6, RN-121)', () => {
     expect(await processarRascunho({ tenantId: C.T.tenantId, tarefaId: id }, jobDeps(lento, { buscar: (t) => buscaDoTenant(t, app.db) }))).toBe('falhou');
     expect(await tarefa(C, id)).toMatchObject({ erro: 'sem_autorizacao', resultado: null });
     expect((await uso(C, id)).situacao).toBe('confirmado');
+    expect(await saidas(C, id)).toHaveLength(1);
   });
 
   it('tarefa já encerrada ou inexistente → ignorada, sem chamada', async () => {

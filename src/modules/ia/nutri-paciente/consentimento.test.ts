@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../../test/db';
 import { IA_TESTE } from '../../../../test/ia';
@@ -8,16 +8,19 @@ import { ctxPaciente, novoTenant } from '../../../../test/pacientes';
 import { planoPublicado } from '../../../../test/plano';
 import { pacienteComConta } from '../../../../test/portal';
 import { closeDb } from '@/db/client';
-import { iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, patients, tenants, type TenantRow } from '@/db/schema';
+import { auditLog, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
+import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao } from '@/modules/plataforma/audit';
 import type { ConfigIA } from '../modo';
 import { IA_NUTRI_TERMO_VERSAO, textoExibidoIaNutri } from '../textos-legais';
 import { aceitarNoApp, desativarNoApp, desativarPelaNutri } from './consentimento';
 import { MSG_IA_NUTRI } from './constantes';
+import { avaliar } from './conversa';
 import type { DepsIaNutri } from './deps';
+import { abrirDuvida, marcarComoVista } from './duvidas';
 import { blocoIaNutriDoApp, entradaDoPaciente, temConversaGuardada } from './estado';
 import { IaNutriError } from './participacao';
 import type { DadosRevogacaoIaNutri } from './revogacao-job';
@@ -285,5 +288,141 @@ describe('revisão da T12 (I5, LGPD art. 18, II) — temConversaGuardada', () =>
     expect(await temConversaGuardada(c.P, { db: app.db })).toBe(true);
     expect(await auditoria()).toBe(antes);
     expect(await temConversaGuardada(c.T.ctx, { db: app.db })).toBe(false);
+  });
+});
+
+describe('P15-02a — a desativação no Histórico de acessos', () => {
+  type Cenario = Awaited<ReturnType<typeof cenario>>;
+  // no audit_log, como a equipe o lê (withTenant): as linhas de uma entidade e ação do paciente, na ordem em que foram gravadas
+  const brutos = (c: Cenario, entidade: string, acao: string) =>
+    withTenant(c.T.ctx, (tx) => tx.select({ ator: auditLog.actorUserId, entidadeId: auditLog.entidadeId }).from(auditLog)
+      .where(and(eq(auditLog.patientId, c.p.id), eq(auditLog.entidade, entidade), eq(auditLog.acao, acao))).orderBy(asc(auditLog.criadoEm)), app.db);
+  // a tela: rótulo da ação, registro, papel de quem fez e o id (a liberação da nutricionista fica sem o id, que vem do teste)
+  const naTela = async (c: Cenario) => {
+    const h = await listAccessHistory(c.T.ctx, c.p.id, 1, app.db);
+    expect(h.total).toBe(h.itens.length); // a contagem também esconde
+    return h.itens.filter((i) => i.entidade.startsWith('ia_nutri'))
+      .map((i) => [rotuloDaAcao(i), ENTIDADE_ROTULO[i.entidade], i.ator ? i.ator.papel : 'Sistema', i.entidade === 'ia_nutri_liberacao' ? null : i.entidadeId]);
+  };
+  const CONVERSA = 'IA Nutri (conversa com o paciente)';
+
+  it('pelo paciente, com várias mensagens: uma linha "Desativou a IA Nutri" em nome dele; os "Alterou" da revogação ficam no audit_log, fora da tela; o da avaliação (outra ação) continua', async () => {
+    const c = await cenario({ aceite: true });
+    const q = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });
+    const resposta = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…', respondeA: q });
+    const naFila = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'na_fila' });
+    expect(await avaliar(c.P, resposta, 'ajudou', app.db)).toBe(true);
+    expect(await desativarNoApp(c.P, c.deps())).toBe('desativada');
+    const rev = (await c.eventos()).at(-1)!;
+    expect(await brutos(c, 'ia_nutri_revogacao', 'criar')).toEqual([{ ator: c.userId, entidadeId: rev.id }]);
+    // a avaliação, depois a função fechada: cancela a da fila e esvazia as três — tudo em nome do paciente (app.user_id)
+    const alterar = await brutos(c, 'ia_nutri', 'alterar');
+    expect(alterar.map((a) => a.ator)).toEqual(Array(5).fill(c.userId));
+    expect(alterar.map((a) => a.entidadeId).sort()).toEqual([resposta, naFila, ...[q, resposta, naFila]].sort());
+    expect(await naTela(c)).toEqual([
+      ['Desativou a IA Nutri', CONVERSA, 'paciente', rev.id],
+      ['Alterou', CONVERSA, 'paciente', resposta], // "Ajudou"
+      ['Criou', 'IA Nutri — liberação', 'nutri', null],
+    ]);
+    // de novo: nada_a_desativar não grava a linha rotulada
+    expect(await desativarNoApp(c.P, c.deps())).toBe('nada_a_desativar');
+    expect(await brutos(c, 'ia_nutri_revogacao', 'criar')).toHaveLength(1);
+  });
+
+  it('pela nutricionista (DP-17): a linha em nome dela; o "Alterou" de "Marcar como vista" antes e o de abrir a pergunta com risco guardada (D22) depois continuam na tela', async () => {
+    const c = await cenario({ aceite: true });
+    const vista = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida', encaminhadaEm: new Date() });
+    const risco = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida', encaminhadaEm: new Date(), risco: 'emergencia', texto: 'quero sumir' });
+    const naFila = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'na_fila' });
+    expect(await marcarComoVista(c.T.ctx, vista, { db: app.db })).toBe(true);
+    expect(await desativarPelaNutri(c.T.ctx, c.p.id, { db: app.db })).toBe('desativada');
+    const rev = (await c.eventos()).at(-1)!;
+    expect(await brutos(c, 'ia_nutri_revogacao', 'criar')).toEqual([{ ator: c.T.nutriId, entidadeId: rev.id }]);
+    expect(await abrirDuvida(c.T.ctx, risco, app.db)).toMatchObject({ selo: 'risco_revogado' }); // mostrada uma vez e apagada
+    // a vista; a revogação: a da fila cancelada, a com risco guardada (D22) e as outras duas esvaziadas; a abertura
+    const alterar = await brutos(c, 'ia_nutri', 'alterar');
+    expect(alterar.map((a) => a.ator)).toEqual(Array(6).fill(c.T.nutriId));
+    expect(alterar.map((a) => a.entidadeId).sort()).toEqual([vista, naFila, risco, vista, naFila, risco].sort());
+    expect(await naTela(c)).toEqual([
+      ['Excluiu', CONVERSA, 'nutri', risco],
+      ['Visualizou', CONVERSA, 'nutri', risco],
+      ['Alterou', CONVERSA, 'nutri', risco], // aberta_pela_nutri_em, depois da desativação
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', rev.id],
+      ['Alterou', CONVERSA, 'nutri', vista], // "Marcar como vista", antes
+      ['Criou', 'IA Nutri — liberação', 'nutri', null],
+    ]);
+  });
+
+  it('revisão (security-review): uma linha forjada no audit_log não alarga a janela — com o id do aceite, com o fim no futuro ou de outro ator, os "Alterou" de fora da revogação continuam na tela', async () => {
+    const c = await cenario({ aceite: true });
+    const aceite = (await c.eventos()).at(-1)!;
+    const vista = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida', encaminhadaEm: new Date() });
+    expect(await marcarComoVista(c.T.ctx, vista, { db: app.db })).toBe(true);
+    expect(await desativarPelaNutri(c.T.ctx, c.p.id, { db: app.db })).toBe('desativada');
+    const rev = (await c.eventos()).at(-1)!;
+    expect(rev.evento).toBe('revogacao');
+    // SQL arbitrário na sessão da aplicação: o audit_log aceita o INSERT com ator, entidade e criado_em escolhidos
+    const forjar = (ctx: TenantContext, ator: string, acao: string, entidade: string, entidadeId: string, criadoEm: Date) =>
+      withTenant(ctx, (tx) => tx.execute(sql`insert into audit_log (tenant_id, actor_user_id, acao, entidade, entidade_id, patient_id, criado_em)
+        values (${c.T.tenantId}, ${ator}, ${acao}, ${entidade}, ${entidadeId}, ${c.p.id}, ${criadoEm.toISOString()}::timestamptz)`), app.db);
+    const depoisDaRevogacao = (segundos: number) => new Date(rev.registradoEm.getTime() + segundos * 1000);
+    await forjar(c.T.ctx, c.T.nutriId, 'criar', 'ia_nutri_revogacao', aceite.id, new Date('2100-01-02T00:00:00Z')); // o aceite
+    await forjar(c.T.ctx, c.T.nutriId, 'criar', 'ia_nutri_revogacao', rev.id, new Date('2100-01-01T00:00:00Z')); // fim no futuro
+    await forjar(c.T.ctx, c.T.nutriId, 'alterar', 'ia_nutri', vista, depoisDaRevogacao(120)); // um "Alterou" da nutri 2 min depois
+    await forjar(c.P, c.userId, 'criar', 'ia_nutri_revogacao', rev.id, new Date('2100-01-03T00:00:00Z')); // a revogação da nutri
+    await forjar(c.P, c.userId, 'alterar', 'ia_nutri', vista, depoisDaRevogacao(30)); // um "Alterou" do paciente, dentro do minuto
+    expect(await naTela(c)).toEqual([
+      ['Desativou a IA Nutri', CONVERSA, 'paciente', rev.id], // forjadas: aparecem, mas não escondem nada
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', aceite.id],
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', rev.id],
+      ['Alterou', CONVERSA, 'nutri', vista], // 2 min depois: fora do teto de 1 minuto
+      ['Alterou', CONVERSA, 'paciente', vista], // 30 s depois: a revogação é da nutri, não do paciente
+      ['Desativou a IA Nutri', CONVERSA, 'nutri', rev.id], // a de verdade: os "Alterou" dela continuam fora da tela
+      ['Alterou', CONVERSA, 'nutri', vista], // "Marcar como vista", depois do aceite: o aceite não abre janela
+      ['Criou', 'IA Nutri — liberação', 'nutri', null],
+    ]);
+  });
+
+  it('a avaliação espera a trava do paciente (FOR SHARE): presa atrás de uma transação que trava o paciente FOR UPDATE, confere a participação e o consentimento só depois dela', async () => {
+    const c = await cenario({ aceite: true });
+    const q = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { status: 'respondida' });
+    const resposta = await mensagemNoBanco(app.db, c.T.tenantId, c.p.id, { autor: 'ia', status: null, contouNoLimite: false, texto: 'No seu plano…', respondeA: q });
+    // a outra transação, como a revogação e o bloqueio: trava o paciente e muda o que a avaliação confere sem tocar na mensagem
+    const outra = await app.pool.connect();
+    let encerrada = false;
+    try {
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.user_id', $2, true)`, [c.T.tenantId, c.T.nutriId]);
+      await outra.query('select id from patients where id = $1 for update', [c.p.id]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const feito = { pronto: false };
+      const resultado = avaliar(c.P, resposta, 'ajudou', app.db).finally(() => {
+        feito.pronto = true;
+      });
+      for (let i = 0; ; i++) {
+        if ((await app.pool.query('select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rowCount) break;
+        if (feito.pronto) throw new Error('a avaliação terminou sem esperar a trava do paciente');
+        if (i > 500) throw new Error('a avaliação não ficou presa na trava do paciente');
+        await new Promise((res) => setTimeout(res, 10));
+      }
+      // com a avaliação já presa: a participação bloqueada; sem a trava, ela já teria conferido o estado de antes e gravado
+      await outra.query('update ia_nutri_participacoes set bloqueada_em = now() where patient_id = $1', [c.p.id]);
+      await outra.query('commit');
+      encerrada = true;
+      expect(await resultado).toBe(false);
+      const [m] = await withTenant(c.T.ctx, (tx) => tx.select({ avaliacao: iaNutriMensagens.avaliacao }).from(iaNutriMensagens).where(eq(iaNutriMensagens.id, resposta)), app.db);
+      expect(m.avaliacao).toBeNull();
+    } finally {
+      if (!encerrada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+  });
+
+  it('sem consentimento → nada_a_desativar, nenhuma linha rotulada (pelo paciente e pela nutricionista)', async () => {
+    const c = await cenario();
+    expect(await desativarNoApp(c.P, c.deps())).toBe('nada_a_desativar');
+    expect(await desativarPelaNutri(c.T.ctx, c.p.id, { db: app.db })).toBe('nada_a_desativar');
+    expect(await brutos(c, 'ia_nutri_revogacao', 'criar')).toEqual([]);
+    expect((await naTela(c)).map((l) => l[0])).toEqual(['Criou']);
   });
 });

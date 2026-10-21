@@ -69,6 +69,12 @@ function assertContext(ctx: TenantContext): void {
 }
 
 /**
+ * A sessão de paciente com conta (login no app). A sem conta (link, WhatsApp, convite) não leva ator — o assertContext
+ * recusa paciente com semConta e ator ao mesmo tempo —, então basta exigir o ator.
+ */
+export const sessaoDePacienteComConta = (ctx: TenantContext): boolean => ctx.role === 'paciente' && !!ctx.patientId && !!ctx.actorUserId;
+
+/**
  * Executa `fn` numa transação com o contexto do tenant aplicado à RLS e à auditoria.
  * Toda consulta a tabela com tenant_id DEVE passar por aqui.
  */
