@@ -8,7 +8,8 @@ que o site está no ar).
 da D3 do Plano 08. Faltam o alerta de teste do go-live ([Alerta de teste](#alerta-de-teste-go-live)) e, depois do
 merge deste runbook, reinstalar o script
 (passo 3 da [Instalação](#instalação-uma-vez-e-de-novo-a-cada-mudança-do-script)) e ver o `diff` vazio: o instalado
-em 20/10, 11:13, tem a mesma lógica, mas ainda o cabeçalho antigo de uma linha. Motivo: o incidente de 19–20/10/2026,
+em 20/10, 11:13, ainda tem o cabeçalho antigo de uma linha e não tem o `--retry-connrefused` (conexão recusada vai
+direto como `/fail`, sem as 2 novas tentativas). Motivo: o incidente de 19–20/10/2026,
 em que a VPS ficou ~25 h congelada sem ninguém saber
 ([§8.6 do manual técnico](../manual-tecnico/08-sustentacao.md#86-lacunas-o-que-hoje-não-é-vigiado), item 28).
 
@@ -20,7 +21,7 @@ Modelo *dead man's switch*: quem avisa é a falta de sinal, não um robô de for
 |---|---|
 | Script | [`infra/monitor/nutri-saude.sh`](../../infra/monitor/nutri-saude.sh) (fonte da verdade), instalado em `/home/deploy/servidor/ferramentas/monitor-saude/nutri-saude.sh` (deploy, 700) |
 | Quando roda | Cron do usuário `deploy`, `*/5 * * * *` |
-| O que consulta | `https://nutri.wsscloud.tech/api/health` pelo endereço público (DNS, Traefik, app, banco e heartbeat do worker; [§6.4.3](../manual-tecnico/06-worker-seguranca-operacao.md#643-apihealth)), com 2 novas tentativas de 10 s em 5xx e falha de rede |
+| O que consulta | `https://nutri.wsscloud.tech/api/health` pelo endereço público (DNS, Traefik, app, banco e heartbeat do worker; [§6.4.3](../manual-tecnico/06-worker-seguranca-operacao.md#643-apihealth)), com 2 novas tentativas, 10 s entre elas, só em tempo esgotado, DNS que não resolve, conexão recusada e HTTP 408, 429, 500, 502, 503 ou 504 (o resto, como o 404 do Traefik com o serviço fora, vai direto como `/fail`) |
 | O que manda | HTTP 200: ping no check. Qualquer outro código (ou nenhum): `/fail` com o texto `api/health: HTTP <código>` |
 | Check | "NutriDebby – site no ar", período 5 min, tolerância 5 min |
 | URL do check | `~/.config/nutri-saude/hc.url` do `deploy` (pasta 700, arquivo 600); chega ao `curl` pela entrada padrão (`-K -`), nunca pela linha de comando, onde o `ps` de qualquer usuário a mostraria |
@@ -65,8 +66,9 @@ Tudo como `deploy`, na VPS. Nada aqui pede `sudo` nem mexe em serviço.
 
 Reinstalar depois de mudar o script: só o passo 3 (a URL e o cron continuam). Conferir que o instalado é o versionado:
 `diff infra/monitor/nutri-saude.sh ~/servidor/ferramentas/monitor-saude/nutri-saude.sh` (sem saída). Até a
-reinstalação pendente do topo, o `diff` mostra só o cabeçalho (linhas 2–5 do versionado contra a linha 2 do instalado);
-qualquer outra diferença é divergência de verdade.
+reinstalação pendente do topo, o `diff` mostra só o cabeçalho (linhas 2–5 do versionado contra a linha 2 do instalado)
+e o bloco do `curl` do health (linhas 20–24 contra 17–19: comentário e `--retry-connrefused`); qualquer outra diferença
+é divergência de verdade.
 
 ## Alerta de teste (go-live)
 
@@ -85,9 +87,11 @@ printf 'url = "%s/fail"\n' "$(head -n 1 ~/.config/nutri-saude/hc.url | tr -d '\r
 
 ## Pausar (manutenção planejada)
 
-Uma parada de até ~10 min sem resposta não avisa (período + tolerância); mas um `/api/health` com 503 ou 502 por mais
-de ~30 s (as 2 novas tentativas do `curl`) manda `/fail` e o alerta sai na hora. Para uma janela maior, ou um
-reinício do banco ou do worker:
+Uma parada de até ~10 min sem resposta nenhuma (VPS parada, nenhum ping) não avisa (período + tolerância). Mas, com a
+VPS no ar, o `/api/health` dá `/fail` e o alerta sai na hora: depois de ~30 s (as 2 novas tentativas do `curl`) se ele
+continuar com tempo esgotado, DNS que não resolve, conexão recusada ou HTTP 408, 429, 500, 502, 503 ou 504; **sem nova
+tentativa** com qualquer outro código, como o 404 do Traefik com o serviço do app fora, ou outra falha de rede (TLS,
+conexão cortada). Para uma janela maior, ou um reinício do app, do banco ou do worker:
 
 1. **Antes:** `crontab -e` e pôr `#` no começo da linha do `nutri-saude.sh`; no painel do healthchecks.io, *Pause* no
    check. Só o *Pause* não basta: o check pausado volta sozinho no próximo ping (salvo com a retomada manual ligada no

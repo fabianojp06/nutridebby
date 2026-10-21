@@ -17,9 +17,11 @@ SAUDE=https://nutri.wsscloud.tech/api/health
 URL="$(head -n 1 "$ARQ" | tr -d '\r[:space:]')"
 [[ "$URL" =~ ^https://hc-ping\.com/[A-Za-z0-9_/-]+$ ]] || { echo "$(date -u +%FT%TZ) nutri-saude: URL em $ARQ fora do formato https://hc-ping.com/…"; exit 1; }
 
-# 503 = "degradado" (banco fora ou worker sem heartbeat); o --retry do curl repete 5xx e falhas de rede, então um
-# soluço de segundos não vira alarme
-CODIGO="$(curl -sS -m 15 --retry 2 --retry-delay 10 -o /dev/null -w '%{http_code}' "$SAUDE" 2>/dev/null)"
+# 503 = "degradado" (banco fora ou worker sem heartbeat). Para um soluço de segundos não virar alarme, o curl tenta de
+# novo (2 vezes, 10 s entre elas) só em: tempo esgotado, nome que não resolve (DNS), conexão recusada
+# (--retry-connrefused) e HTTP 408, 429, 500, 502, 503 ou 504 (curl 8.5). Qualquer outro código, como o 404 do Traefik
+# com o serviço fora, ou outra falha de rede (TLS, conexão cortada), vai direto como /fail, sem repetição.
+CODIGO="$(curl -sS -m 15 --retry 2 --retry-delay 10 --retry-connrefused -o /dev/null -w '%{http_code}' "$SAUDE" 2>/dev/null)"
 if [ "$CODIGO" = "200" ]; then
   DESTINO="$URL"
 else
