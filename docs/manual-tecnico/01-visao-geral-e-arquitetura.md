@@ -519,7 +519,7 @@ confirmação do dono.
 
 | Serviço | Imagem | Modo | Limites | Volume | Atualização |
 |---|---|---|---|---|---|
-| `nutri_app` | `ghcr.io/fabianojp06/nutridebby:latest` | `APP_ROLE=app` (migra e sobe o Next na porta 3000) | 1 vCPU, 1 GiB | bind em `/data` | `start-first` |
+| `nutri_app` | `ghcr.io/fabianojp06/nutridebby:latest` | `APP_ROLE=app` (migra e sobe o Next na porta 3000) | 2 vCPU (desde 22/10/2026, RNF-03), 1 GiB | bind em `/data` | `start-first` |
 | `nutri_worker` | mesma imagem | `APP_ROLE=worker` | 1 vCPU, 1 GiB | bind em `/data` | `start-first` |
 | `nutri_db` | `postgres:16` | — | 1 GiB | bind em `/var/lib/postgresql/data` | `stop-first` |
 | `nutri_evolution` | Evolution API v2.3.7 (spec §4) | — | 512 MB / 0,5 vCPU previstos (RNF-03) | — | **ainda não implantado** (E-04 revisado; Plano 08, D16) |
