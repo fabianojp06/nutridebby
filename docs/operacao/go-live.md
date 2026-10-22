@@ -20,7 +20,7 @@ segredo neste arquivo (só o nome da variável). Horários em Brasília.
 - [ ] 6ª tentativa de login errada em 15 min dá 429 com o IP real (`TRUSTED_PROXIES`, Plano 01 R17) — **Dev, em produção, com a conta de teste**
 
 ## Ambiente
-- [ ] Limites do Easypanel revistos depois do k6 (`nutri_app`, `nutri_db`, `nutri_worker`) e a RNF-03 da spec atualizada; `cursoia_crm` sem impacto. Na rodada 1, o app da carga (mesmo limite do `nutri_app`) ficou no teto de 1 vCPU (proposta do relatório: rodada 2 com 2 vCPU antes de mudar o Easypanel); o `cursoia_crm` não estava rodando no host em 21/10 — **dono**
+- [ ] Limites do Easypanel revistos depois do k6 (`nutri_app`, `nutri_db`, `nutri_worker`) e a RNF-03 da spec atualizada; `cursoia_crm` sem impacto. Na rodada 1, o app da carga (mesmo limite do `nutri_app`) ficou no teto de 1 vCPU (proposta do relatório: rodada 2 com 2 vCPU antes de mudar o Easypanel); o `cursoia_crm` não estava rodando no host em 21/10. **22/10/2026:** rodada 2 com 2 vCPU (`carga-2026-10-22.md`: páginas p95 4,5 → 2,1 s, app sem ficar no teto); o dono mudou o `nutri_app` para 2 vCPU no Easypanel e a RNF-03 foi atualizada (spec v1.14). Fica aberto até a D4 passar (rodada 3 com 2 réplicas) — **dono**
 - [ ] WhatsApp (D16): `nutri_evolution` implantado, número da Debby conectado e a P-17 conferida (runbook do Plano 05, passo 5) **ou** go-live sem WhatsApp, decidido — **dono**
 - [ ] Log do `nutri_evolution` com retenção curta (ele grava as mensagens recebidas; nota N11) — **dono**
 - [ ] `VAPID_PUBLIC_KEY` do `nutri_app` igual à do `nutri_worker` (runbook do Plano 06, passo 2) — **dono**
