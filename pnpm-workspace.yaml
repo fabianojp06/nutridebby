@@ -15,3 +15,6 @@ minimumReleaseAgeExclude:
 # etc. os usam — nada disso roda no app nem no worker. Sem eles a imagem cabe no orçamento de 260 MB do CI.
 overrides:
   '@sentry/bundler-plugins': '-'
+  # Segurança (22/10/2026): o browserslist até 4.28.6 tem duas falhas altas (GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g).
+  # Ele chega por dependências que travam a versão (Babel, @serwist/utils); 4.28.9 é a última da linha 4.28.
+  'browserslist@<4.28.7': '4.28.9'
