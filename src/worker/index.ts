@@ -27,6 +27,7 @@ import { expurgarIaNutri } from '@/modules/ia/nutri-paciente/retencao';
 import { avisarRiscoIaNutri } from '@/modules/ia/nutri-paciente/risco-job';
 import { expirarPerguntasIaNutri } from '@/modules/ia/nutri-paciente/varredura';
 import { provedorIADoAmbiente } from '@/modules/ia/provedor-do-ambiente';
+import { processarLembretes, type DepsLembretes } from '@/modules/lembretes/envio';
 import { ignorarPendentesDoTenant, reagendarTenantReativado } from '@/modules/notificacoes/agendar';
 import { processarNotificacoes, type DepsEnvio } from '@/modules/notificacoes/enviar';
 import { pushDoAmbiente } from '@/modules/notificacoes/push';
@@ -107,6 +108,13 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
   await boss.schedule('notificacoes', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work<{ tenantId?: string }>('notificacoes', async ([job]) => {
     await processarNotificacoes(depsEnvio, { tenantId: job.data?.tenantId });
+  });
+  // Plano 17 (§5.2, §5.5): lembretes de rotina por push (água, refeições, diário, suplemento, livre), um job por vez; sem
+  // VAPID, nada sai. O mesmo provedor de push do motor de notificações
+  const depsLembretes: DepsLembretes = { db: getDb(), agora: () => new Date(), appUrl: env.APP_URL, push: depsEnvio.push };
+  await boss.schedule('lembretes-rotina', '* * * * *', {}, { tz: 'America/Sao_Paulo' });
+  await work('lembretes-rotina', async () => {
+    await processarLembretes(depsLembretes);
   });
   // US-004: o admin suspende/reativa e só enfileira; aqui o worker troca os lembretes dentro do withTenant
   await work<{ tenantId: string; evento: 'suspenso' | 'reativado' }>('agenda-tenant', async ([job]) => {

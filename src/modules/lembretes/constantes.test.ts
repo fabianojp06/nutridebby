@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias } from './constantes';
+import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias, TEXTOS_PUSH, TITULO_PUSH } from './constantes';
 
 describe('formatadores dos lembretes (painel e portal)', () => {
   it('rotuloDoIntervalo', () => {
@@ -31,5 +31,19 @@ describe('formatadores dos lembretes (painel e portal)', () => {
     expect(rotuloDoDiario(null)).toBe('sem pedido de registro');
     expect(rotuloDoDiario(30)).toBe('pedir registro no diário 30 min depois');
     expect(rotuloDoDiario(60)).toBe('pedir registro no diário 60 min depois');
+  });
+});
+
+describe('textos do push (Global Constraints: exatos, tela de bloqueio)', () => {
+  it('título e corpos fixos; a refeição só com o rótulo da lista fechada', () => {
+    expect(TITULO_PUSH).toBe('NutriDebby');
+    expect(TEXTOS_PUSH.agua).toBe('Hora de beber água 💧');
+    expect(TEXTOS_PUSH.refeicaoAntes('Almoço')).toBe('Está chegando a hora: Almoço');
+    expect(TEXTOS_PUSH.refeicaoNaHora('Almoço')).toBe('Hora de: Almoço');
+    expect(TEXTOS_PUSH.refeicaoAntesGenerica).toBe('Está chegando a hora da sua refeição');
+    expect(TEXTOS_PUSH.refeicaoNaHoraGenerica).toBe('Hora da sua refeição');
+    expect(TEXTOS_PUSH.diario).toBe('Registre sua refeição no diário');
+    expect(TEXTOS_PUSH.suplemento).toBe('Hora do seu suplemento');
+    expect(TEXTOS_PUSH.livre).toBe('Você tem um lembrete do seu plano');
   });
 });
