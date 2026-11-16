@@ -15,9 +15,11 @@
 #      DATABASE_URL_MIGRATOR para nutri_dev_<x> (se o worktree já tem .env.local, só reaplica as trocas nele);
 #   3. cria o banco nutri_dev_<x> no Postgres do docker-compose.dev.yml (serviço `db`, dono `nutri_owner`), se faltar;
 #   4. roda `pnpm install --frozen-lockfile` e `pnpm db:migrate` no worktree;
-#   5. imprime o comando para subir o dev na porta da sessão.
+#   5. imprime os comandos para subir o dev, o worker e o E2E na porta da sessão.
 #
-# Só dev: recusa se DATABASE_URL ou DATABASE_URL_MIGRATOR apontarem para host que não seja localhost/127.0.0.1.
+# Só dev: recusa se DATABASE_URL ou DATABASE_URL_MIGRATOR saírem do Postgres do compose de dev (localhost/127.0.0.1,
+# porta 54329, sem host/porta/usuário na query; o migrator é nutri_owner) e se alguma das variáveis do .env.local
+# estiver exportada no shell (ela venceria o arquivo no db:migrate, no worker e no next dev).
 # Nunca imprime senha nem o conteúdo do .env.local.
 
 set -euo pipefail
@@ -25,8 +27,9 @@ set -euo pipefail
 # --- constantes (conferir com docker-compose.dev.yml) ---------------------------------------------------------------
 COMPOSE_ARQUIVO='docker-compose.dev.yml'
 COMPOSE_SERVICO='db'            # services.db
-COMPOSE_DONO='nutri_owner'      # POSTGRES_USER: dono do cluster de dev e role do DATABASE_URL_MIGRATOR
+COMPOSE_DONO='nutri_owner'      # POSTGRES_USER: superusuário do cluster de dev e role exigido no DATABASE_URL_MIGRATOR
 COMPOSE_BANCO_BASE='nutri'      # POSTGRES_DB: só para conectar e criar os outros bancos
+COMPOSE_PORTA='54329'           # ports: 127.0.0.1:54329:5432
 
 falhar() {
   echo "sessao-paralela: $*" >&2
@@ -56,8 +59,18 @@ case "$SESSAO" in
 esac
 BANCO="nutri_dev_${SESSAO}"
 
-git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || falhar "nome de branch inválido: '$BRANCH'"
+# O nome tem de sair igual do check-ref-format (recusa @{-1} e afins, que ele expande) e não pode ser um caminho de ref
+# (heads/main, refs/heads/main, origin/main...), que o git resolveria para a main ou criaria um branch esquisito.
+[[ "$(git check-ref-format --branch "$BRANCH" 2>/dev/null)" == "$BRANCH" ]] || falhar "nome de branch inválido: '$BRANCH'"
+[[ ! "$BRANCH" =~ ^(refs|heads|remotes|origin)/ ]] ||
+  falhar "use o nome curto do branch, sem refs/, heads/, remotes/ ou origin/: '$BRANCH'"
 [[ "$BRANCH" != 'main' ]] || falhar 'não use a main numa sessão paralela: cada sessão trabalha no próprio branch'
+
+# Variável exportada no shell vence o .env.local (tsx --env-file, next dev, pnpm worker): a trava abaixo, que olha o
+# arquivo, não serviria. Recusa e diz só o nome.
+for v in DATABASE_URL DATABASE_URL_MIGRATOR APP_URL DATA_DIR; do
+  [[ -z "${!v+x}" ]] || falhar "$v está exportada no shell e venceria o .env.local da sessão; rode com: env -u $v scripts/sessao-paralela.sh ..."
+done
 
 # --- onde estamos ----------------------------------------------------------------------------------------------------
 # O worktree principal é o dono do .git comum (vale também se o script rodar de dentro de outro worktree).
@@ -74,22 +87,31 @@ command -v pnpm >/dev/null || falhar 'pnpm não encontrado'
 command -v docker >/dev/null || falhar 'docker não encontrado'
 
 # --- trava de produção (antes de criar qualquer coisa) ---------------------------------------------------------------
-# Lê o .env com node só para validar host; a saída é um código de erro e o nome da variável, nunca o valor.
+# Lê o .env com node só para validar destino; a saída é um código de erro e o nome da variável, nunca o valor.
+# O pg (pg-connection-string) deixa a query sobrescrever host, porta e usuário: por isso só `sslmode` é aceito nela.
 conferir_hosts() {
-  node - "$1" <<'JS'
+  node - "$1" "$COMPOSE_PORTA" "$COMPOSE_DONO" <<'JS'
 const fs = require('node:fs');
-const arquivo = process.argv[2];
+const [arquivo, porta, dono] = process.argv.slice(2);
+const recusar = (msg) => { console.error(msg); process.exit(3); };
 const linhas = fs.readFileSync(arquivo, 'utf8').split('\n');
 const vistos = new Set();
 for (const linha of linhas) {
   const m = linha.match(/^\s*(?:export\s+)?(DATABASE_URL|DATABASE_URL_MIGRATOR)\s*=\s*(.*)$/);
   if (!m) continue;
   const valor = m[2].trim().replace(/^(['"])(.*)\1$/, '$2');
-  let host;
-  try { host = new URL(valor).hostname; } catch { console.error(`${m[1]} não é uma URL válida`); process.exit(3); }
-  if (!['localhost', '127.0.0.1'].includes(host)) {
-    console.error(`${m[1]} aponta para um host que não é localhost/127.0.0.1: recusado (só banco de dev)`);
-    process.exit(3);
+  let url;
+  try { url = new URL(valor); } catch { recusar(`${m[1]} não é uma URL válida`); }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol)) recusar(`${m[1]} não é uma URL do Postgres`);
+  if (!['localhost', '127.0.0.1'].includes(url.hostname)) {
+    recusar(`${m[1]} aponta para um host que não é localhost/127.0.0.1: recusado (só banco de dev)`);
+  }
+  if (url.port !== porta) recusar(`${m[1]} não usa a porta ${porta} do Postgres de dev (docker-compose.dev.yml): recusado`);
+  for (const chave of url.searchParams.keys()) {
+    if (chave !== 'sslmode') recusar(`${m[1]} tem o parâmetro '${chave}' na query (só sslmode é aceito): recusado`);
+  }
+  if (m[1] === 'DATABASE_URL_MIGRATOR' && decodeURIComponent(url.username) !== dono) {
+    recusar(`DATABASE_URL_MIGRATOR não usa o role ${dono} (dono dos bancos de dev, CLAUDE.md regra 7): recusado`);
   }
   vistos.add(m[1]);
 }
@@ -112,7 +134,9 @@ branch_do_worktree() {
 }
 
 ATUAL="$(branch_do_worktree "$DESTINO")"
-if [[ -n "$ATUAL" ]]; then
+if [[ -n "$ATUAL" && ! -d "$DESTINO" ]]; then
+  falhar "o worktree $DESTINO está registrado mas a pasta sumiu; rode: git worktree prune (e de novo este script)"
+elif [[ -n "$ATUAL" ]]; then
   [[ "$ATUAL" == "$BRANCH" ]] ||
     falhar "o worktree $DESTINO já existe com o branch '$ATUAL' (pedido: '$BRANCH'); feche aquela sessão antes"
   echo "Worktree $DESTINO já existe no branch $BRANCH."
@@ -122,6 +146,14 @@ elif [[ $NOVO -eq 1 ]]; then
   if git -C "$PRINCIPAL" show-ref --verify --quiet "refs/heads/$BRANCH"; then
     falhar "o branch '$BRANCH' já existe; rode sem --novo para usá-lo"
   fi
+  # Também em origin: criar de novo a partir da main faria o primeiro push ser recusado (ou, forçado, apagar o remoto).
+  RC_REMOTO=0
+  git -C "$PRINCIPAL" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1 || RC_REMOTO=$?
+  case "$RC_REMOTO" in
+    0) falhar "o branch '$BRANCH' já existe em origin; rode sem --novo para usá-lo" ;;
+    2) ;;
+    *) falhar 'não consegui consultar origin para conferir se o branch já existe' ;;
+  esac
   echo "Buscando origin/main..."
   git -C "$PRINCIPAL" fetch --quiet origin main
   git -C "$PRINCIPAL" worktree add -b "$BRANCH" "$DESTINO" origin/main
@@ -193,7 +225,8 @@ if [[ "$(psql_dev -c "select 1 from pg_database where datname = '$BANCO'")" == '
   echo "Banco $BANCO já existe."
 else
   echo "Criando o banco $BANCO (dono $COMPOSE_DONO)."
-  # Dono = role do DATABASE_URL_MIGRATOR: o db:migrate precisa ser dono do banco (REVOKE TEMPORARY, src/db/migrate.ts).
+  # Dono = role do DATABASE_URL_MIGRATOR (a trava confere), como em produção. Em dev o nutri_owner também é o
+  # superusuário do cluster (POSTGRES_USER), então o REVOKE TEMPORARY do db:migrate funcionaria de qualquer jeito.
   psql_dev -c "CREATE DATABASE \"$BANCO\" OWNER \"$COMPOSE_DONO\"" >/dev/null
 fi
 
@@ -214,4 +247,6 @@ Sessão $SESSAO pronta: worktree $DESTINO, branch $BRANCH, banco $BANCO.
 Subir o app:     cd $DESTINO && pnpm exec next dev -p $PORTA
 Subir o worker:  cd $DESTINO && pnpm worker
 Abrir:           http://localhost:$PORTA
+E2E (pare antes o worker da sessão; um E2E por vez entre as sessões):
+                 cd $DESTINO && pnpm e2e:seed && pnpm build && APP_URL=http://localhost:$PORTA pnpm test:e2e
 FIM
