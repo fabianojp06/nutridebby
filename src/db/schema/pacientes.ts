@@ -50,6 +50,12 @@ export const patients = pgTable(
      * mostrar peso e IMC (filtrado no servidor). Fora de `livres` no gatilho paciente_colunas (0085): a sessão de paciente não muda.
      */
     pesoOcultoNoAppEm: timestamp('peso_oculto_no_app_em', { withTimezone: true }),
+    /**
+     * Plano 17 (§5.3): "Pausar todos os lembretes" — só a sessão de paciente pausa e retoma (relógio do banco); o worker
+     * (anonimização) e a ida a `bloqueado` (exclusão atendida) limpam. Gatilho patients_lembretes_do_paciente (0119) e
+     * `livres` do paciente_colunas.
+     */
+    lembretesPausadosEm: timestamp('lembretes_pausados_em', { withTimezone: true }),
     status: text('status').notNull().default('ativo'),
     bloqueadoEm: timestamp('bloqueado_em', { withTimezone: true }),
     anonimizarApos: date('anonimizar_apos', { mode: 'string' }),

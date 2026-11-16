@@ -5,7 +5,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
 import { listTenantTables, PACIENTE_ESCREVE, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
-import { withConta, withTenant } from '@/db/tenant';
+import { withConta, withTenant, type TenantRole } from '@/db/tenant';
 
 let seqConsulta = 0;
 /** Cada chamada ganha um horário próprio de 1 h (EXCLUDE appointments_sem_sobreposicao). */
@@ -159,7 +159,19 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`with m as materialized (select set_config('app.ia_nutri_revogando', '1', true) as x)
         insert into ia_nutri_consentimentos (tenant_id, patient_id, evento, canal, registrado_por)
         select ${t}, ${p}, 'revogacao', 'app', coalesce(app_current_user(), gen_random_uuid()) from m`,
+  // Plano 17: água (um por paciente, índice único parcial); a marca de envio cria a mãe no mesmo comando como suplemento (com
+  // texto: não colide com o índice da água) e é semeada pelo worker (PAPEL_DA_FABRICA: o gatilho lembretes_rotina_envios_do_worker
+  // recusa a equipe); nos testes negativos a recusa vem da RLS da mãe (COM_MAE)
+  lembretes_rotina: (t, p) =>
+    sql`insert into lembretes_rotina (tenant_id, patient_id, tipo, config, criado_por)
+        values (${t}, ${p}, 'agua', '{"inicio":"08:00","fim":"20:00","intervaloMin":120,"dias":[0,1,2,3,4,5,6]}', coalesce(app_current_user(), gen_random_uuid()))`,
+  lembretes_rotina_envios: (t, p) =>
+    sql`with l as (insert into lembretes_rotina (tenant_id, patient_id, tipo, config, texto, criado_por)
+                   values (${t}, ${p}, 'suplemento', '{"horarios":["08:00"],"dias":[1,2,3,4,5]}', 'Iso', coalesce(app_current_user(), gen_random_uuid())) returning id)
+        insert into lembretes_rotina_envios (lembrete_id, tenant_id, patient_id, ultimo_slot_em) select l.id, ${t}, ${p}, now() from l`,
 };
+/** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
+const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
 /**
@@ -186,7 +198,19 @@ const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos']);
 // Plano 12: exam_submissions — gatilho exam_submissions_regras (0102): tenant e paciente são colunas fixas (42501 antes da RLS).
 // Plano 14B: ia_geracoes_modelos_imutavel (0112) recusa mudar tenant_id (coluna fixa) com 42501 antes da RLS.
 // Plano 15: ia_nutri_mensagens_regras (0116) recusa mudar tenant_id/patient_id (colunas fixas) com 42501 antes da RLS.
-const IMUTAVEIS = new Set(['signed_documents', 'signed_document_notes', 'document_access_codes', 'ia_tarefas', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens']);
+// Plano 17: lembretes_rotina_regras (0119) recusa mudar tenant_id/patient_id (colunas fixas) com 42501 antes da RLS; o
+// lembretes_rotina_envios_do_worker (0119) também (tenant, paciente e lembrete fixos para todos).
+const IMUTAVEIS = new Set([
+  'signed_documents',
+  'signed_document_notes',
+  'document_access_codes',
+  'ia_tarefas',
+  'exam_submissions',
+  'ia_geracoes_modelos',
+  'ia_nutri_mensagens',
+  'lembretes_rotina',
+  'lembretes_rotina_envios',
+]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
@@ -206,9 +230,10 @@ const SO_APAGA: Record<string, SQL> = {
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
  * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta;
- * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`).
+ * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`;
+ * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B).
  */
-const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -257,7 +282,9 @@ beforeAll(async () => {
   for (const t of tabelas) {
     if (!FABRICAS[t]) continue;
     for (const tenantId of [A, B]) {
-      for (const p of PAC[tenantId]) await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
+      const role = PAPEL_DA_FABRICA[t] ?? 'nutri';
+      const ator = role === 'nutri' ? { actorUserId: randomUUID() } : {};
+      for (const p of PAC[tenantId]) await withTenant({ tenantId, role, ...ator }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
   }
   // Plano 12 (revisão do plano): o envio nasce "processando"; o worker o leva a "recebido", a transição legal, para a sessão de
@@ -316,6 +343,7 @@ const COM_MAE = new Set([
   'signed_document_receipts',
   'document_access_codes',
   'exam_submission_files',
+  'lembretes_rotina_envios',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
@@ -329,11 +357,13 @@ const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { cod
  * O UPDATE que a sessão de paciente consegue fazer na própria linha (gatilho paciente_colunas, 0085): em data_exports, só pendente → falhou.
  * Plano 12: exam_submissions — gatilho exam_submissions_regras (0102); o paciente só cancela o próprio recebido.
  * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_regras (0116); o paciente encaminha a própria pergunta respondida.
+ * Plano 17: lembretes_rotina — gatilho lembretes_rotina_regras (0119); o paciente desliga o próprio lembrete.
  */
 const UPDATE_DO_PACIENTE: Record<string, SQL> = {
   data_exports: sql`status = 'falhou'`,
   exam_submissions: sql`status = 'cancelado'`,
   ia_nutri_mensagens: sql`encaminhada_em = now()`,
+  lembretes_rotina: sql`desligado_pelo_paciente_em = now()`,
 };
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>

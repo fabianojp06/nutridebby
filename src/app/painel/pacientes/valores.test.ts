@@ -5,7 +5,7 @@ import { avisoDoConviteWhatsapp, seloDoPaciente, textoDoAcesso, textoDoConviteWh
 const base = {
   id: 'p', tenantId: 't', userId: null, nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', telefoneE164: '+5511912345678',
   email: 'ana@ex.com', origem: 'nutri', whatsappOptinEm: new Date(), whatsappOptinOrigem: 'nutri', whatsappOptoutEm: null,
-  iaRecusadaEm: null, iaAvisoVersao: null, iaAvisoEm: null, iaAvisoCanal: null, iaAvisoEnviadoEm: null, pesoOcultoNoAppEm: null,
+  iaRecusadaEm: null, iaAvisoVersao: null, iaAvisoEm: null, iaAvisoCanal: null, iaAvisoEnviadoEm: null, pesoOcultoNoAppEm: null, lembretesPausadosEm: null,
   status: 'ativo', bloqueadoEm: null, anonimizarApos: null, anonimizadoEm: null, createdAt: new Date(), updatedAt: new Date(),
 } satisfies PatientRow;
 

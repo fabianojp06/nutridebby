@@ -197,6 +197,10 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
     expect(rotuloDaAcao({ acao: 'excluir', entidade: 'peso_no_app' })).toBe('Desligou');
     expect(rotuloDaAcao({ acao: 'alterar', entidade: 'peso_no_app' })).toBe('Alterou');
   });
+
+  it('Plano 17: a configuração dos lembretes de rotina aparece como "Lembretes no app"', () => {
+    expect(ENTIDADE_ROTULO.lembretes).toBe('Lembretes no app');
+  });
 });
 
 describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
