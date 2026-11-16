@@ -10,7 +10,7 @@ import { JANELA_FIM_MIN, JANELA_INICIO_MIN, PRIORIDADE, TETO_POR_DIA } from './c
 export type TipoSlot = 'refeicao' | 'diario' | 'suplemento' | 'livre' | 'agua';
 /** `validoDesde`: o worker passa o `updated_at` do lembrete — slot anterior a ele não sai (lembrete salvo às 10:03 não envia a água das 10:00). */
 export type LembreteParaSlots = { id: string; ativo: boolean; validoDesde?: Date } & SemTexto<LembreteNovo>; // LembreteNovo com texto continua atribuível
-export type RefeicaoDoPlano = { nome: string; horario: string | null }; // 'HH:MM' ou null
+export type RefeicaoDoPlano = { nome: string; horario: string | null }; // 'HH:MM' ou 'HH:MM:SS' ou null
 /** `refeicao`: nome da refeição do plano nos slots `refeicao` e `diario`; null nos outros. */
 export type Slot = { em: Date; tipo: TipoSlot; lembreteIds: string[]; refeicao: string | null };
 
@@ -56,11 +56,13 @@ function calcular(e: Entrada, previsao: boolean): Resultado {
       case 'refeicoes': {
         const { antecedenciaMin, diarioDepoisMin } = l.config;
         e.refeicoes.forEach((r, ordem) => {
-          if (!r.horario || !HORA_HHMM.test(r.horario)) {
+          // `meals.horario` é coluna `time`: o banco devolve 'HH:MM:SS'
+          const hora = r.horario ? r.horario.slice(0, 5) : null;
+          if (!hora || !HORA_HHMM.test(hora)) {
             semHorario.add(r.nome);
             return;
           }
-          const h = minutosDe(r.horario);
+          const h = minutosDe(hora);
           if (!naJanela(h - antecedenciaMin)) foraDaJanela.add(r.nome);
           add(h - antecedenciaMin, 'refeicao', r.nome, ordem);
           // o diário já registrado sai antes da janela, da fusão e do teto: não derruba a água do mesmo minuto

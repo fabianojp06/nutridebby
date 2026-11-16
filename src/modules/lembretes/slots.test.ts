@@ -57,6 +57,13 @@ describe('planoDoDia', () => {
     expect(r.refeicoesForaDaJanela).toEqual(['Ceia']);
   });
 
+  it('horário vindo do banco (coluna time, HH:MM:SS) gera o slot da refeição', () => {
+    const r = plano([refeicoes()], [{ nome: 'Almoço', horario: '12:00:00' }]);
+    expect(horas(r)).toEqual(['12:00 refeicao']);
+    expect(r.slots[0].refeicao).toBe('Almoço');
+    expect(r.refeicoesSemHorario).toEqual([]);
+  });
+
   it('sem lembrete de refeições ativo, nada de refeição nem avisos de refeição', () => {
     const r = plano([{ ...refeicoes(), ativo: false }, agua({ inicio: '08:00', fim: '08:00' })], [{ nome: 'Lanche', horario: null }, { nome: 'Almoço', horario: '12:00' }]);
     expect(horas(r)).toEqual(['08:00 agua']);
